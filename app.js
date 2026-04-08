@@ -335,40 +335,124 @@ function getSheetRow(dataIndex) {
   return job._rawIndex + 2; // +1 for 0-based, +1 for header row
 }
 
+function todayStr() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function futureDateStr(daysFromNow) {
+  const d = new Date();
+  d.setDate(d.getDate() + daysFromNow);
+  return d.toISOString().split('T')[0];
+}
+
+// Smart status transitions — each status change may auto-update related fields
+function getStatusSideEffects(newStatus, job, sheetRow) {
+  const updates = [{ range: `Pipeline!M${sheetRow}`, value: newStatus }];
+  const localUpdates = { status: newStatus };
+  const today = todayStr();
+
+  switch (newStatus) {
+    case 'Applied':
+      // Set Applied Date to today if not already set
+      if (!job.appliedDate) {
+        updates.push({ range: `Pipeline!N${sheetRow}`, value: today });
+        localUpdates.appliedDate = today;
+      }
+      // Set Follow-up Date to 5 business days out if not already set
+      if (!job.followUpDate) {
+        const followUp = futureDateStr(7);
+        updates.push({ range: `Pipeline!P${sheetRow}`, value: followUp });
+        localUpdates.followUpDate = followUp;
+      }
+      break;
+
+    case 'Phone Screen':
+      // Set Applied Date if somehow skipped
+      if (!job.appliedDate) {
+        updates.push({ range: `Pipeline!N${sheetRow}`, value: today });
+        localUpdates.appliedDate = today;
+      }
+      // Set Follow-up Date to 3 days out (tighter loop)
+      const psFollowUp = futureDateStr(3);
+      updates.push({ range: `Pipeline!P${sheetRow}`, value: psFollowUp });
+      localUpdates.followUpDate = psFollowUp;
+      break;
+
+    case 'Interviewing':
+      // Set Applied Date if somehow skipped
+      if (!job.appliedDate) {
+        updates.push({ range: `Pipeline!N${sheetRow}`, value: today });
+        localUpdates.appliedDate = today;
+      }
+      // Set Follow-up Date to 5 days out
+      const intFollowUp = futureDateStr(5);
+      updates.push({ range: `Pipeline!P${sheetRow}`, value: intFollowUp });
+      localUpdates.followUpDate = intFollowUp;
+      break;
+
+    case 'Offer':
+      // Clear Follow-up Date (you got the offer)
+      updates.push({ range: `Pipeline!P${sheetRow}`, value: '' });
+      localUpdates.followUpDate = null;
+      break;
+
+    case 'Rejected':
+      // Clear Follow-up Date
+      updates.push({ range: `Pipeline!P${sheetRow}`, value: '' });
+      localUpdates.followUpDate = null;
+      break;
+
+    case 'Passed':
+      // Clear Follow-up Date
+      updates.push({ range: `Pipeline!P${sheetRow}`, value: '' });
+      localUpdates.followUpDate = null;
+      break;
+
+    case 'New':
+      // Reverting — clear Applied Date and Follow-up Date
+      updates.push({ range: `Pipeline!N${sheetRow}`, value: '' });
+      updates.push({ range: `Pipeline!P${sheetRow}`, value: '' });
+      localUpdates.appliedDate = null;
+      localUpdates.followUpDate = null;
+      break;
+
+    case 'Researching':
+      // No side effects
+      break;
+  }
+
+  return { updates, localUpdates };
+}
+
 async function updateJobStatus(dataIndex, newStatus) {
   const sheetRow = getSheetRow(dataIndex);
   if (!sheetRow) return;
 
-  const range = `Pipeline!M${sheetRow}`;
-  const success = await updateSheetCell(range, newStatus);
+  const job = pipelineData[dataIndex];
+  const { updates, localUpdates } = getStatusSideEffects(newStatus, job, sheetRow);
+
+  const success = await updateMultipleCells(updates);
 
   if (success) {
-    // Optimistic update
-    pipelineData[dataIndex].status = newStatus;
+    // Apply all local updates
+    Object.assign(pipelineData[dataIndex], localUpdates);
     renderPipeline();
     renderStats();
-    showToast(`Updated to "${newStatus}"`);
+
+    // Build a descriptive toast
+    const extras = [];
+    if (localUpdates.appliedDate) extras.push('applied date set');
+    if (localUpdates.followUpDate) extras.push(`follow-up: ${localUpdates.followUpDate}`);
+    if (localUpdates.followUpDate === null && newStatus !== 'New') extras.push('follow-up cleared');
+    const msg = extras.length > 0
+      ? `${newStatus} — ${extras.join(', ')}`
+      : `Updated to "${newStatus}"`;
+    showToast(msg);
   }
 }
 
 async function markApplied(dataIndex) {
-  const sheetRow = getSheetRow(dataIndex);
-  if (!sheetRow) return;
-
-  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-
-  const success = await updateMultipleCells([
-    { range: `Pipeline!M${sheetRow}`, value: 'Applied' },
-    { range: `Pipeline!N${sheetRow}`, value: today },
-  ]);
-
-  if (success) {
-    pipelineData[dataIndex].status = 'Applied';
-    pipelineData[dataIndex].appliedDate = today;
-    renderPipeline();
-    renderStats();
-    showToast('Marked as Applied');
-  }
+  await updateJobStatus(dataIndex, 'Applied');
 }
 
 async function updateJobNotes(dataIndex, notes) {
@@ -381,6 +465,20 @@ async function updateJobNotes(dataIndex, notes) {
   if (success) {
     pipelineData[dataIndex].notes = notes;
     showToast('Notes saved');
+  }
+}
+
+async function updateFollowUpDate(dataIndex, date) {
+  const sheetRow = getSheetRow(dataIndex);
+  if (!sheetRow) return;
+
+  const range = `Pipeline!P${sheetRow}`;
+  const success = await updateSheetCell(range, date);
+
+  if (success) {
+    pipelineData[dataIndex].followUpDate = date || null;
+    renderPipeline();
+    showToast(date ? `Follow-up set: ${date}` : 'Follow-up cleared');
   }
 }
 
@@ -1033,16 +1131,39 @@ function renderCardActions(job, index) {
     return `<button class="status-pill ${isActive ? 'status-pill-active' : ''}" data-action="status" data-index="${dataIndex}" data-status="${s}">${s}<span class="pill-spinner"></span></button>`;
   }).join('');
 
-  const isApplied = currentStatus.includes('applied');
+  const isApplied = ['applied', 'phone screen', 'interviewing', 'offer'].some(s => currentStatus.includes(s));
+  const showMarkApplied = !isApplied && currentStatus !== 'rejected' && currentStatus !== 'passed';
+
+  // Applied date display
+  const appliedDateHtml = job.appliedDate ? `
+    <div class="action-meta">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      <span>Applied: ${escapeHtml(job.appliedDate)}</span>
+    </div>
+  ` : '';
+
+  // Follow-up date picker
+  const followUpVal = job.followUpDate || '';
+  const followUpIsOverdue = followUpVal && new Date(followUpVal) < new Date();
+  const followUpHtml = `
+    <div class="action-meta ${followUpIsOverdue ? 'overdue' : ''}">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <label>Follow-up:</label>
+      <input type="date" class="followup-input" data-action="followup" data-index="${dataIndex}" value="${escapeHtml(followUpVal)}" />
+      ${followUpIsOverdue ? '<span class="overdue-badge">overdue</span>' : ''}
+    </div>
+  `;
 
   return `
     <div class="card-actions">
       <div class="status-pills">${pills}</div>
-      <div class="quick-actions">
-        ${!isApplied ? `<button class="btn-mark-applied" data-action="mark-applied" data-index="${dataIndex}">
+      <div class="action-meta-row">
+        ${showMarkApplied ? `<button class="btn-mark-applied" data-action="mark-applied" data-index="${dataIndex}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
           Mark Applied
         </button>` : ''}
+        ${appliedDateHtml}
+        ${followUpHtml}
       </div>
       <div class="notes-wrapper">
         <div class="notes-label">Notes</div>
@@ -1140,6 +1261,14 @@ function attachCardListeners() {
       await updateJobNotes(dataIndex, newValue);
       textarea.classList.remove('saving');
       originalValue = newValue;
+    });
+  });
+
+  // Follow-up date changes
+  document.querySelectorAll('[data-action="followup"]').forEach(input => {
+    input.addEventListener('change', async () => {
+      const dataIndex = parseInt(input.dataset.index, 10);
+      await updateFollowUpDate(dataIndex, input.value);
     });
   });
 
