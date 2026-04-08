@@ -114,6 +114,10 @@ function initAuth() {
         client_id: clientId,
         scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email',
         callback: handleTokenResponse,
+        error_callback: (err) => {
+          console.error('[Command Center] GIS error_callback:', err);
+          showToast('Sign-in popup was closed or blocked. Try opening the dashboard in a new tab.', 'error', true);
+        },
       });
       setupAuthUI();
     } else {
@@ -126,6 +130,12 @@ function initAuth() {
 }
 
 function handleTokenResponse(tokenResponse) {
+  console.log('[Command Center] Token response received:', JSON.stringify({
+    hasToken: !!tokenResponse.access_token,
+    error: tokenResponse.error || null,
+    scope: tokenResponse.scope || null,
+  }));
+
   if (tokenResponse.error) {
     console.error('[Command Center] OAuth error:', tokenResponse.error);
     showToast('Sign-in failed: ' + (tokenResponse.error_description || tokenResponse.error), 'error');
@@ -133,15 +143,15 @@ function handleTokenResponse(tokenResponse) {
   }
 
   accessToken = tokenResponse.access_token;
-  console.log('[Command Center] Signed in successfully');
+  console.log('[Command Center] Signed in successfully, token length:', accessToken.length);
 
   // Fetch user email
   fetchUserEmail();
   updateAuthUI();
   showToast('Signed in — you can now update your sheet', 'success');
 
-  // Re-render to show action buttons
-  renderPipeline();
+  // Re-render ALL sections to show action buttons
+  renderAll();
 }
 
 async function fetchUserEmail() {
