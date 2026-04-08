@@ -445,46 +445,121 @@ function parseCSV(text) {
 }
 
 // ============================================
-// DATA FETCHING
+// DATA FETCHING — JSONP (bypasses CORS/iframe restrictions)
 // ============================================
 
-function getCsvUrls(sheetName) {
-  return {
-    Pipeline: [
-      `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Pipeline`,
-      `https://docs.google.com/spreadsheets/d/${SHEET_ID}/pub?gid=0&single=true&output=csv`,
-      `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=0`,
-    ],
-    'Weekly Pulse': [
-      `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Weekly+Pulse`,
-      `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=1`,
-    ],
-    'AI Brief': [
-      `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=AI+Brief`,
-      `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=2`,
-    ],
-  }[sheetName] || [];
+let _jsonpCounter = 0;
+
+function fetchSheetJSONP(sheetName) {
+  return new Promise((resolve, reject) => {
+    const callbackName = `__commandCenter_cb_${++_jsonpCounter}`;
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json;responseHandler:${callbackName}&sheet=${encodeURIComponent(sheetName)}`;
+
+    console.log(`[Command Center] JSONP fetch: ${sheetName}`);
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      console.error(`[Command Center] JSONP timeout for ${sheetName}`);
+      reject(new Error(`Timeout fetching ${sheetName}`));
+    }, 15000);
+
+    function cleanup() {
+      clearTimeout(timeout);
+      delete window[callbackName];
+      const el = document.getElementById(`jsonp-${callbackName}`);
+      if (el) el.remove();
+    }
+
+    window[callbackName] = function(response) {
+      cleanup();
+      if (!response || !response.table) {
+        reject(new Error(`Invalid response for ${sheetName}`));
+        return;
+      }
+      console.log(`[Command Center] ${sheetName} loaded via JSONP (${response.table.rows ? response.table.rows.length : 0} rows)`);
+      resolve(response.table);
+    };
+
+    const script = document.createElement('script');
+    script.id = `jsonp-${callbackName}`;
+    script.src = url;
+    script.onerror = () => {
+      cleanup();
+      console.error(`[Command Center] JSONP script error for ${sheetName}`);
+      reject(new Error(`Script load failed for ${sheetName}`));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+function getCellValue(cell) {
+  if (!cell) return null;
+  if (cell.v === null || cell.v === undefined) return null;
+  return cell.v;
+}
+
+function getCellFormatted(cell) {
+  if (!cell) return null;
+  if (cell.f) return cell.f;
+  return getCellValue(cell);
+}
+
+function parseGvizDate(val) {
+  if (!val) return null;
+  if (typeof val === 'string' && val.startsWith('Date(')) {
+    const parts = val.match(/Date\((\d+),(\d+),(\d+)\)/);
+    if (parts) return new Date(parseInt(parts[1]), parseInt(parts[2]), parseInt(parts[3]));
+  }
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? null : d;
 }
 
 async function fetchSheetCSV(sheetName) {
-  const urls = getCsvUrls(sheetName);
+  // Primary: use JSONP (works inside iframes, no CORS issues)
+  try {
+    const table = await fetchSheetJSONP(sheetName);
+    // Convert gviz table to CSV-like rows array for compatibility with existing parsers
+    const headers = table.cols.map(c => c.label || c.id);
+    const rows = [headers];
+    for (const row of (table.rows || [])) {
+      const cells = [];
+      for (let i = 0; i < headers.length; i++) {
+        const cell = row.c ? row.c[i] : null;
+        if (!cell || cell.v === null || cell.v === undefined) {
+          cells.push('');
+        } else if (typeof cell.v === 'string' && cell.v.startsWith('Date(')) {
+          const d = parseGvizDate(cell.v);
+          cells.push(d ? d.toISOString().split('T')[0] : (cell.f || ''));
+        } else if (cell.f) {
+          cells.push(cell.f);
+        } else {
+          cells.push(String(cell.v));
+        }
+      }
+      rows.push(cells);
+    }
+    return rows;
+  } catch (err) {
+    console.error(`[Command Center] JSONP failed for ${sheetName}:`, err.message);
+  }
 
-  for (let i = 0; i < urls.length; i++) {
-    const url = urls[i];
-    console.log(`[Command Center] Fetching ${sheetName} — attempt ${i + 1}`);
+  // Fallback: try fetch CSV (works when not in iframe)
+  const csvUrls = [
+    `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`,
+    `https://docs.google.com/spreadsheets/d/${SHEET_ID}/pub?gid=0&single=true&output=csv`,
+  ];
 
+  for (const url of csvUrls) {
     try {
       const resp = await fetch(url);
       if (!resp.ok) continue;
-
       const text = await resp.text();
       if (!text || text.length < 10) continue;
       if (text.trim().startsWith('<!') || text.trim().startsWith('<html')) continue;
-
-      console.log(`[Command Center] ${sheetName} loaded (${text.length} chars)`);
+      console.log(`[Command Center] ${sheetName} loaded via CSV fallback`);
       return parseCSV(text);
-    } catch (err) {
-      console.error(`[Command Center] ${sheetName} attempt ${i + 1} error:`, err.message);
+    } catch (e) {
+      continue;
     }
   }
 
