@@ -1774,3 +1774,52 @@ input, select, textarea {
     font-size: 10px;
   }
 }
+
+/* Action meta row — applied date, follow-up date, mark applied button */
+.action-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-2);
+}
+
+.action-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.action-meta.overdue {
+  color: var(--status-rejected);
+}
+
+.overdue-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--status-rejected);
+  background: rgba(248, 113, 113, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.followup-input {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.followup-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
