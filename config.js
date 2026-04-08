@@ -12,7 +12,7 @@ window.COMMAND_CENTER_CONFIG = {
   // Get one at: https://console.cloud.google.com/apis/credentials
   // Create OAuth 2.0 Client ID → Web application
   // Add your domain to Authorized JavaScript Origins
-  oauthClientId: '917526284100-b4q5rvl1iqda3o2degge513rkdbms4bn.apps.googleusercontent.com',
+  oauthClientId: '917526284100-huglmbdj2j45iukot3t9bqo1sls24ibo.apps.googleusercontent.com',
 
   // Optional: dashboard title
   title: 'Command Center',
