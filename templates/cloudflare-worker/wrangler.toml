@@ -1,0 +1,16 @@
+# Example Wrangler config — copy and rename `name` as needed.
+# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "command-center-forward"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Optional: restrict browser Origin (default in worker is `*`).
+# [vars]
+# CORS_ORIGIN = "https://your-static-site.example"
+
+# Secrets — set in your account, never commit real values:
+#   wrangler secret put TARGET_URL
+#     → paste your Apps Script Web app /exec URL (or other HTTPS POST endpoint)
+#   wrangler secret put FORWARD_SECRET
+#     → optional; if set, only POST https://<worker>/forward works and requires Bearer token

@@ -8,9 +8,10 @@
 
 **Templates (copy into your repo / Google):**
 
-| Path                                                           | Purpose                                                                   |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| [`../templates/github-actions/`](../templates/github-actions/) | Scheduled or manual **`curl`** POST — avoids browser CORS to Apps Script. |
+| Path                                                                 | Purpose                                                                                                                                                             |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`../templates/github-actions/`](../templates/github-actions/)       | Scheduled or manual **`curl`** POST — avoids browser CORS to Apps Script.                                                                                           |
+| [`../templates/cloudflare-worker/`](../templates/cloudflare-worker/) | **Cloudflare Worker** — browser **`POST`** with CORS; forwards body to **`TARGET_URL`** (e.g. Apps Script `/exec`). Optional **`/forward`** + **`FORWARD_SECRET`**. |
 
 Roadmap: **[AUTOMATION_PLAN.md](../AUTOMATION_PLAN.md)**.
 
