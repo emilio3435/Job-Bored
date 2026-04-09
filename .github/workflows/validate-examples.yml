@@ -1,0 +1,29 @@
+name: Validate examples
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/**"
+      - "schemas/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "examples/**"
+      - "schemas/**"
+
+jobs:
+  json:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure jq
+        run: command -v jq >/dev/null || (sudo apt-get update && sudo apt-get install -y jq)
+      - name: Validate example JSON
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for f in examples/*.json; do
+            echo "jq empty: $f"
+            jq empty < "$f"
+          done

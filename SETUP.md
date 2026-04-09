@@ -16,7 +16,7 @@ Copy-paste automation you deploy into **your** Google, GitHub, Cloudflare, or ag
 - **[`integrations/n8n/`](integrations/n8n/)** — n8n HTTP workflow notes (BYO instance).
 - **[`integrations/openclaw-command-center/`](integrations/openclaw-command-center/)** — OpenClaw / agent **`SKILL.md`** for discovery + sheet rows.
 
-For a phased roadmap, see **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)**.
+For a phased roadmap, see **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)**. Full doc index: **[docs/README.md](docs/README.md)**.
 
 ---
 
@@ -133,6 +133,7 @@ This is useful for sharing dashboard links or switching between multiple job sea
 - **Profile** (header button) stores that single resume, writing samples, and full preferences in **IndexedDB** in this browser. Replacing the resume overwrites the previous file. Nothing is written to your Google Sheet. If you already had resume data from an older version of the app, you are not forced through onboarding again.
 - Open a job card’s **Details** to use **Draft cover letter** or **Tailor resume**. The app combines the Pipeline row with your resume and samples, then calls your chosen provider.
 - In **Profile → AI draft preferences**, choose **Cover letter layout** and **Résumé layout** to steer structure (paragraphs vs bullets, section order, and similar). Those choices are saved in IndexedDB and are merged into the model’s system prompt as “Template requirements,” and appear on webhook payloads as `template`.
+- **Preview appearance** (Profile, and **Appearance** in the draft modal) only changes how the generated text is styled on screen and in **Print / PDF** — fonts, spacing, and accent colors. It does **not** change the model output or webhook JSON (no `visualThemeId` on the generation payload). Layout templates above still control what the model writes.
 - **Gemini** (default): get an API key from [Google AI Studio](https://aistudio.google.com/) and set `resumeGeminiApiKey` in `config.js`. Do not commit real keys to a public repository.
 - **OpenAI**: set `resumeProvider` to `"openai"` and add `resumeOpenAIApiKey`. **This dashboard runs in the browser** — OpenAI’s API does **not** allow direct `fetch` from web pages (CORS), so cover letter / resume generation will fail with a network error. Use **Gemini** here, or **Webhook** and call OpenAI from your server.
 - **Anthropic (Claude)**: same **CORS** limitation as OpenAI for in-browser apps. Use **Gemini** or **Webhook** unless you proxy requests server-side.
@@ -338,6 +339,7 @@ command-center/
 ├── style.css               # All styles
 ├── app.js                  # Data fetching, rendering, write-back logic
 ├── document-templates.js   # Cover letter / résumé layout registry (prompt instructions)
+├── visual-themes.js        # Preview/print visual theme presets (not sent to LLM)
 ├── user-content-store.js   # IndexedDB: resumes, samples, preferences
 ├── resume-ingest.js        # PDF/DOCX/text extraction
 ├── resume-bundle.js        # Context bundle for generation
