@@ -203,6 +203,16 @@
     );
   }
 
+  function isRouteNotFoundResponse(status, data, responseText) {
+    if (Number(status) !== 404) return false;
+    if (data && typeof data === "object") {
+      return (
+        data.ok === false && text(data.message).toLowerCase() === "not found"
+      );
+    }
+    return text(responseText).toLowerCase() === "not found";
+  }
+
   function classifyEndpointInput(rawUrl) {
     const url = normalizeUrl(rawUrl);
     if (!url) {
@@ -349,6 +359,29 @@
     }
 
     if (!Number(status) || Number(status) < 200 || Number(status) >= 300) {
+      if (isRouteNotFoundResponse(status, data, responseText)) {
+        const workerDownstream = isLikelyCloudflareWorkerUrl(endpointUrl);
+        return createVerificationResult({
+          ok: false,
+          kind: "invalid_endpoint",
+          engineState: workerDownstream ? "unverified" : "none",
+          httpStatus: 404,
+          message: workerDownstream
+            ? "Relay reached your server, but the webhook path does not exist."
+            : `${endpointLabel} path was not found.`,
+          detail: workerDownstream
+            ? "The Worker is up, but its target URL points at a missing route. A stale `/webhooks/command-center-discovery-*` URL will 404 against the current local discovery server."
+            : "The URL path returned 404 Not found. Check the exact webhook path.",
+          layer: workerDownstream ? "downstream" : "upstream",
+          remediation: workerDownstream
+            ? [
+                "1. Re-run `npm run discovery:bootstrap-local` to refresh the local webhook URL.",
+                "2. Confirm the local webhook ends in `/webhook` for the browser-use discovery server.",
+                "3. Redeploy the Cloudflare relay so TARGET_URL uses the refreshed ngrok URL.",
+              ].join("\n")
+            : "",
+        });
+      }
       if ([502, 503, 504].includes(Number(status))) {
         const workerDownstream = isLikelyCloudflareWorkerUrl(endpointUrl);
         const responseSnippet =

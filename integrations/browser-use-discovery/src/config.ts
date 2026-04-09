@@ -1,0 +1,475 @@
+import { access, readFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+  SUPPORTED_SOURCE_IDS,
+  type CompanyTarget,
+  type DiscoveryWebhookRequestV1,
+  type EffectiveDiscoveryConfig,
+  type StoredWorkerConfig,
+  type SupportedSourceId,
+} from "./contracts.ts";
+
+export type WorkerRuntimeConfig = {
+  stateDatabasePath: string;
+  workerConfigPath: string;
+  browserUseCommand: string;
+  googleServiceAccountJson: string;
+  googleServiceAccountFile: string;
+  googleAccessToken: string;
+  webhookSecret: string;
+  allowedOrigins: string[];
+  port: number;
+  host: string;
+  runMode: "local" | "hosted";
+  asyncAckByDefault: boolean;
+};
+
+export type ResolvedRunSettings = EffectiveDiscoveryConfig;
+
+type RuntimeEnv = Record<string, string | undefined>;
+type AnyRecord = Record<string, unknown>;
+
+const moduleDir = dirname(fileURLToPath(import.meta.url));
+const defaultWorkerConfigPath = join(
+  moduleDir,
+  "..",
+  "state",
+  "worker-config.json",
+);
+const defaultStateDatabasePath = join(
+  moduleDir,
+  "..",
+  "state",
+  "worker-state.sqlite",
+);
+const defaultTimezone =
+  Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Chicago";
+const defaultAllowedOrigins = ["http://localhost:8080", "http://127.0.0.1:8080"];
+const defaultScheduleCron = "0 7 * * 1-5";
+const defaultMaxLeadsPerRun = 25;
+const supportedSourceSet = new Set(SUPPORTED_SOURCE_IDS);
+
+export function loadRuntimeConfig(
+  env: RuntimeEnv = process.env,
+): WorkerRuntimeConfig {
+  const runMode = normalizeRunMode(
+    readFirst(env, [
+      "BROWSER_USE_DISCOVERY_RUN_MODE",
+      "DISCOVERY_RUN_MODE",
+      "RUN_MODE",
+    ]),
+    "hosted",
+  );
+  const workerConfigPath = resolvePath(
+    readFirst(env, [
+      "BROWSER_USE_DISCOVERY_CONFIG_PATH",
+      "DISCOVERY_WORKER_CONFIG_PATH",
+      "DISCOVERY_CONFIG_PATH",
+    ]) || defaultWorkerConfigPath,
+  );
+  const stateDatabasePath = resolvePath(
+    readFirst(env, [
+      "BROWSER_USE_DISCOVERY_STATE_DB_PATH",
+      "BROWSER_USE_DISCOVERY_STATE_PATH",
+      "DISCOVERY_STATE_DB_PATH",
+      "DISCOVERY_STATE_PATH",
+    ]) || defaultStateDatabasePath,
+  );
+  const allowedOrigins = normalizeAllowedOrigins(
+    readList(env, [
+      "BROWSER_USE_DISCOVERY_ALLOWED_ORIGINS",
+      "DISCOVERY_ALLOWED_ORIGINS",
+    ]),
+  );
+  return {
+    stateDatabasePath,
+    workerConfigPath,
+    browserUseCommand:
+      readFirst(env, [
+        "BROWSER_USE_DISCOVERY_BROWSER_COMMAND",
+        "BROWSER_USE_COMMAND",
+        "DISCOVERY_BROWSER_COMMAND",
+      ]) || "browser-use",
+    googleServiceAccountJson: readFirst(env, [
+      "BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON",
+      "GOOGLE_SERVICE_ACCOUNT_JSON",
+      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+    ]),
+    googleServiceAccountFile: resolvePath(
+      readFirst(env, [
+        "BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE",
+        "GOOGLE_SERVICE_ACCOUNT_FILE",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+      ]),
+    ),
+    googleAccessToken: readFirst(env, [
+      "BROWSER_USE_DISCOVERY_GOOGLE_ACCESS_TOKEN",
+      "GOOGLE_ACCESS_TOKEN",
+    ]),
+    webhookSecret: readFirst(env, [
+      "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET",
+      "DISCOVERY_WEBHOOK_SECRET",
+      "WEBHOOK_SECRET",
+    ]),
+    allowedOrigins,
+    port: parsePositiveInt(
+      readFirst(env, [
+        "BROWSER_USE_DISCOVERY_PORT",
+        "DISCOVERY_PORT",
+        "PORT",
+      ]),
+      8644,
+    ),
+    host:
+      readFirst(env, [
+        "BROWSER_USE_DISCOVERY_HOST",
+        "DISCOVERY_HOST",
+        "HOST",
+      ]) || "127.0.0.1",
+    runMode,
+    asyncAckByDefault: parseBoolean(
+      readFirst(env, [
+        "BROWSER_USE_DISCOVERY_ASYNC_ACK",
+        "DISCOVERY_ASYNC_ACK",
+        "ASYNC_ACK",
+      ]),
+      true,
+    ),
+  };
+}
+
+export async function loadStoredWorkerConfig(
+  runtimeConfig: WorkerRuntimeConfig,
+  sheetId: string,
+): Promise<StoredWorkerConfig> {
+  const fallback = buildDefaultStoredWorkerConfig(sheetId, runtimeConfig.runMode);
+  const raw = await readJsonIfExists(runtimeConfig.workerConfigPath);
+  if (!raw) {
+    return fallback;
+  }
+  const candidate = pickConfigPayload(raw, sheetId);
+  if (!candidate || typeof candidate !== "object") {
+    return fallback;
+  }
+  return normalizeStoredWorkerConfig(
+    candidate as AnyRecord,
+    sheetId,
+    runtimeConfig.runMode,
+  );
+}
+
+export function mergeDiscoveryConfig(
+  storedConfig: StoredWorkerConfig,
+  request: DiscoveryWebhookRequestV1,
+): ResolvedRunSettings {
+  if (request.schemaVersion !== DISCOVERY_WEBHOOK_SCHEMA_VERSION) {
+    throw new Error(
+      `Unsupported discovery schemaVersion: ${String(request.schemaVersion)}`,
+    );
+  }
+  const profile = request.discoveryProfile || {};
+  const stored = normalizeStoredWorkerConfig(
+    storedConfig as AnyRecord,
+    storedConfig.sheetId,
+    storedConfig.mode,
+  );
+  const requestTargetRoles = normalizeStringList(profile.targetRoles);
+  const requestLocations = normalizeStringList(profile.locations);
+  const requestIncludeKeywords = normalizeStringList(profile.keywordsInclude);
+  const requestExcludeKeywords = normalizeStringList(profile.keywordsExclude);
+  const requestRemotePolicy = cleanString(profile.remotePolicy);
+  const requestSeniority = cleanString(profile.seniority);
+  const requestMaxLeads = parsePositiveInt(
+    profile.maxLeadsPerRun,
+    stored.maxLeadsPerRun,
+  );
+  return {
+    ...stored,
+    sheetId: cleanString(request.sheetId) || stored.sheetId,
+    variationKey: cleanString(request.variationKey) || "",
+    requestedAt: cleanString(request.requestedAt) || "",
+    targetRoles: requestTargetRoles.length
+      ? requestTargetRoles
+      : stored.targetRoles,
+    locations: requestLocations.length ? requestLocations : stored.locations,
+    remotePolicy: requestRemotePolicy || stored.remotePolicy,
+    seniority: requestSeniority || stored.seniority,
+    includeKeywords: requestIncludeKeywords.length
+      ? requestIncludeKeywords
+      : stored.includeKeywords,
+    excludeKeywords: dedupeStrings([
+      ...stored.excludeKeywords,
+      ...requestExcludeKeywords,
+    ]),
+    maxLeadsPerRun: Math.min(
+      stored.maxLeadsPerRun,
+      requestMaxLeads || stored.maxLeadsPerRun,
+    ),
+    enabledSources: normalizeSourceIdList(stored.enabledSources),
+    schedule: {
+      enabled: !!stored.schedule?.enabled,
+      cron: cleanString(stored.schedule?.cron) || defaultScheduleCron,
+    },
+  };
+}
+
+export function normalizeSourceIdList(
+  sourceIds: readonly string[],
+): SupportedSourceId[] {
+  const out: SupportedSourceId[] = [];
+  for (const raw of sourceIds || []) {
+    const id = cleanString(raw).toLowerCase();
+    if (!id || !supportedSourceSet.has(id as SupportedSourceId)) continue;
+    if (!out.includes(id as SupportedSourceId)) out.push(id as SupportedSourceId);
+  }
+  return out.length ? out : [...SUPPORTED_SOURCE_IDS];
+}
+
+function buildDefaultStoredWorkerConfig(
+  sheetId: string,
+  runMode: WorkerRuntimeConfig["runMode"],
+): StoredWorkerConfig {
+  return {
+    sheetId: cleanString(sheetId),
+    mode: runMode,
+    timezone: defaultTimezone,
+    companies: [],
+    includeKeywords: [],
+    excludeKeywords: [],
+    targetRoles: [],
+    locations: [],
+    remotePolicy: "",
+    seniority: "",
+    maxLeadsPerRun: defaultMaxLeadsPerRun,
+    enabledSources: [...SUPPORTED_SOURCE_IDS],
+    schedule: {
+      enabled: false,
+      cron: defaultScheduleCron,
+    },
+  };
+}
+
+function normalizeStoredWorkerConfig(
+  raw: AnyRecord,
+  sheetId: string,
+  runMode: WorkerRuntimeConfig["runMode"],
+): StoredWorkerConfig {
+  const requestedMode = normalizeRunMode(raw.mode, runMode);
+  const companies = normalizeCompanies(raw.companies);
+  const enabledSources = normalizeSourceIdList(readSourceIdArray(raw.enabledSources));
+  const schedule = isPlainRecord(raw.schedule) ? (raw.schedule as AnyRecord) : {};
+  return {
+    sheetId: cleanString(raw.sheetId) || cleanString(sheetId),
+    mode: requestedMode || runMode,
+    timezone: cleanString(raw.timezone) || defaultTimezone,
+    companies,
+    includeKeywords: normalizeStringList(raw.includeKeywords),
+    excludeKeywords: normalizeStringList(raw.excludeKeywords),
+    targetRoles: normalizeStringList(raw.targetRoles),
+    locations: normalizeStringList(raw.locations),
+    remotePolicy: cleanString(raw.remotePolicy),
+    seniority: cleanString(raw.seniority),
+    maxLeadsPerRun: parsePositiveInt(raw.maxLeadsPerRun, defaultMaxLeadsPerRun),
+    enabledSources,
+    schedule: {
+      enabled: parseBoolean(schedule.enabled, false),
+      cron: cleanString(schedule.cron) || defaultScheduleCron,
+    },
+  };
+}
+
+async function readJsonIfExists(pathname: string): Promise<unknown | null> {
+  if (!pathname) return null;
+  try {
+    await access(pathname);
+  } catch {
+    return null;
+  }
+  const text = await readFile(pathname, "utf8");
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(
+      `Failed to parse worker config JSON at ${pathname}: ${String(error)}`,
+    );
+  }
+}
+
+function pickConfigPayload(raw: unknown, sheetId: string): unknown {
+  if (!isPlainRecord(raw)) return raw;
+  const direct = raw.config ?? raw.default ?? raw.workerConfig;
+  if (isPlainRecord(direct)) return direct;
+  for (const key of ["sheets", "workers", "workspaces", "bySheetId", "configs"]) {
+    const group = raw[key];
+    if (!isPlainRecord(group)) continue;
+    if (sheetId && isPlainRecord(group[sheetId])) return group[sheetId];
+    const first = Object.values(group).find((value) => isPlainRecord(value));
+    if (first) return first;
+  }
+  return raw;
+}
+
+function normalizeCompanies(input: unknown): CompanyTarget[] {
+  const items = Array.isArray(input)
+    ? input
+    : isPlainRecord(input)
+      ? typeof input.name === "string" ||
+          typeof input.company === "string" ||
+          typeof input.title === "string"
+        ? [input]
+        : Object.values(input)
+      : normalizeToList(input);
+  const byName = new Map<string, CompanyTarget>();
+  for (const item of items) {
+    const normalized = normalizeCompanyTarget(item);
+    if (!normalized || !normalized.name) continue;
+    byName.set(normalized.name.toLowerCase(), normalized);
+  }
+  return [...byName.values()];
+}
+
+function normalizeCompanyTarget(input: unknown): CompanyTarget | null {
+  if (typeof input === "string") {
+    const name = cleanString(input);
+    return name ? { name } : null;
+  }
+  if (!isPlainRecord(input)) return null;
+  const name = cleanString(input.name ?? input.company ?? input.title);
+  if (!name) return null;
+  const includeKeywords = normalizeStringList(input.includeKeywords);
+  const excludeKeywords = normalizeStringList(input.excludeKeywords);
+  const boardHints = normalizeBoardHints(input.boardHints);
+  return {
+    name,
+    ...(includeKeywords.length ? { includeKeywords } : {}),
+    ...(excludeKeywords.length ? { excludeKeywords } : {}),
+    ...(boardHints ? { boardHints } : {}),
+  };
+}
+
+function normalizeBoardHints(
+  input: unknown,
+): CompanyTarget["boardHints"] | undefined {
+  if (!isPlainRecord(input)) return undefined;
+  const out: NonNullable<CompanyTarget["boardHints"]> = {};
+  for (const sourceId of SUPPORTED_SOURCE_IDS) {
+    const value = cleanString(input[sourceId]);
+    if (value) out[sourceId] = value;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function normalizeAllowedOrigins(raw: string[]): string[] {
+  const values = normalizeStringList(raw);
+  return values.length ? values : [...defaultAllowedOrigins];
+}
+
+function normalizeStringList(value: unknown): string[] {
+  return dedupeStrings(
+    normalizeToList(value).map((item) => cleanString(item)).filter(Boolean),
+  );
+}
+
+function normalizeToList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => normalizeToList(item));
+  }
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) return [];
+    if (
+      (text.startsWith("[") && text.endsWith("]")) ||
+      (text.startsWith('"') && text.endsWith('"'))
+    ) {
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) return parsed.flatMap((item) => normalizeToList(item));
+        if (typeof parsed === "string") return normalizeToList(parsed);
+      } catch {
+        // Fall through to delimiter parsing.
+      }
+    }
+    return text
+      .split(/[\n,;]+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+  if (value == null || typeof value === "boolean" || typeof value === "number") {
+    return [];
+  }
+  return [String(value).trim()].filter(Boolean);
+}
+
+function readSourceIdArray(value: unknown): string[] {
+  return normalizeToList(value);
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const normalized = cleanString(value);
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function cleanString(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return value == null ? "" : String(value).trim();
+}
+
+function parsePositiveInt(value: unknown, fallback: number): number {
+  const parsed = Number.parseInt(cleanString(value), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function parseBoolean(value: unknown, fallback: boolean): boolean {
+  const text = cleanString(value).toLowerCase();
+  if (!text) return fallback;
+  if (["1", "true", "yes", "y", "on", "enabled"].includes(text)) return true;
+  if (["0", "false", "no", "n", "off", "disabled"].includes(text)) return false;
+  return fallback;
+}
+
+function normalizeRunMode(
+  value: unknown,
+  fallback: WorkerRuntimeConfig["runMode"] = "hosted",
+): WorkerRuntimeConfig["runMode"] {
+  const text = cleanString(value).toLowerCase();
+  if (text === "local" || text === "hosted") return text;
+  return fallback;
+}
+
+function readFirst(env: RuntimeEnv, keys: string[]): string {
+  for (const key of keys) {
+    const value = cleanString(env[key]);
+    if (value) return value;
+  }
+  return "";
+}
+
+function readList(env: RuntimeEnv, keys: string[]): string[] {
+  for (const key of keys) {
+    const value = cleanString(env[key]);
+    if (value) return normalizeToList(value);
+  }
+  return [];
+}
+
+function resolvePath(raw: string): string {
+  const value = cleanString(raw);
+  return value ? resolve(value) : "";
+}
+
+function isPlainRecord(value: unknown): value is AnyRecord {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}

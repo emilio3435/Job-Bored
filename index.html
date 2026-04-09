@@ -62,34 +62,35 @@
           <div class="setup-step">
             <div class="step-number">2</div>
             <div class="step-content">
-              <h3>Complete Settings</h3>
+              <h3>Finish guided setup</h3>
               <p>
-                Open Settings to confirm your Pipeline sheet and adjust
-                discovery, AI, or other options, then save.
+                After your sheet is created, JobBored opens the setup wizard so
+                you can choose the right path without filling out the full
+                Settings form first.
               </p>
               <button
                 type="button"
                 class="setup-form-btn"
                 id="setupOpenSettingsBtn"
               >
-                Open settings form
+                Open setup wizard
               </button>
             </div>
           </div>
           <div class="setup-step">
             <div class="step-number">3</div>
             <div class="step-content">
-              <h3>Reload this page</h3>
+              <h3>Settings later (optional)</h3>
               <p>
-                After you save Settings, reload. JobBored will sign you in
-                before opening the dashboard when the sheet is private.
+                Use Settings later if you want to edit advanced discovery, AI,
+                or integration options after the guided setup is done.
               </p>
               <button
                 type="button"
                 class="setup-form-btn"
-                onclick="window.location.reload()"
+                id="setupOpenSettingsLaterBtn"
               >
-                Reload
+                Open settings form
                 <svg
                   width="14"
                   height="14"
@@ -743,20 +744,12 @@
         <p class="brief-headline" id="briefHeadline"></p>
         <div class="brief-dashboard brief-dashboard--empty" id="briefMainGrid">
           <div class="brief-stats" id="briefStats"></div>
-          <div class="brief-columns">
+          <div class="brief-widgets">
             <div
-              class="brief-col brief-col--queue"
-              id="briefFollowupPanel"
-              role="region"
-              aria-labelledby="heading-followups"
-              hidden
-            >
-              <h3 class="brief-col__title" id="heading-followups">
-                Action queue
-              </h3>
-              <div id="briefAction"></div>
-            </div>
-            <div class="brief-col brief-col--charts" id="briefInsights">
+              class="brief-widget brief-widget--donut"
+              id="briefPipeline"
+            ></div>
+            <div class="brief-widget brief-widget--area" id="briefInsights">
               <div class="brief-empty">
                 <svg
                   width="32"
@@ -766,6 +759,7 @@
                   stroke="currentColor"
                   stroke-width="1.5"
                   opacity="0.3"
+                  aria-hidden="true"
                 >
                   <path
                     d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
@@ -778,6 +772,22 @@
                 <p>Loading daily brief&hellip;</p>
               </div>
             </div>
+            <div
+              class="brief-widget brief-widget--feed"
+              id="briefFollowupPanel"
+              role="region"
+              aria-labelledby="heading-followups"
+              hidden
+            >
+              <h3 class="brief-widget__title" id="heading-followups">
+                Activity feed
+              </h3>
+              <div class="feed-scroll" id="briefAction"></div>
+            </div>
+            <div
+              class="brief-widget brief-widget--sources"
+              id="briefSources"
+            ></div>
           </div>
         </div>
       </section>
@@ -4849,13 +4859,7 @@ https://your-static-site.example</pre
         </div>
 
         <div class="modal-actions modal-actions--split">
-          <button
-            type="button"
-            class="btn-link-inline"
-            id="discoveryPrefsOpenSettings"
-          >
-            More filters in Settings
-          </button>
+          <span></span>
           <span class="discovery-prefs-actions-right">
             <button
               type="button"

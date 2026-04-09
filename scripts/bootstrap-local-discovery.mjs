@@ -366,15 +366,32 @@ async function sleep(ms) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function checkHealth(healthUrl) {
+async function probeHealth(healthUrl) {
   try {
     const res = await fetch(healthUrl, { method: "GET" });
-    if (!res.ok) return false;
     const data = await res.json().catch(() => ({}));
-    return String(data.status || "").toLowerCase() === "ok";
+    const body = data && typeof data === "object" ? data : {};
+    return {
+      ok: !!res.ok && String(body.status || "").toLowerCase() === "ok",
+      serviceName: String(body.service || "").trim(),
+      mode: String(body.mode || "").trim(),
+    };
   } catch (_) {
-    return false;
+    return {
+      ok: false,
+      serviceName: "",
+      mode: "",
+    };
   }
+}
+
+function isBrowserUseDiscoveryHealth(healthProbe) {
+  return (
+    !!healthProbe &&
+    !!healthProbe.ok &&
+    String(healthProbe.serviceName || "").toLowerCase() ===
+      "browser-use-discovery-worker"
+  );
 }
 
 function startDetached(command, args) {
@@ -390,24 +407,38 @@ function startDetached(command, args) {
 
 async function ensureGatewayHealth(port, autoStartGateway) {
   const healthUrl = `http://127.0.0.1:${port}/health`;
-  if (await checkHealth(healthUrl)) {
-    return { healthUrl, startedGateway: false };
+  const initialProbe = await probeHealth(healthUrl);
+  if (initialProbe.ok) {
+    return {
+      ok: true,
+      healthUrl,
+      startedGateway: false,
+      serviceName: initialProbe.serviceName,
+      mode: initialProbe.mode,
+    };
   }
   if (!autoStartGateway) {
     fail(
-      `Hermes webhook health is down at ${healthUrl}. Run \`hermes gateway run --replace\` and retry.`,
+      `Local discovery health is down at ${healthUrl}. Start your local discovery server, or run \`hermes gateway run --replace\` if you are still using the Hermes path, then retry.`,
     );
   }
   console.log("discovery:bootstrap-local: starting Hermes gateway...");
   startDetached("hermes", ["gateway", "run", "--replace"]);
   for (let attempt = 0; attempt < 10; attempt += 1) {
     await sleep(1000);
-    if (await checkHealth(healthUrl)) {
-      return { healthUrl, startedGateway: true };
+    const retryProbe = await probeHealth(healthUrl);
+    if (retryProbe.ok) {
+      return {
+        ok: true,
+        healthUrl,
+        startedGateway: true,
+        serviceName: retryProbe.serviceName,
+        mode: retryProbe.mode,
+      };
     }
   }
   fail(
-    `Hermes gateway still is not healthy at ${healthUrl}. Confirm ~/.hermes/config.yaml enables the webhook platform, then rerun this command.`,
+    `Local discovery health still is not available at ${healthUrl}. Confirm your local discovery server is running, or verify the Hermes webhook platform is enabled if you still use that path, then rerun this command.`,
   );
 }
 
@@ -585,8 +616,8 @@ function buildLocalRemediations(port) {
       `Run \`npm run discovery:bootstrap-local\` on localhost, then reload the dashboard so it can read \`${defaultStateFile}\`.`,
     ].join(" "),
     gatewayNotHealthy: [
-      "The local Hermes gateway is not healthy yet.",
-      "Run `hermes gateway run --replace` and confirm the webhook platform is enabled, then retry the local health check.",
+      "The local discovery server is not healthy yet.",
+      "Start your local discovery server, or run `hermes gateway run --replace` if you are still on the Hermes path, then retry the local health check.",
     ].join(" "),
     ngrokNotAuthenticated: [
       "ngrok is installed but not authenticated.",
@@ -617,22 +648,45 @@ async function main() {
   ensureCommand("hermes");
   ensureCommand("ngrok", ["version"]);
 
-  const route = ensureHermesRoute(args.routeName);
-  const inferredPortFromRoute = extractPortFromUrl(route.url);
-  const port = String(
-    args.portExplicit
-      ? args.port
-      : inferredPortFromRoute || args.port || "8644",
-  ).trim();
-  if (!/^\d+$/.test(port)) {
+  const defaultPort = String(args.port || "8644").trim();
+  if (!/^\d+$/.test(defaultPort)) {
     fail("--port must be numeric");
   }
 
-  const localWebhookUrl =
-    normalizeLocalWebhookUrl(route.url, port) ||
-    `http://127.0.0.1:${port}/webhooks/${route.name}`;
+  const initialHealthUrl = `http://127.0.0.1:${defaultPort}/health`;
+  const initialHealth = await probeHealth(initialHealthUrl);
 
-  const health = await ensureGatewayHealth(port, args.autoStartGateway);
+  let route = null;
+  let port = defaultPort;
+  let health;
+
+  if (isBrowserUseDiscoveryHealth(initialHealth)) {
+    health = {
+      ok: true,
+      healthUrl: initialHealthUrl,
+      startedGateway: false,
+      serviceName: initialHealth.serviceName,
+      mode: initialHealth.mode,
+    };
+  } else {
+    route = ensureHermesRoute(args.routeName);
+    const inferredPortFromRoute = extractPortFromUrl(route.url);
+    port = String(
+      args.portExplicit
+        ? args.port
+        : inferredPortFromRoute || args.port || defaultPort,
+    ).trim();
+    if (!/^\d+$/.test(port)) {
+      fail("--port must be numeric");
+    }
+    health = await ensureGatewayHealth(port, args.autoStartGateway);
+  }
+
+  const localWebhookUrl =
+    isBrowserUseDiscoveryHealth(health)
+      ? `http://127.0.0.1:${port}/webhook`
+      : normalizeLocalWebhookUrl(route && route.url ? route.url : "", port) ||
+        `http://127.0.0.1:${port}/webhooks/${route ? route.name : "command-center-discovery"}`;
   let ngrokAuthSaved = false;
   let ngrok;
   if (args.ngrokPublicUrl) {
@@ -662,7 +716,7 @@ async function main() {
     bootstrapVersion: 2,
     generatedAt: new Date().toISOString(),
     repoRoot,
-    routeName: route.name,
+    routeName: route ? route.name : "webhook",
     localWebhookUrl,
     localHealthUrl: health.healthUrl,
     localPort: port,
@@ -678,6 +732,8 @@ async function main() {
       gatewayHealthy: true,
       gatewayStarted: !!health.startedGateway,
       healthProbeOk: true,
+      localService: health.serviceName || "",
+      localMode: health.mode || "",
       ngrokAuthenticated: !!(ngrokAuthSaved || hasNgrokConfig()),
       ngrokConfigured: hasNgrokConfig(),
       ngrokRunning: !!ngrok.ngrokPublicUrl,
@@ -724,7 +780,10 @@ async function main() {
 
   console.log("");
   console.log("Local discovery bootstrap ready.");
-  console.log(`- Hermes route: ${route.name}${route.created ? " (created)" : ""}`);
+  console.log(`- Local service: ${health.serviceName || "unknown"}`);
+  if (route) {
+    console.log(`- Hermes route: ${route.name}${route.created ? " (created)" : ""}`);
+  }
   console.log(`- Local webhook: ${localWebhookUrl}`);
   console.log(`- Health: ${health.healthUrl}`);
   console.log(`- ngrok public URL: ${ngrok.ngrokPublicUrl}${ngrok.startedNgrok ? " (started)" : ""}`);

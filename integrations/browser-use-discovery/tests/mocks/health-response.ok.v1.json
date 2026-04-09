@@ -1,0 +1,6 @@
+{
+  "status": "ok",
+  "service": "browser-use-discovery-worker",
+  "mode": "local",
+  "asyncAckByDefault": true
+}

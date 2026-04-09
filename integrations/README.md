@@ -3,6 +3,7 @@
 | Path                                                   | Purpose                                                                                                                                                                           |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`openclaw-command-center/`](openclaw-command-center/) | OpenClaw-compatible **`SKILL.md`** + instructions for Hermes-style agents to fill the **Pipeline** sheet and handle **Run discovery** webhooks.                                   |
+| [`browser-use-discovery/`](browser-use-discovery/)     | Node-based user-owned discovery worker with direct Google Sheets writes, Link dedupe, and first-layer Greenhouse / Lever / Ashby adapters for real `Run discovery` handling.     |
 | [`apps-script/`](apps-script/)                         | **Google Apps Script** `doPost` stub — free in your Google account; paste Web app URL into Settings. **Start here:** [WALKTHROUGH.md](apps-script/WALKTHROUGH.md) (step-by-step). |
 | [`n8n/`](n8n/)                                         | Pointers to build an **n8n** HTTP workflow (no bundled JSON export; versions differ).                                                                                             |
 
