@@ -1,0 +1,16 @@
+{
+  "event": "command-center.discovery",
+  "schemaVersion": 1,
+  "sheetId": "sheet_jobbored_demo_01",
+  "variationKey": "var-20260409-a1",
+  "requestedAt": "2026-04-09T14:00:00.000Z",
+  "discoveryProfile": {
+    "targetRoles": "Software Engineer, Platform Engineer",
+    "locations": "Remote, Austin, TX",
+    "remotePolicy": "remote-first",
+    "seniority": "mid-senior",
+    "keywordsInclude": "typescript, node, browser automation",
+    "keywordsExclude": "principal, staff director",
+    "maxLeadsPerRun": "25"
+  }
+}

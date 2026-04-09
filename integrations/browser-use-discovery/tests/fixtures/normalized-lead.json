@@ -1,0 +1,29 @@
+{
+  "sourceId": "greenhouse",
+  "sourceLabel": "Greenhouse",
+  "title": "Senior Software Engineer, Browser Automation",
+  "company": "Example Co",
+  "location": "Austin, TX (Remote)",
+  "url": "https://example.com/jobs/senior-software-engineer-browser-automation",
+  "compensationText": "$180k - $220k",
+  "fitScore": 9,
+  "priority": "⚡",
+  "tags": [
+    "typescript",
+    "node",
+    "browser automation"
+  ],
+  "fitAssessment": "Strong match for browser-driven workflows and Node-heavy integration work.",
+  "contact": "Jordan Lee",
+  "status": "New",
+  "appliedDate": "",
+  "notes": "",
+  "followUpDate": "",
+  "talkingPoints": "Reference experience shipping browser-backed workflow automation and Sheets integrations.",
+  "discoveredAt": "2026-04-09T14:05:00.000Z",
+  "metadata": {
+    "runId": "run_abc123",
+    "variationKey": "var-20260409-a1",
+    "sourceQuery": "Example Co / browser automation / platform engineer"
+  }
+}

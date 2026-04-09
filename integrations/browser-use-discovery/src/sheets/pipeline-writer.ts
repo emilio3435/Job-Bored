@@ -1,0 +1,475 @@
+import { createSign } from "node:crypto";
+import { readFile } from "node:fs/promises";
+
+import type { WorkerRuntimeConfig } from "../config.ts";
+import {
+  PIPELINE_HEADER_ROW,
+  type NormalizedLead,
+  type PipelineWriteResult,
+} from "../contracts.ts";
+import { normalizeLeadUrl } from "../normalize/lead-normalizer.ts";
+
+type FetchLike = typeof fetch;
+
+type SheetValuesResponse = {
+  values?: unknown[][];
+};
+
+type PipelineWriterOptions = {
+  fetchImpl?: FetchLike;
+  now?: () => Date;
+  sheetName?: string;
+  tokenScope?: string;
+};
+
+export type PipelineWriter = {
+  write(sheetId: string, leads: NormalizedLead[]): Promise<PipelineWriteResult>;
+};
+
+type GoogleServiceAccount = {
+  client_email: string;
+  private_key: string;
+  token_uri?: string;
+};
+
+const DEFAULT_SHEET_NAME = "Pipeline";
+const DEFAULT_TOKEN_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
+const COLUMN_COUNT = PIPELINE_HEADER_ROW.length;
+
+function asText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function toRowCells(row: unknown[]): string[] {
+  return Array.from({ length: COLUMN_COUNT }, (_, index) => asText(row[index]));
+}
+
+function ensureHeaderMatches(values: unknown[][]) {
+  const header = toRowCells(values[0] || []);
+  const expected = PIPELINE_HEADER_ROW.map((value) => value.trim());
+  const mismatchIndex = expected.findIndex(
+    (value, index) => header[index] !== value,
+  );
+  if (header.length < COLUMN_COUNT || mismatchIndex !== -1) {
+    const found = header.join(" | ");
+    const want = expected.join(" | ");
+    throw new Error(
+      `Pipeline header mismatch. Expected ${want}; got ${found || "<empty>"}`,
+    );
+  }
+}
+
+function normalizeRowLink(row: string[]): string {
+  return normalizeLeadUrl(row[4] || "");
+}
+
+function clampScore(score: number | null): string {
+  if (score == null || !Number.isFinite(score)) return "";
+  return String(Math.min(10, Math.max(1, Math.round(score))));
+}
+
+function buildLeadRow(lead: NormalizedLead, now: Date): string[] {
+  const dateFound = lead.discoveredAt
+    ? String(lead.discoveredAt).slice(0, 10)
+    : now.toISOString().slice(0, 10);
+  return [
+    dateFound,
+    lead.title || "",
+    lead.company || "",
+    lead.location || "",
+    normalizeLeadUrl(lead.url || ""),
+    lead.sourceLabel || lead.sourceId || "",
+    lead.compensationText || "",
+    clampScore(lead.fitScore),
+    lead.priority || "",
+    Array.isArray(lead.tags) ? lead.tags.filter(Boolean).join(", ") : "",
+    lead.fitAssessment || "",
+    lead.contact || "",
+    "New",
+    "",
+    "",
+    "",
+    lead.talkingPoints || "",
+    "",
+    "",
+  ];
+}
+
+function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
+  const merged = existingRow.slice(0, COLUMN_COUNT);
+  while (merged.length < COLUMN_COUNT) merged.push("");
+
+  for (let index = 0; index < COLUMN_COUNT; index += 1) {
+    if (
+      index === 12 ||
+      index === 13 ||
+      index === 14 ||
+      index === 15 ||
+      index === 17 ||
+      index === 18
+    ) {
+      continue;
+    }
+    if (leadRow[index]) merged[index] = leadRow[index];
+  }
+
+  if (!merged[12]) merged[12] = leadRow[12] || "New";
+  if (!merged[16]) merged[16] = leadRow[16];
+  return merged;
+}
+
+function pickBestLead(
+  existing: NormalizedLead | null,
+  candidate: NormalizedLead,
+): NormalizedLead {
+  if (!existing) return candidate;
+  const existingScore = existing.fitScore ?? -1;
+  const candidateScore = candidate.fitScore ?? -1;
+  if (candidateScore > existingScore) return candidate;
+  if (candidateScore < existingScore) return existing;
+
+  const existingCompleteness = [
+    existing.title,
+    existing.company,
+    existing.location,
+    existing.compensationText,
+    existing.contact,
+    existing.fitAssessment,
+    existing.talkingPoints,
+  ].filter(Boolean).length;
+  const candidateCompleteness = [
+    candidate.title,
+    candidate.company,
+    candidate.location,
+    candidate.compensationText,
+    candidate.contact,
+    candidate.fitAssessment,
+    candidate.talkingPoints,
+  ].filter(Boolean).length;
+  if (candidateCompleteness > existingCompleteness) return candidate;
+  return existing;
+}
+
+function buildHeaders(
+  token: string,
+  isJson = true,
+): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token}`,
+    ...(isJson ? { "Content-Type": "application/json" } : {}),
+  };
+}
+
+function encodeRange(range: string): string {
+  return encodeURIComponent(range);
+}
+
+function toBase64Url(input: string): string {
+  return Buffer.from(input, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function parseServiceAccount(rawJson: string): GoogleServiceAccount {
+  const parsed = JSON.parse(rawJson) as Partial<GoogleServiceAccount>;
+  if (!parsed.client_email || !parsed.private_key) {
+    throw new Error(
+      "Service account JSON must include client_email and private_key",
+    );
+  }
+  return {
+    client_email: String(parsed.client_email),
+    private_key: String(parsed.private_key),
+    token_uri: parsed.token_uri ? String(parsed.token_uri) : GOOGLE_TOKEN_URI,
+  };
+}
+
+async function readServiceAccountConfig(
+  runtimeConfig: WorkerRuntimeConfig,
+): Promise<GoogleServiceAccount | null> {
+  const inline = asText(runtimeConfig.googleServiceAccountJson);
+  if (inline) return parseServiceAccount(inline);
+
+  const filePath = asText(runtimeConfig.googleServiceAccountFile);
+  if (!filePath) return null;
+  const fileText = await readFile(filePath, "utf8");
+  return parseServiceAccount(fileText);
+}
+
+async function exchangeServiceAccountToken(
+  serviceAccount: GoogleServiceAccount,
+  tokenScope: string,
+  fetchImpl: FetchLike,
+  now: () => Date,
+): Promise<string> {
+  const iat = Math.floor(now().getTime() / 1000);
+  const payload = {
+    iss: serviceAccount.client_email,
+    scope: tokenScope,
+    aud: serviceAccount.token_uri || GOOGLE_TOKEN_URI,
+    iat,
+    exp: iat + 3600,
+  };
+  const header = { alg: "RS256", typ: "JWT" };
+  const unsigned = `${toBase64Url(JSON.stringify(header))}.${toBase64Url(JSON.stringify(payload))}`;
+  const signer = createSign("RSA-SHA256");
+  signer.update(unsigned);
+  signer.end();
+  const signature = signer.sign(serviceAccount.private_key);
+  const assertion = `${unsigned}.${signature
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "")}`;
+
+  const response = await fetchImpl(serviceAccount.token_uri || GOOGLE_TOKEN_URI, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion,
+    }).toString(),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `Failed to exchange service account token: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+    );
+  }
+
+  const data = (await response.json()) as { access_token?: string };
+  if (!data.access_token) {
+    throw new Error("Service account token response missing access_token");
+  }
+  return data.access_token;
+}
+
+async function resolveAccessToken(
+  runtimeConfig: WorkerRuntimeConfig,
+  fetchImpl: FetchLike,
+  now: () => Date,
+  tokenScope: string,
+): Promise<string> {
+  if (asText(runtimeConfig.googleAccessToken)) {
+    return asText(runtimeConfig.googleAccessToken);
+  }
+  const serviceAccount = await readServiceAccountConfig(runtimeConfig);
+  if (!serviceAccount) {
+    throw new Error(
+      "No Google Sheets credential available. Set googleAccessToken or service-account JSON/file.",
+    );
+  }
+  return exchangeServiceAccountToken(serviceAccount, tokenScope, fetchImpl, now);
+}
+
+async function getSheetValues(
+  sheetId: string,
+  range: string,
+  token: string,
+  fetchImpl: FetchLike,
+): Promise<string[][]> {
+  const url = new URL(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeRange(range)}`,
+  );
+  url.searchParams.set("majorDimension", "ROWS");
+  url.searchParams.set("valueRenderOption", "FORMATTED_VALUE");
+  url.searchParams.set("dateTimeRenderOption", "FORMATTED_STRING");
+
+  const response = await fetchImpl(url, {
+    headers: buildHeaders(token, false),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `Failed to read ${range}: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+    );
+  }
+  const data = (await response.json()) as SheetValuesResponse;
+  return Array.isArray(data.values)
+    ? data.values.map((row) =>
+        Array.isArray(row) ? row.map((cell) => asText(cell)) : []
+      )
+    : [];
+}
+
+async function batchUpdateRows(
+  sheetId: string,
+  rowUpdates: Array<{ rowNumber: number; values: string[] }>,
+  token: string,
+  fetchImpl: FetchLike,
+  sheetName: string,
+): Promise<void> {
+  if (!rowUpdates.length) return;
+  const url = new URL(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values:batchUpdate`,
+  );
+  const response = await fetchImpl(url, {
+    method: "POST",
+    headers: buildHeaders(token),
+    body: JSON.stringify({
+      valueInputOption: "USER_ENTERED",
+      data: rowUpdates.map((entry) => ({
+        range: `${sheetName}!A${entry.rowNumber}:S${entry.rowNumber}`,
+        majorDimension: "ROWS",
+        values: [entry.values],
+      })),
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `Failed to update Pipeline rows: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+    );
+  }
+}
+
+async function appendRows(
+  sheetId: string,
+  rows: string[][],
+  token: string,
+  fetchImpl: FetchLike,
+  sheetName: string,
+): Promise<void> {
+  if (!rows.length) return;
+  const url = new URL(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeRange(`${sheetName}!A:S`)}:append`,
+  );
+  url.searchParams.set("valueInputOption", "USER_ENTERED");
+  url.searchParams.set("insertDataOption", "INSERT_ROWS");
+  url.searchParams.set("includeValuesInResponse", "false");
+
+  const response = await fetchImpl(url, {
+    method: "POST",
+    headers: buildHeaders(token),
+    body: JSON.stringify({
+      majorDimension: "ROWS",
+      values: rows,
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `Failed to append Pipeline rows: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+    );
+  }
+}
+
+function dedupeIncomingLeads(leads: NormalizedLead[]): {
+  leads: NormalizedLead[];
+  skippedDuplicates: number;
+} {
+  const byLink = new Map<string, NormalizedLead>();
+  let skippedDuplicates = 0;
+  for (const lead of leads) {
+    const link = normalizeLeadUrl(lead.url || "");
+    if (!link) {
+      skippedDuplicates += 1;
+      continue;
+    }
+    const existing = byLink.get(link) || null;
+    if (existing) skippedDuplicates += 1;
+    byLink.set(link, pickBestLead(existing, { ...lead, url: link }));
+  }
+  return { leads: Array.from(byLink.values()), skippedDuplicates };
+}
+
+export function createPipelineWriter(
+  runtimeConfig: WorkerRuntimeConfig,
+  options: PipelineWriterOptions = {},
+): PipelineWriter {
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (typeof fetchImpl !== "function") {
+    throw new Error("fetch is not available in this runtime");
+  }
+  const now = options.now || (() => new Date());
+  const sheetName = options.sheetName || DEFAULT_SHEET_NAME;
+  const tokenScope = options.tokenScope || DEFAULT_TOKEN_SCOPE;
+
+  async function write(
+    sheetId: string,
+    leads: NormalizedLead[],
+  ): Promise<PipelineWriteResult> {
+    const accessToken = await resolveAccessToken(
+      runtimeConfig,
+      fetchImpl,
+      now,
+      tokenScope,
+    );
+    const headerValues = await getSheetValues(
+      sheetId,
+      `${sheetName}!A1:S1`,
+      accessToken,
+      fetchImpl,
+    );
+    ensureHeaderMatches(headerValues);
+
+    const existingRows = await getSheetValues(
+      sheetId,
+      `${sheetName}!A2:S`,
+      accessToken,
+      fetchImpl,
+    );
+    const existingByLink = new Map<string, { rowNumber: number; row: string[] }>();
+    let existingDuplicateCount = 0;
+
+    existingRows.forEach((row, index) => {
+      const cells = toRowCells(row);
+      const link = normalizeRowLink(cells);
+      if (!link) return;
+      const rowNumber = index + 2;
+      if (existingByLink.has(link)) {
+        existingDuplicateCount += 1;
+        return;
+      }
+      existingByLink.set(link, { rowNumber, row: cells });
+    });
+
+    const deduped = dedupeIncomingLeads(leads);
+    const uniqueLeads = deduped.leads;
+    const updates: Array<{ rowNumber: number; values: string[] }> = [];
+    const appends: string[][] = [];
+    let updated = 0;
+    let appended = 0;
+    let skippedDuplicates = deduped.skippedDuplicates;
+
+    for (const lead of uniqueLeads) {
+      const leadRow = buildLeadRow(lead, now());
+      const link = leadRow[4];
+      if (!link) continue;
+      const match = existingByLink.get(link);
+      if (match) {
+        updates.push({
+          rowNumber: match.rowNumber,
+          values: mergeExistingRow(match.row, leadRow),
+        });
+        updated += 1;
+        continue;
+      }
+      appends.push(leadRow);
+      appended += 1;
+    }
+
+    await batchUpdateRows(sheetId, updates, accessToken, fetchImpl, sheetName);
+    await appendRows(sheetId, appends, accessToken, fetchImpl, sheetName);
+
+    return {
+      sheetId,
+      appended,
+      updated,
+      skippedDuplicates: skippedDuplicates + existingDuplicateCount,
+      warnings: existingDuplicateCount
+        ? [
+            `Found ${existingDuplicateCount} duplicate existing Pipeline rows for normalized Link values.`,
+          ]
+        : [],
+    };
+  }
+
+  return { write };
+}
+
+export type { PipelineWriterOptions };

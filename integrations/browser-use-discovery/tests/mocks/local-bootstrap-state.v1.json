@@ -1,0 +1,55 @@
+{
+  "available": true,
+  "generatedAt": "2026-04-09T15:00:00.000Z",
+  "repoRoot": "/Users/emilionunezgarcia/Job-Bored",
+  "routeName": "command-center-discovery-local",
+  "localWebhookUrl": "http://127.0.0.1:8644",
+  "localHealthUrl": "http://127.0.0.1:8644/health",
+  "localPort": "8644",
+  "tunnelPublicUrl": "https://example.ngrok-free.app",
+  "ngrokPublicUrl": "https://example.ngrok-free.app",
+  "publicTargetUrl": "https://example-workers.example.workers.dev/",
+  "corsOrigin": "http://localhost:8080",
+  "sheetId": "sheet_jobbored_demo_01",
+  "workerName": "jobbored-discovery-relay-local",
+  "cloudflareDeployCommand": "npm run cloudflare-relay:deploy -- --target-url 'https://example.ngrok-free.app' --cors-origin 'http://localhost:8080' --worker-name 'jobbored-discovery-relay-local' --sheet-id 'sheet_jobbored_demo_01'",
+  "ngrokTokenUrl": "https://dashboard.ngrok.com/get-started/your-authtoken",
+  "status": "ready",
+  "diagnostics": {
+    "gatewayHealthy": true,
+    "ngrokAuthenticated": true,
+    "ngrokRunning": true,
+    "ngrokDetected": true,
+    "healthProbeOk": true,
+    "localBootstrapReadable": true
+  },
+  "wizard": {
+    "version": 1,
+    "stepIds": [
+      "detect",
+      "path_select",
+      "bootstrap",
+      "local_health",
+      "tunnel",
+      "relay_deploy",
+      "verify",
+      "ready"
+    ],
+    "actionIds": [
+      "local_bootstrap_refresh",
+      "local_health_check",
+      "local_tunnel_detect",
+      "local_relay_apply",
+      "local_verify_end_to_end"
+    ],
+    "defaultStepId": "bootstrap",
+    "nextStepId": "local_health",
+    "recommendedStepId": "bootstrap"
+  },
+  "remediations": {
+    "noBootstrapFile": "Run `npm run discovery:bootstrap-local` to generate the config file.",
+    "gatewayNotHealthy": "Run `hermes gateway run --replace` to start the server.",
+    "ngrokNotAuthenticated": "Get a token from https://dashboard.ngrok.com/get-started/your-authtoken and run `ngrok config add-authtoken <TOKEN>`.",
+    "ngrokNotRunning": "Run `ngrok http 8644` to start the tunnel."
+  }
+}

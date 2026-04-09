@@ -1,0 +1,6 @@
+{
+  "ok": true,
+  "kind": "accepted_async",
+  "runId": "run_local_01",
+  "message": "Discovery accepted — worker queued the run"
+}

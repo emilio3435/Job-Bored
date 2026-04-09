@@ -6273,7 +6273,7 @@ function hideSheetAccessGate() {
   if (screen) screen.style.display = "none";
 }
 
-/** Show the 3-step Pipeline setup screen (create sheet, settings, reload). */
+/** Show the starter Pipeline setup screen before the guided wizard takes over. */
 function revealPipelineSetupStepsScreen() {
   const setup = document.getElementById("setupScreen");
   const dashboard = document.getElementById("dashboard");
@@ -6283,7 +6283,7 @@ function revealPipelineSetupStepsScreen() {
   renderSetupStarterSheetUi();
 }
 
-/** No Sheet ID yet: after Google sign-in, show the onboarding steps (create blank sheet, etc.). */
+/** No Sheet ID yet: after Google sign-in, show the starter-sheet setup steps. */
 function revealSetupScreenAfterAuth() {
   if (getSheetId()) return;
   revealPipelineSetupStepsScreen();
@@ -6330,7 +6330,7 @@ function renderSetupStarterSheetUi() {
     btn.disabled = true;
     btn.textContent = "Starter sheet linked";
     status.textContent =
-      "Your Pipeline sheet is saved. Continue with step 2 (Settings), then reload this page when you’re done.";
+      "Your Pipeline sheet is saved. The guided setup wizard is the next step.";
     return;
   }
 
@@ -6405,9 +6405,7 @@ async function createBlankStarterSheet(isRetry) {
         signIn({ prompt: "consent" });
         return null;
       }
-      throw new Error(
-        message,
-      );
+      throw new Error(message);
     }
 
     const spreadsheet = await createResp.json();
@@ -6498,15 +6496,19 @@ async function handleSetupCreateStarterSheet() {
 
   mergeStoredConfigOverridePatch({ sheetId: created.spreadsheetId });
   SHEET_ID = created.spreadsheetId;
+  initialSheetAccessResolved = true;
   setDashboardSheetLinks();
+  revealDashboardShell();
+  runPostAccessBootstrapOnce();
+  void loadAllData();
   if (created.spreadsheetUrl) {
     window.open(created.spreadsheetUrl, "_blank", "noopener");
   }
   showToast(
-    "Starter sheet created. Finish steps 2–3 below, then reload to open the dashboard.",
+    "Starter sheet created. Opening guided setup…",
     "success",
   );
-  revealPipelineSetupStepsScreen();
+  await openDiscoverySetupWizard({ entryPoint: "starter_sheet_created" });
 }
 
 // ============================================
@@ -10092,32 +10094,80 @@ function topSourcesInWindow(jobs, start, end, limit) {
     .slice(0, limit);
 }
 
-function getDailyBreakdown(jobs) {
-  const days = [];
+let briefActivityRange = "7d";
+
+function getBreakdownForRange(jobs, range) {
+  const totalDays = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 }[range] || 7;
+  const groupSize = totalDays >= 30 ? 7 : 1;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  for (let i = 6; i >= 0; i--) {
-    const dayStart = new Date(today);
-    dayStart.setDate(dayStart.getDate() - i);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
-    const discovered = jobs.filter((j) => {
-      const d = parseBriefDate(j.dateFound);
-      return d && d >= dayStart && d < dayEnd;
-    }).length;
-    const applied = jobs.filter((j) => {
-      const d = parseBriefDate(j.appliedDate);
-      return d && d >= dayStart && d < dayEnd;
-    }).length;
-    days.push({
-      label: dayStart
-        .toLocaleDateString(undefined, { weekday: "short" })
-        .slice(0, 2),
-      discovered,
-      applied,
+  const daily = [];
+  for (let i = totalDays - 1; i >= 0; i--) {
+    const s = new Date(today);
+    s.setDate(s.getDate() - i);
+    const e = new Date(s);
+    e.setDate(e.getDate() + 1);
+    daily.push({
+      date: s,
+      discovered: jobs.filter((j) => {
+        const d = parseBriefDate(j.dateFound);
+        return d && d >= s && d < e;
+      }).length,
+      applied: jobs.filter((j) => {
+        const d = parseBriefDate(j.appliedDate);
+        return d && d >= s && d < e;
+      }).length,
     });
   }
-  return days;
+  if (groupSize === 1) {
+    const short = totalDays <= 7;
+    return daily.map((d) => ({
+      ...d,
+      label: short
+        ? d.date.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2)
+        : d.date.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          }),
+    }));
+  }
+  const groups = [];
+  for (let i = 0; i < daily.length; i += groupSize) {
+    const ch = daily.slice(i, i + groupSize);
+    groups.push({
+      date: ch[0].date,
+      label: ch[0].date.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      }),
+      discovered: ch.reduce((a, d) => a + d.discovered, 0),
+      applied: ch.reduce((a, d) => a + d.applied, 0),
+    });
+  }
+  return groups;
+}
+
+function niceAxisMax(v) {
+  if (v <= 0) return 5;
+  return (
+    [5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 200, 300, 500, 1000].find(
+      (t) => t >= v,
+    ) || Math.ceil(v / 100) * 100
+  );
+}
+
+function catmullRomPath(pts) {
+  if (pts.length < 2) return "";
+  let d = `M ${pts[0].x},${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)],
+      p1 = pts[i],
+      p2 = pts[i + 1],
+      p3 = pts[Math.min(pts.length - 1, i + 2)];
+    const t = 6;
+    d += ` C ${p1.x + (p2.x - p0.x) / t},${p1.y + (p2.y - p0.y) / t} ${p2.x - (p3.x - p1.x) / t},${p2.y - (p3.y - p1.y) / t} ${p2.x},${p2.y}`;
+  }
+  return d;
 }
 
 function countStatusMatches(jobs, pred) {
@@ -10225,7 +10275,101 @@ function renderBriefStats(ctx) {
   return html;
 }
 
-function renderBriefCharts(ctx) {
+function renderDonutWidget(stages) {
+  const total = stages.reduce((s, st) => s + st.count, 0);
+  if (total === 0) return "";
+  const filtered = stages.filter((s) => s.count > 0);
+  let cumPct = 0;
+  const segs = filtered.map((s) => {
+    const p = (s.count / total) * 100;
+    const f = cumPct;
+    cumPct += p;
+    return `${s.color} ${f}% ${cumPct}%`;
+  });
+  let h =
+    '<h4 class="brief-widget__title">Pipeline</h4><div class="donut-layout">';
+  h += `<div class="donut-wrap"><div class="donut" style="background:conic-gradient(${segs.join(",")})"></div>`;
+  h += `<div class="donut-center"><span class="donut-center__val">${total}</span><span class="donut-center__lbl">total</span></div></div>`;
+  h += '<div class="donut-legend">';
+  for (const s of filtered)
+    h += `<div class="donut-legend__item"><span class="donut-legend__dot" style="background:${s.color}"></span><span class="donut-legend__label">${escapeHtml(s.label)}</span><span class="donut-legend__val">${s.count}</span></div>`;
+  h += "</div></div>";
+  return h;
+}
+
+function renderAreaWidget(jobs, range) {
+  const data = getBreakdownForRange(jobs, range);
+  const maxRaw = Math.max(0, ...data.flatMap((d) => [d.discovered, d.applied]));
+  const maxY = niceAxisMax(maxRaw);
+  const L = 50,
+    R = 490,
+    T = 12,
+    B = 160,
+    W = R - L,
+    H = B - T,
+    n = data.length;
+  const xS = n > 1 ? W / (n - 1) : 0;
+  function pts(k) {
+    return data.map((d, i) => ({ x: L + i * xS, y: B - (d[k] / maxY) * H }));
+  }
+  const dp = pts("discovered"),
+    ap = pts("applied");
+  function aD(p) {
+    return p.length < 2
+      ? ""
+      : catmullRomPath(p) + ` L ${p[p.length - 1].x},${B} L ${p[0].x},${B} Z`;
+  }
+  const ranges = ["7d", "14d", "30d", "90d"];
+  let h =
+    '<div class="area-header"><h4 class="area-header__title">Activity</h4><div class="area-range">';
+  for (const r of ranges)
+    h += `<button class="area-range__btn${r === range ? " area-range__btn--active" : ""}" data-range="${r}">${r}</button>`;
+  h += "</div></div>";
+  h +=
+    '<svg viewBox="0 0 500 190" class="area-svg" preserveAspectRatio="xMidYMid meet">';
+  for (const g of [0, 0.5, 1]) {
+    const y = B - g * H;
+    h += `<line x1="${L}" y1="${y}" x2="${R}" y2="${y}" class="area-grid-line"/><text x="${L - 6}" y="${y + 3}" class="area-y-label">${Math.round(maxY * g)}</text>`;
+  }
+  h += `<path d="${aD(dp)}" class="area-fill--disc"/><path d="${aD(ap)}" class="area-fill--app"/>`;
+  h += `<path d="${catmullRomPath(dp)}" class="area-line--disc"/><path d="${catmullRomPath(ap)}" class="area-line--app"/>`;
+  for (let i = 0; i < n; i++) {
+    h += `<circle cx="${dp[i].x}" cy="${dp[i].y}" r="3" class="area-dot--disc"><title>Found: ${data[i].discovered}</title></circle>`;
+    h += `<circle cx="${ap[i].x}" cy="${ap[i].y}" r="3" class="area-dot--app"><title>Applied: ${data[i].applied}</title></circle>`;
+  }
+  const every = Math.max(1, Math.ceil(n / 7));
+  for (let i = 0; i < n; i++) {
+    if (i % every === 0 || i === n - 1)
+      h += `<text x="${L + i * xS}" y="${B + 18}" class="area-x-label">${escapeHtml(data[i].label)}</text>`;
+  }
+  h += "</svg>";
+  h +=
+    '<div class="area-legend"><span class="area-legend__key"><span class="area-legend__dot area-legend__dot--disc"></span>Discovered</span><span class="area-legend__key"><span class="area-legend__dot area-legend__dot--app"></span>Applied</span></div>';
+  return h;
+}
+
+function renderSourceWidget(sources, suggestions) {
+  let h = "";
+  if (sources.length > 0) {
+    const mx = sources[0][1];
+    h +=
+      '<h4 class="brief-widget__title">Top sources <span style="font-weight:500;color:var(--text-faint);font-size:var(--text-xs)">7d</span></h4>';
+    for (const [name, count] of sources) {
+      const p = Math.max(4, (count / mx) * 100);
+      h += `<div class="source-bars__row"><span class="source-bars__name">${escapeHtml(name)}</span><div class="source-bars__track"><div class="source-bars__fill" style="width:${p}%"></div></div><span class="source-bars__count">${count}</span></div>`;
+    }
+  }
+  if (suggestions.length > 0) {
+    h += `<div style="margin-top:auto;padding-top:var(--space-3);border-top:1px solid var(--divider)"><ul class="brief-tips__list">${suggestions
+      .slice(0, 2)
+      .map((t) => `<li>${escapeHtml(t)}</li>`)
+      .join("")}</ul></div>`;
+  }
+  return h;
+}
+
+function _UNUSED_renderBriefCharts(ctx) {
+  /* removed — replaced by renderDonutWidget, renderAreaWidget, renderSourceWidget */
   const { stages, dailyBreakdown, sources, suggestions } = ctx;
 
   let html = "";
@@ -10308,9 +10452,70 @@ function renderBriefCharts(ctx) {
   return html;
 }
 
-// --- Brief: Action column ---
+// --- Brief: Activity feed ---
 
-function renderBriefQueue(overdue, upcoming, waiting, stale) {
+function renderBriefFeed(overdue, upcoming, waiting, stale) {
+  const items = [];
+  for (const j of overdue) {
+    const d = briefDaysSince(j.followUpDate);
+    items.push({
+      type: "urgent",
+      title: `${j.title || "Role"} \u2014 ${j.company || ""}`,
+      desc: "Follow-up overdue",
+      meta: d != null ? `${d}d late` : "",
+      pri: 0,
+      days: d || 0,
+    });
+  }
+  for (const j of waiting) {
+    const d = briefDaysSince(j.appliedDate);
+    items.push({
+      type: "waiting",
+      title: `${j.title || "Role"} \u2014 ${j.company || ""}`,
+      desc: "Awaiting reply",
+      meta: d != null ? `${d}d ago` : "",
+      pri: 1,
+      days: d || 0,
+    });
+  }
+  for (const j of stale) {
+    const d = briefDaysSince(j.appliedDate);
+    items.push({
+      type: "stale",
+      title: `${j.title || "Role"} \u2014 ${j.company || ""}`,
+      desc: "Going stale",
+      meta: d != null ? `${d}d` : "",
+      pri: 2,
+      days: d || 0,
+    });
+  }
+  for (const j of upcoming.slice(0, 3)) {
+    items.push({
+      type: "upcoming",
+      title: `${j.title || "Role"} \u2014 ${j.company || ""}`,
+      desc: "Follow-up soon",
+      meta: "48h",
+      pri: 3,
+      days: 0,
+    });
+  }
+  items.sort((a, b) => a.pri - b.pri || b.days - a.days);
+
+  if (!items.length) {
+    return '<div class="feed-clear"><div class="feed-clear__icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div><p class="feed-clear__text">All clear</p><p class="feed-clear__sub">Nothing needs your attention right now.</p></div>';
+  }
+  let html = '<div class="feed-list">';
+  const shown = items.slice(0, 10);
+  for (const it of shown) {
+    html += `<div class="feed-item feed-item--${it.type}"><div class="feed-item__dot"></div><div class="feed-item__body"><span class="feed-item__title">${escapeHtml(it.title)}</span><span class="feed-item__desc">${it.desc}</span></div><span class="feed-item__meta">${it.meta}</span></div>`;
+  }
+  if (items.length > 10)
+    html += `<div class="feed-more">+${items.length - 10} more</div>`;
+  html += "</div>";
+  return html;
+}
+
+function _DEAD_renderBriefQueue(overdue, upcoming, waiting, stale) {
   const hasItems = overdue.length || waiting.length || stale.length;
 
   if (!hasItems) {
@@ -10418,10 +10623,15 @@ function renderBrief() {
       year: "numeric",
     });
 
+  const pipelineEl = document.getElementById("briefPipeline");
+  const sourcesEl = document.getElementById("briefSources");
+
   if (!pipelineData.length) {
     if (headlineEl) headlineEl.innerHTML = "";
     if (actionEl) actionEl.innerHTML = "";
     if (statsEl) statsEl.innerHTML = "";
+    if (pipelineEl) pipelineEl.innerHTML = "";
+    if (sourcesEl) sourcesEl.innerHTML = "";
     if (followPanel) followPanel.hidden = true;
     if (mainGrid) mainGrid.classList.add("brief-dashboard--empty");
     const discoveryView = getDiscoveryEmptyStateView(
@@ -10561,18 +10771,12 @@ function renderBrief() {
     { label: "Passed", count: passed, color: "var(--stage-rail-passed)" },
   ];
 
-  const dailyBreakdown = getDailyBreakdown(pipelineData);
-
+  if (pipelineEl) pipelineEl.innerHTML = renderDonutWidget(stages);
   if (insightsEl)
-    insightsEl.innerHTML = renderBriefCharts({
-      stages,
-      dailyBreakdown,
-      sources,
-      suggestions,
-    });
-
+    insightsEl.innerHTML = renderAreaWidget(pipelineData, briefActivityRange);
+  if (sourcesEl) sourcesEl.innerHTML = renderSourceWidget(sources, suggestions);
   if (actionEl)
-    actionEl.innerHTML = renderBriefQueue(overdue, upcoming, waiting, stale);
+    actionEl.innerHTML = renderBriefFeed(overdue, upcoming, waiting, stale);
 }
 
 // ============================================
@@ -12859,6 +13063,15 @@ function initCommandCenterSettings() {
   document
     .getElementById("setupOpenSettingsBtn")
     ?.addEventListener("click", () => {
+      if (!getSheetId()) {
+        showToast("Create or connect your Pipeline sheet first.", "info");
+        return;
+      }
+      void openDiscoverySetupWizard({ entryPoint: "setup_screen" });
+    });
+  document
+    .getElementById("setupOpenSettingsLaterBtn")
+    ?.addEventListener("click", () => {
       void openCommandCenterSettingsModal();
     });
   document
@@ -13000,6 +13213,14 @@ function initPipelineEmptyAndBriefActions() {
   document
     .querySelector(".daily-brief-panel")
     ?.addEventListener("click", (e) => {
+      const rangeBtn = e.target.closest("[data-range]");
+      if (rangeBtn) {
+        briefActivityRange = rangeBtn.dataset.range;
+        const el = document.getElementById("briefInsights");
+        if (el && pipelineData.length)
+          el.innerHTML = renderAreaWidget(pipelineData, briefActivityRange);
+        return;
+      }
       const b = e.target.closest("[data-brief-action]");
       if (!b) return;
       const a = b.getAttribute("data-brief-action");
