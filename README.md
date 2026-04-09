@@ -1,6 +1,6 @@
 # Command Center
 
-A beautiful, open-source job search dashboard powered by Google Sheets. Track applications, view AI-generated morning briefs, and manage your pipeline — all from a single page that reads and writes directly to your own Google Sheet.
+A beautiful, open-source job search dashboard powered by Google Sheets. Track applications, read a **Daily Brief** compiled from your Pipeline, and manage your pipeline — all from a single page that reads and writes directly to your own Google Sheet.
 
 ![Command Center](https://img.shields.io/badge/license-MIT-blue) ![No Backend](https://img.shields.io/badge/backend-none-green) ![Pure JS](https://img.shields.io/badge/vanilla-JS-yellow)
 
@@ -8,23 +8,45 @@ A beautiful, open-source job search dashboard powered by Google Sheets. Track ap
 
 - **Pipeline tracker** — job cards with fit scores, priority badges, tags, and status tracking
 - **Write-back to Sheets** — update status, mark applied, add notes directly from the dashboard
-- **Morning Brief** — renders your AI-generated daily brief (works with [Hermes Agent](https://github.com/NousResearch/hermes-agent) or any tool that writes to the Sheet)
-- **Weekly Pulse** — trends, top companies, and strategic recommendations
+- **Daily Brief** — two-column layout with at-a-glance counts, follow-ups, who you’re waiting on, and stuck applications ([details](SETUP.md#daily-brief-computed-in-the-dashboard))
 - **KPI bar** — total roles, hot leads, applied count, interview count, avg fit score
-- **Filter & search** — filter by status/priority, sort by fit score/date/company, free-text search
+- **Pipeline filters** — **Inbox** (New / Researching / unassigned) by default; stage pills for Applied, Interviewing, Negotiating
+- **Run discovery** — optional webhook in `config.js` so your agent (Hermes, n8n, etc.) runs another pass; POST includes `schemaVersion` and optional `discoveryProfile` from Settings ([AGENT_CONTRACT.md](AGENT_CONTRACT.md))
+- **Last contact & reply** — optional columns R–S editable on each card when signed in
+- **Filter & search** — stage filters plus priority, sort by fit score/date/company, free-text search
 - **Google OAuth** — sign in with Google to enable write actions (read works without sign-in)
 - **No backend** — pure HTML/CSS/JS, deploys anywhere static files are served
 - **Reproducible** — bring your own Sheet + OAuth credentials, share with anyone
 
 ## Quick Start
 
+### Local run (dashboard + job scraper, one terminal)
+
+If you cloned the repo and want the **Cheerio “Fetch posting”** feature without a second terminal:
+
+```bash
+npm install
+npm start
+```
+
+Or run **`./start.sh`** (macOS/Linux) or double-click **`start.command`** in Finder — same as `npm start`; first run installs dependencies if needed.
+
+Then open **http://localhost:8080**. This installs dependencies for `server/` automatically and runs the UI plus **http://127.0.0.1:3847** together. You can leave **`jobPostingScrapeUrl`** empty in `config.js` on localhost — the app defaults to the local scraper.
+
+For **GitHub Pages** (HTTPS), the browser cannot call a scraper on your laptop at `http://127.0.0.1`. Use **Fetch posting** by either running the dashboard locally (`npm start` → `http://localhost:8080`) or deploying the `server/` app and pasting its **HTTPS** base URL in Settings — see **[DEPLOY-SCRAPER.md](DEPLOY-SCRAPER.md)**.
+
+For **static hosting only** without Fetch posting, deploy the files as usual; the scraper is optional.
+
 ### 1. Copy the template Google Sheet
 
 [**→ Copy Template Sheet**](https://docs.google.com/spreadsheets/d/1pVFwPlvu3FqIhlC8YDuRpVA2v6A2fOjRX02TEiMoXRI/copy)
 
+The copy includes **every row** in the source template. If you see sample jobs, open the **Pipeline** tab and delete all rows **below the header** to start blank.
+
 After copying:
-- Go to **File → Share → Publish to web** → Publish (entire document, web page)
-- Set sharing to **"Anyone with the link" → Viewer**
+
+- **Recommended:** add your OAuth Client ID in Settings and use **Sign in with Google** — your sheet can stay **private**; the dashboard reads it via the Sheets API (no publish step).
+- **Alternative (no OAuth):** publish or share the sheet for public read — **File → Publish to web**, or **Share → Anyone with the link can view**
 
 ### 2. Create Google OAuth credentials
 
@@ -46,13 +68,16 @@ Edit `config.js`:
 
 ```js
 window.COMMAND_CENTER_CONFIG = {
-  sheetId: 'YOUR_SHEET_ID_HERE',
-  oauthClientId: 'YOUR_CLIENT_ID_HERE.apps.googleusercontent.com',
-  title: 'Command Center',
+  sheetId: "YOUR_SHEET_ID_HERE",
+  oauthClientId: "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com",
+  title: "Command Center",
+  // Optional: POST target when the user clicks "Run discovery" (Hermes / n8n / Apps Script)
+  discoveryWebhookUrl: "",
 };
 ```
 
 Your Sheet ID is the long string in your Google Sheet URL:
+
 ```
 https://docs.google.com/spreadsheets/d/THIS_IS_YOUR_SHEET_ID/edit
 ```
@@ -95,64 +120,64 @@ cp config.example.js config.js
 # Edit config.js with your credentials
 open index.html
 # Or use any local server:
+npm run dev
+# → http://localhost:8080  (static root + optional scraper; see package.json)
+# Or:
 python3 -m http.server 8080
 ```
 
 ## Sheet Structure
 
-The template Sheet has 3 tabs:
+The dashboard reads the **Pipeline** tab (and ignores other tabs).
 
 ### Pipeline (main tracker)
 
-| Column | Description | Updated by |
-|--------|-------------|-----------|
-| A: Date Found | When the role was discovered | Auto (Hermes) |
-| B: Title | Job title | Auto |
-| C: Company | Company name | Auto |
-| D: Location | Location / remote policy | Auto |
-| E: Link | Direct URL to listing | Auto |
-| F: Source | Where it was found (LinkedIn, etc.) | Auto |
-| G: Salary | Salary if listed | Auto |
-| H: Fit Score | 1-10 match score | Auto (you can override) |
-| I: Priority | 🔥 Hot / ⚡ High / — Normal / ↓ Low | Auto (you can override) |
-| J: Tags | Matched keywords | Auto |
-| K: Fit Assessment | Why it matches your profile | Auto |
-| L: Contact | Recruiter/HM name if found | Auto |
-| M: Status | New / Researching / Applied / Phone Screen / Interviewing / Offer / Rejected / Passed | **You** (via dashboard or Sheet) |
-| N: Applied Date | When you applied | **You** |
-| O: Notes | Personal notes | **You** |
-| P: Follow-up Date | When to follow up | **You** |
-| Q: Talking Points | Cover letter bullets (auto for 8+ scores) | Auto |
+| Column             | Description                                                                           | Updated by                       |
+| ------------------ | ------------------------------------------------------------------------------------- | -------------------------------- |
+| A: Date Found      | When the role was discovered                                                          | Auto (Hermes)                    |
+| B: Title           | Job title                                                                             | Auto                             |
+| C: Company         | Company name                                                                          | Auto                             |
+| D: Location        | Location / remote policy                                                              | Auto                             |
+| E: Link            | Direct URL to listing                                                                 | Auto                             |
+| F: Source          | Where it was found (LinkedIn, etc.)                                                   | Auto                             |
+| G: Salary          | Salary if listed                                                                      | Auto                             |
+| H: Fit Score       | 1-10 match score                                                                      | Auto (you can override)          |
+| I: Priority        | 🔥 Hot / ⚡ High / — Normal / ↓ Low                                                   | Auto (you can override)          |
+| J: Tags            | Matched keywords                                                                      | Auto                             |
+| K: Fit Assessment  | Why it matches your profile                                                           | Auto                             |
+| L: Contact         | Recruiter/HM name if found                                                            | Auto                             |
+| M: Status          | New / Researching / Applied / Phone Screen / Interviewing / Offer / Rejected / Passed | **You** (via dashboard or Sheet) |
+| N: Applied Date    | When you applied                                                                      | **You**                          |
+| O: Notes           | Personal notes                                                                        | **You**                          |
+| P: Follow-up Date  | When to follow up                                                                     | **You**                          |
+| Q: Talking Points  | Cover letter bullets (auto for 8+ scores)                                             | Auto                             |
+| R: Last contact    | Optional. When you last heard from them (shown on cards & in the brief)               | **You** or automation            |
+| S: Did they reply? | Optional. `Yes` / `No` / `Unknown` (`Unknown` shows as “Not sure” in the app)         | **You** or automation            |
 
-### Weekly Pulse
+## Agentic discovery (optional)
 
-| Column | Description |
-|--------|-------------|
-| A: Week Of | Monday of the week |
-| B: Total Found | New roles that week |
-| C: Applied | How many you applied to |
-| D: Responses | Responses received |
-| E: Interviews | Interviews scheduled |
-| F: Top Companies | Most active hirers |
-| G: Trends | Market observations |
-| H: Strategy Note | Recommendation for next week |
+Automation (e.g. [Hermes Agent](https://github.com/NousResearch/hermes-agent), n8n, Apps Script) fills your **Pipeline** sheet; this dashboard displays and edits those rows. The integration contract (webhook JSON, columns, dedupe by job URL) is documented in **[AGENT_CONTRACT.md](AGENT_CONTRACT.md)**.
 
-### AI Brief
+**OpenClaw / agent skills (BYO):** use **[`integrations/openclaw-command-center/`](integrations/openclaw-command-center/)** — a copy-paste **`SKILL.md`** so agents know how to append rows and handle **Run discovery**; runs in **your** environment, not the maintainer’s.
 
-| Column | Description |
-|--------|-------------|
-| A: Date | Brief date (YYYY-MM-DD) |
-| B: Brief | Full text of the morning AI brief |
+1. Point **Run discovery** at your HTTPS endpoint (see Settings and `discoveryWebhookUrl`).
+2. Schedule your agent or cron so rows append to **Pipeline** on a cadence you want.
+3. The dashboard auto-refreshes on a timer — new data appears automatically.
 
-## Connecting Hermes Agent (optional)
+See [SETUP.md](SETUP.md) for detailed setup. Use **Agent setup** in the header for a built-in checklist.
 
-[Hermes Agent](https://github.com/NousResearch/hermes-agent) can automatically populate your Sheet with daily job searches and AI morning briefs.
+### Free automation without maintainer hosting
 
-1. Install Hermes and complete the Google Workspace skill setup
-2. Create cron jobs that write to your Sheet's Pipeline and AI Brief tabs
-3. The dashboard auto-refreshes every 5 minutes — new data appears automatically
+This project is **static and free to host** (e.g. GitHub Pages). There is **no central discovery service** run by the authors — that would be ongoing cost and ops. Instead, **each user** runs automation **on their side** (or on a **free tier they control**). The dashboard only needs a **discovery webhook URL** you paste in Settings; something on the internet must **accept HTTPS POST** and update your Sheet.
 
-See [SETUP.md](SETUP.md) for detailed Hermes integration instructions.
+| Option                                                                            | Who pays                                                                                                                                                  | Good for                                     |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| **[Google Apps Script](https://developers.google.com/apps-script)** (web app URL) | Runs in **your** Google account — no server bill from this repo                                                                                           | Easiest “no VPS” path; one deploy, paste URL |
+| **GitHub Actions** (scheduled workflow)                                           | **Free** tier for public repos (within [limits](https://docs.github.com/en/billing/managing-billing-for-github-actions/about-billing-for-github-actions)) | Daily jobs without an always-on server       |
+| **Free-tier serverless** (e.g. Cloudflare Workers, Render free tier)              | **$0** on the user’s own account via templates                                                                                                            | Users who want a small HTTP endpoint         |
+| **Self-hosted** (n8n, Hermes, `server/`, local + tunnel)                          | Your machine / homelab                                                                                                                                    | Power users                                  |
+
+**Best default for “open source + free + maintainers pay $0”:** document and template **Apps Script** first (user deploys their own web app), then **GitHub Actions** for scheduled runs. See **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)** for a **piece-by-piece roadmap** (docs and templates we can add to the repo over time).
 
 ## How it works
 
@@ -166,8 +191,8 @@ See [SETUP.md](SETUP.md) for detailed Hermes integration instructions.
        │ (browser-only)                       │
        ▼                                      │
 ┌─────────────┐                        ┌──────────────┐
-│  Google GIS  │                        │ Hermes Agent │
-│  (auth lib)  │                        │ (cron jobs)  │
+│  Google GIS  │                        │ Your agent   │
+│  (auth lib)  │                        │ (cron/jobs)  │
 └─────────────┘                        └──────────────┘
 ```
 
@@ -180,25 +205,27 @@ See [SETUP.md](SETUP.md) for detailed Hermes integration instructions.
 - Vanilla HTML/CSS/JS (no frameworks, no build step)
 - [Google Identity Services](https://developers.google.com/identity/gsi/web) for OAuth
 - [Google Sheets API v4](https://developers.google.com/sheets/api) for write-back
-- [Chart.js](https://www.chartjs.org/) for weekly pulse visualization
 - [Inter](https://fonts.google.com/specimen/Inter) + [JetBrains Mono](https://fonts.google.com/specimen/JetBrains+Mono) typography
 
 ## URL Parameters
 
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `sheet` | Override the Sheet ID from config.js | `?sheet=YOUR_SHEET_ID` |
+| Parameter | Description                                        | Example    |
+| --------- | -------------------------------------------------- | ---------- |
+| `sheet`   | Override Sheet ID (raw ID or full spreadsheet URL) | `?sheet=…` |
 
 ## Security
 
-- OAuth tokens are stored **in memory only** (not localStorage/cookies)
-- Your Google credentials never leave your browser
-- The dashboard makes direct API calls to Google — no intermediary servers
-- `config.js` is gitignored by default — never commit credentials to a public repo
+- **Never commit secrets** — use [`config.example.js`](config.example.js) in the repo; copy to `config.js` locally or use **Settings** (stored in `localStorage`). Real `config.js` must not be pushed to public remotes.
+- **Repository contents** — only placeholders (`YOUR_SHEET_ID_HERE`, empty API keys). The public template Sheet ID in links is not a secret.
+- OAuth access tokens are held **in memory only** (not localStorage)
+- Gemini/OpenAI keys from Settings live in **this browser’s localStorage**; they are not sent to Command Center’s authors
+- The app calls Google and your chosen AI provider **directly from the browser** — no intermediary server for those keys
+
+See [SECURITY.md](SECURITY.md) for maintainers and leak response.
 
 ## Contributing
 
-PRs welcome. Keep it simple — no build tools, no frameworks, no dependencies beyond CDN-hosted libraries.
+PRs welcome. Keep it simple — no build tools, no frameworks, minimal CDN use (Google Identity Services only).
 
 ## License
 
