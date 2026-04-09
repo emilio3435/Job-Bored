@@ -59,8 +59,8 @@ This document is a **maintainer-facing** plan to implement **user-run** discover
 
 **Deliverables**
 
-- [ ] Minimal Worker or Node handler that forwards POST body to a user-configured downstream or logs + 200.
-- [ ] README link from main README (optional; higher maintenance).
+- [x] Minimal Worker ([`templates/cloudflare-worker/`](templates/cloudflare-worker/)) — forwards `POST` JSON to a user-configured `TARGET_URL` (e.g. Apps Script `/exec`); CORS + optional `/forward` + secret.
+- [x] README + SETUP link to Worker template (BYO table + best-default paragraph).
 
 **Acceptance:** Clear that **user** owns the account and billing/free tier.
 
@@ -85,7 +85,7 @@ This document is a **maintainer-facing** plan to implement **user-run** discover
 2. **Phase B** — Apps Script stub + README (**highest impact per hour**).
 3. **Phase C** — GitHub Actions example for daily cron.
 4. **Phase E** — integration folder sync when contract evolves.
-5. **Phase D** — only if demand is high (more moving parts).
+5. **Phase D** — [`templates/cloudflare-worker/`](templates/cloudflare-worker/) shipped (optional CORS relay).
 
 ---
 

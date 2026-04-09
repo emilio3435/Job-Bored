@@ -4,7 +4,19 @@ A beautiful, open-source job search dashboard powered by Google Sheets.
 
 Read-only mode works out of the box — just point it at any published Google Sheet. Sign in with Google to unlock write-back: update statuses, mark jobs as applied, and add notes directly from the dashboard.
 
-**Free automation (no maintainer-hosted discovery service):** the dashboard is static; **you** run job discovery (Apps Script, GitHub Actions, n8n, etc.) and paste your **discovery webhook URL**. See the [README](README.md#free-automation-without-maintainer-hosting) and the **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)** roadmap for templates we add over time.
+**Free automation (no maintainer-hosted discovery service):** the dashboard is static; **you** run job discovery (Apps Script, GitHub Actions, n8n, etc.) and paste your **discovery webhook URL**. See the [README](README.md#free-automation-without-maintainer-hosting) options table and **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)**; all in-repo template paths are collected under [BYO automation templates](#byo-automation-templates) below.
+
+## BYO automation templates
+
+Copy-paste automation you deploy into **your** Google, GitHub, Cloudflare, or agent environment. The **Run discovery** POST shape and Pipeline rules are defined in **[AGENT_CONTRACT.md](AGENT_CONTRACT.md)**.
+
+- **[`integrations/apps-script/`](integrations/apps-script/)** — Deploy as web app; paste the `/exec` URL into Settings.
+- **[`templates/github-actions/`](templates/github-actions/)** — Scheduled workflow (server-side POST; useful when the browser hits CORS).
+- **[`templates/cloudflare-worker/`](templates/cloudflare-worker/)** — Optional Worker relay (CORS) to your target URL (e.g. Apps Script `/exec`).
+- **[`integrations/n8n/`](integrations/n8n/)** — n8n HTTP workflow notes (BYO instance).
+- **[`integrations/openclaw-command-center/`](integrations/openclaw-command-center/)** — OpenClaw / agent **`SKILL.md`** for discovery + sheet rows.
+
+For a phased roadmap, see **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)**.
 
 ---
 
@@ -120,6 +132,7 @@ This is useful for sharing dashboard links or switching between multiple job sea
 - **First visit:** a **step-by-step onboarding** runs before you can use the dashboard (welcome, upload or paste resume, tone, length, optional voice notes, then confirm). You add **one resume**; writing samples and fields like industries / phrases to avoid are available in **Profile** after setup. Until you finish onboarding, the main UI stays behind the wizard.
 - **Profile** (header button) stores that single resume, writing samples, and full preferences in **IndexedDB** in this browser. Replacing the resume overwrites the previous file. Nothing is written to your Google Sheet. If you already had resume data from an older version of the app, you are not forced through onboarding again.
 - Open a job card’s **Details** to use **Draft cover letter** or **Tailor resume**. The app combines the Pipeline row with your resume and samples, then calls your chosen provider.
+- In **Profile → AI draft preferences**, choose **Cover letter layout** and **Résumé layout** to steer structure (paragraphs vs bullets, section order, and similar). Those choices are saved in IndexedDB and are merged into the model’s system prompt as “Template requirements,” and appear on webhook payloads as `template`.
 - **Gemini** (default): get an API key from [Google AI Studio](https://aistudio.google.com/) and set `resumeGeminiApiKey` in `config.js`. Do not commit real keys to a public repository.
 - **OpenAI**: set `resumeProvider` to `"openai"` and add `resumeOpenAIApiKey`. **This dashboard runs in the browser** — OpenAI’s API does **not** allow direct `fetch` from web pages (CORS), so cover letter / resume generation will fail with a network error. Use **Gemini** here, or **Webhook** and call OpenAI from your server.
 - **Anthropic (Claude)**: same **CORS** limitation as OpenAI for in-browser apps. Use **Gemini** or **Webhook** unless you proxy requests server-side.
@@ -273,10 +286,18 @@ When `resumeProvider` is `"webhook"` and `resumeGenerationWebhookUrl` is set, ea
       "defaultMaxWords": 350,
       "industriesToEmphasize": "…",
       "wordsToAvoid": "…",
-      "voiceNotes": "…"
+      "voiceNotes": "…",
+      "coverLetterTemplateId": "cover_classic_paragraphs",
+      "resumeTemplateId": "resume_traditional_sections"
     }
   },
   "instructions": { "maxWords": 350 },
+  "template": {
+    "id": "cover_classic_paragraphs",
+    "label": "Classic paragraphs",
+    "promptInstructions": "…",
+    "description": "…"
+  },
   "meta": { "sheetId": "…", "generatedAt": "2026-04-08T12:00:00.000Z" }
 }
 ```
@@ -316,6 +337,7 @@ command-center/
 ├── index.html              # Main dashboard
 ├── style.css               # All styles
 ├── app.js                  # Data fetching, rendering, write-back logic
+├── document-templates.js   # Cover letter / résumé layout registry (prompt instructions)
 ├── user-content-store.js   # IndexedDB: resumes, samples, preferences
 ├── resume-ingest.js        # PDF/DOCX/text extraction
 ├── resume-bundle.js        # Context bundle for generation
