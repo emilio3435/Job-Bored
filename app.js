@@ -263,6 +263,16 @@ function getDiscoveryWebhookUrl() {
 }
 
 const APPS_SCRIPT_API_BASE = "https://script.googleapis.com/v1";
+const GOOGLE_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+const GOOGLE_USERINFO_EMAIL_SCOPE =
+  "https://www.googleapis.com/auth/userinfo.email";
+const GOOGLE_USERINFO_PROFILE_SCOPE =
+  "https://www.googleapis.com/auth/userinfo.profile";
+const GOOGLE_SIGNIN_SCOPES = [
+  GOOGLE_SHEETS_SCOPE,
+  GOOGLE_USERINFO_EMAIL_SCOPE,
+  GOOGLE_USERINFO_PROFILE_SCOPE,
+].join(" ");
 const APPS_SCRIPT_DEPLOY_SCOPES = [
   "https://www.googleapis.com/auth/script.projects",
   "https://www.googleapis.com/auth/script.deployments",
@@ -5341,6 +5351,7 @@ let accessToken = null;
 let userEmail = null;
 /** Profile photo URL from Google userinfo (optional). */
 let userPictureUrl = null;
+let grantedOauthScopes = "";
 /** Epoch ms when accessToken is expected to expire (Google typically ~1h). */
 let tokenExpiresAt = null;
 let tokenClient = null;
@@ -5365,6 +5376,22 @@ function canUseLocalStorage() {
   }
 }
 
+function normalizeOauthScopes(raw) {
+  if (!raw) return "";
+  return [...new Set(String(raw).trim().split(/\s+/).filter(Boolean))].join(
+    " ",
+  );
+}
+
+function hasGrantedOauthScope(scope) {
+  const wanted = String(scope || "").trim();
+  if (!wanted) return false;
+  return normalizeOauthScopes(grantedOauthScopes)
+    .split(/\s+/)
+    .filter(Boolean)
+    .includes(wanted);
+}
+
 function persistOAuthSession() {
   if (!canUseLocalStorage() || !accessToken || !tokenExpiresAt) return;
   const cid = getOAuthClientId();
@@ -5377,6 +5404,7 @@ function persistOAuthSession() {
         expiresAt: tokenExpiresAt,
         userEmail,
         userPictureUrl,
+        grantedOauthScopes,
         oauthClientId: cid,
       }),
     );
@@ -5404,6 +5432,7 @@ function clearSessionAuthState() {
   accessToken = null;
   userEmail = null;
   userPictureUrl = null;
+  grantedOauthScopes = "";
   tokenExpiresAt = null;
   oauthPendingOp = null;
   pendingSetupStarterSheetCreate = false;
@@ -5495,6 +5524,9 @@ function restoreOAuthSession() {
     tokenExpiresAt = persisted.expiresAt;
     userEmail = persisted.userEmail || null;
     userPictureUrl = persisted.userPictureUrl || null;
+    grantedOauthScopes = normalizeOauthScopes(
+      persisted.grantedOauthScopes || "",
+    );
     updateAuthUI();
     fetchUserEmail();
     if (SHEET_ID) {
@@ -5591,8 +5623,8 @@ function initAuth() {
       }
       tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: clientId,
-        scope:
-          "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
+        scope: GOOGLE_SIGNIN_SCOPES,
+        include_granted_scopes: true,
         callback: handleTokenResponse,
         error_callback: (err) => {
           console.error("[JobBored] GIS error_callback:", err);
@@ -5667,6 +5699,9 @@ function handleTokenResponse(tokenResponse) {
   }
 
   accessToken = tokenResponse.access_token;
+  grantedOauthScopes = normalizeOauthScopes(
+    tokenResponse.scope || GOOGLE_SIGNIN_SCOPES,
+  );
   const expiresIn = Number(tokenResponse.expires_in) || 3600;
   tokenExpiresAt = Date.now() + expiresIn * 1000;
   persistOAuthSession();
@@ -5757,7 +5792,7 @@ async function fetchUserEmail() {
   }
 }
 
-function signIn() {
+function signIn(options = {}) {
   if (!tokenClient) {
     showToast(
       "Google sign-in is not ready yet. Save your OAuth client and reload first.",
@@ -5766,7 +5801,13 @@ function signIn() {
     );
     return;
   }
-  tokenClient.requestAccessToken();
+  const request = {};
+  const prompt =
+    options && typeof options === "object" && options.prompt != null
+      ? String(options.prompt)
+      : "";
+  if (prompt) request.prompt = prompt;
+  tokenClient.requestAccessToken(request);
 }
 
 function signOut() {
@@ -6346,9 +6387,26 @@ async function createBlankStarterSheet(isRetry) {
 
     if (!createResp.ok) {
       const err = await createResp.json().catch(() => ({}));
-      throw new Error(
+      const message = String(
         err.error?.message ||
           `Starter sheet creation failed (HTTP ${createResp.status}).`,
+      );
+      if (
+        createResp.status === 403 &&
+        /insufficient authentication scopes/i.test(message) &&
+        !isRetry
+      ) {
+        pendingSetupStarterSheetCreate = true;
+        showToast(
+          "Google needs Sheets permission before JobBored can create a starter sheet. Approve the prompt and try again.",
+          "info",
+          true,
+        );
+        signIn({ prompt: "consent" });
+        return null;
+      }
+      throw new Error(
+        message,
       );
     }
 
@@ -6421,9 +6479,11 @@ async function handleSetupCreateStarterSheet() {
     );
     return;
   }
-  if (!accessToken) {
+  if (!accessToken || !hasGrantedOauthScope(GOOGLE_SHEETS_SCOPE)) {
     pendingSetupStarterSheetCreate = true;
-    signIn();
+    signIn({
+      prompt: accessToken ? "consent" : "",
+    });
     return;
   }
 
@@ -10347,6 +10407,7 @@ function renderBrief() {
   const actionEl = document.getElementById("briefAction");
   const followPanel = document.getElementById("briefFollowupPanel");
   const mainGrid = document.getElementById("briefMainGrid");
+  const statsEl = document.getElementById("briefStats");
 
   const now = new Date();
   if (dateEl)
@@ -10360,8 +10421,9 @@ function renderBrief() {
   if (!pipelineData.length) {
     if (headlineEl) headlineEl.innerHTML = "";
     if (actionEl) actionEl.innerHTML = "";
+    if (statsEl) statsEl.innerHTML = "";
     if (followPanel) followPanel.hidden = true;
-    if (mainGrid) mainGrid.classList.add("brief-main-grid--pipeline-empty");
+    if (mainGrid) mainGrid.classList.add("brief-dashboard--empty");
     const discoveryView = getDiscoveryEmptyStateView(
       getDiscoveryReadinessSnapshot(),
     );
@@ -10379,7 +10441,7 @@ function renderBrief() {
   }
 
   if (followPanel) followPanel.hidden = false;
-  if (mainGrid) mainGrid.classList.remove("brief-main-grid--pipeline-empty");
+  if (mainGrid) mainGrid.classList.remove("brief-dashboard--empty");
 
   const todayJobs = jobsFoundToday(pipelineData);
   const overdue = overdueFollowUps(pipelineData);
@@ -10405,32 +10467,39 @@ function renderBrief() {
   );
   const appPrior = countAppliedInWindow(pipelineData, w.priorStart, w.priorEnd);
 
-  const st = (s) => (s || "").toLowerCase().trim();
+  const stn = (s) => (s || "").toLowerCase().trim();
   const offers = pipelineData.filter((j) =>
-    st(j.status).includes("offer"),
+    stn(j.status).includes("offer"),
   ).length;
   const interviewing = pipelineData.filter((j) =>
-    st(j.status).includes("interviewing"),
+    stn(j.status).includes("interviewing"),
   ).length;
   const phoneScreens = pipelineData.filter((j) =>
-    st(j.status).includes("phone screen"),
+    stn(j.status).includes("phone screen"),
   ).length;
   const rejected = pipelineData.filter((j) =>
-    st(j.status).includes("rejected"),
+    stn(j.status).includes("rejected"),
   ).length;
-  const passed = pipelineData.filter((j) => st(j.status) === "passed").length;
+  const passed = pipelineData.filter((j) => stn(j.status) === "passed").length;
 
   const inboxCount = pipelineData.filter((j) => {
-    const s = st(j.status);
+    const s = stn(j.status);
     return !s || s === "new" || s === "researching";
   }).length;
+  const appliedCount = pipelineData.filter(
+    (j) => stn(j.status) === "applied",
+  ).length;
+  const researchingCount = pipelineData.filter(
+    (j) => stn(j.status) === "researching",
+  ).length;
+  const newCount = inboxCount - researchingCount;
 
   const medianDays = medianDaysDiscoveryToApply(pipelineData);
   const sources = topSourcesInWindow(
     pipelineData,
     w.recentStart,
     w.recentEnd,
-    3,
+    5,
   );
 
   const suggestions = buildBriefSuggestions({
@@ -10444,6 +10513,8 @@ function renderBrief() {
     total: pipelineData.length,
   });
 
+  const inLoop = interviewing + phoneScreens;
+
   if (headlineEl)
     headlineEl.innerHTML = briefHeadlineSentence(
       overdue,
@@ -10451,28 +10522,57 @@ function renderBrief() {
       stale,
       todayJobs,
     );
-  if (insightsEl)
-    insightsEl.innerHTML = renderBriefInsights({
+
+  if (statsEl)
+    statsEl.innerHTML = renderBriefStats({
       discRecent,
       discPrior,
       appRecent,
       appPrior,
+      inLoop,
       offers,
-      interviewing,
-      phoneScreens,
-      rejected,
-      passed,
       medianDays,
+    });
+
+  const stages = [
+    { label: "New", count: newCount, color: "var(--stage-rail-new)" },
+    {
+      label: "Researching",
+      count: researchingCount,
+      color: "var(--stage-rail-researching)",
+    },
+    {
+      label: "Applied",
+      count: appliedCount,
+      color: "var(--stage-rail-applied)",
+    },
+    {
+      label: "Phone Screen",
+      count: phoneScreens,
+      color: "var(--stage-rail-phone-screen)",
+    },
+    {
+      label: "Interviewing",
+      count: interviewing,
+      color: "var(--stage-rail-interviewing)",
+    },
+    { label: "Offer", count: offers, color: "var(--stage-rail-offer)" },
+    { label: "Rejected", count: rejected, color: "var(--stage-rail-rejected)" },
+    { label: "Passed", count: passed, color: "var(--stage-rail-passed)" },
+  ];
+
+  const dailyBreakdown = getDailyBreakdown(pipelineData);
+
+  if (insightsEl)
+    insightsEl.innerHTML = renderBriefCharts({
+      stages,
+      dailyBreakdown,
       sources,
       suggestions,
     });
+
   if (actionEl)
-    actionEl.innerHTML = renderBriefActionCards(
-      overdue,
-      upcoming,
-      waiting,
-      stale,
-    );
+    actionEl.innerHTML = renderBriefQueue(overdue, upcoming, waiting, stale);
 }
 
 // ============================================
@@ -15123,7 +15223,6 @@ function initDiscoveryPrefsModal() {
   const runBtn = document.getElementById("discoveryPrefsRun");
   const cancelBtn = document.getElementById("discoveryPrefsCancel");
   const closeBtn = document.getElementById("discoveryPrefsClose");
-  const settingsBtn = document.getElementById("discoveryPrefsOpenSettings");
   if (!modal) return;
 
   const closeModal = () => {
@@ -15135,13 +15234,6 @@ function initDiscoveryPrefsModal() {
   modal.addEventListener("click", (e) => {
     if (e.target === modal) closeModal();
   });
-
-  if (settingsBtn) {
-    settingsBtn.addEventListener("click", async () => {
-      closeModal();
-      await openSettingsForDiscoveryWebhook();
-    });
-  }
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && modal.style.display === "flex") closeModal();
