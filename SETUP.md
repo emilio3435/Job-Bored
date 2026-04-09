@@ -6,11 +6,15 @@ Read-only mode works out of the box — just point it at any published Google Sh
 
 **Free automation (no maintainer-hosted discovery service):** the dashboard is static; **you** run job discovery (Apps Script, GitHub Actions, n8n, etc.) and paste your **discovery webhook URL**. See the [README](README.md#free-automation-without-maintainer-hosting) options table and **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)**; all in-repo template paths are collected under [BYO automation templates](#byo-automation-templates) below.
 
+**Deep link:** append `?setup=discovery` to the dashboard URL to open **Settings** focused on the discovery webhook field (see [URL Parameters](README.md#url-parameters) in the README).
+
+**Discovery paths (not only webhooks):** [docs/DISCOVERY-PATHS.md](docs/DISCOVERY-PATHS.md) explains manual Pipeline entry, scheduled jobs (GitHub Actions, Apps Script triggers), and the optional **Run discovery** POST — with diagrams. **Apps Script:** step-by-step [integrations/apps-script/WALKTHROUGH.md](integrations/apps-script/WALKTHROUGH.md).
+
 ## BYO automation templates
 
 Copy-paste automation you deploy into **your** Google, GitHub, Cloudflare, or agent environment. The **Run discovery** POST shape and Pipeline rules are defined in **[AGENT_CONTRACT.md](AGENT_CONTRACT.md)**.
 
-- **[`integrations/apps-script/`](integrations/apps-script/)** — Deploy as web app; paste the `/exec` URL into Settings.
+- **[`integrations/apps-script/`](integrations/apps-script/)** — Deploy as web app; paste the `/exec` URL into Settings. **Step-by-step:** [WALKTHROUGH.md](integrations/apps-script/WALKTHROUGH.md).
 - **[`templates/github-actions/`](templates/github-actions/)** — Scheduled workflow (server-side POST; useful when the browser hits CORS).
 - **[`templates/cloudflare-worker/`](templates/cloudflare-worker/)** — Optional Worker relay (CORS) to your target URL (e.g. Apps Script `/exec`).
 - **[`integrations/n8n/`](integrations/n8n/)** — n8n HTTP workflow notes (BYO instance).
@@ -22,11 +26,13 @@ For a phased roadmap, see **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)**. Full doc
 
 ## Quick Start
 
-### 1. Copy the Template Sheet
+### 1. Create or copy the starter sheet
 
-[Click here to copy →](https://docs.google.com/spreadsheets/d/1pVFwPlvu3FqIhlC8YDuRpVA2v6A2fOjRX02TEiMoXRI/copy)
+Recommended in the app: save your OAuth client in Settings, then use the setup screen button to create a **blank starter sheet** in your own Google Drive with just the `Pipeline` headers.
 
-This creates a copy in your Google Drive with the required columns and sheets. **Google copies every row that exists in the source template** (including any sample or stale job rows), so your new file might not start blank.
+Manual fallback: [Click here to copy →](https://docs.google.com/spreadsheets/d/1pVFwPlvu3FqIhlC8YDuRpVA2v6A2fOjRX02TEiMoXRI/copy)
+
+Google’s make-a-copy flow duplicates **every row that exists in the source template** (including any sample or stale job rows), so that manual fallback may not start blank.
 
 **Start with an empty Pipeline:** open your copy → **Pipeline** tab → select all rows **below the header** (row 2 downward) → delete.
 
@@ -125,7 +131,9 @@ This is useful for sharing dashboard links or switching between multiple job sea
 
 - **Run discovery** sends a POST to `discoveryWebhookUrl` in `config.js` so your agent (Hermes, n8n, Apps Script, etc.) can start **another** search pass.
 - Each request includes `schemaVersion` **1**, a new `variationKey`, and optional `discoveryProfile` from **Settings** (target roles, locations, keywords — stored in IndexedDB on this device).
-- Your endpoint must allow **CORS** from your dashboard origin. See the JSON example under **&ldquo;Run discovery&rdquo; webhook** below and [AGENT_CONTRACT.md](AGENT_CONTRACT.md).
+- The dashboard-managed **Apps Script deploy is only a stub** for webhook verification and `[CC test]` smoke tests. It does **not** discover real jobs unless you replace that code with real logic or point the dashboard at another discovery engine.
+- If your real discovery engine runs locally, the browser-safe path is **JobBored → Cloudflare Worker → ngrok URL → local Hermes/OpenClaw webhook**. Start with `npm run discovery:bootstrap-local`, then use **Settings → Hermes + ngrok** to review the autofilled public target and **Cloudflare relay** to deploy the Worker and paste the Worker URL back into **Discovery webhook URL**.
+- Your endpoint must allow **CORS** from your dashboard origin. See the JSON example under **&ldquo;Run discovery&rdquo; webhook** below, the **[webhook receiver checklist](AGENT_CONTRACT.md#webhook-receiver-checklist-copy-paste)** in [AGENT_CONTRACT.md](AGENT_CONTRACT.md), and [docs/CONTRACT-CHANGELOG.md](docs/CONTRACT-CHANGELOG.md) when the contract changes.
 
 ### Resume Updater & Cover Letter Writer (optional)
 
@@ -138,6 +146,8 @@ This is useful for sharing dashboard links or switching between multiple job sea
 - **OpenAI**: set `resumeProvider` to `"openai"` and add `resumeOpenAIApiKey`. **This dashboard runs in the browser** — OpenAI’s API does **not** allow direct `fetch` from web pages (CORS), so cover letter / resume generation will fail with a network error. Use **Gemini** here, or **Webhook** and call OpenAI from your server.
 - **Anthropic (Claude)**: same **CORS** limitation as OpenAI for in-browser apps. Use **Gemini** or **Webhook** unless you proxy requests server-side.
 - **Webhook**: set `resumeProvider` to `"webhook"` and `resumeGenerationWebhookUrl` to your HTTPS endpoint. Your server runs the LLM and returns the draft text.
+- **ATS scorecard transport**: set `atsScoringMode` to `"server"` (default) to call `POST /api/ats-scorecard` on your local/deployed server, or set `"webhook"` + `atsScoringWebhookUrl` to send the ATS payload to your endpoint.
+- **Permanent ATS env setup (server mode)**: server now auto-loads `server/.env` via `dotenv`. Use `server/ats-env.example` as a template (copy to `server/.env`) so ATS provider keys persist across terminal sessions and `npm run dev` restarts.
 
 See `config.example.js` for all keys. For the POST body your webhook receives, see [Resume generation webhook](#resume-generation-webhook) below.
 
@@ -254,7 +264,7 @@ When `discoveryWebhookUrl` is set, the dashboard **POST**s JSON (schema **v1**):
 
 Your handler should start a job that searches with a **different** query or angle than the last run (use `variationKey` as a seed). Respond with **2xx** so the user sees a success toast.
 
-Full contract: [AGENT_CONTRACT.md](AGENT_CONTRACT.md).
+Full contract: [AGENT_CONTRACT.md](AGENT_CONTRACT.md). **Receiver checklist** (CORS, OPTIONS, 2xx): [Webhook receiver checklist](AGENT_CONTRACT.md#webhook-receiver-checklist-copy-paste). **Change history:** [docs/CONTRACT-CHANGELOG.md](docs/CONTRACT-CHANGELOG.md).
 
 ### Resume generation webhook
 
@@ -281,6 +291,15 @@ When `resumeProvider` is `"webhook"` and `resumeGenerationWebhookUrl` is set, ea
   },
   "profile": {
     "resumeText": "…",
+    "resumeSourceText": "…",
+    "candidateProfileText": "…",
+    "linkedinProfileText": "…",
+    "additionalContextText": "…",
+    "sourceMeta": {
+      "resumeUpdatedAt": "2026-04-08T11:35:00.000Z",
+      "linkedinUpdatedAt": "2026-04-09T09:12:00.000Z",
+      "additionalContextUpdatedAt": "2026-04-09T09:30:00.000Z"
+    },
     "writingSampleExcerpts": [{ "title": "…", "text": "…" }],
     "preferences": {
       "tone": "warm",
@@ -288,6 +307,7 @@ When `resumeProvider` is `"webhook"` and `resumeGenerationWebhookUrl` is set, ea
       "industriesToEmphasize": "…",
       "wordsToAvoid": "…",
       "voiceNotes": "…",
+      "profileMergePreference": "merge",
       "coverLetterTemplateId": "cover_classic_paragraphs",
       "resumeTemplateId": "resume_traditional_sections"
     }
@@ -304,6 +324,45 @@ When `resumeProvider` is `"webhook"` and `resumeGenerationWebhookUrl` is set, ea
 ```
 
 Respond with **200** and a JSON body `{ "text": "…" }` (or plain text). The dashboard shows the returned text in a modal with **Copy**.
+
+### ATS scorecard webhook/server contract
+
+When a draft is generated or refined, the dashboard can POST:
+
+```json
+{
+  "event": "command-center.ats-scorecard",
+  "schemaVersion": 1,
+  "feature": "cover_letter",
+  "docText": "...generated draft...",
+  "job": {
+    "title": "...",
+    "company": "...",
+    "url": "...",
+    "fitAssessment": "...",
+    "talkingPoints": "...",
+    "notes": "...",
+    "postingEnrichment": {
+      "description": "...",
+      "requirements": ["..."],
+      "skills": ["..."],
+      "mustHaves": ["..."],
+      "responsibilities": ["..."],
+      "toolsAndStack": ["..."]
+    }
+  },
+  "profile": {
+    "candidateProfileText": "...",
+    "resumeSourceText": "...",
+    "linkedinProfileText": "...",
+    "additionalContextText": "..."
+  },
+  "instructions": { "userNotes": "...", "refinementFeedback": "..." },
+  "meta": { "sheetId": "...", "generatedAt": "2026-04-09T10:00:00.000Z" }
+}
+```
+
+Return JSON matching `schemas/ats-scorecard-response.v1.schema.json` (includes `overallScore`, dimensions, strengths, gaps, evidence, rewrites, confidence, and model). Full schemas and fixtures are in `schemas/` and `examples/`.
 
 ---
 
