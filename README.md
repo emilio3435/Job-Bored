@@ -225,6 +225,15 @@ All template paths in one place: **[SETUP.md — BYO automation templates](SETUP
 
 See [SECURITY.md](SECURITY.md) for maintainers and leak response.
 
+## Documentation
+
+Index and contracts for automation and integrations (column layouts stay in [Sheet Structure](#sheet-structure) above):
+
+- **[docs/README.md](docs/README.md)** — documentation index
+- **[AGENT_CONTRACT.md](AGENT_CONTRACT.md)** — discovery webhook contract (JSON, columns, dedupe)
+- **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)** — automation roadmap and template pointers
+- **[examples/](examples/)** — discovery webhook request fixtures for local testing
+
 ## Contributing
 
 PRs welcome. Keep it simple — no build tools, no frameworks, minimal CDN use (Google Identity Services only).

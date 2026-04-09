@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/job-bored/command-center/schemas/discovery-webhook-request.v1.schema.json",
+  "title": "Command Center discovery webhook (POST body)",
+  "description": "Sent by the dashboard when the user clicks Run discovery. schemaVersion 1.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "event",
+    "schemaVersion",
+    "sheetId",
+    "variationKey",
+    "requestedAt"
+  ],
+  "properties": {
+    "event": {
+      "type": "string",
+      "const": "command-center.discovery"
+    },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "sheetId": { "type": "string", "minLength": 10 },
+    "variationKey": { "type": "string", "minLength": 4 },
+    "requestedAt": { "type": "string", "format": "date-time" },
+    "discoveryProfile": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "targetRoles": { "type": "string" },
+        "locations": { "type": "string" },
+        "remotePolicy": { "type": "string" },
+        "seniority": { "type": "string" },
+        "keywordsInclude": { "type": "string" },
+        "keywordsExclude": { "type": "string" },
+        "maxLeadsPerRun": { "type": "string" }
+      }
+    }
+  }
+}

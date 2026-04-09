@@ -1,0 +1,16 @@
+{
+  "event": "command-center.discovery",
+  "schemaVersion": 1,
+  "sheetId": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2up",
+  "variationKey": "f00dcafebabe4242",
+  "requestedAt": "2026-04-08T12:00:00.000Z",
+  "discoveryProfile": {
+    "targetRoles": "Staff / Principal backend engineer",
+    "locations": "US West, UK remote",
+    "remotePolicy": "Remote-first; hybrid OK in SF",
+    "seniority": "Senior, Staff",
+    "keywordsInclude": "Go, distributed systems, Postgres",
+    "keywordsExclude": "PHP, WordPress",
+    "maxLeadsPerRun": "25"
+  }
+}
