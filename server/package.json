@@ -1,0 +1,15 @@
+{
+  "name": "command-center-job-scraper",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.mjs",
+    "scrape": "node job-scraper.mjs"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.1",
+    "express": "^4.21.2"
+  }
+}

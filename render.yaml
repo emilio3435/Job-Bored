@@ -1,0 +1,11 @@
+# Optional Blueprint for Render.com — deploy only the job scraper from server/
+services:
+  - type: web
+    name: command-center-job-scraper
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node index.mjs
+    envVars:
+      - key: LISTEN_HOST
+        value: "0.0.0.0"

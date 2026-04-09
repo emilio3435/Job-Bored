@@ -1,52 +1,58 @@
 # Google Apps Script — discovery webhook stub
 
-Free, runs in **your** Google account (no server bill from this repo). Paste the deployed **Web app URL** into Command Center **Settings → Discovery webhook URL**.
+Free, runs in **your** Google account. Deploy a **Web app** and paste the **`/exec`** URL into Command Center **Settings → Discovery webhook URL** for webhook verification or `[CC test]` smoke tests.
+
+| If you want…                                                        | Open                                                         |
+| ------------------------------------------------------------------- | ------------------------------------------------------------ |
+| **Step-by-step** (tables, phases, links)                            | **[WALKTHROUGH.md](./WALKTHROUGH.md)**                       |
+| **AI / CLI: what can automate the `/exec` URL**                     | **[AGENT-BOOTSTRAP.md](./AGENT-BOOTSTRAP.md)**               |
+| **Ways to avoid webhooks** (manual rows, GitHub Actions, schedules) | **[docs/DISCOVERY-PATHS.md](../../docs/DISCOVERY-PATHS.md)** |
+| **JSON contract** for POST bodies                                   | **[AGENT_CONTRACT.md](../../AGENT_CONTRACT.md)**             |
+
+---
+
+## Who needs to deploy?
+
+**Each user or team** that wants **their own** Apps Script endpoint creates **their own** project in **their** Google account. This folder is a **template** — there is **no** shared “official” URL in the repo. Your `.clasp.json` (local only) is [gitignored](../../.gitignore).
+
+---
 
 ## What it does
 
-- **`doPost`** accepts JSON matching [AGENT_CONTRACT.md](../../AGENT_CONTRACT.md) (`event`, `schemaVersion`, `sheetId`, `variationKey`, `requestedAt`, `discoveryProfile`).
-- Returns **`{"ok":true,...}`** so the dashboard shows a success toast.
-- Optionally appends **one test row** to **Pipeline** if you enable `ENABLE_TEST_ROW` (smoke test).
+- **`doPost`** accepts JSON matching [AGENT_CONTRACT.md](../../AGENT_CONTRACT.md).
+- Returns **`{"ok":true,...}`** so the dashboard can show a success toast.
+- This default stub does **not** discover or scrape jobs by itself. It only
+  proves that the dashboard can reach your webhook.
+- **`ENABLE_TEST_ROW`** (optional): appends a **`[CC test]`** row to **Pipeline** for smoke tests.
+- In the dashboard, this should be treated as **stub-only**, not as a real discovery engine.
 
-Replace the stub logic with your own search + `appendRow` / update-by-Link as needed.
+---
 
-## Setup
+## Quick commands (from repo root)
 
-1. Open [script.google.com](https://script.google.com) → **New project**.
-2. Paste **`Code.gs`** (this folder) into `Code.gs` (replace default).
-3. **Project Settings** (gear) → **Script properties** → Add:
+| Command                                                           | Purpose                                                                          |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `npm run apps-script:create`                                      | `clasp create` a new standalone project (writes local `.clasp.json`)             |
+| `npm run apps-script:push`                                        | Push `Code.gs` + `appsscript.json` (uses `npx @google/clasp`, no global install) |
+| `npm run apps-script:open`                                        | Open the project in the browser (deploy Web app here)                            |
+| `npm run test:discovery-webhook -- --url "…/exec" --sheet-id "…"` | Verify `ok: true` after deploy                                                   |
 
-   | Property          | Example             | Required                                       |
-   | ----------------- | ------------------- | ---------------------------------------------- |
-   | `SHEET_ID`        | From your Sheet URL | Recommended (enables test row + sheetId check) |
-   | `ENABLE_TEST_ROW` | `true`              | Optional — appends a marker row on each POST   |
+First login: `cd integrations/apps-script && npx -y @google/clasp login`
 
-4. **Save**. Grant permissions when prompted (needs **Google Sheets** access for your spreadsheet).
-5. **Deploy** → **New deployment** → type **Web app**:
-   - **Execute as:** Me
-   - **Who has access:** Anyone (try this first for `fetch` from the dashboard)
-
-6. Copy the **Web app URL** (ends with `/exec`).
-
-7. In Command Center **Settings**, set **Discovery webhook URL** to that URL (no trailing junk). Save, reload, click **Run discovery**.
+---
 
 ## CORS (important)
 
-Browsers send **`fetch`** from your dashboard origin. **Google Apps Script web apps often do not return CORS headers** that satisfy a cross-origin POST from GitHub Pages or another site — you may see a network/CORS error in the console even though the script runs.
+Browsers may **block** `fetch` to Apps Script even when the script runs. If **`npm run test:discovery-webhook`** passes but the **dashboard** errors, use **[templates/github-actions/](../../templates/github-actions/)** (server-side POST) or **[templates/cloudflare-worker/](../../templates/cloudflare-worker/)** (CORS relay). Details in [WALKTHROUGH.md](./WALKTHROUGH.md#cors-and-the-run-discovery-button).
 
-**Workarounds (pick one):**
-
-- Use **[templates/github-actions/](../../templates/github-actions/)** to `curl` POST **server-side** (no CORS) to the same `/exec` URL on a schedule or manually.
-- Put a tiny **proxy** you control (Cloudflare Worker, etc.) that adds `Access-Control-Allow-Origin` and forwards to Apps Script.
-- Run discovery only from automation **inside** Google (time-driven trigger) and skip the dashboard button.
-
-## Verify
-
-- **View → Executions** in the Apps Script editor after **Run discovery**.
-- If `ENABLE_TEST_ROW` is `true`, check the **Pipeline** tab for a `[CC test]` row.
+---
 
 ## Files
 
-| File      | Role          |
-| --------- | ------------- |
-| `Code.gs` | `doPost` stub |
+| File                                         | Role                                             |
+| -------------------------------------------- | ------------------------------------------------ |
+| [Code.gs](./Code.gs)                         | `doPost` stub                                    |
+| [appsscript.json](./appsscript.json)         | Manifest (V8, Sheets scope)                      |
+| [WALKTHROUGH.md](./WALKTHROUGH.md)           | Full visual guide                                |
+| [.claspignore](./.claspignore)               | Excludes `README.md` from `clasp push`           |
+| [.clasp.json.example](./.clasp.json.example) | Copy to `.clasp.json` to link an existing script |

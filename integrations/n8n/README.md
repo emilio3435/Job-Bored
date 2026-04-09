@@ -18,6 +18,7 @@
   "variationKey": "{{ $json.variationKey }}",
   "requestedAt": "{{ $now.toISO() }}",
   "discoveryProfile": {}
+}
 ```
 
 3. Map **`variationKey`** from **Function** or **Crypto** node (random hex) so each run differs.

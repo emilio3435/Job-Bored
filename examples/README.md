@@ -1,5 +1,7 @@
 # Discovery webhook examples
 
+**New to discovery?** Read **[docs/DISCOVERY-PATHS.md](../docs/DISCOVERY-PATHS.md)** (webhook optional; alternatives). **Apps Script:** **[integrations/apps-script/WALKTHROUGH.md](../integrations/apps-script/WALKTHROUGH.md)**.
+
 These JSON files are **sample POST bodies** for **Run discovery**: when a user clicks that action and a discovery webhook URL is set, the dashboard POSTs JSON like this to your endpoint. See the full contract in [../AGENT_CONTRACT.md](../AGENT_CONTRACT.md) (interface **B — Discovery webhook**).
 
 | File                                             | Purpose                                             |
@@ -8,6 +10,16 @@ These JSON files are **sample POST bodies** for **Run discovery**: when a user c
 | `discovery-webhook-request.v1-with-profile.json` | Same shape with example `discoveryProfile` strings. |
 
 **Schema:** [../schemas/discovery-webhook-request.v1.schema.json](../schemas/discovery-webhook-request.v1.schema.json)
+
+## Automated check (repo script)
+
+From the **repository root**, after you have an HTTPS webhook URL (e.g. Apps Script `/exec`):
+
+```bash
+npm run test:discovery-webhook -- --url "YOUR_URL" --sheet-id "YOUR_SHEET_ID"
+```
+
+This POSTs `examples/discovery-webhook-request.v1.json` (with your `sheetId` and a fresh `variationKey`) and exits **0** only if the response JSON has `"ok": true`. See `scripts/verify-discovery-webhook.mjs`.
 
 ## Try with curl
 

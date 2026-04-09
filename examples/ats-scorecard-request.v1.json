@@ -1,0 +1,42 @@
+{
+  "event": "command-center.ats-scorecard",
+  "schemaVersion": 1,
+  "feature": "cover_letter",
+  "docText": "I have shipped full-stack product features in JavaScript and TypeScript, partnering with design and recruiting managers to improve ATS conversion for job seekers.",
+  "job": {
+    "title": "Frontend Engineer",
+    "company": "Acme Labs",
+    "url": "https://example.com/jobs/frontend-engineer",
+    "fitAssessment": "Strong fit for UI systems and growth loops.",
+    "talkingPoints": "Fast iteration, metrics ownership",
+    "notes": "Emphasize recruiter empathy and measurable outcomes.",
+    "postingEnrichment": {
+      "description": "Build user-facing web products and collaborate with product and design.",
+      "requirements": [
+        "3+ years of frontend experience",
+        "Strong JavaScript and TypeScript fundamentals"
+      ],
+      "skills": ["JavaScript", "TypeScript", "React", "CSS"],
+      "mustHaves": ["React", "TypeScript"],
+      "responsibilities": [
+        "Ship product features",
+        "Improve onboarding funnel"
+      ],
+      "toolsAndStack": ["React", "Node.js", "PostgreSQL"]
+    }
+  },
+  "profile": {
+    "candidateProfileText": "RESUME: Built React growth surfaces and wrote ATS-optimized messaging.",
+    "resumeSourceText": "Built product experiences in React and TypeScript.",
+    "linkedinProfileText": "Frontend engineer with analytics ownership.",
+    "additionalContextText": "Prefer concise, high-signal writing."
+  },
+  "instructions": {
+    "userNotes": "Keep the tone direct and concise.",
+    "refinementFeedback": "Increase emphasis on business impact."
+  },
+  "meta": {
+    "sheetId": "sheet_123",
+    "generatedAt": "2026-04-09T10:00:00.000Z"
+  }
+}

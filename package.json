@@ -1,0 +1,30 @@
+{
+  "name": "command-center",
+  "private": true,
+  "description": "Job search dashboard + optional local Cheerio scraper (npm start runs both)",
+  "scripts": {
+    "postinstall": "npm install --prefix ./server",
+    "start": "concurrently -k -n web,scrape -c blue,magenta \"npm run start:web\" \"npm run start:scraper\"",
+    "start:web": "npx --yes serve . -l 8080",
+    "start:scraper": "npm run start --prefix server",
+    "dev": "npm start",
+    "web-only": "npx --yes serve . -l 8080",
+    "apps-script:push": "node scripts/clasp-helper.mjs push",
+    "apps-script:open": "node scripts/clasp-helper.mjs open",
+    "apps-script:create": "node scripts/clasp-helper.mjs create --type standalone --title \"Command Center discovery webhook\"",
+    "apps-script:login": "node scripts/clasp-helper.mjs login",
+    "discovery:bootstrap-local": "node scripts/bootstrap-local-discovery.mjs",
+    "cloudflare-relay:deploy": "node scripts/deploy-cloudflare-relay.mjs",
+    "test:discovery-webhook": "node scripts/verify-discovery-webhook.mjs",
+    "test:contract": "node scripts/test-contract.mjs",
+    "test:ats-contract": "node scripts/test-ats-scorecard-contract.mjs",
+    "test:pipeline-contract": "node scripts/test-pipeline-contract.mjs",
+    "lint:skills": "node scripts/lint-integration-skills.mjs",
+    "test:contract:all": "npm run test:contract && npm run test:ats-contract && npm run test:pipeline-contract && npm run lint:skills"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "concurrently": "^9.1.2"
+  }
+}

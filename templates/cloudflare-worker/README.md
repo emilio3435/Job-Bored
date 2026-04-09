@@ -1,52 +1,93 @@
-# Cloudflare Worker — browser-safe POST relay
+# Cloudflare Worker - browser-safe POST relay
 
-Use this when the dashboard must **POST JSON from the browser** to a URL that does not send CORS headers (typical for **Google Apps Script** web apps). You deploy a **tiny Worker in your own Cloudflare account**; it adds CORS and forwards the body to your real webhook.
+Use this when the dashboard must POST JSON from the browser to a webhook that
+does not reliably serve browser CORS, or when you want one browser-facing URL
+in front of a downstream webhook you control.
 
-Payload and semantics follow **[AGENT_CONTRACT.md](../../AGENT_CONTRACT.md)** at the repo root.
+The Worker runs in **your** Cloudflare account. It forwards requests to the
+real downstream endpoint you set as `TARGET_URL`.
 
-## Security
+## Fast path
 
-This Worker runs in **your** Cloudflare account. You own routing, secrets, and any abuse risk. Prefer **`FORWARD_SECRET`** + path **`/forward`** so random visitors cannot relay traffic through your Worker. Do not commit secrets; use `wrangler secret` or the dashboard.
+From the repo root:
 
-## Deploy
+```bash
+npm run cloudflare-relay:deploy -- --target-url "https://script.google.com/macros/s/.../exec" --cors-origin "https://your-dashboard.example"
+```
 
-1. Install [Wrangler](https://developers.cloudflare.com/workers/wrangler/install-and-update/) (`npm i -g wrangler`) and log in: `wrangler login`.
+The helper deploys the Worker, uploads `TARGET_URL`, tries `wrangler login`
+automatically in an interactive terminal if auth is missing, and can reuse or
+create the account-level `workers.dev` subdomain when `CLOUDFLARE_API_TOKEN`
+is available. If you also pass `--sheet-id`, it runs the repo webhook verify
+step after deploy.
 
-2. Copy this folder somewhere (or clone the repo) and `cd` into `templates/cloudflare-worker/`.
+If your real discovery engine runs on your own machine, run:
 
-3. Set the downstream URL (e.g. Apps Script **Deploy → Web app** `/exec` URL):
+```bash
+npm run discovery:bootstrap-local
+```
+
+That helper starts or reuses the local receiver and ngrok, then writes
+`discovery-local-bootstrap.json` so the dashboard can autofill the local path.
+Use the printed public tunnel URL as the downstream `TARGET_URL` for the relay.
+
+## Dashboard rule
+
+In JobBored, save the **open `workers.dev` URL** as the discovery webhook.
+Do **not** save `/forward` in the dashboard path. Keep Cloudflare Access off the
+open Worker URL or the browser test path will fail.
+
+## Deployment
+
+1. Install Wrangler and sign in:
+
+   ```bash
+   wrangler login
+   ```
+
+2. Set the downstream target:
 
    ```bash
    wrangler secret put TARGET_URL
    ```
 
-4. Optional — lock to `/forward` + Bearer token:
+   Good targets include:
+
+   - an Apps Script `/exec` URL
+   - a public ngrok URL that forwards to your local webhook
+
+3. Optional:
 
    ```bash
    wrangler secret put FORWARD_SECRET
    ```
 
-5. Deploy:
+   Use this only if you intentionally want to lock the Worker for manual
+   testing. The JobBored dashboard still expects the open Worker URL.
+
+4. Deploy:
 
    ```bash
    wrangler deploy
    ```
 
-6. In Command Center settings, use your Worker URL as the discovery webhook:
-   - Open mode: `https://<your-worker>.<subdomain>.workers.dev/` (any path) **or** add `?target=<url-encoded-exec-url>` for local testing only.
-   - Locked mode: `https://<your-worker>.<subdomain>.workers.dev/forward` and send header `Authorization: Bearer <FORWARD_SECRET>` (dashboard must support custom headers if you use this; otherwise use the open Worker URL + `TARGET_URL` only on a private preview URL).
+## Behavior
+
+- `OPTIONS` returns CORS preflight handling.
+- `POST` forwards the body and `Content-Type` to `TARGET_URL`.
+- The response status and body come back from the downstream webhook.
 
 ## Environment
 
-| Binding / var    | Type   | Purpose                                                                                                              |
-| ---------------- | ------ | -------------------------------------------------------------------------------------------------------------------- |
-| `TARGET_URL`     | Secret | HTTPS POST destination (e.g. Apps Script `/exec`). Required unless using `?target=` (dev only).                      |
-| `FORWARD_SECRET` | Secret | If set, only **`POST /forward`** is allowed; client must send `Authorization: Bearer <token>` or `X-Forward-Secret`. |
-| `CORS_ORIGIN`    | Var    | Optional. Defaults to `*`. Set to your static site origin in production.                                             |
+| Binding / var    | Type   | Purpose                                                                                      |
+| ---------------- | ------ | -------------------------------------------------------------------------------------------- |
+| `TARGET_URL`     | Secret | HTTPS downstream webhook. Required.                                                          |
+| `FORWARD_SECRET` | Secret | Optional lock for `POST /forward` on private/manual tests.                                    |
+| `CORS_ORIGIN`    | Var    | Optional browser origin. Defaults to `*` when omitted.                                       |
 
-## Behavior
+## Notes
 
-- **`OPTIONS`** — CORS preflight (204).
-- **`POST`** — Forwards body and `Content-Type` to `TARGET_URL` (or `?target=`). Returns the **upstream status and body** (transparent relay). On success, upstreams often respond with HTTP **200** and JSON such as `{ "ok": true }` per [AGENT_CONTRACT.md](../../AGENT_CONTRACT.md).
-
-No npm dependencies in the Worker itself; Wrangler is only the CLI you use to deploy.
+- The browser-facing Worker URL is what JobBored saves in Settings.
+- The downstream target is the real webhook behind the relay.
+- If the downstream is Apps Script, keep treating the Apps Script stub as
+  stub-only until it actually writes Pipeline rows.

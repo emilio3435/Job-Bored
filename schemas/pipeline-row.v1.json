@@ -1,0 +1,180 @@
+{
+  "$id": "https://github.com/job-bored/command-center/schemas/pipeline-row.v1.json",
+  "title": "Command Center Pipeline row (Interface A)",
+  "description": "Descriptor for the Pipeline sheet tab: column letters, header labels, and constrained values where the UI enforces enums. schemaVersion 1. Authoritative UI enums: app.js renderCardActions (status), priority order objects, response select.",
+  "schemaVersion": 1,
+  "tabName": "Pipeline",
+  "headerRow": [
+    "Date Found",
+    "Title",
+    "Company",
+    "Location",
+    "Link",
+    "Source",
+    "Salary",
+    "Fit Score",
+    "Priority",
+    "Tags",
+    "Fit Assessment",
+    "Contact",
+    "Status",
+    "Applied Date",
+    "Notes",
+    "Follow-up Date",
+    "Talking Points",
+    "Last contact",
+    "Did they reply?"
+  ],
+  "columns": [
+    {
+      "id": "dateFound",
+      "letter": "A",
+      "headerLabel": "Date Found",
+      "type": "date",
+      "sheetIndex": 0
+    },
+    {
+      "id": "title",
+      "letter": "B",
+      "headerLabel": "Title",
+      "type": "string",
+      "sheetIndex": 1
+    },
+    {
+      "id": "company",
+      "letter": "C",
+      "headerLabel": "Company",
+      "type": "string",
+      "sheetIndex": 2
+    },
+    {
+      "id": "location",
+      "letter": "D",
+      "headerLabel": "Location",
+      "type": "string",
+      "sheetIndex": 3
+    },
+    {
+      "id": "link",
+      "letter": "E",
+      "headerLabel": "Link",
+      "type": "string",
+      "sheetIndex": 4
+    },
+    {
+      "id": "source",
+      "letter": "F",
+      "headerLabel": "Source",
+      "type": "string",
+      "sheetIndex": 5
+    },
+    {
+      "id": "salary",
+      "letter": "G",
+      "headerLabel": "Salary",
+      "type": "string",
+      "sheetIndex": 6
+    },
+    {
+      "id": "fitScore",
+      "letter": "H",
+      "headerLabel": "Fit Score",
+      "type": "number",
+      "sheetIndex": 7
+    },
+    {
+      "id": "priority",
+      "letter": "I",
+      "headerLabel": "Priority",
+      "type": "string",
+      "sheetIndex": 8,
+      "enum": ["🔥", "⚡", "—", "↓"],
+      "emptyAllowed": true
+    },
+    {
+      "id": "tags",
+      "letter": "J",
+      "headerLabel": "Tags",
+      "type": "string",
+      "sheetIndex": 9
+    },
+    {
+      "id": "fitAssessment",
+      "letter": "K",
+      "headerLabel": "Fit Assessment",
+      "type": "string",
+      "sheetIndex": 10
+    },
+    {
+      "id": "contact",
+      "letter": "L",
+      "headerLabel": "Contact",
+      "type": "string",
+      "sheetIndex": 11
+    },
+    {
+      "id": "status",
+      "letter": "M",
+      "headerLabel": "Status",
+      "type": "string",
+      "sheetIndex": 12,
+      "enum": [
+        "New",
+        "Researching",
+        "Applied",
+        "Phone Screen",
+        "Interviewing",
+        "Offer",
+        "Rejected",
+        "Passed"
+      ],
+      "emptyAllowed": true
+    },
+    {
+      "id": "appliedDate",
+      "letter": "N",
+      "headerLabel": "Applied Date",
+      "type": "date",
+      "sheetIndex": 13
+    },
+    {
+      "id": "notes",
+      "letter": "O",
+      "headerLabel": "Notes",
+      "type": "string",
+      "sheetIndex": 14
+    },
+    {
+      "id": "followUpDate",
+      "letter": "P",
+      "headerLabel": "Follow-up Date",
+      "type": "date",
+      "sheetIndex": 15
+    },
+    {
+      "id": "talkingPoints",
+      "letter": "Q",
+      "headerLabel": "Talking Points",
+      "type": "string",
+      "sheetIndex": 16
+    },
+    {
+      "id": "lastHeardFrom",
+      "letter": "R",
+      "headerLabel": "Last contact",
+      "type": "string",
+      "sheetIndex": 17,
+      "optionalColumn": true
+    },
+    {
+      "id": "responseFlag",
+      "letter": "S",
+      "headerLabel": "Did they reply?",
+      "type": "string",
+      "sheetIndex": 18,
+      "enum": ["Yes", "No", "Unknown"],
+      "emptyAllowed": true,
+      "optionalColumn": true
+    }
+  ]
+}
