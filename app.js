@@ -41,8 +41,13 @@ function readStoredConfigOverrides() {
 }
 
 function applyConfigOverridesToWindowConfig(overrides) {
+  if (
+    !window.COMMAND_CENTER_CONFIG ||
+    typeof window.COMMAND_CENTER_CONFIG !== "object"
+  ) {
+    window.COMMAND_CENTER_CONFIG = {};
+  }
   const base = window.COMMAND_CENTER_CONFIG;
-  if (!base || typeof base !== "object") return;
   const src = overrides && typeof overrides === "object" ? overrides : {};
   for (const k of COMMAND_CENTER_OVERRIDE_KEYS) {
     if (Object.prototype.hasOwnProperty.call(src, k) && src[k] != null) {
@@ -9892,27 +9897,50 @@ function briefJobLineWithLastHeard(job) {
 // --- Brief: Headline ---
 
 function briefHeadlineSentence(overdue, waiting, stale, todayJobs) {
-  const parts = [];
-  if (overdue.length)
-    parts.push(
-      `<strong>${overdue.length}</strong> follow-up${overdue.length !== 1 ? "s" : ""} overdue`,
+  const ov = overdue.length;
+  const wt = waiting.length;
+  const st = stale.length;
+  const nw = todayJobs.length;
+  const urgent = ov + wt + st;
+
+  if (!urgent && !nw)
+    return "Nothing demands your attention today. The pipeline is steady&mdash;a good day to sharpen your story or reach out to someone new.";
+
+  if (!urgent && nw)
+    return `Your pipeline is clear and ${nw === 1 ? "a promising new opportunity has" : `<strong>${nw}</strong> fresh opportunities have`} surfaced since yesterday. A clean slate and new leads&mdash;today is yours to move fast.`;
+
+  const threads = [];
+  if (ov)
+    threads.push(
+      ov === 1
+        ? "one follow-up has gone unanswered past its window"
+        : `<strong>${ov}</strong> follow-ups have slipped past their window`,
     );
-  if (waiting.length)
-    parts.push(`<strong>${waiting.length}</strong> awaiting a reply`);
-  if (stale.length)
-    parts.push(
-      `<strong>${stale.length}</strong> stale application${stale.length !== 1 ? "s" : ""}`,
+  if (wt)
+    threads.push(
+      wt === 1
+        ? "one conversation is still waiting on you"
+        : `<strong>${wt}</strong> conversations are still waiting on you`,
+    );
+  if (st)
+    threads.push(
+      st === 1
+        ? "one application has gone quiet"
+        : `<strong>${st}</strong> applications have gone quiet`,
     );
 
-  if (!parts.length && todayJobs.length)
-    return `Nothing urgent &mdash; <strong>${todayJobs.length}</strong> fresh match${todayJobs.length !== 1 ? "es" : ""} landed today.`;
-  if (!parts.length) return "All clear today. Your pipeline is humming along.";
-  return (
-    parts.join(", ") +
-    (todayJobs.length
-      ? ` &mdash; plus <strong>${todayJobs.length}</strong> new match${todayJobs.length !== 1 ? "es" : ""}.`
-      : ".")
-  );
+  let prose = threads[0];
+  if (threads.length === 2) prose += ", and " + threads[1];
+  else if (threads.length === 3)
+    prose += ", " + threads[1] + ", and " + threads[2];
+
+  prose = prose.charAt(0).toUpperCase() + prose.slice(1);
+
+  if (nw)
+    prose += `. On the bright side, ${nw === 1 ? "a new match" : `<strong>${nw}</strong> new matches`} arrived today&mdash;momentum is building.`;
+  else prose += ". Clearing these will put you back in control of the pace.";
+
+  return prose;
 }
 
 // --- Brief: Opportunity column ---
@@ -10004,6 +10032,34 @@ function topSourcesInWindow(jobs, start, end, limit) {
     .slice(0, limit);
 }
 
+function getDailyBreakdown(jobs) {
+  const days = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  for (let i = 6; i >= 0; i--) {
+    const dayStart = new Date(today);
+    dayStart.setDate(dayStart.getDate() - i);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+    const discovered = jobs.filter((j) => {
+      const d = parseBriefDate(j.dateFound);
+      return d && d >= dayStart && d < dayEnd;
+    }).length;
+    const applied = jobs.filter((j) => {
+      const d = parseBriefDate(j.appliedDate);
+      return d && d >= dayStart && d < dayEnd;
+    }).length;
+    days.push({
+      label: dayStart
+        .toLocaleDateString(undefined, { weekday: "short" })
+        .slice(0, 2),
+      discovered,
+      applied,
+    });
+  }
+  return days;
+}
+
 function countStatusMatches(jobs, pred) {
   return jobs.filter(pred).length;
 }
@@ -10052,171 +10108,227 @@ function buildBriefSuggestions(ctx) {
   return tips.slice(0, 4);
 }
 
-function renderBriefInsights(ctx) {
+function renderBriefStats(ctx) {
   const {
     discRecent,
     discPrior,
     appRecent,
     appPrior,
+    inLoop,
     offers,
-    interviewing,
-    phoneScreens,
-    rejected,
-    passed,
     medianDays,
-    sources,
-    suggestions,
   } = ctx;
 
-  const inLoop = interviewing + phoneScreens;
-  const closed = rejected + passed;
+  function deltaClass(cur, prev) {
+    const d = cur - prev;
+    if (d > 0) return "stat-card__delta--up";
+    if (d < 0) return "stat-card__delta--down";
+    return "stat-card__delta--flat";
+  }
 
-  let html = '<div class="brief-insights brief-insights--v2">';
-  html += '<header class="brief-insights__hero">';
-  html +=
-    '<h3 class="brief-insights__hero-title" id="heading-insights">Insights</h3>';
-  html +=
-    '<p class="brief-insights__hero-tagline">7d vs prior week · Δ = change · full pipeline</p>';
-  html += "</header>";
+  let html = "";
 
-  html +=
-    '<div class="brief-insights__tiles" role="group" aria-label="Weekly trends">';
-  html += `<article class="insight-tile">
-    <span class="insight-tile__label">Discovered</span>
-    <span class="insight-tile__value">${discRecent}</span>
-    <span class="insight-tile__meta">vs prior</span>
-    <span class="insight-pill ${trendPillClass(discRecent, discPrior)}">${trendDeltaShort(discRecent, discPrior)}</span>
-  </article>`;
-  html += `<article class="insight-tile">
-    <span class="insight-tile__label">Applied</span>
-    <span class="insight-tile__value">${appRecent}</span>
-    <span class="insight-tile__meta">vs prior</span>
-    <span class="insight-pill ${trendPillClass(appRecent, appPrior)}">${trendDeltaShort(appRecent, appPrior)}</span>
-  </article>`;
-  html += "</div>";
+  html += `<div class="stat-card">
+    <span class="stat-card__label">Found this week</span>
+    <div class="stat-card__row">
+      <span class="stat-card__value">${discRecent}</span>
+      <span class="stat-card__delta ${deltaClass(discRecent, discPrior)}">${trendDeltaShort(discRecent, discPrior)}</span>
+    </div>
+    <span class="stat-card__sub">vs ${discPrior} prior week</span>
+  </div>`;
 
-  html += `<div class="insight-outcomes${medianDays != null ? " insight-outcomes--quad" : ""}" role="group" aria-label="Pipeline outcomes">`;
-  html += `<div class="insight-outcomes__item"><span class="insight-outcomes__n">${offers}</span><span class="insight-outcomes__lbl">Offers</span></div>`;
-  html += `<div class="insight-outcomes__item"><span class="insight-outcomes__n">${inLoop}</span><span class="insight-outcomes__lbl">In loop</span></div>`;
-  html += `<div class="insight-outcomes__item"><span class="insight-outcomes__n">${closed}</span><span class="insight-outcomes__lbl">Closed</span></div>`;
-  if (medianDays != null) {
-    html += `<div class="insight-outcomes__item"><span class="insight-outcomes__n">${medianDays}<span class="insight-outcomes__unit">d</span></span><span class="insight-outcomes__lbl">Median find→apply</span></div>`;
+  html += `<div class="stat-card">
+    <span class="stat-card__label">Applied this week</span>
+    <div class="stat-card__row">
+      <span class="stat-card__value">${appRecent}</span>
+      <span class="stat-card__delta ${deltaClass(appRecent, appPrior)}">${trendDeltaShort(appRecent, appPrior)}</span>
+    </div>
+    <span class="stat-card__sub">vs ${appPrior} prior week</span>
+  </div>`;
+
+  html += `<div class="stat-card">
+    <span class="stat-card__label">In loop</span>
+    <div class="stat-card__row">
+      <span class="stat-card__value">${inLoop}</span>
+    </div>
+    <span class="stat-card__sub">interviewing + screens</span>
+  </div>`;
+
+  html += `<div class="stat-card">
+    <span class="stat-card__label">Offers</span>
+    <div class="stat-card__row">
+      <span class="stat-card__value">${offers}</span>
+    </div>
+    <span class="stat-card__sub">${medianDays != null ? `${medianDays}d median find\u2009\u2192\u2009apply` : "full pipeline"}</span>
+  </div>`;
+
+  return html;
+}
+
+function renderBriefCharts(ctx) {
+  const { stages, dailyBreakdown, sources, suggestions } = ctx;
+
+  let html = "";
+
+  // Pipeline funnel
+  const total = stages.reduce((s, st) => s + st.count, 0);
+  if (total > 0) {
+    html += '<div class="pipeline-funnel">';
+    html += '<h4 class="pipeline-funnel__title">Pipeline distribution</h4>';
+    html += '<div class="pipeline-funnel__bar">';
+    for (const s of stages) {
+      if (s.count === 0) continue;
+      html += `<div class="pipeline-funnel__seg" style="flex:${s.count};background:${s.color}" title="${escapeHtml(s.label)}: ${s.count}"></div>`;
+    }
+    html += "</div>";
+    html += '<div class="pipeline-funnel__legend">';
+    for (const s of stages) {
+      if (s.count === 0) continue;
+      html += `<span class="pipeline-funnel__key"><span class="pipeline-funnel__dot" style="background:${s.color}"></span>${escapeHtml(s.label)} <strong>${s.count}</strong></span>`;
+    }
+    html += "</div></div>";
+  }
+
+  // 7-day activity chart
+  const maxVal = Math.max(
+    1,
+    ...dailyBreakdown.map((d) => Math.max(d.discovered, d.applied)),
+  );
+  html += '<div class="activity-chart">';
+  html += '<h4 class="activity-chart__title">7-day activity</h4>';
+  html += '<div class="activity-chart__bars">';
+  for (const d of dailyBreakdown) {
+    const discH = Math.max(
+      d.discovered > 0 ? 3 : 0,
+      (d.discovered / maxVal) * 100,
+    );
+    const appH = Math.max(d.applied > 0 ? 3 : 0, (d.applied / maxVal) * 100);
+    html += `<div class="activity-chart__col">
+      <div class="activity-chart__pair">
+        <div class="activity-chart__bar activity-chart__bar--disc" style="height:${discH}%" title="Found: ${d.discovered}"></div>
+        <div class="activity-chart__bar activity-chart__bar--app" style="height:${appH}%" title="Applied: ${d.applied}"></div>
+      </div>
+      <span class="activity-chart__day">${d.label}</span>
+    </div>`;
   }
   html += "</div>";
+  html += '<div class="activity-chart__legend">';
+  html +=
+    '<span class="activity-chart__key"><span class="activity-chart__dot activity-chart__dot--disc"></span>Discovered</span>';
+  html +=
+    '<span class="activity-chart__key"><span class="activity-chart__dot activity-chart__dot--app"></span>Applied</span>';
+  html += "</div></div>";
 
+  // Source bars
   if (sources.length > 0) {
-    html += '<div class="insight-sources">';
-    html += '<span class="insight-sources__label">Sources (7d)</span>';
-    html += `<div class="insight-sources__tags">${sources
-      .map(
-        ([name, n]) =>
-          `<span class="insight-tag">${escapeHtml(name)} <strong>${n}</strong></span>`,
-      )
-      .join("")}</div>`;
+    const maxSrc = sources[0][1];
+    html += '<div class="source-bars">';
+    html +=
+      '<h4 class="source-bars__title">Top sources <span class="source-bars__period">7d</span></h4>';
+    for (const [name, count] of sources) {
+      const pct = Math.max(4, (count / maxSrc) * 100);
+      html += `<div class="source-bars__row">
+        <span class="source-bars__name">${escapeHtml(name)}</span>
+        <div class="source-bars__track"><div class="source-bars__fill" style="width:${pct}%"></div></div>
+        <span class="source-bars__count">${count}</span>
+      </div>`;
+    }
     html += "</div>";
   }
 
+  // Tips
   if (suggestions.length > 0) {
     const tips = suggestions.slice(0, 3);
-    html += '<div class="insight-tips">';
-    html += '<span class="insight-tips__label">Tips</span>';
-    html += `<ul class="insight-tips__list">${tips.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>`;
+    html += '<div class="brief-tips">';
+    html += '<h4 class="brief-tips__title">Tips</h4>';
+    html += `<ul class="brief-tips__list">${tips.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>`;
     html += "</div>";
   }
 
-  html += "</div>";
   return html;
 }
 
 // --- Brief: Action column ---
 
-function renderBriefActionCard(variant, count, label, bodyHtml, extraHtml) {
-  const active = count > 0 ? " action-card__count--active" : "";
-  const clear = count === 0 ? " action-card--clear" : "";
-  return `<div class="action-card action-card--${variant}${clear}">
-    <div class="action-card__head">
-      <span class="action-card__count${active}">${count}</span>
-      <span class="action-card__label">${label}</span>
-    </div>
-    <div class="action-card__body">${bodyHtml}</div>
-    ${extraHtml || ""}
-  </div>`;
-}
+function renderBriefQueue(overdue, upcoming, waiting, stale) {
+  const hasItems = overdue.length || waiting.length || stale.length;
 
-function renderBriefActionList(jobs, chipFn) {
-  const shown = jobs.slice(0, 4);
-  const remaining = jobs.length - shown.length;
-  let html = '<ul class="action-card__list">';
-  for (const j of shown) {
-    const contact = j.contact
-      ? ` <span class="action-chip action-chip--muted">${escapeHtml(j.contact)}</span>`
-      : "";
-    html += `<li><strong>${escapeHtml(j.title || "Role")}</strong> &mdash; ${escapeHtml(j.company || "")} ${chipFn(j)}${contact}</li>`;
+  if (!hasItems) {
+    let html = '<div class="queue-clear">';
+    html +=
+      '<div class="queue-clear__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>';
+    html +=
+      '<p class="queue-clear__text">Nothing needs your attention right now.</p>';
+    if (upcoming.length > 0) {
+      html += `<p class="queue-clear__text" style="margin-top:var(--space-2)">Next follow-up in 48 h: <strong>${escapeHtml(upcoming[0].title || "Role")} &mdash; ${escapeHtml(upcoming[0].company || "")}</strong></p>`;
+    }
+    html += "</div>";
+    return html;
   }
-  html += "</ul>";
-  if (remaining > 0)
-    html += `<p class="action-card__overflow">+${remaining} more</p>`;
-  return html;
-}
 
-function renderBriefActionCards(overdue, upcoming, waiting, stale) {
   let html = "";
 
-  html += renderBriefActionCard(
-    "urgent",
-    overdue.length,
+  function renderQueueGroup(dotClass, label, jobs, metaFn, limit) {
+    if (jobs.length === 0) return "";
+    let g = '<div class="queue-group">';
+    g += `<div class="queue-group__header"><span class="queue-group__dot ${dotClass}"></span><span class="queue-group__label">${label}</span><span class="queue-group__count">${jobs.length}</span></div>`;
+    const shown = jobs.slice(0, limit || 3);
+    for (const j of shown) {
+      const meta = metaFn(j);
+      g += `<div class="queue-item"><span class="queue-item__title">${escapeHtml(j.title || "Role")} &mdash; ${escapeHtml(j.company || "")}</span>${meta}</div>`;
+    }
+    const remaining = jobs.length - shown.length;
+    if (remaining > 0) g += `<p class="queue-overflow">+${remaining} more</p>`;
+    g += "</div>";
+    return g;
+  }
+
+  html += renderQueueGroup(
+    "queue-group__dot--urgent",
     "Follow-ups overdue",
-    overdue.length === 0
-      ? '<p class="action-card__ok">No overdue follow-ups.</p>'
-      : renderBriefActionList(overdue, (j) => {
-          const d = briefDaysSince(j.followUpDate);
-          return d != null
-            ? `<span class="action-chip action-chip--warn">${d}d overdue</span>`
-            : "";
-        }),
-    upcoming.length > 0
-      ? `<div class="action-card__upcoming"><span class="action-card__sub">Next 48 h:</span> ${upcoming
-          .slice(0, 3)
-          .map(
-            (j) =>
-              `<span class="action-chip">${escapeHtml(j.title || "Role")} &mdash; ${escapeHtml(j.company || "")}</span>`,
-          )
-          .join(" ")}</div>`
-      : "",
+    overdue,
+    (j) => {
+      const d = briefDaysSince(j.followUpDate);
+      return d != null
+        ? `<span class="queue-item__meta queue-item__meta--warn">${d}d late</span>`
+        : "";
+    },
   );
 
-  html += renderBriefActionCard(
-    "waiting",
-    waiting.length,
+  if (upcoming.length > 0 && overdue.length > 0) {
+    let upHtml =
+      '<div class="queue-upcoming"><span class="queue-upcoming__label">Next 48 h: </span>';
+    upHtml += upcoming
+      .slice(0, 2)
+      .map(
+        (j) =>
+          `${escapeHtml(j.title || "Role")} &mdash; ${escapeHtml(j.company || "")}`,
+      )
+      .join(", ");
+    upHtml += "</div>";
+    html += upHtml;
+  }
+
+  html += renderQueueGroup(
+    "queue-group__dot--waiting",
     "Awaiting reply",
-    waiting.length === 0
-      ? '<p class="action-card__ok">No one in the needs-a-nudge list.</p>'
-      : renderBriefActionList(waiting, (j) => {
-          const d = briefDaysSince(j.appliedDate);
-          const meta = [];
-          if (d != null) meta.push(`${d}d ago`);
-          const reply = responseLabelForDisplay(j.responseFlag);
-          if (reply) meta.push(`reply: ${reply}`);
-          return meta.length
-            ? `<span class="action-chip">${meta.join(" · ")}</span>`
-            : "";
-        }),
-    "",
+    waiting,
+    (j) => {
+      const d = briefDaysSince(j.appliedDate);
+      return d != null ? `<span class="queue-item__meta">${d}d ago</span>` : "";
+    },
   );
 
-  html += renderBriefActionCard(
-    "stale",
-    stale.length,
+  html += renderQueueGroup(
+    "queue-group__dot--stale",
     "Stale applications",
-    stale.length === 0
-      ? '<p class="action-card__ok">No stuck applications.</p>'
-      : renderBriefActionList(stale, (j) => {
-          const d = briefDaysSince(j.appliedDate);
-          return d != null
-            ? `<span class="action-chip action-chip--warn">${d}d since applied</span>`
-            : "";
-        }),
-    "",
+    stale,
+    (j) => {
+      const d = briefDaysSince(j.appliedDate);
+      return d != null
+        ? `<span class="queue-item__meta queue-item__meta--warn">${d}d</span>`
+        : "";
+    },
   );
 
   return html;
@@ -14812,10 +14924,18 @@ async function generateDiscoverySuggestions(scrapedJob) {
     : "";
 
   const existingFilters = [
-    discoveryProfile.targetRoles ? `Current target roles: ${discoveryProfile.targetRoles}` : "",
-    discoveryProfile.locations ? `Current locations: ${discoveryProfile.locations}` : "",
-    discoveryProfile.remotePolicy ? `Current remote policy: ${discoveryProfile.remotePolicy}` : "",
-    discoveryProfile.seniority ? `Current seniority: ${discoveryProfile.seniority}` : "",
+    discoveryProfile.targetRoles
+      ? `Current target roles: ${discoveryProfile.targetRoles}`
+      : "",
+    discoveryProfile.locations
+      ? `Current locations: ${discoveryProfile.locations}`
+      : "",
+    discoveryProfile.remotePolicy
+      ? `Current remote policy: ${discoveryProfile.remotePolicy}`
+      : "",
+    discoveryProfile.seniority
+      ? `Current seniority: ${discoveryProfile.seniority}`
+      : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -14847,23 +14967,43 @@ async function generateDiscoverySuggestions(scrapedJob) {
   }
   userParts.push(
     "Suggest discovery search parameters that would find roles this candidate is well-suited for.",
-    "Return JSON only."
+    "Return JSON only.",
   );
 
   const userPrompt = userParts.join("\n");
 
   let text;
   if (provider === "gemini") {
-    if (!g.resumeGeminiApiKey) throw new Error("Set a Gemini API key in Settings.");
-    text = await callDiscoveryAiGemini(systemPrompt, userPrompt, g.resumeGeminiApiKey, g.resumeGeminiModel);
+    if (!g.resumeGeminiApiKey)
+      throw new Error("Set a Gemini API key in Settings.");
+    text = await callDiscoveryAiGemini(
+      systemPrompt,
+      userPrompt,
+      g.resumeGeminiApiKey,
+      g.resumeGeminiModel,
+    );
   } else if (provider === "openai") {
-    if (!g.resumeOpenAIApiKey) throw new Error("Set an OpenAI API key in Settings.");
-    text = await callDiscoveryAiOpenAI(systemPrompt, userPrompt, g.resumeOpenAIApiKey, g.resumeOpenAIModel);
+    if (!g.resumeOpenAIApiKey)
+      throw new Error("Set an OpenAI API key in Settings.");
+    text = await callDiscoveryAiOpenAI(
+      systemPrompt,
+      userPrompt,
+      g.resumeOpenAIApiKey,
+      g.resumeOpenAIModel,
+    );
   } else if (provider === "anthropic") {
-    if (!g.resumeAnthropicApiKey) throw new Error("Set an Anthropic API key in Settings.");
-    text = await callDiscoveryAiAnthropic(systemPrompt, userPrompt, g.resumeAnthropicApiKey, g.resumeAnthropicModel);
+    if (!g.resumeAnthropicApiKey)
+      throw new Error("Set an Anthropic API key in Settings.");
+    text = await callDiscoveryAiAnthropic(
+      systemPrompt,
+      userPrompt,
+      g.resumeAnthropicApiKey,
+      g.resumeAnthropicModel,
+    );
   } else {
-    throw new Error("Switch to Gemini, OpenAI, or Anthropic in Settings for AI suggestions.");
+    throw new Error(
+      "Switch to Gemini, OpenAI, or Anthropic in Settings for AI suggestions.",
+    );
   }
 
   const parsed = parseJsonSafeForSuggestions(text);
@@ -14909,15 +15049,20 @@ async function callDiscoveryAiGemini(system, user, apiKey, model) {
     body: JSON.stringify(body),
   });
   const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(data.error?.message || `Gemini HTTP ${resp.status}`);
-  const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+  if (!resp.ok)
+    throw new Error(data.error?.message || `Gemini HTTP ${resp.status}`);
+  const text =
+    data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") ||
+    "";
   if (!text.trim()) throw new Error("Empty response from Gemini");
   return text.trim();
 }
 
 async function callDiscoveryAiOpenAI(system, user, apiKey, model) {
   const m = model || "gpt-4o-mini";
-  const limitKey = m.toLowerCase().startsWith("gpt-5") ? "max_completion_tokens" : "max_tokens";
+  const limitKey = m.toLowerCase().startsWith("gpt-5")
+    ? "max_completion_tokens"
+    : "max_tokens";
   const body = {
     model: m,
     messages: [
@@ -14929,11 +15074,15 @@ async function callDiscoveryAiOpenAI(system, user, apiKey, model) {
   };
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
     body: JSON.stringify(body),
   });
   const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(data.error?.message || `OpenAI HTTP ${resp.status}`);
+  if (!resp.ok)
+    throw new Error(data.error?.message || `OpenAI HTTP ${resp.status}`);
   const text = data.choices?.[0]?.message?.content || "";
   if (!text.trim()) throw new Error("Empty response from OpenAI");
   return text.trim();
@@ -14957,9 +15106,13 @@ async function callDiscoveryAiAnthropic(system, user, apiKey, model) {
     body: JSON.stringify(body),
   });
   const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(data.error?.message || `Anthropic HTTP ${resp.status}`);
+  if (!resp.ok)
+    throw new Error(data.error?.message || `Anthropic HTTP ${resp.status}`);
   const text = Array.isArray(data.content)
-    ? data.content.filter((b) => b.type === "text").map((b) => b.text || "").join("")
+    ? data.content
+        .filter((b) => b.type === "text")
+        .map((b) => b.text || "")
+        .join("")
     : "";
   if (!text.trim()) throw new Error("Empty response from Anthropic");
   return text.trim();
@@ -15029,7 +15182,8 @@ function initDiscoveryPrefsModal() {
     const hint = document.getElementById("dpAiHint");
     const suggestBtn = document.getElementById("dpSuggestBtn");
     const Insights = window.CommandCenterJobPostingInsights;
-    const canUse = Insights && Insights.canEnrichWithLLM && Insights.canEnrichWithLLM();
+    const canUse =
+      Insights && Insights.canEnrichWithLLM && Insights.canEnrichWithLLM();
     if (hint) hint.hidden = canUse;
     if (suggestBtn) suggestBtn.disabled = !canUse;
   }
@@ -15053,7 +15207,8 @@ function initDiscoveryPrefsModal() {
       const base = getJobPostingScrapeUrl();
       if (!base) {
         if (statusEl) {
-          statusEl.textContent = "No scraper configured. Set one in Settings or use localhost.";
+          statusEl.textContent =
+            "No scraper configured. Set one in Settings or use localhost.";
           statusEl.hidden = false;
         }
         return;
