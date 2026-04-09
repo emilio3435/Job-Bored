@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jobbored.dev/schemas/ats-scorecard-request.v1.schema.json",
+  "title": "ATS Scorecard Request (v1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event", "schemaVersion", "feature", "docText", "job"],
+  "properties": {
+    "event": {
+      "type": "string",
+      "const": "command-center.ats-scorecard"
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "feature": {
+      "type": "string",
+      "enum": ["cover_letter", "resume_update"]
+    },
+    "docText": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 50000
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "company"],
+      "properties": {
+        "title": { "type": "string", "maxLength": 300 },
+        "company": { "type": "string", "maxLength": 300 },
+        "url": { "type": "string", "maxLength": 3000 },
+        "fitAssessment": { "type": "string", "maxLength": 4000 },
+        "talkingPoints": { "type": "string", "maxLength": 4000 },
+        "notes": { "type": "string", "maxLength": 8000 },
+        "postingEnrichment": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "description": { "type": "string", "maxLength": 25000 },
+            "requirements": {
+              "type": "array",
+              "maxItems": 60,
+              "items": { "type": "string", "maxLength": 500 }
+            },
+            "skills": {
+              "type": "array",
+              "maxItems": 60,
+              "items": { "type": "string", "maxLength": 300 }
+            },
+            "mustHaves": {
+              "type": "array",
+              "maxItems": 30,
+              "items": { "type": "string", "maxLength": 500 }
+            },
+            "responsibilities": {
+              "type": "array",
+              "maxItems": 30,
+              "items": { "type": "string", "maxLength": 500 }
+            },
+            "toolsAndStack": {
+              "type": "array",
+              "maxItems": 40,
+              "items": { "type": "string", "maxLength": 300 }
+            }
+          }
+        }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "candidateProfileText": { "type": "string", "maxLength": 40000 },
+        "resumeSourceText": { "type": "string", "maxLength": 30000 },
+        "linkedinProfileText": { "type": "string", "maxLength": 30000 },
+        "additionalContextText": { "type": "string", "maxLength": 30000 }
+      }
+    },
+    "instructions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "userNotes": { "type": "string", "maxLength": 4000 },
+        "refinementFeedback": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sheetId": { "type": ["string", "null"] },
+        "generatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

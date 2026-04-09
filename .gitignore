@@ -1,3 +1,11 @@
 config.js
+# Local clasp binding (do not commit your Apps Script project id)
+integrations/apps-script/.clasp.json
 .DS_Store
+node_modules/
+server/node_modules/
+server/.env
+.cursor/
 *.png
+.gstack/
+discovery-local-bootstrap.json

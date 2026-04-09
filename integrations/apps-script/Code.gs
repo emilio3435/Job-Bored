@@ -3,7 +3,7 @@
  *
  * Deploy: Deploy > New deployment > Web app
  *   Execute as: Me
- *   Who has access: Anyone (or Anyone with Google account — test which allows POST)
+ *   Who has access: Anyone
  *
  * Script properties (Project settings > Script properties):
  *   SHEET_ID   — required to append rows (your copy of the template)
@@ -20,6 +20,7 @@ function doPost(e) {
   try {
     var raw = (e.postData && e.postData.contents) || "{}";
     var body;
+    var appendedTestRow = false;
     try {
       body = JSON.parse(raw);
     } catch (parseErr) {
@@ -41,11 +42,16 @@ function doPost(e) {
 
     if (props.getProperty("ENABLE_TEST_ROW") === "true" && sheetId) {
       appendTestRow_(sheetId, body);
+      appendedTestRow = true;
     }
 
     return jsonOut_({
       ok: true,
+      service: "command-center-apps-script-stub",
+      mode: "stub",
       received: true,
+      appendedTestRow: appendedTestRow,
+      realDiscoveryConfigured: false,
       schemaVersion: body.schemaVersion != null ? body.schemaVersion : null,
     });
   } catch (err) {
@@ -60,8 +66,18 @@ function doPost(e) {
  * Some browsers may send OPTIONS before POST. Apps Script web apps often do not
  * answer CORS preflight; use templates/github-actions/ to POST server-side if needed.
  */
-function doGet() {
-  return jsonOut_({ ok: true, service: "command-center-apps-script-stub" });
+function doGet(e) {
+  var payload = { ok: true, service: "command-center-apps-script-stub" };
+  var callback =
+    e &&
+    e.parameter &&
+    e.parameter.callback
+      ? String(e.parameter.callback)
+      : "";
+  if (callback && /^[A-Za-z_$][0-9A-Za-z_$\.]{0,120}$/.test(callback)) {
+    return javascriptOut_(callback + "(" + JSON.stringify(payload) + ");");
+  }
+  return jsonOut_(payload);
 }
 
 function appendTestRow_(sheetId, body) {
@@ -100,5 +116,11 @@ function appendTestRow_(sheetId, body) {
 function jsonOut_(obj) {
   var out = ContentService.createTextOutput(JSON.stringify(obj));
   out.setMimeType(ContentService.MimeType.JSON);
+  return out;
+}
+
+function javascriptOut_(source) {
+  var out = ContentService.createTextOutput(String(source || ""));
+  out.setMimeType(ContentService.MimeType.JAVASCRIPT);
   return out;
 }

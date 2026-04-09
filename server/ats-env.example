@@ -1,0 +1,8 @@
+ATS_PROVIDER=gemini
+ATS_GEMINI_API_KEY=
+ATS_GEMINI_MODEL=gemini-2.5-flash
+
+# Optional aliases (supported):
+# GEMINI_API_KEY=
+# OPENAI_API_KEY=
+# ANTHROPIC_API_KEY=

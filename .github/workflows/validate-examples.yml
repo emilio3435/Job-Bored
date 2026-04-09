@@ -1,4 +1,4 @@
-name: Validate examples
+name: Validate contract
 
 on:
   push:
@@ -6,24 +6,40 @@ on:
     paths:
       - "examples/**"
       - "schemas/**"
+      - "app.js"
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "integrations/**"
+      - "scripts/test-contract.mjs"
+      - "scripts/test-pipeline-contract.mjs"
+      - "scripts/lint-integration-skills.mjs"
+      - "package.json"
+      - "package-lock.json"
   pull_request:
     branches: [main]
     paths:
       - "examples/**"
       - "schemas/**"
+      - "app.js"
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "integrations/**"
+      - "scripts/test-contract.mjs"
+      - "scripts/test-pipeline-contract.mjs"
+      - "scripts/lint-integration-skills.mjs"
+      - "package.json"
+      - "package-lock.json"
 
 jobs:
-  json:
+  contract:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Ensure jq
-        run: command -v jq >/dev/null || (sudo apt-get update && sudo apt-get install -y jq)
-      - name: Validate example JSON
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          for f in examples/*.json; do
-            echo "jq empty: $f"
-            jq empty < "$f"
-          done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Contract suite (discovery + pipeline + skill links)
+        run: npm run test:contract:all

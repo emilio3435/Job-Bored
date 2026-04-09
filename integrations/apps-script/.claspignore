@@ -1,0 +1,5 @@
+# Keep the pushed project minimal (Code.gs + manifest only)
+README.md
+**/*.md
+.clasp.json.example
+.gitignore

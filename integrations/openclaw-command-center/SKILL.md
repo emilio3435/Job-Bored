@@ -16,7 +16,7 @@ metadata:
 
 - **`AGENT_CONTRACT.md`** — webhook JSON, `discoveryProfile` fields, dedupe rules.
 - **`schemas/discovery-webhook-request.v1.schema.json`** — POST body shape; **`schemaVersion` must be integer `1`**; canonical `discoveryProfile` property names.
-- **`README.md` → Sheet Structure** — columns **A–Q** required on the **Pipeline** tab (optional **R–S**).
+- **`README.md` → Sheet Structure** — columns **A–Q** required on the **Pipeline** tab (optional **R–S**). Machine-readable layout: **`schemas/pipeline-row.v1.json`**.
 
 ## Pipeline row rules
 

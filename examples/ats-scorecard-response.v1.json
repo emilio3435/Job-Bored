@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "overallScore": 78,
+  "dimensionScores": {
+    "requirementsCoverage": 80,
+    "experienceRelevance": 82,
+    "impactClarity": 74,
+    "atsParseability": 76,
+    "toneFit": 78
+  },
+  "topStrengths": [
+    "Clearly signals React and TypeScript experience.",
+    "Demonstrates cross-functional collaboration with measurable outcomes."
+  ],
+  "criticalGaps": [
+    {
+      "gap": "Missing explicit years of frontend experience.",
+      "whyItMatters": "The posting asks for 3+ years and ATS screeners often look for this pattern.",
+      "severity": "high"
+    },
+    {
+      "gap": "Business impact metrics are present but sparse.",
+      "whyItMatters": "Recruiters prioritize quantified outcomes to compare candidates quickly.",
+      "severity": "medium"
+    }
+  ],
+  "evidence": [
+    {
+      "claim": "Candidate references JavaScript and TypeScript proficiency.",
+      "sourceSnippet": "I have shipped full-stack product features in JavaScript and TypeScript...",
+      "sourceType": "cover_letter"
+    },
+    {
+      "claim": "Job requires strong TypeScript fundamentals.",
+      "sourceSnippet": "Strong JavaScript and TypeScript fundamentals",
+      "sourceType": "job"
+    }
+  ],
+  "rewriteSuggestions": [
+    {
+      "targetSection": "Opening paragraph",
+      "before": "I have shipped full-stack product features...",
+      "after": "Over 4 years, I have shipped frontend features in React and TypeScript that improved candidate conversion by 19%.",
+      "rationale": "Adds years-of-experience and measurable impact in one line."
+    }
+  ],
+  "confidence": 0.86,
+  "model": "gemini-2.5-flash"
+}

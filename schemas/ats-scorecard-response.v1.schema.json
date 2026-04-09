@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jobbored.dev/schemas/ats-scorecard-response.v1.schema.json",
+  "title": "ATS Scorecard Response (v1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "overallScore",
+    "dimensionScores",
+    "topStrengths",
+    "criticalGaps",
+    "evidence",
+    "rewriteSuggestions",
+    "confidence",
+    "model"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "overallScore": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "dimensionScores": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requirementsCoverage",
+        "experienceRelevance",
+        "impactClarity",
+        "atsParseability",
+        "toneFit"
+      ],
+      "properties": {
+        "requirementsCoverage": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "experienceRelevance": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "impactClarity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "atsParseability": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "toneFit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "topStrengths": {
+      "type": "array",
+      "maxItems": 8,
+      "items": { "type": "string", "maxLength": 300 }
+    },
+    "criticalGaps": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gap", "whyItMatters", "severity"],
+        "properties": {
+          "gap": { "type": "string", "maxLength": 500 },
+          "whyItMatters": { "type": "string", "maxLength": 600 },
+          "severity": {
+            "type": "string",
+            "enum": ["high", "medium", "low"]
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim", "sourceSnippet", "sourceType"],
+        "properties": {
+          "claim": { "type": "string", "maxLength": 400 },
+          "sourceSnippet": { "type": "string", "maxLength": 700 },
+          "sourceType": {
+            "type": "string",
+            "enum": ["resume", "cover_letter", "job", "profile"]
+          }
+        }
+      }
+    },
+    "rewriteSuggestions": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["targetSection", "before", "after", "rationale"],
+        "properties": {
+          "targetSection": { "type": "string", "maxLength": 120 },
+          "before": { "type": "string", "maxLength": 700 },
+          "after": { "type": "string", "maxLength": 700 },
+          "rationale": { "type": "string", "maxLength": 500 }
+        }
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "model": {
+      "type": "string",
+      "maxLength": 120
+    }
+  }
+}
