@@ -18,7 +18,7 @@ This document is a **maintainer-facing** plan to implement **user-run** discover
 
 - [x] README: **Free automation without maintainer hosting** table + link here.
 - [x] [AGENT_CONTRACT.md](AGENT_CONTRACT.md) — webhook JSON and Pipeline contract.
-- [ ] SETUP.md: short subsection that mirrors the README table (optional dedupe).
+- [x] SETUP.md intro links README + AUTOMATION_PLAN (BYO expectations).
 
 **Acceptance:** A new user understands they paste a URL; nobody expects a hosted “discovery API” from the repo owners.
 
@@ -30,12 +30,9 @@ This document is a **maintainer-facing** plan to implement **user-run** discover
 
 **Deliverables**
 
-- [ ] `integrations/apps-script/` (or `templates/google-apps-script/`):
-  - `Code.gs` (or single-file) that:
-    - Exposes `doPost(e)` accepting JSON matching [AGENT_CONTRACT.md](AGENT_CONTRACT.md) (`event`, `schemaVersion`, `sheetId`, `variationKey`, `discoveryProfile`, …).
-    - Validates `event === "command-center.discovery"` (optional).
-    - Either **queues** work (time-driven trigger) or returns 200 and documents “stub — implement search here”.
-  - `README.md`: step-by-step (copy project, authorize Sheets, deploy web app, CORS note if any, paste URL in Settings).
+- [x] [`integrations/apps-script/`](integrations/apps-script/):
+  - [`Code.gs`](integrations/apps-script/Code.gs) — `doPost` JSON v1, optional `ENABLE_TEST_ROW`, sheetId check.
+  - [`README.md`](integrations/apps-script/README.md) — deploy steps, **CORS** limitations, link to GitHub Actions workaround.
 
 **Acceptance:** A maintainer can follow only the template README and get a **200** response on **Run discovery** (even if Pipeline rows are TODO).
 
@@ -49,10 +46,8 @@ This document is a **maintainer-facing** plan to implement **user-run** discover
 
 **Deliverables**
 
-- [ ] `.github/workflows/command-center-discovery.example.yml` (or under `templates/github-actions/`) with:
-  - `workflow_dispatch` and `schedule` (cron).
-  - Steps: checkout optional script, `curl` POST to user’s own webhook, or call Sheets API with stored secret — **document** two patterns (webhook relay vs direct sheet write).
-  - README: fork, set repo secrets, enable Actions.
+- [x] [`templates/github-actions/command-center-discovery.yml`](templates/github-actions/command-center-discovery.yml) — `workflow_dispatch` + `schedule`, `curl` + `jq` POST with secrets.
+- [x] [`templates/github-actions/README.md`](templates/github-actions/README.md) — secrets, patterns (webhook relay vs direct Sheets API note).
 
 **Acceptance:** User enables workflow in **their** repo; no maintainer infra.
 
@@ -77,8 +72,8 @@ This document is a **maintainer-facing** plan to implement **user-run** discover
 
 **Deliverables**
 
-- [ ] Keep [integrations/openclaw-command-center/](integrations/openclaw-command-center/) in sync with [AGENT_CONTRACT.md](AGENT_CONTRACT.md) when webhook schema changes.
-- [ ] Optional: `integrations/n8n/` export JSON for “Run discovery” webhook.
+- [x] [integrations/openclaw-command-center/SKILL.md](integrations/openclaw-command-center/SKILL.md) references `schemaVersion` and `discoveryProfile` (verify on each contract bump).
+- [x] [integrations/n8n/README.md](integrations/n8n/README.md) — manual HTTP workflow (no version-fragile JSON export).
 
 **Acceptance:** Skill / workflow docs reference `schemaVersion` and `discoveryProfile`.
 

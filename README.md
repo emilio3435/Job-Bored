@@ -177,7 +177,7 @@ This project is **static and free to host** (e.g. GitHub Pages). There is **no c
 | **Free-tier serverless** (e.g. Cloudflare Workers, Render free tier)              | **$0** on the user’s own account via templates                                                                                                            | Users who want a small HTTP endpoint         |
 | **Self-hosted** (n8n, Hermes, `server/`, local + tunnel)                          | Your machine / homelab                                                                                                                                    | Power users                                  |
 
-**Best default for “open source + free + maintainers pay $0”:** document and template **Apps Script** first (user deploys their own web app), then **GitHub Actions** for scheduled runs. See **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)** for a **piece-by-piece roadmap** (docs and templates we can add to the repo over time).
+**Best default for “open source + free + maintainers pay $0”:** use **[`integrations/apps-script/`](integrations/apps-script/)** (deploy Web app → paste URL) and **[`templates/github-actions/`](templates/github-actions/)** if the browser cannot POST due to **CORS** (server-side `curl` has no CORS). See **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)** for the full roadmap (Phase D optional worker still TBD).
 
 ## How it works
 

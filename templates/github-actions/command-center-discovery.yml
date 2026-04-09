@@ -1,0 +1,45 @@
+# Command Center — POST discovery webhook from GitHub Actions (no browser CORS)
+#
+# Copy this file to: .github/workflows/command-center-discovery.yml
+# Set repository secrets (see templates/github-actions/README.md)
+
+name: Command Center discovery ping
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily 14:00 UTC — change to your timezone preference
+    - cron: "0 14 * * *"
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST discovery webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.COMMAND_CENTER_DISCOVERY_WEBHOOK_URL }}
+          SHEET_ID: ${{ secrets.COMMAND_CENTER_SHEET_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WEBHOOK_URL:-}" ] || [ -z "${SHEET_ID:-}" ]; then
+            echo "Set secrets COMMAND_CENTER_DISCOVERY_WEBHOOK_URL and COMMAND_CENTER_SHEET_ID"
+            exit 1
+          fi
+          VAR_KEY="gh-${{ github.run_id }}-${{ github.run_attempt }}-$(date +%s)"
+          REQ_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          BODY=$(jq -n \
+            --arg v "$VAR_KEY" \
+            --arg s "$SHEET_ID" \
+            --arg t "$REQ_AT" \
+            '{
+              event: "command-center.discovery",
+              schemaVersion: 1,
+              sheetId: $s,
+              variationKey: $v,
+              requestedAt: $t,
+              discoveryProfile: {}
+            }')
+          curl -sS -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "$BODY" \
+            -w "\nHTTP %{http_code}\n"
