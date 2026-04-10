@@ -1,0 +1,31 @@
+{
+  "featureId": "pipeline-contract-and-starter-sheet-alignment",
+  "reviewedAt": "2026-04-10T08:21:08.678275Z",
+  "commitId": "c85f93655e607ecde902fd6d21500faa714070d7",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The commit restores the starter-sheet Pipeline header contract to the repo's A\u2013T baseline by adding `Logo URL` to the starter header write, publishing the same contract in README, and extending the pipeline contract test so `STARTER_PIPELINE_HEADERS` must match the schema header row. I found no blocking or non-blocking code defects in the reviewed change.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Mission contract artifacts still describe starter-sheet creation as ending at column S, even though the repo contract and reviewed implementation now correctly use column T (`Logo URL`). That leaves the mission's own expected behavior out of sync with the code it is reviewing.",
+      "evidence": "validation-contract.md:134-135 and contract-work/settings.md:83 still say starter-sheet headers go through column `S`; features.json:427,432,437 repeats the same A\u2013S expectation, while Job-Bored/README.md:163 and Job-Bored/app.js:322-344,7195-7206 now use the A\u2013T contract with `Logo URL`."
+    },
+    {
+      "area": "skills",
+      "observation": "The integration worker skill requires real local browser verification, but the shared environment docs do not provide a reusable non-secret OAuth/Sheets bootstrap, so this worker had to mock Google Sheets responses to verify the starter-sheet flow.",
+      "evidence": "Job-Bored/.factory/skills/integration-refactor-worker/SKILL.md:37-42 requires end-to-end verification on the real local surface; Job-Bored/.factory/library/environment.md:20-21 only notes that local bootstrap config may exist; handoffs/2026-04-10T06-20-05-345Z__pipeline-contract-and-starter-sheet-alignment__28daa4c5-0454-49d9-890d-9c4544694608.json:72,80-82,90-92 records `followedProcedure: false`, mocked Google Sheets verification, and a requested non-secret browser-validation bootstrap."
+    },
+    {
+      "area": "conventions",
+      "observation": "Mission guidance acknowledges an intentionally dirty baseline but does not document the expected clean-commit workflow, which forced this worker to invent stash/worktree choreography to produce an isolated commit and split validation between two checkouts.",
+      "evidence": "AGENTS.md:7-9 says the mission starts from a dirty working tree; handoffs/2026-04-10T06-20-05-345Z__pipeline-contract-and-starter-sheet-alignment__28daa4c5-0454-49d9-890d-9c4544694608.json:85-91 says the worker validated on the mission checkout, committed in an isolated worktree, and requested documented workflow for clean commits from a dirty baseline; the transcript skeleton for session 28daa4c5-0454-49d9-890d-9c4544694608 includes the `git stash create` and `git worktree` steps."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Pass. The reviewed commit restores the starter-sheet Pipeline contract to the repo's A\u2013T schema/README/app.js baseline and adds a regression test that guards future drift. I found no code defects in the change, but the mission's shared-state docs still describe the old A\u2013S contract and lack documented guidance for browser bootstrap and dirty-baseline commit workflows."
+}

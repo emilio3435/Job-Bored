@@ -1,0 +1,45 @@
+{
+  "featureId": "repo-validation-surface-hardening",
+  "reviewedAt": "2026-04-10T08:22:21.632581Z",
+  "commitId": "8c5acdf2fc2be801da1f0d07efd67eade92d29a3",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The commit does the core wiring work: it centralizes `.factory/services.yaml` behind repo scripts, makes `.factory/init.sh` cwd-safe, adds a reusable non-secret starter-sheet bootstrap, and restores the missing local validation assets to the reviewed worktree. But the shared install surface is not actually reusable after the first bootstrap, and two of the new regression tests only exercise local copies of the logic they claim to guard, so the validation surface is not yet as stable as the feature description requires.",
+    "issues": [
+      {
+        "file": ".factory/init.sh",
+        "line": 9,
+        "severity": "blocking",
+        "description": "The shared `commands.install` surface now routes through `npm run install:repo` (`.factory/services.yaml:2`, `package.json:7`), but `.factory/init.sh` only runs `npm install` when `node_modules/` or `server/node_modules/` is missing. After the first bootstrap, any later dependency change leaves the manifest install command as a no-op, forcing workers to fall back to ad hoc install commands outside the shared validation surface the feature was supposed to standardize."
+      },
+      {
+        "file": "tests/fix-setup-endpoint.test.mjs",
+        "line": 54,
+        "severity": "non_blocking",
+        "description": "The new `/__proxy/fix-setup` regression test never exercises `dev-server.mjs`; it spins up a bespoke `setupMinimalServer()` stub with the expected behavior and then asserts against that stub. Regressions in the real endpoint's CORS/method guards can therefore slip through while the repo test surface still passes."
+      },
+      {
+        "file": "tests/recovery-state.test.mjs",
+        "line": 7,
+        "severity": "non_blocking",
+        "description": "This test file duplicates the recovery derivation logic from `discovery-wizard-probes.js` instead of importing shared code, and the header comment explicitly notes that the copies can drift. That weakens the value of the added regression coverage for the recovery-state path the feature claims to stabilize."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The new starter-sheet browser bootstrap is now part of the shared validation surface, but the shared testing docs still do not tell future workers to use it for no-mock starter-sheet setup checks.",
+      "evidence": "The reviewed commit adds `starter_sheet_browser_bootstrap` to `.factory/services.yaml:6` plus `validation/starter-sheet-browser-bootstrap.html`, but `.factory/library/user-testing.md:12-19` only tells workers to use a clean browser profile for dashboard/setup assertions and never mentions the new bootstrap flow."
+    },
+    {
+      "area": "conventions",
+      "observation": "The repo now intentionally versions `integrations/browser-use-discovery/state/worker-config.json`, but shared environment guidance still treats that path as generic runtime state and does not explain that the checked-in file is mission-owned non-secret seed config that must stay tied to the disposable validation sheet.",
+      "evidence": "The reviewed commit checks in `integrations/browser-use-discovery/state/worker-config.json:2-24` with a concrete disposable `sheetId` and starter companies, while `.factory/library/environment.md:20-33` only says the worker may resolve config from that path and to use the disposable test sheet without documenting the new committed-config convention."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the mission feature entry, handoff, transcript skeleton, shared-state docs, worker skill, and commit `8c5acdf2fc2be801da1f0d07efd67eade92d29a3`. The feature adds the intended command wiring and browser bootstrap, but it still fails readiness because the shared install command becomes a no-op after initial bootstrap and some new regression tests do not exercise the real implementation paths they claim to protect."
+}
