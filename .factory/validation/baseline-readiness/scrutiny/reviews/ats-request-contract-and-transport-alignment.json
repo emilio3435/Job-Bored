@@ -1,0 +1,26 @@
+{
+  "featureId": "ats-request-contract-and-transport-alignment",
+  "reviewedAt": "2026-04-10T09:45:05Z",
+  "commitId": "886e40e6627a23454afa469926b28fe06d4de26f",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "This fix adequately closes the prior ATS readiness failure from `ats-server-and-scorecard-readiness`. The browser request builder in `app.js` now stays on the published v1 request shape, `server/ats-request-payload.mjs` enforces that same contract in server mode instead of silently dropping extra fields, and the ATS guardrails now validate live browser-built request payloads plus explicit server/webhook transport-alignment regressions. I did not find any remaining blocking or non-blocking code issues in the scope of this fix feature.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The shared contracts library is now stale: it still says `npm run test:ats-contract` only validates ATS example fixtures, but this fix expanded that guard to validate live `app.js` ATS request-builder payloads too.",
+      "evidence": "`.factory/library/contracts.md:41-43` still says `test:ats-contract` validates example fixtures only; the fix now validates live builder payloads in `scripts/test-ats-scorecard-contract.mjs:179-194`, and that script remains on the shared validation surface via `package.json:23-29`."
+    },
+    {
+      "area": "skills",
+      "observation": "Dirty-baseline missions still force an unnecessary worker procedure deviation during cleanup/commit preparation even when the mission explicitly requires preserving unrelated edits.",
+      "evidence": "Mission `AGENTS.md:7-10` says to treat the dirty working tree as baseline and not clean unrelated changes; the fix handoff `handoffs/2026-04-10T09-20-19-037Z__ats-request-contract-and-transport-alignment__79f1d612-3cc9-4f93-ac63-b00634235b88.json:84-93` records `followedProcedure: false` for `3.2 Environment Cleanup / Ensure clean git status` and asks for a dirty-baseline path in the base skill."
+    }
+  ],
+  "addressesFailureFrom": "/Users/emilionunezgarcia/Job-Bored/.factory/validation/baseline-readiness/scrutiny/reviews/ats-server-and-scorecard-readiness.json",
+  "summary": "Reviewed the fix feature metadata, handoff, transcript skeleton, prior failed review, and commit `886e40e6627a23454afa469926b28fe06d4de26f`. The change removes the off-contract ATS request drift flagged in the prior review, enforces the same request contract in server mode, and adds validation coverage for live browser-built requests, so it adequately resolves the earlier blocking readiness issue and the prior server/webhook divergence concern."
+}

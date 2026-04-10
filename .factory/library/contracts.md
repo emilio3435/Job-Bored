@@ -40,7 +40,7 @@ High-level map of the shared contracts that must stay aligned during this refact
   - local ATS server / webhook transport
 - Mission risk:
   - transport normalization and server/webhook parity can drift independently of the UI
-  - `npm run test:ats-contract` currently validates example fixtures only, so live browser payload builders still need direct review when ATS request-shape changes are in scope
+  - `npm run test:ats-contract` now validates both ATS example fixtures and live `app.js` ATS request-builder payloads against the v1 request schema; when request transport or normalization changes, still review the server/webhook normalization path alongside the contract guard
 
 ## Validation scripts that guard contract drift
 
