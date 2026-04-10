@@ -8907,7 +8907,16 @@ async function loadAllData() {
     updateLastRefresh();
     if (!initialSheetAccessResolved) {
       if (getOAuthClientId() && !accessToken) {
-        showSheetAccessGate("signin");
+        // OAuth is configured but user is signed out. If data loaded successfully
+        // via JSONP (public sheet), allow read-only dashboard access. Only block
+        // with sign-in gate when data failed to load.
+        if (pipelineRows) {
+          initialSheetAccessResolved = true;
+          revealDashboardShell();
+          runPostAccessBootstrapOnce();
+        } else {
+          showSheetAccessGate("signin");
+        }
         return true;
       }
       initialSheetAccessResolved = true;
