@@ -749,7 +749,7 @@ test("runDiscovery expands grounded web links through Browser Use and writes nor
       stateDatabasePath: "",
       workerConfigPath: "",
       browserUseCommand: "browser-use",
-      geminiApiKey: "test-key",
+      geminiApiKey: "placeholder-api-value-abc123",
       geminiModel: "gemini-2.5-flash",
       groundedSearchMaxResultsPerCompany: 5,
       groundedSearchMaxPagesPerCompany: 2,

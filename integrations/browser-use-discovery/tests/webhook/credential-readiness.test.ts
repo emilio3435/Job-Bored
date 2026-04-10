@@ -148,9 +148,23 @@ test("handleDiscoveryWebhook fails fast when a configured service-account file i
   const tempDir = await mkdtemp(join(tmpdir(), "job-bored-credential-readiness-"));
   try {
     const response = await handleDiscoveryWebhook(
-      makeRequest(),
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-discovery-secret": "placeholder-test-shared-ghi",
+        },
+        bodyText: JSON.stringify({
+          event: DISCOVERY_WEBHOOK_EVENT,
+          schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+          sheetId: "sheet_123",
+          variationKey: "var_123",
+          requestedAt: "2026-04-10T12:00:00.000Z",
+        }),
+      },
       makeDependencies({
         googleServiceAccountFile: join(tempDir, "missing-service-account.json"),
+        webhookSecret: "placeholder-test-shared-ghi",
       }),
     );
 

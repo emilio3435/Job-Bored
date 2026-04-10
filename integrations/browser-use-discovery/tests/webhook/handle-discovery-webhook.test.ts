@@ -10,11 +10,36 @@ import {
   handleDiscoveryWebhook,
 } from "../../src/webhook/handle-discovery-webhook.ts";
 
+// Shared placeholder secret value used in tests that need to bypass auth validation.
+// Uses obviously fake placeholder literals that avoid secret-like keywords.
+const PLACEHOLDER_SECRET = "placeholder-shared-value-xyz789";
+
 function makeRequest(overrides = {}) {
   return {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      ...(overrides.secret
+        ? { "x-discovery-secret": overrides.secret }
+        : {}),
+    },
+    bodyText: JSON.stringify({
+      event: DISCOVERY_WEBHOOK_EVENT,
+      schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+      sheetId: "sheet_123",
+      variationKey: "var_123",
+      requestedAt: "2026-04-09T12:00:00.000Z",
+      ...overrides,
+    }),
+  };
+}
+
+function makeRequestWithSecret(secret, overrides = {}) {
+  return {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-discovery-secret": secret,
     },
     bodyText: JSON.stringify({
       event: DISCOVERY_WEBHOOK_EVENT,
@@ -167,13 +192,26 @@ function createMemoryRunStatusStore() {
 }
 
 test("handleDiscoveryWebhook validates requests before running", async () => {
+  // Set a placeholder secret so auth passes and JSON validation can be tested.
+  const dependencies = makeDependencies({
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: PLACEHOLDER_SECRET,
+      },
+    },
+  });
   const response = await handleDiscoveryWebhook(
     {
       method: "POST",
-      headers: {},
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": PLACEHOLDER_SECRET,
+      },
       bodyText: "not-json",
     },
-    makeDependencies(),
+    dependencies,
   );
 
   assert.equal(response.status, 400);
@@ -181,9 +219,30 @@ test("handleDiscoveryWebhook validates requests before running", async () => {
 });
 
 test("handleDiscoveryWebhook accepts missing request sheetId when worker config provides one", async () => {
-  const dependencies = makeDependencies();
+  const dependencies = makeDependencies({
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: PLACEHOLDER_SECRET,
+      },
+    },
+  });
   const response = await handleDiscoveryWebhook(
-    makeRequest({ sheetId: undefined }),
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": PLACEHOLDER_SECRET,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+      }),
+    },
     dependencies,
   );
 
@@ -200,6 +259,13 @@ test("handleDiscoveryWebhook still fails when both request and worker config omi
   const dependencies = makeDependencies({
     runDiscovery: async () => {
       throw new Error("runDiscovery should not be called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: PLACEHOLDER_SECRET,
+      },
     },
   });
   dependencies.runDependencies.loadStoredWorkerConfig = async () => ({
@@ -219,7 +285,20 @@ test("handleDiscoveryWebhook still fails when both request and worker config omi
   });
 
   const response = await handleDiscoveryWebhook(
-    makeRequest({ sheetId: undefined }),
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": PLACEHOLDER_SECRET,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+      }),
+    },
     dependencies,
   );
 
@@ -234,6 +313,13 @@ test("handleDiscoveryWebhook returns completed_sync when run synchronously", asy
   const calls = [];
   const dependencies = makeDependencies({
     runSynchronously: true,
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: PLACEHOLDER_SECRET,
+      },
+    },
     runDiscovery: async (_request, trigger, dependencies) => {
       calls.push({ trigger, runId: dependencies.runId });
       return {
@@ -290,7 +376,20 @@ test("handleDiscoveryWebhook returns completed_sync when run synchronously", asy
     },
   });
   const response = await handleDiscoveryWebhook(
-    makeRequest(),
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": PLACEHOLDER_SECRET,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+      }),
+    },
     dependencies,
   );
 
@@ -311,11 +410,31 @@ test("handleDiscoveryWebhook returns completed_sync when run synchronously", asy
 test("handleDiscoveryWebhook forwards run-level logs through the request logger", async () => {
   const logged = [];
   const response = await handleDiscoveryWebhook(
-    makeRequest(),
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": PLACEHOLDER_SECRET,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+      }),
+    },
     makeDependencies({
       runSynchronously: true,
       log: (event, details) => {
         logged.push({ event, details });
+      },
+      runDependencies: {
+        ...makeDependencies().runDependencies,
+        runtimeConfig: {
+          ...makeDependencies().runDependencies.runtimeConfig,
+          webhookSecret: PLACEHOLDER_SECRET,
+        },
       },
       runDiscovery: async (_request, trigger, dependencies) => {
         dependencies.log?.("discovery.run.config_resolved", {
@@ -363,7 +482,7 @@ test("handleDiscoveryWebhook forwards run-level logs through the request logger"
             normalizedLeadCount: 0,
           },
           extractionResults: [],
-        sourceSummary: [],
+          sourceSummary: [],
           writeResult: {
             sheetId: "sheet_123",
             appended: 0,
@@ -395,6 +514,13 @@ test("handleDiscoveryWebhook returns accepted_async without waiting for the run"
   });
   const dependencies = makeDependencies({
     runSynchronously: false,
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: PLACEHOLDER_SECRET,
+      },
+    },
     runDiscovery: async (_request, trigger, dependencies) => {
       await backgroundRun;
       return {
@@ -452,7 +578,20 @@ test("handleDiscoveryWebhook returns accepted_async without waiting for the run"
   });
 
   const response = await handleDiscoveryWebhook(
-    makeRequest(),
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": PLACEHOLDER_SECRET,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+      }),
+    },
     dependencies,
   );
 
@@ -478,9 +617,33 @@ test("handleDiscoveryWebhook persists failed async outcomes for later inspection
     runDiscovery: async () => {
       throw new Error("grounded_web was skipped because Gemini is unavailable");
     },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        // Set a placeholder secret so the request passes auth validation.
+        webhookSecret: "placeholder-shared-value-xyz",
+      },
+    },
   });
 
-  const response = await handleDiscoveryWebhook(makeRequest(), dependencies);
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": "placeholder-shared-value-xyz",
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+      }),
+    },
+    dependencies,
+  );
 
   assert.equal(response.status, 202);
   const body = JSON.parse(response.body);
@@ -493,7 +656,20 @@ test("handleDiscoveryWebhook persists failed async outcomes for later inspection
 
 test("handleDiscoveryWebhook fails fast when no companies are configured", async () => {
   const response = await handleDiscoveryWebhook(
-    makeRequest(),
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": "placeholder-test-shared-abc",
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+      }),
+    },
     makeDependencies({
       runDiscovery: async () => {
         throw new Error("runDiscovery should not be called");
@@ -522,7 +698,7 @@ test("handleDiscoveryWebhook fails fast when no companies are configured", async
           googleServiceAccountJson: "",
           googleServiceAccountFile: "",
           googleAccessToken: "token_123",
-          webhookSecret: "",
+          webhookSecret: "placeholder-test-shared-abc",
           allowedOrigins: [],
           port: 0,
           host: "127.0.0.1",
@@ -543,7 +719,20 @@ test("handleDiscoveryWebhook fails fast when no companies are configured", async
 
 test("handleDiscoveryWebhook fails fast when no sheets credential is configured", async () => {
   const response = await handleDiscoveryWebhook(
-    makeRequest(),
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": "placeholder-test-shared-def",
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+      }),
+    },
     makeDependencies({
       runDiscovery: async () => {
         throw new Error("runDiscovery should not be called");
@@ -571,7 +760,7 @@ test("handleDiscoveryWebhook fails fast when no sheets credential is configured"
           googleServiceAccountJson: "",
           googleServiceAccountFile: "",
           googleAccessToken: "",
-          webhookSecret: "",
+          webhookSecret: "placeholder-test-shared-def",
           allowedOrigins: [],
           port: 0,
           host: "127.0.0.1",
@@ -605,4 +794,109 @@ test("formatWebhookAck returns compact JSON", () => {
       message: "Discovery accepted",
     }),
   );
+});
+
+test("handleDiscoveryWebhook rejects requests when webhook secret is unconfigured", async () => {
+  // When no secret is configured, the webhook should fail closed (reject all requests)
+  // instead of silently degrading into a permissive open endpoint.
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      throw new Error("runDiscovery should not be called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: "",
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    makeRequest(),
+    dependencies,
+  );
+
+  assert.equal(response.status, 401);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+  assert.match(body.message, /unauthorized/i);
+});
+
+test("handleDiscoveryWebhook accepts requests with a correctly provided webhook secret", async () => {
+  // When a secret is configured, requests with the correct x-discovery-secret header pass.
+  const dependencies = makeDependencies({
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        // Use an obviously fake placeholder value that avoids secret-like keywords.
+        webhookSecret: "shared-value-xyz-123",
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        // Provide the matching secret header value.
+        "x-discovery-secret": "shared-value-xyz-123",
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+      }),
+    },
+    dependencies,
+  );
+
+  // Should be accepted (async or sync depending on runSynchronous setting).
+  assert.ok([200, 202].includes(response.status), `Expected 200 or 202, got ${response.status}`);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+});
+
+test("handleDiscoveryWebhook rejects requests with an incorrect webhook secret", async () => {
+  // When a secret is configured, requests with the wrong header value are rejected.
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      throw new Error("runDiscovery should not be called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: "the-real-shared-value-abc",
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        // Provide a mismatched secret header value.
+        "x-discovery-secret": "wrong-value-def",
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 401);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+  assert.match(body.message, /unauthorized/i);
 });
