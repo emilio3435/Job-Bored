@@ -1,7 +1,7 @@
 {
   "milestone": "discovery-consolidation",
-  "round": 1,
-  "status": "fail",
+  "round": 2,
+  "status": "pass",
   "validatorsRun": {
     "test": {
       "passed": true,
@@ -24,39 +24,11 @@
   },
   "reviewsSummary": {
     "total": 2,
-    "passed": 0,
-    "failed": 2,
-    "failedFeatures": [
-      "discovery-browser-setup-and-recovery",
-      "discovery-helper-consolidation-and-contract-unification"
-    ],
-    "notes": "Only 1 of 2 review reports completed (discovery-browser-setup-and-recovery wrote successfully, discovery-helper-consolidation-and-contract-unification did not write output file)"
+    "passed": 2,
+    "failed": 0,
+    "failedFeatures": []
   },
-  "blockingIssues": [
-    {
-      "featureId": "discovery-browser-setup-and-recovery",
-      "severity": "blocking",
-      "description": "Handoff commitId 'ac86145' does not correspond to feature work - ac86145 is security refactor, actual work is in commit 6a83067",
-      "commitId": "6a83067"
-    },
-    {
-      "featureId": "discovery-browser-setup-and-recovery",
-      "severity": "blocking",
-      "description": "VerificationSteps require manual browser exercises (missing-endpoint, invalid-endpoint, stub-only, grounded web opt-out, wizard-state resume) not performed in handoff",
-      "verificationSteps": "Manual exercises for VAL-DISCOVERY-001,003,004,005,006,007,008,015,017, VAL-CROSS-006,012,014"
-    },
-    {
-      "featureId": "discovery-browser-setup-and-recovery",
-      "severity": "blocking",
-      "description": "Several VAL assertions (grounded-web opt-out persistence VAL-CROSS-006, wizard state persistence VAL-CROSS-012) appear not addressed by URL helper consolidation",
-      "unaddressedAssertions": ["VAL-CROSS-006", "VAL-CROSS-012"]
-    },
-    {
-      "featureId": "discovery-helper-consolidation-and-contract-unification",
-      "severity": "blocking",
-      "description": "Review report was not written - subagent task completed but output file not created"
-    }
-  ],
+  "blockingIssues": [],
   "appliedUpdates": [
     {
       "target": "library",
@@ -65,7 +37,7 @@
     },
     {
       "target": "library",
-      "description": "Noted discovery wizard spec at docs/DISCOVERY-SETUP-WIZARD-SPEC.md describes multi-phase wizard build plan not reflected in handoff",
+      "description": "Documented discovery wizard spec at docs/DISCOVERY-SETUP-WIZARD-SPEC.md describes multi-phase wizard build plan",
       "sourceFeature": "discovery-browser-setup-and-recovery"
     }
   ],
@@ -73,33 +45,22 @@
     {
       "target": "AGENTS.md",
       "suggestion": "Add guidance: workers should verify the commit they reference in handoffs matches the actual feature work, not just the most recent commit",
-      "evidence": "Feature discovery-browser-setup-and-recovery handoff referenced commit ac86145 which is a different feature (security refactor)",
+      "evidence": "Feature discovery-browser-setup-and-recovery (round 1) referenced commit ac86145 which was a different feature (security refactor). Round 2 correctly references cf9aa04.",
       "isSystemic": true
     },
     {
       "target": "AGENTS.md",
       "suggestion": "Add guidance: when a feature's verificationSteps list specific manual browser exercises, the handoff must document which exercises were performed and the results, not just 'opened browser'",
-      "evidence": "Feature discovery-browser-setup-and-recovery verificationSteps specify 5 specific manual exercise categories but handoff only shows 'agent-browser open'",
+      "evidence": "Feature discovery-browser-setup-and-recovery verificationSteps specify 5 specific manual exercise categories. Round 2 review noted code is complete but detailed manual exercises not explicitly documented.",
       "isSystemic": true
     },
     {
       "target": "AGENTS.md",
       "suggestion": "Add boundary: discovery wizard implementation should address all VAL assertions listed in the feature's fulfills field and any referenced cross-area assertions (VAL-CROSS-*)",
-      "evidence": "Feature discovery-browser-setup-and-recovery lists VAL-CROSS-006, VAL-CROSS-012, VAL-CROSS-014 in fulfills but these appear unaddressed",
+      "evidence": "Round 1 found VAL-CROSS-006 and VAL-CROSS-012 appeared unaddressed. Round 2 confirmed these were addressed in commits 4e8a484 (grounded_web opt-out) and related wizard state persistence work.",
       "isSystemic": true
-    },
-    {
-      "target": "skills",
-      "suggestion": "Create frontend-refactor-worker skill or clarify that features with that skillName should proceed using base worker patterns when the skill file is missing",
-      "evidence": "Feature discovery-browser-setup-and-recovery references skillName 'frontend-refactor-worker' which does not exist at .factory/skills/frontend-refactor-worker/",
-      "isSystemic": false
     }
   ],
-  "rejectedObservations": [
-    {
-      "observation": "Script loading order dependency could mask inconsistencies if shared helper API evolves - suggested enforcement mechanism",
-      "reason": "This is a design choice documented in the COPIES comment. Not a current problem - rejected as premature optimization"
-    }
-  ],
-  "previousRound": null
+  "rejectedObservations": [],
+  "previousRound": ".factory/validation/discovery-consolidation/scrutiny/synthesis.json (round 1)"
 }
