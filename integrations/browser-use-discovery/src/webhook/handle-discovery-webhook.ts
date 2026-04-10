@@ -15,6 +15,7 @@ import {
   buildRunStatusPath,
   type DiscoveryRunStatusStore,
 } from "../state/run-status-store.ts";
+import { validateSheetsCredentialReadiness } from "../sheets/credential-readiness.ts";
 
 export type WebhookRequestLike = {
   method: string;
@@ -299,14 +300,24 @@ async function validateDiscoveryPreflight(
     };
   }
 
-  if (!hasSheetsCredential(runDependencies.runtimeConfig)) {
+  const sheetsCredentialReadiness = await validateSheetsCredentialReadiness(
+    runDependencies.runtimeConfig,
+    {
+      now: runDependencies.now,
+    },
+  );
+  if (!sheetsCredentialReadiness.configured) {
     return {
       status: 409,
-      message: "Discovery worker has no Google Sheets credential configured.",
-      detail:
-        "Set a Google service account file/JSON, a Google access token, or a Google OAuth token file before running discovery.",
-      remediation:
-        "Set BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE, BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON, BROWSER_USE_DISCOVERY_GOOGLE_ACCESS_TOKEN, or BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_FILE.",
+      message:
+        sheetsCredentialReadiness.message ||
+        "Discovery worker has no Google Sheets credential configured.",
+      ...(sheetsCredentialReadiness.detail
+        ? { detail: sheetsCredentialReadiness.detail }
+        : {}),
+      ...(sheetsCredentialReadiness.remediation
+        ? { remediation: sheetsCredentialReadiness.remediation }
+        : {}),
     };
   }
 
@@ -324,19 +335,6 @@ async function validateDiscoveryPreflight(
 
   return null;
 }
-
-export function hasSheetsCredential(
-  runtimeConfig: RunDiscoveryDependencies["runtimeConfig"],
-): boolean {
-  return !!(
-    String(runtimeConfig.googleAccessToken || "").trim() ||
-    String(runtimeConfig.googleServiceAccountJson || "").trim() ||
-    String(runtimeConfig.googleServiceAccountFile || "").trim() ||
-    String(runtimeConfig.googleOAuthTokenJson || "").trim() ||
-    String(runtimeConfig.googleOAuthTokenFile || "").trim()
-  );
-}
-
 function parseWebhookRequest(
   bodyText: string,
 ):
