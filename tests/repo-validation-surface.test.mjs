@@ -25,6 +25,10 @@ function readManifestCommands() {
   return commands;
 }
 
+function readManifestText() {
+  return readFileSync(join(repoRoot, ".factory/services.yaml"), "utf8");
+}
+
 async function createScratchRepo() {
   const scratchRoot = await mkdtemp(join(tmpdir(), "job-bored-install-"));
   await mkdir(join(scratchRoot, "server"), { recursive: true });
@@ -73,6 +77,10 @@ describe("repo validation surface", () => {
       pkg.scripts["typecheck:repo"],
       "node --check app.js && node --check dev-server.mjs && node --check discovery-wizard-local.js && node --check discovery-wizard-probes.js && node --check discovery-wizard-relay.js && node --check discovery-wizard-shell.js && node --check discovery-wizard-verify.js && node --check settings-tabs.js && node --check user-content-store.js && node --check resume-bundle.js && node --check resume-generate.js && node --check document-templates.js && node --check scripts/install-repo.mjs && node --check server/index.mjs && node --check server/job-scraper.mjs && node --check server/ats-request-payload.mjs && node --check server/ats-scorecard.mjs",
     );
+    assert.equal(
+      pkg.scripts["web-only:https"],
+      "COMMAND_CENTER_TLS=1 node dev-server.mjs",
+    );
 
     assert.deepEqual(manifestCommands, {
       install: "npm run install:repo",
@@ -80,6 +88,11 @@ describe("repo validation surface", () => {
       lint: "npm run lint:repo",
       typecheck: "npm run typecheck:repo",
     });
+
+    assert.match(
+      readManifestText(),
+      /\n  web_tls:\n    start: npm run web-only:https\n    stop: if lsof -ti tcp:8080 >\/dev\/null; then lsof -ti tcp:8080 \| xargs kill; fi\n    healthcheck: curl -skf https:\/\/localhost:8080\/\n    port: 8080\n    depends_on: \[\]/,
+    );
   });
 
   it("marks dependencies fresh after installRepo records the current inputs", async () => {

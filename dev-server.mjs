@@ -1,12 +1,18 @@
-import { createServer, request as httpRequest } from "node:http";
+import { createServer as createHttpServer, request as httpRequest } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { readFile, stat } from "node:fs/promises";
 import { join, extname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
+const TLS_CACHE_DIR = join(ROOT, "node_modules", ".cache", "command-center-dev-server");
+const TLS_CERT_PATH = join(TLS_CACHE_DIR, "localhost-cert.pem");
+const TLS_KEY_PATH = join(TLS_CACHE_DIR, "localhost-key.pem");
+const TLS_CERT_SUBJECT = "/CN=localhost";
+const TLS_CERT_SAN = "subjectAltName=DNS:localhost,IP:127.0.0.1";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -313,11 +319,68 @@ function normalizePort(port) {
   return DEFAULT_PORT;
 }
 
-export function createDevServer({
-  port = DEFAULT_PORT,
-  logger = console,
-} = {}) {
-  const currentPort = normalizePort(port);
+function normalizeBooleanFlag(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (value == null) return false;
+  const normalized = String(value).trim().toLowerCase();
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
+}
+
+function ensureLocalTlsMaterial() {
+  if (!existsSync(TLS_CERT_PATH) || !existsSync(TLS_KEY_PATH)) {
+    mkdirSync(TLS_CACHE_DIR, { recursive: true });
+    const result = spawnSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-keyout",
+        TLS_KEY_PATH,
+        "-out",
+        TLS_CERT_PATH,
+        "-sha256",
+        "-days",
+        "365",
+        "-nodes",
+        "-subj",
+        TLS_CERT_SUBJECT,
+        "-addext",
+        TLS_CERT_SAN,
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    if (result.status !== 0 || result.error) {
+      const detail = (
+        result.error
+          ? result.error.message
+          : `${result.stderr || ""}\n${result.stdout || ""}`
+      ).trim();
+      throw new Error(
+        `Failed to generate the local TLS certificate via openssl. ${
+          detail || "Ensure OpenSSL is installed and retry."
+        }`,
+      );
+    }
+  }
+
+  return {
+    key: readFileSync(TLS_KEY_PATH),
+    cert: readFileSync(TLS_CERT_PATH),
+    keyPath: TLS_KEY_PATH,
+    certPath: TLS_CERT_PATH,
+  };
+}
+
+function createRequestHandler({ currentPort, logger }) {
   const log =
     logger && typeof logger.log === "function" ? logger.log.bind(logger) : () => {};
   const logError =
@@ -325,7 +388,7 @@ export function createDevServer({
       ? logger.error.bind(logger)
       : () => {};
 
-  return createServer((req, res) => {
+  return (req, res) => {
     const url = new URL(req.url || "/", `http://localhost:${currentPort}`);
     const pathname = decodeURIComponent(url.pathname);
 
@@ -362,22 +425,49 @@ export function createDevServer({
     serveStatic(pathname, res).then(() => {
       log(`  HTTP  ${ts} ${req.socket.remoteAddress} Returned ${res.statusCode} in ${0} ms`);
     });
-  });
+  };
 }
 
-export function startDevServer({ port = DEFAULT_PORT, logger = console } = {}) {
+export function createDevServer({
+  port = DEFAULT_PORT,
+  logger = console,
+  tls = false,
+} = {}) {
+  const currentPort = normalizePort(port);
+  const useTls = normalizeBooleanFlag(tls);
+  const requestHandler = createRequestHandler({ currentPort, logger });
+
+  if (useTls) {
+    const tlsMaterial = ensureLocalTlsMaterial();
+    return createHttpsServer(
+      {
+        key: tlsMaterial.key,
+        cert: tlsMaterial.cert,
+      },
+      requestHandler,
+    );
+  }
+
+  return createHttpServer(requestHandler);
+}
+
+export function startDevServer({ port = DEFAULT_PORT, logger = console, tls = false } = {}) {
   const requestedPort = normalizePort(port);
+  const useTls = normalizeBooleanFlag(tls);
   const log =
     logger && typeof logger.log === "function" ? logger.log.bind(logger) : () => {};
 
   return new Promise((resolve, reject) => {
-    const server = createDevServer({ port: requestedPort, logger });
+    const server = createDevServer({ port: requestedPort, logger, tls: useTls });
     server.once("error", reject);
     server.listen(requestedPort, () => {
       const address = server.address();
       const actualPort =
         address && typeof address === "object" ? address.port : requestedPort;
-      log(`  Dev server listening on http://localhost:${actualPort}`);
+      log(`  Dev server listening on ${useTls ? "https" : "http"}://localhost:${actualPort}`);
+      if (useTls) {
+        log(`  Local TLS certificate: ${TLS_CERT_PATH}`);
+      }
       log(`  Proxying /__proxy/local-health → 127.0.0.1:8644/health`);
       log(`  Proxying /__proxy/ngrok-tunnels → 127.0.0.1:4040/api/tunnels`);
       log(`  POST /__proxy/fix-setup → one-click recovery helper`);
@@ -391,7 +481,10 @@ const isMainModule = process.argv[1]
   : false;
 
 if (isMainModule) {
-  startDevServer({ port: process.env.PORT || DEFAULT_PORT }).catch((error) => {
+  startDevServer({
+    port: process.env.PORT || DEFAULT_PORT,
+    tls: process.env.COMMAND_CENTER_TLS || process.env.HTTPS,
+  }).catch((error) => {
     console.error("Failed to start dev server:", error);
     process.exitCode = 1;
   });
