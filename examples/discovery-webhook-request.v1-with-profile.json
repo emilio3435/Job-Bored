@@ -11,6 +11,7 @@
     "seniority": "Senior, Staff",
     "keywordsInclude": "Go, distributed systems, Postgres",
     "keywordsExclude": "PHP, WordPress",
-    "maxLeadsPerRun": "25"
+    "maxLeadsPerRun": "25",
+    "groundedWebEnabled": true
   }
 }

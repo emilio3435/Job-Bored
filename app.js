@@ -4,6 +4,32 @@
    Google Identity Services (GIS) OAuth 2.0
    ============================================ */
 
+(function ensureDiscoveryWizardLocalApiLoaded() {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return;
+  }
+  try {
+    const root =
+      window.JobBoredDiscoveryWizard || (window.JobBoredDiscoveryWizard = {});
+    if (root.local && typeof root.local.runLocalWizardAction === "function") {
+      return;
+    }
+    const cur = document.currentScript;
+    const fallbackSrc =
+      cur && cur.src
+        ? new URL("./discovery-wizard-local.js", cur.src).href
+        : "discovery-wizard-local.js";
+    const s = document.createElement("script");
+    s.src = fallbackSrc;
+    s.async = false;
+    (document.head || document.documentElement).appendChild(s);
+  } catch (err) {
+    if (typeof console !== "undefined" && console.warn) {
+      console.warn("[JobBored] could not load discovery-wizard-local.js:", err);
+    }
+  }
+})();
+
 const COMMAND_CENTER_CONFIG_OVERRIDE_KEY = "command_center_config_overrides";
 const DISCOVERY_TRANSPORT_SETUP_KEY =
   "command_center_discovery_transport_setup";
@@ -159,12 +185,17 @@ function writeDiscoveryTransportSetupState(patch) {
 function isLocalDashboardOrigin() {
   if (typeof window === "undefined" || !window.location) return false;
   const host = String(window.location.hostname || "").toLowerCase();
-  return (
+  if (
     host === "localhost" ||
     host === "127.0.0.1" ||
     host === "[::1]" ||
     host === "::1"
-  );
+  ) {
+    return true;
+  }
+  const port = String(window.location.port || "");
+  if (port === "8080") return true;
+  return false;
 }
 
 async function hydrateDiscoveryTransportSetupFromLocalBootstrap() {
@@ -253,7 +284,7 @@ function getOAuthClientId() {
   return id;
 }
 
-/** Optional POST target for &ldquo;Run discovery&rdquo; (Hermes / n8n / Apps Script). */
+/** Optional POST target for &ldquo;Run discovery&rdquo; (browser-use worker / Hermes / n8n / Apps Script). */
 function getDiscoveryWebhookUrl() {
   const cfg = getConfig();
   const u = cfg && cfg.discoveryWebhookUrl;
@@ -308,7 +339,9 @@ const STARTER_PIPELINE_HEADERS = [
   "Talking Points",
   "Last contact",
   "Did they reply?",
+  "Logo URL",
 ];
+const STARTER_PIPELINE_HEADER_RANGE = `Pipeline!A1:${String.fromCharCode("A".charCodeAt(0) + STARTER_PIPELINE_HEADERS.length - 1)}1`;
 
 let appsScriptDeployStateCache = null;
 let appsScriptDeployBusy = false;
@@ -978,6 +1011,20 @@ function getSuggestedCloudflareRelayWorkerName(targetUrl) {
   );
 }
 
+/** First label of *.workers.dev hostname, e.g. jobbored-discovery-relay-abc123. */
+function inferCloudflareWorkerNameFromOpenWorkerUrl(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  try {
+    const u = new URL(s);
+    if (!/\.workers\.dev$/i.test(u.hostname)) return "";
+    const first = u.hostname.split(".")[0];
+    return sanitizeCloudflareWorkerName(first);
+  } catch (_) {
+    return "";
+  }
+}
+
 function quoteShellArg(raw) {
   return `'${String(raw || "").replace(/'/g, `'\"'\"'`)}'`;
 }
@@ -1002,6 +1049,56 @@ function buildCloudflareRelayDeployCommand(
     parts.push(`--sheet-id ${quoteShellArg(sheetId)}`);
   }
   return parts.join(" ");
+}
+
+function getDiscoveryRelaySuggestedOrigin() {
+  return typeof window !== "undefined" &&
+    window.location &&
+    typeof window.location.origin === "string" &&
+    /^https?:\/\//i.test(window.location.origin)
+    ? window.location.origin.trim()
+    : "";
+}
+
+function getDiscoveryRelayWorkerName(targetUrl, preferredWorkerUrl = "") {
+  const currentWorkerUrl =
+    normalizeDiscoveryWebhookIdentity(preferredWorkerUrl) ||
+    normalizeDiscoveryWebhookIdentity(
+      getSettingsFieldValue("settingsDiscoveryWebhookUrl").trim(),
+    ) ||
+    normalizeDiscoveryWebhookIdentity(getDiscoveryWebhookUrl());
+  const explicitWorker =
+    inferCloudflareWorkerNameFromOpenWorkerUrl(currentWorkerUrl);
+  return explicitWorker || getSuggestedCloudflareRelayWorkerName(targetUrl);
+}
+
+function buildDiscoveryRelayDeployCommandForTarget(targetUrl, options = {}) {
+  const normalizedTargetUrl = normalizeDiscoveryWebhookIdentity(targetUrl);
+  if (!normalizedTargetUrl) return "";
+  const explicitWorkerName = sanitizeCloudflareWorkerName(options.workerName);
+  const workerName =
+    explicitWorkerName ||
+    getDiscoveryRelayWorkerName(
+      normalizedTargetUrl,
+      String(options.workerUrl || ""),
+    );
+  return buildCloudflareRelayDeployCommand(
+    normalizedTargetUrl,
+    String(options.origin || "").trim() || getDiscoveryRelaySuggestedOrigin(),
+    workerName,
+    String(options.sheetId || "").trim() || (getSettingsSheetIdValue() || ""),
+  );
+}
+
+function createDiscoveryRelayCopyCommandToastAction(command) {
+  const text = String(command || "").trim();
+  if (!text) return null;
+  return {
+    label: "Copy command",
+    onClick() {
+      copyTextToClipboard(text);
+    },
+  };
 }
 
 function buildCloudflareRelayAgentPrompt(
@@ -1142,7 +1239,22 @@ function getDiscoveryWizardProbesApi() {
 
 function getDiscoveryWizardLocalApi() {
   const root = getDiscoveryWizardRoot();
-  return root && root.local ? root.local : null;
+  const backup =
+    typeof window !== "undefined" ? window.__JobBoredDiscoveryLocalApi : null;
+  if (backup && typeof backup.runLocalWizardAction === "function") {
+    if (root) {
+      root.local = backup;
+    }
+    return backup;
+  }
+  if (
+    root &&
+    root.local &&
+    typeof root.local.runLocalWizardAction === "function"
+  ) {
+    return root.local;
+  }
+  return null;
 }
 
 function getDiscoveryWizardRelayApi() {
@@ -1196,15 +1308,68 @@ function classifySavedWebhookKindForFallback(rawUrl) {
   return /^https?:\/\//i.test(url) ? "generic_https" : "none";
 }
 
+function getDiscoveryLocalEngineKind(snapshot) {
+  const state = snapshot && typeof snapshot === "object" ? snapshot : {};
+  const explicit = String(state.localEngineKind || "")
+    .trim()
+    .toLowerCase();
+  if (explicit === "browser_use_worker") return "browser_use_worker";
+  if (explicit === "hermes") return "hermes";
+  if (explicit === "other") return "other";
+
+  const localWebhookUrl = normalizeDiscoveryLocalWebhookUrl(
+    state.localWebhookUrl || "",
+  );
+  if (/\/webhook\/?$/i.test(localWebhookUrl)) return "browser_use_worker";
+  if (/\/webhooks\/[^/]+/i.test(localWebhookUrl)) return "hermes";
+  return localWebhookUrl ? "other" : "none";
+}
+
+function getDiscoveryLocalEngineLabel(snapshot) {
+  const kind = getDiscoveryLocalEngineKind(snapshot);
+  if (kind === "browser_use_worker") return "Browser-use worker";
+  if (kind === "hermes") return "Hermes route";
+  if (kind === "other") return "Local discovery service";
+  return "";
+}
+
+function getDiscoveryLocalEngineSummary(snapshot) {
+  const state = snapshot && typeof snapshot === "object" ? snapshot : {};
+  const label = getDiscoveryLocalEngineLabel(state);
+  if (!label) return "not confirmed";
+  if (state.localWebhookUrl) return `${label} (${state.localWebhookUrl})`;
+  return label;
+}
+
 function buildFallbackSettingsDiscoveryView(snapshot) {
   const status = getEffectiveDiscoveryEngineStatus(snapshot.savedWebhookUrl);
   const kind = String(snapshot.savedWebhookKind || "none");
   const appsScriptState = String(snapshot.appsScriptState || "none");
+  const recovery = snapshot.localRecoveryState || "ok";
   const hasSavedExternalEndpoint =
     kind === "worker" || kind === "generic_https";
   const stubCurrent =
     status.state === DISCOVERY_ENGINE_STATE_STUB_ONLY ||
     kind === "apps_script_stub";
+
+  if (
+    recovery !== "ok" &&
+    (status.state === DISCOVERY_ENGINE_STATE_CONNECTED ||
+      hasSavedExternalEndpoint)
+  ) {
+    return {
+      tone: "warning",
+      title: "Local setup needs recovery",
+      detail:
+        "The local worker or tunnel is down. Click Fix setup to restore it.",
+      chipLabel: "Needs recovery",
+      chipTone: "warning",
+      runDiscoveryEnabled: false,
+      primaryActionLabel: "Fix setup",
+      primaryActionHint:
+        "One click restores the local worker, tunnel, and relay.",
+    };
+  }
 
   if (
     status.state === DISCOVERY_ENGINE_STATE_CONNECTED ||
@@ -1228,10 +1393,15 @@ function buildFallbackSettingsDiscoveryView(snapshot) {
   }
 
   if (kind === "local_http") {
+    const engineLabel = getDiscoveryLocalEngineLabel(snapshot);
     return {
       tone: "info",
-      title: "Local receiver detected",
-      detail: "Complete the server, tunnel, and relay steps to finish setup.",
+      title: engineLabel
+        ? `${engineLabel} detected`
+        : "Local receiver detected",
+      detail: engineLabel
+        ? `Complete the local server, tunnel, and relay steps to finish setup for ${engineLabel}.`
+        : "Complete the server, tunnel, and relay steps to finish setup.",
       chipLabel: "Local path",
       chipTone: "info",
       runDiscoveryEnabled: false,
@@ -1272,11 +1442,26 @@ function buildFallbackEmptyStateDiscoveryView(snapshot) {
   const status = getEffectiveDiscoveryEngineStatus(snapshot.savedWebhookUrl);
   const kind = String(snapshot.savedWebhookKind || "none");
   const appsScriptState = String(snapshot.appsScriptState || "none");
+  const recovery = snapshot.localRecoveryState || "ok";
   const hasSavedExternalEndpoint =
     kind === "worker" || kind === "generic_https";
   const stubCurrent =
     status.state === DISCOVERY_ENGINE_STATE_STUB_ONLY ||
     kind === "apps_script_stub";
+
+  if (
+    recovery !== "ok" &&
+    (status.state === DISCOVERY_ENGINE_STATE_CONNECTED ||
+      hasSavedExternalEndpoint)
+  ) {
+    return {
+      title: "Local setup needs recovery",
+      body: "The local discovery chain is down. Click Fix setup to restore it.",
+      ctaLabel: "Fix setup",
+      ctaAction: "open_setup",
+    };
+  }
+
   if (status.state === DISCOVERY_ENGINE_STATE_CONNECTED) {
     return {
       title: "Pipeline is ready",
@@ -1297,9 +1482,14 @@ function buildFallbackEmptyStateDiscoveryView(snapshot) {
     };
   }
   if (kind === "local_http") {
+    const engineLabel = getDiscoveryLocalEngineLabel(snapshot);
     return {
-      title: "Local discovery path not finished",
-      body: "Your local receiver is known, but the public tunnel or Worker URL still needs to be finished.",
+      title: engineLabel
+        ? `${engineLabel} not finished`
+        : "Local discovery path not finished",
+      body: engineLabel
+        ? `${engineLabel} is known, but the public tunnel or Worker URL still needs to be finished.`
+        : "Your local receiver is known, but the public tunnel or Worker URL still needs to be finished.",
       ctaLabel: "Continue setup",
       ctaAction: "open_setup",
     };
@@ -1353,7 +1543,12 @@ function buildFallbackReadinessSnapshot() {
         : "A public HTTPS webhook is already saved.";
   } else if (hasLocalPathSignals) {
     recommendedFlow = "local_agent";
-    recommendedReason = "Local setup detected on this machine.";
+    recommendedReason =
+      getDiscoveryLocalEngineKind({
+        localWebhookUrl: transport.localWebhookUrl || "",
+      }) === "hermes"
+        ? "A local Hermes route was detected on this machine. It can work, but the browser-use worker is the recommended default."
+        : "A local browser-use worker or local discovery path was detected on this machine.";
   } else if (hasSavedStubEndpoint) {
     recommendedFlow = "stub_only";
     recommendedReason =
@@ -1371,7 +1566,9 @@ function buildFallbackReadinessSnapshot() {
     localWebhookUrl: transport.localWebhookUrl || "",
     localWebhookReady: false,
     tunnelPublicUrl: transport.tunnelPublicUrl || "",
-    tunnelReady: !!transport.tunnelPublicUrl,
+    tunnelLive: false,
+    tunnelReady: false,
+    tunnelStale: false,
     relayTargetUrl,
     relayReady: savedWebhookKind === "worker",
     engineState: engineStatus.state,
@@ -1383,6 +1580,10 @@ function buildFallbackReadinessSnapshot() {
       : hasSavedStubEndpoint
         ? "stub_only"
         : "",
+    localRecoveryState:
+      hasLocalPathSignals || savedWebhookKind === "worker"
+        ? "needs_full_restart"
+        : "ok",
   };
   return {
     ...snapshot,
@@ -1524,7 +1725,37 @@ function showDiscoveryVerificationToast(result, options = {}) {
   const fallback = isRun
     ? "Discovery verification finished."
     : "Webhook verification finished.";
-  showToast(`${result.message || fallback}${detail}`.trim(), type, persistent);
+
+  let action;
+  if (!result.ok && isLocalDashboardOrigin()) {
+    const hasLocalTunnel = !!getDiscoveryTransportSetupState().tunnelPublicUrl;
+    const endpointUrl = options.endpointUrl || "";
+    const isTunnelFailure =
+      result.layer === "downstream" ||
+      (result.kind === "network_error" &&
+        isLikelyCloudflareWorkerUrl(endpointUrl)) ||
+      (result.kind === "network_error" && hasLocalTunnel) ||
+      (/ngrok|tunnel|offline/i.test(result.detail || "") && hasLocalTunnel);
+    if (isTunnelFailure) {
+      action = {
+        label: "Fix tunnel",
+        onClick: () => {
+          void openDiscoverySetupWizard({
+            entryPoint: "settings",
+            flow: "local_agent",
+            startStep: "tunnel",
+          });
+        },
+      };
+    }
+  }
+
+  showToast(
+    `${result.message || fallback}${detail}`.trim(),
+    type,
+    persistent,
+    action,
+  );
 }
 
 async function verifyDiscoveryWebhookWithSharedModel(
@@ -1901,22 +2132,26 @@ function buildDiscoveryBootstrapAgentPrompt(snapshot) {
     "",
     "Do this:",
     "1. Run `npm run discovery:bootstrap-local` from the repo root.",
-    "2. If bootstrap needs an ngrok token, Hermes gateway, or any login step, stop and tell me exactly what is missing.",
-    "3. Return the local webhook URL, health URL, ngrok URL, and public target URL you found.",
-    "4. Do not edit `app.js` or `index.html`.",
+    "2. Prefer the browser-use discovery worker as the local engine. Only use Hermes/OpenClaw if the user intentionally wants the advanced path.",
+    "3. If bootstrap needs an ngrok token, local worker start command, or any login step, stop and tell me exactly what is missing.",
+    "4. Return the local webhook URL, health URL, ngrok URL, and public target URL you found.",
+    "5. Do not edit `app.js` or `index.html`.",
   ].join("\n");
 }
 
 function buildDiscoveryLocalHealthAgentPrompt(snapshot) {
+  const engineKind = getDiscoveryLocalEngineKind(snapshot);
   return [
     "We are in the Job-Bored repo. Fix the local discovery receiver so the wizard health check can pass.",
     "",
     `Current local webhook: ${snapshot.localWebhookUrl || "not detected yet"}`,
     "",
     "Do this:",
-    "1. Run `hermes gateway run --replace`.",
+    engineKind === "hermes"
+      ? "1. The current local path points at Hermes/OpenClaw. If that is intentional, run `hermes gateway run --replace`. Otherwise switch to the browser-use worker with `npm run discovery:worker:start-local`."
+      : "1. Start the recommended local browser-use worker with `npm run discovery:worker:start-local`.",
     "2. Confirm the local `/health` endpoint responds successfully.",
-    "3. If the gateway still does not become healthy, tell me exactly which service, credential, or dependency is missing.",
+    "3. If the local server still does not become healthy, tell me exactly which service, credential, or dependency is missing.",
     "4. Do not edit `app.js` or `index.html`.",
   ].join("\n");
 }
@@ -2000,7 +2235,7 @@ function getDiscoveryWizardFlowLabel(flow) {
   if (flow === "external_endpoint") return "My own webhook";
   if (flow === "no_webhook") return "Manual / no webhook";
   if (flow === "stub_only") return "Stub only (testing)";
-  return "Local (this computer)";
+  return "Local worker (this computer)";
 }
 
 function getDiscoveryWizardStepTitle(flow) {
@@ -2027,6 +2262,9 @@ function getDiscoveryWizardBlockingIssueLabel(issue) {
   if (issue === "relay_missing") {
     return "Relay not deployed yet.";
   }
+  if (issue === "needs_recovery") {
+    return "Local setup needs recovery after restart.";
+  }
   return "";
 }
 
@@ -2051,7 +2289,9 @@ function getDiscoveryWizardRecommendationReason(snapshot) {
     state.tunnelPublicUrl ||
     state.localBootstrapAvailable
   ) {
-    return "Local setup detected on this machine.";
+    return getDiscoveryLocalEngineKind(state) === "hermes"
+      ? "A local Hermes route was detected. It can work, but the browser-use worker is the recommended local discovery engine."
+      : "A local browser-use worker or local discovery path was detected on this machine.";
   }
   return "No webhook saved yet — pick a path to get started.";
 }
@@ -2090,12 +2330,14 @@ function getDiscoveryWizardOptionDetails(flow) {
     };
   }
   return {
-    title: "Local (this computer)",
-    bestWhen: "Your discovery agent runs on this machine.",
+    title: "Local discovery worker",
+    bestWhen:
+      "You want the recommended browser-use discovery worker on this machine.",
     setupTime: "~10 min",
     effort: "Medium",
-    pro: "Full local pipeline — you control everything.",
-    tradeoff: "Needs local server + ngrok + relay.",
+    pro: "Best local path for real discovery.",
+    tradeoff:
+      "Needs a local worker + ngrok + relay. Hermes/OpenClaw remains an advanced custom path.",
   };
 }
 
@@ -2165,8 +2407,20 @@ function buildDiscoveryPathSelectBody(runtime) {
 
 function buildDiscoveryDetectBody(runtime) {
   const snapshot = runtime.snapshot;
+  const recovery = snapshot.localRecoveryState || "ok";
+  const recoverySentences = {
+    needs_full_restart:
+      "Your computer restarted, so the local worker and tunnel need to be brought back up.",
+    worker_down:
+      "The local discovery worker is not responding. It may need to be restarted.",
+    tunnel_down:
+      "The ngrok tunnel is not running. The public URL cannot reach the local worker.",
+    tunnel_rotated:
+      "The ngrok tunnel restarted with a new URL. The relay needs to be updated.",
+  };
   const foundItems = [];
   const missingItems = [];
+  const localEngineLabel = getDiscoveryLocalEngineLabel(snapshot);
 
   if (snapshot.sheetConfigured) {
     foundItems.push("Pipeline sheet connected");
@@ -2187,7 +2441,11 @@ function buildDiscoveryDetectBody(runtime) {
   }
 
   if (snapshot.localWebhookUrl) {
-    foundItems.push("Local server detected");
+    foundItems.push(
+      localEngineLabel
+        ? `Local engine detected (${localEngineLabel})`
+        : "Local server detected",
+    );
     if (!snapshot.localWebhookReady) {
       missingItems.push("Local server not responding — needs restart");
     }
@@ -2224,14 +2482,24 @@ function buildDiscoveryDetectBody(runtime) {
     ...foundItems.map((i) => `✓ ${i}`),
     ...missingItems.map((i) => `✗ ${i}`),
   ];
-  return [
-    {
+  const cards = [];
+  if (recovery !== "ok") {
+    cards.push({
       type: "card",
-      title: "Status",
-      body: [{ type: "list", items: allItems }],
-    },
-    buildDiscoveryWizardMessageCard(runtime),
-  ].filter(Boolean);
+      title: "Recovery needed",
+      body: [
+        recoverySentences[recovery] ||
+          "Part of the local discovery chain is down after a restart.",
+      ],
+    });
+  }
+  cards.push({
+    type: "card",
+    title: "Status",
+    body: [{ type: "list", items: allItems }],
+  });
+  cards.push(buildDiscoveryWizardMessageCard(runtime));
+  return cards.filter(Boolean);
 }
 
 function buildDiscoveryExistingEndpointBody(runtime) {
@@ -2318,10 +2586,12 @@ function buildDiscoveryBootstrapBody(runtime) {
 
 function buildDiscoveryLocalHealthBody(runtime) {
   const snapshot = runtime.snapshot;
+  const localEngineLabel =
+    getDiscoveryLocalEngineLabel(snapshot) || "local discovery server";
   const container = createWizardNode("div", "discovery-wizard-step-body");
   appendWizardParagraph(
     container,
-    "Checking that the Hermes gateway is running on this computer.",
+    `Checking that ${localEngineLabel} is running on this computer.`,
   );
   appendWizardList(container, [
     `Server: ${snapshot.localWebhookUrl || "not found"}`,
@@ -2355,13 +2625,25 @@ function buildDiscoveryLocalHealthBody(runtime) {
         {
           id: "manual",
           label: "Terminal",
-          summary: "Run this command to restart the gateway.",
+          summary:
+            getDiscoveryLocalEngineKind(snapshot) === "hermes"
+              ? "Run the advanced Hermes path if that is intentional."
+              : "Run the recommended local browser-use worker.",
           render(content) {
             appendWizardCodeBlock(
               content,
-              "hermes gateway run --replace",
+              getDiscoveryLocalEngineKind(snapshot) === "hermes"
+                ? "hermes gateway run --replace"
+                : "npm run discovery:worker:start-local",
               "Copy command",
             );
+            if (getDiscoveryLocalEngineKind(snapshot) !== "hermes") {
+              appendWizardParagraph(
+                content,
+                "Advanced only: if you intentionally use Hermes/OpenClaw instead, run `hermes gateway run --replace`.",
+                "settings-field-hint settings-field-hint--compact",
+              );
+            }
             appendWizardParagraph(
               content,
               "Then press Check health above.",
@@ -2380,6 +2662,19 @@ function buildDiscoveryTunnelBody(runtime) {
   const snapshot = runtime.snapshot;
   const localPort = inferLocalWebhookPort(snapshot.localWebhookUrl || "");
   const container = createWizardNode("div", "discovery-wizard-step-body");
+
+  const stalePlaceholder = createWizardNode(
+    "div",
+    "tunnel-stale-banner-wizard-slot",
+  );
+  stalePlaceholder.id = "wizardTunnelStalePlaceholder";
+  container.appendChild(stalePlaceholder);
+  void probeAndShowWizardTunnelBanner(
+    stalePlaceholder,
+    snapshot.tunnelPublicUrl || "",
+    localPort,
+  );
+
   appendWizardParagraph(
     container,
     "ngrok creates a public URL that forwards to your local server.",
@@ -2434,6 +2729,52 @@ function buildDiscoveryTunnelBody(runtime) {
   return container;
 }
 
+async function probeAndShowWizardTunnelBanner(slot, storedTunnelUrl, port) {
+  if (!slot || !isLocalDashboardOrigin()) return;
+  const storedNorm = (storedTunnelUrl || "").replace(/\/+$/, "");
+  const liveUrl = await probeNgrokFromLocalApi();
+
+  if (!liveUrl && !storedNorm) return;
+
+  const banner = createWizardNode("div", "tunnel-stale-banner");
+
+  const icon = createWizardNode("span", "tunnel-stale-banner__icon");
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML =
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+  banner.appendChild(icon);
+
+  const body = createWizardNode("div", "tunnel-stale-banner__body");
+  const title = createWizardNode("p", "tunnel-stale-banner__title");
+  const detail = createWizardNode("p", "tunnel-stale-banner__detail");
+  body.appendChild(title);
+  body.appendChild(detail);
+  banner.appendChild(body);
+
+  if (!liveUrl) {
+    banner.classList.add("tunnel-stale-banner--down");
+    title.textContent = "No ngrok tunnel detected.";
+    detail.textContent = `Run ngrok http ${port || "8644"} to start a tunnel, then click Detect tunnel.`;
+  } else if (storedNorm && liveUrl !== storedNorm) {
+    title.textContent = "ngrok URL changed since last run.";
+    detail.textContent = `Old: ${storedNorm}\nLive: ${liveUrl}`;
+    const action = createWizardNode(
+      "button",
+      "btn-modal-primary tunnel-stale-banner__action",
+      "Detect tunnel",
+    );
+    action.type = "button";
+    action.addEventListener("click", () => {
+      void handleDiscoveryWizardAction("local_tunnel_detect");
+    });
+    banner.appendChild(action);
+  } else {
+    return;
+  }
+
+  slot.appendChild(banner);
+}
+
 function buildDiscoveryRelayBody(runtime) {
   const snapshot = runtime.snapshot;
   const relayApi = getDiscoveryWizardRelayApi();
@@ -2484,7 +2825,7 @@ function buildDiscoveryRelayBody(runtime) {
       {
         id: "manual",
         label: "Terminal",
-        summary: "Run the deploy command in your terminal.",
+        summary: "Copy the command, paste it into Terminal, then press Enter.",
         render(content) {
           if (model && model.downstreamTargetUrl) {
             appendWizardCodeBlock(
@@ -2497,7 +2838,7 @@ function buildDiscoveryRelayBody(runtime) {
             appendWizardCodeBlock(
               content,
               model.deployCommand,
-              "Copy deploy command",
+              "Copy terminal command",
             );
           } else {
             appendWizardCallout(
@@ -2507,7 +2848,7 @@ function buildDiscoveryRelayBody(runtime) {
           }
           appendWizardParagraph(
             content,
-            "Then paste the Worker URL below.",
+            "Copy the command, paste it into a terminal opened in the Job-Bored repo, press Enter, then paste the Worker URL below.",
             "settings-field-hint settings-field-hint--compact",
           );
         },
@@ -2560,17 +2901,51 @@ function buildDiscoveryVerifyBody(runtime) {
   const container = createWizardNode("div", "discovery-wizard-step-body");
   const result = runtime.lastVerificationResult;
   const diagnosis = runtime.lastDownstreamDiagnosis;
+  const recovery = snapshot.localRecoveryState || "ok";
   const isDownstreamFailure =
-    result &&
-    !result.ok &&
-    result.layer === "downstream" &&
-    [502, 503, 504].includes(result.httpStatus);
+    result && !result.ok && !!diagnosis && diagnosis.ran;
 
   const endpointUrl =
     snapshot.savedWebhookUrl ||
     runtime.drafts.workerUrl ||
     runtime.drafts.endpointUrl ||
     "missing";
+
+  if (recovery !== "ok") {
+    const recoverySentences = {
+      needs_full_restart:
+        "Your computer restarted, so the local worker and tunnel need to be brought back up.",
+      worker_down:
+        "The local discovery worker is not responding. It may need to be restarted.",
+      tunnel_down:
+        "The ngrok tunnel is not running. The public URL cannot reach the local worker.",
+      tunnel_rotated:
+        "The ngrok tunnel restarted with a new URL. The relay needs to be updated.",
+    };
+    const recoveryCard = createWizardNode(
+      "div",
+      "discovery-setup-wizard__summary-card discovery-setup-wizard__summary-card--recovery",
+    );
+    appendWizardParagraph(
+      recoveryCard,
+      "Recovery needed",
+      "discovery-setup-wizard__card-title",
+    );
+    appendWizardParagraph(
+      recoveryCard,
+      recoverySentences[recovery] ||
+        "Part of the local discovery chain is down after a restart.",
+      "discovery-setup-wizard__copy",
+    );
+    appendWizardParagraph(
+      recoveryCard,
+      "Click Fix setup to restore the worker, tunnel, and relay in one step.",
+      "discovery-setup-wizard__copy",
+    );
+    container.appendChild(recoveryCard);
+    return container;
+  }
+
   appendWizardParagraph(container, `Testing: ${endpointUrl}`);
 
   if (isDownstreamFailure && diagnosis && diagnosis.ran) {
@@ -2589,6 +2964,38 @@ function buildDiscoveryVerifyBody(runtime) {
       diagnosis.summary,
       "discovery-setup-wizard__copy diag-summary",
     );
+
+    if (diagnosis.redeployCommand) {
+      appendWizardParagraph(
+        diagCard,
+        "How to redeploy",
+        "discovery-setup-wizard__card-title diag-redeploy-title",
+      );
+      appendWizardParagraph(
+        diagCard,
+        "Copy this command, paste it into a terminal opened in the Job-Bored repo, press Enter, then come back here and click Test again. It keeps the same Worker name and updates TARGET_URL to the live ngrok URL.",
+        "discovery-setup-wizard__copy diag-redeploy-copy",
+      );
+      appendWizardCodeBlock(
+        diagCard,
+        diagnosis.redeployCommand,
+        "Copy terminal command",
+      );
+    } else if (
+      diagnosis.primaryFix &&
+      diagnosis.primaryFix.id === "diag_fix_update_tunnel_and_relay"
+    ) {
+      appendWizardParagraph(
+        diagCard,
+        "How to redeploy",
+        "discovery-setup-wizard__card-title diag-redeploy-title",
+      );
+      appendWizardParagraph(
+        diagCard,
+        "We could not build the deploy command (local webhook path or live tunnel URL missing). Open the Relay deploy step after saving the Live ngrok URL, or from the repo root run: npm run cloudflare-relay:deploy -- --target-url 'https://YOUR-NGROK-HOST/your-webhook-path' --worker-name 'your-existing-worker-name'",
+        "discovery-setup-wizard__copy diag-redeploy-copy",
+      );
+    }
 
     const chain = createWizardNode("div", "diag-chain");
     chain.appendChild(
@@ -2678,7 +3085,11 @@ function buildDiscoveryVerifyBody(runtime) {
         label: "Fix tunnel",
       });
     }
-    if (!diagnosis.primaryFix || diagnosis.primaryFix.id !== "diag_fix_relay") {
+    if (
+      !diagnosis.primaryFix ||
+      (diagnosis.primaryFix.id !== "diag_fix_relay" &&
+        diagnosis.primaryFix.id !== "diag_fix_update_tunnel_and_relay")
+    ) {
       secondaryFixes.push({
         id: "diag_fix_relay",
         label: "Fix relay",
@@ -2760,7 +3171,16 @@ function buildDiscoveryReadyBody(runtime) {
     type: "card",
     title: "Connection summary",
     body: [
-      `Engine: ${snapshot.localWebhookUrl ? snapshot.localWebhookUrl : snapshot.savedWebhookKind === "generic_https" ? snapshot.savedWebhookUrl : snapshot.engineState === "stub_only" ? "stub only" : "not confirmed"}`,
+      `Engine: ${
+        snapshot.localWebhookUrl
+          ? getDiscoveryLocalEngineSummary(snapshot)
+          : snapshot.savedWebhookKind === "generic_https" ||
+              snapshot.savedWebhookKind === "worker"
+            ? snapshot.savedWebhookUrl
+            : snapshot.engineState === "stub_only"
+              ? "stub only"
+              : "not confirmed"
+      }`,
       `Tunnel: ${snapshot.tunnelPublicUrl || "not needed"}`,
       `Webhook URL: ${snapshot.savedWebhookUrl || runtime.drafts.workerUrl || "not saved"}`,
     ],
@@ -2778,25 +3198,59 @@ function buildDiscoveryReadyBody(runtime) {
 function buildDiscoveryWizardSteps(runtime) {
   const flow = mapDiscoveryWizardFlow(runtime.state.flow);
   const steps = [];
+  const detectRecovery =
+    runtime.snapshot &&
+    runtime.snapshot.localRecoveryState &&
+    runtime.snapshot.localRecoveryState !== "ok";
   steps.push({
     id: "detect",
     label: "Status",
-    title: "Current setup status",
-    description: "What's already connected and what still needs work.",
+    title: detectRecovery
+      ? "Local setup needs recovery"
+      : "Current setup status",
+    description: detectRecovery
+      ? "The local worker or tunnel is down. Click Fix setup to restore everything."
+      : "What's already connected and what still needs work.",
     body: () => buildDiscoveryDetectBody(getDiscoveryWizardRuntime()),
-    actions: [
-      {
-        id: "wizard_review_options",
-        label: "Next: choose a path",
-        variant: "primary",
-      },
-    ],
+    actions: detectRecovery
+      ? [
+          {
+            id: "wizard_fix_setup",
+            label: "Fix setup",
+            variant: "primary",
+          },
+        ]
+      : [
+          {
+            id: "wizard_review_options",
+            label: "Next: choose a path",
+            variant: "primary",
+          },
+        ],
     secondaryActions: [
+      ...(detectRecovery
+        ? [
+            {
+              id: "wizard_review_options",
+              label: "Choose a different path",
+              variant: "secondary",
+            },
+          ]
+        : []),
       {
         id: "wizard_refresh_detect",
         label: "Re-scan",
         variant: "secondary",
       },
+      ...(detectRecovery
+        ? [
+            {
+              id: "wizard_show_manual_steps",
+              label: "Show manual steps",
+              variant: "secondary",
+            },
+          ]
+        : []),
     ],
   });
   steps.push({
@@ -2861,24 +3315,42 @@ function buildDiscoveryWizardSteps(runtime) {
     steps.push({
       id: "bootstrap",
       label: "Config",
-      title: "Load local config.",
-      description:
-        "Reads your saved local setup so the wizard knows your ports, URLs, and tunnel info.",
+      title: detectRecovery ? "Fix local setup" : "Load local config.",
+      description: detectRecovery
+        ? "One click restores the local worker, tunnel, and relay."
+        : "Reads your saved local setup so the wizard knows your ports, URLs, and tunnel info.",
       body: () => buildDiscoveryBootstrapBody(getDiscoveryWizardRuntime()),
-      actions: [
-        {
-          id: "local_bootstrap_refresh",
-          label: "Load config",
-          variant: "primary",
-        },
-      ],
+      actions: detectRecovery
+        ? [
+            {
+              id: "wizard_fix_setup",
+              label: "Fix setup",
+              variant: "primary",
+            },
+          ]
+        : [
+            {
+              id: "local_bootstrap_refresh",
+              label: "Load config",
+              variant: "primary",
+            },
+          ],
+      secondaryActions: detectRecovery
+        ? [
+            {
+              id: "local_bootstrap_refresh",
+              label: "Load config manually",
+              variant: "secondary",
+            },
+          ]
+        : [],
     });
     steps.push({
       id: "local_health",
       label: "Server",
       title: "Check local server.",
       description:
-        "Makes sure the Hermes gateway is running and accepting requests.",
+        "Makes sure your local discovery server is running and accepting requests.",
       body: () => buildDiscoveryLocalHealthBody(getDiscoveryWizardRuntime()),
       actions: [
         {
@@ -2928,23 +3400,44 @@ function buildDiscoveryWizardSteps(runtime) {
   steps.push({
     id: "verify",
     label: "Test",
-    title: "Test the connection.",
-    description: verifyDesc,
+    title: detectRecovery
+      ? "Local setup needs recovery"
+      : "Test the connection.",
+    description: detectRecovery
+      ? "The local worker or tunnel is down. Fix the setup first, then test."
+      : verifyDesc,
     body: () => buildDiscoveryVerifyBody(getDiscoveryWizardRuntime()),
-    actions: [
-      {
-        id: "wizard_verify_current_endpoint",
-        label: "Run test",
-        variant: "primary",
-      },
-    ],
+    actions: detectRecovery
+      ? [
+          {
+            id: "wizard_fix_setup",
+            label: "Fix setup",
+            variant: "primary",
+          },
+        ]
+      : [
+          {
+            id: "wizard_verify_current_endpoint",
+            label: "Run test",
+            variant: "primary",
+          },
+        ],
+    secondaryActions: detectRecovery
+      ? [
+          {
+            id: "wizard_verify_current_endpoint",
+            label: "Run test anyway",
+            variant: "secondary",
+          },
+        ]
+      : [],
   });
   const readyDesc =
     flow === "external_endpoint"
       ? "Your webhook URL is verified. Run discovery on demand or close this wizard."
       : flow === "no_webhook"
         ? "Manual mode is active. Add jobs via Pipeline, cron, or automation."
-        : "Local pipeline is connected. Run discovery on demand or close this wizard.";
+        : "Local discovery worker path is connected. Run discovery on demand or close this wizard.";
   steps.push({
     id: "ready",
     label: "Done",
@@ -2988,7 +3481,13 @@ async function renderDiscoverySetupWizard() {
     steps: buildDiscoveryWizardSteps(runtime),
     activeStepId: runtime.activeStepId,
     onAction: (actionId) => {
-      void handleDiscoveryWizardAction(actionId);
+      void handleDiscoveryWizardAction(actionId).catch((err) => {
+        console.error("[JobBored] discovery wizard action:", actionId, err);
+        showToast(
+          "That action failed. Check the browser console for details.",
+          "error",
+        );
+      });
     },
     onNavigate: (stepId, detail) => {
       const current = getDiscoveryWizardRuntime();
@@ -3046,16 +3545,23 @@ async function openDiscoverySetupWizard(options = {}) {
       console.warn("[JobBored] load discovery wizard state:", err);
     }
   }
+  const needsRecovery =
+    snapshot.localRecoveryState && snapshot.localRecoveryState !== "ok";
   const initialFlow = mapDiscoveryWizardFlow(
-    options.flow || (savedState && savedState.flow) || snapshot.recommendedFlow,
+    needsRecovery
+      ? "local_agent"
+      : options.flow ||
+          (savedState && savedState.flow) ||
+          snapshot.recommendedFlow,
   );
-  const initialStep =
-    options.startStep ||
-    (savedState &&
-    savedState.currentStep !== "path_select" &&
-    getDiscoveryWizardStepIds(initialFlow).includes(savedState.currentStep)
-      ? savedState.currentStep
-      : "detect");
+  const initialStep = needsRecovery
+    ? "bootstrap"
+    : options.startStep ||
+      (savedState &&
+      savedState.currentStep !== "path_select" &&
+      getDiscoveryWizardStepIds(initialFlow).includes(savedState.currentStep)
+        ? savedState.currentStep
+        : "detect");
   const savedCompleted =
     savedState && Array.isArray(savedState.completedSteps)
       ? savedState.completedSteps
@@ -3178,6 +3684,8 @@ async function diagnoseDownstreamChain(snapshot) {
     relay: { status: "unknown", targetMismatch: false },
     summary: "",
     primaryFix: null,
+    redeployCommand: "",
+    redeployTargetUrl: "",
   };
 
   const transport =
@@ -3237,7 +3745,8 @@ async function diagnoseDownstreamChain(snapshot) {
     diagnosis.primaryFix = {
       id: "diag_fix_local_server",
       label: "Start server",
-      detail: "Attempts to start the Hermes gateway automatically.",
+      detail:
+        "Attempts to start the recommended local browser-use worker automatically.",
     };
   } else if (diagnosis.tunnel.status === "not_running") {
     diagnosis.summary = "ngrok tunnel is not running.";
@@ -3247,12 +3756,92 @@ async function diagnoseDownstreamChain(snapshot) {
       detail: "Go to the tunnel step to start ngrok.",
     };
   } else if (diagnosis.tunnel.stale || diagnosis.relay.targetMismatch) {
-    diagnosis.summary = "ngrok URL changed — relay needs redeployment.";
-    diagnosis.primaryFix = {
-      id: "diag_fix_relay",
-      label: "Redeploy relay",
-      detail: `Current ngrok: ${diagnosis.tunnel.url || "unknown"}`,
+    const liveRaw = diagnosis.tunnel.url || "";
+    const liveNorm = liveRaw.replace(/\/+$/, "") || "unknown";
+    const tunnelOrigin = (u) => {
+      try {
+        const s = String(u || "").trim();
+        if (!s) return "";
+        const parsed = new URL(s);
+        return `${parsed.protocol}//${parsed.host}`;
+      } catch (_) {
+        return String(u || "").replace(/\/+$/, "");
+      }
     };
+    const liveOrigin = liveRaw ? tunnelOrigin(liveRaw) : "";
+    let oldDisplay = "";
+    if (diagnosis.relay.targetMismatch && snapshot.relayTargetUrl) {
+      const relayOrig = tunnelOrigin(snapshot.relayTargetUrl);
+      if (relayOrig && liveOrigin && relayOrig !== liveOrigin) {
+        oldDisplay = relayOrig;
+      }
+    }
+    if (
+      !oldDisplay &&
+      diagnosis.tunnel.stale &&
+      snapshot.tunnelPublicUrl &&
+      liveOrigin
+    ) {
+      const pubOrig = tunnelOrigin(snapshot.tunnelPublicUrl);
+      if (pubOrig && pubOrig !== liveOrigin) {
+        oldDisplay = snapshot.tunnelPublicUrl.replace(/\/+$/, "");
+      }
+    }
+    if (!oldDisplay) {
+      oldDisplay =
+        snapshot.tunnelPublicUrl ||
+        (snapshot.relayTargetUrl
+          ? tunnelOrigin(snapshot.relayTargetUrl)
+          : "") ||
+        "unknown";
+    }
+    diagnosis.summary = `ngrok URL changed \u2014 relay needs redeployment.\nOld: ${oldDisplay}\nLive: ${liveNorm}`;
+    diagnosis.liveNgrokUrl = liveNorm;
+    diagnosis.primaryFix = {
+      id: "diag_fix_update_tunnel_and_relay",
+      label: "Update tunnel & save ngrok, then redeploy",
+      detail:
+        "Click to save the Live ngrok URL, then run the deploy command shown below from your Job-Bored repo (same Worker name = update in place).",
+    };
+
+    if (liveNorm && liveNorm !== "unknown") {
+      const relayApi = getDiscoveryWizardRelayApi();
+      let redeployTarget = buildDiscoveryTunnelTargetUrl(
+        snapshot.localWebhookUrl,
+        liveNorm,
+      );
+      if (
+        !redeployTarget &&
+        relayApi &&
+        typeof relayApi.buildDownstreamTargetUrl === "function"
+      ) {
+        const patched = {
+          ...snapshot,
+          tunnelPublicUrl: liveNorm,
+          relayTargetUrl: "",
+        };
+        redeployTarget = relayApi.buildDownstreamTargetUrl(patched, {}) || "";
+      }
+      diagnosis.redeployTargetUrl = redeployTarget;
+      const workerUrl =
+        snapshot.savedWebhookUrl || getDiscoveryWebhookUrl() || "";
+      const explicitWorker =
+        inferCloudflareWorkerNameFromOpenWorkerUrl(workerUrl);
+      const workerName =
+        explicitWorker || getSuggestedCloudflareRelayWorkerName(redeployTarget);
+      const sheetId = getSettingsSheetIdValue() || "";
+      if (redeployTarget) {
+        diagnosis.redeployCommand = buildDiscoveryRelayDeployCommandForTarget(
+          redeployTarget,
+          {
+            origin: getDiscoveryRelaySuggestedOrigin(),
+            workerName,
+            workerUrl,
+            sheetId,
+          },
+        );
+      }
+    }
   } else if (
     diagnosis.localServer.healthy &&
     diagnosis.tunnel.active &&
@@ -3283,7 +3872,10 @@ async function handleDiscoveryWizardVerification(url, context) {
     context,
     sheetId: getSettingsSheetIdValue() || SHEET_ID || "",
   });
-  updateDiscoveryWizardRuntime({ lastVerificationResult: result });
+  updateDiscoveryWizardRuntime({
+    lastVerificationResult: result,
+    lastDownstreamDiagnosis: null,
+  });
   if (result.ok) {
     const engineState = getDiscoveryEngineStateFromVerificationResult(result);
     if (engineState) {
@@ -3346,22 +3938,56 @@ async function handleDiscoveryWizardVerification(url, context) {
     setDiscoveryWizardMessage(result.message, "warning");
     return renderDiscoverySetupWizard();
   }
-  const isDownstreamFailure =
-    result.layer === "downstream" &&
-    [502, 503, 504].includes(result.httpStatus);
-  if (isDownstreamFailure) {
-    const diagnosis = await diagnoseDownstreamChain(
-      getDiscoveryReadinessSnapshot(),
+  const freshSnapshot = await refreshDiscoveryReadinessSnapshot({
+    force: true,
+    rerender: false,
+  });
+
+  const freshRecovery = freshSnapshot.localRecoveryState || "ok";
+  if (freshRecovery !== "ok") {
+    updateDiscoveryWizardRuntime({
+      snapshot: freshSnapshot,
+      lastDownstreamDiagnosis: null,
+    });
+    setDiscoveryWizardMessage(
+      "The local chain is down. Click Fix setup to restore it.",
+      "warning",
     );
-    updateDiscoveryWizardRuntime({ lastDownstreamDiagnosis: diagnosis });
+    showDiscoveryVerificationToast(result, { context, endpointUrl: url });
+    return renderDiscoverySetupWizard();
   }
-  showDiscoveryVerificationToast(result, { context });
+
+  const hasLocalTunnel =
+    isLocalDashboardOrigin() && !!freshSnapshot.tunnelPublicUrl;
+  const isDiagnosableDownstreamFailure =
+    result.layer === "downstream" &&
+    [502, 503, 504].includes(Number(result.httpStatus) || 0);
+  const isLikelyTunnelFailure =
+    !isDiagnosableDownstreamFailure &&
+    hasLocalTunnel &&
+    (result.kind === "network_error" ||
+      /ngrok|tunnel|offline|err_ngrok_/i.test(
+        `${result.message || ""}\n${result.detail || ""}`,
+      ));
+  if (isDiagnosableDownstreamFailure || isLikelyTunnelFailure) {
+    const diagnosis = await diagnoseDownstreamChain(freshSnapshot);
+    updateDiscoveryWizardRuntime({
+      snapshot: freshSnapshot,
+      lastDownstreamDiagnosis: diagnosis,
+    });
+  } else {
+    updateDiscoveryWizardRuntime({
+      snapshot: freshSnapshot,
+      lastDownstreamDiagnosis: null,
+    });
+  }
+  showDiscoveryVerificationToast(result, { context, endpointUrl: url });
   setDiscoveryWizardMessage(result.message, "warning");
   return renderDiscoverySetupWizard();
 }
 
 async function handleDiscoveryWizardAction(actionId) {
-  const runtime = getDiscoveryWizardRuntime();
+  let runtime = getDiscoveryWizardRuntime();
   const shellContext = getDiscoveryWizardCurrentStepContext();
   const shell = getDiscoveryWizardShellApi();
   const snapshot = await refreshDiscoveryReadinessSnapshot({
@@ -3369,6 +3995,7 @@ async function handleDiscoveryWizardAction(actionId) {
     rerender: false,
   });
   updateDiscoveryWizardRuntime({ snapshot });
+  runtime = getDiscoveryWizardRuntime();
 
   if (actionId === "wizard_back") {
     const previousStep =
@@ -3423,6 +4050,69 @@ async function handleDiscoveryWizardAction(actionId) {
           "detect",
         ],
         lastProbeAt: new Date().toISOString(),
+      },
+    });
+  }
+  if (actionId === "wizard_fix_setup") {
+    const probes = getDiscoveryWizardProbesApi();
+    if (!probes || typeof probes.requestFixSetup !== "function") {
+      setDiscoveryWizardMessage(
+        "Fix setup is not available outside the local dev server.",
+      );
+      return renderDiscoverySetupWizard();
+    }
+    setDiscoveryWizardMessage(
+      "Running Fix setup — starting worker and tunnel...",
+    );
+    await renderDiscoverySetupWizard();
+    const result = await probes.requestFixSetup();
+    if (result && result.ok) {
+      if (result.needsAuth) {
+        const authMsg = (result.phases || []).find(
+          (p) => p.phase === "needs_cloudflare_auth",
+        );
+        setDiscoveryWizardMessage(
+          (authMsg && authMsg.message) ||
+            "Cloudflare auth needed. Run `npx wrangler login` in a terminal, then try again.",
+        );
+        return renderDiscoverySetupWizard();
+      }
+      const freshSnapshot = await refreshDiscoveryReadinessSnapshot({
+        force: true,
+        rerender: false,
+      });
+      updateDiscoveryWizardRuntime({ snapshot: freshSnapshot });
+      const verifiedMsg = (result.phases || []).find(
+        (p) => p.phase === "verified",
+      );
+      setDiscoveryWizardMessage(
+        (verifiedMsg && verifiedMsg.message) || "Setup restored successfully.",
+      );
+      return moveDiscoveryWizardToStep("verify", {
+        snapshot: freshSnapshot,
+      });
+    }
+    const failedPhase = ((result && result.phases) || []).slice(-1)[0];
+    setDiscoveryWizardMessage(
+      (failedPhase && failedPhase.message) ||
+        (result && result.message) ||
+        "Fix setup failed. Check the terminal for details.",
+    );
+    return renderDiscoverySetupWizard();
+  }
+  if (actionId === "wizard_show_manual_steps") {
+    setDiscoveryWizardMessage(
+      "Showing manual steps. Follow bootstrap → server → tunnel → relay → verify.",
+    );
+    return moveDiscoveryWizardToStep("bootstrap", {
+      snapshot,
+      state: {
+        flow: "local_agent",
+        completedSteps: [
+          ...((runtime.state || {}).completedSteps || []),
+          "detect",
+          "path_select",
+        ],
       },
     });
   }
@@ -3536,6 +4226,13 @@ async function handleDiscoveryWizardAction(actionId) {
   ) {
     const localApi = getDiscoveryWizardLocalApi();
     if (!localApi || typeof localApi.runLocalWizardAction !== "function") {
+      console.warn(
+        "[JobBored] discovery wizard local API missing; check discovery-wizard-local.js loaded",
+      );
+      showToast(
+        "Discovery local helpers failed to load. Try a hard refresh (cache clear).",
+        "error",
+      );
       return null;
     }
     const result = await localApi.runLocalWizardAction(actionId, {
@@ -3544,6 +4241,15 @@ async function handleDiscoveryWizardAction(actionId) {
       wizardState: runtime.state,
       bootstrapState: runtime.localBootstrapState,
     });
+    if (
+      actionId === "local_tunnel_detect" &&
+      result.ok &&
+      result.suggestedUrl
+    ) {
+      writeDiscoveryTransportSetupState({
+        tunnelPublicUrl: result.suggestedUrl,
+      });
+    }
     updateDiscoveryWizardRuntime({
       lastLocalResult: result,
       localBootstrapState: result.bootstrap
@@ -3554,15 +4260,49 @@ async function handleDiscoveryWizardAction(actionId) {
       result.message || "Updated the local discovery path.",
       result.ok ? "info" : "warning",
     );
+    let nextStep = result.nextStepId || runtime.activeStepId;
+    let statePatch = result.wizardStatePatch || {};
+    const stayOnStepAfterSuccess =
+      result.ok &&
+      (actionId === "local_health_check" || actionId === "local_tunnel_detect");
+    if (stayOnStepAfterSuccess) {
+      nextStep = runtime.activeStepId;
+      if (
+        result.wizardStatePatch &&
+        typeof result.wizardStatePatch === "object"
+      ) {
+        statePatch = {
+          ...result.wizardStatePatch,
+          currentStep: runtime.activeStepId,
+        };
+      }
+    }
+    const detailOneLine =
+      result.detail && typeof result.detail === "string"
+        ? result.detail.replace(/\s+/g, " ").trim().slice(0, 220)
+        : "";
+    const toastText = [
+      result.message || "",
+      detailOneLine,
+      stayOnStepAfterSuccess
+        ? "Use the step rail above when you are ready for the next step."
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    showToast(
+      toastText || (result.ok ? "Done." : "Something went wrong."),
+      result.ok ? "success" : "warning",
+    );
     if (result.ok && result.wizardStatePatch) {
-      await persistDiscoveryWizardState(result.wizardStatePatch);
+      await persistDiscoveryWizardState(statePatch);
     }
     await refreshDiscoveryReadinessSnapshot({ force: true, rerender: false });
     const nextSnapshot = getDiscoveryReadinessSnapshot();
-    const nextStep = result.nextStepId || runtime.activeStepId;
     return moveDiscoveryWizardToStep(nextStep, {
       snapshot: nextSnapshot,
-      state: result.wizardStatePatch || {},
+      state: statePatch,
     });
   }
 
@@ -3686,6 +4426,23 @@ async function handleDiscoveryWizardAction(actionId) {
   }
 
   if (actionId === "diag_fix_relay") {
+    return moveDiscoveryWizardToStep("relay_deploy");
+  }
+
+  if (actionId === "diag_fix_update_tunnel_and_relay") {
+    const diagnosis = runtime.lastDownstreamDiagnosis;
+    const liveUrl = diagnosis && diagnosis.liveNgrokUrl;
+    if (liveUrl && liveUrl !== "unknown") {
+      writeDiscoveryTransportSetupState({ tunnelPublicUrl: liveUrl });
+      const deployCommand =
+        diagnosis && diagnosis.redeployCommand ? diagnosis.redeployCommand : "";
+      showToast(
+        "Live ngrok URL saved. Copy the command, paste it into a terminal in the Job-Bored repo, press Enter, then Test again.",
+        "warning",
+        true,
+        createDiscoveryRelayCopyCommandToastAction(deployCommand),
+      );
+    }
     return moveDiscoveryWizardToStep("relay_deploy");
   }
 
@@ -5346,7 +6103,7 @@ const expandedStages = new Set(
 /** Stable key of the job currently shown in the detail drawer, or -1 */
 let activeDetailKey = -1;
 
-// Auth state — access token also mirrored to localStorage when available (not in all iframe contexts)
+// Auth state — access token stays in memory; localStorage only keeps a restore marker
 let accessToken = null;
 let userEmail = null;
 /** Profile photo URL from Google userinfo (optional). */
@@ -5393,19 +6150,19 @@ function hasGrantedOauthScope(scope) {
 }
 
 function persistOAuthSession() {
-  if (!canUseLocalStorage() || !accessToken || !tokenExpiresAt) return;
+  if (!canUseLocalStorage() || !tokenExpiresAt) return;
   const cid = getOAuthClientId();
   if (!cid) return;
   try {
     localStorage.setItem(
       OAUTH_SESSION_STORAGE_KEY,
       JSON.stringify({
-        accessToken,
         expiresAt: tokenExpiresAt,
         userEmail,
         userPictureUrl,
         grantedOauthScopes,
         oauthClientId: cid,
+        hasOauthSession: true,
       }),
     );
   } catch (e) {
@@ -5451,16 +6208,16 @@ function loadPersistedOAuthSession() {
     if (
       !o ||
       typeof o !== "object" ||
-      !o.accessToken ||
+      o.hasOauthSession !== true ||
       typeof o.expiresAt !== "number" ||
       o.oauthClientId !== cid
     ) {
+      clearPersistedOAuthSession();
       return null;
     }
-    // Expired or about to expire — caller should try silent GIS refresh instead
-    if (Date.now() >= o.expiresAt - 60_000) return null;
     return o;
   } catch (e) {
+    clearPersistedOAuthSession();
     return null;
   }
 }
@@ -5519,32 +6276,14 @@ function refreshAccessTokenSilently() {
 
 function restoreOAuthSession() {
   const persisted = loadPersistedOAuthSession();
-  if (persisted) {
-    accessToken = persisted.accessToken;
-    tokenExpiresAt = persisted.expiresAt;
-    userEmail = persisted.userEmail || null;
-    userPictureUrl = persisted.userPictureUrl || null;
-    grantedOauthScopes = normalizeOauthScopes(
-      persisted.grantedOauthScopes || "",
-    );
-    updateAuthUI();
-    fetchUserEmail();
-    if (SHEET_ID) {
-      loadAllData();
-    } else {
-      revealSetupScreenAfterAuth();
-    }
-    scheduleTokenRefresh();
-    return;
-  }
-
-  if (!tokenClient) return;
+  if (!persisted || !tokenClient) return;
 
   oauthPendingOp = { kind: "silent-restore" };
   try {
     tokenClient.requestAccessToken({ prompt: "none" });
   } catch (e) {
     oauthPendingOp = null;
+    clearPersistedOAuthSession();
   }
 }
 
@@ -5552,15 +6291,16 @@ function restoreOAuthSession() {
 // TOAST SYSTEM
 // ============================================
 
-function showToast(message, type = "success", persistent = false) {
+function showToast(message, type = "success", persistent = false, action) {
   const container = document.getElementById("toastContainer");
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
 
   const icons = {
-    success: "✓",
-    error: "✗",
+    success: "\u2713",
+    error: "\u2717",
     info: "i",
+    warning: "\u26A0",
   };
 
   toast.innerHTML = `
@@ -5575,6 +6315,17 @@ function showToast(message, type = "success", persistent = false) {
     toast.classList.add("removing");
     setTimeout(() => toast.remove(), 200);
   };
+
+  if (action && action.label && typeof action.onClick === "function") {
+    const btn = document.createElement("button");
+    btn.className = "toast-action-btn";
+    btn.textContent = action.label;
+    btn.addEventListener("click", () => {
+      action.onClick();
+      dismiss();
+    });
+    toast.querySelector(".toast-message").after(btn);
+  }
 
   toast.querySelector(".toast-close").addEventListener("click", dismiss);
 
@@ -5633,6 +6384,7 @@ function initAuth() {
             return;
           }
           if (oauthPendingOp?.kind === "silent-restore") {
+            clearPersistedOAuthSession();
             oauthPendingOp = null;
             // Do not clobber interactive sign-in: silent restore can fail after the user
             // already completed OAuth; showing the gate hides the setup/onboarding screen.
@@ -5683,6 +6435,9 @@ function handleTokenResponse(tokenResponse) {
     if (pending?.kind === "silent-refresh") {
       pending.finish(false);
     } else {
+      if (pending?.kind === "silent-restore") {
+        clearPersistedOAuthSession();
+      }
       oauthPendingOp = null;
     }
     if (silentOp && !SHEET_ID && getOAuthClientId() && !accessToken) {
@@ -6424,7 +7179,7 @@ async function createBlankStarterSheet(isRetry) {
     }
 
     const headerResp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent("Pipeline!A1:S1")}?valueInputOption=RAW`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(STARTER_PIPELINE_HEADER_RANGE)}?valueInputOption=RAW`,
       {
         method: "PUT",
         headers: {
@@ -6432,7 +7187,7 @@ async function createBlankStarterSheet(isRetry) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          range: "Pipeline!A1:S1",
+          range: STARTER_PIPELINE_HEADER_RANGE,
           majorDimension: "ROWS",
           values: [STARTER_PIPELINE_HEADERS],
         }),
@@ -6504,10 +7259,7 @@ async function handleSetupCreateStarterSheet() {
   if (created.spreadsheetUrl) {
     window.open(created.spreadsheetUrl, "_blank", "noopener");
   }
-  showToast(
-    "Starter sheet created. Opening guided setup…",
-    "success",
-  );
+  showToast("Starter sheet created. Opening guided setup…", "success");
   await openDiscoverySetupWizard({ entryPoint: "starter_sheet_created" });
 }
 
@@ -6601,7 +7353,10 @@ async function triggerDiscoveryRun() {
     ) {
       return { ok: false, reason: "network" };
     }
-    showDiscoveryVerificationToast(result, { context: "run_discovery" });
+    showDiscoveryVerificationToast(result, {
+      context: "run_discovery",
+      endpointUrl: hook,
+    });
     return { ok: false, reason: result.kind || "http" };
   } catch (err) {
     console.error("[JobBored] Discovery webhook:", err);
@@ -6642,7 +7397,10 @@ async function testDiscoveryWebhookFromSettings() {
         await recordDiscoveryEngineState(url, engineState, "test_webhook");
       }
       await refreshDiscoveryReadinessSnapshot({ force: true, rerender: false });
-      showDiscoveryVerificationToast(result, { context: "test_webhook" });
+      showDiscoveryVerificationToast(result, {
+        context: "test_webhook",
+        endpointUrl: url,
+      });
       return;
     }
     if (
@@ -6651,7 +7409,10 @@ async function testDiscoveryWebhookFromSettings() {
     ) {
       return;
     }
-    showDiscoveryVerificationToast(result, { context: "test_webhook" });
+    showDiscoveryVerificationToast(result, {
+      context: "test_webhook",
+      endpointUrl: url,
+    });
   } catch (err) {
     showToast(String(err.message || err || "Test failed"), "error");
   } finally {
@@ -6736,7 +7497,7 @@ function renderDiscoveryLocalTunnelSetupUi() {
   let tone = "info";
   let title = "Start with your local discovery receiver.";
   let detail =
-    "Paste the exact local webhook URL from Hermes, OpenClaw, n8n, or another agent. Then start ngrok on the same port and paste the public HTTPS forwarding URL.";
+    "Recommended: use the browser-use worker on this machine. Paste the exact local webhook URL, then start ngrok on the same port and paste the public HTTPS forwarding URL. Advanced only: you can still use a Hermes/OpenClaw route.";
 
   if (localWebhookUrl && !tunnelPublicUrl) {
     tone = "warning";
@@ -6788,11 +7549,113 @@ async function openDiscoveryLocalTunnelModal() {
   const modal = document.getElementById("discoveryLocalTunnelModal");
   if (modal) modal.style.display = "flex";
   document.getElementById("discoveryLocalWebhookUrl")?.focus();
+  void probeAndShowTunnelStaleBanner();
+}
+
+async function probeNgrokFromLocalApi() {
+  try {
+    const controller =
+      typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timeout = controller
+      ? window.setTimeout(() => controller.abort(), 2500)
+      : null;
+    try {
+      const res = await fetch("/__proxy/ngrok-tunnels", {
+        cache: "no-store",
+        signal: controller ? controller.signal : undefined,
+      });
+      if (!res.ok) return "";
+      const data = await res.json().catch(() => null);
+      const tunnels = Array.isArray(data && data.tunnels) ? data.tunnels : [];
+      for (const t of tunnels) {
+        const url = String(t && (t.public_url || t.publicUrl || "")).trim();
+        if (/^https:\/\//i.test(url)) return url.replace(/\/+$/, "");
+      }
+      const direct = String(
+        data && (data.public_url || data.publicUrl || ""),
+      ).trim();
+      return /^https:\/\//i.test(direct) ? direct.replace(/\/+$/, "") : "";
+    } finally {
+      if (timeout != null) window.clearTimeout(timeout);
+    }
+  } catch (_) {
+    return "";
+  }
+}
+
+async function probeAndShowTunnelStaleBanner() {
+  const banner = document.getElementById("tunnelStaleBanner");
+  if (!banner) return;
+
+  const bannerTitle = document.getElementById("tunnelStaleBannerTitle");
+  const bannerDetail = document.getElementById("tunnelStaleBannerDetail");
+  const bannerAction = document.getElementById("tunnelStaleBannerAction");
+  if (!bannerTitle || !bannerDetail || !bannerAction) return;
+
+  if (!isLocalDashboardOrigin()) {
+    banner.style.display = "none";
+    return;
+  }
+
+  const stored = getDiscoveryTransportSetupState();
+  const storedUrl = (stored.tunnelPublicUrl || "").replace(/\/+$/, "");
+
+  const liveUrl = await probeNgrokFromLocalApi();
+
+  if (!liveUrl && !storedUrl) {
+    banner.style.display = "none";
+    return;
+  }
+
+  if (!liveUrl) {
+    banner.style.display = "flex";
+    banner.className = "tunnel-stale-banner tunnel-stale-banner--down";
+    const port = inferLocalWebhookPort(stored.localWebhookUrl);
+    bannerTitle.textContent = "No ngrok tunnel detected.";
+    bannerDetail.textContent = `Run ngrok http ${port} to restart, then click Detect.`;
+    bannerAction.style.display = "none";
+    return;
+  }
+
+  if (storedUrl && liveUrl !== storedUrl) {
+    banner.style.display = "flex";
+    banner.className = "tunnel-stale-banner";
+    bannerTitle.textContent = "Your ngrok URL changed since last save.";
+    bannerDetail.textContent = `Old: ${storedUrl}\nLive: ${liveUrl}`;
+    bannerAction.style.display = "";
+    bannerAction.onclick = () => {
+      const tunnelInput = document.getElementById("discoveryTunnelPublicUrl");
+      if (tunnelInput) tunnelInput.value = liveUrl;
+      renderDiscoveryLocalTunnelSetupUi();
+      saveDiscoveryLocalTunnelSetup(true);
+      banner.style.display = "none";
+    };
+    return;
+  }
+
+  banner.style.display = "none";
 }
 
 function closeDiscoveryLocalTunnelModal() {
   const modal = document.getElementById("discoveryLocalTunnelModal");
   if (modal) modal.style.display = "none";
+}
+
+async function probeTunnelStaleBadge() {
+  const badge = document.getElementById("settingsTunnelStaleBadge");
+  if (!badge || !isLocalDashboardOrigin()) {
+    if (badge) badge.style.display = "none";
+    return;
+  }
+  const stored = getDiscoveryTransportSetupState();
+  if (!stored.tunnelPublicUrl) {
+    badge.style.display = "none";
+    return;
+  }
+  const liveUrl = await probeNgrokFromLocalApi();
+  const storedNorm = stored.tunnelPublicUrl.replace(/\/+$/, "");
+  const stale = !liveUrl || liveUrl !== storedNorm;
+  badge.style.display = stale ? "inline-block" : "none";
 }
 
 function saveDiscoveryLocalTunnelSetup(openRelayAfterSave) {
@@ -6816,13 +7679,21 @@ function saveDiscoveryLocalTunnelSetup(openRelayAfterSave) {
     return;
   }
 
+  const previousState = getDiscoveryTransportSetupState();
+  const tunnelUrlChanged =
+    tunnelPublicUrl &&
+    previousState.tunnelPublicUrl &&
+    tunnelPublicUrl !== previousState.tunnelPublicUrl;
+
   writeDiscoveryTransportSetupState({
     localWebhookUrl,
     tunnelPublicUrl,
   });
   renderDiscoveryLocalTunnelSetupUi();
 
-  if (openRelayAfterSave) {
+  const shouldOpenRelay = openRelayAfterSave || tunnelUrlChanged;
+
+  if (shouldOpenRelay) {
     const publicTargetUrl = buildDiscoveryTunnelTargetUrl(
       localWebhookUrl,
       tunnelPublicUrl,
@@ -6836,9 +7707,17 @@ function saveDiscoveryLocalTunnelSetup(openRelayAfterSave) {
     }
     closeDiscoveryLocalTunnelModal();
     void openCloudflareRelaySetupModal();
+    const deployCommand = buildDiscoveryRelayDeployCommandForTarget(
+      publicTargetUrl,
+      {},
+    );
     showToast(
-      "Local tunnel info saved. Cloudflare relay now targets your public webhook URL.",
-      "success",
+      tunnelUrlChanged
+        ? "ngrok URL updated. Copy the command, paste it into a terminal in the Job-Bored repo, and press Enter."
+        : "Local tunnel info saved. Copy the relay command, paste it into a terminal in the Job-Bored repo, and press Enter.",
+      tunnelUrlChanged ? "warning" : "success",
+      tunnelUrlChanged,
+      createDiscoveryRelayCopyCommandToastAction(deployCommand),
     );
     return;
   }
@@ -6881,11 +7760,8 @@ function populateCloudflareRelaySetupModal() {
   const currentWebhookUrl =
     getSettingsFieldValue("settingsDiscoveryWebhookUrl").trim() ||
     getDiscoveryWebhookUrl();
-  const suggestedOrigin =
-    (window.location && typeof window.location.origin === "string"
-      ? window.location.origin.trim()
-      : "") || "*";
-  const workerName = getSuggestedCloudflareRelayWorkerName(targetUrl);
+  const suggestedOrigin = getDiscoveryRelaySuggestedOrigin() || "*";
+  const workerName = getDiscoveryRelayWorkerName(targetUrl, currentWebhookUrl);
   const sheetId = getSettingsSheetIdValue() || "";
 
   let tone = "info";
@@ -6928,12 +7804,12 @@ function populateCloudflareRelaySetupModal() {
   if (copyTargetBtn) copyTargetBtn.disabled = !targetUrl;
 
   const deployCommandText = targetUrl
-    ? buildCloudflareRelayDeployCommand(
-        targetUrl,
-        suggestedOrigin,
+    ? buildDiscoveryRelayDeployCommandForTarget(targetUrl, {
+        origin: suggestedOrigin,
         workerName,
+        workerUrl: currentWebhookUrl,
         sheetId,
-      )
+      })
     : "Deploy Apps Script first to generate a one-command Cloudflare relay setup.";
   agentPrompt.textContent = buildCloudflareRelayAgentPrompt(
     targetUrl,
@@ -7220,6 +8096,46 @@ function initDiscoverySetupGuide() {
     .getElementById("discoveryTunnelPublicUrl")
     ?.addEventListener("input", () => {
       renderDiscoveryLocalTunnelSetupUi();
+    });
+  document
+    .getElementById("tunnelDetectBtn")
+    ?.addEventListener("click", async () => {
+      const btn = document.getElementById("tunnelDetectBtn");
+      const hint = document.getElementById("tunnelDetectHint");
+      const tunnelInput = document.getElementById("discoveryTunnelPublicUrl");
+      if (!btn || !tunnelInput) return;
+
+      btn.disabled = true;
+      btn.textContent = "Detecting\u2026";
+      try {
+        const liveUrl = await probeNgrokFromLocalApi();
+        if (liveUrl) {
+          const oldVal = tunnelInput.value.trim().replace(/\/+$/, "");
+          tunnelInput.value = liveUrl;
+          renderDiscoveryLocalTunnelSetupUi();
+          if (hint) {
+            const changed = oldVal && oldVal !== liveUrl;
+            hint.innerHTML = changed
+              ? "<strong>Updated</strong> \u2014 ngrok URL was refreshed."
+              : "<strong>Detected</strong> \u2014 ngrok tunnel found.";
+            hint.classList.add("tunnel-detect-hint--updated");
+            setTimeout(
+              () => hint.classList.remove("tunnel-detect-hint--updated"),
+              3000,
+            );
+          }
+        } else {
+          const port = inferLocalWebhookPort(
+            document.getElementById("discoveryLocalWebhookUrl")?.value || "",
+          );
+          if (hint) {
+            hint.innerHTML = `No tunnel found. Run <code class="modal-code">ngrok http ${port}</code> first.`;
+          }
+        }
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Detect";
+      }
     });
   const localTunnelOverlay = document.getElementById(
     "discoveryLocalTunnelModal",
@@ -7550,10 +8466,6 @@ async function updateJobStatus(dataIndex, newStatus) {
   return success;
 }
 
-async function markApplied(dataIndex) {
-  await updateJobStatus(dataIndex, "Applied");
-}
-
 async function updateJobNotes(dataIndex, notes) {
   const sheetRow = getSheetRow(dataIndex);
   if (!sheetRow) return;
@@ -7860,6 +8772,38 @@ async function fetchSheetCSV(sheetName) {
   return null;
 }
 
+/**
+ * Some discovery/LLM automations write run provenance into Pipeline column O (Notes).
+ * That is not user notes — hide it in the UI; saving real notes still overwrites the cell.
+ */
+function isDiscoveryAutomationNotesString(text) {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  if (/^Discovered\s+via\s+variationKey\b/i.test(t)) return true;
+  if (
+    /^Discovered\s+via\s+/i.test(t) &&
+    /\bvariationKey\b/i.test(t) &&
+    /\b(direct-source|direct\s+source)\b/i.test(t)
+  ) {
+    return true;
+  }
+  if (
+    /^Discovered\s+via\s+/i.test(t) &&
+    /\bvariationKey\b/i.test(t) &&
+    /\bYC\b/i.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function sanitizePipelineNotesFromSheet(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  if (isDiscoveryAutomationNotesString(s)) return "";
+  return s;
+}
+
 function parsePipelineCSV(rows) {
   if (!rows || rows.length < 2) return [];
 
@@ -7905,7 +8849,7 @@ function parsePipelineCSV(rows) {
       contact: row[11] || null,
       status: row[12] || null,
       appliedDate: row[13] || null,
-      notes: row[14] || null,
+      notes: sanitizePipelineNotesFromSheet(row[14]) || null,
       followUpDate: row[15] || null,
       talkingPoints: row[16] || null,
       lastHeardFrom:
@@ -7916,6 +8860,7 @@ function parsePipelineCSV(rows) {
         row[18] != null && String(row[18]).trim() !== ""
           ? String(row[18]).trim()
           : null,
+      logoUrl: row[19] ? String(row[19]).trim() : null,
     });
   }
 
@@ -8062,6 +9007,146 @@ function stageToCssKey(stage) {
   return stage.toLowerCase().replace(/\s+/g, "-");
 }
 
+const _LOGO_CACHE = new Map();
+const _LOGO_PENDING = new Set();
+
+function _fetchCompanyLogo(name) {
+  if (_LOGO_CACHE.has(name) || _LOGO_PENDING.has(name)) return;
+  _LOGO_PENDING.add(name);
+  fetch(
+    "https://autocomplete.clearbit.com/v1/companies/suggest?query=" +
+      encodeURIComponent(name),
+  )
+    .then(function (r) {
+      return r.ok ? r.json() : [];
+    })
+    .then(function (results) {
+      var url = "";
+      if (Array.isArray(results) && results.length) {
+        var hit = results[0];
+        if (hit && hit.logo) {
+          url = hit.logo;
+        } else if (hit && hit.domain) {
+          url =
+            "https://www.google.com/s2/favicons?domain=" +
+            encodeURIComponent(hit.domain) +
+            "&sz=128";
+        }
+      }
+      _LOGO_CACHE.set(name, url);
+      _LOGO_PENDING.delete(name);
+      if (url) _upgradePlaceholders(name, url);
+    })
+    .catch(function () {
+      _LOGO_CACHE.set(name, "");
+      _LOGO_PENDING.delete(name);
+    });
+}
+
+function _upgradePlaceholders(companyName, logoUrl) {
+  document
+    .querySelectorAll(
+      '.co-logo-wrap[data-company="' + CSS.escape(companyName) + '"]',
+    )
+    .forEach(function (wrap) {
+      var fallback = wrap.querySelector(".co-logo--fallback");
+      if (!fallback) return;
+      var img = document.createElement("img");
+      img.className = fallback.className
+        .replace("co-logo--fallback", "")
+        .trim();
+      img.src = logoUrl;
+      img.alt = "";
+      img.loading = "lazy";
+      img.referrerPolicy = "no-referrer";
+      img.onerror = function () {
+        img.remove();
+      };
+      fallback.before(img);
+      fallback.remove();
+    });
+}
+
+/**
+ * Render a logo wrapper. Shows initials immediately. If a Clearbit result
+ * is cached it renders an <img> directly; otherwise kicks off the async
+ * lookup and upgrades the placeholder when it resolves.
+ */
+function renderLogoHtml(job, variant) {
+  var companyName = (job.company || "").trim();
+  var initial = (companyName || "?").charAt(0).toUpperCase();
+  var sizeClass =
+    variant === "drawer"
+      ? "co-logo--lg"
+      : variant === "kanban"
+        ? "co-logo--sm"
+        : "co-logo--md";
+  var cachedUrl =
+    safeHref(job.logoUrl) || safeHref(_LOGO_CACHE.get(companyName)) || "";
+  var inner;
+
+  if (cachedUrl) {
+    inner =
+      '<img class="co-logo ' +
+      sizeClass +
+      '" src="' +
+      escapeHtml(cachedUrl) +
+      '" alt="" loading="lazy" referrerpolicy="no-referrer">';
+  } else {
+    inner =
+      '<span class="co-logo co-logo--fallback ' +
+      sizeClass +
+      '" aria-hidden="true">' +
+      escapeHtml(initial) +
+      "</span>";
+    if (companyName) _fetchCompanyLogo(companyName);
+  }
+
+  return (
+    '<span class="co-logo-wrap" data-company="' +
+    escapeHtml(companyName) +
+    '">' +
+    inner +
+    "</span>"
+  );
+}
+
+/**
+ * Location + salary — shared strip (list card, board card, drawer header).
+ * @param {"card"|"kanban"|"drawer"} variant
+ */
+function renderRoleFactsHtml(job, variant = "card") {
+  const rawSalary = String(job.salary ?? "").trim();
+  const salaryStr =
+    rawSalary.includes("<") ||
+    rawSalary.includes("&lt;") ||
+    rawSalary.includes("&gt;") ||
+    rawSalary.length > 120
+      ? ""
+      : rawSalary;
+  const showSalary = salaryStr && salaryStr.toLowerCase() !== "not listed";
+  const loc = job.location ? String(job.location).trim() : "";
+  if (!loc && !showSalary) return "";
+  const mod =
+    variant === "drawer"
+      ? "role-facts--drawer"
+      : variant === "kanban"
+        ? "role-facts--kanban"
+        : "role-facts--card";
+  const parts = [];
+  if (loc) {
+    parts.push(
+      `<div class="role-fact"><span class="role-fact__label">Location</span><span class="role-fact__value">${escapeHtml(loc)}</span></div>`,
+    );
+  }
+  if (showSalary) {
+    parts.push(
+      `<div class="role-fact"><span class="role-fact__label">Salary</span><span class="role-fact__value role-fact__value--salary">${escapeHtml(salaryStr)}</span></div>`,
+    );
+  }
+  return `<div class="role-facts ${mod}" role="group" aria-label="Location and compensation">${parts.join("")}</div>`;
+}
+
 function groupByStage(data) {
   const byStage = new Map(STAGE_ORDER.map((s) => [s, []]));
   for (const job of data) {
@@ -8078,9 +9163,7 @@ function renderKanbanCard(job, index) {
   const stableKey = dataIndex >= 0 ? dataIndex : index;
   const title = job.title || "Untitled Role";
   const company = job.company || "Unknown Company";
-  const salaryStr = String(job.salary ?? "").trim();
-  const showSalary = salaryStr && salaryStr.toLowerCase() !== "not listed";
-  const metaLine = job.location ? escapeHtml(job.location) : "";
+  const roleFactsHtml = renderRoleFactsHtml(job, "kanban");
   const isViewed = viewedJobKeys.has(stableKey);
 
   // First 3 tags from the sheet Tags column
@@ -8100,12 +9183,14 @@ function renderKanbanCard(job, index) {
     <article class="kanban-card ${stageClass}${isViewed ? " kanban-card--viewed" : ""}" role="button" tabindex="0" data-action="open-detail" data-stable-key="${stableKey}" ${dataIndex >= 0 ? `data-index="${dataIndex}"` : ""} style="animation-delay:${index * 30}ms">
       ${isViewed ? `<span class="kanban-card__viewed-dot" aria-label="Previously viewed" title="Previously viewed"></span>` : ""}
       <div class="kanban-card__identity">
-        <span class="kanban-card__title">${escapeHtml(title)}</span>
-        <span class="kanban-card__company">${escapeHtml(company)}</span>
+        ${renderLogoHtml(job, "kanban")}
+        <div class="kanban-card__identity-text">
+          <span class="kanban-card__title">${escapeHtml(title)}</span>
+          <span class="kanban-card__company">${escapeHtml(company)}</span>
+        </div>
       </div>
-      ${showSalary ? `<p class="kanban-card__salary">${escapeHtml(salaryStr)}</p>` : ""}
+      ${roleFactsHtml}
       ${tagChips ? `<div class="kanban-card__tags">${tagChips}</div>` : ""}
-      ${metaLine ? `<p class="kanban-card__meta">${metaLine}</p>` : ""}
     </article>`;
 }
 
@@ -8254,15 +9339,8 @@ function renderDrawerContent(job, stableKey) {
     ? `<p class="drawer-hook">${escapeHtml(hookText)}</p>`
     : "";
 
-  // Context line
-  const salaryStr = String(job.salary ?? "").trim();
-  const showSalary = salaryStr && salaryStr.toLowerCase() !== "not listed";
-  const ctxParts = [];
-  if (job.location) ctxParts.push(escapeHtml(job.location));
-  if (showSalary) ctxParts.push(escapeHtml(salaryStr));
-  if (job.dateFoundRaw) ctxParts.push(escapeHtml(job.dateFoundRaw));
-  const ctxHtml = ctxParts.length
-    ? `<p class="drawer-context">${ctxParts.join(' <span class="card-context__dot">&middot;</span> ')}</p>`
+  const ctxHtml = job.dateFoundRaw
+    ? `<p class="drawer-context drawer-context--date">${escapeHtml(job.dateFoundRaw)}</p>`
     : "";
 
   // AI Summary
@@ -8368,30 +9446,6 @@ function renderDrawerContent(job, stableKey) {
         ].join("")
       : "";
 
-  // Raw scrape
-  const POSTING_DESC_MAX = 16000;
-  const rawDescFn = (d) =>
-    `<p class="posting-snippet-text">${escapeHtml(d.slice(0, POSTING_DESC_MAX))}${d.length > POSTING_DESC_MAX ? "…" : ""}</p>`;
-  const snippetHtml =
-    enr && enr.description
-      ? `<details class="posting-raw-details"><summary>Full scraped text</summary><div class="posting-snippet">${rawDescFn(enr.description)}</div></details>`
-      : "";
-
-  const reqHtml =
-    enr &&
-    Array.isArray(enr.requirements) &&
-    enr.requirements.filter((x) => String(x).trim()).length > 0
-      ? `<div class="posting-req"><span class="posting-snippet-label">Requirements (scraped)</span><ul class="posting-req-list">${enr.requirements
-          .filter((x) => String(x).trim())
-          .slice(0, 24)
-          .map((r) => {
-            const s = String(r).trim();
-            const c = s.length > 500 ? s.slice(0, 500) + "…" : s;
-            return `<li>${escapeHtml(c)}</li>`;
-          })
-          .join("")}</ul></div>`
-      : "";
-
   // Enrichment loading skeleton (shown while auto-fetch is in flight)
   // _d() injects staggered animation-delay so bones shimmer in a cascade
   const _d = (ms) => `style="animation-delay:${ms}ms"`;
@@ -8467,34 +9521,13 @@ function renderDrawerContent(job, stableKey) {
 
   </div>`;
 
-  // Source meta
-  const pMeta =
-    enr && enr.scrapedAt
-      ? `<p class="posting-fetch-meta">Updated ${escapeHtml(new Date(enr.scrapedAt).toLocaleString())}${enr.method || enr.source ? ` &middot; ${escapeHtml(String(enr.method || enr.source))}` : ""}</p>`
-      : "";
-  const pNotes =
-    enr && Array.isArray(enr.warnings) && enr.warnings.length > 0
-      ? `<p class="posting-scrape-notes">${escapeHtml(enr.warnings.join(" "))}</p>`
-      : "";
   const llmWarn =
     enr && enr.llmError
       ? `<p class="posting-llm-warn">${escapeHtml(enr.llmError)}</p>`
       : "";
-  const srcMetaHtml =
-    pMeta || pNotes
-      ? `<details class="card-source-meta"><summary class="card-source-meta__summary">Source &amp; fetch info</summary><div class="card-source-meta__body">${pMeta}${pNotes}</div></details>`
-      : "";
 
   // ── Right column: compact property panel ──
   const normalized = (job.status || "").trim().toLowerCase();
-  const isApplied = ["applied", "phone screen", "interviewing", "offer"].some(
-    (s) => normalized.includes(s),
-  );
-  const showMarkApplied =
-    isSignedIn() &&
-    !isApplied &&
-    normalized !== "rejected" &&
-    normalized !== "passed";
 
   const followUpVal = job.followUpDate || "";
   const followUpIsOverdue = followUpVal && new Date(followUpVal) < new Date();
@@ -8535,7 +9568,6 @@ function renderDrawerContent(job, stableKey) {
       </select>
     </div>
     ${job.appliedDate ? `<div class="drawer-prop"><svg class="drawer-prop__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg><span class="drawer-prop__key">Applied</span><span class="drawer-prop__val drawer-prop__val--static">${escapeHtml(job.appliedDate)}</span></div>` : ""}
-    ${showMarkApplied ? `<button type="button" class="btn-mark-applied drawer-mark-applied" data-action="mark-applied" data-index="${dataIndex}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>Mark applied</button>` : ""}
   </div>`
     : "";
 
@@ -8551,7 +9583,7 @@ function renderDrawerContent(job, stableKey) {
   const mainColContent =
     job._enrichmentLoading && !enr
       ? enrichmentSkeleton
-      : `${aboutSection}${tpHtml}${structHtml}${reqHtml}${snippetHtml}${srcMetaHtml}${llmWarn}`;
+      : `${aboutSection}${tpHtml}${structHtml}${llmWarn}`;
 
   return `<div class="drawer-content">
     ${stepperHtml}
@@ -8596,8 +9628,8 @@ function openJobDetail(stableKey) {
           Tailor resume
         </button>`
         : "";
-    const viewBtn = job.link
-      ? `<a href="${escapeHtml(job.link)}" target="_blank" rel="noopener" class="drawer-btn drawer-btn--view">
+    const viewBtn = safeHref(job.link)
+      ? `<a href="${escapeHtml(safeHref(job.link))}" target="_blank" rel="noopener" class="drawer-btn drawer-btn--view">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
           View posting
         </a>`
@@ -8610,9 +9642,15 @@ function openJobDetail(stableKey) {
     <button class="detail-overlay__backdrop" data-action="close-detail" aria-label="Close detail panel"></button>
     <aside class="detail-drawer" role="complementary" aria-label="${escapeHtml(job.title || "Job detail")}">
       <div class="detail-drawer__head">
-        <div class="detail-drawer__head-info">
-          <span class="detail-drawer__head-title">${escapeHtml(job.title || "Job detail")}</span>
-          <span class="detail-drawer__head-company">${escapeHtml(job.company || "")}</span>
+        ${renderLogoHtml(job, "drawer")}
+        <div class="detail-drawer__head-main">
+          <h2 class="detail-drawer__head-title">${escapeHtml(job.title || "Job detail")}</h2>
+          ${
+            job.company
+              ? `<p class="detail-drawer__head-company">${escapeHtml(job.company)}</p>`
+              : ""
+          }
+          ${renderRoleFactsHtml(job, "drawer")}
         </div>
         <button type="button" class="detail-drawer__close" data-action="close-detail" aria-label="Close">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -9003,22 +10041,15 @@ function renderJobCard(job, index) {
   const title = job.title || "Untitled Role";
   const company = job.company || "Unknown Company";
 
-  const salaryStr = String(job.salary ?? "").trim();
-  const showSalary = salaryStr && salaryStr.toLowerCase() !== "not listed";
-
   // ---- Tier 1: Identity ----
   const stageLabel = (job.status || "").trim();
   const stagePillHtml = stageLabel
     ? ` <span class="card-stage-pill">${escapeHtml(stageLabel)}</span>`
     : "";
 
-  // ---- Tier 1: Context line (inline dot-separated) ----
-  const contextParts = [];
-  if (job.location) contextParts.push(escapeHtml(job.location));
-  if (showSalary) contextParts.push(escapeHtml(salaryStr));
-  if (job.dateFoundRaw) contextParts.push(escapeHtml(job.dateFoundRaw));
-  const contextLineHtml = contextParts.length
-    ? contextParts.join(' <span class="card-context__dot">&middot;</span> ')
+  const roleFactsHtml = renderRoleFactsHtml(job, "card");
+  const dateFoundLineHtml = job.dateFoundRaw
+    ? `<p class="card-context card-context--date">${escapeHtml(job.dateFoundRaw)}</p>`
     : "";
 
   // ---- Tier 1: Hook (one sentence) ----
@@ -9143,8 +10174,8 @@ function renderJobCard(job, index) {
   // ---- Tier 1: Action row ----
   const actionsHtml = renderCardActions(job, stableKey);
 
-  const viewRoleBtn = job.link
-    ? `<a href="${escapeHtml(job.link)}" target="_blank" rel="noopener" class="card-action card-action--primary">
+  const viewRoleBtn = safeHref(job.link)
+    ? `<a href="${escapeHtml(safeHref(job.link))}" target="_blank" rel="noopener" class="card-action card-action--primary">
         View role
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
       </a>`
@@ -9216,30 +10247,6 @@ function renderJobCard(job, index) {
   }
 
   // Structured lists for expanded (responsibilities, nice-to-haves, tools/stack)
-  const POSTING_DESC_MAX = 16000;
-  const rawDescHtml = (d) =>
-    `<p class="posting-snippet-text">${escapeHtml(d.slice(0, POSTING_DESC_MAX))}${d.length > POSTING_DESC_MAX ? "…" : ""}</p>`;
-
-  const postingSnippet =
-    enr && enr.description
-      ? `<details class="posting-raw-details"><summary>Full scraped text from job page</summary><div class="posting-snippet">${rawDescHtml(enr.description)}</div></details>`
-      : "";
-
-  const postingReq =
-    enr &&
-    Array.isArray(enr.requirements) &&
-    enr.requirements.filter((x) => String(x).trim()).length > 0
-      ? `<div class="posting-req"><span class="posting-snippet-label">Requirements (scraped)</span><ul class="posting-req-list">${enr.requirements
-          .filter((x) => String(x).trim())
-          .slice(0, 24)
-          .map((r) => {
-            const s = String(r).trim();
-            const cut = s.length > 500 ? `${s.slice(0, 500)}…` : s;
-            return `<li>${escapeHtml(cut)}</li>`;
-          })
-          .join("")}</ul></div>`
-      : "";
-
   const listSection = (label, items, cls) => {
     const arr = Array.isArray(items)
       ? items.map((x) => String(x).trim()).filter(Boolean)
@@ -9293,38 +10300,15 @@ function renderJobCard(job, index) {
       ? `<div class="card-meta card-meta--chips card-meta--secondary">${contactChip}${heardChip}${replyChip}</div>`
       : "";
 
-  // Scraper meta — only in Tier 3
-  const postingMeta =
-    enr && enr.scrapedAt
-      ? `<p class="posting-fetch-meta">Updated ${escapeHtml(new Date(enr.scrapedAt).toLocaleString())}${enr.method || enr.source ? ` &middot; ${escapeHtml(String(enr.method || enr.source))}` : ""}</p>`
-      : "";
-
-  const postingScrapeNotes =
-    enr && Array.isArray(enr.warnings) && enr.warnings.length > 0
-      ? `<p class="posting-scrape-notes" title="Scraper heuristics">${escapeHtml(enr.warnings.join(" "))}</p>`
-      : "";
-
   const postingLlmWarn =
     enr && enr.llmError
       ? `<p class="posting-llm-warn">${escapeHtml(enr.llmError)}</p>`
       : "";
 
-  const sourceMetaHtml =
-    postingMeta || postingScrapeNotes
-      ? `<details class="card-source-meta">
-        <summary class="card-source-meta__summary">Source &amp; fetch info</summary>
-        <div class="card-source-meta__body">${postingMeta}${postingScrapeNotes}</div>
-      </details>`
-      : "";
-
-  // Expanded left column: talking points + structured lists + raw text
+  // Expanded left column: LLM-structured lists + optional LLM error
   const expandedLeftExtra =
-    structuredListsHtml ||
-    postingReq ||
-    postingSnippet ||
-    sourceMetaHtml ||
-    postingLlmWarn
-      ? `<div class="expanded-extra">${structuredListsHtml}${postingReq}${postingSnippet}${sourceMetaHtml}${postingLlmWarn}</div>`
+    structuredListsHtml || postingLlmWarn
+      ? `<div class="expanded-extra">${structuredListsHtml}${postingLlmWarn}</div>`
       : "";
   const profileMatchHtml = renderProfileMatchSectionHtml(job);
   const draftLibraryHtml =
@@ -9334,11 +10318,15 @@ function renderJobCard(job, index) {
     <article class="job-card ${priorityClass}" data-stable-key="${stableKey}" style="animation-delay: ${index * 40}ms">
       <!-- Tier 1: Scan line -->
       <div class="card-identity">
-        <h3 class="card-title">${escapeHtml(title)}</h3>
-        <p class="card-company">${escapeHtml(company)}${stagePillHtml}</p>
+        ${renderLogoHtml(job, "card")}
+        <div class="card-identity__text">
+          <h3 class="card-title">${escapeHtml(title)}</h3>
+          <p class="card-company">${escapeHtml(company)}${stagePillHtml}</p>
+        </div>
       </div>
 
-      ${contextLineHtml ? `<p class="card-context">${contextLineHtml}</p>` : ""}
+      ${roleFactsHtml}
+      ${dateFoundLineHtml}
       ${hookHtml}
 
       <!-- Tier 2: Peek disclosure -->
@@ -9414,12 +10402,6 @@ function renderCardActions(job, indexForNotesId) {
     })
     .join("");
 
-  const isApplied = ["applied", "phone screen", "interviewing", "offer"].some(
-    (s) => normalized.includes(s),
-  );
-  const showMarkApplied =
-    !isApplied && normalized !== "rejected" && normalized !== "passed";
-
   const appliedDateHtml = job.appliedDate
     ? `
     <div class="action-meta">
@@ -9468,14 +10450,6 @@ function renderCardActions(job, indexForNotesId) {
         </select>
       </div>
       <div class="card-actions__tools">
-        ${
-          showMarkApplied
-            ? `<button type="button" class="btn-mark-applied" data-action="mark-applied" data-index="${dataIndex}">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-          Mark applied
-        </button>`
-            : ""
-        }
         ${appliedDateHtml}
         ${followUpHtml}
       </div>
@@ -9586,17 +10560,6 @@ function attachCardListeners() {
         }
       });
     });
-
-  // Mark Applied clicks
-  document.querySelectorAll('[data-action="mark-applied"]').forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      if (btn.disabled) return;
-      const dataIndex = parseInt(btn.dataset.index, 10);
-      btn.disabled = true;
-      btn.textContent = "Updating...";
-      await markApplied(dataIndex);
-    });
-  });
 
   // Notes blur saves
   document.querySelectorAll('[data-action="notes"]').forEach((textarea) => {
@@ -10455,6 +11418,9 @@ function _UNUSED_renderBriefCharts(ctx) {
 // --- Brief: Activity feed ---
 
 function renderBriefFeed(overdue, upcoming, waiting, stale) {
+  function keyOf(j) {
+    return pipelineData.indexOf(j);
+  }
   const items = [];
   for (const j of overdue) {
     const d = briefDaysSince(j.followUpDate);
@@ -10465,6 +11431,7 @@ function renderBriefFeed(overdue, upcoming, waiting, stale) {
       meta: d != null ? `${d}d late` : "",
       pri: 0,
       days: d || 0,
+      key: keyOf(j),
     });
   }
   for (const j of waiting) {
@@ -10476,6 +11443,7 @@ function renderBriefFeed(overdue, upcoming, waiting, stale) {
       meta: d != null ? `${d}d ago` : "",
       pri: 1,
       days: d || 0,
+      key: keyOf(j),
     });
   }
   for (const j of stale) {
@@ -10487,6 +11455,7 @@ function renderBriefFeed(overdue, upcoming, waiting, stale) {
       meta: d != null ? `${d}d` : "",
       pri: 2,
       days: d || 0,
+      key: keyOf(j),
     });
   }
   for (const j of upcoming.slice(0, 3)) {
@@ -10497,6 +11466,7 @@ function renderBriefFeed(overdue, upcoming, waiting, stale) {
       meta: "48h",
       pri: 3,
       days: 0,
+      key: keyOf(j),
     });
   }
   items.sort((a, b) => a.pri - b.pri || b.days - a.days);
@@ -10504,13 +11474,16 @@ function renderBriefFeed(overdue, upcoming, waiting, stale) {
   if (!items.length) {
     return '<div class="feed-clear"><div class="feed-clear__icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div><p class="feed-clear__text">All clear</p><p class="feed-clear__sub">Nothing needs your attention right now.</p></div>';
   }
+  const chevron =
+    '<svg class="feed-item__chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
   let html = '<div class="feed-list">';
-  const shown = items.slice(0, 10);
+  const shown = items.slice(0, 12);
   for (const it of shown) {
-    html += `<div class="feed-item feed-item--${it.type}"><div class="feed-item__dot"></div><div class="feed-item__body"><span class="feed-item__title">${escapeHtml(it.title)}</span><span class="feed-item__desc">${it.desc}</span></div><span class="feed-item__meta">${it.meta}</span></div>`;
+    const keyAttr = it.key >= 0 ? ` data-stable-key="${it.key}"` : "";
+    html += `<button type="button" class="feed-item feed-item--${it.type}" data-action="open-detail"${keyAttr}><div class="feed-item__dot"></div><div class="feed-item__body"><span class="feed-item__title">${escapeHtml(it.title)}</span><span class="feed-item__desc">${it.desc}</span></div><span class="feed-item__meta">${it.meta}</span>${chevron}</button>`;
   }
-  if (items.length > 10)
-    html += `<div class="feed-more">+${items.length - 10} more</div>`;
+  if (items.length > 12)
+    html += `<div class="feed-more">+${items.length - 12} more</div>`;
   html += "</div>";
   return html;
 }
@@ -10789,7 +11762,15 @@ function escapeHtml(str) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function safeHref(url) {
+  if (!url) return "";
+  var s = String(url).trim();
+  if (/^https?:\/\//i.test(s)) return s;
+  return "";
 }
 
 function updateLastRefresh() {
@@ -12722,6 +13703,9 @@ async function populateDiscoveryProfileIntoSettingsForm() {
   set("settingsDiscoveryKeywordsInclude", p.keywordsInclude);
   set("settingsDiscoveryKeywordsExclude", p.keywordsExclude);
   set("settingsDiscoveryMaxLeadsPerRun", p.maxLeadsPerRun);
+  // Handle grounded_web checkbox
+  const gwEl = document.getElementById("settingsDiscoveryGroundedWeb");
+  if (gwEl) gwEl.checked = p.groundedWebEnabled !== false;
 }
 
 function populateCommandCenterSettingsForm() {
@@ -12839,6 +13823,7 @@ async function openCommandCenterSettingsModal(opts) {
     const defaultTab = (opts && opts.tab) || TabSchema.DEFAULT_TAB;
     Tabs.initSettingsTabs(modal, { defaultTab: defaultTab });
   }
+  void probeTunnelStaleBadge();
 }
 
 function hideSettingsClearConfirmBar() {
@@ -12975,6 +13960,9 @@ async function saveCommandCenterSettingsFromForm() {
   const UC = window.CommandCenterUserContent;
   if (UC && typeof UC.saveDiscoveryProfile === "function") {
     try {
+      // Handle grounded_web checkbox
+      const gwEl = document.getElementById("settingsDiscoveryGroundedWeb");
+      const groundedWebEnabled = gwEl ? gwEl.checked : true;
       await UC.saveDiscoveryProfile({
         targetRoles: val("settingsDiscoveryTargetRoles"),
         locations: val("settingsDiscoveryLocations"),
@@ -12983,6 +13971,7 @@ async function saveCommandCenterSettingsFromForm() {
         keywordsInclude: val("settingsDiscoveryKeywordsInclude"),
         keywordsExclude: val("settingsDiscoveryKeywordsExclude"),
         maxLeadsPerRun: val("settingsDiscoveryMaxLeadsPerRun"),
+        groundedWebEnabled,
       });
     } catch (e) {
       console.warn("[JobBored] save discovery profile:", e);
@@ -13219,6 +14208,14 @@ function initPipelineEmptyAndBriefActions() {
         const el = document.getElementById("briefInsights");
         if (el && pipelineData.length)
           el.innerHTML = renderAreaWidget(pipelineData, briefActivityRange);
+        return;
+      }
+      const feedItem = e.target.closest(
+        '[data-action="open-detail"][data-stable-key]',
+      );
+      if (feedItem) {
+        const key = parseInt(feedItem.dataset.stableKey, 10);
+        if (!Number.isNaN(key)) openJobDetail(key);
         return;
       }
       const b = e.target.closest("[data-brief-action]");
@@ -15123,7 +16120,14 @@ function syncDiscoveryButtonState() {
     snapshot.engineState === DISCOVERY_ENGINE_STATE_STUB_ONLY ||
     snapshot.savedWebhookKind === "apps_script_stub";
 
-  if (view.runDiscoveryEnabled) {
+  const needsRecovery =
+    snapshot.localRecoveryState && snapshot.localRecoveryState !== "ok";
+
+  if (needsRecovery) {
+    openBtn.disabled = false;
+    openBtn.removeAttribute("aria-disabled");
+    openBtn.title = "Local discovery setup needs recovery — click to fix.";
+  } else if (view.runDiscoveryEnabled) {
     openBtn.disabled = false;
     openBtn.removeAttribute("aria-disabled");
     openBtn.title =
@@ -15171,6 +16175,9 @@ function openDiscoveryPrefsModal() {
       const el = document.getElementById(id);
       if (el) el.value = (p && p[key]) || "";
     });
+    // Handle grounded_web checkbox
+    const gwEl = document.getElementById("dpGroundedWeb");
+    if (gwEl) gwEl.checked = !p || p.groundedWebEnabled !== false;
     modal.style.display = "flex";
     const first = document.getElementById("dpTargetRoles");
     if (first) first.focus();
@@ -15597,6 +16604,9 @@ function initDiscoveryPrefsModal() {
         const el = document.getElementById(id);
         return el ? el.value : "";
       };
+      // Handle grounded_web checkbox
+      const gwEl = document.getElementById("dpGroundedWeb");
+      const groundedWebEnabled = gwEl ? gwEl.checked : true;
       if (UC && typeof UC.saveDiscoveryProfile === "function") {
         await UC.saveDiscoveryProfile({
           targetRoles: val("dpTargetRoles"),
@@ -15606,6 +16616,7 @@ function initDiscoveryPrefsModal() {
           keywordsInclude: val("dpKeywordsInclude"),
           keywordsExclude: val("dpKeywordsExclude"),
           maxLeadsPerRun: val("dpMaxLeads"),
+          groundedWebEnabled,
         });
       }
       closeModal();

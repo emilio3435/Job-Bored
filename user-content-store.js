@@ -187,6 +187,8 @@
     keywordsInclude: "",
     keywordsExclude: "",
     maxLeadsPerRun: "",
+    /** When false, grounded web source is disabled for this discovery run. */
+    groundedWebEnabled: true,
   };
 
   const MAX_DISCOVERY_FIELD_LEN = 2000;
@@ -243,6 +245,8 @@
       keywordsInclude: trim("keywordsInclude"),
       keywordsExclude: trim("keywordsExclude"),
       maxLeadsPerRun: trim("maxLeadsPerRun"),
+      groundedWebEnabled:
+        o.groundedWebEnabled === true || o.groundedWebEnabled === "true",
     };
   }
 
