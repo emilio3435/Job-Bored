@@ -16145,8 +16145,9 @@ function syncDiscoveryButtonState() {
     openBtn.title =
       "Finish the local discovery path in Settings, or click here to continue setup.";
   } else {
-    openBtn.disabled = true;
-    openBtn.setAttribute("aria-disabled", "true");
+    // No endpoint configured — keep button enabled so clicking opens the setup wizard.
+    openBtn.disabled = false;
+    openBtn.removeAttribute("aria-disabled");
     openBtn.title = view.primaryActionLabel
       ? `${view.primaryActionLabel} — click to open discovery setup.`
       : "Configure discovery in Settings, or click to open the setup wizard.";
