@@ -7976,7 +7976,8 @@ async function applyCloudflareRelayWorkerUrl(testAfterApply) {
 async function handleAppsScriptBrowserCorsFailure(url, resultKind = "network_error") {
   if (!isLikelyAppsScriptWebAppUrl(url)) return false;
   const isNetworkLikeFailure =
-    resultKind === "network_error" ||
+    (resultKind === "network_error" &&
+      isManagedAppsScriptDeployState(appsScriptDeployStateCache)) ||
     (resultKind === "invalid_endpoint" &&
       isManagedAppsScriptDeployState(appsScriptDeployStateCache));
   if (!isNetworkLikeFailure) return false;
