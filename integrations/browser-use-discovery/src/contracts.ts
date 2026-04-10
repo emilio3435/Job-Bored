@@ -4,7 +4,12 @@ export const DEFAULT_PIPELINE_SHEET_NAME = "Pipeline";
 export const DEFAULT_STATUS = "New";
 export const PIPELINE_DEDUPE_COLUMN = "E";
 export const PIPELINE_DEDUPE_HEADER = "Link";
-export const SUPPORTED_SOURCE_IDS = ["greenhouse", "lever", "ashby"] as const;
+export const ATS_SOURCE_IDS = ["greenhouse", "lever", "ashby"] as const;
+export const SUPPORTED_SOURCE_IDS = [...ATS_SOURCE_IDS, "grounded_web"] as const;
+export const DEFAULT_ENABLED_SOURCE_IDS = [
+  ...ATS_SOURCE_IDS,
+  "grounded_web",
+] as const;
 export const PIPELINE_HEADER_ROW = [
   "Date Found",
   "Title",
@@ -25,9 +30,11 @@ export const PIPELINE_HEADER_ROW = [
   "Talking Points",
   "Last contact",
   "Did they reply?",
+  "Logo URL",
 ] as const;
 
 export type SupportedSourceId = (typeof SUPPORTED_SOURCE_IDS)[number];
+export type AtsSourceId = (typeof ATS_SOURCE_IDS)[number];
 
 export type DiscoveryProfile = {
   targetRoles?: string;
@@ -68,6 +75,7 @@ export type NormalizedLead = {
   notes: string;
   followUpDate: string;
   talkingPoints: string;
+  logoUrl: string;
   discoveredAt: string;
   metadata: {
     runId: string;
@@ -97,11 +105,82 @@ export type PipelineWriteResult = {
   warnings: string[];
 };
 
+export type DiscoveryRejectionSample = {
+  reason: string;
+  title: string;
+  company: string;
+  url: string;
+  detail: string;
+};
+
+export type DiscoveryRejectionSummary = {
+  totalRejected: number;
+  rejectionReasons: Record<string, number>;
+  rejectionSamples: DiscoveryRejectionSample[];
+};
+
+export type DiscoverySourceSummary = {
+  sourceId: SupportedSourceId;
+  querySummary: string;
+  pagesVisited: number;
+  leadsSeen: number;
+  leadsAccepted: number;
+  leadsRejected: number;
+  warnings: string[];
+  rejectionSummary?: DiscoveryRejectionSummary;
+};
+
+export type DiscoveryLifecycleState = "completed" | "partial" | "empty";
+
+export type DiscoveryRunLifecycle = {
+  runId: string;
+  trigger: "manual" | "scheduled";
+  startedAt: string;
+  completedAt: string;
+  state: DiscoveryLifecycleState;
+  companyCount: number;
+  detectionCount: number;
+  listingCount: number;
+  normalizedLeadCount: number;
+};
+
+export type DiscoveryRunStatus =
+  | "accepted"
+  | "running"
+  | "completed"
+  | "partial"
+  | "empty"
+  | "failed";
+
+export type DiscoveryRunStatusPayload = {
+  runId: string;
+  status: DiscoveryRunStatus;
+  terminal: boolean;
+  message: string;
+  trigger: TriggerKind;
+  request: Pick<
+    DiscoveryWebhookRequestV1,
+    "sheetId" | "variationKey" | "requestedAt"
+  >;
+  acceptedAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  lifecycle?: DiscoveryRunLifecycle;
+  writeResult?: PipelineWriteResult;
+  warnings: string[];
+  sources: DiscoverySourceSummary[];
+  error?: string;
+};
+
 export type DiscoveryWebhookAck = {
   ok: true;
   kind: "accepted_async" | "completed_sync";
   runId: string;
   message: string;
+  statusPath?: string;
+  pollAfterMs?: number;
+  outcome?: DiscoveryRunStatusPayload;
 };
 
 export type TriggerKind = "manual" | "scheduled";
@@ -110,7 +189,7 @@ export type CompanyTarget = {
   name: string;
   includeKeywords?: string[];
   excludeKeywords?: string[];
-  boardHints?: Partial<Record<SupportedSourceId, string>>;
+  boardHints?: Partial<Record<AtsSourceId, string>>;
 };
 
 export type StoredWorkerConfig = {
@@ -151,7 +230,7 @@ export type CompanyContext = {
 
 export type DetectionResult = {
   matched: boolean;
-  sourceId: SupportedSourceId;
+  sourceId: AtsSourceId;
   sourceLabel: string;
   boardUrl: string;
   confidence: number;
@@ -159,7 +238,7 @@ export type DetectionResult = {
 };
 
 export type BoardContext = {
-  sourceId: SupportedSourceId;
+  sourceId: AtsSourceId;
   sourceLabel: string;
   boardUrl: string;
   company: CompanyTarget;
@@ -181,7 +260,7 @@ export type RawListing = {
 };
 
 export type SourceAdapter = {
-  sourceId: SupportedSourceId;
+  sourceId: AtsSourceId;
   sourceLabel: string;
   detect(companyContext: CompanyContext): Promise<DetectionResult | null>;
   listJobs(boardContext: BoardContext): Promise<RawListing[]>;
