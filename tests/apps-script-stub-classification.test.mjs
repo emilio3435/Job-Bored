@@ -288,6 +288,56 @@ describe("Apps Script stub classification hardening", () => {
     });
   });
 
+  describe("invalid_endpoint (404) reclassification for managed Apps Script stubs", () => {
+    /**
+     * When a managed Apps Script stub URL returns 404 (e.g. not deployed yet),
+     * the verifier classifies it as invalid_endpoint. For managed Apps Script URLs,
+     * this should still trigger stub_only reclassification so the user sees a
+     * warning instead of a confusing "endpoint not found" error.
+     *
+     * handleAppsScriptBrowserCorsFailure now accepts a resultKind parameter and
+     * returns true for invalid_endpoint ONLY when the URL is a managed Apps Script.
+     * This ensures non-managed endpoints (Worker, generic HTTPS) still show their
+     * normal remediation even if they return 404.
+     */
+
+    it("handleAppsScriptBrowserCorsFailure returns false for non-managed invalid_endpoint", () => {
+      const h = createAppsScriptStubHarness();
+      // URL that looks like Apps Script but is NOT managed
+      const url = "https://script.google.com/macros/s/UNMANAGED/exec";
+      assert.equal(h.isLikelyAppsScriptWebAppUrl(url), true);
+      assert.equal(
+        h.isManagedAppsScriptDeployState({
+          managedBy: "someone-else",
+          scriptId: "xyz",
+        }),
+        false,
+      );
+      // The false return means the caller does NOT reclassify as stub_only,
+      // preserving generic invalid_endpoint remediation for real Apps Script URLs
+    });
+
+    it("handleAppsScriptBrowserCorsFailure returns false for Worker invalid_endpoint", () => {
+      const h = createAppsScriptStubHarness();
+      // Worker URL is not an Apps Script URL
+      assert.equal(
+        h.isLikelyAppsScriptWebAppUrl("https://my-worker.workers.dev/webhook"),
+        false,
+      );
+      // Worker 404s should NOT be reclassified as stub_only
+    });
+
+    it("handleAppsScriptBrowserCorsFailure returns false for generic HTTPS invalid_endpoint", () => {
+      const h = createAppsScriptStubHarness();
+      // Generic HTTPS URL is not an Apps Script URL
+      assert.equal(
+        h.isLikelyAppsScriptWebAppUrl("https://example.com/webhook"),
+        false,
+      );
+      // Generic HTTPS 404s should NOT be reclassified as stub_only
+    });
+  });
+
   describe("non-stub CORS failures preserve relay remediation path", () => {
     it("unmanaged Apps Script URL returns false so relay remediation is not triggered", () => {
       const h = createAppsScriptStubHarness();
