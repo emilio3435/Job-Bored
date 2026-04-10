@@ -71,7 +71,7 @@ describe("repo validation surface", () => {
     assert.equal(pkg.scripts["lint:repo"], "npm run lint:skills");
     assert.equal(
       pkg.scripts["typecheck:repo"],
-      "node --check app.js && node --check dev-server.mjs && node --check discovery-wizard-local.js && node --check discovery-wizard-probes.js && node --check discovery-wizard-relay.js && node --check discovery-wizard-shell.js && node --check discovery-wizard-verify.js && node --check settings-tabs.js && node --check user-content-store.js && node --check resume-bundle.js && node --check resume-generate.js && node --check document-templates.js && node --check scripts/install-repo.mjs && node --check server/index.mjs && node --check server/job-scraper.mjs && node --check server/ats-scorecard.mjs",
+      "node --check app.js && node --check dev-server.mjs && node --check discovery-wizard-local.js && node --check discovery-wizard-probes.js && node --check discovery-wizard-relay.js && node --check discovery-wizard-shell.js && node --check discovery-wizard-verify.js && node --check settings-tabs.js && node --check user-content-store.js && node --check resume-bundle.js && node --check resume-generate.js && node --check document-templates.js && node --check scripts/install-repo.mjs && node --check server/index.mjs && node --check server/job-scraper.mjs && node --check server/ats-request-payload.mjs && node --check server/ats-scorecard.mjs",
     );
 
     assert.deepEqual(manifestCommands, {

@@ -482,36 +482,19 @@ export async function analyzeAtsScorecard(payload) {
     throw new Error(status.reason);
   }
 
-  // Allow the client to pass providerHint (provider + model from the user's
-  // Settings page) so the server uses the same model the user chose for resume
-  // generation, rather than a hardcoded server default.
-  const hint = payload && payload.providerHint;
-  const hintProvider =
-    hint && typeof hint.provider === "string" ? hint.provider.toLowerCase() : null;
-  const hintModel =
-    hint && typeof hint.model === "string" && hint.model.trim()
-      ? hint.model.trim()
-      : null;
-
-  const effectiveProvider =
-    hintProvider === "openai" || hintProvider === "anthropic" || hintProvider === "gemini"
-      ? hintProvider
-      : cfg.provider;
-
   const userPrompt = buildUserPrompt(payload);
 
-  if (effectiveProvider === "openai") {
-    const model = hintProvider === "openai" && hintModel ? hintModel : cfg.openAIModel;
+  if (cfg.provider === "openai") {
+    const model = cfg.openAIModel;
     const parsed = await callOpenAIJson(userPrompt, cfg.openAIApiKey, model);
     return normalizeScorecard(parsed, model);
   }
-  if (effectiveProvider === "anthropic") {
-    const model =
-      hintProvider === "anthropic" && hintModel ? hintModel : cfg.anthropicModel;
+  if (cfg.provider === "anthropic") {
+    const model = cfg.anthropicModel;
     const parsed = await callAnthropicJson(userPrompt, cfg.anthropicApiKey, model);
     return normalizeScorecard(parsed, model);
   }
-  const model = hintProvider === "gemini" && hintModel ? hintModel : cfg.geminiModel;
+  const model = cfg.geminiModel;
   const parsed = await callGeminiJson(userPrompt, cfg.geminiApiKey, model);
   return normalizeScorecard(parsed, model);
 }

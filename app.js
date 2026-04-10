@@ -13350,14 +13350,16 @@ function computeAtsScorecardCacheKey(text, job, feature) {
       ? j._postingEnrichment
       : {};
   const jobKey = getJobOpportunityKey(j);
-  const hint = getAtsProviderHint();
-  const hintPart =
-    hint && hint.provider && hint.model ? `${hint.provider}|${hint.model}` : "";
+  const atsCfg = getAtsScoringConfig();
+  const transportPart =
+    atsCfg.mode === "webhook"
+      ? `webhook|${String(atsCfg.webhookUrl || "").trim()}`
+      : `server|${String(atsCfg.serverUrl || "").trim()}`;
   return [
     feature === "resume_update" ? "resume_update" : "cover_letter",
     jobKey,
     hashStringForCache(t),
-    hashStringForCache(hintPart),
+    hashStringForCache(transportPart),
     hashStringForCache(
       `${title}|${company}|${String(enr.description || "")}|${String(
         (enr.requirements || []).join("||"),
@@ -13442,25 +13444,6 @@ function normalizeAtsScorecardResult(raw, fallbackModel) {
   };
 }
 
-function getAtsProviderHint() {
-  const Gen = getResumeGenerate();
-  if (!Gen || typeof Gen.getResumeGenerationConfig !== "function") return null;
-  const g = Gen.getResumeGenerationConfig();
-  if (!g) return null;
-  const p = g.provider;
-  if (p === "openai")
-    return { provider: "openai", model: g.resumeOpenAIModel || "gpt-4o-mini" };
-  if (p === "anthropic")
-    return {
-      provider: "anthropic",
-      model: g.resumeAnthropicModel || "claude-sonnet-4-6",
-    };
-  return {
-    provider: "gemini",
-    model: g.resumeGeminiModel || "gemini-2.5-flash",
-  };
-}
-
 function buildAtsScorecardRequestPayload(text, job, session) {
   const clip = (v, max) =>
     String(v || "")
@@ -13504,7 +13487,7 @@ function buildAtsScorecardRequestPayload(text, job, session) {
               : [],
           }
         : null;
-  return {
+  const payload = {
     event: "command-center.ats-scorecard",
     schemaVersion: 1,
     feature,
@@ -13535,58 +13518,48 @@ function buildAtsScorecardRequestPayload(text, job, session) {
         (sourceJob && sourceJob.notes) || (job && job.notes) || "",
         3000,
       ),
-      postingEnrichment: postingEnrichment
-        ? {
-            description: clip(postingEnrichment.description || "", 7000),
-            requirements: clipArr(postingEnrichment.requirements, 35, 350),
-            skills: clipArr(postingEnrichment.skills, 40, 180),
-            mustHaves: clipArr(postingEnrichment.mustHaves, 20, 350),
-            responsibilities: clipArr(
-              postingEnrichment.responsibilities,
-              20,
-              350,
-            ),
-            toolsAndStack: clipArr(postingEnrichment.toolsAndStack, 24, 180),
-          }
-        : null,
     },
-    profile:
-      bundle && bundle.profile
-        ? {
-            candidateProfileText: clip(
-              bundle.profile.candidateProfileText || "",
-              10000,
-            ),
-            resumeSourceText: clip(bundle.profile.resumeSourceText || "", 8000),
-            linkedinProfileText: clip(
-              bundle.profile.linkedinProfileText || "",
-              5000,
-            ),
-            additionalContextText: clip(
-              bundle.profile.additionalContextText || "",
-              5000,
-            ),
-          }
-        : null,
-    instructions:
-      bundle && bundle.instructions
-        ? {
-            userNotes: clip(bundle.instructions.userNotes || "", 1200),
-            refinementFeedback: clip(
-              bundle.instructions.refinementFeedback || "",
-              1200,
-            ),
-          }
-        : null,
-    meta:
-      bundle && bundle.meta
-        ? {
-            sheetId: bundle.meta.sheetId || null,
-            generatedAt: bundle.meta.generatedAt || "",
-          }
-        : null,
-    providerHint: getAtsProviderHint(),
   };
+  if (postingEnrichment) {
+    payload.job.postingEnrichment = {
+      description: clip(postingEnrichment.description || "", 7000),
+      requirements: clipArr(postingEnrichment.requirements, 35, 350),
+      skills: clipArr(postingEnrichment.skills, 40, 180),
+      mustHaves: clipArr(postingEnrichment.mustHaves, 20, 350),
+      responsibilities: clipArr(postingEnrichment.responsibilities, 20, 350),
+      toolsAndStack: clipArr(postingEnrichment.toolsAndStack, 24, 180),
+    };
+  }
+  if (bundle && bundle.profile) {
+    payload.profile = {
+      candidateProfileText: clip(bundle.profile.candidateProfileText || "", 10000),
+      resumeSourceText: clip(bundle.profile.resumeSourceText || "", 8000),
+      linkedinProfileText: clip(bundle.profile.linkedinProfileText || "", 5000),
+      additionalContextText: clip(
+        bundle.profile.additionalContextText || "",
+        5000,
+      ),
+    };
+  }
+  if (bundle && bundle.instructions) {
+    payload.instructions = {
+      userNotes: clip(bundle.instructions.userNotes || "", 1200),
+      refinementFeedback: clip(
+        bundle.instructions.refinementFeedback || "",
+        1200,
+      ),
+    };
+  }
+  if (bundle && bundle.meta) {
+    payload.meta = {};
+    if (Object.prototype.hasOwnProperty.call(bundle.meta, "sheetId")) {
+      payload.meta.sheetId = bundle.meta.sheetId ?? null;
+    }
+    if (bundle.meta.generatedAt) {
+      payload.meta.generatedAt = String(bundle.meta.generatedAt).trim();
+    }
+  }
+  return payload;
 }
 
 async function fetchAtsScorecard(payload) {
