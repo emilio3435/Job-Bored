@@ -1,0 +1,39 @@
+{
+  "featureId": "ats-server-and-scorecard-readiness",
+  "reviewedAt": "2026-04-10T08:19:16Z",
+  "commitId": "8ceb1eb0636d204f79862484aca06f063632bb66",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The commit fixes the malformed-provider retry regression in `server/ats-scorecard.mjs` and adds useful regression coverage, but the feature is still not fully ready: live ATS requests from the browser continue to violate the published v1 request contract, so webhook-mode compatibility is not actually stabilized.",
+    "issues": [
+      {
+        "file": "app.js",
+        "line": 14592,
+        "severity": "blocking",
+        "description": "`buildAtsScorecardRequestPayload()` always adds `providerHint` to the ATS request body, but `schemas/ats-scorecard-request.v1.schema.json` declares `additionalProperties: false` and does not define that field. Any webhook receiver that validates against the published v1 schema can reject these live requests, so the feature still misses its ATS webhook/server contract-readiness goal."
+      },
+      {
+        "file": "server/index.mjs",
+        "line": 61,
+        "severity": "non_blocking",
+        "description": "`normalizeAtsRequestPayload()` strips `providerHint` before calling `analyzeAtsScorecard()`, even though `server/ats-scorecard.mjs` still contains hint-handling logic. That leaves server-mode and webhook-mode ATS runs with different semantics for the same browser payload and makes the hint path effectively dead in local server mode."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "Mission guidance and worker procedure disagree about git cleanliness: the mission requires preserving a dirty baseline, but the worker recorded a deviation from a clean-status step in the base skill. This mismatch will keep forcing unnecessary skill deviations on future features.",
+      "evidence": "Mission `AGENTS.md` says to treat the current dirty working tree as baseline and never clean unrelated changes; this feature handoff records `skillFeedback.followedProcedure: false` because step `3.2 Environment Cleanup / Ensure clean git status` conflicted with that rule."
+    },
+    {
+      "area": "conventions",
+      "observation": "The ATS contract guardrail only validates static example fixtures, so runtime request-builder drift is currently invisible to shared validation.",
+      "evidence": "`scripts/test-ats-scorecard-contract.mjs` validates only `examples/ats-scorecard-request.v1.json` and `examples/ats-scorecard-response.v1.json`, while the live browser builder in `app.js:14592` sends an extra `providerHint` field that is not declared in `schemas/ats-scorecard-request.v1.schema.json`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the mission feature entry, handoff, transcript skeleton, shared-state docs, skill guidance, and commit `8ceb1eb0636d204f79862484aca06f063632bb66`. The malformed-provider retry fix itself looks sound, but the feature still fails readiness because live ATS webhook requests are off-contract and server-mode strips the same hint field, leaving transport semantics inconsistent."
+}

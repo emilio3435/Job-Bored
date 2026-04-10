@@ -24,6 +24,7 @@ Environment variables, external dependencies, and setup notes for this mission.
   - `integrations/browser-use-discovery/state/worker-config.json`
   - `integrations/browser-use-discovery/state/worker-state.sqlite`
   - local token/service-account env vars or fallback token files
+- `integrations/browser-use-discovery/state/worker-config.json` is a checked-in, non-secret seed config for the disposable validation sheet and starter company list; keep it aligned with the disposable sheet and never swap in production identifiers or credentials.
 
 ## Validation-specific notes
 

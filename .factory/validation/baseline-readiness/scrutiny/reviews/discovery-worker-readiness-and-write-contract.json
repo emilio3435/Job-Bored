@@ -1,0 +1,33 @@
+{
+  "featureId": "discovery-worker-readiness-and-write-contract",
+  "reviewedAt": "2026-04-10T08:20:47Z",
+  "commitId": "8e0c412d45938f8110b26ae9a2d811572ededee1",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The commit adds durable run-status polling, richer health metadata, and visible grounded-source warning propagation, but readiness and preflight still trust any non-empty Sheets credential setting. A broken credential file path or malformed credential JSON can therefore look healthy, pass POST preflight, and only fail later in the write path.",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/src/webhook/handle-discovery-webhook.ts",
+        "line": 328,
+        "severity": "blocking",
+        "description": "`hasSheetsCredential()` only checks whether a credential token/file-path string is non-empty. Both `validateDiscoveryPreflight()` and `/health` rely on that helper, so the worker can report `sheetsCredentialConfigured: true` and accept discovery POSTs even when the configured service-account or OAuth token file does not exist or contains invalid JSON. The real credential read/parse still happens later in `integrations/browser-use-discovery/src/sheets/pipeline-writer.ts:226`, so health/readiness and prerequisite-failure semantics are still not trustworthy for broken credential-file setups."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The integration-refactor-worker skill should explicitly allow seeded sheet readback as valid end-to-end evidence for worker-only discovery features, instead of forcing a recorded deviation whenever browser auth/UI automation adds no signal.",
+      "evidence": "`.factory/skills/integration-refactor-worker/SKILL.md:37-40` frames real-surface verification as curl plus `agent-browser` when browser-side verification is required, while the worker handoff records `skillFeedback.followedProcedure: false` and explains that curl plus public sheet CSV readback was the right evidence path for this feature (`/Users/emilionunezgarcia/.factory/missions/62d73272-e50b-4b4e-89d1-be82508ac1ac/handoffs/2026-04-10T07-56-09-920Z__discovery-worker-readiness-and-write-contract__71a64995-0aec-444b-8864-31fcece6d078.json:88-99`)."
+    },
+    {
+      "area": "conventions",
+      "observation": "The shared contract map does not point workers to any published contract reference for the new discovery acknowledgement/status surfaces (`statusPath`, `pollAfterMs`, `/runs/{runId}`), so this contract-bearing change is only discoverable in implementation and test files.",
+      "evidence": "`.factory/library/contracts.md:21-29` lists only the discovery webhook request schema/examples. Repo searches for `statusPath`, `pollAfterMs`, and `/runs/{runId}` did not turn up a shared schema or contract doc outside the implementation/test surface."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the feature entry, handoff, transcript skeleton, skill guidance, shared-state docs, and commit `8e0c412d45938f8110b26ae9a2d811572ededee1`. The async status persistence and grounded-source visibility work is directionally good, but the feature still fails readiness because broken Sheets credential-file setups can be misreported as ready and bypass preflight until the write path crashes later."
+}

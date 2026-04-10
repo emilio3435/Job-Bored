@@ -23,6 +23,9 @@ High-level map of the shared contracts that must stay aligned during this refact
   - `AGENT_CONTRACT.md`
   - `schemas/discovery-webhook-request.v1.schema.json`
   - `examples/discovery-webhook-request.v1*.json`
+  - `integrations/browser-use-discovery/src/contracts.ts`
+  - `integrations/browser-use-discovery/tests/mocks/discovery-webhook-ack.accepted_async.v1.json`
+  - discovery worker run-status surface in `integrations/browser-use-discovery/src/server.ts` (`/runs/{runId}`)
   - browser discovery POST path
   - worker webhook handler
 - Mission risk:
@@ -37,6 +40,7 @@ High-level map of the shared contracts that must stay aligned during this refact
   - local ATS server / webhook transport
 - Mission risk:
   - transport normalization and server/webhook parity can drift independently of the UI
+  - `npm run test:ats-contract` currently validates example fixtures only, so live browser payload builders still need direct review when ATS request-shape changes are in scope
 
 ## Validation scripts that guard contract drift
 

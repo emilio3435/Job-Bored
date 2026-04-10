@@ -1,0 +1,99 @@
+{
+  "milestone": "baseline-readiness",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "npm run test:contract:all && node --test tests/*.test.mjs && npm run test:browser-use-discovery",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "node --check app.js && node --check dev-server.mjs && node --check discovery-wizard-local.js && node --check discovery-wizard-probes.js && node --check discovery-wizard-relay.js && node --check discovery-wizard-shell.js && node --check discovery-wizard-verify.js && node --check settings-tabs.js && node --check user-content-store.js && node --check resume-bundle.js && node --check resume-generate.js && node --check document-templates.js && node --check server/index.mjs && node --check server/job-scraper.mjs && node --check server/ats-scorecard.mjs",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "npm run lint:skills",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 4,
+    "passed": 1,
+    "failed": 3,
+    "failedFeatures": [
+      "repo-validation-surface-hardening",
+      "ats-server-and-scorecard-readiness",
+      "discovery-worker-readiness-and-write-contract"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "repo-validation-surface-hardening",
+      "severity": "blocking",
+      "description": "The shared install surface is not reusable after first bootstrap because `.factory/init.sh` only runs `npm install` when dependency directories are missing, so later dependency changes make the manifest install command a no-op."
+    },
+    {
+      "featureId": "ats-server-and-scorecard-readiness",
+      "severity": "blocking",
+      "description": "Live ATS requests remain off-contract because `app.js` always includes `providerHint`, but the published v1 ATS request schema disallows that field."
+    },
+    {
+      "featureId": "discovery-worker-readiness-and-write-contract",
+      "severity": "blocking",
+      "description": "Discovery readiness/preflight still trusts any non-empty Sheets credential setting, so broken credential-file paths or malformed JSON can be reported as ready until the later write path fails."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Documented that `integrations/browser-use-discovery/state/worker-config.json` is a checked-in non-secret seed config tied to the disposable validation sheet.",
+      "sourceFeature": "repo-validation-surface-hardening"
+    },
+    {
+      "target": "library",
+      "description": "Expanded the shared contracts map to include the discovery async acknowledgement/status surfaces (`statusPath`, `pollAfterMs`, `/runs/{runId}`).",
+      "sourceFeature": "discovery-worker-readiness-and-write-contract"
+    },
+    {
+      "target": "library",
+      "description": "Recorded that `npm run test:ats-contract` currently validates ATS example fixtures only, so live ATS request builders still require direct review when request shape changes.",
+      "sourceFeature": "ats-server-and-scorecard-readiness"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "validation-contract.md + features.json",
+      "suggestion": "Update milestone starter-sheet expectations from columns A–S to the current A–T contract so mission validation artifacts match the `Logo URL` header now used by README, app.js, and the pipeline schema.",
+      "evidence": "The review for `pipeline-contract-and-starter-sheet-alignment` found mission validation docs still describing starter-sheet creation through column `S` while the reviewed implementation and repo contract use column `T` (`Logo URL`).",
+      "isSystemic": false
+    },
+    {
+      "target": "mission-worker-base skill",
+      "suggestion": "Add a dirty-baseline execution path that explains how to produce isolated commits when AGENTS.md declares the working tree intentionally dirty, and suppress any generic clean-git-status requirement in that case.",
+      "evidence": "Both `pipeline-contract-and-starter-sheet-alignment` and `ats-server-and-scorecard-readiness` reported skill deviations because mission AGENTS guidance requires preserving a dirty baseline while the worker procedure still expects clean git status.",
+      "isSystemic": true
+    },
+    {
+      "target": "integration-refactor-worker skill",
+      "suggestion": "Explicitly allow curl plus seeded sheet readback as valid end-to-end evidence for worker-only discovery features when there is no browser-side UI signal to verify.",
+      "evidence": "The review for `discovery-worker-readiness-and-write-contract` found the worker had to record a skill deviation even though curl responses plus sheet readback were the correct contract evidence for append/update and async-completion behavior.",
+      "isSystemic": false
+    },
+    {
+      "target": "integration-refactor-worker skill + shared testing docs",
+      "suggestion": "Once the non-secret starter-sheet browser bootstrap surface is present in the main worktree, document it as the default no-mock path for starter-sheet setup validation.",
+      "evidence": "Reviews for `pipeline-contract-and-starter-sheet-alignment` and `repo-validation-surface-hardening` both reported that starter-sheet verification lacked shared no-secret bootstrap guidance and therefore required mock-based or ad hoc validation workflows.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "The shared testing docs should be updated immediately to reference the reviewed starter-sheet browser bootstrap surface.",
+      "reason": "ambiguous: the reviewed commit referenced `validation/starter-sheet-browser-bootstrap.html` and a `starter_sheet_browser_bootstrap` service entry, but those artifacts are not present in the current worktree, so documenting them now would risk codifying a shared surface that is not actually available here."
+    }
+  ],
+  "previousRound": null
+}
