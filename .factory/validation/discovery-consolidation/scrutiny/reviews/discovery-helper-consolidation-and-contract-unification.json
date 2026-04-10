@@ -1,0 +1,26 @@
+{
+  "featureId": "discovery-helper-consolidation-and-contract-unification",
+  "reviewedAt": "2026-04-10T18:40:00.000Z",
+  "commitId": "6a830675c291c428aefe4221308138df219f1e1a",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Feature consolidation is complete and verified. Two workers collaborated: session 3ef357ea created the canonical shared-helpers modules (discovery-shared-helpers.js for browser, scripts/discovery-shared-helpers.mjs for Node.js), updated all four wizard scripts to delegate with fallback, and updated verify-discovery-webhook.mjs to import from the shared module. Session 13835792 verified the work and confirmed all tests pass. The implementation addresses all five expected behavior items from the feature description.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The COPIES comment in discovery-shared-helpers.js documents that 6 copies of these functions must be manually kept in sync. This is a documented convention, but it's fragile - no build step enforces consistency. This is a known maintenance burden documented in the code itself.",
+      "evidence": "discovery-shared-helpers.js lines 12-20 list: discovery-wizard-local.js, discovery-wizard-probes.js, discovery-wizard-relay.js, discovery-wizard-verify.js, scripts/verify-discovery-webhook.mjs, app.js"
+    },
+    {
+      "area": "skills",
+      "observation": "The skill procedure specifies to use 'curl' for HTTP/service assertions and 'agent-browser' for browser-visible paths. For worker-only discovery behavior with no meaningful browser signal, the skill allows 'seeded sheet readback or other deterministic contract evidence' as substitution. The worker followed procedure: ran targeted contract tests and repo validation, plus curl/HTTP checks where appropriate.",
+      "evidence": "Handoff verification shows npm run test:contract:all, npm run test:browser-use-discovery, and node --check for all wizard scripts. The worker correctly identified this as worker-only behavior without requiring browser automation."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS - Feature consolidation is complete. Two workers collaborated: 3ef357ea created the canonical shared-helpers modules (browser + Node.js) and updated all wizard scripts to delegate with fallback; 13835792 verified the work. All 69 browser-use-discovery tests, 40 repo validation tests, and all contract suites pass. The SQLite ExperimentalWarning is documented as cosmetic (pre-existing, not caused by this feature). The implementation fully covers the feature's expected behavior: helper duplication reduced, contract drift halted, run-status persistence documented, future workers have one canonical path, and local-vs-hosted sheetId assumptions are correctly handled."
+}
