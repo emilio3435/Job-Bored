@@ -1,0 +1,21 @@
+{
+  "featureId": "repo-validation-install-and-regression-hardening",
+  "reviewedAt": "2026-04-10T09:44:32.059574Z",
+  "commitId": "940f420129b4edadd27773de6a63ac10ba15ac05",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "This fix adequately closes the prior readiness gaps from `repo-validation-surface-hardening`. The shared install path now runs through `scripts/install-repo.mjs`, which fingerprints the repo and server manifest inputs, records a freshness marker, and reruns installation when those inputs change even if both `node_modules/` trees already exist. The regression tests also now exercise the real implementation paths they claim to protect: `tests/fix-setup-endpoint.test.mjs` boots the exported dev server and hits the live `/__proxy/fix-setup` route, while `tests/recovery-state.test.mjs` loads the actual `discovery-wizard-probes.js` source and asserts against the real recovery helpers exposed on `window.JobBoredDiscoveryWizard.probes`. I did not find any remaining blocking or non-blocking code issues in the scope of this fix feature.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "Dirty-baseline missions still force a worker-base procedure deviation during cleanup/commit preparation even when the mission explicitly requires preserving unrelated edits.",
+      "evidence": "Mission AGENTS.md:7-10 says to treat the dirty working tree as baseline and not clean up unrelated changes; the fix handoff at `handoffs/2026-04-10T08-56-32-056Z__repo-validation-install-and-regression-hardening__747509e4-7e14-4a13-8dfd-d960ff217e67.json:70-79` records `followedProcedure: false` for `3.2 Environment Cleanup` and requests a dirty-baseline path in worker-base."
+    }
+  ],
+  "addressesFailureFrom": "/Users/emilionunezgarcia/Job-Bored/.factory/validation/baseline-readiness/scrutiny/reviews/repo-validation-surface-hardening.json",
+  "summary": "Reviewed the fix feature metadata, handoff, transcript skeleton, prior failed review, and commit `940f420129b4edadd27773de6a63ac10ba15ac05`. The install surface now correctly reruns on dependency-input changes, and the updated regression tests hit the real dev-server and recovery-probe implementations, so the prior blocking readiness issue is resolved and the earlier non-blocking test-quality findings are also addressed."
+}
