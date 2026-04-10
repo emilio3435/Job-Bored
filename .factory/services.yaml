@@ -12,6 +12,13 @@ services:
     port: 8080
     depends_on: []
 
+  web_tls:
+    start: npm run web-only:https
+    stop: if lsof -ti tcp:8080 >/dev/null; then lsof -ti tcp:8080 | xargs kill; fi
+    healthcheck: curl -skf https://localhost:8080/
+    port: 8080
+    depends_on: []
+
   scraper:
     start: npm run start --prefix server
     stop: if lsof -ti tcp:3847 >/dev/null; then lsof -ti tcp:3847 | xargs kill; fi

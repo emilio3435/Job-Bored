@@ -10,7 +10,7 @@ Testing surfaces, tools, setup notes, and concurrency guidance for this mission.
 ## Validation Surface
 
 ### 1. Dashboard browser surface
-- **URL:** `http://localhost:8080`
+- **URL:** `http://localhost:8080` by default, or `https://localhost:8080` for mixed-content ATS validation via the manifest `web_tls` service
 - **Tool:** `agent-browser`
 - **Primary behaviors:** sheet access/setup, Daily Brief, board lanes, drawer flows, settings, onboarding/profile, drafts, discovery entry points
 - **Setup notes:**
@@ -18,6 +18,7 @@ Testing surfaces, tools, setup notes, and concurrency guidance for this mission.
   - For starter-sheet end-to-end validation, import Google-authenticated browser cookies into the validator session before expecting the real create-sheet flow to complete.
   - Use a signed-in browser state for writeback assertions.
   - Some assertions require seeded sheet data and/or seeded local IndexedDB state.
+  - The local HTTPS surface uses a generated self-signed localhost certificate; use `agent-browser --ignore-https-errors` (or the browser warning bypass) when validating it.
 
 ### 2. Local scraper and ATS surface
 - **URL:** `http://127.0.0.1:3847`
@@ -25,7 +26,7 @@ Testing surfaces, tools, setup notes, and concurrency guidance for this mission.
 - **Primary behaviors:** `/health`, `/api/scrape-job`, `/api/ats-scorecard`, ATS loading/error/success UI
 - **Setup notes:**
   - Live ATS requests use the configured provider and may incur cost.
-  - `VAL-ATS-002` requires an HTTPS/TLS dashboard surface; plain `http://localhost:8080` alone is insufficient to exercise the mixed-content behavior.
+  - `VAL-ATS-002` requires the HTTPS dashboard surface on `https://localhost:8080`; start manifest services `web_tls` and `scraper` (or run `npm run web-only:https` plus `npm run start:scraper`) before opening the browser session.
   - For non-localhost browser runs, mixed-content restrictions are part of the expected behavior.
 
 ### 3. Discovery browser surface
