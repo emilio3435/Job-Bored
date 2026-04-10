@@ -1,0 +1,61 @@
+{
+  "featureId": "discovery-browser-setup-and-recovery",
+  "reviewedAt": "2026-04-10T18:00:00.000Z",
+  "commitId": "6a83067",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature work in commit 6a83067 creates discovery-shared-helpers.js to consolidate URL normalization and classification helpers across wizard scripts. This addresses some aspects of stub-vs-real classification and local bootstrap consistency, but the handoff references the wrong commit (ac86145 - a security refactor), the verification steps were not manually exercised as specified in the feature's verificationSteps, and several VAL assertions (grounded-web opt-out persistence, preferences sync, wizard state resume) appear to not have been addressed.",
+    "issues": [
+      {
+        "file": "handoff file",
+        "line": 0,
+        "severity": "blocking",
+        "description": "Handoff commitId 'ac86145' does not correspond to discovery-browser-setup-and-recovery feature work. ac86145 is a security refactor ('fail closed on empty webhook secret'). The actual feature work is in commit '6a83067' which consolidates URL helpers in wizard scripts."
+      },
+      {
+        "file": "discovery-shared-helpers.js",
+        "line": 0,
+        "severity": "non_blocking",
+        "description": "The shared helpers file was created correctly, but the COPIES comment indicates these functions must be manually propagated to 6 locations. This is a maintenance burden and fragile - consider a build step that generates the copies from a single source."
+      },
+      {
+        "file": "feature verification",
+        "line": 0,
+        "severity": "blocking",
+        "description": "The verificationSteps in the feature specify manual checks (exercise missing-endpoint, invalid-endpoint, stub-only, real endpoint flows; verify local bootstrap autofill; verify grounded web opt-out persistence; verify wizard-state resume). The handoff shows only 'agent-browser open' and 'screenshot' commands, not the specific manual exercises required by the feature's verificationSteps."
+      },
+      {
+        "file": "feature coverage",
+        "line": 0,
+        "severity": "blocking",
+        "description": "Expected behavior #4 mentions 'grounded-web opt-out persistence' and 'preserving an explicit grounded-web opt-out from readiness checks through the actual run', plus VAL-CROSS-006 (discovery preferences sync) and VAL-CROSS-012 (wizard state persistence). These do not appear to be addressed by the URL helper consolidation in commit 6a83067. The wizardState normalization exists but the persistence and resume behavior for VAL-CROSS-012 is unclear."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The wizard scripts (discovery-wizard-*.js) delegate to shared helpers when available but fall back to inline implementations. This pattern is documented but the fallback behavior could mask inconsistencies if the shared helper API evolves.",
+      "evidence": "discovery-wizard-local.js:31 - 'typeof H.normalizeUrl === \"function\" ? H.normalizeUrl(raw) : (raw != null ? String(raw).trim() : \"\")'"
+    },
+    {
+      "area": "skills",
+      "observation": "The frontend-refactor-worker skill referenced in the feature's skillName field does not exist on disk at .factory/skills/frontend-refactor-worker/. The worker appears to have proceeded anyway without the skill's guidance.",
+      "evidence": "ls /Users/emilionunezgarcia/.factory/skills/frontend-refactor-worker/ returns 'No such file or directory'"
+    },
+    {
+      "area": "services",
+      "observation": "The discovery worker service in services.yaml correctly documents the local discovery worker on port 8644. However, the npm script uses BROWSER_USE_DISCOVERY_CONFIG_PATH and BROWSER_USE_DISCOVERY_STATE_DB_PATH env vars that are not documented in services.yaml.",
+      "evidence": "package.json script 'discovery:worker:start-local' uses undocumented env vars"
+    },
+    {
+      "area": "knowledge",
+      "observation": "The discovery wizard spec (docs/DISCOVERY-SETUP-WIZARD-SPEC.md) is comprehensive but was not referenced in the handoff. The spec describes a multi-phase wizard build plan with parallel agents. The URL helper consolidation appears to be one implementation detail rather than the full wizard feature.",
+      "evidence": "SPEC.md describes wizard state model, detection rules, and 5 parallel agent build plan"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "The handoff references commit ac86145 (security refactor) instead of the actual feature commit 6a83067. The feature's verificationSteps require manual browser exercises that were not performed. Several VAL assertions (grounded-web opt-out, preferences sync, wizard state resume) do not appear to be addressed by the URL helper consolidation. The frontend-refactor-worker skill is missing. Code quality of the shared helpers is sound but the manual copy propagation pattern is fragile."
+}

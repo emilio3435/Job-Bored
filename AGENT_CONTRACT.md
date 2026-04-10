@@ -8,7 +8,7 @@ The “contract” is **not** one thing — it is **two separate agreements** th
 
 | Interface                 | What it is                                                         | Who implements it                                                                        |
 | ------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| **A — Pipeline sheet**    | Shape of rows on the **Pipeline** tab (columns A–Q, optional R–S). | Anything that **writes** Google Sheets: your agent, Apps Script, n8n.                    |
+| **A — Pipeline sheet**    | Shape of rows on the **Pipeline** tab (columns A–Q, optional R–T). | Anything that **writes** Google Sheets: your agent, Apps Script, n8n.                    |
 | **B — Discovery webhook** | JSON **POST** when the user clicks **Run discovery** (optional).   | **Your** HTTPS endpoint; the dashboard only **sends** this; it does not host a receiver. |
 
 You can implement **A only** (cron job that appends rows) and never touch **B**. You can implement **B** that triggers a job which then does **A**. The dashboard does not care _how_ rows appear, only that they match **A** when they show up.
@@ -22,7 +22,7 @@ You can implement **A only** (cron job that appends rows) and never touch **B**.
 ## Pipeline tab (integration surface)
 
 - The dashboard reads **only** the **Pipeline** sheet tab; other tabs are ignored.
-- **Required columns A–Q** (see [README.md](README.md) — Sheet Structure). Optional **R–S** extend reply tracking in the Daily Brief.
+- **Required columns A–Q** (see [README.md](README.md) — Sheet Structure). Optional **R–T** extend reply tracking and company logos.
 - **Row identity (dedupe):** Automations should treat **column E (Link)** as the stable key when avoiding duplicate roles. Before appending a row, if a row with the same job URL already exists, **update** that row (e.g. refresh fit score, date found) instead of inserting a second line for the same posting.
 - **Append:** New discoveries are **new rows** below the header, following the column order the README documents.
 
@@ -36,6 +36,7 @@ These keep the UI and filters predictable. Other text usually still **displays**
 | **Priority**        | I      | `🔥` (hot), `⚡` (high), `—` or empty (normal), `↓` (low) — see template / README                                              |
 | **Fit Score**       | H      | Number **1–10** or empty                                                                                                       |
 | **Did they reply?** | S      | `Yes`, `No`, or `Unknown` (optional column)                                                                                    |
+| **Logo URL**        | T      | Company logo image URL (optional; discovery agents auto-populate, dashboard derives fallback from job Link domain when empty)  |
 
 Hermes, n8n, or your agent **writes** these cells; the dashboard **reads** them and supports **manual write-back** (status, notes, etc.) when the user signs in with Google.
 
@@ -99,7 +100,7 @@ Older automations that ignore `schemaVersion` and `discoveryProfile` keep workin
 
 ### Evolving this contract
 
-- **Sheet columns:** If you add columns, prefer **after** S or a new tab — changing A–Q breaks existing sheets. Document changes in this file and README.
+- **Sheet columns:** If you add columns, prefer **after** T or a new tab — changing A–Q breaks existing sheets. Document changes in this file and README.
 - **Webhook:** Bump **`schemaVersion`** to `2` only when you introduce **breaking** request-field changes. The dashboard should send the new version when we ship it; until then it sends `1`.
 - **Non-breaking:** New optional fields inside `discoveryProfile` can be documented here without a version bump if old receivers ignore unknown keys.
 

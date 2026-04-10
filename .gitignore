@@ -9,3 +9,4 @@ server/.env
 *.png
 .gstack/
 discovery-local-bootstrap.json
+integrations/browser-use-discovery/state/

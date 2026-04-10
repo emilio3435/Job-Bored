@@ -12,10 +12,11 @@ async function readText(relativePath: string) {
 }
 
 test("worker QA docs and env example expose the local prerequisites", async () => {
-  const [envExample, qaDoc, bootstrapFixture] = await Promise.all([
+  const [envExample, qaDoc, bootstrapFixture, workerConfig] = await Promise.all([
     readText(".env.example"),
     readText("docs/QA.md"),
     readText("tests/mocks/local-bootstrap-state.v1.json"),
+    readText("state/worker-config.json"),
   ]);
 
   for (const expected of [
@@ -24,6 +25,8 @@ test("worker QA docs and env example expose the local prerequisites", async () =
     "BROWSER_USE_DISCOVERY_PORT",
     "BROWSER_USE_DISCOVERY_CONFIG_PATH",
     "BROWSER_USE_DISCOVERY_STATE_DB_PATH",
+    "BROWSER_USE_DISCOVERY_GEMINI_API_KEY",
+    "BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_RESULTS_PER_COMPANY",
     "BROWSER_USE_DISCOVERY_ALLOWED_ORIGINS",
     "BROWSER_USE_DISCOVERY_ASYNC_ACK",
   ]) {
@@ -51,4 +54,5 @@ test("worker QA docs and env example expose the local prerequisites", async () =
     String(bootstrap.cloudflareDeployCommand),
     /cloudflare-relay:deploy/,
   );
+  assert.match(workerConfig, /"grounded_web"/);
 });

@@ -1,0 +1,65 @@
+{
+  "groupId": "ats-browser-rerun",
+  "surface": "dashboard-browser-https",
+  "status": "pass",
+  "assertions": [
+    {
+      "id": "VAL-ATS-002",
+      "status": "pass",
+      "reason": "On the HTTPS dashboard, saving the scraper base URL as http://127.0.0.1:13848 surfaced explicit mixed-content guidance instead of silently attempting a local HTTP scrape.",
+      "evidence": [
+        "baseline-readiness/ats-browser-rerun/settings-filled-ats-scraper.png",
+        "baseline-readiness/ats-browser-rerun/post-settings-reload.png",
+        "baseline-readiness/ats-browser-rerun/scaleai-drawer-after-guidance.png"
+      ],
+      "interactiveChecks": [
+        {
+          "action": "Opened Settings on https://localhost:18081/?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ, set Job posting scraper URL to http://127.0.0.1:13848, and saved the change.",
+          "observed": "After Save & reload, the app surfaced scraper setup guidance plus the mixed-content toast `HTTPS pages (e.g. GitHub Pages) cannot call http://127.0.0.1 \u2014 the browser blocks it. Deploy the scraper to a public HTTPS URL and paste it in Settings, or run the app locally with npm start. See DEPLOY-SCRAPER.md.`"
+        },
+        {
+          "action": "Inspected the HTTPS browser surface after the warning and checked the page console.",
+          "observed": "The UI stayed usable, showed remediation copy (`DEPLOY-SCRAPER.md`, `npm start`, HTTPS deploy guidance), and agent-browser reported no console errors."
+        }
+      ]
+    },
+    {
+      "id": "VAL-ATS-009",
+      "status": "pass",
+      "reason": "A saved refined cover-letter draft on the same HTTPS dashboard transitioned from loading to a complete ATS success scorecard with score, summary, grouped findings, confidence, and model metadata after the ATS server returned 200.",
+      "evidence": [
+        "baseline-readiness/ats-browser-rerun/scaleai-drawer-with-draft-v2.png",
+        "baseline-readiness/ats-browser-rerun/ats-scorecard-loading-v2.png",
+        "baseline-readiness/ats-browser-rerun/ats-scorecard-success-v2.png"
+      ],
+      "interactiveChecks": [
+        {
+          "action": "Seeded browser-local profile data plus saved cover-letter drafts for the `Director of Performance Marketing` role at `Scale AI`, then reopened the V2 saved draft from the drawer on the HTTPS dashboard.",
+          "observed": "The ATS card first showed the loading state (`Analyzing this draft against the role with structured LLM scoring\u2026`) and then rendered a complete success scorecard in the same modal."
+        },
+        {
+          "action": "Observed the live ATS network call for the V2 draft after opening it from the drawer.",
+          "observed": "POST http://127.0.0.1:13848/api/ats-scorecard returned 200 with a structured response. The UI rendered score `4%`, summary `Req 3% \u00b7 Experience 3% \u00b7 Impact 3% \u00b7 Parseability 5% \u00b7 Tone 5% \u00b7 confidence 100% \u00b7 model gemini-2.5-flash`, plus visible `Top strengths`, `Critical gaps`, `Rewrite suggestions`, and `Evidence checks` groups."
+        },
+        {
+          "action": "Checked the browser console after the ATS success render completed.",
+          "observed": "agent-browser reported no console errors for the successful V2 ATS flow."
+        }
+      ]
+    }
+  ],
+  "toolsUsed": [
+    "agent-browser"
+  ],
+  "frictions": [
+    "Saving the local scraper URL on the HTTPS surface immediately reopened scraper setup guidance with the mixed-content toast, so I had to dismiss that UI before continuing to the ATS draft flow.",
+    "The first saved draft (V1) and one explicit `Retry analysis` call both hit live 502 malformed-JSON ATS errors before the shorter saved V2 draft produced a successful 200 scorecard response on the same HTTPS surface."
+  ],
+  "blockers": [],
+  "notes": [
+    "Browser origin used: https://localhost:18081/?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "Saved scraper base URL used for mixed-content validation: http://127.0.0.1:13848",
+    "Saved ATS server base URL used for scorecard validation: http://127.0.0.1:13848 (resolved request URL http://127.0.0.1:13848/api/ats-scorecard)",
+    "Extra evidence of the transient ATS malformed-JSON failure path is available in baseline-readiness/ats-browser-rerun/ats-scorecard-error.png and baseline-readiness/ats-browser-rerun/ats-scorecard-loading.png."
+  ]
+}

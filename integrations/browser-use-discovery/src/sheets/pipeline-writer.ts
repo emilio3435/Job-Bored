@@ -32,10 +32,20 @@ type GoogleServiceAccount = {
   token_uri?: string;
 };
 
+type GoogleOAuthToken = {
+  token: string;
+  refresh_token: string;
+  client_id: string;
+  client_secret: string;
+  token_uri: string;
+  expiry: string;
+};
+
 const DEFAULT_SHEET_NAME = "Pipeline";
 const DEFAULT_TOKEN_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
 const COLUMN_COUNT = PIPELINE_HEADER_ROW.length;
+const REQUIRED_HEADER_COUNT = 17;
 
 function asText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -45,19 +55,33 @@ function toRowCells(row: unknown[]): string[] {
   return Array.from({ length: COLUMN_COUNT }, (_, index) => asText(row[index]));
 }
 
-function ensureHeaderMatches(values: unknown[][]) {
+function inspectHeaderRow(values: unknown[][]): {
+  header: string[];
+  needsUpgrade: boolean;
+} {
   const header = toRowCells(values[0] || []);
   const expected = PIPELINE_HEADER_ROW.map((value) => value.trim());
-  const mismatchIndex = expected.findIndex(
-    (value, index) => header[index] !== value,
-  );
-  if (header.length < COLUMN_COUNT || mismatchIndex !== -1) {
+  const mismatchIndex = expected.findIndex((value, index) => {
+    const found = header[index] || "";
+    if (index < REQUIRED_HEADER_COUNT) {
+      return found !== value;
+    }
+    return found !== "" && found !== value;
+  });
+  if (mismatchIndex !== -1) {
     const found = header.join(" | ");
     const want = expected.join(" | ");
     throw new Error(
       `Pipeline header mismatch. Expected ${want}; got ${found || "<empty>"}`,
     );
   }
+  return {
+    header,
+    needsUpgrade: expected.some(
+      (value, index) =>
+        index >= REQUIRED_HEADER_COUNT && (header[index] || "") !== value,
+    ),
+  };
 }
 
 function normalizeRowLink(row: string[]): string {
@@ -93,6 +117,7 @@ function buildLeadRow(lead: NormalizedLead, now: Date): string[] {
     lead.talkingPoints || "",
     "",
     "",
+    lead.logoUrl || "",
   ];
 }
 
@@ -102,6 +127,7 @@ function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
 
   for (let index = 0; index < COLUMN_COUNT; index += 1) {
     if (
+      index === 11 ||
       index === 12 ||
       index === 13 ||
       index === 14 ||
@@ -114,6 +140,7 @@ function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
     if (leadRow[index]) merged[index] = leadRow[index];
   }
 
+  if (!merged[11]) merged[11] = leadRow[11];
   if (!merged[12]) merged[12] = leadRow[12] || "New";
   if (!merged[16]) merged[16] = leadRow[16];
   return merged;
@@ -151,10 +178,7 @@ function pickBestLead(
   return existing;
 }
 
-function buildHeaders(
-  token: string,
-  isJson = true,
-): Record<string, string> {
+function buildHeaders(token: string, isJson = true): Record<string, string> {
   return {
     Authorization: `Bearer ${token}`,
     ...(isJson ? { "Content-Type": "application/json" } : {}),
@@ -187,6 +211,18 @@ function parseServiceAccount(rawJson: string): GoogleServiceAccount {
   };
 }
 
+function parseOAuthToken(rawJson: string): GoogleOAuthToken {
+  const parsed = JSON.parse(rawJson) as Partial<GoogleOAuthToken>;
+  return {
+    token: asText(parsed.token),
+    refresh_token: asText(parsed.refresh_token),
+    client_id: asText(parsed.client_id),
+    client_secret: asText(parsed.client_secret),
+    token_uri: asText(parsed.token_uri) || GOOGLE_TOKEN_URI,
+    expiry: asText(parsed.expiry),
+  };
+}
+
 async function readServiceAccountConfig(
   runtimeConfig: WorkerRuntimeConfig,
 ): Promise<GoogleServiceAccount | null> {
@@ -197,6 +233,18 @@ async function readServiceAccountConfig(
   if (!filePath) return null;
   const fileText = await readFile(filePath, "utf8");
   return parseServiceAccount(fileText);
+}
+
+async function readOAuthTokenConfig(
+  runtimeConfig: WorkerRuntimeConfig,
+): Promise<GoogleOAuthToken | null> {
+  const inline = asText(runtimeConfig.googleOAuthTokenJson);
+  if (inline) return parseOAuthToken(inline);
+
+  const filePath = asText(runtimeConfig.googleOAuthTokenFile);
+  if (!filePath) return null;
+  const fileText = await readFile(filePath, "utf8");
+  return parseOAuthToken(fileText);
 }
 
 async function exchangeServiceAccountToken(
@@ -225,14 +273,17 @@ async function exchangeServiceAccountToken(
     .replace(/\//g, "_")
     .replace(/=+$/g, "")}`;
 
-  const response = await fetchImpl(serviceAccount.token_uri || GOOGLE_TOKEN_URI, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion,
-    }).toString(),
-  });
+  const response = await fetchImpl(
+    serviceAccount.token_uri || GOOGLE_TOKEN_URI,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion,
+      }).toString(),
+    },
+  );
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
@@ -248,6 +299,56 @@ async function exchangeServiceAccountToken(
   return data.access_token;
 }
 
+function hasFreshOAuthAccessToken(
+  tokenConfig: GoogleOAuthToken,
+  now: () => Date,
+): boolean {
+  if (!tokenConfig.token) return false;
+  if (!tokenConfig.expiry) return true;
+  const expiryMs = Date.parse(tokenConfig.expiry);
+  if (!Number.isFinite(expiryMs)) return true;
+  return expiryMs - now().getTime() > 60_000;
+}
+
+async function refreshOAuthAccessToken(
+  tokenConfig: GoogleOAuthToken,
+  fetchImpl: FetchLike,
+): Promise<string> {
+  if (
+    !tokenConfig.refresh_token ||
+    !tokenConfig.client_id ||
+    !tokenConfig.client_secret
+  ) {
+    throw new Error(
+      "Google OAuth token JSON must include refresh_token, client_id, and client_secret when the cached access token is expired.",
+    );
+  }
+
+  const response = await fetchImpl(tokenConfig.token_uri || GOOGLE_TOKEN_URI, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: tokenConfig.refresh_token,
+      client_id: tokenConfig.client_id,
+      client_secret: tokenConfig.client_secret,
+    }).toString(),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `Failed to refresh Google OAuth token: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+    );
+  }
+
+  const data = (await response.json()) as { access_token?: string };
+  if (!data.access_token) {
+    throw new Error("Google OAuth refresh response missing access_token");
+  }
+  return data.access_token;
+}
+
 async function resolveAccessToken(
   runtimeConfig: WorkerRuntimeConfig,
   fetchImpl: FetchLike,
@@ -258,12 +359,26 @@ async function resolveAccessToken(
     return asText(runtimeConfig.googleAccessToken);
   }
   const serviceAccount = await readServiceAccountConfig(runtimeConfig);
-  if (!serviceAccount) {
-    throw new Error(
-      "No Google Sheets credential available. Set googleAccessToken or service-account JSON/file.",
+  if (serviceAccount) {
+    return exchangeServiceAccountToken(
+      serviceAccount,
+      tokenScope,
+      fetchImpl,
+      now,
     );
   }
-  return exchangeServiceAccountToken(serviceAccount, tokenScope, fetchImpl, now);
+
+  const oauthToken = await readOAuthTokenConfig(runtimeConfig);
+  if (oauthToken) {
+    if (hasFreshOAuthAccessToken(oauthToken, now)) {
+      return oauthToken.token;
+    }
+    return refreshOAuthAccessToken(oauthToken, fetchImpl);
+  }
+
+  throw new Error(
+    "No Google Sheets credential available. Set googleAccessToken, service-account JSON/file, or Google OAuth token JSON/file.",
+  );
 }
 
 async function getSheetValues(
@@ -291,7 +406,7 @@ async function getSheetValues(
   const data = (await response.json()) as SheetValuesResponse;
   return Array.isArray(data.values)
     ? data.values.map((row) =>
-        Array.isArray(row) ? row.map((cell) => asText(cell)) : []
+        Array.isArray(row) ? row.map((cell) => asText(cell)) : [],
       )
     : [];
 }
@@ -313,7 +428,7 @@ async function batchUpdateRows(
     body: JSON.stringify({
       valueInputOption: "USER_ENTERED",
       data: rowUpdates.map((entry) => ({
-        range: `${sheetName}!A${entry.rowNumber}:S${entry.rowNumber}`,
+        range: `${sheetName}!A${entry.rowNumber}:T${entry.rowNumber}`,
         majorDimension: "ROWS",
         values: [entry.values],
       })),
@@ -336,7 +451,7 @@ async function appendRows(
 ): Promise<void> {
   if (!rows.length) return;
   const url = new URL(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeRange(`${sheetName}!A:S`)}:append`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeRange(`${sheetName}!A:T`)}:append`,
   );
   url.searchParams.set("valueInputOption", "USER_ENTERED");
   url.searchParams.set("insertDataOption", "INSERT_ROWS");
@@ -356,6 +471,24 @@ async function appendRows(
       `Failed to append Pipeline rows: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
     );
   }
+}
+
+async function ensurePipelineHeaderRow(
+  sheetId: string,
+  token: string,
+  fetchImpl: FetchLike,
+  sheetName: string,
+  values: unknown[][],
+): Promise<void> {
+  const headerState = inspectHeaderRow(values);
+  if (!headerState.needsUpgrade) return;
+  await batchUpdateRows(
+    sheetId,
+    [{ rowNumber: 1, values: [...PIPELINE_HEADER_ROW] }],
+    token,
+    fetchImpl,
+    sheetName,
+  );
 }
 
 function dedupeIncomingLeads(leads: NormalizedLead[]): {
@@ -401,19 +534,28 @@ export function createPipelineWriter(
     );
     const headerValues = await getSheetValues(
       sheetId,
-      `${sheetName}!A1:S1`,
+      `${sheetName}!A1:T1`,
       accessToken,
       fetchImpl,
     );
-    ensureHeaderMatches(headerValues);
+    await ensurePipelineHeaderRow(
+      sheetId,
+      accessToken,
+      fetchImpl,
+      sheetName,
+      headerValues,
+    );
 
     const existingRows = await getSheetValues(
       sheetId,
-      `${sheetName}!A2:S`,
+      `${sheetName}!A2:T`,
       accessToken,
       fetchImpl,
     );
-    const existingByLink = new Map<string, { rowNumber: number; row: string[] }>();
+    const existingByLink = new Map<
+      string,
+      { rowNumber: number; row: string[] }
+    >();
     let existingDuplicateCount = 0;
 
     existingRows.forEach((row, index) => {

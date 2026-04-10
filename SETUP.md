@@ -178,29 +178,30 @@ Leave **`jobPostingScrapeUrl`** empty in `config.js` when you open the app on **
 
 ## Template Sheet Columns
 
-The **Pipeline** sheet has **17 required columns (A–Q)**. **Optional columns R–S** extend the Daily Brief &ldquo;Responses&rdquo; section; add them to the right of Q if you want explicit reply tracking.
+The **Pipeline** sheet has **17 required columns (A–Q)**. **Optional columns R–T** extend tracking; add them to the right of Q when needed.
 
-| Column | Header          | Description                                                                                                   |
-| ------ | --------------- | ------------------------------------------------------------------------------------------------------------- |
-| A      | Date Found      | When the role was discovered (date)                                                                           |
-| B      | Title           | Job title                                                                                                     |
-| C      | Company         | Company name                                                                                                  |
-| D      | Location        | Job location or "Remote"                                                                                      |
-| E      | Link            | URL to the job posting                                                                                        |
-| F      | Source          | Where the role was found (LinkedIn, etc.)                                                                     |
-| G      | Salary          | Compensation info if available                                                                                |
-| H      | Fit Score       | 1–10 score for role fit                                                                                       |
-| I      | Priority        | 🔥 (hot), ⚡ (high), — (normal), ↓ (low)                                                                      |
-| J      | Tags            | Comma-separated tags (e.g., "AI, Remote, Startup")                                                            |
-| K      | Fit Assessment  | AI-generated assessment of why the role fits                                                                  |
-| L      | Contact         | Recruiter or hiring manager contact                                                                           |
-| M      | Status          | Pipeline status (see below)                                                                                   |
-| N      | Applied Date    | Date application was submitted                                                                                |
-| O      | Notes           | Your personal notes                                                                                           |
-| P      | Follow-Up Date  | When to follow up                                                                                             |
-| Q      | Talking Points  | Key points for interviews/outreach                                                                            |
-| R      | Last contact    | Optional. When you last heard from them (date or short note). Shown as &ldquo;Last contact&rdquo; in the app. |
-| S      | Did they reply? | Optional. `Yes` / `No` / `Unknown` — use **Unknown** for &ldquo;not sure&rdquo; in the UI.                    |
+| Column | Header          | Description                                                                                                                                                      |
+| ------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A      | Date Found      | When the role was discovered (date)                                                                                                                              |
+| B      | Title           | Job title                                                                                                                                                        |
+| C      | Company         | Company name                                                                                                                                                     |
+| D      | Location        | Job location or "Remote"                                                                                                                                         |
+| E      | Link            | URL to the job posting                                                                                                                                           |
+| F      | Source          | Where the role was found (LinkedIn, etc.)                                                                                                                        |
+| G      | Salary          | Compensation info if available                                                                                                                                   |
+| H      | Fit Score       | 1–10 score for role fit                                                                                                                                          |
+| I      | Priority        | 🔥 (hot), ⚡ (high), — (normal), ↓ (low)                                                                                                                         |
+| J      | Tags            | Comma-separated tags (e.g., "AI, Remote, Startup")                                                                                                               |
+| K      | Fit Assessment  | AI-generated assessment of why the role fits                                                                                                                     |
+| L      | Contact         | Recruiter or hiring manager contact                                                                                                                              |
+| M      | Status          | Pipeline status (see below)                                                                                                                                      |
+| N      | Applied Date    | Date application was submitted                                                                                                                                   |
+| O      | Notes           | Your personal notes                                                                                                                                              |
+| P      | Follow-Up Date  | When to follow up                                                                                                                                                |
+| Q      | Talking Points  | Key points for interviews/outreach                                                                                                                               |
+| R      | Last contact    | Optional. When you last heard from them (date or short note). Shown as &ldquo;Last contact&rdquo; in the app.                                                    |
+| S      | Did they reply? | Optional. `Yes` / `No` / `Unknown` — use **Unknown** for &ldquo;not sure&rdquo; in the UI.                                                                       |
+| T      | Logo URL        | Optional. Company logo image URL. Discovery agents auto-populate this via Google Favicons. The dashboard derives a fallback from the job Link domain when empty. |
 
 ### Status Values
 

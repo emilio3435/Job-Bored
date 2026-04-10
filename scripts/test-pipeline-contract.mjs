@@ -72,7 +72,7 @@ function parseReadmePipelineHeaders(readme) {
   const end = after.indexOf("\n## ");
   const section = end === -1 ? after : after.slice(0, end);
   const byLetter = {};
-  const lineRe = /^\| ([A-S]):\s*([^|]+?)\s*\|/gm;
+  const lineRe = /^\| ([A-T]):\s*([^|]+?)\s*\|/gm;
   let m;
   while ((m = lineRe.exec(section))) {
     const letter = m[1];
@@ -83,12 +83,27 @@ function parseReadmePipelineHeaders(readme) {
     byLetter[letter] = label;
   }
   const letters = Object.keys(byLetter).sort();
-  if (letters.length !== 19) {
+  if (letters.length !== 20) {
     throw new Error(
-      `README Pipeline table: expected 19 rows A–S, got ${letters.length}`,
+      `README Pipeline table: expected 20 rows A–T, got ${letters.length}`,
     );
   }
   return byLetter;
+}
+
+function extractStarterHeadersFromAppJs(appJs) {
+  const m = /const STARTER_PIPELINE_HEADERS = \[([\s\S]*?)\n\];/.exec(appJs);
+  if (!m) throw new Error("STARTER_PIPELINE_HEADERS array not found in app.js");
+  const out = [];
+  const stringRe = /"([^"]+)"/g;
+  let s;
+  while ((s = stringRe.exec(m[1]))) {
+    out.push(JSON.parse(`"${s[1]}"`));
+  }
+  if (out.length === 0) {
+    throw new Error("no starter pipeline headers parsed from app.js");
+  }
+  return out;
 }
 
 function sameOrdered(a, b) {
@@ -127,6 +142,14 @@ for (const c of schema.columns) {
 
 if (!sameOrdered(schema.headerRow, schema.columns.map((c) => c.headerLabel))) {
   console.error("headerRow array must match columns[].headerLabel in order");
+  process.exit(1);
+}
+
+const starterHeaders = extractStarterHeadersFromAppJs(appJs);
+if (!sameOrdered(starterHeaders, schema.headerRow)) {
+  console.error("STARTER_PIPELINE_HEADERS in app.js must match pipeline-row headerRow.");
+  console.error("  app.js:", starterHeaders.join(", "));
+  console.error("  schema:", schema.headerRow.join(", "));
   process.exit(1);
 }
 

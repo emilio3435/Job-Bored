@@ -160,6 +160,7 @@ The dashboard reads the **Pipeline** tab (and ignores other tabs).
 | Q: Talking Points  | Cover letter bullets (auto for 8+ scores)                                             | Auto                             |
 | R: Last contact    | Optional. When you last heard from them (shown on cards & in the brief)               | **You** or automation            |
 | S: Did they reply? | Optional. `Yes` / `No` / `Unknown` (`Unknown` shows as “Not sure” in the app)         | **You** or automation            |
+| T: Logo URL        | Optional. Company logo image URL; the dashboard falls back to the job Link domain     | Auto or **You**                  |
 
 ## Agentic discovery (optional)
 

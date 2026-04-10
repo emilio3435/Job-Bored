@@ -1,0 +1,68 @@
+{
+  "groupId": "starter-sheet-rerun",
+  "surface": "dashboard-browser-authenticated",
+  "status": "pass",
+  "assertions": [
+    {
+      "id": "VAL-SETTINGS-008",
+      "status": "pass",
+      "reason": "Using the reusable Google session in browser session 94dea2e57bb3__starter, the app reached the signed-in starter-sheet step, created a new spreadsheet, persisted the new sheet ID locally, and an authenticated in-browser readback of Pipeline!A1:T1 returned the exact 20-column starter header contract through Logo URL.",
+      "evidence": [
+        "baseline-readiness/starter-sheet-rerun/post-google-signin-app.png",
+        "baseline-readiness/starter-sheet-rerun/google-sheet-created-rerun.png",
+        "baseline-readiness/starter-sheet-rerun/post-create-dashboard.png"
+      ],
+      "interactiveChecks": [
+        {
+          "action": "Saved the OAuth client ID in Settings and clicked Log in with Google from the no-sheet flow.",
+          "observed": "Google account chooser opened, the existing emilio3435@gmail.com account was reusable, and the app returned to a signed-in setup state showing Create blank starter sheet."
+        },
+        {
+          "action": "Clicked Create blank starter sheet from the signed-in setup state.",
+          "observed": "A new Google Sheets tab opened at docs.google.com for spreadsheet 14LLAWMQvrAqsKxanfG2VOgrYOroDrUszAuY_Bew3hbY and app local storage persisted that sheet ID."
+        },
+        {
+          "action": "Read back Pipeline!A1:T1 through an authenticated in-browser fetch after creation.",
+          "observed": "Returned headers were Date Found, Title, Company, Location, Link, Source, Salary, Fit Score, Priority, Tags, Fit Assessment, Contact, Status, Applied Date, Notes, Follow-up Date, Talking Points, Last contact, Did they reply?, Logo URL."
+        }
+      ]
+    },
+    {
+      "id": "VAL-CROSS-002",
+      "status": "pass",
+      "reason": "After starter-sheet creation completed, the app returned to the signed-in dashboard shell, preserved the new sheet link, opened the created Google Sheet in a new tab, and automatically launched the discovery setup wizard with discovery runtime entryPoint starter_sheet_created.",
+      "evidence": [
+        "baseline-readiness/starter-sheet-rerun/post-create-dashboard.png",
+        "baseline-readiness/starter-sheet-rerun/google-sheet-created-rerun.png"
+      ],
+      "interactiveChecks": [
+        {
+          "action": "Returned to the app tab after the starter sheet was created.",
+          "observed": "The dashboard shell was visible with signed-in account controls, Open Google Sheet, Run discovery, and the discovery setup wizard already open."
+        },
+        {
+          "action": "Inspected the live discovery wizard runtime after creation.",
+          "observed": "getDiscoveryWizardRuntime().entryPoint returned starter_sheet_created and the wizard state was active on the bootstrap handoff path."
+        },
+        {
+          "action": "Checked browser tabs after creation.",
+          "observed": "A new Google Sheets tab stayed open for the created spreadsheet while the app remained on the dashboard/discovery surface instead of stranding the user between setup screens."
+        }
+      ]
+    }
+  ],
+  "toolsUsed": [
+    "agent-browser"
+  ],
+  "frictions": [
+    "Selecting the reusable Google account closed the Google account chooser and shifted focus to the newly active Google Sheets tab, so I manually returned to the app tab to continue the validation.",
+    "agent-browser's network request log did not retain the Google Sheets create/write calls for this run, so I verified them via in-page performance resource entries plus an authenticated in-browser readback of Pipeline!A1:T1."
+  ],
+  "blockers": [],
+  "notes": [
+    "Browser origin used: http://localhost:8080.",
+    "No cookie-import flow was used; the existing reusable Google session already present in session 94dea2e57bb3__starter was sufficient.",
+    "Post-flow console and page errors were empty on the app tab after clearing logs and rechecking the settled dashboard state.",
+    "Observed Google Sheets resource entries included https://sheets.googleapis.com/v4/spreadsheets and https://sheets.googleapis.com/v4/spreadsheets/14LLAWMQvrAqsKxanfG2VOgrYOroDrUszAuY_Bew3hbY/values/Pipeline!A1%3AT1?valueInputOption=RAW."
+  ]
+}
