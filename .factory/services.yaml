@@ -1,0 +1,27 @@
+commands:
+  install: npm install
+  test: npm run test:contract:all && node --test tests/*.test.mjs && npm run test:browser-use-discovery
+  lint: npm run lint:skills
+  typecheck: node --check app.js && node --check dev-server.mjs && node --check discovery-wizard-local.js && node --check discovery-wizard-probes.js && node --check discovery-wizard-relay.js && node --check discovery-wizard-shell.js && node --check discovery-wizard-verify.js && node --check settings-tabs.js && node --check user-content-store.js && node --check resume-bundle.js && node --check resume-generate.js && node --check document-templates.js && node --check server/index.mjs && node --check server/job-scraper.mjs && node --check server/ats-scorecard.mjs
+
+services:
+  web:
+    start: node dev-server.mjs
+    stop: if lsof -ti tcp:8080 >/dev/null; then lsof -ti tcp:8080 | xargs kill; fi
+    healthcheck: curl -sf http://localhost:8080/
+    port: 8080
+    depends_on: []
+
+  scraper:
+    start: npm run start --prefix server
+    stop: if lsof -ti tcp:3847 >/dev/null; then lsof -ti tcp:3847 | xargs kill; fi
+    healthcheck: curl -sf http://127.0.0.1:3847/health
+    port: 3847
+    depends_on: []
+
+  discovery_worker:
+    start: BROWSER_USE_DISCOVERY_RUN_MODE=local BROWSER_USE_DISCOVERY_HOST=127.0.0.1 BROWSER_USE_DISCOVERY_PORT=8644 BROWSER_USE_DISCOVERY_CONFIG_PATH="$PWD/integrations/browser-use-discovery/state/worker-config.json" BROWSER_USE_DISCOVERY_STATE_DB_PATH="$PWD/integrations/browser-use-discovery/state/worker-state.sqlite" node --experimental-strip-types integrations/browser-use-discovery/src/server.ts
+    stop: if lsof -ti tcp:8644 >/dev/null; then lsof -ti tcp:8644 | xargs kill; fi
+    healthcheck: curl -sf http://127.0.0.1:8644/health
+    port: 8644
+    depends_on: []
