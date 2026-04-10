@@ -6,6 +6,7 @@
 import "dotenv/config";
 import cors from "cors";
 import express from "express";
+import { normalizeAtsRequestPayload } from "./ats-request-payload.mjs";
 import { analyzeAtsScorecard, getAtsConfigStatus } from "./ats-scorecard.mjs";
 import { scrapeJobPosting } from "./job-scraper.mjs";
 
@@ -57,112 +58,6 @@ app.post("/api/scrape-job", async (req, res) => {
     res.status(502).json({ error: msg });
   }
 });
-
-function normalizeAtsRequestPayload(raw) {
-  const body = raw && typeof raw === "object" ? raw : {};
-  const feature = body.feature === "resume_update" ? "resume_update" : "cover_letter";
-  const docText = String(body.docText || "").trim();
-  const job = body.job && typeof body.job === "object" ? body.job : {};
-  const title = String(job.title || "").trim();
-  const company = String(job.company || "").trim();
-  if (String(body.event || "") !== "command-center.ats-scorecard") {
-    throw new Error('Invalid event. Expected "command-center.ats-scorecard".');
-  }
-  if (Number(body.schemaVersion) !== 1) {
-    throw new Error("Invalid schemaVersion. Expected 1.");
-  }
-  if (!docText || docText.length < 20) {
-    throw new Error("docText must be at least 20 characters.");
-  }
-  if (!title || !company) {
-    throw new Error("job.title and job.company are required.");
-  }
-  return {
-    event: "command-center.ats-scorecard",
-    schemaVersion: 1,
-    feature,
-    docText: docText.slice(0, 50000),
-    job: {
-      title: title.slice(0, 300),
-      company: company.slice(0, 300),
-      url: String(job.url || "").slice(0, 3000),
-      fitAssessment: String(job.fitAssessment || "").slice(0, 4000),
-      talkingPoints: String(job.talkingPoints || "").slice(0, 4000),
-      notes: String(job.notes || "").slice(0, 8000),
-      postingEnrichment:
-        job.postingEnrichment && typeof job.postingEnrichment === "object"
-          ? {
-              description: String(job.postingEnrichment.description || "").slice(
-                0,
-                25000,
-              ),
-              requirements: Array.isArray(job.postingEnrichment.requirements)
-                ? job.postingEnrichment.requirements
-                    .slice(0, 60)
-                    .map((x) => String(x || "").slice(0, 500))
-                : [],
-              skills: Array.isArray(job.postingEnrichment.skills)
-                ? job.postingEnrichment.skills
-                    .slice(0, 60)
-                    .map((x) => String(x || "").slice(0, 300))
-                : [],
-              mustHaves: Array.isArray(job.postingEnrichment.mustHaves)
-                ? job.postingEnrichment.mustHaves
-                    .slice(0, 30)
-                    .map((x) => String(x || "").slice(0, 500))
-                : [],
-              responsibilities: Array.isArray(job.postingEnrichment.responsibilities)
-                ? job.postingEnrichment.responsibilities
-                    .slice(0, 30)
-                    .map((x) => String(x || "").slice(0, 500))
-                : [],
-              toolsAndStack: Array.isArray(job.postingEnrichment.toolsAndStack)
-                ? job.postingEnrichment.toolsAndStack
-                    .slice(0, 40)
-                    .map((x) => String(x || "").slice(0, 300))
-                : [],
-            }
-          : null,
-    },
-    profile:
-      body.profile && typeof body.profile === "object"
-        ? {
-            candidateProfileText: String(body.profile.candidateProfileText || "").slice(
-              0,
-              40000,
-            ),
-            resumeSourceText: String(body.profile.resumeSourceText || "").slice(
-              0,
-              30000,
-            ),
-            linkedinProfileText: String(body.profile.linkedinProfileText || "").slice(
-              0,
-              30000,
-            ),
-            additionalContextText: String(
-              body.profile.additionalContextText || "",
-            ).slice(0, 30000),
-          }
-        : null,
-    instructions:
-      body.instructions && typeof body.instructions === "object"
-        ? {
-            userNotes: String(body.instructions.userNotes || "").slice(0, 4000),
-            refinementFeedback: String(
-              body.instructions.refinementFeedback || "",
-            ).slice(0, 2000),
-          }
-        : null,
-    meta:
-      body.meta && typeof body.meta === "object"
-        ? {
-            sheetId:
-              body.meta.sheetId == null ? null : String(body.meta.sheetId).slice(0, 200),
-            generatedAt: String(body.meta.generatedAt || ""),
-          }
-        : null,
-  };
-}
 
 app.post("/api/ats-scorecard", async (req, res) => {
   const requestId = `ats_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
