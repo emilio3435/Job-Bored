@@ -2,5 +2,24 @@
   "status": "ok",
   "service": "browser-use-discovery-worker",
   "mode": "local",
-  "asyncAckByDefault": true
+  "asyncAckByDefault": true,
+  "routes": {
+    "health": "/health",
+    "webhook": "/webhook",
+    "discovery": "/discovery",
+    "runStatus": "/runs/{runId}"
+  },
+  "readiness": {
+    "ready": true,
+    "configLoaded": true,
+    "configuredSheetId": true,
+    "companiesConfigured": 3,
+    "sheetsCredentialConfigured": true,
+    "enabledSources": ["greenhouse", "ashby", "grounded_web"],
+    "groundedWeb": {
+      "enabled": true,
+      "ready": true
+    },
+    "warnings": []
+  }
 }

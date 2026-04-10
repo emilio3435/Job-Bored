@@ -1,11 +1,20 @@
 import type {
   DiscoveryWebhookAck,
+  DiscoveryRunStatusPayload,
   DiscoveryWebhookRequestV1,
+  StoredWorkerConfig,
 } from "../contracts.ts";
 import type {
   RunDiscoveryDependencies,
-  RunDiscoveryResult,
 } from "../run/run-discovery.ts";
+import {
+  buildAcceptedRunStatus,
+  buildCompletedRunStatus,
+  buildFailedRunStatus,
+  buildRunningRunStatus,
+  buildRunStatusPath,
+  type DiscoveryRunStatusStore,
+} from "../state/run-status-store.ts";
 
 export type WebhookRequestLike = {
   method: string;
@@ -21,7 +30,11 @@ export type WebhookResponseLike = {
 
 export type HandleWebhookDependencies = {
   runSynchronously?: boolean;
+  asyncPollAfterMs?: number;
+  now?(): Date;
   log?(event: string, details: Record<string, unknown>): void;
+  runStatusPathForRun?(runId: string): string;
+  runStatusStore?: DiscoveryRunStatusStore;
   runDiscovery(
     request: DiscoveryWebhookRequestV1,
     trigger: "manual",
@@ -58,11 +71,40 @@ export async function handleDiscoveryWebhook(
   const runId =
     dependencies.runDependencies.runId ||
     dependencies.runDependencies.randomId("run");
+  const now = dependencies.now || (() => new Date());
+  const acceptedAt = now().toISOString();
+  const statusPathBuilder = dependencies.runStatusPathForRun || buildRunStatusPath;
+  const statusPath = statusPathBuilder(runId);
+  const pollAfterMs = Math.max(1000, dependencies.asyncPollAfterMs || 2000);
+  const baseRunLogger = dependencies.runDependencies.log;
   const runDependencies = {
     ...dependencies.runDependencies,
     runId,
+    log: (event: string, details: Record<string, unknown>) => {
+      baseRunLogger?.(event, details);
+      dependencies.log?.(event, details);
+    },
   };
   const runMode = dependencies.runSynchronously ? "sync" : "async";
+  const preflight = await validateDiscoveryPreflight(
+    parsed.request.sheetId,
+    dependencies.runDependencies,
+  );
+  if (preflight) {
+    dependencies.log?.("discovery.run.preflight_failed", {
+      runId,
+      mode: runMode,
+      sheetId: parsed.request.sheetId,
+      variationKey: parsed.request.variationKey,
+      message: preflight.message,
+    });
+    return jsonResponse(preflight.status, {
+      ok: false,
+      message: preflight.message,
+      ...(preflight.detail ? { detail: preflight.detail } : {}),
+      ...(preflight.remediation ? { remediation: preflight.remediation } : {}),
+    });
+  }
 
   dependencies.log?.("discovery.request.validated", {
     runId,
@@ -71,7 +113,23 @@ export async function handleDiscoveryWebhook(
     variationKey: parsed.request.variationKey,
   });
 
+  const acceptedStatus = buildAcceptedRunStatus({
+    runId,
+    trigger: "manual",
+    request: {
+      sheetId: parsed.request.sheetId,
+      variationKey: parsed.request.variationKey,
+      requestedAt: parsed.request.requestedAt,
+    },
+    acceptedAt,
+  });
+  dependencies.runStatusStore?.put(acceptedStatus);
+
   if (dependencies.runSynchronously) {
+    const startedAt = now().toISOString();
+    dependencies.runStatusStore?.put(
+      buildRunningRunStatus(acceptedStatus, startedAt),
+    );
     try {
       dependencies.log?.("discovery.run.started", {
         runId,
@@ -84,6 +142,11 @@ export async function handleDiscoveryWebhook(
         "manual",
         runDependencies,
       );
+      const completedStatus = buildCompletedRunStatus(result, {
+        acceptedAt,
+        startedAt,
+      });
+      dependencies.runStatusStore?.put(completedStatus);
       dependencies.log?.("discovery.run.completed", {
         runId,
         mode: runMode,
@@ -94,12 +157,27 @@ export async function handleDiscoveryWebhook(
         appended: result.writeResult.appended,
         updated: result.writeResult.updated,
         warnings: result.warnings.length,
+        sourceSummary: result.sourceSummary.map((entry) => ({
+          sourceId: entry.sourceId,
+          warningCount: entry.warnings.length,
+          ...(entry.warnings.length ? { warnings: entry.warnings } : {}),
+        })),
       });
       return jsonResponse(
         200,
-        formatWebhookAckFromResult(result, "completed_sync"),
+        {
+          ok: true,
+          kind: "completed_sync",
+          runId,
+          message: completedStatus.message,
+          statusPath,
+          outcome: completedStatus,
+        } satisfies DiscoveryWebhookAck,
       );
     } catch (error) {
+      dependencies.runStatusStore?.put(
+        buildFailedRunStatus(acceptedStatus, error, now().toISOString()),
+      );
       dependencies.log?.("discovery.run.failed", {
         runId,
         mode: runMode,
@@ -119,8 +197,16 @@ export async function handleDiscoveryWebhook(
     variationKey: parsed.request.variationKey,
   });
 
-  void dependencies.runDiscovery(parsed.request, "manual", runDependencies)
+  const startedAt = now().toISOString();
+  void dependencies
+    .runDiscovery(parsed.request, "manual", runDependencies)
     .then((result) => {
+      dependencies.runStatusStore?.put(
+        buildCompletedRunStatus(result, {
+          acceptedAt,
+          startedAt,
+        }),
+      );
       dependencies.log?.("discovery.run.completed", {
         runId,
         mode: runMode,
@@ -131,9 +217,21 @@ export async function handleDiscoveryWebhook(
         appended: result.writeResult.appended,
         updated: result.writeResult.updated,
         warnings: result.warnings.length,
+        sourceSummary: result.sourceSummary.map((entry) => ({
+          sourceId: entry.sourceId,
+          warningCount: entry.warnings.length,
+          ...(entry.warnings.length ? { warnings: entry.warnings } : {}),
+        })),
       });
     })
     .catch((error) => {
+      dependencies.runStatusStore?.put(
+        buildFailedRunStatus(
+          buildRunningRunStatus(acceptedStatus, startedAt),
+          error,
+          now().toISOString(),
+        ),
+      );
       const message = error instanceof Error ? error.message : String(error);
       dependencies.log?.("discovery.run.failed", {
         runId,
@@ -142,12 +240,17 @@ export async function handleDiscoveryWebhook(
       });
       console.error("[browser-use-discovery] async discovery failed:", message);
     });
+  dependencies.runStatusStore?.put(
+    buildRunningRunStatus(acceptedStatus, startedAt),
+  );
 
   return jsonResponse(202, {
     ok: true,
     kind: "accepted_async",
     runId,
-    message: "Discovery accepted — worker queued the run",
+    message: acceptedStatus.message,
+    statusPath,
+    pollAfterMs,
   });
 }
 
@@ -155,24 +258,83 @@ export function formatWebhookAck(ack: DiscoveryWebhookAck): string {
   return JSON.stringify(ack);
 }
 
-function formatWebhookAckFromResult(
-  result: RunDiscoveryResult,
-  kind: DiscoveryWebhookAck["kind"],
-): DiscoveryWebhookAck {
-  const message =
-    kind === "completed_sync"
-      ? result.lifecycle.state === "empty"
-        ? "Discovery completed — no matching leads were found."
-        : result.warnings.length
-          ? "Discovery completed with warnings — worker processed the run."
-          : "Discovery completed — worker processed the run."
-      : "Discovery accepted — worker queued the run";
-  return {
-    ok: true,
-    kind,
-    runId: result.run.runId,
-    message,
-  };
+type DiscoveryPreflightFailure = {
+  status: number;
+  message: string;
+  detail?: string;
+  remediation?: string;
+};
+
+async function validateDiscoveryPreflight(
+  sheetId: string,
+  runDependencies: RunDiscoveryDependencies,
+): Promise<DiscoveryPreflightFailure | null> {
+  let storedConfig: StoredWorkerConfig;
+  try {
+    storedConfig = await runDependencies.loadStoredWorkerConfig(sheetId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      status: 500,
+      message: "Discovery worker config could not be loaded.",
+      detail: message,
+    };
+  }
+
+  if (
+    !Array.isArray(storedConfig.companies) ||
+    !storedConfig.companies.length
+  ) {
+    const configPath = String(
+      runDependencies.runtimeConfig.workerConfigPath || "",
+    ).trim();
+    return {
+      status: 409,
+      message: "Discovery worker has no target companies configured.",
+      detail: configPath
+        ? `Add at least one company entry in ${configPath}, then retry.`
+        : "Add at least one company entry to the worker config, then retry.",
+      remediation:
+        'Create a worker config JSON with a `companies` array. Each entry should look like {"name":"Acme","boardHints":{"greenhouse":"acme"}}.',
+    };
+  }
+
+  if (!hasSheetsCredential(runDependencies.runtimeConfig)) {
+    return {
+      status: 409,
+      message: "Discovery worker has no Google Sheets credential configured.",
+      detail:
+        "Set a Google service account file/JSON, a Google access token, or a Google OAuth token file before running discovery.",
+      remediation:
+        "Set BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE, BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON, BROWSER_USE_DISCOVERY_GOOGLE_ACCESS_TOKEN, or BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_FILE.",
+    };
+  }
+
+  if (
+    !String(sheetId || "").trim() &&
+    !String(storedConfig.sheetId || "").trim()
+  ) {
+    return {
+      status: 400,
+      message: "sheetId is required.",
+      detail:
+        "Provide `sheetId` in the webhook payload, or set `sheetId` in the local worker config before retrying.",
+    };
+  }
+
+  return null;
+}
+
+export function hasSheetsCredential(
+  runtimeConfig: RunDiscoveryDependencies["runtimeConfig"],
+): boolean {
+  return !!(
+    String(runtimeConfig.googleAccessToken || "").trim() ||
+    String(runtimeConfig.googleServiceAccountJson || "").trim() ||
+    String(runtimeConfig.googleServiceAccountFile || "").trim() ||
+    String(runtimeConfig.googleOAuthTokenJson || "").trim() ||
+    String(runtimeConfig.googleOAuthTokenFile || "").trim()
+  );
 }
 
 function parseWebhookRequest(
@@ -202,9 +364,6 @@ function parseWebhookRequest(
   }
   if (schemaVersion !== 1) {
     return { ok: false, message: "schemaVersion must be 1." };
-  }
-  if (!sheetId) {
-    return { ok: false, message: "sheetId is required." };
   }
   if (!variationKey) {
     return { ok: false, message: "variationKey is required." };

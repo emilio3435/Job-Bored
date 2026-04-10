@@ -2,5 +2,7 @@
   "ok": true,
   "kind": "accepted_async",
   "runId": "run_local_01",
-  "message": "Discovery accepted — worker queued the run"
+  "message": "Discovery accepted — worker queued the run.",
+  "statusPath": "/runs/run_local_01",
+  "pollAfterMs": 2000
 }

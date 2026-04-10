@@ -7,19 +7,37 @@ import {
   loadStoredWorkerConfig,
   mergeDiscoveryConfig,
 } from "./config.ts";
+import { createGroundedSearchClient } from "./grounding/grounded-search.ts";
+import { createGeminiMatchClient } from "./match/job-matcher.ts";
 import { runDiscovery } from "./run/run-discovery.ts";
 import { createPipelineWriter } from "./sheets/pipeline-writer.ts";
+import {
+  buildRunStatusPath,
+  createDiscoveryRunStatusStore,
+} from "./state/run-status-store.ts";
 import { handleDiscoveryWebhook } from "./webhook/handle-discovery-webhook.ts";
 import { createBrowserUseSessionManager } from "./browser/session.ts";
+import { hasSheetsCredential } from "./webhook/handle-discovery-webhook.ts";
 
 const runtimeConfig = loadRuntimeConfig(process.env);
 const sessionManager = createBrowserUseSessionManager(runtimeConfig);
+const groundedSearchClient = runtimeConfig.geminiApiKey
+  ? createGroundedSearchClient(runtimeConfig)
+  : null;
+const matchClient = runtimeConfig.geminiApiKey
+  ? createGeminiMatchClient(runtimeConfig)
+  : null;
 const sourceAdapterRegistry = createSourceAdapterRegistry(sessionManager);
 const pipelineWriter = createPipelineWriter(runtimeConfig);
+const runStatusStore = createDiscoveryRunStatusStore(runtimeConfig.stateDatabasePath);
+const RUN_STATUS_TEMPLATE = "/runs/{runId}";
 
 const sharedRunDependencies = {
   runtimeConfig,
   sourceAdapterRegistry,
+  browserSessionManager: sessionManager,
+  groundedSearchClient,
+  matchClient,
   pipelineWriter,
   loadStoredWorkerConfig: (sheetId: string) =>
     loadStoredWorkerConfig(runtimeConfig, sheetId),
@@ -82,6 +100,74 @@ function logEvent(event: string, details: Record<string, unknown>): void {
   );
 }
 
+function formatError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+async function buildHealthPayload() {
+  let storedConfig = null;
+  let configError = "";
+  try {
+    storedConfig = await loadStoredWorkerConfig(runtimeConfig, "");
+  } catch (error) {
+    configError = formatError(error);
+  }
+
+  const enabledSources = Array.isArray(storedConfig?.enabledSources)
+    ? storedConfig.enabledSources
+    : [];
+  const groundedWebEnabled = enabledSources.includes("grounded_web");
+  const readinessWarnings: string[] = [];
+
+  if (configError) {
+    readinessWarnings.push(`Worker config could not be loaded: ${configError}`);
+  }
+  if (!Array.isArray(storedConfig?.companies) || !storedConfig?.companies.length) {
+    readinessWarnings.push("Discovery worker has no target companies configured.");
+  }
+  if (!hasSheetsCredential(runtimeConfig)) {
+    readinessWarnings.push(
+      "Discovery worker has no Google Sheets credential configured.",
+    );
+  }
+  if (groundedWebEnabled && !groundedSearchClient) {
+    readinessWarnings.push(
+      runtimeConfig.geminiApiKey
+        ? "Grounded web source is enabled but the grounded search client is unavailable."
+        : "Grounded web source is enabled but BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.",
+    );
+  }
+
+  return {
+    status: "ok",
+    service: "browser-use-discovery-worker",
+    mode: runtimeConfig.runMode,
+    asyncAckByDefault: runtimeConfig.asyncAckByDefault,
+    routes: {
+      health: "/health",
+      webhook: "/webhook",
+      discovery: "/discovery",
+      runStatus: RUN_STATUS_TEMPLATE,
+    },
+    readiness: {
+      ready: readinessWarnings.length === 0,
+      configLoaded: !configError,
+      configuredSheetId: !!String(storedConfig?.sheetId || "").trim(),
+      companiesConfigured: Array.isArray(storedConfig?.companies)
+        ? storedConfig.companies.length
+        : 0,
+      sheetsCredentialConfigured: hasSheetsCredential(runtimeConfig),
+      enabledSources,
+      groundedWeb: {
+        enabled: groundedWebEnabled,
+        ready: !groundedWebEnabled || !!groundedSearchClient,
+      },
+      warnings: readinessWarnings,
+    },
+  };
+}
+
 const server = createServer(async (request, response) => {
   const requestId = randomUUID().slice(0, 8);
   const startedAt = Date.now();
@@ -126,13 +212,45 @@ const server = createServer(async (request, response) => {
   }
 
   if (requestPath === "/health") {
+    finishJson(200, await buildHealthPayload(), corsHeaders);
+    return;
+  }
+
+  if (requestPath.startsWith("/runs/")) {
+    if (method !== "GET") {
+      finishJson(
+        405,
+        {
+          ok: false,
+          message: "Method not allowed",
+        },
+        {
+          ...corsHeaders,
+          allow: "GET,OPTIONS",
+        },
+      );
+      return;
+    }
+
+    const runId = decodeURIComponent(requestPath.slice("/runs/".length));
+    const payload = runStatusStore.get(runId);
+    if (!payload) {
+      finishJson(
+        404,
+        {
+          ok: false,
+          message: "Run not found",
+        },
+        corsHeaders,
+      );
+      return;
+    }
+
     finishJson(
       200,
       {
-        status: "ok",
-        service: "browser-use-discovery-worker",
-        mode: runtimeConfig.runMode,
-        asyncAckByDefault: runtimeConfig.asyncAckByDefault,
+        ok: true,
+        ...payload,
       },
       corsHeaders,
     );
@@ -188,6 +306,8 @@ const server = createServer(async (request, response) => {
       },
       {
         runSynchronously: !runtimeConfig.asyncAckByDefault,
+        runStatusPathForRun: buildRunStatusPath,
+        runStatusStore,
         runDiscovery,
         runDependencies: sharedRunDependencies,
         log: (event, details) =>
