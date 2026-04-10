@@ -1739,7 +1739,13 @@
                   class="btn-discovery-setup btn-discovery-setup--secondary"
                   id="settingsDiscoveryLocalSetupBtn"
                 >
-                  Hermes + ngrok
+                  Local worker + ngrok
+                  <span
+                    class="tunnel-stale-badge"
+                    id="settingsTunnelStaleBadge"
+                    style="display: none"
+                    title="ngrok tunnel URL may have changed"
+                  ></span>
                 </button>
                 <button
                   type="button"
@@ -3761,7 +3767,7 @@ Then provide a final single Markdown block I can save as career-context.md and u
             class="btn-setup-scraper-link"
             id="discoverySetupGuideLocalBtn"
           >
-            Hermes + ngrok
+            Local worker + ngrok
           </button>
           first, then put the Worker URL in Settings.
         </p>
@@ -3919,7 +3925,7 @@ npm run apps-script:login</pre
       </div>
     </div>
 
-    <!-- Discovery: local Hermes/OpenClaw + ngrok bootstrap -->
+    <!-- Discovery: local browser-use worker + ngrok bootstrap -->
     <div
       class="modal-overlay discovery-relay-overlay"
       id="discoveryLocalTunnelModal"
@@ -3932,7 +3938,7 @@ npm run apps-script:login</pre
         class="modal-card modal-card--wide scraper-setup-card cloudflare-relay-card"
       >
         <div class="settings-modal-head">
-          <h3 id="discoveryLocalTunnelTitle">Hermes + ngrok</h3>
+          <h3 id="discoveryLocalTunnelTitle">Local worker + ngrok</h3>
           <button
             type="button"
             class="settings-modal-close"
@@ -3954,8 +3960,9 @@ npm run apps-script:login</pre
         </div>
         <p class="modal-lede scraper-setup-lede">
           Use this when your <strong>real</strong> discovery engine runs on your
-          laptop or homelab. The browser should not point straight at that local
-          receiver. Instead use:
+          laptop or homelab. The recommended local engine is the
+          <strong>browser-use worker</strong>. The browser should not point
+          straight at that local receiver. Instead use:
           <strong
             >dashboard &rarr; Cloudflare Worker &rarr; ngrok &rarr; local
             webhook</strong
@@ -3975,9 +3982,11 @@ npm run apps-script:login</pre
         >
           <strong>Fastest local path:</strong> from the repo root, run
           <code class="modal-code">npm run discovery:bootstrap-local</code>. It
-          reuses or creates the Hermes route, starts ngrok if needed, and writes
-          a local JSON file so this modal can autofill on
+          reuses the browser-use worker if it is already running, starts the
+          browser-use worker by default, and writes a local JSON file so this
+          modal can autofill on
           <code class="modal-code">http://localhost</code>.
+          Advanced only: you can still point this path at Hermes/OpenClaw.
           <div class="scraper-setup-copyrow">
             <pre class="scraper-setup-code">
 npm run discovery:bootstrap-local</pre
@@ -4013,15 +4022,54 @@ npm run discovery:bootstrap-local</pre
           </p>
         </div>
 
+        <div
+          class="tunnel-stale-banner"
+          id="tunnelStaleBanner"
+          role="alert"
+          style="display: none"
+        >
+          <span class="tunnel-stale-banner__icon" aria-hidden="true">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </span>
+          <div class="tunnel-stale-banner__body">
+            <p
+              class="tunnel-stale-banner__title"
+              id="tunnelStaleBannerTitle"
+            ></p>
+            <p
+              class="tunnel-stale-banner__detail"
+              id="tunnelStaleBannerDetail"
+            ></p>
+          </div>
+          <button
+            type="button"
+            class="btn-modal-primary tunnel-stale-banner__action"
+            id="tunnelStaleBannerAction"
+          >
+            Update &amp; get deploy command
+          </button>
+        </div>
+
         <ol class="scraper-setup-steps cloudflare-relay-steps">
           <li class="scraper-setup-step">
             <div class="scraper-setup-step__title">
               1. Paste your local webhook URL
             </div>
             <p class="scraper-setup-step__body">
-              Example:
+              Recommended example:
               <code class="modal-code"
-                >http://127.0.0.1:8644/webhooks/command-center-discovery-abc123</code
+                >http://127.0.0.1:8644/webhook</code
               >.
             </p>
             <label class="field-label" for="discoveryLocalWebhookUrl"
@@ -4031,14 +4079,14 @@ npm run discovery:bootstrap-local</pre
               type="url"
               id="discoveryLocalWebhookUrl"
               class="modal-input"
-              placeholder="http://127.0.0.1:8644/webhooks/command-center-discovery-abc123"
+              placeholder="http://127.0.0.1:8644/webhook"
               autocomplete="off"
               spellcheck="false"
             />
             <p class="settings-field-hint settings-field-hint--compact">
-              This is the real Hermes / OpenClaw / local-agent receiver. Do not
-              paste it into <strong>Discovery webhook URL</strong> on a hosted
-              dashboard.
+              This is the real local discovery receiver. Recommended:
+              browser-use worker. Advanced: Hermes / OpenClaw. Do not paste it
+              into <strong>Discovery webhook URL</strong> on a hosted dashboard.
             </p>
             <div class="scraper-setup-copyrow">
               <pre
@@ -4104,15 +4152,28 @@ ngrok http 8644</pre
             <label class="field-label" for="discoveryTunnelPublicUrl"
               >Public ngrok URL</label
             >
-            <input
-              type="url"
-              id="discoveryTunnelPublicUrl"
-              class="modal-input"
-              placeholder="https://abc123.ngrok-free.app"
-              autocomplete="off"
-              spellcheck="false"
-            />
-            <p class="settings-field-hint settings-field-hint--compact">
+            <div class="tunnel-detect-row">
+              <input
+                type="url"
+                id="discoveryTunnelPublicUrl"
+                class="modal-input tunnel-detect-row__input"
+                placeholder="https://abc123.ngrok-free.app"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button
+                type="button"
+                class="btn-modal-secondary tunnel-detect-btn"
+                id="tunnelDetectBtn"
+                title="Auto-detect the running ngrok tunnel URL"
+              >
+                Detect
+              </button>
+            </div>
+            <p
+              class="settings-field-hint settings-field-hint--compact"
+              id="tunnelDetectHint"
+            >
               Paste the <strong>https://</strong> forwarding URL from ngrok, not
               the localhost line.
             </p>
@@ -4280,7 +4341,8 @@ Paste both the local webhook URL and the public ngrok URL to generate the target
           <p class="scraper-setup-step__body">
             This should usually be either your deployed Apps Script
             <code class="modal-code">/exec</code> URL or the public ngrok URL
-            that forwards to your local Hermes / agent webhook.
+            that forwards to your local browser-use worker or advanced Hermes
+            route.
           </p>
           <div class="scraper-setup-copyrow">
             <pre class="scraper-setup-code" id="cloudflareRelayTargetValue">
@@ -4895,6 +4957,7 @@ https://your-static-site.example</pre
     <script src="document-templates.js"></script>
     <script src="visual-themes.js"></script>
     <script src="user-content-store.js"></script>
+    <script src="discovery-shared-helpers.js"></script>
     <script src="discovery-wizard-shell.js"></script>
     <script src="discovery-wizard-probes.js"></script>
     <script src="discovery-wizard-local.js"></script>
