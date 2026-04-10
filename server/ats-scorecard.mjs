@@ -103,6 +103,34 @@ function parseJsonSafe(text) {
   return JSON.parse(cleaned);
 }
 
+function isMalformedProviderJsonError(error) {
+  if (error instanceof SyntaxError) return true;
+  const msg = String(error?.message || "").trim();
+  return /empty json payload|returned empty content/i.test(msg);
+}
+
+async function withMalformedJsonRetry(label, run) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      lastError = error;
+      if (!isMalformedProviderJsonError(error) || attempt === 2) break;
+      console.warn(
+        `[ats-scorecard] ${label} returned malformed JSON on attempt ${attempt}; retrying once`,
+      );
+    }
+  }
+  if (isMalformedProviderJsonError(lastError)) {
+    const detail = String(lastError?.message || "Unknown JSON parse failure");
+    throw new Error(
+      `${label} returned malformed JSON after retry. Retry ATS analysis or try a different model. Last parser error: ${detail}`,
+    );
+  }
+  throw lastError;
+}
+
 function toGeminiSchema(schema) {
   const UNSUPPORTED = new Set([
     "additionalProperties",
@@ -280,29 +308,32 @@ function buildUserPrompt(payload) {
 }
 
 async function callGeminiJson(userPrompt, apiKey, model) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const body = {
-    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-    contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-    generationConfig: {
-      temperature: 0.15,
-      maxOutputTokens: 3500,
-      responseMimeType: "application/json",
-      responseSchema: toGeminiSchema(ATS_RESPONSE_SCHEMA),
-    },
-  };
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+  return withMalformedJsonRetry("Gemini", async () => {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const body = {
+      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+      generationConfig: {
+        temperature: 0.15,
+        maxOutputTokens: 3500,
+        responseMimeType: "application/json",
+        responseSchema: toGeminiSchema(ATS_RESPONSE_SCHEMA),
+      },
+    };
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(data.error?.message || `Gemini HTTP ${resp.status}`);
+    }
+    const raw =
+      data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+    if (!raw.trim()) throw new Error("Gemini returned empty content");
+    return parseJsonSafe(raw);
   });
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    throw new Error(data.error?.message || `Gemini HTTP ${resp.status}`);
-  }
-  const raw = data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
-  if (!raw.trim()) throw new Error("Gemini returned empty content");
-  return parseJsonSafe(raw);
 }
 
 async function callOpenAIJson(userPrompt, apiKey, model) {
@@ -329,21 +360,23 @@ async function callOpenAIJson(userPrompt, apiKey, model) {
     temperature: 0.15,
     [limitKey]: 3500,
   };
-  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
+  return withMalformedJsonRetry("OpenAI", async () => {
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(data.error?.message || `OpenAI HTTP ${resp.status}`);
+    }
+    const raw = data.choices?.[0]?.message?.content || "";
+    if (!raw.trim()) throw new Error("OpenAI returned empty content");
+    return parseJsonSafe(raw);
   });
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    throw new Error(data.error?.message || `OpenAI HTTP ${resp.status}`);
-  }
-  const raw = data.choices?.[0]?.message?.content || "";
-  if (!raw.trim()) throw new Error("OpenAI returned empty content");
-  return parseJsonSafe(raw);
 }
 
 async function callAnthropicJson(userPrompt, apiKey, model) {
@@ -359,24 +392,31 @@ async function callAnthropicJson(userPrompt, apiKey, model) {
       },
     },
   };
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
+  return withMalformedJsonRetry("Anthropic", async () => {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(
+        data.error?.message || data.error?.type || `Anthropic HTTP ${resp.status}`,
+      );
+    }
+    const raw = Array.isArray(data.content)
+      ? data.content
+          .filter((b) => b.type === "text")
+          .map((b) => b.text || "")
+          .join("")
+      : "";
+    if (!raw.trim()) throw new Error("Anthropic returned empty content");
+    return parseJsonSafe(raw);
   });
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    throw new Error(data.error?.message || data.error?.type || `Anthropic HTTP ${resp.status}`);
-  }
-  const raw = Array.isArray(data.content)
-    ? data.content.filter((b) => b.type === "text").map((b) => b.text || "").join("")
-    : "";
-  if (!raw.trim()) throw new Error("Anthropic returned empty content");
-  return parseJsonSafe(raw);
 }
 
 export function getProviderConfigFromEnv() {
