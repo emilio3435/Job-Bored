@@ -3509,20 +3509,26 @@ async function renderDiscoverySetupWizard() {
       void persistDiscoveryWizardState(state);
     },
     onClose: () => {
+      // Restore onboarding if it was showing when discovery wizard opened
+      const runtime = discoveryWizardRuntime;
+      const shouldRestoreOnboarding =
+        runtime &&
+        runtime.state &&
+        runtime.state._onboardingWasHiddenByDiscovery;
       discoveryWizardRuntime = null;
       void refreshDiscoveryReadinessSnapshot({ force: true });
+      if (shouldRestoreOnboarding) {
+        showOnboardingWizard();
+      }
     },
   });
 }
 
 async function openDiscoverySetupWizard(options = {}) {
-  if (isOnboardingWizardVisible()) {
-    try {
-      sessionStorage.setItem(PENDING_DISCOVERY_SETUP_KEY, "1");
-    } catch (_) {
-      /* ignore */
-    }
-    return null;
+  // Remember if onboarding was showing so we can restore it after wizard closes
+  const onboardingWasVisible = isOnboardingWizardVisible();
+  if (onboardingWasVisible) {
+    hideOnboardingWizard();
   }
   if (isSettingsModalOpen()) {
     closeCommandCenterSettingsModal();
@@ -3581,6 +3587,8 @@ async function openDiscoverySetupWizard(options = {}) {
       flow: initialFlow,
       currentStep: initialStep,
       completedSteps: mergedCompleted,
+      // Track that we hid onboarding so we can reshow it on close
+      _onboardingWasHiddenByDiscovery: onboardingWasVisible,
     },
     activeStepId: initialStep,
     drafts: {
