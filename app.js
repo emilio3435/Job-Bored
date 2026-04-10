@@ -3932,13 +3932,16 @@ async function handleDiscoveryWizardVerification(url, context) {
     );
   }
   if (
-    result.kind === "network_error" &&
+    (result.kind === "network_error" || result.kind === "invalid_endpoint") &&
     (await handleAppsScriptBrowserCorsFailure(url))
   ) {
     // Apps Script stub that is publicly accessible — CORS blocked the browser from
     // reading the response, but the endpoint did receive and accept the request.
     // Classify as stub_only so the wizard shows warning semantics, not a generic
     // network error, and the Run discovery path does not report full-connected success.
+    // Also handles the case where the Apps Script stub URL returns 404 because it is
+    // not yet deployed — the 404 is classified as invalid_endpoint by the verifier,
+    // but for a known managed Apps Script stub URL we treat it as stub_only.
     result.kind = "stub_only";
     result.engineState = "stub_only";
     result.message =
@@ -7358,8 +7361,8 @@ async function triggerDiscoveryRun() {
       return { ok: true, kind: result.kind };
     }
     if (
-      result.kind === "network_error" &&
-      (await handleAppsScriptBrowserCorsFailure(hook))
+      (result.kind === "network_error" || result.kind === "invalid_endpoint") &&
+      (await handleAppsScriptBrowserCorsFailure(hook, result.kind))
     ) {
       // Apps Script stub is publicly accessible — CORS blocked the browser from
       // reading the response, but the endpoint did receive the request.
@@ -7424,8 +7427,8 @@ async function testDiscoveryWebhookFromSettings() {
       return;
     }
     if (
-      result.kind === "network_error" &&
-      (await handleAppsScriptBrowserCorsFailure(url))
+      (result.kind === "network_error" || result.kind === "invalid_endpoint") &&
+      (await handleAppsScriptBrowserCorsFailure(url, result.kind))
     ) {
       // Apps Script stub is publicly accessible — CORS blocked the browser from
       // reading the response, but the endpoint did receive the request.
@@ -7962,8 +7965,13 @@ async function applyCloudflareRelayWorkerUrl(testAfterApply) {
   showToast("Worker URL saved in this browser.", "success");
 }
 
-async function handleAppsScriptBrowserCorsFailure(url) {
+async function handleAppsScriptBrowserCorsFailure(url, resultKind = "network_error") {
   if (!isLikelyAppsScriptWebAppUrl(url)) return false;
+  const isNetworkLikeFailure =
+    resultKind === "network_error" ||
+    (resultKind === "invalid_endpoint" &&
+      isManagedAppsScriptDeployState(appsScriptDeployStateCache));
+  if (!isNetworkLikeFailure) return false;
   if (
     isManagedAppsScriptDeployState(appsScriptDeployStateCache) &&
     !isAppsScriptPublicAccessReady(appsScriptDeployStateCache)
