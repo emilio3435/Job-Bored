@@ -10,6 +10,10 @@ import {
 import { createGroundedSearchClient } from "./grounding/grounded-search.ts";
 import { createGeminiMatchClient } from "./match/job-matcher.ts";
 import { runDiscovery } from "./run/run-discovery.ts";
+import {
+  formatSheetsCredentialReadinessWarning,
+  validateSheetsCredentialReadiness,
+} from "./sheets/credential-readiness.ts";
 import { createPipelineWriter } from "./sheets/pipeline-writer.ts";
 import {
   buildRunStatusPath,
@@ -17,7 +21,6 @@ import {
 } from "./state/run-status-store.ts";
 import { handleDiscoveryWebhook } from "./webhook/handle-discovery-webhook.ts";
 import { createBrowserUseSessionManager } from "./browser/session.ts";
-import { hasSheetsCredential } from "./webhook/handle-discovery-webhook.ts";
 
 const runtimeConfig = loadRuntimeConfig(process.env);
 const sessionManager = createBrowserUseSessionManager(runtimeConfig);
@@ -119,6 +122,8 @@ async function buildHealthPayload() {
     : [];
   const groundedWebEnabled = enabledSources.includes("grounded_web");
   const readinessWarnings: string[] = [];
+  const sheetsCredentialReadiness =
+    await validateSheetsCredentialReadiness(runtimeConfig);
 
   if (configError) {
     readinessWarnings.push(`Worker config could not be loaded: ${configError}`);
@@ -126,9 +131,9 @@ async function buildHealthPayload() {
   if (!Array.isArray(storedConfig?.companies) || !storedConfig?.companies.length) {
     readinessWarnings.push("Discovery worker has no target companies configured.");
   }
-  if (!hasSheetsCredential(runtimeConfig)) {
+  if (!sheetsCredentialReadiness.configured) {
     readinessWarnings.push(
-      "Discovery worker has no Google Sheets credential configured.",
+      formatSheetsCredentialReadinessWarning(sheetsCredentialReadiness),
     );
   }
   if (groundedWebEnabled && !groundedSearchClient) {
@@ -157,7 +162,7 @@ async function buildHealthPayload() {
       companiesConfigured: Array.isArray(storedConfig?.companies)
         ? storedConfig.companies.length
         : 0,
-      sheetsCredentialConfigured: hasSheetsCredential(runtimeConfig),
+      sheetsCredentialConfigured: sheetsCredentialReadiness.configured,
       enabledSources,
       groundedWeb: {
         enabled: groundedWebEnabled,
