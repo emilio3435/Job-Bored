@@ -3935,6 +3935,16 @@ async function handleDiscoveryWizardVerification(url, context) {
     result.kind === "network_error" &&
     (await handleAppsScriptBrowserCorsFailure(url))
   ) {
+    // Apps Script stub that is publicly accessible — CORS blocked the browser from
+    // reading the response, but the endpoint did receive and accept the request.
+    // Classify as stub_only so the wizard shows warning semantics, not a generic
+    // network error, and the Run discovery path does not report full-connected success.
+    result.kind = "stub_only";
+    result.engineState = "stub_only";
+    result.message =
+      "Apps Script stub received the request. Wiring works, but the stub does not find real jobs.";
+    result.detail =
+      "Switch to a real discovery engine or set up a Cloudflare relay to enable real discovery.";
     setDiscoveryWizardMessage(result.message, "warning");
     return renderDiscoverySetupWizard();
   }
@@ -7351,7 +7361,17 @@ async function triggerDiscoveryRun() {
       result.kind === "network_error" &&
       (await handleAppsScriptBrowserCorsFailure(hook))
     ) {
-      return { ok: false, reason: "network" };
+      // Apps Script stub is publicly accessible — CORS blocked the browser from
+      // reading the response, but the endpoint did receive the request.
+      // Classify as stub_only so the Run discovery path preserves wiring-only
+      // semantics and does not report full-connected success.
+      result.kind = "stub_only";
+      result.engineState = "stub_only";
+      showDiscoveryVerificationToast(result, {
+        context: "run_discovery",
+        endpointUrl: hook,
+      });
+      return { ok: false, kind: "stub_only" };
     }
     showDiscoveryVerificationToast(result, {
       context: "run_discovery",
@@ -7407,6 +7427,20 @@ async function testDiscoveryWebhookFromSettings() {
       result.kind === "network_error" &&
       (await handleAppsScriptBrowserCorsFailure(url))
     ) {
+      // Apps Script stub is publicly accessible — CORS blocked the browser from
+      // reading the response, but the endpoint did receive the request.
+      // Classify as stub_only so Test webhook shows warning semantics, not
+      // a generic network error.
+      result.kind = "stub_only";
+      result.engineState = "stub_only";
+      result.message =
+        "Apps Script stub received the request. Wiring works, but the stub does not find real jobs.";
+      result.detail =
+        "Switch to a real discovery engine or set up a Cloudflare relay to enable real discovery.";
+      showDiscoveryVerificationToast(result, {
+        context: "test_webhook",
+        endpointUrl: url,
+      });
       return;
     }
     showDiscoveryVerificationToast(result, {
@@ -7945,10 +7979,12 @@ async function handleAppsScriptBrowserCorsFailure(url) {
     );
     return true;
   }
-  await openCloudflareRelaySetupFromAppsScriptFailure();
+  // Apps Script is publicly accessible — treat as stub-only wiring confirmation.
+  // The endpoint accepted the request but is not a real discovery engine.
+  // Suppress the generic CORS/network error and let the caller treat this as stub_only.
   showToast(
-    "Apps Script is deployed, but this browser hit CORS. Cloudflare relay agent setup is open.",
-    "error",
+    "Apps Script stub received the request. This is wiring-only — the stub does not find real jobs.",
+    "warning",
     true,
   );
   return true;
