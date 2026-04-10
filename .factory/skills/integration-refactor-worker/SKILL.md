@@ -37,6 +37,7 @@ Use for features that primarily touch:
 6. Verify end-to-end behavior on the real local surface:
    - use `curl` for HTTP/service assertions
    - use `agent-browser` if the change is user-visible in the dashboard
+   - for worker-only discovery behavior with no meaningful browser signal, seeded sheet readback or other deterministic contract evidence may substitute for browser automation
    - collect evidence for async discovery runs if the contract requires eventual completion, not just acceptance
 7. Run validators from `.factory/services.yaml` before ending the feature:
    - `typecheck`
