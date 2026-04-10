@@ -17,7 +17,7 @@ Use for features that primarily touch repo infrastructure and prevention guardra
 
 ## Required Skills
 
-- None
+- `setup-browser-cookies` — invoke when a validation/bootstrap feature needs authenticated browser state without committing secrets.
 
 ## Work Procedure
 
@@ -28,6 +28,7 @@ Use for features that primarily touch repo infrastructure and prevention guardra
 5. Validate at two levels:
    - direct command-level verification of the new guardrail
    - repo-level validator run from `.factory/services.yaml`
+   - if the feature depends on authenticated browser state, use the approved browser-cookie import path before manual verification
 6. If the feature creates reusable mission assets (skills, droids, hook config), make sure names, paths, and usage guidance are internally consistent.
 7. Stop any helper processes and produce a precise handoff that makes follow-up maintenance obvious.
 

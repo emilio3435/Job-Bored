@@ -15,6 +15,7 @@ Testing surfaces, tools, setup notes, and concurrency guidance for this mission.
 - **Primary behaviors:** sheet access/setup, Daily Brief, board lanes, drawer flows, settings, onboarding/profile, drafts, discovery entry points
 - **Setup notes:**
   - Prefer a clean browser profile for first-run/setup assertions.
+  - For starter-sheet end-to-end validation, import Google-authenticated browser cookies into the validator session before expecting the real create-sheet flow to complete.
   - Use a signed-in browser state for writeback assertions.
   - Some assertions require seeded sheet data and/or seeded local IndexedDB state.
 
@@ -24,6 +25,7 @@ Testing surfaces, tools, setup notes, and concurrency guidance for this mission.
 - **Primary behaviors:** `/health`, `/api/scrape-job`, `/api/ats-scorecard`, ATS loading/error/success UI
 - **Setup notes:**
   - Live ATS requests use the configured provider and may incur cost.
+  - `VAL-ATS-002` requires an HTTPS/TLS dashboard surface; plain `http://localhost:8080` alone is insufficient to exercise the mixed-content behavior.
   - For non-localhost browser runs, mixed-content restrictions are part of the expected behavior.
 
 ### 3. Discovery browser surface
