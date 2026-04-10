@@ -23,7 +23,8 @@
     "Follow-up Date",
     "Talking Points",
     "Last contact",
-    "Did they reply?"
+    "Did they reply?",
+    "Logo URL"
   ],
   "columns": [
     {
@@ -174,6 +175,14 @@
       "sheetIndex": 18,
       "enum": ["Yes", "No", "Unknown"],
       "emptyAllowed": true,
+      "optionalColumn": true
+    },
+    {
+      "id": "logoUrl",
+      "letter": "T",
+      "headerLabel": "Logo URL",
+      "type": "string",
+      "sheetIndex": 19,
       "optionalColumn": true
     }
   ]

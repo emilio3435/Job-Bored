@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Bootstrap the local real-discovery path for JobBored:
- * - ensure a Hermes webhook route exists
+ * - prefer the browser-use discovery worker as the local engine
+ * - preserve Hermes as an advanced fallback path
  * - start or reuse a local ngrok tunnel
  * - write a local state file the dashboard can read on localhost
  *
@@ -33,7 +34,8 @@ Usage:
   NGROK_AUTHTOKEN=... npm run discovery:bootstrap-local
 
 Options:
-  --route-name         Reuse or create this Hermes route name.
+  --route-name         Advanced only. Reuse or create this Hermes route name.
+  --engine             auto (default), browser_use_worker, or hermes
   --port               Local webhook port. Defaults to 8644 unless an existing route says otherwise.
   --cors-origin        Suggested browser origin for the Cloudflare Worker command. Default: ${defaultCorsOrigin}
   --worker-name        Override the suggested Cloudflare Worker name.
@@ -41,16 +43,17 @@ Options:
   --ngrok-authtoken    Optional. Saves ngrok auth if config is missing.
   --ngrok-public-url   Optional. Skip ngrok startup and use this https:// public URL instead.
   --state-file         Where to write the local bootstrap JSON. Default: ${defaultStateFile}
-  --no-start-gateway   Do not auto-start Hermes if /health is down.
+  --no-start-gateway   Do not auto-start a local discovery server if /health is down.
   --no-start-ngrok     Do not auto-start ngrok if no tunnel is running.
   --json               Print machine-readable JSON.
   --help               Show this message.
 
 What it does:
-  1. Reuses or creates a Hermes webhook route for Command Center discovery.
-  2. Verifies the local webhook health endpoint.
-  3. Reuses or starts an ngrok tunnel for the webhook port.
-  4. Writes a local JSON file that JobBored reads on localhost to autofill Settings -> Hermes + ngrok.
+  1. Reuses the browser-use worker when it is already running.
+  2. Otherwise starts the browser-use worker by default, or Hermes when you explicitly choose the advanced Hermes path.
+  3. Verifies the local webhook health endpoint.
+  4. Reuses or starts an ngrok tunnel for the webhook port.
+  5. Writes a local JSON file that JobBored reads on localhost to autofill Settings -> Local worker + ngrok.
 `);
   process.exit(code);
 }
@@ -62,6 +65,7 @@ function fail(message, code = 1) {
 
 function parseArgs(argv) {
   const out = {
+    engine: "auto",
     routeName: "",
     port: "",
     portExplicit: false,
@@ -93,6 +97,7 @@ function parseArgs(argv) {
     }
     const next = argv[i + 1];
     if (
+      arg === "--engine" ||
       arg === "--route-name" ||
       arg === "--port" ||
       arg === "--cors-origin" ||
@@ -105,7 +110,8 @@ function parseArgs(argv) {
       if (!next || next.startsWith("--")) {
         fail(`missing value for ${arg}`);
       }
-      if (arg === "--route-name") out.routeName = String(next).trim();
+      if (arg === "--engine") out.engine = String(next).trim();
+      else if (arg === "--route-name") out.routeName = String(next).trim();
       else if (arg === "--port") {
         out.port = String(next).trim();
         out.portExplicit = true;
@@ -129,6 +135,18 @@ function parseArgs(argv) {
     out.ngrokAuthtoken = String(process.env.NGROK_AUTHTOKEN || "").trim();
   }
   return out;
+}
+
+function normalizeEnginePreference(raw) {
+  const value = String(raw || "auto")
+    .trim()
+    .toLowerCase();
+  if (value === "browser_use_worker" || value === "browser-use-worker") {
+    return "browser_use_worker";
+  }
+  if (value === "hermes") return "hermes";
+  if (value === "auto") return "auto";
+  fail("--engine must be one of: auto, browser_use_worker, hermes");
 }
 
 function ensureNode18() {
@@ -191,6 +209,16 @@ function readSheetIdFromConfig() {
   }
 }
 
+function readExistingBootstrapState(stateFile) {
+  const filePath = resolve(String(stateFile || defaultStateFile).trim());
+  if (!filePath || !existsSync(filePath)) return null;
+  try {
+    return JSON.parse(readFileSync(filePath, "utf8"));
+  } catch (_) {
+    return null;
+  }
+}
+
 function quoteShellArg(raw) {
   return `'${String(raw || "").replace(/'/g, `'\"'\"'`)}'`;
 }
@@ -220,9 +248,13 @@ function inferWorkerSuffixFromTarget(targetUrl) {
   }
 }
 
-function buildSuggestedWorkerName(targetUrl, explicitWorkerName) {
+function buildSuggestedWorkerName(targetUrl, explicitWorkerName, existingWorkerName) {
   if (explicitWorkerName) {
     return sanitizeWorkerName(explicitWorkerName) || "jobbored-discovery-relay";
+  }
+  const reusedWorkerName = sanitizeWorkerName(existingWorkerName);
+  if (/^jobbored-discovery-relay-[a-z0-9-]+$/.test(reusedWorkerName)) {
+    return reusedWorkerName;
   }
   const suffix = inferWorkerSuffixFromTarget(targetUrl) || "local";
   return (
@@ -375,12 +407,14 @@ async function probeHealth(healthUrl) {
       ok: !!res.ok && String(body.status || "").toLowerCase() === "ok",
       serviceName: String(body.service || "").trim(),
       mode: String(body.mode || "").trim(),
+      platform: String(body.platform || "").trim(),
     };
   } catch (_) {
     return {
       ok: false,
       serviceName: "",
       mode: "",
+      platform: "",
     };
   }
 }
@@ -394,15 +428,84 @@ function isBrowserUseDiscoveryHealth(healthProbe) {
   );
 }
 
-function startDetached(command, args) {
+function isHermesWebhookHealth(healthProbe) {
+  return (
+    !!healthProbe &&
+    !!healthProbe.ok &&
+    String(healthProbe.platform || "").toLowerCase() === "webhook"
+  );
+}
+
+function startDetached(command, args, extraEnv = {}) {
   const child = spawn(command, args, {
     cwd: repoRoot,
     detached: true,
     stdio: "ignore",
-    env: process.env,
+    env: {
+      ...process.env,
+      ...extraEnv,
+    },
   });
   child.unref();
   return child.pid || 0;
+}
+
+async function ensureBrowserUseWorkerHealth(port, autoStartGateway) {
+  const healthUrl = `http://127.0.0.1:${port}/health`;
+  const initialProbe = await probeHealth(healthUrl);
+  if (isBrowserUseDiscoveryHealth(initialProbe)) {
+    return {
+      ok: true,
+      healthUrl,
+      startedGateway: false,
+      serviceName: initialProbe.serviceName,
+      mode: initialProbe.mode,
+      platform: initialProbe.platform,
+    };
+  }
+  if (!autoStartGateway) {
+    fail(
+      `Local discovery health is down at ${healthUrl}. Start the browser-use worker with \`npm run discovery:worker:start-local\`, or use \`--engine hermes\` if you intentionally want the advanced Hermes path, then retry.`,
+    );
+  }
+  console.log(
+    "discovery:bootstrap-local: starting browser-use discovery worker...",
+  );
+  startDetached(
+    process.execPath,
+    [
+      "--experimental-strip-types",
+      join(
+        repoRoot,
+        "integrations",
+        "browser-use-discovery",
+        "src",
+        "server.ts",
+      ),
+    ],
+    {
+      BROWSER_USE_DISCOVERY_RUN_MODE: "local",
+      BROWSER_USE_DISCOVERY_PORT: String(port),
+      BROWSER_USE_DISCOVERY_HOST: "127.0.0.1",
+    },
+  );
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await sleep(1000);
+    const retryProbe = await probeHealth(healthUrl);
+    if (isBrowserUseDiscoveryHealth(retryProbe)) {
+      return {
+        ok: true,
+        healthUrl,
+        startedGateway: true,
+        serviceName: retryProbe.serviceName,
+        mode: retryProbe.mode,
+        platform: retryProbe.platform,
+      };
+    }
+  }
+  fail(
+    `Local discovery health still is not available at ${healthUrl}. Start the worker with \`npm run discovery:worker:start-local\`, or rerun bootstrap with \`--engine hermes\` if you intentionally want the advanced Hermes path.`,
+  );
 }
 
 async function ensureGatewayHealth(port, autoStartGateway) {
@@ -415,11 +518,12 @@ async function ensureGatewayHealth(port, autoStartGateway) {
       startedGateway: false,
       serviceName: initialProbe.serviceName,
       mode: initialProbe.mode,
+      platform: initialProbe.platform,
     };
   }
   if (!autoStartGateway) {
     fail(
-      `Local discovery health is down at ${healthUrl}. Start your local discovery server, or run \`hermes gateway run --replace\` if you are still using the Hermes path, then retry.`,
+      `Local discovery health is down at ${healthUrl}. Start your local discovery server, or run \`hermes gateway run --replace\` if you intentionally use the advanced Hermes path, then retry.`,
     );
   }
   console.log("discovery:bootstrap-local: starting Hermes gateway...");
@@ -434,11 +538,12 @@ async function ensureGatewayHealth(port, autoStartGateway) {
         startedGateway: true,
         serviceName: retryProbe.serviceName,
         mode: retryProbe.mode,
+        platform: retryProbe.platform,
       };
     }
   }
   fail(
-    `Local discovery health still is not available at ${healthUrl}. Confirm your local discovery server is running, or verify the Hermes webhook platform is enabled if you still use that path, then rerun this command.`,
+    `Local discovery health still is not available at ${healthUrl}. Confirm your local discovery server is running, or verify the Hermes webhook platform is enabled if you intentionally use that path, then rerun this command.`,
   );
 }
 
@@ -617,7 +722,7 @@ function buildLocalRemediations(port) {
     ].join(" "),
     gatewayNotHealthy: [
       "The local discovery server is not healthy yet.",
-      "Start your local discovery server, or run `hermes gateway run --replace` if you are still on the Hermes path, then retry the local health check.",
+      "Start the browser-use worker with `npm run discovery:worker:start-local`, or run `hermes gateway run --replace` if you intentionally use the advanced Hermes path, then retry the local health check.",
     ].join(" "),
     ngrokNotAuthenticated: [
       "ngrok is installed but not authenticated.",
@@ -645,7 +750,7 @@ function writeBootstrapState(stateFile, payload) {
 async function main() {
   ensureNode18();
   const args = parseArgs(process.argv.slice(2));
-  ensureCommand("hermes");
+  const enginePreference = normalizeEnginePreference(args.engine);
   ensureCommand("ngrok", ["version"]);
 
   const defaultPort = String(args.port || "8644").trim();
@@ -659,27 +764,50 @@ async function main() {
   let route = null;
   let port = defaultPort;
   let health;
+  let engineKind = "browser_use_worker";
 
   if (isBrowserUseDiscoveryHealth(initialHealth)) {
+    engineKind = "browser_use_worker";
     health = {
       ok: true,
       healthUrl: initialHealthUrl,
       startedGateway: false,
       serviceName: initialHealth.serviceName,
       mode: initialHealth.mode,
+      platform: initialHealth.platform,
     };
+  } else if (enginePreference === "browser_use_worker") {
+    health = await ensureBrowserUseWorkerHealth(
+      port,
+      args.autoStartGateway,
+    );
+    engineKind = "browser_use_worker";
   } else {
-    route = ensureHermesRoute(args.routeName);
-    const inferredPortFromRoute = extractPortFromUrl(route.url);
-    port = String(
-      args.portExplicit
-        ? args.port
-        : inferredPortFromRoute || args.port || defaultPort,
-    ).trim();
-    if (!/^\d+$/.test(port)) {
-      fail("--port must be numeric");
+    const preferHermes =
+      enginePreference === "hermes" ||
+      !!args.routeName ||
+      isHermesWebhookHealth(initialHealth);
+    if (preferHermes) {
+      ensureCommand("hermes");
+      route = ensureHermesRoute(args.routeName);
+      const inferredPortFromRoute = extractPortFromUrl(route.url);
+      port = String(
+        args.portExplicit
+          ? args.port
+          : inferredPortFromRoute || args.port || defaultPort,
+      ).trim();
+      if (!/^\d+$/.test(port)) {
+        fail("--port must be numeric");
+      }
+      health = await ensureGatewayHealth(port, args.autoStartGateway);
+      engineKind = "hermes";
+    } else {
+      health = await ensureBrowserUseWorkerHealth(
+        port,
+        args.autoStartGateway,
+      );
+      engineKind = "browser_use_worker";
     }
-    health = await ensureGatewayHealth(port, args.autoStartGateway);
   }
 
   const localWebhookUrl =
@@ -703,7 +831,12 @@ async function main() {
   const publicTargetUrl = buildPublicTargetUrl(localWebhookUrl, ngrok.ngrokPublicUrl);
   const corsOrigin = normalizeCorsOrigin(args.corsOrigin);
   const sheetId = parseGoogleSheetId(args.sheetId) || readSheetIdFromConfig();
-  const workerName = buildSuggestedWorkerName(publicTargetUrl, args.workerName);
+  const existingBootstrapState = readExistingBootstrapState(args.stateFile);
+  const workerName = buildSuggestedWorkerName(
+    publicTargetUrl,
+    args.workerName,
+    existingBootstrapState && existingBootstrapState.workerName,
+  );
   const cloudflareDeployCommand = buildCloudflareRelayDeployCommand(
     publicTargetUrl,
     corsOrigin,
@@ -716,7 +849,12 @@ async function main() {
     bootstrapVersion: 2,
     generatedAt: new Date().toISOString(),
     repoRoot,
-    routeName: route ? route.name : "webhook",
+    routeName:
+      route && route.name
+        ? route.name
+        : engineKind === "browser_use_worker"
+          ? "browser-use-discovery"
+          : "webhook",
     localWebhookUrl,
     localHealthUrl: health.healthUrl,
     localPort: port,
@@ -732,8 +870,14 @@ async function main() {
       gatewayHealthy: true,
       gatewayStarted: !!health.startedGateway,
       healthProbeOk: true,
+      engineKind,
+      engineLabel:
+        engineKind === "browser_use_worker"
+          ? "Browser-use worker"
+          : "Hermes route",
       localService: health.serviceName || "",
       localMode: health.mode || "",
+      localPlatform: health.platform || "",
       ngrokAuthenticated: !!(ngrokAuthSaved || hasNgrokConfig()),
       ngrokConfigured: hasNgrokConfig(),
       ngrokRunning: !!ngrok.ngrokPublicUrl,
@@ -780,6 +924,13 @@ async function main() {
 
   console.log("");
   console.log("Local discovery bootstrap ready.");
+  console.log(
+    `- Local engine: ${
+      engineKind === "browser_use_worker"
+        ? "Browser-use worker"
+        : "Hermes route"
+    }`,
+  );
   console.log(`- Local service: ${health.serviceName || "unknown"}`);
   if (route) {
     console.log(`- Hermes route: ${route.name}${route.created ? " (created)" : ""}`);
@@ -791,13 +942,17 @@ async function main() {
     console.log("- ngrok auth: authtoken saved to local ngrok config");
   }
   if (health.startedGateway) {
-    console.log("- Hermes gateway: started in the background");
+    console.log(
+      engineKind === "browser_use_worker"
+        ? "- Browser-use worker: started in the background"
+        : "- Hermes gateway: started in the background",
+    );
   }
   console.log(`- Worker TARGET_URL: ${publicTargetUrl}`);
   console.log(`- Local state file: ${args.stateFile}`);
   console.log("");
   console.log("Next steps:");
-  console.log(`1. Reload JobBored on localhost and open Settings -> Hermes + ngrok. It should autofill from ${args.stateFile}.`);
+  console.log(`1. Reload JobBored on localhost and open Settings -> Local worker + ngrok. It should autofill from ${args.stateFile}.`);
   console.log("2. Click Open relay steps.");
   console.log("3. Run this Cloudflare command:");
   console.log(`   ${cloudflareDeployCommand}`);

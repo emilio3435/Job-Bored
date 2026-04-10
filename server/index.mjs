@@ -4,24 +4,64 @@
  * Default: http://127.0.0.1:3847
  */
 import "dotenv/config";
-import cors from "cors";
 import express from "express";
 import { normalizeAtsRequestPayload } from "./ats-request-payload.mjs";
 import { analyzeAtsScorecard, getAtsConfigStatus } from "./ats-scorecard.mjs";
 import { scrapeJobPosting } from "./job-scraper.mjs";
+import {
+  normalizeAllowedBrowserOrigins,
+  resolveAllowedBrowserOrigin,
+  validateScrapeTarget,
+} from "./security-boundaries.mjs";
 
 const PORT = Number(process.env.PORT) || 3847;
 /** 127.0.0.1 for local dev; set LISTEN_HOST=0.0.0.0 on Render/Fly/Docker so the service accepts external traffic. */
 const HOST = process.env.LISTEN_HOST || "127.0.0.1";
+const ALLOWED_BROWSER_ORIGINS = normalizeAllowedBrowserOrigins(
+  process.env.COMMAND_CENTER_ALLOWED_ORIGINS ||
+    process.env.CORS_ALLOWED_ORIGINS ||
+    process.env.ALLOWED_ORIGINS ||
+    "",
+  {
+    listenHost: HOST,
+  },
+);
 const app = express();
 
-app.use(
-  cors({
-    origin: true,
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type"],
-  }),
-);
+app.use((req, res, next) => {
+  const requestOrigin = String(req.get("origin") || "").trim();
+  const requestHost = String(
+    req.get("x-forwarded-host") || req.get("host") || "",
+  ).trim();
+  const requestProtocol = String(
+    req.get("x-forwarded-proto") || (req.secure ? "https" : req.protocol || "http"),
+  )
+    .split(",")[0]
+    .trim();
+  const allowOrigin = resolveAllowedBrowserOrigin(requestOrigin, {
+    allowedOrigins: ALLOWED_BROWSER_ORIGINS,
+    requestHost,
+    requestProtocol,
+  });
+
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Max-Age", "86400");
+  res.setHeader("Vary", "Origin");
+  if (allowOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", allowOrigin);
+  }
+
+  if (requestOrigin && !allowOrigin) {
+    return res.status(403).json({
+      error: "Origin not allowed for this server.",
+    });
+  }
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  return next();
+});
 app.use(express.json({ limit: "2mb" }));
 
 app.get("/health", (_req, res) => {
@@ -41,17 +81,11 @@ app.post("/api/scrape-job", async (req, res) => {
     if (!raw || typeof raw !== "string") {
       return res.status(400).json({ error: "Body must include { url: string }" });
     }
-    const url = raw.trim();
-    let u;
-    try {
-      u = new URL(url);
-    } catch {
-      return res.status(400).json({ error: "Invalid URL" });
+    const target = validateScrapeTarget(raw);
+    if (!target.ok) {
+      return res.status(400).json({ error: target.error });
     }
-    if (u.protocol !== "http:" && u.protocol !== "https:") {
-      return res.status(400).json({ error: "Only http(s) URLs allowed" });
-    }
-    const result = await scrapeJobPosting(u.href);
+    const result = await scrapeJobPosting(target.url);
     res.json(result);
   } catch (e) {
     const msg = e && e.message ? String(e.message) : "Scrape failed";

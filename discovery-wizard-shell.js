@@ -58,7 +58,8 @@
       id: "local_health",
       label: "Server",
       title: "Check local server.",
-      description: "Confirms the Hermes gateway is running and healthy.",
+      description:
+        "Confirms your local discovery server is running and healthy.",
       tone: "warning",
     },
     {
@@ -127,7 +128,9 @@
         localWebhookUrl: "",
         localWebhookReady: false,
         tunnelPublicUrl: "",
+        tunnelLive: false,
         tunnelReady: false,
+        tunnelStale: false,
         relayTargetUrl: "",
         relayReady: false,
         engineState: "none",
@@ -135,6 +138,7 @@
         recommendedFlow: "local_agent",
         recommendedReason: "",
         blockingIssue: "",
+        localRecoveryState: "ok",
       }),
       discoverySetupWizardState: Object.freeze({
         version: 1,
@@ -272,7 +276,9 @@
       localWebhookUrl: asString(raw.localWebhookUrl),
       localWebhookReady: asBoolean(raw.localWebhookReady),
       tunnelPublicUrl: asString(raw.tunnelPublicUrl),
+      tunnelLive: asBoolean(raw.tunnelLive),
       tunnelReady: asBoolean(raw.tunnelReady),
+      tunnelStale: asBoolean(raw.tunnelStale),
       relayTargetUrl: asString(raw.relayTargetUrl),
       relayReady: asBoolean(raw.relayReady),
       engineState: normalizeEnum(
@@ -292,6 +298,17 @@
       ),
       recommendedReason: asString(raw.recommendedReason),
       blockingIssue: asString(raw.blockingIssue),
+      localRecoveryState: normalizeEnum(
+        raw.localRecoveryState,
+        [
+          "ok",
+          "needs_full_restart",
+          "worker_down",
+          "tunnel_down",
+          "tunnel_rotated",
+        ],
+        "ok",
+      ),
     };
   }
 
@@ -345,7 +362,7 @@
       }[snapshot.appsScriptState] || snapshot.appsScriptState;
     const flowLabel =
       {
-        local_agent: "Local",
+        local_agent: "Local worker",
         external_endpoint: "Webhook",
         no_webhook: "Manual",
         stub_only: "Stub",
@@ -406,6 +423,9 @@
     }
     if (issue === "relay_missing") {
       return "Relay not deployed yet.";
+    }
+    if (issue === "needs_recovery") {
+      return "Local setup needs recovery after restart.";
     }
     return "";
   }
@@ -474,13 +494,17 @@
       },
       {
         label: "Tunnel",
-        tone: snapshot.tunnelReady
-          ? "success"
+        tone: snapshot.tunnelLive
+          ? snapshot.tunnelStale
+            ? "warning"
+            : "success"
           : snapshot.localWebhookUrl
             ? "warning"
             : "muted",
-        detail: snapshot.tunnelReady
-          ? "Active"
+        detail: snapshot.tunnelLive
+          ? snapshot.tunnelStale
+            ? "Rotated — relay needs update"
+            : "Active"
           : snapshot.localWebhookUrl
             ? "Not running"
             : "Not needed",
@@ -1020,6 +1044,16 @@
       attrs,
       action.label,
     );
+    if (!isLink) {
+      el.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        dispatchAction(asString(action.id), context, {
+          stepId: asString(step.id),
+          kind: asString(action.kind),
+        });
+      });
+    }
     return el;
   }
 
@@ -1058,10 +1092,49 @@
     return nav;
   }
 
+  const RECOVERY_SENTENCES = {
+    needs_full_restart:
+      "Your computer restarted, so the local worker and tunnel need to be brought back up.",
+    worker_down:
+      "The local discovery worker is not responding. It may need to be restarted.",
+    tunnel_down:
+      "The ngrok tunnel is not running. The public URL cannot reach the local worker.",
+    tunnel_rotated:
+      "The ngrok tunnel restarted with a new URL. The relay needs to be updated.",
+  };
+
   function renderSnapshotPanel(context) {
     const aside = createEl("aside", "discovery-setup-wizard__snapshot", {
       "aria-label": "Discovery readiness summary",
     });
+    const recovery = context.snapshot.localRecoveryState || "ok";
+
+    if (recovery !== "ok") {
+      const banner = createEl(
+        "div",
+        "discovery-setup-wizard__summary-card discovery-setup-wizard__summary-card--recovery",
+      );
+      appendText(
+        banner,
+        "Recovery needed",
+        "discovery-setup-wizard__card-kicker",
+      );
+      const bannerTitle = createEl(
+        "h3",
+        "discovery-setup-wizard__card-title",
+        {},
+        "Local setup needs recovery",
+      );
+      banner.appendChild(bannerTitle);
+      appendText(
+        banner,
+        RECOVERY_SENTENCES[recovery] ||
+          "Part of the local discovery chain is down after a restart.",
+        "discovery-setup-wizard__copy discovery-setup-wizard__copy--lead",
+      );
+      aside.appendChild(banner);
+    }
+
     const card = createEl(
       "div",
       "discovery-setup-wizard__summary-card discovery-setup-wizard__summary-card--hero",
@@ -1306,6 +1379,11 @@
         snapshot: context.snapshot,
         state: context.state,
       });
+    } else if (typeof console !== "undefined" && console.warn) {
+      console.warn(
+        "[Discovery wizard] No onAction handler; action ignored:",
+        actionId,
+      );
     }
   }
 

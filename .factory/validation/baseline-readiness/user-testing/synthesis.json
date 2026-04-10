@@ -1,0 +1,50 @@
+{
+  "milestone": "baseline-readiness",
+  "round": 2,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "blocked": 0
+  },
+  "testedAssertions": [
+    "VAL-ATS-002",
+    "VAL-ATS-009",
+    "VAL-SETTINGS-008",
+    "VAL-CROSS-002"
+  ],
+  "passedAssertions": [
+    "VAL-ATS-002",
+    "VAL-ATS-009",
+    "VAL-SETTINGS-008",
+    "VAL-CROSS-002"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "flowReports": [
+    ".factory/validation/baseline-readiness/user-testing/flows/ats-browser-rerun.json",
+    ".factory/validation/baseline-readiness/user-testing/flows/starter-sheet-rerun.json"
+  ],
+  "selectionContext": {
+    "mode": "rerun",
+    "reason": "The prior user-testing synthesis file was absent from the repo checkout, so rerun scope was derived from the feature note plus the failed assertions still recorded in validation-state.json.",
+    "sources": [
+      "features.json:user-testing-validator-baseline-readiness description",
+      "validation-state.json failed assertions"
+    ]
+  },
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added flow-validator guidance sections for the HTTPS ATS browser surface and the authenticated starter-sheet browser surface, including temporary-port isolation rules.",
+      "source": "setup"
+    },
+    {
+      "target": "user-testing.md",
+      "description": "Recorded that the standard agent-browser path on http://localhost:8080 had a reusable Google session available during the rerun, so starter-sheet validation succeeded without cookie import.",
+      "source": "flow-report"
+    }
+  ],
+  "previousRound": null
+}

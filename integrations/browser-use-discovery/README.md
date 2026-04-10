@@ -1,6 +1,6 @@
 # Browser Use Discovery Worker
 
-This package is a user-owned discovery worker for JobBored. It accepts the existing `command-center.discovery` webhook request, resolves jobs across Greenhouse, Lever, and Ashby, normalizes them into valid Pipeline rows, dedupes on column E `Link`, and writes directly to Google Sheets.
+This package is a user-owned discovery worker for JobBored. It accepts the existing `command-center.discovery` webhook request, resolves jobs across Greenhouse, Lever, and Ashby, can widen into grounded web discovery through Gemini plus Browser Use, normalizes them into valid Pipeline rows, dedupes on column E `Link`, and writes directly to Google Sheets.
 
 It is designed for both:
 - hosted mode for general users
@@ -14,6 +14,7 @@ The runtime is Node-based, uses native `fetch`, can persist state locally, and k
 - `src/webhook/handle-discovery-webhook.ts`: contract validation, CORS-friendly acknowledgement, sync/async handling
 - `src/run/run-discovery.ts`: shared run pipeline for manual and scheduled discovery
 - `src/browser/*`: first-layer Greenhouse, Lever, and Ashby adapter registry plus Browser Use session seam
+- `src/grounding/grounded-search.ts`: Gemini Google Search grounding plus Browser Use extraction for broader web discovery
 - `src/normalize/lead-normalizer.ts`: URL canonicalization, keyword-aware filtering, fit scoring, stable Pipeline defaults
 - `src/sheets/pipeline-writer.ts`: direct Google Sheets writer with Link-based dedupe and conservative row updates
 
@@ -29,9 +30,15 @@ Environment variables:
 - `BROWSER_USE_DISCOVERY_CONFIG_PATH`: path to worker config JSON
 - `BROWSER_USE_DISCOVERY_STATE_DB_PATH`: path to the worker state database
 - `BROWSER_USE_DISCOVERY_BROWSER_COMMAND`: optional Browser Use command; when unset or failing, adapters fall back to direct fetch
+- `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`: optional Gemini key for grounded Google Search expansion
+- `BROWSER_USE_DISCOVERY_GEMINI_MODEL`: Gemini model for grounded search, defaults to `gemini-2.5-flash`
+- `BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_RESULTS_PER_COMPANY`: candidate links to keep per company, defaults to `6`
+- `BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_PAGES_PER_COMPANY`: grounded pages to expand per company, defaults to `4`
 - `BROWSER_USE_DISCOVERY_GOOGLE_ACCESS_TOKEN`: optional bearer token for Sheets API
 - `BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON`: optional inline service-account JSON
 - `BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE`: optional service-account JSON file path
+- `BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_JSON`: optional inline Google OAuth token JSON
+- `BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_FILE`: optional Google OAuth token JSON file path
 - `BROWSER_USE_DISCOVERY_WEBHOOK_SECRET`: optional shared secret for the webhook layer
 
 Worker config JSON:
@@ -60,7 +67,7 @@ Worker config JSON:
   "remotePolicy": "remote-first",
   "seniority": "senior",
   "maxLeadsPerRun": 25,
-  "enabledSources": ["greenhouse", "lever", "ashby"],
+  "enabledSources": ["greenhouse", "lever", "ashby", "grounded_web"],
   "schedule": {
     "enabled": false,
     "cron": "0 7 * * 1-5"
@@ -70,6 +77,8 @@ Worker config JSON:
 
 In v1, the company list remains worker-owned. The dashboard webhook can narrow the run through `discoveryProfile`, but it does not become the source of truth for companies.
 
+ATS adapters still handle Greenhouse, Lever, and Ashby directly. `grounded_web` is a separate lane that asks Gemini with Google Search grounding for fresh links, then uses Browser Use to expand those pages into detailed listings before normalization and dedupe.
+
 ## Local Run
 
 Example:
@@ -78,6 +87,7 @@ Example:
 BROWSER_USE_DISCOVERY_RUN_MODE=local \
 BROWSER_USE_DISCOVERY_CONFIG_PATH="$PWD/integrations/browser-use-discovery/state/worker-config.json" \
 BROWSER_USE_DISCOVERY_STATE_DB_PATH="$PWD/integrations/browser-use-discovery/state/worker-state.sqlite" \
+BROWSER_USE_DISCOVERY_GEMINI_API_KEY="$GEMINI_API_KEY" \
 BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE="$PWD/service-account.json" \
 node --experimental-strip-types integrations/browser-use-discovery/src/server.ts
 ```
@@ -89,6 +99,11 @@ curl http://127.0.0.1:8644/health
 ```
 
 The local wizard path in JobBored already expects a healthy local endpoint plus an optional tunnel/relay layer. This worker keeps that shape by exposing `/health` and a direct POST webhook path.
+
+When `BROWSER_USE_DISCOVERY_RUN_MODE=local`, the worker also falls back to
+`~/.hermes/google_token.json` if no explicit Sheets credential is configured.
+That keeps local verification unblocked after a Hermes Sheets re-auth, while a
+service account remains the better long-term hosted credential.
 
 ## Hosted Run
 

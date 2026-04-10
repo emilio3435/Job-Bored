@@ -8,6 +8,7 @@ import {
   mergeDiscoveryConfig,
 } from "./config.ts";
 import { createGroundedSearchClient } from "./grounding/grounded-search.ts";
+import { buildCorsHeaders, isOriginAllowed } from "./http/origin-guard.ts";
 import { createGeminiMatchClient } from "./match/job-matcher.ts";
 import { runDiscovery } from "./run/run-discovery.ts";
 import {
@@ -56,22 +57,6 @@ function getHeaderValue(header: string | string[] | undefined): string {
   return String(header || "");
 }
 
-function buildCorsHeaders(originHeader: string): Record<string, string> {
-  const allowAnyOrigin = runtimeConfig.allowedOrigins.includes("*");
-  const allowOrigin = allowAnyOrigin
-    ? "*"
-    : runtimeConfig.allowedOrigins.includes(originHeader)
-      ? originHeader
-      : runtimeConfig.allowedOrigins[0] || "*";
-  return {
-    "access-control-allow-origin": allowOrigin,
-    "access-control-allow-methods": "GET,POST,OPTIONS",
-    "access-control-allow-headers": "content-type,x-discovery-secret",
-    "access-control-max-age": "86400",
-    vary: "origin",
-  };
-}
-
 async function readBody(request: import("node:http").IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
@@ -86,7 +71,8 @@ function sendJson(
   body: unknown,
   extraHeaders: Record<string, string> = {},
 ): void {
-  response.writeHead(status, {
+  response.statusCode = status;
+  setHeaders(response, {
     "content-type": "application/json; charset=utf-8",
     ...extraHeaders,
   });
@@ -106,6 +92,15 @@ function logEvent(event: string, details: Record<string, unknown>): void {
 function formatError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function setHeaders(
+  response: import("node:http").ServerResponse,
+  headers: Record<string, string>,
+): void {
+  for (const [key, value] of Object.entries(headers)) {
+    response.setHeader(key, value);
+  }
 }
 
 async function buildHealthPayload() {
@@ -177,7 +172,7 @@ const server = createServer(async (request, response) => {
   const requestId = randomUUID().slice(0, 8);
   const startedAt = Date.now();
   const origin = getHeaderValue(request.headers.origin);
-  const corsHeaders = buildCorsHeaders(origin);
+  const corsHeaders = buildCorsHeaders(runtimeConfig.allowedOrigins, origin);
   const requestPath = new URL(request.url || "/", "http://127.0.0.1").pathname;
   const method = (request.method || "GET").toUpperCase();
 
@@ -203,6 +198,18 @@ const server = createServer(async (request, response) => {
     sendJson(response, status, body, extraHeaders);
   };
 
+  if (origin && !isOriginAllowed(runtimeConfig.allowedOrigins, origin)) {
+    finishJson(
+      403,
+      {
+        ok: false,
+        message: "Origin not allowed for browser access.",
+      },
+      corsHeaders,
+    );
+    return;
+  }
+
   if (method === "OPTIONS") {
     logEvent("http.request.completed", {
       requestId,
@@ -211,7 +218,8 @@ const server = createServer(async (request, response) => {
       status: 204,
       durationMs: Date.now() - startedAt,
     });
-    response.writeHead(204, corsHeaders);
+    response.statusCode = 204;
+    setHeaders(response, corsHeaders);
     response.end();
     return;
   }
@@ -331,7 +339,8 @@ const server = createServer(async (request, response) => {
       status: result.status,
       durationMs: Date.now() - startedAt,
     });
-    response.writeHead(result.status, {
+    response.statusCode = result.status;
+    setHeaders(response, {
       ...corsHeaders,
       ...result.headers,
     });

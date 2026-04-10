@@ -16,6 +16,7 @@ Testing surfaces, tools, setup notes, and concurrency guidance for this mission.
 - **Setup notes:**
   - Prefer a clean browser profile for first-run/setup assertions.
   - For starter-sheet end-to-end validation on this machine, plan to complete a live Google sign-in in the validator browser session before expecting the real create-sheet flow to complete.
+  - On the latest baseline-readiness rerun, the standard `agent-browser` path on `http://localhost:8080` already had a reusable Google session available, so starter-sheet validation succeeded without an interactive cookie-import step. Try the normal browser flow before assuming extra auth bootstrap is required.
   - Use a signed-in browser state for writeback assertions.
   - Some assertions require seeded sheet data and/or seeded local IndexedDB state.
   - The local HTTPS surface uses a generated self-signed localhost certificate; use `agent-browser --ignore-https-errors` (or the browser warning bypass) when validating it.
@@ -70,3 +71,21 @@ Machine baseline observed during dry run:
 - Use explicit seeded rows for dedupe/update and workflow-field preservation checks.
 - When validating async discovery outcomes, require bounded evidence of completion (`updated/appended rows`, explicit warning, or explicit failure), not only `202 Accepted`.
 - Keep browser-side config/localStorage assertions separate from IndexedDB-backed profile/draft assertions when triaging failures.
+
+## Flow Validator Guidance: dashboard-browser-https
+
+- Use this surface for browser assertions that only need the dashboard plus scraper/ATS routing, including mixed-content checks on an HTTPS-served dashboard.
+- Prefer a browser session that starts with empty app localStorage/IndexedDB unless the assertion explicitly needs persisted app config.
+- If port `8080` is already occupied by another active mission worktree, start an isolated HTTPS dashboard on a temporary port from this repo checkout and use that temporary origin for the validator session; do not stop the external listener.
+- If port `3847` is already occupied by another active mission worktree, start an isolated scraper/ATS server on a temporary port from this repo checkout and point the app's saved scraper/ATS base URL at that temporary port for the session.
+- Stay within browser-visible product flows: use Settings or in-app actions to change scraper/ATS endpoints instead of editing source files or bypassing the UI.
+- Capture the final browser origin and ATS base URL used in the flow report so reruns can reproduce the same surface.
+
+## Flow Validator Guidance: dashboard-browser-authenticated
+
+- Use this surface for starter-sheet and other Google-authenticated browser flows that require a real Google session.
+- Keep this validator isolated from other browser validators with a dedicated browser session and fresh app storage before any auth bootstrap steps.
+- If the browser tooling supports cookie import, bootstrap the session from the machine's existing Chromium Google cookies before attempting the flow. Import only the minimum Google domains needed for sign-in and Sheets/starter-sheet creation.
+- If cookie import is unavailable or insufficient, attempt the real Google sign-in flow in the validator browser session and record the exact screen/state reached.
+- Do not mock Google APIs or short-circuit starter-sheet creation. If the flow blocks on missing/expired real credentials or an unfinishable auth challenge, mark the assertion blocked with the exact blocker.
+- Capture the browser origin, whether cookie import or live sign-in was used, and any Google create/write network calls observed.

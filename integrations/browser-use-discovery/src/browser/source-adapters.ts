@@ -1,4 +1,5 @@
 import type {
+  AtsSourceId,
   BoardContext,
   CompanyContext,
   CompanyTarget,
@@ -7,8 +8,8 @@ import type {
   NormalizedLead,
   RawListing,
   SourceAdapter,
-  SupportedSourceId,
 } from "../contracts.ts";
+import { normalizeLeadUrl } from "../normalize/lead-normalizer.ts";
 import type { BrowserUseSessionManager } from "./session.ts";
 import {
   ASHBY_BROWSER_INSTRUCTION,
@@ -23,8 +24,10 @@ import {
   buildLeverJobsUrl,
   compactCompanyTokens,
   extractTokenFromBoardHint,
+  sanitizeCompensationText,
   slugifyCompanyName,
   stripHtml,
+  toPlainText,
 } from "./selectors/index.ts";
 
 export type SourceAdapterRegistry = {
@@ -59,7 +62,7 @@ export function createSourceAdapterRegistry(
       const seen = new Set<string>();
       const listings: RawListing[] = [];
       for (const detection of detections) {
-        if (!enabled.has(detection.sourceId as SupportedSourceId)) continue;
+        if (!enabled.has(detection.sourceId)) continue;
         const adapter = adapters.find(
           (candidate) => candidate.sourceId === detection.sourceId,
         );
@@ -76,7 +79,7 @@ export function createSourceAdapterRegistry(
         const boardContext = buildBoardContext({ company, run }, detection);
         const raw = await adapter.listJobs(boardContext);
         for (const item of raw) {
-          const key = normalizeJobUrl(item.url);
+          const key = normalizeLeadUrl(item.url);
           if (!key || seen.has(key)) continue;
           seen.add(key);
           listings.push(item);
@@ -101,14 +104,17 @@ export function buildBoardContext(
 }
 
 type AdapterDefinition = {
-  sourceId: SupportedSourceId;
+  sourceId: AtsSourceId;
   sourceLabel: string;
   buildBoardUrl(boardToken: string): string;
   buildJobsUrl(boardToken: string): string;
   browserInstruction: string;
   detectEndpoint(boardToken: string): string;
   extractListingPayload(raw: unknown, boardContext: BoardContext): RawListing[];
-  fallbackListingFromHtml(html: string, boardContext: BoardContext): RawListing[];
+  fallbackListingFromHtml(
+    html: string,
+    boardContext: BoardContext,
+  ): RawListing[];
 };
 
 function createGreenhouseAdapter(
@@ -149,7 +155,11 @@ function createLeverAdapter(
       extractListingPayload: (payload, boardContext) =>
         extractLeverListings(payload, boardContext),
       fallbackListingFromHtml: (html, boardContext) =>
-        extractLinksFromHtml(html, boardContext, /jobs\.lever\.co\/[^"'\\s>]+/i),
+        extractLinksFromHtml(
+          html,
+          boardContext,
+          /jobs\.lever\.co\/[^"'\\s>]+/i,
+        ),
     },
     sessionManager,
   );
@@ -217,7 +227,9 @@ function buildAdapter(
             sourceLabel: definition.sourceLabel,
             boardUrl: definition.buildBoardUrl(token),
             confidence: 0.5,
-            warnings: ["Detected via Browser Use fallback rather than public API."],
+            warnings: [
+              "Detected via Browser Use fallback rather than public API.",
+            ],
           };
         }
       }
@@ -230,7 +242,10 @@ function buildAdapter(
       const endpoint = definition.buildJobsUrl(boardToken);
       const payload = await fetchJson(endpoint);
       if (payload.ok) {
-        const listings = definition.extractListingPayload(payload.data, boardContext);
+        const listings = definition.extractListingPayload(
+          payload.data,
+          boardContext,
+        );
         if (listings.length) return listings;
       }
 
@@ -247,7 +262,10 @@ function buildAdapter(
         );
         if (listings.length) return listings;
       }
-      return definition.fallbackListingFromHtml(sessionResult.text, boardContext);
+      return definition.fallbackListingFromHtml(
+        sessionResult.text,
+        boardContext,
+      );
     },
     async normalize(raw, run): Promise<NormalizedLead | null> {
       if (!raw.url) return null;
@@ -261,18 +279,22 @@ function buildAdapter(
         title: normalizeWhitespace(raw.title),
         company: normalizeWhitespace(raw.company),
         location: normalizeWhitespace(raw.location || ""),
-        url: normalizeJobUrl(raw.url),
-        compensationText: normalizeWhitespace(raw.compensationText || ""),
+        url: normalizeLeadUrl(raw.url),
+        compensationText: sanitizeCompensationText(raw.compensationText || ""),
         fitScore: null,
         priority: "",
         tags: sanitizeTags(raw.tags || []),
-        fitAssessment: normalizeWhitespace(raw.descriptionText || ""),
+        fitAssessment: sanitizeDescriptionText(raw.descriptionText).slice(
+          0,
+          500,
+        ),
         contact: normalizeWhitespace(raw.contact || ""),
         status: "New",
         appliedDate: "",
         notes: "",
         followUpDate: "",
         talkingPoints: "",
+        logoUrl: "",
         discoveredAt: run.request.requestedAt || new Date().toISOString(),
         metadata: {
           runId: run.runId,
@@ -286,7 +308,7 @@ function buildAdapter(
 
 function candidateBoardTokens(
   company: CompanyTarget,
-  sourceId: SupportedSourceId,
+  sourceId: AtsSourceId,
 ): string[] {
   const hint = company.boardHints?.[sourceId];
   const tokens = new Set<string>();
@@ -328,10 +350,9 @@ function extractGreenhouseListings(
         company: boardContext.company.name,
         location,
         url,
-        compensationText:
-          stringValue(metadata.compensation) || stringValue(record.content),
+        compensationText: extractGreenhouseCompensation(record),
         contact: "",
-        descriptionText: stringValue(record.content),
+        descriptionText: sanitizeDescriptionText(record.content),
         tags: [
           ...stringArrayFrom(record.departments),
           ...stringArrayFrom(record.offices),
@@ -372,16 +393,19 @@ function extractLeverListings(
         sourceLabel: "Lever",
         title: stringValue(record.text) || stringValue(record.title),
         company: boardContext.company.name,
-        location: stringValue(categories.location) || stringValue(record.location),
+        location:
+          stringValue(categories.location) || stringValue(record.location),
         url:
           stringValue(record.hostedUrl) ||
           stringValue(record.applyUrl) ||
           stringValue(record.url),
         compensationText:
-          stringValue(record.salaryRange) || stringValue(record.compensation),
+          sanitizeCompensationValue(record.salaryRange) ||
+          sanitizeCompensationValue(record.compensation),
         contact: stringValue(record.leadName) || stringValue(record.contact),
         descriptionText:
-          stringValue(record.description) || stringValue(record.text),
+          sanitizeDescriptionText(record.description) ||
+          sanitizeDescriptionText(record.text),
         tags,
         metadata: {
           sourceQuery: boardContext.boardUrl,
@@ -409,9 +433,10 @@ function extractAshbyListings(
         stringValue(record.url) ||
         stringValue(record.absoluteUrl) ||
         buildAshbyBoardUrl(extractBoardToken(boardContext.boardUrl));
-      const locations = [stringValue(record.location), ...secondaryLocations].filter(
-        Boolean,
-      );
+      const locations = [
+        stringValue(record.location),
+        ...secondaryLocations,
+      ].filter(Boolean);
       const tags = [
         stringValue(record.department),
         stringValue(record.team),
@@ -425,12 +450,12 @@ function extractAshbyListings(
         location: locations.join(", "),
         url: jobUrl,
         compensationText:
-          stringValue(record.compensation) ||
-          stringValue(record.compensationText),
+          sanitizeCompensationValue(record.compensation) ||
+          sanitizeCompensationValue(record.compensationText),
         contact: "",
         descriptionText:
-          stringValue(record.descriptionHtml) ||
-          stringValue(record.description),
+          sanitizeDescriptionText(record.descriptionHtml) ||
+          sanitizeDescriptionText(record.description),
         tags,
         metadata: {
           sourceQuery: boardContext.boardUrl,
@@ -452,6 +477,8 @@ function extractLinksFromHtml(
   while ((match = linkPattern.exec(String(html || "")))) {
     const href = match[1] || "";
     if (!pattern.test(href)) continue;
+    const resolved = resolveRelativeUrl(boardContext.boardUrl, href);
+    if (!/^https?:\/\//i.test(resolved)) continue;
     const title = stripHtml(match[2]);
     if (!title) continue;
     listings.push({
@@ -460,7 +487,7 @@ function extractLinksFromHtml(
       title,
       company: boardContext.company.name,
       location: "",
-      url: normalizeJobUrl(resolveRelativeUrl(boardContext.boardUrl, href)),
+      url: normalizeLeadUrl(resolved),
       compensationText: "",
       contact: "",
       descriptionText: "",
@@ -493,7 +520,7 @@ async function fetchJson(
 
 function looksLikeSourceBoard(
   text: string,
-  sourceId: SupportedSourceId,
+  sourceId: AtsSourceId,
 ): boolean {
   const haystack = String(text || "").toLowerCase();
   if (!haystack) return false;
@@ -514,29 +541,11 @@ function resolveRelativeUrl(baseUrl: string, href: string): string {
   }
 }
 
-function normalizeJobUrl(url: string): string {
-  try {
-    const parsed = new URL(String(url || ""));
-    parsed.hash = "";
-    const params = parsed.searchParams;
-    for (const key of [...params.keys()]) {
-      if (/^(utm_|ref|source|src|gh_src|lever-source|fbclid|gclid)$/i.test(key)) {
-        params.delete(key);
-      }
-    }
-    parsed.search = params.toString() ? `?${params.toString()}` : "";
-    parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
-    return parsed.toString();
-  } catch {
-    return String(url || "").trim();
-  }
-}
-
 function dedupeRawListings(listings: RawListing[]): RawListing[] {
   const seen = new Set<string>();
   const out: RawListing[] = [];
   for (const item of listings) {
-    const key = normalizeJobUrl(item.url);
+    const key = normalizeLeadUrl(item.url);
     if (!key || seen.has(key)) continue;
     seen.add(key);
     out.push(item);
@@ -545,7 +554,21 @@ function dedupeRawListings(listings: RawListing[]): RawListing[] {
 }
 
 function normalizeWhitespace(input: string): string {
-  return String(input || "").replace(/\s+/g, " ").trim();
+  return String(input || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toPlainTextValue(value: unknown): string {
+  return toPlainText(stringValue(value));
+}
+
+function sanitizeDescriptionText(value: unknown): string {
+  return toPlainTextValue(value);
+}
+
+function sanitizeCompensationValue(value: unknown): string {
+  return sanitizeCompensationText(stringValue(value));
 }
 
 function sanitizeTags(tags: string[]): string[] {
@@ -562,7 +585,8 @@ function sanitizeTags(tags: string[]): string[] {
 
 function stringValue(value: unknown): string {
   if (typeof value === "string") return normalizeWhitespace(value);
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
   return "";
 }
 
@@ -580,7 +604,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function stringArrayFrom(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.map((entry) => stringValue(entry)).filter(Boolean);
+  return value
+    .map((entry) =>
+      isPlainObject(entry) ? stringValue(entry.name) : stringValue(entry),
+    )
+    .filter(Boolean);
 }
 
 function arrayOfObjects(value: unknown): Record<string, unknown>[] {
@@ -594,4 +622,39 @@ function objectValue(value: unknown): Record<string, unknown> {
 
 function objectString(value: unknown, key: string): string {
   return stringValue(objectValue(value)[key]);
+}
+
+function extractGreenhouseCompensation(
+  record: Record<string, unknown>,
+): string {
+  const metadataObject = objectValue(record.metadata);
+  for (const candidate of [
+    metadataObject.compensation,
+    metadataObject.compensation_text,
+    metadataObject.compensationRange,
+    metadataObject.compensation_range,
+    metadataObject.salary,
+    metadataObject.salaryRange,
+    metadataObject.salary_range,
+  ]) {
+    const text = sanitizeCompensationValue(candidate);
+    if (text) return text;
+  }
+
+  for (const entry of arrayOfObjects(record.metadata)) {
+    const label = [
+      stringValue(entry.name),
+      stringValue(entry.label),
+      stringValue(entry.key),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    if (!/compensation|salary|pay/i.test(label)) continue;
+    for (const candidate of [entry.value, entry.text, entry.content]) {
+      const text = sanitizeCompensationValue(candidate);
+      if (text) return text;
+    }
+  }
+
+  return "";
 }

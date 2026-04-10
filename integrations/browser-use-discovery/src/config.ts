@@ -1,7 +1,11 @@
+import { existsSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  ATS_SOURCE_IDS,
+  DEFAULT_ENABLED_SOURCE_IDS,
   DISCOVERY_WEBHOOK_SCHEMA_VERSION,
   SUPPORTED_SOURCE_IDS,
   type CompanyTarget,
@@ -15,9 +19,15 @@ export type WorkerRuntimeConfig = {
   stateDatabasePath: string;
   workerConfigPath: string;
   browserUseCommand: string;
+  geminiApiKey: string;
+  geminiModel: string;
+  groundedSearchMaxResultsPerCompany: number;
+  groundedSearchMaxPagesPerCompany: number;
   googleServiceAccountJson: string;
   googleServiceAccountFile: string;
   googleAccessToken: string;
+  googleOAuthTokenJson: string;
+  googleOAuthTokenFile: string;
   webhookSecret: string;
   allowedOrigins: string[];
   port: number;
@@ -43,6 +53,11 @@ const defaultStateDatabasePath = join(
   "..",
   "state",
   "worker-state.sqlite",
+);
+const defaultHermesGoogleTokenPath = join(
+  homedir(),
+  ".hermes",
+  "google_token.json",
 );
 const defaultTimezone =
   Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Chicago";
@@ -82,7 +97,44 @@ export function loadRuntimeConfig(
       "BROWSER_USE_DISCOVERY_ALLOWED_ORIGINS",
       "DISCOVERY_ALLOWED_ORIGINS",
     ]),
+    runMode,
   );
+  const googleAccessToken = readFirst(env, [
+    "BROWSER_USE_DISCOVERY_GOOGLE_ACCESS_TOKEN",
+    "GOOGLE_ACCESS_TOKEN",
+  ]);
+  const googleServiceAccountJson = readFirst(env, [
+    "BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON",
+    "GOOGLE_SERVICE_ACCOUNT_JSON",
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+  ]);
+  const googleServiceAccountFile = resolvePath(
+    readFirst(env, [
+      "BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE",
+      "GOOGLE_SERVICE_ACCOUNT_FILE",
+      "GOOGLE_APPLICATION_CREDENTIALS",
+    ]),
+  );
+  const googleOAuthTokenJson = readFirst(env, [
+    "BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_JSON",
+    "GOOGLE_OAUTH_TOKEN_JSON",
+  ]);
+  let googleOAuthTokenFile = resolvePath(
+    readFirst(env, [
+      "BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_FILE",
+      "GOOGLE_OAUTH_TOKEN_FILE",
+    ]),
+  );
+  if (
+    !googleOAuthTokenFile &&
+    runMode === "local" &&
+    !googleAccessToken &&
+    !googleServiceAccountJson &&
+    !googleServiceAccountFile &&
+    existsSync(defaultHermesGoogleTokenPath)
+  ) {
+    googleOAuthTokenFile = defaultHermesGoogleTokenPath;
+  }
   return {
     stateDatabasePath,
     workerConfigPath,
@@ -92,22 +144,36 @@ export function loadRuntimeConfig(
         "BROWSER_USE_COMMAND",
         "DISCOVERY_BROWSER_COMMAND",
       ]) || "browser-use",
-    googleServiceAccountJson: readFirst(env, [
-      "BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON",
-      "GOOGLE_SERVICE_ACCOUNT_JSON",
-      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+    geminiApiKey: readFirst(env, [
+      "BROWSER_USE_DISCOVERY_GEMINI_API_KEY",
+      "DISCOVERY_GEMINI_API_KEY",
+      "GEMINI_API_KEY",
     ]),
-    googleServiceAccountFile: resolvePath(
+    geminiModel:
       readFirst(env, [
-        "BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE",
-        "GOOGLE_SERVICE_ACCOUNT_FILE",
-        "GOOGLE_APPLICATION_CREDENTIALS",
+        "BROWSER_USE_DISCOVERY_GEMINI_MODEL",
+        "DISCOVERY_GEMINI_MODEL",
+        "GEMINI_MODEL",
+      ]) || "gemini-2.5-flash",
+    groundedSearchMaxResultsPerCompany: parsePositiveInt(
+      readFirst(env, [
+        "BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_RESULTS_PER_COMPANY",
+        "DISCOVERY_GROUNDED_SEARCH_MAX_RESULTS_PER_COMPANY",
       ]),
+      6,
     ),
-    googleAccessToken: readFirst(env, [
-      "BROWSER_USE_DISCOVERY_GOOGLE_ACCESS_TOKEN",
-      "GOOGLE_ACCESS_TOKEN",
-    ]),
+    groundedSearchMaxPagesPerCompany: parsePositiveInt(
+      readFirst(env, [
+        "BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_PAGES_PER_COMPANY",
+        "DISCOVERY_GROUNDED_SEARCH_MAX_PAGES_PER_COMPANY",
+      ]),
+      4,
+    ),
+    googleServiceAccountJson,
+    googleServiceAccountFile,
+    googleAccessToken,
+    googleOAuthTokenJson,
+    googleOAuthTokenFile,
     webhookSecret: readFirst(env, [
       "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET",
       "DISCOVERY_WEBHOOK_SECRET",
@@ -207,7 +273,7 @@ export function mergeDiscoveryConfig(
       stored.maxLeadsPerRun,
       requestMaxLeads || stored.maxLeadsPerRun,
     ),
-    enabledSources: normalizeSourceIdList(stored.enabledSources),
+    enabledSources: [...stored.enabledSources],
     schedule: {
       enabled: !!stored.schedule?.enabled,
       cron: cleanString(stored.schedule?.cron) || defaultScheduleCron,
@@ -217,6 +283,10 @@ export function mergeDiscoveryConfig(
 
 export function normalizeSourceIdList(
   sourceIds: readonly string[],
+  options: {
+    autoEnableGroundedWeb?: boolean;
+    groundedWebEnabled?: boolean | null;
+  } = {},
 ): SupportedSourceId[] {
   const out: SupportedSourceId[] = [];
   for (const raw of sourceIds || []) {
@@ -224,7 +294,16 @@ export function normalizeSourceIdList(
     if (!id || !supportedSourceSet.has(id as SupportedSourceId)) continue;
     if (!out.includes(id as SupportedSourceId)) out.push(id as SupportedSourceId);
   }
-  return out.length ? out : [...SUPPORTED_SOURCE_IDS];
+  if (!out.length) return [...DEFAULT_ENABLED_SOURCE_IDS];
+  if (options.groundedWebEnabled === false) return out;
+  if (
+    options.autoEnableGroundedWeb !== false &&
+    isLegacyAtsOnlySourceSelection(out) &&
+    !out.includes("grounded_web")
+  ) {
+    return [...out, "grounded_web"];
+  }
+  return out;
 }
 
 function buildDefaultStoredWorkerConfig(
@@ -243,7 +322,7 @@ function buildDefaultStoredWorkerConfig(
     remotePolicy: "",
     seniority: "",
     maxLeadsPerRun: defaultMaxLeadsPerRun,
-    enabledSources: [...SUPPORTED_SOURCE_IDS],
+    enabledSources: [...DEFAULT_ENABLED_SOURCE_IDS],
     schedule: {
       enabled: false,
       cron: defaultScheduleCron,
@@ -258,7 +337,12 @@ function normalizeStoredWorkerConfig(
 ): StoredWorkerConfig {
   const requestedMode = normalizeRunMode(raw.mode, runMode);
   const companies = normalizeCompanies(raw.companies);
-  const enabledSources = normalizeSourceIdList(readSourceIdArray(raw.enabledSources));
+  const enabledSources = normalizeSourceIdList(readSourceIdArray(raw.enabledSources), {
+    groundedWebEnabled:
+      typeof raw.groundedWebEnabled === "boolean"
+        ? raw.groundedWebEnabled
+        : null,
+  });
   const schedule = isPlainRecord(raw.schedule) ? (raw.schedule as AnyRecord) : {};
   return {
     sheetId: cleanString(raw.sheetId) || cleanString(sheetId),
@@ -278,6 +362,14 @@ function normalizeStoredWorkerConfig(
       cron: cleanString(schedule.cron) || defaultScheduleCron,
     },
   };
+}
+
+function isLegacyAtsOnlySourceSelection(
+  sourceIds: readonly SupportedSourceId[],
+): boolean {
+  return sourceIds.every((sourceId) =>
+    ATS_SOURCE_IDS.includes(sourceId as (typeof ATS_SOURCE_IDS)[number]),
+  );
 }
 
 async function readJsonIfExists(pathname: string): Promise<unknown | null> {
@@ -354,16 +446,20 @@ function normalizeBoardHints(
 ): CompanyTarget["boardHints"] | undefined {
   if (!isPlainRecord(input)) return undefined;
   const out: NonNullable<CompanyTarget["boardHints"]> = {};
-  for (const sourceId of SUPPORTED_SOURCE_IDS) {
+  for (const sourceId of ATS_SOURCE_IDS) {
     const value = cleanString(input[sourceId]);
     if (value) out[sourceId] = value;
   }
   return Object.keys(out).length ? out : undefined;
 }
 
-function normalizeAllowedOrigins(raw: string[]): string[] {
+function normalizeAllowedOrigins(
+  raw: string[],
+  runMode: WorkerRuntimeConfig["runMode"],
+): string[] {
   const values = normalizeStringList(raw);
-  return values.length ? values : [...defaultAllowedOrigins];
+  if (values.length) return values;
+  return runMode === "local" ? [...defaultAllowedOrigins] : [];
 }
 
 function normalizeStringList(value: unknown): string[] {

@@ -1,0 +1,131 @@
+# TECH_DEBT_REPORT
+
+Audit date: 2026-04-09  
+Scope baseline: current working tree (including existing uncommitted changes)  
+Repository: `/Users/emilionunezgarcia/Job-Bored`
+
+## Executive summary
+
+This repository is a vanilla JS job-search dashboard with three main execution surfaces:
+
+1. a browser app (`index.html` + `app.js`)
+2. a local Node scraper/API (`server/`)
+3. a Browser Use-backed discovery worker (`integrations/browser-use-discovery/`)
+
+The largest risks are structural, not dependency CVEs: the frontend is dominated by a monolithic `app.js` plus companion HTML/CSS monoliths, discovery logic is duplicated across browser and CLI surfaces, network/auth boundaries need hardening, and the repo lacks a complete quality gate surface.
+
+The baseline is not green. `npm run test:contract:all` currently fails because the published pipeline contract has drifted: `README.md` does not expose optional column `T: Logo URL` while `schemas/pipeline-row.v1.json` does. No confirmed `npm audit` vulnerabilities were found in the root or `server/` package trees.
+
+## Codebase health scan
+
+### Languages, frameworks, package manager, CI/CD
+
+- **Languages:** JavaScript, HTML, CSS, TypeScript-flavored `.ts` files executed via Node strip-types
+- **Frontend:** static browser app, no framework, no bundler
+- **Backend/runtime:** Node.js, Express, Cheerio
+- **Package manager:** npm with separate root and `server/` lockfiles
+- **CI/CD:** GitHub Actions (`.github/workflows/validate-examples.yml`)
+- **Project conventions:** no `AGENTS.md` found in the repository; no repo `.factory/` mission infrastructure found
+
+### Entry points and major surfaces
+
+- **Browser UI:** `index.html` -> ordered global scripts -> `app.js`
+- **Local web server:** `dev-server.mjs`
+- **Scraper/API server:** `server/index.mjs`
+- **Browser Use discovery worker:** `integrations/browser-use-discovery/src/server.ts`
+- **Discovery bootstrap/relay tooling:** `scripts/*.mjs`, `discovery-wizard-*.js`
+- **Contract surfaces:** `README.md`, `SETUP.md`, `AGENT_CONTRACT.md`, `schemas/*.json`, `examples/*.json`
+
+### Existing validation baseline
+
+| Command | Result | Notes |
+|---|---|---|
+| `npm run test:contract:all` | Fail | `README vs schema header mismatch for T: README "undefined" schema "Logo URL"` |
+| `node --test /Users/emilionunezgarcia/Job-Bored/tests/*.test.mjs` | Pass | 19/19 passing |
+| `npm run test:browser-use-discovery` | Pass | 54/54 passing |
+| `npm run lint:skills` | Pass | Only validates integration skill links |
+| `npm audit --json` | Pass | No known root-package vulnerabilities |
+| `npm --prefix /Users/emilionunezgarcia/Job-Bored/server audit --json` | Pass | No known server-package vulnerabilities |
+| Repo-wide `typecheck` script | Missing | No typecheck script found in root, `server/`, or `integrations/browser-use-discovery/` manifests |
+| Repo-wide `build` script | Missing | No build validation equivalent found for runtime safety |
+
+### Dependency and architecture hotspots
+
+- **`app.js`** — primary frontend monolith; mixes config, OAuth, Sheets I/O, discovery flows, rendering, ATS, onboarding, and modal orchestration
+- **`index.html`** — 4k+ line template shell with script-order coupling to global browser modules
+- **`style.css`** — stylesheet monolith that still carries legacy card/list selectors
+- **`integrations/browser-use-discovery/src/run/run-discovery.ts`** — orchestration hotspot for normalization, matching, sourcing, and sheet writes
+- **`integrations/browser-use-discovery/src/browser/source-adapters.ts`** — large ATS integration surface
+- **`integrations/browser-use-discovery/src/config.ts`** — config/env boundary hotspot
+- **`server/job-scraper.mjs`** — heuristic-heavy scraper without local test coverage
+- **`server/ats-scorecard.mjs`** — provider dispatch, prompt generation, and response normalization are tightly coupled
+
+## Severity scale
+
+- **Critical**: security/data-loss/broken-build issues requiring immediate action
+- **High**: blocks safe iteration, creates recurring bugs, or affects multiple surfaces
+- **Medium**: meaningful code smell or validation gap worth fixing in this mission
+- **Low**: cleanup or consistency work that can be batched
+
+## Effort scale
+
+- **S**: small, focused fix
+- **M**: moderate refactor
+- **L**: larger multi-file refactor
+- **XL**: broad structural change
+
+## Debt inventory
+
+| ID | Category | Severity | Effort | Files | Summary |
+|---|---|---|---|---|---|
+| TD-001 | Test gaps | Critical | S | `README.md`, `schemas/pipeline-row.v1.json`, `scripts/test-pipeline-contract.mjs` | The baseline contract suite is already red because the README no longer matches the pipeline schema for optional column `T: Logo URL`. This violates the requested “green baseline before refactoring” safety rail. |
+| TD-002 | Architecture smells | High | XL | `app.js`, `index.html`, `style.css` | The root UI is effectively a three-file monolith: `app.js` owns application logic, `index.html` owns large template surfaces, and `style.css` owns broad cross-feature styling. Refactors here will stay risky until responsibilities are split. |
+| TD-003 | Dead code | High | M | `app.js`, `style.css`, `PIPELINE-CARDS-HANDOFF.md` | The legacy card/list rendering path still exists (`renderJobCard()`, `[data-action="toggle-card"]`, `.expand-btn[data-expand]`) even though the active UI renders the board path. This leaves stale behavior, selectors, and documentation contracts in place. |
+| TD-004 | Duplication | High | M | `app.js`, `discovery-wizard-local.js`, `discovery-wizard-probes.js`, `discovery-wizard-relay.js`, `discovery-wizard-verify.js`, `scripts/bootstrap-local-discovery.mjs`, `scripts/deploy-cloudflare-relay.mjs` | Discovery URL parsing, webhook classification, local health URL generation, and relay/bootstrap helpers are reimplemented across browser and CLI surfaces and are already drifting. |
+| TD-005 | Duplication | Medium | M | `app.js` | Drawer rendering and the legacy card renderer both rebuild job tags, summaries, structured posting sections, and action blocks instead of sharing a single job view-model or rendering helper. |
+| TD-006 | Naming & readability | Medium | M | `app.js`, `discovery-wizard-shell.js`, `discovery-wizard-local.js`, `discovery-wizard-probes.js`, `discovery-wizard-relay.js`, `discovery-wizard-verify.js` | Discovery concepts are spread across similarly named files and large IIFEs, making state transitions, ownership boundaries, and recovery flow intent difficult to trace. |
+| TD-007 | Type safety | High | M | `integrations/browser-use-discovery/package.json`, `integrations/browser-use-discovery/src/**` | The discovery worker runs `.ts` files via `node --experimental-strip-types` but has no `tsconfig`, no dedicated typecheck step, and no lint/type safety gate. Refactors can silently degrade typing guarantees. |
+| TD-008 | Type safety | Medium | M | `integrations/browser-use-discovery/src/contracts.ts`, `integrations/browser-use-discovery/src/browser/source-adapters.ts`, `integrations/browser-use-discovery/src/run/run-discovery.ts`, `integrations/browser-use-discovery/src/webhook/handle-discovery-webhook.ts` | Runtime behavior has drifted from declared contracts: `SourceAdapter.normalize` is defined in the contract surface but the live run path normalizes through `normalizeLeadWithDiagnostics`, and webhook validation is hand-written instead of being derived from the published schema. |
+| TD-009 | Error handling | Medium | S | `app.js`, `discovery-wizard-probes.js`, `job-posting-insights.js` | Several browser flows use empty or near-empty `catch` blocks around storage, parsing, and probe logic, which can hide real user-facing failures and make regressions hard to triage. |
+| TD-010 | Error handling | Medium | M | `integrations/browser-use-discovery/src/server.ts`, `integrations/browser-use-discovery/src/webhook/handle-discovery-webhook.ts`, `server/ats-scorecard.mjs` | Async/background work acknowledges requests before some downstream failures surface, and ATS/provider failures are mostly reduced to generic status/message responses without a stronger error taxonomy. |
+| TD-011 | Config & secrets | High | S | `integrations/browser-use-discovery/.env.example`, `integrations/browser-use-discovery/src/config.ts`, `integrations/browser-use-discovery/src/server.ts`, `integrations/browser-use-discovery/src/webhook/handle-discovery-webhook.ts` | `BROWSER_USE_DISCOVERY_WEBHOOK_SECRET` is documented, loaded in config, and allowed in CORS headers, but the webhook handler does not enforce it. This is a false security guarantee. |
+| TD-012 | Config & secrets | High | M | `app.js`, `README.md`, `SECURITY.md` | The app persists Google OAuth session data, including `accessToken`, in `localStorage`, while the README says OAuth access tokens are held “in memory only.” That mismatch is both a security and trust issue. |
+| TD-013 | Config & secrets | High | M | `server/index.mjs`, `server/job-scraper.mjs`, `server/.env` | The scraper server enables permissive `cors({ origin: true })` and accepts arbitrary `http(s)` scrape targets, creating SSRF/network exposure risk if run beyond local-only usage. A tracked `server/.env` file also indicates weak secret hygiene boundaries. |
+| TD-014 | Dependency hygiene | Medium | M | `package.json`, `server/package.json`, `package-lock.json`, `server/package-lock.json` | The repo uses split package roots and a mutable `postinstall` (`npm install --prefix ./server`), which makes installs less reproducible and version management harder. |
+| TD-015 | Dependency hygiene | Low | S | `.github/workflows/validate-examples.yml`, `SETUP.md`, `integrations/browser-use-discovery/README.md`, `scripts/bootstrap-local-discovery.mjs` | Node version guidance is inconsistent across docs and tooling (`18+`, `20`, `24+`), increasing setup drift and environment-specific failures. |
+| TD-016 | Architecture smells | High | M | `README.md`, `SETUP.md`, `AGENT_CONTRACT.md`, `schemas/pipeline-row.v1.json`, `integrations/browser-use-discovery/src/contracts.ts`, `integrations/browser-use-discovery/src/sheets/pipeline-writer.ts`, `app.js` | The pipeline contract is split across docs, JSON schema, UI code, and discovery integrations. Optional headers and starter-sheet expectations are not modeled in a single source of truth, which is why contract drift is already breaking validation. |
+| TD-017 | Test gaps | High | M | `.github/workflows/validate-examples.yml`, `package.json`, `tests/*.mjs`, `server/**`, `dev-server.mjs` | CI only runs `npm run test:contract:all` on filtered paths. Root tests, server behavior, and most local runtime surfaces are effectively ungated in CI. |
+| TD-018 | Test gaps | High | M | `server/index.mjs`, `server/job-scraper.mjs`, `server/ats-scorecard.mjs`, `server/package.json` | `server/` has no test script and no local test suite even though it contains high-risk endpoint validation, scraping, and ATS provider logic. |
+| TD-019 | Test gaps | High | M | `app.js`, `index.html`, `settings-tabs.js`, `discovery-wizard-*.js` | The root app has no DOM/UI smoke tests for board rendering, drawer behavior, settings flows, discovery wizard state, or OAuth/session persistence. Major refactors here would be largely unguarded. |
+| TD-020 | Performance | Medium | M | `app.js` | `renderPipeline()` and drawer refreshes replace large DOM sections with `innerHTML`, then rescan and rebind listeners. There are also avoidable `pipelineData.indexOf(job)` lookups in render paths. This will degrade as the sheet grows. |
+| TD-021 | Performance | Medium | M | `integrations/browser-use-discovery/src/run/run-discovery.ts`, `integrations/browser-use-discovery/src/sheets/pipeline-writer.ts` | Discovery reads the full pipeline range and processes companies serially. This is acceptable for small sheets but will scale poorly as target companies and existing rows increase. |
+| TD-022 | Dead code | Low | S | `app.js` | Stale list/filter state still exists (`currentFilter`, `getFilteredData`) even though the active board flow no longer uses that contract end-to-end. |
+
+## Category summary
+
+| Category | Count | Highest severity |
+|---|---:|---|
+| Dead code | 2 | High |
+| Duplication | 2 | High |
+| Naming & readability | 1 | Medium |
+| Type safety | 2 | High |
+| Error handling | 2 | Medium |
+| Dependency hygiene | 2 | Medium |
+| Architecture smells | 2 | High |
+| Test gaps | 4 | Critical |
+| Config & secrets | 3 | High |
+| Performance | 2 | Medium |
+
+## Highest-impact findings
+
+1. **The baseline is not green** — contract validation already fails on pipeline header drift.
+2. **The root UI is structurally hard to refactor safely** — `app.js`, `index.html`, and `style.css` are tightly coupled monoliths.
+3. **Discovery logic is duplicated and drifting** — especially across the discovery wizard browser files and deployment/bootstrap scripts.
+4. **Security boundaries are weaker than the docs imply** — webhook secret enforcement is missing, OAuth token persistence contradicts documentation, and the scraper server is too permissive for anything beyond careful local use.
+5. **Quality gates are incomplete** — no repo-wide typecheck/build surface, narrow CI coverage, no `server/` tests, and no DOM/UI coverage for the root app.
+
+## Notes
+
+- This report reflects the **current working tree**, not only `HEAD`.
+- No application code was changed as part of the audit; only this report was updated.
+- Because the baseline validator is already failing, the mission does **not** yet satisfy the requested “full test suite passes before refactoring” safety rail.
