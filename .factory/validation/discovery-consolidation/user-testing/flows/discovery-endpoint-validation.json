@@ -1,0 +1,240 @@
+{
+  "groupId": "discovery-endpoint-validation",
+  "testedAt": "2026-04-10T00:00:00Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080/?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "discoveryWorker": "http://127.0.0.1:8644",
+    "scraper": "http://127.0.0.1:3847",
+    "browserSession": "54f1ef60fbf9__u1",
+    "authState": "not signed in (read-only via public sheet URL)"
+  },
+  "toolsUsed": ["agent-browser"],
+  "assertions": [
+    {
+      "id": "VAL-DISCOVERY-001",
+      "title": "Missing discovery endpoint opens setup instead of posting",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Load app with ?sheet= parameter and no saved discovery endpoint",
+          "expected": "Dashboard visible with Run discovery button",
+          "observed": "Dashboard visible after manually bypassing sheet-access gate; Run discovery button present but DISABLED"
+        },
+        {
+          "action": "Click Run discovery button",
+          "expected": "Discovery setup flow opens; no POST sent",
+          "observed": "Button is disabled (HTML disabled attribute). Click does nothing. No setup wizard opens and no POST is sent."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "discovery-consolidation/discovery-endpoint-validation/VAL-DISCOVERY-001-dashboard-before.png",
+          "discovery-consolidation/discovery-endpoint-validation/VAL-DISCOVERY-001-run-discovery-disabled.png"
+        ],
+        "consoleErrors": "none",
+        "network": "no requests sent (button disabled)"
+      },
+      "issues": "The 'Run discovery' button has the HTML disabled attribute when no discovery endpoint is configured, so clicking it fires no event. The code's click handler (initDiscoveryButton) would open the setup wizard if the button were enabled, but syncDiscoveryButtonState disables it in the else branch. The tooltip says 'click to open discovery setup' but the disabled attribute prevents clicks."
+    },
+    {
+      "id": "VAL-DISCOVERY-002",
+      "title": "Test webhook uses unsaved form values and the v1 payload",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Open Settings > Discovery tab, type https://example.com/webhook WITHOUT saving",
+          "expected": "Field populated with typed URL",
+          "observed": "Field populated with typed URL; no save performed"
+        },
+        {
+          "action": "Click Test webhook",
+          "expected": "POST sent to the typed (unsaved) URL with v1 payload fields",
+          "observed": "Browser attempted fetch to https://example.com/webhook (blocked by CORS preflight, confirming the request was sent to the unsaved URL). Payload builder confirmed to include event, schemaVersion, sheetId, variationKey, requestedAt, discoveryProfile."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "discovery-consolidation/discovery-endpoint-validation/VAL-DISCOVERY-002-settings-unsaved.png",
+          "discovery-consolidation/discovery-endpoint-validation/VAL-DISCOVERY-002-settings-unsaved-example-com.png",
+          "discovery-consolidation/discovery-endpoint-validation/VAL-DISCOVERY-002-local-url-test.png"
+        ],
+        "consoleErrors": "CORS error on https://example.com/webhook (expected — confirms POST was attempted)",
+        "network": "OPTIONS preflight to https://example.com/webhook blocked by CORS — confirms browser sent request to unsaved URL"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-DISCOVERY-003",
+      "title": "Browser validation rejects invalid browser endpoints client-side",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Enter http://localhost:9999/webhook in discovery endpoint field and click Test webhook",
+          "expected": "Rejected client-side with remediation text, no request sent",
+          "observed": "Toast: 'Localhost URLs won't work here. Use your Worker URL or another public HTTPS endpoint.' No network request sent."
+        },
+        {
+          "action": "Enter http://example.com/webhook (non-HTTPS) and click Test webhook",
+          "expected": "Rejected client-side with remediation text, no request sent",
+          "observed": "Toast: 'URL must use HTTPS. HTTP endpoints won't work — use HTTPS.' No network request sent."
+        },
+        {
+          "action": "Enter https://some-worker.workers.dev/forward and click Test webhook",
+          "expected": "Rejected client-side with remediation text, no request sent",
+          "observed": "Toast: 'Use the root Worker URL, not /forward. The /forward path requires auth headers the browser doesn't send.' No network request sent."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "discovery-consolidation/discovery-endpoint-validation/VAL-DISCOVERY-003-localhost-rejected.png",
+          "discovery-consolidation/discovery-endpoint-validation/VAL-DISCOVERY-003-non-https-rejected.png",
+          "discovery-consolidation/discovery-endpoint-validation/VAL-DISCOVERY-003-forward-rejected.png"
+        ],
+        "consoleErrors": "none (all rejected before network)",
+        "network": "no requests sent for any of the three invalid URLs"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-DISCOVERY-004",
+      "title": "Managed Apps Script stays marked as stub-only",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Enter https://script.google.com/macros/s/fake-test-id/exec in discovery endpoint field and click Test webhook",
+          "expected": "Verification succeeds as stub_only with warning copy",
+          "observed": "CORS error on preflight. Toast: 'Apps Script is deployed, but this browser hit CORS. Cloudflare relay agent setup is open.' The fake URL does not have a real deployed Apps Script behind it, so stub_only classification cannot be tested."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "discovery-consolidation/discovery-endpoint-validation/VAL-DISCOVERY-004-apps-script-cors.png"
+        ],
+        "consoleErrors": "CORS error on https://script.google.com/macros/s/fake-test-id/exec",
+        "network": "OPTIONS preflight to script.google.com blocked by CORS"
+      },
+      "issues": "Cannot fully test stub_only classification without a real deployed managed Apps Script stub. The code has the stub_only classification path (DISCOVERY_ENGINE_STATE_STUB_ONLY, handleAppsScriptBrowserCorsFailure) but the fake URL triggers CORS before reaching that logic."
+    },
+    {
+      "id": "VAL-DISCOVERY-007",
+      "title": "Browser-facing discovery endpoint must be the open Worker root URL",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Enter https://my-worker.workers.dev/ (open Worker root) and click Test webhook",
+          "expected": "URL allowed, request attempted",
+          "observed": "No client-side rejection. Browser attempted DNS resolution (ERR_NAME_NOT_RESOLVED for fake domain). Toast: 'Can't reach the endpoint. Network or CORS error — check the URL and try again.' URL is allowed."
+        },
+        {
+          "action": "Enter https://some-worker.workers.dev/forward (Worker /forward path) and click Test webhook",
+          "expected": "Rejected with specific classification",
+          "observed": "Rejected client-side: 'Use the root Worker URL, not /forward. The /forward path requires auth headers the browser doesn't send.'"
+        },
+        {
+          "action": "Enter https://example.com/api/discovery (generic HTTPS) and click Test webhook",
+          "expected": "URL allowed, request attempted",
+          "observed": "No client-side rejection. Browser attempted fetch (CORS blocked). URL is allowed."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "discovery-consolidation/discovery-endpoint-validation/VAL-DISCOVERY-007-worker-url-validation.png",
+          "discovery-consolidation/discovery-endpoint-validation/VAL-DISCOVERY-003-forward-rejected.png"
+        ],
+        "consoleErrors": "ERR_NAME_NOT_RESOLVED for my-worker.workers.dev (fake domain); CORS error for example.com",
+        "network": "requests attempted for Worker root and generic HTTPS; /forward blocked client-side before request"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-DISCOVERY-008",
+      "title": "Test webhook and Run discovery share async-aware success semantics",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Save https://example.com/api/discovery as discovery endpoint",
+          "expected": "Endpoint saved, Run discovery button enabled",
+          "observed": "Endpoint saved via Save & reload; Run discovery button enabled after reload"
+        },
+        {
+          "action": "Open Settings > Discovery, click Test webhook with saved endpoint",
+          "expected": "Consistent failure classification",
+          "observed": "Toast: 'Can't reach the endpoint. Network or CORS error — check the URL and try again.' with 'Fix tunnel' action"
+        },
+        {
+          "action": "Click Run discovery > Run now with same endpoint",
+          "expected": "Same failure classification as Test webhook",
+          "observed": "Toast: 'Can't reach the endpoint. Network or CORS error — check the URL and try again.' with 'Fix tunnel' action — identical classification"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "discovery-consolidation/discovery-endpoint-validation/VAL-DISCOVERY-008-run-discovery-modal.png",
+          "discovery-consolidation/discovery-endpoint-validation/VAL-DISCOVERY-008-run-discovery-result.png"
+        ],
+        "consoleErrors": "none relevant",
+        "network": "both paths attempted fetch to https://example.com/api/discovery (CORS blocked both times)"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-004",
+      "title": "Discovery entry points converge on the expected discovery surface",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Open Settings > Discovery tab > click 'Open discovery setup'",
+          "expected": "Discovery setup wizard opens",
+          "observed": "Discovery setup wizard opened with steps: Status, Path, Config, Server, Tunnel, Relay, Test, Done"
+        },
+        {
+          "action": "Click 'Open discovery setup wizard' button in header",
+          "expected": "Discovery setup wizard opens",
+          "observed": "Discovery setup wizard opened with same step structure"
+        },
+        {
+          "action": "Click 'Run discovery' button (with saved endpoint configured)",
+          "expected": "Discovery preferences/run modal opens (correct surface for configured endpoint)",
+          "observed": "Discovery preferences modal opened with Manual/AI Suggest tabs, preference fields, and Run now button"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "discovery-consolidation/discovery-endpoint-validation/VAL-CROSS-004-settings-discovery-setup.png",
+          "discovery-consolidation/discovery-endpoint-validation/VAL-CROSS-004-header-setup-wizard.png"
+        ],
+        "consoleErrors": "none",
+        "network": "n/a"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Sheet-access gate reappears after save-reload cycles. The gate shows 'Welcome back' and 'Log in with Google' even though the sheet is publicly readable (JSONP fetch succeeds with 78 rows). The gate check in loadAllData() blocks dashboard reveal when getOAuthClientId() is truthy and accessToken is falsy, even though the data loaded successfully via JSONP. Had to manually set dashboard display to block and gate display to none to proceed with testing.",
+      "resolved": true,
+      "resolution": "Used eval to set document.getElementById('dashboard').style.display='block' and document.getElementById('sheetAccessGateScreen').style.display='none' and window.initialSheetAccessResolved=true",
+      "affectedAssertions": ["VAL-DISCOVERY-001", "VAL-DISCOVERY-002", "VAL-DISCOVERY-003", "VAL-DISCOVERY-004", "VAL-DISCOVERY-007", "VAL-DISCOVERY-008", "VAL-CROSS-004"]
+    },
+    {
+      "description": "Toast overlays blocked button clicks in Settings modal. When toasts accumulated on screen, the Test webhook button became unclickable because the toast overlay intercepted pointer events.",
+      "resolved": true,
+      "resolution": "Used eval to remove all .toast elements before clicking buttons",
+      "affectedAssertions": ["VAL-DISCOVERY-003", "VAL-DISCOVERY-007"]
+    },
+    {
+      "description": "Cloudflare relay setup modal opened automatically after certain test webhook attempts and blocked interaction with the settings modal beneath it.",
+      "resolved": true,
+      "resolution": "Used eval to set cloudflareRelaySetupModal display to none",
+      "affectedAssertions": ["VAL-DISCOVERY-004", "VAL-DISCOVERY-007"]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "VAL-DISCOVERY-004: Cannot test managed Apps Script stub-only classification without a real deployed Apps Script web app. The fake URL (https://script.google.com/macros/s/fake-test-id/exec) triggers CORS preflight failure before the stub_only classification logic runs. The code has the stub_only path but it requires the Apps Script to respond with the expected stub response shape.",
+      "affectedAssertions": ["VAL-DISCOVERY-004"],
+      "quickFixAttempted": "Tried with fake Apps Script URL — CORS blocks preflight. Checked code logic for stub_only path — exists but unreachable without real deploy."
+    }
+  ],
+  "summary": "Tested 7 assertions: 5 passed, 1 failed (VAL-DISCOVERY-001: Run discovery button is disabled when no endpoint is configured, preventing the click-to-open-setup flow), 1 blocked (VAL-DISCOVERY-004: cannot test Apps Script stub-only without real deploy). Key finding: the Run discovery button is HTML-disabled when no endpoint exists, contradicting the assertion that clicking it should open setup."
+}
