@@ -37,86 +37,86 @@
     layer: "browser",
   });
 
+  // Shared URL helpers delegate to the canonical implementation in discovery-shared-helpers.js
+  const H = window.JobBoredDiscoveryHelpers || {};
+
   function text(raw, fallback = "") {
-    const value = raw == null ? "" : String(raw).trim();
-    return value || fallback;
+    return typeof H.asString === "function" ? H.asString(raw, fallback) : (raw == null ? "" : String(raw).trim()) || fallback;
   }
 
   function normalizeUrl(raw) {
-    const s = text(raw);
-    if (!s) return "";
-    try {
-      const url = new URL(s);
-      url.hash = "";
-      return url.toString();
-    } catch (_) {
-      return "";
-    }
+    return typeof H.normalizeUrl === "function" ? H.normalizeUrl(raw) : (raw == null ? "" : String(raw).trim()) || "";
   }
 
   function isLikelyAppsScriptWebAppUrl(raw) {
-    const s = text(raw);
-    if (!s) return false;
-    try {
-      const url = new URL(s);
-      return (
-        url.protocol === "https:" &&
-        /(^|\.)script\.google\.com$/i.test(url.hostname) &&
-        /\/macros\/s\/[^/]+\/(?:exec|dev)\/?$/i.test(url.pathname)
-      );
-    } catch (_) {
-      return /https:\/\/script\.google\.com\/macros\/s\/[^/]+\/(?:exec|dev)\/?/i.test(
-        s,
-      );
-    }
+    return typeof H.isLikelyAppsScriptWebAppUrl === "function" ? H.isLikelyAppsScriptWebAppUrl(raw) : (() => {
+      const s = text(raw);
+      if (!s) return false;
+      try {
+        const url = new URL(s);
+        return (
+          url.protocol === "https:" &&
+          /(^|\.)script\.google\.com$/i.test(url.hostname) &&
+          /\/macros\/s\/[^/]+\/(?:exec|dev)\/?$/i.test(url.pathname)
+        );
+      } catch (_) {
+        return /https:\/\/script\.google\.com\/macros\/s\/[^/]+\/(?:exec|dev)\/?/i.test(s);
+      }
+    })();
   }
 
   function isLikelyCloudflareWorkerUrl(raw) {
-    const s = text(raw);
-    if (!s) return false;
-    try {
-      const url = new URL(s);
-      return (
-        url.protocol === "https:" &&
-        (/\.workers\.dev$/i.test(url.hostname) ||
-          /(^|\.)cloudflareworkers\.com$/i.test(url.hostname))
-      );
-    } catch (_) {
-      return /workers\.dev/i.test(s);
-    }
+    return typeof H.isLikelyCloudflareWorkerUrl === "function" ? H.isLikelyCloudflareWorkerUrl(raw) : (() => {
+      const s = text(raw);
+      if (!s) return false;
+      try {
+        const url = new URL(s);
+        return (
+          url.protocol === "https:" &&
+          (/\.workers\.dev$/i.test(url.hostname) ||
+            /(^|\.)cloudflareworkers\.com$/i.test(url.hostname))
+        );
+      } catch (_) {
+        return /workers\.dev/i.test(s);
+      }
+    })();
   }
 
   function isLocalOnlyUrl(raw) {
-    const s = text(raw);
-    if (!s) return false;
-    try {
-      const url = new URL(s);
-      const host = String(url.hostname || "")
-        .replace(/^\[|\]$/g, "")
-        .toLowerCase();
-      return (
-        host === "localhost" ||
-        host === "127.0.0.1" ||
-        host === "::1" ||
-        host === "[::1]"
-      );
-    } catch (_) {
-      return false;
-    }
+    return typeof H.isLocalWebhookUrl === "function" ? H.isLocalWebhookUrl(raw) : (() => {
+      const s = text(raw);
+      if (!s) return false;
+      try {
+        const url = new URL(s);
+        const host = String(url.hostname || "")
+          .replace(/^\[|\]$/g, "")
+          .toLowerCase();
+        return (
+          host === "localhost" ||
+          host === "127.0.0.1" ||
+          host === "::1" ||
+          host === "[::1]"
+        );
+      } catch (_) {
+        return false;
+      }
+    })();
   }
 
   function isWorkerForwardPath(raw) {
-    const s = normalizeUrl(raw);
-    if (!s) return false;
-    try {
-      const url = new URL(s);
-      return (
-        isLikelyCloudflareWorkerUrl(s) &&
-        /\/forward\/?$/i.test(url.pathname || "")
-      );
-    } catch (_) {
-      return false;
-    }
+    return typeof H.isWorkerForwardUrl === "function" ? H.isWorkerForwardUrl(raw) : (() => {
+      const s = normalizeUrl(raw);
+      if (!s) return false;
+      try {
+        const url = new URL(s);
+        return (
+          isLikelyCloudflareWorkerUrl(s) &&
+          /\/forward\/?$/i.test(url.pathname || "")
+        );
+      } catch (_) {
+        return false;
+      }
+    })();
   }
 
   function createVerificationResult(partial) {
@@ -211,6 +211,14 @@
       );
     }
     return text(responseText).toLowerCase() === "not found";
+  }
+
+  function isMissingSheetIdResponse(status, data) {
+    if (Number(status) !== 400) return false;
+    if (!data || typeof data !== "object") return false;
+    return (
+      data.ok === false && /sheetid is required\.?/i.test(text(data.message))
+    );
   }
 
   function classifyEndpointInput(rawUrl) {
@@ -375,11 +383,63 @@
           layer: workerDownstream ? "downstream" : "upstream",
           remediation: workerDownstream
             ? [
-                "1. Re-run `npm run discovery:bootstrap-local` to refresh the local webhook URL.",
-                "2. Confirm the local webhook ends in `/webhook` for the browser-use discovery server.",
-                "3. Redeploy the Cloudflare relay so TARGET_URL uses the refreshed ngrok URL.",
+                "Refresh the browser-use path, then redeploy the relay:",
+                "1. Re-run `npm run discovery:bootstrap-local` so the local webhook resolves to `/webhook`.",
+                "2. Confirm the live public target ends in `/webhook`, not `/webhooks/command-center-discovery-*`.",
+                "3. Redeploy the Cloudflare relay so TARGET_URL uses that refreshed public target.",
               ].join("\n")
             : "",
+        });
+      }
+
+      if (isMissingSheetIdResponse(status, data)) {
+        const workerDownstream = isLikelyCloudflareWorkerUrl(endpointUrl);
+        return createVerificationResult({
+          ok: false,
+          kind: "invalid_endpoint",
+          engineState: workerDownstream ? "unverified" : "none",
+          httpStatus: 400,
+          message: workerDownstream
+            ? "Relay reached your server, but no Sheet ID was provided."
+            : "Sheet ID is required.",
+          detail: workerDownstream
+            ? "The Worker forwarded the request successfully. The discovery server rejected it because the request payload did not include `sheetId`."
+            : "This endpoint expects a `sheetId` field in the request payload.",
+          layer: workerDownstream ? "downstream" : "upstream",
+          remediation: workerDownstream
+            ? [
+                "Add the Google Sheet ID before testing again:",
+                "1. Open Settings and paste the destination Google Sheet ID into the discovery / sheet field.",
+                "2. Save the settings.",
+                "3. Run Test connection again.",
+              ].join("\n")
+            : "",
+        });
+      }
+
+      if (data && typeof data === "object" && data.ok === false) {
+        const workerDownstream = isLikelyCloudflareWorkerUrl(endpointUrl);
+        const responseMessage =
+          text(data.message) ||
+          `${endpointLabel} returned HTTP ${Number(status) || 0}.`;
+        const responseDetail =
+          text(data.detail) ||
+          (responseText && responseText.trim()
+            ? responseText.trim().slice(0, 500)
+            : "Unexpected error response.");
+        const remediation = text(data.remediation);
+        return createVerificationResult({
+          ok: false,
+          kind: "invalid_endpoint",
+          engineState: workerDownstream ? "unverified" : "none",
+          httpStatus: Number(status) || 0,
+          message: responseMessage,
+          detail:
+            responseDetail && responseDetail !== responseMessage
+              ? responseDetail
+              : "",
+          layer: workerDownstream ? "downstream" : "upstream",
+          ...(remediation ? { remediation } : {}),
         });
       }
       if ([502, 503, 504].includes(Number(status))) {

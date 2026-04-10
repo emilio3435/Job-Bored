@@ -67,16 +67,11 @@
     return "";
   }
 
+  // Shared URL helpers delegate to the canonical implementation in discovery-shared-helpers.js
+  const H = window.JobBoredDiscoveryHelpers || {};
+
   function normalizeUrl(raw) {
-    const s = raw != null ? String(raw).trim() : "";
-    if (!s) return "";
-    try {
-      const url = new URL(s);
-      url.hash = "";
-      return url.toString();
-    } catch (_) {
-      return s;
-    }
+    return typeof H.normalizeUrl === "function" ? H.normalizeUrl(raw) : (raw != null ? String(raw).trim() : "");
   }
 
   function normalizeLocalEngineKind(raw) {
@@ -132,67 +127,73 @@
   }
 
   function isLikelyAppsScriptWebAppUrl(raw) {
-    const s = String(raw || "").trim();
-    if (!s) return false;
-    try {
-      const url = new URL(s);
-      return (
-        url.protocol === "https:" &&
-        /(^|\.)script\.google\.com$/i.test(url.hostname) &&
-        /\/macros\/s\/[^/]+\/(?:exec|dev)\/?$/i.test(url.pathname)
-      );
-    } catch (_) {
-      return /https:\/\/script\.google\.com\/macros\/s\/[^/]+\/(?:exec|dev)\/?/i.test(
-        s,
-      );
-    }
+    return typeof H.isLikelyAppsScriptWebAppUrl === "function" ? H.isLikelyAppsScriptWebAppUrl(raw) : (() => {
+      const s = String(raw || "").trim();
+      if (!s) return false;
+      try {
+        const url = new URL(s);
+        return (
+          url.protocol === "https:" &&
+          /(^|\.)script\.google\.com$/i.test(url.hostname) &&
+          /\/macros\/s\/[^/]+\/(?:exec|dev)\/?$/i.test(url.pathname)
+        );
+      } catch (_) {
+        return /https:\/\/script\.google\.com\/macros\/s\/[^/]+\/(?:exec|dev)\/?/i.test(s);
+      }
+    })();
   }
 
   function isLikelyCloudflareWorkerUrl(raw) {
-    const s = String(raw || "").trim();
-    if (!s) return false;
-    try {
-      const url = new URL(s);
-      return (
-        url.protocol === "https:" &&
-        (/\.workers\.dev$/i.test(url.hostname) ||
-          /(^|\.)cloudflareworkers\.com$/i.test(url.hostname))
-      );
-    } catch (_) {
-      return /workers\.dev/i.test(s);
-    }
+    return typeof H.isLikelyCloudflareWorkerUrl === "function" ? H.isLikelyCloudflareWorkerUrl(raw) : (() => {
+      const s = String(raw || "").trim();
+      if (!s) return false;
+      try {
+        const url = new URL(s);
+        return (
+          url.protocol === "https:" &&
+          (/\.workers\.dev$/i.test(url.hostname) ||
+            /(^|\.)cloudflareworkers\.com$/i.test(url.hostname))
+        );
+      } catch (_) {
+        return /workers\.dev/i.test(s);
+      }
+    })();
   }
 
   function isLocalWebhookUrl(raw) {
-    const s = String(raw || "").trim();
-    if (!s) return false;
-    try {
-      const url = new URL(s);
-      if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-      const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-      return host === "localhost" || host === "127.0.0.1" || host === "::1";
-    } catch (_) {
-      return false;
-    }
+    return typeof H.isLocalWebhookUrl === "function" ? H.isLocalWebhookUrl(raw) : (() => {
+      const s = String(raw || "").trim();
+      if (!s) return false;
+      try {
+        const url = new URL(s);
+        if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+        const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+        return host === "localhost" || host === "127.0.0.1" || host === "::1";
+      } catch (_) {
+        return false;
+      }
+    })();
   }
 
   function classifySavedWebhookKind(rawUrl) {
-    const url = normalizeUrl(rawUrl);
-    if (!url) return SAVED_WEBHOOK_KIND_NONE;
-    if (isLocalWebhookUrl(url)) return SAVED_WEBHOOK_KIND_LOCAL_HTTP;
-    if (isLikelyAppsScriptWebAppUrl(url)) {
-      return SAVED_WEBHOOK_KIND_APPS_SCRIPT_STUB;
-    }
-    if (isLikelyCloudflareWorkerUrl(url)) return SAVED_WEBHOOK_KIND_WORKER;
-    try {
-      const parsed = new URL(url);
-      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-        return SAVED_WEBHOOK_KIND_GENERIC_HTTPS;
+    return typeof H.classifySavedWebhookKind === "function" ? H.classifySavedWebhookKind(rawUrl) : (() => {
+      const url = normalizeUrl(rawUrl);
+      if (!url) return SAVED_WEBHOOK_KIND_NONE;
+      if (isLocalWebhookUrl(url)) return SAVED_WEBHOOK_KIND_LOCAL_HTTP;
+      if (isLikelyAppsScriptWebAppUrl(url)) {
+        return SAVED_WEBHOOK_KIND_APPS_SCRIPT_STUB;
       }
-    } catch (_) {
-      // fall through
-    }
-    return SAVED_WEBHOOK_KIND_NONE;
+      if (isLikelyCloudflareWorkerUrl(url)) return SAVED_WEBHOOK_KIND_WORKER;
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+          return SAVED_WEBHOOK_KIND_GENERIC_HTTPS;
+        }
+      } catch (_) {
+        // fall through
+      }
+      return SAVED_WEBHOOK_KIND_NONE;
+    })();
   }
 
   function normalizeDiscoveryEngineState(raw) {
@@ -338,17 +339,19 @@
   }
 
   function buildLocalHealthUrl(localWebhookUrl) {
-    const local = normalizeUrl(localWebhookUrl);
-    if (!local) return "";
-    try {
-      const url = new URL(local);
-      url.pathname = "/health";
-      url.search = "";
-      url.hash = "";
-      return url.toString();
-    } catch (_) {
-      return "";
-    }
+    return typeof H.buildLocalHealthUrl === "function" ? H.buildLocalHealthUrl(localWebhookUrl) : (() => {
+      const local = normalizeUrl(localWebhookUrl);
+      if (!local) return "";
+      try {
+        const url = new URL(local);
+        url.pathname = "/health";
+        url.search = "";
+        url.hash = "";
+        return url.toString();
+      } catch (_) {
+        return "";
+      }
+    })();
   }
 
   async function readLocalBootstrapState() {
@@ -370,21 +373,23 @@
   }
 
   function localHealthProxyUrl(healthUrl) {
-    try {
-      const parsed = new URL(healthUrl);
-      const host = parsed.hostname;
-      if (
-        host === "127.0.0.1" ||
-        host === "localhost" ||
-        host === "[::1]" ||
-        host === "::1"
-      ) {
-        const port =
-          parsed.port || (parsed.protocol === "https:" ? "443" : "80");
-        return `/__proxy/local-health?port=${port}`;
-      }
-    } catch (_) {}
-    return healthUrl;
+    return typeof H.localHealthProxyUrl === "function" ? H.localHealthProxyUrl(healthUrl) : (() => {
+      try {
+        const parsed = new URL(healthUrl);
+        const host = parsed.hostname;
+        if (
+          host === "127.0.0.1" ||
+          host === "localhost" ||
+          host === "[::1]" ||
+          host === "::1"
+        ) {
+          const port =
+            parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+          return `/__proxy/local-health?port=${port}`;
+        }
+      } catch (_) {}
+      return healthUrl;
+    })();
   }
 
   async function probeHealthUrl(healthUrl) {

@@ -14,6 +14,15 @@ import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
+import {
+  asString,
+  normalizeUrl,
+  isLikelyAppsScriptWebAppUrl,
+  isLikelyCloudflareWorkerUrl,
+  isLocalWebhookUrl,
+  isWorkerForwardUrl,
+} from "./discovery-shared-helpers.mjs";
+
 const root = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(root, "..");
 
@@ -95,86 +104,19 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Wrapper functions for backward compatibility with existing code that uses 'text'
 function text(raw, fallback = "") {
-  const value = raw == null ? "" : String(raw).trim();
-  return value || fallback;
+  return asString(raw, fallback);
 }
 
-function normalizeUrl(raw) {
-  const s = text(raw);
-  if (!s) return "";
-  try {
-    const url = new URL(s);
-    url.hash = "";
-    return url.toString();
-  } catch (_) {
-    return "";
-  }
-}
-
-function isLikelyAppsScriptWebAppUrl(raw) {
-  const s = text(raw);
-  if (!s) return false;
-  try {
-    const url = new URL(s);
-    return (
-      url.protocol === "https:" &&
-      /(^|\.)script\.google\.com$/i.test(url.hostname) &&
-      /\/macros\/s\/[^/]+\/(?:exec|dev)\/?$/i.test(url.pathname)
-    );
-  } catch (_) {
-    return /https:\/\/script\.google\.com\/macros\/s\/[^/]+\/(?:exec|dev)\/?/i.test(
-      s,
-    );
-  }
-}
-
-function isLikelyCloudflareWorkerUrl(raw) {
-  const s = text(raw);
-  if (!s) return false;
-  try {
-    const url = new URL(s);
-    return (
-      url.protocol === "https:" &&
-      (/\.workers\.dev$/i.test(url.hostname) ||
-        /(^|\.)cloudflareworkers\.com$/i.test(url.hostname))
-    );
-  } catch (_) {
-    return /workers\.dev/i.test(s);
-  }
-}
-
+// Local-only URL check (uses shared isLocalWebhookUrl helper)
 function isLocalOnlyUrl(raw) {
-  const s = text(raw);
-  if (!s) return false;
-  try {
-    const url = new URL(s);
-    const host = String(url.hostname || "")
-      .replace(/^\[|\]$/g, "")
-      .toLowerCase();
-    return (
-      host === "localhost" ||
-      host === "127.0.0.1" ||
-      host === "::1" ||
-      host === "[::1]"
-    );
-  } catch (_) {
-    return false;
-  }
+  return isLocalWebhookUrl(raw);
 }
 
+// Worker forward path check (uses shared isWorkerForwardUrl helper)
 function isWorkerForwardPath(raw) {
-  const s = normalizeUrl(raw);
-  if (!s) return false;
-  try {
-    const url = new URL(s);
-    return (
-      isLikelyCloudflareWorkerUrl(s) &&
-      /\/forward\/?$/i.test(url.pathname || "")
-    );
-  } catch (_) {
-    return false;
-  }
+  return isWorkerForwardUrl(raw);
 }
 
 function createVerificationResult(partial) {

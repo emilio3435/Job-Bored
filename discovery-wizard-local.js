@@ -23,56 +23,45 @@
     "local_relay_apply",
     "local_verify_end_to_end",
   ]);
-  const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+  // Shared URL helpers delegate to the canonical implementation in discovery-shared-helpers.js
+  const H = window.JobBoredDiscoveryHelpers || {};
 
   function asString(raw, fallback = "") {
-    const value = raw == null ? "" : String(raw).trim();
-    return value || fallback;
-  }
-
-  function isLocalHostLike() {
-    if (typeof window === "undefined" || !window.location) return false;
-    const host = String(window.location.hostname || "").toLowerCase();
-    return LOCAL_HOSTS.has(host);
+    return typeof H.asString === "function" ? H.asString(raw, fallback) : (raw == null ? "" : String(raw).trim()) || fallback;
   }
 
   function normalizeUrl(raw) {
-    const s = raw != null ? String(raw).trim() : "";
-    if (!s) return "";
-    try {
-      const url = new URL(s);
-      url.hash = "";
-      url.search = "";
-      return url.toString();
-    } catch (_) {
-      return "";
-    }
+    return typeof H.normalizeUrl === "function" ? H.normalizeUrl(raw) : (raw != null ? String(raw).trim() : "");
   }
 
   function inferPortFromUrl(raw, fallback = "8644") {
-    const url = normalizeUrl(raw);
-    if (!url) return asString(fallback, "8644");
-    try {
-      const parsed = new URL(url);
-      if (parsed.port) return parsed.port;
-      return parsed.protocol === "https:" ? "443" : "80";
-    } catch (_) {
-      return asString(fallback, "8644");
-    }
+    return typeof H.inferPortFromUrl === "function" ? H.inferPortFromUrl(raw, fallback) : (() => {
+      const url = normalizeUrl(raw);
+      if (!url) return asString(fallback, "8644");
+      try {
+        const parsed = new URL(url);
+        if (parsed.port) return parsed.port;
+        return parsed.protocol === "https:" ? "443" : "80";
+      } catch (_) {
+        return asString(fallback, "8644");
+      }
+    })();
   }
 
   function buildLocalHealthUrl(localWebhookUrl) {
-    const local = normalizeUrl(localWebhookUrl);
-    if (!local) return "";
-    try {
-      const url = new URL(local);
-      url.pathname = "/health";
-      url.search = "";
-      url.hash = "";
-      return url.toString();
-    } catch (_) {
-      return "";
-    }
+    return typeof H.buildLocalHealthUrl === "function" ? H.buildLocalHealthUrl(localWebhookUrl) : (() => {
+      const local = normalizeUrl(localWebhookUrl);
+      if (!local) return "";
+      try {
+        const url = new URL(local);
+        url.pathname = "/health";
+        url.search = "";
+        url.hash = "";
+        return url.toString();
+      } catch (_) {
+        return "";
+      }
+    })();
   }
 
   function buildLocalBootstrapUrl() {
@@ -101,11 +90,34 @@
     return root.contract || {};
   }
 
+  function normalizeWizardState(state) {
+    const shellApi = root.shell;
+    if (shellApi && typeof shellApi.normalizeWizardState === "function") {
+      return shellApi.normalizeWizardState(state);
+    }
+    const raw = state && typeof state === "object" ? state : {};
+    const base = getWizardContract().discoverySetupWizardState;
+    return {
+      ...(typeof base === "object" && base ? base : {}),
+      ...raw,
+      version: 1,
+      flow: asString(raw.flow, "local_agent"),
+      currentStep: asString(raw.currentStep, "detect"),
+      completedSteps: uniqueList(raw.completedSteps || []),
+      transportMode: asString(raw.transportMode),
+      lastProbeAt: asString(raw.lastProbeAt),
+      lastVerifiedAt: asString(raw.lastVerifiedAt),
+      result: asString(raw.result, "none"),
+      dismissedStubWarning: !!raw.dismissedStubWarning,
+    };
+  }
+
   function defaultRemediations(port) {
     const resolvedPort = asString(port, "8644");
     return {
       noBootstrapFile: `Run \`npm run discovery:bootstrap-local\` to generate the config file.`,
-      gatewayNotHealthy: `Run \`hermes gateway run --replace\` to start the server.`,
+      gatewayNotHealthy:
+        "Run `npm run discovery:worker:start-local` to start the recommended local worker. Advanced only: use `hermes gateway run --replace` if you intentionally use the Hermes path.",
       ngrokNotAuthenticated: `Get a token from ${NGROK_TOKEN_URL} and run \`ngrok config add-authtoken <TOKEN>\`.`,
       ngrokNotRunning: `Run \`ngrok http ${resolvedPort}\` to start the tunnel.`,
     };
@@ -201,15 +213,6 @@
   }
 
   async function fetchLocalBootstrapState() {
-    if (!isLocalHostLike()) {
-      return {
-        available: false,
-        reason: "not_local_host",
-        data: null,
-        remediations: defaultRemediations("8644"),
-      };
-    }
-
     try {
       const res = await fetch(buildLocalBootstrapUrl(), {
         cache: "no-store",
@@ -249,16 +252,6 @@
   }
 
   async function probeNgrokLocalApi() {
-    if (!isLocalHostLike()) {
-      return {
-        available: false,
-        running: false,
-        tunnels: [],
-        publicUrl: "",
-        reason: "not_local_host",
-      };
-    }
-
     try {
       const controller =
         typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -266,7 +259,7 @@
         ? window.setTimeout(() => controller.abort(), 2000)
         : null;
       try {
-        const res = await fetch("http://127.0.0.1:4040/api/tunnels", {
+        const res = await fetch("/__proxy/ngrok-tunnels", {
           cache: "no-store",
           signal: controller ? controller.signal : undefined,
         });
@@ -308,6 +301,26 @@
     }
   }
 
+  function localHealthProxyUrl(healthUrl) {
+    return typeof H.localHealthProxyUrl === "function" ? H.localHealthProxyUrl(healthUrl) : (() => {
+      try {
+        const parsed = new URL(healthUrl);
+        const host = parsed.hostname;
+        if (
+          host === "127.0.0.1" ||
+          host === "localhost" ||
+          host === "[::1]" ||
+          host === "::1"
+        ) {
+          const port =
+            parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+          return `/__proxy/local-health?port=${port}`;
+        }
+      } catch (_) {}
+      return healthUrl;
+    })();
+  }
+
   async function probeLocalHealthUrl(healthUrl) {
     const url = normalizeUrl(healthUrl);
     if (!url) {
@@ -317,14 +330,8 @@
         reason: "missing_health_url",
       };
     }
-    if (!isLocalHostLike()) {
-      return {
-        ok: false,
-        status: 0,
-        reason: "not_local_host",
-      };
-    }
 
+    const fetchUrl = localHealthProxyUrl(url);
     try {
       const controller =
         typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -332,7 +339,7 @@
         ? window.setTimeout(() => controller.abort(), 2500)
         : null;
       try {
-        const res = await fetch(url, {
+        const res = await fetch(fetchUrl, {
           cache: "no-store",
           signal: controller ? controller.signal : undefined,
         });
@@ -660,24 +667,25 @@
           );
         }
         const ngrokApi = await probeNgrokLocalApi();
-        if (snapshot.tunnelReady) {
+        if (ngrokApi.running && ngrokApi.publicUrl && snapshot.tunnelReady) {
           return buildSuccessResult(
             actionId,
             "tunnel",
             "Tunnel detected.",
-            tunnelPublicUrl,
+            ngrokApi.publicUrl,
             {
               kind: "tunnel_ready",
               nextStepId: "relay_deploy",
               diagnostics: {
                 ngrokDetected: true,
+                apiDetected: true,
               },
               wizardStatePatch: buildStepStatePatch("tunnel", wizardState, {
                 currentStep: "relay_deploy",
                 transportMode,
                 result: "unverified",
               }),
-              suggestedUrl: tunnelPublicUrl,
+              suggestedUrl: ngrokApi.publicUrl,
             },
           );
         }
@@ -885,7 +893,7 @@
     getLocalActionCatalog() {
       return buildLocalActionCatalog();
     },
-    normalizeLocalBootstrapState,
+    normalizeLocalBootstrapState: normalizeBootstrapState,
     getLocalBootstrapState: fetchLocalBootstrapState,
     hydrateLocalBootstrapState: fetchLocalBootstrapState,
     fetchLocalBootstrapState,
@@ -896,4 +904,7 @@
     buildLocalActionCatalog,
     runLocalWizardAction,
   });
+  if (typeof window !== "undefined") {
+    window.__JobBoredDiscoveryLocalApi = local;
+  }
 })();

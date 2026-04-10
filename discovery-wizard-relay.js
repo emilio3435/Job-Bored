@@ -58,9 +58,11 @@
     );
   }
 
+  // Shared URL helpers delegate to the canonical implementation in discovery-shared-helpers.js
+  const H = window.JobBoredDiscoveryHelpers || {};
+
   function asString(raw, fallback = "") {
-    const s = raw == null ? "" : String(raw).trim();
-    return s || fallback;
+    return typeof H.asString === "function" ? H.asString(raw, fallback) : (raw == null ? "" : String(raw).trim()) || fallback;
   }
 
   function asBoolean(raw) {
@@ -84,71 +86,69 @@
   }
 
   function normalizeUrl(raw) {
-    const s = asString(raw);
-    if (!s) return "";
-    try {
-      const url = new URL(s);
-      url.hash = "";
-      return url.toString();
-    } catch (_) {
-      return "";
-    }
+    return typeof H.normalizeUrl === "function" ? H.normalizeUrl(raw) : (raw == null ? "" : String(raw).trim()) || "";
   }
 
   function isLocalHost(hostname) {
-    const host = asString(hostname)
-      .replace(/^\[|\]$/g, "")
-      .toLowerCase();
-    if (!host) return false;
-    if (host === "localhost" || host === "127.0.0.1" || host === "::1")
-      return true;
-    if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
-    if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
-    if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
-    return false;
+    return typeof H.isLocalHost === "function" ? H.isLocalHost(hostname) : (() => {
+      const host = asString(hostname)
+        .replace(/^\[|\]$/g, "")
+        .toLowerCase();
+      if (!host) return false;
+      if (host === "localhost" || host === "127.0.0.1" || host === "::1")
+        return true;
+      if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+      if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+      if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+      return false;
+    })();
   }
 
   function isLikelyWorkerUrl(raw) {
-    const s = asString(raw);
-    if (!s) return false;
-    try {
-      const url = new URL(s);
-      return (
-        url.protocol === "https:" &&
-        (/\.workers\.dev$/i.test(url.hostname) ||
-          /(^|\.)cloudflareworkers\.com$/i.test(url.hostname))
-      );
-    } catch (_) {
-      return /workers\.dev/i.test(s);
-    }
+    return typeof H.isLikelyWorkerUrl === "function" ? H.isLikelyWorkerUrl(raw) : (() => {
+      const s = asString(raw);
+      if (!s) return false;
+      try {
+        const url = new URL(s);
+        return (
+          url.protocol === "https:" &&
+          (/\.workers\.dev$/i.test(url.hostname) ||
+            /(^|\.)cloudflareworkers\.com$/i.test(url.hostname))
+        );
+      } catch (_) {
+        return /workers\.dev/i.test(s);
+      }
+    })();
   }
 
   function isWorkerForwardUrl(raw) {
-    const url = normalizeUrl(raw);
-    if (!url) return false;
-    try {
-      const parsed = new URL(url);
-      return /\/forward\/?$/i.test(parsed.pathname.replace(/\/+$/, "/"));
-    } catch (_) {
-      return false;
-    }
+    return typeof H.isWorkerForwardUrl === "function" ? H.isWorkerForwardUrl(raw) : (() => {
+      const url = normalizeUrl(raw);
+      if (!url) return false;
+      try {
+        const parsed = new URL(url);
+        return /\/forward\/?$/i.test(parsed.pathname.replace(/\/+$/, "/"));
+      } catch (_) {
+        return false;
+      }
+    })();
   }
 
   function isLikelyAppsScriptWebAppUrl(raw) {
-    const s = asString(raw);
-    if (!s) return false;
-    try {
-      const url = new URL(s);
-      return (
-        url.protocol === "https:" &&
-        /(^|\.)script\.google\.com$/i.test(url.hostname) &&
-        /\/macros\/s\/[^/]+\/(?:exec|dev)\/?$/i.test(url.pathname)
-      );
-    } catch (_) {
-      return /https:\/\/script\.google\.com\/macros\/s\/[^/]+\/(?:exec|dev)\/?/i.test(
-        s,
-      );
-    }
+    return typeof H.isLikelyAppsScriptWebAppUrl === "function" ? H.isLikelyAppsScriptWebAppUrl(raw) : (() => {
+      const s = asString(raw);
+      if (!s) return false;
+      try {
+        const url = new URL(s);
+        return (
+          url.protocol === "https:" &&
+          /(^|\.)script\.google\.com$/i.test(url.hostname) &&
+          /\/macros\/s\/[^/]+\/(?:exec|dev)\/?$/i.test(url.pathname)
+        );
+      } catch (_) {
+        return /https:\/\/script\.google\.com\/macros\/s\/[^/]+\/(?:exec|dev)\/?/i.test(s);
+      }
+    })();
   }
 
   function isManagedAppsScriptStub(snapshot) {
@@ -214,20 +214,22 @@
   }
 
   function classifySavedWebhookKind(rawUrl) {
-    const url = normalizeUrl(rawUrl);
-    if (!url) return "none";
-    try {
-      const parsed = new URL(url);
-      if (isLocalHost(parsed.hostname)) return "local_http";
-      if (isLikelyWorkerUrl(url)) return "worker";
-      if (isLikelyAppsScriptWebAppUrl(url)) return "apps_script_stub";
-      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-        return "generic_https";
+    return typeof H.classifySavedWebhookKind === "function" ? H.classifySavedWebhookKind(rawUrl) : (() => {
+      const url = normalizeUrl(rawUrl);
+      if (!url) return "none";
+      try {
+        const parsed = new URL(url);
+        if (isLocalHost(parsed.hostname)) return "local_http";
+        if (isLikelyWorkerUrl(url)) return "worker";
+        if (isLikelyAppsScriptWebAppUrl(url)) return "apps_script_stub";
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+          return "generic_https";
+        }
+      } catch (_) {
+        // fall through
       }
-    } catch (_) {
-      // fall through
-    }
-    return "none";
+      return "none";
+    })();
   }
 
   function classifyRelayEndpointUrl(rawUrl, snapshot) {
@@ -349,17 +351,8 @@
     const directSaved = normalizeUrl(state.savedWebhookUrl);
     const directKind = classifySavedWebhookKind(directSaved);
 
-    const relayTarget = normalizeUrl(state.relayTargetUrl);
-    if (relayTarget) {
-      const relayKind = classifyRelayEndpointUrl(relayTarget, state).kind;
-      if (
-        relayKind === ENDPOINT_KIND.genericHttps ||
-        relayKind === ENDPOINT_KIND.appsScriptStub
-      ) {
-        return relayTarget;
-      }
-    }
-
+    // Prefer live tunnel + local path when both exist so ngrok rotations do not
+    // keep serving a stale relayTargetUrl (generic_https) from before redeploy.
     if (state.localWebhookUrl && state.tunnelPublicUrl) {
       try {
         const local = new URL(state.localWebhookUrl);
@@ -370,6 +363,17 @@
         return tunnel.toString();
       } catch (_) {
         return "";
+      }
+    }
+
+    const relayTarget = normalizeUrl(state.relayTargetUrl);
+    if (relayTarget) {
+      const relayKind = classifyRelayEndpointUrl(relayTarget, state).kind;
+      if (
+        relayKind === ENDPOINT_KIND.genericHttps ||
+        relayKind === ENDPOINT_KIND.appsScriptStub
+      ) {
+        return relayTarget;
       }
     }
 
@@ -423,6 +427,32 @@
     );
   }
 
+  function inferWorkerNameFromUrl(rawUrl) {
+    const url = normalizeUrl(rawUrl);
+    if (!url) return "";
+    try {
+      const parsed = new URL(url);
+      if (
+        !/\.workers\.dev$/i.test(parsed.hostname) &&
+        !/(^|\.)cloudflareworkers\.com$/i.test(parsed.hostname)
+      ) {
+        return "";
+      }
+      return sanitizeWorkerName(parsed.hostname.split(".")[0]);
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function resolveWorkerName(snapshot, options, targetUrl) {
+    const state = normalizeSnapshot(snapshot);
+    const opts = options && typeof options === "object" ? options : {};
+    const savedWorkerUrl = findSavedWorkerUrl(state) || normalizeUrl(opts.workerUrl);
+    const explicitWorkerName =
+      sanitizeWorkerName(opts.workerName) || inferWorkerNameFromUrl(savedWorkerUrl);
+    return buildSuggestedWorkerName(targetUrl, opts.sheetId, explicitWorkerName);
+  }
+
   function quoteShellArg(raw) {
     return `'${asString(raw).replace(/'/g, `'\"'\"'`)}'`;
   }
@@ -431,11 +461,7 @@
     const state = normalizeSnapshot(snapshot);
     const opts = options && typeof options === "object" ? options : {};
     const targetUrl = buildDownstreamTargetUrl(state, opts);
-    const workerName = buildSuggestedWorkerName(
-      targetUrl,
-      opts.sheetId,
-      opts.workerName,
-    );
+    const workerName = resolveWorkerName(state, opts, targetUrl);
     const origin = asString(opts.corsOrigin || opts.origin || "", "");
     const sheetId = asString(opts.sheetId, "");
 
@@ -452,11 +478,7 @@
     const state = normalizeSnapshot(snapshot);
     const opts = options && typeof options === "object" ? options : {};
     const targetUrl = buildDownstreamTargetUrl(state, opts);
-    const workerName = buildSuggestedWorkerName(
-      targetUrl,
-      opts.sheetId,
-      opts.workerName,
-    );
+    const workerName = resolveWorkerName(state, opts, targetUrl);
     const origin = asString(opts.corsOrigin || opts.origin || "", "*") || "*";
     const sheetId = asString(opts.sheetId, "");
     const deployCommand = buildCloudflareRelayDeployCommand(state, opts);
@@ -738,11 +760,7 @@
       browserWorkerUrl,
       state,
     );
-    const workerName = buildSuggestedWorkerName(
-      downstreamTargetUrl,
-      opts.sheetId,
-      opts.workerName,
-    );
+    const workerName = resolveWorkerName(state, opts, downstreamTargetUrl);
     const origin = asString(opts.corsOrigin || opts.origin || "", "");
 
     const model = {
