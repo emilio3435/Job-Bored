@@ -1,3 +1,5 @@
+import { randomUUID, timingSafeEqual } from "node:crypto";
+
 import type {
   DiscoveryWebhookAck,
   DiscoveryRunStatusPayload,
@@ -61,6 +63,18 @@ export async function handleDiscoveryWebhook(
     );
   }
 
+  if (
+    !hasValidWebhookSecret(
+      dependencies.runDependencies.runtimeConfig.webhookSecret,
+      request.headers,
+    )
+  ) {
+    return jsonResponse(401, {
+      ok: false,
+      message: "Unauthorized discovery webhook request.",
+    });
+  }
+
   const parsed = parseWebhookRequest(request.bodyText);
   if (!parsed.ok) {
     return jsonResponse(400, {
@@ -71,7 +85,7 @@ export async function handleDiscoveryWebhook(
 
   const runId =
     dependencies.runDependencies.runId ||
-    dependencies.runDependencies.randomId("run");
+    createRunId(dependencies.runDependencies.randomId);
   const now = dependencies.now || (() => new Date());
   const acceptedAt = now().toISOString();
   const statusPathBuilder = dependencies.runStatusPathForRun || buildRunStatusPath;
@@ -322,14 +336,20 @@ async function validateDiscoveryPreflight(
   }
 
   if (
-    !String(sheetId || "").trim() &&
-    !String(storedConfig.sheetId || "").trim()
+    !String(sheetId || "").trim()
   ) {
+    if (
+      runDependencies.runtimeConfig.runMode === "local" &&
+      String(storedConfig.sheetId || "").trim()
+    ) {
+      return null;
+    }
     return {
       status: 400,
       message: "sheetId is required.",
-      detail:
-        "Provide `sheetId` in the webhook payload, or set `sheetId` in the local worker config before retrying.",
+      detail: String(storedConfig.sheetId || "").trim()
+        ? "Hosted worker requests must include sheetId explicitly; local worker config defaults are only accepted in local mode."
+        : "Provide `sheetId` in the webhook payload, or set `sheetId` in the local worker config before retrying.",
     };
   }
 
@@ -421,4 +441,40 @@ function stringValue(value: unknown): string {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function createRunId(randomId?: ((prefix: string) => string) | null): string {
+  if (typeof randomId === "function") return randomId("run");
+  return `run_${randomUUID().replace(/-/g, "")}`;
+}
+
+function hasValidWebhookSecret(
+  configuredSecret: string,
+  headers: Record<string, string | string[] | undefined>,
+): boolean {
+  const expected = stringValue(configuredSecret);
+  // Fail closed: when no secret is configured, reject all requests to avoid
+  // silently degrading into an open permissive webhook.
+  if (!expected) return false;
+  const provided = readHeader(headers, "x-discovery-secret");
+  if (!provided) return false;
+  const expectedBuffer = Buffer.from(expected);
+  const providedBuffer = Buffer.from(provided);
+  if (expectedBuffer.length !== providedBuffer.length) return false;
+  return timingSafeEqual(expectedBuffer, providedBuffer);
+}
+
+function readHeader(
+  headers: Record<string, string | string[] | undefined>,
+  key: string,
+): string {
+  const wanted = String(key || "").toLowerCase();
+  for (const [headerName, headerValue] of Object.entries(headers || {})) {
+    if (String(headerName || "").toLowerCase() !== wanted) continue;
+    if (Array.isArray(headerValue)) {
+      return stringValue(headerValue[0]);
+    }
+    return stringValue(headerValue);
+  }
+  return "";
 }

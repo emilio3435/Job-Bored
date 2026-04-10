@@ -10,7 +10,9 @@ const runtimeConfig = {
   browserUseCommand: "browser-use",
   googleServiceAccountJson: "",
   googleServiceAccountFile: "",
-  googleAccessToken: "test-token",
+  googleAccessToken: "placeholder-access-xyz789",
+  googleOAuthTokenJson: "",
+  googleOAuthTokenFile: "",
   webhookSecret: "",
   allowedOrigins: ["http://localhost:8080"],
   port: 0,
@@ -33,6 +35,11 @@ function responseJson(payload, status = 200) {
   });
 }
 
+function normalizeHeaders(headersInit) {
+  const headers = new Headers(headersInit || {});
+  return Object.fromEntries(headers.entries());
+}
+
 function createMockFetch({ headerRows, dataRows, responses }) {
   const calls = [];
   let responseIndex = 0;
@@ -43,20 +50,21 @@ function createMockFetch({ headerRows, dataRows, responses }) {
     calls.push({
       url: url.toString(),
       method,
+      headers: normalizeHeaders(init.headers),
       body: init.body ? String(init.body) : "",
     });
 
     if (
       url.pathname.includes("/values/") &&
       method === "GET" &&
-      url.href.includes("A1%3AS1")
+      url.href.includes("A1%3AT1")
     ) {
       return responseJson({ values: headerRows });
     }
     if (
       url.pathname.includes("/values/") &&
       method === "GET" &&
-      url.href.includes("A2%3AS")
+      url.href.includes("A2%3AT")
     ) {
       return responseJson({ values: dataRows });
     }
@@ -101,7 +109,10 @@ test("createPipelineWriter updates existing rows and appends new ones", async ()
     "Greenhouse",
   ]);
 
-  const responses = [responseJson({ updatedRows: 1 }), responseJson({ appendedRows: 1 })];
+  const responses = [
+    responseJson({ updatedRows: 1 }),
+    responseJson({ appendedRows: 1 }),
+  ];
   const { fetchImpl, calls } = createMockFetch({
     headerRows: [PIPELINE_HEADER_ROW],
     dataRows: [existingRow, duplicateRow],
@@ -132,6 +143,7 @@ test("createPipelineWriter updates existing rows and appends new ones", async ()
       notes: "",
       followUpDate: "",
       talkingPoints: "Use the team shape and remote-first signal",
+      logoUrl: "",
       discoveredAt: "2026-04-09T12:00:00.000Z",
       metadata: {
         runId: "run_1",
@@ -157,6 +169,7 @@ test("createPipelineWriter updates existing rows and appends new ones", async ()
       notes: "",
       followUpDate: "",
       talkingPoints: "",
+      logoUrl: "",
       discoveredAt: "2026-04-09T12:00:00.000Z",
       metadata: {
         runId: "run_1",
@@ -182,6 +195,7 @@ test("createPipelineWriter updates existing rows and appends new ones", async ()
       notes: "",
       followUpDate: "",
       talkingPoints: "",
+      logoUrl: "",
       discoveredAt: "2026-04-09T12:00:00.000Z",
       metadata: {
         runId: "run_1",
@@ -199,17 +213,17 @@ test("createPipelineWriter updates existing rows and appends new ones", async ()
   assert.match(result.warnings[0], /duplicate existing Pipeline rows/i);
 
   assert.equal(calls.length, 4);
-  assert.match(calls[0].url, /values\/Pipeline!A1%3AS1/);
-  assert.match(calls[1].url, /values\/Pipeline!A2%3AS/);
+  assert.match(calls[0].url, /values\/Pipeline!A1%3AT1/);
+  assert.match(calls[1].url, /values\/Pipeline!A2%3AT/);
   assert.equal(calls[2].method, "POST");
   assert.match(calls[2].url, /values:batchUpdate$/);
   assert.equal(calls[3].method, "POST");
-  assert.match(calls[3].url, /values\/Pipeline!A%3AS:append/);
+  assert.match(calls[3].url, /values\/Pipeline!A%3AT:append/);
 
   const batchUpdateBody = JSON.parse(calls[2].body);
   assert.equal(batchUpdateBody.valueInputOption, "USER_ENTERED");
   assert.equal(batchUpdateBody.data.length, 1);
-  assert.equal(batchUpdateBody.data[0].range, "Pipeline!A2:S2");
+  assert.equal(batchUpdateBody.data[0].range, "Pipeline!A2:T2");
 
   const updatedRow = batchUpdateBody.data[0].values[0];
   assert.equal(updatedRow[1], "Senior Backend Engineer");
@@ -225,7 +239,10 @@ test("createPipelineWriter updates existing rows and appends new ones", async ()
   assert.equal(appendBody.values.length, 1);
   const appendedRow = appendBody.values[0];
   assert.equal(appendedRow[1], "Data Engineer");
-  assert.equal(appendedRow[4], "https://jobs.example.com/openings/data-engineer");
+  assert.equal(
+    appendedRow[4],
+    "https://jobs.example.com/openings/data-engineer",
+  );
   assert.equal(appendedRow[12], "New");
   assert.equal(appendedRow[16], "");
 });
@@ -241,5 +258,133 @@ test("createPipelineWriter rejects a sheet with the wrong Pipeline headers", asy
     now: () => new Date("2026-04-09T12:00:00.000Z"),
   });
 
-  await assert.rejects(writer.write("sheet_123", []), /Pipeline header mismatch/);
+  await assert.rejects(
+    writer.write("sheet_123", []),
+    /Pipeline header mismatch/,
+  );
+});
+
+test("createPipelineWriter upgrades blank trailing optional headers", async () => {
+  const legacyHeaderRow = [
+    ...PIPELINE_HEADER_ROW.slice(0, 17),
+    "",
+    "",
+    "",
+  ];
+  const responses = [
+    responseJson({ updatedRows: 1 }),
+    responseJson({ appendedRows: 1 }),
+  ];
+  const { fetchImpl, calls } = createMockFetch({
+    headerRows: [legacyHeaderRow],
+    dataRows: [],
+    responses,
+  });
+
+  const writer = createPipelineWriter(runtimeConfig, {
+    fetchImpl,
+    now: () => new Date("2026-04-09T12:00:00.000Z"),
+  });
+
+  await writer.write("sheet_123", [
+    {
+      sourceId: "greenhouse",
+      sourceLabel: "Greenhouse",
+      title: "Growth Marketing Manager",
+      company: "Scale AI",
+      location: "Remote",
+      url: "https://boards.greenhouse.io/scaleai/jobs/12345",
+      compensationText: "",
+      fitScore: 8,
+      priority: "🔥",
+      tags: ["growth"],
+      fitAssessment: "Strong fit",
+      contact: "",
+      status: "New",
+      appliedDate: "",
+      notes: "",
+      followUpDate: "",
+      talkingPoints: "",
+      logoUrl: "",
+      discoveredAt: "2026-04-09T12:00:00.000Z",
+      metadata: {
+        runId: "run_1",
+        variationKey: "var_1",
+        sourceQuery: "Growth Marketing Manager Scale AI",
+      },
+    },
+  ]);
+
+  assert.equal(calls[1].method, "POST");
+  const headerUpgradeBody = JSON.parse(calls[1].body);
+  assert.equal(headerUpgradeBody.data[0].range, "Pipeline!A1:T1");
+  assert.deepEqual(headerUpgradeBody.data[0].values[0], PIPELINE_HEADER_ROW);
+  assert.match(calls[3].url, /values\/Pipeline!A%3AT:append/);
+});
+
+test("createPipelineWriter refreshes a Google OAuth token when no service account is configured", async () => {
+  const responses = [
+    responseJson({ access_token: "refreshed-token" }),
+    responseJson({ appendedRows: 1 }),
+  ];
+  const { fetchImpl, calls } = createMockFetch({
+    headerRows: [PIPELINE_HEADER_ROW],
+    dataRows: [],
+    responses,
+  });
+
+  const writer = createPipelineWriter(
+    {
+      ...runtimeConfig,
+      googleAccessToken: "",
+      googleOAuthTokenJson: JSON.stringify({
+        token: "expired-token",
+        refresh_token: "refresh_123",
+        client_id: "client_123",
+        client_secret: "secret_123",
+        token_uri: "https://oauth2.googleapis.com/token",
+        expiry: "2026-04-09T11:00:00.000Z",
+      }),
+    },
+    {
+      fetchImpl,
+      now: () => new Date("2026-04-09T12:00:00.000Z"),
+    },
+  );
+
+  await writer.write("sheet_123", [
+    {
+      sourceId: "greenhouse",
+      sourceLabel: "Greenhouse",
+      title: "Platform Engineer",
+      company: "Acme",
+      location: "Remote",
+      url: "https://jobs.example.com/openings/platform-engineer",
+      compensationText: "",
+      fitScore: 8,
+      priority: "⚡",
+      tags: ["platform"],
+      fitAssessment: "Strong platform fit",
+      contact: "",
+      status: "New",
+      appliedDate: "",
+      notes: "",
+      followUpDate: "",
+      talkingPoints: "",
+      logoUrl: "",
+      discoveredAt: "2026-04-09T12:00:00.000Z",
+      metadata: {
+        runId: "run_1",
+        variationKey: "var_1",
+        sourceQuery: "Platform Engineer Acme",
+      },
+    },
+  ]);
+
+  assert.match(calls[0].url, /oauth2\.googleapis\.com\/token/);
+  assert.equal(calls[0].method, "POST");
+  assert.match(calls[1].url, /values\/Pipeline!A1%3AT1/);
+  assert.equal(calls[1].headers.authorization, "Bearer refreshed-token");
+  assert.equal(calls[2].headers.authorization, "Bearer refreshed-token");
+  assert.equal(calls[3].headers.authorization, "Bearer refreshed-token");
 });
