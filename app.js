@@ -16184,11 +16184,6 @@ function syncDiscoveryButtonState() {
     openBtn.setAttribute("aria-disabled", "true");
     openBtn.title =
       "Stub webhook only — use Settings → Discovery to connect a real engine, or click Run discovery to open setup.";
-  } else if (localSetupDetected) {
-    openBtn.disabled = true;
-    openBtn.setAttribute("aria-disabled", "true");
-    openBtn.title =
-      "Finish the local discovery path in Settings, or click here to continue setup.";
   } else {
     // No endpoint configured — keep button enabled so clicking opens the setup wizard.
     openBtn.disabled = false;
