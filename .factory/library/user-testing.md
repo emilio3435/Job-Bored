@@ -15,7 +15,7 @@ Testing surfaces, tools, setup notes, and concurrency guidance for this mission.
 - **Primary behaviors:** sheet access/setup, Daily Brief, board lanes, drawer flows, settings, onboarding/profile, drafts, discovery entry points
 - **Setup notes:**
   - Prefer a clean browser profile for first-run/setup assertions.
-  - For starter-sheet end-to-end validation, import Google-authenticated browser cookies into the validator session before expecting the real create-sheet flow to complete.
+  - For starter-sheet end-to-end validation on this machine, plan to complete a live Google sign-in in the validator browser session before expecting the real create-sheet flow to complete.
   - Use a signed-in browser state for writeback assertions.
   - Some assertions require seeded sheet data and/or seeded local IndexedDB state.
   - The local HTTPS surface uses a generated self-signed localhost certificate; use `agent-browser --ignore-https-errors` (or the browser warning bypass) when validating it.
