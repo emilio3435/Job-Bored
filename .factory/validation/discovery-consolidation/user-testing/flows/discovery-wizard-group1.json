@@ -1,0 +1,124 @@
+{
+  "groupId": "discovery-wizard-group1",
+  "testedAt": "2026-04-10T18:50:00Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080",
+    "discoveryWorker": "http://127.0.0.1:8644",
+    "scraperAts": "http://127.0.0.1:3847",
+    "browserSession": "fresh profile",
+    "authState": "not signed in (first-run state)"
+  },
+  "toolsUsed": ["agent-browser", "curl"],
+  "assertions": [
+    {
+      "id": "VAL-DISCOVERY-001",
+      "title": "Missing discovery endpoint opens setup instead of posting",
+      "status": "blocked",
+      "steps": [
+        { "action": "Open http://localhost:8080", "expected": "App landing page or dashboard", "observed": "Login screen with 'Log in with Google' button" },
+        { "action": "Open Settings > Discovery tab", "expected": "Discovery configuration visible", "observed": "Discovery tab visible with webhook URL field, Test webhook, Open discovery setup" },
+        { "action": "Search for 'Run discovery' button", "expected": "Button visible on dashboard or settings", "observed": "Button not found in current UI state" },
+        { "action": "Click 'Open discovery setup'", "expected": "Wizard opens", "observed": "Wizard opened showing Path/Status/Config/Server/Tunnel/Relay/Test/Done steps" }
+      ],
+      "evidence": {
+        "screenshots": [
+          "discovery-consolidation/discovery-wizard-group1/VAL-DISCOVERY-001-initial.png",
+          "discovery-consolidation/discovery-wizard-group1/VAL-DISCOVERY-001-settings.png",
+          "discovery-consolidation/discovery-wizard-group1/VAL-DISCOVERY-001-discovery-tab.png",
+          "discovery-consolidation/discovery-wizard-group1/VAL-DISCOVERY-001-wizard-open.png"
+        ],
+        "consoleErrors": "none"
+      },
+      "issues": "The 'Run discovery' button referenced in the assertion was not found in the UI. The app is in a first-run/setup state requiring Google sign-in and sheet configuration. Without being signed in and having a configured sheet, the full dashboard is not accessible, which appears to be where 'Run discovery' would appear. The 'Open discovery setup' button exists and opens the discovery wizard, but this is different from the assertion's 'Run discovery' trigger."
+    },
+    {
+      "id": "VAL-DISCOVERY-002",
+      "title": "Test webhook uses unsaved form values and the v1 payload",
+      "status": "blocked",
+      "steps": [
+        { "action": "Navigate to Settings > Discovery tab", "expected": "Discovery configuration visible", "observed": "Discovery tab open with webhook URL textbox" },
+        { "action": "Fill webhook URL with http://127.0.0.1:8644/webhook (local worker)", "expected": "URL entered in textbox", "observed": "URL entered: http://127.0.0.1:8644/webhook" },
+        { "action": "Click 'Test webhook' without saving", "expected": "POST sent to typed URL with v1 payload", "observed": "Network request not captured; notification appeared but content not clearly visible" },
+        { "action": "Verify request was sent to typed URL", "expected": "Network evidence of POST to unsaved URL", "observed": "network requests returned empty; curl test shows worker requires x-discovery-secret auth" }
+      ],
+      "evidence": {
+        "screenshots": [
+          "discovery-consolidation/discovery-wizard-group1/VAL-DISCOVERY-002-filled-url.png"
+        ],
+        "consoleErrors": "none",
+        "network": "curl to http://127.0.0.1:8644/webhook returns 401 Unauthorized - worker requires x-discovery-secret header"
+      },
+      "issues": "Could not verify that 'Test webhook' sends a request to the unsaved typed URL. Network tracking did not capture the request, and the discovery worker returns 401 Unauthorized when tested directly with curl (missing x-discovery-secret header). The browser UI showed a notification after clicking 'Test webhook' but the notification content was not extractable in text form. The assertion could not be confirmed due to: (1) network capture not working, (2) worker requiring authentication not present in browser test flow."
+    },
+    {
+      "id": "VAL-DISCOVERY-003",
+      "title": "Browser validation rejects invalid browser endpoints client-side",
+      "status": "blocked",
+      "steps": [
+        { "action": "Fill Discovery webhook URL with http://localhost:9999/webhook", "expected": "Client-side validation error for localhost", "observed": "URL accepted in textbox, no immediate error" },
+        { "action": "Click 'Test webhook'", "expected": "Browser rejects before sending request", "observed": "Notification appeared but content not visible in text extraction" },
+        { "action": "Fill URL with http://example.com/webhook (non-HTTPS)", "expected": "Client-side validation error for non-HTTPS", "observed": "URL remained in textbox, no visible error message" },
+        { "action": "Fill URL with https://my-worker.workers.dev/forward", "expected": "Client-side validation error for /forward URL", "observed": "URL accepted, notification appeared but content not extractable" }
+      ],
+      "evidence": {
+        "screenshots": [
+          "discovery-consolidation/discovery-wizard-group1/VAL-DISCOVERY-003-localhost-url.png",
+          "discovery-consolidation/discovery-wizard-group1/VAL-DISCOVERY-003-http-url.png",
+          "discovery-consolidation/discovery-wizard-group1/VAL-DISCOVERY-003-forward-url.png"
+        ],
+        "consoleErrors": "none"
+      },
+      "issues": "Could not confirm client-side validation errors are displayed for invalid URLs. The UI does not show obvious error messages in the extracted text for localhost, non-HTTPS, or /forward URLs. The textbox accepts these values without visible rejection. A notification appeared after clicking 'Test webhook' but the notification text could not be extracted. The validation behavior described in the assertion (explicit remediation text) was not observable in the current testing environment."
+    },
+    {
+      "id": "VAL-DISCOVERY-004",
+      "title": "Managed Apps Script stays marked as stub-only",
+      "status": "blocked",
+      "steps": [
+        { "action": "Attempt to access Apps Script stub configuration", "expected": "Apps Script stub endpoint visible with stub-only marker", "observed": "Could not reach Apps Script testing - earlier assertions blocked progression" }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "none"
+      },
+      "issues": "Not tested due to earlier blockers (VAL-DISCOVERY-001 through VAL-DISCOVERY-003 must pass or be evaluated first). The test requires a configured Apps Script endpoint which requires OAuth sign-in and sheet configuration first."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Browser network tracking did not capture requests made by 'Test webhook' button - all network requests showed empty",
+      "resolved": false,
+      "resolution": "Tried using agent-browser network route and network requests commands but no requests were captured. The discovery worker does respond to curl but requires auth header.",
+      "affectedAssertions": ["VAL-DISCOVERY-002"]
+    },
+    {
+      "description": "App requires Google sign-in and sheet configuration to access full dashboard where 'Run discovery' button exists",
+      "resolved": false,
+      "resolution": "Attempted to use sheet ID in URL but app still requires sign-in. The test environment may need authenticated session.",
+      "affectedAssertions": ["VAL-DISCOVERY-001"]
+    },
+    {
+      "description": "Notification text from 'Test webhook' results not extractable from page body - modal/toast content not appearing in text snapshot",
+      "resolved": false,
+      "affectedAssertions": ["VAL-DISCOVERY-002", "VAL-DISCOVERY-003"]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Cannot access full dashboard without Google sign-in - 'Run discovery' button not accessible in current UI state",
+      "affectedAssertions": ["VAL-DISCOVERY-001"],
+      "quickFixAttempted": "Tried ?sheet= URL parameter and Settings > Discovery > Open discovery setup - wizard opens but 'Run discovery' is not present"
+    },
+    {
+      "description": "Discovery worker requires x-discovery-secret auth header - browser test requests may be failing at auth layer not validation layer",
+      "affectedAssertions": ["VAL-DISCOVERY-002", "VAL-DISCOVERY-003"],
+      "quickFixAttempted": "curl test shows 401 Unauthorized - worker is running but expects auth header that browser flow may not provide"
+    },
+    {
+      "description": "Unable to extract notification/toast messages from browser for validation - text content not appearing in page body snapshot",
+      "affectedAssertions": ["VAL-DISCOVERY-002", "VAL-DISCOVERY-003"],
+      "quickFixAttempted": "Tried getting body text, using find command, pressing Escape - notifications appear as buttons but content not readable"
+    }
+  ],
+  "summary": "Tested 4 assertions (VAL-DISCOVERY-001 through VAL-DISCOVERY-004). All 4 assertions are blocked. VAL-DISCOVERY-001 blocked because 'Run discovery' button requires full dashboard access (Google sign-in + sheet config). VAL-DISCOVERY-002 blocked because network tracking didn't capture requests and worker requires auth. VAL-DISCOVERY-003 blocked because client-side validation errors not visible in extracted text. VAL-DISCOVERY-004 not reached due to earlier blockers. Discovery worker is running (curl /health returns 200). Browser session used fresh profile with no saved auth state."
+}

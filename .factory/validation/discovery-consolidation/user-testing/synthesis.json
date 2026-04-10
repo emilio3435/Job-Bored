@@ -1,0 +1,73 @@
+{
+  "milestone": "discovery-consolidation",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 15,
+    "passed": 8,
+    "failed": 1,
+    "blocked": 6
+  },
+  "passedAssertions": [
+    "VAL-DISCOVERY-002",
+    "VAL-DISCOVERY-003",
+    "VAL-DISCOVERY-005",
+    "VAL-DISCOVERY-007",
+    "VAL-DISCOVERY-008",
+    "VAL-CROSS-004",
+    "VAL-CROSS-012",
+    "VAL-CROSS-014"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-DISCOVERY-001",
+      "reason": "Run discovery button is HTML-disabled when no discovery endpoint is configured. The button's disabled attribute prevents the click event from firing, so clicking it does not open the setup wizard. The tooltip says 'click to open discovery setup' but the disabled state blocks interaction. The underlying click handler (initDiscoveryButton) would open the wizard if enabled."
+    }
+  ],
+  "blockedAssertions": [
+    {
+      "id": "VAL-DISCOVERY-004",
+      "blockedBy": "Cannot test managed Apps Script stub-only classification without a real deployed Apps Script web app. Fake URL triggers CORS preflight failure before stub_only classification logic runs. Code path exists but unreachable without real deploy."
+    },
+    {
+      "id": "VAL-DISCOVERY-006",
+      "blockedBy": "Cannot simulate worker-down state without stopping the shared discovery service (affects other validators). Dashboard-level recovery CTAs also inaccessible behind Google auth gate."
+    },
+    {
+      "id": "VAL-DISCOVERY-015",
+      "blockedBy": "Tunnel stale badge appeared in Settings but wizard probe-based detection requires actual ngrok tunnel rotation. deriveLocalRecoveryState code path for tunnel_rotated exists but could not be triggered without real ngrok URL change."
+    },
+    {
+      "id": "VAL-DISCOVERY-017",
+      "blockedBy": "Fix setup button only appears when localRecoveryState !== 'ok', requiring the local worker or tunnel to be actually down. Code path verified (wizard_fix_setup → requestFixSetup → POST /__proxy/fix-setup → refresh snapshot) but cannot be exercised."
+    },
+    {
+      "id": "VAL-CROSS-005",
+      "blockedBy": "Settings and discovery CTA work correctly without a webhook, but dashboard board/brief/pipeline cannot be verified because the Google auth gate blocks access even with a publicly shared sheet. Auth gate is unrelated to discovery configuration."
+    },
+    {
+      "id": "VAL-CROSS-006",
+      "blockedBy": "Settings-side preferences (save, persist, reload) work correctly, but run-discovery modal is only accessible from the dashboard behind the Google auth gate. Cannot verify sync between Settings preferences and run-modal display."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added Flow Validator Guidance: discovery-browser section with isolation rules, auth notes, worker auth gap documentation, and evidence directory paths.",
+      "source": "setup"
+    }
+  ],
+  "previousRound": null,
+  "systemicBlockers": [
+    {
+      "rootCause": "Google auth gate blocks dashboard access for unsigned-in browser sessions even with publicly readable sheet",
+      "affectedAssertions": ["VAL-DISCOVERY-006", "VAL-DISCOVERY-017", "VAL-CROSS-005", "VAL-CROSS-006"],
+      "suggestedResolution": "Import Google cookies into validator browser sessions or provide a way to bypass the auth gate for read-only validation with public sheets"
+    },
+    {
+      "rootCause": "Discovery worker requires x-discovery-secret auth header but browser code does not send it",
+      "affectedAssertions": [],
+      "suggestedResolution": "The worker auth hardening from security-config milestone created a gap where browser-side discovery verification gets 401 from the local worker. This did not block any assertion this round but may affect future testing of actual discovery runs."
+    }
+  ]
+}

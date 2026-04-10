@@ -89,3 +89,18 @@ Machine baseline observed during dry run:
 - If cookie import is unavailable or insufficient, attempt the real Google sign-in flow in the validator browser session and record the exact screen/state reached.
 - Do not mock Google APIs or short-circuit starter-sheet creation. If the flow blocks on missing/expired real credentials or an unfinishable auth challenge, mark the assertion blocked with the exact blocker.
 - Capture the browser origin, whether cookie import or live sign-in was used, and any Google create/write network calls observed.
+
+## Flow Validator Guidance: discovery-browser
+
+- Use this surface for discovery-setup, endpoint-validation, local-recovery, and cross-area discovery browser assertions on `http://localhost:8080`.
+- Use a dedicated agent-browser session (`--session`) per subagent. Do not share sessions between subagents.
+- Start from a known app state: use `?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ` to provide a sheet ID. Note: the `?sheet=` parameter alone does NOT bypass the Google auth gate for the dashboard — it only provides the sheet ID. The dashboard still requires Google sign-in when an OAuth client ID is configured. The Settings modal IS accessible from the auth gate screen via the gear icon, which allows testing discovery setup/validation flows without full dashboard access.
+- **Round 1 finding:** The Google auth gate blocks dashboard/board/brief/pipeline access even with a publicly readable sheet. Validators that need dashboard-level UI (Run discovery button, run-modal preferences, board-level CTAs) require an authenticated browser session via cookie import or live sign-in. Settings-modal-level discovery flows (wizard, endpoint validation, preferences) work without auth.
+- Discovery worker is at `http://127.0.0.1:8644` (health OK). Note: the worker requires `x-discovery-secret` auth on POST routes but the browser code does not send this header. Browser POSTs to the local worker will get 401. This is expected — assertions about client-side validation, setup routing, and recovery states can still be tested. For assertions requiring actual POST success (e.g., VAL-DISCOVERY-002 payload verification), capture the outbound request even if the response is 401.
+- Do not modify the worker config, app source, or config.js to work around auth. Test what exists and report auth gaps as blockers.
+- Discovery assertions share browser localStorage state (saved discovery endpoint, wizard progress, preferences). Use separate browser sessions for concurrent validators. If two validators must mutate the same localStorage keys, serialize them or accept potential interference.
+- The `discovery-local-bootstrap.json` file in the repo root provides local bootstrap data for localhost autofill assertions.
+- For wizard-state resume assertions, partially progress through the wizard, close it, then reopen from a different entry point.
+- For tunnel-rotation and blocked-state recovery assertions, manipulate discovery config in localStorage to simulate the blocked state rather than relying on real tunnel rotation.
+- Do not attempt real Google sign-in in this surface unless the assertion explicitly requires it. Most discovery setup assertions work in read-only/auth-free mode.
+- Evidence files go to `evidence/discovery-consolidation/<group-id>/`. Flow reports go to `.factory/validation/discovery-consolidation/user-testing/flows/<group-id>.json`.
