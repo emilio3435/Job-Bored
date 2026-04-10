@@ -8,6 +8,12 @@
     "command_center_discovery_transport_setup";
   const LOCAL_BOOTSTRAP_STATE_PATH = "discovery-local-bootstrap.json";
 
+  // Simulation override key for deterministic recovery-state testing
+  // Value is a JSON object: { workerHealthy: boolean, tunnelUrl: string|null, storedTunnelUrl: string }
+  // When present, probe functions return simulated values instead of live data
+  const DISCOVERY_LOCAL_SIMULATION_KEY =
+    "discovery_local_simulation_override";
+
   const DISCOVERY_ENGINE_STATE_NONE = "none";
   const DISCOVERY_ENGINE_STATE_STUB_ONLY = "stub_only";
   const DISCOVERY_ENGINE_STATE_UNVERIFIED = "unverified";
@@ -372,6 +378,53 @@
     }
   }
 
+  /**
+   * Read simulation overrides for deterministic recovery-state testing.
+   * When simulation is active, probe functions return simulated values
+   * instead of probing live services, enabling testing of blocked states
+   * without actually breaking shared infrastructure.
+   *
+   * Simulation object shape:
+   * {
+   *   enabled: boolean,          // master switch
+   *   workerHealthy: boolean,    // result for probeHealthUrl
+   *   tunnelUrl: string|null,   // result for probeNgrokTunnels (null = no tunnel)
+   *   storedTunnelUrl: string,   // stored tunnel URL for stale detection
+   *   isLocalSetup: boolean,    // whether local setup is detected
+   * }
+   *
+   * Usage in tests:
+   *   localStorage.setItem('discovery_local_simulation_override', JSON.stringify({
+   *     enabled: true,
+   *     workerHealthy: false,
+   *     tunnelUrl: null,
+   *     storedTunnelUrl: 'https://old.ngrok.io/',
+   *     isLocalSetup: true,
+   *   }));
+   *   // Now buildReadinessSnapshot() will report worker_down state
+   */
+  function readSimulationOverrides() {
+    try {
+      const raw = localStorage.getItem(DISCOVERY_LOCAL_SIMULATION_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return null;
+      // Only active if explicitly enabled
+      if (parsed.enabled !== true) return null;
+      return {
+        enabled: true,
+        workerHealthy:
+          parsed.workerHealthy === true,
+        tunnelUrl:
+          parsed.tunnelUrl == null ? null : String(parsed.tunnelUrl || ""),
+        storedTunnelUrl: String(parsed.storedTunnelUrl || ""),
+        isLocalSetup: parsed.isLocalSetup !== false,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
   function localHealthProxyUrl(healthUrl) {
     return typeof H.localHealthProxyUrl === "function" ? H.localHealthProxyUrl(healthUrl) : (() => {
       try {
@@ -393,6 +446,11 @@
   }
 
   async function probeHealthUrl(healthUrl) {
+    // Check for simulation override first - enables deterministic testing
+    const sim = readSimulationOverrides();
+    if (sim) {
+      return sim.workerHealthy;
+    }
     const url = normalizeUrl(healthUrl);
     if (!url) return false;
     try {
@@ -413,6 +471,11 @@
   }
 
   async function probeNgrokTunnels() {
+    // Check for simulation override first - enables deterministic testing
+    const sim = readSimulationOverrides();
+    if (sim) {
+      return sim.tunnelUrl != null ? sim.tunnelUrl : "";
+    }
     try {
       const res = await fetch("/__proxy/ngrok-tunnels", {
         cache: "no-store",
@@ -708,15 +771,18 @@
     );
     const localEngineLabel = getLocalEngineLabel(localEngineKind);
 
+    const sim = readSimulationOverrides();
     const liveTunnelUrl = normalizeUrl(ngrokUrl);
-    const storedTunnelUrl =
-      normalizeUrl(
-        (bootstrapData &&
-          (bootstrapData.tunnelPublicUrl || bootstrapData.ngrokPublicUrl)) ||
-          "",
-      ) ||
-      normalizeUrl(transport.tunnelPublicUrl) ||
-      "";
+    // Use simulated stored tunnel URL when simulation is active
+    const storedTunnelUrl = sim
+      ? sim.storedTunnelUrl
+      : normalizeUrl(
+          (bootstrapData &&
+            (bootstrapData.tunnelPublicUrl || bootstrapData.ngrokPublicUrl)) ||
+            "",
+        ) ||
+          normalizeUrl(transport.tunnelPublicUrl) ||
+          "";
     const { tunnelPublicUrl, tunnelLive, tunnelReady, tunnelStale } =
       deriveTunnelFields({
         liveTunnelUrl,
@@ -800,8 +866,9 @@
       blockingIssue = "relay_missing";
     }
 
-    const isLocalSetup =
-      hasLocalPathSignals || savedWebhookKind === SAVED_WEBHOOK_KIND_WORKER;
+    const isLocalSetup = sim
+      ? sim.isLocalSetup
+      : hasLocalPathSignals || savedWebhookKind === SAVED_WEBHOOK_KIND_WORKER;
     const localRecoveryState = deriveLocalRecoveryState({
       isLocalSetup,
       localWebhookReady,
@@ -874,6 +941,7 @@
     probeNgrokTunnels,
     buildLocalHealthUrl,
     readDiscoveryTransportSetupState,
+    readSimulationOverrides,
     requestFixSetup,
   });
 

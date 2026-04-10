@@ -274,3 +274,269 @@ describe("Recovery scenarios", () => {
     assert.equal(s.recovery, "ok");
   });
 });
+
+describe("Simulation overrides", () => {
+  // These tests use a fresh VM context with isolated localStorage
+  // to test the simulation override mechanism
+
+  async function loadProbeFunctionsWithStorage() {
+    const source = await readFile(
+      join(repoRoot, "discovery-wizard-probes.js"),
+      "utf8",
+    );
+
+    const storage = new Map();
+    const localStorage = {
+      getItem(key) {
+        return storage.has(key) ? storage.get(key) : null;
+      },
+      setItem(key, value) {
+        storage.set(key, String(value));
+      },
+      removeItem(key) {
+        storage.delete(key);
+      },
+      clear() {
+        storage.clear();
+      },
+    };
+
+    const window = {
+      setTimeout,
+      clearTimeout,
+    };
+
+    const context = {
+      window,
+      localStorage,
+      fetch: async () => {
+        throw new Error("Unexpected fetch while loading recovery probe helpers");
+      },
+      URL,
+      AbortController,
+      console,
+    };
+
+    vm.runInNewContext(source, context, {
+      filename: "discovery-wizard-probes.js",
+    });
+
+    return {
+      probes: context.window.JobBoredDiscoveryWizard.probes,
+      localStorage,
+    };
+  }
+
+  it("readSimulationOverrides returns null when no simulation is set", async () => {
+    const { probes, localStorage } = await loadProbeFunctionsWithStorage();
+    localStorage.clear();
+    const sim = probes.readSimulationOverrides();
+    assert.equal(sim, null);
+  });
+
+  it("readSimulationOverrides returns null when enabled is false", async () => {
+    const { probes, localStorage } = await loadProbeFunctionsWithStorage();
+    localStorage.clear();
+    localStorage.setItem(
+      "discovery_local_simulation_override",
+      JSON.stringify({ enabled: false, workerHealthy: false }),
+    );
+    const sim = probes.readSimulationOverrides();
+    assert.equal(sim, null);
+  });
+
+  it("readSimulationOverrides returns simulation object when enabled is true", async () => {
+    const { probes, localStorage } = await loadProbeFunctionsWithStorage();
+    localStorage.clear();
+    localStorage.setItem(
+      "discovery_local_simulation_override",
+      JSON.stringify({
+        enabled: true,
+        workerHealthy: false,
+        tunnelUrl: null,
+        storedTunnelUrl: "https://old.ngrok.io/",
+        isLocalSetup: true,
+      }),
+    );
+    const sim = probes.readSimulationOverrides();
+    assert.notEqual(sim, null);
+    assert.equal(sim.enabled, true);
+    assert.equal(sim.workerHealthy, false);
+    assert.equal(sim.tunnelUrl, null);
+    assert.equal(sim.storedTunnelUrl, "https://old.ngrok.io/");
+    assert.equal(sim.isLocalSetup, true);
+  });
+
+  it("probeHealthUrl returns simulated workerHealthy when simulation is active", async () => {
+    const { probes, localStorage } = await loadProbeFunctionsWithStorage();
+    localStorage.clear();
+    localStorage.setItem(
+      "discovery_local_simulation_override",
+      JSON.stringify({
+        enabled: true,
+        workerHealthy: false,
+        tunnelUrl: "https://ngrok.io/",
+        storedTunnelUrl: "https://ngrok.io/",
+        isLocalSetup: true,
+      }),
+    );
+    // When simulation is active, probeHealthUrl should return the simulated value
+    // regardless of whether the health URL is valid
+    const result = await probes.probeHealthUrl("http://127.0.0.1:8644/health");
+    assert.equal(result, false); // simulated workerHealthy: false
+  });
+
+  it("probeHealthUrl returns simulated workerHealthy=true when simulation is active", async () => {
+    const { probes, localStorage } = await loadProbeFunctionsWithStorage();
+    localStorage.clear();
+    localStorage.setItem(
+      "discovery_local_simulation_override",
+      JSON.stringify({
+        enabled: true,
+        workerHealthy: true,
+        tunnelUrl: "https://ngrok.io/",
+        storedTunnelUrl: "https://ngrok.io/",
+        isLocalSetup: true,
+      }),
+    );
+    const result = await probes.probeHealthUrl("http://127.0.0.1:8644/health");
+    assert.equal(result, true); // simulated workerHealthy: true
+  });
+
+  it("probeNgrokTunnels returns simulated tunnelUrl when simulation is active", async () => {
+    const { probes, localStorage } = await loadProbeFunctionsWithStorage();
+    localStorage.clear();
+    localStorage.setItem(
+      "discovery_local_simulation_override",
+      JSON.stringify({
+        enabled: true,
+        workerHealthy: true,
+        tunnelUrl: "https://simulated.ngrok.io/",
+        storedTunnelUrl: "https://old.ngrok.io/",
+        isLocalSetup: true,
+      }),
+    );
+    // When simulation is active, probeNgrokTunnels should return the simulated tunnel URL
+    const result = await probes.probeNgrokTunnels();
+    assert.equal(result, "https://simulated.ngrok.io/");
+  });
+
+  it("probeNgrokTunnels returns empty string when simulated tunnelUrl is null", async () => {
+    const { probes, localStorage } = await loadProbeFunctionsWithStorage();
+    localStorage.clear();
+    localStorage.setItem(
+      "discovery_local_simulation_override",
+      JSON.stringify({
+        enabled: true,
+        workerHealthy: false,
+        tunnelUrl: null,
+        storedTunnelUrl: "https://old.ngrok.io/",
+        isLocalSetup: true,
+      }),
+    );
+    const result = await probes.probeNgrokTunnels();
+    assert.equal(result, "");
+  });
+
+  it("simulation enables deterministic worker_down state", async () => {
+    const { probes, localStorage } = await loadProbeFunctionsWithStorage();
+    localStorage.clear();
+    // Simulate worker down with tunnel up
+    localStorage.setItem(
+      "discovery_local_simulation_override",
+      JSON.stringify({
+        enabled: true,
+        workerHealthy: false, // worker is down
+        tunnelUrl: "https://ngrok.io/", // tunnel is up
+        storedTunnelUrl: "https://ngrok.io/",
+        isLocalSetup: true,
+      }),
+    );
+    const { deriveLocalRecoveryState } = probes;
+    const recovery = deriveLocalRecoveryState({
+      isLocalSetup: true,
+      localWebhookReady: false, // from simulation
+      tunnelLive: true,
+      tunnelStale: false,
+    });
+    assert.equal(recovery, "worker_down");
+  });
+
+  it("simulation enables deterministic tunnel_rotated state", async () => {
+    const { probes, localStorage } = await loadProbeFunctionsWithStorage();
+    localStorage.clear();
+    // Simulate tunnel rotation
+    localStorage.setItem(
+      "discovery_local_simulation_override",
+      JSON.stringify({
+        enabled: true,
+        workerHealthy: true,
+        tunnelUrl: "https://new.ngrok.io/", // new tunnel URL
+        storedTunnelUrl: "https://old.ngrok.io/", // old stored URL
+        isLocalSetup: true,
+      }),
+    );
+    const { deriveLocalRecoveryState, deriveTunnelFields } = probes;
+    const tunnel = deriveTunnelFields({
+      liveTunnelUrl: "https://new.ngrok.io/",
+      storedTunnelUrl: "https://old.ngrok.io/",
+    });
+    assert.equal(tunnel.tunnelStale, true);
+    assert.equal(tunnel.tunnelLive, true);
+    const recovery = deriveLocalRecoveryState({
+      isLocalSetup: true,
+      localWebhookReady: true,
+      tunnelLive: tunnel.tunnelLive,
+      tunnelStale: tunnel.tunnelStale,
+    });
+    assert.equal(recovery, "tunnel_rotated");
+  });
+
+  it("simulation enables deterministic needs_full_restart state", async () => {
+    const { probes, localStorage } = await loadProbeFunctionsWithStorage();
+    localStorage.clear();
+    // Simulate both worker and tunnel down
+    localStorage.setItem(
+      "discovery_local_simulation_override",
+      JSON.stringify({
+        enabled: true,
+        workerHealthy: false,
+        tunnelUrl: null,
+        storedTunnelUrl: "https://old.ngrok.io/",
+        isLocalSetup: true,
+      }),
+    );
+    const { deriveLocalRecoveryState } = probes;
+    const recovery = deriveLocalRecoveryState({
+      isLocalSetup: true,
+      localWebhookReady: false,
+      tunnelLive: false,
+      tunnelStale: false,
+    });
+    assert.equal(recovery, "needs_full_restart");
+  });
+
+  it("simulation with isLocalSetup=false returns ok regardless of other signals", async () => {
+    const { probes, localStorage } = await loadProbeFunctionsWithStorage();
+    localStorage.clear();
+    // Even with worker down, if isLocalSetup is false, recovery should be ok
+    localStorage.setItem(
+      "discovery_local_simulation_override",
+      JSON.stringify({
+        enabled: true,
+        workerHealthy: false,
+        tunnelUrl: null,
+        storedTunnelUrl: "",
+        isLocalSetup: false,
+      }),
+    );
+    const { deriveLocalRecoveryState } = probes;
+    const recovery = deriveLocalRecoveryState({
+      isLocalSetup: false,
+      localWebhookReady: false,
+      tunnelLive: false,
+      tunnelStale: false,
+    });
+    assert.equal(recovery, "ok");
+  });
+});
