@@ -1,8 +1,8 @@
 commands:
-  install: npm install
-  test: npm run test:contract:all && node --test tests/*.test.mjs && npm run test:browser-use-discovery
-  lint: npm run lint:skills
-  typecheck: node --check app.js && node --check dev-server.mjs && node --check discovery-wizard-local.js && node --check discovery-wizard-probes.js && node --check discovery-wizard-relay.js && node --check discovery-wizard-shell.js && node --check discovery-wizard-verify.js && node --check settings-tabs.js && node --check user-content-store.js && node --check resume-bundle.js && node --check resume-generate.js && node --check document-templates.js && node --check server/index.mjs && node --check server/job-scraper.mjs && node --check server/ats-scorecard.mjs
+  install: npm run install:repo
+  test: npm run test:repo
+  lint: npm run lint:repo
+  typecheck: npm run typecheck:repo
 
 services:
   web:

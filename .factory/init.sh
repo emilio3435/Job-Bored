@@ -1,12 +1,9 @@
 #!/usr/bin/env sh
 set -eu
 
-if [ ! -d "node_modules" ]; then
-  npm install
-fi
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+REPO_ROOT=$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)
 
-if [ ! -d "server/node_modules" ]; then
-  npm install --prefix ./server
-fi
+npm --prefix "$REPO_ROOT" run install:repo
 
-mkdir -p "./.factory/library"
+mkdir -p "$REPO_ROOT/.factory/library"

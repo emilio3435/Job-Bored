@@ -22,6 +22,10 @@
   const APPS_SCRIPT_MANAGED_BY = "command-center";
   const APPS_SCRIPT_PUBLIC_ACCESS_READY = "ready";
   const APPS_SCRIPT_PUBLIC_ACCESS_NEEDS_REMEDIATION = "needs_remediation";
+  const LOCAL_ENGINE_NONE = "none";
+  const LOCAL_ENGINE_BROWSER_USE = "browser_use_worker";
+  const LOCAL_ENGINE_HERMES = "hermes";
+  const LOCAL_ENGINE_OTHER = "other";
 
   const VALID_RESULTS = new Set([
     "none",
@@ -63,17 +67,6 @@
     return "";
   }
 
-  function isLocalHostLike() {
-    if (typeof window === "undefined" || !window.location) return false;
-    const host = String(window.location.hostname || "").toLowerCase();
-    return (
-      host === "localhost" ||
-      host === "127.0.0.1" ||
-      host === "[::1]" ||
-      host === "::1"
-    );
-  }
-
   function normalizeUrl(raw) {
     const s = raw != null ? String(raw).trim() : "";
     if (!s) return "";
@@ -84,6 +77,58 @@
     } catch (_) {
       return s;
     }
+  }
+
+  function normalizeLocalEngineKind(raw) {
+    const value = String(raw || "")
+      .trim()
+      .toLowerCase();
+    if (value === LOCAL_ENGINE_BROWSER_USE) return LOCAL_ENGINE_BROWSER_USE;
+    if (value === LOCAL_ENGINE_HERMES) return LOCAL_ENGINE_HERMES;
+    if (value === LOCAL_ENGINE_OTHER) return LOCAL_ENGINE_OTHER;
+    return LOCAL_ENGINE_NONE;
+  }
+
+  function getLocalEngineLabel(kind) {
+    if (kind === LOCAL_ENGINE_BROWSER_USE) return "Browser-use worker";
+    if (kind === LOCAL_ENGINE_HERMES) return "Hermes route";
+    if (kind === LOCAL_ENGINE_OTHER) return "Local discovery service";
+    return "";
+  }
+
+  function inferLocalEngineKind(metadata, localWebhookUrl) {
+    const source = metadata && typeof metadata === "object" ? metadata : {};
+    const explicit = normalizeLocalEngineKind(source.engineKind);
+    if (explicit !== LOCAL_ENGINE_NONE) return explicit;
+
+    const serviceName = String(
+      source.localService || source.serviceName || source.service || "",
+    )
+      .trim()
+      .toLowerCase();
+    if (serviceName === "browser-use-discovery-worker") {
+      return LOCAL_ENGINE_BROWSER_USE;
+    }
+
+    const platform = String(
+      source.localPlatform ||
+        source.platform ||
+        source.mode ||
+        source.localMode ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+    if (platform === "webhook") return LOCAL_ENGINE_HERMES;
+
+    const webhookUrl = normalizeUrl(localWebhookUrl || source.localWebhookUrl);
+    if (/\/webhook\/?$/i.test(webhookUrl)) {
+      return LOCAL_ENGINE_BROWSER_USE;
+    }
+    if (/\/webhooks\/[^/]+/i.test(webhookUrl)) {
+      return LOCAL_ENGINE_HERMES;
+    }
+    return webhookUrl ? LOCAL_ENGINE_OTHER : LOCAL_ENGINE_NONE;
   }
 
   function isLikelyAppsScriptWebAppUrl(raw) {
@@ -307,9 +352,6 @@
   }
 
   async function readLocalBootstrapState() {
-    if (!isLocalHostLike()) {
-      return { available: false, data: null };
-    }
     try {
       const res = await fetch(LOCAL_BOOTSTRAP_STATE_PATH, {
         cache: "no-store",
@@ -327,8 +369,25 @@
     }
   }
 
+  function localHealthProxyUrl(healthUrl) {
+    try {
+      const parsed = new URL(healthUrl);
+      const host = parsed.hostname;
+      if (
+        host === "127.0.0.1" ||
+        host === "localhost" ||
+        host === "[::1]" ||
+        host === "::1"
+      ) {
+        const port =
+          parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+        return `/__proxy/local-health?port=${port}`;
+      }
+    } catch (_) {}
+    return healthUrl;
+  }
+
   async function probeHealthUrl(healthUrl) {
-    if (!isLocalHostLike()) return false;
     const url = normalizeUrl(healthUrl);
     if (!url) return false;
     try {
@@ -337,7 +396,7 @@
       const timeout = controller
         ? window.setTimeout(() => controller.abort(), 2500)
         : null;
-      const res = await fetch(url, {
+      const res = await fetch(localHealthProxyUrl(url), {
         cache: "no-store",
         signal: controller ? controller.signal : undefined,
       });
@@ -349,9 +408,8 @@
   }
 
   async function probeNgrokTunnels() {
-    if (!isLocalHostLike()) return "";
     try {
-      const res = await fetch("http://127.0.0.1:4040/api/tunnels", {
+      const res = await fetch("/__proxy/ngrok-tunnels", {
         cache: "no-store",
       });
       if (!res.ok) return "";
@@ -390,11 +448,35 @@
     }
   }
 
+  function deriveTunnelFields({ liveTunnelUrl, storedTunnelUrl }) {
+    const tunnelPublicUrl = liveTunnelUrl || storedTunnelUrl || "";
+    const tunnelLive = !!liveTunnelUrl;
+    const tunnelReady = tunnelLive;
+    const tunnelStale =
+      !!storedTunnelUrl && tunnelLive && liveTunnelUrl !== storedTunnelUrl;
+    return { tunnelPublicUrl, tunnelLive, tunnelReady, tunnelStale };
+  }
+
+  function deriveLocalRecoveryState({
+    isLocalSetup,
+    localWebhookReady,
+    tunnelLive,
+    tunnelStale,
+  }) {
+    if (!isLocalSetup) return "ok";
+    if (!localWebhookReady && !tunnelLive) return "needs_full_restart";
+    if (!localWebhookReady) return "worker_down";
+    if (!tunnelLive) return "tunnel_down";
+    if (tunnelStale) return "tunnel_rotated";
+    return "ok";
+  }
+
   function buildSettingsDiscoveryView(snapshot) {
     const state = snapshot && typeof snapshot === "object" ? snapshot : {};
     const engineState = normalizeDiscoveryEngineState(state.engineState);
     const kind = String(state.savedWebhookKind || SAVED_WEBHOOK_KIND_NONE);
     const appsScriptState = String(state.appsScriptState || "none");
+    const recovery = state.localRecoveryState || "ok";
     const hasSavedExternalEndpoint =
       kind === SAVED_WEBHOOK_KIND_WORKER ||
       kind === SAVED_WEBHOOK_KIND_GENERIC_HTTPS;
@@ -405,6 +487,32 @@
     const stubCurrent =
       engineState === DISCOVERY_ENGINE_STATE_STUB_ONLY ||
       kind === SAVED_WEBHOOK_KIND_APPS_SCRIPT_STUB;
+
+    if (recovery !== "ok" && (connected || pendingExternal)) {
+      const sentences = {
+        needs_full_restart:
+          "Your computer restarted, so the local worker and tunnel need to be brought back up.",
+        worker_down:
+          "The local discovery worker is not responding. It may need to be restarted.",
+        tunnel_down:
+          "The ngrok tunnel is not running. The public URL cannot reach the local worker.",
+        tunnel_rotated:
+          "The ngrok tunnel restarted with a new URL. The relay needs to be updated.",
+      };
+      return {
+        tone: "warning",
+        title: "Local setup needs recovery",
+        detail:
+          sentences[recovery] ||
+          "Part of the local discovery chain is down after a restart.",
+        chipLabel: "Needs recovery",
+        chipTone: "warning",
+        runDiscoveryEnabled: false,
+        primaryActionLabel: "Fix setup",
+        primaryActionHint:
+          "One click restores the local worker, tunnel, and relay.",
+      };
+    }
 
     if (connected || pendingExternal) {
       const verified = connected;
@@ -470,12 +578,26 @@
     const engineState = normalizeDiscoveryEngineState(state.engineState);
     const appsScriptState = String(state.appsScriptState || "none");
     const kind = String(state.savedWebhookKind || SAVED_WEBHOOK_KIND_NONE);
+    const recovery = state.localRecoveryState || "ok";
     const hasSavedExternalEndpoint =
       kind === SAVED_WEBHOOK_KIND_WORKER ||
       kind === SAVED_WEBHOOK_KIND_GENERIC_HTTPS;
     const stubCurrent =
       engineState === DISCOVERY_ENGINE_STATE_STUB_ONLY ||
       kind === SAVED_WEBHOOK_KIND_APPS_SCRIPT_STUB;
+
+    if (
+      recovery !== "ok" &&
+      (engineState === DISCOVERY_ENGINE_STATE_CONNECTED ||
+        hasSavedExternalEndpoint)
+    ) {
+      return {
+        title: "Local setup needs recovery",
+        body: "The local discovery chain is down. Click Fix setup to restore it.",
+        ctaLabel: "Fix setup",
+        ctaAction: "open_setup",
+      };
+    }
 
     if (engineState === DISCOVERY_ENGINE_STATE_CONNECTED) {
       return {
@@ -569,9 +691,20 @@
       normalizeUrl((bootstrapData && bootstrapData.localHealthUrl) || "") ||
       buildLocalHealthUrl(localWebhookUrl);
     const localWebhookReady = await probeHealthUrl(localHealthUrl);
+    const localEngineKind = inferLocalEngineKind(
+      bootstrapData && bootstrapData.diagnostics
+        ? {
+            ...(bootstrapData.diagnostics || {}),
+            engineKind:
+              bootstrapData.diagnostics.engineKind || bootstrapData.engineKind,
+          }
+        : bootstrapData,
+      localWebhookUrl,
+    );
+    const localEngineLabel = getLocalEngineLabel(localEngineKind);
 
-    const tunnelPublicUrl =
-      normalizeUrl(ngrokUrl) ||
+    const liveTunnelUrl = normalizeUrl(ngrokUrl);
+    const storedTunnelUrl =
       normalizeUrl(
         (bootstrapData &&
           (bootstrapData.tunnelPublicUrl || bootstrapData.ngrokPublicUrl)) ||
@@ -579,7 +712,11 @@
       ) ||
       normalizeUrl(transport.tunnelPublicUrl) ||
       "";
-    const tunnelReady = !!tunnelPublicUrl;
+    const { tunnelPublicUrl, tunnelLive, tunnelReady, tunnelStale } =
+      deriveTunnelFields({
+        liveTunnelUrl,
+        storedTunnelUrl,
+      });
 
     const relayTargetUrl =
       normalizeUrl((bootstrapData && bootstrapData.publicTargetUrl) || "") ||
@@ -627,7 +764,11 @@
     } else if (hasLocalPathSignals) {
       recommendedFlow = "local_agent";
       recommendedReason =
-        "Local discovery signals were found on this machine, so the local path is the best match.";
+        localEngineKind === LOCAL_ENGINE_BROWSER_USE
+          ? "A local browser-use worker was found on this machine, so the local path is the best match."
+          : localEngineKind === LOCAL_ENGINE_HERMES
+            ? "A local Hermes route was found on this machine. It can work, but the browser-use worker is the recommended default."
+            : "Local discovery signals were found on this machine, so the local path is the best match.";
     } else if (hasSavedStubEndpoint) {
       recommendedFlow = "stub_only";
       recommendedReason =
@@ -654,6 +795,15 @@
       blockingIssue = "relay_missing";
     }
 
+    const isLocalSetup =
+      hasLocalPathSignals || savedWebhookKind === SAVED_WEBHOOK_KIND_WORKER;
+    const localRecoveryState = deriveLocalRecoveryState({
+      isLocalSetup,
+      localWebhookReady,
+      tunnelLive,
+      tunnelStale,
+    });
+
     return {
       sheetConfigured: !!config.sheetId,
       savedWebhookUrl,
@@ -661,8 +811,12 @@
       localBootstrapAvailable: !!(localBootstrap && localBootstrap.available),
       localWebhookUrl,
       localWebhookReady,
+      localEngineKind,
+      localEngineLabel,
       tunnelPublicUrl,
+      tunnelLive,
       tunnelReady,
+      tunnelStale,
       relayTargetUrl,
       relayReady,
       engineState,
@@ -670,16 +824,25 @@
       recommendedFlow,
       recommendedReason,
       blockingIssue,
+      localRecoveryState,
       views: {
         settings: buildSettingsDiscoveryView({
           engineState,
           appsScriptState,
           savedWebhookKind,
+          localEngineKind,
+          localEngineLabel,
+          localWebhookUrl,
+          localRecoveryState,
         }),
         emptyState: buildEmptyStateDiscoveryView({
           engineState,
           appsScriptState,
           savedWebhookKind,
+          localEngineKind,
+          localEngineLabel,
+          localWebhookUrl,
+          localRecoveryState,
         }),
       },
       wizardState:
@@ -700,9 +863,29 @@
     isLikelyAppsScriptWebAppUrl,
     isLikelyCloudflareWorkerUrl,
     isLocalWebhookUrl,
+    deriveTunnelFields,
+    deriveLocalRecoveryState,
     probeHealthUrl,
     probeNgrokTunnels,
     buildLocalHealthUrl,
     readDiscoveryTransportSetupState,
+    requestFixSetup,
   });
+
+  async function requestFixSetup() {
+    const origin = window.location.origin || "http://localhost:8080";
+    const url = `${origin}/__proxy/fix-setup`;
+    try {
+      const res = await fetch(url, { method: "POST" });
+      return await res.json();
+    } catch (err) {
+      return {
+        ok: false,
+        phase: "network_error",
+        message:
+          "Could not reach the local dev server. Make sure `npm start` is running.",
+        detail: err && err.message ? err.message : String(err),
+      };
+    }
+  }
 })();
