@@ -1,66 +1,108 @@
 {
   "milestone": "guardrails",
-  "round": 3,
-  "status": "pass",
+  "round": 4,
+  "status": "fail",
   "validatorsRun": {
     "test": { "passed": true, "command": "npm run test:repo", "exitCode": 0 },
     "typecheck": { "passed": true, "command": "npm run typecheck:repo", "exitCode": 0 },
     "lint": { "passed": true, "command": "npm run lint:repo", "exitCode": 0 }
   },
   "reviewsSummary": {
-    "total": 0,
+    "total": 2,
     "passed": 0,
-    "failed": 0,
-    "failedFeatures": []
+    "failed": 2,
+    "failedFeatures": [
+      "guardrails-followups-round3-command-and-reference-repair",
+      "performance-cleanup-round3-scope-disposition-and-provenance"
+    ]
   },
-  "blockingIssues": [],
-  "appliedUpdates": [
+  "blockingIssues": [
     {
-      "target": ".factory/validation/guardrails/scrutiny/synthesis.json (round 2)",
-      "disposition": "explicit-documented-exception",
-      "rationale": "All three behavioral changes bundled in commit a5994fc (OAuth runtime sessionStorage layer, allowWhileOnboarding bypass, sheet-ID tightening MIN_PLAUSIBLE_GOOGLE_SHEET_ID_LENGTH=20) are retained as documented exceptions per feature description 'explicit accepted disposition... (separate/revert or documented exception codified in mission guidance)'. 14 regression tests across 3 test files (oauth-session-storage-boundary.test.mjs: 5 tests, discovery-cold-start-handoffs.test.mjs: 6 tests, settings-sheet-id-validation.test.mjs: 3 tests) provide verified regression coverage. architecture.md already documents these changes accurately. The one-concern-per-commit violation is acknowledged as a historical fact; reverting now would lose valid functionality already absorbed by downstream features."
+      "featureId": "guardrails-followups-round3-command-and-reference-repair",
+      "severity": "blocking",
+      "description": "The != detection regex `(?<!.)!=(?!=)` in tech-debt-auditor.droid is non-functional. The lookbehind `(?<!.)` anchors to start-of-line in ripgrep, so the command finds zero results despite 20+ loose != instances in the codebase. Correct fix: `!=(?!=)` or `(?<![!=])!=(?!=)`. Evidence: `rg -P '(?<![!=])!=(?!=)' --type js -g '!/node_modules/'` finds 20+ results while `rg -P '(?<!.)!=(?!=)' --type js -g '!/node_modules/'` finds zero.",
+      "suggestedFix": "Change the != detection command in tech-debt-auditor.droid line 62 from `rg -P \"(?<!.)!=(?!=)\"` to `rg -P \"(?<![!=])!=(?!=)\"` or `rg -P \"!=(?!=)\"`."
     },
     {
-      "target": ".factory/validation/guardrails/scrutiny/reviews/performance-and-legacy-path-cleanup.json",
-      "disposition": "fabricated-hash-correction",
-      "rationale": "Original handoff cited fabricated commit ID 'a5994fc6e1c40d3a8e4f5c2b3d7a9e1f2b3c4d5e' which does not exist in git (git rev-parse returns 'fatal: Needed a single revision'). The real commit for 'refactor(frontend): remove dead legacy card-list rendering path' is a5994fcd0b4408f86a8497cc732b94417351c76d. The short hash 'a5994fc' correctly resolves to the real commit via git rev-parse --verify a5994fc^{commit}. This correction is explicitly recorded so future audits are unambiguous. All handoff records and scrutiny syntheses must use the verifiable commit ID 'a5994fc' (resolves to a5994fcd0b4408f86a8497cc732b94417351c76d) and must not cite the fabricated full hash."
+      "featureId": "performance-cleanup-round3-scope-disposition-and-provenance",
+      "severity": "blocking",
+      "description": "Handoff commitId field '5220ce7c3f15f80dff5ee89e14d77e7df0cd8f9c' does not exist in git. The actual full hash for short hash 5220ce7 is 5220ce7b884703733e4a5d932a74cb282192f2da. `git rev-parse --verify 5220ce7c3f15f80dff5ee89e14d77e7df0cd8f9c^{commit}` returns 'fatal: Needed a single revision'. This is the exact same class of error this feature was created to correct — a fabricated/non-existent full commit hash in a handoff record.",
+      "suggestedFix": "The substantive code changes (synthesis.json round 3) are correct. The blocking issue is only in handoff metadata. Either correct the handoff commitId to '5220ce7b884703733e4a5d932a74cb282192f2da' or accept the short hash '5220ce7' and note that the full hash in the handoff was fabricated by the handoff generation layer."
     }
   ],
+  "appliedUpdates": [],
   "suggestedGuidanceUpdates": [
     {
       "target": "AGENTS.md",
-      "suggestion": "Add explicit 'one concern per commit' enforcement with commit-provenance validation: when a worker's handoff cites a commitId, the orchestrator or scrutiny validator must verify it resolves as a real git object before acceptance. Workers must not fabricate commit hashes.",
-      "evidence": "performance-and-legacy-path-cleanup fabricated commit ID. The fix feature (performance-cleanup-out-of-scope-unbundle) used the correct short hash but never formally corrected the fabrication. Round 2 still flags this.",
+      "suggestion": "Strengthen commit-provenance validation: the handoff generation layer itself must verify commitId using `git rev-parse <hash>^{commit}` before writing the handoff file. Workers cannot be trusted to produce correct full hashes. The scrutiny validator must also cross-check. This is now the THIRD instance of fabricated/incorrect full commit hashes (original performance-and-legacy-path-cleanup, and now performance-cleanup-round3 handoff).",
+      "evidence": "Three independent instances: (1) a5994fc6e1c40d3a8e4f5c2b3d7a9e1f2b3c4d5e in performance-and-legacy-path-cleanup handoff, (2) 5220ce7c3f15f80dff5ee89e14d77e7df0cd8f9c in performance-cleanup-round3-scope-disposition-and-provenance handoff — both do not exist in git. The second occurred in a feature specifically tasked with correcting the first.",
       "isSystemic": true
     },
     {
       "target": "AGENTS.md",
-      "suggestion": "Clarify the 'separate or revert' semantics for scrutiny remediation features. If documentation-only remediation is acceptable for bundled changes that already have regression test coverage, codify that explicitly. Otherwise, enforce that behavioral changes must be extracted into separate commits before the fix is considered resolved.",
-      "evidence": "performance-cleanup-out-of-scope-unbundle interpreted 'separating or reverting' as 'documenting' the bundled changes. 14 regression tests exist across 3 test files but the one-concern-per-commit convention remains violated.",
-      "isSystemic": true
-    },
-    {
-      "target": "AGENTS.md",
-      "suggestion": "Require workers to actually execute any droid/skill commands they modify or create, not just describe expected behavior. Handoff claims of verification must be backed by command output evidence.",
-      "evidence": "guardrails-nonblocking-scrutiny-followups handoff claims tech-debt-auditor regex was verified but the rg commands fail immediately on execution. The refactoring.md references were also claimed verified but 3 specific issues from the prior review remain.",
+      "suggestion": "Require workers to verify regex commands execute correctly against representative test input before claiming they are fixed. The pattern of claiming a regex fix works without actually testing it against real codebase content has occurred across multiple rounds.",
+      "evidence": "guardrails-nonblocking-scrutiny-followups claimed rg commands were verified but they failed on execution. guardrails-followups-round3-command-and-reference-repair claimed the != regex was fixed but it still finds zero results due to the retained broken lookbehind.",
       "isSystemic": true
     },
     {
       "target": "library/knowledge",
-      "suggestion": "Document that ripgrep (rg) does not support look-around assertions (lookahead/lookbehind) without the --pcre2 flag. This is a common gotcha when writing regex patterns for rg commands in droids and skills.",
-      "evidence": "tech-debt-auditor.droid introduced look-around patterns that fail on execution. Both prior round review and this fix feature missed the ripgrep limitation.",
+      "suggestion": "Document the ripgrep regex gotcha: `(?<!.)` in ripgrep -P mode means 'not preceded by any character', which effectively anchors to start-of-line in ripgrep's line-by-line processing. This is NOT equivalent to 'word boundary' or 'not preceded by specific character'. For '!= not preceded by ! or =', use `(?<![!=])` instead of `(?<!.)`.",
+      "evidence": "tech-debt-auditor.droid: `(?<!.)!=(?!=)` finds zero results while `(?<![!=])!=(?!=)` finds 20+ results. The broken pattern persisted through two rounds of review.",
       "isSystemic": false
     }
   ],
   "rejectedObservations": [
     {
-      "observation": "architecture.md documentation is accurate and useful for the three bundled changes.",
-      "reason": "Positive finding already captured in non-blocking issue of the review report; not actionable as a guidance update."
+      "observation": "The == detection regex `(?<!=)==(?!=)` has false positives on !== patterns (~16 of ~30 matches).",
+      "reason": "Flagged as non-blocking by the reviewer. The regex works correctly for its stated purpose (detecting loose ==) but is noisy. Not worth blocking the milestone over — it can be improved in a future cleanup."
     },
     {
-      "observation": "14 regression tests already cover the three bundled behavioral changes.",
-      "reason": "This is factual context supporting the documentation-only approach, but doesn't resolve the blocking one-concern-per-commit violation. Not a separate guidance update."
+      "observation": "14 regression tests pass for the three bundled behavioral changes.",
+      "reason": "Already documented in round 3 synthesis. No new evidence to add."
     }
   ],
-  "previousRound": ".factory/validation/guardrails/scrutiny/synthesis.json (round 2)"
+  "commitProvenanceVerification": {
+    "description": "Per orchestrator note for round 4: strict commit verification using git rev-parse --verify <hash>^{commit}",
+    "verifiedHashes": {
+      "c51d197": {
+        "resolvedTo": "c51d197c07b460af7612945b930f8a92facbfd04",
+        "handoffCited": "c51d197",
+        "status": "valid"
+      },
+      "5220ce7": {
+        "resolvedTo": "5220ce7b884703733e4a5d932a74cb282192f2da",
+        "handoffCited": "5220ce7c3f15f80dff5ee89e14d77e7df0cd8f9c",
+        "status": "MISMATCH — handoff full hash does not exist in git"
+      },
+      "a5994fc": {
+        "resolvedTo": "a5994fcd0b4408f86a8497cc732b94417351c76d",
+        "handoffCited": "a5994fc",
+        "status": "valid"
+      }
+    }
+  },
+  "droidCommandEvidence": {
+    "description": "Per orchestrator note for round 4: strict command-evidence checks for modified droid/skill snippets",
+    "commands": [
+      {
+        "source": ".factory/droids/tech-debt-auditor.droid (line 61)",
+        "command": "rg -P '(?<!=)==(?!=)' --type js -g '!/node_modules/'",
+        "exitCode": 0,
+        "observation": "Runs without parse errors. Returns ~30 results but ~16 are false positives on !== patterns. Non-blocking issue."
+      },
+      {
+        "source": ".factory/droids/tech-debt-auditor.droid (line 62)",
+        "command": "rg -P '(?<!.)!=(?!=)' --type js -g '!/node_modules/'",
+        "exitCode": 0,
+        "observation": "Runs without parse errors but returns ZERO results due to broken lookbehind (?<!.). BLOCKING — 20+ loose != exist in codebase but command cannot detect them."
+      },
+      {
+        "source": ".factory/droids/tech-debt-auditor.droid (line 62, corrected)",
+        "command": "rg -P '(?<![!=])!=(?!=)' --type js -g '!/node_modules/'",
+        "exitCode": 0,
+        "observation": "Returns 20+ results as expected for loose != detection. This is the correct regex."
+      }
+    ]
+  },
+  "previousRound": ".factory/validation/guardrails/scrutiny/synthesis.json (round 3)"
 }

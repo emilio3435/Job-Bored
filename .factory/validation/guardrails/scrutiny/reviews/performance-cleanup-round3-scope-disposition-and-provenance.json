@@ -1,0 +1,33 @@
+{
+  "featureId": "performance-cleanup-round3-scope-disposition-and-provenance",
+  "reviewedAt": "2026-04-11T20:30:00.000Z",
+  "commitId": "5220ce7b884703733e4a5d932a74cb282192f2da",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The implementation correctly dispositions three bundled behavioral changes as documented exceptions in synthesis.json and correctly identifies/corrects the prior fabricated commit hash. The commit message and synthesis.json updates are well-structured and thorough. However, the handoff for this feature contains a critical provenance failure: the commitId field cites '5220ce7c3f15f80dff5ee89e14d77e7df0cd8f9c' which does not exist in git. The actual full hash is 5220ce7b884703733e4a5d932a74cb282192f2da. This is the exact same class of error this feature was created to correct — a fabricated/non-existent full commit hash in a handoff record.",
+    "issues": [
+      {
+        "file": ".factory/missions/62d73272-e50b-4b4e-89d1-be82508ac1ac/handoffs/2026-04-11T20-14-37-144Z__performance-cleanup-round3-scope-disposition-and-provenance__a6fa085e-7d08-44ab-9969-37d998e02b9d.json",
+        "line": null,
+        "severity": "blocking",
+        "description": "Handoff commitId field '5220ce7c3f15f80dff5ee89e14d77e7df0cd8f9c' does not exist in git (git rev-parse --verify returns 'fatal: Needed a single revision'). The actual commit for 5220ce7 is 5220ce7b884703733e4a5d932a74cb282192f2da. This is a fabricated/non-existent hash in the handoff of a feature specifically tasked with correcting fabricated commit hashes — a severe provenance failure."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Workers (or the handoff generation mechanism) fabricate full commit hashes that do not exist in git. This has now occurred twice: once in the original performance-and-legacy-path-cleanup handoff (a5994fc6e1c40d3a8e4f5c2b3d7a9e1f2b3c4d5e) and now again in this feature's own handoff (5220ce7c3f15f80dff5ee89e14d77e7df0cd8f9c). AGENTS.md already requires workers to verify commit IDs with git rev-parse --verify <hash>^{commit}, but the handoff generation layer apparently does not enforce this check on its own commitId field.",
+      "evidence": "git rev-parse --verify 5220ce7^{commit} returns 5220ce7b884703733e4a5d932a74cb282192f2da. git rev-parse --verify 5220ce7c3f15f80dff5ee89e14d77e7df0cd8f9c^{commit} returns 'fatal: Needed a single revision'. The handoff file at line with commitId field contains the non-existent hash."
+    },
+    {
+      "area": "conventions",
+      "observation": "The synthesis.json suggestedGuidanceUpdates already include a recommendation to add commit-provenance validation at the orchestrator/scrutiny level. This observation reinforces that recommendation — the provenance check must apply to the handoff's own commitId field, not just to historical commit references within the implementation.",
+      "evidence": "synthesis.json suggestedGuidanceUpdates[0]: 'when a worker's handoff cites a commitId, the orchestrator or scrutiny validator must verify it resolves as a real git object before acceptance.'"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "FAIL — The implementation correctly addresses the feature's substantive requirements: three bundled behavioral changes (OAuth runtime sessionStorage, allowWhileOnboarding bypass, sheet-ID tightening) are explicitly dispositioned as documented exceptions with regression test coverage rationale, and the prior fabricated hash (a5994fc6e1c40d3a8e4f5c2b3d7a9e1f2b3c4d5e) is formally corrected to the verifiable short hash a5994fc. All 14 regression tests pass. HOWEVER, the handoff itself contains a fabricated commit hash: commitId '5220ce7c3f15f80dff5ee89e14d77e7df0cd8f9c' does not exist in git. The actual full hash is 5220ce7b884703733e4a5d932a74cb282192f2da. This is the exact same class of error the feature was created to correct — a fabricated full commit hash in a handoff record — making this a blocking provenance failure. The code changes themselves (synthesis.json only) are correct and well-structured. The failure is purely in the handoff metadata."
+}
