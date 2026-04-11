@@ -12,7 +12,8 @@ Current active surfaces:
 
 Dashboard-side persistent state is split across three primary places:
 - **Google Sheet (`Pipeline`)**: shared system of record for job rows
-- **Browser `localStorage`**: config overrides, OAuth session reuse, viewed/enrichment caches, lightweight discovery transport state
+- **Browser `localStorage`**: config overrides, OAuth session reuse (metadata markers only), viewed/enrichment caches, lightweight discovery transport state
+- **Browser `sessionStorage`**: OAuth runtime session including access token for faster session restore on same-page navigations
 - **Browser IndexedDB**: onboarding completion, portfolio/profile materials, discovery preferences/wizard state, generated draft history
 
 There is also operator-owned runtime state outside the browser:
@@ -24,7 +25,7 @@ The refactor should preserve the current product shape: a static browser-first d
 ### Pipeline sheet data plane
 - **Responsibility:** Hold the canonical pipeline rows that every other surface reads from or writes to.
 - **Depends on:** Google Sheets, the published pipeline contract, dashboard readers/writers, discovery workers, and starter-sheet creation flow.
-- **Stability constraints:** `Pipeline` remains the system of record; the header contract must stay aligned; row identity is anchored on canonicalized job `Link`; discovery updates must not duplicate rows or overwrite user-owned workflow fields.
+- **Stability constraints:** `Pipeline` remains the system of record; the header contract must stay aligned; row identity is anchored on canonicalized job `Link`; discovery updates must not duplicate rows or overwrite user-owned workflow fields; sheet ID input is validated with a minimum 20-character plausibility check to reject clearly invalid tokens early.
 
 ### Dashboard board and drawer
 - **Responsibility:** Render the Daily Brief, stage-ordered board lanes, search/sort/filter state, job drawer, and in-place CRM edits.
@@ -34,12 +35,12 @@ The refactor should preserve the current product shape: a static browser-first d
 ### Settings and auth shell
 - **Responsibility:** Own the six-tab settings surface, OAuth bootstrap, starter-sheet creation, saved config overrides, Apps Script stub deploy, and provider endpoint selection.
 - **Depends on:** `config.js`, browser `localStorage`, Google Identity Services, Google Sheets API, and IndexedDB-backed discovery/profile state.
-- **Stability constraints:** Settings keeps the current six-tab shell and save/reload behavior; OAuth can bootstrap without a sheet ID; changing the OAuth client ID invalidates cached session reuse; clearing saved settings must not erase IndexedDB-backed portfolio or draft data.
+- **Stability constraints:** Settings keeps the current six-tab shell and save/reload behavior; OAuth can bootstrap without a sheet ID; changing the OAuth client ID invalidates cached session reuse; clearing saved settings must not erase IndexedDB-backed portfolio or draft data; OAuth session restore uses a dual storage model: sessionStorage (runtime session with access token) is checked first for fast restore, falling back to localStorage (persistent session metadata); both layers are cleared together on sign-out or session expiry.
 
 ### Discovery browser path
 - **Responsibility:** Guide the user to a valid discovery endpoint, validate browser-safe discovery routes, store discovery preferences, and send the `command-center.discovery` POST from the browser.
 - **Depends on:** Settings, discovery wizard helpers, local bootstrap JSON, browser-stored discovery profile/state, and the v1 webhook contract.
-- **Stability constraints:** Missing discovery config opens setup instead of posting; test/run flows must classify outcomes consistently; browser-facing endpoints must remain public HTTPS roots that support CORS; deferred discovery intent must survive onboarding/setup handoffs.
+- **Stability constraints:** Missing discovery config opens setup instead of posting; test/run flows must classify outcomes consistently; browser-facing endpoints must remain public HTTPS roots that support CORS; deferred discovery intent must survive onboarding/setup handoffs; discovery setup calls can bypass the onboarding overlay via `allowWhileOnboarding: true` parameter to allow remediation access during incomplete onboarding.
 
 ### Discovery worker
 - **Responsibility:** Accept discovery webhook requests, resolve worker-owned company/source config, collect listings, normalize/match/filter them, dedupe them, and write valid rows back to the sheet.
@@ -83,7 +84,7 @@ The refactor should preserve the current product shape: a static browser-first d
 - The dashboard board and drawer always refer to the same active role after re-renders, saves, enrichment loads, and draft actions.
 - Discovery request payloads stay on the published `command-center.discovery` v1 contract unless a deliberate contract migration is made.
 - Discovery refreshes must preserve user-owned workflow state such as status, applied date, notes, follow-up, last contact, and reply.
-- Browser-local data remains intentionally separated: config/session caches in `localStorage`, profile/discovery/drafts in IndexedDB.
+- Browser-local data remains intentionally separated: config/session caches in `localStorage`, runtime OAuth session in `sessionStorage`, profile/discovery/drafts in IndexedDB.
 - `Clear saved settings` only clears config overrides and related lightweight browser state; it does not erase portfolio materials or draft history.
 - Posting enrichment, ATS, and discovery are optional augmentations: failures must degrade visibly and recoverably without breaking the base dashboard/browse flow.
 - Worker-owned targeting/config remains authoritative for discovery runs; browser-sent discovery preferences only narrow or bias a run in v1.
