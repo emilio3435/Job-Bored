@@ -1,0 +1,34 @@
+{
+  "featureId": "guardrails-followups-round3-command-and-reference-repair",
+  "reviewedAt": "2026-04-11T20:25:00.000Z",
+  "commitId": "c51d197",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The fix addresses 4 of 5 issues from the prior review (guardrails-nonblocking-scrutiny-followups). The refactoring.md fixes are all correct: cp-to-/dev/null removed, test:contract:dashboard replaced with test:contract:all, and the non-existent apps-script-classification.test.mjs reference removed. Both rg commands now run without parse errors thanks to the -P flag. However, the != detection regex retains a broken lookbehind from the prior review: (?<!.) anchors to start-of-line, making the command unable to detect any real != patterns. I confirmed 20+ loose != instances in the codebase (e.g., '!= null') that this command fails to find. The == regex has a separate non-blocking issue: it matches == inside !== (false positives) because the lookbehind only excludes = but not !.",
+    "issues": [
+      {
+        "file": ".factory/droids/tech-debt-auditor.droid",
+        "line": 62,
+        "severity": "blocking",
+        "description": "The != detection regex `(?<!.)!=(?!=)` is non-functional. The lookbehind `(?<!.)` means 'not preceded by any character', which in ripgrep's line-by-line mode only matches at the start of a line. This means the command cannot detect any real != patterns in code. The codebase has 20+ loose != instances (e.g., 'timeoutId != null', 'job.fitScore != null', 'raw != null') that this command fails to find. The prior review (guardrails-nonblocking-scrutiny-followups) flagged the original `(?<!.)=(?!=)` as blocking. The fix changed the match from `=` to `!=` (correct) but retained the broken `(?<!.)` lookbehind. The correct fix should be `!=(?!=)` (match != not followed by =) or `(?<![!=])!=(?!=)`. Evidence: running `rg -P '(?<![!=])!=(?!=)' --type js -g '!/node_modules/'` finds 20+ results while `rg -P '(?<!.)!=(?!=)' --type js -g '!/node_modules/'` finds zero."
+      },
+      {
+        "file": ".factory/droids/tech-debt-auditor.droid",
+        "line": 61,
+        "severity": "non_blocking",
+        "description": "The == detection regex `(?<!=)==(?!=)` has false positives on !== patterns. Since !== contains == preceded by ! (not =), the lookbehind passes and the regex matches the == portion of !==. Running the command produces mostly !== false positives (typeof checks, strict inequality comparisons) with a few genuine == matches (e.g., 'raw == null'). Consider using `(?<![=!])==(?!=)` to also exclude !==. Evidence: `rg -P '(?<!=)==(?!=)' --type js -g '!/node_modules/'` returns ~30 results, while `rg -P '(?<![=!])==(?!=)' --type js -g '!/node_modules/'` returns ~14 results — all genuine loose equality."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The pattern (?<!.) in ripgrep with -P flag means 'not preceded by any character', which effectively anchors to start-of-line in ripgrep's line-by-line processing. This is a subtle gotcha when writing regex for rg commands — workers may intend 'not preceded by X' but write 'not preceded by anything'. The correct pattern for '!= not preceded by ! or =' would be (?<![!=]).",
+      "evidence": "tech-debt-auditor.droid line 62: `(?<!.)!=(?!=)` — the (?<!.) was carried forward from the prior broken regex (?<!.)=(?!=) and retained in the fix despite the match pattern being corrected from = to !=."
+    }
+  ],
+  "addressesFailureFrom": ".factory/validation/guardrails/scrutiny/reviews/guardrails-nonblocking-scrutiny-followups.json",
+  "summary": "FAIL — partial fix. The refactoring.md repairs are complete and correct (3/3 issues fixed). The rg -P flag addition resolves the parse-error blocking issue. However, the != detection regex remains functionally broken: `(?<!.)!=(?!=)` can only match at start-of-line, missing all 20+ loose != patterns in the codebase. The == regex works but is noisy due to !== false positives (non-blocking). One blocking issue remains from the prior review: the != lookbehind must be changed from (?<!.) to nothing or (?<![!=]) to make the command semantically correct as the feature description requires."
+}
