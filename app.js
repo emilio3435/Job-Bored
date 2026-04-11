@@ -8528,6 +8528,7 @@ async function updateJobNotes(dataIndex, notes) {
 
   if (success) {
     pipelineData[dataIndex].notes = notes;
+    refreshDrawerIfOpen(dataIndex);
     renderBrief();
     showToast("Notes saved");
   }
@@ -8542,6 +8543,7 @@ async function updateFollowUpDate(dataIndex, date) {
 
   if (success) {
     pipelineData[dataIndex].followUpDate = date || null;
+    refreshDrawerIfOpen(dataIndex);
     renderPipeline();
     renderBrief();
     showToast(date ? `Follow-up set: ${date}` : "Follow-up cleared");
@@ -8557,6 +8559,7 @@ async function updateLastHeardFrom(dataIndex, value) {
 
   if (success) {
     pipelineData[dataIndex].lastHeardFrom = value.trim() ? value.trim() : null;
+    refreshDrawerIfOpen(dataIndex);
     renderBrief();
     showToast("Last contact saved");
   }
@@ -8571,6 +8574,7 @@ async function updateJobResponseFlag(dataIndex, value) {
 
   if (success) {
     pipelineData[dataIndex].responseFlag = value.trim() ? value.trim() : null;
+    refreshDrawerIfOpen(dataIndex);
     renderBrief();
     renderStats();
     showToast("Reply status saved");
@@ -10609,7 +10613,10 @@ function attachCardListeners() {
       const newStatus = sel.value;
       sel.disabled = true;
       const ok = await updateJobStatus(dataIndex, newStatus);
-      if (!ok) sel.disabled = false;
+      if (ok) {
+        refreshDrawerIfOpen(dataIndex);
+      }
+      sel.disabled = false;
     });
   });
   // Stage stepper clicks (drawer)
