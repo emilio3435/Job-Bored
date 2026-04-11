@@ -109,9 +109,38 @@ Use for features that primarily touch:
 }
 ```
 
+## Approved Mission Exceptions
+
+The following behaviors are **expected and approved** in this mission and should NOT be reported as deviations:
+
+### Dirty-Baseline Preservation
+
+This mission deliberately started with an intentionally dirty baseline (many uncommitted changes). Workers should:
+- **NOT clean up unrelated uncommitted changes** — they belong to other workers or represent the intentional baseline state
+- **Stage surgically** using `git add -p` to commit only feature-specific changes
+- **Preserve the dirty baseline** for other workers working from the same worktree
+
+### Temporary Verification-Port Fallback
+
+When canonical mission ports are occupied by other active sessions:
+- **Start services on temporary ports** when canonical ports (8080, 3847, 8644) are in use by other sessions
+- **Document the fallback** in the handoff: which port was used and why canonical port ownership was unsafe to reuse
+- **Verify provenance**: confirm the temporary service was started from the active worktree, not an external process
+
+See `.factory/library/refactoring.md` for the full temporary-port-fallback strategy including provenance checks.
+
+### Port Allocation Reference
+
+| Service | Canonical Port | Fallback Pattern |
+|---------|---------------|-----------------|
+| Dashboard/dev server | 8080 | `PORT=8081 npm run start:dev` |
+| Local scraper/ATS | 3847 | `SCRAPER_PORT=3848 npm run start:scraper` |
+| Discovery worker | 8644 | `DISCOVERY_PORT=8645 node ...` |
+
 ## When to Return to Orchestrator
 
 - A required integration depends on credentials or external state that are unavailable or expired.
 - The feature requires a contract change that would affect published schemas, examples, or docs beyond the agreed mission scope.
 - The fix would need cross-cutting browser changes large enough to merit a separate frontend feature.
 - Real end-to-end verification is blocked by infrastructure outside the repository.
+- A port conflict exists but cannot be resolved via the temporary-port-fallback strategy (e.g., no available ports in the acceptable range).
