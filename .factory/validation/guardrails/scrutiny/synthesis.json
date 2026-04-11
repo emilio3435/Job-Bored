@@ -1,35 +1,19 @@
 {
   "milestone": "guardrails",
-  "round": 4,
-  "status": "fail",
+  "round": 5,
+  "status": "pass",
   "validatorsRun": {
-    "test": { "passed": true, "command": "npm run test:repo", "exitCode": 0 },
-    "typecheck": { "passed": true, "command": "npm run typecheck:repo", "exitCode": 0 },
-    "lint": { "passed": true, "command": "npm run lint:repo", "exitCode": 0 }
+    "test": { "passed": true, "command": "npm run test:repo", "exitCode": 0, "observation": "141 tests pass across contract, integration, and regression suites. 69 additional browser-use-discovery tests pass. Zero failures." },
+    "typecheck": { "passed": true, "command": "npm run typecheck:repo", "exitCode": 0, "observation": "All 17 source files pass Node --check syntax validation." },
+    "lint": { "passed": true, "command": "npm run lint:repo", "exitCode": 0, "observation": "lint:skills passes cleanly." }
   },
   "reviewsSummary": {
     "total": 2,
-    "passed": 0,
-    "failed": 2,
-    "failedFeatures": [
-      "guardrails-followups-round3-command-and-reference-repair",
-      "performance-cleanup-round3-scope-disposition-and-provenance"
-    ]
+    "passed": 2,
+    "failed": 0,
+    "failedFeatures": []
   },
-  "blockingIssues": [
-    {
-      "featureId": "guardrails-followups-round3-command-and-reference-repair",
-      "severity": "blocking",
-      "description": "The != detection regex `(?<!.)!=(?!=)` in tech-debt-auditor.droid is non-functional. The lookbehind `(?<!.)` anchors to start-of-line in ripgrep, so the command finds zero results despite 20+ loose != instances in the codebase. Correct fix: `!=(?!=)` or `(?<![!=])!=(?!=)`. Evidence: `rg -P '(?<![!=])!=(?!=)' --type js -g '!/node_modules/'` finds 20+ results while `rg -P '(?<!.)!=(?!=)' --type js -g '!/node_modules/'` finds zero.",
-      "suggestedFix": "Change the != detection command in tech-debt-auditor.droid line 62 from `rg -P \"(?<!.)!=(?!=)\"` to `rg -P \"(?<![!=])!=(?!=)\"` or `rg -P \"!=(?!=)\"`."
-    },
-    {
-      "featureId": "performance-cleanup-round3-scope-disposition-and-provenance",
-      "severity": "blocking",
-      "description": "Handoff commitId field '5220ce7c3f15f80dff5ee89e14d77e7df0cd8f9c' does not exist in git. The actual full hash for short hash 5220ce7 is 5220ce7b884703733e4a5d932a74cb282192f2da. `git rev-parse --verify 5220ce7c3f15f80dff5ee89e14d77e7df0cd8f9c^{commit}` returns 'fatal: Needed a single revision'. This is the exact same class of error this feature was created to correct — a fabricated/non-existent full commit hash in a handoff record.",
-      "suggestedFix": "The substantive code changes (synthesis.json round 3) are correct. The blocking issue is only in handoff metadata. Either correct the handoff commitId to '5220ce7b884703733e4a5d932a74cb282192f2da' or accept the short hash '5220ce7' and note that the full hash in the handoff was fabricated by the handoff generation layer."
-    }
-  ],
+  "blockingIssues": [],
   "appliedUpdates": [],
   "suggestedGuidanceUpdates": [
     {
@@ -47,7 +31,7 @@
     {
       "target": "library/knowledge",
       "suggestion": "Document the ripgrep regex gotcha: `(?<!.)` in ripgrep -P mode means 'not preceded by any character', which effectively anchors to start-of-line in ripgrep's line-by-line processing. This is NOT equivalent to 'word boundary' or 'not preceded by specific character'. For '!= not preceded by ! or =', use `(?<![!=])` instead of `(?<!.)`.",
-      "evidence": "tech-debt-auditor.droid: `(?<!.)!=(?!=)` finds zero results while `(?<![!=])!=(?!=)` finds 20+ results. The broken pattern persisted through two rounds of review.",
+      "evidence": "tech-debt-auditor.droid: `(?<!.)!=(?!=)` finds zero results while `(?<![!=])!=(?!=)` finds 79 results. The broken pattern persisted through two rounds of review.",
       "isSystemic": false
     }
   ],
@@ -62,8 +46,20 @@
     }
   ],
   "commitProvenanceVerification": {
-    "description": "Per orchestrator note for round 4: strict commit verification using git rev-parse --verify <hash>^{commit}",
+    "description": "Per orchestrator note for round 5: strict commit verification using git rev-parse --verify <hash>^{commit}",
     "verifiedHashes": {
+      "e478af2": {
+        "resolvedTo": "e478af29660380499bbe2369f668cd2bf323b77f",
+        "handoffCited": "e478af2",
+        "status": "valid",
+        "feature": "guardrails-followups-round4-neq-regex-fix"
+      },
+      "996fb9e": {
+        "resolvedTo": "996fb9e451718cbb67aba5545547d37bf69b5e99",
+        "handoffCited": "996fb9e451718cbb67aba5545547d37bf69b5e99",
+        "status": "valid",
+        "feature": "guardrails-followups-round4-provenance-record-correction"
+      },
       "c51d197": {
         "resolvedTo": "c51d197c07b460af7612945b930f8a92facbfd04",
         "handoffCited": "c51d197",
@@ -88,7 +84,7 @@
     }
   },
   "droidCommandEvidence": {
-    "description": "Per orchestrator note for round 4: strict command-evidence checks for modified droid/skill snippets",
+    "description": "Per orchestrator note for round 5: strict command-evidence checks for modified droid/skill snippets",
     "commands": [
       {
         "source": ".factory/droids/tech-debt-auditor.droid (line 61)",
@@ -97,18 +93,34 @@
         "observation": "Runs without parse errors. Returns ~30 results but ~16 are false positives on !== patterns. Non-blocking issue."
       },
       {
-        "source": ".factory/droids/tech-debt-auditor.droid (line 62)",
-        "command": "rg -P '(?<!.)!=(?!=)' --type js -g '!/node_modules/'",
+        "source": ".factory/droids/tech-debt-auditor.droid (line 62 — NOW FIXED)",
+        "command": "rg -P '(?<![=])!=(?!=)' --type js -g '!/node_modules/'",
         "exitCode": 0,
-        "observation": "Runs without parse errors but returns ZERO results due to broken lookbehind (?<!.). BLOCKING — 20+ loose != exist in codebase but command cannot detect them."
+        "observation": "RESOLVED: Returns 79 results as expected for loose != detection. The regex was changed from broken (?<!.) to correct (?<![=]) by commit e478af2. No longer blocking."
       },
       {
-        "source": ".factory/droids/tech-debt-auditor.droid (line 62, corrected)",
-        "command": "rg -P '(?<![!=])!=(?!=)' --type js -g '!/node_modules/'",
+        "source": "Verification: old broken regex (should return zero)",
+        "command": "rg -P '(?<!.)!=(?!=)' --type js -g '!/node_modules/'",
         "exitCode": 0,
-        "observation": "Returns 20+ results as expected for loose != detection. This is the correct regex."
+        "observation": "Returns zero results, confirming the old pattern was indeed broken. The fix correctly replaced this pattern."
       }
     ]
   },
-  "previousRound": ".factory/validation/guardrails/scrutiny/synthesis.json (round 3)"
+  "fixResolutionEvidence": {
+    "guardrails-followups-round3-command-and-reference-repair": {
+      "originalBlockingIssue": "!= detection regex `(?<!.)!=(?!=)` in tech-debt-auditor.droid was non-functional",
+      "fixFeature": "guardrails-followups-round4-neq-regex-fix",
+      "fixCommit": "e478af29660380499bbe2369f668cd2bf323b77f",
+      "resolution": "Regex changed from (?<!.)!=(?!=) to (?<![=])!=(?!=). Now correctly finds 79 loose != patterns. Verified by independent review subagent.",
+      "status": "RESOLVED"
+    },
+    "performance-cleanup-round3-scope-disposition-and-provenance": {
+      "originalBlockingIssue": "Handoff commitId '5220ce7c3f15f80dff5ee89e14d77e7df0cd8f9c' does not exist in git",
+      "fixFeature": "guardrails-followups-round4-provenance-record-correction",
+      "fixCommit": "996fb9e451718cbb67aba5545547d37bf69b5e99",
+      "resolution": "synthesis.json now contains correctionEvidence showing explicit failed lookup for incorrect hash (exit 128) and successful lookup for canonical hash 5220ce7b884703733e4a5d932a74cb282192f2da (exit 0). Verified by independent review subagent running both git rev-parse commands.",
+      "status": "RESOLVED"
+    }
+  },
+  "previousRound": ".factory/validation/guardrails/scrutiny/synthesis.json (round 4)"
 }
