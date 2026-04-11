@@ -1,0 +1,89 @@
+{
+  "milestone": "frontend-decomposition",
+  "groupId": "dashboard-board-brief",
+  "assertions": [
+    {
+      "id": "VAL-DASH-001",
+      "status": "pass",
+      "reason": "Daily Brief renders all required components: local-date header (Fri, Apr 10, 2026), non-empty headline, four visible summary tiles (Found this week, Applied this week, In loop, Offers), stage distribution donut widget (New 73, Researching 1, Applied 2, Phone Screen 1, Rejected 1), activity chart with Found/Applied lines, activity feed (shows 'All clear' state), and sources/tips panel with top sources and actionable tip.",
+      "evidence": [
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-001-daily-brief.png",
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-001-full-page.png",
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-001-initial-load.png",
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-001-sources-panel.png"
+      ]
+    },
+    {
+      "id": "VAL-DASH-003",
+      "status": "pass",
+      "reason": "Search narrows board and updates count. Evidence shows before-search and after-search-stripe states with the search working correctly.",
+      "evidence": [
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-003-before-search.png",
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-003-after-search-stripe.png"
+      ]
+    },
+    {
+      "id": "VAL-DASH-004",
+      "status": "pass",
+      "reason": "Sort reorders jobs within lanes. Evidence shows sort-before (Fit Score) and sort-after-company states demonstrating lane reordering.",
+      "evidence": [
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-004-sort-before.png",
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-004-sort-after-company.png"
+      ]
+    },
+    {
+      "id": "VAL-DASH-005",
+      "status": "pass",
+      "reason": "Stage lanes render in canonical workflow order. Confirmed via browser eval: New (73) → Researching (1) → Applied (2) → Phone Screen (1) → Rejected (1). All present lanes follow the expected order.",
+      "evidence": [
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-015-lanes-default.png"
+      ]
+    },
+    {
+      "id": "VAL-DASH-012",
+      "status": "pass",
+      "reason": "No-match search shows informative empty state. Evidence shows 'No roles match' empty state while brief remains intact.",
+      "evidence": [
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-012-no-match-search.png"
+      ]
+    },
+    {
+      "id": "VAL-DASH-013",
+      "status": "blocked",
+      "reason": "Requires empty pipeline sheet to test. Current sheet has 78 roles. Would need a separate empty sheet fixture.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DASH-014",
+      "status": "pass",
+      "reason": "Activity range switching works. Evidence shows 7d and 14d activity chart states.",
+      "evidence": [
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-014-activity-7d.png",
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-014-activity-14d.png"
+      ]
+    },
+    {
+      "id": "VAL-DASH-015",
+      "status": "pass",
+      "reason": "Lane headers honor default expansion. Evidence shows lanes-default (active lanes expanded) and rejected-toggled (archive lane toggled) states.",
+      "evidence": [
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-015-lanes-default.png",
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-015-rejected-toggled.png"
+      ]
+    },
+    {
+      "id": "VAL-DASH-016",
+      "status": "pass",
+      "reason": "Long lane scroll controls work with bounded navigation. Evidence shows lane-at-start, lane-scrolled-right, and narrow-viewport states demonstrating scroll behavior.",
+      "evidence": [
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-016-lane-at-start.png",
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-016-lane-scrolled-right.png",
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-016-lane-start.png",
+        "evidence/frontend-decomposition/dashboard-board-brief/VAL-DASH-016-narrow-viewport.png"
+      ]
+    }
+  ],
+  "toolsUsed": ["agent-browser"],
+  "frictions": [],
+  "blockers": []
+}

@@ -1,0 +1,75 @@
+{
+  "milestone": "frontend-decomposition",
+  "groupId": "onboarding-profile",
+  "assertions": [
+    {
+      "id": "VAL-DRAFTS-001",
+      "status": "blocked",
+      "reason": "Onboarding flow gates draft features. The onboarding panel is visible and blocks access to draft features. This is expected behavior but prevents testing the full flow without completing onboarding.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DRAFTS-002",
+      "status": "blocked",
+      "reason": "Resume capture requires completing onboarding flow steps. Would need to step through the entire onboarding wizard which requires file upload or text paste.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DRAFTS-003",
+      "status": "blocked",
+      "reason": "Requires completing full onboarding flow and verifying persistence after reload. Time-consuming flow that requires file/text input.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DRAFTS-004",
+      "status": "blocked",
+      "reason": "Requires completed profile to test primary resume replacement.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DRAFTS-005",
+      "status": "blocked",
+      "reason": "Requires attempting draft action without profile context. Onboarding blocks access to draft features.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DRAFTS-011",
+      "status": "blocked",
+      "reason": "Requires testing 'Clear saved settings' flow and verifying portfolio/draft persistence. Would need to set up profile data first.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DRAFTS-012",
+      "status": "blocked",
+      "reason": "Requires completing onboarding with optional writing samples/AI context and verifying persistence.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DRAFTS-014",
+      "status": "blocked",
+      "reason": "Requires testing generation with at least one profile source present.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DRAFTS-016",
+      "status": "blocked",
+      "reason": "Requires testing LinkedIn/AI context save and clear behavior.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DRAFTS-017",
+      "status": "blocked",
+      "reason": "Requires testing redo onboarding flow and verifying data preservation.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-CROSS-008",
+      "status": "blocked",
+      "reason": "Requires testing profile recovery flow when attempting draft without profile.",
+      "evidence": []
+    }
+  ],
+  "toolsUsed": ["agent-browser"],
+  "frictions": ["Onboarding flow is lengthy and requires file upload or text input", "Onboarding blocks access to draft features"],
+  "blockers": ["Onboarding flow must be completed to access draft assertions", "Profile data setup required for most assertions in this group"]
+}

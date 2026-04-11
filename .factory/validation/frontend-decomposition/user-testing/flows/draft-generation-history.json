@@ -1,0 +1,69 @@
+{
+  "milestone": "frontend-decomposition",
+  "groupId": "draft-generation-history",
+  "assertions": [
+    {
+      "id": "VAL-DRAFTS-006",
+      "status": "blocked",
+      "reason": "Requires completed profile and AI provider configuration to generate draft. Onboarding blocks access to draft features.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DRAFTS-007",
+      "status": "blocked",
+      "reason": "Requires successful draft generation to test refinement versioning.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DRAFTS-008",
+      "status": "blocked",
+      "reason": "Requires saved draft history to test reopening from snapshot.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DRAFTS-009",
+      "status": "blocked",
+      "reason": "Requires draft modal with text and ATS provider configured.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DRAFTS-010",
+      "status": "blocked",
+      "reason": "Requires testing unsupported/missing provider configuration.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DRAFTS-013",
+      "status": "blocked",
+      "reason": "Requires generated drafts and version history to test persistence after reload.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DRAFTS-015",
+      "status": "blocked",
+      "reason": "Requires testing provider routing for Gemini/webhook modes.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-CROSS-007",
+      "status": "blocked",
+      "reason": "Requires posting enrichment flow into draft and ATS context. Needs completed profile and job with Link URL.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-CROSS-009",
+      "status": "blocked",
+      "reason": "Requires successful draft generation to test cross-surface visibility.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-CROSS-010",
+      "status": "blocked",
+      "reason": "Requires ATS analysis with active draft text and job context.",
+      "evidence": []
+    }
+  ],
+  "toolsUsed": ["agent-browser"],
+  "frictions": ["Draft features require completed onboarding profile", "AI provider configuration required for generation"],
+  "blockers": ["Onboarding flow completion required for all draft assertions", "Profile data and AI configuration needed"]
+}

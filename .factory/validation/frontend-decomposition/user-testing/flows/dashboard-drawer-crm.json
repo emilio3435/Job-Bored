@@ -1,0 +1,74 @@
+{
+  "milestone": "frontend-decomposition",
+  "groupId": "dashboard-drawer-crm",
+  "assertions": [
+    {
+      "id": "VAL-DASH-002",
+      "status": "blocked",
+      "reason": "Activity feed currently shows 'All clear' state with no items to click. No follow-up items or action items present in current data. Cannot test clicking feed items to open drawer.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DASH-006",
+      "status": "pass",
+      "reason": "Cards open and close usable detail drawer. Evidence shows before-click, after-click, drawer-open, and after-close states demonstrating drawer lifecycle.",
+      "evidence": [
+        "evidence/frontend-decomposition/dashboard-drawer-crm/VAL-DASH-006-01-before-click.png",
+        "evidence/frontend-decomposition/dashboard-drawer-crm/VAL-DASH-006-02-after-click.png",
+        "evidence/frontend-decomposition/dashboard-drawer-crm/VAL-DASH-006-03-drawer-open.png",
+        "evidence/frontend-decomposition/dashboard-drawer-crm/VAL-DASH-006-04-after-close.png"
+      ]
+    },
+    {
+      "id": "VAL-DASH-007",
+      "status": "pass",
+      "reason": "Drawer preserves core job identity without enrichment. Evidence shows drawer-open state with job title, company visible even without enrichment.",
+      "evidence": [
+        "evidence/frontend-decomposition/dashboard-drawer-crm/VAL-DASH-007-01-before-click.png",
+        "evidence/frontend-decomposition/dashboard-drawer-crm/VAL-DASH-007-02-drawer-open.png"
+      ]
+    },
+    {
+      "id": "VAL-DASH-008",
+      "status": "pass",
+      "reason": "Browsing available without write access. Evidence shows signed-out-board and drawer states with readable content but writeback controls hidden/gated.",
+      "evidence": [
+        "evidence/frontend-decomposition/dashboard-drawer-crm/VAL-DASH-008-01-signed-out-board.png",
+        "evidence/frontend-decomposition/dashboard-drawer-crm/VAL-DASH-008-02-drawer.png"
+      ]
+    },
+    {
+      "id": "VAL-DASH-009",
+      "status": "blocked",
+      "reason": "Requires Google-authenticated browser session for write access. No cookie import or live sign-in was performed. Cannot test CRM field edits.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DASH-010",
+      "status": "blocked",
+      "reason": "Requires signed-in state and ability to save status changes. Blocked by lack of Google authentication.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DASH-011",
+      "status": "blocked",
+      "reason": "Requires signed-in state to edit CRM fields. Blocked by lack of Google authentication.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DASH-017",
+      "status": "blocked",
+      "reason": "Drawer enrichment requires clicking a job with a Link URL that can be scraped. Onboarding panel overlay blocked access to job cards during this session. Would need to bypass onboarding or use different sheet data.",
+      "evidence": []
+    },
+    {
+      "id": "VAL-DASH-018",
+      "status": "blocked",
+      "reason": "Requires signed-in state to save changes from inside drawer. Blocked by lack of Google authentication.",
+      "evidence": []
+    }
+  ],
+  "toolsUsed": ["agent-browser"],
+  "frictions": ["Onboarding panel overlay blocks access to job cards in signed-out sessions"],
+  "blockers": ["Google authentication required for write-access assertions", "Onboarding panel visible blocking dashboard interactions"]
+}
