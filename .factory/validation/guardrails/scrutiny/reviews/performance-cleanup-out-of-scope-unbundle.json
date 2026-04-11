@@ -1,0 +1,56 @@
+{
+  "featureId": "performance-cleanup-out-of-scope-unbundle",
+  "reviewedAt": "2026-04-11T19:50:00.000Z",
+  "commitId": "d35e40479bbfd1af69ee707dde3c691479be52dc",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The fix feature was tasked with 'separating or reverting' three bundled behavioral changes from the performance-and-legacy-path-cleanup commit. Instead, the fix only added documentation in architecture.md describing those changes — the behavioral code itself remains in the original commit a5994fc alongside the dead-code cleanup. None of the three out-of-scope changes (OAuth runtime session layer, allowWhileOnboarding bypass, sheet-ID tightening) were separated into their own commits or reverted. The fix commit d35e404 is real and verifiable, and the documentation is accurate, but the core remediation task was not performed.",
+    "issues": [
+      {
+        "file": "app.js",
+        "line": 6193,
+        "severity": "blocking",
+        "description": "OAuth runtime session layer (OAUTH_RUNTIME_SESSION_STORAGE_KEY, persistRuntimeOAuthSession(), loadPersistedRuntimeOAuthSession(), clearPersistedRuntimeOAuthSession()) remains in commit a5994fc alongside dead-code cleanup. The fix feature was supposed to separate or revert this behavioral change, but it was only documented — not moved to its own commit. The code at app.js:6193-6368 still contains the full runtime session storage implementation."
+      },
+      {
+        "file": "app.js",
+        "line": 4589,
+        "severity": "blocking",
+        "description": "allowWhileOnboarding bypass parameter and its ~16 call sites remain in commit a5994fc. The fix was supposed to separate this behavioral change from the dead-code cleanup, but it was only documented. The behavioral code (requestDiscoverySetup parameter destructuring at line 4589-4592, and all call sites passing allowWhileOnboarding:true) was not extracted into a dedicated commit."
+      },
+      {
+        "file": "app.js",
+        "line": 229,
+        "severity": "blocking",
+        "description": "Sheet-ID plausibility tightening (MIN_PLAUSIBLE_GOOGLE_SHEET_ID_LENGTH=20, isPlausibleGoogleSheetId()) remains in commit a5994fc alongside dead-code cleanup. The fix was supposed to separate or revert this behavioral change, but it was only documented."
+      },
+      {
+        "file": ".factory/library/architecture.md",
+        "line": 15,
+        "severity": "non_blocking",
+        "description": "The architecture.md documentation added by d35e404 is accurate and useful — it correctly describes the three behavioral changes and their storage/model/parameter impacts. However, documentation alone does not satisfy the 'separating or reverting' requirement in the feature description."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The original performance-and-legacy-path-cleanup handoff cited fabricated commit ID 'a5994fc6e1c40d3a8e4f5c2b3d7a9e1f2b3c4d5e'. The fix handoff correctly uses short hash 'a5994fc' (which resolves to real commit a5994fcd0b4408f86a8497cc732b94417351c76d), but the original fabrication was never explicitly acknowledged or corrected in the fix handoff or any commit message.",
+      "evidence": "Original handoff: commitId 'a5994fc6e1c40d3a8e4f5c2b3d7a9e1f2b3c4d5e' — git rev-parse returns fatal error. Fix handoff uses 'a5994fc' which resolves correctly. No commit or handoff entry addresses the fabrication."
+    },
+    {
+      "area": "conventions",
+      "observation": "The fix feature interpreted 'remediate' as 'document' rather than 'separate or revert' as stated in the feature description. This may indicate ambiguity in how scrutiny remediation features are scoped. If documentation-only remediation is acceptable for bundled changes with regression coverage, this should be codified in AGENTS.md or the scrutiny validator skill.",
+      "evidence": "Feature description says 'separating or reverting non-cleanup behavioral changes' but the fix commit only modifies architecture.md. AGENTS.md commit conventions say 'Keep one concern per feature and one concern per commit' — the original commit a5994fc still violates this."
+    },
+    {
+      "area": "knowledge",
+      "observation": "The fix correctly identified that all three behavioral changes already have regression test coverage (14 tests across 3 test files: oauth-session-storage-boundary.test.mjs with 5 tests, discovery-cold-start-handoffs.test.mjs with 6 tests, settings-sheet-id-validation.test.mjs with 3 tests). This coverage was present before the fix feature ran, which supports the decision to retain rather than revert. However, this rationale was not made explicit in the handoff.",
+      "evidence": "Fix handoff whatWasImplemented mentions 'All three changes have regression coverage and are retained per feature guidance.' Tests verified to exist and pass."
+    }
+  ],
+  "addressesFailureFrom": ".factory/validation/guardrails/scrutiny/reviews/performance-and-legacy-path-cleanup.json",
+  "summary": "FAIL. The fix feature does not adequately address the original blocking issues. The original scrutiny found that commit a5994fc bundled three categories of behavioral changes (OAuth runtime session layer, allowWhileOnboarding bypass on ~16 sites, sheet-ID tightening) with dead-code cleanup. The fix feature (commit d35e404) only added documentation of these changes in architecture.md — it did not separate them into their own commits or revert them. The behavioral code remains in the same commit as the cleanup. Additionally, the fabricated commit ID from the original handoff was never formally corrected. While the documentation is accurate and the existing 14 regression tests provide coverage, the feature description explicitly called for 'separating or reverting' the out-of-scope changes, which was not done."
+}

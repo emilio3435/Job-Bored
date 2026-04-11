@@ -1,0 +1,63 @@
+{
+  "featureId": "guardrails-nonblocking-scrutiny-followups",
+  "reviewedAt": "2026-04-11T20:00:00.000Z",
+  "commitId": "cec0215",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The fix feature addresses 3 non-blocking findings from the prior scrutiny round. Only 1 of 3 was fixed correctly. The pre-commit hook .mjs coverage fix is correct and verified working. The tech-debt-auditor equality regex fix is broken: both new patterns use look-around assertions that ripgrep does not support without --pcre2, causing 'regex parse error' on execution. Additionally, the != pattern is logically incorrect for detecting loose inequality. The refactoring library references were not fixed — the worker verified some references but missed the 3 specific issues flagged in the prior review (non-existent npm script, non-existent test file, confusing cp-to-/dev/null pattern).",
+    "issues": [
+      {
+        "file": ".factory/droids/tech-debt-auditor.droid",
+        "line": 63,
+        "severity": "blocking",
+        "description": "Both new regex patterns use look-around assertions ((?<!=)==(?!=) and (?<!.)=(?!=)) that ripgrep does not support without the --pcre2 flag. Running `rg '(?<!=)==(?!=)' --type js` produces 'regex parse error: look-around, including look-ahead and look-behind, is not supported'. The commands are non-functional as written. Fix: either add --pcre2 flag to both rg commands, or use non-look-around alternatives like `[^!=<>]==[^=]` for == detection."
+      },
+      {
+        "file": ".factory/droids/tech-debt-auditor.droid",
+        "line": 64,
+        "severity": "blocking",
+        "description": "The != detection pattern `(?<!.)=(?!=)` is logically incorrect. It matches `=` not preceded by ANY character and not followed by `=`, which only matches a standalone `=` at the start of a line — it will never match `!=` in actual code. The correct pattern for loose != without matching !== should be something like `!=(?!=)` (match != not followed by another =). Combined with the missing --pcre2 flag, this line is doubly broken."
+      },
+      {
+        "file": ".factory/library/refactoring.md",
+        "line": 187,
+        "severity": "non_blocking",
+        "description": "Still references non-existent npm script `npm run test:contract:dashboard`. Only `test:contract` and `test:contract:all` exist in package.json. The prior review (guardrail-wiring-and-refactoring-skill) flagged this as non-blocking. This feature was supposed to fix refactoring library references but did not."
+      },
+      {
+        "file": ".factory/library/refactoring.md",
+        "line": 261,
+        "severity": "non_blocking",
+        "description": "Still references non-existent test file `tests/apps-script-classification.test.mjs`. The prior review flagged this as aspirational guidance that could mislead workers. This feature was supposed to fix refactoring library references but did not."
+      },
+      {
+        "file": ".factory/library/refactoring.md",
+        "line": 81,
+        "severity": "non_blocking",
+        "description": "Still uses confusing `cp integrations/browser-use-discovery/state/worker-config.json /dev/null` as an existence check. The prior review suggested using `test -f` instead. This feature was supposed to fix refactoring library references but did not."
+      },
+      {
+        "file": ".factory/library/refactoring.md",
+        "line": 176,
+        "severity": "non_blocking",
+        "description": "The Discovery worker fallback command references `node --experimental-strip-types integrations/browser-use-discovery/src/server.ts`. While the service IS documented in services.yaml with this exact command (and thus 'resolves to a real command'), the prior review's non-blocking finding about the confusing cp-to-/dev/null existence check on line 81 remains unfixed."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "ripgrep (rg) does not support look-around assertions (lookahead/lookbehind) without the --pcre2 flag. This is a common gotcha when writing regex patterns for rg commands in droids and skills. The prior review suggested using look-around without flagging this limitation, and the worker implemented it without testing.",
+      "evidence": "Running `echo 'if (a == b)' | rg '(?<!=)==(?!=)'` produces: 'regex parse error: look-around, including look-ahead and look-behind, is not supported. Consider enabling PCRE2 with the --pcre2 flag.' — The worker's handoff claims manual verification passed but the transcript shows no evidence of actually running the rg commands from the droid file."
+    },
+    {
+      "area": "conventions",
+      "observation": "The worker handoff claims 'Verified refactoring.md script/path references all resolve to real files' but this is factually incorrect. Three references flagged in the prior review (non-existent test:contract:dashboard, non-existent apps-script-classification.test.mjs, confusing cp-to-/dev/null) remain unfixed. This suggests the worker did not cross-reference the specific non-blocking issues from the prior review.",
+      "evidence": "refactoring.md line 187 still has test:contract:dashboard (not in package.json), line 261 still has apps-script-classification.test.mjs (file does not exist), line 81 still has cp-to-/dev/null. Git diff shows no changes to refactoring.md in commit cec0215."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "FAIL. Of 3 non-blocking findings this fix feature was supposed to address, only 1 was correctly fixed (pre-commit hook .mjs coverage). The tech-debt-auditor equality regex fix introduced non-functional commands — ripgrep doesn't support look-around without --pcre2, and the != pattern is logically incorrect regardless. The refactoring library references were not fixed at all despite the handoff claiming verification. The worker appears to have tested the pre-commit hook but did not actually run the rg commands from the droid file or cross-reference the specific non-blocking issues from the prior reviews of refactoring.md. Two blocking issues: (1) both tech-debt-auditor regex commands fail on execution, (2) the != pattern would not detect loose inequality even with --pcre2."
+}
