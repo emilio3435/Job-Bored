@@ -70,6 +70,43 @@ The `frontend-decomposition` milestone uses three fixture variants that workers 
 - **Use for:** VAL-DASH-013 (truly empty pipeline → shows guided empty-state instead of blank chrome)
 - **Note:** Create a new Google Sheet with only the Pipeline header row (no data rows). Replace the placeholder in the fixture file.
 
+### Same-sheet temporary clear-and-restore for VAL-DASH-013 (no second sheet required)
+
+VAL-DASH-013 requires testing with a truly empty pipeline. Instead of maintaining a separate empty sheet, you can use the same populated sheet and temporarily clear rows:
+
+**Phase 1 — Run populated assertions first:**
+```javascript
+// Ensure populated fixture is active (default state)
+// Sheet: 1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ already configured
+// Run assertions: VAL-DASH-001, VAL-DASH-003, VAL-DASH-004, VAL-DASH-005, VAL-DASH-006, VAL-DASH-007, VAL-DASH-008, VAL-DASH-012, VAL-DASH-014, VAL-DASH-015, VAL-DASH-016
+```
+
+**Phase 2 — Temporarily clear to header-only:**
+```javascript
+// Using Google Sheets API (via gstack browse or curl):
+// 1. Delete all rows after the header row in sheet 1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ
+// 2. Keep only the header row: Date Found | Title | Company | Location | Link | Source | Salary | Fit Score | Priority | Tags | Fit Assessment | Contact | Status | Applied Date | Notes | Follow-up Date | Talking Points | Last contact | Did they reply? | Logo URL
+// 3. Apply in browser:
+//    localStorage.setItem('command_center_config_overrides', JSON.stringify({ sheetId: '1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ' }));
+// 4. Reload dashboard
+// 5. Run VAL-DASH-013
+```
+
+**Phase 3 — Restore populated rows:**
+```javascript
+// Using Google Sheets API:
+// 1. Re-apply the seed rows from evidence/seed-pipeline-data-populated.json to sheet 1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ
+//    (use batchUpdate with paste values only, preserving header)
+// 2. Reload dashboard to verify restoration
+// 3. Continue with remaining assertions (VAL-DASH-009, VAL-DASH-010, VAL-DASH-011, VAL-DASH-017, VAL-DASH-018, VAL-DRAFTS-*, VAL-CROSS-007, VAL-CROSS-009, VAL-CROSS-010)
+```
+
+**Alternative — Create a dedicated empty fixture sheet:**
+1. Create a new Google Sheet with only the Pipeline header row
+2. Replace `EMPTY_PIPELINE_SHEET_ID_PLACEHOLDER` in `evidence/seed-pipeline-data-empty.json` with the actual sheet ID
+3. Use `node scripts/manage-validation-fixtures.mjs apply empty` to switch
+4. Switch back using `node scripts/manage-validation-fixtures.mjs apply populated`
+
 ### Fixture: enriched jobs (VAL-DASH-017)
 - **Use for:** VAL-DASH-017 (drawer enrichment lifecycle)
 - **Requirement:** Jobs with valid `Link` URLs pointing to public job boards (Greenhouse/Ashby) that the scraper can fetch
@@ -84,12 +121,17 @@ The following assertions require a Google-authenticated browser session with wri
 - VAL-DASH-011 (follow-up date → overdue signal)
 - VAL-DASH-018 (in-drawer saves → drawer stays in sync)
 
-### Setup via cookie import
+**Prerequisite:** The OAuth client ID is already configured in `config.js`:
+```javascript
+oauthClientId: "917526284100-huglmbdj2j45iukot3t9bqo1sls24ibo.apps.googleusercontent.com"
+```
+
+### Setup via cookie import (recommended for automation)
 Use the `setup-browser-cookies` skill to import an authenticated Chromium Google session:
 ```
 /setup-browser-cookies
 ```
-Select the Google domains needed for Sheets API access. After import, the browser session has write access.
+Select the Google domains needed for Sheets API access (typically `google.com` and `googlesyndication.com`). After import, the browser session has write access for validation assertions.
 
 ### Setup via live sign-in
 In the validator browser session:
@@ -97,6 +139,42 @@ In the validator browser session:
 2. Click "Sign in with Google" in Settings → Sheet tab
 3. Complete the OAuth flow with your Google account
 4. The session gains write-capable dashboard controls
+
+### Verify authenticated state
+After setup, confirm write access by:
+1. Opening a job drawer in the dashboard
+2. Editing a CRM field (e.g., Notes)
+3. Verifying the change persists after reload
+4. The session should remain authenticated across dashboard reloads
+
+## Draft generation provider for user-testing
+
+The draft generation (cover letter / resume tailoring) uses the Gemini provider by default. Verification is required before running draft-related assertions.
+
+**Current configuration (from config.js):**
+```javascript
+resumeProvider: "gemini",
+resumeGeminiApiKey: "<GEMINI_API_KEY>",  // Real key present in config.js
+resumeGeminiModel: "gemini-2.0-flash",
+```
+
+**Prerequisite assertions before draft generation checks:**
+1. Complete onboarding flow (VAL-DRAFTS-001 requires onboarding to be done first)
+2. Upload or paste a resume in Profile
+3. Configure LinkedIn text and/or AI context (optional but recommended)
+
+**To verify provider is runnable:**
+1. Complete the onboarding wizard with a test resume
+2. Open a job card with a valid Link URL
+3. Click "Draft cover letter" or "Tailor resume"
+4. Confirm the generation request succeeds and a draft modal opens with content
+5. Try refinement (submit feedback) and verify a new version is created
+6. Reload the dashboard and confirm draft history persists
+
+**Provider failure indicators:**
+- Error message: "Set resumeGeminiApiKey in config.js for Gemini" → API key missing
+- Network error in browser console → CORS or connectivity issue
+- Provider returns malformed response → API key may be invalid or rate-limited
 
 ### Switching between fixtures
 Dashboard checks switch between populated and empty fixtures deterministically:
