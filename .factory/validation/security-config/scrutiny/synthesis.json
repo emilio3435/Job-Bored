@@ -1,13 +1,13 @@
 {
   "milestone": "security-config",
-  "round": 1,
+  "round": 2,
   "status": "fail",
   "validatorsRun": {
     "test": {
       "passed": true,
       "command": "npm run test:repo",
       "exitCode": 0,
-      "notes": "Contract suite passed, root node tests passed (131/131), and browser-use-discovery tests passed (69/69)."
+      "notes": "Contract suite passed, root node tests passed (136/136), and browser-use-discovery tests passed (69/69)."
     },
     "typecheck": {
       "passed": true,
@@ -24,44 +24,33 @@
   },
   "reviewsSummary": {
     "total": 3,
-    "passed": 1,
-    "failed": 2,
+    "passed": 2,
+    "failed": 1,
     "failedFeatures": [
-      "security-boundary-hardening",
-      "cold-start-and-access-handoffs"
+      "security-boundary-hardening"
     ]
   },
   "blockingIssues": [
     {
       "featureId": "security-boundary-hardening",
       "severity": "blocking",
-      "description": "The landed feature commit only hardened discovery webhook secret handling; the broader OAuth-session and local-service boundary hardening described by the feature was not landed, the new root regression tests remain untracked, and tests/oauth-session-storage-boundary.test.mjs still uses the placeholder literal \"secret_token_123\"."
-    },
-    {
-      "featureId": "cold-start-and-access-handoffs",
-      "severity": "blocking",
-      "description": "Cold-start discovery setup still bypasses onboarding for non-deep-link entry points because openDiscoverySetupWizard() hides onboarding and the starter-sheet-created flow calls it directly instead of deferring through pendingDiscoverySetup."
+      "description": "The rerun fixed the untracked tests, innocuous placeholder literals, and missing-sheetId regression coverage, but the feature still does not land the claimed OAuth/session and local service boundary hardening in its own commit set. Review evidence ties the boundary code in app.js and server/security-boundaries.mjs to earlier non-feature commits rather than the feature-owned commits ac86145 and 43b8226."
     }
   ],
   "appliedUpdates": [],
-  "suggestedGuidanceUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "integration-refactor-worker",
+      "suggestion": "Update the skill to acknowledge the mission-approved dirty-baseline and temporary-port verification exceptions when AGENTS.md or .factory/library guidance explicitly permits them.",
+      "evidence": "The latest security-boundary-hardening handoff had to mark followedProcedure=false because it validated on port 3947 while port 3847 was occupied and preserved unrelated dirty-baseline artifacts; both behaviors are already explicitly allowed by mission AGENTS.md and .factory/library/user-testing.md, but the integration-refactor-worker skill still describes only the canonical-port/cleaner path.",
+      "isSystemic": true
+    }
+  ],
   "rejectedObservations": [
     {
       "observation": "Isolated-worktree validation still requires manually copying integrations/browser-use-discovery/state/worker-config.json.",
       "reason": "already-documented in .factory/library/environment.md."
-    },
-    {
-      "observation": "Workers should cite feature-owned commits and include explicit manual browser evidence in handoffs.",
-      "reason": "already-documented in mission AGENTS.md."
-    },
-    {
-      "observation": "The discovery_worker services manifest should encode webhook-auth setup directly.",
-      "reason": "ambiguous because the requirement depends on local secret-bearing configuration, and the POST-auth expectation is already documented in .factory/library/user-testing.md."
-    },
-    {
-      "observation": "The integration-refactor-worker skill should change because one worker skipped required context reads.",
-      "reason": "ambiguous and not clearly systemic; this review shows worker non-compliance more than a skill-definition gap."
     }
   ],
-  "previousRound": null
+  "previousRound": ".factory/validation/security-config/scrutiny/synthesis-round1.json"
 }

@@ -1,39 +1,28 @@
 {
   "featureId": "security-boundary-hardening",
-  "reviewedAt": "2026-04-11T06:18:11Z",
-  "commitId": "ac861457fe9886829abee07ca345229bdddb4168",
+  "reviewedAt": "2026-04-11T07:00:49Z",
+  "commitId": "43b8226a45e1e0f09b537a4763dda85158028836",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
   "status": "fail",
   "codeReview": {
-    "summary": "The landed commit correctly hardens the discovery webhook so an unset webhook secret now fails closed and it sanitizes several discovery-test literals, but the shipped feature is incomplete relative to its own description. The only successful feature commit touches discovery-worker files, while the promised OAuth-session and local-service boundary work remains outside the landed diff, and one touched webhook regression test no longer exercises the missing-sheetId path its name claims to cover.",
+    "summary": "The rerun fixes most of the prior review's concrete findings: the root OAuth/server regression suites are now tracked, the webhook missing-sheetId regression truly omits request sheetId, and the touched webhook tests use innocuous fake literals. However, the feature still does not satisfy its remaining scope requirement that the claimed OAuth/session and local service boundary hardening be landed in this feature's own commit set.",
     "issues": [
       {
-        "file": "tests/oauth-session-storage-boundary.test.mjs",
-        "line": 84,
+        "file": "app.js",
+        "line": 6211,
         "severity": "blocking",
-        "description": "The feature description explicitly covers OAuth session handling and commit-clean regression tests, but the only successful feature commit (`git show --name-only ac86145`) does not include `app.js`, `server/index.mjs`, `server/security-boundaries.mjs`, or the new root regression tests. Those tests are still untracked (`git status --short` shows `tests/oauth-session-storage-boundary.test.mjs` and `tests/server-security-boundaries.test.mjs`), and this untracked OAuth test still uses `secret_token_123`, so the promised hardening and placeholder-literal cleanup were not actually landed."
-      },
-      {
-        "file": "integrations/browser-use-discovery/tests/webhook/handle-discovery-webhook.test.ts",
-        "line": 221,
-        "severity": "non_blocking",
-        "description": "This regression test no longer verifies the behavior named in its title. It is titled `accepts missing request sheetId when worker config provides one`, but the request body constructed at lines 238-243 includes `sheetId: \"sheet_123\"`. That leaves the local-mode sheetId fallback path without the regression coverage the test name suggests."
+        "description": "The rerun adds regression coverage, but the feature still does not own the promised OAuth/session and local service boundary hardening. `git show --stat 43b8226` adds only the two new root tests plus webhook-test updates, while `git blame app.js:6211-6345` attributes the OAuth session boundary logic to earlier commits `5f12a17c`/`4e8a4849` and `git blame server/security-boundaries.mjs:1-60` attributes the local service origin/scrape-target hardening to `cf9aa04c`. Because this feature's commit set remains `ac86145` + `43b8226`, the explicit expected-behavior requirement that this feature land those hardenings in feature-owned commits is still unmet."
       }
     ]
   },
   "sharedStateObservations": [
     {
       "area": "skills",
-      "observation": "The successful worker session did not follow the integration-refactor skill's required context-reading step, which makes it easier to miss contract or environment requirements during security work.",
-      "evidence": "`integration-refactor-worker/SKILL.md` step 1 requires reading `.factory/library/contracts.md` and `.factory/library/environment.md`, but the `e48c8be0-8693-4046-9e4b-83f4836ab69c` transcript skeleton only shows reads for `mission.md`, `validation-contract.md`, `features.json`, `AGENTS.md`, `.factory/services.yaml`, and `.factory/library/user-testing.md` before edits."
-    },
-    {
-      "area": "services",
-      "observation": "The canonical discovery-worker service manifest does not surface the new webhook-auth requirement, so validators that rely on `.factory/services.yaml` alone will start a worker whose POST routes 401 unless they separately discover the header requirement from another doc.",
-      "evidence": "`.factory/services.yaml` starts `discovery_worker` without any `BROWSER_USE_DISCOVERY_WEBHOOK_SECRET`/`DISCOVERY_WEBHOOK_SECRET` env, while `.factory/library/user-testing.md` notes that the worker now requires `x-discovery-secret` on POST routes and browser POSTs to `http://127.0.0.1:8644` are expected to receive 401."
+      "observation": "The integration-refactor worker skill still lacks the mission-approved dirty-baseline and temporary-port verification exceptions, so the latest successful worker had to report `followedProcedure: false` for behavior that mission guidance explicitly allows.",
+      "evidence": "`integration-refactor-worker/SKILL.md` step 6 requires verification on the real local surface and does not mention temporary-port fallback, and the skill omits the dirty-baseline exception entirely. In the latest handoff (`42b5329f-a8b8-4207-9b05-8125a719e54e`), `skillFeedback.deviations` calls out using port 3947 because 3847 was occupied and leaving unrelated baseline artifacts untouched; both patterns are explicitly allowed by mission `AGENTS.md` and `.factory/library/user-testing.md`."
     }
   ],
-  "addressesFailureFrom": null,
-  "summary": "Fail: the landed commit fixes the discovery webhook's fail-open secret check, but the broader OAuth/session and local-service hardening described for this feature was not actually landed, and one touched webhook regression test no longer covers the missing-sheetId case it claims to protect."
+  "addressesFailureFrom": "/Users/emilionunezgarcia/Job-Bored/.factory/validation/security-config/scrutiny/reviews/security-boundary-hardening.json",
+  "summary": "Fail: the rerun fixes the prior test-tracking, placeholder-literal, and missing-sheetId coverage issues, but the feature still does not land the claimed OAuth/session and local service hardening in its own commit set, so the feature description remains only partially satisfied."
 }
