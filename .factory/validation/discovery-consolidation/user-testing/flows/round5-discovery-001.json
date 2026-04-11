@@ -1,0 +1,60 @@
+{
+  "groupId": "round5-discovery-001",
+  "testedAt": "2026-04-10T19:10:00Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080",
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "browserSession": "e7aa97ca0db2__val001",
+    "authState": "signed-out",
+    "discoveryWorker": "http://127.0.0.1:8644"
+  },
+  "toolsUsed": ["agent-browser"],
+  "assertions": [
+    {
+      "id": "VAL-DISCOVERY-001",
+      "title": "Missing discovery endpoint opens setup instead of posting",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Navigate to http://localhost:8080?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+          "expected": "Dashboard loads with onboarding wizard visible",
+          "observed": "Dashboard loaded successfully with onboarding wizard visible (Continue button present, Run discovery button accessible)"
+        },
+        {
+          "action": "Check localStorage for discovery-related keys",
+          "expected": "localStorage should be empty or have no discovery endpoint saved",
+          "observed": "localStorage was empty (no keys present) - correct state for testing missing discovery endpoint"
+        },
+        {
+          "action": "Perform NORMAL POINTER CLICK on 'Run discovery' button using agent-browser click @e6",
+          "expected": "Click should succeed (not blocked by overlay) and open discovery setup wizard",
+          "observed": "Click succeeded without errors. Discovery setup wizard opened with 'Close wizard', 'Status. Current step.', 'Path. Available.', and step buttons (Config, Server, Tunnel, Relay, Test, Done) visible"
+        },
+        {
+          "action": "Check network requests for discovery POST",
+          "expected": "NO discovery POST request should be sent",
+          "observed": "Network request log showed 'No requests captured' - no discovery POST was sent"
+        },
+        {
+          "action": "Check for console errors",
+          "expected": "No console errors should be present",
+          "observed": "Console errors check completed successfully with no output - no errors present"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "discovery-consolidation/round5-discovery-001/VAL-DISCOVERY-001-initial-state.png",
+          "discovery-consolidation/round5-discovery-001/VAL-DISCOVERY-001-annotated-before-click.png",
+          "discovery-consolidation/round5-discovery-001/VAL-DISCOVERY-001-after-click.png",
+          "discovery-consolidation/round5-discovery-001/VAL-DISCOVERY-001-discovery-wizard-open.png"
+        ],
+        "consoleErrors": "none",
+        "network": "No requests captured - no discovery POST sent"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested VAL-DISCOVERY-001: PASSED. Round 5 testing confirmed that the pointer-events fix from commit fcf8705 is working correctly. A NORMAL pointer click on the 'Run discovery' button succeeded (not blocked by the onboarding overlay), the discovery setup wizard opened as expected, and NO discovery POST request was sent - exactly matching the assertion specification."
+}

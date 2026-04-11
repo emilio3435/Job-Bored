@@ -1,0 +1,48 @@
+{
+  "milestone": "discovery-consolidation",
+  "round": 5,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    {
+      "id": "VAL-DISCOVERY-001",
+      "reason": "The pointer-events fix from commit fcf8705 is verified working. A normal user click (no JS workaround) on the 'Run discovery' button succeeded - the click passed through the onboarding overlay and opened the discovery setup wizard. NO discovery POST request was sent."
+    }
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": ".factory/validation/discovery-consolidation/user-testing/synthesis-round4.json",
+  "flowReports": [
+    ".factory/validation/discovery-consolidation/user-testing/flows/round5-discovery-001.json"
+  ],
+  "systemicBlockers": [],
+  "keyAccomplishments": [
+    "Verified VAL-DISCOVERY-001 fix is working: normal user clicks pass through onboarding overlay to reach Run discovery button",
+    "Confirmed discovery setup wizard opens correctly when no endpoint is configured",
+    "Confirmed NO discovery POST is sent when clicking Run discovery without a configured endpoint",
+    "Validated the pointer-events CSS fix (fcf8705) allows clicks through the overlay while keeping the dialog inner content interactive"
+  ],
+  "discoveredFixes": [
+    {
+      "commit": "fcf8705",
+      "description": "Allow clicks through overlay to reach Run discovery button - fixes VAL-DISCOVERY-001",
+      "verifiedWorking": true,
+      "details": "Added pointer-events:none to .onboarding-wizard overlay and pointer-events:auto to .onboarding-wizard__inner, allowing underlying buttons to receive clicks while keeping the dialog content interactive."
+    }
+  ],
+  "validationStateUpdates": [
+    {
+      "assertionId": "VAL-DISCOVERY-001",
+      "previousStatus": "blocked",
+      "newStatus": "passed",
+      "previousRound": 4,
+      "fixCommit": "fcf8705"
+    }
+  ]
+}
