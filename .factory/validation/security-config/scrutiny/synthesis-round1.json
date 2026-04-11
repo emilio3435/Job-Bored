@@ -1,0 +1,67 @@
+{
+  "milestone": "security-config",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "npm run test:repo",
+      "exitCode": 0,
+      "notes": "Contract suite passed, root node tests passed (131/131), and browser-use-discovery tests passed (69/69)."
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "npm run typecheck:repo",
+      "exitCode": 0,
+      "notes": "All listed JS entrypoints passed node --check syntax validation."
+    },
+    "lint": {
+      "passed": true,
+      "command": "npm run lint:repo",
+      "exitCode": 0,
+      "notes": "Skills lint passed."
+    }
+  },
+  "reviewsSummary": {
+    "total": 3,
+    "passed": 1,
+    "failed": 2,
+    "failedFeatures": [
+      "security-boundary-hardening",
+      "cold-start-and-access-handoffs"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "security-boundary-hardening",
+      "severity": "blocking",
+      "description": "The landed feature commit only hardened discovery webhook secret handling; the broader OAuth-session and local-service boundary hardening described by the feature was not landed, the new root regression tests remain untracked, and tests/oauth-session-storage-boundary.test.mjs still uses the placeholder literal \"secret_token_123\"."
+    },
+    {
+      "featureId": "cold-start-and-access-handoffs",
+      "severity": "blocking",
+      "description": "Cold-start discovery setup still bypasses onboarding for non-deep-link entry points because openDiscoverySetupWizard() hides onboarding and the starter-sheet-created flow calls it directly instead of deferring through pendingDiscoverySetup."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [],
+  "rejectedObservations": [
+    {
+      "observation": "Isolated-worktree validation still requires manually copying integrations/browser-use-discovery/state/worker-config.json.",
+      "reason": "already-documented in .factory/library/environment.md."
+    },
+    {
+      "observation": "Workers should cite feature-owned commits and include explicit manual browser evidence in handoffs.",
+      "reason": "already-documented in mission AGENTS.md."
+    },
+    {
+      "observation": "The discovery_worker services manifest should encode webhook-auth setup directly.",
+      "reason": "ambiguous because the requirement depends on local secret-bearing configuration, and the POST-auth expectation is already documented in .factory/library/user-testing.md."
+    },
+    {
+      "observation": "The integration-refactor-worker skill should change because one worker skipped required context reads.",
+      "reason": "ambiguous and not clearly systemic; this review shows worker non-compliance more than a skill-definition gap."
+    }
+  ],
+  "previousRound": null
+}
