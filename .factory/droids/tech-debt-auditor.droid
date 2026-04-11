@@ -1,0 +1,84 @@
+---
+name: tech-debt-auditor
+description: Scans the codebase for common tech debt patterns including dead code, large files, circular deps, and deprecated patterns. Use when asked to audit tech debt, run periodic debt checks, or investigate performance/regressions.
+model: inherit
+location: personal
+---
+
+# Tech Debt Auditor Droid
+
+## When to Use This Droid
+
+Use this droid to:
+- Audit the codebase for tech debt patterns before releases
+- Investigate performance or maintainability regressions
+- Get a snapshot of code health metrics
+- Identify files needing refactoring attention
+
+## Tech Debt Audit Commands
+
+### Dead Code Detection
+```bash
+# Find potentially dead code - unused exports, commented out functions
+rg --files-without-match "export" --type js | head -20
+rg "^\s*//\s*(function|const|let|var|async)" --type js | head -20
+```
+
+### Large File Detection
+```bash
+# Find files over 500 lines (potential hotspots)
+find . -name "*.js" -not -path "./node_modules/*" -not -path "./server/node_modules/*" -exec wc -l {} \; | awk '$1 > 500 {print $2, $1}' | sort -rn
+```
+
+### Circular Dependency Detection
+```bash
+# Check for circular requires/imports in critical files
+node -e "
+const fs = require('fs');
+const path = require('path');
+const files = ['app.js', 'dev-server.mjs'];
+files.forEach(f => {
+  try {
+    const content = fs.readFileSync(f, 'utf8');
+    const matches = content.match(/require\(['\"]([^'\"]+)['\"]\)/g) || [];
+    console.log(f + ': requires ' + matches.length + ' modules');
+  } catch(e) {}
+});
+"
+```
+
+### Console.log/Debug Detection
+```bash
+# Find debug artifacts that should be removed
+rg "console\.(log|debug|info)" --type js -g "!/node_modules/" -g "!/server/node_modules/"
+rg "debugger" --type js -g "!/node_modules/"
+```
+
+### Deprecated Pattern Detection
+```bash
+# Detect deprecated patterns
+rg "var\s+" --type js -g "!/node_modules/"  # var instead of const/let
+rg "==\s*" --type js -g "!/node_modules/"  # == instead of ===
+rg "!=\s*" --type js -g "!/node_modules/"  # != instead of !==
+```
+
+### Magic Numbers/Strings
+```bash
+# Find hardcoded values that should be constants
+rg "\b\d{4,}\b" --type js -g "!/node_modules/" | grep -v version | head -20
+```
+
+## Tech Debt Report Template
+
+When running a tech debt audit, produce a report with:
+1. **Hotspots**: Files over 500 lines with change frequency
+2. **Dead Code**: Unused exports, commented code
+3. **Anti-patterns**: `var`, `==`, `console.log`, `debugger`
+4. **Complexity**: Estimated complexity of critical paths
+5. **Recommendations**: Prioritized list of refactoring opportunities
+
+## Usage Example
+
+```
+/tech-debt-auditor audit --scope app.js --depth full
+```

@@ -1,0 +1,134 @@
+---
+name: coverage-enforcer
+description: Enforces coverage standards by checking test coverage, identifying untested code paths, and validating that critical paths have adequate tests. Use when validating test quality, before releases, or when investigating test gaps.
+model: inherit
+location: personal
+---
+
+# Coverage Enforcer Droid
+
+## When to Use This Droid
+
+Use this droid to:
+- Check test coverage before releases
+- Identify untested critical code paths
+- Validate coverage standards are met
+- Investigate test gaps causing regressions
+
+## Coverage Enforcement Commands
+
+### Run Full Test Suite
+```bash
+# Run all tests with coverage
+npm run test:repo 2>&1 | tail -100
+
+# Run contract tests only (fast)
+npm run test:contract:all 2>&1
+
+# Run browser-use-discovery tests
+npm run test:browser-use-discovery 2>&1 | tail -50
+```
+
+### Coverage Analysis by File
+```bash
+# Count tests per module
+for f in tests/*.test.mjs; do
+  name=$(basename "$f" .test.mjs)
+  count=$(rg "^\\s*(it|describe|test)\\(" "$f" 2>/dev/null | wc -l)
+  echo "$name: $count tests"
+done | sort -t: -k2 -rn
+```
+
+### Identify Untested Critical Paths
+```bash
+# Find functions in app.js without corresponding tests
+rg "async function|function " app.js | awk -F: '{print $2}' | awk '{print $1}' | while read fn; do
+  if ! rg -q "$fn" tests/*.test.mjs 2>/dev/null; then
+    echo "MISSING TEST: $fn"
+  fi
+done
+
+# Find handlers/endpoints without tests
+for endpoint in $(rg "app\.(get|post|put|delete|patch)" app.js -o | sort -u); do
+  if ! rg -q "$endpoint" tests/*.test.mjs 2>/dev/null; then
+    echo "UNTESTED ENDPOINT: $endpoint"
+  fi
+done
+```
+
+### Critical Path Identification
+```bash
+# List critical files that should have tests
+ls -la app.js dev-server.mjs settings-tabs.js user-content-store.js resume-*.js document-templates.js 2>/dev/null
+
+# Check which critical files have dedicated tests
+for f in app.js dev-server.mjs settings-tabs.js; do
+  name=$(basename "$f" .js)
+  test="tests/${name}-validation.test.mjs"
+  if [ -f "$test" ]; then
+    echo "COVERED: $f -> $test"
+  else
+    echo "UNCOVERED: $f (no dedicated test)"
+  fi
+done
+```
+
+### Test Quality Checks
+```bash
+# Check for empty test files
+for f in tests/*.test.mjs; do
+  lines=$(wc -l < "$f")
+  tests=$(rg "^\\s*(it|describe|test)\\(" "$f" 2>/dev/null | wc -l)
+  if [ "$lines" -gt 5 ] && [ "$tests" -eq 0 ]; then
+    echo "EMPTY TEST: $f ($lines lines, 0 test cases)"
+  fi
+done
+
+# Check for skipped/only tests
+rg "^\s*\.\s*(skip|only|skipAll|onlyAll)\(" tests/*.test.mjs 2>/dev/null | head -20
+```
+
+### Validation Surface Coverage
+```bash
+# List all test files
+echo "=== Test Files ==="
+ls -1 tests/*.test.mjs
+
+# Count assertions per test file
+echo "=== Assertion Counts ==="
+for f in tests/*.test.mjs; do
+  name=$(basename "$f")
+  assertions=$(rg "\.ok\(|\.equal\(|\.deepEqual\(|\.strictEqual\(" "$f" 2>/dev/null | wc -l)
+  echo "$name: $assertions assertions"
+done | sort -t: -k2 -rn
+```
+
+## Coverage Standards
+
+### Minimum Requirements
+- All contract validation tests must pass
+- All discovery worker tests must pass
+- No test file should be empty (if it exists)
+- No skipped tests in committed code (except explicitly documented)
+
+### Critical Paths That Must Have Tests
+1. **Pipeline contract**: `test-contract.mjs`, `test-pipeline-contract.mjs`
+2. **ATS contract**: `test-ats-scorecard-contract.mjs`
+3. **Repo validation surface**: `repo-validation-surface.test.mjs`
+4. **OAuth session storage**: `oauth-session-storage-boundary.test.mjs`
+5. **Discovery cold start**: `discovery-cold-start-handoffs.test.mjs`
+
+## Coverage Report Template
+
+When running coverage enforcement, produce:
+1. **Test Count**: Total tests and assertions
+2. **Coverage Gaps**: Critical paths without tests
+3. **Quality Issues**: Empty tests, skipped tests
+4. **Critical Validation**: Contract test status
+5. **Recommendations**: Missing tests to add
+
+## Usage Example
+
+```
+/coverage-enforcer audit --scope full --min-coverage 80
+```

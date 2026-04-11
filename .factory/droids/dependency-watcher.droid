@@ -1,0 +1,79 @@
+---
+name: dependency-watcher
+description: Monitors dependency changes, checks for outdated packages, security advisories, and version drift. Use when validating dependency health, checking for updates, or investigating build issues related to packages.
+model: inherit
+location: personal
+---
+
+# Dependency Watcher Droid
+
+## When to Use This Droid
+
+Use this droid to:
+- Check for outdated dependencies before releases
+- Investigate build or runtime issues related to packages
+- Validate dependency health after npm install changes
+- Monitor for known vulnerabilities
+
+## Dependency Watch Commands
+
+### Check for Outdated Packages
+```bash
+# Check outdated dependencies in root
+npm outdated 2>/dev/null || echo "Run npm install first"
+
+# Check server dependencies
+npm --prefix server outdated 2>/dev/null || echo "Run npm install in server first"
+```
+
+### Dependency Version Audit
+```bash
+# Show dependency tree for a specific package
+npm ls <package-name> 2>/dev/null | head -20
+
+# Check if package-lock.json is in sync with package.json
+diff <(jq -r '.packages | keys[]' package-lock.json | sort) \
+     <(jq -r '.dependencies | keys[]' package.json | sort) 2>/dev/null || true
+```
+
+### Security Advisory Check
+```bash
+# Check for known vulnerabilities (requires npm audit)
+npm audit 2>/dev/null | head -50 || echo "npm audit not available"
+npm --prefix server audit 2>/dev/null | head -50 || echo "server npm audit not available"
+```
+
+### New Dependency Detection
+```bash
+# Find newly added dependencies (vs last commit)
+git diff --cached package.json package-lock.json 2>/dev/null | grep "^+" | grep '"version"' | head -20
+git diff HEAD~1 -- package.json package-lock.json 2>/dev/null | grep "^+" | grep '"version"' | head -20
+```
+
+### Unused Dependency Detection
+```bash
+# Find packages in package.json not referenced in source
+rg "from\s+['\"]@scope/" --type js -g "!/node_modules/" | awk -F'[' '{print $2}' | awk -F/ '{print $1 "@" $2}' | sort -u | head -20
+```
+
+## Dependency Health Report Template
+
+When running a dependency audit, produce:
+1. **Outdated**: List of packages behind latest
+2. **Security**: Known vulnerabilities (CVEs)
+3. **Orphans**: Unused packages in package.json
+4. **Drift**: package-lock.json vs package.json sync status
+5. **Recommendations**: Updates to apply, packages to remove
+
+## Key Files to Watch
+
+- `package.json` - Root dependencies
+- `package-lock.json` - Locked versions
+- `server/package.json` - Server dependencies
+- `server/package-lock.json` - Server locked versions
+
+## Usage Example
+
+```
+/dependency-watcher audit --scope all --check security
+```
