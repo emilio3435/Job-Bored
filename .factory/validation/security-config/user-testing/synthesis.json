@@ -1,0 +1,34 @@
+{
+  "milestone": "security-config",
+  "round": 3,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    {
+      "id": "VAL-SETTINGS-004",
+      "reason": "Invalid sheet input with blank OAuth bootstrap stayed in Settings on the Sheet tab, focused settingsSheetId, and showed inline remediation instead of reloading away."
+    },
+    {
+      "id": "VAL-SETTINGS-007",
+      "reason": "Both the dashboard discovery CTA and Settings \u2192 Discovery \u2192 Open discovery setup visibly opened the discovery setup wizard on the signed-out dashboard."
+    },
+    {
+      "id": "VAL-SETTINGS-010",
+      "reason": "After same-session auth preflight succeeded (userinfo 200 and Sheets metadata 200), reloading with the same OAuth client ID preserved signed-in account chrome and write-capable drawer controls."
+    }
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": ".factory/validation/security-config/user-testing/synthesis-round2.json",
+  "flowReports": [
+    ".factory/validation/security-config/user-testing/flows/round3-settings-shell-and-save.json",
+    ".factory/validation/security-config/user-testing/flows/round3-settings-auth-session-restore.json"
+  ],
+  "systemicBlockers": []
+}
