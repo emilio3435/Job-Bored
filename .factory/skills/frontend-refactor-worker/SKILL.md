@@ -24,6 +24,7 @@ Use for features that primarily touch browser-facing code in the repo root, incl
 2. Identify the smallest browser-facing seam you can change without broad rewrite.
 3. Write or update targeted failing tests first when the touched logic has or should have automated coverage.
 4. Implement the minimum refactor or fix needed to make those tests pass while preserving public behavior.
+   - If the feature explicitly asks to separate or revert bundled behavior, do that directly; documentation-only closure is not acceptable unless the feature text says so.
 5. Run targeted validation during iteration:
    - the smallest relevant automated test command(s)
    - any syntax/static check needed for touched JS files
@@ -36,6 +37,7 @@ Use for features that primarily touch browser-facing code in the repo root, incl
    - `lint`
    - relevant test commands, then the full `test` command when the feature is ready
 8. Stop any processes you started and produce a precise handoff.
+   - Any commit IDs cited in the handoff must be validated with `git rev-parse --verify <hash>^{commit}` and included with observed output.
 
 ## Example Handoff
 
