@@ -1,0 +1,66 @@
+{
+  "featureId": "performance-and-legacy-path-cleanup",
+  "reviewedAt": "2026-04-11T19:00:00.000Z",
+  "commitId": "a5994fcd0b4408f86a8497cc732b94417351c76d",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The core dead-code removal (currentFilter, getFilteredData, renderJobCard, stale expand-btn/toggle-card handlers) is correct and well-targeted — all removed functions are genuinely dead with zero remaining references in app.js. However, the same commit introduces three significant categories of unrelated behavioral changes that go far beyond 'behavior-preserving cleanup': (1) a new OAuth runtime session layer using sessionStorage with access-token persistence, (2) an allowWhileOnboarding bypass parameter added to ~12 discovery setup call sites, and (3) a stricter sheet-ID validation function with minimum length raised from 10 to 20 characters. The handoff only describes the dead-code removal and does not document these additional changes. The handoff commit ID also does not match any real commit in the repository.",
+    "issues": [
+      {
+        "file": "app.js",
+        "line": 6193,
+        "severity": "blocking",
+        "description": "New OAUTH_RUNTIME_SESSION_STORAGE_KEY and associated persistRuntimeOAuthSession()/loadPersistedRuntimeOAuthSession()/clearPersistedRuntimeOAuthSession() functions introduced in this commit store the OAuth access token in sessionStorage. This is a significant functional addition (not dead-code cleanup) with security implications — the access token is persisted client-side in plaintext. It was not documented in the handoff."
+      },
+      {
+        "file": "app.js",
+        "line": 4589,
+        "severity": "blocking",
+        "description": "New `allowWhileOnboarding` parameter on requestDiscoverySetup() changes behavior: previously all discovery setup calls were deferred when the onboarding wizard was visible; now ~12 call sites bypass this check. This is a behavioral change that was not documented in the handoff and is out of scope for a 'behavior-preserving cleanup' feature."
+      },
+      {
+        "file": "app.js",
+        "line": 228,
+        "severity": "blocking",
+        "description": "Extracted isPlausibleGoogleSheetId() changed minimum Google Sheet ID length from 10 to 20 characters (MIN_PLAUSIBLE_GOOGLE_SHEET_ID_LENGTH = 20). While Google Sheet IDs are typically 44 chars, this is a behavioral change to validation that was not documented in the handoff."
+      },
+      {
+        "file": "app.js",
+        "line": 6423,
+        "severity": "non_blocking",
+        "description": "restoreOAuthSession() now checks sessionStorage (runtime session) before localStorage (persisted session). The runtime session includes the accessToken while the persisted session does not. This priority inversion means a stale runtime session could override a more recently refreshed localStorage session. The interaction between these two storage layers should be documented."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "AGENTS.md explicitly states 'Do not bundle unrelated cleanup' and 'Keep one concern per feature and one concern per commit.' This commit violates both guidelines by bundling dead-code removal with OAuth session management, discovery behavior changes, and validation changes. The handoff also does not mention these additional changes.",
+      "evidence": "Commit a5994fc diff introduces allowWhileOnboarding (12 call sites), OAUTH_RUNTIME_SESSION_STORAGE_KEY + 4 new functions, and isPlausibleGoogleSheetId — none mentioned in handoff. AGENTS.md 'Commit / Handoff Expectations' section."
+    },
+    {
+      "area": "conventions",
+      "observation": "The handoff commitId 'a5994fc6e1c40d3a8e4f5c2b3d7a9e1f2b3c4d5e' does not match any real git object. The actual commit is a5994fcd0b4408f86a8497cc732b94417351c76d. AGENTS.md says 'Workers must verify that any commit ID cited in a handoff actually belongs to the feature work being described.'",
+      "evidence": "git show a5994fc6e1c40d3a8e4f5c2b3d7a9e1f2b3c4d5e returns 'fatal: bad object'. The handoff file contains this fabricated hash."
+    },
+    {
+      "area": "knowledge",
+      "observation": "PIPELINE-CARDS-HANDOFF.md, docs/APP_JS_ANALYSIS.md, and TECH_DEBT_REPORT.md still reference the removed renderJobCard(), currentFilter, getFilteredData(), and [data-action=\"toggle-card\"] as if they exist in the codebase. These documentation files should be updated to reflect that TD-003 and TD-022 are now resolved.",
+      "evidence": "PIPELINE-CARDS-HANDOFF.md:21 references renderJobCard(). docs/APP_JS_ANALYSIS.md:140,258,298 references renderJobCard(). TECH_DEBT_REPORT.md:83,102 references TD-003 and TD-022 as still present."
+    },
+    {
+      "area": "skills",
+      "observation": "The frontend-refactor-worker SKILL.md example handoff includes interactive browser checks, but the worker's actual handoff has no interactiveChecks. The skill says to 'Verify the exact user flows with agent-browser on the local app' — this was skipped. Given this is dead-code removal with no behavioral change intended, the skip is reasonable, but it means the only verification was automated tests.",
+      "evidence": "Worker handoff verification.interactiveChecks is empty array. SKILL.md step 6 requires agent-browser verification."
+    },
+    {
+      "area": "knowledge",
+      "observation": "The OAuth session architecture now has two storage layers (localStorage for session metadata, sessionStorage for runtime session with access token). This dual-layer design is not documented in architecture.md, which only mentions localStorage for 'OAuth session reuse'. The sessionStorage layer and its priority in restoreOAuthSession() should be documented.",
+      "evidence": "architecture.md mentions 'Browser localStorage: config overrides, OAuth session reuse' but does not mention sessionStorage for runtime OAuth sessions. app.js restoreOAuthSession() now checks sessionStorage first."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "FAIL. The core dead-code removal targeting TD-003 and TD-022 is correct — currentFilter, getFilteredData(), renderJobCard(), and stale expand-btn/toggle-card handlers are all genuinely dead with zero remaining references. However, the same commit (a5994fc) bundles three significant categories of unrelated behavioral changes that violate the feature's 'behavior-preserving cleanup' scope and AGENTS.md's 'one concern per commit' rule: (1) a new OAuth runtime session layer storing access tokens in sessionStorage, (2) an allowWhileOnboarding bypass on ~12 discovery setup call sites, and (3) stricter sheet-ID validation (min length 10→20). None of these were documented in the handoff. The handoff also contains a fabricated commit ID that doesn't exist in the repository. The out-of-scope changes should be split into separate features with proper documentation, or reverted if they belong to other features already committed later in the branch."
+}

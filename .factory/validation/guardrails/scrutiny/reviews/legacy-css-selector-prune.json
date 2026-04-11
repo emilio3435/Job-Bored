@@ -1,0 +1,15 @@
+{
+  "featureId": "legacy-css-selector-prune",
+  "reviewedAt": "2026-04-11T19:00:00.000Z",
+  "commitId": "7b7b965",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Clean CSS-only cleanup that removes ~386 lines of dead legacy list-card selectors from style.css. All removed selectors have zero references in JS/HTML files. All preserved selectors (card-peek__list, card-peek__source, card-tags, skill-chip, talking-points-list) remain in style.css and are actively used in app.js. Verification (tests, typecheck, lint, browser smoke check) all passed.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "PASS. The commit cleanly prunes 386 lines of dead CSS selectors from retired list-card rendering paths. Every removed selector (.pipeline-list, .job-card, .card-identity, .card-title, .card-company, .card-stage-pill, .card-context, .card-hook, .card-peek block, .card-actions-row, .card-action variants, .details-chevron, .job-card__details, .details-column--*, .details-placeholder, .expanded-extra, .talking-points-block, .talking-points-label, and orphaned drawer compounds) has zero remaining references in JS/HTML. All actively-used drawer selectors are correctly preserved. The worker followed the skill procedure, ran all verification steps (69/69 tests pass, typecheck passes, lint passes, browser loads clean), and produced a well-structured handoff. No issues found."
+}

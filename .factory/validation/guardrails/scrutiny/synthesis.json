@@ -1,0 +1,85 @@
+{
+  "milestone": "guardrails",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": { "passed": true, "command": "npm run test:repo", "exitCode": 0 },
+    "typecheck": { "passed": true, "command": "npm run typecheck:repo", "exitCode": 0 },
+    "lint": { "passed": true, "command": "npm run lint:repo", "exitCode": 0 }
+  },
+  "reviewsSummary": {
+    "total": 4,
+    "passed": 3,
+    "failed": 1,
+    "failedFeatures": ["performance-and-legacy-path-cleanup"]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "performance-and-legacy-path-cleanup",
+      "severity": "blocking",
+      "description": "Commit a5994fc bundles three significant categories of unrelated behavioral changes beyond the stated 'behavior-preserving cleanup' scope: (1) a new OAuth runtime session layer storing access tokens in sessionStorage, (2) an allowWhileOnboarding bypass parameter on ~12 discovery setup call sites, and (3) stricter sheet-ID validation (min length 10→20). None documented in handoff. Handoff also contains a fabricated commit ID."
+    },
+    {
+      "featureId": "performance-and-legacy-path-cleanup",
+      "severity": "blocking",
+      "description": "OAuth access token persisted in sessionStorage in plaintext via new OAUTH_RUNTIME_SESSION_STORAGE_KEY + persistRuntimeOAuthSession()/loadPersistedRuntimeOAuthSession()/clearPersistedRuntimeOAuthSession() functions. Security implications not documented."
+    },
+    {
+      "featureId": "performance-and-legacy-path-cleanup",
+      "severity": "blocking",
+      "description": "New allowWhileOnboarding parameter changes discovery setup behavior: previously all discovery setup calls were deferred when onboarding wizard visible; now ~12 call sites bypass this check. Behavioral change not documented in handoff."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Add a cross-reference to .factory/library/refactoring.md so workers discover dirty-baseline commit conventions and isolated-worktree validation patterns.",
+      "evidence": "guardrail-wiring-and-refactoring-skill review found AGENTS.md has no mention of the new refactoring.md library file, which contains important conventions.",
+      "isSystemic": false
+    },
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Document .factory/droids/ directory purpose and when workers should create or consult droids. Currently no mention of droids exists.",
+      "evidence": "maintenance-droids-and-hook-automation review found three .droid files created with no AGENTS.md reference.",
+      "isSystemic": false
+    },
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Reinforce 'one concern per commit' enforcement: when a worker bundles unrelated behavioral changes with cleanup, the handoff commitId should be validated as a real git object before acceptance.",
+      "evidence": "performance-and-legacy-path-cleanup bundled OAuth session management, discovery behavior changes, and validation changes with dead-code removal. Handoff contained fabricated commit ID.",
+      "isSystemic": true
+    },
+    {
+      "target": "architecture.md (library)",
+      "suggestion": "Document the dual OAuth session storage layers: localStorage for session metadata markers and sessionStorage for runtime OAuth sessions with access tokens. Note the priority order in restoreOAuthSession().",
+      "evidence": "performance-and-legacy-path-cleanup introduced sessionStorage layer without updating architecture.md which only mentions localStorage for OAuth session reuse.",
+      "isSystemic": false
+    },
+    {
+      "target": "library/knowledge",
+      "suggestion": "Update PIPELINE-CARDS-HANDOFF.md, docs/APP_JS_ANALYSIS.md, and TECH_DEBT_REPORT.md to reflect that TD-003 and TD-022 are now resolved (renderJobCard, currentFilter, getFilteredData removed).",
+      "evidence": "performance-and-legacy-path-cleanup review found these docs still reference removed functions as if they exist.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Pre-commit hook auto-installation should be in services.yaml.",
+      "reason": "services.yaml documents network services with start/stop/healthcheck. A git pre-commit hook is not a network service and doesn't fit the schema."
+    },
+    {
+      "observation": "coverage-enforcer critical test paths should be in library.",
+      "reason": "The knowledge is already documented in the .droid file itself which is the appropriate location for droid-specific reference material."
+    },
+    {
+      "observation": "Worker followed skill correctly (guardrail-wiring-and-refactoring-skill).",
+      "reason": "Not an actionable observation - it's a positive report with no guidance update needed."
+    },
+    {
+      "observation": "Handoff commit ID fabrication in performance-and-legacy-path-cleanup.",
+      "reason": "This is specific to the blocking failure already captured in blockingIssues, not reusable shared knowledge."
+    }
+  ],
+  "previousRound": null
+}

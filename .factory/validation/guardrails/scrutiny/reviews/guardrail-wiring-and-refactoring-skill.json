@@ -1,0 +1,45 @@
+{
+  "featureId": "guardrail-wiring-and-refactoring-skill",
+  "reviewedAt": "2026-04-11T18:55:00.000Z",
+  "commitId": "340a96e",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Documentation-only feature that creates three well-structured infrastructure files: a reusable refactoring skill, a comprehensive refactoring guardrail library document, and an update to the integration-refactor-worker skill with approved mission exceptions. All 11 expected behaviors from the feature description are covered. The implementation follows the quality-guardrail-worker skill procedure correctly. No production code was changed.",
+    "issues": [
+      {
+        "file": ".factory/library/refactoring.md",
+        "line": 119,
+        "severity": "non_blocking",
+        "description": "The 'Bootstrap Path for Discovery Worker Validation' section uses `cp file /dev/null` as a confusing no-op existence check. While harmless (copies to /dev/null, doesn't affect source), it reads as destructive. Should use `test -f integrations/browser-use-discovery/state/worker-config.json` instead for clarity."
+      },
+      {
+        "file": ".factory/library/refactoring.md",
+        "line": 176,
+        "severity": "non_blocking",
+        "description": "The 'Example: Temporary Port for Dashboard Validation' section references `npm run test:contract:dashboard` which does not exist in package.json. Only `test:contract:all` exists. This could mislead future workers trying to reproduce the example."
+      },
+      {
+        "file": ".factory/library/refactoring.md",
+        "line": 257,
+        "severity": "non_blocking",
+        "description": "The Apps Script classification section references a test file path `tests/apps-script-classification.test.mjs` that does not currently exist in the repo. While this is aspirational guidance (marked as a code comment pattern), it could be clearer that the test is a suggestion for future implementation, not an existing file."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "AGENTS.md does not reference the newly created `.factory/library/refactoring.md`, which contains important dirty-baseline commit conventions and isolated-worktree validation patterns. Workers who read only AGENTS.md for conventions would miss these.",
+      "evidence": "AGENTS.md was checked and contains no mention of `refactoring.md`. The file is only cross-referenced from `integration-refactor-worker/SKILL.md` line ~139."
+    },
+    {
+      "area": "skills",
+      "observation": "Worker followed the quality-guardrail-worker skill procedure correctly with no deviations. skillFeedback.followedProcedure is true. The worker skill matched the task requirements well.",
+      "evidence": "Transcript skeleton shows skillFeedback.followedProcedure = true, deviations = []. Handoff matches the skill's example handoff structure."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS with non-blocking issues. The feature successfully creates comprehensive refactoring guardrails covering all 11 expected behaviors: a reusable refactoring skill (.factory/skills/refactoring/SKILL.md), detailed guardrail documentation (.factory/library/refactoring.md) covering dirty-baseline atomic commits, isolated-worktree validation, temporary port fallback with provenance checks, missing synthesis artifacts handling, Apps Script classification integration checks, and residual artifact reconciliation. The integration-refactor-worker skill was updated with approved mission exceptions for dirty-baseline preservation and temporary port fallback. Three non-blocking issues found: (1) confusing `cp file /dev/null` existence check, (2) reference to non-existent npm script `test:contract:dashboard`, and (3) reference to non-existent test file. One shared state observation: AGENTS.md should cross-reference the new refactoring library."
+}
