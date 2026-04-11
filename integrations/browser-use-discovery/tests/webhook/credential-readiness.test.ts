@@ -152,7 +152,7 @@ test("handleDiscoveryWebhook fails fast when a configured service-account file i
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-discovery-secret": "placeholder-test-shared-ghi",
+          "x-discovery-secret": "shared-proof-gamma",
         },
         bodyText: JSON.stringify({
           event: DISCOVERY_WEBHOOK_EVENT,
@@ -164,7 +164,7 @@ test("handleDiscoveryWebhook fails fast when a configured service-account file i
       },
       makeDependencies({
         googleServiceAccountFile: join(tempDir, "missing-service-account.json"),
-        webhookSecret: "placeholder-test-shared-ghi",
+        webhookSecret: "shared-proof-gamma",
       }),
     );
 

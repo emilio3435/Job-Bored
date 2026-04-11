@@ -10,9 +10,9 @@ import {
   handleDiscoveryWebhook,
 } from "../../src/webhook/handle-discovery-webhook.ts";
 
-// Shared placeholder secret value used in tests that need to bypass auth validation.
+// Shared header value used in tests that need to bypass auth validation.
 // Uses obviously fake placeholder literals that avoid secret-like keywords.
-const PLACEHOLDER_SECRET = "placeholder-shared-value-xyz789";
+const SHARED_HEADER_VALUE = "shared-proof-xyz789";
 
 function makeRequest(overrides = {}) {
   return {
@@ -117,7 +117,7 @@ function makeDependencies(overrides = {}) {
         browserUseCommand: "",
         googleServiceAccountJson: "",
         googleServiceAccountFile: "",
-        googleAccessToken: "token_123",
+        googleAccessToken: "oauth-proof-123",
         webhookSecret: "",
         allowedOrigins: [],
         port: 0,
@@ -198,7 +198,7 @@ test("handleDiscoveryWebhook validates requests before running", async () => {
       ...makeDependencies().runDependencies,
       runtimeConfig: {
         ...makeDependencies().runDependencies.runtimeConfig,
-        webhookSecret: PLACEHOLDER_SECRET,
+        webhookSecret: SHARED_HEADER_VALUE,
       },
     },
   });
@@ -207,7 +207,7 @@ test("handleDiscoveryWebhook validates requests before running", async () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-discovery-secret": PLACEHOLDER_SECRET,
+        "x-discovery-secret": SHARED_HEADER_VALUE,
       },
       bodyText: "not-json",
     },
@@ -219,13 +219,82 @@ test("handleDiscoveryWebhook validates requests before running", async () => {
 });
 
 test("handleDiscoveryWebhook accepts missing request sheetId when worker config provides one", async () => {
+  let preflightSheetId = "__unset__";
+  let runDiscoveryCalled = false;
   const dependencies = makeDependencies({
     runDependencies: {
       ...makeDependencies().runDependencies,
       runtimeConfig: {
         ...makeDependencies().runDependencies.runtimeConfig,
-        webhookSecret: PLACEHOLDER_SECRET,
+        webhookSecret: SHARED_HEADER_VALUE,
+        runMode: "local",
       },
+      loadStoredWorkerConfig: async (sheetId) => {
+        preflightSheetId = sheetId;
+        return {
+          sheetId: "worker_sheet_456",
+          mode: "local",
+          timezone: "UTC",
+          companies: [{ name: "Acme" }],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["greenhouse"],
+          schedule: { enabled: false, cron: "" },
+        };
+      },
+    },
+    runDiscovery: async () => {
+      runDiscoveryCalled = true;
+      return {
+        run: {
+          runId: "run_queued",
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "",
+            variationKey: "var_123",
+            requestedAt: "2026-04-09T12:00:00.000Z",
+          },
+          config: {
+            sheetId: "worker_sheet_456",
+            mode: "local",
+            timezone: "UTC",
+            companies: [{ name: "Acme" }],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["greenhouse"],
+            schedule: { enabled: false, cron: "" },
+          },
+        },
+        lifecycle: {
+          state: "running",
+          companyCount: 1,
+          listingCount: 0,
+          normalizedLeadCount: 0,
+          rejectionSummary: [],
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "worker_sheet_456",
+          appended: 0,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
     },
   });
   const response = await handleDiscoveryWebhook(
@@ -233,12 +302,11 @@ test("handleDiscoveryWebhook accepts missing request sheetId when worker config 
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-discovery-secret": PLACEHOLDER_SECRET,
+        "x-discovery-secret": SHARED_HEADER_VALUE,
       },
       bodyText: JSON.stringify({
         event: DISCOVERY_WEBHOOK_EVENT,
         schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
-        sheetId: "sheet_123",
         variationKey: "var_123",
         requestedAt: "2026-04-09T12:00:00.000Z",
       }),
@@ -247,6 +315,8 @@ test("handleDiscoveryWebhook accepts missing request sheetId when worker config 
   );
 
   assert.equal(response.status, 202);
+  assert.equal(preflightSheetId, "");
+  assert.equal(runDiscoveryCalled, true);
   const body = JSON.parse(response.body);
   assert.equal(body.ok, true);
   assert.equal(body.kind, "accepted_async");
@@ -264,7 +334,7 @@ test("handleDiscoveryWebhook still fails when both request and worker config omi
       ...makeDependencies().runDependencies,
       runtimeConfig: {
         ...makeDependencies().runDependencies.runtimeConfig,
-        webhookSecret: PLACEHOLDER_SECRET,
+        webhookSecret: SHARED_HEADER_VALUE,
       },
     },
   });
@@ -289,7 +359,7 @@ test("handleDiscoveryWebhook still fails when both request and worker config omi
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-discovery-secret": PLACEHOLDER_SECRET,
+        "x-discovery-secret": SHARED_HEADER_VALUE,
       },
       bodyText: JSON.stringify({
         event: DISCOVERY_WEBHOOK_EVENT,
@@ -317,7 +387,7 @@ test("handleDiscoveryWebhook returns completed_sync when run synchronously", asy
       ...makeDependencies().runDependencies,
       runtimeConfig: {
         ...makeDependencies().runDependencies.runtimeConfig,
-        webhookSecret: PLACEHOLDER_SECRET,
+        webhookSecret: SHARED_HEADER_VALUE,
       },
     },
     runDiscovery: async (_request, trigger, dependencies) => {
@@ -380,7 +450,7 @@ test("handleDiscoveryWebhook returns completed_sync when run synchronously", asy
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-discovery-secret": PLACEHOLDER_SECRET,
+        "x-discovery-secret": SHARED_HEADER_VALUE,
       },
       bodyText: JSON.stringify({
         event: DISCOVERY_WEBHOOK_EVENT,
@@ -414,7 +484,7 @@ test("handleDiscoveryWebhook forwards run-level logs through the request logger"
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-discovery-secret": PLACEHOLDER_SECRET,
+        "x-discovery-secret": SHARED_HEADER_VALUE,
       },
       bodyText: JSON.stringify({
         event: DISCOVERY_WEBHOOK_EVENT,
@@ -433,7 +503,7 @@ test("handleDiscoveryWebhook forwards run-level logs through the request logger"
         ...makeDependencies().runDependencies,
         runtimeConfig: {
           ...makeDependencies().runDependencies.runtimeConfig,
-          webhookSecret: PLACEHOLDER_SECRET,
+          webhookSecret: SHARED_HEADER_VALUE,
         },
       },
       runDiscovery: async (_request, trigger, dependencies) => {
@@ -518,7 +588,7 @@ test("handleDiscoveryWebhook returns accepted_async without waiting for the run"
       ...makeDependencies().runDependencies,
       runtimeConfig: {
         ...makeDependencies().runDependencies.runtimeConfig,
-        webhookSecret: PLACEHOLDER_SECRET,
+        webhookSecret: SHARED_HEADER_VALUE,
       },
     },
     runDiscovery: async (_request, trigger, dependencies) => {
@@ -582,7 +652,7 @@ test("handleDiscoveryWebhook returns accepted_async without waiting for the run"
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-discovery-secret": PLACEHOLDER_SECRET,
+        "x-discovery-secret": SHARED_HEADER_VALUE,
       },
       bodyText: JSON.stringify({
         event: DISCOVERY_WEBHOOK_EVENT,
@@ -622,7 +692,7 @@ test("handleDiscoveryWebhook persists failed async outcomes for later inspection
       runtimeConfig: {
         ...makeDependencies().runDependencies.runtimeConfig,
         // Set a placeholder secret so the request passes auth validation.
-        webhookSecret: "placeholder-shared-value-xyz",
+        webhookSecret: "async-proof-xyz",
       },
     },
   });
@@ -632,7 +702,7 @@ test("handleDiscoveryWebhook persists failed async outcomes for later inspection
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-discovery-secret": "placeholder-shared-value-xyz",
+        "x-discovery-secret": "async-proof-xyz",
       },
       bodyText: JSON.stringify({
         event: DISCOVERY_WEBHOOK_EVENT,
@@ -660,7 +730,7 @@ test("handleDiscoveryWebhook fails fast when no companies are configured", async
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-discovery-secret": "placeholder-test-shared-abc",
+        "x-discovery-secret": "shared-proof-alpha",
       },
       bodyText: JSON.stringify({
         event: DISCOVERY_WEBHOOK_EVENT,
@@ -697,8 +767,8 @@ test("handleDiscoveryWebhook fails fast when no companies are configured", async
           browserUseCommand: "",
           googleServiceAccountJson: "",
           googleServiceAccountFile: "",
-          googleAccessToken: "token_123",
-          webhookSecret: "placeholder-test-shared-abc",
+          googleAccessToken: "oauth-proof-123",
+          webhookSecret: "shared-proof-alpha",
           allowedOrigins: [],
           port: 0,
           host: "127.0.0.1",
@@ -723,7 +793,7 @@ test("handleDiscoveryWebhook fails fast when no sheets credential is configured"
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-discovery-secret": "placeholder-test-shared-def",
+        "x-discovery-secret": "shared-proof-bravo",
       },
       bodyText: JSON.stringify({
         event: DISCOVERY_WEBHOOK_EVENT,
@@ -760,7 +830,7 @@ test("handleDiscoveryWebhook fails fast when no sheets credential is configured"
           googleServiceAccountJson: "",
           googleServiceAccountFile: "",
           googleAccessToken: "",
-          webhookSecret: "placeholder-test-shared-def",
+          webhookSecret: "shared-proof-bravo",
           allowedOrigins: [],
           port: 0,
           host: "127.0.0.1",
@@ -831,7 +901,7 @@ test("handleDiscoveryWebhook accepts requests with a correctly provided webhook 
       runtimeConfig: {
         ...makeDependencies().runDependencies.runtimeConfig,
         // Use an obviously fake placeholder value that avoids secret-like keywords.
-        webhookSecret: "shared-value-xyz-123",
+        webhookSecret: "proof-match-xyz-123",
       },
     },
   });
@@ -842,7 +912,7 @@ test("handleDiscoveryWebhook accepts requests with a correctly provided webhook 
       headers: {
         "content-type": "application/json",
         // Provide the matching secret header value.
-        "x-discovery-secret": "shared-value-xyz-123",
+        "x-discovery-secret": "proof-match-xyz-123",
       },
       bodyText: JSON.stringify({
         event: DISCOVERY_WEBHOOK_EVENT,
@@ -871,7 +941,7 @@ test("handleDiscoveryWebhook rejects requests with an incorrect webhook secret",
       ...makeDependencies().runDependencies,
       runtimeConfig: {
         ...makeDependencies().runDependencies.runtimeConfig,
-        webhookSecret: "the-real-shared-value-abc",
+        webhookSecret: "configured-proof-abc",
       },
     },
   });
