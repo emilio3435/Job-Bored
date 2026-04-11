@@ -1,0 +1,44 @@
+{
+  "featureId": "dashboard-drawer-and-crm-refactor",
+  "reviewedAt": "2026-04-11T00:55:00.000Z",
+  "commitId": "7bcf2da",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The implementation correctly adds refreshDrawerIfOpen() calls to all CRM update functions and the status-select handler, fixing the drawer sync bug where in-drawer saves would leave stale content. The changes are minimal, targeted, and well-tested with 17 static analysis tests. The refreshDrawerIfOpen function has proper guards (checks drawer open state, correct job match, scroll position preservation) and re-attaches listeners after refresh.",
+    "issues": [
+      {
+        "file": "tests/drawer-crm-sync.test.mjs",
+        "line": 1,
+        "severity": "non_blocking",
+        "description": "Tests are static analysis (source code parsing) rather than runtime tests. They verify that refreshDrawerIfOpen is present in the source code but don't test actual runtime behavior like: (1) what happens when drawer is not open, (2) what happens when save fails, (3) whether scroll position is preserved, (4) whether listeners are re-attached correctly."
+      },
+      {
+        "file": "app.js",
+        "line": 10615,
+        "severity": "non_blocking",
+        "description": "The status-select handler behavior change: previously sel.disabled was only set to false on failure; now it's always set to false. This is actually a fix (prevents stuck disabled state on success), but the commit message doesn't mention this behavior change."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The feature references skillName 'frontend-refactor-worker' but no skill file exists at .factory/skills/frontend-refactor-worker/SKILL.md or any matching location. The handoff indicates followedProcedure: true, suggesting the worker followed some procedure, but the skill file is missing from the repository.",
+      "evidence": "Feature JSON shows skillName: 'frontend-refactor-worker'; find command returns no results for *frontend-refactor* in .factory/"
+    },
+    {
+      "area": "conventions",
+      "observation": "The project uses static analysis tests (parsing source code with regex) to verify implementation structure rather than runtime unit tests. This pattern is useful for verifying code structure but doesn't catch runtime bugs.",
+      "evidence": "tests/drawer-crm-sync.test.mjs uses readFileSync to parse app.js and regex to extract function bodies, then asserts that refreshDrawerIfOpen appears in the source"
+    },
+    {
+      "area": "knowledge",
+      "observation": "The refreshDrawerIfOpen function has important design characteristics that are worth documenting: it guards against refreshing when drawer is closed or when the wrong job is displayed, preserves scroll position, and re-attaches card listeners after content refresh.",
+      "evidence": "app.js lines showing refreshDrawerIfOpen implementation with guards: if (!overlay || activeDetailKey !== dataIndex) return; scrollTop capture/restore; attachCardListeners() call"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS: The drawer sync bug fix is correctly implemented. All CRM update functions (updateJobNotes, updateFollowUpDate, updateLastHeardFrom, updateJobResponseFlag) and the status-select handler now call refreshDrawerIfOpen after successful saves, ensuring the drawer content stays in sync with the underlying data. The 17 tests verify the code structure is correct. Minor concerns: tests are static analysis rather than runtime, and the referenced skill file doesn't exist."
+}

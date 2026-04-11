@@ -44,7 +44,9 @@ Workers apply the bootstrap by either:
 1. Setting `localStorage.setItem('command_center_config_overrides', JSON.stringify({ sheetId: '1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ' }))` in the browser console and reloading, or
 2. Using the `setup-browser-cookies` skill to import an authenticated Google session for private-sheet access.
 
-The `discovery-local-bootstrap.json` already points `sheetId` at this same disposable sheet. Frontend-decomposition browser assertions (VAL-DASH-001 through VAL-DASH-018) require populated board/brief data; this bootstrap ensures they don't fall back to setup-only state.
+**Note:** `seed-pipeline-data.json` references a schema URL (`https://github.com/job-bored/command-center/schemas/pipeline-row.v1.json`) that may not exist at that GitHub location. The local schema file exists at `schemas/pipeline-row.v1.json` with matching `$id`. Workers should use local schema validation rather than attempting remote fetch.
+
+Frontend-decomposition browser assertions (VAL-DASH-001 through VAL-DASH-018) require populated board/brief data; this bootstrap ensures they don't fall back to setup-only state.
 
 ## Safety constraints
 
