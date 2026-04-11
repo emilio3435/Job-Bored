@@ -1,0 +1,92 @@
+{
+  "groupId": "round3-settings-shell-and-save",
+  "testedAt": "2026-04-11T18:03:42Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080",
+    "browserOrigin": "http://localhost:8080",
+    "browserSession": "security-config-round3-noauth",
+    "startedFromCleanStorage": true,
+    "authBootstrap": "none",
+    "configuredValues": {
+      "valSettings004": {
+        "sheetInput": "not-a-sheet",
+        "oauthClientId": ""
+      },
+      "valSettings007": {
+        "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+        "oauthClientId": ""
+      }
+    },
+    "authSessionLocalStorageTransitions": {
+      "valSettings004": "No auth/session localStorage keys were present; invalid save did not persist config overrides and left focus on settingsSheetId.",
+      "valSettings007": "Saved config override contained the public sheet ID with blank oauthClientId; no auth/session localStorage keys were present before or after opening the discovery wizard."
+    },
+    "notes": [
+      "Both assertions were tested in a dedicated signed-out browser session with fresh app storage at the start of each flow.",
+      "No authenticated Google session was used or imported."
+    ]
+  },
+  "toolsUsed": [
+    "agent-browser"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-SETTINGS-004",
+      "title": "Invalid sheet input blocks save when OAuth bootstrap is unavailable",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Open Settings from the signed-out surface in a fresh session, clear the OAuth Client ID field on Setup, switch to Sheet, enter `not-a-sheet`, and click `Save & reload`.",
+          "expected": "Settings stays open, focuses the Sheet tab/input, and shows remediation instead of silently reloading away.",
+          "observed": "Settings remained open on the Sheet tab at `http://localhost:8080/`, the active element stayed `settingsSheetId`, and an inline `settingsFormError` message appeared: 'Paste your spreadsheet\u2019s full URL from the browser bar, or the Sheet ID only (the long id between /d/ and /edit).'"
+        },
+        {
+          "action": "Inspect browser storage after the invalid save attempt.",
+          "expected": "The invalid submission should not create a usable OAuth bootstrap path or persist the bad sheet value as a successful save.",
+          "observed": "No auth/session localStorage keys existed and `command_center_config_overrides` was not persisted for the invalid submission."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "security-config/round3-settings-shell-and-save/VAL-SETTINGS-004-sheet-tab-before-save.png",
+          "security-config/round3-settings-shell-and-save/VAL-SETTINGS-004-sheet-error.png",
+          "security-config/round3-settings-shell-and-save/VAL-SETTINGS-004-sheet-error-full.png"
+        ],
+        "consoleErrors": "none",
+        "network": "No relevant network request was required for validation; the app stayed on the same URL and handled the invalid sheet input in-modal."
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SETTINGS-007",
+      "title": "Discovery-focused settings entry points land on the discovery setup surface",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Reset browser storage, save the public sheet ID with blank OAuth Client ID, land on the signed-out read-only dashboard, and click the dashboard CTA `Open discovery setup wizard`.",
+          "expected": "The dashboard/setup CTA opens a visible discovery setup surface for the current flow.",
+          "observed": "The discovery wizard opened over the dashboard with visible setup chrome including `Close wizard`, step buttons (`Status`, `Path`, `Config`, `Server`, `Tunnel`, `Relay`, `Test`, `Done`), and a `Re-scan` action."
+        },
+        {
+          "action": "Close the wizard, open `Settings and setup`, switch to the `Discovery` tab, and click `Open discovery setup`.",
+          "expected": "The Settings discovery CTA lands on the discovery setup surface instead of leaving the user on the tab or dead-ending.",
+          "observed": "The Settings CTA again opened the discovery wizard overlay on the same signed-out dashboard, replacing the modal with the visible discovery setup surface."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "security-config/round3-settings-shell-and-save/VAL-SETTINGS-007-post-save-annotated.png",
+          "security-config/round3-settings-shell-and-save/VAL-SETTINGS-007-dashboard-entry-after-click.png",
+          "security-config/round3-settings-shell-and-save/VAL-SETTINGS-007-discovery-tab.png",
+          "security-config/round3-settings-shell-and-save/VAL-SETTINGS-007-discovery-tab-after-click.png"
+        ],
+        "consoleErrors": "none",
+        "network": "No navigation or discovery POST was required; both entry points opened the discovery setup wizard in place on `http://localhost:8080/`."
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Retested 2 signed-out security-config settings assertions. VAL-SETTINGS-004 passed because invalid sheet input kept Settings open on the Sheet tab with visible remediation and focus on the sheet field. VAL-SETTINGS-007 passed because both the dashboard CTA and the Settings Discovery CTA visibly opened the discovery setup wizard."
+}

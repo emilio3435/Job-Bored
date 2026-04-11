@@ -1,0 +1,85 @@
+{
+  "groupId": "round3-settings-auth-session-restore",
+  "testedAt": "2026-04-11T18:12:44.208533Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080",
+    "appUrlUnderTest": "http://localhost:8080/?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "browserSession": "round3-settings-auth-session-restore",
+    "flowGuidance": "security-config-settings-browser",
+    "browserStateSeed": "/Users/emilionunezgarcia/agent-browser-google-auth-state.json",
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "oauthClientId": "917526284100-huglmbdj2j45iukot3t9bqo1sls24ibo.apps.googleusercontent.com",
+    "sameSessionPreflight": {
+      "userinfo": {
+        "url": "https://www.googleapis.com/oauth2/v3/userinfo",
+        "status": 200,
+        "tokenSource": "gcloud auth print-access-token"
+      },
+      "sheets": {
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ?fields=spreadsheetId",
+        "status": 200,
+        "tokenSource": "refreshed ~/.hermes/google_token.json access token"
+      }
+    }
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "gcloud",
+    "python3"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-SETTINGS-010",
+      "title": "OAuth session restore survives reload for the same client ID",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Open the dedicated authenticated validator session on the disposable validation sheet and run the documented same-session preflight.",
+          "expected": "Both Google probes return 200 in the same browser session before auth evaluation begins.",
+          "observed": "GET userinfo returned 200 with the local gcloud token and GET Sheets metadata returned 200 with a freshly refreshed Hermes Sheets token in the same agent-browser session."
+        },
+        {
+          "action": "Bootstrap signed-in state for the current OAuth client ID in that same browser session and inspect the MariaDB drawer.",
+          "expected": "The sign-in gate clears and write-capable drawer controls are visible before reload.",
+          "observed": "The Continue gate disappeared, account chrome showed emilio3435@gmail.com, and the MariaDB drawer exposed editable status, follow-up, reply, and notes controls."
+        },
+        {
+          "action": "Reload the page without changing the configured OAuth client ID.",
+          "expected": "The same-client stored session restores automatically and keeps write-capable state available.",
+          "observed": "After reload, the account menu stayed visible, Continue remained absent, localStorage and sessionStorage OAuth markers were still present, and reopening the same MariaDB drawer still showed editable controls."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "security-config/round3-settings-auth-session-restore/VAL-SETTINGS-010-post-signin.png",
+          "security-config/round3-settings-auth-session-restore/VAL-SETTINGS-010-drawer-write-capable.png",
+          "security-config/round3-settings-auth-session-restore/VAL-SETTINGS-010-post-reload.png",
+          "security-config/round3-settings-auth-session-restore/VAL-SETTINGS-010-post-reload-drawer.png"
+        ],
+        "consoleErrors": "none after clearing logs and rechecking the settled post-reload state",
+        "network": "Same-session preflight: GET https://www.googleapis.com/oauth2/v3/userinfo -> 200; GET https://sheets.googleapis.com/v4/spreadsheets/1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ?fields=spreadsheetId -> 200."
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "The saved runtime bridge token file had gone stale and returned Sheets 401 during the first probe attempt.",
+      "resolved": true,
+      "resolution": "Refreshed the local Hermes Google token via its existing refresh token and used that refreshed access token for the Sheets-side preflight/bootstrap path.",
+      "affectedAssertions": [
+        "VAL-SETTINGS-010"
+      ]
+    },
+    {
+      "description": "The saved browser state alone still landed on the real Google identifier handoff and silent GIS restore returned interaction_required.",
+      "resolved": true,
+      "resolution": "Completed the rerun with the documented same-session browser preflight plus runtime auth injection in the dedicated validator session instead of relying on the popup handoff.",
+      "affectedAssertions": [
+        "VAL-SETTINGS-010"
+      ]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 1 assertion: VAL-SETTINGS-010 passed. Same-session preflight succeeded (userinfo 200, Sheets metadata 200), and reloading with the same OAuth client ID preserved signed-in, write-capable state."
+}
