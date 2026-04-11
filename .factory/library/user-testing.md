@@ -132,9 +132,51 @@ Without one of these steps, the browser will show "Continue" button for Google s
 
 - Use this surface for drawer open/close, detail rendering, signed-out browse mode, signed-in CRM edits, status changes, and enrichment flows.
 - Start with a fresh browser session (`--session` unique per validator). Use `?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ` to provide the sheet ID.
+
+### Activity Feed Preflight (VAL-DASH-002)
+
+Before running VAL-DASH-002, run the activity feed preflight script to verify/setup overdue followUpDate data:
+
+```bash
+node scripts/check-activity-feed-prerequisites.mjs --verify  # Check only
+node scripts/check-activity-feed-prerequisites.mjs --seed    # Check and attempt to seed
+```
+
+The script will:
+- Verify if the sheet has overdue followUpDate rows
+- Attempt to materialize an overdue row via Google Sheets API (if credentials available)
+- Print explicit manual fallback instructions if API write fails
+
+If the script exits with code 1 (no overdue rows), manually update the sheet:
+1. Open: `https://docs.google.com/spreadsheets/d/1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ/edit`
+2. Find a row with a future Follow-up Date (column P)
+3. Change it to a past date (e.g., 2026-04-05 for today being 2026-04-10)
+
+### Auth Setup for CRM Assertions
+
+**CRITICAL for auth-required assertions (VAL-DASH-002, VAL-DASH-009, VAL-DASH-010, VAL-DASH-011, VAL-DASH-018):**
+
+`agent-browser` creates fresh browser profiles that do NOT inherit Google auth cookies from your real Chrome browser. For write-access assertions, you MUST perform live sign-in in the validator session:
+
+1. **Live sign-in (REQUIRED for this session):**
+   - Navigate to `http://localhost:8080`
+   - Click "Sign in with Google" in the dashboard
+   - Complete the OAuth flow with your Google account
+   - Verify the "Continue" button is no longer visible
+   - The session must remain authenticated for ALL auth-required assertions in this session
+
+   **Do NOT assume inherited cookies from prior sessions. Each validator session must perform its own live sign-in.**
+
+2. **Cookie import (alternative only if live sign-in is unavailable):**
+   ```bash
+   ~/.claude/skills/gstack/browse/dist/browse cookie-import-browser
+   ```
+   Select Chrome browser and import cookies for `google.com` and `googlesyndication.com`.
+
+### Assertion-Specific Notes
+
 - For signed-out assertions (VAL-DASH-008), verify drawer opens in browse-only mode with writeback controls hidden or replaced with sign-in guidance.
-- For signed-in assertions (VAL-DASH-009, VAL-DASH-010, VAL-DASH-011, VAL-DASH-018), you need a Google-authenticated browser session. Use cookie import or live sign-in.
-- For VAL-DASH-002, click a Brief activity feed item and verify it opens the matching job drawer with correct title/company.
+- For VAL-DASH-002, click a Brief activity feed item (overdue follow-up) and verify it opens the matching job drawer with correct title/company.
 - For VAL-DASH-006, click a stage card and verify drawer opens; close via button or Escape.
 - For VAL-DASH-007, test a job with no posting enrichment and verify core identity (title, company, location/salary, action row) still shows.
 - For VAL-DASH-009, with signed-in session, verify drawer exposes editable CRM controls and can save changes.
