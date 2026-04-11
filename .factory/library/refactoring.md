@@ -78,7 +78,6 @@ The discovery worker validation requires `integrations/browser-use-discovery/sta
 
 ```bash
 # From a clean worktree, before running test:browser-use-discovery:
-cp integrations/browser-use-discovery/state/worker-config.json /dev/null 2>/dev/null || true
 # The file is checked in — bootstrap is automatic for clean worktrees
 ```
 
@@ -184,7 +183,7 @@ TEMP_PID=$!
 lsof -i :8081 | grep $TEMP_PID
 
 # Run validation
-npm run test:contract:dashboard
+npm run test:contract:all
 
 # Stop when done
 kill $TEMP_PID
@@ -254,14 +253,6 @@ The classification check exercises `handleAppsScriptBrowserCorsFailure` and `isM
 **Critical regression to prevent**: Non-managed Apps Script URLs must NOT be classified as `stub_only` when they fail with CORS/network errors.
 
 The fix (commit cd2f886) ensured `handleAppsScriptBrowserCorsFailure` requires `isManagedAppsScriptDeployState === true` before classifying as `stub_only`.
-
-### Adding a Regression Test
-
-```javascript
-// tests/apps-script-classification.test.mjs
-// Tests that stub classification only applies to managed Apps Script stubs
-// and not to non-managed URLs or other endpoint types
-```
 
 ---
 
