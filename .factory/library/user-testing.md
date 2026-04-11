@@ -156,18 +156,22 @@ If the script exits with code 1 (no overdue rows), manually update the sheet:
 
 **CRITICAL for auth-required assertions (VAL-DASH-002, VAL-DASH-009, VAL-DASH-010, VAL-DASH-011, VAL-DASH-018):**
 
-`agent-browser` creates fresh browser profiles that do NOT inherit Google auth cookies from your real Chrome browser. For write-access assertions, you MUST perform live sign-in in the validator session:
+`agent-browser` creates fresh browser profiles that do NOT inherit Google auth cookies from your real Chrome browser.
 
-1. **Live sign-in (REQUIRED for this session):**
+**Round 5 update:** the refreshed runtime token bridge at `/Users/emilionunezgarcia/agent-browser-access-token.txt` is sufficient for validator-session auth bootstrap by itself; the earlier marker-state dependency was no longer present. Preferred order:
+
+1. **Runtime token bridge (preferred on this machine):**
+   - Inject the local access token into the page runtime without printing it.
+   - Ensure the runtime session includes Sheets scopes and a valid expiry, then call app helpers such as `updateAuthUI()` / `persistOAuthSession()` if available.
+   - Before testing write assertions, prove the same session is really authorized: `Continue` absent, CRM controls visible, Google userinfo `200`, and a Sheets probe `200`.
+
+2. **Live sign-in (fallback if the token bridge stops working):**
    - Navigate to `http://localhost:8080`
    - Click "Sign in with Google" in the dashboard
    - Complete the OAuth flow with your Google account
    - Verify the "Continue" button is no longer visible
-   - The session must remain authenticated for ALL auth-required assertions in this session
 
-   **Do NOT assume inherited cookies from prior sessions. Each validator session must perform its own live sign-in.**
-
-2. **Cookie import (alternative only if live sign-in is unavailable):**
+3. **Cookie import (last resort if live sign-in is unavailable):**
    ```bash
    ~/.claude/skills/gstack/browse/dist/browse cookie-import-browser
    ```
@@ -185,6 +189,7 @@ If the script exits with code 1 (no overdue rows), manually update the sheet:
 - For VAL-DASH-017, open a job that can fetch enrichment and verify loading state then enriched/warning state.
 - For VAL-DASH-018, with drawer open, save a CRM change and verify drawer stays attached to same role with no stale state.
 - CRM edits write to the Google Sheet. Use the disposable sheet for validation. Capture network evidence of POST batchUpdate calls.
+- For VAL-DASH-013 on the real empty fixture `1zK-I18WITjwcqsx4LgVSFk-dmAot2dxHae1Y0N9CPB0`, a fresh session may still need auth bootstrap plus onboarding completion before the empty-state dashboard becomes the topmost visible surface. Do not use DOM/style hacks; use the real auth/onboarding path.
 - Evidence files go to `evidence/frontend-decomposition/<group-id>/`. Flow reports go to `.factory/validation/frontend-decomposition/user-testing/flows/<group-id>.json`.
 
 ## Flow Validator Guidance: onboarding-profile-browser
