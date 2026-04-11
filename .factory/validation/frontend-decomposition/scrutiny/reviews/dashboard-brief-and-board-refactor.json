@@ -1,0 +1,44 @@
+{
+  "featureId": "dashboard-brief-and-board-refactor",
+  "reviewedAt": "2026-04-11T01:30:00.000Z",
+  "commitId": "076c7a2",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Clean extraction of filterAndSortJobs() pure function from renderPipeline(). The refactoring correctly separates board data transformation from rendering, creating a narrower seam as intended. The Daily Brief remains computed from the full pipelineData while the board uses the filtered/sorted subset, preserving the critical architectural invariant.",
+    "issues": [
+      {
+        "file": "app.js",
+        "line": 9899,
+        "severity": "non_blocking",
+        "description": "Pre-existing dead code: getFilteredData() function contains duplicated search/sort logic (lines 9926-9962) but is never called. The currentFilter variable (line 6022) is only used by this dead function. This tech debt predates this commit but creates confusion about which filtering functions are active."
+      },
+      {
+        "file": "app.js",
+        "line": 9983,
+        "severity": "non_blocking",
+        "description": "No unit tests exist for the new filterAndSortJobs() pure function. While the refactoring preserves existing behavior covered by contract tests, dedicated unit tests would document the function's contract and protect against future regressions."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The codebase has accumulated dead code around filtering logic. The getFilteredData() function (lines 9899-9963) and currentFilter variable (line 6022) appear to be legacy code that was superseded but never removed. The new filterAndSortJobs() is the active implementation.",
+      "evidence": "Grep shows getFilteredData is only defined (line 9899) with no calls. currentFilter is only used inside getFilteredData's switch statement (line 9902)."
+    },
+    {
+      "area": "skills",
+      "observation": "The frontend-refactor-worker skill requires browser verification with agent-browser, but the worker correctly noted when this wasn't possible (no configured sheet) and documented this limitation. The skill's procedure was followed appropriately.",
+      "evidence": "Handoff shows skillFeedback.followedProcedure: true. The discoveredIssues correctly notes that browser validation requires a configured sheet with pipeline data."
+    },
+    {
+      "area": "knowledge",
+      "observation": "The architectural invariant 'Daily Brief metrics are computed from the full pipeline, not from the current board filter/search subset' is correctly preserved by this refactoring. The renderBrief() function uses pipelineData directly while renderPipeline() uses the filtered subset via filterAndSortJobs().",
+      "evidence": "Lines 11715-11755 in renderBrief() use pipelineData.filter(...) for stats. Line 10039 in renderPipeline() uses filterAndSortJobs(pipelineData, currentSearch, currentSort)."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS. The refactoring successfully extracts filterAndSortJobs() as a pure function, creating a clean seam between board data transformation and rendering. The critical invariant (Brief from full pipeline, board from filtered subset) is preserved. No blocking issues. Non-blocking observations: pre-existing dead code in getFilteredData() creates confusion, and the new pure function would benefit from dedicated unit tests. Browser verification was not possible due to missing sheet configuration, which the worker correctly documented."
+}

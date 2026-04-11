@@ -1,0 +1,74 @@
+{
+  "milestone": "frontend-decomposition",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": { "passed": true, "command": "npm run test:repo", "exitCode": 0 },
+    "typecheck": { "passed": true, "command": "npm run typecheck:repo", "exitCode": 0 },
+    "lint": { "passed": true, "command": "npm run lint:repo", "exitCode": 0 }
+  },
+  "reviewsSummary": {
+    "total": 5,
+    "passed": 5,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "file": ".factory/library/environment.md",
+      "description": "Added note about seed-pipeline-data.json schema URL referencing GitHub location that may not exist online; local schema validation should be used.",
+      "sourceFeature": "frontend-dashboard-validation-sheet-readiness"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Document the validation bootstrap script pattern: validation infrastructure scripts should follow the pattern of read local data → verify structure → cross-check with related config files → print actionable instructions. See scripts/apply-validation-bootstrap.mjs as an example.",
+      "evidence": "frontend-dashboard-validation-sheet-readiness review noted this as a good convention worth documenting.",
+      "isSystemic": false
+    },
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Clarify that static-analysis tests (reading source files and verifying code patterns via string matching) are an acceptable approach for refactoring stability tests. This pattern is established in the repo with 7+ test files using this approach. Workers adding stability tests for extracted seams can use this pattern.",
+      "evidence": "dashboard-drawer-and-crm-refactor, onboarding-and-profile-persistence-refactor, and draft-generation-history-and-provider-routing all use static-analysis tests for stability verification. The pattern is well-established but not explicitly documented.",
+      "isSystemic": true
+    },
+    {
+      "target": "skills",
+      "suggestion": "Create the frontend-refactor-worker skill file at .factory/skills/frontend-refactor-worker/SKILL.md. Three features (dashboard-drawer-and-crm-refactor, onboarding-and-profile-persistence-refactor, draft-generation-history-and-provider-routing) reference this skill but the file does not exist.",
+      "evidence": "Multiple features have skillName: 'frontend-refactor-worker' but find commands return no matching skill file.",
+      "isSystemic": true
+    },
+    {
+      "target": "skills",
+      "suggestion": "Clarify browser verification requirements in the frontend-refactor-worker skill. Two reviews noted that browser verification was not performed but followedProcedure was marked true. If browser verification is required, the skill should make this explicit. If static-analysis tests can substitute for certain features, this should also be documented.",
+      "evidence": "onboarding-and-profile-persistence-refactor and draft-generation-history-and-provider-routing reviews both noted empty interactiveChecks but followedProcedure: true.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Dead code in getFilteredData() and currentFilter variable in app.js",
+      "reason": "already-documented",
+      "detail": "Architecture.md already documents app.js as the dominant orchestration hotspot. The dead code is a known cleanup opportunity but not new knowledge."
+    },
+    {
+      "observation": "Daily Brief vs Board invariant (Brief from full pipeline, board from filtered subset)",
+      "reason": "already-documented",
+      "detail": "Architecture.md 'Invariants to preserve' section already states: 'Daily Brief metrics are computed from the full pipeline, not from the current board filter/search subset.'"
+    },
+    {
+      "observation": "refreshDrawerIfOpen design characteristics (guards, scroll preservation, listener re-attachment)",
+      "reason": "granular implementation detail",
+      "detail": "This is a specific function implementation detail that workers can read directly from the source code. Not appropriate for library documentation."
+    },
+    {
+      "observation": "Handoff commit ID mismatch in draft-generation-history-and-provider-routing",
+      "reason": "isolated issue",
+      "detail": "One-off documentation error that does not indicate a systemic issue or knowledge gap."
+    }
+  ],
+  "previousRound": null
+}

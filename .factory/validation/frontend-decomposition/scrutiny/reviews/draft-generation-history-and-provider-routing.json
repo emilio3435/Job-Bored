@@ -1,0 +1,33 @@
+{
+  "featureId": "draft-generation-history-and-provider-routing",
+  "reviewedAt": "2026-04-11T01:30:00.000Z",
+  "commitId": "16c5926f6e4aaef47c7d14d99fe5f7a447691561",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The commit adds 25 static-analysis tests in tests/draft-generation-stability.test.mjs covering draft version history, saved snapshot reopen, ATS modal lifecycle, provider routing, posting enrichment flow, draft history persistence after reload, and ATS scoring coupling. All tests pass and verify the code structure matches expected patterns for the validation contract assertions VAL-DRAFTS-006, 007, 008, 009, 010, 013, 015 and VAL-CROSS-007, 009, 010.",
+    "issues": [
+      {
+        "file": ".factory/missions/62d73272-e50b-4b4e-89d1-be82508ac1ac/handoffs/2026-04-11T01-11-39-317Z__draft-generation-history-and-provider-routing__e99e743d-50d2-4bde-baaa-0afbb78e891b.json",
+        "line": null,
+        "severity": "non_blocking",
+        "description": "Handoff contains incorrect commit ID '16c59263a0f0d8dfc3af4ee88b3de8e4d7d1a7a2' which does not exist in the repository. The actual commit is '16c5926f6e4aaef47c7d14d99fe5f7a447691561'. This is a documentation mismatch but does not affect the implementation."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Static-analysis tests read source files directly with readFileSync and check for expected code patterns. This approach works well for refactoring stability but the AGENTS.md could mention this pattern for future frontend-decomposition workers who need to add similar stability tests.",
+      "evidence": "tests/draft-generation-stability.test.mjs imports readFileSync and parses function bodies with indexOf/slice to verify code structure"
+    },
+    {
+      "area": "skills",
+      "observation": "The frontend-refactor-worker skill file was not found at .factory/skills/frontend-refactor-worker/SKILL.md. The worker may have followed an implicit procedure since no explicit skill guidance was available for this feature type.",
+      "evidence": "Glob search for .factory/skills/**/* returned no results; the feature's skillName is 'frontend-refactor-worker'"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS: The implementation adds comprehensive static-analysis tests that verify the draft generation, version history, provider routing, and ATS coupling behaviors remain stable during refactoring. All 25 tests pass. Minor documentation issue: the handoff commit ID is incorrect (partial hash mismatch with actual commit). The tests appropriately cover the validation contract assertions VAL-DRAFTS-006 through VAL-DRAFTS-015 and VAL-CROSS-007, 009, 010."
+}
