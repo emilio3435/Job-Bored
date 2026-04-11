@@ -1,0 +1,90 @@
+{
+  "groupId": "round5-empty-pipeline-auth",
+  "testedAt": "2026-04-11T05:52:05Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080/?sheet=1zK-I18WITjwcqsx4LgVSFk-dmAot2dxHae1Y0N9CPB0",
+    "sheetId": "1zK-I18WITjwcqsx4LgVSFk-dmAot2dxHae1Y0N9CPB0",
+    "browserSession": "round5-empty-pipeline-auth",
+    "readOnly": true,
+    "authBootstrap": {
+      "needed": true,
+      "method": "runtime token bridge from local access-token file",
+      "tokenFile": "/Users/emilionunezgarcia/agent-browser-access-token.txt",
+      "tokenPrinted": false,
+      "preflight": {
+        "initialAuthGateVisible": true,
+        "googleUserinfoStatus": 200,
+        "googleSheetsProbeStatus": 200,
+        "googleSheetsProbeId": "1zK-I18WITjwcqsx4LgVSFk-dmAot2dxHae1Y0N9CPB0"
+      }
+    },
+    "dashboardVisibilityPath": {
+      "onboardingShownAfterAuth": true,
+      "completedInSession": true,
+      "sheetMutated": false
+    }
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "python3"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-DASH-013",
+      "title": "Truly empty pipelines show guided empty states",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Open the empty-sheet URL in a fresh dedicated browser session",
+          "expected": "A legitimate visible path to the empty pipeline can be established without mutating the sheet or forcing hidden UI open",
+          "observed": "The page opened on the empty fixture URL and first showed the real Google auth gate with Log in with Google / Settings / Reload controls."
+        },
+        {
+          "action": "Bootstrap auth in-session using the local runtime token bridge, then verify Google access from the same browser runtime",
+          "expected": "The gate clears through an authenticated browser-visible path and the runtime can read Google profile + sheet metadata",
+          "observed": "Injected the local access token without printing it; the auth gate disappeared, Google userinfo returned 200, and a Sheets metadata probe for the empty fixture returned 200 for spreadsheetId 1zK-I18WITjwcqsx4LgVSFk-dmAot2dxHae1Y0N9CPB0."
+        },
+        {
+          "action": "Clear the remaining dashboard blocker through the built-in onboarding wizard",
+          "expected": "Any remaining modal blocker is resolved through legitimate UI steps, not DOM/style hacks",
+          "observed": "The mandatory onboarding wizard still covered the dashboard after auth, so it was completed through the real flow (Get started \u2192 paste resume text \u2192 continue defaults/skip optional steps \u2192 Finish setup) without touching the sheet."
+        },
+        {
+          "action": "Inspect the visible Daily Brief and pipeline empty states after auth + onboarding are complete",
+          "expected": "Both regions show helpful guidance or setup/discovery CTAs instead of empty chrome",
+          "observed": "With the dashboard fully visible, the Daily Brief showed 'Add a discovery webhook in Settings or open the setup wizard to connect automation.' with an 'Open setup wizard' CTA. The pipeline area showed 'No roles yet', repeated the same guidance copy, displayed an 'Open setup wizard' CTA, and the board counts remained 0 of 0 with 0 job cards and 0 stage lanes."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/frontend-decomposition/round5-empty-pipeline-auth/00-initial.png",
+          "evidence/frontend-decomposition/round5-empty-pipeline-auth/03-empty-pipeline-after-onboarding.png",
+          "evidence/frontend-decomposition/round5-empty-pipeline-auth/04-empty-pipeline-after-onboarding-annotated.png"
+        ],
+        "consoleErrors": "none",
+        "network": "GET https://www.googleapis.com/oauth2/v3/userinfo -> 200; GET https://sheets.googleapis.com/v4/spreadsheets/1zK-I18WITjwcqsx4LgVSFk-dmAot2dxHae1Y0N9CPB0?fields=spreadsheetId -> 200; no sheet writes performed"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "A fresh browser session landed on the real Google auth gate instead of the dashboard, so the empty-state surface was not initially visible.",
+      "resolved": true,
+      "resolution": "Used the provided runtime token bridge in-session, then verified the same browser runtime with Google userinfo and Sheets read probes before continuing.",
+      "affectedAssertions": [
+        "VAL-DASH-013"
+      ]
+    },
+    {
+      "description": "After auth, the mandatory onboarding wizard still blocked direct visual access to the empty-state dashboard.",
+      "resolved": true,
+      "resolution": "Completed onboarding through the product's own UI flow so the empty-state brief and pipeline guidance became topmost, visible elements.",
+      "affectedAssertions": [
+        "VAL-DASH-013"
+      ]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 1 assertion: 1 passed. Auth bootstrap was needed, and after completing the in-session onboarding flow the truly empty pipeline showed visible guided empty states in both the Daily Brief and pipeline area: 'Add a discovery webhook in Settings or open the setup wizard to connect automation.' plus an 'Open setup wizard' CTA, with the pipeline titled 'No roles yet'."
+}

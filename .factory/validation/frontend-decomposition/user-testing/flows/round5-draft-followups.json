@@ -1,0 +1,75 @@
+{
+  "milestone": "frontend-decomposition",
+  "groupId": "round5-draft-followups",
+  "testedAt": "2026-04-11T05:38:34Z",
+  "toolsUsed": [
+    "agent-browser"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-DRAFTS-010",
+      "status": "pass",
+      "reason": "After forcing the resume provider to a webhook with no URL, the MariaDB cover-letter flow surfaced actionable user-facing guidance instead of failing silently: the draft flow showed a toast saying to set `resumeGeminiApiKey` or switch `resumeProvider` to `openai`, `anthropic`, or `webhook`.",
+      "evidence": [
+        "evidence/frontend-decomposition/round5-draft-followups/settings-provider-webhook-selected.png",
+        "evidence/frontend-decomposition/round5-draft-followups/mariadb-drawer-before-provider-error.png",
+        "evidence/frontend-decomposition/round5-draft-followups/drafts010-provider-error.png"
+      ]
+    },
+    {
+      "id": "VAL-DRAFTS-011",
+      "status": "pass",
+      "reason": "Using Settings → Clear saved settings removed the browser-local config override blob while IndexedDB-backed profile and draft history remained intact: the active resume stayed `My resume` (519 chars) and generated drafts still totaled 4 (3 MariaDB, 1 Checkmarx).",
+      "evidence": [
+        "evidence/frontend-decomposition/round5-draft-followups/profile-before-redo.png",
+        "evidence/frontend-decomposition/round5-draft-followups/profile-after-clear.png",
+        "evidence/frontend-decomposition/round5-draft-followups/drafts-after-clear-mariadb.png"
+      ]
+    },
+    {
+      "id": "VAL-DRAFTS-017",
+      "status": "pass",
+      "reason": "Starting Redo onboarding wizard reopened onboarding without clearing saved content first; while the redo flow was open and again after dismissing it, IndexedDB still held the active resume plus all saved drafts, and Portfolio still showed the saved resume/profile controls.",
+      "evidence": [
+        "evidence/frontend-decomposition/round5-draft-followups/profile-before-redo.png",
+        "evidence/frontend-decomposition/round5-draft-followups/onboarding-redo-opened.png",
+        "evidence/frontend-decomposition/round5-draft-followups/profile-after-redo-cancel.png"
+      ]
+    },
+    {
+      "id": "VAL-CROSS-007",
+      "status": "pass",
+      "reason": "Opening the Checkmarx role triggered real posting enrichment (`POST /api/scrape-job` 200), the enriched drawer rendered AI summary / fit / must-haves / talking points, and the follow-on ATS request included `postingEnrichment` plus Checkmarx-specific context from the fetched posting.",
+      "evidence": [
+        "evidence/frontend-decomposition/round5-draft-followups/checkmarx-drawer-after-enrichment.png",
+        "evidence/frontend-decomposition/round5-draft-followups/checkmarx-draft-modal-ats.png"
+      ],
+      "network": [
+        "POST http://127.0.0.1:3847/api/scrape-job -> 200 (Built In Colorado Checkmarx posting)",
+        "POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent (Checkmarx draft generation with enriched context)",
+        "POST http://127.0.0.1:3847/api/ats-scorecard -> 502 (payload included postingEnrichment + Checkmarx/HubSpot terms)"
+      ]
+    },
+    {
+      "id": "VAL-CROSS-010",
+      "status": "pass",
+      "reason": "ATS requests followed the active job/draft context: the first captured ATS payload targeted Checkmarx (`Marketing Operations & AI Automation Manager`, company `Checkmarx`), then after switching to MariaDB and refining the active draft a new ATS payload targeted `Digital Growth & AI Strategy Marketing Manager` at `MariaDB Corporation` with MariaDB-specific must-haves and updated draft text preview.",
+      "evidence": [
+        "evidence/frontend-decomposition/round5-draft-followups/checkmarx-draft-modal-ats.png",
+        "evidence/frontend-decomposition/round5-draft-followups/mariadb-drawer-role-switch.png",
+        "evidence/frontend-decomposition/round5-draft-followups/mariadb-draft-after-refine-ats.png"
+      ],
+      "network": [
+        "POST http://127.0.0.1:3847/api/ats-scorecard -> 502 (Checkmarx title/company/docText preview)",
+        "POST http://127.0.0.1:3847/api/ats-scorecard -> 502 (MariaDB title/company/docText preview after refine)"
+      ]
+    }
+  ],
+  "frictions": [
+    "The built-in agent-browser network capture returned no useful request subset, so in-page `fetch`/`XMLHttpRequest` wrappers were injected to record real request URLs, bodies, and statuses in `window.__ccNet`.",
+    "The ATS scorer returned `502` for both Checkmarx and MariaDB, but the outbound ATS payloads were still captured and were sufficient to validate enrichment and active-context coupling.",
+    "Saving the provider change through the Settings UI did not reliably persist the provider selection during this session, so the app's own `mergeStoredConfigOverridePatch` helper was used in-browser to set the exact missing-webhook override for VAL-DRAFTS-010; the original override state was restored afterward."
+  ],
+  "blockers": [],
+  "summary": "Round 5 closed the remaining draft/profile follow-ups. Missing-provider guidance, clear-settings persistence, redo-onboarding preservation, posting-enrichment handoff into ATS, and ATS active-context switching all passed with real browser evidence and captured live request payloads."
+}

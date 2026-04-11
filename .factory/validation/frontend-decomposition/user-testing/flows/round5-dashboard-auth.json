@@ -1,0 +1,159 @@
+{
+  "groupId": "round5-dashboard-auth",
+  "testedAt": "2026-04-11T05:20:14Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080/?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "browserSession": "frontend-auth-shared",
+    "authBootstrap": {
+      "method": "runtime token bridge from local access-token file",
+      "tokenFile": "/Users/emilionunezgarcia/agent-browser-access-token.txt",
+      "tokenPrinted": false,
+      "preflight": {
+        "continueButtonVisible": false,
+        "crmControlsVisibleInDrawer": true,
+        "googleUserinfoStatus": 200,
+        "googleSheetsProbeStatus": 200,
+        "userEmail": "emilio3435@gmail.com"
+      }
+    }
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "python3"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-DASH-009",
+      "title": "Signed-in users can edit CRM fields from the drawer",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Bootstrap auth into the runtime and open the MariaDB drawer",
+          "expected": "Continue is absent, Google probes succeed, and the drawer exposes editable status, follow-up, last-contact, reply, and notes controls",
+          "observed": "Account chrome replaced Continue, Google userinfo and Sheets probes both returned 200, and the MariaDB drawer showed editable stage, follow-up, last contact, reply, and notes controls."
+        },
+        {
+          "action": "Save last contact as 'Apr 11'",
+          "expected": "Last contact persists successfully",
+          "observed": "The drawer rerendered with last contact set to Apr 11 and Sheets write Pipeline!R4 returned 200."
+        },
+        {
+          "action": "Change reply from Yes to No",
+          "expected": "Reply status persists successfully",
+          "observed": "Reply updated to No and the dashboard immediately added an 'Awaiting reply 3d ago' MariaDB activity item; Sheets write Pipeline!S4 returned 200."
+        },
+        {
+          "action": "Save notes as 'Round5 auth save check.'",
+          "expected": "Notes persist successfully",
+          "observed": "The drawer rerendered with the new notes and Sheets write Pipeline!O4 returned 200."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/frontend-decomposition/round5-dashboard-auth/01-after-auth-bootstrap.png",
+          "evidence/frontend-decomposition/round5-dashboard-auth/02-mariadb-drawer-initial.png",
+          "evidence/frontend-decomposition/round5-dashboard-auth/03-after-crm-saves.png"
+        ],
+        "network": "GET oauth2/v3/userinfo -> 200; GET spreadsheets?fields=spreadsheetId -> 200; PUT Pipeline!R4 -> 200; PUT Pipeline!S4 -> 200; PUT Pipeline!O4 -> 200; POST values:batchUpdate (Pipeline!M4 status control) -> 200",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-DASH-010",
+      "title": "Status changes move jobs between the correct lanes",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Start from MariaDB in Phone Screen with the drawer open",
+          "expected": "The role is in the Phone Screen lane before the change",
+          "observed": "The drawer status select showed Phone Screen for MariaDB before saving."
+        },
+        {
+          "action": "Change the in-drawer status to Applied",
+          "expected": "The save succeeds and the role moves into the Applied lane",
+          "observed": "Sheets POST values:batchUpdate for Pipeline!M4 returned 200; the MariaDB card with stable key 2 moved into .stage-lane[data-stage='Applied'] and the drawer status switched to Applied without losing the board state."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/frontend-decomposition/round5-dashboard-auth/03-after-crm-saves.png",
+          "evidence/frontend-decomposition/round5-dashboard-auth/04-after-status-change.png"
+        ],
+        "network": "POST https://sheets.googleapis.com/v4/spreadsheets/1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ/values:batchUpdate -> 200 (body updated Pipeline!M4 to Applied)",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-DASH-011",
+      "title": "CRM edits update visible dashboard signals",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Set MariaDB follow-up to a future date (2026-04-20) while keeping the drawer open",
+          "expected": "The overdue signal clears without a reload so an overdue transition can be observed on the same role",
+          "observed": "The MariaDB overdue activity item disappeared immediately, leaving only the awaiting-reply item; Sheets write Pipeline!P4 -> 200."
+        },
+        {
+          "action": "Edit the same follow-up back to an overdue date (2026-04-05)",
+          "expected": "An overdue/follow-up signal returns without a manual full reload",
+          "observed": "The drawer regained the overdue badge and the Daily Brief activity item 'Follow-up overdue 6d late' for MariaDB reappeared immediately; Sheets write Pipeline!P4 -> 200."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/frontend-decomposition/round5-dashboard-auth/05-before-overdue-edit.png",
+          "evidence/frontend-decomposition/round5-dashboard-auth/06-after-overdue-edit.png"
+        ],
+        "network": "PUT https://sheets.googleapis.com/v4/spreadsheets/1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ/values/Pipeline!P4?valueInputOption=USER_ENTERED -> 200 for 2026-04-20 and 200 for 2026-04-05",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-DASH-018",
+      "title": "Open drawers stay in sync after in-drawer saves",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Keep the MariaDB drawer open and save a status change from Phone Screen to Applied",
+          "expected": "The drawer remains attached to the same role after the board refreshes",
+          "observed": "After the successful status save, the drawer still showed Digital Growth & AI Strategy Marketing Manager / MariaDB Corporation, activeDetailKey stayed on the same role, and the corresponding card moved into the Applied lane with no stale or mismatched drawer content."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/frontend-decomposition/round5-dashboard-auth/03-after-crm-saves.png",
+          "evidence/frontend-decomposition/round5-dashboard-auth/04-after-status-change.png"
+        ],
+        "consoleErrors": "none"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "The fresh agent-browser session started behind the write-access gate, so the run needed an explicit runtime auth bootstrap from the local token file before real save assertions could begin.",
+      "resolved": true,
+      "resolution": "Injected the local access token into the page runtime without printing it, then verified the same session context with Google userinfo (200) and Sheets read probe (200) before testing saves.",
+      "affectedAssertions": [
+        "VAL-DASH-009",
+        "VAL-DASH-010",
+        "VAL-DASH-011",
+        "VAL-DASH-018"
+      ]
+    },
+    {
+      "description": "MariaDB already started in an overdue state, so proving the dashboard's overdue-signal update on the same role required briefly moving follow-up to a future date first.",
+      "resolved": true,
+      "resolution": "Set follow-up to 2026-04-20 to clear the signal, then changed it back to 2026-04-05 and confirmed the overdue signal returned without a reload.",
+      "affectedAssertions": [
+        "VAL-DASH-011"
+      ]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 4 assertions: 4 passed. Runtime auth bootstrap succeeded in-session, MariaDB CRM saves wrote successfully to Sheets, status changes moved the role between lanes while the drawer stayed synced, and overdue follow-up signals updated live without a manual reload."
+}
