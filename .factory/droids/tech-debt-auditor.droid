@@ -59,7 +59,7 @@ rg "debugger" --type js -g "!/node_modules/"
 # Detect deprecated patterns
 rg "var\s+" --type js -g "!/node_modules/"  # var instead of const/let
 rg -P "(?<!=)==(?!=)" --type js -g "!/node_modules/"  # == instead of === (avoids false positives on ===); requires PCRE2 (-P flag)
-rg -P "(?<!.)!=(?!=)" --type js -g "!/node_modules/"  # != instead of !== (avoids false positives on !==); requires PCRE2 (-P flag)
+rg -P "(?<![=])!=(?!=)" --type js -g "!/node_modules/"  # != instead of !== (avoids false positives on !==); requires PCRE2 (-P flag)
 ```
 
 ### Magic Numbers/Strings
