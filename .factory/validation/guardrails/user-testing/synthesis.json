@@ -1,0 +1,17 @@
+{
+  "milestone": "guardrails",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": null,
+  "rationale": "All guardrails milestone implementation features (performance-and-legacy-path-cleanup, legacy-css-selector-prune, guardrail-wiring-and-refactoring-skill, maintenance-droids-and-hook-automation, performance-cleanup-out-of-scope-unbundle, guardrails-nonblocking-scrutiny-followups, guardrails-followups-round3-command-and-reference-repair, performance-cleanup-round3-scope-disposition-and-provenance, guardrails-followups-round4-neq-regex-fix, guardrails-followups-round4-provenance-record-correction) have empty fulfills arrays — they add internal tooling, refactoring guardrails, maintenance droids, and code cleanup with no new user-visible behavior. All 96 existing validation contract assertions are already passed from prior milestones. No user-testing flows were needed or executed."
+}
