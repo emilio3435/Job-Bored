@@ -1,0 +1,50 @@
+{
+  "featureId": "maintenance-droids-and-hook-automation",
+  "reviewedAt": "2026-04-11T19:30:00.000Z",
+  "commitId": "98a9426b11337962fab9fbd7a0cfc5eccb2de513",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Three maintenance droids (tech-debt-auditor, dependency-watcher, coverage-enforcer) and a pre-commit hook were created. The droids are documentation-only guide files with shell command recipes; the pre-commit hook runs JS syntax checks, integration skill validation, and validation artifact warnings. init.sh was updated to auto-install the hook on first run.",
+    "issues": [
+      {
+        "file": "scripts/pre-commit-hook.sh",
+        "line": 23,
+        "severity": "non_blocking",
+        "description": "The grep pattern '\\.js$' does not match .mjs files. The repo has critical .mjs files (dev-server.mjs, server/index.mjs, server/job-scraper.mjs, server/ats-scorecard.mjs, server/ats-request-payload.mjs) that would bypass the syntax check. The pattern should be `grep -E '\\.(js|mjs)$'` to cover both extensions. This matches the typecheck:repo command in services.yaml which already checks .mjs files."
+      },
+      {
+        "file": ".factory/droids/tech-debt-auditor.droid",
+        "line": 63,
+        "severity": "non_blocking",
+        "description": "The deprecated pattern detection uses `rg '==\\s*'` and `rg '!=\\s*'` which will produce false positives by matching `===` and `!==`. Should use negative lookbehind/lookahead (e.g., `rg '(?<!=)==(?!=)'` and `rg '(?<!.)=(?!=)'`) to avoid triple-equals matches. Low impact since this is guide documentation, not executable code."
+      },
+      {
+        "file": "scripts/pre-commit-hook.sh",
+        "line": 38,
+        "severity": "non_blocking",
+        "description": "The integration skill validation branch (`if [ -n \"$STAGED_INTEGRATION_SKILLS\" ]; then`) is currently inert because no SKILL.md files exist in the integrations/ directory. The lint-integration-skills.mjs script exits with code 1 and message 'No integrations/**/SKILL.md files found' when none exist. The hook's conditional gating prevents a false failure, but the underlying lint command itself would fail if called. This is acceptable as future-proofing but worth noting."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The .factory/droids/ directory is a new convention in the repo. AGENTS.md does not mention droids, their purpose, or when workers should create/consult them. Future workers may not discover these maintenance assets.",
+      "evidence": ".factory/droids/ created with 3 .droid files. AGENTS.md (mission dir) has no mention of droids."
+    },
+    {
+      "area": "services",
+      "observation": "The pre-commit hook auto-installation via .factory/init.sh is not documented in .factory/services.yaml. The hook is a new validation surface that runs before every commit.",
+      "evidence": "scripts/pre-commit-hook.sh is installed by init.sh but services.yaml only lists npm-based commands (install, test, lint, typecheck) and network services."
+    },
+    {
+      "area": "knowledge",
+      "observation": "The coverage-enforcer.droid documents which test files are critical (test-contract.mjs, test-ats-scorecard-contract.mjs, repo-validation-surface.test.mjs, oauth-session-storage-boundary.test.mjs, discovery-cold-start-handoffs.test.mjs) — this knowledge could be useful in .factory/library/ for workers who need to understand the test surface.",
+      "evidence": "coverage-enforcer.droid lines 104-112 list 'Critical Paths That Must Have Tests'."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS. The implementation fully covers the feature description: three custom droids for tech-debt auditing, dependency watching, and coverage enforcement, plus a pre-commit hook for regression prevention. The droids use only real repo tooling (node, npm, rg, git) and reference actual commands from package.json. The pre-commit hook is well-structured with proper error gating and graceful handling of missing directories/files. Three non-blocking issues noted: (1) the hook misses .mjs files in syntax checks, which should be fixed to match the repo's mixed .js/.mjs surface; (2) the tech-debt-auditor's equality-comparison regex produces false positives on ===; (3) the integration skill check is currently inert due to no SKILL.md files in integrations/. All verification commands (lint:skills, test:contract:all, 141 tests) passed. The worker followed the skill procedure correctly."
+}
