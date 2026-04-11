@@ -1,0 +1,33 @@
+{
+  "featureId": "cold-start-and-access-handoffs",
+  "reviewedAt": "2026-04-11T06:17:21.863272Z",
+  "commitId": "ac861457fe9886829abee07ca345229bdddb4168",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The current app code preserves the basic access gate and returning-user dashboard entry, but it does not fully preserve the cold-start handoff ordering required by the feature. Discovery setup is only deferred for the `?setup=discovery` deep link; other cold-start discovery entry points still hide onboarding and open the discovery wizard immediately.",
+    "issues": [
+      {
+        "file": "app.js",
+        "line": 3527,
+        "severity": "blocking",
+        "description": "`openDiscoverySetupWizard()` hides the onboarding wizard whenever it is already visible, and the cold-start starter-sheet path still calls this helper directly after sheet creation (`app.js:7284`). Because only `handleDiscoverySetupDeepLink()` queues deferred discovery via `pendingDiscoverySetup`, starter-sheet-created and other direct discovery entry points bypass onboarding interception instead of deferring until onboarding is complete, which breaks VAL-CROSS-011 / the feature's required handoff ordering."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The worker handoff did not include the required browser-flow evidence for this UI feature even though the skill and mission guidance require agent-browser verification and explicit manual-flow observations.",
+      "evidence": "`/Users/emilionunezgarcia/Job-Bored/.factory/skills/frontend-refactor-worker/SKILL.md` step 6 requires agent-browser verification, and mission `AGENTS.md` says manual browser exercises named in verificationSteps must be listed; however `/Users/emilionunezgarcia/.factory/missions/62d73272-e50b-4b4e-89d1-be82508ac1ac/handoffs/2026-04-10T17-18-23-129Z__cold-start-and-access-handoffs__cbe88e6d-3d44-4889-a448-3bf43d522570.json` has `interactiveChecks: []` despite the feature's manual verification steps."
+    },
+    {
+      "area": "conventions",
+      "observation": "The handoff commit is not traceable to this feature's browser/onboarding work, which makes the feature review harder and violates the mission expectation that cited commits belong to the feature being handed off.",
+      "evidence": "The handoff cites commit `ac861457fe9886829abee07ca345229bdddb4168`, but `git show --stat ac861457fe9886829abee07ca345229bdddb4168` only touches `integrations/browser-use-discovery/src/webhook/handle-discovery-webhook.ts` and related webhook tests, not the cold-start/onboarding code in `app.js`. Mission `AGENTS.md` explicitly says workers must verify that any commit ID cited in a handoff actually belongs to the feature work being described."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: the reviewed code still lets cold-start discovery setup bypass onboarding for non-deep-link entry points, so the required setup handoff order is not fully preserved. The worker handoff also lacked the required browser evidence and cited an unrelated commit."
+}
