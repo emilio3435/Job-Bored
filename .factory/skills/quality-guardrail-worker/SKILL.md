@@ -23,10 +23,12 @@ Use for features that primarily touch repo infrastructure and prevention guardra
 
 1. Read the assigned feature, `mission.md`, `AGENTS.md`, and the relevant `.factory/library/` files.
 2. Define the narrowest repo-infrastructure change that enforces or preserves the intended standard.
+   - If the feature requires separating or reverting a change set, perform that disposition directly; do not close with documentation-only notes unless the feature explicitly permits it.
 3. Add or update failing tests/checks first when guardrails are executable.
 4. Implement the guardrail without broad product-surface edits.
 5. Validate at two levels:
    - direct command-level verification of the new guardrail
+   - execute every edited command snippet exactly as written (droids, skills, hooks, docs) and capture stdout/stderr evidence
    - repo-level validator run from `.factory/services.yaml`
    - if the feature depends on authenticated browser state, use the approved browser-cookie import path before manual verification
 6. If the feature creates reusable mission assets (skills, droids, hook config), make sure names, paths, and usage guidance are internally consistent.
