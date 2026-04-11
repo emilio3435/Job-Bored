@@ -7975,6 +7975,7 @@ a.btn-materials {
   padding: var(--space-4);
   background: rgba(248, 250, 252, 0.96);
   backdrop-filter: blur(8px);
+  pointer-events: none;
 }
 
 .onboarding-wizard__inner {
@@ -7989,6 +7990,7 @@ a.btn-materials {
   box-shadow:
     var(--shadow-lg),
     0 24px 48px rgba(15, 23, 42, 0.06);
+  pointer-events: auto;
 }
 
 .onboarding-wizard__brand {
