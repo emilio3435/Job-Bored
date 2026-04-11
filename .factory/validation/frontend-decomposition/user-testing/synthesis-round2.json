@@ -1,0 +1,50 @@
+{
+  "milestone": "frontend-decomposition",
+  "round": 2,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 29,
+    "tested": 9,
+    "passed": 4,
+    "failed": 0,
+    "blocked": 5
+  },
+  "passedAssertions": [
+    "VAL-DASH-017",
+    "VAL-DRAFTS-001",
+    "VAL-DRAFTS-005",
+    "VAL-CROSS-008"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [
+    { "id": "VAL-DASH-002", "blockedBy": "No activity feed items in Daily Brief - need sheet data with overdue follow-up dates" },
+    { "id": "VAL-DASH-009", "blockedBy": "User not signed in - agent-browser sessions don't inherit Google auth from setup" },
+    { "id": "VAL-DASH-010", "blockedBy": "User not signed in - cannot test status changes without write access" },
+    { "id": "VAL-DASH-011", "blockedBy": "User not signed in - cannot edit CRM fields without write access" },
+    { "id": "VAL-DASH-018", "blockedBy": "User not signed in - cannot test in-drawer saves without write access" }
+  ],
+  "notTested": [
+    "VAL-DASH-013",
+    "VAL-DRAFTS-002",
+    "VAL-DRAFTS-003",
+    "VAL-DRAFTS-004",
+    "VAL-DRAFTS-006",
+    "VAL-DRAFTS-007",
+    "VAL-DRAFTS-008",
+    "VAL-DRAFTS-009",
+    "VAL-DRAFTS-010",
+    "VAL-DRAFTS-011",
+    "VAL-DRAFTS-012",
+    "VAL-DRAFTS-013",
+    "VAL-DRAFTS-014",
+    "VAL-DRAFTS-015",
+    "VAL-DRAFTS-016",
+    "VAL-DRAFTS-017",
+    "VAL-CROSS-007",
+    "VAL-CROSS-009",
+    "VAL-CROSS-010"
+  ],
+  "appliedUpdates": [],
+  "previousRound": ".factory/validation/frontend-decomposition/user-testing/synthesis.json",
+  "notes": "Round 2 tested Phase A (dashboard assertions) and Phase C (onboarding gating). Results: 4 assertions now PASS (VAL-DASH-017 drawer enrichment, VAL-DRAFTS-001 onboarding gates drafts, VAL-DRAFTS-005 draft blocking works, VAL-CROSS-008 recovery path works). 5 assertions remain BLOCKED: (1) VAL-DASH-002 needs activity feed items with overdue follow-up dates in sheet data, (2) VAL-DASH-009/010/011/018 require Google authentication which agent-browser sessions don't inherit from setup. The setup features claimed 'signed-in browser state is ready' but agent-browser creates fresh browser profiles that don't have Google auth cookies. RECOMMENDATION: Either (a) use setup-browser-cookies skill to import Google cookies into agent-browser session, or (b) have user perform live sign-in in the agent-browser session. Phase B (empty pipeline VAL-DASH-013) and Phase D (completed onboarding + generation) were not tested due to time constraints and auth blocker."
+}

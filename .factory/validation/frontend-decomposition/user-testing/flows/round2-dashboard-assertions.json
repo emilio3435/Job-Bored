@@ -1,0 +1,125 @@
+{
+  "groupId": "round2-dashboard-assertions",
+  "testedAt": "2026-04-10T21:00:00Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080",
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "browserSession": "20b5bddfa462__phaseA"
+  },
+  "toolsUsed": ["agent-browser"],
+  "assertions": [
+    {
+      "id": "VAL-DASH-002",
+      "title": "Brief activity items open the matching job drawer",
+      "status": "blocked",
+      "steps": [
+        { "action": "Navigate to http://localhost:8080?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ", "expected": "Dashboard loads with Daily Brief visible", "observed": "Dashboard loaded successfully" },
+        { "action": "Scroll to Daily Brief section", "expected": "Activity feed with items visible", "observed": "Daily Brief headline: 'Nothing demands your attention today. The pipeline is steady—a good day to sharpen your story or reach out to someone new.' No activity feed items found." },
+        { "action": "Look for overdue follow-up dates or replies", "expected": "Activity feed items present if there are overdue follow-ups", "observed": "No activity feed items. The Daily Brief shows no items demanding attention." }
+      ],
+      "evidence": {
+        "screenshots": ["frontend-decomposition/round2-dashboard/full-page-initial.png"],
+        "consoleErrors": "none"
+      },
+      "issues": "Cannot test - Daily Brief has no activity feed items. The headline indicates no overdue follow-ups or replies. Would need sheet data with followUpDate before today (2026-04-11) to generate overdue items."
+    },
+    {
+      "id": "VAL-DASH-009",
+      "title": "Signed-in users can edit CRM fields from the drawer",
+      "status": "blocked",
+      "steps": [
+        { "action": "Open browser session and navigate to app", "expected": "Authenticated session available", "observed": "Browser session opened, but user is NOT signed in. 'Continue' button visible for Google sign-in." },
+        { "action": "Complete onboarding wizard (9 steps)", "expected": "Onboarding completes, user has profile", "observed": "Completed onboarding wizard successfully. Resume pasted, preferences set." },
+        { "action": "Click job card to open drawer", "expected": "Drawer opens with CRM fields visible and editable", "observed": "Drawer opens but shows NO CRM fields (status, follow-up, last-contact, reply, notes). Only read-only content visible." },
+        { "action": "Check for CRM edit controls", "expected": "Signed-in users see editable CRM controls", "observed": "Drawer has no input elements (selects, textareas, date inputs). CRM fields are hidden - user appears to be in browse-only mode despite completing onboarding." }
+      ],
+      "evidence": {
+        "screenshots": ["frontend-decomposition/round2-dashboard/VAL-DASH-007-drawer-content.png", "frontend-decomposition/round2-dashboard/post-onboarding-dashboard.png"],
+        "consoleErrors": "none"
+      },
+      "issues": "Cannot test - User is not signed in. The task stated 'User has completed live Google sign-in. The browser should have authenticated session available' but the session shows 'Continue' button for Google sign-in. CRM fields are hidden in browse-only mode (VAL-DASH-008 behavior)."
+    },
+    {
+      "id": "VAL-DASH-010",
+      "title": "Status changes move jobs between the correct lanes",
+      "status": "blocked",
+      "steps": [
+        { "action": "Verify user is signed in", "expected": "User has write access to sheet", "observed": "User is NOT signed in - 'Continue' button visible, CRM fields hidden in drawer." }
+      ],
+      "evidence": {
+        "screenshots": ["frontend-decomposition/round2-dashboard/post-onboarding-dashboard.png"],
+        "consoleErrors": "none"
+      },
+      "issues": "Blocked by missing authentication - cannot change status without write access to sheet."
+    },
+    {
+      "id": "VAL-DASH-011",
+      "title": "CRM edits update visible dashboard signals",
+      "status": "blocked",
+      "steps": [
+        { "action": "Verify user is signed in", "expected": "User has write access to edit CRM fields", "observed": "User is NOT signed in - 'Continue' button visible, CRM fields hidden in drawer." }
+      ],
+      "evidence": {
+        "screenshots": ["frontend-decomposition/round2-dashboard/post-onboarding-dashboard.png"],
+        "consoleErrors": "none"
+      },
+      "issues": "Blocked by missing authentication - cannot edit CRM fields without write access."
+    },
+    {
+      "id": "VAL-DASH-017",
+      "title": "Drawer enrichment lifecycle is visible and stable",
+      "status": "pass",
+      "steps": [
+        { "action": "Click job card to open drawer", "expected": "Drawer opens showing loading state then enrichment", "observed": "Drawer opened. Initially saw loading skeleton with aria-busy='true' aria-label='Loading AI insights'. After ~3 seconds, enriched content appeared." },
+        { "action": "Verify enrichment content loaded", "expected": "Drawer shows AI Summary, Fit, Tags, Must-haves, Talking points", "observed": "Drawer shows: AI Summary, Fit section, Tags & skills (AI product, product management, Claude Code, etc.), Must-haves list, Talking points. Profile match badge shows 29%." },
+        { "action": "Check for warning/failure state handling", "expected": "If enrichment fails, shows clear failure message", "observed": "Enrichment succeeded - no warning or failure state visible. Content loaded successfully." }
+      ],
+      "evidence": {
+        "screenshots": ["frontend-decomposition/round2-dashboard/VAL-DASH-017-drawer-enriched.png", "frontend-decomposition/round2-dashboard/VAL-DASH-007-drawer-content.png"],
+        "consoleErrors": "none",
+        "network": "N/A - enrichment loaded from cached/stored data"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-DASH-018",
+      "title": "Open drawers stay in sync after in-drawer saves",
+      "status": "blocked",
+      "steps": [
+        { "action": "Verify user is signed in", "expected": "User can save CRM changes from drawer", "observed": "User is NOT signed in - 'Continue' button visible, CRM fields hidden in drawer. Cannot test save functionality." }
+      ],
+      "evidence": {
+        "screenshots": ["frontend-decomposition/round2-dashboard/post-onboarding-dashboard.png"],
+        "consoleErrors": "none"
+      },
+      "issues": "Blocked by missing authentication - cannot save changes without write access."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Onboarding wizard blocked access to drawer initially - had to complete 9-step wizard before drawer was accessible",
+      "resolved": true,
+      "resolution": "Completed the onboarding wizard by filling in resume text and clicking through all steps",
+      "affectedAssertions": ["VAL-DASH-009", "VAL-DASH-010", "VAL-DASH-011", "VAL-DASH-017", "VAL-DASH-018"]
+    },
+    {
+      "description": "Task stated browser should have authenticated session but 'Continue' (Google sign-in) button was visible",
+      "resolved": false,
+      "resolution": "Could not resolve - Google sign-in requires user interaction",
+      "affectedAssertions": ["VAL-DASH-009", "VAL-DASH-010", "VAL-DASH-011", "VAL-DASH-018"]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "User not signed in - 'Continue' button visible instead of authenticated session. CRM fields are hidden in browse-only mode.",
+      "affectedAssertions": ["VAL-DASH-009", "VAL-DASH-010", "VAL-DASH-011", "VAL-DASH-018"],
+      "quickFixAttempted": "Completed onboarding wizard hoping it would provide auth, but still shows 'Continue' button. Google sign-in requires user interaction."
+    },
+    {
+      "description": "Daily Brief has no activity feed items - headline shows 'Nothing demands your attention today'",
+      "affectedAssertions": ["VAL-DASH-002"],
+      "quickFixAttempted": "Checked sheet for overdue follow-up dates - Daily Brief computed no overdue items. Would need sheet data modification to test."
+    }
+  ],
+  "summary": "Tested 6 assertions: 1 passed (VAL-DASH-017), 5 blocked. Main blockers: (1) User not signed in - task stated authenticated session should be available but 'Continue' button was visible, preventing CRM field testing. (2) No activity feed items in Daily Brief for VAL-DASH-002. Onboarding was completed successfully but did not resolve auth issue."
+}

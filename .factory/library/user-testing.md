@@ -90,6 +90,12 @@ Machine baseline observed during dry run:
 - Do not mock Google APIs or short-circuit starter-sheet creation. If the flow blocks on missing/expired real credentials or an unfinishable auth challenge, mark the assertion blocked with the exact blocker.
 - Capture the browser origin, whether cookie import or live sign-in was used, and any Google create/write network calls observed.
 
+**Round 2 lesson (frontend-decomposition):** Setup features claimed "signed-in browser state is ready" but agent-browser creates fresh browser profiles that don't inherit Google auth cookies from the user's real Chrome browser. For write-access assertions (VAL-DASH-009, 010, 011, 018), you MUST either:
+1. Use `setup-browser-cookies` skill to import Google cookies into the agent-browser session BEFORE testing, OR
+2. Have the user perform a live Google sign-in in the agent-browser session (requires user interaction)
+
+Without one of these steps, the browser will show "Continue" button for Google sign-in and CRM fields will be hidden in browse-only mode.
+
 ## Flow Validator Guidance: discovery-browser
 
 - Use this surface for discovery-setup, endpoint-validation, local-recovery, and cross-area discovery browser assertions on `http://localhost:8080`.
