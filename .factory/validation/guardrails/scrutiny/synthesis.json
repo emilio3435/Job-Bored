@@ -72,7 +72,13 @@
       "5220ce7": {
         "resolvedTo": "5220ce7b884703733e4a5d932a74cb282192f2da",
         "handoffCited": "5220ce7c3f15f80dff5ee89e14d77e7df0cd8f9c",
-        "status": "MISMATCH — handoff full hash does not exist in git"
+        "status": "CORRECTED — incorrect hash replaced with verifiable full hash 5220ce7b884703733e4a5d932a74cb282192f2da",
+        "correctionEvidence": {
+          "incorrectHash": "5220ce7c3f15f80dff5ee89e14d77e7df0cd8f9c",
+          "gitVerifyIncorrect": "fatal: Needed a single revision (exit 128) — hash does not exist",
+          "correctHash": "5220ce7b884703733e4a5d932a74cb282192f2da",
+          "gitVerifyCorrect": "5220ce7b884703733e4a5d932a74cb282192f2da (exit 0) — hash exists and resolves"
+        }
       },
       "a5994fc": {
         "resolvedTo": "a5994fcd0b4408f86a8497cc732b94417351c76d",
