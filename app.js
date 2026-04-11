@@ -1740,7 +1740,7 @@ function showDiscoveryVerificationToast(result, options = {}) {
       action = {
         label: "Fix tunnel",
         onClick: () => {
-          void openDiscoverySetupWizard({
+          void requestDiscoverySetup({
             entryPoint: "settings",
             flow: "local_agent",
             startStep: "tunnel",
@@ -4517,6 +4517,34 @@ function clearAppsScriptDeployStatus() {
 
 const PENDING_DISCOVERY_SETUP_KEY = "pendingDiscoverySetup";
 
+function hasPendingDiscoverySetup() {
+  try {
+    return sessionStorage.getItem(PENDING_DISCOVERY_SETUP_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function queuePendingDiscoverySetup() {
+  try {
+    sessionStorage.setItem(PENDING_DISCOVERY_SETUP_KEY, "1");
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function resumePendingDiscoverySetupIfNeeded() {
+  if (!hasPendingDiscoverySetup()) return false;
+  try {
+    sessionStorage.removeItem(PENDING_DISCOVERY_SETUP_KEY);
+  } catch (_) {
+    /* ignore */
+  }
+  await openSettingsForDiscoveryWebhook();
+  return true;
+}
+
 function stripSetupDiscoveryParam() {
   const params = new URLSearchParams(window.location.search);
   if (params.get("setup") !== "discovery") return;
@@ -4540,37 +4568,46 @@ function focusDiscoveryWebhookFieldInSettings() {
 }
 
 async function openSettingsForDiscoveryWebhook() {
-  return openDiscoverySetupWizard({
+  return requestDiscoverySetup({
     entryPoint: "settings",
     flow: getDiscoveryWizardRecommendedFlow(getDiscoveryReadinessSnapshot()),
   });
 }
 
+async function requestDiscoverySetup(options = {}) {
+  const { stripSetupParam = false, ...wizardOptions } = options;
+  if (isOnboardingWizardVisible()) {
+    queuePendingDiscoverySetup();
+    if (stripSetupParam) {
+      stripSetupDiscoveryParam();
+    }
+    return { deferred: true };
+  }
+  await openDiscoverySetupWizard(wizardOptions);
+  if (stripSetupParam) {
+    stripSetupDiscoveryParam();
+  }
+  return { deferred: false };
+}
+
 async function handleDiscoverySetupDeepLink() {
   const params = new URLSearchParams(window.location.search);
-  if (params.get("setup") !== "discovery") return;
-
-  if (isOnboardingWizardVisible()) {
-    try {
-      sessionStorage.setItem(PENDING_DISCOVERY_SETUP_KEY, "1");
-    } catch (_) {
-      /* ignore */
-    }
-    stripSetupDiscoveryParam();
-    return;
-  }
-
-  await openDiscoverySetupWizard({ entryPoint: "deep_link" });
-  stripSetupDiscoveryParam();
+  if (params.get("setup") !== "discovery") return false;
+  await requestDiscoverySetup({
+    entryPoint: "deep_link",
+    stripSetupParam: true,
+  });
+  return true;
 }
 
 function runPostAccessBootstrapOnce() {
-  if (postAccessBootstrapDone) return;
+  if (postAccessBootstrapDone) return postAccessBootstrapPromise;
   postAccessBootstrapDone = true;
-  void (async () => {
+  postAccessBootstrapPromise = (async () => {
     await checkOnboardingGate();
     await handleDiscoverySetupDeepLink();
   })();
+  return postAccessBootstrapPromise;
 }
 
 /**
@@ -5389,7 +5426,7 @@ function renderDiscoveryEngineStatusUi() {
       button.title = view.primaryActionHint;
     }
     button.addEventListener("click", () => {
-      void openDiscoverySetupWizard({ entryPoint: "settings" });
+      void requestDiscoverySetup({ entryPoint: "settings" });
     });
     statusActions.appendChild(button);
   }
@@ -6027,6 +6064,7 @@ let dashboardDataHydrated = false;
 let initialSheetAccessResolved = false;
 let pendingSetupStarterSheetCreate = false;
 let postAccessBootstrapDone = false;
+let postAccessBootstrapPromise = Promise.resolve();
 
 /** Pipeline indices with expanded detail panel — preserved across re-renders */
 const expandedJobKeys = new Set();
@@ -7275,13 +7313,22 @@ async function handleSetupCreateStarterSheet() {
   initialSheetAccessResolved = true;
   setDashboardSheetLinks();
   revealDashboardShell();
-  runPostAccessBootstrapOnce();
+  const hadDiscoveryDeepLink =
+    new URLSearchParams(window.location.search).get("setup") === "discovery";
+  await runPostAccessBootstrapOnce();
   void loadAllData();
   if (created.spreadsheetUrl) {
     window.open(created.spreadsheetUrl, "_blank", "noopener");
   }
-  showToast("Starter sheet created. Opening guided setup…", "success");
-  await openDiscoverySetupWizard({ entryPoint: "starter_sheet_created" });
+  if (!hadDiscoveryDeepLink) {
+    await requestDiscoverySetup({ entryPoint: "starter_sheet_created" });
+  }
+  showToast(
+    hasPendingDiscoverySetup()
+      ? "Starter sheet created. Finish onboarding to continue guided setup."
+      : "Starter sheet created. Opening guided setup…",
+    "success",
+  );
 }
 
 // ============================================
@@ -7350,7 +7397,7 @@ function generateDiscoveryVariationKey() {
 async function triggerDiscoveryRun() {
   const hook = normalizeDiscoveryWebhookIdentity(getDiscoveryWebhookUrl());
   if (!hook) {
-    void openDiscoverySetupWizard({ entryPoint: "run_discovery" });
+    void requestDiscoverySetup({ entryPoint: "run_discovery" });
     return { ok: false, reason: "no_url" };
   }
   try {
@@ -8011,12 +8058,12 @@ function initDiscoverySetupGuide() {
   document
     .getElementById("settingsDiscoveryGuideBtn")
     ?.addEventListener("click", () => {
-      void openDiscoverySetupWizard({ entryPoint: "settings" });
+      void requestDiscoverySetup({ entryPoint: "settings" });
     });
   document
     .getElementById("settingsDiscoveryLocalSetupBtn")
     ?.addEventListener("click", () => {
-      void openDiscoverySetupWizard({
+      void requestDiscoverySetup({
         entryPoint: "settings",
         flow: "local_agent",
         startStep: "bootstrap",
@@ -8025,7 +8072,7 @@ function initDiscoverySetupGuide() {
   document
     .getElementById("settingsDiscoveryRelayBtn")
     ?.addEventListener("click", () => {
-      void openDiscoverySetupWizard({
+      void requestDiscoverySetup({
         entryPoint: "settings",
         flow: "local_agent",
         startStep: "relay_deploy",
@@ -8073,7 +8120,7 @@ function initDiscoverySetupGuide() {
     .getElementById("discoverySetupGuideLocalBtn")
     ?.addEventListener("click", () => {
       closeDiscoverySetupGuideModal();
-      void openDiscoverySetupWizard({
+      void requestDiscoverySetup({
         entryPoint: "guide",
         flow: "local_agent",
         startStep: "bootstrap",
@@ -8083,7 +8130,7 @@ function initDiscoverySetupGuide() {
     .getElementById("discoverySetupGuideRelayBtn")
     ?.addEventListener("click", () => {
       closeDiscoverySetupGuideModal();
-      void openDiscoverySetupWizard({
+      void requestDiscoverySetup({
         entryPoint: "guide",
         flow: "local_agent",
         startStep: "relay_deploy",
@@ -8284,7 +8331,7 @@ function initDiscoverySetupGuide() {
     ?.addEventListener("click", () => {
       const help = document.getElementById("discoveryHelpModal");
       if (help) help.style.display = "none";
-      void openDiscoverySetupWizard({ entryPoint: "help" });
+      void requestDiscoverySetup({ entryPoint: "help" });
     });
   document
     .getElementById("discoveryHelpPathsBtn")
@@ -13610,14 +13657,7 @@ function initOnboardingWizard() {
         });
         await UC.completeOnboarding();
         hideOnboardingWizard();
-        try {
-          if (sessionStorage.getItem(PENDING_DISCOVERY_SETUP_KEY) === "1") {
-            sessionStorage.removeItem(PENDING_DISCOVERY_SETUP_KEY);
-            void openSettingsForDiscoveryWebhook();
-          }
-        } catch (_) {
-          /* ignore */
-        }
+        void resumePendingDiscoverySetupIfNeeded();
         showToast(
           "You're all set — open Profile anytime to update.",
           "success",
@@ -14142,7 +14182,7 @@ function initCommandCenterSettings() {
         showToast("Create or connect your Pipeline sheet first.", "info");
         return;
       }
-      void openDiscoverySetupWizard({ entryPoint: "setup_screen" });
+      void requestDiscoverySetup({ entryPoint: "setup_screen" });
     });
   document
     .getElementById("setupOpenSettingsLaterBtn")
@@ -14279,7 +14319,7 @@ function initPipelineEmptyAndBriefActions() {
       if (!b) return;
       const a = b.getAttribute("data-empty-action");
       if (a === "settings" || a === "open_setup") {
-        void openDiscoverySetupWizard({ entryPoint: "empty_state" });
+        void requestDiscoverySetup({ entryPoint: "empty_state" });
       }
       if (a === "run_discovery") {
         void triggerDiscoveryRun();
@@ -14308,7 +14348,7 @@ function initPipelineEmptyAndBriefActions() {
       if (!b) return;
       const a = b.getAttribute("data-brief-action");
       if (a === "settings" || a === "open_setup") {
-        void openDiscoverySetupWizard({ entryPoint: "brief" });
+        void requestDiscoverySetup({ entryPoint: "brief" });
       }
       if (a === "run_discovery") {
         void triggerDiscoveryRun();
@@ -16105,6 +16145,7 @@ function init() {
   SHEET_ID = getSheetId();
   initialSheetAccessResolved = false;
   postAccessBootstrapDone = false;
+  postAccessBootstrapPromise = Promise.resolve();
   initAuthUserMenu();
 
   if (!SHEET_ID) {
@@ -16178,8 +16219,7 @@ function init() {
       closeAuthUserMenu();
       closeMaterialsModal();
       closeCommandCenterSettingsModal();
-      hideOnboardingWizard();
-      void openDiscoverySetupWizard({ entryPoint: "toolbar" });
+      void requestDiscoverySetup({ entryPoint: "toolbar" });
     });
 
   // Init auth
@@ -16740,11 +16780,11 @@ function initDiscoveryButton() {
       !getDiscoverySettingsView(getDiscoveryReadinessSnapshot())
         .runDiscoveryEnabled
     ) {
-      await openDiscoverySetupWizard({ entryPoint: "header" });
+      await requestDiscoverySetup({ entryPoint: "header" });
       return;
     }
     if (!getDiscoveryWebhookUrl()) {
-      await openDiscoverySetupWizard({ entryPoint: "header" });
+      await requestDiscoverySetup({ entryPoint: "header" });
       return;
     }
     openDiscoveryPrefsModal();
