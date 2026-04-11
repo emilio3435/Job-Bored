@@ -9965,16 +9965,22 @@ function getFilteredData() {
   return data;
 }
 
-function renderPipeline() {
-  const container = document.getElementById("jobCards");
-  const emptyState = document.getElementById("emptyState");
-  const roleCountEl = document.getElementById("roleCount");
+// ---- Board filtering & sort (pure functions) ----
 
-  // Board view: apply only search+sort, stages shown as collapsible lanes
-  let data = [...pipelineData];
+/**
+ * Filter jobs by search term and sort by the specified mode.
+ * Returns a new array; does not mutate the input.
+ *
+ * @param {Array} jobs - Array of pipeline job objects
+ * @param {string} search - Search query (empty string means no filtering)
+ * @param {string} sort - Sort mode: "fit" | "date" | "company" | "priority"
+ * @returns {Array} - New filtered and sorted array
+ */
+function filterAndSortJobs(jobs, search, sort) {
+  let data = [...jobs];
 
-  if (currentSearch) {
-    const q = currentSearch.toLowerCase();
+  if (search) {
+    const q = search.toLowerCase();
     data = data.filter((r) => {
       return [
         r.title,
@@ -9993,7 +9999,7 @@ function renderPipeline() {
     });
   }
 
-  switch (currentSort) {
+  switch (sort) {
     case "fit":
       data.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
       break;
@@ -10016,6 +10022,17 @@ function renderPipeline() {
       break;
     }
   }
+
+  return data;
+}
+
+function renderPipeline() {
+  const container = document.getElementById("jobCards");
+  const emptyState = document.getElementById("emptyState");
+  const roleCountEl = document.getElementById("roleCount");
+
+  // Board view: apply only search+sort, stages shown as collapsible lanes
+  const data = filterAndSortJobs(pipelineData, currentSearch, currentSort);
 
   roleCountEl.textContent = `${data.length} of ${pipelineData.length}`;
 
