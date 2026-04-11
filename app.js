@@ -226,18 +226,25 @@ async function hydrateDiscoveryTransportSetupFromLocalBootstrap() {
  * Extract a Google Sheet ID from a full spreadsheet URL or a raw ID paste.
  * Accepts e.g. https://docs.google.com/spreadsheets/d/SHEET_ID/edit?gid=0…
  */
+const MIN_PLAUSIBLE_GOOGLE_SHEET_ID_LENGTH = 20;
+
+function isPlausibleGoogleSheetId(value) {
+  return (
+    typeof value === "string" &&
+    /^[a-zA-Z0-9_-]+$/.test(value) &&
+    value.length >= MIN_PLAUSIBLE_GOOGLE_SHEET_ID_LENGTH &&
+    value !== "YOUR_SHEET_ID_HERE"
+  );
+}
+
 function parseGoogleSheetId(raw) {
   if (raw == null || typeof raw !== "string") return null;
   const s = raw.trim();
   if (!s) return null;
   const fromPath = s.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)(?:\/|$|\?|#)/);
-  if (fromPath) return fromPath[1];
+  if (fromPath && isPlausibleGoogleSheetId(fromPath[1])) return fromPath[1];
   const compact = s.replace(/\s/g, "");
-  if (
-    /^[a-zA-Z0-9_-]+$/.test(compact) &&
-    compact.length >= 10 &&
-    compact !== "YOUR_SHEET_ID_HERE"
-  ) {
+  if (isPlausibleGoogleSheetId(compact)) {
     return compact;
   }
   return null;
@@ -1744,6 +1751,7 @@ function showDiscoveryVerificationToast(result, options = {}) {
             entryPoint: "settings",
             flow: "local_agent",
             startStep: "tunnel",
+            allowWhileOnboarding: true,
           });
         },
       };
@@ -4571,12 +4579,17 @@ async function openSettingsForDiscoveryWebhook() {
   return requestDiscoverySetup({
     entryPoint: "settings",
     flow: getDiscoveryWizardRecommendedFlow(getDiscoveryReadinessSnapshot()),
+    allowWhileOnboarding: true,
   });
 }
 
 async function requestDiscoverySetup(options = {}) {
-  const { stripSetupParam = false, ...wizardOptions } = options;
-  if (isOnboardingWizardVisible()) {
+  const {
+    stripSetupParam = false,
+    allowWhileOnboarding = false,
+    ...wizardOptions
+  } = options;
+  if (isOnboardingWizardVisible() && !allowWhileOnboarding) {
     queuePendingDiscoverySetup();
     if (stripSetupParam) {
       stripSetupDiscoveryParam();
@@ -5426,7 +5439,10 @@ function renderDiscoveryEngineStatusUi() {
       button.title = view.primaryActionHint;
     }
     button.addEventListener("click", () => {
-      void requestDiscoverySetup({ entryPoint: "settings" });
+      void requestDiscoverySetup({
+        entryPoint: "settings",
+        allowWhileOnboarding: true,
+      });
     });
     statusActions.appendChild(button);
   }
@@ -6055,8 +6071,6 @@ const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
 let pipelineData = [];
 let pipelineRawRows = []; // Keep raw rows for row index mapping
-/** Default: Inbox = New, Researching, or empty status (not yet in active stages). */
-let currentFilter = "inbox";
 let currentSort = "fit";
 let currentSearch = "";
 let dataLoadFailed = false;
@@ -6176,6 +6190,7 @@ let gisInitStartedAt = 0;
 let gisInitWatchdogTimer = null;
 
 const OAUTH_SESSION_STORAGE_KEY = "command_center_oauth_session";
+const OAUTH_RUNTIME_SESSION_STORAGE_KEY = "command_center_oauth_runtime";
 
 /** Pending GIS callback: interactive sign-in, silent session restore, or silent token refresh (401 / proactive). */
 let oauthPendingOp = null;
@@ -6186,6 +6201,17 @@ function canUseLocalStorage() {
     const k = "__command_center_ls_test__";
     localStorage.setItem(k, "1");
     localStorage.removeItem(k);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function canUseSessionStorage() {
+  try {
+    const k = "__command_center_ss_test__";
+    sessionStorage.setItem(k, "1");
+    sessionStorage.removeItem(k);
     return true;
   } catch (e) {
     return false;
@@ -6209,13 +6235,38 @@ function hasGrantedOauthScope(scope) {
 }
 
 function persistOAuthSession() {
-  if (!canUseLocalStorage() || !tokenExpiresAt) return;
+  if (!tokenExpiresAt) return;
+  const cid = getOAuthClientId();
+  if (!cid) return;
+  if (canUseLocalStorage()) {
+    try {
+      localStorage.setItem(
+        OAUTH_SESSION_STORAGE_KEY,
+        JSON.stringify({
+          expiresAt: tokenExpiresAt,
+          userEmail,
+          userPictureUrl,
+          grantedOauthScopes,
+          oauthClientId: cid,
+          hasOauthSession: true,
+        }),
+      );
+    } catch (e) {
+      // Quota or private mode
+    }
+  }
+  persistRuntimeOAuthSession();
+}
+
+function persistRuntimeOAuthSession() {
+  if (!canUseSessionStorage() || !tokenExpiresAt || !accessToken) return;
   const cid = getOAuthClientId();
   if (!cid) return;
   try {
-    localStorage.setItem(
-      OAUTH_SESSION_STORAGE_KEY,
+    sessionStorage.setItem(
+      OAUTH_RUNTIME_SESSION_STORAGE_KEY,
       JSON.stringify({
+        accessToken,
         expiresAt: tokenExpiresAt,
         userEmail,
         userPictureUrl,
@@ -6242,6 +6293,15 @@ function clearPersistedOAuthSession() {
   }
 }
 
+function clearPersistedRuntimeOAuthSession() {
+  if (!canUseSessionStorage()) return;
+  try {
+    sessionStorage.removeItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
+  } catch (e) {
+    /* ignore */
+  }
+}
+
 /** Drop auth state after expiry or failed refresh (does not revoke the token server-side). */
 function clearSessionAuthState() {
   clearScheduledTokenRefresh();
@@ -6253,6 +6313,7 @@ function clearSessionAuthState() {
   oauthPendingOp = null;
   pendingSetupStarterSheetCreate = false;
   clearPersistedOAuthSession();
+  clearPersistedRuntimeOAuthSession();
   updateAuthUI();
 }
 
@@ -6277,6 +6338,34 @@ function loadPersistedOAuthSession() {
     return o;
   } catch (e) {
     clearPersistedOAuthSession();
+    return null;
+  }
+}
+
+function loadPersistedRuntimeOAuthSession() {
+  if (!canUseSessionStorage()) return null;
+  const cid = getOAuthClientId();
+  if (!cid) return null;
+  try {
+    const raw = sessionStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (
+      !o ||
+      typeof o !== "object" ||
+      o.hasOauthSession !== true ||
+      typeof o.accessToken !== "string" ||
+      !o.accessToken ||
+      typeof o.expiresAt !== "number" ||
+      o.expiresAt <= Date.now() ||
+      o.oauthClientId !== cid
+    ) {
+      clearPersistedRuntimeOAuthSession();
+      return null;
+    }
+    return o;
+  } catch (e) {
+    clearPersistedRuntimeOAuthSession();
     return null;
   }
 }
@@ -6334,6 +6423,26 @@ function refreshAccessTokenSilently() {
 }
 
 function restoreOAuthSession() {
+  const runtimeSession = loadPersistedRuntimeOAuthSession();
+  if (runtimeSession) {
+    accessToken = runtimeSession.accessToken;
+    tokenExpiresAt = runtimeSession.expiresAt;
+    userEmail = runtimeSession.userEmail || null;
+    userPictureUrl = runtimeSession.userPictureUrl || null;
+    grantedOauthScopes = normalizeOauthScopes(
+      runtimeSession.grantedOauthScopes || GOOGLE_SIGNIN_SCOPES,
+    );
+    updateAuthUI();
+    if (SHEET_ID) {
+      loadAllData();
+    } else {
+      revealSetupScreenAfterAuth();
+    }
+    scheduleTokenRefresh();
+    maybeSyncSettingsModalModeAfterAuth();
+    void fetchUserEmail();
+    return;
+  }
   const persisted = loadPersistedOAuthSession();
   if (!persisted || !tokenClient) return;
 
@@ -7397,7 +7506,10 @@ function generateDiscoveryVariationKey() {
 async function triggerDiscoveryRun() {
   const hook = normalizeDiscoveryWebhookIdentity(getDiscoveryWebhookUrl());
   if (!hook) {
-    void requestDiscoverySetup({ entryPoint: "run_discovery" });
+    void requestDiscoverySetup({
+      entryPoint: "run_discovery",
+      allowWhileOnboarding: true,
+    });
     return { ok: false, reason: "no_url" };
   }
   try {
@@ -8058,7 +8170,10 @@ function initDiscoverySetupGuide() {
   document
     .getElementById("settingsDiscoveryGuideBtn")
     ?.addEventListener("click", () => {
-      void requestDiscoverySetup({ entryPoint: "settings" });
+      void requestDiscoverySetup({
+        entryPoint: "settings",
+        allowWhileOnboarding: true,
+      });
     });
   document
     .getElementById("settingsDiscoveryLocalSetupBtn")
@@ -8067,6 +8182,7 @@ function initDiscoverySetupGuide() {
         entryPoint: "settings",
         flow: "local_agent",
         startStep: "bootstrap",
+        allowWhileOnboarding: true,
       });
     });
   document
@@ -8076,6 +8192,7 @@ function initDiscoverySetupGuide() {
         entryPoint: "settings",
         flow: "local_agent",
         startStep: "relay_deploy",
+        allowWhileOnboarding: true,
       });
     });
   document
@@ -8124,6 +8241,7 @@ function initDiscoverySetupGuide() {
         entryPoint: "guide",
         flow: "local_agent",
         startStep: "bootstrap",
+        allowWhileOnboarding: true,
       });
     });
   document
@@ -8134,6 +8252,7 @@ function initDiscoverySetupGuide() {
         entryPoint: "guide",
         flow: "local_agent",
         startStep: "relay_deploy",
+        allowWhileOnboarding: true,
       });
     });
   const guideOverlay = document.getElementById("discoverySetupGuideModal");
@@ -8331,7 +8450,10 @@ function initDiscoverySetupGuide() {
     ?.addEventListener("click", () => {
       const help = document.getElementById("discoveryHelpModal");
       if (help) help.style.display = "none";
-      void requestDiscoverySetup({ entryPoint: "help" });
+      void requestDiscoverySetup({
+        entryPoint: "help",
+        allowWhileOnboarding: true,
+      });
     });
   document
     .getElementById("discoveryHelpPathsBtn")
@@ -9943,79 +10065,6 @@ function attachBoardListeners() {
   });
 }
 
-function getFilteredData() {
-  let data = [...pipelineData];
-
-  switch (currentFilter) {
-    case "inbox":
-      data = data.filter(isInboxJob);
-      break;
-    case "applied":
-      data = data.filter((r) => {
-        const s = normalizeStatusStr(r.status);
-        return s.includes("applied");
-      });
-      break;
-    case "interviewing":
-      data = data.filter((r) => {
-        const s = normalizeStatusStr(r.status);
-        return s.includes("interview") || s.includes("phone");
-      });
-      break;
-    case "negotiating":
-      data = data.filter((r) => {
-        const s = normalizeStatusStr(r.status);
-        return s.includes("offer") || s.includes("negotiat");
-      });
-      break;
-  }
-
-  if (currentSearch) {
-    const q = currentSearch.toLowerCase();
-    data = data.filter((r) => {
-      const searchable = [
-        r.title,
-        r.company,
-        r.tags,
-        r.location,
-        r.source,
-        r.notes,
-        r.lastHeardFrom,
-        r.responseFlag,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return searchable.includes(q);
-    });
-  }
-
-  switch (currentSort) {
-    case "fit":
-      data.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
-      break;
-    case "date":
-      data.sort((a, b) => {
-        const da = a.dateFound ? a.dateFound.getTime() : 0;
-        const db = b.dateFound ? b.dateFound.getTime() : 0;
-        return db - da;
-      });
-      break;
-    case "company":
-      data.sort((a, b) => (a.company || "").localeCompare(b.company || ""));
-      break;
-    case "priority":
-      const priorityOrder = { "🔥": 0, "⚡": 1, "—": 2, "↓": 3 };
-      data.sort(
-        (a, b) =>
-          (priorityOrder[a.priority] ?? 2) - (priorityOrder[b.priority] ?? 2),
-      );
-      break;
-  }
-
-  return data;
-}
-
 // ---- Board filtering & sort (pure functions) ----
 
 /**
@@ -10136,361 +10185,6 @@ function renderPipeline() {
   attachBoardListeners();
 }
 
-function renderJobCard(job, index) {
-  const dataIndex = pipelineData.indexOf(job);
-  const stableKey = dataIndex >= 0 ? dataIndex : index;
-
-  const priorityClass =
-    job.priority === "🔥"
-      ? "priority-hot"
-      : job.priority === "⚡"
-        ? "priority-high"
-        : "";
-
-  const enr = job._postingEnrichment;
-  const sheetTags = job.tags
-    ? job.tags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean)
-    : [];
-  const tags = (() => {
-    const m = new Map();
-    const add = (raw) => {
-      const t = String(raw || "").trim();
-      if (!t) return;
-      const k = t.toLowerCase();
-      if (!m.has(k)) m.set(k, t);
-    };
-    sheetTags.forEach(add);
-    if (enr && Array.isArray(enr.skills)) enr.skills.forEach(add);
-    if (enr && Array.isArray(enr.extraKeywords)) enr.extraKeywords.forEach(add);
-    return [...m.values()];
-  })();
-
-  const title = job.title || "Untitled Role";
-  const company = job.company || "Unknown Company";
-
-  // ---- Tier 1: Identity ----
-  const stageLabel = (job.status || "").trim();
-  const stagePillHtml = stageLabel
-    ? ` <span class="card-stage-pill">${escapeHtml(stageLabel)}</span>`
-    : "";
-
-  const roleFactsHtml = renderRoleFactsHtml(job, "card");
-  const dateFoundLineHtml = job.dateFoundRaw
-    ? `<p class="card-context card-context--date">${escapeHtml(job.dateFoundRaw)}</p>`
-    : "";
-
-  // ---- Tier 1: Hook (one sentence) ----
-  const hookText = (() => {
-    const oneLine = enr && String(enr.roleInOneLine || "").trim();
-    if (oneLine) return oneLine;
-    const fitAngle = enr && String(enr.fitAngle || "").trim();
-    if (fitAngle)
-      return fitAngle.length > 120
-        ? `${fitAngle.slice(0, 117).trim()}…`
-        : fitAngle;
-    const fitAssess = String(job.fitAssessment || "").trim();
-    if (fitAssess)
-      return fitAssess.length > 120
-        ? `${fitAssess.slice(0, 117).trim()}…`
-        : fitAssess;
-    return "";
-  })();
-  const hookHtml = hookText
-    ? `<p class="card-hook">${escapeHtml(hookText)}</p>`
-    : "";
-
-  // ---- Tier 2: Peek (<details> disclosure) ----
-  const hasAiStructure =
-    enr &&
-    (String(enr.postingSummary || "").trim().length > 0 ||
-      (Array.isArray(enr.mustHaves) && enr.mustHaves.length > 0));
-
-  const peekHasContent =
-    hasAiStructure ||
-    tags.length > 0 ||
-    (enr && Array.isArray(enr.mustHaves) && enr.mustHaves.length > 0) ||
-    job.source;
-
-  // AI summary (full)
-  const aiSummaryText = String(enr?.postingSummary || "").trim();
-  const aiSummaryHtml = aiSummaryText
-    ? `<div class="card-peek__section">
-        <span class="card-peek__label">AI Summary</span>
-        <p class="card-peek__text">${escapeHtml(aiSummaryText)}</p>
-      </div>`
-    : "";
-
-  // Fit verdict — only show in peek if the hook line isn't already sourced from the same text
-  const fitAngle = enr && String(enr.fitAngle || "").trim();
-  const fitAssessment = String(job.fitAssessment || "").trim();
-  const fitText = fitAngle || fitAssessment;
-  // hookText used roleInOneLine when available; only show full fit text if the hook was different
-  const hookUsedFitText =
-    !!(enr && String(enr.roleInOneLine || "").trim()) === false && !!fitText;
-  const fitVerdictHtml =
-    fitText && !hookUsedFitText
-      ? `<div class="card-peek__section">
-        <span class="card-peek__label">Fit</span>
-        <p class="card-peek__text">${escapeHtml(fitText)}</p>
-      </div>`
-      : "";
-
-  // Tags / skill chips
-  const SKILL_SHOW_FIRST = 14;
-  const skillVisible = tags.slice(0, SKILL_SHOW_FIRST);
-  const skillExtraCount = tags.length - skillVisible.length;
-  const skillExtraHtml =
-    skillExtraCount > 0
-      ? tags
-          .slice(SKILL_SHOW_FIRST)
-          .map((t) => `<span class="skill-chip">${escapeHtml(t)}</span>`)
-          .join("")
-      : "";
-  const tagsHtml =
-    tags.length > 0
-      ? `<div class="card-peek__section">
-        <span class="card-peek__label">Tags &amp; skills</span>
-        <div class="card-tags card-skills-tags" data-tags-wrap="${stableKey}">
-          ${skillVisible.map((t) => `<span class="skill-chip">${escapeHtml(t)}</span>`).join("")}
-          ${
-            skillExtraCount > 0
-              ? `<span class="card-tags-extra">${skillExtraHtml}</span>
-          <button type="button" class="tag-more-btn" data-action="toggle-tags" data-tags-key="${stableKey}" aria-expanded="false">+${skillExtraCount} more</button>`
-              : ""
-          }
-        </div>
-      </div>`
-      : "";
-
-  // Must-haves
-  const mustHavesHtml = (() => {
-    const arr =
-      enr && Array.isArray(enr.mustHaves)
-        ? enr.mustHaves.map((x) => String(x).trim()).filter(Boolean)
-        : [];
-    if (!arr.length) return "";
-    return `<div class="card-peek__section">
-      <span class="card-peek__label">Must-haves</span>
-      <ul class="card-peek__list">${arr
-        .slice(0, 8)
-        .map(
-          (r) =>
-            `<li>${escapeHtml(r.length > 200 ? `${r.slice(0, 200)}…` : r)}</li>`,
-        )
-        .join("")}</ul>
-    </div>`;
-  })();
-
-  // Source
-  const sourceHtml = job.source
-    ? `<p class="card-peek__source">via ${escapeHtml(job.source)}</p>`
-    : "";
-
-  const peekBodyHtml =
-    aiSummaryHtml || fitVerdictHtml || tagsHtml || mustHavesHtml || sourceHtml
-      ? `${aiSummaryHtml}${fitVerdictHtml}${tagsHtml}${mustHavesHtml}${sourceHtml}`
-      : "";
-
-  const peekHtml = peekHasContent
-    ? `<details class="card-peek">
-        <summary class="card-peek__toggle">More about this role</summary>
-        <div class="card-peek__body">${peekBodyHtml}</div>
-      </details>`
-    : "";
-
-  // ---- Tier 1: Action row ----
-  const actionsHtml = renderCardActions(job, stableKey);
-
-  const viewRoleBtn = safeHref(job.link)
-    ? `<a href="${escapeHtml(safeHref(job.link))}" target="_blank" rel="noopener" class="card-action card-action--primary">
-        View role
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-      </a>`
-    : "";
-
-  const resumeCoverBtn =
-    dataIndex >= 0
-      ? `<button type="button" class="card-action" data-action="resume-cover" data-index="${dataIndex}">Cover letter</button>`
-      : "";
-
-  const resumeTailorBtn =
-    dataIndex >= 0
-      ? `<button type="button" class="card-action" data-action="resume-tailor" data-index="${dataIndex}">Tailor resume</button>`
-      : "";
-
-  const actionsRowHtml =
-    viewRoleBtn || resumeCoverBtn || resumeTailorBtn
-      ? `<div class="card-actions-row">
-        ${viewRoleBtn}
-        ${resumeCoverBtn}
-        ${resumeTailorBtn}
-        <button
-          type="button"
-          class="card-action card-action--expand"
-          data-action="toggle-card"
-          data-stable-key="${stableKey}"
-          ${dataIndex >= 0 ? `data-index="${dataIndex}"` : ""}
-          aria-expanded="false"
-          aria-controls="job-details-${stableKey}"
-          aria-label="Show posting details and pipeline notes"
-          title="Expand posting details and notes"
-        >
-          <svg class="details-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-      </div>`
-      : "";
-
-  // ---- Tier 3: Expand band (same structure, enriched content) ----
-
-  // Talking points
-  let talkingPointsHtml = "";
-  const tpFromEnr =
-    enr && Array.isArray(enr.talkingPoints) && enr.talkingPoints.length > 0
-      ? enr.talkingPoints.map((p) => String(p).trim()).filter(Boolean)
-      : null;
-  const tpFromSheet = job.talkingPoints
-    ? job.talkingPoints
-        .split("\n")
-        .map((l) => l.replace(/^[•\-\*]\s*/, "").trim())
-        .filter(Boolean)
-    : [];
-  const tpLabel =
-    tpFromEnr && tpFromEnr.length
-      ? "Talking points (from posting + AI)"
-      : "Talking points";
-  const tpList = tpFromEnr && tpFromEnr.length ? tpFromEnr : tpFromSheet;
-  if (tpList.length > 0) {
-    talkingPointsHtml = `
-        <div class="talking-points-block">
-          <div class="talking-points-label">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            ${escapeHtml(tpLabel)}
-          </div>
-          <ul class="talking-points-list">
-            ${tpList.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}
-          </ul>
-        </div>
-      `;
-  }
-
-  // Structured lists for expanded (responsibilities, nice-to-haves, tools/stack)
-  const listSection = (label, items, cls) => {
-    const arr = Array.isArray(items)
-      ? items.map((x) => String(x).trim()).filter(Boolean)
-      : [];
-    if (!arr.length) return "";
-    return `<div class="posting-struct ${cls || ""}"><span class="posting-snippet-label">${escapeHtml(label)}</span><ul class="posting-req-list">${arr
-      .slice(0, 12)
-      .map(
-        (r) =>
-          `<li>${escapeHtml(r.length > 500 ? `${r.slice(0, 500)}…` : r)}</li>`,
-      )
-      .join("")}</ul></div>`;
-  };
-
-  const structuredListsHtml =
-    enr && hasAiStructure
-      ? [
-          listSection(
-            "Responsibilities",
-            enr.responsibilities,
-            "posting-struct--resp",
-          ),
-          listSection("Nice-to-haves", enr.niceToHaves, "posting-struct--nice"),
-          listSection(
-            "Tools & stack",
-            enr.toolsAndStack,
-            "posting-struct--tools",
-          ),
-        ].join("")
-      : "";
-
-  // Meta info (contact, reply, heard) — only in Tier 3
-  const contactChip =
-    job.contact && job.contact !== "Not found"
-      ? `<span class="meta-chip meta-chip--contact">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        ${escapeHtml(job.contact)}
-      </span>`
-      : "";
-
-  const replyLabel = responseLabelForDisplay(job.responseFlag);
-  const replyChip = replyLabel
-    ? `<span class="meta-chip meta-chip--reply">Reply: ${escapeHtml(replyLabel)}</span>`
-    : "";
-  const heardChip = job.lastHeardFrom
-    ? `<span class="meta-chip meta-chip--heard">Last contact: ${escapeHtml(job.lastHeardFrom)}</span>`
-    : "";
-
-  const contactRowHtml =
-    contactChip || heardChip || replyChip
-      ? `<div class="card-meta card-meta--chips card-meta--secondary">${contactChip}${heardChip}${replyChip}</div>`
-      : "";
-
-  const postingLlmWarn =
-    enr && enr.llmError
-      ? `<p class="posting-llm-warn">${escapeHtml(enr.llmError)}</p>`
-      : "";
-
-  // Expanded left column: LLM-structured lists + optional LLM error
-  const expandedLeftExtra =
-    structuredListsHtml || postingLlmWarn
-      ? `<div class="expanded-extra">${structuredListsHtml}${postingLlmWarn}</div>`
-      : "";
-  const profileMatchHtml = renderProfileMatchSectionHtml(job);
-  const draftLibraryHtml =
-    dataIndex >= 0 ? renderDraftLibraryCardHtml(job, dataIndex) : "";
-
-  return `
-    <article class="job-card ${priorityClass}" data-stable-key="${stableKey}" style="animation-delay: ${index * 40}ms">
-      <!-- Tier 1: Scan line -->
-      <div class="card-identity">
-        ${renderLogoHtml(job, "card")}
-        <div class="card-identity__text">
-          <h3 class="card-title">${escapeHtml(title)}</h3>
-          <p class="card-company">${escapeHtml(company)}${stagePillHtml}</p>
-        </div>
-      </div>
-
-      ${roleFactsHtml}
-      ${dateFoundLineHtml}
-      ${hookHtml}
-
-      <!-- Tier 2: Peek disclosure -->
-      ${peekHtml}
-
-      <!-- Tier 1: Actions -->
-      ${actionsRowHtml}
-
-      <!-- Tier 3: Expand band -->
-      <div class="job-card__details" id="job-details-${stableKey}">
-        <div class="job-card__details-grid">
-          <div class="details-column details-column--left">
-            <div class="details-section-heading" aria-hidden="true">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-              Talking points
-            </div>
-            ${talkingPointsHtml || `<p class="details-placeholder">No talking points yet.</p>`}
-            ${profileMatchHtml}
-            ${expandedLeftExtra}
-            ${contactRowHtml}
-          </div>
-          <div class="details-column details-column--right">
-            <div class="details-section-heading" aria-hidden="true">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
-              Pipeline &amp; notes
-            </div>
-            ${draftLibraryHtml}
-            ${actionsHtml}
-          </div>
-        </div>
-      </div>
-    </article>
-  `;
-}
 function renderCardActions(job, indexForNotesId) {
   const dataIndex = pipelineData.indexOf(job);
 
@@ -10593,56 +10287,6 @@ function renderCardActions(job, indexForNotesId) {
 }
 
 function attachCardListeners() {
-  // Expand/collapse assessment
-  document.querySelectorAll(".expand-btn[data-expand]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.dataset.expand;
-      const text = document.querySelector(`[data-expandable="${id}"]`);
-      if (text) {
-        text.classList.toggle("expanded");
-        btn.textContent = text.classList.contains("expanded")
-          ? "Show less"
-          : "Show more";
-      }
-    });
-  });
-
-  // Card details panel + auto-fetch posting when opening (if never loaded)
-  document.querySelectorAll('[data-action="toggle-card"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const card = btn.closest(".job-card");
-      if (!card) return;
-      const k = parseInt(card.dataset.stableKey, 10);
-      const expanded = card.classList.toggle("job-card--expanded");
-      btn.setAttribute("aria-expanded", expanded ? "true" : "false");
-      btn.setAttribute(
-        "aria-label",
-        expanded
-          ? "Hide posting details and pipeline notes"
-          : "Show posting details and pipeline notes",
-      );
-      btn.setAttribute(
-        "title",
-        expanded
-          ? "Hide details"
-          : "Opens details; pulls posting from job URL when not loaded yet (Cheerio server).",
-      );
-      if (!Number.isNaN(k)) {
-        if (expanded) expandedJobKeys.add(k);
-        else expandedJobKeys.delete(k);
-      }
-      if (expanded) {
-        const idx = parseInt(btn.dataset.index, 10);
-        if (!Number.isNaN(idx) && pipelineData[idx]) {
-          const j = pipelineData[idx];
-          if (j.link && !j._postingEnrichment?.scrapedAt) {
-            fetchJobPostingEnrichment(idx).catch(() => {});
-          }
-        }
-      }
-    });
-  });
-
   // Extra tags "+N"
   document.querySelectorAll('[data-action="toggle-tags"]').forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -14182,7 +13826,10 @@ function initCommandCenterSettings() {
         showToast("Create or connect your Pipeline sheet first.", "info");
         return;
       }
-      void requestDiscoverySetup({ entryPoint: "setup_screen" });
+      void requestDiscoverySetup({
+        entryPoint: "setup_screen",
+        allowWhileOnboarding: true,
+      });
     });
   document
     .getElementById("setupOpenSettingsLaterBtn")
@@ -14319,7 +13966,10 @@ function initPipelineEmptyAndBriefActions() {
       if (!b) return;
       const a = b.getAttribute("data-empty-action");
       if (a === "settings" || a === "open_setup") {
-        void requestDiscoverySetup({ entryPoint: "empty_state" });
+        void requestDiscoverySetup({
+          entryPoint: "empty_state",
+          allowWhileOnboarding: true,
+        });
       }
       if (a === "run_discovery") {
         void triggerDiscoveryRun();
@@ -14348,7 +13998,10 @@ function initPipelineEmptyAndBriefActions() {
       if (!b) return;
       const a = b.getAttribute("data-brief-action");
       if (a === "settings" || a === "open_setup") {
-        void requestDiscoverySetup({ entryPoint: "brief" });
+        void requestDiscoverySetup({
+          entryPoint: "brief",
+          allowWhileOnboarding: true,
+        });
       }
       if (a === "run_discovery") {
         void triggerDiscoveryRun();
@@ -16219,7 +15872,10 @@ function init() {
       closeAuthUserMenu();
       closeMaterialsModal();
       closeCommandCenterSettingsModal();
-      void requestDiscoverySetup({ entryPoint: "toolbar" });
+      void requestDiscoverySetup({
+        entryPoint: "toolbar",
+        allowWhileOnboarding: true,
+      });
     });
 
   // Init auth
@@ -16780,11 +16436,17 @@ function initDiscoveryButton() {
       !getDiscoverySettingsView(getDiscoveryReadinessSnapshot())
         .runDiscoveryEnabled
     ) {
-      await requestDiscoverySetup({ entryPoint: "header" });
+      await requestDiscoverySetup({
+        entryPoint: "header",
+        allowWhileOnboarding: true,
+      });
       return;
     }
     if (!getDiscoveryWebhookUrl()) {
-      await requestDiscoverySetup({ entryPoint: "header" });
+      await requestDiscoverySetup({
+        entryPoint: "header",
+        allowWhileOnboarding: true,
+      });
       return;
     }
     openDiscoveryPrefsModal();
