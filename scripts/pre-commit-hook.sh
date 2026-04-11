@@ -21,7 +21,7 @@ if [ -d ".factory/skills" ]; then
 fi
 
 # Quick syntax check for modified JS files
-STAGED_JS=$(git diff --cached --name-only --diff-filter=ACM | grep '\.js$' | grep -v node_modules | grep -v server/node_modules || true)
+STAGED_JS=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(js|mjs)$' | grep -v node_modules | grep -v server/node_modules || true)
 if [ -n "$STAGED_JS" ]; then
   echo "Checking staged JS files syntax..."
   for f in $STAGED_JS; do

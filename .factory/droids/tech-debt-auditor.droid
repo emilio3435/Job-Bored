@@ -58,8 +58,8 @@ rg "debugger" --type js -g "!/node_modules/"
 ```bash
 # Detect deprecated patterns
 rg "var\s+" --type js -g "!/node_modules/"  # var instead of const/let
-rg "==\s*" --type js -g "!/node_modules/"  # == instead of ===
-rg "!=\s*" --type js -g "!/node_modules/"  # != instead of !==
+rg "(?<!=)==(?!=)" --type js -g "!/node_modules/"  # == instead of === (avoids false positives on ===)
+rg "(?<!.)=(?!=)" --type js -g "!/node_modules/"  # != instead of !== (avoids false positives on !==)
 ```
 
 ### Magic Numbers/Strings
