@@ -60,9 +60,14 @@ The `frontend-decomposition` milestone uses three fixture variants that workers 
 ### Fixture: populated + activity feed items (VAL-DASH-002)
 - **Use for:** VAL-DASH-002 (clickable activity feed items → open drawer)
 - **Requirement:** Activity feed requires at least one of: overdue `followUpDate` (before today), OR `responseFlag="Yes"` with `status` including "Interviewing"/"Phone Screen", OR stale `appliedDate` (>14 days old)
-- **Current state:** The base populated fixture has followUpDate values AFTER today (2026-04-10) → shows "All clear" (empty feed)
-- **Fix:** Add rows with past `followUpDate` to the sheet directly, or use the `manage-validation-fixtures.mjs` script to understand the requirements
-- **Management script:** `node scripts/manage-validation-fixtures.mjs apply populated`
+- **Preflight script:** `node scripts/check-activity-feed-prerequisites.mjs`
+  - `--verify` flag: check only (exits 0 if overdue rows exist, exits 1 if not)
+  - `--seed` flag: check AND attempt to materialize an overdue row via Google Sheets API
+  - If API write fails (no valid credentials), prints explicit manual fallback with exact row payload
+- **Manual fallback:** If the script cannot write, manually edit the sheet:
+  1. Open: `https://docs.google.com/spreadsheets/d/1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ/edit`
+  2. Find a row with Follow-up Date (column P) set to a future date
+  3. Change it to a past date (e.g., if today is 2026-04-10, use 2026-04-05)
 
 ### Fixture: empty pipeline (VAL-DASH-013)
 - **File:** `evidence/seed-pipeline-data-empty.json`
