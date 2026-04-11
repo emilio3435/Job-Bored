@@ -1,6 +1,6 @@
 {
   "$schema": "https://github.com/job-bored/command-center/schemas/pipeline-row.v1.json",
-  "description": "Empty-pipeline validation fixture for frontend-decomposition VAL-DASH-013. This fixture drives the truly-empty-pipeline empty-state guidance test. Sheet ID: create a new empty spreadsheet and use its ID here. The sheet should have only the Pipeline header row (no data rows).",
+  "description": "Empty-pipeline validation fixture for frontend-decomposition VAL-DASH-013. This fixture drives the truly-empty-pipeline empty-state guidance test. REQUIRES MANUAL SETUP: Create a new Google Sheet with ONLY the Pipeline header row (no data rows), then replace EMPTY_PIPELINE_SHEET_ID_PLACEHOLDER with the actual sheet ID.",
   "schemaVersion": 1,
   "sheetId": "EMPTY_PIPELINE_SHEET_ID_PLACEHOLDER",
   "tabName": "Pipeline",
