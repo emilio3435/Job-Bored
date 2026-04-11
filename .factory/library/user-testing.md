@@ -104,3 +104,72 @@ Machine baseline observed during dry run:
 - For tunnel-rotation and blocked-state recovery assertions, manipulate discovery config in localStorage to simulate the blocked state rather than relying on real tunnel rotation.
 - Do not attempt real Google sign-in in this surface unless the assertion explicitly requires it. Most discovery setup assertions work in read-only/auth-free mode.
 - Evidence files go to `evidence/discovery-consolidation/<group-id>/`. Flow reports go to `.factory/validation/discovery-consolidation/user-testing/flows/<group-id>.json`.
+
+## Flow Validator Guidance: dashboard-browser-board-brief
+
+- Use this surface for Daily Brief, board lanes, search, sort, empty states, lane chrome, and related read-mostly dashboard assertions.
+- Start with a fresh browser session (`--session` unique per validator). Use `?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ` to provide the sheet ID.
+- These assertions do NOT require Google sign-in for read-only board access when using a publicly readable sheet. The dashboard loads in browse-only mode.
+- Search and sort mutate localStorage (search query, sort preference) but these are local UI state only — concurrent validators with separate sessions will not interfere.
+- For VAL-DASH-001 (Daily Brief), verify: local-date header, non-empty headline, four visible summary tiles, stage distribution widget, activity chart, activity feed, sources/tips panel.
+- For VAL-DASH-003 (Search), type a search term matching pipeline/CRM text, verify the `x of y` count updates while the Brief remains computed from full pipeline.
+- For VAL-DASH-004 (Sort), change sort control and verify lane reordering without changing lane grouping.
+- For VAL-DASH-005 (Lane order), verify non-empty lanes appear in canonical order: New, Researching, Applied, Phone Screen, Interviewing, Offer, Rejected, Passed.
+- For VAL-DASH-012 (No-match search), search for a term with no matches and verify "No roles match" empty state while Brief remains intact.
+- For VAL-DASH-013 (Empty pipeline), this requires an empty sheet; may need to temporarily use a different sheet or skip if not testable.
+- For VAL-DASH-014 (Activity range), switch activity range controls and verify chart timeframe updates.
+- For VAL-DASH-015 (Lane expansion), verify active lanes start expanded, archive lanes (Rejected, Passed) start collapsed, and toggling works.
+- For VAL-DASH-016 (Lane scroll), verify horizontal scroll controls on long lanes disable at track edges.
+- Evidence files go to `evidence/frontend-decomposition/<group-id>/`. Flow reports go to `.factory/validation/frontend-decomposition/user-testing/flows/<group-id>.json`.
+
+## Flow Validator Guidance: dashboard-browser-drawer-crm
+
+- Use this surface for drawer open/close, detail rendering, signed-out browse mode, signed-in CRM edits, status changes, and enrichment flows.
+- Start with a fresh browser session (`--session` unique per validator). Use `?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ` to provide the sheet ID.
+- For signed-out assertions (VAL-DASH-008), verify drawer opens in browse-only mode with writeback controls hidden or replaced with sign-in guidance.
+- For signed-in assertions (VAL-DASH-009, VAL-DASH-010, VAL-DASH-011, VAL-DASH-018), you need a Google-authenticated browser session. Use cookie import or live sign-in.
+- For VAL-DASH-002, click a Brief activity feed item and verify it opens the matching job drawer with correct title/company.
+- For VAL-DASH-006, click a stage card and verify drawer opens; close via button or Escape.
+- For VAL-DASH-007, test a job with no posting enrichment and verify core identity (title, company, location/salary, action row) still shows.
+- For VAL-DASH-009, with signed-in session, verify drawer exposes editable CRM controls and can save changes.
+- For VAL-DASH-010, change status via drawer and verify job moves to correct lane after refresh.
+- For VAL-DASH-011, edit follow-up date to overdue and verify visible overdue signal on dashboard.
+- For VAL-DASH-017, open a job that can fetch enrichment and verify loading state then enriched/warning state.
+- For VAL-DASH-018, with drawer open, save a CRM change and verify drawer stays attached to same role with no stale state.
+- CRM edits write to the Google Sheet. Use the disposable sheet for validation. Capture network evidence of POST batchUpdate calls.
+- Evidence files go to `evidence/frontend-decomposition/<group-id>/`. Flow reports go to `.factory/validation/frontend-decomposition/user-testing/flows/<group-id>.json`.
+
+## Flow Validator Guidance: onboarding-profile-browser
+
+- Use this surface for onboarding flow, profile persistence, and missing-profile recovery assertions.
+- Start with a clean browser profile (no saved localStorage/IndexedDB) for first-run assertions.
+- For VAL-DRAFTS-001, verify incomplete onboarding gates draft features even after sheet access is resolved.
+- For VAL-DRAFTS-002, test resume upload step — verify continue disabled until valid input, and unsupported input shows failure.
+- For VAL-DRAFTS-003, complete onboarding and verify resume + preferences persist after reload.
+- For VAL-DRAFTS-004, save a new primary resume and verify it replaces (not duplicates) the previous one.
+- For VAL-DRAFTS-005, attempt draft action with no profile and verify recoverable guidance (not silent failure).
+- For VAL-DRAFTS-011, use Settings "Clear saved settings" and verify portfolio/draft history remains intact.
+- For VAL-DRAFTS-012, provide writing samples or AI context during onboarding and verify persistence after reload.
+- For VAL-DRAFTS-014, verify that having at least ONE profile source (resume OR LinkedIn OR AI context) enables generation.
+- For VAL-DRAFTS-016, save/clear LinkedIn and AI context fields and verify isolated removal (not cascade to resume/samples).
+- For VAL-DRAFTS-017, start "Redo onboarding wizard" and verify existing data preserved until new flow completes.
+- For VAL-CROSS-008, attempt draft without profile, verify recovery path into Profile, then verify generation works after adding profile.
+- Profile data is stored in IndexedDB. Do not mock this — use real browser persistence.
+- Evidence files go to `evidence/frontend-decomposition/<group-id>/`. Flow reports go to `.factory/validation/frontend-decomposition/user-testing/flows/<group-id>.json`.
+
+## Flow Validator Guidance: draft-generation-browser
+
+- Use this surface for draft generation, refinement, version history, ATS analysis in draft context, and provider routing assertions.
+- Requires signed-in session + completed profile (resume or LinkedIn or AI context).
+- For VAL-DRAFTS-006, generate cover letter or tailored resume, verify draft modal opens with V1 saved.
+- For VAL-DRAFTS-007, submit refinement feedback and verify new version created (not overwrite).
+- For VAL-DRAFTS-008, open saved draft from history and verify exact text restored from snapshot.
+- For VAL-DRAFTS-009, verify ATS analysis starts inside draft modal when text + job metadata present, refreshes after draft changes.
+- For VAL-DRAFTS-010, test unsupported/missing provider configuration and verify actionable guidance.
+- For VAL-DRAFTS-013, generate + refine drafts, reload page, and verify version history intact.
+- For VAL-DRAFTS-015, verify generation uses configured provider (Gemini/webhook) destination.
+- For VAL-CROSS-007, fetch posting enrichment for a role, then trigger ATS and verify enrichment included in payload.
+- For VAL-CROSS-009, generate draft, then verify same saved version visible from both job surface and draft modal/history.
+- For VAL-CROSS-010, verify ATS requests use active draft text + current job context; demonstrate by editing draft or switching roles and checking payload changes.
+- Drafts stored in IndexedDB. Generation may call live AI provider (Gemini) or webhook.
+- Evidence files go to `evidence/frontend-decomposition/<group-id>/`. Flow reports go to `.factory/validation/frontend-decomposition/user-testing/flows/<group-id>.json`.

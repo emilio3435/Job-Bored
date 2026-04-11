@@ -1,0 +1,64 @@
+{
+  "milestone": "frontend-decomposition",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 39,
+    "passed": 10,
+    "failed": 0,
+    "blocked": 29
+  },
+  "passedAssertions": [
+    "VAL-DASH-001",
+    "VAL-DASH-003",
+    "VAL-DASH-004",
+    "VAL-DASH-005",
+    "VAL-DASH-006",
+    "VAL-DASH-007",
+    "VAL-DASH-008",
+    "VAL-DASH-012",
+    "VAL-DASH-014",
+    "VAL-DASH-015",
+    "VAL-DASH-016"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [
+    { "id": "VAL-DASH-002", "blockedBy": "Activity feed empty - no items to click" },
+    { "id": "VAL-DASH-009", "blockedBy": "Google authentication required for write access" },
+    { "id": "VAL-DASH-010", "blockedBy": "Google authentication required for write access" },
+    { "id": "VAL-DASH-011", "blockedBy": "Google authentication required for write access" },
+    { "id": "VAL-DASH-013", "blockedBy": "Requires empty pipeline sheet fixture" },
+    { "id": "VAL-DASH-017", "blockedBy": "Onboarding panel blocks job card access" },
+    { "id": "VAL-DASH-018", "blockedBy": "Google authentication required for write access" },
+    { "id": "VAL-DRAFTS-001", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-002", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-003", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-004", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-005", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-006", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-007", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-008", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-009", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-010", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-011", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-012", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-013", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-014", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-015", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-016", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-DRAFTS-017", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-CROSS-007", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-CROSS-008", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-CROSS-009", "blockedBy": "Onboarding flow completion required" },
+    { "id": "VAL-CROSS-010", "blockedBy": "Onboarding flow completion required" }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added flow validator guidance sections for dashboard-browser-board-brief, dashboard-browser-drawer-crm, onboarding-profile-browser, and draft-generation-browser surfaces",
+      "source": "setup"
+    }
+  ],
+  "previousRound": null,
+  "notes": "Dashboard board/brief assertions (read-only) pass successfully. Drawer open/close works in signed-out mode. Write-access and draft assertions are blocked by: (1) Google authentication required for CRM write operations, (2) Onboarding flow blocks access to draft features until completed. Recommendations for next round: (1) Set up authenticated browser session via cookie import or live sign-in, (2) Complete onboarding flow or use profile seed data, (3) Create empty sheet fixture for VAL-DASH-013."
+}
