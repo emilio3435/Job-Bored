@@ -33,6 +33,19 @@ Environment variables, external dependencies, and setup notes for this mission.
 - Real ATS validation is expected to use the configured provider and may incur external API usage.
 - If a worker determines that a failure is caused by missing or expired user credentials rather than code, return to orchestrator instead of patching around it.
 
+## Validation sheet bootstrap for frontend-decomposition
+
+When frontend-decomposition workers need representative pipeline data (for Daily Brief, board lanes, card rendering), use the validation bootstrap assets:
+
+- `evidence/seed-pipeline-data.json` — 8 seed rows spanning all workflow stages (New, Researching, Applied, Phone Screen, Interviewing, Rejected, Passed) with realistic Scale AI / Figma / Notion entries. Sheet ID: `1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ`.
+- `scripts/apply-validation-bootstrap.mjs` — Node script that verifies the seed data and prints browser application instructions.
+
+Workers apply the bootstrap by either:
+1. Setting `localStorage.setItem('command_center_config_overrides', JSON.stringify({ sheetId: '1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ' }))` in the browser console and reloading, or
+2. Using the `setup-browser-cookies` skill to import an authenticated Google session for private-sheet access.
+
+The `discovery-local-bootstrap.json` already points `sheetId` at this same disposable sheet. Frontend-decomposition browser assertions (VAL-DASH-001 through VAL-DASH-018) require populated board/brief data; this bootstrap ensures they don't fall back to setup-only state.
+
 ## Safety constraints
 
 - Never print or commit access tokens, API keys, service-account JSON, or full secret-bearing config values.
