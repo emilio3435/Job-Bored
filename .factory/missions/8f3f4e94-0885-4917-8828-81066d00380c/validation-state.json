@@ -1,0 +1,79 @@
+{
+  "assertions": {
+    "VAL-API-001": {
+      "status": "failed",
+      "validatedAtMilestone": "ultraplan-control-plane",
+      "reason": "BLOCKED: API does not expose ultraPlanTuning/groundedSearchTuning resolved values in /runs/{runId} status. Cannot verify browser_only uplift defaults were applied. Routing behavior (grounded_web ran with multi-query) confirms some agentic defaults are active, but explicit field-level config evidence is unavailable via API.",
+      "blockingIssue": "API surface gap: resolved tuning config not exposed in status response"
+    },
+    "VAL-API-002": {
+      "status": "failed",
+      "validatedAtMilestone": "ultraplan-control-plane",
+      "reason": "BLOCKED: Cannot verify explicit overrides were preserved because status response does not expose ultraPlanTuning values. Requests accepted (202) but no way to confirm values were applied vs. coerced.",
+      "blockingIssue": "API surface gap: resolved tuning config not exposed in status response"
+    },
+    "VAL-API-003": {
+      "status": "failed",
+      "validatedAtMilestone": "ultraplan-control-plane",
+      "reason": "BLOCKED: Cannot verify isolated flag effects because status response does not expose ultraPlanTuning values. Requests accepted but no config evidence available to confirm flags were set independently.",
+      "blockingIssue": "API surface gap: resolved tuning config not exposed in status response"
+    },
+    "VAL-API-004": {
+      "status": "failed",
+      "validatedAtMilestone": "ultraplan-control-plane",
+      "reason": "FAIL: Malformed ultraPlanTuning payloads (non-boolean string 'not-a-boolean', number 123, unknown keys) are silently accepted with HTTP 202 and runIds created. Should return 400 with explicit field-level errors. Validation logic in parseWebhookRequest() is not being enforced for ultraPlanTuning fields.",
+      "blockingIssue": "Validation not enforced: non-boolean and unknown ultraPlanTuning fields accepted instead of rejected"
+    },
+    "VAL-API-005": {
+      "status": "failed",
+      "validatedAtMilestone": "ultraplan-control-plane",
+      "reason": "BLOCKED: Cannot verify preset isolation because status response does not expose groundedSearchTuning values. Routing behavior is correct (ats_only excludes grounded_web), but tuning value evidence (legacy vs. browser_only uplift) is unavailable.",
+      "blockingIssue": "API surface gap: resolved tuning config not exposed in status response"
+    },
+    "VAL-ROUTE-012": {
+      "status": "pending"
+    },
+    "VAL-ROUTE-013": {
+      "status": "pending"
+    },
+    "VAL-ROUTE-014": {
+      "status": "pending"
+    },
+    "VAL-ROUTE-015": {
+      "status": "pending"
+    },
+    "VAL-ROUTE-016": {
+      "status": "pending"
+    },
+    "VAL-ROUTE-017": {
+      "status": "pending"
+    },
+    "VAL-OBS-001": {
+      "status": "pending"
+    },
+    "VAL-OBS-002": {
+      "status": "pending"
+    },
+    "VAL-OBS-003": {
+      "status": "pending"
+    },
+    "VAL-DATA-001": {
+      "status": "pending"
+    },
+    "VAL-DATA-002": {
+      "status": "pending"
+    },
+    "VAL-DATA-003": {
+      "status": "pending"
+    },
+    "VAL-CROSS-001": {
+      "status": "pending"
+    },
+    "VAL-CROSS-002": {
+      "status": "pending"
+    },
+    "VAL-CROSS-003": {
+      "status": "pending"
+    }
+  }
+}

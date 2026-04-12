@@ -1,0 +1,122 @@
+{
+  "milestone": "ultraplan-control-plane",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 21,
+    "tested": 5,
+    "passed": 0,
+    "failed": 5,
+    "blocked": 0,
+    "notTested": 16
+  },
+  "testedAssertions": ["VAL-API-001", "VAL-API-002", "VAL-API-003", "VAL-API-004", "VAL-API-005"],
+  "passedAssertions": [],
+  "failedAssertions": [
+    {
+      "id": "VAL-API-001",
+      "reason": "BLOCKED: API does not expose ultraPlanTuning/groundedSearchTuning resolved values in /runs/{runId} status. Cannot verify browser_only uplift defaults were applied. Routing behavior confirms some agentic defaults are active (grounded_web ran with multi-query), but explicit field-level config evidence is unavailable.",
+      "blockingIssue": "API surface gap: resolved tuning config not exposed in status response"
+    },
+    {
+      "id": "VAL-API-002",
+      "reason": "BLOCKED: Cannot verify explicit overrides were preserved because status response does not expose ultraPlanTuning values. Requests accepted (202) but no way to confirm values were applied vs. coerced.",
+      "blockingIssue": "API surface gap: resolved tuning config not exposed in status response"
+    },
+    {
+      "id": "VAL-API-003",
+      "reason": "BLOCKED: Cannot verify isolated flag effects because status response does not expose ultraPlanTuning values. Requests accepted but no config evidence available to confirm flags were set independently.",
+      "blockingIssue": "API surface gap: resolved tuning config not exposed in status response"
+    },
+    {
+      "id": "VAL-API-004",
+      "reason": "FAIL: Malformed ultraPlanTuning payloads (non-boolean string 'not-a-boolean', number 123, unknown keys) are silently accepted with HTTP 202 and runIds created. Should return 400 with explicit field-level errors. Validation logic in parseWebhookRequest() exists but is NOT enforced for ultraPlanTuning fields.",
+      "blockingIssue": "Validation not enforced: non-boolean and unknown ultraPlanTuning fields accepted instead of rejected"
+    },
+    {
+      "id": "VAL-API-005",
+      "reason": "BLOCKED: Cannot verify preset isolation because status response does not expose groundedSearchTuning values. Routing behavior is correct (ats_only excludes grounded_web), but tuning value evidence (legacy vs. browser_only uplift) is unavailable.",
+      "blockingIssue": "API surface gap: resolved tuning config not exposed in status response"
+    }
+  ],
+  "notTestedAssertions": [
+    {
+      "id": "VAL-ROUTE-012",
+      "reason": "Belongs to milestone 'ultraplan-search-core' which is not yet completed. Implementation feature 'ultraplan-query-fanout-and-retry-ladder-core' is pending."
+    },
+    {
+      "id": "VAL-ROUTE-013",
+      "reason": "Belongs to milestone 'ultraplan-search-core' which is not yet completed."
+    },
+    {
+      "id": "VAL-ROUTE-014",
+      "reason": "Belongs to milestone 'ultraplan-search-core' which is not yet completed."
+    },
+    {
+      "id": "VAL-ROUTE-015",
+      "reason": "Belongs to milestone 'ultraplan-runtime-scale' which is not yet completed. Implementation feature 'ultraplan-bounded-parallel-company-processing-isolation' is pending."
+    },
+    {
+      "id": "VAL-ROUTE-016",
+      "reason": "Belongs to milestone 'ultraplan-runtime-scale' which is not yet completed."
+    },
+    {
+      "id": "VAL-ROUTE-017",
+      "reason": "Belongs to milestone 'ultraplan-search-core' which is not yet completed."
+    },
+    {
+      "id": "VAL-OBS-001",
+      "reason": "Belongs to milestone 'ultraplan-search-core' which is not yet completed. Implementation feature 'ultraplan-extraction-fallback-and-zero-result-diagnostics' is pending."
+    },
+    {
+      "id": "VAL-OBS-002",
+      "reason": "Belongs to milestone 'ultraplan-runtime-scale' which is not yet completed. Implementation feature 'ultraplan-budget-adaptation-diagnostics' is pending."
+    },
+    {
+      "id": "VAL-OBS-003",
+      "reason": "Belongs to milestone 'ultraplan-search-core' which is not yet completed."
+    },
+    {
+      "id": "VAL-DATA-001",
+      "reason": "Belongs to milestone 'ultraplan-search-core' which is not yet completed. Implementation feature 'ultraplan-regex-recovery-denylist-and-employer-ranking' is pending."
+    },
+    {
+      "id": "VAL-DATA-002",
+      "reason": "Belongs to milestone 'ultraplan-search-core' which is not yet completed."
+    },
+    {
+      "id": "VAL-DATA-003",
+      "reason": "Belongs to milestone 'ultraplan-search-core' which is not yet completed."
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "reason": "Belongs to milestone 'ultraplan-runtime-scale' which is not yet completed. Implementation feature 'ultraplan-cross-area-rollback-matrix-and-async-lineage' is pending."
+    },
+    {
+      "id": "VAL-CROSS-002",
+      "reason": "Belongs to milestone 'ultraplan-search-core' which is not yet completed."
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "reason": "Belongs to milestone 'ultraplan-runtime-scale' which is not yet completed."
+    }
+  ],
+  "appliedUpdates": [],
+  "systemicIssues": [
+    {
+      "severity": "blocking",
+      "description": "API does not expose resolved tuning configuration (ultraPlanTuning, groundedSearchTuning) in /runs/{runId} status response",
+      "impact": "VAL-API-001, VAL-API-002, VAL-API-003, VAL-API-005 cannot be verified without explicit resolved-config evidence",
+      "suggestedFix": "Add ultraPlanTuning and groundedSearchTuning (or a resolvedConfig object) to the /runs/{runId} status response payload so validators and consumers can verify what config was actually applied"
+    },
+    {
+      "severity": "blocking",
+      "description": "Malformed ultraPlanTuning fields are silently accepted instead of returning 400",
+      "impact": "VAL-API-004 fails: non-boolean values (string 'not-a-boolean', number 123) and unknown flag keys are accepted with 202 and runIds created",
+      "suggestedFix": "Enforce the validation logic already present in parseWebhookRequest() for ultraPlanTuning fields at runtime, or add explicit type-checking and unknown-key rejection"
+    }
+  ],
+  "previousRound": null,
+  "evidenceDir": "/Users/emilionunezgarcia/Job-Bored/.factory/missions/8f3f4e94-0885-4917-8828-81066d00380c/evidence/ultraplan-control-plane/val-api-control-plane/",
+  "flowReport": "/Users/emilionunezgarcia/Job-Bored/.factory/validation/ultraplan-control-plane/user-testing/flows/val-api-control-plane.json"
+}
