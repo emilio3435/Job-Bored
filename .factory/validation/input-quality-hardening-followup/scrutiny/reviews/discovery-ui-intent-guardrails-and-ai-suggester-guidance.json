@@ -1,0 +1,44 @@
+{
+  "featureId": "discovery-ui-intent-guardrails-and-ai-suggester-guidance",
+  "reviewedAt": "2026-04-12T09:15:00.000Z",
+  "commitId": "d4184f07254a10b1141d1f71fba8ad91da8d8fd0",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Implementation fully covers feature description with two-layer guardrail approach. Primary guardrail in initDiscoveryPrefsModal run button handler blocks at UI level with toast guidance and tab switch. Defense-in-depth guardrail in triggerDiscoveryRun validates payload before webhook emission. Both layers correctly check trimmed values and return early without webhook dispatch.",
+    "issues": [
+      {
+        "file": "app.js",
+        "line": 17029,
+        "severity": "non_blocking",
+        "description": "No automated tests added for UI-only guardrail behavior. Worker documented this limitation in handoff: 'No new automated tests added since this is a UI-only guardrail requiring DOM interaction.' Manual browser verification was performed instead. This is acceptable given the UI-only nature but represents test coverage gap."
+      },
+      {
+        "file": "app.js",
+        "line": 17039,
+        "severity": "non_blocking",
+        "description": "switchTab('ai') call could silently fail if switchTab function is not defined, but user would still see toast guidance and run would be blocked. Not blocking since the primary guardrail (run blocking + toast) works regardless."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The feature follows AGENTS.md guidance: 'Run gating must block when both targetRoles and keywordsInclude are empty, and UI must direct users to AI Suggester guidance.' Implementation matches this exactly.",
+      "evidence": "initDiscoveryPrefsModal guardrail checks both fields, shows toast with AI Suggester guidance, switches tab, and blocks run. No deviation from documented guidance."
+    },
+    {
+      "area": "conventions",
+      "observation": "The feature also aligns with library/contracts.md: 'Minimum required discovery intent for run dispatch/acceptance: at least one non-empty value in discoveryProfile.targetRoles or discoveryProfile.keywordsInclude.' The defense-in-depth guardrail in triggerDiscoveryRun enforces this at the webhook payload level.",
+      "evidence": "Both guardrails enforce the same blank-check logic, creating consistent behavior between UI and API layers."
+    },
+    {
+      "area": "skills",
+      "observation": "Skill (discovery-frontend-worker) procedure step 3 says 'Add or update failing tests first (red) for the changed behavior.' Worker did not add automated tests, justified as UI-only limitation. The skill does acknowledge: 'If no practical automated seam exists for a UI-only change, document that limitation explicitly in handoff.' Worker properly documented this in handoff.",
+      "evidence": "Handoff shows 'No new automated tests added since this is a UI-only guardrail requiring DOM interaction. Manual browser verification confirms...' This follows skill's alternative guidance for UI-only changes."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Feature implementation is correct and complete. Two-layer guardrail (UI-level in initDiscoveryPrefsModal + defense-in-depth in triggerDiscoveryRun) correctly blocks blank-intent runs, surfaces actionable AI Suggester guidance via toast message, and prevents webhook emission. Implementation matches feature description, fulfills VAL-UI-STATUS-008, and follows documented project conventions. No automated tests added for UI-only change, but limitation was documented per skill guidance. Manual browser verification confirms expected behavior."
+}

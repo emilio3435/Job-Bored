@@ -1,0 +1,15 @@
+{
+  "featureId": "grounded-html-quality-and-multisignal-dedupe",
+  "reviewedAt": "2026-04-12T09:22:00.000Z",
+  "commitId": "55c3570",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Implementation fully satisfies the feature description and expected behavior. NAVIGATION_TITLE_DENYLIST correctly rejects 40+ junk navigation phrases with exact and prefix matching. Both dedupe functions (dedupeRawListings and dedupeNormalizedLeads) correctly use normalized (title, company) identity as primary key instead of URL-only, collapsing semantic duplicates across alternate URLs.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Feature implementation is correct and complete. The NAVIGATION_TITLE_DENYLIST in isLikelyJobTitle() rejects 40+ junk navigation phrases including exact matches and prefix matches (e.g., 'read more about' is rejected via 'read more' prefix). Both dedupe functions correctly use (title, company) identity key for multi-signal deduplication instead of URL-only. Tests cover VAL-DATA-006 (junk title rejection) and VAL-DATA-007 (multi-signal dedupe) with adequate cases. All 304 tests pass with clean typecheck and lint."
+}
