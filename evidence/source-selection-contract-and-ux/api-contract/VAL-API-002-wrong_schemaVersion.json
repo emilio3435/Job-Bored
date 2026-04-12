@@ -1,0 +1,7 @@
+{
+  "response": {
+    "ok": false,
+    "message": "schemaVersion must be 1."
+  },
+  "http_status": 400
+}

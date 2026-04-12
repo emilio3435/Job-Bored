@@ -1,0 +1,7 @@
+{
+  "response": {
+    "ok": false,
+    "message": "requestedAt must be a valid ISO timestamp."
+  },
+  "http_status": 400
+}
