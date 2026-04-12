@@ -45,6 +45,10 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - Non-execution evidence is structured and measurable (stage-level detect/list invocation counters or equivalent skip telemetry).
 - In unrestricted mode, discovery is not pinned to preconfigured company targets and must preserve truthful source attribution under all presets.
 - In unrestricted grounded execution, query/prompt composition must prioritize explicit intent modifiers (role, keywords, location, remote/seniority) rather than company-name terms.
+- UltraPlan adds a query-planning + retry model for grounded lanes:
+  - decompose modifier intent into focused sub-queries (capped by config)
+  - apply deterministic broadening ladder only when a focused query returns zero candidates
+  - merge candidates with dedupe + ranking before page visits
 
 ### 5) Run status + observability surface
 - `/health` reports readiness causes (browser runtime, Gemini, Sheets credentials).
@@ -52,6 +56,11 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - Logs correlate readiness warnings to run-level outcomes.
 - Hard preflight failures (credential/runtime blockers) fail closed before enqueue.
 - Lifecycle progression remains traceable from ack -> pending/running -> terminal and recoverable after refresh/reopen.
+- UltraPlan adds structured diagnostics with stable codes + context fields for:
+  - zero-result attribution
+  - fetch fallback / low-content extraction attribution
+  - budget-driven reduction/skip decisions
+  - retry broadening rung usage
 
 ### 6) Google Sheets writer
 - Persists accepted leads as append/update mutations.
@@ -62,14 +71,20 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - Write failures are phase-attributed (append path vs update path) via `SheetWriteError` custom error class with `phase`, `httpStatus`, `detail`, and `sheetId` fields.
 - On write failure, counters are zeroed (appended: 0, updated: 0) even if partial writes succeeded; the `writeError` field provides failure details.
 
+### 7) Run budget + concurrency controller
+- Run budget is tracked at discovery-run scope and shared across company processing.
+- Budget controller adaptively reduces per-company page traversal as time depletes and can skip late companies with explicit diagnostics.
+- Company execution can run in bounded parallel mode (config-capped concurrency) with failure isolation, so one company failure does not terminate the entire run.
+
 ## End-to-end flow
 
 1. User selects preset in browser UI.
 2. Browser posts webhook request with source preset + run metadata.
 3. Worker validates/authenticates request and resolves effective config.
-4. Router executes only allowed lane families.
-5. Worker writes results to sheet and updates run status until terminal.
-6. UI surfaces terminal run outcome for the same runId.
+4. Router executes only allowed lane families; grounded lane plans focused sub-queries and applies retry broadening when needed.
+5. Budget + concurrency controller governs company traversal depth and parallelism.
+6. Worker writes results to sheet and updates run status until terminal.
+7. UI surfaces terminal run outcome for the same runId.
 
 ## Invariants
 
@@ -79,6 +94,9 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - Empty company config does not imply run rejection; unrestricted execution remains valid when intent and credentials are present.
 - Valid unrestricted intent should not be treated as a missing-company degraded state when grounded execution can proceed from modifiers.
 - ATS is optional; it is never implicitly forced in `browser_only`.
+- Multi-query fan-out, retry broadening, and parallel company processing are independently flag-gated so behavior can be rolled back selectively.
+- Structured diagnostics are machine-readable and stable while warning-string compatibility is preserved for existing consumers.
+- Browser-only agentic tuning defaults apply when omitted but never override explicit user-provided values.
 - Async acceptance is never treated as terminal success.
 - Failures (auth, readiness, source, write path) are explicit and attributable.
 - Every terminal run is traceable by a stable runId from UI -> API -> status -> sheet evidence.
