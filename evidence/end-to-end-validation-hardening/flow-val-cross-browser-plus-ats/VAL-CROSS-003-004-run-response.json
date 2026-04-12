@@ -1,0 +1,96 @@
+{
+  "runId": "run_96720e78010441be8eb64df1818e2a0d",
+  "status": "partial",
+  "terminal": true,
+  "message": "Discovery completed with warnings — worker processed the run.",
+  "trigger": "manual",
+  "request": {
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "discoveryProfile": {
+      "sourcePreset": "browser_plus_ats"
+    },
+    "variationKey": "**********************",
+    "requestedAt": "2026-04-12T02:00:00Z"
+  },
+  "acceptedAt": "2026-04-12T07:44:43.830Z",
+  "startedAt": "2026-04-12T07:44:43.831Z",
+  "completedAt": "2026-04-12T07:49:42.377Z",
+  "lifecycle": {
+    "runId": "run_96720e78010441be8eb64df1818e2a0d",
+    "trigger": "manual",
+    "startedAt": "2026-04-12T07:44:43.831Z",
+    "completedAt": "2026-04-12T07:49:42.377Z",
+    "state": "partial",
+    "companyCount": 3,
+    "detectionCount": 6,
+    "listingCount": 496,
+    "normalizedLeadCount": 13
+  },
+  "writeResult": {
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "appended": 0,
+    "updated": 13,
+    "skippedDuplicates": 0,
+    "warnings": []
+  },
+  "warnings": [
+    "Truncated leads to maxLeadsPerRun=20.",
+    "Grounded search returned no usable candidate links.",
+    "Grounded search returned no usable candidate links."
+  ],
+  "sources": [
+    {
+      "sourceId": "greenhouse",
+      "querySummary": "https://boards.greenhouse.io/scaleai | https://boards.greenhouse.io/figma | https://boards.greenhouse.io/notion",
+      "pagesVisited": 3,
+      "leadsSeen": 330,
+      "leadsAccepted": 186,
+      "leadsRejected": 144,
+      "warnings": [],
+      "rejectionSummary": {
+        "totalRejected": 144,
+        "rejectionReasons": {
+          "location_mismatch": 71,
+          "excluded_keyword": 56,
+          "remote_policy_mismatch": 17
+        }
+      }
+    },
+    {
+      "sourceId": "ashby",
+      "querySummary": "https://jobs.ashbyhq.com/scale-ai | https://jobs.ashbyhq.com/figma | https://jobs.ashbyhq.com/notion",
+      "pagesVisited": 3,
+      "leadsSeen": 157,
+      "leadsAccepted": 3,
+      "leadsRejected": 154,
+      "warnings": [],
+      "rejectionSummary": {
+        "totalRejected": 154,
+        "rejectionReasons": {
+          "excluded_keyword": 38,
+          "remote_policy_mismatch": 109,
+          "headline_mismatch": 5,
+          "location_mismatch": 2
+        }
+      }
+    },
+    {
+      "sourceId": "grounded_web",
+      "querySummary": "Scale AI careers | Scale AI jobs remote | ... (many queries)",
+      "pagesVisited": 4,
+      "leadsSeen": 9,
+      "leadsAccepted": 4,
+      "leadsRejected": 5,
+      "warnings": [
+        "Grounded search returned no usable candidate links.",
+        "Grounded search returned no usable candidate links."
+      ],
+      "rejectionSummary": {
+        "totalRejected": 5,
+        "rejectionReasons": {
+          "headline_mismatch": 5
+        }
+      }
+    }
+  ]
+}

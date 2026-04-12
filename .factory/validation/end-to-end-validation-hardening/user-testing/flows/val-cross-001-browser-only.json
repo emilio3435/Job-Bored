@@ -1,0 +1,54 @@
+{
+  "groupId": "VAL-CROSS-001-browser-only",
+  "testedAt": "2026-04-12T07:42:00.000Z",
+  "isolation": {
+    "workerUrl": "http://127.0.0.1:8644",
+    "webhookSecret": "REDACTED",
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ"
+  },
+  "toolsUsed": ["curl"],
+  "assertions": [
+    {
+      "id": "VAL-CROSS-001",
+      "title": "Browser-only preset yields browser-attributed outcomes only",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "POST /webhook with discoveryProfile.sourcePreset: browser_only",
+          "expected": "Run accepted, async ack returned",
+          "observed": "Run accepted, runId: run_2dc0824c1ea34e1ba65290c8fadf1b63"
+        },
+        {
+          "action": "Poll /runs/{runId} until terminal",
+          "expected": "terminal: true within reasonable time",
+          "observed": "Terminal reached after ~42 seconds with status: partial"
+        },
+        {
+          "action": "Verify sources contains ONLY grounded_web",
+          "expected": "sources array contains only sourceId: grounded_web",
+          "observed": "sources array contains grounded_web, greenhouse, ashby - FAIL"
+        },
+        {
+          "action": "Verify grounded_web has skip/exclusion warnings for ATS lanes",
+          "expected": "Warnings indicate ATS sources excluded",
+          "observed": "Warnings correctly show: 'Source greenhouse was excluded by preset browser_only' and 'Source ashby was excluded by preset browser_only'"
+        }
+      ],
+      "evidence": {
+        "terminalStatus": "evidence/end-to-end-validation-hardening/flow-val-cross-browser-only/VAL-CROSS-001-terminal-status.json",
+        "network": "POST /webhook -> 202 accepted; GET /runs/run_2dc0824c1ea34e1ba65290c8fadf1b63 -> 200 terminal"
+      },
+      "issues": "STRICT FAIL: sources array includes ATS sources (greenhouse, ashby) even though they are correctly excluded via warnings. Per cross-area-flows.test.ts lines 430-437, the test asserts 'browser_only sources must only contain grounded_web' and explicitly checks 'browser_only must not have ATS sources in terminal status'. The actual terminal status includes greenhouse and ashby entries with exclusion warnings, violating the strict contract."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "browser_only preset correctly identifies ATS exclusion in warnings but still includes ATS source entries in sources array",
+      "resolved": false,
+      "resolution": "N/A - code behavior vs contract mismatch",
+      "affectedAssertions": ["VAL-CROSS-001"]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested VAL-CROSS-001: browser_only preset correctly emits exclusion warnings for ATS lanes (greenhouse, ashby), but the sources array still contains entries for these excluded ATS sources. Per the strict test contract (cross-area-flows.test.ts), sources must contain ONLY grounded_web with no ATS source entries. This is a FAIL against the strict contract."
+}
