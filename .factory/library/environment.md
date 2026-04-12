@@ -33,6 +33,9 @@ Environment variables, external dependencies, and setup notes for this mission.
   - `BROWSER_USE_DISCOVERY_GEMINI_MODEL`
   - `BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_RESULTS_PER_COMPANY`
   - `BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_PAGES_PER_COMPANY`
+- Discovery worker startup sources:
+  - `integrations/browser-use-discovery/.env` (webhook secret + discovery env)
+  - `server/.env` (Gemini fallback via `ATS_GEMINI_API_KEY`)
 
 ## Worker state/config paths
 
