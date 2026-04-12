@@ -10,13 +10,14 @@ Testing surfaces, tools, setup notes, and concurrency guidance for this mission.
 ## Validation Surface
 
 ### 1) Browser discovery UX surface
-- **URL:** `http://127.0.0.1:8080`
+- **URL:** `http://localhost:8080` (use this origin for OAuth flows; avoid `127.0.0.1` for sign-in)
 - **Tool:** `agent-browser`
 - **Covers:** preset controls (`Browser only`, `ATS only`, `Browser+ATS`), persistence, run initiation feedback, async/terminal status transitions, non-silent failures.
 - **Setup notes:**
   - Use a fresh browser session per validator.
   - Capture run-linked evidence (`runId`, `statusPath`) from network + UI.
-  - If auth-gated surfaces are required, use real Google sign-in/cookie import; do not mock.
+  - If auth-gated surfaces are required, use real Google sign-in/cookie import on `localhost`; do not mock.
+  - Preset controls are reachable while logged out via Settings → Discovery and discovery setup modal path.
 
 ### 2) Discovery worker API surface
 - **URL:** `http://127.0.0.1:8644`
