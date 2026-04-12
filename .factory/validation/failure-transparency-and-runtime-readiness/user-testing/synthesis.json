@@ -1,12 +1,12 @@
 {
   "milestone": "failure-transparency-and-runtime-readiness",
-  "round": 1,
-  "status": "fail",
+  "round": 2,
+  "status": "pass",
   "assertionsSummary": {
-    "total": 31,
-    "passed": 15,
-    "failed": 5,
-    "blocked": 11
+    "total": 20,
+    "passed": 20,
+    "failed": 0,
+    "blocked": 0
   },
   "passedAssertions": [
     "VAL-UI-STATUS-001",
@@ -21,82 +21,105 @@
     "VAL-OBS-001",
     "VAL-OBS-002",
     "VAL-OBS-003",
-    "VAL-OBS-004"
+    "VAL-OBS-004",
+    "VAL-OBS-005",
+    "VAL-OBS-006",
+    "VAL-OBS-007",
+    "VAL-OBS-008",
+    "VAL-OBS-009"
   ],
-  "failedAssertions": [
-    {
-      "id": "VAL-OBS-005",
-      "reason": "Requires terminal run states with per-source warnings/errors. browser_only runs do not complete within test window (45+ seconds elapsed, grounded_web stage stalls). Cannot trigger credential failure scenarios with valid service account."
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "reRunDetails": {
+    "reTestedAssertions": ["VAL-OBS-005", "VAL-OBS-006", "VAL-OBS-007", "VAL-OBS-008", "VAL-OBS-009"],
+    "round1Failures": [
+      "VAL-OBS-005: grounded_web stalls with valid Gemini key",
+      "VAL-OBS-006: browser_only run did not terminalize",
+      "VAL-OBS-007: browser_only run did not terminalize",
+      "VAL-OBS-008: browser_only run did not terminalize",
+      "VAL-OBS-009: could not trigger credential preflight failure"
+    ],
+    "resolutionStrategy": "Used ats_only for credential-mode checks; used browser_only with Gemini key intentionally unset for fast degradation; tested preflight failures by manipulating env vars"
+  },
+  "round2Evidence": {
+    "VAL-OBS-005": {
+      "variantA_missingSAFile": {
+        "workerConfig": "BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE=/tmp/nonexistent-sa-file-99999.json",
+        "webhookResponse": {
+          "status": 409,
+          "ok": false,
+          "message": "Discovery worker Google service account file is unreadable.",
+          "detail": "Google service account file does not exist.",
+          "remediation": "Point BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE at a readable service-account JSON file, or use BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON."
+        },
+        "noRunId": true,
+        "logEvent": "discovery.run.preflight_failed with explicit message"
+      },
+      "variantB_malformedSAJson": {
+        "workerConfig": "BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON={\"invalid\":\"not_a_sa\"}",
+        "webhookResponse": {
+          "status": 409,
+          "ok": false,
+          "message": "Discovery worker Google service account JSON is invalid.",
+          "detail": "Service account JSON must include client_email and private_key.",
+          "remediation": "Set BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON to valid service-account JSON, or use BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE."
+        },
+        "noRunId": true
+      },
+      "variantC_sheetNotShared": {
+        "workerConfig": "Valid SA file, targeting sheet 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms (not shared with SA)",
+        "runId": "run_b6b8eb226c6940bbb2bd466b240793e7",
+        "terminalStatus": "failed",
+        "error": "Failed to read Pipeline!A1:T1: HTTP 404 - Requested entity was not found.",
+        "distinctFromPreflight": true
+      },
+      "variantD_hostedMissingSheetId": {
+        "workerConfig": "BROWSER_USE_DISCOVERY_RUN_MODE=hosted",
+        "webhookPayload": "sheetId: ''",
+        "webhookResponse": {
+          "status": 400,
+          "ok": false,
+          "message": "sheetId is required.",
+          "detail": "Hosted worker requests must include sheetId explicitly; local worker config defaults are only accepted in local mode."
+        },
+        "noRunId": true
+      }
     },
-    {
-      "id": "VAL-OBS-006",
-      "reason": "Requires terminal degraded run with source-caused degradation. browser_only run did not terminalize."
+    "VAL-OBS-006": {
+      "description": "Source-caused degradation is explicit",
+      "workerConfig": "browser_only preset, BROWSER_USE_DISCOVERY_GEMINI_API_KEY empty",
+      "runId": "run_2573a36168c04f2faa5615f5ce2f2238",
+      "terminalStatus": "partial",
+      "sources": [
+        {
+          "sourceId": "grounded_web",
+          "warnings": ["Grounded web source is enabled but BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured."]
+        }
+      ]
     },
-    {
-      "id": "VAL-OBS-007",
-      "reason": "Requires terminal degraded run to verify fallback paths emit structured warning/error indicators. browser_only run did not terminalize."
+    "VAL-OBS-007": {
+      "description": "Fallback/degraded execution is never silent",
+      "sameRunAs": "VAL-OBS-006",
+      "evidence": "grounded_web fallback emitted structured warning in sources[].warnings and run-level warnings array"
     },
-    {
-      "id": "VAL-OBS-008",
-      "reason": "Requires terminal run to verify health warnings are causally traceable to run-status. browser_only run did not terminalize."
+    "VAL-OBS-008": {
+      "description": "Health, run status, and logs are causally aligned",
+      "healthSnapshot": {
+        "groundedWebReady": false,
+        "cause": "GEMINI_API_KEY not configured."
+      },
+      "runStatusWarning": "Grounded web source is enabled but BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.",
+      "logEvent": "discovery.run.completed with sourceSummary grounded_web warning matching health cause"
     },
-    {
-      "id": "VAL-OBS-009",
-      "reason": "Requires credential preflight failure scenario (invalid/missing service account). Service account is valid and configured, cannot trigger preflight fail-closed without invalidating credentials."
+    "VAL-OBS-009": {
+      "description": "Credential preflight fail-closed prevents run enqueue",
+      "testedVariants": [
+        "hosted mode missing sheetId: no runId, no statusPath, ok=false",
+        "missing SA file: no runId, no statusPath, ok=false"
+      ],
+      "noRunAcceptedOrEnqueued": true
     }
-  ],
-  "blockedAssertions": [
-    {
-      "id": "VAL-DATA-001",
-      "blockedBy": "sheet-write-integrity-and-phase-attribution feature not completed (status: pending, milestone: end-to-end-validation-hardening)"
-    },
-    {
-      "id": "VAL-DATA-002",
-      "blockedBy": "sheet-write-integrity-and-phase-attribution feature not completed"
-    },
-    {
-      "id": "VAL-DATA-003",
-      "blockedBy": "sheet-write-integrity-and-phase-attribution feature not completed"
-    },
-    {
-      "id": "VAL-DATA-004",
-      "blockedBy": "sheet-write-integrity-and-phase-attribution feature not completed"
-    },
-    {
-      "id": "VAL-DATA-005",
-      "blockedBy": "sheet-write-integrity-and-phase-attribution feature not completed"
-    },
-    {
-      "id": "VAL-CROSS-001",
-      "blockedBy": "cross-area-preset-lineage-and-truthful-terminal-outcomes feature not completed (status: pending, milestone: end-to-end-validation-hardening)"
-    },
-    {
-      "id": "VAL-CROSS-002",
-      "blockedBy": "cross-area-preset-lineage-and-truthful-terminal-outcomes feature not completed"
-    },
-    {
-      "id": "VAL-CROSS-003",
-      "blockedBy": "cross-area-preset-lineage-and-truthful-terminal-outcomes feature not completed"
-    },
-    {
-      "id": "VAL-CROSS-004",
-      "blockedBy": "cross-area-preset-lineage-and-truthful-terminal-outcomes feature not completed"
-    },
-    {
-      "id": "VAL-CROSS-005",
-      "blockedBy": "cross-area-preset-lineage-and-truthful-terminal-outcomes feature not completed"
-    },
-    {
-      "id": "VAL-CROSS-006",
-      "blockedBy": "cross-area-preset-lineage-and-truthful-terminal-outcomes feature not completed"
-    }
-  ],
-  "appliedUpdates": [
-    {
-      "target": "user-testing.md",
-      "description": "Added known friction: grounded_web stage can take 5+ minutes or stall, blocking VAL-OBS-005/006/007/008. VAL-API-004 confirms terminalization works but requires ats_plus_ats or browser_plus_ats with actual job listings. Browser-only discovery runs may not terminalize within reasonable test windows.",
-      "source": "flow-report"
-    }
-  ],
-  "previousRound": null
+  },
+  "appliedUpdates": [],
+  "previousRound": ".factory/validation/failure-transparency-and-runtime-readiness/user-testing/synthesis.json (round 1)"
 }
