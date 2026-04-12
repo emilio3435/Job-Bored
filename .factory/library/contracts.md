@@ -42,6 +42,17 @@ High-level map of shared contracts that must stay aligned for browser-first disc
 - Invalid/contradictory values must return explicit `400` errors.
 - Async acceptance must include `runId`, `statusPath`, and `pollAfterMs`.
 
+#### accepted_async polling metadata field name variants
+
+The `accepted_async` webhook response may use either `statusPath` (camelCase) or `status_path` (snake_case) as the key for the polling endpoint, depending on whether the response traveled through the direct worker path or the relay path. Browser-side polling code must handle both:
+
+```javascript
+// Example from app.js line 5061
+const statusPath = String(result.statusPath || result.status_path || "").trim();
+```
+
+**Why:** The discovery wizard relay (Cloudflare worker) may forward the response with snake_case keys while the direct worker path uses camelCase. Browser-side polling code must be tolerant of both forms.
+
 ### ATS scorecard contract
 - Primary references:
   - `schemas/ats-scorecard-request.v1.schema.json`
