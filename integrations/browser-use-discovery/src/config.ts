@@ -7,10 +7,12 @@ import {
   ATS_SOURCE_IDS,
   DEFAULT_ENABLED_SOURCE_IDS,
   DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+  SOURCE_PRESET_VALUES,
   SUPPORTED_SOURCE_IDS,
   type CompanyTarget,
   type DiscoveryWebhookRequestV1,
   type EffectiveDiscoveryConfig,
+  type SourcePreset,
   type StoredWorkerConfig,
   type SupportedSourceId,
 } from "./contracts.ts";
@@ -251,6 +253,15 @@ export function mergeDiscoveryConfig(
     profile.maxLeadsPerRun,
     stored.maxLeadsPerRun,
   );
+  const requestSourcePreset =
+    profile.sourcePreset &&
+    (SOURCE_PRESET_VALUES as readonly string[]).includes(profile.sourcePreset)
+      ? (profile.sourcePreset as SourcePreset)
+      : undefined;
+  const resolvedSourcePreset = resolveSourcePreset(
+    requestSourcePreset,
+    stored,
+  );
   return {
     ...stored,
     sheetId: cleanString(request.sheetId) || stored.sheetId,
@@ -278,6 +289,7 @@ export function mergeDiscoveryConfig(
       enabled: !!stored.schedule?.enabled,
       cron: cleanString(stored.schedule?.cron) || defaultScheduleCron,
     },
+    sourcePreset: resolvedSourcePreset,
   };
 }
 
@@ -304,6 +316,55 @@ export function normalizeSourceIdList(
     return [...out, "grounded_web"];
   }
   return out;
+}
+
+/**
+ * Resolve the effective source preset using the deterministic fallback truth
+ * table defined by VAL-API-006:
+ *
+ * 1. Request-level preset provided → use it (explicit user intent).
+ * 2. Stored explicit preset exists   → use stored preset.
+ * 3. Only grounded_web enabled       → browser_only.
+ * 4. Only ATS lanes enabled          → ats_only.
+ * 5. All other mixed/legacy states   → browser_plus_ats.
+ */
+export function resolveSourcePreset(
+  requestPreset: SourcePreset | undefined | null,
+  storedConfig: StoredWorkerConfig,
+): SourcePreset {
+  // 1. Request-level preset wins.
+  if (
+    requestPreset &&
+    (SOURCE_PRESET_VALUES as readonly string[]).includes(requestPreset)
+  ) {
+    return requestPreset;
+  }
+
+  // 2. Stored explicit preset.
+  const storedPreset = cleanString(
+    (storedConfig as AnyRecord).discoveryProfile &&
+    typeof ((storedConfig as AnyRecord).discoveryProfile as AnyRecord) ===
+      "object"
+      ? ((storedConfig as AnyRecord).discoveryProfile as AnyRecord).sourcePreset
+      : (storedConfig as AnyRecord).sourcePreset,
+  );
+  if (
+    storedPreset &&
+    (SOURCE_PRESET_VALUES as readonly string[]).includes(storedPreset)
+  ) {
+    return storedPreset as SourcePreset;
+  }
+
+  // 3-5. Infer from enabledSources.
+  const sources = storedConfig.enabledSources || [];
+  const hasGroundedWeb = sources.includes("grounded_web");
+  const hasAts = sources.some((id) =>
+    ATS_SOURCE_IDS.includes(id as (typeof ATS_SOURCE_IDS)[number]),
+  );
+
+  if (hasGroundedWeb && !hasAts) return "browser_only";
+  if (hasAts && !hasGroundedWeb) return "ats_only";
+  return "browser_plus_ats";
 }
 
 function buildDefaultStoredWorkerConfig(
@@ -344,6 +405,12 @@ function normalizeStoredWorkerConfig(
         : null,
   });
   const schedule = isPlainRecord(raw.schedule) ? (raw.schedule as AnyRecord) : {};
+  const rawDiscoveryProfile = isPlainRecord(raw.discoveryProfile)
+    ? (raw.discoveryProfile as AnyRecord)
+    : null;
+  const storedSourcePreset = rawDiscoveryProfile
+    ? cleanString(rawDiscoveryProfile.sourcePreset)
+    : cleanString(raw.sourcePreset);
   return {
     sheetId: cleanString(raw.sheetId) || cleanString(sheetId),
     mode: requestedMode || runMode,
@@ -361,6 +428,14 @@ function normalizeStoredWorkerConfig(
       enabled: parseBoolean(schedule.enabled, false),
       cron: cleanString(schedule.cron) || defaultScheduleCron,
     },
+    ...(storedSourcePreset &&
+    (SOURCE_PRESET_VALUES as readonly string[]).includes(storedSourcePreset)
+      ? {
+          discoveryProfile: {
+            sourcePreset: storedSourcePreset as SourcePreset,
+          },
+        }
+      : {}),
   };
 }
 

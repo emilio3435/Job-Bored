@@ -25,6 +25,11 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
+        "sourcePreset": {
+          "type": "string",
+          "enum": ["browser_only", "ats_only", "browser_plus_ats"],
+          "description": "Canonical source selection preset. When omitted the worker resolves a deterministic fallback from stored config and legacy enabledSources."
+        },
         "targetRoles": { "type": "string" },
         "locations": { "type": "string" },
         "remotePolicy": { "type": "string" },
@@ -33,6 +38,10 @@
         "keywordsExclude": { "type": "string" },
         "maxLeadsPerRun": { "type": "string" }
       }
+    },
+    "googleAccessToken": {
+      "type": "string",
+      "description": "Optional. Google OAuth access token sent by the dashboard for this run only. When present, the worker uses it to call Google Sheets and skips its own service-account/OAuth-token configuration. Stripped from any persisted run record."
     }
   }
 }
