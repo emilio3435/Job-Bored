@@ -1,0 +1,43 @@
+{
+  "milestone": "ultraplan-runtime-scale",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 19,
+    "passed": 19,
+    "failed": 0,
+    "blocked": 0,
+    "pending": 0
+  },
+  "passedAssertions": [
+    "VAL-API-001",
+    "VAL-API-002",
+    "VAL-API-003",
+    "VAL-API-004",
+    "VAL-API-005",
+    "VAL-ROUTE-012",
+    "VAL-ROUTE-013",
+    "VAL-ROUTE-014",
+    "VAL-ROUTE-015",
+    "VAL-ROUTE-016",
+    "VAL-ROUTE-017",
+    "VAL-OBS-001",
+    "VAL-OBS-002",
+    "VAL-OBS-003",
+    "VAL-DATA-001",
+    "VAL-DATA-002",
+    "VAL-DATA-003",
+    "VAL-CROSS-001",
+    "VAL-CROSS-002",
+    "VAL-CROSS-003"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": null,
+  "notes": {
+    "validationApproach": "Unit tests provide primary coverage for all runtime-scale assertions. All 197 tests pass including specific tests for VAL-ROUTE-015 (concurrency cap), VAL-ROUTE-016 (failure isolation), VAL-OBS-002 (budget diagnostics), VAL-CROSS-001 (flag isolation), VAL-CROSS-003 (async lineage). Curl-based API validation confirmed async ack structure and terminal status format.",
+    "curlTestingLimitation": "Discovery worker has no target companies configured (companies: [] in worker-config.json), preventing full end-to-end curl testing of runtime-scale behaviors that require actual company processing. Unit tests mock this behavior and provide deterministic validation.",
+    "asyncLineageVerified": "Manual curl verification confirmed accepted_async ack includes runId, statusPath, pollAfterMs and terminal status shows consistent runId lineage through lifecycle transitions."
+  }
+}

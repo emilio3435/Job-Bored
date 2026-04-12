@@ -31,49 +31,94 @@
       "evidence": "Terminal status for ats_only shows distinct non-uplift defaults, confirming preset isolation."
     },
     "VAL-ROUTE-012": {
-      "status": "pending"
+      "status": "passed",
+      "validatedAtMilestone": "ultraplan-search-core",
+      "reason": "PASS: multi-query fan-out generates multiple focused queries from modifiers, caps at configured multiQueryCap, produces deterministic unique queries for same input. 3 unit tests pass.",
+      "evidence": "grounded-search.test.ts VAL-ROUTE-012 tests"
     },
     "VAL-ROUTE-013": {
-      "status": "pending"
+      "status": "passed",
+      "validatedAtMilestone": "ultraplan-search-core",
+      "reason": "PASS: zero-candidate focused query triggers broadening ladder in correct order, each rung executes at most once per focused query. 2 unit tests pass.",
+      "evidence": "grounded-search.test.ts VAL-ROUTE-013 tests"
     },
     "VAL-ROUTE-014": {
-      "status": "pending"
+      "status": "passed",
+      "validatedAtMilestone": "ultraplan-search-core",
+      "reason": "PASS: first-rung success short-circuits retry ladder, no broader retries for successful first-rung queries. 2 unit tests pass.",
+      "evidence": "grounded-search.test.ts VAL-ROUTE-014 tests"
     },
     "VAL-ROUTE-015": {
-      "status": "pending"
+      "status": "passed",
+      "validatedAtMilestone": "ultraplan-runtime-scale",
+      "reason": "PASS: parallel company processing respects concurrency cap. cap=3 with 5 companies stays within bound, cap=1 forces sequential, cap>=companyCount runs all in parallel. Unit tests verify peak in-flight count never exceeds configured cap.",
+      "evidence": "cross-area-flows.test.ts VAL-ROUTE-015 tests: 'parallel company processing respects concurrency cap (cap=3 with 5 companies)', 'cap=1 forces sequential processing', 'cap>=companyCount runs all in parallel'"
     },
     "VAL-ROUTE-016": {
-      "status": "pending"
+      "status": "passed",
+      "validatedAtMilestone": "ultraplan-runtime-scale",
+      "reason": "PASS: one-company failure does not abort other companies. Company failure emits explicit company-attributed failure evidence in terminal status while successful companies complete. Failure is isolated per-company.",
+      "evidence": "cross-area-flows.test.ts VAL-ROUTE-016 tests: 'one-company failure does not abort other companies', 'company failure emits explicit company-attributed failure evidence'"
     },
     "VAL-ROUTE-017": {
-      "status": "pending"
+      "status": "passed",
+      "validatedAtMilestone": "ultraplan-search-core",
+      "reason": "PASS: all-zero ladder terminates finitely with exhaustion attribution including rung context. 2 unit tests pass.",
+      "evidence": "grounded-search.test.ts VAL-ROUTE-017 tests"
     },
     "VAL-OBS-001": {
-      "status": "pending"
+      "status": "passed",
+      "validatedAtMilestone": "ultraplan-search-core",
+      "reason": "PASS: fetch_fallback and low_content_spa diagnostic codes found with URL attribution and context in run diagnostics. Run df8faeb2b4bb456c83ed4570c0b8a8b8 produced 3 fetch_fallback and 3 low_content_spa entries.",
+      "evidence": "http://127.0.0.1:8644/runs/run_df8faeb2b4bb456c83ed4570c0b8a8b8 diagnostics array"
     },
     "VAL-OBS-002": {
-      "status": "pending"
+      "status": "passed",
+      "validatedAtMilestone": "ultraplan-runtime-scale",
+      "reason": "PASS: budget adaptation emits reduced_page_limit and budget_skip diagnostics when runtime budget is constrained. Unit tests verify budget tracker triggers diagnostics under pressure and company processing emits skip evidence when budget exhausted.",
+      "evidence": "grounded-search.test.ts VAL-OBS-002 tests: 'collectGroundedWebListings emits reduced_page_limit diagnostic when budget tracker indicates budget pressure', 'budget tracker triggers page limit reduction before exhaustion'"
     },
     "VAL-OBS-003": {
-      "status": "pending"
+      "status": "passed",
+      "validatedAtMilestone": "ultraplan-search-core",
+      "reason": "PASS: zero_results diagnostic code with context in diagnostics array paired with corresponding warning string in warnings array. Dual-layer structure confirmed.",
+      "evidence": "run_df8faeb2b4bb456c83ed4570c0b8a8b8 diagnostics and warnings"
     },
     "VAL-DATA-001": {
-      "status": "pending"
+      "status": "passed",
+      "validatedAtMilestone": "ultraplan-search-core",
+      "reason": "PASS: regex fallback recovers URLs from conversational/non-JSON output with explicit warning. Zero-supported case handled explicitly. 3 unit tests pass.",
+      "evidence": "grounded-search.test.ts VAL-DATA-001 tests"
     },
     "VAL-DATA-002": {
-      "status": "pending"
+      "status": "passed",
+      "validatedAtMilestone": "ultraplan-search-core",
+      "reason": "PASS: expanded denylist with subdomain pattern matching enforced across all ingestion paths. 2 unit tests pass.",
+      "evidence": "grounded-search.test.ts VAL-DATA-002 tests"
     },
     "VAL-DATA-003": {
-      "status": "pending"
+      "status": "passed",
+      "validatedAtMilestone": "ultraplan-search-core",
+      "reason": "PASS: bounded 4-point employer-domain bonus prioritizes first-party career pages without overriding stronger non-employer relevance. 3 unit tests pass.",
+      "evidence": "grounded-search.test.ts VAL-DATA-003 tests"
     },
     "VAL-CROSS-001": {
-      "status": "pending"
+      "status": "passed",
+      "validatedAtMilestone": "ultraplan-runtime-scale",
+      "reason": "PASS: flag rollback matrix shows isolated behavior per flag toggle. Disabling multiQueryEnabled produces no multi-query fan-out, disabling retryBroadeningEnabled produces no retry ladder, disabling parallelCompanyProcessingEnabled produces sequential processing. No unintended side effects on sibling flags.",
+      "evidence": "cross-area-flows.test.ts VAL-CROSS-001 tests: 'browser_only preset includes only grounded_web in terminal sources', 'disabling multiQueryEnabled produces isolated routing behavior', 'disabling retryBroadeningEnabled produces isolated routing behavior', 'disabling parallelCompanyProcessingEnabled produces isolated routing behavior', 'disabling all three ultraPlanTuning flags produces conservative baseline behavior'"
     },
     "VAL-CROSS-002": {
-      "status": "pending"
+      "status": "passed",
+      "validatedAtMilestone": "ultraplan-search-core",
+      "reason": "PASS: degraded zero-result path has source attribution (URLs in diagnostics) and dual-layer structure (structured diagnostics + warnings array). No false success.",
+      "evidence": "run_df8faeb2b4bb456c83ed4570c0b8a8b8 diagnostics with URL fields and warnings array"
     },
     "VAL-CROSS-003": {
-      "status": "pending"
+      "status": "passed",
+      "validatedAtMilestone": "ultraplan-runtime-scale",
+      "reason": "PASS: accepted_async ack includes runId, statusPath, and pollAfterMs. Polling status path yields lifecycle progression with consistent runId through terminal state. groundedSearchTuning propagates through terminal status. Async acceptance lineage is consistent from ack to terminal.",
+      "evidence": "cross-area-flows.test.ts VAL-CROSS-003 tests: 'accepted_async ack includes runId, statusPath, and pollAfterMs for terminal polling', 'groundedSearchTuning propagates through terminal status for async lineage verification'. Manual curl verification: run_489132ef8b114abc9496dbcdd53f3b0e showed consistent runId across accepted/running/terminal transitions."
     }
   }
 }
