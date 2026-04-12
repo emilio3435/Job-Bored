@@ -2,7 +2,12 @@ import { URL } from "node:url";
 
 import type { BrowserUseSessionManager } from "../browser/session.ts";
 import type { WorkerRuntimeConfig } from "../config.ts";
-import type { CompanyTarget, DiscoveryRun, RawListing } from "../contracts.ts";
+import type {
+  CompanyTarget,
+  DiscoveryRun,
+  GroundedSearchTuning,
+  RawListing,
+} from "../contracts.ts";
 
 const SEARCH_SYSTEM_PROMPT = [
   "You source current live job postings from the public web.",
@@ -57,6 +62,57 @@ export type GroundedSearchResult = {
   searchQueries: string[];
   candidates: GroundedSearchCandidate[];
   warnings: string[];
+  /**
+   * Detailed query execution evidence for multi-query fan-out and retry ladder.
+   * Each entry represents a single query attempt with its rung attribution.
+   */
+  queryEvidence?: GroundedQueryEvidence[];
+  /**
+   * Diagnostics for the overall search operation.
+   */
+  diagnostics?: GroundedSearchDiagnostics;
+};
+
+export type GroundedQueryRung = 0 | 1 | 2;
+
+/**
+ * Evidence for a single query attempt in the fan-out/retry ladder.
+ */
+export type GroundedQueryEvidence = {
+  /** The query string that was executed. */
+  query: string;
+  /** Which rung this query represents (0=focused, 1=drop location, 2=broaden role/keywords). */
+  rung: GroundedQueryRung;
+  /** The source queries used to build this focused query (for focused rungs). */
+  sourceQueries?: string[];
+  /** Number of candidates returned by this query. */
+  candidateCount: number;
+  /** Whether this query was the final attempt (no more broadening after this). */
+  terminal: boolean;
+};
+
+/**
+ * Structured diagnostics for grounded search operations.
+ */
+export type GroundedSearchDiagnostics = {
+  /** True if multi-query fan-out was enabled and executed. */
+  multiQueryFanOutEnabled: boolean;
+  /** The configured cap for multi-query fan-out. */
+  multiQueryCap: number;
+  /** Total number of focused sub-queries generated. */
+  focusedQueryCount: number;
+  /** True if retry broadening was enabled. */
+  retryBroadeningEnabled: boolean;
+  /** True if any sub-query exhausted all retry rungs without candidates. */
+  ladderExhausted: boolean;
+  /**
+   * Rung attribution for exhausted sub-queries.
+   * Present when ladderExhausted is true.
+   */
+  exhaustedRungs?: Array<{
+    query: string;
+    finalRung: GroundedQueryRung;
+  }>;
 };
 
 export type GroundedSearchClient = {
@@ -74,6 +130,327 @@ export type GroundedWebCollectionResult = {
 type FetchImpl = typeof fetch;
 type AnyRecord = Record<string, unknown>;
 
+/**
+ * Generates deterministic focused sub-queries from modifier intent.
+ * Each sub-query focuses on a specific combination of role + keywords + location.
+ * VAL-ROUTE-012: Focused queries are unique and capped for the same input intent.
+ */
+function generateFocusedSubQueries(run: DiscoveryRun, cap: number): string[] {
+  const config = run.config;
+  const targetRoles = (config.targetRoles || []).map((r) => r.trim()).filter(Boolean);
+  const includeKeywords = (config.includeKeywords || []).map((k) => k.trim()).filter(Boolean);
+  const locations = (config.locations || []).map((l) => l.trim()).filter(Boolean);
+  const remotePolicy = config.remotePolicy?.trim() || "";
+  const seniority = config.seniority?.trim() || "";
+
+  const queries: string[] = [];
+
+  // Generate focused queries covering different modifier combinations
+  // Order: role-focused, keyword-focused, location-focused, broader combinations
+
+  // 1. Role + Seniority + Remote combinations
+  for (const role of targetRoles.slice(0, 2)) {
+    const parts: string[] = [role];
+    if (seniority) parts.push(seniority);
+    if (remotePolicy === "remote") parts.push("remote");
+    if (parts.length > 0) {
+      queries.push(parts.join(" "));
+    }
+  }
+
+  // 2. Role + Location combinations
+  for (const role of targetRoles.slice(0, 2)) {
+    for (const location of locations.slice(0, 2)) {
+      queries.push(`${role} ${location}`);
+    }
+  }
+
+  // 3. Keywords + Location combinations
+  for (const keyword of includeKeywords.slice(0, 2)) {
+    for (const location of locations.slice(0, 2)) {
+      queries.push(`${keyword} ${location}`);
+    }
+  }
+
+  // 4. Role + Keywords combinations (without location)
+  for (const role of targetRoles.slice(0, 2)) {
+    for (const keyword of includeKeywords.slice(0, 2)) {
+      queries.push(`${role} ${keyword}`);
+    }
+  }
+
+  // 5. Keywords only (broader)
+  for (const keyword of includeKeywords.slice(0, 3)) {
+    queries.push(keyword);
+  }
+
+  // Dedupe and cap
+  const unique = [...new Set(queries)].slice(0, Math.max(1, cap));
+  return unique;
+}
+
+/**
+ * Executes a single focused query with optional retry broadening ladder.
+ * VAL-ROUTE-013: Zero-candidate focused queries follow ordered broadening ladder.
+ * VAL-ROUTE-014: First-rung success does not trigger unnecessary broadening retries.
+ * VAL-ROUTE-017: Retry ladder exhaustion terminates finitely with explicit exhaustion attribution.
+ *
+ * Rung order:
+ * - Rung 0 (focused): Original focused query
+ * - Rung 1 (drop location): Remove location constraints
+ * - Rung 2 (broaden): Remove role/keywords constraints, use only core terms
+ */
+async function executeQueryWithRetry(
+  focusedQuery: string,
+  company: CompanyTarget,
+  run: DiscoveryRun,
+  endpoint: string,
+  apiKey: string,
+  retryBroadeningEnabled: boolean,
+  fetchImpl: FetchImpl,
+  maxResultsPerCompany: number,
+): Promise<{
+  candidates: GroundedSearchCandidate[];
+  searchQueries: string[];
+  evidence: GroundedQueryEvidence[];
+  exhausted: boolean;
+}> {
+  const evidence: GroundedQueryEvidence[] = [];
+  const searchQueries: string[] = [];
+  const allCandidates: GroundedSearchCandidate[] = [];
+  let exhausted = false;
+
+  // VAL-ROUTE-013: Build the retry ladder
+  // Rung 0: focused query (original)
+  // Rung 1: drop location
+  // Rung 2: broaden role/keywords
+
+  const ladder = buildRetryLadder(focusedQuery, run);
+
+  // Execute each rung in order
+  for (let i = 0; i < ladder.length; i++) {
+    const { query, rung, terminal } = ladder[i];
+
+    const result = await executeSingleQuery(
+      query,
+      company,
+      run,
+      endpoint,
+      apiKey,
+      fetchImpl,
+      maxResultsPerCompany,
+    );
+
+    searchQueries.push(...result.searchQueries);
+    allCandidates.push(...result.candidates);
+
+    evidence.push({
+      query,
+      rung,
+      sourceQueries: rung === 0 ? [focusedQuery] : undefined,
+      candidateCount: result.candidates.length,
+      terminal,
+    });
+
+    // VAL-ROUTE-014: First-rung success short-circuits the ladder
+    if (result.candidates.length > 0) {
+      // Candidates found, stop retrying
+      break;
+    }
+
+    // VAL-ROUTE-017: If this was the last rung (terminal) and still no candidates, mark exhausted
+    if (terminal) {
+      exhausted = true;
+    }
+  }
+
+  return {
+    candidates: allCandidates,
+    searchQueries,
+    evidence,
+    exhausted,
+  };
+}
+
+/**
+ * Builds the retry ladder for a focused query.
+ * Returns queries for each rung in order.
+ */
+function buildRetryLadder(
+  focusedQuery: string,
+  run: DiscoveryRun,
+): Array<{ query: string; rung: GroundedQueryRung; terminal: boolean }> {
+  const config = run.config;
+  const targetRoles = (config.targetRoles || []).map((r) => r.trim()).filter(Boolean);
+  const includeKeywords = (config.includeKeywords || []).map((k) => k.trim()).filter(Boolean);
+  const locations = (config.locations || []).map((l) => l.trim()).filter(Boolean);
+
+  const ladder: Array<{ query: string; rung: GroundedQueryRung; terminal: boolean }> = [];
+
+  // Rung 0: Focused query (original)
+  ladder.push({
+    query: focusedQuery,
+    rung: 0,
+    terminal: false,
+  });
+
+  // Rung 1: Drop location constraints
+  // Remove location from the query but keep role + keywords
+  if (locations.length > 0) {
+    const parts = focusedQuery.split(/\s+/).filter((part) => {
+      const lower = part.toLowerCase();
+      // Filter out location-like tokens
+      return !locations.some((loc) => lower.includes(loc.toLowerCase()));
+    });
+    if (parts.length > 0 && parts.join(" ").trim() !== focusedQuery) {
+      ladder.push({
+        query: parts.join(" "),
+        rung: 1,
+        terminal: false,
+      });
+    }
+  }
+
+  // Rung 2: Broaden - use core role/keywords only
+  // This is the broadest query, terminal rung
+  const coreTerms: string[] = [];
+  for (const role of targetRoles.slice(0, 1)) {
+    coreTerms.push(role);
+  }
+  for (const keyword of includeKeywords.slice(0, 2)) {
+    coreTerms.push(keyword);
+  }
+  const broadenQuery = coreTerms.join(" ");
+  if (broadenQuery && broadenQuery !== focusedQuery) {
+    ladder.push({
+      query: broadenQuery,
+      rung: 2,
+      terminal: true,
+    });
+  } else {
+    // If broaden query equals focused, mark the last rung as terminal
+    if (ladder.length > 0) {
+      ladder[ladder.length - 1].terminal = true;
+    }
+  }
+
+  return ladder;
+}
+
+/**
+ * Executes a single query against the Gemini API.
+ */
+async function executeSingleQuery(
+  query: string,
+  company: CompanyTarget,
+  run: DiscoveryRun,
+  endpoint: string,
+  apiKey: string,
+  fetchImpl: FetchImpl,
+  maxResultsPerCompany: number,
+): Promise<{
+  candidates: GroundedSearchCandidate[];
+  searchQueries: string[];
+}> {
+  const prompt = buildSearchPromptForQuery(query, company, run, maxResultsPerCompany);
+
+  const response = await fetchImpl(endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [{ text: SEARCH_SYSTEM_PROMPT }],
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: prompt }],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 2048,
+      },
+      tools: [{ google_search: {} }],
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    // On error, return empty results but don't throw (to allow retry ladder to continue)
+    return { candidates: [], searchQueries: [] };
+  }
+
+  const responseText = extractModelText(payload);
+  const groundingMetadata = firstCandidateGroundingMetadata(payload);
+  const searchQueries = uniqueStrings(
+    readStringArray(groundingMetadata?.webSearchQueries),
+  );
+  const explicit = extractGroundedCandidatesFromText(responseText, company);
+  const cited = extractGroundedCandidatesFromMetadata(groundingMetadata, company);
+  const candidates = mergeGroundedCandidates(explicit, cited, company, maxResultsPerCompany);
+
+  return { candidates, searchQueries };
+}
+
+/**
+ * Builds a search prompt for a specific query string.
+ */
+function buildSearchPromptForQuery(
+  query: string,
+  company: CompanyTarget,
+  run: DiscoveryRun,
+  maxResults: number,
+): string {
+  const isUnrestrictedScope = !company.name;
+
+  const lines: string[] = [];
+
+  if (isUnrestrictedScope) {
+    lines.push("Search focus: Modifier-driven intent search (no fixed company target)");
+  } else {
+    lines.push(`Company: ${company.name}`);
+  }
+
+  // Use the pre-composed query directly
+  lines.push(`Query: ${query}`);
+
+  // Add context about the search
+  const config = run.config;
+  lines.push(
+    `Target roles: ${joinOrAny(config.targetRoles)}`,
+    `Include keywords: ${joinOrAny([
+      ...config.includeKeywords,
+      ...(company.includeKeywords || []),
+    ])}`,
+    `Exclude keywords: ${joinOrAny([
+      ...config.excludeKeywords,
+      ...(company.excludeKeywords || []),
+    ])}`,
+    `Locations: ${joinOrAny(config.locations)}`,
+    `Remote policy: ${config.remotePolicy || "any"}`,
+    `Seniority: ${config.seniority || "any"}`,
+    `Return at most ${Math.max(1, maxResults)} candidate links.`,
+    "Mix direct employer job pages with expandable careers/listings pages when useful.",
+  );
+
+  return lines.join("\n");
+}
+
+/**
+ * Deduplicates candidates across multiple query executions.
+ */
+function deduplicateCandidates(
+  candidates: GroundedSearchCandidate[],
+  company: CompanyTarget,
+  limit: number,
+): GroundedSearchCandidate[] {
+  return mergeGroundedCandidates(candidates, [], company, limit);
+}
+
 export function createGroundedSearchClient(
   runtimeConfig: WorkerRuntimeConfig,
   dependencies: { fetchImpl?: FetchImpl } = {},
@@ -87,70 +464,163 @@ export function createGroundedSearchClient(
       }
 
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || "gemini-2.5-flash")}:generateContent`;
-      const response = await fetchImpl(endpoint, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{ text: SEARCH_SYSTEM_PROMPT }],
-          },
-          contents: [
-            {
-              role: "user",
-              parts: [
-                {
-                  text: buildSearchPrompt(
-                    company,
-                    run,
-                    runtimeConfig.groundedSearchMaxResultsPerCompany,
-                  ),
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 2048,
-          },
-          tools: [{ google_search: {} }],
-        }),
-      });
+      const tuning = run.config.groundedSearchTuning;
+      const ultraPlanTuning = run.config.ultraPlanTuning;
+      const multiQueryEnabled = ultraPlanTuning?.multiQueryEnabled ?? false;
+      const retryBroadeningEnabled = ultraPlanTuning?.retryBroadeningEnabled ?? false;
+      const multiQueryCap = tuning?.multiQueryCap ?? (multiQueryEnabled ? 4 : 3);
+      const maxResultsPerCompany = tuning?.maxResultsPerCompany ?? runtimeConfig.groundedSearchMaxResultsPerCompany;
 
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(
-          objectString(payload, "error", "message") ||
-            `Gemini grounded search HTTP ${response.status}`,
+      // VAL-ROUTE-012: Multi-query fan-out from modifiers
+      // When multiQueryEnabled, decompose modifier intent into focused sub-queries
+      const isUnrestrictedScope = !company.name;
+      const focusedQueries: string[] = [];
+
+      if (multiQueryEnabled && isUnrestrictedScope) {
+        // Generate focused sub-queries from modifiers for unrestricted scope
+        const generatedQueries = generateFocusedSubQueries(run, multiQueryCap);
+        focusedQueries.push(...generatedQueries);
+      }
+
+      // If multi-query is disabled or we have a company target, use single broad query (legacy behavior)
+      if (focusedQueries.length === 0) {
+        const response = await fetchImpl(endpoint, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-goog-api-key": apiKey,
+          },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: SEARCH_SYSTEM_PROMPT }],
+            },
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  {
+                    text: buildSearchPrompt(
+                      company,
+                      run,
+                      maxResultsPerCompany,
+                    ),
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.2,
+              maxOutputTokens: 2048,
+            },
+            tools: [{ google_search: {} }],
+          }),
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(
+            objectString(payload, "error", "message") ||
+              `Gemini grounded search HTTP ${response.status}`,
+          );
+        }
+
+        const responseText = extractModelText(payload);
+        const groundingMetadata = firstCandidateGroundingMetadata(payload);
+        const searchQueries = uniqueStrings(
+          readStringArray(groundingMetadata?.webSearchQueries),
+        );
+        const explicit = extractGroundedCandidatesFromText(responseText, company);
+        const cited = extractGroundedCandidatesFromMetadata(
+          groundingMetadata,
+          company,
+        );
+        const candidates = mergeGroundedCandidates(
+          explicit,
+          cited,
+          company,
+          maxResultsPerCompany,
+        );
+
+        return {
+          searchQueries,
+          candidates,
+          warnings:
+            candidates.length > 0
+              ? []
+              : ["Grounded search returned no usable candidate links."],
+        };
+      }
+
+      // VAL-ROUTE-012/013/014/017: Multi-query fan-out with retry ladder
+      // Execute each focused query and apply retry broadening if needed
+      const allCandidates: GroundedSearchCandidate[] = [];
+      const allSearchQueries: string[] = [];
+      const queryEvidence: GroundedQueryEvidence[] = [];
+      const warnings: string[] = [];
+      const exhaustedSubQueries: { query: string; finalRung: GroundedQueryRung }[] = [];
+      let ladderExhausted = false;
+
+      // Execute each focused query
+      for (const focusedQuery of focusedQueries) {
+        const { candidates, searchQueries, evidence, exhausted } = await executeQueryWithRetry(
+          focusedQuery,
+          company,
+          run,
+          endpoint,
+          apiKey,
+          retryBroadeningEnabled,
+          fetchImpl,
+          maxResultsPerCompany,
+        );
+
+        allCandidates.push(...candidates);
+        allSearchQueries.push(...searchQueries);
+        queryEvidence.push(...evidence);
+
+        if (exhausted) {
+          ladderExhausted = true;
+          // Find the last evidence entry for this query to get final rung
+          const lastEvidence = evidence[evidence.length - 1];
+          if (lastEvidence) {
+            exhaustedSubQueries.push({
+              query: focusedQuery,
+              finalRung: lastEvidence.rung,
+            });
+          }
+        }
+      }
+
+      // Dedupe candidates across all queries
+      const uniqueCandidates = deduplicateCandidates(allCandidates, company, maxResultsPerCompany);
+
+      // Build diagnostics
+      const diagnostics: GroundedSearchDiagnostics = {
+        multiQueryFanOutEnabled: multiQueryEnabled,
+        multiQueryCap,
+        focusedQueryCount: focusedQueries.length,
+        retryBroadeningEnabled,
+        ladderExhausted,
+        ...(ladderExhausted && exhaustedSubQueries.length > 0
+          ? { exhaustedRungs: exhaustedSubQueries }
+          : {}),
+      };
+
+      // Add warnings if no candidates found or ladder exhausted
+      if (uniqueCandidates.length === 0) {
+        warnings.push("Grounded search returned no usable candidate links.");
+      }
+      if (ladderExhausted && uniqueCandidates.length === 0) {
+        warnings.push(
+          `Query ladder exhausted: all ${focusedQueries.length} focused sub-queries returned zero candidates after retry broadening.`,
         );
       }
 
-      const responseText = extractModelText(payload);
-      const groundingMetadata = firstCandidateGroundingMetadata(payload);
-      const searchQueries = uniqueStrings(
-        readStringArray(groundingMetadata?.webSearchQueries),
-      );
-      const explicit = extractGroundedCandidatesFromText(responseText, company);
-      const cited = extractGroundedCandidatesFromMetadata(
-        groundingMetadata,
-        company,
-      );
-      const candidates = mergeGroundedCandidates(
-        explicit,
-        cited,
-        company,
-        runtimeConfig.groundedSearchMaxResultsPerCompany,
-      );
-
       return {
-        searchQueries,
-        candidates,
-        warnings:
-          candidates.length > 0
-            ? []
-            : ["Grounded search returned no usable candidate links."],
+        searchQueries: uniqueStrings(allSearchQueries),
+        candidates: uniqueCandidates,
+        warnings,
+        queryEvidence,
+        diagnostics,
       };
     },
   };
