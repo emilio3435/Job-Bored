@@ -1,32 +1,48 @@
 {
   "milestone": "unrestricted-company-scope-followup",
-  "round": 1,
-  "status": "fail",
+  "round": 2,
+  "status": "pass",
   "assertionsSummary": {
     "total": 5,
-    "passed": 2,
-    "failed": 3,
+    "passed": 5,
+    "failed": 0,
     "blocked": 0
   },
   "passedAssertions": [
     "VAL-API-010",
-    "VAL-API-011"
+    "VAL-API-011",
+    "VAL-ROUTE-007",
+    "VAL-ROUTE-008",
+    "VAL-ROUTE-009"
   ],
-  "failedAssertions": [
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [
     {
-      "id": "VAL-ROUTE-007",
-      "reason": "browser_only runs with empty company scope execute grounded_web but inject legacy fixed-company defaults (Scale AI, Figma, Notion) into search queries, violating unrestricted company scope requirement"
-    },
-    {
-      "id": "VAL-ROUTE-008",
-      "reason": "ats_only runs with empty company scope execute ATS lanes but target specific company boards (scaleai, figma, notion) rather than unrestricted company-agnostic discovery"
-    },
-    {
-      "id": "VAL-ROUTE-009",
-      "reason": "browser_plus_ats runs with empty company scope execute both lane families but grounded_web uses legacy fixed-company defaults and ATS boards are pinned to legacy companies"
+      "target": "services.yaml",
+      "description": "Worker was running old code (started at 05:57, fix committed at 06:25). Restarted worker to load latest unrestricted company scope fix (commit 2a0c722).",
+      "source": "setup"
     }
   ],
-  "blockedAssertions": [],
-  "appliedUpdates": [],
-  "previousRound": null
+  "previousRound": ".factory/validation/unrestricted-company-scope-followup/user-testing/synthesis.json",
+  "reValidationNotes": {
+    "reason": "Round 1 failed due to worker running old code without the unrestricted company scope fix. After restart with updated code, all three routing assertions pass.",
+    "VAL-ROUTE-007": {
+      "runId": "run_afcf19ff713e41d28411ae9d493af236",
+      "finding": "browser_only with empty companies executes grounded_web using 'Target careers' placeholder - NO legacy Scale AI/Figma/Notion company injection"
+    },
+    "VAL-ROUTE-008": {
+      "runId": "run_baccee6016834ed9b52fdbcb225813b1",
+      "finding": "ats_only with empty companies accepted; ATS lanes emit truthful 'no boards detected' warnings without legacy company board URLs"
+    },
+    "VAL-ROUTE-009": {
+      "runId": "run_946ffed1a23a4a02bfd5adfc6ed04702",
+      "finding": "browser_plus_ats executes both lane families with truthful attribution; grounded_web uses 'Target careers' placeholder, ATS lanes emit 'no boards detected' warnings"
+    }
+  },
+  "evidenceFiles": [
+    "evidence/unrestricted-company-scope-followup/VAL-ROUTE-007-terminal.json",
+    "evidence/unrestricted-company-scope-followup/VAL-ROUTE-008-terminal.json",
+    "evidence/unrestricted-company-scope-followup/VAL-ROUTE-009-terminal.json"
+  ]
 }

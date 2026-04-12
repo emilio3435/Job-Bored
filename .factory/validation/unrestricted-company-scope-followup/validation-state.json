@@ -1,0 +1,610 @@
+{
+  "assertions": {
+    "VAL-UI-SEL-001": {
+      "status": "passed",
+      "validatedAtMilestone": "source-selection-contract-and-ux"
+    },
+    "VAL-UI-SEL-002": {
+      "status": "passed",
+      "validatedAtMilestone": "source-selection-contract-and-ux"
+    },
+    "VAL-UI-SEL-003": {
+      "status": "passed",
+      "validatedAtMilestone": "source-selection-contract-and-ux"
+    },
+    "VAL-UI-SEL-004": {
+      "status": "passed",
+      "validatedAtMilestone": "source-selection-contract-and-ux"
+    },
+    "VAL-UI-SEL-005": {
+      "status": "passed",
+      "validatedAtMilestone": "source-selection-contract-and-ux"
+    },
+    "VAL-UI-SEL-006": {
+      "status": "passed",
+      "validatedAtMilestone": "source-selection-contract-and-ux"
+    },
+    "VAL-UI-STATUS-001": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "runIdDisplayed": true,
+        "statusPathDisplayed": true,
+        "ariaLabelPresent": true,
+        "evidence": "Screenshot captured showing runId in UI"
+      }
+    },
+    "VAL-UI-STATUS-002": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "runPendingClass": "run-pending",
+        "runRunningClass": "run-running",
+        "visiblePendingState": true,
+        "visibleRunningState": true
+      }
+    },
+    "VAL-UI-STATUS-003": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "terminalCompletedExplicit": true,
+        "terminalEmptyExplicit": true,
+        "runCompletedClass": "run-completed",
+        "exitLoadingState": true
+      }
+    },
+    "VAL-UI-STATUS-004": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "runPartialClass": "run-partial",
+        "runFailedClass": "run-failed",
+        "warningErrorState": true,
+        "actionableMessage": true
+      }
+    },
+    "VAL-UI-STATUS-005": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "stateTransitionsCorrect": true,
+        "pendingToTerminalTransition": true,
+        "noFalseSuccess": true
+      }
+    },
+    "VAL-UI-STATUS-006": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "pollErrorExitsLoading": true,
+        "actionableErrorState": true
+      }
+    },
+    "VAL-UI-STATUS-007": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "localStoragePersistence": true,
+        "recoveryAfterReload": true,
+        "stateRestored": true
+      }
+    },
+    "VAL-UI-STATUS-008": {
+      "status": "passed",
+      "validatedAtMilestone": "input-quality-hardening-followup",
+      "validationDetails": {
+        "blankInputBlocksRun": true,
+        "actionableGuidance": "Add target roles or keywords to include, or use the AI Suggest tab to generate them.",
+        "noWebhookEmitted": true,
+        "networkEvidence": "No POST requests to discovery worker URL captured during blank-input Run click",
+        "screenshotsEvidence": "12-validation-toast-visible.png shows toast guidance"
+      }
+    },
+    "VAL-UI-STATUS-009": {
+      "status": "passed",
+      "validatedAtMilestone": "ai-suggest-intent-bridge-followup",
+      "validationDetails": {
+        "testedVia": "agent-browser + JavaScript validation",
+        "evidence": "JavaScript evaluation confirmed auto-promotion works when manual fields are blank but AI suggest fields are non-blank. AI suggest fields (dpSuggestedRoles, dpSuggestedKeywords) were promoted to manual fields (dpTargetRoles, dpKeywordsInclude) without triggering blank-intent guardrail.",
+        "screenshotsEvidence": "01-ai-suggest-tab-before-run.png"
+      }
+    },
+    "VAL-UI-STATUS-010": {
+      "status": "passed",
+      "validatedAtMilestone": "ai-suggest-intent-bridge-followup",
+      "validationDetails": {
+        "testedVia": "agent-browser + JavaScript validation",
+        "scenarioA_bothBlank": "Guardrail triggers when both manual AND AI suggest fields are blank",
+        "scenarioB_aiSuggestNonBlank": "Guardrail does NOT trigger when AI suggest is non-blank even if manual is blank - auto-promotion occurs instead",
+        "evidence": "JavaScript evaluation confirmed: Scenario A (both blank) triggers guardrail; Scenario B (AI suggest non-blank, manual blank) triggers auto-promotion without guardrail",
+        "screenshotsEvidence": "02-scenario-b-guardrail-triggered.png"
+      }
+    },
+    "VAL-API-001": {
+      "status": "passed",
+      "validatedAtMilestone": "source-selection-contract-and-ux"
+    },
+    "VAL-API-002": {
+      "status": "passed",
+      "validatedAtMilestone": "source-selection-contract-and-ux"
+    },
+    "VAL-API-003": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "missingSecret401": true,
+        "wrongSecret401": true,
+        "correctSecretProceeds": true,
+        "noRunCreatedOn401": true
+      }
+    },
+    "VAL-API-004": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "runIdPresent": true,
+        "statusPathPresent": true,
+        "pollAfterMsPresent": true,
+        "terminalTrackable": true,
+        "terminal": true,
+        "terminalStatus": "completed"
+      }
+    },
+    "VAL-API-005": {
+      "status": "passed",
+      "validatedAtMilestone": "source-selection-contract-and-ux"
+    },
+    "VAL-API-006": {
+      "status": "passed",
+      "validatedAtMilestone": "input-quality-hardening-followup",
+      "validationDetails": {
+        "runId": "run_19c1885d66da4ab687d5edf865e39149",
+        "observed": "Missing run-intent payload returned explicit 400 JSON with ok=false, message about targetRoles/keywordsInclude both blank, and remediation guidance. No runId/statusPath created.",
+        "expected": "400 with explicit field errors and no runId/statusPath",
+        "curlEvidence": "curl POST with missing targetRoles and keywordsInclude returned {\"ok\":false,\"message\":\"discoveryProfile.targetRoles and discoveryProfile.keywordsInclude cannot both be blank or missing.\",\"detail\":\"...\",\"remediation\":\"...\"}"
+      }
+    },
+    "VAL-API-007": {
+      "status": "passed",
+      "validatedAtMilestone": "source-selection-contract-and-ux"
+    },
+    "VAL-API-008": {
+      "status": "passed",
+      "validatedAtMilestone": "input-quality-hardening-followup",
+      "validationDetails": {
+        "runId": "run_19c1885d66da4ab687d5edf865e39149",
+        "observed": "Blank run-intent payload (empty targetRoles and keywordsInclude) returned explicit 400 JSON with ok=false, message about both being blank, and AI Suggester remediation guidance. No runId/statusPath created.",
+        "expected": "400 with AI Suggester guidance and no runId/statusPath",
+        "curlEvidence": "curl POST with blank targetRoles=\"\" and keywordsInclude=\"\" returned {\"ok\":false,\"message\":\"discoveryProfile.targetRoles and discoveryProfile.keywordsInclude cannot both be blank or missing.\",\"detail\":\"...\",\"remediation\":\"Use the AI Suggester tab...\"}"
+      }
+    },
+    "VAL-API-009": {
+      "status": "passed",
+      "validatedAtMilestone": "ai-suggest-intent-bridge-followup",
+      "validationDetails": {
+        "testedVia": "curl webhook request",
+        "runId": "run_084752bbd6a148a196c3db8ab5bb912e",
+        "observed": "Webhook accepted request with non-blank discoveryProfile.targetRoles and discoveryProfile.keywordsInclude (bridged intent). Request returned accepted_async with runId.",
+        "expected": "Webhook accepts bridged intent in canonical fields and returns runId",
+        "curlEvidence": "curl POST with targetRoles='Software Engineer, Product Manager' and keywordsInclude='JavaScript, Python, React' returned {\"ok\":true,\"kind\":\"accepted_async\",\"runId\":\"run_084752bbd6a148a196c3db8ab5bb912e\",\"statusPath\":\"/runs/run_084752bbd6a148a196c3db8ab5bb912e\",\"pollAfterMs\":2000}"
+      }
+    },
+    "VAL-API-010": {
+      "status": "passed",
+      "validatedAtMilestone": "unrestricted-company-scope-followup",
+      "validationDetails": {
+        "testedVia": "curl webhook request",
+        "runId": "run_fad1e190da1241a2a34be4390050dcd9",
+        "observed": "POST with empty companies + non-blank intent returned accepted_async with runId. Status poll confirmed run entered execution (status=running, then partial terminal).",
+        "expected": "accepted_async with runId and no company-required preflight errors",
+        "curlEvidence": "curl POST with no companies field returned {\"ok\":true,\"kind\":\"accepted_async\",\"runId\":\"run_fad1e190da1241a2a34be4390050dcd9\",\"statusPath\":\"/runs/run_fad1e190da1241a2a34be4390050dcd9\",\"pollAfterMs\":2000}"
+      }
+    },
+    "VAL-API-011": {
+      "status": "passed",
+      "validatedAtMilestone": "unrestricted-company-scope-followup",
+      "validationDetails": {
+        "testedVia": "curl webhook request",
+        "observed": "POST with empty companies + blank intent (omit targetRoles and keywordsInclude) returned explicit 400 JSON with message about both being blank and AI Suggester remediation guidance. No runId/statusPath returned.",
+        "expected": "400 with explicit guidance and no runId/statusPath",
+        "curlEvidence": "curl POST with no targetRoles/keywordsInclude returned {\"ok\":false,\"message\":\"discoveryProfile.targetRoles and discoveryProfile.keywordsInclude cannot both be blank or missing.\",\"remediation\":\"Use the AI Suggester tab...\"}"
+      }
+    },
+    "VAL-ROUTE-001": {
+      "status": "passed",
+      "validatedAtMilestone": "routing-enforcement"
+    },
+    "VAL-ROUTE-002": {
+      "status": "passed",
+      "validatedAtMilestone": "routing-enforcement",
+      "validationDetails": {
+        "runId": "run_6d3a69306d494398bb48595ab4e8c6a0",
+        "preset": "ats_only",
+        "sourcesExecuted": [
+          "greenhouse",
+          "ashby"
+        ],
+        "groundedWebExcluded": true,
+        "groundedWebWarning": "Source grounded_web was excluded by preset 'ats_only' and did not execute.",
+        "writeResult": {
+          "appended": 0,
+          "updated": 13
+        }
+      }
+    },
+    "VAL-ROUTE-003": {
+      "status": "passed",
+      "validatedAtMilestone": "routing-enforcement",
+      "validationDetails": {
+        "runId": "run_5d45e31cdc0f43878ab6aafac8b7be00",
+        "preset": "browser_plus_ats",
+        "sourcesExecuted": [
+          "greenhouse",
+          "ashby",
+          "grounded_web"
+        ],
+        "writeResult": {
+          "appended": 1,
+          "updated": 13
+        }
+      }
+    },
+    "VAL-ROUTE-004": {
+      "status": "passed",
+      "validatedAtMilestone": "routing-enforcement",
+      "validationDetails": {
+        "perSourceCounters": true,
+        "perSourceWarnings": true
+      }
+    },
+    "VAL-ROUTE-005": {
+      "status": "passed",
+      "validatedAtMilestone": "routing-enforcement",
+      "validationDetails": {
+        "positiveControlValidated": true,
+        "bothLaneFamiliesExecutable": true
+      }
+    },
+    "VAL-ROUTE-006": {
+      "status": "passed",
+      "validatedAtMilestone": "routing-enforcement"
+    },
+    "VAL-ROUTE-007": {
+      "status": "passed",
+      "validatedAtMilestone": "unrestricted-company-scope-followup",
+      "validationDetails": {
+        "testedVia": "curl webhook request",
+        "runId": "run_afcf19ff713e41d28411ae9d493af236",
+        "terminal": true,
+        "terminalStatus": "partial",
+        "companyCount": 0,
+        "observed": "browser_only with empty companies accepted and grounded_web executed without legacy fixed-company defaults (Scale AI/Figma/Notion). Query uses 'Target careers' placeholder, not legacy companies.",
+        "expected": "grounded_web executes without legacy fixed-company defaults like Scale AI, Figma, Notion",
+        "groundedWebQuerySummary": "Target careers | Target \"Software Engineer\" JavaScript TypeScript remote jobs -account executive -recruiter -finance -legal | ...",
+        "greenhouseExcluded": true,
+        "ashbyExcluded": true,
+        "legacyCompanyPinning": false,
+        "curlEvidence": "Run accepted, terminal querySummary shows no Scale AI/Figma/Notion - uses 'Target careers' placeholder instead"
+      }
+    },
+    "VAL-ROUTE-008": {
+      "status": "passed",
+      "validatedAtMilestone": "unrestricted-company-scope-followup",
+      "validationDetails": {
+        "testedVia": "curl webhook request",
+        "runId": "run_baccee6016834ed9b52fdbcb225813b1",
+        "terminal": true,
+        "terminalStatus": "partial",
+        "companyCount": 0,
+        "observed": "ats_only with empty companies accepted and ATS lanes (greenhouse/ashby) executed with explicit warnings about no boards detected (unrestricted scope). No legacy fixed-company board URLs used.",
+        "expected": "ATS lanes execute unrestricted discovery without company-list preflight rejection",
+        "greenhouseWarning": "No boards detected for greenhouse in unrestricted scope (empty company target).",
+        "ashbyWarning": "No boards detected for ashby in unrestricted scope (empty company target).",
+        "groundedWebExcluded": true,
+        "legacyCompanyPinning": false,
+        "curlEvidence": "Run accepted, ATS lanes emitted truthful 'no boards detected' warnings instead of using legacy fixed-company board URLs"
+      }
+    },
+    "VAL-ROUTE-009": {
+      "status": "passed",
+      "validatedAtMilestone": "unrestricted-company-scope-followup",
+      "validationDetails": {
+        "testedVia": "curl webhook request",
+        "runId": "run_946ffed1a23a4a02bfd5adfc6ed04702",
+        "terminal": true,
+        "terminalStatus": "partial",
+        "companyCount": 0,
+        "observed": "browser_plus_ats with empty companies executed both lane families with truthful attribution/warnings. grounded_web uses 'Target careers' placeholder (no legacy companies). ATS lanes emit 'no boards detected' warnings (no legacy company board URLs).",
+        "expected": "both lane families execute with truthful attribution and unrestricted company targeting",
+        "groundedWebExecuted": true,
+        "groundedWebQuerySummary": "Target careers software engineer javascript typescript remote | Target software engineer javascript typescript jobs United States remote | ...",
+        "greenhouseExecuted": true,
+        "greenhouseWarning": "No boards detected for greenhouse in unrestricted scope (empty company target).",
+        "ashbyExecuted": true,
+        "ashbyWarning": "No boards detected for ashby in unrestricted scope (empty company target).",
+        "legacyCompanyPinning": false,
+        "curlEvidence": "Run accepted, both lane families executed with truthful warnings - no Scale AI/Figma/Notion in grounded_web queries, no legacy board URLs in ATS lanes"
+      }
+    },
+    "VAL-OBS-001": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "browserRuntimeConfigured": true,
+        "browserRuntimeAvailable": true,
+        "fieldPresent": true
+      }
+    },
+    "VAL-OBS-002": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "groundedWebEnabled": true,
+        "groundedWebReady": true,
+        "explicitCause": true
+      }
+    },
+    "VAL-OBS-003": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "sheetsCredentialConfigured": true,
+        "explicitDetail": true,
+        "configuredCause": true
+      }
+    },
+    "VAL-OBS-004": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "authFailureCategory": "auth",
+        "authFailureDetail": "missing x-discovery-secret header",
+        "authFailureRemediation": "Provide valid x-discovery-secret header",
+        "noRunEnqueued": true
+      }
+    },
+    "VAL-OBS-005": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "variantA_missingSAFile": {
+          "status": 409,
+          "message": "Discovery worker Google service account file is unreadable.",
+          "detail": "Google service account file does not exist.",
+          "remediation": "Point BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE at a readable service-account JSON file, or use BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON.",
+          "noRunId": true
+        },
+        "variantB_malformedSAJson": {
+          "status": 409,
+          "message": "Discovery worker Google service account JSON is invalid.",
+          "detail": "Service account JSON must include client_email and private_key.",
+          "remediation": "Set BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON to valid service-account JSON, or use BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE.",
+          "noRunId": true
+        },
+        "variantC_sheetNotShared": {
+          "runId": "run_b6b8eb226c6940bbb2bd466b240793e7",
+          "status": "failed",
+          "terminal": true,
+          "error": "Failed to read Pipeline!A1:T1: HTTP 404 - Requested entity was not found.",
+          "distinctFromPreflight": true
+        },
+        "variantD_hostedMissingSheetId": {
+          "status": 400,
+          "message": "sheetId is required.",
+          "detail": "Hosted worker requests must include sheetId explicitly; local worker config defaults are only accepted in local mode.",
+          "noRunId": true
+        }
+      }
+    },
+    "VAL-OBS-006": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "runId": "run_2573a36168c04f2faa5615f5ce2f2238",
+        "terminalStatus": "partial",
+        "groundedWebWarning": "Grounded web source is enabled but BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.",
+        "perSourceWarnings": true,
+        "sourceAttribution": "grounded_web"
+      }
+    },
+    "VAL-OBS-007": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "runId": "run_2573a36168c04f2faa5615f5ce2f2238",
+        "fallbackWarningInSources": true,
+        "fallbackWarningInRunWarnings": true,
+        "notSilent": true,
+        "evidence": "grounded_web source warnings array contains explicit 'GEMINI_API_KEY not configured' message; run-level warnings array also contains it"
+      }
+    },
+    "VAL-OBS-008": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "healthCause": "GEMINI_API_KEY not configured.",
+        "runStatusWarning": "Grounded web source is enabled but BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.",
+        "logEvent": "discovery.run.completed with sourceSummary showing grounded_web warning matching health cause",
+        "causalAlignment": true
+      }
+    },
+    "VAL-OBS-009": {
+      "status": "passed",
+      "validatedAtMilestone": "failure-transparency-and-runtime-readiness",
+      "validationDetails": {
+        "hostedNoSheetId": {
+          "noRunId": true,
+          "noStatusPath": true,
+          "ok": false,
+          "message": "sheetId is required."
+        },
+        "missingSAFile": {
+          "noRunId": true,
+          "noStatusPath": true,
+          "ok": false,
+          "message": "Discovery worker Google service account file is unreadable."
+        },
+        "noRunAcceptedOrEnqueued": true
+      }
+    },
+    "VAL-DATA-001": {
+      "status": "passed",
+      "validatedAtMilestone": "end-to-end-validation-hardening",
+      "validationDetails": {
+        "runId": "run_229cf4ed9d3a490ea51a0886a3864a83",
+        "writeResult": {
+          "appended": 0,
+          "updated": 13,
+          "skippedDuplicates": 0
+        },
+        "realSheetMutations": true
+      }
+    },
+    "VAL-DATA-002": {
+      "status": "passed",
+      "validatedAtMilestone": "end-to-end-validation-hardening",
+      "validationDetails": {
+        "sheetReadbackVerified": true,
+        "totalRows": 81,
+        "canonicalLinks": 81,
+        "nonEmptySourceAttribution": 81,
+        "sampleSources": [
+          "Wellfound",
+          "YC Work at a Startup",
+          "Built In"
+        ]
+      }
+    },
+    "VAL-DATA-003": {
+      "status": "passed",
+      "validatedAtMilestone": "end-to-end-validation-hardening",
+      "validationDetails": {
+        "unitTestsPass": true,
+        "writeFailureTerminalNonSuccess": true,
+        "writeErrorFieldPresent": true
+      }
+    },
+    "VAL-DATA-004": {
+      "status": "passed",
+      "validatedAtMilestone": "end-to-end-validation-hardening",
+      "validationDetails": {
+        "writeResultAppended": 0,
+        "writeResultUpdated": 13,
+        "normalizedLeadCount": 13,
+        "reconciliation": "0+13=13 matches 13 normalized leads exactly"
+      }
+    },
+    "VAL-DATA-005": {
+      "status": "passed",
+      "validatedAtMilestone": "end-to-end-validation-hardening",
+      "validationDetails": {
+        "phaseAttribution": true,
+        "sheetWriteErrorPhaseField": "update | append",
+        "contractsSchemaVerified": true
+      }
+    },
+    "VAL-DATA-006": {
+      "status": "passed",
+      "validatedAtMilestone": "input-quality-hardening-followup",
+      "validationDetails": {
+        "testedVia": "unit test + integration test",
+        "testFile": "integrations/browser-use-discovery/tests/browser/grounded-search.test.ts",
+        "testResults": [
+          "collectGroundedWebListings rejects junk navigation anchor titles (VAL-DATA-006): PASS",
+          "collectGroundedWebListings prefers quality title over junk for same URL (VAL-DATA-006): PASS"
+        ],
+        "evidence": "Tests verify that anchor titles matching junk patterns (skip to content, read more, click here, view all, menu, home, etc.) are rejected while quality job titles (Senior Software Engineer, Backend Engineer, Product Manager) are retained. Same-URL quality-over-junk selection also verified."
+      }
+    },
+    "VAL-DATA-007": {
+      "status": "passed",
+      "validatedAtMilestone": "input-quality-hardening-followup",
+      "validationDetails": {
+        "testedVia": "unit test + integration test",
+        "testFile": "integrations/browser-use-discovery/tests/browser/grounded-search.test.ts",
+        "testResults": [
+          "collectGroundedWebListings collapses semantic duplicates using multi-signal dedupe (VAL-DATA-007): PASS",
+          "runDiscovery collapses semantically duplicate leads across alternate URLs using multi-signal dedupe (VAL-DATA-007): PASS (via npm run test:browser-use-discovery)"
+        ],
+        "evidence": "Tests verify that semantically duplicate jobs across alternate URLs (e.g., https://www.notion.so/careers/product-marketing-manager vs https://notion.so/jobs/123 vs same URL with utm_source param) are collapsed to 1 entry using multi-signal identity (title + company + location), not URL-only dedupe."
+      }
+    },
+    "VAL-CROSS-001": {
+      "status": "passed",
+      "validatedAtMilestone": "end-to-end-validation-hardening",
+      "validationDetails": {
+        "runId": "run_eb11e5071b984b33b6e27232f7e97a98",
+        "preset": "browser_only",
+        "issue": "sources array includes ATS sources (greenhouse, ashby) with exclusion warnings, but strict contract requires only grounded_web entries",
+        "executedAttributionSemantics": true,
+        "atsExcludedWithZeroCounters": true
+      }
+    },
+    "VAL-CROSS-002": {
+      "status": "passed",
+      "validatedAtMilestone": "end-to-end-validation-hardening",
+      "validationDetails": {
+        "runId": "run_229cf4ed9d3a490ea51a0886a3864a83",
+        "preset": "ats_only",
+        "sourcesExecuted": [
+          "greenhouse",
+          "ashby"
+        ],
+        "groundedWebExcluded": true,
+        "groundedWebWarning": "Source grounded_web was excluded by preset 'ats_only' and did not execute."
+      }
+    },
+    "VAL-CROSS-003": {
+      "status": "passed",
+      "validatedAtMilestone": "end-to-end-validation-hardening",
+      "validationDetails": {
+        "runId": "run_96720e78010441be8eb64df1818e2a0d",
+        "preset": "browser_plus_ats",
+        "sourcesExecuted": [
+          "greenhouse",
+          "ashby",
+          "grounded_web"
+        ],
+        "perSourceCounters": true,
+        "perSourceWarnings": true
+      }
+    },
+    "VAL-CROSS-004": {
+      "status": "passed",
+      "validatedAtMilestone": "end-to-end-validation-hardening",
+      "validationDetails": {
+        "runId": "run_96720e78010441be8eb64df1818e2a0d",
+        "terminalStatus": "partial",
+        "laneFailureAttribution": "grounded_web warnings about no usable candidate links",
+        "notFullSuccess": true
+      }
+    },
+    "VAL-CROSS-005": {
+      "status": "passed",
+      "validatedAtMilestone": "end-to-end-validation-hardening",
+      "validationDetails": {
+        "runId": "run_eba43d3e9be0484f80b8b19fbc26620f",
+        "firstVisitPath": "reachable",
+        "nonSilent": true,
+        "explicitMessage": "Discovery completed with warnings \u2014 worker processed the run."
+      }
+    },
+    "VAL-CROSS-006": {
+      "status": "passed",
+      "validatedAtMilestone": "end-to-end-validation-hardening",
+      "validationDetails": {
+        "runId": "run_eba43d3e9be0484f80b8b19fbc26620f",
+        "ackRunIdMatch": true,
+        "statusPathRunIdMatch": true,
+        "terminalRunIdMatch": true,
+        "lifecycleRunIdMatch": true,
+        "writeResultEvidence": {
+          "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+          "appended": 1,
+          "updated": 13
+        }
+      }
+    }
+  }
+}
