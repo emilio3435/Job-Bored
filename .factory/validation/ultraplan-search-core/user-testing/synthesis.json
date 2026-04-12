@@ -1,0 +1,27 @@
+{
+  "milestone": "ultraplan-search-core",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 11,
+    "passed": 11,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-ROUTE-012",
+    "VAL-ROUTE-013",
+    "VAL-ROUTE-014",
+    "VAL-ROUTE-017",
+    "VAL-OBS-001",
+    "VAL-OBS-003",
+    "VAL-DATA-001",
+    "VAL-DATA-002",
+    "VAL-DATA-003",
+    "VAL-CROSS-002"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": null
+}
