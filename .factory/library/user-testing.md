@@ -70,6 +70,24 @@ Dry-run baseline (2026-04-11): 18 logical CPUs, 48 GiB RAM, heavy discovery exec
 
 ---
 
+## Known Issues and Fixes (Troubleshooting)
+
+### Grounded-web stage stalls during browser-only validation runs
+- **Problem:** browser_only discovery runs do not terminalize within reasonable test windows (observed: 45+ seconds elapsed, grounded_web stage still running, not completing)
+- **Symptom:** VAL-OBS-005/006/007/008 require terminal degraded runs but grounded_web lane stalls indefinitely
+- **Workaround:** Use `ats_only` preset for faster terminalization (2-3 minutes). VAL-API-004 confirmed terminalization works correctly when data is available. browser_only path should be tested with production data or longer test windows.
+- **Related:** The 5-minute `maxRunDurationMs` safety timer (commit 7dd4c45) will force terminalization but that's too long for interactive validation.
+
+### Browser-only discovery runs may not terminalize within reasonable test windows
+- The grounded_web stage with Gemini can take 5+ minutes or not complete when no jobs are found
+- For interactive validation, prefer `ats_only` preset which terminalizes in 2-3 minutes
+- VAL-API-004 (async ack trackability) was confirmed working with `ats_only` preset
+
+### renderDiscoveryRunStatus() not auto-called on page load
+- The discovery run status rendering is not automatically called on page load
+- After reload/reopen, call `renderDiscoveryRunStatus()` manually from browser console to recover UI state
+- Related to VAL-UI-STATUS-007 validation
+
 ## Credential Baseline for Routing/User-Testing (2026-04-12)
 
 - Discovery worker is started with:
