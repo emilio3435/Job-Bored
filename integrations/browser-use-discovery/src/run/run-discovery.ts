@@ -32,6 +32,13 @@ import {
 } from "../match/job-matcher.ts";
 import type { PipelineWriter } from "../sheets/pipeline-writer.ts";
 
+// Default maximum run duration: 5 minutes
+const DEFAULT_MAX_RUN_DURATION_MS = 5 * 60 * 1000;
+// Default per-source (adapter) timeout: 60 seconds
+const DEFAULT_SOURCE_TIMEOUT_MS = 60 * 1000;
+// Default per-matcher timeout: 30 seconds
+const DEFAULT_MATCHER_TIMEOUT_MS = 30 * 1000;
+
 export type RunDiscoveryDependencies = {
   runtimeConfig: WorkerRuntimeConfig;
   sourceAdapterRegistry: SourceAdapterRegistry;
@@ -48,6 +55,9 @@ export type RunDiscoveryDependencies = {
   ): ResolvedRunSettings;
   now(): Date;
   randomId(prefix: string): string;
+  maxRunDurationMs?: number;
+  sourceTimeoutMs?: number;
+  matcherTimeoutMs?: number;
 };
 
 export type RunDiscoveryResult = {
@@ -60,6 +70,49 @@ export type RunDiscoveryResult = {
 };
 
 type RejectionSummary = DiscoveryRejectionSummary;
+
+/**
+ * Timeout error with attribution context for terminalization evidence.
+ */
+export class TimeoutError extends Error {
+  readonly operation: string;
+  readonly sourceId: string;
+  readonly timeoutMs: number;
+
+  constructor(operation: string, sourceId: string, timeoutMs: number) {
+    super(`Timeout of ${timeoutMs}ms exceeded during ${operation} for ${sourceId}`);
+    this.name = "TimeoutError";
+    this.operation = operation;
+    this.sourceId = sourceId;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/**
+ * Wraps a promise with a timeout. If the timeout fires first, the returned
+ * promise rejects with a TimeoutError that carries attribution context.
+ */
+function withTimeout<T>(
+  operation: string,
+  sourceId: string,
+  timeoutMs: number,
+  promise: Promise<T>,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new TimeoutError(operation, sourceId, timeoutMs));
+    }, timeoutMs);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
 
 export async function runDiscovery(
   request: DiscoveryWebhookRequestV1,
@@ -110,12 +163,45 @@ export async function runDiscovery(
     aiMatchCallsUsed: 0,
   };
 
+  // Stage progress tracking for routing assertions evidence
+  const stageProgress = {
+    detectStarted: false,
+    detectCompleted: false,
+    listStarted: false,
+    listCompleted: false,
+    groundedStarted: false,
+    groundedCompleted: false,
+  };
+
+  // Use configured timeouts or defaults
+  const sourceTimeoutMs = dependencies.sourceTimeoutMs ?? DEFAULT_SOURCE_TIMEOUT_MS;
+  const matcherTimeoutMs = dependencies.matcherTimeoutMs ?? DEFAULT_MATCHER_TIMEOUT_MS;
+
   for (const company of config.companies) {
     try {
-      const detections = await dependencies.sourceAdapterRegistry.detectBoards(
-        { company, run },
-        config.effectiveSources,
-      );
+      stageProgress.detectStarted = true;
+      const detections = await withTimeout(
+        "board_detection",
+        "ats_sources",
+        sourceTimeoutMs,
+        dependencies.sourceAdapterRegistry.detectBoards(
+          { company, run },
+          config.effectiveSources,
+        ),
+      ).catch((error) => {
+        if (error instanceof TimeoutError) {
+          const message = `Board detection timed out after ${error.timeoutMs}ms for ${company.name}: ${error.message}`;
+          warnings.push(message);
+          dependencies.log?.("discovery.run.detect_timeout", {
+            runId,
+            company: company.name,
+            timeoutMs: error.timeoutMs,
+          });
+          return [];
+        }
+        throw error;
+      });
+      stageProgress.detectCompleted = true;
       detectionCount += detections.length;
 
       for (const detection of detections) {
@@ -131,7 +217,27 @@ export async function runDiscovery(
           createExtractionResult(runId, detection.sourceId, boardContext.boardUrl);
 
         try {
-          const rawListings = await adapter.listJobs(boardContext);
+          stageProgress.listStarted = true;
+          const rawListings = await withTimeout(
+            `listing_collection[${detection.sourceId}]`,
+            detection.sourceId,
+            sourceTimeoutMs,
+            adapter.listJobs(boardContext),
+          ).catch((error) => {
+            if (error instanceof TimeoutError) {
+              const message = `Listing collection timed out for ${detection.sourceId} after ${error.timeoutMs}ms: ${error.message}`;
+              extractionResult.warnings.push(message);
+              warnings.push(message);
+              dependencies.log?.("discovery.run.list_timeout", {
+                runId,
+                sourceId: detection.sourceId,
+                timeoutMs: error.timeoutMs,
+              });
+              return [];
+            }
+            throw error;
+          });
+          stageProgress.listCompleted = true;
           listingCount += rawListings.length;
           extractionResult.querySummary = uniqueJoin([
             extractionResult.querySummary,
@@ -144,6 +250,7 @@ export async function runDiscovery(
             const normalized = await normalizeRawListing(rawListing, run, {
               dependencies,
               matchingState,
+              matcherTimeoutMs,
             });
             if (normalized.matchUsedAi) {
               matchingState.aiMatchCallsUsed += 1;
@@ -179,12 +286,30 @@ export async function runDiscovery(
   }
 
   if (config.effectiveSources.includes("grounded_web")) {
+    stageProgress.groundedStarted = true;
     const groundedResult = await runGroundedWebDiscovery(
       run,
       dependencies,
       rejectionSummaryBySource,
       matchingState,
-    );
+      { sourceTimeoutMs, matcherTimeoutMs },
+    ).catch((error) => {
+      if (error instanceof TimeoutError) {
+        const message = `Grounded web discovery timed out after ${error.timeoutMs}ms: ${error.message}`;
+        warnings.push(message);
+        dependencies.log?.("discovery.run.grounded_timeout", {
+          runId,
+          timeoutMs: error.timeoutMs,
+        });
+        return {
+          extractionResult: createExtractionResult(run.runId, "grounded_web", ""),
+          normalizedLeads: [],
+          listingCount: 0,
+        };
+      }
+      throw error;
+    });
+    stageProgress.groundedCompleted = true;
     listingCount += groundedResult.listingCount;
     if (groundedResult.extractionResult) {
       extractionResultsBySource.set(
@@ -313,6 +438,7 @@ function normalizeRawListing(
     matchingState: {
       aiMatchCallsUsed: number;
     };
+    matcherTimeoutMs?: number;
   },
 ): Promise<
   ReturnType<typeof normalizeLeadWithDiagnostics> & {
@@ -328,16 +454,34 @@ function normalizeRawListing(
     return Promise.resolve(finalizeMatchDecision(rawListing, run, baseline, false));
   }
 
-  return input.dependencies.matchClient!
-    .evaluate({
-      rawListing,
-      run,
-      baseline,
-    })
+  const matcherPromise = input.dependencies.matchClient!.evaluate({
+    rawListing,
+    run,
+    baseline,
+  });
+
+  const timeoutMs = input.matcherTimeoutMs ?? DEFAULT_MATCHER_TIMEOUT_MS;
+  return withTimeout(
+    `ai_matching[${rawListing.sourceId}]`,
+    rawListing.sourceId,
+    timeoutMs,
+    matcherPromise,
+  )
     .then((decision) =>
       finalizeMatchDecision(rawListing, run, decision || baseline, true),
     )
-    .catch(() => finalizeMatchDecision(rawListing, run, baseline, false));
+    .catch((error) => {
+      if (error instanceof TimeoutError) {
+        // Fall back to baseline on timeout - don't fail the whole listing
+        input.dependencies.log?.("discovery.run.matcher_timeout", {
+          runId: run.runId,
+          sourceId: rawListing.sourceId,
+          timeoutMs: error.timeoutMs,
+        });
+        return finalizeMatchDecision(rawListing, run, baseline, false);
+      }
+      return finalizeMatchDecision(rawListing, run, baseline, false);
+    });
 }
 
 function recordRejection(
@@ -465,6 +609,10 @@ async function runGroundedWebDiscovery(
   matchingState: {
     aiMatchCallsUsed: number;
   },
+  timeouts?: {
+    sourceTimeoutMs?: number;
+    matcherTimeoutMs?: number;
+  },
 ): Promise<{
   extractionResult: BrowserUseExtractionResult | null;
   normalizedLeads: NormalizedLead[];
@@ -504,14 +652,41 @@ async function runGroundedWebDiscovery(
     };
   }
 
+  const sourceTimeoutMs = timeouts?.sourceTimeoutMs ?? DEFAULT_SOURCE_TIMEOUT_MS;
+
   for (const company of run.config.companies) {
     try {
-      const result = await collectGroundedWebListings({
+      const collectionPromise = collectGroundedWebListings({
         company,
         run,
         runtimeConfig: dependencies.runtimeConfig,
         groundedSearchClient: dependencies.groundedSearchClient,
         sessionManager: dependencies.browserSessionManager,
+      });
+      const result = await withTimeout(
+        `grounded_collection[${company.name}]`,
+        "grounded_web",
+        sourceTimeoutMs,
+        collectionPromise,
+      ).catch((error) => {
+        if (error instanceof TimeoutError) {
+          const message = `Grounded collection timed out after ${error.timeoutMs}ms for ${company.name}`;
+          extractionResult.warnings.push(message);
+          warnings.push(message);
+          dependencies.log?.("discovery.run.grounded_company_timeout", {
+            runId: run.runId,
+            company: company.name,
+            timeoutMs: error.timeoutMs,
+          });
+          return {
+            rawListings: [],
+            searchQueries: [],
+            seedUrls: [],
+            warnings: [message],
+            pagesVisited: 0,
+          };
+        }
+        throw error;
       });
       listingCount += result.rawListings.length;
       extractionResult.querySummary = uniqueJoin([
@@ -527,6 +702,7 @@ async function runGroundedWebDiscovery(
         const normalized = await normalizeRawListing(rawListing, run, {
           dependencies,
           matchingState,
+          matcherTimeoutMs: timeouts?.matcherTimeoutMs,
         });
         if (normalized.matchUsedAi) {
           matchingState.aiMatchCallsUsed += 1;

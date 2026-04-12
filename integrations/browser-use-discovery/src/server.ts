@@ -33,7 +33,9 @@ const matchClient = runtimeConfig.geminiApiKey
   : null;
 const sourceAdapterRegistry = createSourceAdapterRegistry(sessionManager);
 const pipelineWriter = createPipelineWriter(runtimeConfig);
-const runStatusStore = createDiscoveryRunStatusStore(runtimeConfig.stateDatabasePath);
+const runStatusStore = createDiscoveryRunStatusStore(
+  runtimeConfig.stateDatabasePath,
+);
 const RUN_STATUS_TEMPLATE = "/runs/{runId}";
 
 const sharedRunDependencies = {
@@ -50,6 +52,18 @@ const sharedRunDependencies = {
   randomId: (prefix: string) => `${prefix}_${randomUUID().replace(/-/g, "")}`,
 };
 
+/**
+ * Used by the request handler when a discovery request carries its own
+ * `googleAccessToken`. The override config is the global runtimeConfig with
+ * `googleAccessToken` populated, so the writer authenticates as the
+ * dashboard's signed-in user instead of the worker's persistent credential.
+ */
+function createPipelineWriterForRequest(
+  runtimeConfigOverride: typeof runtimeConfig,
+) {
+  return createPipelineWriter(runtimeConfigOverride);
+}
+
 function getHeaderValue(header: string | string[] | undefined): string {
   if (Array.isArray(header)) {
     return header[0] || "";
@@ -57,7 +71,9 @@ function getHeaderValue(header: string | string[] | undefined): string {
   return String(header || "");
 }
 
-async function readBody(request: import("node:http").IncomingMessage): Promise<string> {
+async function readBody(
+  request: import("node:http").IncomingMessage,
+): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
@@ -123,8 +139,13 @@ async function buildHealthPayload() {
   if (configError) {
     readinessWarnings.push(`Worker config could not be loaded: ${configError}`);
   }
-  if (!Array.isArray(storedConfig?.companies) || !storedConfig?.companies.length) {
-    readinessWarnings.push("Discovery worker has no target companies configured.");
+  if (
+    !Array.isArray(storedConfig?.companies) ||
+    !storedConfig?.companies.length
+  ) {
+    readinessWarnings.push(
+      "Discovery worker has no target companies configured.",
+    );
   }
   if (!sheetsCredentialReadiness.configured) {
     readinessWarnings.push(
@@ -312,7 +333,7 @@ const server = createServer(async (request, response) => {
         headers: Object.fromEntries(
           Object.entries(request.headers).map(([key, value]) => [
             key,
-            Array.isArray(value) ? value : value ?? undefined,
+            Array.isArray(value) ? value : (value ?? undefined),
           ]),
         ),
         bodyText,
@@ -323,6 +344,7 @@ const server = createServer(async (request, response) => {
         runStatusStore,
         runDiscovery,
         runDependencies: sharedRunDependencies,
+        createPipelineWriterForRequest,
         log: (event, details) =>
           logEvent(event, {
             requestId,
@@ -330,6 +352,9 @@ const server = createServer(async (request, response) => {
             path: requestPath,
             ...details,
           }),
+        // Default max duration for async runs is 5 minutes
+        // This guarantees terminalization even if the run stalls
+        maxRunDurationMs: 5 * 60 * 1000,
       },
     );
     logEvent("http.request.completed", {
