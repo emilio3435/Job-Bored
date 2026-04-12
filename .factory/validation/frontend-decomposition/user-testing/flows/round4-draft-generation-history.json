@@ -1,0 +1,91 @@
+{
+  "milestone": "frontend-decomposition",
+  "groupId": "round4-draft-generation-history",
+  "testedAt": "2026-04-11T04:41:52Z",
+  "toolsUsed": [
+    "agent-browser"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-DRAFTS-006",
+      "status": "pass",
+      "reason": "Using only the saved resume source, Cover letter generation opened the draft modal and auto-saved a visible V1 entry for the MariaDB role.",
+      "evidence": [
+        "evidence/frontend-decomposition/round4-draft-generation-result.png"
+      ]
+    },
+    {
+      "id": "VAL-DRAFTS-007",
+      "status": "pass",
+      "reason": "Submitting refinement instructions created a new V2 version while preserving V1 in the same saved-history stack.",
+      "evidence": [
+        "evidence/frontend-decomposition/round4-draft-refine-before-submit.png",
+        "evidence/frontend-decomposition/round4-draft-refine-result.png"
+      ]
+    },
+    {
+      "id": "VAL-DRAFTS-008",
+      "status": "pass",
+      "reason": "Selecting the saved V1 entry reopened the original V1 text snapshot in the modal after V2 already existed, proving stored draft snapshots can be reopened from history.",
+      "evidence": [
+        "evidence/frontend-decomposition/round4-draft-reopen-v1.png"
+      ]
+    },
+    {
+      "id": "VAL-DRAFTS-009",
+      "status": "pass",
+      "reason": "ATS analysis started automatically for generated text, stayed inside the draft modal when the ATS scorer returned a recoverable parser error, and re-entered analyzing state when the active saved version changed back to V1.",
+      "evidence": [
+        "evidence/frontend-decomposition/round4-draft-generation-result.png",
+        "evidence/frontend-decomposition/round4-draft-ats-success.png",
+        "evidence/frontend-decomposition/round4-draft-reopen-v1.png"
+      ]
+    },
+    {
+      "id": "VAL-DRAFTS-013",
+      "status": "pass",
+      "reason": "After reload, the MariaDB drawer still showed two saved cover-letter versions and the reopened draft modal preserved the same two-entry history.",
+      "evidence": [
+        "evidence/frontend-decomposition/round4-draft-history-after-reload-board.png",
+        "evidence/frontend-decomposition/round4-draft-history-after-reload-drawer.png",
+        "evidence/frontend-decomposition/round4-draft-history-after-reload-modal.png"
+      ]
+    },
+    {
+      "id": "VAL-DRAFTS-014",
+      "status": "pass",
+      "reason": "Generation succeeded after LinkedIn and AI dump were both cleared, demonstrating that a single supported profile source (the saved resume) satisfied the minimum generation requirement.",
+      "evidence": [
+        "evidence/frontend-decomposition/round4-draft-generation-result.png",
+        "evidence/frontend-decomposition/round4-linkedin-cleared.png"
+      ]
+    },
+    {
+      "id": "VAL-DRAFTS-015",
+      "status": "pass",
+      "reason": "The generation run routed through Gemini, with the browser session issuing POST requests to generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent during both initial generation and refinement.",
+      "evidence": [
+        "evidence/frontend-decomposition/round4-draft-generation-result.png",
+        "evidence/frontend-decomposition/round4-draft-refine-result.png"
+      ],
+      "network": [
+        "POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+      ]
+    },
+    {
+      "id": "VAL-CROSS-009",
+      "status": "pass",
+      "reason": "The same MariaDB saved drafts were visible from the drawer Draft studio surface and from the modal version history after reload, keeping card/drawer and modal history in sync.",
+      "evidence": [
+        "evidence/frontend-decomposition/round4-draft-history-after-reload-drawer.png",
+        "evidence/frontend-decomposition/round4-draft-history-after-reload-modal.png"
+      ]
+    }
+  ],
+  "frictions": [
+    "ATS scoring remained in-flow but the local scorer returned recoverable Gemini JSON parse errors instead of a final scorecard.",
+    "agent-browser network filtering did not surface the request subset reliably, so the evidence uses the full recorded request log observed in-session."
+  ],
+  "blockers": [],
+  "summary": "Round 4 unlocked the previously blocked draft-generation/history surface. Resume-only generation, refinement/versioning, reopening saved drafts, ATS lifecycle-in-modal behavior, history persistence after reload, Gemini transport routing, and drawer\u2194modal saved-draft visibility all passed."
+}

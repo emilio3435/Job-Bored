@@ -1,0 +1,61 @@
+{
+  "milestone": "frontend-decomposition",
+  "round": 4,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 24,
+    "tested": 19,
+    "passed": 14,
+    "failed": 0,
+    "blocked": 5
+  },
+  "passedAssertions": [
+    "VAL-DASH-002",
+    "VAL-DRAFTS-002",
+    "VAL-DRAFTS-003",
+    "VAL-DRAFTS-004",
+    "VAL-DRAFTS-006",
+    "VAL-DRAFTS-007",
+    "VAL-DRAFTS-008",
+    "VAL-DRAFTS-009",
+    "VAL-DRAFTS-012",
+    "VAL-DRAFTS-013",
+    "VAL-DRAFTS-014",
+    "VAL-DRAFTS-015",
+    "VAL-DRAFTS-016",
+    "VAL-CROSS-009"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [
+    {
+      "id": "VAL-DASH-009",
+      "blockedBy": "The runtime token bridge only exposed temporary signed-in UI. Direct Google userinfo and Sheets probes both returned 401, so real CRM editing could not be validated."
+    },
+    {
+      "id": "VAL-DASH-010",
+      "blockedBy": "Status-change validation still depends on valid Google write auth, and the validator token bridge returned 401 to both Google probes."
+    },
+    {
+      "id": "VAL-DASH-011",
+      "blockedBy": "Visible overdue signals exist, but follow-up edits still require valid Google write auth; the validator token bridge returned 401 to both Google probes."
+    },
+    {
+      "id": "VAL-DASH-013",
+      "blockedBy": "The documented empty-pipeline fixture still contains EMPTY_PIPELINE_SHEET_ID_PLACEHOLDER, and the alternate candidate sheet was populated rather than empty."
+    },
+    {
+      "id": "VAL-DASH-018",
+      "blockedBy": "Open-drawer save sync cannot be validated without a real Google-authorized save path; the validator token bridge returned 401 to both Google probes."
+    }
+  ],
+  "notTested": [
+    "VAL-DRAFTS-010",
+    "VAL-DRAFTS-011",
+    "VAL-DRAFTS-017",
+    "VAL-CROSS-007",
+    "VAL-CROSS-010"
+  ],
+  "appliedUpdates": [],
+  "previousRound": ".factory/validation/frontend-decomposition/user-testing/synthesis-round3.json",
+  "notes": "Round 4 made substantial forward progress: the overdue activity-item drawer flow now passes; onboarding/profile persistence and local draft generation/history flows are working end-to-end; and Gemini generation routed successfully from a resume-only profile. Remaining blockers are now sharply isolated to two setup gaps: (1) the validator token bridge is not actually authorized for Google API writes (userinfo/sheet probes both 401, with prior session-expired save behavior), and (2) the empty-pipeline sheet fixture was never provisioned beyond the placeholder."
+}

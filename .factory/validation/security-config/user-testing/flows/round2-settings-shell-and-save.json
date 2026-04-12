@@ -1,0 +1,77 @@
+{
+  "groupId": "round2-settings-shell-and-save",
+  "testedAt": "2026-04-11T17:12:10Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080",
+    "browserOrigin": "http://localhost:8080",
+    "browserSession": "settings-rerun-no-auth",
+    "startedFromCleanStorage": true,
+    "authBootstrap": "none",
+    "notes": [
+      "VAL-SETTINGS-004 started from the signed-out gate with the configured OAuth client ID cleared in Settings before submit.",
+      "VAL-SETTINGS-007 used the same dedicated session after clearing browser storage again, then saved a public sheet ID with blank OAuth client ID to reach the read-only dashboard surface without sign-in."
+    ]
+  },
+  "toolsUsed": [
+    "agent-browser"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-SETTINGS-004",
+      "title": "Invalid sheet input blocks save when OAuth bootstrap is unavailable",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Open Settings from the signed-out surface in a fresh session, clear the OAuth Client ID field on Setup, switch to Sheet, enter `not-a-sheet`, and click `Save & reload`.",
+          "expected": "Settings should stay open, show remediation on the Sheet tab, and avoid a silent reload/reset when neither a valid sheet ID nor a usable OAuth bootstrap path is present.",
+          "observed": "The app closed Settings and reloaded back to `http://localhost:8080/`, showing only `Open Settings`, `Create OAuth client`, and `Reload`. No inline sheet remediation was shown and the Sheet tab was no longer visible."
+        },
+        {
+          "action": "Inspect persisted browser state after the reload.",
+          "expected": "The invalid submission should not silently reload away from the user or hide the remediation path.",
+          "observed": "`command_center_config_overrides` persisted the invalid `sheetId: \"not-a-sheet\"` plus blank `oauthClientId`, so the flow silently reloaded away from Settings instead of holding the user on the Sheet tab with remediation."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "security-config/round2-settings-shell-and-save/VAL-SETTINGS-004-before-save.png",
+          "security-config/round2-settings-shell-and-save/VAL-SETTINGS-004-sheet-error.png"
+        ],
+        "consoleErrors": "none",
+        "network": "Clicking `Save & reload` triggered a full-page reload back to `http://localhost:8080/`; no sheet-validation request or in-modal remediation event was observed."
+      },
+      "issues": "Fail: invalid/blank sheet input with no usable OAuth bootstrap path still exited Settings and reloaded to the top-level access surface instead of keeping the Sheet tab open with remediation."
+    },
+    {
+      "id": "VAL-SETTINGS-007",
+      "title": "Discovery-focused settings entry points land on the discovery setup surface",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "From a clean session, clear app storage, remove the OAuth client ID in Settings, save public sheet `1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ`, land on the read-only dashboard, and click the dashboard button `Open discovery setup wizard`.",
+          "expected": "The dashboard entry point should open the discovery setup surface or wizard for the current flow.",
+          "observed": "Nothing visible changed: the URL stayed `http://localhost:8080/`, the dashboard remained in place, and `#discoveryWizard` was still hidden."
+        },
+        {
+          "action": "Open `Settings and setup`, switch to the `Discovery` tab, and click `Open discovery setup`.",
+          "expected": "The Settings entry point should land on a discovery-focused setup/remediation surface rather than a dead-end.",
+          "observed": "The modal stayed on the same Discovery tab with the same controls visible, the URL did not change, `#discoveryWizard` stayed hidden, and no run-discovery modal opened."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "security-config/round2-settings-shell-and-save/VAL-SETTINGS-007-discovery-entry.png",
+          "security-config/round2-settings-shell-and-save/VAL-SETTINGS-007-discovery-wizard-entry.png",
+          "security-config/round2-settings-shell-and-save/VAL-SETTINGS-007-discovery-focused-settings.png",
+          "security-config/round2-settings-shell-and-save/VAL-SETTINGS-007-discovery-focused-settings-after-click.png"
+        ],
+        "consoleErrors": "none",
+        "network": "Post-click request inspection showed only the already-loaded discovery scripts/bootstrap GETs (`discovery-wizard-*.js`, `settings-discovery-adapters.js`, `discovery-local-bootstrap.json`); neither entry point triggered navigation, POSTs, or a visible discovery setup surface."
+      },
+      "issues": "Fail: both tested discovery-focused entry points behaved like no-ops instead of landing on the intended discovery setup surface."
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Retested 2 assertions in a dedicated no-auth browser session: VAL-SETTINGS-004 failed because invalid sheet input silently reloaded out of Settings instead of keeping Sheet remediation visible, and VAL-SETTINGS-007 failed because both the dashboard and Settings discovery entry points were no-ops."
+}

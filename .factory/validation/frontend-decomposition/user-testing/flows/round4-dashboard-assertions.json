@@ -1,0 +1,231 @@
+{
+  "groupId": "round4-dashboard-assertions",
+  "testedAt": "2026-04-11T04:41:52Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080",
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "browserSession": "c6e1030b9361"
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "python3"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-DASH-002",
+      "title": "Brief activity items open the matching job drawer",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Capture dashboard state with overdue Daily Brief activity visible",
+          "expected": "An activity-feed item is present for an overdue follow-up",
+          "observed": "Daily Brief showed \"One follow-up has gone unanswered past its window\" and an activity item for MariaDB."
+        },
+        {
+          "action": "Click the MariaDB activity-feed item",
+          "expected": "The matching MariaDB drawer opens from the right rail",
+          "observed": "The MariaDB drawer opened with matching title/company and the same role visible in the drawer header."
+        },
+        {
+          "action": "Dismiss the drawer with Escape",
+          "expected": "The dashboard returns to the same readable state",
+          "observed": "Escape closed the drawer and returned the board/brief to the same dashboard view with the activity item still visible."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/frontend-decomposition/round4-dash002-before.png",
+          "evidence/frontend-decomposition/round4-dash002-after-open.png",
+          "evidence/frontend-decomposition/round4-dash002-after-close.png"
+        ],
+        "consoleErrors": "none"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-DASH-009",
+      "title": "Signed-in users can edit CRM fields from the drawer",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Load marker-state auth bootstrap and inject runtime OAuth session fields",
+          "expected": "Authenticated write-capable drawer controls remain available for real writes",
+          "observed": "The UI temporarily hid Continue, showed signed-in account chrome, and exposed CRM controls in the MariaDB drawer."
+        },
+        {
+          "action": "Attempt a real Google API auth probe with the bridge token",
+          "expected": "userinfo and Sheets API return 200 for the same validator token",
+          "observed": "Both https://www.googleapis.com/oauth2/v3/userinfo and a Sheets spreadsheet probe returned 401."
+        },
+        {
+          "action": "Attempt an in-drawer CRM save during the authenticated-looking state",
+          "expected": "CRM edit persists without session loss",
+          "observed": "The prior save attempt collapsed back to signed-out mode with a session-expired toast, so the UI-auth bootstrap was not backed by valid write auth."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/frontend-decomposition/round4-preflight-authenticated.png",
+          "evidence/frontend-decomposition/round4-dash002-drawer.png"
+        ],
+        "apiProbes": {
+          "userinfo": 401,
+          "sheetProbe": 401
+        },
+        "consoleErrors": "none"
+      },
+      "issues": "Runtime token bridge exposes write controls briefly, but the underlying Google token is invalid for real API writes, so signed-in CRM editing cannot be validated in Exec mode."
+    },
+    {
+      "id": "VAL-DASH-010",
+      "title": "Status changes move jobs between the correct lanes",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Prepare authenticated drawer state for MariaDB",
+          "expected": "Status can be changed and persisted to the sheet",
+          "observed": "CRM controls appeared only during a temporary injected-auth state."
+        },
+        {
+          "action": "Verify the token bridge can actually write to Google APIs",
+          "expected": "Google APIs accept the validator token",
+          "observed": "userinfo and sheet probes both returned 401, matching the earlier session-expired save failure."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/frontend-decomposition/round4-preflight-authenticated.png"
+        ],
+        "apiProbes": {
+          "userinfo": 401,
+          "sheetProbe": 401
+        },
+        "consoleErrors": "none"
+      },
+      "issues": "Blocked by invalid Google auth in the validator session; cannot persist a status change to verify lane movement."
+    },
+    {
+      "id": "VAL-DASH-011",
+      "title": "CRM edits update visible dashboard signals",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Seed overdue signal and open MariaDB drawer",
+          "expected": "An authenticated follow-up edit can be saved and reflected back into the brief",
+          "observed": "The overdue signal is present, but save attempts depend on the same invalid token bridge."
+        },
+        {
+          "action": "Probe Google auth backing the injected drawer controls",
+          "expected": "Token is valid for Sheets writes",
+          "observed": "Both auth probes returned 401, and the earlier in-drawer save kicked the UI back to Continue/sign-in state."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/frontend-decomposition/round4-preflight-authenticated.png",
+          "evidence/frontend-decomposition/round4-dash002-before.png"
+        ],
+        "apiProbes": {
+          "userinfo": 401,
+          "sheetProbe": 401
+        },
+        "consoleErrors": "none"
+      },
+      "issues": "Blocked by invalid Google auth; visible overdue signals exist, but a real follow-up edit cannot be persisted to prove live signal updates."
+    },
+    {
+      "id": "VAL-DASH-013",
+      "title": "Truly empty pipelines show guided empty states",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Inspect the documented empty-pipeline fixture metadata",
+          "expected": "A real header-only sheet id is available for the empty-pipeline run",
+          "observed": "The empty fixture documentation still uses EMPTY_PIPELINE_SHEET_ID_PLACEHOLDER instead of a real sheet id."
+        },
+        {
+          "action": "Try the alternate candidate sheet that was available during validation",
+          "expected": "The app loads a truly empty pipeline",
+          "observed": "The alternate sheet rendered a populated board with 15 roles, not an empty pipeline."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/frontend-decomposition/round4-dash013-empty.png"
+        ],
+        "consoleErrors": "none"
+      },
+      "issues": "Blocked by missing real empty-pipeline fixture; the documented placeholder was never replaced and the alternate sheet was populated."
+    },
+    {
+      "id": "VAL-DASH-018",
+      "title": "Open drawers stay in sync after in-drawer saves",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Expose CRM controls via injected auth and keep the drawer open",
+          "expected": "A real in-drawer save keeps the drawer attached to the same role",
+          "observed": "CRM controls appeared, but the backing session was not actually authorized."
+        },
+        {
+          "action": "Probe the validator token against Google APIs",
+          "expected": "Real write auth is valid",
+          "observed": "userinfo and Sheets probes both returned 401, consistent with the earlier session-expired save attempt."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/frontend-decomposition/round4-preflight-authenticated.png",
+          "evidence/frontend-decomposition/round4-dash002-drawer.png"
+        ],
+        "apiProbes": {
+          "userinfo": 401,
+          "sheetProbe": 401
+        },
+        "consoleErrors": "none"
+      },
+      "issues": "Blocked by invalid Google auth; cannot complete a real in-drawer save to verify drawer/board sync."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Injected auth can momentarily expose write-mode drawer UI even when the backing Google token is invalid.",
+      "resolved": false,
+      "resolution": "Confirmed invalidity with direct userinfo/Sheets 401 probes and treated write assertions as blocked instead of over-claiming success.",
+      "affectedAssertions": [
+        "VAL-DASH-009",
+        "VAL-DASH-010",
+        "VAL-DASH-011",
+        "VAL-DASH-018"
+      ]
+    },
+    {
+      "description": "The empty-pipeline fixture remains incomplete because the documented sheet id is still a placeholder.",
+      "resolved": false,
+      "resolution": "Tested the alternate candidate sheet and confirmed it was populated, leaving VAL-DASH-013 blocked.",
+      "affectedAssertions": [
+        "VAL-DASH-013"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Token-bridge auth is not valid for real Google API writes in the validator session.",
+      "affectedAssertions": [
+        "VAL-DASH-009",
+        "VAL-DASH-010",
+        "VAL-DASH-011",
+        "VAL-DASH-018"
+      ],
+      "quickFixAttempted": "Injected accessToken/grantedOauthScopes into runtime, confirmed UI-auth chrome, then verified the token with direct Google probes; both userinfo and Sheets returned 401."
+    },
+    {
+      "description": "No real empty-pipeline sheet fixture is wired for VAL-DASH-013.",
+      "affectedAssertions": [
+        "VAL-DASH-013"
+      ],
+      "quickFixAttempted": "Checked the documented empty fixture metadata and tested the alternate sheet id; both paths failed to provide a header-only pipeline."
+    }
+  ],
+  "summary": "Round 4 fully validated VAL-DASH-002 and gathered stronger blocker evidence for the remaining auth/write assertions. The activity item \u2192 drawer flow passes end-to-end, but write assertions remain blocked because the token bridge is UI-only and Google API probes return 401. Empty-pipeline validation is still blocked by the unresolved fixture placeholder."
+}

@@ -1,0 +1,124 @@
+{
+  "groupId": "round2-discovery-001-004",
+  "testedAt": "2026-04-10T17:30:00Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080",
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "browserSession": "18e29f622434__group1",
+    "authState": "signed-out",
+    "discoveryWorker": "http://127.0.0.1:8644"
+  },
+  "toolsUsed": ["agent-browser"],
+  "assertions": [
+    {
+      "id": "VAL-DISCOVERY-001",
+      "title": "Missing discovery endpoint opens setup instead of posting",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Navigate to dashboard with ?sheet= parameter",
+          "expected": "Dashboard loads with sheet configured",
+          "observed": "Dashboard loaded with 78 jobs from the public sheet"
+        },
+        {
+          "action": "Clear localStorage for discovery-related keys",
+          "expected": "localStorage cleared, no discovery state",
+          "observed": "localStorage was already empty"
+        },
+        {
+          "action": "Check Run discovery button state",
+          "expected": "Button enabled (no endpoint configured), clicking opens setup wizard",
+          "observed": "Button is DISABLED with title 'Finish the local discovery path in Settings, or click here to continue setup.'"
+        },
+        {
+          "action": "Attempt localStorage override with empty discovery transport setup",
+          "expected": "Override prevents local setup detection",
+          "observed": "Override did not work - local bootstrap file is still being read and detected"
+        },
+        {
+          "action": "Attempt simulation override to disable local setup detection",
+          "expected": "Simulation override clears local setup detection",
+          "observed": "Simulation override did not work - local bootstrap file still detected"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "discovery-consolidation/round2-discovery-001-004/VAL-DISCOVERY-001-initial-state.png",
+          "discovery-consolidation/round2-discovery-001-004/VAL-DISCOVERY-001-blocked-state.png"
+        ],
+        "consoleErrors": "none",
+        "network": "no POST requests made"
+      },
+      "issues": "The local bootstrap file (discovery-local-bootstrap.json) exists in the repo and contains localWebhookUrl, causing localSetupDetected to be true. This makes the Run discovery button disabled with a different UI state than the assertion expects. The assertion assumes no local bootstrap is present, but the test environment has one."
+    },
+    {
+      "id": "VAL-DISCOVERY-004",
+      "title": "Managed Apps Script stays marked as stub-only",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Open Settings modal and navigate to Discovery tab",
+          "expected": "Discovery settings form visible",
+          "observed": "Discovery tab opened successfully after using JavaScript to click (normal click blocked by onboarding dialog)"
+        },
+        {
+          "action": "Enter fake Apps Script stub URL: https://script.google.com/macros/s/AKCf5bwvJbO8xCxMvSfCfJh2GqJxQwE8eQvLkPpDqRrSsTt/exec",
+          "expected": "URL entered in webhook field",
+          "observed": "URL entered successfully via JavaScript"
+        },
+        {
+          "action": "Click Test webhook button",
+          "expected": "Test triggers CORS failure, classified as stub_only with warning message",
+          "observed": "Test webhook clicked, but no visible result. Fake URL returns 404 instead of CORS failure, so stub_only classification not triggered."
+        },
+        {
+          "action": "Check for managed Apps Script deployment",
+          "expected": "Managed Apps Script URL available for testing",
+          "observed": "No managed Apps Script deployed (getManagedAppsScriptWebhookIdentity returns empty string)"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "discovery-consolidation/round2-discovery-001-004/VAL-DISCOVERY-004-apps-script-url-entered.png",
+          "discovery-consolidation/round2-discovery-001-004/VAL-DISCOVERY-004-stub-warning-result.png"
+        ],
+        "consoleErrors": "none (only 404 errors for JSONP fetches)",
+        "network": "no captured requests (agent-browser did not capture the POST)"
+      },
+      "issues": "The assertion requires testing with a real Apps Script endpoint that triggers CORS failure. A fake URL returns 404, which doesn't trigger the handleAppsScriptBrowserCorsFailure path. No managed Apps Script is deployed in the test environment, so the stub_only classification cannot be properly tested."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Onboarding Welcome dialog appears on every page load, blocking UI interaction",
+      "resolved": true,
+      "resolution": "Used Escape key to close the dialog, or used JavaScript to directly interact with elements",
+      "affectedAssertions": ["VAL-DISCOVERY-001", "VAL-DISCOVERY-004"]
+    },
+    {
+      "description": "agent-browser click commands fail with 'element blocked by another element' even after closing dialogs",
+      "resolved": true,
+      "resolution": "Used JavaScript eval to directly click elements via DOM methods",
+      "affectedAssertions": ["VAL-DISCOVERY-004"]
+    },
+    {
+      "description": "Network requests not captured by agent-browser network tracking",
+      "resolved": false,
+      "resolution": "Could not resolve - the POST requests from the webhook test were not captured",
+      "affectedAssertions": ["VAL-DISCOVERY-004"]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Local bootstrap file (discovery-local-bootstrap.json) interferes with VAL-DISCOVERY-001 test",
+      "affectedAssertions": ["VAL-DISCOVERY-001"],
+      "quickFixAttempted": "Tried localStorage overrides and simulation overrides, but the bootstrap file is fetched on every snapshot build and its data takes precedence"
+    },
+    {
+      "description": "No real Apps Script endpoint available for VAL-DISCOVERY-004 test",
+      "affectedAssertions": ["VAL-DISCOVERY-004"],
+      "quickFixAttempted": "Tried fake URL, but it returns 404 instead of triggering CORS failure. The stub_only classification requires a real Apps Script URL that triggers CORS."
+    }
+  ],
+  "summary": "Tested 2 assertions: both blocked. VAL-DISCOVERY-001 blocked by local bootstrap file interference - the file exists and causes localSetupDetected=true, making the Run discovery button disabled instead of enabled. VAL-DISCOVERY-004 blocked by lack of real Apps Script endpoint - a fake URL returns 404 instead of CORS failure, preventing the stub_only classification from being triggered."
+}

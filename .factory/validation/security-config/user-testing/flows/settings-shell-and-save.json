@@ -1,0 +1,240 @@
+{
+  "groupId": "settings-shell-and-save",
+  "testedAt": "2026-04-11T07:36:28Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080",
+    "browserOrigin": "http://localhost:8080",
+    "browserSession": "settings-shell-save",
+    "startedFromCleanStorage": true,
+    "authBootstrap": "none (signed-out session; no cookie import or live Google sign-in)",
+    "sheetIdUsed": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ"
+  },
+  "toolsUsed": [
+    "agent-browser"
+  ],
+  "assertionResults": [
+    {
+      "id": "VAL-SETTINGS-001",
+      "status": "pass"
+    },
+    {
+      "id": "VAL-SETTINGS-002",
+      "status": "pass"
+    },
+    {
+      "id": "VAL-SETTINGS-003",
+      "status": "pass"
+    },
+    {
+      "id": "VAL-SETTINGS-004",
+      "status": "fail"
+    },
+    {
+      "id": "VAL-SETTINGS-005",
+      "status": "pass"
+    },
+    {
+      "id": "VAL-SETTINGS-006",
+      "status": "pass"
+    },
+    {
+      "id": "VAL-SETTINGS-007",
+      "status": "fail"
+    }
+  ],
+  "assertions": [
+    {
+      "id": "VAL-SETTINGS-001",
+      "title": "Settings opens with the expected six-tab shell",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Open http://localhost:8080 in a fresh browser session and click Settings from the signed-out surface.",
+          "expected": "Settings opens with exactly six tabs and Setup active.",
+          "observed": "Settings opened with tabs labeled Setup, Sheet, Discovery, Scraping, ATS Scoring, and AI Providers. Setup was selected by default."
+        },
+        {
+          "action": "Inspect the tab/panel DOM state.",
+          "expected": "Only one settings panel is visible while the inactive panels stay hidden.",
+          "observed": "The top-level tabpanel list contained six settings panels; only settings-panel-setup was visible and the other five panels had hidden=true / display=none."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/security-config/settings-shell-and-save/VAL-SETTINGS-001-settings-modal.png"
+        ],
+        "consoleErrors": "none",
+        "network": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SETTINGS-002",
+      "title": "Settings tabs support keyboard navigation and ARIA state",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Focus the Setup tab and press ArrowRight.",
+          "expected": "Selection moves to the next tab and the active panel changes.",
+          "observed": "ArrowRight moved selection from Setup to Sheet; Setup aria-selected became false and Sheet aria-selected became true."
+        },
+        {
+          "action": "Press End and then Home.",
+          "expected": "End jumps to the last tab, Home jumps back to the first tab, and inactive panels remain hidden.",
+          "observed": "End selected AI Providers; Home returned focus/selection to Setup. At each step only the active tab had aria-selected=\"true\" and the other settings panels stayed hidden."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/security-config/settings-shell-and-save/VAL-SETTINGS-002-tab-focus-a.png",
+          "evidence/security-config/settings-shell-and-save/VAL-SETTINGS-002-tab-focus-b.png"
+        ],
+        "consoleErrors": "none",
+        "network": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SETTINGS-003",
+      "title": "Save & reload collects values across tabs",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Enter a valid sheet URL and dashboard title on Sheet, a discovery webhook URL on Discovery, and a scraper URL on Scraping; then click Save & reload from Scraping.",
+          "expected": "The save persists values from multiple tabs even when some were not active at save time.",
+          "observed": "Save & reload from Scraping reloaded the app onto the populated dashboard. Reopened Settings preserved the normalized sheet ID, dashboard title 'Settings Validation Run', discovery URL 'http://127.0.0.1:8644/discovery', and scraper URL 'http://127.0.0.1:3847'."
+        },
+        {
+          "action": "Inspect requests after reload.",
+          "expected": "The app reloads cleanly with the configured sheet.",
+          "observed": "After reload the browser fetched http://localhost:8080/ and re-read the Pipeline via Google gviz for sheet 1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/security-config/settings-shell-and-save/VAL-SETTINGS-003-before-save.png",
+          "evidence/security-config/settings-shell-and-save/VAL-SETTINGS-003-after-reload.png"
+        ],
+        "consoleErrors": "none",
+        "network": "GET http://localhost:8080/ (reload); GET https://docs.google.com/spreadsheets/d/1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ/gviz/tq?...&sheet=Pipeline"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SETTINGS-004",
+      "title": "Invalid sheet input blocks save when OAuth bootstrap is unavailable",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Clear the unsaved OAuth client ID field, enter 'not-a-sheet' in the sheet field, and click Save & reload.",
+          "expected": "The modal should stay open, show a sheet error, and switch focus back to the Sheet tab.",
+          "observed": "Instead of blocking the save, the app reloaded out of Settings to the initial setup surface with buttons 'Open Settings', 'Create OAuth client', and 'Reload'. No inline sheet error appeared and the modal did not remain open."
+        },
+        {
+          "action": "Inspect browser state after the failed expectation.",
+          "expected": "The invalid attempt should not silently clear config state.",
+          "observed": "localStorage was empty after the reload, so the invalid save path behaved like a reset rather than a blocked validation error."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/security-config/settings-shell-and-save/VAL-SETTINGS-004-sheet-error.png"
+        ],
+        "consoleErrors": "none",
+        "network": "GET http://localhost:8080/ (unexpected reload after invalid save attempt)"
+      },
+      "issues": "Invalid sheet input with no available OAuth bootstrap did not keep Settings open or surface a sheet-specific validation error; it reloaded to the setup surface and cleared stored overrides."
+    },
+    {
+      "id": "VAL-SETTINGS-005",
+      "title": "Sheet URLs normalize to raw spreadsheet IDs",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Paste a full Google Sheets URL into the sheet field and save.",
+          "expected": "The saved value normalizes to the raw spreadsheet ID.",
+          "observed": "The field accepted the full URL before save, and after reload the persisted value was the raw ID 1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/security-config/settings-shell-and-save/VAL-SETTINGS-005-sheet-before-normalize.png",
+          "evidence/security-config/settings-shell-and-save/VAL-SETTINGS-005-sheet-after-normalize.png"
+        ],
+        "consoleErrors": "none",
+        "network": "same Save & reload cycle as VAL-SETTINGS-003"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SETTINGS-006",
+      "title": "Clear saved settings resets config overrides only",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Open Clear saved settings from Setup.",
+          "expected": "An in-modal confirmation flow appears and its copy is scoped to saved settings.",
+          "observed": "Keyboard activation opened a confirmation with text that asked whether to remove saved settings from this browser and said they can be entered again anytime; it did not claim to erase portfolio or draft data."
+        },
+        {
+          "action": "Cancel the confirmation and inspect the saved values.",
+          "expected": "Cancel leaves settings untouched.",
+          "observed": "After Cancel, the Sheet tab still showed sheet ID 1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ and Dashboard title 'Settings Validation Run'."
+        },
+        {
+          "action": "Complete the remove path and inspect storage after reload.",
+          "expected": "The app reloads with local config overrides cleared only.",
+          "observed": "After the remove flow the app reloaded successfully on http://localhost:8080/ and localStorage was empty. The dashboard remained usable from baseline config, consistent with clearing overrides rather than claiming to erase IndexedDB-backed data."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/security-config/settings-shell-and-save/VAL-SETTINGS-006-clear-confirm.png",
+          "evidence/security-config/settings-shell-and-save/VAL-SETTINGS-006-post-reload.png"
+        ],
+        "consoleErrors": "none",
+        "network": "GET http://localhost:8080/ (reload after remove path)"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SETTINGS-007",
+      "title": "Discovery-focused settings entry points land on the discovery setup surface",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Open Settings, switch to the Discovery tab, and click 'Open discovery setup'.",
+          "expected": "The flow should land on a discovery-focused setup/remediation surface.",
+          "observed": "The button produced no visible change: the URL stayed http://localhost:8080/, the modal remained on the same Discovery tab, and no new wizard or focused remediation surface appeared."
+        },
+        {
+          "action": "Close Settings and click the dashboard-level 'Open discovery setup wizard' button.",
+          "expected": "The external discovery entry point should also land on discovery setup instead of a dead-end.",
+          "observed": "The dashboard-level button also behaved like a no-op in this session: no URL change, no visible wizard, and no focused discovery setup surface."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/security-config/settings-shell-and-save/VAL-SETTINGS-007-discovery-entry.png",
+          "evidence/security-config/settings-shell-and-save/VAL-SETTINGS-007-discovery-focused-settings.png",
+          "evidence/security-config/settings-shell-and-save/VAL-SETTINGS-007-discovery-wizard-entry.png"
+        ],
+        "consoleErrors": "none",
+        "network": "n/a"
+      },
+      "issues": "Discovery-related setup entry points did not navigate to a distinct discovery setup surface; both tested entry points appeared to be dead-ends/no-ops."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "The onboarding wizard subtree intercepted pointer events over the Settings footer, so the clear-settings confirmation could not be opened reliably with a mouse click.",
+      "resolved": true,
+      "resolution": "Used keyboard focus + Enter to activate 'Clear saved settings', then used keyboard activation for Cancel/Remove controls.",
+      "affectedAssertions": [
+        "VAL-SETTINGS-006"
+      ]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 7 settings assertions on http://localhost:8080 in a fresh signed-out browser session. 5 passed (001, 002, 003, 005, 006) and 2 failed (004, 007): invalid-sheet save unexpectedly reloaded to setup instead of showing a sheet-tab error, and discovery-focused entry points behaved like no-ops rather than landing on a distinct discovery setup surface."
+}

@@ -1,0 +1,94 @@
+{
+  "assertionId": "VAL-DISCOVERY-004",
+  "status": "pass",
+  "testedAt": "2026-04-10T00:00:00Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080",
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "browserSession": "cfcdf8bb8c5f_004",
+    "authState": "signed-out"
+  },
+  "toolsUsed": ["agent-browser"],
+  "testCases": [
+    {
+      "name": "Non-managed Apps Script URL",
+      "url": "https://script.google.com/macros/s/AKfycbxfakefakefakefake/exec",
+      "result": "Generic CORS/network error shown",
+      "toastMessage": "Can't reach the endpoint. Network or CORS error — check the URL and try again.",
+      "classification": "network_error (NOT stub_only)",
+      "expected": "NOT stub_only - generic error/remediation",
+      "status": "pass",
+      "notes": "The fix from commit cd2f886 is working correctly. Non-managed Apps Script URLs with CORS/network errors are no longer misclassified as stub_only."
+    },
+    {
+      "name": "Worker URL",
+      "url": "https://my-worker.subdomain.workers.dev",
+      "result": "Generic CORS/network error shown with 'Fix tunnel' option",
+      "toastMessage": "Can't reach the endpoint. Network or CORS error — check the URL and try again. Fix tunnel",
+      "classification": "network_error (NOT stub_only)",
+      "expected": "NOT stub_only - generic error/remediation",
+      "status": "pass",
+      "notes": "Worker URLs are correctly NOT misclassified as stub_only."
+    },
+    {
+      "name": "Managed Apps Script stub",
+      "url": "N/A",
+      "result": "Cannot test - no managed Apps Script deployed",
+      "toastMessage": "N/A",
+      "classification": "N/A",
+      "expected": "stub_only with warning semantics",
+      "status": "blocked",
+      "notes": "appsScriptDeployStateCache exists with managedBy='command-center' but scriptId is empty. No managed Apps Script stub is deployed in this environment. Managed stub testing requires deployment."
+    }
+  ],
+  "evidence": {
+    "screenshots": [
+      "discovery-consolidation/round4-discovery-004/initial-state.png",
+      "discovery-consolidation/round4-discovery-004/initial-state-full.png",
+      "discovery-consolidation/round4-discovery-004/dashboard-state.png",
+      "discovery-consolidation/round4-discovery-004/blocked-state-annotated.png",
+      "discovery-consolidation/round4-discovery-004/discovery-tab.png",
+      "discovery-consolidation/round4-discovery-004/test-screenshot.png",
+      "discovery-consolidation/round4-discovery-004/non-managed-appsscript-result.png",
+      "discovery-consolidation/round4-discovery-004/case-a-non-managed-appsscript.png",
+      "discovery-consolidation/round4-discovery-004/case-b-worker-url.png",
+      "discovery-consolidation/round4-discovery-004/final-state.png"
+    ],
+    "consoleErrors": "CORS errors for webhook endpoints (expected for invalid URLs)",
+    "network": "POST to fake Apps Script URL -> CORS error; POST to Worker URL -> CORS error"
+  },
+  "codeReference": {
+    "function": "handleAppsScriptBrowserCorsFailure",
+    "file": "app.js",
+    "lines": "7976-7991",
+    "fix": "Commit cd2f886 added isManagedAppsScriptDeployState check for network_error case, ensuring only managed Apps Script URLs with valid scriptId are classified as stub_only"
+  },
+  "appsScriptDeployState": {
+    "managedBy": "command-center",
+    "scriptId": "",
+    "isManaged": false,
+    "reason": "scriptId is empty, so isManagedAppsScriptDeployState returns false"
+  },
+  "frictions": [
+    {
+      "description": "Onboarding wizard blocked access to Settings button - required JavaScript manipulation to hide it",
+      "resolved": true,
+      "resolution": "Used eval to set display:none on onboardingWizard element",
+      "affectedAssertions": ["VAL-DISCOVERY-004"]
+    },
+    {
+      "description": "Sheet ID not persisted in settings - required manual save via Sheet tab before webhook tests would run",
+      "resolved": true,
+      "resolution": "Navigated to Sheet tab, filled sheet ID, and saved",
+      "affectedAssertions": ["VAL-DISCOVERY-004"]
+    }
+  ],
+  "blockers": [],
+  "summary": "VAL-DISCOVERY-004 PASSED. The fix from commit cd2f886 is verified working: non-managed Apps Script URLs and Worker URLs are correctly NOT being misclassified as stub_only when they fail with CORS/network errors. Case A (non-managed Apps Script) and Case B (Worker URL) both passed. Case C (managed Apps Script stub) cannot be tested because no managed Apps Script is deployed in this environment (scriptId is empty in appsScriptDeployStateCache). The handleAppsScriptBrowserCorsFailure function now correctly requires isManagedAppsScriptDeployState to be true before classifying network_error or invalid_endpoint as stub_only.",
+  "keyFindings": [
+    "Non-managed Apps Script URLs with CORS errors show generic error message, NOT stub_only warning",
+    "Worker URLs with CORS errors show generic error message with 'Fix tunnel' option, NOT stub_only warning",
+    "The fix ensures isManagedAppsScriptDeployState check is applied for both network_error and invalid_endpoint cases",
+    "No managed Apps Script stub is deployed in the test environment, preventing full stub_only verification"
+  ]
+}

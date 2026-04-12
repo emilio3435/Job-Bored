@@ -1,0 +1,154 @@
+{
+  "groupId": "cold-start-and-access-handoffs",
+  "testedAt": "2026-04-11T07:45:25Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080",
+    "browserSession": "security-cold-start",
+    "cleanSession": true,
+    "storageClearedBeforeFlow": true,
+    "publicSheetIdUsedForDeferredFlow": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ"
+  },
+  "toolsUsed": [
+    "agent-browser"
+  ],
+  "assertionResults": [
+    {
+      "id": "VAL-CROSS-001",
+      "status": "pass",
+      "entryPath": "http://localhost:8080/",
+      "observedBehavior": "A clean first visit landed on the sheet-access/setup surface with visible Log in with Google, Settings, and Reload CTAs. Clicking Log in with Google advanced to the real Google OAuth identifier page instead of dead-ending.",
+      "topLevelSurfaces": [
+        {
+          "step": "Initial load",
+          "surface": "sheet-access/setup gate"
+        },
+        {
+          "step": "After clicking the visible OAuth CTA",
+          "surface": "Google OAuth identifier page on accounts.google.com"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/security-config/cold-start-and-access-handoffs/VAL-CROSS-001-first-visit.png",
+          "evidence/security-config/cold-start-and-access-handoffs/VAL-CROSS-001-first-visit-annotated.png",
+          "evidence/security-config/cold-start-and-access-handoffs/VAL-CROSS-001-after-cta.png"
+        ],
+        "network": "CTA navigation changed the top-level origin to the Google OAuth identifier flow; no app-side discovery/webhook requests were involved.",
+        "console": "none observed"
+      }
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "status": "pass",
+      "entryPath": "http://localhost:8080/?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ&setup=discovery",
+      "observedBehavior": "The discovery-focused deep link was intercepted by onboarding before completion. Before onboarding finished, sessionStorage contained pendingDiscoverySetup=1 and the top-level surface stayed on the dashboard with onboarding visible. After finishing the visible onboarding wizard, the discovery setup wizard opened automatically.",
+      "topLevelSurfaces": [
+        {
+          "step": "Deep-link load before onboarding completion",
+          "surface": "dashboard with onboarding wizard visible; discovery not yet open"
+        },
+        {
+          "step": "After completing onboarding",
+          "surface": "dashboard with discovery setup wizard open"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/security-config/cold-start-and-access-handoffs/VAL-CROSS-003-entry-deeplink.png",
+          "evidence/security-config/cold-start-and-access-handoffs/VAL-CROSS-003-after-onboarding-resume.png"
+        ],
+        "network": "No discovery/webhook requests were captured during the deferred handoff; the flow resumed into the discovery setup UI only.",
+        "console": "none observed"
+      },
+      "stateChecks": {
+        "pendingDiscoverySetupBeforeOnboarding": "1",
+        "pendingDiscoverySetupAfterOnboarding": "cleared",
+        "discoveryRuntimeEntryPointAfterResume": "settings"
+      }
+    },
+    {
+      "id": "VAL-CROSS-011",
+      "status": "blocked",
+      "entryPath": "http://localhost:8080/",
+      "observedBehavior": "The flow reached the sheet-access/setup gate and the visible OAuth CTA handed off correctly into Google OAuth, but the full ordered cold-start path could not progress through the authenticated starter-sheet creation segment in this dedicated clean session.",
+      "topLevelSurfaces": [
+        {
+          "step": "Initial load",
+          "surface": "sheet-access/setup gate"
+        },
+        {
+          "step": "After clicking Log in with Google",
+          "surface": "Google OAuth identifier page"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/security-config/cold-start-and-access-handoffs/VAL-CROSS-001-first-visit.png",
+          "evidence/security-config/cold-start-and-access-handoffs/VAL-CROSS-001-after-cta.png",
+          "evidence/security-config/cold-start-and-access-handoffs/google-after-account-pick.png"
+        ],
+        "network": "No authenticated Google Sheets create/write calls were reachable because the flow stopped at the identifier page.",
+        "console": "none observed"
+      },
+      "issues": "The dedicated clean browser session reached the real Google OAuth identifier page, but no reusable signed-in Google account was available there and Exec mode could not complete the credentialed sign-in/create-sheet handoff required for the starter-sheet-created ordering proof."
+    },
+    {
+      "id": "VAL-CROSS-013",
+      "status": "pass",
+      "entryPath": "Same clean session after VAL-CROSS-003: close discovery wizard, then reload http://localhost:8080/?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+      "observedBehavior": "After onboarding was complete and the resumed discovery wizard was closed, reloading in the same session landed directly on the dashboard. Onboarding did not replay, discovery did not auto-reopen, and sessionStorage was empty.",
+      "topLevelSurfaces": [
+        {
+          "step": "Before reload",
+          "surface": "dashboard with discovery wizard open after onboarding completion"
+        },
+        {
+          "step": "After closing the wizard and reloading",
+          "surface": "dashboard/brief/pipeline only"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/security-config/cold-start-and-access-handoffs/VAL-CROSS-003-after-onboarding-resume.png",
+          "evidence/security-config/cold-start-and-access-handoffs/VAL-CROSS-013-returning-user-dashboard.png"
+        ],
+        "network": "No discovery/webhook requests were captured on the returning-user reload.",
+        "console": "none observed"
+      },
+      "stateChecks": {
+        "onboardingVisibleAfterReload": false,
+        "discoveryVisibleAfterReload": false,
+        "sessionStorageAfterReload": {}
+      }
+    }
+  ],
+  "frictions": [
+    {
+      "description": "The ?setup=discovery deep link stripped the setup query from the visible URL after load, so the deferred intent had to be confirmed from the intercepted onboarding surface plus sessionStorage.pendingDiscoverySetup before onboarding finished.",
+      "resolved": true,
+      "resolution": "Captured the deep-link entry screenshot and browser state before continuing through onboarding.",
+      "affectedAssertions": [
+        "VAL-CROSS-003",
+        "VAL-CROSS-013"
+      ]
+    },
+    {
+      "description": "The discovery wizard's visible Dismiss button was not interactable in this session even though the wizard was open.",
+      "resolved": true,
+      "resolution": "Used the visible Close wizard control instead, then reloaded to validate the returning-user landing.",
+      "affectedAssertions": [
+        "VAL-CROSS-013"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "The authenticated starter-sheet-created segment of the cold-start flow could not be completed in the dedicated clean session because Google OAuth stopped at the identifier page without a reusable signed-in account available to continue.",
+      "affectedAssertions": [
+        "VAL-CROSS-011"
+      ],
+      "quickFixAttempted": "Clicked the visible Log in with Google CTA from the first-visit setup surface and attempted the available account-selection path, but the session still required a real credentialed sign-in that Exec mode could not finish."
+    }
+  ],
+  "summary": "Tested 4 assertions: 3 passed (VAL-CROSS-001, VAL-CROSS-003, VAL-CROSS-013) and 1 was blocked (VAL-CROSS-011) by the real Google-authenticated starter-sheet step in the clean validator session."
+}

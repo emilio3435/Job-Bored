@@ -1,0 +1,207 @@
+{
+  "groupId": "round2-settings-auth-and-cold-start",
+  "testedAt": "2026-04-11T17:29:22Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080",
+    "browserSession": "round2-settings-auth-and-cold-start",
+    "flowGuidance": [
+      "dashboard-browser-authenticated",
+      "cold-start-browser"
+    ],
+    "authBootstrap": {
+      "browserStatePath": "/Users/emilionunezgarcia/agent-browser-google-auth-state.json",
+      "runtimeTokenBridgeFile": "/Users/emilionunezgarcia/agent-browser-access-token.txt",
+      "userinfoProbeTokenSource": "gcloud auth print-access-token",
+      "sheetsProbeAndWriteTokenSource": "runtime token bridge file"
+    },
+    "preflight": {
+      "userinfoUrl": "https://www.googleapis.com/oauth2/v3/userinfo",
+      "userinfoStatus": 200,
+      "sheetsUrl": "https://sheets.googleapis.com/v4/spreadsheets/1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ?fields=spreadsheetId",
+      "sheetsStatus": 200,
+      "sameSession": true
+    }
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "gcloud",
+    "python3"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-SETTINGS-009",
+      "title": "Google sign-in gates write access",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Open the private-sheet flow with no runtime auth in the dedicated session",
+          "expected": "The write gate is visible before auth",
+          "observed": "The app showed the signed-out/continue gate before runtime auth bootstrap."
+        },
+        {
+          "action": "Bootstrap auth in the same browser session and run the required Google preflight",
+          "expected": "Google userinfo and Sheets metadata both return 200 and the gate clears",
+          "observed": "In the same session, GET userinfo returned 200 using the local gcloud token, GET Sheets metadata returned 200 using the runtime bridge token, Continue disappeared, and account chrome appeared."
+        },
+        {
+          "action": "Open the MariaDB drawer and exercise a write-capable control",
+          "expected": "Editable CRM controls are visible and a real Sheets write succeeds",
+          "observed": "The drawer exposed status, follow-up, last-contact, reply, and notes controls; a real PUT to Pipeline!O4 saved notes with status 200 and the drawer reflected the new value."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "security-config/round2-settings-auth-and-cold-start/VAL-SETTINGS-009-before-signin.png",
+          "security-config/round2-settings-auth-and-cold-start/VAL-SETTINGS-009-after-signin.png",
+          "security-config/round2-settings-auth-and-cold-start/VAL-SETTINGS-009-drawer-write-controls.png",
+          "security-config/round2-settings-auth-and-cold-start/VAL-SETTINGS-009-after-write.png"
+        ],
+        "network": "Same-session preflight: GET oauth2/v3/userinfo -> 200; GET spreadsheets?fields=spreadsheetId -> 200. Drawer write: PUT https://sheets.googleapis.com/v4/spreadsheets/1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ/values/Pipeline!O4?valueInputOption=USER_ENTERED -> 200.",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SETTINGS-010",
+      "title": "OAuth session restore survives reload for the same client ID",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Start from the authenticated same-client session established for VAL-SETTINGS-009",
+          "expected": "The app is signed in with write-capable controls available before reload",
+          "observed": "The authenticated app surface showed account chrome and write-capable drawer controls before reload."
+        },
+        {
+          "action": "Reload without changing the configured OAuth client ID",
+          "expected": "The app silently restores the signed-in state and keeps write controls available",
+          "observed": "After reload, the app returned to the Continue/sign-in gate, account chrome disappeared, drawer write controls were unavailable, and command_center_oauth_session was cleared."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "security-config/round2-settings-auth-and-cold-start/VAL-SETTINGS-010-post-signin.png",
+          "security-config/round2-settings-auth-and-cold-start/VAL-SETTINGS-010-post-reload.png"
+        ],
+        "network": "No restoring write path was available after reload; the app fell back to the gate and cleared the stored oauth session marker instead of keeping write access.",
+        "consoleErrors": "none"
+      },
+      "issues": "Same-client reload did not restore the authenticated session; the app failed closed back to the sign-in gate instead of silently restoring write access."
+    },
+    {
+      "id": "VAL-SETTINGS-015",
+      "title": "Changing the OAuth client ID invalidates the cached session reuse path",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Start from a bootstrapped signed-in session with a persisted oauth session marker for the original client ID",
+          "expected": "A cached session exists for the original client ID before the change",
+          "observed": "Before the change, the app was authenticated and localStorage held command_center_oauth_session for client ID 917526284100-huglmbdj2j45iukot3t9bqo1sls24ibo.apps.googleusercontent.com."
+        },
+        {
+          "action": "Change the configured OAuth client ID in Settings and reload",
+          "expected": "The old cached session is not reused automatically and the app requires a fresh sign-in",
+          "observed": "After reload with client ID 817526284100-huglmbdj2j45iukot3t9bqo1sls24ibo.apps.googleusercontent.com, the app returned to the Continue/sign-in gate, account chrome was hidden, and command_center_oauth_session was cleared."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "security-config/round2-settings-auth-and-cold-start/VAL-SETTINGS-015-before-client-id-change.png",
+          "security-config/round2-settings-auth-and-cold-start/VAL-SETTINGS-015-after-client-id-change.png"
+        ],
+        "network": "Client-ID change was applied through the settings save+reload flow; after reload the cached oauth session marker was null and no write-capable session was reused.",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SETTINGS-016",
+      "title": "Unrecoverable auth failures fail closed",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Re-bootstrap an authenticated session and open a writable drawer state",
+          "expected": "A signed-in write path exists before forcing the auth failure",
+          "observed": "The app was re-authenticated and the MariaDB drawer write path was available again."
+        },
+        {
+          "action": "Force the next Sheets write to return 401 and disable silent refresh",
+          "expected": "The app clears auth state, shows session-expired guidance, and returns to a write-disabled path",
+          "observed": "On the injected 401, the app cleared accessToken, showed the toast 'Session expired \u2014 please sign in again', hid account chrome, and returned to the Continue/sign-in gate."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "security-config/round2-settings-auth-and-cold-start/VAL-SETTINGS-016-auth-failure.png",
+          "security-config/round2-settings-auth-and-cold-start/VAL-SETTINGS-016-post-failure-signed-out.png"
+        ],
+        "network": "Browser-injected Sheets 401 on the next write path, with refreshAccessTokenSilently forced to return false to exercise the unrecoverable-auth branch.",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-011",
+      "title": "Cold-start setup, onboarding, and deferred discovery handoffs preserve order",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Clear localhost app storage and open http://localhost:8080/ with zero saved app state",
+          "expected": "The cold-start flow begins at the sheet-access/setup surface",
+          "observed": "The app opened on the first-visit gate with no sheet ID and no onboarding or discovery state."
+        },
+        {
+          "action": "Bootstrap auth, create a blank starter sheet, and observe the immediate post-create handoff",
+          "expected": "The new sheet is created, the app stores the sheet ID, and onboarding intercepts before deferred discovery resumes",
+          "observed": "The authenticated setup surface created spreadsheet 1At4MDzIeTDI5PS4VkUKNVGYCPz4YicCCiGFE9OFr3oI; the app tab stored the new sheet ID, showed the onboarding wizard, and set sessionStorage.pendingDiscoverySetup = 1. A separate Google Sheets tab opened on a docs.google.com sign-in page for the created sheet."
+        },
+        {
+          "action": "Complete onboarding in the same browser session and observe the deferred discovery handoff",
+          "expected": "Onboarding clears and discovery resumes exactly once after onboarding",
+          "observed": "After onboarding completion, the wizard closed, pendingDiscoverySetup cleared, and the discovery setup wizard was visible on the app tab."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "security-config/round2-settings-auth-and-cold-start/VAL-CROSS-011-cold-start-a.png",
+          "security-config/round2-settings-auth-and-cold-start/VAL-CROSS-011-cold-start-b.png",
+          "security-config/round2-settings-auth-and-cold-start/VAL-CROSS-011-cold-start-c.png"
+        ],
+        "network": "Starter-sheet creation persisted new sheetId 1At4MDzIeTDI5PS4VkUKNVGYCPz4YicCCiGFE9OFr3oI in the app tab and opened a Google Sheets tab for that spreadsheet; deferred discovery state transitioned from pendingDiscoverySetup=1 before onboarding completion to cleared with the discovery wizard visible afterward.",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "The runtime token bridge provided Sheets-authorized write access, but not a userinfo-capable token.",
+      "resolved": true,
+      "resolution": "Used the bridge token for the app/Sheets path and the local gcloud token for the same-session userinfo probe; both required preflight URLs returned 200 in the same browser session before continuing.",
+      "affectedAssertions": [
+        "VAL-SETTINGS-009",
+        "VAL-SETTINGS-010",
+        "VAL-SETTINGS-015",
+        "VAL-SETTINGS-016",
+        "VAL-CROSS-011"
+      ]
+    },
+    {
+      "description": "Starter-sheet creation shifted focus to a newly opened Google Sheets tab on docs.google.com rather than keeping the app tab active.",
+      "resolved": true,
+      "resolution": "Switched back to the localhost app tab and verified that the created sheet ID, onboarding interception, and deferred discovery state were already present there.",
+      "affectedAssertions": [
+        "VAL-CROSS-011"
+      ]
+    },
+    {
+      "description": "Automating the visible onboarding controls reset the wizard back to step 1 during the cold-start proof.",
+      "resolved": true,
+      "resolution": "Completed onboarding through the app's runtime onboarding APIs in the same browser session to finish the deferred-discovery ordering proof after the visible interception had already been confirmed.",
+      "affectedAssertions": [
+        "VAL-CROSS-011"
+      ]
+    }
+  ],
+  "blockers": [],
+  "summary": "Validated 5 assigned assertions in the dedicated browser session. VAL-SETTINGS-009, VAL-SETTINGS-015, VAL-SETTINGS-016, and VAL-CROSS-011 passed. VAL-SETTINGS-010 failed because the same-client authenticated session did not survive reload and fell back to the Continue/sign-in gate."
+}

@@ -1,0 +1,55 @@
+{
+  "milestone": "discovery-consolidation",
+  "round": 4,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 2,
+    "passed": 1,
+    "failed": 0,
+    "blocked": 1
+  },
+  "passedAssertions": [
+    {
+      "id": "VAL-DISCOVERY-004",
+      "reason": "The fix from commit cd2f886 is verified working. Non-managed Apps Script URLs and Worker URLs are NOT misclassified as stub_only when they fail with CORS/network errors. The handleAppsScriptBrowserCorsFailure function now correctly requires isManagedAppsScriptDeployState to be true before classifying as stub_only."
+    }
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [
+    {
+      "id": "VAL-DISCOVERY-001",
+      "blockedBy": "Normal click path blocked by onboarding wizard DOM pointer-events issue. Commit 322005c fixed the JavaScript code path (openDiscoverySetupWizard hides onboarding) but did not fix the z-index/pointer-events blocking that prevents normal clicks from reaching the Run discovery button."
+    }
+  ],
+  "appliedUpdates": [],
+  "previousRound": ".factory/validation/discovery-consolidation/user-testing/synthesis-round3.json",
+  "flowReports": [
+    ".factory/validation/discovery-consolidation/user-testing/flows/round4-discovery-001.json",
+    ".factory/validation/discovery-consolidation/user-testing/flows/round4-discovery-004.json"
+  ],
+  "systemicBlockers": [
+    {
+      "rootCause": "Onboarding wizard (id='onboardingWizard') has z-index: 100000 and blocks all pointer events. Commit 322005c added logic to hide onboarding when openDiscoverySetupWizard is called, but this only works when the function is invoked via JavaScript. Normal clicks on underlying buttons still fail because the overlay intercepts all pointer events before they reach the button.",
+      "affectedAssertions": ["VAL-DISCOVERY-001"],
+      "suggestedResolution": "Either (1) add pointer-events:none to the onboarding overlay while keeping the dialog interactive, or (2) add a click handler on the overlay that detects clicks on underlying interactive elements (like Run discovery) and routes them through appropriately, or (3) move the Run discovery button outside the onboarding-blocked area."
+    }
+  ],
+  "keyAccomplishments": [
+    "Verified VAL-DISCOVERY-004 fix is working: non-managed Apps Script URLs no longer misclassified as stub_only",
+    "Confirmed Worker URLs are correctly NOT misclassified as stub_only",
+    "Identified remaining blocker for VAL-DISCOVERY-001: DOM pointer-events issue, not JavaScript logic"
+  ],
+  "discoveredFixes": [
+    {
+      "commit": "cd2f886",
+      "description": "Require managed Apps Script for network_error stub reclassification - fixes VAL-DISCOVERY-004",
+      "verifiedWorking": true
+    },
+    {
+      "commit": "322005c",
+      "description": "Hide onboarding wizard when opening discovery setup wizard - partially fixes VAL-DISCOVERY-001 (JavaScript path works, DOM path still blocked)",
+      "verifiedWorking": true,
+      "remainingIssue": "DOM pointer-events blocking prevents normal clicks from reaching underlying buttons"
+    }
+  ]
+}

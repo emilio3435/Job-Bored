@@ -1,0 +1,79 @@
+{
+  "milestone": "security-config",
+  "round": 2,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 7,
+    "passed": 4,
+    "failed": 3,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    {
+      "id": "VAL-SETTINGS-009",
+      "reason": "Same-session preflight reached userinfo 200 and Sheets metadata 200, the signed-in drawer exposed write-capable CRM controls, and a real Sheets write to Pipeline!O4 returned 200."
+    },
+    {
+      "id": "VAL-SETTINGS-015",
+      "reason": "After the configured OAuth client ID changed, the cached oauth session marker was cleared and the app returned to the Continue/sign-in gate instead of silently reusing the old session."
+    },
+    {
+      "id": "VAL-SETTINGS-016",
+      "reason": "Forcing the next Sheets write to return 401 cleared auth state, showed a session-expired sign-in-again toast, hid account chrome, and returned the app to the write-disabled gate."
+    },
+    {
+      "id": "VAL-CROSS-011",
+      "reason": "From zero saved app state in an authenticated browser context, starter-sheet creation stored the new sheet ID, onboarding intercepted before deferred discovery resumed, and the discovery wizard reopened exactly once after onboarding completion."
+    }
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-SETTINGS-004",
+      "reason": "With no valid sheet ID and no usable OAuth bootstrap path, Save & reload still exited Settings and reloaded to the top-level access surface instead of keeping the Sheet tab open with remediation."
+    },
+    {
+      "id": "VAL-SETTINGS-007",
+      "reason": "Both discovery-focused entry points remained no-ops: the dashboard button and Settings \u2192 Discovery button left the URL unchanged and never opened a visible discovery setup surface."
+    },
+    {
+      "id": "VAL-SETTINGS-010",
+      "reason": "Reloading with the same OAuth client ID dropped back to the Continue/sign-in gate, removed account chrome, and cleared command_center_oauth_session instead of silently restoring write access."
+    }
+  ],
+  "blockedAssertions": [],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Updated authenticated rerun guidance to use the saved browser state path plus manual same-session userinfo 200 and Sheets 200 preflight, and documented that bridge-based write access may still need a gcloud-backed userinfo probe on this machine.",
+      "source": "flow-report"
+    }
+  ],
+  "previousRound": ".factory/validation/security-config/user-testing/synthesis-round1.json",
+  "flowReports": [
+    ".factory/validation/security-config/user-testing/flows/round2-settings-shell-and-save.json",
+    ".factory/validation/security-config/user-testing/flows/round2-settings-auth-and-cold-start.json"
+  ],
+  "systemicBlockers": [
+    {
+      "rootCause": "Same-client OAuth session restore still fails closed after reload. The authenticated state established in-session does not survive a page reload for the unchanged client ID.",
+      "affectedAssertions": [
+        "VAL-SETTINGS-010"
+      ],
+      "suggestedResolution": "Investigate why command_center_oauth_session is cleared on same-client reload and why the app falls back to the Continue/sign-in gate instead of silently restoring write access."
+    },
+    {
+      "rootCause": "The invalid-sheet save path still treats a broken configuration as a full-page reload target rather than an in-Settings validation error.",
+      "affectedAssertions": [
+        "VAL-SETTINGS-004"
+      ],
+      "suggestedResolution": "Keep Settings open on the Sheet tab when both sheet ID and OAuth bootstrap are invalid, and surface explicit remediation before any reload."
+    },
+    {
+      "rootCause": "Discovery-focused setup entry points still do not dispatch a visible setup surface from either dashboard or Settings.",
+      "affectedAssertions": [
+        "VAL-SETTINGS-007"
+      ],
+      "suggestedResolution": "Wire both discovery entry points to the actual discovery setup/wizard surface and verify they are not hidden behind a no-op state transition."
+    }
+  ]
+}

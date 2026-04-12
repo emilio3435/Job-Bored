@@ -34,6 +34,210 @@ const COMMAND_CENTER_CONFIG_OVERRIDE_KEY = "command_center_config_overrides";
 const DISCOVERY_TRANSPORT_SETUP_KEY =
   "command_center_discovery_transport_setup";
 const DISCOVERY_LOCAL_BOOTSTRAP_STATE_PATH = "discovery-local-bootstrap.json";
+const DISCOVERY_RUN_TRACKER_KEY = "command_center_discovery_run_state";
+
+// ============================================
+// RUN STATUS TRACKER
+// ============================================
+
+/**
+ * Browser-side state machine for async discovery run lifecycle.
+ * Persists run handle so refresh/reopen can recover tracking.
+ *
+ * Valid states and transitions:
+ *   idle -> pending   (triggerDiscoveryRun succeeds with accepted_async)
+ *   idle -> failed    (triggerDiscoveryRun fails at network level)
+ *   pending -> running (first poll returns non-terminal status)
+ *   pending -> failed  (polling fails with non-retryable error)
+ *   running -> completed (poll returns terminal:completed/empty)
+ *   running -> partial   (poll returns terminal:partial)
+ *   running -> failed    (poll returns terminal:failed)
+ *   running -> polling_error (retryable network error)
+ *   polling_error -> running (retry succeeds)
+ *   polling_error -> failed   (retries exhausted)
+ *
+ * A runId that has reached terminal state (completed/empty/partial/failed)
+ * is preserved in storage so refresh/reopen can still show the outcome.
+ */
+class DiscoveryRunTracker {
+  constructor(storageKey = DISCOVERY_RUN_TRACKER_KEY) {
+    this._key = storageKey;
+    this._state = this._load();
+  }
+
+  _load() {
+    try {
+      const raw = localStorage.getItem(this._key);
+      if (!raw) return this._idle();
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return this._idle();
+      // Re-hydrate with defaults for missing fields
+      return {
+        status: parsed.status || "idle",
+        runId: parsed.runId || "",
+        statusPath: parsed.statusPath || "",
+        pollAfterMs: parsed.pollAfterMs || 2000,
+        webhookUrl: parsed.webhookUrl || "",
+        initiatedAt: parsed.initiatedAt || "",
+        terminalAt: parsed.terminalAt || "",
+        terminalKind: parsed.terminalKind || "", // completed|empty|partial|failed
+        errorMessage: parsed.errorMessage || "",
+        pollErrorCount: parsed.pollErrorCount || 0,
+        lastPollAt: parsed.lastPollAt || "",
+      };
+    } catch (_) {
+      return this._idle();
+    }
+  }
+
+  _persist(state) {
+    try {
+      localStorage.setItem(this._key, JSON.stringify(state));
+    } catch (_) {
+      /* storage full or unavailable — run state is best-effort */
+    }
+  }
+
+  _idle() {
+    return {
+      status: "idle",
+      runId: "",
+      statusPath: "",
+      pollAfterMs: 2000,
+      webhookUrl: "",
+      initiatedAt: "",
+      terminalAt: "",
+      terminalKind: "",
+      errorMessage: "",
+      pollErrorCount: 0,
+      lastPollAt: "",
+    };
+  }
+
+  /** Current immutable snapshot for UI reads */
+  getState() {
+    return { ...this._state };
+  }
+
+  /**
+   * Begin tracking an async run that was accepted by the discovery worker.
+   * @param {object} options
+   * @param {string} options.runId
+   * @param {string} [options.statusPath]  e.g. "/runs/run_abc123"
+   * @param {number} [options.pollAfterMs] polling interval in ms (default 2000)
+   * @param {string} [options.webhookUrl]  the webhook URL for status polling
+   */
+  beginTracking({ runId, statusPath = "", pollAfterMs = 2000, webhookUrl = "" }) {
+    this._state = {
+      status: "pending",
+      runId: String(runId || "").trim(),
+      statusPath: String(statusPath || "").trim(),
+      pollAfterMs: Number.isFinite(pollAfterMs) ? pollAfterMs : 2000,
+      webhookUrl: String(webhookUrl || "").trim(),
+      initiatedAt: new Date().toISOString(),
+      terminalAt: "",
+      terminalKind: "",
+      errorMessage: "",
+      pollErrorCount: 0,
+      lastPollAt: "",
+    };
+    this._persist(this._state);
+    return this;
+  }
+
+  /** Transition from pending → running on first poll confirmation */
+  markRunning() {
+    if (this._state.status !== "pending") return this;
+    this._state.status = "running";
+    this._persist(this._state);
+    return this;
+  }
+
+  /**
+   * Called on each poll response.
+   * @param {object} statusData  parsed /runs/{runId} JSON body
+   */
+  updateFromStatusResponse(statusData) {
+    if (!statusData || typeof statusData !== "object") return this;
+    this._state.lastPollAt = new Date().toISOString();
+    const isTerminal = !!statusData.terminal;
+    const runStatus = String(statusData.status || "").toLowerCase();
+    if (isTerminal) {
+      this._state.status = runStatus; // completed | empty | partial | failed
+      this._state.terminalAt = new Date().toISOString();
+      this._state.terminalKind = runStatus;
+      this._state.errorMessage = String(statusData.error || statusData.message || "");
+      this._persist(this._state);
+      return this;
+    }
+    // Non-terminal: ensure we're in running, not stuck in pending
+    if (this._state.status === "pending") {
+      this._state.status = "running";
+    }
+    this._state.pollErrorCount = 0; // reset on successful poll
+    this._persist(this._state);
+    return this;
+  }
+
+  /** Called when polling itself fails (network error, timeout, non-2xx). */
+  markPollError(errorMessage = "") {
+    this._state.pollErrorCount = (this._state.pollErrorCount || 0) + 1;
+    this._state.lastPollAt = new Date().toISOString();
+    this._state.errorMessage = String(errorMessage || "Polling failed");
+    // Transition to polling_error state if we've been in running/pending
+    if (this._state.status === "running" || this._state.status === "pending") {
+      this._state.status = "polling_error";
+    }
+    this._persist(this._state);
+    return this;
+  }
+
+  /** Retry after polling error — back to running if we have a runId */
+  resumeFromPollError() {
+    if (this._state.status !== "polling_error") return this;
+    this._state.status = this._state.runId ? "running" : "idle";
+    this._state.pollErrorCount = 0;
+    this._persist(this._state);
+    return this;
+  }
+
+  /** Mark the run as failed with an explicit error message (non-poll-error path). */
+  markFailed(errorMessage = "") {
+    this._state.status = "failed";
+    this._state.terminalAt = new Date().toISOString();
+    this._state.terminalKind = "failed";
+    this._state.errorMessage = String(errorMessage || "Run failed");
+    this._persist(this._state);
+    return this;
+  }
+
+  /** Clear any active run — used after user explicitly dismisses or run is stale. */
+  clear() {
+    this._state = this._idle();
+    try {
+      localStorage.removeItem(this._key);
+    } catch (_) {}
+    return this;
+  }
+
+  /** True when there is an in-progress run that should show UI feedback. */
+  isActive() {
+    return ["pending", "running", "polling_error"].includes(this._state.status);
+  }
+
+  /** True when the run has reached a terminal state (completed/empty/partial/failed). */
+  isTerminal() {
+    return ["completed", "empty", "partial", "failed"].includes(this._state.status);
+  }
+
+  /** True when status polling is in an error state that might recover. */
+  isPollingError() {
+    return this._state.status === "polling_error";
+  }
+}
+
+/** Shared singleton — initialized once at module load */
+const discoveryRunTracker = new DiscoveryRunTracker();
 
 const COMMAND_CENTER_OVERRIDE_KEYS = [
   "sheetId",
@@ -4710,7 +4914,235 @@ async function requestDiscoverySetup(options = {}) {
   return { deferred: false };
 }
 
-async function handleDiscoverySetupDeepLink() {
+// ============================================
+// DISCOVERY RUN STATUS POLLING
+// ============================================
+
+const MAX_POLL_ERRORS = 3;
+const STATUS_POLL_DEBOUNCE_MS = 500;
+
+/**
+ * Build the full status URL from a relative statusPath.
+ * Handles explicit statusPath or constructs from runId + base webhook URL.
+ * @param {string} statusPath  e.g. "/runs/run_abc" or "/runs/run_abc?worker=local"
+ * @param {string} webhookUrl  the configured discovery webhook base URL
+ * @returns {string}  fully qualified status fetch URL
+ */
+function buildRunStatusUrl(statusPath, webhookUrl) {
+  const path = String(statusPath || "").trim();
+  if (!path) return "";
+  try {
+    if (path.startsWith("http://") || path.startsWith("https://")) {
+      return path;
+    }
+    // Relative — resolve against webhook URL
+    const base = String(webhookUrl || "").replace(/\/+$/, "");
+    if (!base) return "";
+    return base + path;
+  } catch (_) {
+    return "";
+  }
+}
+
+/**
+ * Fetch and process a single status poll for the active run.
+ * Returns the parsed status body or null on error.
+ * @param {string} webhookUrl
+ * @returns {Promise<object|null>}
+ */
+async function pollRunStatus(webhookUrl) {
+  const tracker = discoveryRunTracker;
+  const state = tracker.getState();
+  if (!state.runId || !state.statusPath) return null;
+
+  const statusUrl = buildRunStatusUrl(state.statusPath, webhookUrl);
+  if (!statusUrl) return null;
+
+  let response;
+  try {
+    response = await fetch(statusUrl, {
+      method: "GET",
+      mode: "cors",
+      headers: { Accept: "application/json" },
+    });
+  } catch (err) {
+    tracker.markPollError(
+      `Network error fetching status: ${err && err.message ? err.message : String(err)}`,
+    );
+    return null;
+  }
+
+  if (!response.ok) {
+    tracker.markPollError(
+      `Status endpoint returned HTTP ${response.status}`,
+    );
+    return null;
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch (_) {
+    tracker.markPollError("Status response was not valid JSON");
+    return null;
+  }
+
+  return data;
+}
+
+/**
+ * Main polling loop — call once after an accepted_async response.
+ * Automatically stops when the run reaches a terminal state or polling errors exceed limit.
+ *
+ * @param {string} webhookUrl  discovery webhook URL (used to resolve relative statusPath)
+ */
+async function startDiscoveryStatusPolling(webhookUrl) {
+  const tracker = discoveryRunTracker;
+
+  // Cancel any in-flight polling session before starting fresh
+  if (tracker._pollTimer) {
+    clearTimeout(tracker._pollTimer);
+    tracker._pollTimer = null;
+  }
+
+  async function poll() {
+    const state = tracker.getState();
+
+    // If we've reached terminal or been cleared, stop
+    if (!state.runId || state.status === "idle") {
+      return;
+    }
+
+    const statusData = await pollRunStatus(webhookUrl);
+    if (statusData) {
+      tracker.updateFromStatusResponse(statusData);
+    }
+
+    const updated = tracker.getState();
+
+    if (updated.status === "polling_error") {
+      if (updated.pollErrorCount >= MAX_POLL_ERRORS) {
+        // Exhausted retries — surface error and stop
+        tracker.markFailed(
+          "Status polling failed after multiple attempts. Check the discovery worker logs.",
+        );
+        renderDiscoveryRunStatus();
+        return;
+      }
+      // Exponential-ish back-off: 1s, 2s, 4s
+      const backoff = Math.min(4000, 500 * Math.pow(2, updated.pollErrorCount));
+      tracker._pollTimer = setTimeout(poll, backoff);
+      return;
+    }
+
+    if (updated.isTerminal()) {
+      renderDiscoveryRunStatus();
+      return;
+    }
+
+    // Normal: wait pollAfterMs then poll again
+    const interval = Number.isFinite(updated.pollAfterMs)
+      ? Math.max(STATUS_POLL_DEBOUNCE_MS, updated.pollAfterMs)
+      : 2000;
+    tracker._pollTimer = setTimeout(poll, interval);
+  }
+
+  // Kick off the first poll after the advertised pollAfterMs
+  const state = tracker.getState();
+  const firstDelay = Math.max(
+    STATUS_POLL_DEBOUNCE_MS,
+    Number.isFinite(state.pollAfterMs) ? state.pollAfterMs : 2000,
+  );
+  tracker._pollTimer = setTimeout(poll, firstDelay);
+}
+
+/** Stop any active polling loop without clearing run state */
+function stopDiscoveryStatusPolling() {
+  if (discoveryRunTracker._pollTimer) {
+    clearTimeout(discoveryRunTracker._pollTimer);
+    discoveryRunTracker._pollTimer = null;
+  }
+}
+
+/**
+ * Render current run status into the discovery status bar (toast area / status chip).
+ * Called after every tracker state change so the user sees live progress.
+ */
+function renderDiscoveryRunStatus() {
+  const state = discoveryRunTracker.getState();
+  const openBtn = document.getElementById("discoveryBtn");
+
+  if (state.status === "idle") {
+    if (openBtn) {
+      openBtn.classList.remove("loading", "run-pending", "run-running", "run-terminal");
+      openBtn.removeAttribute("aria-label");
+    }
+    return;
+  }
+
+  // Apply CSS class for visual state on the button
+  if (openBtn) {
+    openBtn.classList.add("run-" + state.status);
+    openBtn.classList.remove("loading");
+  }
+
+  // Build status message
+  let statusMessage = "";
+  let statusTone = "info";
+
+  switch (state.status) {
+    case "pending":
+      statusMessage = `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} accepted — checking status…`;
+      statusTone = "info";
+      break;
+    case "running":
+      statusMessage = `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} in progress…`;
+      statusTone = "info";
+      break;
+    case "polling_error":
+      statusMessage = `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} — retrying…`;
+      statusTone = "warning";
+      break;
+    case "completed":
+      statusMessage = "Discovery complete — new roles will appear in your sheet.";
+      statusTone = "success";
+      break;
+    case "empty":
+      statusMessage = "Discovery finished — no new roles found this run.";
+      statusTone = "info";
+      break;
+    case "partial":
+      statusMessage =
+        "Discovery finished with partial results. " +
+        (state.errorMessage ? state.errorMessage + ". " : "") +
+        "Check the worker logs for details.";
+      statusTone = "warning";
+      break;
+    case "failed":
+      statusMessage =
+        "Discovery run failed. " +
+        (state.errorMessage ? state.errorMessage : "Check the worker logs.");
+      statusTone = "error";
+      break;
+    default:
+      statusMessage = "";
+  }
+
+  if (openBtn && statusMessage) {
+    openBtn.setAttribute("aria-label", statusMessage);
+    // Also surface in a toast for non-terminal states
+    if (state.status !== "idle") {
+      // Use a transient toast (non-blocking) for live updates
+      showToast(statusMessage, statusTone, false);
+    }
+  }
+}
+
+// ============================================
+// DISCOVERY SETUP WIZARD
+// ============================================
+
+async function handleDiscoveryWizardVerification(url, context) {
   const params = new URLSearchParams(window.location.search);
   if (params.get("setup") !== "discovery") return false;
   await requestDiscoverySetup({
@@ -7632,6 +8064,25 @@ async function triggerDiscoveryRun() {
       }
       await refreshDiscoveryReadinessSnapshot({ force: true, rerender: false });
       showDiscoveryVerificationToast(result, { context: "run_discovery" });
+
+      // Extract run tracking metadata from accepted_async responses and start polling
+      if (result.kind === "accepted_async" && result.runId) {
+        const webhookUrl = String(hook || "").trim();
+        // statusPath may come from the response body directly when the verifier
+        // parses the raw JSON and attaches it to the result object.
+        const statusPath = String(result.statusPath || result.status_path || "").trim();
+        discoveryRunTracker.beginTracking({
+          runId: result.runId,
+          statusPath,
+          pollAfterMs: Number.isFinite(result.pollAfterMs) ? result.pollAfterMs : 2000,
+          webhookUrl,
+        });
+        // Show initial pending feedback immediately
+        renderDiscoveryRunStatus();
+        // Start async polling — will update tracker state on each response
+        void startDiscoveryStatusPolling(webhookUrl);
+      }
+
       return { ok: true, kind: result.kind };
     }
     if (
