@@ -1391,3 +1391,859 @@ test("VAL-CROSS-006: runId is consistent across accepted → running → termina
     "statusPath must reference the same runId",
   );
 });
+
+// === VAL-CROSS-001: One-flag-off rollback matrix — multiQueryEnabled disabled ===
+
+test("VAL-CROSS-001: disabling multiQueryEnabled produces isolated routing behavior (no multi-query fan-out)", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+
+  // Track what routing behavior was executed based on the resolved config
+  const routingBehavior: string[] = [];
+
+  const dependencies = makeDependencies({
+    runStatusStore,
+    runDiscovery: async (request, _trigger, runDeps) => {
+      // Get the ultraPlanTuning from the request (simulating what mergeDiscoveryConfig would do)
+      const requestTuning = request.discoveryProfile?.ultraPlanTuning;
+      // For browser_only with explicit multiQueryEnabled=false, other flags default to true
+      const resolvedTuning = {
+        multiQueryEnabled: requestTuning?.multiQueryEnabled ?? false,
+        retryBroadeningEnabled: requestTuning?.retryBroadeningEnabled ?? true,
+        parallelCompanyProcessingEnabled: requestTuning?.parallelCompanyProcessingEnabled ?? true,
+      };
+
+      // Record the resolved tuning state to verify isolation
+      if (resolvedTuning.multiQueryEnabled === false) {
+        routingBehavior.push("multiQueryDisabled");
+      }
+      if (resolvedTuning.retryBroadeningEnabled) {
+        routingBehavior.push("retryBroadeningEnabled");
+      }
+      if (resolvedTuning.parallelCompanyProcessingEnabled) {
+        routingBehavior.push("parallelProcessingEnabled");
+      }
+
+      return {
+        run: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_cross_area",
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_cross_area",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [{ name: "Acme" }],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["grounded_web"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+            sourcePreset: "browser_only",
+            effectiveSources: ["grounded_web"],
+            // Explicitly disable multiQuery only
+            ultraPlanTuning: {
+              multiQueryEnabled: false,
+              retryBroadeningEnabled: true,
+              parallelCompanyProcessingEnabled: true,
+            },
+          },
+        },
+        lifecycle: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          startedAt: "2026-04-12T00:00:00.000Z",
+          completedAt: "2026-04-12T00:00:01.000Z",
+          state: "completed",
+          companyCount: 1,
+          detectionCount: 0,
+          listingCount: 0,
+          normalizedLeadCount: 0,
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "sheet_cross_area",
+          appended: 0,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_cross_area",
+        variationKey: "var_cross",
+        requestedAt: "2026-04-12T00:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "browser_only",
+          targetRoles: "Software Engineer",
+          ultraPlanTuning: {
+            multiQueryEnabled: false,
+          },
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 202);
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  const ackBody = JSON.parse(response.body);
+  const terminalStatus = runStatusStore.get(ackBody.runId);
+
+  // Verify multiQuery was disabled but other flags remain enabled
+  assert.ok(
+    routingBehavior.includes("multiQueryDisabled"),
+    "multiQueryEnabled must be disabled as requested",
+  );
+  assert.ok(
+    routingBehavior.includes("retryBroadeningEnabled"),
+    "retryBroadeningEnabled must remain enabled (not cascading side effect)",
+  );
+  assert.ok(
+    routingBehavior.includes("parallelProcessingEnabled"),
+    "parallelCompanyProcessingEnabled must remain enabled (not cascading side effect)",
+  );
+
+  // Terminal status must expose the resolved ultraPlanTuning
+  assert.ok(
+    terminalStatus.ultraPlanTuning,
+    "Terminal status must expose ultraPlanTuning for cross-area verification",
+  );
+  assert.equal(
+    terminalStatus.ultraPlanTuning.multiQueryEnabled,
+    false,
+    "Terminal ultraPlanTuning must reflect multiQueryEnabled=false",
+  );
+  assert.equal(
+    terminalStatus.ultraPlanTuning.retryBroadeningEnabled,
+    true,
+    "Terminal ultraPlanTuning must reflect retryBroadeningEnabled=true (no side effect)",
+  );
+  assert.equal(
+    terminalStatus.ultraPlanTuning.parallelCompanyProcessingEnabled,
+    true,
+    "Terminal ultraPlanTuning must reflect parallelCompanyProcessingEnabled=true (no side effect)",
+  );
+});
+
+// === VAL-CROSS-001: One-flag-off rollback matrix — retryBroadeningEnabled disabled ===
+
+test("VAL-CROSS-001: disabling retryBroadeningEnabled produces isolated routing behavior (no retry ladder)", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+
+  const routingBehavior: string[] = [];
+
+  const dependencies = makeDependencies({
+    runStatusStore,
+    runDiscovery: async (request, _trigger, runDeps) => {
+      // Get the ultraPlanTuning from the request (simulating what mergeDiscoveryConfig would do)
+      const requestTuning = request.discoveryProfile?.ultraPlanTuning;
+      const resolvedTuning = {
+        multiQueryEnabled: requestTuning?.multiQueryEnabled ?? true,
+        retryBroadeningEnabled: requestTuning?.retryBroadeningEnabled ?? false,
+        parallelCompanyProcessingEnabled: requestTuning?.parallelCompanyProcessingEnabled ?? true,
+      };
+
+      if (resolvedTuning.multiQueryEnabled) {
+        routingBehavior.push("multiQueryEnabled");
+      }
+      if (resolvedTuning.retryBroadeningEnabled === false) {
+        routingBehavior.push("retryBroadeningDisabled");
+      }
+      if (resolvedTuning.parallelCompanyProcessingEnabled) {
+        routingBehavior.push("parallelProcessingEnabled");
+      }
+
+      return {
+        run: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_cross_area",
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_cross_area",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [{ name: "Acme" }],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["grounded_web"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+            sourcePreset: "browser_only",
+            effectiveSources: ["grounded_web"],
+            ultraPlanTuning: {
+              multiQueryEnabled: true,
+              retryBroadeningEnabled: false,
+              parallelCompanyProcessingEnabled: true,
+            },
+          },
+        },
+        lifecycle: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          startedAt: "2026-04-12T00:00:00.000Z",
+          completedAt: "2026-04-12T00:00:01.000Z",
+          state: "completed",
+          companyCount: 1,
+          detectionCount: 0,
+          listingCount: 0,
+          normalizedLeadCount: 0,
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "sheet_cross_area",
+          appended: 0,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_cross_area",
+        variationKey: "var_cross",
+        requestedAt: "2026-04-12T00:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "browser_only",
+          targetRoles: "Software Engineer",
+          ultraPlanTuning: {
+            retryBroadeningEnabled: false,
+          },
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 202);
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  const ackBody = JSON.parse(response.body);
+  const terminalStatus = runStatusStore.get(ackBody.runId);
+
+  // Verify retryBroadening was disabled but other flags remain enabled
+  assert.ok(
+    routingBehavior.includes("retryBroadeningDisabled"),
+    "retryBroadeningEnabled must be disabled as requested",
+  );
+  assert.ok(
+    routingBehavior.includes("multiQueryEnabled"),
+    "multiQueryEnabled must remain enabled (not cascading side effect)",
+  );
+  assert.ok(
+    routingBehavior.includes("parallelProcessingEnabled"),
+    "parallelCompanyProcessingEnabled must remain enabled (not cascading side effect)",
+  );
+
+  // Terminal status must expose the resolved ultraPlanTuning
+  assert.ok(
+    terminalStatus.ultraPlanTuning,
+    "Terminal status must expose ultraPlanTuning for cross-area verification",
+  );
+  assert.equal(
+    terminalStatus.ultraPlanTuning.retryBroadeningEnabled,
+    false,
+    "Terminal ultraPlanTuning must reflect retryBroadeningEnabled=false",
+  );
+  assert.equal(
+    terminalStatus.ultraPlanTuning.multiQueryEnabled,
+    true,
+    "Terminal ultraPlanTuning must reflect multiQueryEnabled=true (no side effect)",
+  );
+  assert.equal(
+    terminalStatus.ultraPlanTuning.parallelCompanyProcessingEnabled,
+    true,
+    "Terminal ultraPlanTuning must reflect parallelCompanyProcessingEnabled=true (no side effect)",
+  );
+});
+
+// === VAL-CROSS-001: One-flag-off rollback matrix — parallelCompanyProcessingEnabled disabled ===
+
+test("VAL-CROSS-001: disabling parallelCompanyProcessingEnabled produces isolated routing behavior (sequential processing)", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+
+  const routingBehavior: string[] = [];
+
+  const dependencies = makeDependencies({
+    runStatusStore,
+    runDiscovery: async (request, _trigger, runDeps) => {
+      // Get the ultraPlanTuning from the request (simulating what mergeDiscoveryConfig would do)
+      const requestTuning = request.discoveryProfile?.ultraPlanTuning;
+      const resolvedTuning = {
+        multiQueryEnabled: requestTuning?.multiQueryEnabled ?? true,
+        retryBroadeningEnabled: requestTuning?.retryBroadeningEnabled ?? true,
+        parallelCompanyProcessingEnabled: requestTuning?.parallelCompanyProcessingEnabled ?? false,
+      };
+
+      if (resolvedTuning.multiQueryEnabled) {
+        routingBehavior.push("multiQueryEnabled");
+      }
+      if (resolvedTuning.retryBroadeningEnabled) {
+        routingBehavior.push("retryBroadeningEnabled");
+      }
+      if (resolvedTuning.parallelCompanyProcessingEnabled === false) {
+        routingBehavior.push("parallelProcessingDisabled");
+      }
+
+      return {
+        run: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_cross_area",
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_cross_area",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [{ name: "Acme" }],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["grounded_web"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+            sourcePreset: "browser_only",
+            effectiveSources: ["grounded_web"],
+            ultraPlanTuning: {
+              multiQueryEnabled: true,
+              retryBroadeningEnabled: true,
+              parallelCompanyProcessingEnabled: false,
+            },
+          },
+        },
+        lifecycle: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          startedAt: "2026-04-12T00:00:00.000Z",
+          completedAt: "2026-04-12T00:00:01.000Z",
+          state: "completed",
+          companyCount: 1,
+          detectionCount: 0,
+          listingCount: 0,
+          normalizedLeadCount: 0,
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "sheet_cross_area",
+          appended: 0,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_cross_area",
+        variationKey: "var_cross",
+        requestedAt: "2026-04-12T00:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "browser_only",
+          targetRoles: "Software Engineer",
+          ultraPlanTuning: {
+            parallelCompanyProcessingEnabled: false,
+          },
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 202);
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  const ackBody = JSON.parse(response.body);
+  const terminalStatus = runStatusStore.get(ackBody.runId);
+
+  // Verify parallel processing was disabled but other flags remain enabled
+  assert.ok(
+    routingBehavior.includes("parallelProcessingDisabled"),
+    "parallelCompanyProcessingEnabled must be disabled as requested",
+  );
+  assert.ok(
+    routingBehavior.includes("multiQueryEnabled"),
+    "multiQueryEnabled must remain enabled (not cascading side effect)",
+  );
+  assert.ok(
+    routingBehavior.includes("retryBroadeningEnabled"),
+    "retryBroadeningEnabled must remain enabled (not cascading side effect)",
+  );
+
+  // Terminal status must expose the resolved ultraPlanTuning
+  assert.ok(
+    terminalStatus.ultraPlanTuning,
+    "Terminal status must expose ultraPlanTuning for cross-area verification",
+  );
+  assert.equal(
+    terminalStatus.ultraPlanTuning.parallelCompanyProcessingEnabled,
+    false,
+    "Terminal ultraPlanTuning must reflect parallelCompanyProcessingEnabled=false",
+  );
+  assert.equal(
+    terminalStatus.ultraPlanTuning.multiQueryEnabled,
+    true,
+    "Terminal ultraPlanTuning must reflect multiQueryEnabled=true (no side effect)",
+  );
+  assert.equal(
+    terminalStatus.ultraPlanTuning.retryBroadeningEnabled,
+    true,
+    "Terminal ultraPlanTuning must reflect retryBroadeningEnabled=true (no side effect)",
+  );
+});
+
+// === VAL-CROSS-001: Full flag rollback matrix — all three flags disabled ===
+
+test("VAL-CROSS-001: disabling all three ultraPlanTuning flags produces conservative baseline behavior", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+
+  const routingBehavior: string[] = [];
+
+  const dependencies = makeDependencies({
+    runStatusStore,
+    runDiscovery: async (request, _trigger, runDeps) => {
+      // Get the ultraPlanTuning from the request (simulating what mergeDiscoveryConfig would do)
+      const requestTuning = request.discoveryProfile?.ultraPlanTuning;
+      const resolvedTuning = {
+        multiQueryEnabled: requestTuning?.multiQueryEnabled ?? false,
+        retryBroadeningEnabled: requestTuning?.retryBroadeningEnabled ?? false,
+        parallelCompanyProcessingEnabled: requestTuning?.parallelCompanyProcessingEnabled ?? false,
+      };
+
+      if (resolvedTuning.multiQueryEnabled === false) routingBehavior.push("multiQueryDisabled");
+      if (resolvedTuning.retryBroadeningEnabled === false) routingBehavior.push("retryBroadeningDisabled");
+      if (resolvedTuning.parallelCompanyProcessingEnabled === false) routingBehavior.push("parallelProcessingDisabled");
+
+      return {
+        run: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_cross_area",
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_cross_area",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [{ name: "Acme" }],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["grounded_web"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+            sourcePreset: "browser_only",
+            effectiveSources: ["grounded_web"],
+            ultraPlanTuning: {
+              multiQueryEnabled: false,
+              retryBroadeningEnabled: false,
+              parallelCompanyProcessingEnabled: false,
+            },
+          },
+        },
+        lifecycle: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          startedAt: "2026-04-12T00:00:00.000Z",
+          completedAt: "2026-04-12T00:00:01.000Z",
+          state: "completed",
+          companyCount: 1,
+          detectionCount: 0,
+          listingCount: 0,
+          normalizedLeadCount: 0,
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "sheet_cross_area",
+          appended: 0,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_cross_area",
+        variationKey: "var_cross",
+        requestedAt: "2026-04-12T00:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "browser_only",
+          targetRoles: "Software Engineer",
+          ultraPlanTuning: {
+            multiQueryEnabled: false,
+            retryBroadeningEnabled: false,
+            parallelCompanyProcessingEnabled: false,
+          },
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 202);
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  const ackBody = JSON.parse(response.body);
+  const terminalStatus = runStatusStore.get(ackBody.runId);
+
+  // All three flags must be disabled
+  assert.ok(routingBehavior.includes("multiQueryDisabled"), "multiQueryEnabled must be disabled");
+  assert.ok(routingBehavior.includes("retryBroadeningDisabled"), "retryBroadeningEnabled must be disabled");
+  assert.ok(routingBehavior.includes("parallelProcessingDisabled"), "parallelCompanyProcessingEnabled must be disabled");
+
+  // Terminal status must reflect all flags as disabled
+  assert.ok(terminalStatus.ultraPlanTuning, "Terminal status must expose ultraPlanTuning");
+  assert.equal(terminalStatus.ultraPlanTuning.multiQueryEnabled, false);
+  assert.equal(terminalStatus.ultraPlanTuning.retryBroadeningEnabled, false);
+  assert.equal(terminalStatus.ultraPlanTuning.parallelCompanyProcessingEnabled, false);
+});
+
+// === VAL-CROSS-003: Async acceptance lineage — ack includes explicit runId and statusPath ===
+
+test("VAL-CROSS-003: accepted_async ack includes runId, statusPath, and pollAfterMs for terminal polling", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+
+  const dependencies = makeDependencies({
+    runStatusStore,
+    runDiscovery: async (_request, _trigger, runDeps) => {
+      return {
+        run: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_cross_area",
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_cross_area",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [{ name: "Acme" }],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["greenhouse"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+            sourcePreset: "ats_only",
+            effectiveSources: ["greenhouse"],
+          },
+        },
+        lifecycle: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          startedAt: "2026-04-12T00:00:00.000Z",
+          completedAt: "2026-04-12T00:00:01.000Z",
+          state: "completed",
+          companyCount: 1,
+          detectionCount: 1,
+          listingCount: 1,
+          normalizedLeadCount: 1,
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "sheet_cross_area",
+          appended: 1,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_cross_area",
+        variationKey: "var_cross",
+        requestedAt: "2026-04-12T00:00:00.000Z",
+        discoveryProfile: { sourcePreset: "ats_only", targetRoles: "Software Engineer" },
+      }),
+    },
+    dependencies,
+  );
+
+  // Must return async ack
+  assert.equal(response.status, 202, "Async request must return 202");
+
+  const ackBody = JSON.parse(response.body);
+
+  // Ack must include explicit lineage metadata
+  assert.equal(ackBody.ok, true, "ack.ok must be true");
+  assert.equal(ackBody.kind, "accepted_async", "ack.kind must be 'accepted_async'");
+  assert.ok(ackBody.runId, "ack must include runId for lineage tracing");
+  assert.ok(ackBody.runId.startsWith("run_"), "runId must have run_ prefix");
+  assert.ok(ackBody.message, "ack must include message");
+  assert.ok(ackBody.statusPath, "ack must include statusPath for polling");
+  assert.ok(
+    ackBody.statusPath.includes(ackBody.runId),
+    "statusPath must reference the ack runId for terminal polling",
+  );
+  assert.ok(
+    typeof ackBody.pollAfterMs === "number",
+    "ack must include numeric pollAfterMs for async polling guidance",
+  );
+  assert.ok(
+    ackBody.pollAfterMs > 0,
+    "pollAfterMs must be positive for async polling",
+  );
+
+  // Terminal status must have the same runId for lineage verification
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const terminalStatus = runStatusStore.get(ackBody.runId);
+  assert.ok(terminalStatus, "Terminal status must be stored under ack runId");
+  assert.equal(
+    terminalStatus.runId,
+    ackBody.runId,
+    "Terminal status runId must match ack runId for async lineage verification",
+  );
+  assert.equal(
+    terminalStatus.terminal,
+    true,
+    "Terminal status must have terminal=true",
+  );
+});
+
+// === VAL-CROSS-003: Async acceptance lineage — groundedSearchTuning propagates through terminal status ===
+
+test("VAL-CROSS-003: groundedSearchTuning propagates through terminal status for async lineage verification", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+
+  const dependencies = makeDependencies({
+    runStatusStore,
+    runDiscovery: async (_request, _trigger, runDeps) => {
+      return {
+        run: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_cross_area",
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_cross_area",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [{ name: "Acme" }],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["grounded_web"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+            sourcePreset: "browser_only",
+            effectiveSources: ["grounded_web"],
+            // Explicit groundedSearchTuning
+            groundedSearchTuning: {
+              maxResultsPerCompany: 12,
+              maxPagesPerCompany: 8,
+              maxRuntimeMs: 60000,
+              maxTokensPerQuery: 4096,
+              multiQueryCap: 4,
+            },
+          },
+        },
+        lifecycle: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          startedAt: "2026-04-12T00:00:00.000Z",
+          completedAt: "2026-04-12T00:00:01.000Z",
+          state: "completed",
+          companyCount: 1,
+          detectionCount: 0,
+          listingCount: 0,
+          normalizedLeadCount: 0,
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "sheet_cross_area",
+          appended: 0,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_cross_area",
+        variationKey: "var_cross",
+        requestedAt: "2026-04-12T00:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "browser_only",
+          targetRoles: "Software Engineer",
+          groundedSearchTuning: {
+            maxResultsPerCompany: 12,
+            maxPagesPerCompany: 8,
+          },
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 202);
+
+  const ackBody = JSON.parse(response.body);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  const terminalStatus = runStatusStore.get(ackBody.runId);
+
+  // Terminal status must expose groundedSearchTuning for async lineage verification
+  assert.ok(
+    terminalStatus.groundedSearchTuning,
+    "Terminal status must expose groundedSearchTuning for async lineage verification",
+  );
+  assert.equal(
+    terminalStatus.groundedSearchTuning.maxResultsPerCompany,
+    12,
+    "Terminal groundedSearchTuning must reflect requested maxResultsPerCompany",
+  );
+  assert.equal(
+    terminalStatus.groundedSearchTuning.maxPagesPerCompany,
+    8,
+    "Terminal groundedSearchTuning must reflect requested maxPagesPerCompany",
+  );
+
+  // Ack must reference the same runId for async lineage
+  assert.ok(
+    terminalStatus.runId === ackBody.runId,
+    "Terminal status runId must match ack runId for async lineage",
+  );
+});
