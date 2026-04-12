@@ -1,0 +1,30 @@
+{
+  "milestone": "modifier-driven-grounded-query-followup",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 2,
+    "passed": 2,
+    "failed": 0,
+    "blocked": 0,
+    "untested": 0
+  },
+  "passedAssertions": [
+    "VAL-ROUTE-010",
+    "VAL-ROUTE-011"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "skippedAssertions": [
+    {
+      "id": "VAL-ROUTE-010",
+      "reason": "Already passed in validation-state.json from prior milestone validation (unit test evidence)"
+    },
+    {
+      "id": "VAL-ROUTE-011",
+      "reason": "Already passed in validation-state.json from prior milestone validation (unit test evidence)"
+    }
+  ],
+  "appliedUpdates": [],
+  "notes": "Both VAL-ROUTE-010 and VAL-ROUTE-011 were validated in a previous milestone round and marked as passed in validation-state.json. These assertions cover modifier-driven grounded query composition: VAL-ROUTE-010 verifies query evidence uses intent modifiers without placeholder company artifacts, and VAL-ROUTE-011 verifies no misleading missing-company warnings are emitted when valid modifier intent is present. No pending assertions remain for this milestone."
+}
