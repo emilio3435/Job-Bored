@@ -36,12 +36,14 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - Run intent is request-authoritative: preset and discovery-intent fields must be explicit in request payload.
 - No silent stored-profile fallback for omitted run-intent fields.
 - Resolves the effective lane set for a run from explicit preset + enabled source set.
+- Supports unrestricted company scope (empty company list) without hard preflight rejection.
 
 ### 4) Discovery execution router
 - Runs only the source families selected by the resolved preset.
 - Emits per-source outcomes and lane-level warnings.
 - Must provide explicit non-execution evidence for excluded lanes.
 - Non-execution evidence is structured and measurable (stage-level detect/list invocation counters or equivalent skip telemetry).
+- In unrestricted mode, discovery is not pinned to preconfigured company targets and must preserve truthful source attribution under all presets.
 
 ### 5) Run status + observability surface
 - `/health` reports readiness causes (browser runtime, Gemini, Sheets credentials).
@@ -73,6 +75,7 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - Source preset is authoritative for lane execution.
 - Omitted/blank run-intent fields are rejected explicitly rather than silently inferred from stored profile defaults.
 - Run dispatch resolves intent from user-visible inputs: if manual intent is blank but AI suggestions are non-blank, those values must be promoted into canonical intent fields before payload dispatch.
+- Empty company config does not imply run rejection; unrestricted execution remains valid when intent and credentials are present.
 - ATS is optional; it is never implicitly forced in `browser_only`.
 - Async acceptance is never treated as terminal success.
 - Failures (auth, readiness, source, write path) are explicit and attributable.

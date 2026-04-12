@@ -22,6 +22,7 @@ Testing surfaces, tools, setup notes, and concurrency guidance for this mission.
   - **Preset controls access:** The preset controls (radio buttons `input[name='dpSourcePreset']`) are inside a hidden modal (`discoveryPrefsModal`). If normal UI flow is unavailable (e.g., due to auth), they can be accessed via JavaScript: `document.getElementById('discoveryPrefsModal').style.display='flex'` or call `openDiscoveryPrefsModal()` from the console.
   - **Input guard check:** verify Run is blocked when both target roles and include keywords are blank, and UI suggests using the AI Suggester tab (no webhook request should fire).
   - **AI Suggest bridge check:** when AI Suggest fields are populated but manual intent fields are blank, Run should proceed without blank-intent warning and webhook payload should include resolved canonical intent fields.
+  - **Unrestricted company scope check:** with empty company config, runs should still launch and not be implicitly constrained to previous fixed-company defaults.
 
 ### 2) Discovery worker API surface
 - **URL:** `http://127.0.0.1:8644`
@@ -76,6 +77,7 @@ Dry-run baseline (2026-04-11): 18 logical CPUs, 48 GiB RAM, heavy discovery exec
 - Grounded HTML fallback extraction does not promote junk navigation text as job titles (e.g., “skip to content”).
 - Run-level dedupe uses multi-signal identity (not URL-only), reducing repeated low-quality opportunities across alternate URLs.
 - AI-suggest-filled discovery intent is accepted by UI run guard and bridged into canonical webhook intent fields.
+- Empty company config should not trigger preflight rejection; unrestricted runs must execute with truthful per-lane attribution under all presets.
 
 ---
 
