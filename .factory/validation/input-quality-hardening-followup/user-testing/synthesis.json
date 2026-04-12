@@ -1,30 +1,60 @@
 {
   "milestone": "input-quality-hardening-followup",
-  "round": 1,
-  "status": "fail",
+  "round": 2,
+  "status": "pass",
   "assertionsSummary": {
-    "total": 3,
-    "passed": 1,
-    "failed": 2,
+    "total": 5,
+    "passed": 5,
+    "failed": 0,
     "blocked": 0
   },
-  "passedAssertions": ["VAL-UI-STATUS-008"],
-  "failedAssertions": [
+  "passedAssertions": [
+    "VAL-UI-STATUS-008",
+    "VAL-API-006",
+    "VAL-API-008",
+    "VAL-DATA-006",
+    "VAL-DATA-007"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [
     {
-      "id": "VAL-API-006",
-      "reason": "Missing run-intent payload accepted with 202 and runId created (expected 400). Root cause: discovery worker server running outdated code - validation logic from commit 8c4186c (04:09:55) not loaded because server started at 01:48AM and hasn't been restarted."
-    },
-    {
-      "id": "VAL-API-008",
-      "reason": "Blank run-intent payload accepted with 202 and runId created (expected 400 with AI Suggester guidance). Root cause: same as VAL-API-006 - worker server needs restart to load commit 8c4186c."
+      "target": "discovery worker service",
+      "description": "Restarted discovery_worker service to load code from commit 8c4186c (intent rejection) and 55c3570 (grounded HTML quality + multi-signal dedupe)",
+      "source": "setup"
     }
   ],
-  "blockedAssertions": [],
-  "appliedUpdates": [],
-  "previousRound": null,
-  "notes": "VAL-DATA-006 and VAL-DATA-007 (from grounded-html-quality-and-multisignal-dedupe) were not in the set of pending assertions per validation-state.json and were not tested in this round. VAL-UI-STATUS-008 passed - browser correctly blocks blank-intent Run and surfaces actionable AI Suggester guidance with no webhook emission. VAL-API-006 and VAL-API-008 failed because the running worker server has stale code. Fix: restart discovery_worker service then re-run these two API assertions.",
-  "flowReports": [
-    "flows/val-ui-status-008.json",
-    "flows/val-api-006-008.json"
-  ]
+  "previousRound": {
+    "path": "/Users/emilionunezgarcia/Job-Bored/.factory/validation/input-quality-hardening-followup/user-testing/synthesis.json",
+    "round": 1,
+    "status": "fail",
+    "notes": "VAL-API-006 and VAL-API-008 failed due to stale worker code. VAL-DATA-006 and VAL-DATA-007 were pending but not tested in round 1."
+  },
+  "notes": "All assertions for milestone input-quality-hardening-followup now pass. Round 2 re-tested VAL-API-006 and VAL-API-008 after worker restart and both passed. VAL-DATA-006 and VAL-DATA-007 were validated via unit tests in grounded-search.test.ts which explicitly name the VAL codes. All 137 browser-use-discovery tests pass.",
+  "validationEvidence": {
+    "VAL-API-006": {
+      "method": "curl POST with missing targetRoles and keywordsInclude",
+      "result": "400 with explicit message, no runId/statusPath created",
+      "runId": "none (correctly rejected)"
+    },
+    "VAL-API-008": {
+      "method": "curl POST with blank targetRoles and keywordsInclude",
+      "result": "400 with AI Suggester guidance, no runId/statusPath created",
+      "runId": "none (correctly rejected)"
+    },
+    "VAL-DATA-006": {
+      "method": "unit test: grounded-search.test.ts",
+      "tests": [
+        "collectGroundedWebListings rejects junk navigation anchor titles (VAL-DATA-006): PASS",
+        "collectGroundedWebListings prefers quality title over junk for same URL (VAL-DATA-006): PASS"
+      ]
+    },
+    "VAL-DATA-007": {
+      "method": "unit test: grounded-search.test.ts + integration test",
+      "tests": [
+        "collectGroundedWebListings collapses semantic duplicates using multi-signal dedupe (VAL-DATA-007): PASS",
+        "runDiscovery collapses semantically duplicate leads across alternate URLs using multi-signal dedupe (VAL-DATA-007): PASS"
+      ]
+    }
+  }
 }
