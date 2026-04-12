@@ -1,0 +1,3 @@
+{"ok":true,"kind":"accepted_async","runId":"run_ba50cd18b4f446dcaa68add7e9cd0c60","message":"Discovery accepted — worker queued the run.","statusPath":"/runs/run_ba50cd18b4f446dcaa68add7e9cd0c60","pollAfterMs":2000}
+
+=== HTTP STATUS: 202 ===

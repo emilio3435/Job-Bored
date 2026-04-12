@@ -1,0 +1,30 @@
+{
+  "milestone": "input-quality-hardening-followup",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 3,
+    "passed": 1,
+    "failed": 2,
+    "blocked": 0
+  },
+  "passedAssertions": ["VAL-UI-STATUS-008"],
+  "failedAssertions": [
+    {
+      "id": "VAL-API-006",
+      "reason": "Missing run-intent payload accepted with 202 and runId created (expected 400). Root cause: discovery worker server running outdated code - validation logic from commit 8c4186c (04:09:55) not loaded because server started at 01:48AM and hasn't been restarted."
+    },
+    {
+      "id": "VAL-API-008",
+      "reason": "Blank run-intent payload accepted with 202 and runId created (expected 400 with AI Suggester guidance). Root cause: same as VAL-API-006 - worker server needs restart to load commit 8c4186c."
+    }
+  ],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": null,
+  "notes": "VAL-DATA-006 and VAL-DATA-007 (from grounded-html-quality-and-multisignal-dedupe) were not in the set of pending assertions per validation-state.json and were not tested in this round. VAL-UI-STATUS-008 passed - browser correctly blocks blank-intent Run and surfaces actionable AI Suggester guidance with no webhook emission. VAL-API-006 and VAL-API-008 failed because the running worker server has stale code. Fix: restart discovery_worker service then re-run these two API assertions.",
+  "flowReports": [
+    "flows/val-ui-status-008.json",
+    "flows/val-api-006-008.json"
+  ]
+}
