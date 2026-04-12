@@ -1,0 +1,73 @@
+{
+  "milestone": "input-quality-hardening-followup",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "npm run test:repo",
+      "exitCode": 0,
+      "details": "167 repo tests passed, 137 browser-use-discovery tests passed"
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "npm run typecheck:repo",
+      "exitCode": 0,
+      "details": "All .js files pass node --check"
+    },
+    "lint": {
+      "passed": true,
+      "command": "npm run lint:repo",
+      "exitCode": 0,
+      "details": "All skill files lint clean"
+    }
+  },
+  "reviewsSummary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [],
+  "rejectedObservations": [],
+  "previousRound": null,
+  "reviewReports": [
+    ".factory/validation/input-quality-hardening-followup/scrutiny/reviews/discovery-ui-intent-guardrails-and-ai-suggester-guidance.json",
+    ".factory/validation/input-quality-hardening-followup/scrutiny/reviews/discovery-webhook-intent-contract-no-stored-fallback.json",
+    ".factory/validation/input-quality-hardening-followup/scrutiny/reviews/grounded-html-quality-and-multisignal-dedupe.json"
+  ],
+  "featureReviews": [
+    {
+      "featureId": "discovery-ui-intent-guardrails-and-ai-suggester-guidance",
+      "status": "pass",
+      "summary": "Two-layer guardrail (UI-level + defense-in-depth) correctly blocks blank-intent runs, surfaces AI Suggester guidance, prevents webhook emission. No automated tests (UI-only limitation documented per skill guidance). Manual browser verification confirms expected behavior.",
+      "issues": [
+        {
+          "severity": "non_blocking",
+          "description": "No automated tests added for UI-only guardrail - limitation documented per skill guidance"
+        }
+      ]
+    },
+    {
+      "featureId": "discovery-webhook-intent-contract-no-stored-fallback",
+      "status": "pass",
+      "summary": "Request-authoritative intent validation correctly rejects blank/missing intent with explicit 400 errors and AI Suggester guidance. No stored-profile fallback exists. 6 new tests + 7 CROSS-area tests updated. All pass.",
+      "issues": []
+    },
+    {
+      "featureId": "grounded-html-quality-and-multisignal-dedupe",
+      "status": "pass",
+      "summary": "NAVIGATION_TITLE_DENYLIST rejects 40+ junk phrases. Both dedupe functions use (title, company) multi-signal identity instead of URL-only. 4 new tests cover VAL-DATA-006 and VAL-DATA-007. All 304 tests pass.",
+      "issues": []
+    }
+  ],
+  "pendingAssertions": [
+    "VAL-UI-STATUS-008",
+    "VAL-API-006",
+    "VAL-API-008",
+    "VAL-DATA-006",
+    "VAL-DATA-007"
+  ]
+}

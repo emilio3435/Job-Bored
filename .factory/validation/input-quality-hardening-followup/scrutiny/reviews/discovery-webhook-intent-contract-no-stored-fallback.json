@@ -1,0 +1,15 @@
+{
+  "featureId": "discovery-webhook-intent-contract-no-stored-fallback",
+  "reviewedAt": "2026-04-12T10:30:00.000Z",
+  "commitId": "8c4186c",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Implementation correctly enforces request-authoritative run-intent validation: when discoveryProfile is provided, at least one of targetRoles or keywordsInclude must be non-blank. The change adds explicit 400 rejection with detail/remediation fields (AI Suggester guidance), extends parseWebhookRequest error return type, and updates error response handling. Six new tests cover rejection and acceptance cases; seven CROSS-area tests were updated to include required intent fields. No stored-profile fallback mechanism exists in the codebase to fill missing intent fields.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Feature passes review. The implementation correctly rejects missing/blank run-intent payloads with explicit 400 errors and AI Suggester guidance, ensures no silent stored-profile fallback, and maintains correct sourcePreset routing. All expected behaviors are covered by tests. No blocking issues found."
+}
