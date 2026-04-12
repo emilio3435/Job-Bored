@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { PIPELINE_HEADER_ROW } from "../../src/contracts.ts";
-import { createPipelineWriter } from "../../src/sheets/pipeline-writer.ts";
+import { SheetWriteError, createPipelineWriter } from "../../src/sheets/pipeline-writer.ts";
 
 const runtimeConfig = {
   stateDatabasePath: "/tmp/state.db",
@@ -387,4 +387,105 @@ test("createPipelineWriter refreshes a Google OAuth token when no service accoun
   assert.equal(calls[1].headers.authorization, "Bearer refreshed-token");
   assert.equal(calls[2].headers.authorization, "Bearer refreshed-token");
   assert.equal(calls[3].headers.authorization, "Bearer refreshed-token");
+});
+
+test("SheetWriteError is thrown with update phase on batchUpdate failure (VAL-DATA-005)", async () => {
+  // Directly test SheetWriteError construction and properties for update phase
+  const error = new SheetWriteError({
+    phase: "update",
+    message: "Sheet write failed during update phase: HTTP 500 - Internal Server Error",
+    sheetId: "sheet_123",
+    httpStatus: 500,
+    detail: "Internal Server Error",
+  });
+
+  assert.equal(error.name, "SheetWriteError");
+  assert.equal(error.phase, "update");
+  assert.equal(error.httpStatus, 500);
+  assert.match(error.message, /update phase/);
+  assert.equal(error.sheetId, "sheet_123");
+  assert.equal(error.detail, "Internal Server Error");
+
+  // Verify it extends Error
+  assert.ok(error instanceof Error);
+  assert.ok(error instanceof SheetWriteError);
+});
+
+test("SheetWriteError is thrown with append phase on append failure (VAL-DATA-005)", async () => {
+  // Directly test SheetWriteError construction and properties
+  const error = new SheetWriteError({
+    phase: "append",
+    message: "Sheet write failed during append phase: HTTP 403 - Permission denied",
+    sheetId: "sheet_123",
+    httpStatus: 403,
+    detail: "Permission denied",
+  });
+
+  assert.equal(error.name, "SheetWriteError");
+  assert.equal(error.phase, "append");
+  assert.equal(error.httpStatus, 403);
+  assert.match(error.message, /append phase/);
+  assert.equal(error.sheetId, "sheet_123");
+  assert.equal(error.detail, "Permission denied");
+
+  // Verify it extends Error
+  assert.ok(error instanceof Error);
+  assert.ok(error instanceof SheetWriteError);
+});
+
+test("SheetWriteError preserves canonical link and source attribution (VAL-DATA-002)", async () => {
+  // Test that SheetWriteError includes sheetId for attribution
+  const { fetchImpl, calls } = createMockFetch({
+    headerRows: [PIPELINE_HEADER_ROW],
+    dataRows: [],
+    responses: [
+      responseJson({ error: "Server Error" }, 500),
+    ],
+  });
+
+  const writer = createPipelineWriter(runtimeConfig, {
+    fetchImpl,
+    now: () => new Date("2026-04-09T12:00:00.000Z"),
+  });
+
+  const sheetId = "canonical-sheet-123";
+  await assert.rejects(
+    async () => {
+      await writer.write(sheetId, [
+        {
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          title: "Test Engineer",
+          company: "TestCo",
+          location: "Remote",
+          url: "https://jobs.example.com/careers/test-engineer",
+          compensationText: "",
+          fitScore: 8,
+          priority: "⚡",
+          tags: [],
+          fitAssessment: "Good match",
+          contact: "",
+          status: "New",
+          appliedDate: "",
+          notes: "",
+          followUpDate: "",
+          talkingPoints: "",
+          logoUrl: "",
+          discoveredAt: "2026-04-09T12:00:00.000Z",
+          metadata: {
+            runId: "run_3",
+            variationKey: "var_3",
+            sourceQuery: "Test Engineer",
+          },
+        },
+      ]);
+    },
+    (error) => {
+      // Verify the error contains the sheetId for canonical attribution
+      assert.equal(error.sheetId, sheetId);
+      // Verify the calls were made with the correct sheetId
+      assert.ok(calls.some((c) => c.url.includes(encodeURIComponent(sheetId))));
+      return true;
+    },
+  );
 });

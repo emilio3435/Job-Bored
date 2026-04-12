@@ -9,6 +9,32 @@ import {
 } from "../contracts.ts";
 import { normalizeLeadUrl } from "../normalize/lead-normalizer.ts";
 
+/**
+ * Error thrown when a Sheet write operation fails.
+ * Carries phase attribution so callers can distinguish update vs append failures.
+ */
+export class SheetWriteError extends Error {
+  readonly phase: "update" | "append";
+  readonly sheetId: string;
+  readonly httpStatus?: number;
+  readonly detail?: string;
+
+  constructor(params: {
+    phase: "update" | "append";
+    message: string;
+    sheetId: string;
+    httpStatus?: number;
+    detail?: string;
+  }) {
+    super(params.message);
+    this.name = "SheetWriteError";
+    this.phase = params.phase;
+    this.sheetId = params.sheetId;
+    this.httpStatus = params.httpStatus;
+    this.detail = params.detail;
+  }
+}
+
 type FetchLike = typeof fetch;
 
 type SheetValuesResponse = {
@@ -436,9 +462,13 @@ async function batchUpdateRows(
   });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new Error(
-      `Failed to update Pipeline rows: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
-    );
+    throw new SheetWriteError({
+      phase: "update",
+      message: `Sheet write failed during update phase: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+      sheetId,
+      httpStatus: response.status,
+      detail: body || undefined,
+    });
   }
 }
 
@@ -467,9 +497,13 @@ async function appendRows(
   });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new Error(
-      `Failed to append Pipeline rows: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
-    );
+    throw new SheetWriteError({
+      phase: "append",
+      message: `Sheet write failed during append phase: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+      sheetId,
+      httpStatus: response.status,
+      detail: body || undefined,
+    });
   }
 }
 

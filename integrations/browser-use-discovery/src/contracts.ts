@@ -122,6 +122,16 @@ export type PipelineWriteResult = {
   updated: number;
   skippedDuplicates: number;
   warnings: string[];
+  /**
+   * Present when a write error occurred. Indicates the phase where the error
+   * happened (update or append) and the error details.
+   */
+  writeError?: {
+    phase: "update" | "append";
+    message: string;
+    httpStatus?: number;
+    detail?: string;
+  };
 };
 
 export type DiscoveryRejectionSample = {
