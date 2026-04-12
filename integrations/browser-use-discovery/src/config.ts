@@ -142,6 +142,7 @@ function resolveGroundedSearchTuning(
       maxPagesPerCompany: isBrowserOnly ? 8 : 4,
       maxRuntimeMs: isBrowserOnly ? 60000 : 30000,
       maxTokensPerQuery: isBrowserOnly ? 4096 : 2048,
+      multiQueryCap: isBrowserOnly ? 4 : 3,
     };
   }
 
@@ -171,6 +172,12 @@ function resolveGroundedSearchTuning(
         : isBrowserOnly
           ? 4096
           : 2048,
+    multiQueryCap:
+      explicitTuning.multiQueryCap !== undefined
+        ? explicitTuning.multiQueryCap
+        : isBrowserOnly
+          ? 4
+          : 3,
   };
 }
 

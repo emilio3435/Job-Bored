@@ -71,6 +71,11 @@ export type GroundedSearchTuning = {
   maxRuntimeMs?: number;
   /** Maximum tokens to spend per grounded search query. */
   maxTokensPerQuery?: number;
+  /**
+   * Maximum number of focused sub-queries to generate from modifiers for
+   * multi-query fan-out. Only applies when ultraPlanTuning.multiQueryEnabled is true.
+   */
+  multiQueryCap?: number;
 };
 
 export type DiscoveryProfile = {
