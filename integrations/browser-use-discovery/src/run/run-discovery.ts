@@ -772,16 +772,52 @@ async function runGroundedWebDiscovery(
   };
 }
 
+/**
+ * Multi-signal dedupe for normalized leads: uses normalized (title + company)
+ * identity to collapse semantically duplicate opportunities that appear under
+ * alternate URLs (e.g. short link vs long link, same job accessible via
+ * different ATS paths, URL variants with tracking params).
+ *
+ * Strategy: First group by (title, company) identity. For each identity group,
+ * pick the lead with the highest fitScore. This collapses alternate URLs for
+ * the same job into a single entry.
+ */
 function dedupeNormalizedLeads(leads: NormalizedLead[]): NormalizedLead[] {
-  const byUrl = new Map<string, NormalizedLead>();
+  // Identity key -> best lead for that identity
+  const byIdentity = new Map<string, NormalizedLead>();
+
   for (const lead of leads) {
     if (!lead.url) continue;
-    const existing = byUrl.get(lead.url);
-    if (!existing || (lead.fitScore || 0) > (existing.fitScore || 0)) {
-      byUrl.set(lead.url, lead);
+
+    // Build identity key from normalized title + company
+    const normalizedTitle = normalizeForDedup(lead.title || "");
+    const normalizedCompany = normalizeForDedup(lead.company || "");
+    if (!normalizedTitle || !normalizedCompany) continue;
+
+    const identityKey = `${normalizedTitle}|${normalizedCompany}`;
+    const existing = byIdentity.get(identityKey);
+
+    // Choose the better lead: higher fitScore wins
+    const better = !existing || (lead.fitScore || 0) > (existing.fitScore || 0);
+
+    if (better) {
+      byIdentity.set(identityKey, lead);
     }
   }
-  return [...byUrl.values()];
+
+  return [...byIdentity.values()];
+}
+
+/**
+ * Normalizes a string for use as part of a dedupe identity key.
+ * Strips punctuation, folds whitespace, and lowercases.
+ */
+function normalizeForDedup(input: string): string {
+  return String(input || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildSourceSummary(

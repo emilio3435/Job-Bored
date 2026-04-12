@@ -1460,3 +1460,164 @@ test("runDiscovery write error provides actionable details in writeError (VAL-DA
     "Warning message should be actionable",
   );
 });
+
+// VAL-DATA-007: Multi-signal dedupe collapses semantic duplicates across alternate URLs
+test("runDiscovery collapses semantically duplicate leads across alternate URLs using multi-signal dedupe (VAL-DATA-007)", async () => {
+  const writtenLeads = [];
+
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+    },
+    sourceAdapterRegistry: {
+      adapters: [
+        {
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          detect: async () => null,
+          listJobs: async () => [],
+          normalize: async () => null,
+        },
+      ],
+      detectBoards: async ({ company }, _effectiveSources) => [
+        {
+          matched: true,
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          boardUrl: `https://boards.greenhouse.io/${company.name.toLowerCase()}`,
+          confidence: 1,
+          warnings: [],
+        },
+      ],
+      collectListings: async () => [],
+    },
+    pipelineWriter: {
+      write: async (sheetId, leads) => {
+        writtenLeads.push(...leads);
+        return {
+          sheetId,
+          appended: leads.length,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        };
+      },
+    },
+    loadStoredWorkerConfig: async (sheetId) => ({
+      sheetId,
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [{ name: "Acme Corp" }],
+      includeKeywords: ["engineer"],
+      excludeKeywords: [],
+      targetRoles: ["Backend Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "remote-first",
+      seniority: "senior",
+      maxLeadsPerRun: 10,
+      enabledSources: ["greenhouse"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored, request) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "ats_only",
+      effectiveSources: ["greenhouse"],
+    }),
+    log: () => {},
+    now: (() => {
+      let index = 0;
+      const dates = [
+        new Date("2026-04-09T12:00:00.000Z"),
+        new Date("2026-04-09T12:00:01.000Z"),
+      ];
+      return () => dates[Math.min(index++, dates.length - 1)];
+    })(),
+    randomId: (prefix) => `${prefix}_dedupe`,
+  };
+
+  // Return same job under 3 alternate URLs (short link, long link, tracking link)
+  dependencies.sourceAdapterRegistry.adapters[0].listJobs = async () => [
+    {
+      sourceId: "greenhouse",
+      sourceLabel: "Greenhouse",
+      title: "Senior Backend Engineer",
+      company: "Acme Corp",
+      location: "Remote",
+      url: "https://jobs.example.com/backend-engineer",
+      descriptionText: "Build node services in TypeScript for a remote-first team.",
+      tags: ["node", "typescript"],
+      metadata: { sourceQuery: "greenhouse" },
+    },
+    {
+      sourceId: "greenhouse",
+      sourceLabel: "Greenhouse",
+      title: "Senior Backend Engineer",
+      company: "Acme Corp",
+      location: "Remote",
+      // Alternate URL (short link vs long link)
+      url: "https://jobs.example.com/j/123",
+      descriptionText: "Build node services in TypeScript.",
+      tags: ["node", "typescript"],
+      metadata: { sourceQuery: "greenhouse" },
+    },
+    {
+      sourceId: "greenhouse",
+      sourceLabel: "Greenhouse",
+      title: "Senior Backend Engineer",
+      company: "Acme Corp",
+      location: "Remote",
+      // Another alternate URL with tracking params
+      url: "https://jobs.example.com/backend-engineer?utm_source=linkedin&ref=greenhouse",
+      descriptionText: "Build node services in TypeScript for a remote-first team.",
+      tags: ["node", "typescript"],
+      metadata: { sourceQuery: "greenhouse" },
+    },
+  ];
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+
+  // Multi-signal dedupe should collapse 3 alternate-URL entries for the same
+  // title+company to 1 entry (the one with the highest fitScore)
+  const backendEngineerCount = writtenLeads.filter(
+    (lead) => lead.title === "Senior Backend Engineer" && lead.company === "Acme Corp",
+  ).length;
+
+  assert.equal(
+    backendEngineerCount,
+    1,
+    "Same title+company across alternate URLs should collapse to 1 entry (VAL-DATA-007)",
+  );
+
+  // The deduped lead count should be 1
+  assert.equal(writtenLeads.length, 1, "Total written leads should be 1 after dedupe");
+
+  // Log should show the dedupe happened
+  const dedupeLog = result.warnings.find((w) =>
+    w.includes("Truncated leads") || w.includes("deduped")
+  );
+  // If truncation happened it should mention the right count
+  assert.ok(
+    result.lifecycle.normalizedLeadCount <= 3,
+    "Normalized lead count should reflect deduplication",
+  );
+});

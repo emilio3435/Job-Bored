@@ -730,9 +730,90 @@ function isLikelyJobLink(url: string): boolean {
   );
 }
 
+/**
+ * Denylist of obvious navigation/junk anchor titles that should never be
+ * promoted as job opportunity titles, even if they link to a job URL.
+ */
+const NAVIGATION_TITLE_DENYLIST = new Set([
+  // Generic navigation
+  "skip to content",
+  "skip to main content",
+  "skip navigation",
+  "read more",
+  "read more →",
+  "read more »",
+  "learn more",
+  "learn more →",
+  "learn more »",
+  "click here",
+  "click here →",
+  "click here »",
+  "view all",
+  "view all jobs",
+  "view all →",
+  "see all",
+  "see all jobs",
+  "see more",
+  "see more →",
+  "show more",
+  "show more →",
+  "more info",
+  "more information",
+  "get more info",
+  // Navigation labels
+  "menu",
+  "home",
+  "about",
+  "contact",
+  "blog",
+  "search",
+  "jobs",
+  "careers",
+  "open roles",
+  "apply",
+  "search jobs",
+  "sign in",
+  "log in",
+  "signup",
+  "register",
+  // Social/actions
+  "share",
+  "tweet",
+  "email",
+  "print",
+  "download",
+  "apply now",
+  "apply now →",
+  "submit",
+  "submit →",
+  "next",
+  "previous",
+  "back",
+  "continue",
+  "continue →",
+  "learn more about",
+  "find out more",
+  "explore",
+  "discover",
+  "get started",
+  "start now",
+]);
+
+/**
+ * Returns true if the title looks like a real job title (not a navigation
+ * label or junk anchor text) and is long enough to be plausible.
+ */
 function isLikelyJobTitle(input: string): boolean {
   const text = cleanText(input).toLowerCase();
   if (!text || text.length < 4) return false;
+  // Reject exact denylist matches
+  if (NAVIGATION_TITLE_DENYLIST.has(text)) return false;
+  // Reject titles that are prefixes of denylist entries (e.g. "read more about" -> "read more")
+  for (const junk of NAVIGATION_TITLE_DENYLIST) {
+    if (text.startsWith(junk + " ") || text.startsWith(junk + " –") || text.startsWith(junk + " —")) {
+      return false;
+    }
+  }
   if (
     [
       "careers",
@@ -748,20 +829,59 @@ function isLikelyJobTitle(input: string): boolean {
   return /[a-z]/i.test(text);
 }
 
+/**
+ * Multi-signal dedupe for raw listings: uses normalized (title + company)
+ * identity in addition to URL to collapse semantic duplicates across alternate
+ * URLs that point to the same job (e.g. short link vs long link, same job
+ * accessed via different referral paths).
+ *
+ * Strategy: First group by (title, company) identity. For each identity group,
+ * pick the best entry (longest description, or direct job link as tiebreaker).
+ * This collapses alternate URLs for the same job into a single entry.
+ */
 function dedupeRawListings(listings: RawListing[]): RawListing[] {
-  const byUrl = new Map<string, RawListing>();
+  // Identity key -> best listing for that identity
+  const byIdentity = new Map<string, RawListing>();
+
   for (const listing of listings) {
-    const key = cleanAbsoluteUrl(listing.url);
-    if (!key) continue;
-    const existing = byUrl.get(key);
-    if (!existing || String(listing.descriptionText || "").length > String(existing.descriptionText || "").length) {
-      byUrl.set(key, {
-        ...listing,
-        url: key,
-      });
+    const urlKey = cleanAbsoluteUrl(listing.url);
+    if (!urlKey) continue;
+
+    // Build identity key from normalized title + company
+    const normalizedTitle = normalizeForDedup(listing.title || "");
+    const normalizedCompany = normalizeForDedup(listing.company || "");
+    if (!normalizedTitle || !normalizedCompany) continue;
+
+    const identityKey = `${normalizedTitle}|${normalizedCompany}`;
+    const existing = byIdentity.get(identityKey);
+
+    // Choose the better listing: longer description wins; if equal, prefer
+    // a URL that looks like a direct job link over a generic/redirect URL.
+    const existingDescLen = String(existing?.descriptionText || "").length;
+    const newDescLen = String(listing.descriptionText || "").length;
+    const better = !existing ||
+      newDescLen > existingDescLen ||
+      (newDescLen === existingDescLen &&
+        isLikelyJobLink(urlKey) && !isLikelyJobLink(existing.url || ""));
+
+    if (better) {
+      byIdentity.set(identityKey, { ...listing, url: urlKey });
     }
   }
-  return [...byUrl.values()];
+
+  return [...byIdentity.values()];
+}
+
+/**
+ * Normalizes a string for use as part of a dedupe identity key.
+ * Strips punctuation, folds whitespace, and lowercases.
+ */
+function normalizeForDedup(input: string): string {
+  return String(input || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function joinOrAny(values: readonly string[]): string {
