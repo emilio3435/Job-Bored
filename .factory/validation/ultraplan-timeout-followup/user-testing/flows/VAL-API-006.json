@@ -1,0 +1,43 @@
+{
+  "assertionIds": ["VAL-API-006"],
+  "tool": "curl",
+  "isolationContext": {
+    "workerUrl": "http://127.0.0.1:8644",
+    "webhookSecret": "22fb309934e7177f41228938f01bf2a3b277e0bbd671ced74ffff6798020c52b"
+  },
+  "results": [
+    {
+      "assertionId": "VAL-API-006",
+      "status": "pass",
+      "test": "browser_only timeout omitted resolves to > 60000",
+      "runId": "run_12b9ee23d94d4326be499a36e26e5e4b",
+      "payload": {
+        "sourcePreset": "browser_only",
+        "targetRoles": "Senior Engineer"
+      },
+      "resolvedConfig": {
+        "groundedSearchTuning.maxRuntimeMs": 120000
+      },
+      "evidence": "maxRuntimeMs=120000 > 60000 threshold"
+    },
+    {
+      "assertionId": "VAL-API-006",
+      "status": "pass",
+      "test": "explicit maxRuntimeMs override preserved exactly",
+      "runId": "run_d79848963926436891e8ecb5f6ee4e67",
+      "payload": {
+        "sourcePreset": "browser_only",
+        "targetRoles": "Senior Engineer",
+        "groundedSearchTuning": {
+          "maxRuntimeMs": 90000
+        }
+      },
+      "resolvedConfig": {
+        "groundedSearchTuning.maxRuntimeMs": 90000
+      },
+      "evidence": "explicit override 90000 preserved exactly"
+    }
+  ],
+  "frictions": [],
+  "blockers": []
+}
