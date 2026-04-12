@@ -1,0 +1,7 @@
+{
+  "response": {
+    "ok": false,
+    "message": "event must be command-center.discovery."
+  },
+  "http_status": 400
+}

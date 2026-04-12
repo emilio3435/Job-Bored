@@ -1,0 +1,7 @@
+{
+  "response": {
+    "ok": false,
+    "message": "discoveryProfile must be an object when present."
+  },
+  "http_status": 400
+}

@@ -1,0 +1,4 @@
+{
+  "ok": false,
+  "message": "discoveryProfile.sourcePreset must be a string when present."
+}

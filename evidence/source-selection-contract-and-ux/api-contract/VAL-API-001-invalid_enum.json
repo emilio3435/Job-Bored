@@ -1,0 +1,4 @@
+{
+  "ok": false,
+  "message": "discoveryProfile.sourcePreset must be one of: browser_only, ats_only, browser_plus_ats. Received: \"invalid_preset\"."
+}

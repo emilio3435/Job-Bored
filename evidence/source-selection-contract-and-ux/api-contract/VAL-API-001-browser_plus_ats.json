@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "kind": "accepted_async",
+  "runId": "run_4d3ebf1e28224114a6c178b3165658f1",
+  "message": "Discovery accepted \u2014 worker queued the run.",
+  "statusPath": "/runs/run_4d3ebf1e28224114a6c178b3165658f1",
+  "pollAfterMs": 2000
+}

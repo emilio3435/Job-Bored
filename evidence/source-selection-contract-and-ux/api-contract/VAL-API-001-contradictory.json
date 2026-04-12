@@ -1,0 +1,4 @@
+{
+  "ok": false,
+  "message": "discoveryProfile.sourcePreset and discoveryProfile.enabledSources are mutually exclusive. Use sourcePreset as the canonical source selection field."
+}

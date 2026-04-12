@@ -1,0 +1,11 @@
+{
+  "response": {
+    "ok": true,
+    "kind": "accepted_async",
+    "runId": "run_3ba3c6dee30f4f3ea9747b5f1c2ea0bc",
+    "message": "Discovery accepted \u2014 worker queued the run.",
+    "statusPath": "/runs/run_3ba3c6dee30f4f3ea9747b5f1c2ea0bc",
+    "pollAfterMs": 2000
+  },
+  "http_status": 202
+}

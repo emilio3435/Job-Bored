@@ -1,0 +1,7 @@
+{
+  "response": {
+    "ok": false,
+    "message": "Request body must be valid JSON."
+  },
+  "http_status": 400
+}

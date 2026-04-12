@@ -1,0 +1,90 @@
+{
+  "groupId": "ui-selection",
+  "testedAt": "2026-04-11T17:30:00Z",
+  "isolation": {
+    "appUrl": "http://127.0.0.1:8080",
+    "discoveryWorkerUrl": "http://127.0.0.1:8644",
+    "browserSessionId": "ui-sel-validator-001"
+  },
+  "toolsUsed": ["agent-browser"],
+  "assertions": [
+    {
+      "id": "VAL-UI-SEL-001",
+      "title": "Preset control exposes all supported source modes",
+      "status": "blocked",
+      "steps": [
+        { "action": "Open http://127.0.0.1:8080", "expected": "App landing page or dashboard", "observed": "Login screen with 'Log in with Google' button" },
+        { "action": "Click 'Log in with Google'", "expected": "OAuth flow initiates", "observed": "Google OAuth error: redirect_uri_mismatch - OAuth client not configured for http://127.0.0.1:8080" }
+      ],
+      "evidence": {
+        "screenshots": ["source-selection-contract-and-ux/ui-selection/VAL-UI-SEL-001-login-page.png", "source-selection-contract-and-ux/ui-selection/VAL-UI-SEL-001-oauth-error.png"],
+        "consoleErrors": "none (error occurs on Google's OAuth page, outside app context)"
+      },
+      "issues": "Google OAuth client ID (917526284100-huglmbdj2j45iukot3t9bqo1sls24ibo.apps.googleusercontent.com) is not configured with http://127.0.0.1:8080 as an authorized JavaScript origin or redirect URI. The redirect_uri_mismatch error prevents any authenticated UI access."
+    },
+    {
+      "id": "VAL-UI-SEL-002",
+      "title": "Preset selection is mutually exclusive",
+      "status": "blocked",
+      "steps": [],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "none"
+      },
+      "issues": "Blocked by same OAuth/authentication issue as VAL-UI-SEL-001 - cannot access the preset controls without successful login"
+    },
+    {
+      "id": "VAL-UI-SEL-003",
+      "title": "Preset selection persists across save and reload",
+      "status": "blocked",
+      "steps": [],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "none"
+      },
+      "issues": "Blocked by same OAuth/authentication issue as VAL-UI-SEL-001 - cannot access the preset controls without successful login"
+    },
+    {
+      "id": "VAL-UI-SEL-004",
+      "title": "Browser-only mode keeps ATS disabled in visible run intent",
+      "status": "blocked",
+      "steps": [],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "none"
+      },
+      "issues": "Blocked by same OAuth/authentication issue as VAL-UI-SEL-001 - cannot access the preset controls or trigger runs without successful login"
+    },
+    {
+      "id": "VAL-UI-SEL-005",
+      "title": "Last selection before submit is what gets submitted",
+      "status": "blocked",
+      "steps": [],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "none"
+      },
+      "issues": "Blocked by same OAuth/authentication issue as VAL-UI-SEL-001 - cannot access the preset controls or trigger runs without successful login"
+    },
+    {
+      "id": "VAL-UI-SEL-006",
+      "title": "Missing or legacy saved state resolves to a valid explicit preset",
+      "status": "blocked",
+      "steps": [],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "none"
+      },
+      "issues": "Blocked by same OAuth/authentication issue as VAL-UI-SEL-001 - cannot access the preset controls or trigger runs without successful login. Additionally, first-visit state requires app access to verify initial preset resolution."
+    }
+  ],
+  "frictions": [],
+  "blockers": [
+    {
+      "description": "Google OAuth redirect_uri_mismatch - the OAuth client (917526284100-huglmbdj2j45iukot3t9bqo1sls24ibo.apps.googleusercontent.com) is not configured to accept http://127.0.0.1:8080 as a valid redirect URI or JavaScript origin. This blocks all authenticated UI access including the Settings > Discovery tab where preset controls exist.",
+      "affectedAssertions": ["VAL-UI-SEL-001", "VAL-UI-SEL-002", "VAL-UI-SEL-003", "VAL-UI-SEL-004", "VAL-UI-SEL-005", "VAL-UI-SEL-006"],
+      "quickFixAttempted": "Attempted OAuth login multiple times - consistently fails with redirect_uri_mismatch. Verified OAuth client ID exists in config.js but Google Cloud Console configuration is missing http://127.0.0.1:8080."
+    }
+  ],
+  "summary": "Tested 6 assertions (VAL-UI-SEL-001 through VAL-UI-SEL-006). All 6 assertions are blocked. Root cause: Google OAuth client is not configured for http://127.0.0.1:8080, preventing any authenticated UI access. The preset controls (input[name='dpSourcePreset'] radio group with 'browser_only', 'ats_only', 'browser_plus_ats' options) are located in the authenticated Settings > Discovery UI which is inaccessible without successful OAuth login. Resolution requires adding http://127.0.0.1:8080 to the Google Cloud Console OAuth client's authorized JavaScript origins and redirect URIs."
+}
