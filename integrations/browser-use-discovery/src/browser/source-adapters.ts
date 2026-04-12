@@ -8,6 +8,7 @@ import type {
   NormalizedLead,
   RawListing,
   SourceAdapter,
+  SupportedSourceId,
 } from "../contracts.ts";
 import { normalizeLeadUrl } from "../normalize/lead-normalizer.ts";
 import type { BrowserUseSessionManager } from "./session.ts";
@@ -32,7 +33,10 @@ import {
 
 export type SourceAdapterRegistry = {
   adapters: SourceAdapter[];
-  detectBoards(companyContext: CompanyContext): Promise<DetectionResult[]>;
+  detectBoards(
+    companyContext: CompanyContext,
+    effectiveSources: SupportedSourceId[],
+  ): Promise<DetectionResult[]>;
   collectListings(
     run: DiscoveryRun,
     detections: DetectionResult[],
@@ -49,9 +53,13 @@ export function createSourceAdapterRegistry(
   ];
   return {
     adapters,
-    async detectBoards(companyContext) {
+    async detectBoards(companyContext, effectiveSources) {
+      const effectiveSet = new Set(effectiveSources);
+      const eligibleAdapters = adapters.filter((adapter) =>
+        effectiveSet.has(adapter.sourceId),
+      );
       const results = await Promise.all(
-        adapters.map((adapter) => adapter.detect(companyContext)),
+        eligibleAdapters.map((adapter) => adapter.detect(companyContext)),
       );
       return results.filter(
         (entry): entry is DetectionResult => !!entry && entry.matched,

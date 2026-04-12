@@ -83,7 +83,7 @@ test("runDiscovery composes config, adapters, normalizer, and writer", async () 
           normalize: async () => null,
         },
       ],
-      detectBoards: async ({ company }) => {
+      detectBoards: async ({ company }, _effectiveSources) => {
         calls.detectBoards += 1;
         return [
           {
@@ -149,6 +149,8 @@ test("runDiscovery composes config, adapters, normalizer, and writer", async () 
         remotePolicy: "remote-first",
         seniority: "senior",
         maxLeadsPerRun: 2,
+        sourcePreset: "ats_only",
+        effectiveSources: ["greenhouse"],
       };
     },
     log: (event, details) => {
@@ -191,6 +193,8 @@ test("runDiscovery composes config, adapters, normalizer, and writer", async () 
       variationKey: "var_123",
       companies: ["Acme"],
       enabledSources: ["greenhouse"],
+      sourcePreset: "ats_only",
+      effectiveSources: ["greenhouse"],
       maxLeadsPerRun: 2,
     },
   );
@@ -250,7 +254,7 @@ test("runDiscovery logs aggregated rejection reasons without per-listing spam", 
           normalize: async () => null,
         },
       ],
-      detectBoards: async () => [
+      detectBoards: async (_companyContext, _effectiveSources) => [
         {
           matched: true,
           sourceId: "greenhouse",
@@ -291,6 +295,8 @@ test("runDiscovery logs aggregated rejection reasons without per-listing spam", 
       sheetId: request.sheetId,
       variationKey: request.variationKey,
       requestedAt: request.requestedAt,
+      sourcePreset: "ats_only",
+      effectiveSources: ["greenhouse"],
     }),
     log: (event, details) => {
       logs.push({ event, details });
@@ -414,7 +420,7 @@ test("runDiscovery ranks and diversifies leads before truncating", async () => {
           normalize: async () => null,
         },
       ],
-      detectBoards: async ({ company }) => [
+      detectBoards: async ({ company }, _effectiveSources) => [
         {
           matched: true,
           sourceId: "greenhouse",
@@ -457,6 +463,8 @@ test("runDiscovery ranks and diversifies leads before truncating", async () => {
       ...stored,
       variationKey: request.variationKey,
       requestedAt: request.requestedAt,
+      sourcePreset: "ats_only",
+      effectiveSources: ["greenhouse"],
     }),
     now: (() => {
       let index = 0;
@@ -558,7 +566,7 @@ test("runDiscovery applies company, source, and similar-title caps before writin
           normalize: async () => null,
         },
       ],
-      detectBoards: async ({ company }) => {
+      detectBoards: async ({ company }, _effectiveSources) => {
         if (company.name === "Notion") {
           return [
             {
@@ -615,6 +623,8 @@ test("runDiscovery applies company, source, and similar-title caps before writin
       ...stored,
       variationKey: request.variationKey,
       requestedAt: request.requestedAt,
+      sourcePreset: "ats_only",
+      effectiveSources: ["greenhouse", "ashby"],
     }),
     now: (() => {
       let index = 0;
@@ -767,7 +777,7 @@ test("runDiscovery expands grounded web links through Browser Use and writes nor
     },
     sourceAdapterRegistry: {
       adapters: [],
-      detectBoards: async () => [],
+      detectBoards: async (_companyContext, _effectiveSources) => [],
       collectListings: async () => [],
     },
     groundedSearchClient: {
@@ -837,6 +847,8 @@ test("runDiscovery expands grounded web links through Browser Use and writes nor
       ...stored,
       variationKey: request.variationKey,
       requestedAt: request.requestedAt,
+      sourcePreset: "browser_only",
+      effectiveSources: ["grounded_web"],
     }),
     now: (() => {
       let index = 0;
@@ -889,7 +901,7 @@ test("runDiscovery marks grounded source readiness problems as partial outcomes 
     },
     sourceAdapterRegistry: {
       adapters: [],
-      detectBoards: async () => [],
+      detectBoards: async (_companyContext, _effectiveSources) => [],
       collectListings: async () => [],
     },
     pipelineWriter: {
@@ -923,6 +935,8 @@ test("runDiscovery marks grounded source readiness problems as partial outcomes 
       ...stored,
       variationKey: request.variationKey,
       requestedAt: request.requestedAt,
+      sourcePreset: "browser_only",
+      effectiveSources: ["grounded_web"],
     }),
     now: (() => {
       let index = 0;
