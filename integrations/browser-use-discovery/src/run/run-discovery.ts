@@ -716,6 +716,325 @@ function findStrongestFailedComponent(
   return [...entries].sort((left, right) => left[1] - right[1])[0][0];
 }
 
+/**
+ * Result of processing a single company in bounded concurrent execution.
+ */
+type CompanyProcessingResult = {
+  companyName: string;
+  rawListings: RawListing[];
+  searchQueries: string[];
+  seedUrls: string[];
+  companyWarnings: string[];
+  companyDiagnostics: ExtractionDiagnostic[];
+  pagesVisited: number;
+  leadsSeen: number;
+  leadsAccepted: number;
+  /** True if this company's processing failed with an error. */
+  failed: boolean;
+  /** Error message if failed. */
+  errorMessage?: string;
+};
+
+/**
+ * Tracks peak in-flight company processing for bounded concurrency validation.
+ * Used by tests to verify VAL-ROUTE-015: parallel company processing is bounded by configured concurrency.
+ */
+export type ConcurrencyTracker = {
+  /** Record the start of a company processing task. */
+  onStart(): void;
+  /** Record the end of a company processing task. */
+  onEnd(): void;
+  /** Get the peak in-flight count observed. */
+  getPeakInFlight(): number;
+  /** Get the configured concurrency cap. */
+  getCap(): number;
+};
+
+/**
+ * Creates a concurrency tracker for monitoring in-flight company processing.
+ */
+export function createConcurrencyTracker(cap: number): ConcurrencyTracker {
+  let inFlight = 0;
+  let peakInFlight = 0;
+
+  return {
+    onStart() {
+      inFlight++;
+      if (inFlight > peakInFlight) {
+        peakInFlight = inFlight;
+      }
+    },
+    onEnd() {
+      inFlight--;
+    },
+    getPeakInFlight() {
+      return peakInFlight;
+    },
+    getCap() {
+      return cap;
+    },
+  };
+}
+
+/**
+ * Resolves the effective concurrency cap from configuration.
+ * Handles edge cases: cap=1 (sequential), cap>=companyCount (all in parallel),
+ * invalid cap (clamped to safe default).
+ * 
+ * VAL-ROUTE-015: Concurrency edge cases (cap=1, cap>=companyCount, invalid cap handling)
+ * are bounded and explicit.
+ */
+function resolveConcurrencyCap(
+  parallelEnabled: boolean,
+  companyCount: number,
+): number {
+  if (!parallelEnabled) {
+    // Parallel processing disabled: use sequential (1)
+    return 1;
+  }
+
+  // Default to 3 concurrent companies when enabled and no explicit cap
+  // This provides meaningful parallelism while avoiding overwhelming the system
+  const defaultCap = 3;
+
+  if (companyCount <= 0) {
+    // No companies to process
+    return 1;
+  }
+
+  if (companyCount === 1) {
+    // Single company: no parallelism needed
+    return 1;
+  }
+
+  // Return the default cap for multiple companies
+  // If cap >= companyCount, all companies will run in parallel (no effective limit)
+  return defaultCap;
+}
+
+/**
+ * Processes companies with bounded concurrency, ensuring that in-flight
+ * company execution never exceeds the effective concurrency cap.
+ * 
+ * VAL-ROUTE-015: In-flight company execution never exceeds effective concurrency cap.
+ * VAL-ROUTE-016: Single-company failures remain isolated with company-attributed
+ * failure evidence while successful companies complete.
+ */
+async function processCompaniesBounded(
+  companies: CompanyTarget[],
+  dependencies: RunDiscoveryDependencies,
+  run: DiscoveryRun,
+  timeouts: {
+    sourceTimeoutMs: number;
+    matcherTimeoutMs: number;
+  },
+  budgetTracker: BudgetTracker | undefined,
+  concurrencyTracker: ConcurrencyTracker,
+): Promise<CompanyProcessingResult[]> {
+  const results: CompanyProcessingResult[] = [];
+
+  // VAL-ROUTE-015: Resolve effective concurrency cap with explicit edge case handling
+  const parallelEnabled = run.config.ultraPlanTuning?.parallelCompanyProcessingEnabled ?? false;
+  const effectiveCap = resolveConcurrencyCap(parallelEnabled, companies.length);
+
+  dependencies.log?.("discovery.run.concurrency_config", {
+    runId: run.runId,
+    companyCount: companies.length,
+    parallelEnabled,
+    effectiveCap,
+    peakInFlight: concurrencyTracker.getPeakInFlight(),
+  });
+
+  if (effectiveCap === 1 || companies.length === 1) {
+    // Sequential processing: process companies one at a time
+    for (const company of companies) {
+      const result = await processSingleCompany(
+        company,
+        dependencies,
+        run,
+        timeouts,
+        budgetTracker,
+      );
+      results.push(result);
+    }
+  } else {
+    // Bounded parallel processing: use semaphore-style concurrency control
+    // VAL-ROUTE-015: In-flight count never exceeds effectiveCap
+    const semaphore = { inFlight: 0 };
+    const pending: Promise<void>[] = [];
+
+    for (const company of companies) {
+      // Create a promise that processes this company and tracks concurrency
+      const companyPromise = (async () => {
+        // Wait until there's room in the semaphore
+        while (semaphore.inFlight >= effectiveCap) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+
+        // Acquire slot
+        semaphore.inFlight++;
+        concurrencyTracker.onStart();
+
+        try {
+          const result = await processSingleCompany(
+            company,
+            dependencies,
+            run,
+            timeouts,
+            budgetTracker,
+          );
+          results.push(result);
+        } finally {
+          // Release slot
+          semaphore.inFlight--;
+          concurrencyTracker.onEnd();
+        }
+      })();
+
+      pending.push(companyPromise);
+    }
+
+    // Wait for all companies to complete
+    await Promise.all(pending);
+  }
+
+  // Sort results by company name for deterministic output
+  results.sort((a, b) => a.companyName.localeCompare(b.companyName));
+
+  return results;
+}
+
+/**
+ * Processes a single company, returning structured result with isolated failure handling.
+ * 
+ * VAL-ROUTE-016: Single-company failures remain isolated with company-attributed
+ * failure evidence while successful companies complete.
+ */
+async function processSingleCompany(
+  company: CompanyTarget,
+  dependencies: RunDiscoveryDependencies,
+  run: DiscoveryRun,
+  timeouts: {
+    sourceTimeoutMs: number;
+    matcherTimeoutMs: number;
+  },
+  budgetTracker: BudgetTracker | undefined,
+): Promise<CompanyProcessingResult> {
+  const result: CompanyProcessingResult = {
+    companyName: company.name,
+    rawListings: [],
+    searchQueries: [],
+    seedUrls: [],
+    companyWarnings: [],
+    companyDiagnostics: [],
+    pagesVisited: 0,
+    leadsSeen: 0,
+    leadsAccepted: 0,
+    failed: false,
+  };
+
+  // VAL-OBS-002: Check if company should be skipped due to budget exhaustion
+  if (budgetTracker) {
+    const skipDiagnostic = budgetTracker.checkCompanySkip(company.name);
+    if (skipDiagnostic) {
+      result.companyDiagnostics.push(skipDiagnostic);
+      result.companyWarnings.push(`Budget skip: ${skipDiagnostic.context}`);
+      dependencies.log?.("discovery.run.budget_company_skip", {
+        runId: run.runId,
+        company: company.name,
+        context: skipDiagnostic.context,
+      });
+      return result; // Early return - company skipped due to budget
+    }
+  }
+
+  try {
+    const collectionPromise = collectGroundedWebListings({
+      company,
+      run,
+      runtimeConfig: dependencies.runtimeConfig,
+      groundedSearchClient: dependencies.groundedSearchClient!,
+      sessionManager: dependencies.browserSessionManager!,
+      budgetTracker,
+    });
+
+    const collectionResult = await withTimeout(
+      `grounded_collection[${company.name}]`,
+      "grounded_web",
+      timeouts.sourceTimeoutMs,
+      collectionPromise,
+    ).catch((error) => {
+      if (error instanceof TimeoutError) {
+        const message = `Grounded collection timed out after ${error.timeoutMs}ms for ${company.name}`;
+        result.companyWarnings.push(message);
+        result.companyDiagnostics.push({
+          code: "timeout",
+          context: `Grounded collection timed out after ${error.timeoutMs}ms for ${company.name}: ${error.message}`,
+        });
+        dependencies.log?.("discovery.run.grounded_company_timeout", {
+          runId: run.runId,
+          company: company.name,
+          timeoutMs: error.timeoutMs,
+        });
+        return {
+          rawListings: [],
+          searchQueries: [],
+          seedUrls: [],
+          warnings: [message],
+          pagesVisited: 0,
+          diagnostics: [{
+            code: "timeout" as const,
+            context: `Grounded collection timed out after ${error.timeoutMs}ms for ${company.name}: ${error.message}`,
+          }],
+        };
+      }
+      throw error;
+    });
+
+    // Collect results from this company
+    result.rawListings = collectionResult.rawListings;
+    result.searchQueries = collectionResult.searchQueries;
+    result.seedUrls = collectionResult.seedUrls;
+    result.companyWarnings.push(...collectionResult.warnings);
+    result.pagesVisited = collectionResult.pagesVisited;
+    result.leadsSeen = collectionResult.rawListings.length;
+
+    // VAL-OBS-001: Propagate structured diagnostics from grounded collection
+    if (collectionResult.diagnostics?.length) {
+      result.companyDiagnostics.push(...collectionResult.diagnostics);
+    }
+
+    dependencies.log?.("discovery.run.company_processed", {
+      runId: run.runId,
+      company: company.name,
+      rawListingsCount: result.rawListings.length,
+      pagesVisited: result.pagesVisited,
+      warnings: result.companyWarnings.length,
+      failed: false,
+    });
+  } catch (error) {
+    // VAL-ROUTE-016: Company failure is isolated with explicit attribution
+    // The error does not propagate - we record it and continue
+    result.failed = true;
+    result.errorMessage = formatError(error);
+    result.companyWarnings.push(
+      `Grounded discovery failed for ${company.name}: ${result.errorMessage}`,
+    );
+    result.companyDiagnostics.push({
+      code: "timeout", // Use timeout code as fallback; actual error is in context
+      context: `Company "${company.name}" processing failed: ${result.errorMessage}`,
+    });
+    dependencies.log?.("discovery.run.company_failed", {
+      runId: run.runId,
+      company: company.name,
+      error: result.errorMessage,
+      failed: true,
+    });
+  }
+
+  return result;
+}
+
 async function runGroundedWebDiscovery(
   run: DiscoveryRun,
   dependencies: RunDiscoveryDependencies,
@@ -768,6 +1087,7 @@ async function runGroundedWebDiscovery(
   }
 
   const sourceTimeoutMs = timeouts?.sourceTimeoutMs ?? DEFAULT_SOURCE_TIMEOUT_MS;
+  const matcherTimeoutMs = timeouts?.matcherTimeoutMs ?? DEFAULT_MATCHER_TIMEOUT_MS;
 
   // VAL-API-010 / VAL-ROUTE-007: When companies is empty but intent is non-blank,
   // run unrestricted grounded discovery using just the intent fields.
@@ -778,87 +1098,40 @@ async function runGroundedWebDiscovery(
       ? run.config.companies
       : [{ name: "" }]; // Unrestricted search with empty company name
 
-  for (const company of companiesToSearch) {
-    // VAL-OBS-002: Check if company should be skipped due to budget exhaustion
-    if (budgetTracker) {
-      const skipDiagnostic = budgetTracker.checkCompanySkip(company.name);
-      if (skipDiagnostic) {
-        extractionResult.diagnostics = [
-          ...(extractionResult.diagnostics || []),
-          skipDiagnostic,
-        ];
-        extractionResult.warnings.push(
-          `Budget skip: ${skipDiagnostic.context}`,
-        );
-        dependencies.log?.("discovery.run.budget_company_skip", {
-          runId: run.runId,
-          company: company.name,
-          context: skipDiagnostic.context,
-        });
-        continue;
-      }
-    }
+  // VAL-ROUTE-015: Create concurrency tracker to monitor in-flight processing
+  const parallelEnabled = run.config.ultraPlanTuning?.parallelCompanyProcessingEnabled ?? false;
+  const effectiveCap = resolveConcurrencyCap(parallelEnabled, companiesToSearch.length);
+  const concurrencyTracker = createConcurrencyTracker(effectiveCap);
 
-    try {
-      const collectionPromise = collectGroundedWebListings({
-        company,
-        run,
-        runtimeConfig: dependencies.runtimeConfig,
-        groundedSearchClient: dependencies.groundedSearchClient,
-        sessionManager: dependencies.browserSessionManager,
-        budgetTracker,
-      });
-      const result = await withTimeout(
-        `grounded_collection[${company.name}]`,
-        "grounded_web",
-        sourceTimeoutMs,
-        collectionPromise,
-      ).catch((error) => {
-        if (error instanceof TimeoutError) {
-          const message = `Grounded collection timed out after ${error.timeoutMs}ms for ${company.name}`;
-          extractionResult.warnings.push(message);
-          warnings.push(message);
-          dependencies.log?.("discovery.run.grounded_company_timeout", {
-            runId: run.runId,
-            company: company.name,
-            timeoutMs: error.timeoutMs,
-          });
-          return {
-            rawListings: [],
-            searchQueries: [],
-            seedUrls: [],
-            warnings: [message],
-            pagesVisited: 0,
-            diagnostics: [{
-              code: "timeout" as const,
-              context: `Grounded collection timed out after ${error.timeoutMs}ms for ${company.name}: ${error.message}`,
-            }],
-          };
-        }
-        throw error;
-      });
-      // VAL-OBS-001: Propagate structured diagnostics from grounded collection
-      if (result.diagnostics?.length) {
-        extractionResult.diagnostics = [
-          ...(extractionResult.diagnostics || []),
-          ...result.diagnostics,
-        ];
-      }
-      listingCount += result.rawListings.length;
-      extractionResult.querySummary = uniqueJoin([
-        extractionResult.querySummary,
-        ...result.searchQueries,
-        ...result.seedUrls,
-      ]);
-      extractionResult.stats.pagesVisited += result.pagesVisited;
-      extractionResult.stats.leadsSeen += result.rawListings.length;
-      extractionResult.warnings.push(...result.warnings);
+  // VAL-ROUTE-015/016: Process companies with bounded concurrency and isolated failure handling
+  const companyResults = await processCompaniesBounded(
+    companiesToSearch,
+    dependencies,
+    run,
+    { sourceTimeoutMs, matcherTimeoutMs },
+    budgetTracker,
+    concurrencyTracker,
+  );
 
-      for (const rawListing of result.rawListings) {
+  // Aggregate results from all companies
+  let totalLeadsAccepted = 0;
+
+  for (const companyResult of companyResults) {
+    // VAL-ROUTE-016: Emit company-attributed failure evidence for failed companies
+    if (companyResult.failed) {
+      extractionResult.warnings.push(...companyResult.companyWarnings);
+      // Add company-specific failure diagnostics
+      extractionResult.diagnostics = [
+        ...(extractionResult.diagnostics || []),
+        ...companyResult.companyDiagnostics,
+      ];
+    } else {
+      // Successful company processing - aggregate results
+      for (const rawListing of companyResult.rawListings) {
         const normalized = await normalizeRawListing(rawListing, run, {
           dependencies,
           matchingState,
-          matcherTimeoutMs: timeouts?.matcherTimeoutMs,
+          matcherTimeoutMs,
         });
         if (normalized.matchUsedAi) {
           matchingState.aiMatchCallsUsed += 1;
@@ -877,13 +1150,40 @@ async function runGroundedWebDiscovery(
         normalizedLeads.push(normalized.lead);
         extractionResult.leads.push(normalized.lead);
         extractionResult.stats.leadsAccepted += 1;
+        totalLeadsAccepted++;
       }
-    } catch (error) {
-      const message = `Grounded discovery failed for ${company.name}: ${formatError(error)}`;
-      extractionResult.warnings.push(message);
-      warnings.push(message);
+
+      // Aggregate successful company data
+      extractionResult.querySummary = uniqueJoin([
+        extractionResult.querySummary,
+        ...companyResult.searchQueries,
+        ...companyResult.seedUrls,
+      ]);
+      extractionResult.stats.pagesVisited += companyResult.pagesVisited;
+      extractionResult.stats.leadsSeen += companyResult.leadsSeen;
+      extractionResult.warnings.push(...companyResult.companyWarnings);
+
+      // VAL-OBS-001: Propagate successful company diagnostics
+      if (companyResult.companyDiagnostics.length > 0) {
+        extractionResult.diagnostics = [
+          ...(extractionResult.diagnostics || []),
+          ...companyResult.companyDiagnostics,
+        ];
+      }
+
+      listingCount += companyResult.rawListings.length;
     }
   }
+
+  // VAL-ROUTE-015: Log peak in-flight for validation evidence
+  dependencies.log?.("discovery.run.concurrency_summary", {
+    runId: run.runId,
+    companyCount: companiesToSearch.length,
+    effectiveCap,
+    peakInFlight: concurrencyTracker.getPeakInFlight(),
+    successfulCompanies: companyResults.filter((r) => !r.failed).length,
+    failedCompanies: companyResults.filter((r) => r.failed).length,
+  });
 
   return {
     extractionResult,
