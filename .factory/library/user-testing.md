@@ -18,6 +18,8 @@ Testing surfaces, tools, setup notes, and concurrency guidance for this mission.
   - Capture run-linked evidence (`runId`, `statusPath`) from network + UI.
   - If auth-gated surfaces are required, use real Google sign-in/cookie import on `localhost`; do not mock.
   - Preset controls are reachable while logged out via Settings → Discovery and discovery setup modal path.
+  - **OAuth note:** The OAuth client is configured for `localhost:8080` but NOT for `127.0.0.1:8080`. Always use `http://localhost:8080` for OAuth flows.
+  - **Preset controls access:** The preset controls (radio buttons `input[name='dpSourcePreset']`) are inside a hidden modal (`discoveryPrefsModal`). If normal UI flow is unavailable (e.g., due to auth), they can be accessed via JavaScript: `document.getElementById('discoveryPrefsModal').style.display='flex'` or call `openDiscoveryPrefsModal()` from the console.
 
 ### 2) Discovery worker API surface
 - **URL:** `http://127.0.0.1:8644`
