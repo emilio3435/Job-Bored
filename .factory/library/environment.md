@@ -24,6 +24,7 @@ Environment variables, external dependencies, and setup notes for this mission.
 - `BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE` (absolute local path)
 - Service account JSON must contain valid `client_email` and `private_key`
 - Target sheet must be shared with the service account email
+- Current local validation path: `/Users/emilionunezgarcia/Downloads/elio-ai-prod-4bae66f7bba7.json`
 
 ### Browser-enabled search runtime
 - `BROWSER_USE_DISCOVERY_BROWSER_COMMAND` (or `browser-use` on PATH)
