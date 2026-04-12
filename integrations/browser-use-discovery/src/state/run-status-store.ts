@@ -94,6 +94,10 @@ export function buildCompletedRunStatus(
     writeResult: result.writeResult,
     warnings: [...result.warnings],
     sources: result.sourceSummary.map(cloneSourceSummary),
+    // Expose resolved control-plane snapshot for VAL-API-001..005 validation.
+    // These fields are only present at terminal state after config resolution.
+    ultraPlanTuning: result.run.config.ultraPlanTuning,
+    groundedSearchTuning: result.run.config.groundedSearchTuning,
   };
 }
 

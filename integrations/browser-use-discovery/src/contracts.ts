@@ -232,6 +232,18 @@ export type DiscoveryRunStatusPayload = {
   warnings: string[];
   sources: DiscoverySourceSummary[];
   error?: string;
+  /**
+   * Resolved UltraPlan tuning flags at terminal state.
+   * Only present when the run has completed and config was resolved.
+   * Exposes the machine-readable control-plane snapshot for VAL-API-001..005 validation.
+   */
+  ultraPlanTuning?: UltraPlanTuning;
+  /**
+   * Resolved grounded search tuning parameters at terminal state.
+   * Only present when the run has completed and config was resolved.
+   * Exposes the machine-readable control-plane snapshot for VAL-API-001..005 validation.
+   */
+  groundedSearchTuning?: GroundedSearchTuning;
 };
 
 export type DiscoveryWebhookAck = {
