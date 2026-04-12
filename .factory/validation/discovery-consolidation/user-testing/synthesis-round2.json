@@ -1,0 +1,65 @@
+{
+  "milestone": "discovery-consolidation",
+  "round": 2,
+  "status": "partial",
+  "assertionsSummary": {
+    "total": 7,
+    "passed": 5,
+    "failed": 0,
+    "blocked": 2
+  },
+  "passedAssertions": [
+    "VAL-DISCOVERY-006",
+    "VAL-DISCOVERY-015",
+    "VAL-DISCOVERY-017",
+    "VAL-CROSS-005",
+    "VAL-CROSS-006"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [
+    {
+      "id": "VAL-DISCOVERY-001",
+      "blockedBy": "Test environment interference: The local bootstrap file (discovery-local-bootstrap.json) exists in the repo and contains localWebhookUrl, causing localSetupDetected=true. This makes the Run discovery button disabled instead of enabled. The assertion assumes no local bootstrap is present, but the test environment has one. The fix feature may have addressed the code issue from round 1 (HTML-disabled button), but the test environment's bootstrap file overrides the scenario being tested."
+    },
+    {
+      "id": "VAL-DISCOVERY-004",
+      "blockedBy": "No real Apps Script endpoint deployed: Testing with a fake Apps Script URL returns 404 instead of triggering the CORS failure path needed for stub_only classification. The code path for handleAppsScriptBrowserCorsFailure requires a real Apps Script endpoint that triggers CORS. No managed Apps Script is deployed in the test environment, so the stub_only classification cannot be properly tested."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Documented simulation override mechanism for deterministic recovery-state testing: localStorage.setItem('discovery_local_simulation_override', JSON.stringify({...})) can simulate worker_down, tunnel_down, tunnel_rotated states without stopping actual services.",
+      "source": "flow-report"
+    },
+    {
+      "target": "validation-state.json",
+      "description": "Updated 7 assertions from round 1 status: VAL-DISCOVERY-006, VAL-DISCOVERY-015, VAL-DISCOVERY-017, VAL-CROSS-005, VAL-CROSS-006 changed from failed to passed; VAL-DISCOVERY-001, VAL-DISCOVERY-004 remain failed with updated reasons reflecting test environment blockers.",
+      "source": "synthesis"
+    }
+  ],
+  "previousRound": ".factory/validation/discovery-consolidation/user-testing/synthesis.json",
+  "flowReports": [
+    ".factory/validation/discovery-consolidation/user-testing/flows/round2-dashboard-cross.json",
+    ".factory/validation/discovery-consolidation/user-testing/flows/round2-discovery-001-004.json",
+    ".factory/validation/discovery-consolidation/user-testing/flows/round2-discovery-recovery-sim.json"
+  ],
+  "systemicBlockers": [
+    {
+      "rootCause": "Local bootstrap file (discovery-local-bootstrap.json) exists in repo root and interferes with tests expecting no discovery endpoint",
+      "affectedAssertions": ["VAL-DISCOVERY-001"],
+      "suggestedResolution": "Consider moving bootstrap file to a non-default location or adding a test-mode override that ignores bootstrap when explicitly disabled"
+    },
+    {
+      "rootCause": "No managed Apps Script deployment available for testing stub_only classification",
+      "affectedAssertions": ["VAL-DISCOVERY-004"],
+      "suggestedResolution": "Deploy a minimal managed Apps Script stub endpoint, or add a test-specific simulation path for CORS failure scenarios"
+    }
+  ],
+  "keyAccomplishments": [
+    "Successfully used simulation override mechanism for deterministic testing of recovery states (VAL-DISCOVERY-006, VAL-DISCOVERY-015, VAL-DISCOVERY-017)",
+    "Verified signed-out dashboard access through normal app flow without DOM force-show overrides (VAL-CROSS-005)",
+    "Verified discovery preferences sync between Settings and run modal (VAL-CROSS-006)",
+    "All fix features from round 1 blockers have been validated where test environment permits"
+  ]
+}

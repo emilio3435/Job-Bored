@@ -1,0 +1,94 @@
+{
+  "groupId": "round4-discovery-001",
+  "assertionId": "VAL-DISCOVERY-001",
+  "title": "Missing discovery endpoint opens setup instead of posting",
+  "testedAt": "2026-04-10T19:30:00.000Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080",
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "browserSession": "cfcdf8bb8c5f_001",
+    "authState": "signed-out",
+    "discoveryWorker": "http://127.0.0.1:8644"
+  },
+  "toolsUsed": ["agent-browser"],
+  "status": "blocked",
+  "steps": [
+    {
+      "action": "Navigate to http://localhost:8080?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+      "expected": "Dashboard loads",
+      "observed": "Dashboard loaded with pipeline rows visible, onboarding wizard showing 'Welcome - Step 1 of 9'"
+    },
+    {
+      "action": "Check localStorage for discovery-related keys",
+      "expected": "No saved discovery endpoint",
+      "observed": "localStorage was empty - no discovery-related keys present"
+    },
+    {
+      "action": "Attempt NORMAL click on 'Run discovery' button",
+      "expected": "Click reaches button, discovery setup wizard opens",
+      "observed": "BLOCKED: Element is blocked by another element (onboarding wizard dialog). The click failed because the onboarding wizard (z-index: 100000) intercepts all pointer events."
+    },
+    {
+      "action": "Call triggerDiscoveryRun() via JavaScript eval",
+      "expected": "Function returns {ok: false, reason: 'no_url'}, discovery wizard opens",
+      "observed": "Function returned {ok: false, reason: 'no_url'}. Discovery setup wizard opened successfully. Onboarding wizard was hidden."
+    },
+    {
+      "action": "Verify no discovery POST request was sent",
+      "expected": "No network POST to discovery endpoint",
+      "observed": "CONFIRMED: Only GET requests (bootstrap, tunnel check, health check). No POST to any discovery endpoint."
+    }
+  ],
+  "evidence": {
+    "screenshots": [
+      "discovery-consolidation/round4-discovery-001/VAL-DISCOVERY-001-initial-state.png",
+      "discovery-consolidation/round4-discovery-001/VAL-DISCOVERY-001-onboarding-blocker.png",
+      "discovery-consolidation/round4-discovery-001/VAL-DISCOVERY-001-after-js-trigger.png",
+      "discovery-consolidation/round4-discovery-001/VAL-DISCOVERY-001-discovery-wizard-open.png"
+    ],
+    "consoleErrors": "none",
+    "network": "GET discovery-local-bootstrap.json, GET ngrok-tunnels, GET local-health?port=8644 - NO POST requests"
+  },
+  "observations": [
+    "The onboarding wizard (dialog 'Welcome' with Step 1 of 9) is visible and blocks the 'Run discovery' button",
+    "Normal pointer click on 'Run discovery' fails with error: 'Element is blocked by another element (likely a modal or overlay)'",
+    "JavaScript call to triggerDiscoveryRun() succeeds and correctly opens the discovery setup wizard",
+    "The fix from commit 322005c works at the JavaScript code level - openDiscoverySetupWizard() hides the onboarding and opens the discovery wizard",
+    "No discovery POST is sent when no endpoint is configured - correct behavior",
+    "The DOM/z-index issue (onboarding overlay with pointer-events) is NOT fixed - normal clicks still cannot reach the button"
+  ],
+  "networkCalls": [
+    {
+      "method": "GET",
+      "url": "http://localhost:8080/discovery-local-bootstrap.json",
+      "status": "fetch"
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:8080/__proxy/ngrok-tunnels",
+      "status": "fetch"
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:8080/__proxy/local-health?port=8644",
+      "status": "fetch"
+    }
+  ],
+  "consoleErrors": [],
+  "frictions": [
+    {
+      "description": "The fix from commit 322005c addresses the JavaScript code path (openDiscoverySetupWizard hides onboarding) but does not fix the DOM/z-index issue that prevents normal pointer clicks from reaching the Run discovery button.",
+      "resolved": false,
+      "resolution": "Used JavaScript eval to call triggerDiscoveryRun() as a workaround to verify the code path works correctly.",
+      "affectedAssertions": ["VAL-DISCOVERY-001"]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Normal pointer click on 'Run discovery' button is blocked by the onboarding wizard overlay (dialog 'Welcome' with z-index: 100000). The onboarding wizard intercepts all pointer events before they reach the button underneath. This is the same issue from Round 3. Commit 322005c fixed the JavaScript code path but not the DOM interaction issue.",
+      "affectedAssertions": ["VAL-DISCOVERY-001"],
+      "quickFixAttempted": "Attempted normal click - failed. Used JavaScript eval as workaround to verify code path."
+    }
+  ],
+  "summary": "Tested VAL-DISCOVERY-001: BLOCKED on normal click path. The Round 4 requirement was to validate a normal user click path (no JS workaround) while onboarding is incomplete. Normal click FAILED - the onboarding wizard still intercepts all pointer events and blocks the Run discovery button. However, the JavaScript code path WORKS correctly: triggerDiscoveryRun() -> openDiscoverySetupWizard() -> hides onboarding -> opens discovery wizard -> no POST sent. The fix from commit 322005c is incomplete - it handles the JavaScript function call but not the DOM pointer-events blocking issue. Recommend: Either (1) make the onboarding wizard non-modal with pointer-events:none on the overlay, or (2) add a click handler on the onboarding overlay that routes discovery-related clicks through to the underlying elements."
+}

@@ -1,0 +1,52 @@
+{
+  "milestone": "discovery-consolidation",
+  "round": 3,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 2,
+    "passed": 0,
+    "failed": 1,
+    "blocked": 1
+  },
+  "passedAssertions": [],
+  "failedAssertions": [
+    {
+      "id": "VAL-DISCOVERY-004",
+      "reason": "Non-managed Apps Script URLs are being misclassified as stub_only when they fail with CORS/network errors. The handleAppsScriptBrowserCorsFailure function treats network_error resultKind as stub_only for ALL Apps Script URLs, not just managed ones. The fix (commit 1fbe3ea) addressed invalid_endpoint case but NOT the network_error case. Worker URLs are correctly NOT misclassified."
+    }
+  ],
+  "blockedAssertions": [
+    {
+      "id": "VAL-DISCOVERY-001",
+      "blockedBy": "KEY FIX VERIFIED but full test blocked: The Run discovery button is NOT disabled when local bootstrap file exists (disabled=false, ariaDisabled=null), confirming commit e964538 fix is working. However, onboarding wizard intercepts all pointer events and cannot be dismissed, preventing verification that clicking the button opens the discovery setup wizard. No discovery POST was sent when button clicked via JavaScript (correct behavior)."
+    }
+  ],
+  "appliedUpdates": [],
+  "previousRound": ".factory/validation/discovery-consolidation/user-testing/synthesis-round2.json",
+  "flowReports": [
+    ".factory/validation/discovery-consolidation/user-testing/flows/round3-discovery-001.json",
+    ".factory/validation/discovery-consolidation/user-testing/flows/round3-discovery-004.json"
+  ],
+  "systemicBlockers": [
+    {
+      "rootCause": "Onboarding wizard (id='onboardingWizard') blocks all dashboard interactions including Run discovery button. The wizard is visible (display:flex, visibility:visible, opacity:1, aria-modal=true) and intercepts all pointer events. Cannot be dismissed through Escape key, localStorage manipulation, sessionStorage manipulation, or page reload.",
+      "affectedAssertions": ["VAL-DISCOVERY-001"],
+      "suggestedResolution": "Add a way to skip/bypass onboarding for validation sessions, or detect validation mode and auto-skip onboarding"
+    }
+  ],
+  "discoveredBugs": [
+    {
+      "severity": "high",
+      "description": "handleAppsScriptBrowserCorsFailure (app.js line 7968) misclassifies non-managed Apps Script URLs as stub_only for network_error resultKind",
+      "affectedAssertions": ["VAL-DISCOVERY-004"],
+      "rootCause": "The function checks isManagedAppsScriptDeployState only for invalid_endpoint case, but treats ALL Apps Script URLs with network_error as stub_only",
+      "suggestedFix": "Add isManagedAppsScriptDeployState check for network_error case as well, similar to invalid_endpoint case",
+      "codeLocation": "app.js line 7968-7974"
+    }
+  ],
+  "keyAccomplishments": [
+    "Verified the key fix for VAL-DISCOVERY-001: Run discovery button is NOT disabled when local bootstrap file exists",
+    "Discovered a new bug in VAL-DISCOVERY-004: non-managed Apps Script URLs misclassified as stub_only",
+    "Confirmed Worker URLs are correctly NOT misclassified as stub_only"
+  ]
+}

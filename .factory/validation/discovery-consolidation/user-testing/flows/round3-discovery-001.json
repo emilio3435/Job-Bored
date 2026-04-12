@@ -1,0 +1,72 @@
+{
+  "groupId": "round3-discovery-001",
+  "testedAt": "2026-04-10T23:45:00.000Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080",
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "browserSession": "ed3ec5d9e689__val001",
+    "authState": "signed-out",
+    "discoveryWorker": "http://127.0.0.1:8644"
+  },
+  "toolsUsed": ["agent-browser"],
+  "assertions": [
+    {
+      "id": "VAL-DISCOVERY-001",
+      "title": "Missing discovery endpoint opens setup instead of posting",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Navigate to http://localhost:8080?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+          "expected": "Dashboard loads",
+          "observed": "Dashboard loaded with 78 pipeline rows visible"
+        },
+        {
+          "action": "Clear localStorage discovery-related keys",
+          "expected": "No saved discovery endpoint",
+          "observed": "localStorage was empty - no discovery-related keys present"
+        },
+        {
+          "action": "Verify Run discovery button is ENABLED (NOT disabled)",
+          "expected": "Button is enabled and clickable",
+          "observed": "CONFIRMED: Button is NOT disabled (disabled=false, ariaDisabled=null). This verifies the fix from commit e964538 that removed localSetupDetected disabled-state gating."
+        },
+        {
+          "action": "Click Run discovery button",
+          "expected": "Discovery setup wizard opens",
+          "observed": "BLOCKED: Onboarding wizard intercepts all pointer events and prevents clicks on Run discovery button. JavaScript click was attempted but wizard did not open (remains aria-hidden=true, display=none)."
+        },
+        {
+          "action": "Verify no discovery POST request is sent",
+          "expected": "No network POST to discovery endpoint",
+          "observed": "CONFIRMED: No network requests captured when button was clicked via JavaScript. This is correct behavior - no POST should be sent when no endpoint is configured."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "discovery-consolidation/round3-discovery-001/VAL-DISCOVERY-001-initial-state.png",
+          "discovery-consolidation/round3-discovery-001/VAL-DISCOVERY-001-before-click.png",
+          "discovery-consolidation/round3-discovery-001/VAL-DISCOVERY-001-onboarding-blocker.png"
+        ],
+        "consoleErrors": "404 errors for some resources (not related to discovery flow)",
+        "network": "No discovery POST requests captured"
+      },
+      "issues": "CRITICAL FINDING: The Run discovery button is NOT disabled, which confirms the fix from commit e964538 is working. However, the onboarding wizard (id='onboardingWizard') is blocking the full test. The wizard is visible (display:flex, visibility:visible, opacity:1, pointer-events:auto) and intercepts all pointer events, preventing clicks on the Run discovery button from reaching the button's click handler. The onboarding cannot be dismissed through Escape key, clicking through steps, localStorage manipulation, sessionStorage manipulation, or page reload."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "The onboarding wizard (id='onboardingWizard') blocks all dashboard interactions including the Run discovery button. The wizard is visible and intercepts pointer events even though the dashboard is fully rendered underneath.",
+      "resolved": false,
+      "resolution": "Attempted: Escape key press, clicking through wizard steps, setting localStorage (onboardingComplete=true, onboarding_skipped=true), clearing sessionStorage (pendingDiscoverySetup), reloading page, IndexedDB manipulation. None of these bypassed the onboarding.",
+      "affectedAssertions": ["VAL-DISCOVERY-001"]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "The onboarding wizard is preventing clicks on the Run discovery button. The button's click handler cannot be triggered because the onboarding overlay (aria-modal=true) intercepts all pointer events. The discovery-setup-wizard-root exists but remains hidden (aria-hidden=true, display=none) even after JavaScript click on Run discovery button.",
+      "affectedAssertions": ["VAL-DISCOVERY-001"],
+      "quickFixAttempted": "Attempted JavaScript click on Run discovery button - button click succeeded but discovery wizard did not open. The button's click event may not be connected to the discovery wizard opening logic, or there's a precondition that's not met."
+    }
+  ],
+  "summary": "Tested VAL-DISCOVERY-001: KEY FIX VERIFIED but full test BLOCKED by onboarding wizard. The Run discovery button is NOT disabled (disabled=false, ariaDisabled=null) - this confirms the fix from commit e964538 that removed localSetupDetected disabled-state gating is working. The local bootstrap file (discovery-local-bootstrap.json) exists but no longer causes the button to be disabled. However, the onboarding wizard blocks the full test by intercepting all pointer events. No discovery POST was sent when the button was clicked via JavaScript, which is correct behavior. The assertion's core requirement (button enabled when no endpoint configured) is confirmed working, but the secondary requirement (wizard opens on click) could not be verified due to the onboarding blocker."
+}

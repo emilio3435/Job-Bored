@@ -1,0 +1,58 @@
+{
+  "groupId": "round5-empty-pipeline",
+  "testedAt": "2026-04-11T05:43:57Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080/?sheet=1zK-I18WITjwcqsx4LgVSFk-dmAot2dxHae1Y0N9CPB0",
+    "sheetId": "1zK-I18WITjwcqsx4LgVSFk-dmAot2dxHae1Y0N9CPB0",
+    "browserSession": "round5-empty-pipeline",
+    "readOnly": true
+  },
+  "toolsUsed": [
+    "agent-browser"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-DASH-013",
+      "title": "Truly empty pipelines show guided empty states",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Open the app on the dedicated empty-sheet URL in a fresh browser session",
+          "expected": "The empty-pipeline fixture loads without mutating the sheet",
+          "observed": "The page opened on http://localhost:8080/?sheet=1zK-I18WITjwcqsx4LgVSFk-dmAot2dxHae1Y0N9CPB0 and showed the usual Google auth gate first."
+        },
+        {
+          "action": "Reveal the already-loaded dashboard and rerun the existing brief render without changing any sheet data",
+          "expected": "The rendered app shows the underlying read-only empty-pipeline state",
+          "observed": "The board rendered as a true empty pipeline: pipelineData.length=0, jobCardCount=0, and stageLaneCount=0."
+        },
+        {
+          "action": "Inspect the Daily Brief and Pipeline regions for empty-state guidance",
+          "expected": "Both regions show helpful guidance/setup or discovery CTAs instead of blank chrome",
+          "observed": "Daily Brief showed 'Add a discovery webhook in Settings or open the setup wizard to connect automation.' with an 'Open setup wizard' CTA. The Pipeline region showed 'Pipeline is empty' and 'Pipeline works without discovery, but you can use the wizard if you want Run discovery or guided setup.' with an 'Open discovery setup' CTA."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "evidence/frontend-decomposition/round5-empty-pipeline/VAL-DASH-013-empty-pipeline.png",
+          "evidence/frontend-decomposition/round5-empty-pipeline/VAL-DASH-013-empty-pipeline-annotated.png"
+        ],
+        "consoleErrors": "none",
+        "network": "n/a"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "The fresh read-only session still landed on the Google auth gate even though the empty sheet was being read successfully for browse-only validation.",
+      "resolved": true,
+      "resolution": "Used in-session browser eval to reveal the already-loaded dashboard (hide sheetAccessGateScreen/show dashboard) and reran renderBrief() so the underlying empty-state UI could be inspected without mutating the sheet.",
+      "affectedAssertions": [
+        "VAL-DASH-013"
+      ]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 1 assertion: 1 passed. The empty fixture rendered a true header-only pipeline (0 jobs, 0 lanes), the Daily Brief guidance read 'Add a discovery webhook in Settings or open the setup wizard to connect automation.', and the Pipeline guidance read 'Pipeline is empty' / 'Pipeline works without discovery, but you can use the wizard if you want Run discovery or guided setup.'"
+}

@@ -1,0 +1,64 @@
+{
+  "milestone": "frontend-decomposition",
+  "groupId": "round4-onboarding-profile",
+  "testedAt": "2026-04-11T04:41:52Z",
+  "toolsUsed": [
+    "agent-browser"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-DRAFTS-002",
+      "status": "pass",
+      "reason": "On the resume step, Continue stayed disabled until usable resume text was provided via paste mode; once non-empty resume text was present, Continue enabled immediately.",
+      "evidence": [
+        "evidence/frontend-decomposition/round4-drafts002-upload-invalid.png",
+        "evidence/frontend-decomposition/round4-drafts002-paste-mode.png",
+        "evidence/frontend-decomposition/round4-drafts002-upload-valid.png"
+      ]
+    },
+    {
+      "id": "VAL-DRAFTS-003",
+      "status": "pass",
+      "reason": "Finishing onboarding saved the profile locally and reopening Portfolio after reload still showed the saved resume/preferences (tone Warm, max words 350, writing sample/profile materials present).",
+      "evidence": [
+        "evidence/frontend-decomposition/round4-onboarding-finish.png",
+        "evidence/frontend-decomposition/round4-profile-after-reload.png"
+      ]
+    },
+    {
+      "id": "VAL-DRAFTS-004",
+      "status": "pass",
+      "reason": "Uploading jobbored-resume-replacement replaced the previous primary resume while the separate writing sample remained listed in Portfolio.",
+      "evidence": [
+        "evidence/frontend-decomposition/round4-profile-open.png",
+        "evidence/frontend-decomposition/round4-profile-replaced-resume.png"
+      ]
+    },
+    {
+      "id": "VAL-DRAFTS-012",
+      "status": "pass",
+      "reason": "The optional writing sample and AI context entered during onboarding persisted locally and reappeared in Portfolio after reload.",
+      "evidence": [
+        "evidence/frontend-decomposition/round4-drafts012-writing-sample.png",
+        "evidence/frontend-decomposition/round4-drafts012-ai-context.png",
+        "evidence/frontend-decomposition/round4-profile-after-reload.png"
+      ]
+    },
+    {
+      "id": "VAL-DRAFTS-016",
+      "status": "pass",
+      "reason": "Saving LinkedIn text updated visible profile metadata, clearing AI context removed only AI context while leaving LinkedIn/resume/sample intact, and clearing LinkedIn removed only LinkedIn while preserving resume/sample data.",
+      "evidence": [
+        "evidence/frontend-decomposition/round4-linkedin-saved.png",
+        "evidence/frontend-decomposition/round4-ai-context-cleared.png",
+        "evidence/frontend-decomposition/round4-linkedin-cleared.png"
+      ]
+    }
+  ],
+  "frictions": [
+    "Onboarding required stepping through every profile stage, but all required interactions worked in one browser session.",
+    "Primary resume was replaced later in the same session, so persistence evidence uses both the immediate post-onboarding screenshots and the later profile state."
+  ],
+  "blockers": [],
+  "summary": "Round 4 completed the local onboarding/profile assertions that were previously blocked. Resume gating, onboarding persistence, replaceable primary resume behavior, optional writing-sample/AI-context persistence, and LinkedIn/AI clear isolation all passed with browser evidence."
+}

@@ -1,0 +1,76 @@
+{
+  "groupId": "round3-discovery-004",
+  "testedAt": "2026-04-10T00:00:00Z",
+  "isolation": {
+    "appUrl": "http://localhost:8080",
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "browserSession": "ed3ec5d9e689__val004",
+    "authState": "signed-out",
+    "discoveryWorker": "http://127.0.0.1:8644"
+  },
+  "toolsUsed": ["agent-browser"],
+  "assertions": [
+    {
+      "id": "VAL-DISCOVERY-004",
+      "title": "Managed Apps Script stays marked as stub-only",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Navigate to http://localhost:8080?sheet=1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+          "expected": "App loads with dashboard visible",
+          "observed": "App loaded with dashboard visible, onboarding wizard blocked access"
+        },
+        {
+          "action": "Open Settings modal and navigate to Discovery tab",
+          "expected": "Discovery tab shows webhook URL field and Test webhook button",
+          "observed": "Discovery tab visible with webhook URL field and Test webhook button"
+        },
+        {
+          "action": "Check appsScriptDeployStateCache for managed stub state",
+          "expected": "Either managed stub is configured or not",
+          "observed": "appsScriptDeployStateCache exists but scriptId is empty - no managed stub deployed"
+        },
+        {
+          "action": "Test non-managed Apps Script URL (https://script.google.com/macros/s/FAKE_NON_MANAGED/exec)",
+          "expected": "Should show normal error/remediation, NOT stub_only classification",
+          "observed": "MISCLASSIFIED as stub_only: Toast showed 'Apps Script stub received the request. This is wiring-only — the stub does not find real jobs.' CORS error was treated as stub_only case."
+        },
+        {
+          "action": "Test Worker URL (https://some-worker.workers.dev/)",
+          "expected": "Should show normal error/remediation, NOT stub_only classification",
+          "observed": "Correctly showed 'Can't reach the endpoint. Network or CORS error' - NOT misclassified as stub_only"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "discovery-consolidation/round3-discovery-004/VAL-DISCOVERY-004-initial-state.png",
+          "discovery-consolidation/round3-discovery-004/VAL-DISCOVERY-004-blocked-state.png",
+          "discovery-consolidation/round3-discovery-004/VAL-DISCOVERY-004-settings-modal.png",
+          "discovery-consolidation/round3-discovery-004/VAL-DISCOVERY-004-discovery-tab.png",
+          "discovery-consolidation/round3-discovery-004/VAL-DISCOVERY-004-non-managed-result.png",
+          "discovery-consolidation/round3-discovery-004/VAL-DISCOVERY-004-worker-url-result.png",
+          "discovery-consolidation/round3-discovery-004/VAL-DISCOVERY-004-final-state.png"
+        ],
+        "consoleErrors": "CORS error: 'Access to fetch at 'https://script.google.com/macros/s/FAKE_NON_MANAGED/exec' from origin 'http://localhost:8080' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource.'",
+        "network": "POST https://script.google.com/macros/s/FAKE_NON_MANAGED/exec -> CORS error (net::ERR_FAILED)"
+      },
+      "issues": "CRITICAL BUG FOUND: Non-managed Apps Script URLs are being misclassified as stub_only when they fail with CORS/network errors. The handleAppsScriptBrowserCorsFailure function treats network_error resultKind as stub_only for ALL Apps Script URLs, not just managed ones. According to the fix (commit 1fbe3ea), invalid_endpoint should only return true for managed URLs, but network_error is being treated the same way. This violates the assertion requirement that 'NON-MANAGED endpoints are NOT misclassified as stub_only'."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Onboarding wizard blocked access to Settings button - required JavaScript manipulation to hide it",
+      "resolved": true,
+      "resolution": "Used eval to set display:none on onboardingWizard element",
+      "affectedAssertions": ["VAL-DISCOVERY-004"]
+    },
+    {
+      "description": "Sheet ID not persisted in settings - required manual save via Sheet tab before webhook tests would run",
+      "resolved": true,
+      "resolution": "Navigated to Sheet tab, filled sheet ID, and saved",
+      "affectedAssertions": ["VAL-DISCOVERY-004"]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested VAL-DISCOVERY-004 with 1 assertion: FAILED. Critical bug discovered - non-managed Apps Script URLs are being misclassified as stub_only when they fail with CORS/network errors. The handleAppsScriptBrowserCorsFailure function in app.js treats network_error resultKind as stub_only for ALL Apps Script URLs, violating the assertion that only managed Apps Script stubs should be classified as stub_only. Worker URLs are correctly NOT misclassified. No managed Apps Script stub is deployed in the test environment (scriptId is empty in appsScriptDeployStateCache)."
+}

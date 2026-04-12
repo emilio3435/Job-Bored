@@ -9,6 +9,7 @@
     "stub_only",
     "access_protected",
     "apps_script_private",
+    "auth_required",
     "network_error",
     "invalid_endpoint",
   ]);
@@ -41,82 +42,96 @@
   const H = window.JobBoredDiscoveryHelpers || {};
 
   function text(raw, fallback = "") {
-    return typeof H.asString === "function" ? H.asString(raw, fallback) : (raw == null ? "" : String(raw).trim()) || fallback;
+    return typeof H.asString === "function"
+      ? H.asString(raw, fallback)
+      : (raw == null ? "" : String(raw).trim()) || fallback;
   }
 
   function normalizeUrl(raw) {
-    return typeof H.normalizeUrl === "function" ? H.normalizeUrl(raw) : (raw == null ? "" : String(raw).trim()) || "";
+    return typeof H.normalizeUrl === "function"
+      ? H.normalizeUrl(raw)
+      : (raw == null ? "" : String(raw).trim()) || "";
   }
 
   function isLikelyAppsScriptWebAppUrl(raw) {
-    return typeof H.isLikelyAppsScriptWebAppUrl === "function" ? H.isLikelyAppsScriptWebAppUrl(raw) : (() => {
-      const s = text(raw);
-      if (!s) return false;
-      try {
-        const url = new URL(s);
-        return (
-          url.protocol === "https:" &&
-          /(^|\.)script\.google\.com$/i.test(url.hostname) &&
-          /\/macros\/s\/[^/]+\/(?:exec|dev)\/?$/i.test(url.pathname)
-        );
-      } catch (_) {
-        return /https:\/\/script\.google\.com\/macros\/s\/[^/]+\/(?:exec|dev)\/?/i.test(s);
-      }
-    })();
+    return typeof H.isLikelyAppsScriptWebAppUrl === "function"
+      ? H.isLikelyAppsScriptWebAppUrl(raw)
+      : (() => {
+          const s = text(raw);
+          if (!s) return false;
+          try {
+            const url = new URL(s);
+            return (
+              url.protocol === "https:" &&
+              /(^|\.)script\.google\.com$/i.test(url.hostname) &&
+              /\/macros\/s\/[^/]+\/(?:exec|dev)\/?$/i.test(url.pathname)
+            );
+          } catch (_) {
+            return /https:\/\/script\.google\.com\/macros\/s\/[^/]+\/(?:exec|dev)\/?/i.test(
+              s,
+            );
+          }
+        })();
   }
 
   function isLikelyCloudflareWorkerUrl(raw) {
-    return typeof H.isLikelyCloudflareWorkerUrl === "function" ? H.isLikelyCloudflareWorkerUrl(raw) : (() => {
-      const s = text(raw);
-      if (!s) return false;
-      try {
-        const url = new URL(s);
-        return (
-          url.protocol === "https:" &&
-          (/\.workers\.dev$/i.test(url.hostname) ||
-            /(^|\.)cloudflareworkers\.com$/i.test(url.hostname))
-        );
-      } catch (_) {
-        return /workers\.dev/i.test(s);
-      }
-    })();
+    return typeof H.isLikelyCloudflareWorkerUrl === "function"
+      ? H.isLikelyCloudflareWorkerUrl(raw)
+      : (() => {
+          const s = text(raw);
+          if (!s) return false;
+          try {
+            const url = new URL(s);
+            return (
+              url.protocol === "https:" &&
+              (/\.workers\.dev$/i.test(url.hostname) ||
+                /(^|\.)cloudflareworkers\.com$/i.test(url.hostname))
+            );
+          } catch (_) {
+            return /workers\.dev/i.test(s);
+          }
+        })();
   }
 
   function isLocalOnlyUrl(raw) {
-    return typeof H.isLocalWebhookUrl === "function" ? H.isLocalWebhookUrl(raw) : (() => {
-      const s = text(raw);
-      if (!s) return false;
-      try {
-        const url = new URL(s);
-        const host = String(url.hostname || "")
-          .replace(/^\[|\]$/g, "")
-          .toLowerCase();
-        return (
-          host === "localhost" ||
-          host === "127.0.0.1" ||
-          host === "::1" ||
-          host === "[::1]"
-        );
-      } catch (_) {
-        return false;
-      }
-    })();
+    return typeof H.isLocalWebhookUrl === "function"
+      ? H.isLocalWebhookUrl(raw)
+      : (() => {
+          const s = text(raw);
+          if (!s) return false;
+          try {
+            const url = new URL(s);
+            const host = String(url.hostname || "")
+              .replace(/^\[|\]$/g, "")
+              .toLowerCase();
+            return (
+              host === "localhost" ||
+              host === "127.0.0.1" ||
+              host === "::1" ||
+              host === "[::1]"
+            );
+          } catch (_) {
+            return false;
+          }
+        })();
   }
 
   function isWorkerForwardPath(raw) {
-    return typeof H.isWorkerForwardUrl === "function" ? H.isWorkerForwardUrl(raw) : (() => {
-      const s = normalizeUrl(raw);
-      if (!s) return false;
-      try {
-        const url = new URL(s);
-        return (
-          isLikelyCloudflareWorkerUrl(s) &&
-          /\/forward\/?$/i.test(url.pathname || "")
-        );
-      } catch (_) {
-        return false;
-      }
-    })();
+    return typeof H.isWorkerForwardUrl === "function"
+      ? H.isWorkerForwardUrl(raw)
+      : (() => {
+          const s = normalizeUrl(raw);
+          if (!s) return false;
+          try {
+            const url = new URL(s);
+            return (
+              isLikelyCloudflareWorkerUrl(s) &&
+              /\/forward\/?$/i.test(url.pathname || "")
+            );
+          } catch (_) {
+            return false;
+          }
+        })();
   }
 
   function createVerificationResult(partial) {
@@ -219,6 +234,28 @@
     return (
       data.ok === false && /sheetid is required\.?/i.test(text(data.message))
     );
+  }
+
+  /**
+   * The browser-use discovery worker (and any relay that forwards its
+   * responses) returns 401 with `{ ok: false, message: "Unauthorized
+   * discovery webhook request." }` when the x-discovery-secret header is
+   * missing or wrong. We detect this case explicitly so the toast can point
+   * the user at the bootstrap autofill instead of a generic "Unauthorized."
+   */
+  function isAuthRequiredResponse(status, data, responseText) {
+    if (Number(status) !== 401) return false;
+    if (data && typeof data === "object") {
+      const message = text(data.message).toLowerCase();
+      if (/unauthorized.*discovery.*webhook.*request/.test(message)) {
+        return true;
+      }
+      if (data.ok === false && message.includes("unauthorized")) {
+        return true;
+      }
+    }
+    const body = text(responseText).toLowerCase();
+    return body.includes("unauthorized discovery webhook request");
   }
 
   function classifyEndpointInput(rawUrl) {
@@ -362,11 +399,45 @@
             : "Webhook accepted — request is queued.",
           detail: "Check Pipeline rows shortly for results.",
           layer: "downstream",
+          runId: text(data.runId),
+          statusPath: text(data.statusPath),
+          pollAfterMs: Number.isFinite(Number(data.pollAfterMs))
+            ? Number(data.pollAfterMs)
+            : 2000,
         });
       }
     }
 
     if (!Number(status) || Number(status) < 200 || Number(status) >= 300) {
+      if (isAuthRequiredResponse(status, data, responseText)) {
+        const workerDownstream = isLikelyCloudflareWorkerUrl(endpointUrl);
+        return createVerificationResult({
+          ok: false,
+          kind: "auth_required",
+          engineState: "none",
+          httpStatus: 401,
+          message: workerDownstream
+            ? "Relay reached your worker, but the secret was rejected."
+            : "The discovery worker needs a webhook secret.",
+          detail: workerDownstream
+            ? "Your Cloudflare relay forwarded the request, but the upstream worker fail-closed because DISCOVERY_SECRET is missing or wrong."
+            : "The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Settings → Discovery webhook secret.",
+          layer: workerDownstream ? "downstream" : "upstream",
+          remediation: workerDownstream
+            ? [
+                "Refresh the relay's downstream secret:",
+                "1. Run `npm run discovery:bootstrap-local` to (re)generate the worker secret in `integrations/browser-use-discovery/.env`.",
+                '2. Redeploy with `npm run cloudflare-relay:deploy -- --target-url <ngrok URL> --discovery-secret "$(grep BROWSER_USE_DISCOVERY_WEBHOOK_SECRET integrations/browser-use-discovery/.env | cut -d= -f2)"`.',
+                "3. Click Test webhook again.",
+              ].join("\n")
+            : [
+                "1. Run `npm run discovery:bootstrap-local` on this machine.",
+                "2. Reload the dashboard — the secret will autofill.",
+                "3. Click Test webhook (or Run discovery) again.",
+              ].join("\n"),
+          suggestedCommand: "npm run discovery:bootstrap-local",
+        });
+      }
       if (isRouteNotFoundResponse(status, data, responseText)) {
         const workerDownstream = isLikelyCloudflareWorkerUrl(endpointUrl);
         return createVerificationResult({
@@ -378,15 +449,17 @@
             ? "Relay reached your server, but the webhook path does not exist."
             : `${endpointLabel} path was not found.`,
           detail: workerDownstream
-            ? "The Worker is up, but its target URL points at a missing route. A stale `/webhooks/command-center-discovery-*` URL will 404 against the current local discovery server."
+            ? "The Worker is up, but its downstream target points at a missing route. This usually means the hidden local target behind the Worker is stale, not that the saved Worker URL itself is wrong."
             : "The URL path returned 404 Not found. Check the exact webhook path.",
           layer: workerDownstream ? "downstream" : "upstream",
           remediation: workerDownstream
             ? [
-                "Refresh the browser-use path, then redeploy the relay:",
+                "Layman's version: JobBored can still reach your Cloudflare Worker, but the Worker is forwarding to an old local path.",
                 "1. Re-run `npm run discovery:bootstrap-local` so the local webhook resolves to `/webhook`.",
                 "2. Confirm the live public target ends in `/webhook`, not `/webhooks/command-center-discovery-*`.",
                 "3. Redeploy the Cloudflare relay so TARGET_URL uses that refreshed public target.",
+                "4. Keep the same open Worker URL saved in JobBored.",
+                "5. Run Test connection again.",
               ].join("\n")
             : "",
         });
@@ -451,13 +524,14 @@
         const statusCode = Number(status);
         const remediation = workerDownstream
           ? [
-              "The relay is reachable but can't connect to your local setup. Check:",
-              "1. Is the local server running? Try `hermes gateway run --replace`",
-              "2. Is ngrok running? Try `ngrok http <port>`",
-              "3. Did the ngrok URL change? Free URLs rotate on restart — redeploy the relay.",
+              "Layman's version: JobBored can still reach your Cloudflare Worker, but the Worker cannot reach the local tunnel behind it.",
+              "1. Keep the same open Worker URL saved in JobBored.",
+              "2. Is the local server running? Try `hermes gateway run --replace`.",
+              "3. Is ngrok running? Try `ngrok http <port>`.",
+              "4. If ngrok shows a new URL, redeploy the Cloudflare relay so TARGET_URL uses the new ngrok `/webhook` URL.",
               statusCode === 502
-                ? "4. If everything is running, the relay's target URL may be stale. Redeploy with the current ngrok URL."
-                : `4. HTTP ${statusCode} — the server may be overloaded. Check server logs.`,
+                ? "5. Run Test connection again after the relay redeploy finishes."
+                : `5. HTTP ${statusCode} can also mean the local server is overloaded. Check server logs, then test again.`,
             ].join("\n")
           : "";
         return createVerificationResult({
@@ -553,11 +627,18 @@
       ? window.setTimeout(() => controller.abort(), timeoutMs)
       : null;
 
+    const secret =
+      options &&
+      typeof options === "object" &&
+      typeof options.secret === "string"
+        ? options.secret.trim()
+        : "";
     try {
       const res = await fetch(endpointUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(secret ? { "x-discovery-secret": secret } : {}),
           ...(options &&
           typeof options === "object" &&
           options.headers &&
@@ -593,17 +674,27 @@
       });
     } catch (err) {
       const message = text(err && err.message, text(err, "request failed"));
+      const isCorsLike =
+        /cors|failed to fetch|networkerror|typeerror|aborted/i.test(message);
+      // Always include the URL we tried so users (and us) can see *what*
+      // failed without having to crack open DevTools. The previous "Network
+      // or CORS error — check the URL" was uselessly vague.
+      const detailParts = [];
+      if (isCorsLike) {
+        detailParts.push(
+          "The browser couldn't establish a connection. Likely causes: the URL is offline (DNS/host not resolving), the receiver isn't running, or CORS is blocking the preflight.",
+        );
+      } else {
+        detailParts.push(message);
+      }
+      detailParts.push(`Tried: ${endpointUrl}`);
       return createVerificationResult({
         ok: false,
         kind: "network_error",
         engineState: "none",
         httpStatus: 0,
         message: "Can't reach the endpoint.",
-        detail: /cors|failed to fetch|networkerror|typeerror|aborted/i.test(
-          message,
-        )
-          ? "Network or CORS error — check the URL and try again."
-          : message,
+        detail: detailParts.join(" — "),
         layer: "browser",
       });
     } finally {

@@ -1,0 +1,63 @@
+{
+  "milestone": "security-config",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 17,
+    "passed": 10,
+    "failed": 2,
+    "blocked": 5
+  },
+  "passedAssertions": [
+    "VAL-CROSS-001",
+    "VAL-CROSS-003",
+    "VAL-CROSS-013",
+    "VAL-SETTINGS-001",
+    "VAL-SETTINGS-002",
+    "VAL-SETTINGS-003",
+    "VAL-SETTINGS-005",
+    "VAL-SETTINGS-006",
+    "VAL-SETTINGS-012",
+    "VAL-SETTINGS-013"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-SETTINGS-004",
+      "reason": "With no usable OAuth bootstrap and an invalid sheet value, Save & reload reloaded to the setup surface and cleared overrides instead of keeping Settings open with a Sheet-tab validation error."
+    },
+    {
+      "id": "VAL-SETTINGS-007",
+      "reason": "Discovery-focused entry points from Settings and the dashboard behaved like no-ops instead of opening the intended discovery setup surface."
+    }
+  ],
+  "blockedAssertions": [
+    {
+      "id": "VAL-SETTINGS-009",
+      "blockedBy": "Blocked: real Google auth could not be established in the fresh validator session. Runtime token bridge probes returned 401 and live sign-in stopped at the Google identifier page, so write-capable post-sign-in behavior could not be demonstrated."
+    },
+    {
+      "id": "VAL-SETTINGS-010",
+      "blockedBy": "Blocked: session-restore behavior could not be tested because no valid signed-in session was established for the configured client ID in the fresh validator browser."
+    },
+    {
+      "id": "VAL-SETTINGS-015",
+      "blockedBy": "Blocked: client-ID invalidation of cached session reuse could not be proven because the validator session never reached a valid authenticated baseline to invalidate."
+    },
+    {
+      "id": "VAL-SETTINGS-016",
+      "blockedBy": "Blocked: fail-closed auth behavior could not be verified from a signed-in state because auth bootstrap failed before any real session existed; only pre-auth 401 probes were observed."
+    },
+    {
+      "id": "VAL-CROSS-011",
+      "blockedBy": "Blocked: the starter-sheet-created cold-start ordering proof could not be completed because the clean validator session reached Google OAuth but could not continue through the authenticated starter-sheet creation step in Exec mode."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Updated authenticated-browser guidance to treat the runtime token bridge as opportunistic only after fresh-session Google userinfo and Sheets probes returned 401, and documented cookie-import fallback caveat.",
+      "source": "flow-report"
+    }
+  ],
+  "previousRound": null
+}
