@@ -1,0 +1,26 @@
+{
+  "featureId": "run-status-handoff-contract-and-test-restoration",
+  "reviewedAt": "2026-04-12T05:20:00.000Z",
+  "commitId": "1917e8e",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Fix is correct and minimal. Single-line rename of handleDiscoverySetupDeepLink at app.js line 5145 restores the function that runPostAccessBootstrapOnce() calls, reversing the accidental renaming from commit 0d2b092. The function correctly reads window.location.search directly (no url/context params needed). All 6 cold-start handoff tests pass. All repo validators (typecheck, lint, full test suite of 272 tests) pass.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Two similarly-named functions exist in app.js for different purposes: handleDiscoverySetupDeepLink() (line 5145, reads window.location.search for ?setup=discovery deep links) and handleDiscoveryWizardVerification(url, context) (line 4192, handles webhook verification). The accidental renaming in commit 0d2b092 suggests these names are close enough to cause confusion. A naming convention (e.g., suffix pattern like DeepLink vs Verification) or cross-reference comment in app.js would prevent future name collisions.",
+      "evidence": "grep shows handleDiscoverySetupDeepLink at line 5145, handleDiscoveryWizardVerification at line 4192. runPostAccessBootstrapOnce calls handleDiscoverySetupDeepLink() at line 5160. The 0d2b092 diff shows the original handleDiscoverySetupDeepLink was replaced during the run-status tracker feature, breaking the bootstrap call."
+    },
+    {
+      "area": "knowledge",
+      "observation": "The feature description mentions 'add deterministic automated checks for run-status tracker transitions' but no new test file was added. The existing tests/discovery-cold-start-handoffs.test.mjs suite covers the deep-link deferral contract (handleDiscoverySetupDeepLink, runPostAccessBootstrapOnce, requestDiscoverySetup, resumePendingDiscoverySetupIfNeeded) but does NOT exercise DiscoveryRunTracker state machine transitions (accepted_async → terminal/polling_error paths). The prior review for browser-run-status-tracking-and-recovery documented that DiscoveryRunTracker could not be tested in Node.js vm.runInContext due to const/class isolation issues, and a test file was removed. If deterministic automated checks for tracker transitions are still desired, they would need to be added in a different testing context (e.g., browser-based test or integration test that doesn't rely on vm.runInContext).",
+      "evidence": "grep for DiscoveryRunTracker/pollAfterMs/polling_error in tests/ finds only one reference in discovery-webhook-secret-header.test.mjs (pollAfterMs: 2000 as fixture data), not as actual tracker state machine coverage. The cold-start handoffs test (tests/discovery-cold-start-handoffs.test.mjs) tests deferral semantics, not async polling paths."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fix is correct. The accidental renaming of handleDiscoverySetupDeepLink in 0d2b092 was restored, re-establishing the cold-start discovery handoff contract. All 6 cold-start handoff tests pass. Full repo validation (272 tests) is green. One naming-collision risk and one gap in automated tracker transition coverage are documented as shared-state observations for future workers."
+}

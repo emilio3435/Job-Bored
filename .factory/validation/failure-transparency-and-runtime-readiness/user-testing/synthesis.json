@@ -1,0 +1,102 @@
+{
+  "milestone": "failure-transparency-and-runtime-readiness",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 31,
+    "passed": 15,
+    "failed": 5,
+    "blocked": 11
+  },
+  "passedAssertions": [
+    "VAL-UI-STATUS-001",
+    "VAL-UI-STATUS-002",
+    "VAL-UI-STATUS-003",
+    "VAL-UI-STATUS-004",
+    "VAL-UI-STATUS-005",
+    "VAL-UI-STATUS-006",
+    "VAL-UI-STATUS-007",
+    "VAL-API-003",
+    "VAL-API-004",
+    "VAL-OBS-001",
+    "VAL-OBS-002",
+    "VAL-OBS-003",
+    "VAL-OBS-004"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-OBS-005",
+      "reason": "Requires terminal run states with per-source warnings/errors. browser_only runs do not complete within test window (45+ seconds elapsed, grounded_web stage stalls). Cannot trigger credential failure scenarios with valid service account."
+    },
+    {
+      "id": "VAL-OBS-006",
+      "reason": "Requires terminal degraded run with source-caused degradation. browser_only run did not terminalize."
+    },
+    {
+      "id": "VAL-OBS-007",
+      "reason": "Requires terminal degraded run to verify fallback paths emit structured warning/error indicators. browser_only run did not terminalize."
+    },
+    {
+      "id": "VAL-OBS-008",
+      "reason": "Requires terminal run to verify health warnings are causally traceable to run-status. browser_only run did not terminalize."
+    },
+    {
+      "id": "VAL-OBS-009",
+      "reason": "Requires credential preflight failure scenario (invalid/missing service account). Service account is valid and configured, cannot trigger preflight fail-closed without invalidating credentials."
+    }
+  ],
+  "blockedAssertions": [
+    {
+      "id": "VAL-DATA-001",
+      "blockedBy": "sheet-write-integrity-and-phase-attribution feature not completed (status: pending, milestone: end-to-end-validation-hardening)"
+    },
+    {
+      "id": "VAL-DATA-002",
+      "blockedBy": "sheet-write-integrity-and-phase-attribution feature not completed"
+    },
+    {
+      "id": "VAL-DATA-003",
+      "blockedBy": "sheet-write-integrity-and-phase-attribution feature not completed"
+    },
+    {
+      "id": "VAL-DATA-004",
+      "blockedBy": "sheet-write-integrity-and-phase-attribution feature not completed"
+    },
+    {
+      "id": "VAL-DATA-005",
+      "blockedBy": "sheet-write-integrity-and-phase-attribution feature not completed"
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "blockedBy": "cross-area-preset-lineage-and-truthful-terminal-outcomes feature not completed (status: pending, milestone: end-to-end-validation-hardening)"
+    },
+    {
+      "id": "VAL-CROSS-002",
+      "blockedBy": "cross-area-preset-lineage-and-truthful-terminal-outcomes feature not completed"
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "blockedBy": "cross-area-preset-lineage-and-truthful-terminal-outcomes feature not completed"
+    },
+    {
+      "id": "VAL-CROSS-004",
+      "blockedBy": "cross-area-preset-lineage-and-truthful-terminal-outcomes feature not completed"
+    },
+    {
+      "id": "VAL-CROSS-005",
+      "blockedBy": "cross-area-preset-lineage-and-truthful-terminal-outcomes feature not completed"
+    },
+    {
+      "id": "VAL-CROSS-006",
+      "blockedBy": "cross-area-preset-lineage-and-truthful-terminal-outcomes feature not completed"
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added known friction: grounded_web stage can take 5+ minutes or stall, blocking VAL-OBS-005/006/007/008. VAL-API-004 confirms terminalization works but requires ats_plus_ats or browser_plus_ats with actual job listings. Browser-only discovery runs may not terminalize within reasonable test windows.",
+      "source": "flow-report"
+    }
+  ],
+  "previousRound": null
+}

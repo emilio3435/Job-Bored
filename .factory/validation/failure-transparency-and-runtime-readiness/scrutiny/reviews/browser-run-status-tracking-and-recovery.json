@@ -1,0 +1,55 @@
+{
+  "featureId": "browser-run-status-tracking-and-recovery",
+  "reviewedAt": "2026-04-12T05:11:00.000Z",
+  "commitId": "0d2b092",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Implementation is solid. DiscoveryRunTracker state machine (idle→pending→running→terminal) is correctly implemented with proper localStorage persistence, exponential back-off, and MAX_POLL_ERRORS=3 retry limit. triggerDiscoveryRun integration extracts runId/statusPath/pollAfterMs from accepted_async responses and starts async polling. renderDiscoveryRunStatus correctly surfaces status via aria-label and toasts. discovery-wizard-verify.js attaches run metadata to accepted_async results. All VAL-UI-STATUS-001 through VAL-UI-STATUS-007 behaviors are covered by the implementation.",
+    "issues": [
+      {
+        "file": "app.js",
+        "line": 5061,
+        "severity": "non_blocking",
+        "description": "webhookUrl is not persisted in DiscoveryRunTracker state, only passed as a parameter to startDiscoveryStatusPolling. On refresh/reopen recovery, if the user navigates away and back, the polling might use a stale webhookUrl from the closure rather than re-reading it from current state. The tracker stores runId/statusPath/pollAfterMs which is correct, but the webhookUrl at line 5061 comes from 'hook' variable captured at call-time, not from persisted tracker state. This is likely intentional since webhookUrl is discovery setup config (not run-scoped), but worth noting."
+      },
+      {
+        "file": "app.js",
+        "line": 5019,
+        "severity": "non_blocking",
+        "description": "STATUS_POLL_DEBOUNCE_MS (500ms) is used as min bound when enforcing max(pollAfterMs, 500). If pollAfterMs from accepted_async is < 500, it gets bumped to 500ms. This is defensible but could silently override the worker's intended pollAfterMs if it's deliberately set lower (e.g., 100ms for fast dev feedback). Non-blocking since the debounce prevents hammering."
+      },
+      {
+        "file": "app.js",
+        "line": 5061,
+        "severity": "non_blocking",
+        "description": "startDiscoveryStatusPolling uses webhookUrl parameter directly in the poll() closure rather than reading from tracker.getState().webhookUrl. Since webhookUrl doesn't change per-run and is effectively config-level, this is correct. But if tracker state were to be used for refresh/reopen recovery with a different webhookUrl, the polling closure would still use the original. As long as webhookUrl is stable per-run-session this is fine."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The skill's browser verification step (Step 6 with agent-browser) requires services to be running but doesn't provide explicit pre-check instructions. Worker spent time setting up services before verification could run. Skill could include a pre-check or provide explicit setup commands from services.yaml.",
+      "evidence": "Handoff skillFeedback.suggestedChanges confirms this: 'Browser verification step requires services to be running; skill could pre-check or provide explicit setup instructions for the web server'"
+    },
+    {
+      "area": "skills",
+      "observation": "Browser-only classes (like DiscoveryRunTracker that reference top-level constants like DISCOVERY_RUN_TRACKER_KEY and uses localStorage) cannot be tested in Node.js VM context because vm.runInContext doesn't expose const/class declarations to the context object. The worker encountered this and had to remove the test file. Skill could include guidance on this testing limitation.",
+      "evidence": "Handoff discoveredIssues documents: 'browser-run-status-tracker.test.mjs was removed after VM context isolation issues prevented class declaration leakage in Node.js vm.runInContext'. skillFeedback.suggestedChanges: 'The skill could benefit from guidance on testing browser-only classes in Node.js VM context, particularly around module-level IIFEs that run on load and reference top-level constants'"
+    },
+    {
+      "area": "conventions",
+      "observation": "The accepted_async response field for polling metadata may be status_path (snake_case) or statusPath (camelCase) based on different API layers (direct worker vs relay). The code handles both with 'result.statusPath || result.status_path'. This dual-key pattern should be documented somewhere in the contract/library so future workers don't re-discover this.",
+      "evidence": "Line 5061 in app.js: 'const statusPath = String(result.statusPath || result.status_path || \"\").trim();' — this handles both API response formats from different transmission paths"
+    },
+    {
+      "area": "knowledge",
+      "observation": "Node.js vm.runInContext module treats top-level const/class declarations differently from var — they are not accessible as properties on the context object. This is a Node.js VM quirk that caused the test file to fail with class being 'undefined'. Could be worth a note in library/testing.md.",
+      "evidence": "Test at tests/discovery-run-status-tracker.test.mjs: class DiscoveryRunTracker was 'undefined' when accessed via vm.context.DiscoveryRunTracker because vm.runInContext only promotes var declarations to context object properties, not const/class declarations"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Implementation passes scrutiny. DiscoveryRunTracker state machine, localStorage persistence, exponential back-off polling, and UI feedback (aria-label + toasts) are all correctly implemented. The 6 VAL-UI-STATUS assertions are covered. No blocking issues found. Worker followed skill procedure correctly. Two non-blocking notes: webhookUrl not persisted (fine since it's config-level) and dual statusPath key handling (already correct)."
+}

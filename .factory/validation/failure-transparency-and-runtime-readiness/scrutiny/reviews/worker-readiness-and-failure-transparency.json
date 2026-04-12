@@ -1,0 +1,55 @@
+{
+  "featureId": "worker-readiness-and-failure-transparency",
+  "reviewedAt": "2026-04-12T05:30:00.000Z",
+  "commitId": "7ab49fe81c56d8155df59bc72c95fe93690b930d",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The implementation fully covers the feature description and all 7 expectedBehavior requirements. Three new/modified files: runtime-readiness.ts (new), server.ts (modified), handle-discovery-webhook.ts (modified). Auth fail-closed is correctly implemented with 3 distinct failure categories (no_secret_configured, missing_secret_header, secret_mismatch). Browser runtime readiness is added to /health with cause/remediation. Grounded web readiness cause/remediation is added. All 112 tests pass.",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/src/browser/runtime-readiness.ts",
+        "line": 74,
+        "severity": "non_blocking",
+        "description": "EACCES (permission denied) is handled but on Unix systems the access() check only verifies read permissions, not execute permissions. A file that passes `access(path)` may still fail to execute at runtime if execute bit is not set. This is a known limitation acknowledged in comments (lines 88-90), not a blocking issue."
+      },
+      {
+        "file": "integrations/browser-use-discovery/tests/browser/runtime-readiness.test.ts",
+        "line": 1,
+        "severity": "non_blocking",
+        "description": "No explicit test for EACCES (file exists but not executable) path. The existing tests cover ENOENT (file not found) and PATH-lookup cases. The EACCES case in production code handles this error when access() fails with that code, but it's not exercised in tests."
+      },
+      {
+        "file": "integrations/browser-use-discovery/tests/webhook/handle-discovery-webhook.test.ts",
+        "line": 0,
+        "severity": "non_blocking",
+        "description": "No new integration tests added for the 3 new webhook auth categories (no_secret_configured, missing_secret_header, secret_mismatch). The handoff notes '7 new browser runtime readiness tests' but the webhook auth categorization (VAL-OBS-004) is not explicitly tested beyond existing tests. The new WebhookAuthCheckResult type is tested only via existing webhook flow tests."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The skill 'discovery-integration-worker' referenced in the feature does not exist in .factory/skills/. The worker reported followedProcedure=true with no deviations, but there is no skill file to verify procedure against.",
+      "evidence": "jq shows skillName='discovery-integration-worker' but ls .factory/skills/discovery-integration-worker/ returns No such file or directory. The skillFeedback in handoff shows followedProcedure:true, deviations:[], suggesting the worker either skipped the skill or followed an undocumented procedure."
+    },
+    {
+      "area": "knowledge",
+      "observation": "The environment variable aliases BROWSER_USE_DISCOVERY_BROWSER_COMMAND and BROWSER_USE_COMMAND are used in runtime-readiness.ts remediation messages but not documented anywhere in .factory/library/.",
+      "evidence": "runtime-readiness.ts lines 34-36: remediation says 'Set BROWSER_USE_DISCOVERY_BROWSER_COMMAND (or BROWSER_USE_COMMAND)...'. These aliases are not in the library knowledge base."
+    },
+    {
+      "area": "conventions",
+      "observation": "No services.yaml in .factory/ to document commands like npm run test:repo, npm run typecheck:repo, npm run lint:repo used for verification. The AGENTS.md documents port allocations and auth bypass but not the standard verification commands.",
+      "evidence": "Handoff verification.commandsRun shows npm run test:repo, npm run typecheck:repo, npm run lint:repo used but .factory/services.yaml does not exist to document these standard repo commands."
+    },
+    {
+      "area": "knowledge",
+      "observation": "The pattern for credential/readiness validators (validateBrowserRuntimeReadiness, validateSheetsCredentialReadiness) that return categorized {configured, available, message?, detail?, remediation?} objects is established but not codified as a reusable pattern in the library.",
+      "evidence": "Two validators follow this pattern but there's no shared pattern doc. A future worker adding a new credential type would not have guidance on this established pattern."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Implementation fully satisfies the feature requirements. Auth fail-closed with 3 explicit categories is correctly implemented in hasValidWebhookSecret. Browser runtime readiness is added to /health with message/detail/remediation. Grounded web readiness includes cause/remediation when enabled but unavailable. Three non-blocking observations: EACCES permission edge case is a known limitation, no explicit test for auth category edge cases in webhook tests, and the missing discovery-integration-worker skill file prevents procedure verification. Overall quality is high with 112 passing tests."
+}
