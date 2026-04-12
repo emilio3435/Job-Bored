@@ -1,0 +1,31 @@
+{
+  "status": "ok",
+  "service": "browser-use-discovery-worker",
+  "mode": "local",
+  "asyncAckByDefault": true,
+  "routes": {
+    "health": "/health",
+    "webhook": "/webhook",
+    "discovery": "/discovery",
+    "runStatus": "/runs/{runId}"
+  },
+  "readiness": {
+    "ready": false,
+    "configLoaded": true,
+    "configuredSheetId": true,
+    "companiesConfigured": 3,
+    "sheetsCredentialConfigured": true,
+    "enabledSources": [
+      "greenhouse",
+      "ashby",
+      "grounded_web"
+    ],
+    "groundedWeb": {
+      "enabled": true,
+      "ready": false
+    },
+    "warnings": [
+      "Grounded web source is enabled but BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured."
+    ]
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "groupId": "route-browser-only",
+  "testedAt": "2026-04-12T03:02:53.436Z",
+  "isolation": {
+    "workerUrl": "http://127.0.0.1:8644",
+    "webhookEndpoint": "http://127.0.0.1:8644/webhook",
+    "authSecret": "REDACTED",
+    "workerConfig": "/Users/emilionunezgarcia/Job-Bored/integrations/browser-use-discovery/state/worker-config.json",
+    "stateDb": "/Users/emilionunezgarcia/Job-Bored/integrations/browser-use-discovery/state/worker-state.sqlite"
+  },
+  "toolsUsed": ["curl"],
+  "assertions": [
+    {
+      "id": "VAL-ROUTE-001",
+      "title": "Browser-only excludes ATS execution",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "POST /webhook with discoveryProfile.sourcePreset: browser_only",
+          "expected": "Run accepted with runId and statusPath",
+          "observed": "accepted_async with runId run_9754144f162c4592aeeee8bfa0766865"
+        },
+        {
+          "action": "Poll /runs/{runId} until terminal",
+          "expected": "Run reaches terminal state",
+          "observed": "Run reached terminal state: partial"
+        },
+        {
+          "action": "Verify sources executed",
+          "expected": "Only grounded_web executed; greenhouse, ashby, lever excluded",
+          "observed": "sources array shows: grounded_web (included), greenhouse (excluded with warning), ashby (excluded with warning). No lever source in config but excluded sources are greenhouse and ashby."
+        },
+        {
+          "action": "Verify ATS lanes did not execute",
+          "expected": "ATS lanes show 0 invocations and explicit exclusion warnings",
+          "observed": "greenhouse: pagesVisited=0, leadsSeen=0, warning='Source greenhouse was excluded by preset browser_only and did not execute.'; ashby: pagesVisited=0, leadsSeen=0, warning='Source ashby was excluded by preset browser_only and did not execute.'"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "none",
+        "network": "POST /webhook -> 200 accepted_async; GET /runs/run_9754144f162c4592aeeee8bfa0766865 -> 200 terminal partial",
+        "runStatusFile": "routing-enforcement/route-browser-only/VAL-ROUTE-001-browser-only-run-status.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-ROUTE-006",
+      "title": "Excluded lanes emit explicit skip evidence",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Submit browser_only preset run",
+          "expected": "Excluded ATS lanes emit detect-stage and list-stage zero counts with explicit skip evidence",
+          "observed": "Excluded lanes (greenhouse, ashby) show: pagesVisited=0 (list-stage count), leadsSeen=0 (detect-stage count), plus explicit warnings='Source {source} was excluded by preset browser_only and did not execute.'"
+        },
+        {
+          "action": "Verify skip evidence is explicit, not inferred from missing data",
+          "expected": "Structured skip evidence present in sources array",
+          "observed": "Each excluded source has: (1) zero invocation counters (pagesVisited, leadsSeen, leadsAccepted, leadsRejected all = 0), (2) explicit warning message stating exclusion. Not merely absent from results."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "none",
+        "network": "Same run: GET /runs/run_9754144f162c4592aeeee8bfa0766865",
+        "runStatusFile": "routing-enforcement/route-browser-only/VAL-ROUTE-001-browser-only-run-status.json"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Initial webhook requests failed with 401 Unauthorized - discovered that worker requires proper secret via x-discovery-secret header, and event type must be 'command-center.discovery' not 'discovery.trigger'",
+      "resolved": true,
+      "resolution": "Used correct event value 'command-center.discovery' and verified secret header was being sent correctly",
+      "affectedAssertions": ["VAL-ROUTE-001", "VAL-ROUTE-006"]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 2 assertions: VAL-ROUTE-001 (Browser-only excludes ATS execution) - PASS, VAL-ROUTE-006 (Excluded lanes emit explicit skip evidence) - PASS. Browser_only preset correctly routed to grounded_web only; ATS lanes (greenhouse, ashby) were excluded with explicit zero-count evidence and warning messages."
+}

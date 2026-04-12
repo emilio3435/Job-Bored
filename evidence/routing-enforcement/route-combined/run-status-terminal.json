@@ -1,0 +1,19 @@
+{
+  "runId": "run_8a7a6d5263cc48a3bf4bdbffed51b13b",
+  "status": "failed",
+  "terminal": true,
+  "message": "Discovery failed — worker could not finish the run.",
+  "trigger": "manual",
+  "request": {
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "variationKey": "test-route-combined",
+    "requestedAt": "2026-04-11T12:00:00.000Z"
+  },
+  "acceptedAt": "2026-04-12T03:02:44.918Z",
+  "updatedAt": "2026-04-12T03:02:48.310Z",
+  "warnings": [],
+  "sources": [],
+  "startedAt": "2026-04-12T03:02:44.921Z",
+  "completedAt": "2026-04-12T03:02:48.310Z",
+  "error": "Failed to refresh Google OAuth token: HTTP 400 - {\n  \"error\": \"invalid_grant\",\n  \"error_description\": \"Token has been expired or revoked.\"\n}"
+}

@@ -1,0 +1,2586 @@
+
+    
+    
+      
+        
+          
+          
+            Streamline the search, powered by Google Sheets
+          
+        
+        
+          
+            1
+            
+              Create your Pipeline sheet
+              
+                Click the button below to create a fresh Google Sheet in your
+                Drive with only the required Pipeline headers.
+                OAuth is handled on the sign-in screen first—if the button is
+                not ready yet, complete that flow and reload this page.
+              
+              Sign in & create blank starter sheet
+              This will open Google sign-in, then create a fresh Pipeline sheet with just the headers.
+            
+          
+          
+            2
+            
+              Finish guided setup
+              
+                After your sheet is created, JobBored opens the setup wizard so
+                you can choose the right path without filling out the full
+                Settings form first.
+              
+              
+                Open setup wizard
+              
+            
+          
+          
+            3
+            
+              Settings later (optional)
+              
+                Use Settings later if you want to edit advanced discovery, AI,
+                or integration options after the guided setup is done.
+              
+              
+                Open settings form
+                
+                  
+                  
+                  
+                
+              
+            
+          
+        
+        
+          See SETUP.md for
+          detailed instructions.
+        
+      
+    
+
+    
+      
+        
+          
+          
+            JobBored
+            
+              Did you know?
+              Built for speed
+              Filter, sort, and expand details only when you need the full story.
+            
+          
+        
+        
+          
+            
+              
+            
+            
+              
+                
+              
+              Opening your workspace
+              
+              
+                
+                
+              
+              
+                
+                  
+                    
+                    
+                    
+                    
+                  
+                  Log in with Google
+                
+              
+            
+            
+              
+                Connect Google
+                
+                  JobBored uses Google sign-in. Add an OAuth web client ID
+                  first—either open Settings to paste one, or follow the guide
+                  to create it in Google Cloud.
+                
+                
+                  
+                    Open Settings
+                  
+                  
+                    Create OAuth client
+                  
+                
+              
+              
+                
+                  ← Back
+                
+                
+                  Create a Web client ID
+                
+                
+                  Use the same Google Cloud project for APIs
+                  and the OAuth client. Enable the APIs before
+                  you rely on the dashboard—otherwise sheet access or deploy can
+                  fail with “API not enabled”. Your Client ID is saved in this
+                  browser and autofills Settings.
+                
+                
+                  
+                    Project.
+                    Open
+                    Google Cloud Console
+                    and create a project or select an existing one (use the
+                    project picker in the top bar).
+                  
+                  
+                    OAuth consent screen.
+                    Configure the consent screen
+                    (External is typical for testing). Add yourself as a test
+                    user if the app stays in Testing mode.
+                  
+                  
+                    Enable APIs for JobBored.
+                    In
+                    APIs & Services → Library, select your project, then open each link below and click
+                    Enable:
+                    
+                      
+                        Google Sheets API
+                        Required —
+                        Read/write your Pipeline sheet, create a blank starter
+                        sheet, and use private sheets without “Publish to web.”
+                        Enable Google Sheets API
+                      
+                      
+                        Google Apps Script API
+                        Enable for deploy
+                        — Needed for Deploy Apps Script in
+                        Settings (discovery webhook / managed script). If you
+                        skip this, sign-in and sheets still work; deploy will
+                        error until you enable it.
+                        Enable Google Apps Script API
+                      
+                      
+                        Google Drive API
+                        Not required
+                        — Sign-in uses
+                        Sheets + basic profile scopes only.
+                        Creating the starter sheet and editing your Pipeline go
+                        through the Sheets API; you do not need
+                        to enable Drive API for this app.
+                      
+                    
+                  
+                  
+                    Credentials.
+                    Go to
+                    APIs & Services → Credentials, Create credentials →
+                    OAuth client ID. If asked, finish the
+                    consent screen first.
+                  
+                  
+                    Application type: Web application. Name it
+                    (e.g. JobBored).
+                  
+                  
+                    Authorized JavaScript origins: add your
+                    site origin exactly (no path, no trailing slash):
+                    
+                      
+                      
+                        Copy
+                      
+                    
+                  
+                  
+                    Click Create, then copy the
+                    Client ID (it ends in
+                    .apps.googleusercontent.com).
+                  
+                
+                
+                  Paste Client ID
+                  
+                  
+                    Save & continue
+                  
+                
+              
+            
+            
+              
+                Settings
+              
+              
+                Reload
+              
+            
+          
+          Log in with Google to continue.
+        
+      
+    
+
+    
+    
+      
+      
+        
+          
+            
+              
+                
+                
+                  
+                  
+                  
+                  
+                  
+                
+              
+              
+                Job
+                
+                  Bored
+                
+              
+            
+            
+              JobBored
+            
+          
+        
+        
+          
+            
+              
+                
+                
+              
+            
+            
+              
+                
+                
+                
+                
+                
+                
+                
+                
+              
+            
+            
+              
+                
+                
+              
+            
+            
+              
+                
+                
+              
+            
+          
+          
+          
+            
+              
+                
+                
+                
+                
+              
+              Continue
+            
+            
+              
+                
+                  
+                    
+                    
+                  
+                
+                
+                  
+                    
+                      Account
+                    
+                    
+                      Writing preferences live in the Portfolio panel.
+                    
+                    
+                      
+                        
+                        
+                        
+                      
+                      Sign out
+                    
+                  
+                
+              
+            
+          
+        
+      
+
+      
+      
+        
+          
+            
+              
+                
+              
+              Daily Brief
+            
+            
+          
+          
+            
+              
+                
+                
+              
+              Run discovery
+            
+          
+        
+        
+        
+          
+          
+            
+            
+              
+                
+                  
+                  
+                  
+                  
+                  
+                
+                Loading daily brief…
+              
+            
+            
+              
+                Activity feed
+              
+              
+            
+            
+          
+        
+      
+
+      
+      
+        
+          
+            Pipeline
+            
+          
+
+          
+          
+            
+              
+                
+                  
+                  
+                
+                
+              
+              
+                Fit Score
+                Date Found
+                Company
+                Priority
+              
+            
+          
+
+          
+          
+            
+            
+              
+              
+              
+            
+            
+              
+              
+              
+            
+            
+              
+              
+              
+            
+          
+
+          
+          
+            
+              
+              
+              
+              
+            
+            No roles match your filters
+            
+              Try broadening your search or check back later.
+            
+            
+          
+
+          
+          
+            
+              
+              
+              
+            
+            Could not load data
+            
+              The data source may be temporarily unavailable. Check the sheet
+              link, permissions, or try again shortly.
+            
+            
+              Open in new tab
+              View Google Sheet
+            
+          
+        
+      
+
+      
+      
+        Agentic search + Google Sheets
+        Open Sheet ↗
+      
+    
+
+    
+    
+      
+        
+          
+          
+            Welcome
+          
+        
+        
+          Step 1 of 9
+          
+            
+          
+        
+
+        
+
+        
+          
+            We’ll help you draft cover letters and tailored resumes using
+            your resume. Your materials stay in this browser
+            only. If you add an API key in
+            config.js, text is sent only to
+            that provider.
+          
+          
+            
+              Get started
+            
+          
+        
+
+        
+          
+            
+              
+              
+              
+            
+          
+          Upload your resume
+          
+            PDF or Word works best. Plain text files are OK too.
+          
+          
+            
+              
+              Choose file
+            
+          
+          
+          
+            
+              No file? Paste text instead
+            
+          
+          
+            
+              Back
+            
+            
+              Continue
+            
+          
+        
+
+        
+          
+            
+              
+              
+              
+              
+            
+          
+          Paste your resume
+          
+            Copy your full resume into the box below.
+          
+          Resume text
+          
+          
+          
+            
+              Back
+            
+            
+              Continue
+            
+          
+        
+
+        
+          How should drafts sound?
+          
+            Pick a default tone. You can change it anytime in Profile.
+          
+          
+            
+              Direct
+              Short and clear
+            
+            
+              Warm
+              Friendly, professional
+            
+            
+              Formal
+              Traditional business
+            
+          
+          
+            
+              Back
+            
+            
+              Continue
+            
+          
+        
+
+        
+          Rough length for drafts
+          
+            Default max words for cover letters. Adjust anytime in Profile.
+          
+          Max words
+          
+          
+            
+              Back
+            
+            
+              Continue
+            
+          
+        
+
+        
+          Anything else we should know?
+          
+            Optional notes on how you want to sound (e.g. “avoid startup
+            jargon”).
+          
+          Voice notes
+          
+          
+            
+              Back
+            
+            
+              Skip
+            
+            
+              Continue
+            
+          
+        
+
+        
+          Writing samples (optional)
+          
+            Add drafts or cover letters so generated text can match your voice.
+            Same formats as Profile — you can add more later.
+          
+          Choose files
+          
+          
+          
+            
+              Back
+            
+            
+              Skip
+            
+            
+              Continue
+            
+          
+        
+
+        
+          AI career context (optional)
+          
+            Paste a chatbot career summary or extra keywords. Refined anytime
+            under Profile → AI context.
+          
+          Context
+          
+          
+            
+              Back
+            
+            
+              Skip
+            
+            
+              Continue
+            
+          
+        
+
+        
+          
+            
+              
+              
+            
+          
+          You’re ready
+          
+            Here’s what we’ll use for AI drafts:
+          
+          
+          
+            
+              Back
+            
+            
+              Finish setup
+            
+          
+        
+      
+    
+
+    
+    
+      
+        
+          JobBored settings
+          
+            
+              
+              
+            
+          
+        
+        
+          Saved only in this browser; overrides
+          config.js.
+        
+        
+          Add your Google OAuth Web Client ID and save. After you sign in with
+          Google, the rest of the settings (sheet, discovery, AI) load here.
+        
+        
+
+        
+        
+          
+            
+              Setup
+            
+            
+              Sheet
+            
+            
+              Discovery
+            
+            
+              Scraping
+            
+            
+              ATS Scoring
+            
+            
+              AI Providers
+            
+          
+
+          
+            
+            
+              Setup
+              
+                OAuth credentials and dashboard housekeeping.
+              
+
+              OAuth Client ID (optional)
+              
+              
+                For Sheets access and Apps Script deploy from here.
+              
+
+              
+                Onboarding
+                
+                  
+                    
+                      
+                      
+                    
+                    Redo onboarding wizard
+                  
+                  
+                    Run the welcome flow again. Your saved resume and profile
+                    stay until you finish.
+                  
+                
+              
+
+              
+                Reset
+                
+                  Clear saved settings
+                
+                
+                  Removes all localStorage overrides. You can re-enter them
+                  anytime.
+                
+                
+                  
+                    Remove saved settings from this browser? You can enter them
+                    again anytime.
+                  
+                  
+                    
+                      Cancel
+                    
+                    
+                      Remove saved settings
+                    
+                  
+                
+              
+            
+
+            
+            
+              Sheet & dashboard
+              
+                Connect your pipeline spreadsheet and how the app is titled.
+              
+
+              Spreadsheet URL or Sheet ID
+              
+              
+                Paste the open-in-browser link or the raw ID.
+              
+
+              Dashboard title
+              
+            
+
+            
+            
+              Discovery
+              
+                Real BYO discovery endpoints, the optional Apps Script stub, and
+                filters sent when you run discovery.
+              
+
+              Discovery webhook URL (optional)
+              
+              
+                Run discovery POSTs JSON (see
+                AGENT_CONTRACT.md). The dashboard-managed Apps Script deploy below is stub-only
+                until you replace it with real discovery logic.
+              
+
+              
+                Optional: Pipeline works without a webhook —
+                add rows manually or automate elsewhere.
+                
+                  Ways to avoid webhooks
+                
+              
+
+              
+                
+                  Setup guide
+                
+                
+                  Local worker + ngrok
+                  
+                
+                
+                  Cloudflare relay
+                
+                
+                  Test webhook
+                
+              
+              
+                Uses Sheet ID and discovery preferences. CORS errors in the
+                browser don’t always mean the request failed — try
+                npm run test:discovery-webhook
+                or the relay.
+              
+              
+                No discovery webhook configured
+                Pipeline works without discovery. Use the wizard only if you want automated runs.
+                Open discovery setupOpen AGENT_CONTRACTOpen discovery paths
+              
+
+              
+                
+                  Google Apps Script — deploy from this dashboard
+                
+                
+                  
+                    
+                      Extra Google consent only when you deploy. Creates a
+                      project in your Drive, uploads the stub, deploys as a web
+                      app, and saves the
+                      /exec URL. If you just
+                      pasted a new OAuth client ID above, click
+                      Save once so Google sign-in reloads with
+                      that client first. This managed deploy is for webhook
+                      wiring and smoke tests only; it does not discover real
+                      jobs by itself.
+                    
+                    
+                      Deploy Google Apps Script stub
+                      Open script
+                      
+                        Copy /exec URL
+                      
+                      
+                        Re-check public access
+                      
+                    
+                    
+                      Paste a spreadsheet URL or Sheet ID above first.
+                      The deploy flow saves the resulting /exec URL for the sheet you’re configuring.
+                      
+                      
+                        
+                      
+                      
+                    
+                  
+                
+              
+
+              
+                
+                  Discovery preferences (roles, location, keywords)
+                
+                
+                  
+                    Sent with each discovery run; stored only on this device.
+                  
+                  Target roles
+                  
+                  Locations
+                  
+                  Remote / work style
+                  
+                  Seniority
+                  
+                  Keywords to include
+                  
+                  Keywords to exclude
+                  
+                  Max leads per run (optional)
+                  
+                  
+                    
+                    Enable grounded web search
+                  
+                  
+                    When enabled, the automation will also search the web for
+                    jobs beyond ATS listings.
+                  
+                
+              
+            
+
+            
+            
+              Scraping
+              
+                Job posting scraper for reading full descriptions.
+              
+
+              Job posting scraper URL (optional)
+              
+              
+                localhost: blank uses
+                  http://127.0.0.1:3847 with
+                  npm start. GitHub Pages needs
+                  a deployed HTTPS URL. No trailing slash.
+                
+                  Scraper setup
+                
+              
+            
+
+            
+            
+              ATS Scoring
+              
+                Scorecard endpoint for resume-to-posting match scoring.
+              
+
+              ATS scorecard mode
+              
+                Local/server endpoint
+                Webhook endpoint
+              
+              ATS scorecard server URL (optional)
+              
+              ATS scorecard webhook URL (optional)
+              
+              
+                Server mode defaults to
+                http://127.0.0.1:3847/api/ats-scorecard
+                on localhost. Webhook mode posts the same ATS payload shape to
+                your endpoint.
+              
+            
+
+            
+            
+              AI Providers
+              
+                Cover letters and tailored resumes. API keys stay in this
+                browser.
+              
+
+              Provider
+              
+                Google Gemini
+                OpenAI
+                Anthropic (Claude)
+                My server (webhook)
+              
+
+              
+                Gemini API key
+                
+                Model
+                Gemini 2.5 FlashGemini 2.5 ProGemini 2.5 Flash-LiteGemini 3 Flash (Preview)Gemini 3.1 Pro (Preview)Gemini 3.1 Flash-Lite (Preview)gemini-2.0-flash (saved)
+              
+
+              
+                OpenAI API key
+                
+                Model
+                GPT-5.4GPT-5.4 miniGPT-5.4 nanoGPT-4oGPT-4o miniGPT-4 Turbo
+              
+
+              
+                Anthropic API key
+                
+                Model
+                Claude Opus 4.6Claude Sonnet 4.6Claude Haiku 4.5Claude Sonnet 4.5Claude Opus 4.5Claude Sonnet 4Claude 3.5 SonnetClaude 3.5 Haiku
+                
+                  Direct browser calls may be blocked by CORS; if so, use Gemini
+                  or a webhook.
+                
+              
+
+              
+                Resume generation webhook URL
+                
+              
+            
+          
+        
+
+        
+        
+          OAuth Client ID
+          
+            Web application OAuth Client ID from Google Cloud Console →
+            Credentials (same project as the Sheets API).
+          
+        
+
+        
+          
+            Save & reload
+          
+        
+      
+    
+
+    
+    
+      
+        
+          Set up the job posting scraper
+          
+            
+              
+              
+            
+          
+        
+        
+          Cheerio runs on your machine (Node.js) so this page
+          can read job descriptions that aren’t available from the browser
+          alone. From the repo root, one command starts both
+          the dashboard and the scraper.
+        
+
+        
+          Plug and play: in the project folder (where
+          package.json lives), run
+          npm install once, then
+          npm start every time. That installs
+          server dependencies automatically and starts the UI on
+          http://localhost:8080 plus the scraper
+          on 127.0.0.1:3847.
+        
+
+        
+          GitHub Pages (HTTPS): the dashboard is served over
+          HTTPS, so the browser will not call
+          http://127.0.0.1 on your laptop (mixed
+          content). For Fetch posting from Pages, deploy the
+          server/ app to Render, Fly, Railway,
+          etc., paste the HTTPS base URL in Settings, or run
+          the UI locally with npm start on
+          http://localhost. See
+          DEPLOY-SCRAPER.md.
+        
+
+        
+          
+            
+              Install Node.js (if needed)
+            
+            
+              Download the LTS build from
+              nodejs.org. Then confirm in a terminal:
+            
+            
+              node -v
+              
+                Copy
+              
+            
+          
+          
+            
+              Start dashboard + scraper (project root)
+            
+            
+              Terminal / PowerShell in the project folder — first time installs
+              everything (including the server
+              package):
+            
+            
+              npm install
+npm start
+              
+                Copy
+              
+            
+            
+              Leave this running. Logs should show the web server on port
+              8080 and
+              [job-scraper] http://127.0.0.1:3847.
+            
+            
+              Scraper only (no dashboard)
+              
+                cd server && npm install && npm start
+                — same API on port 3847.
+              
+            
+          
+          
+            
+              Confirm the URL in Settings
+            
+            
+              You can leave the scraper URL blank on
+              localhost — the app uses
+              http://127.0.0.1:3847 automatically. Otherwise
+              paste your URL below, then click
+              Save & reload
+              in Settings.
+            
+            
+              http://127.0.0.1:3847
+              
+                Copy
+              
+            
+            
+              
+                Test connection
+              
+              
+            
+          
+          
+            Use it on a job card
+            
+              Open a role with a Link, expand the card, and
+              click Fetch posting. With a Gemini key, you also
+              get AI fit angle and talking points from the scraped text.
+            
+          
+        
+
+        
+          Connection refused / Failed to fetch? The scraper
+          isn’t running. In a terminal:
+          cd server then
+          npm start and leave that window open.
+          HTTPS dashboard? Browsers may block
+          http://127.0.0.1 from a secure site —
+          use plain HTTP locally or deploy the scraper with HTTPS.
+          Blocked job page? Some sites block bots; try an
+          employer career page. See SETUP.md.
+        
+
+        
+          
+            Done
+          
+        
+      
+    
+
+    
+    
+      
+        
+          
+            
+              Portfolio
+            
+            
+              Resume, samples, AI context, and writing preferences — all saved
+              in this browser.
+            
+          
+          
+            
+              
+              
+            
+          
+        
+
+        
+          
+          
+            
+            
+              
+                
+                  
+                    
+                    
+                    
+                    
+                  
+                
+                
+                  
+                    Resume
+                  
+                  
+                    Your base document for every draft
+                  
+                
+              
+
+              
+                
+                  
+                    
+                      
+                      
+                      
+                    
+                    Drop your resume here
+                    
+                      PDF, Word, or plain text
+                    
+                    
+                      Browse files
+                    
+                  
+                  
+                    
+                    
+                      Drop a new file or Browse to replace
+                    
+                  
+                
+                
+              
+
+              
+                Paste text instead
+                
+                
+                  Save paste
+                
+              
+
+              
+                Add LinkedIn profile text
+                
+                  Paste your LinkedIn highlights so drafts stay current even if
+                  your uploaded resume is out of date.
+                
+                
+                
+                
+                  
+                    Guided capture
+                  
+                  
+                    Save
+                  
+                  
+                    Clear
+                  
+                
+              
+            
+
+            
+            
+              
+                
+                  
+                    
+                    
+                  
+                
+                
+                  
+                    Writing Samples
+                  
+                  
+                    Teach the AI your voice and style
+                  
+                
+              
+
+              
+                
+                  
+                    
+                      
+                      
+                      
+                    
+                    
+                      Drop samples or cover letters
+                    
+                    
+                      PDF, Word, or text — add several at once
+                    
+                    
+                      Browse files
+                    
+                  
+                
+                
+              
+              
+
+              
+                Add a sample manually
+                
+                  
+                    
+                    
+                  
+                  
+                  
+                    Add sample
+                  
+                
+              
+            
+
+            
+            
+              
+                
+                  
+                    
+                    
+                    
+                  
+                
+                
+                  
+                    AI Context
+                  
+                  
+                    Let your chatbot fill in the gaps your resume misses
+                  
+                
+              
+
+              
+                
+                  Your favorite chatbot (ChatGPT, Gemini, Claude) already knows
+                  a lot about your career from past conversations. Ask it to
+                  summarize everything relevant and paste the result here.
+                
+
+                
+                  
+                    1
+                    
+                      Copy this prompt
+                      
+                        One click copies a ready-made prompt to your clipboard.
+                      
+                      
+                        
+                          
+                          
+                        
+                        Copy prompt to clipboard
+                      
+                      Create a professionally relevant profile dossier for resume and cover-letter drafting. Focus only on career-relevant information and avoid personal/sensitive details.
+
+Include:
+1) Current target role(s)
+2) Career summary (3-5 bullets)
+3) Experience highlights by company/role with dates (if known)
+4) Top achievements with measurable outcomes
+5) Core skills, tools, domains, and industries
+6) Leadership, collaboration, and stakeholder examples
+7) Notable projects, publications, certifications, education
+8) Suggested keywords for ATS and recruiter search
+9) Potential weak spots/gaps to address carefully
+
+Output requirements:
+- Return Markdown only.
+- Use section headings and concise bullets.
+- Do not fabricate facts.
+- Add a short "Confidence / unknowns" section.
+
+Then provide a final single Markdown block I can save as career-context.md and upload/paste into my resume tooling.
+                    
+                  
+                  
+                    2
+                    
+                      Paste it into your chatbot
+                      
+                        Open ChatGPT, Gemini, or Claude and send the prompt. It
+                        will generate a career summary based on everything it
+                        knows about you.
+                      
+                    
+                  
+                  
+                    3
+                    
+                      Bring the result back here
+                      
+                        Paste the chatbot's response below, or save it as a
+                        .md / .txt file and upload it.
+                      
+                    
+                  
+                
+
+                
+                  
+                  
+                  
+                    
+                      
+                        
+                        
+                        
+                      
+                      Upload .md / .txt
+                    
+                    
+                    
+                      Save
+                    
+                    
+                      Clear
+                    
+                  
+                
+              
+            
+
+            
+            
+              
+                
+                  
+                    
+                    
+                  
+                
+                
+                  
+                    Style & Voice
+                  
+                  
+                    Tone, templates, and how drafts should sound
+                  
+                
+              
+
+              
+                
+                  
+                    Style & tone
+                  
+                  
+                    
+                      
+                        Tone
+                        
+                          Direct
+                          Warm
+                          Formal
+                        
+                      
+                      
+                        Max words
+                        
+                      
+                    
+                    
+                      Profile merge
+                      
+                        Merge resume + LinkedIn
+                        
+                          Prefer resume when conflicting
+                        
+                        
+                          Prefer LinkedIn when conflicting
+                        
+                      
+                    
+                  
+                
+
+                
+                  
+                    Templates & appearance
+                  
+                  
+                    
+                      Cover letter layout
+                      
+                    
+                    
+                      Resume layout
+                      
+                    
+                    
+                      Preview appearance
+                      
+                    
+                  
+                
+
+                
+                  
+                    Voice & targeting
+                  
+                  
+                    
+                      Industries
+                      
+                    
+                    
+                      Avoid saying
+                      
+                    
+                    
+                      Voice notes
+                      
+                    
+                  
+                
+
+                
+                  Save preferences
+                
+              
+            
+          
+        
+
+        
+          
+            Done
+          
+        
+      
+    
+
+    
+    
+      
+        
+          
+            
+              Capture from LinkedIn (assisted)
+            
+            
+              We do not auto-scrape LinkedIn. Use this guided capture to copy
+              your latest sections and save them in your local profile.
+            
+          
+          
+            
+              
+              
+            
+          
+        
+        
+          
+            
+              Open LinkedIn profile
+            
+            
+              Copy each section from LinkedIn, then paste it below. Use “Paste
+              from clipboard” to speed up.
+            
+          
+          
+            
+              Headline
+              
+              
+                Paste from clipboard
+              
+            
+            
+              About
+              
+              
+                Paste from clipboard
+              
+            
+            
+              Experience
+              
+              
+                Paste from clipboard
+              
+            
+            
+              Skills
+              
+              
+                Paste from clipboard
+              
+            
+            
+              Education / certifications
+              
+              
+                Paste from clipboard
+              
+            
+            
+              Extra highlights (optional)
+              
+              
+                Paste from clipboard
+              
+            
+          
+          
+            Saved text preview
+            
+            
+          
+        
+        
+          
+            Cancel
+          
+          
+            Save to profile
+          
+        
+      
+    
+
+    
+    
+      
+        
+          
+            
+              
+              
+              
+              
+              
+            
+          
+          
+            Draft
+            Output
+            
+            
+          
+          
+            
+              
+              
+            
+          
+        
+
+        
+
+        
+          
+            
+              
+              
+              
+              
+              
+            
+            
+          
+          
+            
+              
+                
+                  ATS match
+                  
+                    LLM alignment scorecard
+                  
+                
+                
+                  0%
+                
+              
+              
+              
+              
+            
+            
+              
+                
+                  Version history
+                  
+                    Saved drafts for this role
+                  
+                
+                
+              
+              
+              
+            
+          
+        
+
+        
+
+        
+          
+            Copy uses plain text · Use Print to save as PDF
+            
+              Appearance
+              
+            
+          
+          
+            Refine this draft
+            
+              
+              
+                Refine
+              
+            
+          
+          
+            
+              
+                
+                
+                
+              
+              Print / PDF
+            
+            
+              
+                
+                
+              
+              Copy text
+            
+            
+              Done
+            
+          
+        
+      
+    
+
+    
+      
+        
+          
+            Notes for this draft
+            
+              Optional context for this specific application. These notes take
+              priority over general preferences for the next draft only.
+            
+          
+          
+            
+              
+              
+            
+          
+        
+        
+        
+        
+          
+            Continue without notes
+          
+          
+            Generate draft
+          
+        
+      
+    
+
+    
+    
+      
+        
+          You don’t need a webhook
+          
+            
+              
+              
+            
+          
+        
+        
+          The dashboard reads and writes your Pipeline sheet
+          directly. A discovery webhook URL is only for the
+          optional Run discovery button or tools that speak
+          that contract.
+        
+        
+          
+            Manual: paste or type jobs into the Sheet; they
+            appear in Command Center after refresh.
+          
+          
+            Scheduled jobs: GitHub Actions, Apps Script
+            triggers, n8n, or cron can add rows — no browser POST required.
+          
+          
+            Deep reading:
+            docs/DISCOVERY-PATHS.md
+            in the repo (diagrams and template links).
+          
+        
+        
+          
+            Got it
+          
+        
+      
+    
+
+    
+    
+      
+        
+          Set up a discovery webhook
+          
+            
+              
+              
+            
+          
+        
+        
+          Each person deploys their own discovery automation
+          (this app does not host one). The dashboard-managed
+          Google Apps Script path below is only a
+          stub for webhook verification; it does not find jobs
+          by itself.
+        
+        
+          Recommended real path: connect a user-owned agent,
+          worker, or scheduled job that writes Pipeline rows.
+          Start with
+          integrations/openclaw-command-center/README.md
+          or
+          docs/DISCOVERY-PATHS.md. If that agent runs on your own machine, use
+          
+            Local worker + ngrok
+          
+          first, then put the Worker URL in Settings.
+        
+
+        
+          Stub wiring path (first time ~15–30 min):
+        
+        
+          
+            
+              1. New script & paste code
+            
+            
+              Open
+              script.google.com
+              → New project. Replace
+              Code.gs with the file
+              integrations/apps-script/Code.gs
+              from your clone (or view raw on GitHub from the same path).
+            
+          
+          
+            2. Script properties
+            
+              Gear icon → Script properties → add
+              SHEET_ID (same ID as
+              Spreadsheet URL or Sheet ID in Settings above).
+              Optional: ENABLE_TEST_ROW =
+              true for a test row on each POST.
+            
+          
+          
+            3. Deploy as Web App
+            
+              Deploy →
+              New deployment → type
+              Web app → Execute as Me,
+              Who has access Anyone (try first). Copy the URL
+              ending in /exec.
+            
+          
+          
+            4. Paste in Settings
+            
+              Put that URL in Discovery webhook URL here, save,
+              then use Test webhook. This proves webhook
+              wiring, but Run discovery stays disabled until a
+              real discovery engine is connected.
+            
+          
+        
+
+        
+          CLI (clasp) — same project, local files
+          
+            From the cloned repo, use the bundled npm scripts
+            (no global clasp install):
+          
+          
+            npm run apps-script:login
+            
+              Copy
+            
+          
+          
+            npm run apps-script:create
+            
+              Copy
+            
+          
+          
+            npm run apps-script:push
+            
+              Copy
+            
+          
+          
+            Then npm run apps-script:open and
+            complete the first Web App deploy in the browser.
+            Full walkthrough:
+            integrations/apps-script/WALKTHROUGH.md.
+          
+        
+
+        
+          CORS: the browser may show an error even when Apps
+          Script ran. If Test webhook fails but
+          npm run test:discovery-webhook
+          succeeds from a terminal, schedule POSTs with
+          GitHub Actions
+          or use a
+          Cloudflare Worker
+          relay. That relay only fixes browser access; it does not turn the stub
+          into a real discovery engine.
+          
+            Open relay steps
+          
+        
+
+        
+          
+            Done
+          
+        
+      
+    
+
+    
+    
+      
+        
+          Local worker + ngrok
+          
+            
+              
+              
+            
+          
+        
+        
+          Use this when your real discovery engine runs on your
+          laptop or homelab. The recommended local engine is the
+          browser-use worker. The browser should not point
+          straight at that local receiver. Instead use:
+          dashboard → Cloudflare Worker → ngrok → local
+            webhook.
+        
+
+        
+          Roles: the local webhook is the real
+          discovery engine, the ngrok URL is its public HTTPS
+          tunnel, and the Cloudflare Worker URL is the
+          browser-facing URL you save in JobBored.
+        
+
+        
+          Fastest local path: from the repo root, run
+          npm run discovery:bootstrap-local. It
+          reuses the browser-use worker if it is already running, starts the
+          browser-use worker by default, and writes a local JSON file so this
+          modal can autofill on
+          http://localhost.
+          Advanced only: you can still point this path at Hermes/OpenClaw.
+          
+            npm run discovery:bootstrap-local
+            
+              Copy
+            
+          
+        
+
+        
+          
+            Start with your local discovery receiver.
+          
+          
+            Paste the exact local webhook URL first, then start ngrok on the
+            same port.
+          
+        
+
+        
+          
+            
+              
+              
+              
+            
+          
+          
+            
+            
+          
+          
+            Update & get deploy command
+          
+        
+
+        
+          
+            
+              1. Paste your local webhook URL
+            
+            
+              Recommended example:
+              http://127.0.0.1:8644/webhook.
+            
+            Local webhook URL
+            
+            
+              This is the real local discovery receiver. Recommended:
+              browser-use worker. Advanced: Hermes / OpenClaw. Do not paste it
+              into Discovery webhook URL on a hosted dashboard.
+            
+            
+              Paste your local webhook URL to generate /health.
+              
+                Copy /health URL
+              
+            
+          
+          
+            
+              2. Give it a public HTTPS tunnel with ngrok
+            
+            
+              One-time auth, then start the tunnel on the same port as your
+              local receiver:
+            
+            
+              Need the token? Get it from
+              dashboard.ngrok.com/get-started/your-authtoken.
+            
+            
+              ngrok config add-authtoken <YOUR_NGROK_TOKEN>
+              
+                Copy
+              
+            
+            
+              ngrok http 8644
+              
+                Copy
+              
+            
+            Public ngrok URL
+            
+              
+              
+                Detect
+              
+            
+            
+              Paste the https:// forwarding URL from ngrok, not
+              the localhost line.
+            
+          
+          
+            
+              3. Use the generated public target in Cloudflare relay
+            
+            
+              The Worker should forward to this ngrok URL plus your webhook
+              path. The dashboard should still save the
+              Worker URL, not this target directly.
+            
+            
+              Paste both the local webhook URL and the public ngrok URL to generate the target.
+              
+                Copy target URL
+              
+            
+          
+        
+
+        
+          Repo guides:
+          agent discovery guide,
+          discovery paths,
+          Cloudflare relay.
+        
+
+        
+          
+            
+              Save tunnel info
+            
+            
+              Open relay steps
+            
+          
+          
+            Done
+          
+        
+      
+    
+
+    
+    
+      
+        
+          Cloudflare Worker relay
+          
+            
+              
+              
+            
+          
+        
+        
+          Use this when the browser should not POST directly to the real
+          receiver, either because an Apps Script
+          /exec URL lacks browser CORS headers
+          or because your real discovery engine lives behind a public tunnel
+          such as ngrok.
+        
+
+        
+          Fast path: let your coding agent run the repo helper
+          script. The agent still needs your Cloudflare auth,
+          but the helper now tries
+          wrangler login
+          automatically in an interactive terminal before stopping. If you use
+          CLOUDFLARE_API_TOKEN plus
+          CLOUDFLARE_ACCOUNT_ID, the helper can
+          also reuse or create your account’s
+          workers.dev subdomain automatically.
+          With browser login only, the remaining one-time human step may be
+          choosing that account subdomain in the terminal. Run the generated
+          command from the repo root. Also use the open Worker
+          URL for now: the dashboard does not send custom auth
+          headers, so do not point it at
+          /forward. Keep
+          Cloudflare Access off for that open
+          workers.dev URL.
+        
+
+        
+          
+            Fastest path: let your coding agent deploy the relay.
+          
+          
+            The local helper script handles Wrangler deploy plus
+            TARGET_URL secret upload, and the
+            API-token path can also auto-create the one-time
+            workers.dev account subdomain.
+          
+        
+
+        
+          Downstream target URL
+          
+            This should usually be either your deployed Apps Script
+            /exec URL or the public ngrok URL
+            that forwards to your local browser-use worker or advanced Hermes
+            route.
+          
+          
+            Loading target URL…
+            
+              Copy target URL
+            
+          
+        
+
+        
+          
+            
+              1. Ask your coding agent to deploy the relay
+            
+            
+              Copy this prompt into Codex, Cursor, Claude Code, or another
+              repo-aware agent. It tells the agent to run the local helper
+              script, stop only for Cloudflare auth, and return the
+              workers.dev URL.
+            
+            
+              Loading agent prompt…
+              
+                Copy agent prompt
+              
+            
+            
+              If you want the single command instead of the full prompt, use:
+            
+            
+              Run it from the repo root, not from
+              templates/cloudflare-worker. If
+              your Sheet ID is already set in Settings, the generated command
+              will also run the repo verify step after deploy. If you use only
+              browser login, Cloudflare may still ask you once to choose a
+              workers.dev subdomain for the
+              account.
+            
+            
+              Loading deploy command…
+              
+                Copy deploy command
+              
+            
+            
+              Repo guide:
+              AGENT-BOOTSTRAP.md.
+            
+          
+          
+            
+              2. Paste the deployed Worker URL back into Settings
+            
+            
+              Use the Worker’s open URL such as
+              https://your-worker.your-subdomain.workers.dev/. Do not use /forward here.
+            
+            Worker URL
+            
+            
+              This saves Discovery webhook URL in this browser
+              immediately and updates the open Settings form too. Keep
+              Cloudflare Access disabled on this open Worker URL.
+            
+          
+        
+
+        
+          Advanced fallback: manual Wrangler steps
+          
+            Use this only if you do not want to hand the repo to an agent.
+          
+          
+            These commands also assume you are starting from the
+            repo root.
+          
+          
+            cd templates/cloudflare-worker
+wrangler login
+wrangler secret put TARGET_URL
+wrangler deploy
+            
+              Copy manual steps
+            
+          
+          
+            When Wrangler prompts for
+            TARGET_URL, paste the target URL
+            shown above.
+          
+          
+            Optional: restrict browser origin by adding the snippet below to
+            templates/cloudflare-worker/wrangler.toml.
+          
+          
+            [vars]
+CORS_ORIGIN = "https://your-static-site.example"
+            
+              Copy CORS snippet
+            
+          
+          
+            https://your-static-site.example
+            
+              Copy origin
+            
+          
+          
+            If you do not have Wrangler installed yet, follow the
+            Wrangler install guide.
+          
+        
+
+        
+          Repo files:
+          README,
+          AGENT-BOOTSTRAP,
+          worker.js,
+          wrangler.toml.
+        
+
+        
+          
+            
+              Use Worker URL here
+            
+            
+              Use URL and test
+            
+          
+          
+            Done
+          
+        
+      
+    
+
+    
+    
+      
+        Set up Run discovery
+        
+          One-time setup: the dashboard POSTs to your HTTPS URL
+          so your automation can run another discovery pass. There is no hosted
+          discovery service from this app’s authors.
+        
+        
+          
+            Connect a real discovery engine that writes or updates
+            Pipeline rows, such as the
+            OpenClaw / agent guide
+            or another worker you control.
+          
+          
+            Copy the HTTPS webhook URL from that automation. If you only deploy
+            the dashboard-managed
+            Apps Script stub, treat it as wiring verification only.
+          
+          
+            Paste it into Settings → Discovery webhook URL and
+            save.
+          
+        
+        
+          Each run sends a variation key and your
+          discovery preferences so searches aren’t
+          identical. Contract:
+          AGENT_CONTRACT.md, SETUP.md, and
+          docs/README.
+        
+        
+          
+            Got it
+          
+          
+            Open Settings
+          
+        
+        
+          
+            Full setup guide
+          
+          ·
+          
+            Without a webhook
+          
+        
+      
+    
+
+    
+    
+      
+        
+          Run discovery
+          
+            ×
+          
+        
+
+        
+        
+          
+            Manual
+          
+          
+            AI Suggest
+          
+        
+
+        
+        
+          
+            Adjust these before each run. Values are saved locally and sent with
+            the request so your automation can vary the search.
+          
+
+          Target roles
+          
+
+          Locations
+          
+
+          
+            
+              Remote / work style
+              
+            
+            
+              Seniority
+              
+            
+          
+
+          Keywords to include
+          
+
+          Keywords to exclude
+          
+
+          Max leads per run (optional)
+          
+
+          
+            
+            Enable grounded web search
+          
+          
+            When enabled, the automation will also search the web for jobs
+            beyond ATS listings.
+          
+        
+
+        
+        
+          
+            Paste a job listing URL (optional) or let AI analyze your resume,
+            LinkedIn, and AI context to suggest target roles, locations, and
+            keywords that match your experience.
+          
+
+          Job listing URL (optional)
+          
+            
+            
+              Scrape
+            
+          
+          
+
+          
+            Generate suggestions
+          
+
+          
+            Suggested roles
+            
+
+            Suggested locations
+            
+
+            
+              
+                Work style
+                
+              
+              
+                Seniority
+                
+              
+            
+
+            Keywords to include
+            
+
+            Keywords to exclude
+            
+
+            
+              Apply to manual fields
+            
+
+            
+          
+
+          
+            Configure a resume AI provider (Gemini, OpenAI, or Anthropic) in
+            Settings to enable AI suggestions.
+          
+        
+
+        
+          
+          
+            
+              Cancel
+            
+            
+              Run now
+            
+          
+        
+      
+    
+
+    
+
+    
+    
+    ✗
+    Set a valid Spreadsheet URL or Sheet ID above first
+    
+      
+    
+  
+    ✗
+    Set a valid Spreadsheet URL or Sheet ID above first
+    
+      
+    
+  
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+
