@@ -152,7 +152,9 @@ export type ExtractionDiagnosticCode =
   /** Response is mostly HTML with minimal extractable content (likely a broken/minimal page). */
   | "low_content_html"
   /** Extraction returned zero job listings despite successful page load. */
-  | "zero_results";
+  | "zero_results"
+  /** Operation timed out; fallback or partial result may be returned. */
+  | "timeout";
 
 /**
  * Structured diagnostic entry for extraction observability.

@@ -793,7 +793,7 @@ async function runGroundedWebDiscovery(
             warnings: [message],
             pagesVisited: 0,
             diagnostics: [{
-              code: "fetch_fallback" as const,
+              code: "timeout" as const,
               context: `Grounded collection timed out after ${error.timeoutMs}ms for ${company.name}: ${error.message}`,
             }],
           };

@@ -252,12 +252,14 @@ async function executeQueryWithRetry(
   evidence: GroundedQueryEvidence[];
   exhausted: boolean;
   regexFallbackUsed: boolean;
+  regexFallbackAttempted: boolean;
 }> {
   const evidence: GroundedQueryEvidence[] = [];
   const searchQueries: string[] = [];
   const allCandidates: GroundedSearchCandidate[] = [];
   let exhausted = false;
   let regexFallbackUsed = false;
+  let regexFallbackAttempted = false;
 
   // VAL-ROUTE-013: Build the retry ladder
   // Rung 0: focused query (original)
@@ -284,6 +286,9 @@ async function executeQueryWithRetry(
     allCandidates.push(...result.candidates);
     if (result.regexFallbackUsed) {
       regexFallbackUsed = true;
+    }
+    if (result.regexFallbackAttempted) {
+      regexFallbackAttempted = true;
     }
 
     evidence.push({
@@ -312,6 +317,7 @@ async function executeQueryWithRetry(
     evidence,
     exhausted,
     regexFallbackUsed,
+    regexFallbackAttempted,
   };
 }
 
@@ -339,15 +345,21 @@ function buildRetryLadder(
 
   // Rung 1: Drop location constraints
   // Remove location from the query but keep role + keywords
+  // Handles both single-word (e.g., "Remote") and multi-word (e.g., "United States") locations
   if (locations.length > 0) {
-    const parts = focusedQuery.split(/\s+/).filter((part) => {
-      const lower = part.toLowerCase();
-      // Filter out location-like tokens
-      return !locations.some((loc) => lower.includes(loc.toLowerCase()));
-    });
-    if (parts.length > 0 && parts.join(" ").trim() !== focusedQuery) {
+    let queryWithoutLocation = focusedQuery;
+    for (const location of locations) {
+      // Case-insensitive phrase match: remove the location phrase wherever it appears
+      // Use word boundary matching to avoid partial matches like "States" in "United Statesman"
+      const escapedLocation = location.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const locationPattern = new RegExp(`\\b${escapedLocation}\\b`, "gi");
+      queryWithoutLocation = queryWithoutLocation.replace(locationPattern, "");
+    }
+    // Clean up extra whitespace
+    const cleanedQuery = queryWithoutLocation.split(/\s+/).filter(Boolean).join(" ");
+    if (cleanedQuery && cleanedQuery !== focusedQuery) {
       ladder.push({
-        query: parts.join(" "),
+        query: cleanedQuery,
         rung: 1,
         terminal: false,
       });
@@ -423,7 +435,11 @@ async function executeSingleQuery(
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    // On error, return empty results but don't throw (to allow retry ladder to continue)
+    // Fail-open resilience: HTTP errors return empty candidates without throwing,
+    // allowing the retry ladder to continue with broader queries.
+    // The caller does not distinguish between 'zero candidates because query found nothing'
+    // vs 'zero candidates because query failed' - this is intentional to maximize
+    // recall under transient network failures. Error attribution is logged separately.
     return { candidates: [], searchQueries: [] };
   }
 
@@ -436,7 +452,12 @@ async function executeSingleQuery(
   const cited = extractGroundedCandidatesFromMetadata(groundingMetadata, company);
   const candidates = mergeGroundedCandidates(explicitResult.candidates, cited, company, maxResultsPerCompany);
 
-  return { candidates, searchQueries, regexFallbackUsed: explicitResult.regexFallbackUsed };
+  return {
+    candidates,
+    searchQueries,
+    regexFallbackUsed: explicitResult.regexFallbackUsed,
+    regexFallbackAttempted: explicitResult.regexFallbackAttempted,
+  };
 }
 
 /**
@@ -585,13 +606,21 @@ export function createGroundedSearchClient(
         );
 
         // VAL-DATA-001: Emit explicit warning for regex fallback on non-JSON/conversational output
+        // Use regexFallbackAttempted to emit warning whenever fallback was tried (regardless of outcome),
+        // but differentiate the message based on whether candidates were recovered
         const warnings = candidates.length > 0
           ? []
           : ["Grounded search returned no usable candidate links."];
-        if (explicitResult.regexFallbackUsed) {
-          warnings.push(
-            "Regex URL fallback used: grounded output was non-JSON or conversational; URLs recovered via pattern matching.",
-          );
+        if (explicitResult.regexFallbackAttempted) {
+          if (explicitResult.regexFallbackUsed) {
+            warnings.push(
+              "Regex URL fallback used: grounded output was non-JSON or conversational; URLs recovered via pattern matching.",
+            );
+          } else {
+            warnings.push(
+              "Regex URL fallback used: grounded output was non-JSON or conversational; no valid URLs recovered.",
+            );
+          }
         }
 
         return {
@@ -610,10 +639,11 @@ export function createGroundedSearchClient(
       const exhaustedSubQueries: { query: string; finalRung: GroundedQueryRung }[] = [];
       let ladderExhausted = false;
       let regexFallbackUsed = false;
+      let regexFallbackAttempted = false;
 
       // Execute each focused query
       for (const focusedQuery of focusedQueries) {
-        const { candidates, searchQueries, evidence, exhausted, regexFallbackUsed: queryRegexFallback } = await executeQueryWithRetry(
+        const { candidates, searchQueries, evidence, exhausted, regexFallbackUsed: queryRegexFallback, regexFallbackAttempted: queryRegexFallbackAttempted } = await executeQueryWithRetry(
           focusedQuery,
           company,
           run,
@@ -629,6 +659,9 @@ export function createGroundedSearchClient(
         queryEvidence.push(...evidence);
         if (queryRegexFallback) {
           regexFallbackUsed = true;
+        }
+        if (queryRegexFallbackAttempted) {
+          regexFallbackAttempted = true;
         }
 
         if (exhausted) {
@@ -670,10 +703,18 @@ export function createGroundedSearchClient(
         );
       }
       // VAL-DATA-001: Emit explicit warning for regex fallback on non-JSON/conversational output
-      if (regexFallbackUsed) {
-        warnings.push(
-          "Regex URL fallback used: grounded output was non-JSON or conversational; URLs recovered via pattern matching.",
-        );
+      // Use regexFallbackAttempted to emit warning whenever fallback was tried (regardless of outcome),
+      // but differentiate the message based on whether candidates were recovered
+      if (regexFallbackAttempted) {
+        if (regexFallbackUsed) {
+          warnings.push(
+            "Regex URL fallback used: grounded output was non-JSON or conversational; URLs recovered via pattern matching.",
+          );
+        } else {
+          warnings.push(
+            "Regex URL fallback used: grounded output was non-JSON or conversational; no valid URLs recovered.",
+          );
+        }
       }
 
       return {
@@ -759,15 +800,24 @@ export async function collectGroundedWebListings(input: {
   }
 
   // VAL-OBS-003: If no listings were extracted after all pages, emit zero_results diagnostic
+  // Covers both cases: (1) seedCandidates is empty (search returned no candidates),
+  // and (2) seedCandidates had candidates but all extraction attempts failed
   const dedupedListings = dedupeRawListings(rawListings);
-  if (dedupedListings.length === 0 && seedCandidates.length > 0) {
+  if (dedupedListings.length === 0) {
+    const context = seedCandidates.length > 0
+      ? `Extracted zero job listings from ${seedCandidates.length} candidate pages. All pages either had no extractable content or failed to load.`
+      : `Grounded search returned zero candidates (no candidate URLs to extract from).`;
     diagnostics.push({
       code: "zero_results",
-      context: `Extracted zero job listings from ${seedCandidates.length} candidate pages. All pages either had no extractable content or failed to load.`,
+      context,
     });
-    warnings.push(
-      `Grounded web extraction returned zero job listings from ${seedCandidates.length} candidate pages.`,
-    );
+    // Only emit warning when there were candidates to extract from
+    // (when seedCandidates is empty, there's nothing to warn about - the search simply found nothing)
+    if (seedCandidates.length > 0) {
+      warnings.push(
+        `Grounded web extraction returned zero job listings from ${seedCandidates.length} candidate pages.`,
+      );
+    }
   }
 
   return {
@@ -1107,8 +1157,10 @@ function toRawListing(
  */
 type ExtractCandidatesResult = {
   candidates: GroundedSearchCandidate[];
-  /** True if JSON parsing failed/empty and regex fallback was used. */
+  /** True if JSON parsing failed/empty and regex fallback recovered candidates. */
   regexFallbackUsed: boolean;
+  /** True if JSON parsing failed/empty and regex fallback was attempted (regardless of outcome). */
+  regexFallbackAttempted: boolean;
 };
 
 /**
@@ -1178,15 +1230,20 @@ function extractGroundedCandidatesFromText(
   // This handles conversational/non-JSON grounded output
   if (candidates.length === 0 && text.trim().length > 0) {
     const regexCandidates = extractUrlsViaRegex(text, company);
+    // regexFallbackUsed signals that candidates were recovered via regex fallback
+    // (only set to true when regex actually recovered candidates)
+    // regexFallbackAttempted tracks that fallback was used regardless of outcome
     return {
       candidates: regexCandidates,
-      regexFallbackUsed: true,
+      regexFallbackUsed: regexCandidates.length > 0,
+      regexFallbackAttempted: true,
     };
   }
 
   return {
     candidates,
     regexFallbackUsed: false,
+    regexFallbackAttempted: false,
   };
 }
 
