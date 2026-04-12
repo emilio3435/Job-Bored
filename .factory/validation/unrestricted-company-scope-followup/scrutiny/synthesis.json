@@ -1,0 +1,33 @@
+{
+  "milestone": "unrestricted-company-scope-followup",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": { "passed": true, "command": "npm run test:repo", "exitCode": 0 },
+    "typecheck": { "passed": true, "command": "npm run typecheck:repo", "exitCode": 0 },
+    "lint": { "passed": true, "command": "npm run lint:repo", "exitCode": 0 }
+  },
+  "reviewsSummary": {
+    "total": 2,
+    "passed": 2,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "library",
+      "suggestion": "Document the `[{ name: '' }]` empty company placeholder pattern as the canonical convention for unrestricted company scope in discovery runs. This pattern is used by both grounded_web and ATS lanes when `config.companies` is empty, and is critical for understanding how unrestricted scope works.",
+      "evidence": "Both features in this milestone (unrestricted-company-scope-preflight-and-grounded-foundation and unrestricted-company-scope-ats-and-mixed-routing) use this pattern in run-discovery.ts. The pattern evolved organically and is not currently documented.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "discovery-integration-worker SKILL.md was not found at the expected path",
+      "reason": "The skill DOES exist at the project-level path: .factory/skills/discovery-integration-worker/SKILL.md. The reviewer looked in the wrong directory (~/.factory/skills/ instead of the project's .factory/skills/). No action needed."
+    }
+  ],
+  "previousRound": null
+}
