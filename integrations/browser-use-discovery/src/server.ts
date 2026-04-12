@@ -3,6 +3,10 @@ import { createServer } from "node:http";
 
 import { createSourceAdapterRegistry } from "./browser/source-adapters.ts";
 import {
+  formatBrowserRuntimeReadinessWarning,
+  validateBrowserRuntimeReadiness,
+} from "./browser/runtime-readiness.ts";
+import {
   loadRuntimeConfig,
   loadStoredWorkerConfig,
   mergeDiscoveryConfig,
@@ -136,6 +140,10 @@ async function buildHealthPayload() {
   const sheetsCredentialReadiness =
     await validateSheetsCredentialReadiness(runtimeConfig);
 
+  // VAL-OBS-001: Check browser runtime readiness
+  const browserRuntimeReadiness =
+    await validateBrowserRuntimeReadiness(runtimeConfig);
+
   if (configError) {
     readinessWarnings.push(`Worker config could not be loaded: ${configError}`);
   }
@@ -152,12 +160,20 @@ async function buildHealthPayload() {
       formatSheetsCredentialReadinessWarning(sheetsCredentialReadiness),
     );
   }
-  if (groundedWebEnabled && !groundedSearchClient) {
+
+  // VAL-OBS-001: Browser runtime not ready
+  if (!browserRuntimeReadiness.available) {
     readinessWarnings.push(
-      runtimeConfig.geminiApiKey
-        ? "Grounded web source is enabled but the grounded search client is unavailable."
-        : "Grounded web source is enabled but BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.",
+      formatBrowserRuntimeReadinessWarning(browserRuntimeReadiness),
     );
+  }
+
+  // VAL-OBS-002: Grounded-web readiness cause when enabled but not ready
+  if (groundedWebEnabled && !groundedSearchClient) {
+    const groundedWebCause = runtimeConfig.geminiApiKey
+      ? "Grounded web source is enabled but the grounded search client is unavailable."
+      : "Grounded web source is enabled but BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.";
+    readinessWarnings.push(groundedWebCause);
   }
 
   return {
@@ -180,9 +196,32 @@ async function buildHealthPayload() {
         : 0,
       sheetsCredentialConfigured: sheetsCredentialReadiness.configured,
       enabledSources,
+      browserRuntime: {
+        configured: browserRuntimeReadiness.configured,
+        available: browserRuntimeReadiness.available,
+        ...(browserRuntimeReadiness.message
+          ? { message: browserRuntimeReadiness.message }
+          : {}),
+        ...(browserRuntimeReadiness.detail
+          ? { detail: browserRuntimeReadiness.detail }
+          : {}),
+        ...(browserRuntimeReadiness.remediation
+          ? { remediation: browserRuntimeReadiness.remediation }
+          : {}),
+      },
       groundedWeb: {
         enabled: groundedWebEnabled,
         ready: !groundedWebEnabled || !!groundedSearchClient,
+        ...(groundedWebEnabled && !groundedSearchClient
+          ? {
+              cause: runtimeConfig.geminiApiKey
+                ? "Grounded search client unavailable despite API key configured."
+                : "GEMINI_API_KEY not configured.",
+              remediation: runtimeConfig.geminiApiKey
+                ? "Check that the Gemini API key is valid and the service is accessible."
+                : "Set BROWSER_USE_DISCOVERY_GEMINI_API_KEY to a valid API key.",
+            }
+          : {}),
       },
       warnings: readinessWarnings,
     },
