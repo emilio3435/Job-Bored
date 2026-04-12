@@ -27,41 +27,51 @@
   const H = window.JobBoredDiscoveryHelpers || {};
 
   function asString(raw, fallback = "") {
-    return typeof H.asString === "function" ? H.asString(raw, fallback) : (raw == null ? "" : String(raw).trim()) || fallback;
+    return typeof H.asString === "function"
+      ? H.asString(raw, fallback)
+      : (raw == null ? "" : String(raw).trim()) || fallback;
   }
 
   function normalizeUrl(raw) {
-    return typeof H.normalizeUrl === "function" ? H.normalizeUrl(raw) : (raw != null ? String(raw).trim() : "");
+    return typeof H.normalizeUrl === "function"
+      ? H.normalizeUrl(raw)
+      : raw != null
+        ? String(raw).trim()
+        : "";
   }
 
   function inferPortFromUrl(raw, fallback = "8644") {
-    return typeof H.inferPortFromUrl === "function" ? H.inferPortFromUrl(raw, fallback) : (() => {
-      const url = normalizeUrl(raw);
-      if (!url) return asString(fallback, "8644");
-      try {
-        const parsed = new URL(url);
-        if (parsed.port) return parsed.port;
-        return parsed.protocol === "https:" ? "443" : "80";
-      } catch (_) {
-        return asString(fallback, "8644");
-      }
-    })();
+    return typeof H.inferPortFromUrl === "function"
+      ? H.inferPortFromUrl(raw, fallback)
+      : (() => {
+          const url = normalizeUrl(raw);
+          if (!url) return asString(fallback, "8644");
+          try {
+            const parsed = new URL(url);
+            if (parsed.port) return parsed.port;
+            return parsed.protocol === "https:" ? "443" : "80";
+          } catch (_) {
+            return asString(fallback, "8644");
+          }
+        })();
   }
 
   function buildLocalHealthUrl(localWebhookUrl) {
-    return typeof H.buildLocalHealthUrl === "function" ? H.buildLocalHealthUrl(localWebhookUrl) : (() => {
-      const local = normalizeUrl(localWebhookUrl);
-      if (!local) return "";
-      try {
-        const url = new URL(local);
-        url.pathname = "/health";
-        url.search = "";
-        url.hash = "";
-        return url.toString();
-      } catch (_) {
-        return "";
-      }
-    })();
+    return typeof H.buildLocalHealthUrl === "function"
+      ? H.buildLocalHealthUrl(localWebhookUrl)
+      : (() => {
+          const local = normalizeUrl(localWebhookUrl);
+          if (!local) return "";
+          try {
+            const url = new URL(local);
+            url.pathname = "/health";
+            url.search = "";
+            url.hash = "";
+            return url.toString();
+          } catch (_) {
+            return "";
+          }
+        })();
   }
 
   function buildLocalBootstrapUrl() {
@@ -179,6 +189,11 @@
       corsOrigin: asString(source.corsOrigin),
       sheetId: asString(source.sheetId),
       workerName: asString(source.workerName),
+      // Webhook secret resolved by `npm run discovery:bootstrap-local`. The
+      // dashboard autofills Settings → Discovery webhook secret from this so
+      // the user never needs to paste it manually.
+      webhookSecret: asString(source.webhookSecret),
+      webhookSecretSource: asString(source.webhookSecretSource),
       cloudflareDeployCommand,
       ngrokTokenUrl,
       status,
@@ -302,23 +317,25 @@
   }
 
   function localHealthProxyUrl(healthUrl) {
-    return typeof H.localHealthProxyUrl === "function" ? H.localHealthProxyUrl(healthUrl) : (() => {
-      try {
-        const parsed = new URL(healthUrl);
-        const host = parsed.hostname;
-        if (
-          host === "127.0.0.1" ||
-          host === "localhost" ||
-          host === "[::1]" ||
-          host === "::1"
-        ) {
-          const port =
-            parsed.port || (parsed.protocol === "https:" ? "443" : "80");
-          return `/__proxy/local-health?port=${port}`;
-        }
-      } catch (_) {}
-      return healthUrl;
-    })();
+    return typeof H.localHealthProxyUrl === "function"
+      ? H.localHealthProxyUrl(healthUrl)
+      : (() => {
+          try {
+            const parsed = new URL(healthUrl);
+            const host = parsed.hostname;
+            if (
+              host === "127.0.0.1" ||
+              host === "localhost" ||
+              host === "[::1]" ||
+              host === "::1"
+            ) {
+              const port =
+                parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+              return `/__proxy/local-health?port=${port}`;
+            }
+          } catch (_) {}
+          return healthUrl;
+        })();
   }
 
   async function probeLocalHealthUrl(healthUrl) {

@@ -1,0 +1,31 @@
+{
+  "featureId": "ai-suggest-intent-bridge-and-run-dispatch",
+  "reviewedAt": "2026-04-12T10:35:00.000Z",
+  "commitId": "a5fe3691a6ff7e1b2dff5acc2543e956414dd531",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Implementation fully covers the AI Suggest Intent Bridge feature. When Run is clicked with blank manual intent (targetRoles/keywordsInclude) but non-blank AI suggestions (dpSuggestedRoles/dpSuggestedInclude), the code auto-promotes suggested values into canonical manual fields before the blank-intent guardrail check. This ensures: (1) VAL-UI-STATUS-009: false blank-intent blocking is bypassed when AI suggestions exist; (2) VAL-UI-STATUS-010: true-blank guardrail only fires when both manual AND suggested intent are blank; (3) VAL-API-009: resolved intent is persisted into canonical discoveryProfile.targetRoles and discoveryProfile.keywordsInclude via UC.saveDiscoveryProfile() before webhook dispatch, and the buildDiscoveryWebhookPayload reads from UC.getDiscoveryProfile(), so the webhook payload carries non-blank canonical fields.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Implementation correctly follows the bridge rule documented in .factory/library/contracts.md: 'AI Suggest output may originate in non-canonical UI fields, but run dispatch must promote resolved values into canonical discoveryProfile.targetRoles / discoveryProfile.keywordsInclude before webhook submission.' The feature implements exactly this behavior.",
+      "evidence": "app.js lines 17038-17055 implement auto-promotion from dpSuggestedRoles/dpSuggestedInclude to dpTargetRoles/dpKeywordsInclude; lines 17085-17094 persist via UC.saveDiscoveryProfile with post-promotion values; buildDiscoveryWebhookPayload reads from UC.getDiscoveryProfile() so webhook carries resolved intent."
+    },
+    {
+      "area": "conventions",
+      "observation": "The feature also aligns with mission.md guidance item 13: 'AI Suggest output is valid intent for run dispatch when manual intent fields are blank; run flow must bridge/persist resolved intent into canonical discoveryProfile.targetRoles / discoveryProfile.keywordsInclude before webhook dispatch.'",
+      "evidence": "Same implementation evidence as above."
+    },
+    {
+      "area": "skills",
+      "observation": "Worker followed discovery-frontend-worker skill procedure correctly. Skill required: syntax/type checks, targeted tests, browser verification, and repository validators before handoff. Transcript shows skillFeedback.followedProcedure: true with no deviations.",
+      "evidence": "Transcript skeleton shows verification results: node --check passed, node --test passed, browser evidence collected. Handoff commit a5fe369 is the only file changed (app.js)."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Feature implementation is correct and complete. The AI Suggest Intent Bridge correctly auto-promotes suggested roles/keywords into canonical manual fields when Run is clicked with blank manual intent but non-blank AI suggestions. The true-blank guardrail is preserved (only fires when both manual AND AI-suggested intent are blank). Resolved intent is persisted into canonical discoveryProfile fields before webhook dispatch. All three assertions (VAL-UI-STATUS-009, VAL-UI-STATUS-010, VAL-API-009) are covered by the implementation. No blocking issues found."
+}

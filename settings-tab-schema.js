@@ -79,6 +79,7 @@
 
     // Discovery
     settingsDiscoveryWebhookUrl: SETTINGS_TAB_IDS.DISCOVERY,
+    settingsDiscoveryWebhookSecret: SETTINGS_TAB_IDS.DISCOVERY,
     settingsDiscoveryPathsBtn: SETTINGS_TAB_IDS.DISCOVERY,
     settingsDiscoveryGuideBtn: SETTINGS_TAB_IDS.DISCOVERY,
     settingsDiscoveryLocalSetupBtn: SETTINGS_TAB_IDS.DISCOVERY,

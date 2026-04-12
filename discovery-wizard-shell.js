@@ -128,6 +128,7 @@
         localWebhookUrl: "",
         localWebhookReady: false,
         tunnelPublicUrl: "",
+        storedTunnelUrl: "",
         tunnelLive: false,
         tunnelReady: false,
         tunnelStale: false,
@@ -276,6 +277,7 @@
       localWebhookUrl: asString(raw.localWebhookUrl),
       localWebhookReady: asBoolean(raw.localWebhookReady),
       tunnelPublicUrl: asString(raw.tunnelPublicUrl),
+      storedTunnelUrl: asString(raw.storedTunnelUrl),
       tunnelLive: asBoolean(raw.tunnelLive),
       tunnelReady: asBoolean(raw.tunnelReady),
       tunnelStale: asBoolean(raw.tunnelStale),
@@ -1098,10 +1100,33 @@
     worker_down:
       "The local discovery worker is not responding. It may need to be restarted.",
     tunnel_down:
-      "The ngrok tunnel is not running. The public URL cannot reach the local worker.",
+      "The public ngrok tunnel is not running, so the saved Worker URL cannot reach your local worker right now.",
     tunnel_rotated:
-      "The ngrok tunnel restarted with a new URL. The relay needs to be updated.",
+      "ngrok gave your local setup a new public URL, so the relay behind your saved Worker URL needs to be redeployed.",
   };
+
+  function getRecoveryCopy(snapshot) {
+    const probes = root.probes || {};
+    if (typeof probes.buildRecoveryCopy === "function") {
+      return probes.buildRecoveryCopy(snapshot);
+    }
+    const recovery = asString(snapshot && snapshot.localRecoveryState, "ok");
+    return {
+      title:
+        recovery === "tunnel_rotated"
+          ? "Public tunnel changed"
+          : "Local setup needs recovery",
+      detail:
+        RECOVERY_SENTENCES[recovery] ||
+        "Part of the local discovery chain is down after a restart.",
+      actionHint:
+        "Click Fix setup to restart what is down and redeploy the relay if needed.",
+      detectBody: [
+        RECOVERY_SENTENCES[recovery] ||
+          "Part of the local discovery chain is down after a restart.",
+      ],
+    };
+  }
 
   function renderSnapshotPanel(context) {
     const aside = createEl("aside", "discovery-setup-wizard__snapshot", {
@@ -1110,6 +1135,7 @@
     const recovery = context.snapshot.localRecoveryState || "ok";
 
     if (recovery !== "ok") {
+      const recoveryCopy = getRecoveryCopy(context.snapshot);
       const banner = createEl(
         "div",
         "discovery-setup-wizard__summary-card discovery-setup-wizard__summary-card--recovery",
@@ -1123,14 +1149,20 @@
         "h3",
         "discovery-setup-wizard__card-title",
         {},
-        "Local setup needs recovery",
+        recoveryCopy.title,
       );
       banner.appendChild(bannerTitle);
+      for (const line of recoveryCopy.detectBody || [recoveryCopy.detail]) {
+        appendText(
+          banner,
+          line,
+          "discovery-setup-wizard__copy discovery-setup-wizard__copy--lead",
+        );
+      }
       appendText(
         banner,
-        RECOVERY_SENTENCES[recovery] ||
-          "Part of the local discovery chain is down after a restart.",
-        "discovery-setup-wizard__copy discovery-setup-wizard__copy--lead",
+        recoveryCopy.actionHint,
+        "discovery-setup-wizard__copy",
       );
       aside.appendChild(banner);
     }

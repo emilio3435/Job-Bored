@@ -585,6 +585,97 @@ function parseWebhookRequest(
           "Use the AI Suggester tab to generate role keywords, or provide explicit targetRoles (e.g., 'Senior Engineer') or keywordsInclude (e.g., 'AI,python') values in your discoveryProfile.",
       };
     }
+
+    // VAL-API-004: Validate ultraPlanTuning control-plane fields.
+    // Malformed control-plane fields fail closed with explicit 400 errors.
+    if ("ultraPlanTuning" in profile) {
+      const ultraPlanTuning = profile.ultraPlanTuning;
+      if (ultraPlanTuning != null && typeof ultraPlanTuning !== "object") {
+        return {
+          ok: false,
+          message:
+            "discoveryProfile.ultraPlanTuning must be an object when present.",
+        };
+      }
+      if (typeof ultraPlanTuning === "object" && ultraPlanTuning !== null) {
+        const tuning = ultraPlanTuning as Record<string, unknown>;
+        // Validate boolean fields
+        for (const field of [
+          "multiQueryEnabled",
+          "retryBroadeningEnabled",
+          "parallelCompanyProcessingEnabled",
+        ]) {
+          if (field in tuning && typeof tuning[field] !== "boolean") {
+            return {
+              ok: false,
+              message: `discoveryProfile.ultraPlanTuning.${field} must be a boolean when present. Received: ${JSON.stringify(tuning[field])}`,
+            };
+          }
+        }
+        // Reject unknown keys
+        const knownKeys = new Set([
+          "multiQueryEnabled",
+          "retryBroadeningEnabled",
+          "parallelCompanyProcessingEnabled",
+        ]);
+        for (const key of Object.keys(tuning)) {
+          if (!knownKeys.has(key)) {
+            return {
+              ok: false,
+              message: `discoveryProfile.ultraPlanTuning contains unknown field "${key}". Known fields: ${[...knownKeys].join(", ")}.`,
+            };
+          }
+        }
+      }
+    }
+
+    // VAL-API-004: Validate groundedSearchTuning control-plane fields.
+    // Malformed control-plane fields fail closed with explicit 400 errors.
+    if ("groundedSearchTuning" in profile) {
+      const groundedSearchTuning = profile.groundedSearchTuning;
+      if (groundedSearchTuning != null && typeof groundedSearchTuning !== "object") {
+        return {
+          ok: false,
+          message:
+            "discoveryProfile.groundedSearchTuning must be an object when present.",
+        };
+      }
+      if (typeof groundedSearchTuning === "object" && groundedSearchTuning !== null) {
+        const tuning = groundedSearchTuning as Record<string, unknown>;
+        // Validate numeric fields
+        for (const field of [
+          "maxResultsPerCompany",
+          "maxPagesPerCompany",
+          "maxRuntimeMs",
+          "maxTokensPerQuery",
+        ]) {
+          if (
+            field in tuning &&
+            (typeof tuning[field] !== "number" || !Number.isFinite(tuning[field]))
+          ) {
+            return {
+              ok: false,
+              message: `discoveryProfile.groundedSearchTuning.${field} must be a finite number when present. Received: ${JSON.stringify(tuning[field])}`,
+            };
+          }
+        }
+        // Reject unknown keys
+        const knownKeys = new Set([
+          "maxResultsPerCompany",
+          "maxPagesPerCompany",
+          "maxRuntimeMs",
+          "maxTokensPerQuery",
+        ]);
+        for (const key of Object.keys(tuning)) {
+          if (!knownKeys.has(key)) {
+            return {
+              ok: false,
+              message: `discoveryProfile.groundedSearchTuning contains unknown field "${key}". Known fields: ${[...knownKeys].join(", ")}.`,
+            };
+          }
+        }
+      }
+    }
   }
   if (
     payload.googleAccessToken != null &&
@@ -655,6 +746,46 @@ function normalizeDiscoveryProfile(
     out.keywordsExclude = raw.keywordsExclude;
   if (typeof raw.maxLeadsPerRun === "string")
     out.maxLeadsPerRun = raw.maxLeadsPerRun;
+
+  // Normalize ultraPlanTuning if present
+  if (isPlainObject(raw.ultraPlanTuning)) {
+    const tuning = raw.ultraPlanTuning as Record<string, unknown>;
+    const normalizedTuning: NonNullable<DiscoveryWebhookRequestV1["discoveryProfile"]>["ultraPlanTuning"] = {};
+    if (typeof tuning.multiQueryEnabled === "boolean") {
+      normalizedTuning.multiQueryEnabled = tuning.multiQueryEnabled;
+    }
+    if (typeof tuning.retryBroadeningEnabled === "boolean") {
+      normalizedTuning.retryBroadeningEnabled = tuning.retryBroadeningEnabled;
+    }
+    if (typeof tuning.parallelCompanyProcessingEnabled === "boolean") {
+      normalizedTuning.parallelCompanyProcessingEnabled = tuning.parallelCompanyProcessingEnabled;
+    }
+    if (Object.keys(normalizedTuning).length > 0) {
+      out.ultraPlanTuning = normalizedTuning;
+    }
+  }
+
+  // Normalize groundedSearchTuning if present
+  if (isPlainObject(raw.groundedSearchTuning)) {
+    const tuning = raw.groundedSearchTuning as Record<string, unknown>;
+    const normalizedTuning: NonNullable<DiscoveryWebhookRequestV1["discoveryProfile"]>["groundedSearchTuning"] = {};
+    if (typeof tuning.maxResultsPerCompany === "number" && Number.isFinite(tuning.maxResultsPerCompany)) {
+      normalizedTuning.maxResultsPerCompany = tuning.maxResultsPerCompany;
+    }
+    if (typeof tuning.maxPagesPerCompany === "number" && Number.isFinite(tuning.maxPagesPerCompany)) {
+      normalizedTuning.maxPagesPerCompany = tuning.maxPagesPerCompany;
+    }
+    if (typeof tuning.maxRuntimeMs === "number" && Number.isFinite(tuning.maxRuntimeMs)) {
+      normalizedTuning.maxRuntimeMs = tuning.maxRuntimeMs;
+    }
+    if (typeof tuning.maxTokensPerQuery === "number" && Number.isFinite(tuning.maxTokensPerQuery)) {
+      normalizedTuning.maxTokensPerQuery = tuning.maxTokensPerQuery;
+    }
+    if (Object.keys(normalizedTuning).length > 0) {
+      out.groundedSearchTuning = normalizedTuning;
+    }
+  }
+
   return out;
 }
 

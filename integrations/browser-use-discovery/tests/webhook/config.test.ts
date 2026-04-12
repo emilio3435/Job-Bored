@@ -247,3 +247,203 @@ test("mergeDiscoveryConfig request preset overrides stored preset", () => {
   );
   assert.equal(result.sourcePreset, "browser_only");
 });
+
+// === VAL-API-001: browser_only applies elevated agentic defaults when tuning fields are omitted ===
+
+test("VAL-API-001: browser_only resolves elevated groundedSearchTuning defaults when omitted", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig() as any,
+    makeRequest({
+      discoveryProfile: { sourcePreset: "browser_only", targetRoles: "Senior Engineer" },
+    }),
+  );
+  // browser_only should use elevated defaults
+  assert.equal(result.groundedSearchTuning.maxResultsPerCompany, 12, "maxResultsPerCompany should be 12 for browser_only");
+  assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 8, "maxPagesPerCompany should be 8 for browser_only");
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 60000, "maxRuntimeMs should be 60000 for browser_only");
+  assert.equal(result.groundedSearchTuning.maxTokensPerQuery, 4096, "maxTokensPerQuery should be 4096 for browser_only");
+});
+
+test("VAL-API-001: browser_only resolves enabled ultraPlanTuning flags when omitted", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig() as any,
+    makeRequest({
+      discoveryProfile: { sourcePreset: "browser_only", targetRoles: "Senior Engineer" },
+    }),
+  );
+  // browser_only should have all agentic flags enabled
+  assert.equal(result.ultraPlanTuning.multiQueryEnabled, true, "multiQueryEnabled should be true for browser_only");
+  assert.equal(result.ultraPlanTuning.retryBroadeningEnabled, true, "retryBroadeningEnabled should be true for browser_only");
+  assert.equal(result.ultraPlanTuning.parallelCompanyProcessingEnabled, true, "parallelCompanyProcessingEnabled should be true for browser_only");
+});
+
+test("VAL-API-001: ats_only resolves legacy groundedSearchTuning defaults when omitted", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig() as any,
+    makeRequest({
+      discoveryProfile: { sourcePreset: "ats_only", targetRoles: "Senior Engineer" },
+    }),
+  );
+  // ats_only should use legacy defaults
+  assert.equal(result.groundedSearchTuning.maxResultsPerCompany, 6, "maxResultsPerCompany should be 6 for ats_only");
+  assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 4, "maxPagesPerCompany should be 4 for ats_only");
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 30000, "maxRuntimeMs should be 30000 for ats_only");
+  assert.equal(result.groundedSearchTuning.maxTokensPerQuery, 2048, "maxTokensPerQuery should be 2048 for ats_only");
+});
+
+test("VAL-API-001: ats_only resolves disabled ultraPlanTuning flags when omitted", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig() as any,
+    makeRequest({
+      discoveryProfile: { sourcePreset: "ats_only", targetRoles: "Senior Engineer" },
+    }),
+  );
+  // ats_only should have all agentic flags disabled
+  assert.equal(result.ultraPlanTuning.multiQueryEnabled, false, "multiQueryEnabled should be false for ats_only");
+  assert.equal(result.ultraPlanTuning.retryBroadeningEnabled, false, "retryBroadeningEnabled should be false for ats_only");
+  assert.equal(result.ultraPlanTuning.parallelCompanyProcessingEnabled, false, "parallelCompanyProcessingEnabled should be false for ats_only");
+});
+
+// === VAL-API-002: explicit browser_only tuning overrides are preserved exactly ===
+
+test("VAL-API-002: explicit groundedSearchTuning override is preserved exactly", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig() as any,
+    makeRequest({
+      discoveryProfile: {
+        sourcePreset: "browser_only",
+        targetRoles: "Senior Engineer",
+        groundedSearchTuning: {
+          maxResultsPerCompany: 20,
+          maxPagesPerCompany: 15,
+        },
+      },
+    }),
+  );
+  // Explicit overrides should be preserved
+  assert.equal(result.groundedSearchTuning.maxResultsPerCompany, 20, "explicit maxResultsPerCompany override should be preserved");
+  assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 15, "explicit maxPagesPerCompany override should be preserved");
+  // Non-overridden fields should still use browser_only defaults
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 60000, "non-overridden maxRuntimeMs should use browser_only default");
+  assert.equal(result.groundedSearchTuning.maxTokensPerQuery, 4096, "non-overridden maxTokensPerQuery should use browser_only default");
+});
+
+test("VAL-API-002: explicit ultraPlanTuning override is preserved exactly", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig() as any,
+    makeRequest({
+      discoveryProfile: {
+        sourcePreset: "browser_only",
+        targetRoles: "Senior Engineer",
+        ultraPlanTuning: {
+          multiQueryEnabled: false,
+        },
+      },
+    }),
+  );
+  // Explicit override should be preserved
+  assert.equal(result.ultraPlanTuning.multiQueryEnabled, false, "explicit multiQueryEnabled override should be preserved");
+  // Non-overridden flags should still use browser_only defaults
+  assert.equal(result.ultraPlanTuning.retryBroadeningEnabled, true, "non-overridden retryBroadeningEnabled should use browser_only default");
+  assert.equal(result.ultraPlanTuning.parallelCompanyProcessingEnabled, true, "non-overridden parallelCompanyProcessingEnabled should use browser_only default");
+});
+
+test("VAL-API-002: partial groundedSearchTuning override preserves siblings correctly", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig() as any,
+    makeRequest({
+      discoveryProfile: {
+        sourcePreset: "browser_only",
+        targetRoles: "Senior Engineer",
+        groundedSearchTuning: {
+          maxRuntimeMs: 120000,
+        },
+      },
+    }),
+  );
+  // Only maxRuntimeMs should be overridden
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 120000, "explicit maxRuntimeMs override should be preserved");
+  // Other fields should use browser_only defaults
+  assert.equal(result.groundedSearchTuning.maxResultsPerCompany, 12, "non-overridden maxResultsPerCompany should use browser_only default");
+  assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 8, "non-overridden maxPagesPerCompany should use browser_only default");
+  assert.equal(result.groundedSearchTuning.maxTokensPerQuery, 4096, "non-overridden maxTokensPerQuery should use browser_only default");
+});
+
+// === VAL-API-003: multi-query, retry, and parallel flags are independently togglable ===
+
+test("VAL-API-003: each ultraPlanTuning flag can be independently disabled", () => {
+  // Variant 1: disable multiQuery only
+  const result1 = mergeDiscoveryConfig(
+    makeStoredConfig() as any,
+    makeRequest({
+      discoveryProfile: {
+        sourcePreset: "browser_only",
+        targetRoles: "Senior Engineer",
+        ultraPlanTuning: { multiQueryEnabled: false },
+      },
+    }),
+  );
+  assert.equal(result1.ultraPlanTuning.multiQueryEnabled, false);
+  assert.equal(result1.ultraPlanTuning.retryBroadeningEnabled, true);
+  assert.equal(result1.ultraPlanTuning.parallelCompanyProcessingEnabled, true);
+
+  // Variant 2: disable retryBroadening only
+  const result2 = mergeDiscoveryConfig(
+    makeStoredConfig() as any,
+    makeRequest({
+      discoveryProfile: {
+        sourcePreset: "browser_only",
+        targetRoles: "Senior Engineer",
+        ultraPlanTuning: { retryBroadeningEnabled: false },
+      },
+    }),
+  );
+  assert.equal(result2.ultraPlanTuning.multiQueryEnabled, true);
+  assert.equal(result2.ultraPlanTuning.retryBroadeningEnabled, false);
+  assert.equal(result2.ultraPlanTuning.parallelCompanyProcessingEnabled, true);
+
+  // Variant 3: disable parallelCompanyProcessing only
+  const result3 = mergeDiscoveryConfig(
+    makeStoredConfig() as any,
+    makeRequest({
+      discoveryProfile: {
+        sourcePreset: "browser_only",
+        targetRoles: "Senior Engineer",
+        ultraPlanTuning: { parallelCompanyProcessingEnabled: false },
+      },
+    }),
+  );
+  assert.equal(result3.ultraPlanTuning.multiQueryEnabled, true);
+  assert.equal(result3.ultraPlanTuning.retryBroadeningEnabled, true);
+  assert.equal(result3.ultraPlanTuning.parallelCompanyProcessingEnabled, false);
+});
+
+// === VAL-API-005: browser_only uplift defaults do not leak into other presets ===
+
+test("VAL-API-005: browser_plus_ats does not get browser_only uplift defaults", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig() as any,
+    makeRequest({
+      discoveryProfile: { sourcePreset: "browser_plus_ats", targetRoles: "Senior Engineer" },
+    }),
+  );
+  // browser_plus_ats should use legacy defaults, not browser_only uplift defaults
+  assert.equal(result.groundedSearchTuning.maxResultsPerCompany, 6, "browser_plus_ats should use legacy maxResultsPerCompany=6");
+  assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 4, "browser_plus_ats should use legacy maxPagesPerCompany=4");
+  assert.equal(result.ultraPlanTuning.multiQueryEnabled, false, "browser_plus_ats should have multiQueryEnabled=false");
+  assert.equal(result.ultraPlanTuning.retryBroadeningEnabled, false, "browser_plus_ats should have retryBroadeningEnabled=false");
+});
+
+test("VAL-API-005: ats_only does not get browser_only uplift defaults", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig() as any,
+    makeRequest({
+      discoveryProfile: { sourcePreset: "ats_only", targetRoles: "Senior Engineer" },
+    }),
+  );
+  // ats_only should use legacy defaults
+  assert.equal(result.groundedSearchTuning.maxResultsPerCompany, 6, "ats_only should use legacy maxResultsPerCompany=6");
+  assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 4, "ats_only should use legacy maxPagesPerCompany=4");
+  assert.equal(result.ultraPlanTuning.multiQueryEnabled, false, "ats_only should have multiQueryEnabled=false");
+  assert.equal(result.ultraPlanTuning.retryBroadeningEnabled, false, "ats_only should have retryBroadeningEnabled=false");
+});

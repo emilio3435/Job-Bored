@@ -48,6 +48,9 @@ Options:
   --account-id     Optional. Cloudflare account id. Otherwise uses CLOUDFLARE_ACCOUNT_ID or wrangler whoami.
   --workers-subdomain Optional. Override the account-level workers.dev subdomain to create when using API-token auth.
   --sheet-id       Optional. Included only in the final printed verify command.
+  --discovery-secret Optional. Uploaded as the Worker's DISCOVERY_SECRET. The relay
+                   then injects it as x-discovery-secret on the upstream POST.
+                   Falls back to DISCOVERY_WEBHOOK_SECRET / BROWSER_USE_DISCOVERY_WEBHOOK_SECRET env.
   --no-auto-login  Do not launch \`wrangler login\` automatically when auth is missing.
   --no-verify      Do not run the webhook verification step automatically after deploy.
   --json           Print machine-readable JSON on success.
@@ -76,6 +79,7 @@ function parseArgs(argv) {
     accountId: "",
     workersSubdomain: "",
     sheetId: "",
+    discoverySecret: "",
     autoLogin: true,
     autoVerify: true,
     json: false,
@@ -102,7 +106,8 @@ function parseArgs(argv) {
       arg === "--worker-name" ||
       arg === "--account-id" ||
       arg === "--workers-subdomain" ||
-      arg === "--sheet-id"
+      arg === "--sheet-id" ||
+      arg === "--discovery-secret"
     ) {
       if (!next || next.startsWith("--")) {
         fail(`missing value for ${arg}`);
@@ -113,10 +118,17 @@ function parseArgs(argv) {
       else if (arg === "--account-id") out.accountId = next;
       else if (arg === "--workers-subdomain") out.workersSubdomain = next;
       else if (arg === "--sheet-id") out.sheetId = next;
+      else if (arg === "--discovery-secret") out.discoverySecret = next;
       i += 1;
       continue;
     }
     fail(`unknown argument: ${arg}`);
+  }
+  if (!out.discoverySecret) {
+    out.discoverySecret =
+      process.env.DISCOVERY_WEBHOOK_SECRET ||
+      process.env.BROWSER_USE_DISCOVERY_WEBHOOK_SECRET ||
+      "";
   }
   return out;
 }
@@ -765,6 +777,20 @@ async function main() {
       failureMessage:
         "wrangler secret put TARGET_URL failed. Check your Cloudflare auth and account permissions.",
     });
+
+    if (args.discoverySecret) {
+      console.log("cloudflare-relay: setting DISCOVERY_SECRET secret...");
+      runWrangler(
+        ["secret", "put", "DISCOVERY_SECRET", "--config", configPath],
+        {
+          cwd: tempDir,
+          input: `${args.discoverySecret}\n`,
+          outputFile: secretOutputPath,
+          failureMessage:
+            "wrangler secret put DISCOVERY_SECRET failed. Check your Cloudflare auth and account permissions.",
+        },
+      );
+    }
 
     const workerUrl =
       parseUrlsFromJsonLines(secretOutputPath)[0] ||

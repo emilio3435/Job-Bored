@@ -12,9 +12,11 @@ import {
   type CompanyTarget,
   type DiscoveryWebhookRequestV1,
   type EffectiveDiscoveryConfig,
+  type GroundedSearchTuning,
   type SourcePreset,
   type StoredWorkerConfig,
   type SupportedSourceId,
+  type UltraPlanTuning,
 } from "./contracts.ts";
 
 export type WorkerRuntimeConfig = {
@@ -69,6 +71,108 @@ const defaultAllowedOrigins = ["http://localhost:8080", "http://127.0.0.1:8080"]
 const defaultScheduleCron = "0 7 * * 1-5";
 const defaultMaxLeadsPerRun = 25;
 const supportedSourceSet = new Set(SUPPORTED_SOURCE_IDS);
+
+// === UltraPlan preset-specific default values ===
+// browser_only uses elevated agentic defaults:
+//   - groundedSearchTuning: maxResultsPerCompany=12, maxPagesPerCompany=8, maxRuntimeMs=60000, maxTokensPerQuery=4096
+//   - ultraPlanTuning: multiQuery=true, retryBroadening=true, parallelCompanyProcessing=true
+// Other presets (ats_only, browser_plus_ats) use legacy conservative values:
+//   - groundedSearchTuning: maxResultsPerCompany=6, maxPagesPerCompany=4, maxRuntimeMs=30000, maxTokensPerQuery=2048
+//   - ultraPlanTuning: multiQuery=false, retryBroadening=false, parallelCompanyProcessing=false
+
+/**
+ * Resolves the effective UltraPlan tuning by merging explicit overrides with preset-specific defaults.
+ * Explicit overrides are preserved exactly; omitted fields fall back to preset defaults.
+ *
+ * VAL-API-002: Explicit overrides are preserved exactly and omitted siblings still default correctly.
+ * VAL-API-003: Flag toggles operate independently without coupled behavior changes.
+ */
+function resolveUltraPlanTuning(
+  sourcePreset: SourcePreset,
+  explicitTuning?: UltraPlanTuning | null,
+): UltraPlanTuning {
+  // browser_only uses elevated agentic defaults with all flags enabled;
+  // other presets use legacy values with all flags disabled.
+  const isBrowserOnly = sourcePreset === "browser_only";
+
+  // If no explicit tuning provided, return preset defaults
+  if (!explicitTuning || typeof explicitTuning !== "object") {
+    return {
+      multiQueryEnabled: isBrowserOnly,
+      retryBroadeningEnabled: isBrowserOnly,
+      parallelCompanyProcessingEnabled: isBrowserOnly,
+    };
+  }
+
+  // Merge: explicit values override, rest fall back to preset defaults
+  return {
+    multiQueryEnabled:
+      explicitTuning.multiQueryEnabled !== undefined
+        ? explicitTuning.multiQueryEnabled
+        : isBrowserOnly,
+    retryBroadeningEnabled:
+      explicitTuning.retryBroadeningEnabled !== undefined
+        ? explicitTuning.retryBroadeningEnabled
+        : isBrowserOnly,
+    parallelCompanyProcessingEnabled:
+      explicitTuning.parallelCompanyProcessingEnabled !== undefined
+        ? explicitTuning.parallelCompanyProcessingEnabled
+        : isBrowserOnly,
+  };
+}
+
+/**
+ * Resolves the effective grounded search tuning by merging explicit overrides with preset-specific defaults.
+ * Explicit overrides are preserved exactly; omitted fields fall back to preset defaults.
+ *
+ * VAL-API-001: browser_only omitted tunables resolve to elevated agentic defaults.
+ * VAL-API-005: browser_only uplift defaults do not leak into ats_only/browser_plus_ats.
+ */
+function resolveGroundedSearchTuning(
+  sourcePreset: SourcePreset,
+  explicitTuning?: GroundedSearchTuning | null,
+): GroundedSearchTuning {
+  // browser_only uses elevated agentic defaults; other presets use legacy values
+  const isBrowserOnly = sourcePreset === "browser_only";
+
+  // If no explicit tuning provided, return preset defaults
+  if (!explicitTuning || typeof explicitTuning !== "object") {
+    return {
+      maxResultsPerCompany: isBrowserOnly ? 12 : 6,
+      maxPagesPerCompany: isBrowserOnly ? 8 : 4,
+      maxRuntimeMs: isBrowserOnly ? 60000 : 30000,
+      maxTokensPerQuery: isBrowserOnly ? 4096 : 2048,
+    };
+  }
+
+  // Merge: explicit values override, rest fall back to preset defaults
+  return {
+    maxResultsPerCompany:
+      explicitTuning.maxResultsPerCompany !== undefined
+        ? explicitTuning.maxResultsPerCompany
+        : isBrowserOnly
+          ? 12
+          : 6,
+    maxPagesPerCompany:
+      explicitTuning.maxPagesPerCompany !== undefined
+        ? explicitTuning.maxPagesPerCompany
+        : isBrowserOnly
+          ? 8
+          : 4,
+    maxRuntimeMs:
+      explicitTuning.maxRuntimeMs !== undefined
+        ? explicitTuning.maxRuntimeMs
+        : isBrowserOnly
+          ? 60000
+          : 30000,
+    maxTokensPerQuery:
+      explicitTuning.maxTokensPerQuery !== undefined
+        ? explicitTuning.maxTokensPerQuery
+        : isBrowserOnly
+          ? 4096
+          : 2048,
+  };
+}
 
 export function loadRuntimeConfig(
   env: RuntimeEnv = process.env,
@@ -264,6 +368,17 @@ export function mergeDiscoveryConfig(
     requestSourcePreset,
     stored,
   );
+
+  // Resolve UltraPlan and grounded search tuning based on preset and explicit overrides
+  const resolvedUltraPlanTuning = resolveUltraPlanTuning(
+    resolvedSourcePreset,
+    profile.ultraPlanTuning,
+  );
+  const resolvedGroundedSearchTuning = resolveGroundedSearchTuning(
+    resolvedSourcePreset,
+    profile.groundedSearchTuning,
+  );
+
   return {
     ...stored,
     sheetId: cleanString(request.sheetId) || stored.sheetId,
@@ -293,6 +408,8 @@ export function mergeDiscoveryConfig(
     },
     sourcePreset: resolvedSourcePreset,
     effectiveSources: computeEffectiveSources(resolvedSourcePreset, stored.enabledSources),
+    ultraPlanTuning: resolvedUltraPlanTuning,
+    groundedSearchTuning: resolvedGroundedSearchTuning,
   };
 }
 

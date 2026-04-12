@@ -2180,3 +2180,189 @@ test("VAL-API-010: blank intent with empty companies still fails (preserves VAL-
   assert.equal(body.ok, false);
   assert.ok(!body.runId, "Must not have runId for blank intent");
 });
+
+// === VAL-API-004: malformed control-plane payloads fail closed with explicit validation errors ===
+
+test("VAL-API-004: rejects non-boolean ultraPlanTuning.multiQueryEnabled with 400", async () => {
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      throw new Error("runDiscovery should not be called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "browser_only",
+          targetRoles: "Senior Engineer",
+          ultraPlanTuning: {
+            multiQueryEnabled: "not-a-boolean",
+          },
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400, `Expected 400 for non-boolean multiQueryEnabled, got ${response.status}`);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+  assert.match(body.message, /multiQueryEnabled.*boolean/i);
+  assert.ok(!body.runId, "Must not create runId for malformed control-plane payload");
+});
+
+test("VAL-API-004: rejects non-number groundedSearchTuning.maxResultsPerCompany with 400", async () => {
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      throw new Error("runDiscovery should not be called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "browser_only",
+          targetRoles: "Senior Engineer",
+          groundedSearchTuning: {
+            maxResultsPerCompany: "not-a-number",
+          },
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400, `Expected 400 for non-number maxResultsPerCompany, got ${response.status}`);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+  assert.match(body.message, /maxResultsPerCompany.*number/i);
+  assert.ok(!body.runId, "Must not create runId for malformed control-plane payload");
+});
+
+test("VAL-API-004: rejects unknown ultraPlanTuning field with 400", async () => {
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      throw new Error("runDiscovery should not be called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "browser_only",
+          targetRoles: "Senior Engineer",
+          ultraPlanTuning: {
+            unknownField: true,
+          },
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400, `Expected 400 for unknown ultraPlanTuning field, got ${response.status}`);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+  assert.match(body.message, /ultraPlanTuning.*unknown field/i);
+  assert.ok(!body.runId, "Must not create runId for malformed control-plane payload");
+});
+
+test("VAL-API-004: rejects unknown groundedSearchTuning field with 400", async () => {
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      throw new Error("runDiscovery should not be called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "browser_only",
+          targetRoles: "Senior Engineer",
+          groundedSearchTuning: {
+            unknownTuningParam: 999,
+          },
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400, `Expected 400 for unknown groundedSearchTuning field, got ${response.status}`);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+  assert.match(body.message, /groundedSearchTuning.*unknown field/i);
+  assert.ok(!body.runId, "Must not create runId for malformed control-plane payload");
+});

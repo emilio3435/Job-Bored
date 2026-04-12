@@ -125,6 +125,19 @@ describe("Discovery cold-start handoffs", () => {
     assert.deepEqual(harness.openCalls, []);
   });
 
+  it("requestDiscoverySetup can open immediately for explicit discovery entry points", async () => {
+    const harness = createHandoffHarness({ onboardingVisible: true });
+
+    const result = await harness.run(
+      'requestDiscoverySetup({ entryPoint: "toolbar", allowWhileOnboarding: true })',
+    );
+
+    assert.equal(result.deferred, false);
+    assert.equal(harness.sessionStorage.getItem("pendingDiscoverySetup"), null);
+    assert.equal(harness.openCalls.length, 1);
+    assert.equal(harness.openCalls[0].entryPoint, "toolbar");
+  });
+
   it("handleDiscoverySetupDeepLink strips the query param while deferring onboarding-first flows", async () => {
     const harness = createHandoffHarness({
       search: "?setup=discovery&sheet=abc123",
