@@ -66,3 +66,31 @@ Dry-run baseline (2026-04-11): 18 logical CPUs, 48 GiB RAM, heavy discovery exec
 3. Source evidence: per-source counters/warnings and lane inclusion/exclusion proof
 4. Data evidence: writeResult + sheet readback for the same run window
 5. UI evidence (for browser assertions): screenshots showing preset selection and terminal state for the same runId
+
+---
+
+## Known Testing Blockers (2026-04-12)
+
+### Google OAuth Token Expired
+- **File:** `~/.hermes/google_token.json`
+- **Issue:** Token expired on 2026-04-10. Refresh fails with `invalid_grant: Token has been expired or revoked.`
+- **Impact:** Discovery runs fail before source execution when OAuth token path is used.
+- **Workaround:** Service account file (`/Users/emilionunezgarcia/Downloads/elio-ai-prod-4bae66f7bba7.json`) should be used instead. Health endpoint confirms `sheetsCredentialConfigured: true` when service account is used.
+- **Fix required:** Re-authenticate with Google to get a fresh OAuth token, or ensure service account is always used (not falling back to OAuth).
+
+### Webhook Secret
+- **File:** `integrations/browser-use-discovery/.env`
+- **Issue:** `BROWSER_USE_DISCOVERY_WEBHOOK_SECRET` is set to a fake value (64 asterisks).
+- **Impact:** Authenticated webhook requests fail with "Unauthorized discovery webhook request."
+- **Workaround:** Obtain the real secret from the prior validation session or regenerate.
+- **Fix required:** Set a valid shared secret in the .env file.
+
+### Gemini API Key Missing
+- **Env var:** `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`
+- **Issue:** Not configured. Health endpoint shows `groundedWeb.ready: false`.
+- **Impact:** Browser (grounded_web) source cannot execute.
+- **Workaround:** None for browser-only or browser+ATS presets. ATS-only routing can still be tested.
+
+### Positive-Control Note
+- The `/health` endpoint confirms `enabledSources: ["greenhouse", "ashby", "grounded_web"]` - both ATS and browser lanes are configured.
+- VAL-ROUTE-005 (truth-table with positive-control) is blocked not by configuration but by credential issues preventing source execution.
