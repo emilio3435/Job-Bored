@@ -80,6 +80,14 @@ Dry-run baseline (2026-04-11): 18 logical CPUs, 48 GiB RAM, heavy discovery exec
 - AI-suggest-filled discovery intent is accepted by UI run guard and bridged into canonical webhook intent fields.
 - Empty company config should not trigger preflight rejection; unrestricted runs must execute with truthful per-lane attribution under all presets.
 - Valid unrestricted grounded runs should not surface misleading missing-company warnings when intent modifiers are present.
+- Multi-query fan-out should be visible in run diagnostics for unrestricted grounded runs, with focused role/location/keyword sub-queries and cap adherence.
+- Retry broadening should show ordered rung evidence on zero-candidate sub-queries and remain absent when first rung succeeds.
+- Fetch-fallback extraction should emit explicit structured diagnostics, including low-content/skeleton-page attribution when applicable.
+- Non-JSON grounded responses should recover supported URLs via regex fallback and emit explicit fallback warning/diagnostic entries.
+- Budget behavior should surface structured reduced-page-limit and budget-skip diagnostics before run timeout.
+- Parallel company execution should respect configured concurrency caps and preserve per-company failure isolation in terminal status.
+- Structured diagnostics should include stable code + context for zero-result outcomes while warning-string compatibility remains present.
+- Browser-only preset tuning uplift should apply when tunables are omitted, and explicit run payload overrides should remain unchanged.
 
 ---
 

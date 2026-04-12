@@ -49,9 +49,23 @@ High-level map of shared contracts that must stay aligned for browser-first disc
   - Source preset routing semantics remain authoritative in unrestricted scope (`browser_only`, `ats_only`, `browser_plus_ats`).
 - Grounded query composition rule (unrestricted scope):
   - When `companies` scope is empty, grounded search queries must be composed from explicit intent modifiers (`targetRoles`, `keywordsInclude`, `locations`, remote/seniority inputs) and must not rely on placeholder company labels.
+- Agentic-primary tuning rule (`browser_only`):
+  - When relevant tuning fields are omitted, runtime applies elevated browser-only defaults for results/pages/query/runtime/token budgets.
+  - Explicit user-provided values remain authoritative and must not be overwritten by preset defaults.
+- Feature-flag rollback rule:
+  - Multi-query fan-out, retry broadening, and parallel company processing must each be independently togglable.
+  - Disabling one flag must not implicitly disable/enable the others.
 - Optional transient field: `googleAccessToken` (runtime passthrough only; never persisted)
 - Invalid/contradictory values must return explicit `400` errors.
 - Async acceptance must include `runId`, `statusPath`, and `pollAfterMs`.
+
+#### Diagnostics contract (UltraPlan extension)
+- Existing compatibility field:
+  - `warnings` remains available as human-readable string messages for backward compatibility.
+- New structured diagnostics surface:
+  - Stable diagnostic `code` values plus contextual `context` payload are emitted at run/source level for machine reasoning.
+  - Zero-result, fetch-fallback attribution, retry-broadening rung usage, and budget reduction/skip decisions must be represented in structured diagnostics.
+  - Structured diagnostics and warning strings should stay causally aligned (same underlying event, two render forms).
 
 #### accepted_async polling metadata field name variants
 

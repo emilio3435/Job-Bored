@@ -45,3 +45,9 @@ The routing pipeline uses two related but distinct source lists:
 - **`enabledSources`**: The full set of sources configured for the worker. Used by `collectListings()` at the list stage, consistent with the already-filtered detections from detect stage.
 
 Architecture guidance: "Source preset is authoritative for lane execution" — the preset resolves to `effectiveSources` which gates detect stage; `enabledSources` at list stage is always consistent with that filtered state.
+
+## UltraPlan addendum (agentic-primary behavior)
+
+- In `browser_only`, omitted tuning fields may resolve to higher agentic-primary defaults (results/pages/query/runtime/token budgets), but explicit user-provided values remain authoritative.
+- Unrestricted grounded runs should use modifier-driven multi-query fan-out with optional retry broadening on zero-candidate paths.
+- Feature flags for multi-query, retry broadening, and parallel company processing are independent toggles for selective rollback.
