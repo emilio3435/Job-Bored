@@ -30,7 +30,7 @@ import {
   type DiscoveryMatchClient,
   type MatchDecision,
 } from "../match/job-matcher.ts";
-import type { PipelineWriter } from "../sheets/pipeline-writer.ts";
+import { SheetWriteError, type PipelineWriter } from "../sheets/pipeline-writer.ts";
 
 // Default maximum run duration: 5 minutes
 const DEFAULT_MAX_RUN_DURATION_MS = 5 * 60 * 1000;
@@ -347,16 +347,52 @@ export async function runDiscovery(
     leadsToWriteCount: leadsToWrite.length,
   });
 
-  const writeResult =
-    leadsToWrite.length > 0
-      ? await dependencies.pipelineWriter.write(config.sheetId, leadsToWrite)
-      : {
+  let writeResult: PipelineWriteResult;
+  if (leadsToWrite.length === 0) {
+    writeResult = {
+      sheetId: config.sheetId,
+      appended: 0,
+      updated: 0,
+      skippedDuplicates: 0,
+      warnings: [],
+    };
+  } else {
+    try {
+      writeResult = await dependencies.pipelineWriter.write(
+        config.sheetId,
+        leadsToWrite,
+      );
+    } catch (error) {
+      if (error instanceof SheetWriteError) {
+        dependencies.log?.("discovery.run.write_failed", {
+          runId,
+          sheetId: config.sheetId,
+          phase: error.phase,
+          httpStatus: error.httpStatus,
+          message: error.message,
+        });
+        // Build a writeResult with the error info so it can be stored in status.
+        // Also add a warning so the lifecycle state becomes "partial".
+        writeResult = {
           sheetId: config.sheetId,
           appended: 0,
           updated: 0,
           skippedDuplicates: 0,
-          warnings: [],
+          warnings: [
+            `Sheet write failed during ${error.phase} phase: ${error.message}`,
+          ],
+          writeError: {
+            phase: error.phase,
+            message: error.message,
+            httpStatus: error.httpStatus,
+            detail: error.detail,
+          },
         };
+      } else {
+        throw error;
+      }
+    }
+  }
   dependencies.log?.("discovery.run.write_completed", {
     runId,
     sheetId: config.sheetId,
