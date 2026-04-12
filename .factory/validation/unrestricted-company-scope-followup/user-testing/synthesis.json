@@ -1,0 +1,32 @@
+{
+  "milestone": "unrestricted-company-scope-followup",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 5,
+    "passed": 2,
+    "failed": 3,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-API-010",
+    "VAL-API-011"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-ROUTE-007",
+      "reason": "browser_only runs with empty company scope execute grounded_web but inject legacy fixed-company defaults (Scale AI, Figma, Notion) into search queries, violating unrestricted company scope requirement"
+    },
+    {
+      "id": "VAL-ROUTE-008",
+      "reason": "ats_only runs with empty company scope execute ATS lanes but target specific company boards (scaleai, figma, notion) rather than unrestricted company-agnostic discovery"
+    },
+    {
+      "id": "VAL-ROUTE-009",
+      "reason": "browser_plus_ats runs with empty company scope execute both lane families but grounded_web uses legacy fixed-company defaults and ATS boards are pinned to legacy companies"
+    }
+  ],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": null
+}
