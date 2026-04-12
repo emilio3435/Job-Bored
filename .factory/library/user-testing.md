@@ -27,6 +27,7 @@ Testing surfaces, tools, setup notes, and concurrency guidance for this mission.
 - **Covers:** webhook auth/schema validation, preset payload handling, routing enforcement, run lifecycle, readiness reporting.
 - **Setup notes:**
   - Include `x-discovery-secret` for authenticated requests.
+  - Read the shared secret from `discovery-local-bootstrap.json` (`webhookSecret`) for curl requests.
   - For async runs, always poll `/runs/{runId}` to terminal.
   - Validate local vs hosted `sheetId` mode boundaries where applicable.
 
@@ -69,28 +70,11 @@ Dry-run baseline (2026-04-11): 18 logical CPUs, 48 GiB RAM, heavy discovery exec
 
 ---
 
-## Known Testing Blockers (2026-04-12)
+## Credential Baseline for Routing/User-Testing (2026-04-12)
 
-### Google OAuth Token Expired
-- **File:** `~/.hermes/google_token.json`
-- **Issue:** Token expired on 2026-04-10. Refresh fails with `invalid_grant: Token has been expired or revoked.`
-- **Impact:** Discovery runs fail before source execution when OAuth token path is used.
-- **Workaround:** Service account file (`/Users/emilionunezgarcia/Downloads/elio-ai-prod-4bae66f7bba7.json`) should be used instead. Health endpoint confirms `sheetsCredentialConfigured: true` when service account is used.
-- **Fix required:** Re-authenticate with Google to get a fresh OAuth token, or ensure service account is always used (not falling back to OAuth).
-
-### Webhook Secret
-- **File:** `integrations/browser-use-discovery/.env`
-- **Issue:** `BROWSER_USE_DISCOVERY_WEBHOOK_SECRET` is set to a fake value (64 asterisks).
-- **Impact:** Authenticated webhook requests fail with "Unauthorized discovery webhook request."
-- **Workaround:** Obtain the real secret from the prior validation session or regenerate.
-- **Fix required:** Set a valid shared secret in the .env file.
-
-### Gemini API Key Missing
-- **Env var:** `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`
-- **Issue:** Not configured. Health endpoint shows `groundedWeb.ready: false`.
-- **Impact:** Browser (grounded_web) source cannot execute.
-- **Workaround:** None for browser-only or browser+ATS presets. ATS-only routing can still be tested.
-
-### Positive-Control Note
-- The `/health` endpoint confirms `enabledSources: ["greenhouse", "ashby", "grounded_web"]` - both ATS and browser lanes are configured.
-- VAL-ROUTE-005 (truth-table with positive-control) is blocked not by configuration but by credential issues preventing source execution.
+- Discovery worker is started with:
+  - service-account file: `/Users/emilionunezgarcia/Downloads/elio-ai-prod-4bae66f7bba7.json`
+  - sourced env files: `integrations/browser-use-discovery/.env` and `server/.env`
+  - Gemini fallback: `ATS_GEMINI_API_KEY` from `server/.env` when discovery-specific key is unset
+- For authenticated API assertions, use `discovery-local-bootstrap.json` `webhookSecret`.
+- If `/health` shows `sheetsCredentialConfigured: false` or `groundedWeb.ready: false`, treat as setup regression and re-check env sourcing before marking assertions blocked.
