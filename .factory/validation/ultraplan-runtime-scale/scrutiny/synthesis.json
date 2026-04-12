@@ -1,0 +1,89 @@
+{
+  "milestone": "ultraplan-runtime-scale",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "typecheck": {
+      "passed": true,
+      "command": "npm run typecheck:repo",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "npm run lint:repo",
+      "exitCode": 0
+    },
+    "test": {
+      "passed": true,
+      "command": "npm run test:repo",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "nonBlockingIssues": [
+    {
+      "featureId": "ultraplan-budget-adaptation-diagnostics",
+      "severity": "non_blocking",
+      "description": "Test coverage gap: VAL-OBS-002 tests only cover reduced_page_limit diagnostic emission in collectGroundedWebListings. budget_skip diagnostic path is only indirectly tested via run-discovery integration tests.",
+      "suggestion": "Add a test case to grounded-search.test.ts that verifies collectGroundedWebListings properly handles/returns budget_skip diagnostics from the budgetTracker when company should be skipped."
+    },
+    {
+      "featureId": "ultraplan-budget-adaptation-diagnostics",
+      "severity": "non_blocking",
+      "description": "Test assertion gap: The 'does not emit reduced_page_limit when budget tracker reports no pressure' test does not assert the multiplier value (should be 1.0).",
+      "suggestion": "Add an assertion on the result to verify effectivePageLimit equals the expected value when multiplier is 1.0."
+    },
+    {
+      "featureId": "ultraplan-bounded-parallel-company-processing-isolation",
+      "severity": "non_blocking",
+      "description": "Busy-wait semaphore pattern using setTimeout(10ms) polling is CPU-intensive and may cause unnecessary latency under high load.",
+      "suggestion": "Consider replacing with a proper async queue or Promise-based semaphore pattern for better efficiency."
+    },
+    {
+      "featureId": "ultraplan-bounded-parallel-company-processing-isolation",
+      "severity": "non_blocking",
+      "description": "Error diagnostic uses code='timeout' as fallback for all errors, even non-timeout errors, losing semantic meaning.",
+      "suggestion": "Consider adding a generic 'error' code or preserving the actual error type for better diagnostic clarity."
+    },
+    {
+      "featureId": "ultraplan-bounded-parallel-company-processing-isolation",
+      "severity": "non_blocking",
+      "description": "CompanyProcessingResult.leadsAccepted field is initialized to 0 and never updated in processSingleCompany().",
+      "suggestion": "Either populate leadsAccepted in processSingleCompany after normalization, or remove the field from CompanyProcessingResult since it's not used."
+    },
+    {
+      "featureId": "ultraplan-cross-area-rollback-matrix-and-async-lineage",
+      "severity": "non_blocking",
+      "description": "VAL-CROSS-001 tests use mock runDiscovery that directly sets ultraPlanTuning in its return config, rather than exercising the actual resolveUltraPlanTuning path.",
+      "suggestion": "Consider adding integration tests that use real mergeDiscoveryConfig to verify default resolution when flags are partially/fully omitted."
+    },
+    {
+      "featureId": "ultraplan-cross-area-rollback-matrix-and-async-lineage",
+      "severity": "non_blocking",
+      "description": "VAL-CROSS-003 test for groundedSearchTuning explicitly sets values in both request and mock, not verifying default propagation when omitted.",
+      "suggestion": "Consider adding a test variant where groundedSearchTuning is omitted from request to verify default propagation."
+    },
+    {
+      "featureId": "ultraplan-cross-area-rollback-matrix-and-async-lineage",
+      "severity": "non_blocking",
+      "description": "VAL-CROSS-003 async lineage test does not verify the asyncAckByDefault:true runtime config actually triggers async behavior.",
+      "suggestion": "Consider adding explicit verification that the run goes through async ack path when expected, or document that async behavior is verified via response contract only."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": ".factory/library/contracts.md",
+      "description": "Added enumerated diagnostic codes section documenting reduced_page_limit, budget_skip, zero_results, fetch_fallback, low_content_html, and timeout codes",
+      "sourceFeature": "ultraplan-budget-adaptation-diagnostics"
+    }
+  ],
+  "suggestedGuidanceUpdates": [],
+  "rejectedObservations": [],
+  "previousRound": null
+}

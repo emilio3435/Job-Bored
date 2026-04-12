@@ -1,0 +1,48 @@
+{
+  "featureId": "ultraplan-bounded-parallel-company-processing-isolation",
+  "reviewedAt": "2026-04-12T21:00:00.000Z",
+  "commitId": "9e3d08a",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The bounded parallel company processing implementation is fundamentally sound. It correctly replaces sequential traversal with semaphore-style bounded concurrency, handles cap edge cases (cap=1, cap>=companyCount), and isolates company failures with explicit attribution. The implementation satisfies the expectedBehavior contract in architecture.md.",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/src/run/run-discovery.ts",
+        "line": 879,
+        "severity": "non_blocking",
+        "description": "Busy-wait semaphore pattern using setTimeout(10ms) polling. While functional, this is CPU-intensive and the arbitrary 10ms delay may cause unnecessary latency under high load. A proper semaphore using async primitives or a task queue would be more efficient.",
+        "suggestion": "Consider replacing with a proper async queue or Promise-based semaphore pattern for better efficiency."
+      },
+      {
+        "file": "integrations/browser-use-discovery/src/run/run-discovery.ts",
+        "line": 980,
+        "severity": "non_blocking",
+        "description": "Error diagnostic uses code='timeout' as fallback for all errors, even non-timeout errors (network failures, API errors, etc.). This loses semantic meaning in the diagnostic code.",
+        "suggestion": "Consider adding a generic 'error' code or preserving the actual error type for better diagnostic clarity."
+      },
+      {
+        "file": "integrations/browser-use-discovery/src/run/run-discovery.ts",
+        "line": 932,
+        "severity": "non_blocking",
+        "description": "CompanyProcessingResult.leadsAccepted field is initialized to 0 and never updated in processSingleCompany(). The actual leadsAccepted counting happens in the aggregation loop (totalLeadsAccepted variable). This field is misleading as it always shows 0.",
+        "suggestion": "Either populate leadsAccepted in processSingleCompany after normalization, or remove the field from CompanyProcessingResult since it's not used."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The implementation follows architecture.md's concurrency contract correctly. The Run Budget + concurrency controller section explicitly requires: 'Effective in-flight company work never exceeds the resolved concurrency cap; invalid caps are clamped safely' and 'Mixed company outcomes remain truthful in terminal status'. The implementation satisfies both.",
+      "evidence": "resolveConcurrencyCap() handles edge cases per architecture contract, processCompaniesBounded() enforces the cap, and company failure isolation ensures truthful terminal status."
+    },
+    {
+      "area": "skills",
+      "observation": "Worker followed the discovery-integration-worker skill procedure correctly. The skill requires verifying bounded concurrency with 'deterministic evidence: fan-out query count/cap and uniqueness' and the worker provided concurrency_summary log evidence with peakInFlight tracking.",
+      "evidence": "Transcript shows worker added concurrency tracking and logged peakInFlight via discovery.run.concurrency_summary event."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "The feature implementation passes review. Bounded parallel company processing is correctly implemented with semaphore-style concurrency control, proper edge case handling (cap=1, cap>=companyCount), and company failure isolation with explicit attribution. Tests cover VAL-ROUTE-015 (concurrency cap enforcement with edge cases) and VAL-ROUTE-016 (failure isolation with attribution). Three non-blocking issues identified: busy-wait polling inefficiency, generic error code fallback, and unused leadsAccepted field."
+}

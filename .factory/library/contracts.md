@@ -66,6 +66,13 @@ High-level map of shared contracts that must stay aligned for browser-first disc
   - Stable diagnostic `code` values plus contextual `context` payload are emitted at run/source level for machine reasoning.
   - Zero-result, fetch-fallback attribution, retry-broadening rung usage, and budget reduction/skip decisions must be represented in structured diagnostics.
   - Structured diagnostics and warning strings should stay causally aligned (same underlying event, two render forms).
+- **Enumerated diagnostic codes** (defined in `integrations/browser-use-discovery/src/contracts.ts`):
+  - `reduced_page_limit`: Emitted when runtime budget pressure causes adaptive reduction of page traversal limits per company.
+  - `budget_skip`: Emitted when a company is skipped entirely due to runtime budget exhaustion.
+  - `zero_results`: Emitted when a query or company produces zero candidates.
+  - `fetch_fallback`: Emitted when extraction falls back to plain fetch after browser session failure.
+  - `low_content_html`: Emitted when fetched content appears to be an SPA skeleton or low-content response.
+  - `timeout`: Emitted when a browser operation exceeds its timeout threshold.
 
 #### accepted_async polling metadata field name variants
 

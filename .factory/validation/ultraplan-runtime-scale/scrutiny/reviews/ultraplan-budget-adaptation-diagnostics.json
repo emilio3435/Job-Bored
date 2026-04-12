@@ -1,0 +1,36 @@
+{
+  "featureId": "ultraplan-budget-adaptation-diagnostics",
+  "reviewedAt": "2026-04-12T21:00:00.000Z",
+  "commitId": "61684f1e3b3c5f36e36d5f3cf6e6a5c8b70d8e91",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Implementation is correct and complete. Budget tracker module properly tracks runtime budget, emits reduced_page_limit and budget_skip diagnostics, and integrates into both run-discovery (company skip) and grounded-search (page limit reduction). Worker followed the discovery-integration-worker skill procedure. However, test coverage is incomplete: budget_skip diagnostic code path in collectGroundedWebListings is not directly tested (only the reduced_page_limit path has direct tests).",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/tests/browser/grounded-search.test.ts",
+        "line": 1,
+        "severity": "non_blocking",
+        "description": "Test coverage gap: The VAL-OBS-002 tests only cover reduced_page_limit diagnostic emission in collectGroundedWebListings. There is no direct test for budget_skip diagnostic in this file, despite the mock budgetTracker having checkCompanySkip defined. The budget_skip path is only indirectly tested via run-discovery integration tests.",
+        "suggestion": "Add a test case to grounded-search.test.ts that verifies collectGroundedWebListings properly handles/returns budget_skip diagnostics from the budgetTracker when company should be skipped. Alternatively, document that budget_skip is only tested at the run-discovery integration level."
+      },
+      {
+        "file": "integrations/browser-use-discovery/tests/browser/grounded-search.test.ts",
+        "line": 1,
+        "severity": "non_blocking",
+        "description": "Test assertion gap: The 'does not emit reduced_page_limit when budget tracker reports no pressure' test does not assert the multiplier value (should be 1.0). It only checks that reduced_page_limit is absent. If the multiplier were accidentally changed to a non-1.0 value, the test would still pass.",
+        "suggestion": "Add an assertion on the result to verify effectivePageLimit equals the expected value (e.g., equal to the basePageLimit when multiplier is 1.0)."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Worker added new diagnostic codes (reduced_page_limit, budget_skip) to contracts.ts but did not update .factory/library/contracts.md to document these new UltraPlan diagnostic codes. The contracts.md mentions 'budget reduction/skip decisions' as a category but does not enumerate the specific code values.",
+      "evidence": "contracts.md says 'Zero-result, fetch-fallback attribution, retry-broadening rung usage, and budget reduction/skip decisions must be represented in structured diagnostics' but does not list the actual code string values. The feature added code values: reduced_page_limit and budget_skip."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Implementation correctly implements budget adaptation with structured diagnostics for both reduced page limits and budget-driven company skips. Code quality is good with proper use of once-only emission for diagnostics. Test coverage is adequate for reduced_page_limit but budget_skip is only indirectly tested. No blocking issues found."
+}
