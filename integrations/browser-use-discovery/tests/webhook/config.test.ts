@@ -260,7 +260,7 @@ test("VAL-API-001: browser_only resolves elevated groundedSearchTuning defaults 
   // browser_only should use elevated defaults
   assert.equal(result.groundedSearchTuning.maxResultsPerCompany, 12, "maxResultsPerCompany should be 12 for browser_only");
   assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 8, "maxPagesPerCompany should be 8 for browser_only");
-  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 60000, "maxRuntimeMs should be 60000 for browser_only");
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 120000, "maxRuntimeMs should be 120000 for browser_only");
   assert.equal(result.groundedSearchTuning.maxTokensPerQuery, 4096, "maxTokensPerQuery should be 4096 for browser_only");
 });
 
@@ -324,7 +324,7 @@ test("VAL-API-002: explicit groundedSearchTuning override is preserved exactly",
   assert.equal(result.groundedSearchTuning.maxResultsPerCompany, 20, "explicit maxResultsPerCompany override should be preserved");
   assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 15, "explicit maxPagesPerCompany override should be preserved");
   // Non-overridden fields should still use browser_only defaults
-  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 60000, "non-overridden maxRuntimeMs should use browser_only default");
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 120000, "non-overridden maxRuntimeMs should use browser_only default");
   assert.equal(result.groundedSearchTuning.maxTokensPerQuery, 4096, "non-overridden maxTokensPerQuery should use browser_only default");
 });
 
@@ -446,4 +446,54 @@ test("VAL-API-005: ats_only does not get browser_only uplift defaults", () => {
   assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 4, "ats_only should use legacy maxPagesPerCompany=4");
   assert.equal(result.ultraPlanTuning.multiQueryEnabled, false, "ats_only should have multiQueryEnabled=false");
   assert.equal(result.ultraPlanTuning.retryBroadeningEnabled, false, "ats_only should have retryBroadeningEnabled=false");
+});
+
+// === VAL-API-006: browser_only timeout default is uplifted above 60000ms while explicit override is preserved ===
+
+test("VAL-API-006: omitted browser_only maxRuntimeMs defaults to > 60000ms", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig() as any,
+    makeRequest({
+      discoveryProfile: { sourcePreset: "browser_only", targetRoles: "Senior Engineer" },
+    }),
+  );
+  // VAL-API-006: omitted timeout must be strictly greater than 60000ms
+  assert.ok(result.groundedSearchTuning.maxRuntimeMs > 60000, "omitted maxRuntimeMs must be > 60000ms for browser_only");
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 120000, "omitted maxRuntimeMs should be 120000ms for browser_only");
+});
+
+test("VAL-API-006: explicit maxRuntimeMs override is preserved exactly", () => {
+  const explicitTimeout = 180000;
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig() as any,
+    makeRequest({
+      discoveryProfile: {
+        sourcePreset: "browser_only",
+        targetRoles: "Senior Engineer",
+        groundedSearchTuning: { maxRuntimeMs: explicitTimeout },
+      },
+    }),
+  );
+  // VAL-API-006: explicit override must be preserved exactly
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, explicitTimeout, "explicit maxRuntimeMs override should be preserved exactly");
+  // Sibling fields should still use browser_only defaults
+  assert.equal(result.groundedSearchTuning.maxResultsPerCompany, 12, "non-overridden maxResultsPerCompany should use browser_only default");
+  assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 8, "non-overridden maxPagesPerCompany should use browser_only default");
+});
+
+test("VAL-API-006: explicit override can be lower than uplift default", () => {
+  // Explicit override of 30000 is lower than the uplifted default of 120000
+  const explicitTimeout = 30000;
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig() as any,
+    makeRequest({
+      discoveryProfile: {
+        sourcePreset: "browser_only",
+        targetRoles: "Senior Engineer",
+        groundedSearchTuning: { maxRuntimeMs: explicitTimeout },
+      },
+    }),
+  );
+  // VAL-API-006: explicit override must be preserved exactly even when lower than default
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, explicitTimeout, "explicit maxRuntimeMs override lower than default should be preserved");
 });
