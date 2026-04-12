@@ -1,0 +1,142 @@
+{
+  "milestone": "ultraplan-control-plane",
+  "groupId": "val-api-control-plane-r2",
+  "assertions": ["VAL-API-001", "VAL-API-002", "VAL-API-003", "VAL-API-004", "VAL-API-005"],
+  "status": "pass",
+  "tool": "curl",
+  "isolation": {
+    "service": "discovery_worker",
+    "port": 8644,
+    "origin": "http://127.0.0.1:8644"
+  },
+  "tests": [
+    {
+      "assertionId": "VAL-API-001",
+      "description": "browser_only applies agentic defaults when tuning fields are omitted",
+      "result": "pass",
+      "evidence": {
+        "request": {
+          "sourcePreset": "browser_only",
+          "tuningFieldsOmitted": true
+        },
+        "resolvedConfig": {
+          "ultraPlanTuning": {
+            "multiQueryEnabled": true,
+            "retryBroadeningEnabled": true,
+            "parallelCompanyProcessingEnabled": true
+          },
+          "groundedSearchTuning": {
+            "maxResultsPerCompany": 12,
+            "maxPagesPerCompany": 8,
+            "maxRuntimeMs": 60000,
+            "maxTokensPerQuery": 4096
+          }
+        },
+        "upliftVerified": "All values show browser_only uplift vs legacy (6,4,30000,2048)"
+      }
+    },
+    {
+      "assertionId": "VAL-API-002",
+      "description": "explicit browser_only tuning overrides are preserved",
+      "result": "pass",
+      "tests": [
+        {
+          "name": "partial override",
+          "input": {"ultraPlanTuning": {"multiQueryEnabled": false}},
+          "expected": {"multiQueryEnabled": false, "retryBroadeningEnabled": true, "parallelCompanyProcessingEnabled": true},
+          "actual": {"multiQueryEnabled": false, "retryBroadeningEnabled": true, "parallelCompanyProcessingEnabled": true},
+          "passed": true
+        },
+        {
+          "name": "non-default grounded override",
+          "input": {"groundedSearchTuning": {"maxResultsPerCompany": 20, "maxPagesPerCompany": 15}},
+          "expected": {"maxResultsPerCompany": 20, "maxPagesPerCompany": 15, "maxRuntimeMs": 60000, "maxTokensPerQuery": 4096},
+          "actual": {"maxResultsPerCompany": 20, "maxPagesPerCompany": 15, "maxRuntimeMs": 60000, "maxTokensPerQuery": 4096},
+          "passed": true
+        }
+      ]
+    },
+    {
+      "assertionId": "VAL-API-003",
+      "description": "multi-query, retry, and parallel flags are independently togglable",
+      "result": "pass",
+      "baseline": {"multiQueryEnabled": true, "retryBroadeningEnabled": true, "parallelCompanyProcessingEnabled": true},
+      "variants": [
+        {
+          "name": "multiQuery disabled",
+          "input": {"ultraPlanTuning": {"multiQueryEnabled": false}},
+          "expected": {"multiQueryEnabled": false, "retryBroadeningEnabled": true, "parallelCompanyProcessingEnabled": true},
+          "actual": {"multiQueryEnabled": false, "retryBroadeningEnabled": true, "parallelCompanyProcessingEnabled": true},
+          "passed": true
+        },
+        {
+          "name": "retryBroadening disabled",
+          "input": {"ultraPlanTuning": {"retryBroadeningEnabled": false}},
+          "expected": {"multiQueryEnabled": true, "retryBroadeningEnabled": false, "parallelCompanyProcessingEnabled": true},
+          "actual": {"multiQueryEnabled": true, "retryBroadeningEnabled": false, "parallelCompanyProcessingEnabled": true},
+          "passed": true
+        },
+        {
+          "name": "parallelCompanyProcessing disabled",
+          "input": {"ultraPlanTuning": {"parallelCompanyProcessingEnabled": false}},
+          "expected": {"multiQueryEnabled": true, "retryBroadeningEnabled": true, "parallelCompanyProcessingEnabled": false},
+          "actual": {"multiQueryEnabled": true, "retryBroadeningEnabled": true, "parallelCompanyProcessingEnabled": false},
+          "passed": true
+        }
+      ]
+    },
+    {
+      "assertionId": "VAL-API-004",
+      "description": "malformed control-plane payloads fail closed with explicit validation errors",
+      "result": "pass",
+      "tests": [
+        {
+          "name": "non-boolean string",
+          "input": {"ultraPlanTuning": {"multiQuery": "not-a-boolean"}},
+          "httpCode": 400,
+          "errorContains": "unknown field \"multiQuery\"",
+          "passed": true
+        },
+        {
+          "name": "number instead of boolean",
+          "input": {"ultraPlanTuning": {"retryBroadening": 123}},
+          "httpCode": 400,
+          "errorContains": "unknown field \"retryBroadening\"",
+          "passed": true
+        },
+        {
+          "name": "unknown key",
+          "input": {"ultraPlanTuning": {"unknownFlag": true}},
+          "httpCode": 400,
+          "errorContains": "unknown field \"unknownFlag\"",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "assertionId": "VAL-API-005",
+      "description": "browser_only uplift defaults do not leak into other presets",
+      "result": "pass",
+      "input": {"sourcePreset": "ats_only", "tuningFieldsOmitted": true},
+      "resolvedConfig": {
+        "ultraPlanTuning": {
+          "multiQueryEnabled": false,
+          "retryBroadeningEnabled": false,
+          "parallelCompanyProcessingEnabled": false
+        },
+        "groundedSearchTuning": {
+          "maxResultsPerCompany": 6,
+          "maxPagesPerCompany": 4,
+          "maxRuntimeMs": 30000,
+          "maxTokensPerQuery": 2048
+        }
+      },
+      "verification": "All values are distinct from browser_only uplift (12,8,60000,4096). No leakage detected.",
+      "passed": true
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "toolsUsed": ["curl"],
+  "summary": "All 5 VAL-API assertions passed after fix feature 'ultraplan-control-plane-user-testing-unblock-fixes' was completed and service was restarted to pick up code changes."
+}
