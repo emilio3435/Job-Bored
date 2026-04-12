@@ -5142,7 +5142,7 @@ function renderDiscoveryRunStatus() {
 // DISCOVERY SETUP WIZARD
 // ============================================
 
-async function handleDiscoveryWizardVerification(url, context) {
+async function handleDiscoverySetupDeepLink() {
   const params = new URLSearchParams(window.location.search);
   if (params.get("setup") !== "discovery") return false;
   await requestDiscoverySetup({
