@@ -5,6 +5,7 @@ import type { WorkerRuntimeConfig } from "../config.ts";
 import type {
   CompanyTarget,
   DiscoveryRun,
+  ExtractionDiagnostic,
   GroundedSearchTuning,
   RawListing,
 } from "../contracts.ts";
@@ -125,6 +126,8 @@ export type GroundedWebCollectionResult = {
   seedUrls: string[];
   warnings: string[];
   pagesVisited: number;
+  /** Structured diagnostic entries for extraction observability (VAL-OBS-001, VAL-OBS-003). */
+  diagnostics?: ExtractionDiagnostic[];
 };
 
 type FetchImpl = typeof fetch;
@@ -638,6 +641,7 @@ export async function collectGroundedWebListings(input: {
     input.run,
   );
   const warnings = [...searchResult.warnings];
+  const diagnostics: ExtractionDiagnostic[] = [];
   const seedCandidates = searchResult.candidates.slice(
     0,
     Math.max(1, input.runtimeConfig.groundedSearchMaxPagesPerCompany || 1),
@@ -653,12 +657,41 @@ export async function collectGroundedWebListings(input: {
         timeoutMs: 25_000,
       });
       pagesVisited += 1;
+
+      // VAL-OBS-001: Detect fetch_fallback mode and emit structured diagnostic
+      const sessionMode = String(sessionResult.metadata?.mode || "");
+      if (sessionMode === "fetch_fallback") {
+        const errorMsg = String(sessionResult.metadata?.browserUseCommandError || "browser-use command unavailable");
+        diagnostics.push({
+          code: "fetch_fallback",
+          context: `Browser-use command failed; fell back to plain HTTP fetch for ${candidate.url}. Error: ${errorMsg}`,
+          url: candidate.url,
+        });
+        // Also emit a backward-compatible warning
+        warnings.push(
+          `Session fallback: browser-use command unavailable for ${candidate.url}; used plain fetch instead.`,
+        );
+      }
+
       const listings = extractListingsFromSessionResult({
         text: sessionResult.text,
         candidate,
         company: input.company,
         searchQueries: searchResult.searchQueries,
       });
+
+      // VAL-OBS-001: Detect low-content SPA/skeleton responses and emit structured diagnostic
+      if (listings.length === 0 && sessionResult.text.length > 0) {
+        const lowContentReason = detectLowContent(sessionResult.text, candidate.url);
+        if (lowContentReason) {
+          diagnostics.push({
+            code: lowContentReason.code,
+            context: lowContentReason.context,
+            url: candidate.url,
+          });
+        }
+      }
+
       rawListings.push(...listings);
     } catch (error) {
       warnings.push(
@@ -667,13 +700,81 @@ export async function collectGroundedWebListings(input: {
     }
   }
 
+  // VAL-OBS-003: If no listings were extracted after all pages, emit zero_results diagnostic
+  const dedupedListings = dedupeRawListings(rawListings);
+  if (dedupedListings.length === 0 && seedCandidates.length > 0) {
+    diagnostics.push({
+      code: "zero_results",
+      context: `Extracted zero job listings from ${seedCandidates.length} candidate pages. All pages either had no extractable content or failed to load.`,
+    });
+    warnings.push(
+      `Grounded web extraction returned zero job listings from ${seedCandidates.length} candidate pages.`,
+    );
+  }
+
   return {
-    rawListings: dedupeRawListings(rawListings),
+    rawListings: dedupedListings,
     searchQueries: searchResult.searchQueries,
     seedUrls: seedCandidates.map((entry) => entry.url),
     warnings,
     pagesVisited,
+    diagnostics: diagnostics.length > 0 ? diagnostics : undefined,
   };
+}
+
+/**
+ * Detects low-content SPA/skeleton responses and returns a diagnostic if detected.
+ * VAL-OBS-001: Low-content diagnostics for likely SPA or skeleton HTML responses.
+ */
+function detectLowContent(
+  text: string,
+  url: string,
+): { code: "low_content_spa" | "low_content_html"; context: string } | null {
+  const trimmed = String(text || "").trim();
+  const length = trimmed.length;
+
+  // Very short responses are likely SPA loading states or empty shells
+  if (length < 500) {
+    return {
+      code: "low_content_spa",
+      context: `Response is only ${length} characters, likely an SPA loading state or skeleton HTML for ${url}.`,
+    };
+  }
+
+  // Check for skeleton/loading patterns in the HTML
+  const skeletonPatterns = [
+    /class=".*skeleton.*"/i,
+    /class=".*loading.*"/i,
+    /class=".*placeholder.*"/i,
+    /<div[^>]*>\s*<\/div>\s*<div[^>]*>\s*<\/div>\s*<div[^>]*>/i, // Empty div chains
+    /text-align:\s*center.*loading/i,
+    /spinner/i,
+    /cargando/i, // Spanish "loading"
+  ];
+
+  for (const pattern of skeletonPatterns) {
+    if (pattern.test(trimmed)) {
+      return {
+        code: "low_content_spa",
+        context: `Response for ${url} contains skeleton/loading patterns suggesting an SPA or dynamic loading state.`,
+      };
+    }
+  }
+
+  // Check if it's mostly HTML with minimal extractable content
+  // A response with lots of HTML tags but little actual text content
+  const htmlTagCount = (trimmed.match(/<[^>]+>/g) || []).length;
+  const textContentRatio = length > 0 ? (trimmed.replace(/<[^>]+>/g, "").length / length) : 0;
+
+  // If more than 50% of characters are HTML tags and total length < 2000, likely a minimal/broken page
+  if (htmlTagCount > 20 && textContentRatio < 0.3 && length < 2000) {
+    return {
+      code: "low_content_html",
+      context: `Response for ${url} is mostly HTML markup (${htmlTagCount} tags, ${(textContentRatio * 100).toFixed(1)}% text content) with minimal extractable content.`,
+    };
+  }
+
+  return null;
 }
 
 function buildSearchPrompt(

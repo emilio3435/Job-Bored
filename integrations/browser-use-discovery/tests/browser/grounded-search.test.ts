@@ -1056,3 +1056,251 @@ test("retry broadening is skipped when retryBroadeningEnabled is false", async (
   assert.ok(result.diagnostics, "Should have diagnostics");
   assert.equal(result.diagnostics!.retryBroadeningEnabled, false, "retryBroadeningEnabled should be false");
 });
+
+// === VAL-OBS-001: fetch_fallback diagnostic when session falls back to plain fetch ===
+
+test("collectGroundedWebListings emits fetch_fallback diagnostic when session falls back to fetch", async () => {
+  const run = makeRun();
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Notion product marketing manager"],
+        candidates: [
+          {
+            url: "https://www.notion.so/careers",
+            title: "Notion Careers",
+            pageType: "careers",
+            reason: "Employer careers page",
+            sourceDomain: "www.notion.so",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    sessionManager: {
+      run: async ({ url }) => ({
+        url,
+        text: JSON.stringify({
+          pageType: "listings",
+          jobs: [
+            {
+              title: "Product Marketing Manager",
+              company: "Notion",
+              location: "Remote in United States",
+              url: "https://www.notion.so/careers/product-marketing-manager",
+              descriptionText: "Lead product marketing.",
+            },
+          ],
+        }),
+        metadata: {
+          mode: "fetch_fallback",
+          browserUseCommandError: "browser-use command not found",
+        },
+      }),
+    },
+  });
+
+  // Should have fetch_fallback diagnostic
+  assert.ok(result.diagnostics, "Should have diagnostics");
+  const fallbackDiag = result.diagnostics!.find((d) => d.code === "fetch_fallback");
+  assert.ok(fallbackDiag, "Should have fetch_fallback diagnostic");
+  assert.match(fallbackDiag!.context, /browser-use command not found/i);
+  assert.equal(fallbackDiag!.url, "https://www.notion.so/careers");
+
+  // Should also have a backward-compatible warning about fallback
+  assert.ok(result.warnings.some((w) => w.includes("fallback") || w.includes("browser-use command unavailable")), "Should have fallback warning");
+});
+
+// === VAL-OBS-001: low_content_spa diagnostic for very short responses ===
+
+test("collectGroundedWebListings emits low_content_spa diagnostic for very short SPA responses", async () => {
+  const run = makeRun();
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Notion product marketing manager"],
+        candidates: [
+          {
+            url: "https://www.notion.so/careers",
+            title: "Notion Careers",
+            pageType: "careers",
+            reason: "Employer careers page",
+            sourceDomain: "www.notion.so",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    sessionManager: {
+      run: async ({ url }) => ({
+        url,
+        // Very short response that looks like an SPA loading state
+        text: "<div id='root'></div>",
+        metadata: { mode: "fetch" },
+      }),
+    },
+  });
+
+  // Should have low_content_spa diagnostic
+  assert.ok(result.diagnostics, "Should have diagnostics");
+  const lowContentDiag = result.diagnostics!.find((d) => d.code === "low_content_spa");
+  assert.ok(lowContentDiag, "Should have low_content_spa diagnostic");
+  assert.match(lowContentDiag!.context, /SPA|loading|skeleton/i);
+  assert.equal(lowContentDiag!.url, "https://www.notion.so/careers");
+});
+
+// === VAL-OBS-001: low_content_spa diagnostic for skeleton loading patterns ===
+
+test("collectGroundedWebListings emits low_content_spa diagnostic for skeleton loading patterns", async () => {
+  const run = makeRun();
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Acme jobs"],
+        candidates: [
+          {
+            url: "https://acme.com/careers",
+            title: "Acme Careers",
+            pageType: "careers",
+            reason: "Employer careers page",
+            sourceDomain: "acme.com",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    sessionManager: {
+      run: async ({ url }) => ({
+        url,
+        // HTML with skeleton/loading class patterns
+        text: `
+          <html><body>
+            <div class="skeleton-loader"></div>
+            <div class="loading-spinner"></div>
+            <div class="job-skeleton"></div>
+          </body></html>
+        `,
+        metadata: { mode: "fetch" },
+      }),
+    },
+  });
+
+  // Should have low_content_spa diagnostic for skeleton patterns
+  assert.ok(result.diagnostics, "Should have diagnostics");
+  const lowContentDiag = result.diagnostics!.find((d) => d.code === "low_content_spa");
+  assert.ok(lowContentDiag, "Should have low_content_spa diagnostic for skeleton patterns");
+  assert.match(lowContentDiag!.context, /skeleton|loading/i);
+});
+
+// === VAL-OBS-003: zero_results diagnostic when extraction returns no listings ===
+
+test("collectGroundedWebListings emits zero_results diagnostic when all pages return empty", async () => {
+  const run = makeRun();
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Notion product marketing manager"],
+        candidates: [
+          {
+            url: "https://www.notion.so/careers",
+            title: "Notion Careers",
+            pageType: "careers",
+            reason: "Employer careers page",
+            sourceDomain: "www.notion.so",
+          },
+          {
+            url: "https://www.notion.so/jobs",
+            title: "Notion Jobs",
+            pageType: "listings",
+            reason: "Jobs page",
+            sourceDomain: "www.notion.so",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    sessionManager: {
+      run: async ({ url }) => ({
+        url,
+        // Return minimal HTML that won't extract any jobs
+        text: "<html><body><p>No jobs available</p></body></html>",
+        metadata: { mode: "fetch" },
+      }),
+    },
+  });
+
+  // Should have zero_results diagnostic
+  assert.ok(result.diagnostics, "Should have diagnostics");
+  const zeroResultsDiag = result.diagnostics!.find((d) => d.code === "zero_results");
+  assert.ok(zeroResultsDiag, "Should have zero_results diagnostic");
+  assert.match(zeroResultsDiag!.context, /zero.*listing|2.*candidate/i);
+
+  // Should also have a backward-compatible warning about zero results
+  assert.ok(result.warnings.some((w) => w.includes("zero") || w.includes("no listings")), "Should have zero-results warning");
+
+  // Raw listings should be empty
+  assert.equal(result.rawListings.length, 0, "Should have zero raw listings");
+});
+
+// === VAL-OBS-003: dual-layer diagnostics + warnings for degraded zero-result path ===
+
+test("collectGroundedWebListings provides dual-layer diagnostics + warnings for degraded zero-result path", async () => {
+  const run = makeRun();
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["FictionalCompany product manager"],
+        candidates: [
+          {
+            url: "https://www.fictionalcompany.com/careers",
+            title: "FictionalCompany Careers",
+            pageType: "careers",
+            reason: "Employer careers page",
+            sourceDomain: "www.fictionalcompany.com",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    sessionManager: {
+      run: async ({ url }) => ({
+        url,
+        // SPA loading state that returns zero listings
+        text: "<div id='root'></div>",
+        metadata: {
+          mode: "fetch_fallback",
+          browserUseCommandError: "Command timed out",
+        },
+      }),
+    },
+  });
+
+  // VAL-CROSS-002: Degraded path must have BOTH structured diagnostics AND warnings
+  assert.ok(result.diagnostics, "Degraded path must have structured diagnostics");
+  assert.ok(result.warnings.length > 0, "Degraded path must have warnings");
+
+  // Should have both fetch_fallback and low_content_spa/zero_results diagnostics
+  const fallbackDiag = result.diagnostics!.find((d) => d.code === "fetch_fallback");
+  assert.ok(fallbackDiag, "Degraded path must have fetch_fallback diagnostic");
+
+  // Should have a backward-compatible warning about fallback
+  assert.ok(result.warnings.some((w) => w.includes("fallback") || w.includes("fetch")), "Degraded path must have fallback warning");
+
+  // Zero result should be reflected
+  assert.equal(result.rawListings.length, 0, "Degraded extraction should return zero listings");
+});
