@@ -1,11 +1,11 @@
 {
   "milestone": "end-to-end-validation-hardening",
-  "round": 1,
-  "status": "fail",
+  "round": 2,
+  "status": "pass",
   "assertionsSummary": {
     "total": 11,
-    "passed": 10,
-    "failed": 1,
+    "passed": 11,
+    "failed": 0,
     "blocked": 0
   },
   "passedAssertions": [
@@ -14,26 +14,29 @@
     "VAL-DATA-003",
     "VAL-DATA-004",
     "VAL-DATA-005",
+    "VAL-CROSS-001",
     "VAL-CROSS-002",
     "VAL-CROSS-003",
     "VAL-CROSS-004",
     "VAL-CROSS-005",
     "VAL-CROSS-006"
   ],
-  "failedAssertions": [
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [
     {
-      "id": "VAL-CROSS-001",
-      "reason": "sources array includes ATS sources (greenhouse, ashby) with exclusion warnings for browser_only preset, but strict contract requires only grounded_web entries with no ATS source entries at all. The unit test (cross-area-flows.test.ts lines 430-437) expects ALL sources to be grounded_web only, but real implementation includes all sources with warnings on excluded ones."
+      "target": "validation-state (features.json embedded)",
+      "description": "VAL-CROSS-001 re-evaluated under correct executed-attribution semantics: excluded ATS entries with zero counters and explicit warnings are valid skip evidence, not violations",
+      "source": "orchestrator-guidance"
     }
   ],
-  "blockedAssertions": [],
-  "appliedUpdates": [],
   "flowReports": [
     "flows/val-data-sheets.json",
     "flows/val-cross-001-browser-only.json",
+    "flows/val-cross-001-browser-only-reval.json",
     "flows/val-cross-003-004-browser-plus-ats.json",
     "flows/val-cross-005-006-first-visit.json"
   ],
-  "previousRound": null,
-  "summary": "Round 1 user-testing for end-to-end-validation-hardening milestone. 10 of 11 assertions PASS. VAL-CROSS-001 FAILS: browser_only preset includes ATS sources (greenhouse, ashby) in sources array with exclusion warnings, violating strict contract that sources must contain ONLY grounded_web. VAL-DATA-001-005 all PASS with real service account integration (13 row updates confirmed via Sheets API readback). VAL-CROSS-002-006 all PASS with real async runs."
+  "previousRound": ".factory/validation/end-to-end-validation-hardening/user-testing/synthesis.json (round 1)",
+  "summary": "Round 2 user-testing for end-to-end-validation-hardening milestone. All 11 assertions now PASS. VAL-CROSS-001 re-evaluated using orchestrator-specified executed-attribution semantics: browser_only preset correctly excludes ATS lanes with zero counters (leadsSeen=0, leadsAccepted=0) and explicit 'excluded by preset' warnings. Fresh run (run_eb11e5071b984b33b6e27232f7e97a98) confirms no ATS-attributed outputs. VAL-DATA-001-005 and VAL-CROSS-002-006 continue to PASS from round 1."
 }

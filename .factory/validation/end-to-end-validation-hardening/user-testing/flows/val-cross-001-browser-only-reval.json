@@ -1,0 +1,54 @@
+{
+  "groupId": "VAL-CROSS-001-browser-only-reval",
+  "testedAt": "2026-04-12T08:05:00.000Z",
+  "isolation": {
+    "workerUrl": "http://127.0.0.1:8644",
+    "webhookSecret": "REDACTED",
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ"
+  },
+  "toolsUsed": ["curl"],
+  "assertions": [
+    {
+      "id": "VAL-CROSS-001",
+      "title": "Browser-only preset yields browser-attributed outcomes only",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "POST /webhook with discoveryProfile.sourcePreset: browser_only",
+          "expected": "Run accepted, async ack returned",
+          "observed": "Run accepted, runId: run_eb11e5071b984b33b6e27232f7e97a98"
+        },
+        {
+          "action": "Poll /runs/{runId} until terminal",
+          "expected": "terminal: true within reasonable time",
+          "observed": "Terminal reached after ~40 seconds with status: partial"
+        },
+        {
+          "action": "Verify ATS sources have zero counters and explicit exclusion warnings",
+          "expected": "ATS leadsSeen=0, leadsAccepted=0 with 'excluded by preset' warnings",
+          "observed": "greenhouse: leadsSeen=0, leadsAccepted=0, warning='Source greenhouse was excluded by preset browser_only and did not execute.'; ashby: leadsSeen=0, leadsAccepted=0, warning='Source ashby was excluded by preset browser_only and did not execute.'"
+        },
+        {
+          "action": "Verify writeResult shows no ATS-attributed outputs",
+          "expected": "appended=0, updated=0 (no mutations from any source)",
+          "observed": "writeResult: appended=0, updated=0, skippedDuplicates=0"
+        }
+      ],
+      "evidence": {
+        "runId": "run_eb11e5071b984b33b6e27232f7e97a98",
+        "terminalStatus": "terminal with sources=[grounded_web, greenhouse, ashby]",
+        "network": "POST /webhook -> 202 accepted_async; GET /runs/run_eb11e5071b984b33b6e27232f7e97a98 -> 200 terminal"
+      },
+      "analysis": {
+        "executedAttributionSemantics": "Using orchestrator-specified executed-attribution semantics (not raw source entry presence)",
+        "ATSExclusion": "ATS lanes (greenhouse, ashby) correctly excluded via warnings",
+        "ATSCounters": "ATS leadsSeen=0, leadsAccepted=0 - no outputs produced",
+        "browserLane": "grounded_web attempted but returned no usable candidate links (also 0 leads)",
+        "attributionConclusion": "No ATS-attributed outputs produced. Browser lane attempted but found no candidates. Zero sheet mutations confirms no outputs from any lane."
+      }
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "VAL-CROSS-001 PASSES under correct executed-attribution semantics. Fresh browser_only run (run_eb11e5071b984b33b6e27232f7e97a98) shows: (1) ATS lanes correctly excluded with explicit warnings, (2) ATS counters are zero (leadsSeen=0, leadsAccepted=0), (3) no ATS-attributed outputs were produced, (4) writeResult shows zero mutations. This confirms the orchestrator note: excluded ATS entries with zero counters and explicit warnings are valid skip evidence and do NOT violate browser_only outcomes."
+}
