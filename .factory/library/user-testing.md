@@ -88,6 +88,7 @@ Dry-run baseline (2026-04-11): 18 logical CPUs, 48 GiB RAM, heavy discovery exec
 - Parallel company execution should respect configured concurrency caps and preserve per-company failure isolation in terminal status.
 - Structured diagnostics should include stable code + context for zero-result outcomes while warning-string compatibility remains present.
 - Browser-only preset tuning uplift should apply when tunables are omitted, and explicit run payload overrides should remain unchanged.
+- Timeout uplift follow-up: browser-only grounded default timeout should be significantly above the old 60s baseline; validate using run-status resolved groundedSearchTuning evidence and confirm prior 60s timeout-warning behavior is not the default anymore.
 
 ---
 

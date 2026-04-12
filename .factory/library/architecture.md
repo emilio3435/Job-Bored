@@ -37,6 +37,7 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - No silent stored-profile fallback for omitted run-intent fields.
 - Resolves the effective lane set for a run from explicit preset + enabled source set.
 - For `browser_only`, omitted tuning fields resolve to agentic defaults (results/pages/query/runtime/token budgets).
+- Browser-only grounded timeout defaults are intentionally uplifted above the prior 60s baseline to avoid premature collection cutoff.
 - Explicit tuning overrides are preserved field-by-field; omitted sibling fields still default.
 - `browser_only` uplift defaults are preset-scoped and must not leak into `ats_only` or `browser_plus_ats`.
 - Supports unrestricted company scope (empty company list) without hard preflight rejection.
@@ -109,6 +110,7 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - Structured diagnostics are machine-readable and stable while warning-string compatibility is preserved for existing consumers.
 - Diagnostics/warning dual-layer output is paired by shared event scope (same run/source/query context).
 - Browser-only agentic tuning defaults apply when omitted but never override explicit user-provided values.
+- Timeout uplift remains defaulted behavior (when omitted) and still yields to explicit caller-provided timeout overrides.
 - Browser-only uplift defaults are isolated to `browser_only` and never applied to other presets unless explicitly overridden.
 - Async acceptance is never treated as terminal success.
 - Failures (auth, readiness, source, write path) are explicit and attributable.
