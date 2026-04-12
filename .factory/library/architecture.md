@@ -14,6 +14,7 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 
 ### 1) Browser preset surface (dashboard/settings/run modal)
 - Captures and persists selected source preset.
+- Captures discovery intent from canonical manual fields and AI-suggestion output fields, then resolves to canonical intent before run dispatch.
 - Displays the active preset before run.
 - Starts discovery run and shows run status progression.
 - Enforces mutual exclusivity and last-selection-wins at submit time.
@@ -71,6 +72,7 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 
 - Source preset is authoritative for lane execution.
 - Omitted/blank run-intent fields are rejected explicitly rather than silently inferred from stored profile defaults.
+- Run dispatch resolves intent from user-visible inputs: if manual intent is blank but AI suggestions are non-blank, those values must be promoted into canonical intent fields before payload dispatch.
 - ATS is optional; it is never implicitly forced in `browser_only`.
 - Async acceptance is never treated as terminal success.
 - Failures (auth, readiness, source, write path) are explicit and attributable.
