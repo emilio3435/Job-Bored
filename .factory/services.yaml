@@ -3,6 +3,7 @@ commands:
   typecheck: npm run typecheck:repo
   lint: npm run lint:repo
   test: npm run test:repo
+  test_ultraplan: node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/grounded-search.test.ts integrations/browser-use-discovery/tests/browser/session.test.ts integrations/browser-use-discovery/tests/webhook/config.test.ts integrations/browser-use-discovery/tests/webhook/handle-discovery-webhook.test.ts integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts integrations/browser-use-discovery/tests/webhook/routing-enforcement.test.ts
   test_discovery_serial: node --experimental-strip-types --test --test-concurrency=1 integrations/browser-use-discovery/tests/browser/*.test.ts integrations/browser-use-discovery/tests/sheets/*.test.ts integrations/browser-use-discovery/tests/webhook/*.test.ts integrations/browser-use-discovery/tests/e2e/*.test.ts
   test_contracts: npm run test:contract:all
 
