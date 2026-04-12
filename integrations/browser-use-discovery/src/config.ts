@@ -74,7 +74,7 @@ const supportedSourceSet = new Set(SUPPORTED_SOURCE_IDS);
 
 // === UltraPlan preset-specific default values ===
 // browser_only uses elevated agentic defaults:
-//   - groundedSearchTuning: maxResultsPerCompany=12, maxPagesPerCompany=8, maxRuntimeMs=60000, maxTokensPerQuery=4096
+//   - groundedSearchTuning: maxResultsPerCompany=12, maxPagesPerCompany=8, maxRuntimeMs=120000, maxTokensPerQuery=4096
 //   - ultraPlanTuning: multiQuery=true, retryBroadening=true, parallelCompanyProcessing=true
 // Other presets (ats_only, browser_plus_ats) use legacy conservative values:
 //   - groundedSearchTuning: maxResultsPerCompany=6, maxPagesPerCompany=4, maxRuntimeMs=30000, maxTokensPerQuery=2048
@@ -140,7 +140,7 @@ function resolveGroundedSearchTuning(
     return {
       maxResultsPerCompany: isBrowserOnly ? 12 : 6,
       maxPagesPerCompany: isBrowserOnly ? 8 : 4,
-      maxRuntimeMs: isBrowserOnly ? 60000 : 30000,
+      maxRuntimeMs: isBrowserOnly ? 120000 : 30000,
       maxTokensPerQuery: isBrowserOnly ? 4096 : 2048,
       multiQueryCap: isBrowserOnly ? 4 : 3,
     };
@@ -164,7 +164,7 @@ function resolveGroundedSearchTuning(
       explicitTuning.maxRuntimeMs !== undefined
         ? explicitTuning.maxRuntimeMs
         : isBrowserOnly
-          ? 60000
+          ? 120000
           : 30000,
     maxTokensPerQuery:
       explicitTuning.maxTokensPerQuery !== undefined
