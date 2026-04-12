@@ -17029,8 +17029,39 @@ function initDiscoveryPrefsModal() {
       const targetRoles = val("dpTargetRoles").trim();
       const keywordsInclude = val("dpKeywordsInclude").trim();
 
-      // Intent guardrail: block run if both targetRoles and keywordsInclude are blank
-      if (!targetRoles && !keywordsInclude) {
+      // AI Suggest Intent Bridge:
+      // If manual intent is blank but AI suggestions are non-blank, auto-promote
+      // suggested values into manual fields so Run can proceed without requiring
+      // the user to manually click "Apply suggestions" first.
+      // This persists resolved intent into canonical discoveryProfile fields before
+      // webhook dispatch (VAL-API-009).
+      const suggestedRoles = val("dpSuggestedRoles").trim();
+      const suggestedKeywords = val("dpSuggestedInclude").trim();
+      const hasSuggestedIntent = !!(suggestedRoles || suggestedKeywords);
+
+      if (!targetRoles && !keywordsInclude && hasSuggestedIntent) {
+        // Auto-promote AI suggestions into manual fields
+        const autoCopy = (srcId, destId) => {
+          const src = document.getElementById(srcId);
+          const dest = document.getElementById(destId);
+          if (src && dest && src.value) dest.value = src.value;
+        };
+        autoCopy("dpSuggestedRoles", "dpTargetRoles");
+        autoCopy("dpSuggestedLocations", "dpLocations");
+        autoCopy("dpSuggestedRemote", "dpRemotePolicy");
+        autoCopy("dpSuggestedSeniority", "dpSeniority");
+        autoCopy("dpSuggestedInclude", "dpKeywordsInclude");
+        autoCopy("dpSuggestedExclude", "dpKeywordsExclude");
+        // Re-read after auto-promotion so the saved profile has resolved values
+        void targetRoles; // avoid accidental reuse — fall through to re-read below
+      }
+
+      // Intent guardrail: block run only if BOTH manual AND AI-suggested intent are blank.
+      // If AI suggestions were just auto-promoted above, this guardrail will not block.
+      const finalTargetRoles = val("dpTargetRoles").trim();
+      const finalKeywordsInclude = val("dpKeywordsInclude").trim();
+
+      if (!finalTargetRoles && !finalKeywordsInclude) {
         showToast(
           "Add target roles or keywords to include, or use the AI Suggest tab to generate them.",
           "warning",
@@ -17053,11 +17084,11 @@ function initDiscoveryPrefsModal() {
         : "";
       if (UC && typeof UC.saveDiscoveryProfile === "function") {
         await UC.saveDiscoveryProfile({
-          targetRoles,
+          targetRoles: finalTargetRoles,
           locations: val("dpLocations"),
           remotePolicy: val("dpRemotePolicy"),
           seniority: val("dpSeniority"),
-          keywordsInclude,
+          keywordsInclude: finalKeywordsInclude,
           keywordsExclude: val("dpKeywordsExclude"),
           maxLeadsPerRun: val("dpMaxLeads"),
           groundedWebEnabled,
