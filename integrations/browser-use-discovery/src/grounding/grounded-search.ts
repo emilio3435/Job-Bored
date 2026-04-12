@@ -9,6 +9,7 @@ import type {
   GroundedSearchTuning,
   RawListing,
 } from "../contracts.ts";
+import type { BudgetTracker } from "../run/budget-tracker.ts";
 
 const SEARCH_SYSTEM_PROMPT = [
   "You source current live job postings from the public web.",
@@ -734,6 +735,7 @@ export async function collectGroundedWebListings(input: {
   runtimeConfig: WorkerRuntimeConfig;
   groundedSearchClient: GroundedSearchClient;
   sessionManager: BrowserUseSessionManager;
+  budgetTracker?: BudgetTracker;
 }): Promise<GroundedWebCollectionResult> {
   const searchResult = await input.groundedSearchClient.search(
     input.company,
@@ -741,9 +743,25 @@ export async function collectGroundedWebListings(input: {
   );
   const warnings = [...searchResult.warnings];
   const diagnostics: ExtractionDiagnostic[] = [];
+
+  // VAL-OBS-002: Apply budget-based page limit reduction if tracker is provided
+  let basePageLimit = Math.max(1, input.runtimeConfig.groundedSearchMaxPagesPerCompany || 1);
+  let effectivePageLimit = basePageLimit;
+  let pageLimitReductionDiagnostic: ExtractionDiagnostic | null = null;
+
+  if (input.budgetTracker) {
+    const reductionResult = input.budgetTracker.checkPageLimitReduction(basePageLimit);
+    if (reductionResult.diagnostic) {
+      pageLimitReductionDiagnostic = reductionResult.diagnostic;
+      diagnostics.push(reductionResult.diagnostic);
+      warnings.push(`Budget adaptation: ${reductionResult.diagnostic.context}`);
+    }
+    effectivePageLimit = Math.max(1, Math.floor(basePageLimit * reductionResult.multiplier));
+  }
+
   const seedCandidates = searchResult.candidates.slice(
     0,
-    Math.max(1, input.runtimeConfig.groundedSearchMaxPagesPerCompany || 1),
+    effectivePageLimit,
   );
   const rawListings: RawListing[] = [];
   let pagesVisited = 0;

@@ -32,6 +32,10 @@ import {
   type MatchDecision,
 } from "../match/job-matcher.ts";
 import { SheetWriteError, type PipelineWriter } from "../sheets/pipeline-writer.ts";
+import {
+  createBudgetTracker,
+  type BudgetTracker,
+} from "./budget-tracker.ts";
 
 // Default maximum run duration: 5 minutes
 const DEFAULT_MAX_RUN_DURATION_MS = 5 * 60 * 1000;
@@ -350,12 +354,23 @@ export async function runDiscovery(
 
   if (config.effectiveSources.includes("grounded_web")) {
     stageProgress.groundedStarted = true;
+
+    // VAL-OBS-002: Create budget tracker for adaptive page-limit reduction and company skip decisions
+    const maxRunDurationMs = dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
+    const budgetTracker = createBudgetTracker({
+      maxRunDurationMs,
+      safetyBufferMs: Math.ceil(maxRunDurationMs * 0.05),
+      reducePageLimitThreshold: 0.5,
+      pageLimitReductionFactor: 0.5,
+    });
+
     const groundedResult = await runGroundedWebDiscovery(
       run,
       dependencies,
       rejectionSummaryBySource,
       matchingState,
       { sourceTimeoutMs, matcherTimeoutMs },
+      budgetTracker,
     ).catch((error) => {
       if (error instanceof TimeoutError) {
         const message = `Grounded web discovery timed out after ${error.timeoutMs}ms: ${error.message}`;
@@ -712,6 +727,7 @@ async function runGroundedWebDiscovery(
     sourceTimeoutMs?: number;
     matcherTimeoutMs?: number;
   },
+  budgetTracker?: BudgetTracker,
 ): Promise<{
   extractionResult: BrowserUseExtractionResult | null;
   normalizedLeads: NormalizedLead[];
@@ -763,6 +779,26 @@ async function runGroundedWebDiscovery(
       : [{ name: "" }]; // Unrestricted search with empty company name
 
   for (const company of companiesToSearch) {
+    // VAL-OBS-002: Check if company should be skipped due to budget exhaustion
+    if (budgetTracker) {
+      const skipDiagnostic = budgetTracker.checkCompanySkip(company.name);
+      if (skipDiagnostic) {
+        extractionResult.diagnostics = [
+          ...(extractionResult.diagnostics || []),
+          skipDiagnostic,
+        ];
+        extractionResult.warnings.push(
+          `Budget skip: ${skipDiagnostic.context}`,
+        );
+        dependencies.log?.("discovery.run.budget_company_skip", {
+          runId: run.runId,
+          company: company.name,
+          context: skipDiagnostic.context,
+        });
+        continue;
+      }
+    }
+
     try {
       const collectionPromise = collectGroundedWebListings({
         company,
@@ -770,6 +806,7 @@ async function runGroundedWebDiscovery(
         runtimeConfig: dependencies.runtimeConfig,
         groundedSearchClient: dependencies.groundedSearchClient,
         sessionManager: dependencies.browserSessionManager,
+        budgetTracker,
       });
       const result = await withTimeout(
         `grounded_collection[${company.name}]`,

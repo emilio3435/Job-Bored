@@ -154,7 +154,11 @@ export type ExtractionDiagnosticCode =
   /** Extraction returned zero job listings despite successful page load. */
   | "zero_results"
   /** Operation timed out; fallback or partial result may be returned. */
-  | "timeout";
+  | "timeout"
+  /** Run budget depletion triggered adaptive page-limit reduction before exhaustion. */
+  | "reduced_page_limit"
+  /** Company was skipped due to run budget exhaustion. */
+  | "budget_skip";
 
 /**
  * Structured diagnostic entry for extraction observability.

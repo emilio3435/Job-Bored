@@ -1748,3 +1748,120 @@ test("VAL-DATA-003: employer-domain bonus applies to recognized first-party subd
   assert.ok(careersIdx < exampleIdx, "careers.acme.com should outrank example.com");
   assert.ok(jobsAcmeIdx < exampleIdx, "jobs.acme.com should outrank example.com");
 });
+
+// === VAL-OBS-002: Budget adaptation diagnostics ===
+test("collectGroundedWebListings emits reduced_page_limit diagnostic when budget tracker indicates budget pressure", async () => {
+  // Create a budget tracker that reports budget pressure (below threshold)
+  const budgetTracker = {
+    checkPageLimitReduction: (baseLimit: number) => {
+      return {
+        multiplier: 0.5,
+        diagnostic: {
+          code: "reduced_page_limit" as const,
+          context: `Run budget at 40% (2000ms remaining of 5000ms total). Reduced page limit from ${baseLimit} to 2 to conserve budget.`,
+        },
+      };
+    },
+    checkCompanySkip: () => null,
+  };
+
+  const result = await collectGroundedWebListings({
+    company: { name: "TestCompany" },
+    run: makeRun(),
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Test Engineer at TestCompany"],
+        candidates: [
+          {
+            url: "https://careers.testcompany.com/jobs/1",
+            title: "Software Engineer",
+            pageType: "job",
+            reason: "Direct job page",
+            sourceDomain: "careers.testcompany.com",
+          },
+          {
+            url: "https://careers.testcompany.com/jobs/2",
+            title: "Senior Engineer",
+            pageType: "job",
+            reason: "Direct job page",
+            sourceDomain: "careers.testcompany.com",
+          },
+          {
+            url: "https://careers.testcompany.com/jobs/3",
+            title: "Staff Engineer",
+            pageType: "job",
+            reason: "Direct job page",
+            sourceDomain: "careers.testcompany.com",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    sessionManager: {
+      run: async ({ url }) => ({
+        url,
+        text: JSON.stringify({
+          pageType: "listings",
+          jobs: [
+            { title: "Engineer", company: "TestCompany", location: "Remote", url, descriptionText: "Job description", tags: ["engineering"] },
+          ],
+        }),
+        metadata: { mode: "browser_use_command" },
+      }),
+    },
+    budgetTracker,
+  });
+
+  // Should have reduced_page_limit diagnostic
+  assert.ok(result.diagnostics, "Should have diagnostics");
+  const reducedLimitDiag = result.diagnostics!.find((d) => d.code === "reduced_page_limit");
+  assert.ok(reducedLimitDiag, "Should have reduced_page_limit diagnostic");
+  assert.match(reducedLimitDiag!.context, /budget|page limit|remaining/i);
+});
+
+test("collectGroundedWebListings does not emit reduced_page_limit when budget tracker reports no pressure", async () => {
+  // Create a budget tracker that reports no budget pressure (above threshold)
+  const budgetTracker = {
+    checkPageLimitReduction: () => ({ multiplier: 1.0, diagnostic: null }),
+    checkCompanySkip: () => null,
+  };
+
+  const result = await collectGroundedWebListings({
+    company: { name: "TestCompany" },
+    run: makeRun(),
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Test Engineer at TestCompany"],
+        candidates: [
+          {
+            url: "https://careers.testcompany.com/jobs/1",
+            title: "Software Engineer",
+            pageType: "job",
+            reason: "Direct job page",
+            sourceDomain: "careers.testcompany.com",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    sessionManager: {
+      run: async ({ url }) => ({
+        url,
+        text: JSON.stringify({
+          pageType: "listings",
+          jobs: [
+            { title: "Engineer", company: "TestCompany", location: "Remote", url, descriptionText: "Job description", tags: ["engineering"] },
+          ],
+        }),
+        metadata: { mode: "browser_use_command" },
+      }),
+    },
+    budgetTracker,
+  });
+
+  // Should NOT have reduced_page_limit diagnostic
+  assert.ok(!result.diagnostics || !result.diagnostics.find((d) => d.code === "reduced_page_limit"),
+    "Should not have reduced_page_limit diagnostic when budget is healthy");
+});
