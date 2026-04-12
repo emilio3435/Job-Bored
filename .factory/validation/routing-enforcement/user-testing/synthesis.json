@@ -1,6 +1,6 @@
 {
   "milestone": "routing-enforcement",
-  "round": 3,
+  "round": 4,
   "status": "failure",
   "assertionsSummary": {
     "total": 6,
@@ -13,38 +13,44 @@
   "blockedAssertions": [
     {
       "id": "VAL-ROUTE-002",
-      "blockedBy": "Run execution non-terminating. Webhook accepts ats_only preset correctly (effectiveSources: [greenhouse, ashby]), but run stays in 'running' state without reaching terminal. Routing logic verified by config resolution logs, but full source execution and terminal outcome not observed within test window."
+      "blockedBy": "Run now terminalizes (async 5-min timeout working), but Google Sheets write fails with HTTP 403 PERMISSION_DENIED. The ats_only preset correctly resolves to effectiveSources: [greenhouse, ashby] (grounded_web excluded), and source detection/list stages execute. Terminal failure is due to missing Sheets write permission for the service account, not a routing issue. Cannot validate per-source counters and terminal outcome details without successful write path."
     },
     {
       "id": "VAL-ROUTE-003",
-      "blockedBy": "Run execution non-terminating. Webhook accepts browser_plus_ats preset, but run stays in 'running' state without reaching terminal. Routing logic verified by config resolution, but terminal outcome not observed."
+      "blockedBy": "Run now terminalizes, but fails at Sheets write with HTTP 403 PERMISSION_DENIED. Routing logic correctly includes both ATS lanes (greenhouse, ashby) and grounded_web. Cannot validate per-source counters or mixed-mode attribution without successful write completion."
     },
     {
       "id": "VAL-ROUTE-004",
-      "blockedBy": "Run execution non-terminating. Cannot validate per-source counters/warnings without terminal run status."
+      "blockedBy": "Per-source counters/warnings cannot be validated because run fails at Sheets write phase (PERMISSION_DENIED) before producing terminal source summary."
     },
     {
       "id": "VAL-ROUTE-005",
-      "blockedBy": "Run execution non-terminating. Cannot validate routing truth-table under positive-control inputs without terminal run outcome."
+      "blockedBy": "Routing truth-table under positive-control inputs cannot be fully validated because the terminal state is 'failed' due to Sheets permission error, not due to routing logic. Routing behavior is correct at config level, but source execution outcomes are obscured by write failure."
     }
   ],
   "appliedUpdates": [
     {
       "target": "user-testing.md",
-      "description": "Service account file path confirmed: /Users/emilionunezgarcia/Downloads/elio-ai-prod-4bae66f7bba7.json. Worker health confirms sheetsCredentialConfigured: true. Webhook secret is valid (from discovery-local-bootstrap.json). OAuth token expiry is irrelevant since service-account path is used.",
+      "description": "Shell `source <(...)` subshell pattern fails to export secret from .env (empty SECRET when read inside script). Use direct `set -a && . .env && set +a` pattern instead. Workers started with this pattern had empty webhook secret, causing 401. Correct startup pattern confirmed: `set -a; [ -f \"$PWD/integrations/browser-use-discovery/.env\" ] && . \"$PWD/integrations/browser-use-discovery/.env\"; [ -f \"$PWD/server/.env\" ] && . \"$PWD/server/.env\"; set +a;`",
       "source": "setup"
     },
     {
       "target": "user-testing.md",
-      "description": "Routing logic verified: ats_only preset resolves effectiveSources: [greenhouse, ashby] (grounded_web excluded). browser_only preset resolves effectiveSources: [grounded_web] (ATS excluded). However, run execution does not complete to terminal state within test window.",
+      "description": "Correct webhook event name is 'command-center.discovery' (not 'discovery.run_requested' from older mission docs). Payload requires: event, schemaVersion (1), variationKey, requestedAt (ISO timestamp), sheetId, and discoveryProfile with sourcePreset.",
+      "source": "setup"
+    },
+    {
+      "target": "user-testing.md",
+      "description": "Async terminalization is now working: ats_only and browser_plus_ats runs both terminalize within ~4 minutes via the 5-minute maxRunDurationMs safety timer. This confirms the fix from commit 7dd4c45 (async terminalization guardrails) is functional.",
+      "source": "flow-report"
+    },
+    {
+      "target": "user-testing.md",
+      "description": "Service account is valid (sheetsCredentialConfigured: true in /health), but the service account lacks write permission to the target sheet (HTTP 403 PERMISSION_DENIED). This is the blocker for VAL-ROUTE-002/003/004/005 - routing logic is correct but Sheets write fails. Service account may need 'Editor' role on the specific sheet, not just Project-level access.",
       "source": "flow-report"
     }
   ],
   "flowReports": [],
-  "previousRound": {
-    "path": ".factory/validation/routing-enforcement/user-testing/synthesis.json",
-    "status": "failure",
-    "summary": "2 passed (VAL-ROUTE-001, VAL-ROUTE-006), 4 blocked (VAL-ROUTE-002, VAL-ROUTE-003, VAL-ROUTE-004, VAL-ROUTE-005) due to OAuth token expiry. Round 3 resolves OAuth issue but run execution is non-terminating."
-  },
-  "summary": "Round 3 re-run for routing-enforcement milestone. OAuth token issue resolved (service-account path used). Webhook accepts presets correctly and config resolution shows correct effectiveSources per preset. However, runs do not reach terminal state within test window — run stays 'running' after 90+ seconds of polling. Routing enforcement logic is verified by config evidence, but terminal outcomes (source counters, write results, completion state) cannot be validated until run execution completes. Blocking issue is now execution non-termination, not credential unavailability."
+  "previousRound": ".factory/validation/routing-enforcement/user-testing/synthesis.json",
+  "summary": "Round 4 re-run for routing-enforcement milestone. Async terminalization now works (runs reach terminal state within 5-minute safety timer). Webhook auth issue was resolved by correct worker startup pattern. Routing logic is verified: ats_only resolves effectiveSources=[greenhouse,ashby] and browser_plus_ats includes both lane families. However, all runs fail at Sheets write phase with HTTP 403 PERMISSION_DENIED. The service account has read access (health shows sheetsCredentialConfigured:true) but lacks Editor permission on the target sheet. VAL-ROUTE-001 and VAL-ROUTE-006 remain passed. VAL-ROUTE-002/003/004/005 are blocked by Sheets permission, not by routing or terminalization issues. Routing enforcement implementation is correct; the blocker is sheet sharing/permission, not code."
 }

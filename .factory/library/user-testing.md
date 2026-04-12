@@ -78,3 +78,33 @@ Dry-run baseline (2026-04-11): 18 logical CPUs, 48 GiB RAM, heavy discovery exec
   - Gemini fallback: `ATS_GEMINI_API_KEY` from `server/.env` when discovery-specific key is unset
 - For authenticated API assertions, use `discovery-local-bootstrap.json` `webhookSecret`.
 - If `/health` shows `sheetsCredentialConfigured: false` or `groundedWeb.ready: false`, treat as setup regression and re-check env sourcing before marking assertions blocked.
+
+## Known Issues and Fixes (Troubleshooting)
+
+### Shell source pattern for worker startup
+- **Problem:** Using `source <(...)` subshell pattern fails to export SECRET from .env (empty value when read inside the script)
+- **Symptom:** Worker returns 401 Unauthorized on webhook requests
+- **Fix:** Use direct sourcing pattern in the same shell process:
+  ```
+  set -a
+  [ -f "$PWD/integrations/browser-use-discovery/.env" ] && . "$PWD/integrations/browser-use-discovery/.env"
+  [ -f "$PWD/server/.env" ] && . "$PWD/server/.env"
+  set +a
+  ```
+  Then run `echo $BROWSER_USE_DISCOVERY_WEBHOOK_SECRET` to verify it has a value before starting the worker.
+
+### Correct webhook payload format
+- **Event name:** `command-center.discovery` (not `discovery.run_requested` from older docs)
+- **Required fields:** `event`, `schemaVersion` (1), `variationKey`, `requestedAt` (ISO timestamp), `sheetId`, `discoveryProfile.sourcePreset`
+- **Example:** `{"event": "command-center.discovery", "schemaVersion": 1, "sheetId": "...", "variationKey": "...", "requestedAt": "2026-04-11T12:00:00Z", "discoveryProfile": {"sourcePreset": "ats_only"}}`
+
+### Async terminalization is now working
+- The 5-minute `maxRunDurationMs` safety timer (commit 7dd4c45) forces terminalization for async runs
+- Runs should reach terminal state within ~4-5 minutes even if source execution stalls
+- Check `terminal=true` in `/runs/{runId}` response
+
+### Sheets permission is the current blocker
+- `/health` shows `sheetsCredentialConfigured: true` — service account JSON is valid
+- But Sheets write fails with `HTTP 403 PERMISSION_DENIED`
+- The service account needs **Editor** role on the specific target sheet (not just project-level IAM)
+- To fix: Share the Google Sheet with the service account email from the JSON key file
