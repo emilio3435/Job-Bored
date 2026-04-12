@@ -1201,6 +1201,67 @@ test("collectGroundedWebListings emits low_content_spa diagnostic for skeleton l
   assert.match(lowContentDiag!.context, /skeleton|loading/i);
 });
 
+// === VAL-OBS-001: low_content_html diagnostic for mostly-HTML minimal-content responses ===
+
+test("collectGroundedWebListings emits low_content_html diagnostic for mostly-HTML minimal-content responses", async () => {
+  const run = makeRun();
+  // Create HTML that triggers low_content_html:
+  // - length >= 500 (to skip low_content_spa short response path at length < 500)
+  // - htmlTagCount > 20
+  // - textContentRatio < 0.3
+  // - length < 2000
+  // - Does NOT match skeleton/loading patterns (no empty div chains)
+  // This creates a page with lots of HTML markup but minimal extractable text
+  const htmlParts: string[] = [];
+  for (let i = 0; i < 40; i++) {
+    // Use self-closing syntax which is common in React/SSR and won't match empty div chain pattern
+    htmlParts.push("<div class='item-" + i + "'/>");
+  }
+  // Add minimal text content
+  htmlParts.push("<p>X</p>");
+  const htmlContent = "<html><head><title>Test</title></head><body>" +
+    htmlParts.join("") +
+    "</body></html>";
+  // 42 tags: html, head, title, body, 40 self-closing divs, p
+  // Self-closing divs don't match empty div chain pattern
+  // Length should be > 500, < 2000
+  // htmlTagCount ~42 (> 20), textContentRatio < 0.3
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Acme jobs"],
+        candidates: [
+          {
+            url: "https://acme.com/careers",
+            title: "Acme Careers",
+            pageType: "careers",
+            reason: "Employer careers page",
+            sourceDomain: "acme.com",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    sessionManager: {
+      run: async ({ url }) => ({
+        url,
+        text: htmlContent,
+        metadata: { mode: "fetch" },
+      }),
+    },
+  });
+
+  // Should have low_content_html diagnostic
+  assert.ok(result.diagnostics, "Should have diagnostics");
+  const lowContentDiag = result.diagnostics!.find((d) => d.code === "low_content_html");
+  assert.ok(lowContentDiag, "Should have low_content_html diagnostic for mostly-HTML responses");
+  assert.match(lowContentDiag!.context, /HTML|markup|tag|text content/i);
+  assert.equal(lowContentDiag!.url, "https://acme.com/careers");
+});
+
 // === VAL-OBS-003: zero_results diagnostic when extraction returns no listings ===
 
 test("collectGroundedWebListings emits zero_results diagnostic when all pages return empty", async () => {
