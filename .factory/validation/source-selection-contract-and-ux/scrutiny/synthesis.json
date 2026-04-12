@@ -1,0 +1,71 @@
+{
+  "milestone": "source-selection-contract-and-ux",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "npm run test:repo",
+      "exitCode": 0,
+      "details": "167 tests passed (repo) + 95 tests passed (browser-use-discovery)"
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "npm run typecheck:repo",
+      "exitCode": 0,
+      "details": "All .js files passed node --check"
+    },
+    "lint": {
+      "passed": true,
+      "command": "npm run lint:repo",
+      "exitCode": 0,
+      "details": "lint:skills passed; OK integrations/openclaw-command-center/SKILL.md"
+    }
+  },
+  "reviewsSummary": {
+    "total": 2,
+    "passed": 2,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Add a commit scoping convention: prefer single-feature-per-commit to make isolated review and rollback tractable. The source-preset-UX commit bundled unrelated infrastructure changes (webhook secret autofill, Google access token forwarding, recovery copy, tunnel banner), making the diff harder to review.",
+      "evidence": "Commit 4141468 bundles changes across app.js (297), index.html (84), style.css (49), user-content-store.js (25). Unrelated changes include autofillDiscoveryWebhookSecretFromBootstrap, getDiscoveryRequestGoogleAccessToken, recovery copy refactoring, tunnel banner.",
+      "isSystemic": false
+    },
+    {
+      "target": "discovery-frontend-worker SKILL.md",
+      "suggestion": "Clarify whether 'existing server-side tests cover the assertion' satisfies the 'add or update failing tests first (red)' step, or if browser-side tests are always required for UI/UX assertions. The browser-discovery-preset-ux-and-persistence handoff showed tests.added: [] despite the skill requiring browser-side tests for the six VAL-UI-SEL assertions.",
+      "evidence": "Handoff for browser-discovery-preset-ux-and-persistence shows tests.added: [], tests.updated: []. discovery-frontend-worker SKILL.md step 3 says 'Add or update failing tests first (red) for the changed behavior' without clarifying scope.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [],
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Commit 4141468 for browser-discovery-preset-ux-and-persistence bundles unrelated feature changes (webhook secret autofill, Google access token forwarding, recovery copy refactoring, tunnel banner) in a single commit. Other commits in this repo follow a single-feature-per-commit pattern. AGENTS.md does not document commit scoping convention.",
+      "evidence": "git show 4141468 --stat shows changes across app.js, index.html, style.css, user-content-store.js. Unrelated changes: autofillDiscoveryWebhookSecretFromBootstrap, getDiscoveryRequestGoogleAccessToken, recovery copy, tunnel banner."
+    },
+    {
+      "area": "conventions",
+      "observation": "The discovery-source-preset-contract-and-fallback worker added googleAccessToken field to JSON schema and contracts without updating AGENTS.md or mission.md to document this new optional webhook payload field.",
+      "evidence": "schemas/discovery-webhook-request.v1.schema.json adds googleAccessToken property; contracts.ts DiscoveryWebhookRequestV1 adds googleAccessToken field. Neither AGENTS.md nor mission.md mentions this field."
+    },
+    {
+      "area": "knowledge",
+      "observation": "normalizeSourcePreset has a dual-location pattern: app.js defines its own local copy and user-content-store.js exports one. The architectural split isn't documented — when should browser JS use the local copy vs the UC export? SOURCE_PRESET_VALUES enum is duplicated in three locations (app.js local, user-content-store.js, syncSourcePresetUi VALID_PRESETS) creating maintenance risk.",
+      "evidence": "app.js:16026 defines local normalizeSourcePreset with inline SOURCE_PRESET_VALUES. user-content-store.js:269 defines module-level normalizeSourcePreset with module-level SOURCE_PRESET_VALUES. syncSourcePresetUi defines VALID_PRESETS."
+    },
+    {
+      "area": "skills",
+      "observation": "The discovery-integration-worker SKILL.md procedure was followed correctly for discovery-source-preset-contract-and-fallback (red-first tests, minimal implementation, pre-handoff validators). No deviations.",
+      "evidence": "discovery-source-preset-contract-and-fallback handoff skillFeedback.followedProcedure: true, deviations: []."
+    }
+  ],
+  "previousRound": null
+}
