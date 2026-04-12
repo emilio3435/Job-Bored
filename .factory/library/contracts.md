@@ -42,6 +42,8 @@ High-level map of shared contracts that must stay aligned for browser-first disc
 - Minimum required discovery intent for run dispatch/acceptance:
   - explicit `discoveryProfile.sourcePreset`
   - at least one non-empty value in `discoveryProfile.targetRoles` or `discoveryProfile.keywordsInclude`
+- Browser UI bridge rule:
+  - AI Suggest output may originate in non-canonical UI fields, but run dispatch must promote resolved values into canonical `discoveryProfile.targetRoles` / `discoveryProfile.keywordsInclude` before webhook submission.
 - Optional transient field: `googleAccessToken` (runtime passthrough only; never persisted)
 - Invalid/contradictory values must return explicit `400` errors.
 - Async acceptance must include `runId`, `statusPath`, and `pollAfterMs`.
