@@ -1,34 +1,34 @@
 {
   "assertions": {
     "VAL-API-001": {
-      "status": "failed",
+      "status": "passed",
       "validatedAtMilestone": "ultraplan-control-plane",
-      "reason": "BLOCKED: API does not expose ultraPlanTuning/groundedSearchTuning resolved values in /runs/{runId} status. Cannot verify browser_only uplift defaults were applied. Routing behavior (grounded_web ran with multi-query) confirms some agentic defaults are active, but explicit field-level config evidence is unavailable via API.",
-      "blockingIssue": "API surface gap: resolved tuning config not exposed in status response"
+      "reason": "PASS: Resolved control-plane snapshot now exposed in /runs/{runId} response. browser_only omitted-tuning resolves to elevated defaults: multiQueryEnabled/retryBroadeningEnabled/parallelCompanyProcessingEnabled=true, maxResultsPerCompany=12 (vs legacy 6), maxPagesPerCompany=8 (vs legacy 4), maxRuntimeMs=60000 (vs legacy 30000), maxTokensPerQuery=4096 (vs legacy 2048).",
+      "evidence": "Terminal status includes ultraPlanTuning and groundedSearchTuning fields with explicit uplift values."
     },
     "VAL-API-002": {
-      "status": "failed",
+      "status": "passed",
       "validatedAtMilestone": "ultraplan-control-plane",
-      "reason": "BLOCKED: Cannot verify explicit overrides were preserved because status response does not expose ultraPlanTuning values. Requests accepted (202) but no way to confirm values were applied vs. coerced.",
-      "blockingIssue": "API surface gap: resolved tuning config not exposed in status response"
+      "reason": "PASS: Explicit overrides preserved exactly. Partial override (multiQueryEnabled: false only) correctly defaults siblings to browser_only uplift values (retryBroadeningEnabled: true, parallelCompanyProcessingEnabled: true). Non-default groundedSearchTuning overrides (maxResultsPerCompany: 20, maxPagesPerCompany: 15) preserved while unset fields take defaults.",
+      "evidence": "Resolved config in terminal status matches explicit payload values exactly."
     },
     "VAL-API-003": {
-      "status": "failed",
+      "status": "passed",
       "validatedAtMilestone": "ultraplan-control-plane",
-      "reason": "BLOCKED: Cannot verify isolated flag effects because status response does not expose ultraPlanTuning values. Requests accepted but no config evidence available to confirm flags were set independently.",
-      "blockingIssue": "API surface gap: resolved tuning config not exposed in status response"
+      "reason": "PASS: Flags independently togglable. Three variants (each disabling one flag) show isolated effects: multiQueryEnabled:false only affects multiQuery; retryBroadeningEnabled:false only affects retry; parallelCompanyProcessingEnabled:false only affects parallel. No coupled behavior changes.",
+      "evidence": "Flag matrix shows each toggle changes only its target flag while siblings remain at browser_only uplift defaults."
     },
     "VAL-API-004": {
-      "status": "failed",
+      "status": "passed",
       "validatedAtMilestone": "ultraplan-control-plane",
-      "reason": "FAIL: Malformed ultraPlanTuning payloads (non-boolean string 'not-a-boolean', number 123, unknown keys) are silently accepted with HTTP 202 and runIds created. Should return 400 with explicit field-level errors. Validation logic in parseWebhookRequest() is not being enforced for ultraPlanTuning fields.",
-      "blockingIssue": "Validation not enforced: non-boolean and unknown ultraPlanTuning fields accepted instead of rejected"
+      "reason": "PASS: Malformed ultraPlanTuning payloads now return explicit 400 with field-level errors. non-boolean string, number, and unknown key variants all rejected with clear error messages naming the offending field and listing known fields.",
+      "evidence": "All malformed variants returned HTTP 400 with {\"ok\":false,\"message\":\"discoveryProfile.ultraPlanTuning contains unknown field X. Known fields: ...\"}"
     },
     "VAL-API-005": {
-      "status": "failed",
+      "status": "passed",
       "validatedAtMilestone": "ultraplan-control-plane",
-      "reason": "BLOCKED: Cannot verify preset isolation because status response does not expose groundedSearchTuning values. Routing behavior is correct (ats_only excludes grounded_web), but tuning value evidence (legacy vs. browser_only uplift) is unavailable.",
-      "blockingIssue": "API surface gap: resolved tuning config not exposed in status response"
+      "reason": "PASS: Preset isolation verified. ats_only omitted-tuning resolves to non-uplift values: multiQueryEnabled=false, retryBroadeningEnabled=false, parallelCompanyProcessingEnabled=false, maxResultsPerCompany=6, maxPagesPerCompany=4, maxRuntimeMs=30000, maxTokensPerQuery=2048. No browser_only uplift values leaked.",
+      "evidence": "Terminal status for ats_only shows distinct non-uplift defaults, confirming preset isolation."
     },
     "VAL-ROUTE-012": {
       "status": "pending"
