@@ -1,0 +1,26 @@
+{
+  "featureId": "unrestricted-company-scope-ats-and-mixed-routing",
+  "reviewedAt": "2026-04-12T11:37:14.400Z",
+  "commitId": "b4ae446",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Implementation correctly handles unrestricted company scope for ATS lanes in ats_only and browser_plus_ats presets. Uses same [{ name: '' }] fallback pattern as grounded_web, ensuring ATS lanes attempt execution with empty company placeholder. Post-loop logic ensures ATS sources appear in sourceSummary with attribution warnings even when no boards found.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The pattern of using [{ name: '' }] as an empty company placeholder for unrestricted scope is used in both grounded_web and now ATS lanes. This is a consistent pattern but is not explicitly documented anywhere - it evolved organically from the grounded_web implementation.",
+      "evidence": "run-discovery.ts:188-195 (ATS fallback) mirrors grounded_web.ts behavior where the same empty placeholder pattern was implemented for VAL-ROUTE-007"
+    },
+    {
+      "area": "skills",
+      "observation": "The discovery-integration-worker SKILL.md was not found at the expected path, so I could not verify if the worker followed the documented procedure. This should be verified.",
+      "evidence": "Path /Users/emilionunezgarcia/.factory/skills/discovery-integration-worker/SKILL.md does not exist"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Feature implementation passes review. VAL-ROUTE-008 and VAL-ROUTE-009 are correctly implemented with appropriate fallback handling for empty company scope in ATS lanes. All 141 tests pass. The implementation uses a consistent pattern with grounded_web unrestricted scope handling."
+}

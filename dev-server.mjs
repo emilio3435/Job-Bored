@@ -199,7 +199,8 @@ async function handleFixSetup(req, res) {
 
   if (tunnelChanged) {
     emit("tunnel_rotated", {
-      message: "Tunnel URL changed — relay update needed.",
+      message:
+        "ngrok gave your local setup a new public URL. The relay now needs to be updated.",
       oldTunnel,
       newTunnel,
     });
@@ -215,7 +216,8 @@ async function handleFixSetup(req, res) {
   }
 
   emit("relay_redeploy_needed", {
-    message: "Relay needs redeployment to point at the new tunnel URL.",
+    message:
+      "Redeploying the relay so it points at the new ngrok URL. Your saved Worker URL will stay the same.",
   });
 
   const targetUrl = bootstrapData.publicTargetUrl || "";
@@ -262,7 +264,7 @@ async function handleFixSetup(req, res) {
     ) {
       emit("needs_cloudflare_auth", {
         message:
-          "Cloudflare auth is needed to update the relay. Run `npx wrangler login` in a terminal, then click Fix setup again.",
+          "Cloudflare auth is needed to update the relay behind your saved Worker URL. Run `npx wrangler login` in a terminal, then click Fix setup again.",
       });
       res.writeHead(200, corsHeaders);
       res.end(JSON.stringify({

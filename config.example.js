@@ -25,6 +25,12 @@ window.COMMAND_CENTER_CONFIG = {
   // See AGENT_CONTRACT.md
   discoveryWebhookUrl: "",
 
+  // Optional shared secret — when set, the dashboard sends it as the
+  // x-discovery-secret header. Required by the browser-use discovery worker
+  // (which fail-closes on empty secrets). Leave empty for public endpoints
+  // like the Apps Script stub.
+  discoveryWebhookSecret: "",
+
   // Cheerio scraper for "Fetch posting" on job cards (see server/).
   // Leave empty: on http://localhost the app defaults to http://127.0.0.1:3847 (npm start).
   // On GitHub Pages (HTTPS), leave empty unless you deploy the scraper — see DEPLOY-SCRAPER.md.

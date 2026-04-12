@@ -22,6 +22,8 @@
 
     var tabButtons = root.querySelectorAll('[role="tab"]');
     tabButtons.forEach(function (btn) {
+      if (btn.dataset.settingsTabsBound === "true") return;
+      btn.dataset.settingsTabsBound = "true";
       btn.addEventListener("click", function () {
         var tabId = btn.getAttribute("data-tab-id");
         if (tabId) setActiveSettingsTab(tabId);

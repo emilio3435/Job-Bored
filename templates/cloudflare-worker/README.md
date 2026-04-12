@@ -52,11 +52,22 @@ open Worker URL or the browser test path will fail.
    ```
 
    Good targets include:
-
    - an Apps Script `/exec` URL
    - a public ngrok URL that forwards to your local webhook
 
-3. Optional:
+3. If the downstream webhook enforces `x-discovery-secret` (e.g. the
+   browser-use discovery worker), upload the shared secret so the Worker can
+   inject it for you. The browser never sees this value:
+
+   ```bash
+   wrangler secret put DISCOVERY_SECRET
+   ```
+
+   When set, the Worker attaches `x-discovery-secret: <DISCOVERY_SECRET>` to
+   the upstream request. When unset, the Worker still forwards an
+   `x-discovery-secret` header sent by the browser (back-compat).
+
+4. Optional:
 
    ```bash
    wrangler secret put FORWARD_SECRET
@@ -65,7 +76,7 @@ open Worker URL or the browser test path will fail.
    Use this only if you intentionally want to lock the Worker for manual
    testing. The JobBored dashboard still expects the open Worker URL.
 
-4. Deploy:
+5. Deploy:
 
    ```bash
    wrangler deploy
@@ -79,11 +90,12 @@ open Worker URL or the browser test path will fail.
 
 ## Environment
 
-| Binding / var    | Type   | Purpose                                                                                      |
-| ---------------- | ------ | -------------------------------------------------------------------------------------------- |
-| `TARGET_URL`     | Secret | HTTPS downstream webhook. Required.                                                          |
-| `FORWARD_SECRET` | Secret | Optional lock for `POST /forward` on private/manual tests.                                    |
-| `CORS_ORIGIN`    | Var    | Optional browser origin. Defaults to `*` when omitted.                                       |
+| Binding / var      | Type   | Purpose                                                                    |
+| ------------------ | ------ | -------------------------------------------------------------------------- |
+| `TARGET_URL`       | Secret | HTTPS downstream webhook. Required.                                        |
+| `DISCOVERY_SECRET` | Secret | Optional. When set, injected as `x-discovery-secret` on the upstream POST. |
+| `FORWARD_SECRET`   | Secret | Optional lock for `POST /forward` on private/manual tests.                 |
+| `CORS_ORIGIN`      | Var    | Optional browser origin. Defaults to `*` when omitted.                     |
 
 ## Notes
 

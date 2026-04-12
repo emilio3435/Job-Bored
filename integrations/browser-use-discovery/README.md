@@ -3,6 +3,7 @@
 This package is a user-owned discovery worker for JobBored. It accepts the existing `command-center.discovery` webhook request, resolves jobs across Greenhouse, Lever, and Ashby, can widen into grounded web discovery through Gemini plus Browser Use, normalizes them into valid Pipeline rows, dedupes on column E `Link`, and writes directly to Google Sheets.
 
 It is designed for both:
+
 - hosted mode for general users
 - local mode for advanced or privacy-sensitive setups
 
@@ -40,6 +41,34 @@ Environment variables:
 - `BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_JSON`: optional inline Google OAuth token JSON
 - `BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_FILE`: optional Google OAuth token JSON file path
 - `BROWSER_USE_DISCOVERY_WEBHOOK_SECRET`: optional shared secret for the webhook layer
+
+### Google Sheets credential precedence
+
+The worker resolves Google Sheets credentials in this order at request time
+(highest first):
+
+1. **`googleAccessToken` in the discovery request body** — the dashboard sends
+   its current GIS sign-in token automatically. **Users who run discovery
+   from a signed-in JobBored tab need none of the env vars below.** Per-request
+   only; never persisted; stripped from the run-status store.
+2. `BROWSER_USE_DISCOVERY_GOOGLE_ACCESS_TOKEN` — raw access token in env.
+3. `BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON` / `_FILE` — recommended
+   for unattended/cron runs. Never expires, no re-auth dance, no user session
+   required. Share the destination Sheet with the service account email.
+4. `BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_JSON` / `_FILE` — refreshable
+   personal OAuth token; works for long-running personal setups but eventually
+   needs renewal.
+
+The two paths most users care about:
+
+- **Zero-touch (interactive)**: sign in to JobBored, click Run discovery. The
+  dashboard's existing Google Sheets token rides along on the request and the
+  worker uses it. No env wiring required.
+- **Power-user (unattended)**: set
+  `BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE` to a service-account
+  JSON. Cron jobs and headless trigger paths will work without any user
+  session. The dashboard path still works in parallel because the per-request
+  token takes precedence when present.
 
 Worker config JSON:
 

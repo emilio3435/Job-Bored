@@ -47,6 +47,7 @@ function parseArgs(argv) {
   const out = {
     url: null,
     sheetId: null,
+    secret: null,
     retries: null,
     retryDelayMs: null,
     context: null,
@@ -59,6 +60,10 @@ function parseArgs(argv) {
     }
     if (argv[i] === "--sheet-id" && argv[i + 1]) {
       out.sheetId = argv[++i];
+      continue;
+    }
+    if (argv[i] === "--secret" && argv[i + 1]) {
+      out.secret = argv[++i];
       continue;
     }
     if (argv[i] === "--retries" && argv[i + 1]) {
@@ -79,6 +84,11 @@ function parseArgs(argv) {
   }
   out.url = out.url || process.env.DISCOVERY_WEBHOOK_URL || "";
   out.sheetId = out.sheetId || process.env.SHEET_ID || "";
+  out.secret =
+    out.secret ||
+    process.env.DISCOVERY_WEBHOOK_SECRET ||
+    process.env.BROWSER_USE_DISCOVERY_WEBHOOK_SECRET ||
+    "";
   out.retries =
     out.retries ?? process.env.DISCOVERY_WEBHOOK_VERIFY_RETRIES ?? "6";
   out.retryDelayMs =
@@ -383,12 +393,17 @@ async function verifyDiscoveryEndpoint(endpoint, options) {
     options && typeof options === "object" && options.requestInit && typeof options.requestInit === "object"
       ? options.requestInit
       : {};
+  const secret =
+    options && typeof options === "object" && typeof options.secret === "string"
+      ? options.secret.trim()
+      : "";
 
   try {
     const res = await fetch(endpointUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(secret ? { "x-discovery-secret": secret } : {}),
         ...(options && typeof options === "object" && options.headers && typeof options.headers === "object"
           ? options.headers
           : {}),
@@ -443,6 +458,7 @@ Usage:
 Options:
   --url               Required HTTPS webhook URL.
   --sheet-id          Optional Sheet ID or URL. Used in the default payload.
+  --secret            Optional shared secret; sent as the x-discovery-secret header.
   --retries           Number of retry attempts for retryable failures. Default: 6.
   --retry-delay-ms    Base retry delay in milliseconds. Default: 5000.
   --context           Message context: test_webhook or run_discovery.
@@ -450,7 +466,8 @@ Options:
   --help              Show this message.
 
 Env (optional):
-  DISCOVERY_WEBHOOK_URL, SHEET_ID, DISCOVERY_WEBHOOK_VERIFY_RETRIES,
+  DISCOVERY_WEBHOOK_URL, SHEET_ID, DISCOVERY_WEBHOOK_SECRET,
+  BROWSER_USE_DISCOVERY_WEBHOOK_SECRET, DISCOVERY_WEBHOOK_VERIFY_RETRIES,
   DISCOVERY_WEBHOOK_VERIFY_RETRY_DELAY_MS, DISCOVERY_WEBHOOK_VERIFY_CONTEXT
 `);
   process.exit(code);
@@ -515,7 +532,7 @@ async function main() {
     process.exit(1);
   }
 
-  const { url, sheetId, retries, retryDelayMs, context, json } = parseArgs(process.argv);
+  const { url, sheetId, secret, retries, retryDelayMs, context, json } = parseArgs(process.argv);
   if (!url || !String(url).trim()) {
     printUsage(1);
   }
@@ -572,6 +589,7 @@ async function main() {
       payload: body,
       sheetId,
       context,
+      secret,
       timeoutMs: 15000,
     });
     return result;

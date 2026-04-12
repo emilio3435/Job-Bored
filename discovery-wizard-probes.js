@@ -539,12 +539,66 @@
     return "ok";
   }
 
+  function buildRecoveryCopy(snapshot) {
+    const state = snapshot && typeof snapshot === "object" ? snapshot : {};
+    const recovery =
+      typeof state.localRecoveryState === "string"
+        ? state.localRecoveryState.trim() || "ok"
+        : "ok";
+    const previousTunnel = normalizeUrl(state.storedTunnelUrl);
+    const currentTunnel = normalizeUrl(state.tunnelPublicUrl);
+    const fallbackDetail =
+      "Part of the local discovery chain is down after a restart.";
+
+    if (recovery === "tunnel_rotated") {
+      const detectBody = [
+        "ngrok gave your local setup a new public URL.",
+        "The saved Worker URL in JobBored can stay the same, but the relay behind it still points at the previous tunnel until you redeploy it.",
+      ];
+      if (previousTunnel && previousTunnel !== currentTunnel) {
+        detectBody.push(`Previous tunnel: ${previousTunnel}`);
+      }
+      if (currentTunnel) {
+        detectBody.push(`Current tunnel: ${currentTunnel}`);
+      }
+      return {
+        title: "Public tunnel changed",
+        detail: detectBody.join(" "),
+        compactDetail:
+          "ngrok gave your local setup a new public URL, so the relay behind your saved Worker URL needs to be redeployed.",
+        actionHint:
+          "Click Fix setup to redeploy the relay with the current ngrok URL. Keep the same Worker URL saved in JobBored.",
+        detectBody,
+      };
+    }
+
+    const detailMap = {
+      needs_full_restart:
+        "Your computer restarted, so the local worker and tunnel need to be brought back up.",
+      worker_down:
+        "The local discovery worker is not responding. It may need to be restarted.",
+      tunnel_down:
+        "The public ngrok tunnel is not running, so the saved Worker URL cannot reach your local worker right now.",
+    };
+    const detail = detailMap[recovery] || fallbackDetail;
+
+    return {
+      title: "Local setup needs recovery",
+      detail,
+      compactDetail: detail,
+      actionHint:
+        "Click Fix setup to restart what is down and redeploy the relay if needed.",
+      detectBody: [detail],
+    };
+  }
+
   function buildSettingsDiscoveryView(snapshot) {
     const state = snapshot && typeof snapshot === "object" ? snapshot : {};
     const engineState = normalizeDiscoveryEngineState(state.engineState);
     const kind = String(state.savedWebhookKind || SAVED_WEBHOOK_KIND_NONE);
     const appsScriptState = String(state.appsScriptState || "none");
     const recovery = state.localRecoveryState || "ok";
+    const recoveryCopy = buildRecoveryCopy(state);
     const hasSavedExternalEndpoint =
       kind === SAVED_WEBHOOK_KIND_WORKER ||
       kind === SAVED_WEBHOOK_KIND_GENERIC_HTTPS;
@@ -557,28 +611,15 @@
       kind === SAVED_WEBHOOK_KIND_APPS_SCRIPT_STUB;
 
     if (recovery !== "ok" && (connected || pendingExternal)) {
-      const sentences = {
-        needs_full_restart:
-          "Your computer restarted, so the local worker and tunnel need to be brought back up.",
-        worker_down:
-          "The local discovery worker is not responding. It may need to be restarted.",
-        tunnel_down:
-          "The ngrok tunnel is not running. The public URL cannot reach the local worker.",
-        tunnel_rotated:
-          "The ngrok tunnel restarted with a new URL. The relay needs to be updated.",
-      };
       return {
         tone: "warning",
-        title: "Local setup needs recovery",
-        detail:
-          sentences[recovery] ||
-          "Part of the local discovery chain is down after a restart.",
+        title: recoveryCopy.title,
+        detail: recoveryCopy.compactDetail,
         chipLabel: "Needs recovery",
         chipTone: "warning",
         runDiscoveryEnabled: false,
         primaryActionLabel: "Fix setup",
-        primaryActionHint:
-          "One click restores the local worker, tunnel, and relay.",
+        primaryActionHint: recoveryCopy.actionHint,
       };
     }
 
@@ -647,6 +688,7 @@
     const appsScriptState = String(state.appsScriptState || "none");
     const kind = String(state.savedWebhookKind || SAVED_WEBHOOK_KIND_NONE);
     const recovery = state.localRecoveryState || "ok";
+    const recoveryCopy = buildRecoveryCopy(state);
     const hasSavedExternalEndpoint =
       kind === SAVED_WEBHOOK_KIND_WORKER ||
       kind === SAVED_WEBHOOK_KIND_GENERIC_HTTPS;
@@ -660,8 +702,8 @@
         hasSavedExternalEndpoint)
     ) {
       return {
-        title: "Local setup needs recovery",
-        body: "The local discovery chain is down. Click Fix setup to restore it.",
+        title: recoveryCopy.title,
+        body: `${recoveryCopy.compactDetail} Use Fix setup to recover it.`,
         ctaLabel: "Fix setup",
         ctaAction: "open_setup",
       };
@@ -886,6 +928,7 @@
       localEngineKind,
       localEngineLabel,
       tunnelPublicUrl,
+      storedTunnelUrl,
       tunnelLive,
       tunnelReady,
       tunnelStale,
@@ -905,6 +948,8 @@
           localEngineKind,
           localEngineLabel,
           localWebhookUrl,
+          tunnelPublicUrl,
+          storedTunnelUrl,
           localRecoveryState,
         }),
         emptyState: buildEmptyStateDiscoveryView({
@@ -914,6 +959,8 @@
           localEngineKind,
           localEngineLabel,
           localWebhookUrl,
+          tunnelPublicUrl,
+          storedTunnelUrl,
           localRecoveryState,
         }),
       },
@@ -937,6 +984,7 @@
     isLocalWebhookUrl,
     deriveTunnelFields,
     deriveLocalRecoveryState,
+    buildRecoveryCopy,
     probeHealthUrl,
     probeNgrokTunnels,
     buildLocalHealthUrl,

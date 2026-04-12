@@ -275,6 +275,38 @@ describe("Recovery scenarios", () => {
   });
 });
 
+describe("Recovery copy", () => {
+  it("explains tunnel rotation in plain language with previous and current URLs", async () => {
+    const { buildRecoveryCopy } = await getProbeFunctions();
+    const copy = buildRecoveryCopy({
+      localRecoveryState: "tunnel_rotated",
+      storedTunnelUrl: "https://old.ngrok.io/",
+      tunnelPublicUrl: "https://new.ngrok.io/",
+    });
+    assert.equal(copy.title, "Public tunnel changed");
+    assert.match(copy.detail, /saved Worker URL.*can stay the same/i);
+    assert.deepEqual(Array.from(copy.detectBody), [
+      "ngrok gave your local setup a new public URL.",
+      "The saved Worker URL in JobBored can stay the same, but the relay behind it still points at the previous tunnel until you redeploy it.",
+      "Previous tunnel: https://old.ngrok.io/",
+      "Current tunnel: https://new.ngrok.io/",
+    ]);
+    assert.match(copy.actionHint, /Keep the same Worker URL saved in JobBored/i);
+  });
+
+  it("keeps other recovery states concise", async () => {
+    const { buildRecoveryCopy } = await getProbeFunctions();
+    const copy = buildRecoveryCopy({
+      localRecoveryState: "tunnel_down",
+    });
+    assert.equal(copy.title, "Local setup needs recovery");
+    assert.equal(
+      copy.detail,
+      "The public ngrok tunnel is not running, so the saved Worker URL cannot reach your local worker right now.",
+    );
+  });
+});
+
 describe("Simulation overrides", () => {
   // These tests use a fresh VM context with isolated localStorage
   // to test the simulation override mechanism

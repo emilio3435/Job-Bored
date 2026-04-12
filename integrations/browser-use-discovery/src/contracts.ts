@@ -45,6 +45,34 @@ export type SupportedSourceId = (typeof SUPPORTED_SOURCE_IDS)[number];
 export type AtsSourceId = (typeof ATS_SOURCE_IDS)[number];
 export type SourcePreset = (typeof SOURCE_PRESET_VALUES)[number];
 
+/**
+ * UltraPlan control-plane tuning flags.
+ * Each flag can be independently toggled to enable/disable specific agentic behaviors.
+ */
+export type UltraPlanTuning = {
+  /** Enable multi-query fan-out from role/keyword/location modifiers. */
+  multiQueryEnabled?: boolean;
+  /** Enable deterministic retry broadening ladder on zero-candidate focused queries. */
+  retryBroadeningEnabled?: boolean;
+  /** Enable bounded parallel company processing with failure isolation. */
+  parallelCompanyProcessingEnabled?: boolean;
+};
+
+/**
+ * Grounded search tunable parameters.
+ * These control results/pages/runtime/token budgets for the grounded_web source.
+ */
+export type GroundedSearchTuning = {
+  /** Maximum candidate links to return from grounded search per company. */
+  maxResultsPerCompany?: number;
+  /** Maximum pages to visit per company for job extraction. */
+  maxPagesPerCompany?: number;
+  /** Maximum runtime in milliseconds for a single grounded search operation. */
+  maxRuntimeMs?: number;
+  /** Maximum tokens to spend per grounded search query. */
+  maxTokensPerQuery?: number;
+};
+
 export type DiscoveryProfile = {
   sourcePreset?: SourcePreset;
   targetRoles?: string;
@@ -54,6 +82,10 @@ export type DiscoveryProfile = {
   keywordsInclude?: string;
   keywordsExclude?: string;
   maxLeadsPerRun?: string;
+  /** UltraPlan agentic behavior tuning flags. */
+  ultraPlanTuning?: UltraPlanTuning;
+  /** Grounded search tunable parameters. */
+  groundedSearchTuning?: GroundedSearchTuning;
 };
 
 export type DiscoveryWebhookRequestV1 = {
@@ -247,6 +279,10 @@ export type EffectiveDiscoveryConfig = StoredWorkerConfig & {
   variationKey: string;
   requestedAt: string;
   sourcePreset: SourcePreset;
+  /** Resolved UltraPlan tuning flags (with preset-specific defaults). */
+  ultraPlanTuning: UltraPlanTuning;
+  /** Resolved grounded search tuning parameters (with preset-specific defaults). */
+  groundedSearchTuning: GroundedSearchTuning;
 };
 
 export type DiscoveryRun = {

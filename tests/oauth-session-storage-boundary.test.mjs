@@ -18,10 +18,11 @@ if (AUTH_SECTION_START === -1 || AUTH_SECTION_END === -1) {
 
 const authSectionSource = appJs.slice(AUTH_SECTION_START, AUTH_SECTION_END);
 const OAUTH_SESSION_STORAGE_KEY = "command_center_oauth_session";
+const OAUTH_RUNTIME_SESSION_STORAGE_KEY = "command_center_oauth_runtime";
 
-function createAuthHarness({ oauthClientId = "client_123" } = {}) {
+function createStorage() {
   const storage = new Map();
-  const localStorage = {
+  return {
     getItem(key) {
       return storage.has(key) ? storage.get(key) : null;
     },
@@ -32,9 +33,21 @@ function createAuthHarness({ oauthClientId = "client_123" } = {}) {
       storage.delete(key);
     },
   };
+}
+
+function createAuthHarness({ oauthClientId = "client_123" } = {}) {
+  const localStorage = createStorage();
+  const sessionStorage = createStorage();
+  const calls = {
+    updateAuthUI: 0,
+    fetchUserEmail: 0,
+    loadAllData: 0,
+    revealSetupScreenAfterAuth: 0,
+  };
   const context = vm.createContext({
     console,
     localStorage,
+    sessionStorage,
     setTimeout,
     clearTimeout,
     pendingSetupStarterSheetCreate: false,
@@ -44,10 +57,19 @@ function createAuthHarness({ oauthClientId = "client_123" } = {}) {
     getOAuthClientId() {
       return context.__oauthClientId;
     },
-    updateAuthUI() {},
-    fetchUserEmail() {},
-    loadAllData() {},
-    revealSetupScreenAfterAuth() {},
+    updateAuthUI() {
+      calls.updateAuthUI += 1;
+    },
+    fetchUserEmail() {
+      calls.fetchUserEmail += 1;
+    },
+    loadAllData() {
+      calls.loadAllData += 1;
+    },
+    revealSetupScreenAfterAuth() {
+      calls.revealSetupScreenAfterAuth += 1;
+    },
+    maybeSyncSettingsModalModeAfterAuth() {},
   });
 
   vm.runInContext(authSectionSource, context, {
@@ -66,8 +88,10 @@ function createAuthHarness({ oauthClientId = "client_123" } = {}) {
   );
 
   return {
+    calls,
     context,
     localStorage,
+    sessionStorage,
     setOAuthClientId(nextValue) {
       context.__oauthClientId = nextValue;
     },
@@ -96,6 +120,12 @@ describe("OAuth session storage boundary", () => {
     assert.equal(stored.hasOauthSession, true);
     assert.equal(stored.accessToken, undefined);
     assert.equal(stored.userEmail, "user@example.com");
+
+    const runtimeStored = JSON.parse(
+      harness.sessionStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY),
+    );
+    assert.equal(runtimeStored.accessToken, "opaque-session-123");
+    assert.equal(runtimeStored.oauthClientId, "client_123");
   });
 
   it("clears stale persisted state when the OAuth client ID changes", () => {
@@ -108,12 +138,27 @@ describe("OAuth session storage boundary", () => {
         oauthClientId: "client_old",
       }),
     );
+    harness.sessionStorage.setItem(
+      OAUTH_RUNTIME_SESSION_STORAGE_KEY,
+      JSON.stringify({
+        hasOauthSession: true,
+        accessToken: "opaque-session-123",
+        expiresAt: Date.now() + 60_000,
+        oauthClientId: "client_old",
+      }),
+    );
 
     harness.setOAuthClientId("client_new");
     const loaded = harness.run("loadPersistedOAuthSession()");
+    const runtimeLoaded = harness.run("loadPersistedRuntimeOAuthSession()");
 
     assert.equal(loaded, null);
+    assert.equal(runtimeLoaded, null);
     assert.equal(harness.localStorage.getItem(OAUTH_SESSION_STORAGE_KEY), null);
+    assert.equal(
+      harness.sessionStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY),
+      null,
+    );
   });
 
   it("attempts silent restore only when a same-client session marker exists", () => {
@@ -136,12 +181,44 @@ describe("OAuth session storage boundary", () => {
     assert.equal(harness.context.__tokenRequests[0].prompt, "none");
   });
 
+  it("restores the same-client runtime token from sessionStorage before falling back to GIS", () => {
+    const harness = createAuthHarness();
+    harness.sessionStorage.setItem(
+      OAUTH_RUNTIME_SESSION_STORAGE_KEY,
+      JSON.stringify({
+        hasOauthSession: true,
+        accessToken: "opaque-session-123",
+        expiresAt: Date.now() + 60_000,
+        oauthClientId: "client_123",
+        userEmail: "user@example.com",
+        grantedOauthScopes: "scope-a scope-b",
+      }),
+    );
+
+    harness.run("restoreOAuthSession()");
+
+    assert.equal(harness.run("accessToken"), "opaque-session-123");
+    assert.equal(harness.run("userEmail"), "user@example.com");
+    assert.equal(harness.calls.updateAuthUI, 1);
+    assert.equal(harness.calls.fetchUserEmail, 1);
+    assert.equal(harness.context.__tokenRequests.length, 0);
+  });
+
   it("clears the persisted marker when session auth state is dropped", () => {
     const harness = createAuthHarness();
     harness.localStorage.setItem(
       OAUTH_SESSION_STORAGE_KEY,
       JSON.stringify({
         hasOauthSession: true,
+        expiresAt: Date.now() + 60_000,
+        oauthClientId: "client_123",
+      }),
+    );
+    harness.sessionStorage.setItem(
+      OAUTH_RUNTIME_SESSION_STORAGE_KEY,
+      JSON.stringify({
+        hasOauthSession: true,
+        accessToken: "opaque-session-123",
         expiresAt: Date.now() + 60_000,
         oauthClientId: "client_123",
       }),
@@ -155,6 +232,10 @@ describe("OAuth session storage boundary", () => {
     `);
 
     assert.equal(harness.localStorage.getItem(OAUTH_SESSION_STORAGE_KEY), null);
+    assert.equal(
+      harness.sessionStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY),
+      null,
+    );
     assert.equal(harness.run("accessToken"), null);
     assert.equal(harness.run("tokenExpiresAt"), null);
     assert.equal(harness.run("grantedOauthScopes"), "");

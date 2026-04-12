@@ -8,7 +8,7 @@ function cors(env) {
     "Access-Control-Allow-Origin": o,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, X-Forward-Secret",
+      "Content-Type, Authorization, X-Forward-Secret, X-Discovery-Secret",
     "Access-Control-Max-Age": "86400",
   };
 }
@@ -52,12 +52,29 @@ export default {
     }
 
     const body = await request.text();
+
+    // Upstream headers:
+    // 1. Propagate Content-Type from the browser.
+    // 2. If DISCOVERY_SECRET is set on the Worker, inject it as
+    //    x-discovery-secret so fail-closed receivers (e.g. the browser-use
+    //    discovery worker) accept the request — the browser never sees it.
+    // 3. Otherwise, forward any x-discovery-secret the browser sent, so
+    //    dashboards that already ship the secret client-side still work.
+    const upstreamHeaders = {
+      "Content-Type": request.headers.get("Content-Type") || "application/json",
+    };
+    if (env.DISCOVERY_SECRET) {
+      upstreamHeaders["x-discovery-secret"] = env.DISCOVERY_SECRET;
+    } else {
+      const forwarded = request.headers.get("x-discovery-secret");
+      if (forwarded) {
+        upstreamHeaders["x-discovery-secret"] = forwarded;
+      }
+    }
+
     const upstream = await fetch(target, {
       method: "POST",
-      headers: {
-        "Content-Type":
-          request.headers.get("Content-Type") || "application/json",
-      },
+      headers: upstreamHeaders,
       body,
     });
 

@@ -1,0 +1,22 @@
+{
+  "featureId": "unrestricted-company-scope-preflight-and-grounded-foundation",
+  "reviewedAt": "2026-04-12T12:15:00.000Z",
+  "commitId": "2a0c722a1161bdd66025765ddfd1db4c56ce5df6",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Implementation correctly removes hard preflight rejection for empty companies when intent is non-blank (VAL-API-010), preserves blank-intent guardrail under unrestricted scope (VAL-API-011), and enables browser_only runs with empty companies to execute grounded_web without legacy fixed-company defaults (VAL-ROUTE-007). All 35 webhook tests pass. Typecheck and lint pass.",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/src/run/run-discovery.ts",
+        "line": 736,
+        "severity": "non_blocking",
+        "description": "VAL-ROUTE-007 behavior (unrestricted grounded execution without legacy fixed-company defaults) is implemented via `companiesToSearch = [{ name: \"\" }]` but not directly unit-tested in isolation. The mock in VAL-API-010 test doesn't verify the actual company-transformed config passed to runDiscovery. This is acceptable since integration tests would exercise this path, but a dedicated unit test for `runGroundedWebDiscovery` with empty companies would improve coverage."
+      }
+    ]
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Feature passes scrutiny. The implementation correctly addresses all three assertions: (1) removes hard 409 preflight rejection when companies are empty but intent is non-blank, (2) preserves explicit 400 blank-intent rejection under unrestricted scope, and (3) enables browser_only runs with empty companies to execute grounded_web without injecting legacy defaults (Scale AI/Figma/Notion). Tests pass and implementation follows existing patterns."
+}
