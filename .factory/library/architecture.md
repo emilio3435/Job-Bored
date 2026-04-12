@@ -44,6 +44,7 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - Must provide explicit non-execution evidence for excluded lanes.
 - Non-execution evidence is structured and measurable (stage-level detect/list invocation counters or equivalent skip telemetry).
 - In unrestricted mode, discovery is not pinned to preconfigured company targets and must preserve truthful source attribution under all presets.
+- In unrestricted grounded execution, query/prompt composition must prioritize explicit intent modifiers (role, keywords, location, remote/seniority) rather than company-name terms.
 
 ### 5) Run status + observability surface
 - `/health` reports readiness causes (browser runtime, Gemini, Sheets credentials).
@@ -76,6 +77,7 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - Omitted/blank run-intent fields are rejected explicitly rather than silently inferred from stored profile defaults.
 - Run dispatch resolves intent from user-visible inputs: if manual intent is blank but AI suggestions are non-blank, those values must be promoted into canonical intent fields before payload dispatch.
 - Empty company config does not imply run rejection; unrestricted execution remains valid when intent and credentials are present.
+- Valid unrestricted intent should not be treated as a missing-company degraded state when grounded execution can proceed from modifiers.
 - ATS is optional; it is never implicitly forced in `browser_only`.
 - Async acceptance is never treated as terminal success.
 - Failures (auth, readiness, source, write path) are explicit and attributable.

@@ -47,6 +47,8 @@ High-level map of shared contracts that must stay aligned for browser-first disc
 - Company scope rule:
   - Discovery execution must support unrestricted scope when worker config has an empty `companies` array; this is not a preflight contract failure by itself.
   - Source preset routing semantics remain authoritative in unrestricted scope (`browser_only`, `ats_only`, `browser_plus_ats`).
+- Grounded query composition rule (unrestricted scope):
+  - When `companies` scope is empty, grounded search queries must be composed from explicit intent modifiers (`targetRoles`, `keywordsInclude`, `locations`, remote/seniority inputs) and must not rely on placeholder company labels.
 - Optional transient field: `googleAccessToken` (runtime passthrough only; never persisted)
 - Invalid/contradictory values must return explicit `400` errors.
 - Async acceptance must include `runId`, `statusPath`, and `pollAfterMs`.
