@@ -56,7 +56,16 @@ export type HandleWebhookDependencies = {
   createPipelineWriterForRequest?(
     runtimeConfigOverride: RunDiscoveryDependencies["runtimeConfig"],
   ): RunDiscoveryDependencies["pipelineWriter"];
+  /**
+   * Maximum duration in milliseconds for an async run before it is forcibly
+   * terminalized. Defaults to 5 minutes (300000ms) if not specified.
+   * This guarantees that async runs cannot stall indefinitely in running state.
+   */
+  maxRunDurationMs?: number;
 };
+
+// Default maximum async run duration: 5 minutes
+const DEFAULT_MAX_RUN_DURATION_MS = 5 * 60 * 1000;
 
 export async function handleDiscoveryWebhook(
   request: WebhookRequestLike,
@@ -255,9 +264,54 @@ export async function handleDiscoveryWebhook(
   });
 
   const startedAt = now().toISOString();
+  const maxRunDurationMs =
+    dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
+  let safetyTimer: ReturnType<typeof setTimeout> | null = null;
+  let runCompleted = false;
+
+  // Safety terminalization: if the run doesn't complete within maxRunDurationMs,
+  // force terminalize with partial status and a timeout warning.
+  const scheduleSafetyTerminalization = () => {
+    safetyTimer = setTimeout(() => {
+      if (!runCompleted) {
+        runCompleted = true;
+        const currentStatus =
+          dependencies.runStatusStore?.get(runId) ?? acceptedStatus;
+        dependencies.runStatusStore?.put({
+          ...currentStatus,
+          status: "partial",
+          terminal: true,
+          message:
+            "Discovery run exceeded maximum duration and was force-terminalized.",
+          completedAt: now().toISOString(),
+          updatedAt: now().toISOString(),
+          warnings: [
+            ...(currentStatus.warnings || []),
+            `Run force-terminalized after ${maxRunDurationMs}ms timeout. Some sources may not have completed.`,
+          ],
+        });
+        dependencies.log?.("discovery.run.force_terminalized", {
+          runId,
+          mode: runMode,
+          maxRunDurationMs,
+          reason: "safety_timeout",
+        });
+      }
+    }, maxRunDurationMs);
+  };
+
+  const clearSafetyTerminalization = () => {
+    if (safetyTimer !== null) {
+      clearTimeout(safetyTimer);
+      safetyTimer = null;
+    }
+  };
+
   void dependencies
     .runDiscovery(requestForRun, "manual", runDependencies)
     .then((result) => {
+      runCompleted = true;
+      clearSafetyTerminalization();
       dependencies.runStatusStore?.put(
         buildCompletedRunStatus(result, {
           acceptedAt,
@@ -282,6 +336,8 @@ export async function handleDiscoveryWebhook(
       });
     })
     .catch((error) => {
+      runCompleted = true;
+      clearSafetyTerminalization();
       dependencies.runStatusStore?.put(
         buildFailedRunStatus(
           buildRunningRunStatus(acceptedStatus, startedAt),
@@ -300,6 +356,8 @@ export async function handleDiscoveryWebhook(
   dependencies.runStatusStore?.put(
     buildRunningRunStatus(acceptedStatus, startedAt),
   );
+  // Schedule safety terminalization for async runs
+  scheduleSafetyTerminalization();
 
   return jsonResponse(202, {
     ok: true,
