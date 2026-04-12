@@ -85,6 +85,8 @@ export async function runDiscovery(
     variationKey: request.variationKey,
     companies: config.companies.map((company) => company.name),
     enabledSources: config.enabledSources,
+    sourcePreset: config.sourcePreset,
+    effectiveSources: config.effectiveSources,
     maxLeadsPerRun: config.maxLeadsPerRun,
   });
 
@@ -110,10 +112,10 @@ export async function runDiscovery(
 
   for (const company of config.companies) {
     try {
-      const detections = await dependencies.sourceAdapterRegistry.detectBoards({
-        company,
-        run,
-      });
+      const detections = await dependencies.sourceAdapterRegistry.detectBoards(
+        { company, run },
+        config.effectiveSources,
+      );
       detectionCount += detections.length;
 
       for (const detection of detections) {
@@ -176,7 +178,7 @@ export async function runDiscovery(
     }
   }
 
-  if (config.enabledSources.includes("grounded_web")) {
+  if (config.effectiveSources.includes("grounded_web")) {
     const groundedResult = await runGroundedWebDiscovery(
       run,
       dependencies,
@@ -191,6 +193,20 @@ export async function runDiscovery(
       );
     }
     normalizedLeads.push(...groundedResult.normalizedLeads);
+  }
+
+  // Add skip evidence for sources excluded by the preset (VAL-ROUTE-006)
+  const excludedSources = config.enabledSources.filter(
+    (sourceId) => !config.effectiveSources.includes(sourceId),
+  );
+  for (const excludedSourceId of excludedSources) {
+    if (!extractionResultsBySource.has(excludedSourceId)) {
+      const skipResult = createExtractionResult(runId, excludedSourceId, "");
+      skipResult.warnings.push(
+        `Source ${excludedSourceId} was excluded by preset '${config.sourcePreset}' and did not execute.`,
+      );
+      extractionResultsBySource.set(excludedSourceId, skipResult);
+    }
   }
 
   const dedupedLeads = dedupeNormalizedLeads(normalizedLeads);

@@ -43,6 +43,8 @@ function makeRun() {
       schedule: { enabled: false, cron: "" },
       variationKey: "var_123",
       requestedAt: "2026-04-09T00:00:00.000Z",
+      sourcePreset: "ats_only",
+      effectiveSources: ["greenhouse", "lever", "ashby"],
     },
   };
 }
@@ -130,7 +132,7 @@ test("source adapters detect and collect ATS-native public listings", async () =
     });
     const run = makeRun();
     const companyContext = { company: run.config.companies[0], run };
-    const detections = await registry.detectBoards(companyContext);
+    const detections = await registry.detectBoards(companyContext, run.config.effectiveSources);
     const listings = await registry.collectListings(run, detections);
 
     assert.equal(detections.length, 3);
@@ -234,7 +236,7 @@ test("greenhouse compensation sanitization strips encoded HTML junk", async () =
     });
     const run = makeRun();
     const companyContext = { company: run.config.companies[0], run };
-    const detections = await registry.detectBoards(companyContext);
+    const detections = await registry.detectBoards(companyContext, run.config.effectiveSources);
     const listings = await registry.collectListings(run, detections);
 
     const greenhouseListing = listings.find(

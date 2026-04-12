@@ -38,7 +38,9 @@ export type WorkerRuntimeConfig = {
   asyncAckByDefault: boolean;
 };
 
-export type ResolvedRunSettings = EffectiveDiscoveryConfig;
+export type ResolvedRunSettings = EffectiveDiscoveryConfig & {
+  effectiveSources: SupportedSourceId[];
+};
 
 type RuntimeEnv = Record<string, string | undefined>;
 type AnyRecord = Record<string, unknown>;
@@ -290,6 +292,7 @@ export function mergeDiscoveryConfig(
       cron: cleanString(stored.schedule?.cron) || defaultScheduleCron,
     },
     sourcePreset: resolvedSourcePreset,
+    effectiveSources: computeEffectiveSources(resolvedSourcePreset, stored.enabledSources),
   };
 }
 
@@ -365,6 +368,32 @@ export function resolveSourcePreset(
   if (hasGroundedWeb && !hasAts) return "browser_only";
   if (hasAts && !hasGroundedWeb) return "ats_only";
   return "browser_plus_ats";
+}
+
+/**
+ * Compute the effective source list by applying routing gates based on the
+ * resolved sourcePreset (VAL-ROUTE-001 through VAL-ROUTE-003):
+ *
+ * - browser_only:     grounded_web only (ATS lanes excluded)
+ * - ats_only:         ATS lanes only (grounded_web excluded)
+ * - browser_plus_ats: all sources
+ */
+export function computeEffectiveSources(
+  sourcePreset: SourcePreset,
+  enabledSources: readonly SupportedSourceId[],
+): SupportedSourceId[] {
+  const allAts = [...ATS_SOURCE_IDS] as const;
+  switch (sourcePreset) {
+    case "browser_only":
+      return enabledSources.includes("grounded_web")
+        ? ["grounded_web"]
+        : [];
+    case "ats_only":
+      return allAts.filter((id) => enabledSources.includes(id));
+    case "browser_plus_ats":
+    default:
+      return [...enabledSources];
+  }
 }
 
 function buildDefaultStoredWorkerConfig(
