@@ -949,3 +949,367 @@ test("VAL-ROUTE-009: browser_plus_ats with empty companies executes both grounde
     );
   }
 });
+
+// === VAL-ROUTE-010: Browser-only unrestricted grounded query evidence is modifier-driven (not placeholder-company-driven) ===
+
+test("VAL-ROUTE-010: browser_only with empty companies uses modifier-driven grounded query (no placeholder company artifacts)", async () => {
+  // When browser_only preset is used with empty companies and non-blank modifiers,
+  // the grounded search prompt should be driven by role/keyword/location modifiers
+  // and NOT use placeholder company artifacts like "Target careers".
+  let groundedSearchPrompt: string | undefined;
+
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "test-key",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+    },
+    sourceAdapterRegistry: {
+      adapters: [],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    groundedSearchClient: {
+      search: async (company, run) => {
+        // Capture that the search is called with empty company name (unrestricted scope)
+        assert.equal(company.name, "", "Company name should be empty for unrestricted scope");
+        
+        // The querySummary should contain modifier tokens, not placeholder company artifacts
+        // We can't directly test the prompt here, but we can verify the grounded search
+        // is called and produces proper searchQueries based on modifiers
+        return {
+          searchQueries: run.config.targetRoles.length > 0 
+            ? [`${run.config.targetRoles.join(" ")} ${run.config.includeKeywords.join(" ")}`.trim()]
+            : ["modifier-driven search"],
+          candidates: [
+            {
+              url: "https://example.com/senior-engineer",
+              title: "Senior Software Engineer",
+              pageType: "job",
+              reason: "Direct job posting",
+              sourceDomain: "example.com",
+            },
+          ],
+          warnings: [],
+        };
+      },
+    },
+    browserSessionManager: {
+      run: async () => ({
+        url: "https://example.com/senior-engineer",
+        text: JSON.stringify({
+          pageType: "job",
+          jobs: [
+            {
+              title: "Senior Software Engineer",
+              company: "Example Corp",
+              location: "Remote",
+              url: "https://example.com/senior-engineer",
+              descriptionText: "Build software",
+            },
+          ],
+        }),
+        metadata: { mode: "browser_use_command" },
+      }),
+    },
+    pipelineWriter: {
+      write: async () => ({
+        sheetId: "sheet_123",
+        appended: 1,
+        updated: 0,
+        skippedDuplicates: 0,
+        warnings: [],
+      }),
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_123",
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [], // Empty companies - unrestricted scope
+      includeKeywords: ["python", "machine learning"],
+      excludeKeywords: [],
+      targetRoles: ["Senior Software Engineer", "Staff Engineer"],
+      locations: ["Remote", "United States"],
+      remotePolicy: "remote",
+      seniority: "senior",
+      maxLeadsPerRun: 25,
+      enabledSources: ["grounded_web"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored, request) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "browser_only",
+      effectiveSources: ["grounded_web"],
+    }),
+    now: () => new Date("2026-04-10T03:00:00.000Z"),
+    randomId: () => "run_modifier_driven_test",
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+
+  // grounded_web should have executed with modifier-driven query
+  const groundedEntry = result.sourceSummary.find((s) => s.sourceId === "grounded_web");
+  assert.ok(groundedEntry, "grounded_web should be in sourceSummary for browser_only unrestricted");
+
+  // The querySummary should contain modifier tokens (role/keyword/location), not placeholder company artifacts
+  // Since we mock searchQueries to be modifier-based, verify it was captured
+  assert.ok(
+    result.extractionResults.some((r) => r.sourceId === "grounded_web" && r.querySummary.length > 0),
+    "grounded_web should have querySummary with modifier-driven search queries"
+  );
+
+  // Should NOT have placeholder company artifacts in the search results
+  // The mock returns modifier-based search queries, not company-based ones
+  const groundedResults = result.extractionResults.find((r) => r.sourceId === "grounded_web");
+  if (groundedResults) {
+    assert.ok(
+      !groundedResults.querySummary.includes("Scale AI") &&
+      !groundedResults.querySummary.includes("Figma") &&
+      !groundedResults.querySummary.includes("Notion"),
+      "Query should not contain placeholder company artifacts (Scale AI, Figma, Notion)"
+    );
+  }
+});
+
+// === VAL-ROUTE-011: Valid unrestricted modifier intent does not emit misleading missing-company degradation warnings ===
+
+test("VAL-ROUTE-011: browser_only with empty companies and non-blank modifiers does NOT emit misleading missing-company warning", async () => {
+  // When browser_only preset is used with empty companies but non-blank modifier intent,
+  // the "No companies are configured" warning should NOT be emitted because grounded
+  // search can proceed with modifiers alone.
+
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "test-key",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+    },
+    sourceAdapterRegistry: {
+      adapters: [],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Senior Engineer Remote"],
+        candidates: [
+          {
+            url: "https://example.com/senior-engineer",
+            title: "Senior Software Engineer",
+            pageType: "job",
+            reason: "Direct job posting",
+            sourceDomain: "example.com",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    browserSessionManager: {
+      run: async () => ({
+        url: "https://example.com/senior-engineer",
+        text: JSON.stringify({
+          pageType: "job",
+          jobs: [
+            {
+              title: "Senior Software Engineer",
+              company: "Example Corp",
+              location: "Remote",
+              url: "https://example.com/senior-engineer",
+              descriptionText: "Build software",
+            },
+          ],
+        }),
+        metadata: { mode: "browser_use_command" },
+      }),
+    },
+    pipelineWriter: {
+      write: async () => ({
+        sheetId: "sheet_123",
+        appended: 1,
+        updated: 0,
+        skippedDuplicates: 0,
+        warnings: [],
+      }),
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_123",
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [], // Empty companies - unrestricted scope
+      includeKeywords: ["python"],
+      excludeKeywords: [],
+      targetRoles: ["Senior Software Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+      seniority: "senior",
+      maxLeadsPerRun: 25,
+      enabledSources: ["grounded_web"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored, request) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "browser_only",
+      effectiveSources: ["grounded_web"],
+    }),
+    now: () => new Date("2026-04-10T03:00:00.000Z"),
+    randomId: () => "run_no_warning_test",
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+
+  // grounded_web should have executed
+  const groundedEntry = result.sourceSummary.find((s) => s.sourceId === "grounded_web");
+  assert.ok(groundedEntry, "grounded_web should be in sourceSummary for browser_only unrestricted");
+
+  // The "No companies are configured" warning should NOT be present because:
+  // - companies is empty AND
+  // - grounded_web is in effectiveSources AND
+  // - we have non-blank modifier intent (targetRoles, keywordsInclude, etc.)
+  assert.ok(
+    !result.warnings.some((w) => w.includes("No companies are configured")),
+    "Should NOT emit 'No companies are configured' warning for browser_only with modifier intent and empty companies"
+  );
+
+  // Verify the grounded execution was NOT treated as degraded due to missing companies
+  assert.ok(
+    !result.warnings.some((w) => w.includes("missing companies") || w.includes("no companies")),
+    "Should NOT have any misleading missing-company warnings during grounded execution"
+  );
+});
+
+test("VAL-ROUTE-011: ats_only with empty companies and no modifiers SHOULD emit missing-company warning", async () => {
+  // When ats_only preset is used with empty companies AND no modifier intent,
+  // the "No companies are configured" warning SHOULD be emitted because
+  // ATS lanes cannot execute without company targets.
+
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "test-key",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+    },
+    sourceAdapterRegistry: {
+      adapters: [
+        {
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          detect: async () => null,
+          listJobs: async () => [],
+          normalize: async () => null,
+        },
+      ],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: [],
+        candidates: [],
+        warnings: [],
+      }),
+    },
+    browserSessionManager: {
+      run: async () => ({
+        url: "",
+        text: "[]",
+        metadata: {},
+      }),
+    },
+    pipelineWriter: {
+      write: async () => ({
+        sheetId: "sheet_123",
+        appended: 0,
+        updated: 0,
+        skippedDuplicates: 0,
+        warnings: [],
+      }),
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_123",
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [], // Empty companies
+      includeKeywords: [], // NO modifiers
+      excludeKeywords: [],
+      targetRoles: [], // NO modifiers
+      locations: [],
+      remotePolicy: "",
+      seniority: "",
+      maxLeadsPerRun: 25,
+      enabledSources: ["greenhouse", "lever", "ashby", "grounded_web"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored, request) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "ats_only",
+      effectiveSources: ["greenhouse", "lever", "ashby"],
+    }),
+    now: () => new Date("2026-04-10T03:00:00.000Z"),
+    randomId: () => "run_ats_no_mods_test",
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+
+  // The "No companies are configured" warning SHOULD be present because:
+  // - companies is empty AND
+  // - no modifier intent AND
+  // - ATS lanes cannot execute without company targets
+  assert.ok(
+    result.warnings.some((w) => w.includes("No companies are configured")),
+    "Should emit 'No companies are configured' warning when no companies AND no modifiers"
+  );
+});

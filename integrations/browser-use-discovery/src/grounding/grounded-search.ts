@@ -212,8 +212,22 @@ function buildSearchPrompt(
   maxResults: number,
 ): string {
   const config = run.config;
-  return [
-    `Company: ${company.name}`,
+  const isUnrestrictedScope = !company.name;
+
+  // For unrestricted scope (empty company name), compose query from modifiers only
+  // without placeholder company artifacts that could bias search toward irrelevant terms.
+  // VAL-ROUTE-010: grounded query evidence is modifier-driven, not placeholder-company-driven.
+  const lines: string[] = [];
+
+  if (isUnrestrictedScope) {
+    // Unrestricted: search is driven by modifier fields only
+    // Do NOT include "Company:" with empty value - it creates misleading placeholder artifacts
+    lines.push("Search focus: Modifier-driven intent search (no fixed company target)");
+  } else {
+    lines.push(`Company: ${company.name}`);
+  }
+
+  lines.push(
     `Target roles: ${joinOrAny(config.targetRoles)}`,
     `Include keywords: ${joinOrAny([
       ...config.includeKeywords,
@@ -228,7 +242,9 @@ function buildSearchPrompt(
     `Seniority: ${config.seniority || "any"}`,
     `Return at most ${Math.max(1, maxResults)} candidate links.`,
     "Mix direct employer job pages with expandable careers/listings pages when useful.",
-  ].join("\n");
+  );
+
+  return lines.join("\n");
 }
 
 function buildPagePrompt(

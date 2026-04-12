@@ -114,6 +114,21 @@ function withTimeout<T>(
   });
 }
 
+/**
+ * Returns true if the config has non-blank modifier intent fields that can
+ * drive a grounded search in unrestricted scope (without company targets).
+ * Used to determine whether a missing company list is actually problematic.
+ */
+function hasNonBlankModifierIntent(config: ResolvedRunSettings): boolean {
+  return (
+    (config.targetRoles || []).some((v) => v.trim()) ||
+    (config.includeKeywords || []).some((v) => v.trim()) ||
+    (config.locations || []).some((v) => v.trim()) ||
+    Boolean(config.remotePolicy?.trim()) ||
+    Boolean(config.seniority?.trim())
+  );
+}
+
 export async function runDiscovery(
   request: DiscoveryWebhookRequestV1,
   trigger: "manual" | "scheduled",
@@ -144,8 +159,16 @@ export async function runDiscovery(
   });
 
   const warnings: string[] = [];
+  // VAL-API-010 / VAL-ROUTE-011: Only warn about missing companies when the run
+  // cannot proceed without them. If grounded_web is in effectiveSources and we
+  // have valid modifier intent (targetRoles, keywordsInclude, etc.), the run can
+  // execute in unrestricted scope driven by modifiers alone - no misleading warning needed.
   if (!config.companies.length) {
-    warnings.push("No companies are configured for this discovery run.");
+    const hasModifierIntent = hasNonBlankModifierIntent(config);
+    const canRunUnrestricted = config.effectiveSources.includes("grounded_web");
+    if (!hasModifierIntent || !canRunUnrestricted) {
+      warnings.push("No companies are configured for this discovery run.");
+    }
   }
 
   const adapterMap = new Map(
