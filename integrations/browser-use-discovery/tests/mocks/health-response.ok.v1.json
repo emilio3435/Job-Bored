@@ -16,6 +16,10 @@
     "companiesConfigured": 3,
     "sheetsCredentialConfigured": true,
     "enabledSources": ["greenhouse", "ashby", "grounded_web"],
+    "browserRuntime": {
+      "configured": true,
+      "available": true
+    },
     "groundedWeb": {
       "enabled": true,
       "ready": true

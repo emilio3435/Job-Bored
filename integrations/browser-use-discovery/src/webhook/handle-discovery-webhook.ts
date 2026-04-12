@@ -84,15 +84,19 @@ export async function handleDiscoveryWebhook(
     );
   }
 
-  if (
-    !hasValidWebhookSecret(
-      dependencies.runDependencies.runtimeConfig.webhookSecret,
-      request.headers,
-    )
-  ) {
+  const authCheck = hasValidWebhookSecret(
+    dependencies.runDependencies.runtimeConfig.webhookSecret,
+    request.headers,
+  );
+  if (!authCheck.valid) {
     return jsonResponse(401, {
       ok: false,
       message: "Unauthorized discovery webhook request.",
+      auth: {
+        category: authCheck.category,
+        detail: authCheck.detail,
+        ...(authCheck.remediation ? { remediation: authCheck.remediation } : {}),
+      },
     });
   }
 
@@ -611,20 +615,69 @@ function createRunId(randomId?: ((prefix: string) => string) | null): string {
   return `run_${randomUUID().replace(/-/g, "")}`;
 }
 
+type WebhookAuthCheckResult =
+  | { valid: true }
+  | {
+      valid: false;
+      category:
+        | "no_secret_configured"
+        | "missing_secret_header"
+        | "secret_mismatch";
+      detail: string;
+      remediation?: string;
+    };
+
+/**
+ * Validates the webhook secret and returns detailed auth failure information.
+ * VAL-OBS-004: Authentication failures are explicitly categorized
+ */
 function hasValidWebhookSecret(
   configuredSecret: string,
   headers: Record<string, string | string[] | undefined>,
-): boolean {
+): WebhookAuthCheckResult {
   const expected = stringValue(configuredSecret);
   // Fail closed: when no secret is configured, reject all requests to avoid
   // silently degrading into an open permissive webhook.
-  if (!expected) return false;
+  if (!expected) {
+    return {
+      valid: false,
+      category: "no_secret_configured",
+      detail: "Webhook secret is not configured on the worker.",
+      remediation:
+        "Set BROWSER_USE_DISCOVERY_WEBHOOK_SECRET (or DISCOVERY_WEBHOOK_SECRET) to a secure random value and configure the same value on the dashboard.",
+    };
+  }
   const provided = readHeader(headers, "x-discovery-secret");
-  if (!provided) return false;
+  if (!provided) {
+    return {
+      valid: false,
+      category: "missing_secret_header",
+      detail: "x-discovery-secret header is missing from the request.",
+      remediation:
+        "Include the x-discovery-secret header with the configured webhook secret value.",
+    };
+  }
   const expectedBuffer = Buffer.from(expected);
   const providedBuffer = Buffer.from(provided);
-  if (expectedBuffer.length !== providedBuffer.length) return false;
-  return timingSafeEqual(expectedBuffer, providedBuffer);
+  if (expectedBuffer.length !== providedBuffer.length) {
+    return {
+      valid: false,
+      category: "secret_mismatch",
+      detail: "The provided x-discovery-secret does not match the configured secret.",
+      remediation:
+        "Verify that the x-discovery-secret header value matches the configured webhook secret.",
+    };
+  }
+  if (!timingSafeEqual(expectedBuffer, providedBuffer)) {
+    return {
+      valid: false,
+      category: "secret_mismatch",
+      detail: "The provided x-discovery-secret does not match the configured secret.",
+      remediation:
+        "Verify that the x-discovery-secret header value matches the configured webhook secret.",
+    };
+  }
+  return { valid: true };
 }
 
 function readHeader(
