@@ -29,7 +29,7 @@ services:
     depends_on: []
 
   discovery_worker:
-    start: BROWSER_USE_DISCOVERY_RUN_MODE=local BROWSER_USE_DISCOVERY_HOST=127.0.0.1 BROWSER_USE_DISCOVERY_PORT=8644 BROWSER_USE_DISCOVERY_CONFIG_PATH="$PWD/integrations/browser-use-discovery/state/worker-config.json" BROWSER_USE_DISCOVERY_STATE_DB_PATH="$PWD/integrations/browser-use-discovery/state/worker-state.sqlite" node --experimental-strip-types integrations/browser-use-discovery/src/server.ts
+    start: BROWSER_USE_DISCOVERY_RUN_MODE=local BROWSER_USE_DISCOVERY_HOST=127.0.0.1 BROWSER_USE_DISCOVERY_PORT=8644 BROWSER_USE_DISCOVERY_CONFIG_PATH="$PWD/integrations/browser-use-discovery/state/worker-config.json" BROWSER_USE_DISCOVERY_STATE_DB_PATH="$PWD/integrations/browser-use-discovery/state/worker-state.sqlite" BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE="/Users/emilionunezgarcia/Downloads/elio-ai-prod-4bae66f7bba7.json" node --experimental-strip-types integrations/browser-use-discovery/src/server.ts
     stop: if lsof -ti tcp:8644 >/dev/null; then lsof -ti tcp:8644 | xargs kill; fi
     healthcheck: curl -sf http://127.0.0.1:8644/health
     port: 8644
