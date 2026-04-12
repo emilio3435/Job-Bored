@@ -1,0 +1,39 @@
+{
+  "milestone": "routing-enforcement",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": { "passed": true, "command": "npm run test:repo", "exitCode": 0 },
+    "typecheck": { "passed": true, "command": "npm run typecheck:repo", "exitCode": 0 },
+    "lint": { "passed": true, "command": "npm run lint:repo", "exitCode": 0 }
+  },
+  "reviewsSummary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [
+    {
+      "target": "library/source-preset-contract.md",
+      "description": "Added clarification on effectiveSources vs enabledSources distinction in routing pipeline: effectiveSources is resolved from sourcePreset and filters at detect stage; enabledSources is used at list stage consistent with already-filtered detections",
+      "sourceFeature": "discovery-routing-enforcement-and-nonexecution-evidence"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Add guidance on positive-control testing for routing assertions: when validating that a preset excludes a lane family, the test should start from a state where both families are discoverable so the exclusion is non-vacuous. This is particularly important for VAL-ROUTE-005 and similar truth-table validations.",
+      "evidence": "Feature discovery-routing-enforcement-and-nonexecution-evidence had non-blocking gaps in VAL-ROUTE-004 and VAL-ROUTE-005 coverage due to tests that didn't start from a positive-control baseline where both ATS and browser lanes were discoverable before routing gates were applied.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Worker followed discovery-integration-worker SKILL.md correctly; no skill update needed",
+      "reason": "observation is confirmation, not a gap"
+    }
+  ],
+  "previousRound": null
+}
