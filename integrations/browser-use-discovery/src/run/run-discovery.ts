@@ -690,7 +690,16 @@ async function runGroundedWebDiscovery(
 
   const sourceTimeoutMs = timeouts?.sourceTimeoutMs ?? DEFAULT_SOURCE_TIMEOUT_MS;
 
-  for (const company of run.config.companies) {
+  // VAL-API-010 / VAL-ROUTE-007: When companies is empty but intent is non-blank,
+  // run unrestricted grounded discovery using just the intent fields.
+  // This supports browser_only and browser_plus_ats presets with empty company scope
+  // without injecting legacy fixed-company defaults (Scale AI/Figma/Notion).
+  const companiesToSearch =
+    run.config.companies.length > 0
+      ? run.config.companies
+      : [{ name: "" }]; // Unrestricted search with empty company name
+
+  for (const company of companiesToSearch) {
     try {
       const collectionPromise = collectGroundedWebListings({
         company,

@@ -162,7 +162,7 @@ export async function handleDiscoveryWebhook(
 
   const runMode = dependencies.runSynchronously ? "sync" : "async";
   const preflight = await validateDiscoveryPreflight(
-    parsed.request.sheetId,
+    parsed.request,
     runDependencies,
   );
   if (preflight) {
@@ -387,12 +387,12 @@ type DiscoveryPreflightFailure = {
 };
 
 async function validateDiscoveryPreflight(
-  sheetId: string,
+  request: DiscoveryWebhookRequestV1,
   runDependencies: RunDiscoveryDependencies,
 ): Promise<DiscoveryPreflightFailure | null> {
   let storedConfig: StoredWorkerConfig;
   try {
-    storedConfig = await runDependencies.loadStoredWorkerConfig(sheetId);
+    storedConfig = await runDependencies.loadStoredWorkerConfig(request.sheetId);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
@@ -402,22 +402,40 @@ async function validateDiscoveryPreflight(
     };
   }
 
-  if (
-    !Array.isArray(storedConfig.companies) ||
-    !storedConfig.companies.length
-  ) {
-    const configPath = String(
-      runDependencies.runtimeConfig.workerConfigPath || "",
-    ).trim();
-    return {
-      status: 409,
-      message: "Discovery worker has no target companies configured.",
-      detail: configPath
-        ? `Add at least one company entry in ${configPath}, then retry.`
-        : "Add at least one company entry to the worker config, then retry.",
-      remediation:
-        'Create a worker config JSON with a `companies` array. Each entry should look like {"name":"Acme","boardHints":{"greenhouse":"acme"}}.',
-    };
+  // NOTE: Empty companies array is now allowed (unrestricted company scope).
+  // VAL-API-010: Empty companies config must not hard-fail preflight when intent is non-blank.
+  // VAL-API-011: Blank-intent guardrail still fails closed when companies is empty,
+  // even under unrestricted company scope. This catches the case where discoveryProfile
+  // is absent or both targetRoles and keywordsInclude are blank.
+
+  const companiesEmpty =
+    !Array.isArray(storedConfig.companies) || storedConfig.companies.length === 0;
+
+  if (companiesEmpty) {
+    // Check if intent is blank
+    const profile = request.discoveryProfile;
+    const rawTargetRoles = profile?.targetRoles;
+    const rawKeywordsInclude = profile?.keywordsInclude;
+    const targetRolesBlank =
+      rawTargetRoles == null ||
+      (typeof rawTargetRoles === "string" && !rawTargetRoles.trim());
+    const keywordsBlank =
+      rawKeywordsInclude == null ||
+      (typeof rawKeywordsInclude === "string" && !rawKeywordsInclude.trim());
+
+    if (targetRolesBlank && keywordsBlank) {
+      // Blank intent with empty companies → explicit 400 failure
+      return {
+        status: 400,
+        message:
+          "Discovery intent cannot be blank when no target companies are configured.",
+        detail:
+          "Either provide target companies in the worker config, or provide explicit search intent (targetRoles or keywordsInclude) to run unrestricted discovery.",
+        remediation:
+          "Use the AI Suggester tab to generate role keywords, or add at least one company to the worker config, or provide explicit targetRoles (e.g., 'Senior Engineer') or keywordsInclude (e.g., 'AI,python') in your discoveryProfile.",
+      };
+    }
+    // Non-blank intent with empty companies → allowed (unrestricted discovery)
   }
 
   const sheetsCredentialReadiness = await validateSheetsCredentialReadiness(
@@ -441,7 +459,7 @@ async function validateDiscoveryPreflight(
     };
   }
 
-  if (!String(sheetId || "").trim()) {
+  if (!String(request.sheetId || "").trim()) {
     if (
       runDependencies.runtimeConfig.runMode === "local" &&
       String(storedConfig.sheetId || "").trim()
