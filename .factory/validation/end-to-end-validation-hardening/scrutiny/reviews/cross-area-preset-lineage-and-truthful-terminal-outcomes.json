@@ -1,0 +1,44 @@
+{
+  "featureId": "cross-area-preset-lineage-and-truthful-terminal-outcomes",
+  "reviewedAt": "2026-04-12T06:50:00.000Z",
+  "commitId": "c4d9214",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The commit adds a single 1393-line test file (integrations/browser-use-discovery/tests/webhook/cross-area-flows.test.ts) with 9 test cases covering all 6 VAL-CROSS assertions (VAL-CROSS-001 through VAL-CROSS-006). The tests exercise the real handleDiscoveryWebhook production function with dependency-injected mocks (in-memory run status store, mocked runDiscovery, mocked runtime config). Test structure is clean, well-organized with factory helpers (makeRequest, makeDependencies, makeBaseRunDependencies, createMemoryRunStatusStore), and assertions are precise with good error messages.",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/tests/webhook/cross-area-flows.test.ts",
+        "line": 755,
+        "severity": "non_blocking",
+        "description": "VAL-CROSS-003 (browser_plus_ats) test mocks runDiscovery to return only 2 sources (greenhouse + grounded_web) rather than all 4 enabled sources. While the test verifies both lane families are present, it would be stronger if it verified all enabled ATS sources (greenhouse, lever, ashby) plus grounded_web appear in terminal status. Current test proves at least one ATS source is present but not that all configured ones appear."
+      },
+      {
+        "file": "integrations/browser-use-discovery/tests/webhook/cross-area-flows.test.ts",
+        "line": 1076,
+        "severity": "non_blocking",
+        "description": "VAL-CROSS-005 first-visit test (no saved preset) mocks runDiscovery to return a browser_plus_ats preset with effectiveSources. Since runDiscovery is mocked, the test verifies the webhook handler's status propagation path but does not verify that the config resolver actually resolved the fallback preset. This is acceptable since config resolution is covered by config.test.ts and routing-enforcement.test.ts, but worth noting the test scope boundary."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "AGENTS.md states 'Validation mode is real integrations only (no mocks)' but this feature's tests use dependency-injected mocks for runDiscovery, runStatusStore, and runtime config. The worker followed the discovery-integration-worker skill's step 3 (deterministic mocked tests) rather than AGENTS.md's real-integration guidance. The distinction appears to be: AGENTS.md's guidance targets user-testing validation milestones (browser-based end-to-end), while worker features produce unit/integration tests with mocked dependencies. This distinction is implicit and could confuse future workers.",
+      "evidence": "AGENTS.md 'Testing & Validation Guidance' section vs. cross-area-flows.test.ts which uses createMemoryRunStatusStore() and mocked runDiscovery throughout. The skill file (SKILL.md step 5) says 'Verify routing behavior with deterministic evidence' which the worker interpreted as allowing mocked dependencies."
+    },
+    {
+      "area": "skills",
+      "observation": "Worker followed the discovery-integration-worker skill procedure correctly: read feature/mission/AGENTS/library (step 1), traced request boundary (step 2), added tests (step 3), implemented changes (step 4 - only tests in this case), verified with validators (step 7). No deviations noted.",
+      "evidence": "Transcript skeleton shows worker invoked mission-worker-base skill first, then followed the procedure. Handoff confirms all validators passed (typecheck, lint, 127 existing tests)."
+    },
+    {
+      "area": "services",
+      "observation": "No new services or commands needed. Worker used existing test infrastructure (node --experimental-strip-types --test) which is already covered by test_discovery_serial in services.yaml.",
+      "evidence": "Handoff verification commands all use existing npm scripts or direct node test runner invocations."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS with no blocking issues. The feature adds 9 well-structured integration tests covering all 6 cross-area assertions (VAL-CROSS-001 through VAL-CROSS-006). Tests exercise the real handleDiscoveryWebhook function with appropriate dependency injection. Two non-blocking observations: VAL-CROSS-003 could test with more sources for stronger coverage, and VAL-CROSS-005's first-visit test doesn't verify config resolver behavior directly (acceptable since covered elsewhere). The worker followed the skill procedure correctly. One shared-state observation: AGENTS.md's 'real integrations only' guidance could be clarified to distinguish user-testing validation from worker unit/integration tests."
+}

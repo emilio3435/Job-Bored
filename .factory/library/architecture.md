@@ -54,10 +54,12 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 
 ### 6) Google Sheets writer
 - Persists accepted leads as append/update mutations.
+- Write execution order is sequential: `batchUpdateRows` runs first, then `appendRows`. This means update-phase failures prevent appends, and append-phase failures occur after updates are already committed (no transaction semantics).
 - Preserves canonical link identity and source attribution.
 - Returns writeResult counters that reconcile with observable sheet deltas.
 - Local vs hosted mode preserve explicit `sheetId` boundary behavior.
-- Write failures are phase-attributed (append path vs update path).
+- Write failures are phase-attributed (append path vs update path) via `SheetWriteError` custom error class with `phase`, `httpStatus`, `detail`, and `sheetId` fields.
+- On write failure, counters are zeroed (appended: 0, updated: 0) even if partial writes succeeded; the `writeError` field provides failure details.
 
 ## End-to-end flow
 
