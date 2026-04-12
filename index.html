@@ -1712,6 +1712,44 @@
                 until you replace it with real discovery logic.
               </p>
 
+              <label class="field-label" for="settingsDiscoveryWebhookSecret"
+                >Discovery webhook secret</label
+              >
+              <input
+                type="password"
+                id="settingsDiscoveryWebhookSecret"
+                class="modal-input"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="Autofilled by npm run discovery:bootstrap-local"
+              />
+              <p class="settings-field-hint settings-field-hint--compact">
+                Sent as <code>x-discovery-secret</code>. You usually don't need
+                to touch this — running
+                <code>npm&nbsp;run&nbsp;discovery:bootstrap-local</code> on this
+                machine writes it to
+                <code>integrations/browser-use-discovery/.env</code> and the
+                dashboard autofills it on reload. Cloudflare relays inject their
+                own server-side secret, so leave it empty there. Apps Script
+                stubs and other public webhooks don't need a secret.
+              </p>
+
+              <p class="settings-field-hint settings-field-hint--compact">
+                <strong>Google Sheets credential:</strong> if you're signed in
+                to JobBored above, your sign-in is sent to the worker
+                automatically — no service account, no environment wiring,
+                nothing to configure. For unattended/cron runs, set
+                <code>BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE</code>
+                in
+                <code>integrations/browser-use-discovery/.env</code> (see
+                <a
+                  href="integrations/browser-use-discovery/README.md"
+                  target="_blank"
+                  rel="noopener"
+                  >worker README</a
+                >).
+              </p>
+
               <div class="settings-discovery-callout" role="note">
                 <strong>Optional:</strong> Pipeline works without a webhook —
                 add rows manually or automate elsewhere.
@@ -3997,8 +4035,8 @@ npm run apps-script:login</pre
           reuses the browser-use worker if it is already running, starts the
           browser-use worker by default, and writes a local JSON file so this
           modal can autofill on
-          <code class="modal-code">http://localhost</code>.
-          Advanced only: you can still point this path at Hermes/OpenClaw.
+          <code class="modal-code">http://localhost</code>. Advanced only: you
+          can still point this path at Hermes/OpenClaw.
           <div class="scraper-setup-copyrow">
             <pre class="scraper-setup-code">
 npm run discovery:bootstrap-local</pre
@@ -4080,9 +4118,7 @@ npm run discovery:bootstrap-local</pre
             </div>
             <p class="scraper-setup-step__body">
               Recommended example:
-              <code class="modal-code"
-                >http://127.0.0.1:8644/webhook</code
-              >.
+              <code class="modal-code">http://127.0.0.1:8644/webhook</code>.
             </p>
             <label class="field-label" for="discoveryLocalWebhookUrl"
               >Local webhook URL</label
@@ -4817,6 +4853,44 @@ https://your-static-site.example</pre
             When enabled, the automation will also search the web for jobs
             beyond ATS listings.
           </p>
+
+          <!-- Source preset selector -->
+          <fieldset class="dp-source-preset" id="dpSourcePresetGroup">
+            <legend class="field-label">Source preset</legend>
+            <div class="dp-source-preset-options">
+              <label class="dp-source-preset-option" data-preset="browser_only">
+                <input
+                  type="radio"
+                  name="dpSourcePreset"
+                  value="browser_only"
+                  id="dpPresetBrowserOnly"
+                />
+                <span class="dp-preset-label">Browser only</span>
+                <span class="dp-preset-hint">Web search only</span>
+              </label>
+              <label class="dp-source-preset-option" data-preset="ats_only">
+                <input
+                  type="radio"
+                  name="dpSourcePreset"
+                  value="ats_only"
+                  id="dpPresetAtsOnly"
+                />
+                <span class="dp-preset-label">ATS only</span>
+                <span class="dp-preset-hint">Greenhouse, Lever, Ashby</span>
+              </label>
+              <label class="dp-source-preset-option dp-source-preset-option--active" data-preset="browser_plus_ats">
+                <input
+                  type="radio"
+                  name="dpSourcePreset"
+                  value="browser_plus_ats"
+                  id="dpPresetBrowserPlusAts"
+                  checked
+                />
+                <span class="dp-preset-label">Browser + ATS</span>
+                <span class="dp-preset-hint">Both sources</span>
+              </label>
+            </div>
+          </fieldset>
         </div>
 
         <!-- AI Suggest tab panel -->

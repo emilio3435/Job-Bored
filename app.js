@@ -40,6 +40,7 @@ const COMMAND_CENTER_OVERRIDE_KEYS = [
   "oauthClientId",
   "title",
   "discoveryWebhookUrl",
+  "discoveryWebhookSecret",
   "resumeProvider",
   "resumeGeminiApiKey",
   "resumeGeminiModel",
@@ -198,6 +199,34 @@ function isLocalDashboardOrigin() {
   return false;
 }
 
+/**
+ * If discovery-local-bootstrap.json exposes a webhookSecret AND the user has
+ * not already saved one in Settings, merge it into the stored config overrides
+ * so verifyDiscoveryEndpoint will send `x-discovery-secret` automatically.
+ *
+ * This is the load-bearing piece of "super easy onboarding": after running
+ * `npm run discovery:bootstrap-local`, the user reloads the dashboard and
+ * Run discovery just works — no copy/paste of a hex string anywhere.
+ */
+function autofillDiscoveryWebhookSecretFromBootstrap(data) {
+  if (!data || typeof data !== "object") return false;
+  const secret =
+    typeof data.webhookSecret === "string" ? data.webhookSecret.trim() : "";
+  if (!secret) return false;
+  const existing = getDiscoveryWebhookSecret();
+  if (existing) return false; // never overwrite a manually-saved value
+  try {
+    mergeStoredConfigOverridePatch({ discoveryWebhookSecret: secret });
+    return true;
+  } catch (err) {
+    console.warn(
+      "[JobBored] could not autofill discoveryWebhookSecret from bootstrap:",
+      err,
+    );
+    return false;
+  }
+}
+
 async function hydrateDiscoveryTransportSetupFromLocalBootstrap() {
   if (!isLocalDashboardOrigin()) return getDiscoveryTransportSetupState();
   try {
@@ -209,6 +238,7 @@ async function hydrateDiscoveryTransportSetupFromLocalBootstrap() {
     if (!data || typeof data !== "object") {
       return getDiscoveryTransportSetupState();
     }
+    autofillDiscoveryWebhookSecretFromBootstrap(data);
     return writeDiscoveryTransportSetupState({
       localWebhookUrl: data.localWebhookUrl,
       tunnelPublicUrl: data.tunnelPublicUrl || data.ngrokPublicUrl,
@@ -297,6 +327,19 @@ function getDiscoveryWebhookUrl() {
   const u = cfg && cfg.discoveryWebhookUrl;
   if (!u || typeof u !== "string") return "";
   const t = u.trim();
+  return t.length > 0 ? t : "";
+}
+
+/**
+ * Optional shared secret for the discovery webhook. When set, the dashboard
+ * forwards it as the `x-discovery-secret` header so receivers that fail-closed
+ * on empty secrets (e.g. the browser-use worker) accept the request.
+ */
+function getDiscoveryWebhookSecret() {
+  const cfg = getConfig();
+  const s = cfg && cfg.discoveryWebhookSecret;
+  if (!s || typeof s !== "string") return "";
+  const t = s.trim();
   return t.length > 0 ? t : "";
 }
 
@@ -1093,7 +1136,7 @@ function buildDiscoveryRelayDeployCommandForTarget(targetUrl, options = {}) {
     normalizedTargetUrl,
     String(options.origin || "").trim() || getDiscoveryRelaySuggestedOrigin(),
     workerName,
-    String(options.sheetId || "").trim() || (getSettingsSheetIdValue() || ""),
+    String(options.sheetId || "").trim() || getSettingsSheetIdValue() || "",
   );
 }
 
@@ -1348,11 +1391,45 @@ function getDiscoveryLocalEngineSummary(snapshot) {
   return label;
 }
 
+function getDiscoveryRecoveryCopy(snapshot) {
+  const probesApi =
+    window.JobBoredDiscoveryWizard && window.JobBoredDiscoveryWizard.probes;
+  if (probesApi && typeof probesApi.buildRecoveryCopy === "function") {
+    return probesApi.buildRecoveryCopy(snapshot);
+  }
+  const recovery = String((snapshot && snapshot.localRecoveryState) || "ok");
+  const detailMap = {
+    needs_full_restart:
+      "Your computer restarted, so the local worker and tunnel need to be brought back up.",
+    worker_down:
+      "The local discovery worker is not responding. It may need to be restarted.",
+    tunnel_down:
+      "The public ngrok tunnel is not running, so the saved Worker URL cannot reach your local worker right now.",
+    tunnel_rotated:
+      "ngrok gave your local setup a new public URL, so the relay behind your saved Worker URL needs to be redeployed.",
+  };
+  const detail =
+    detailMap[recovery] ||
+    "Part of the local discovery chain is down after a restart.";
+  return {
+    title:
+      recovery === "tunnel_rotated"
+        ? "Public tunnel changed"
+        : "Local setup needs recovery",
+    detail,
+    compactDetail: detail,
+    actionHint:
+      "Click Fix setup to restart what is down and redeploy the relay if needed.",
+    detectBody: [detail],
+  };
+}
+
 function buildFallbackSettingsDiscoveryView(snapshot) {
   const status = getEffectiveDiscoveryEngineStatus(snapshot.savedWebhookUrl);
   const kind = String(snapshot.savedWebhookKind || "none");
   const appsScriptState = String(snapshot.appsScriptState || "none");
   const recovery = snapshot.localRecoveryState || "ok";
+  const recoveryCopy = getDiscoveryRecoveryCopy(snapshot);
   const hasSavedExternalEndpoint =
     kind === "worker" || kind === "generic_https";
   const stubCurrent =
@@ -1366,15 +1443,13 @@ function buildFallbackSettingsDiscoveryView(snapshot) {
   ) {
     return {
       tone: "warning",
-      title: "Local setup needs recovery",
-      detail:
-        "The local worker or tunnel is down. Click Fix setup to restore it.",
+      title: recoveryCopy.title,
+      detail: recoveryCopy.compactDetail,
       chipLabel: "Needs recovery",
       chipTone: "warning",
       runDiscoveryEnabled: false,
       primaryActionLabel: "Fix setup",
-      primaryActionHint:
-        "One click restores the local worker, tunnel, and relay.",
+      primaryActionHint: recoveryCopy.actionHint,
     };
   }
 
@@ -1450,6 +1525,7 @@ function buildFallbackEmptyStateDiscoveryView(snapshot) {
   const kind = String(snapshot.savedWebhookKind || "none");
   const appsScriptState = String(snapshot.appsScriptState || "none");
   const recovery = snapshot.localRecoveryState || "ok";
+  const recoveryCopy = getDiscoveryRecoveryCopy(snapshot);
   const hasSavedExternalEndpoint =
     kind === "worker" || kind === "generic_https";
   const stubCurrent =
@@ -1462,8 +1538,8 @@ function buildFallbackEmptyStateDiscoveryView(snapshot) {
       hasSavedExternalEndpoint)
   ) {
     return {
-      title: "Local setup needs recovery",
-      body: "The local discovery chain is down. Click Fix setup to restore it.",
+      title: recoveryCopy.title,
+      body: `${recoveryCopy.compactDetail} Use Fix setup to recover it.`,
       ctaLabel: "Fix setup",
       ctaAction: "open_setup",
     };
@@ -1689,6 +1765,15 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride) {
   } catch (e) {
     console.warn("[JobBored] discovery profile:", e);
   }
+  // Hand the user's existing GIS access token to the worker so it can write
+  // to Google Sheets without holding any persistent credential of its own.
+  // This is the "no hoops" path: if the user is signed in to the dashboard,
+  // discovery just works — no service account, no .env wiring, no Hermes
+  // archaeology. The worker treats this token as the highest-precedence
+  // credential and falls back to its env config if it's absent or stale.
+  // We declare the key unconditionally so JSON.stringify drops it when
+  // empty (keeps the contract scanner happy and the wire format unchanged).
+  const dashboardGoogleAccessToken = getDiscoveryRequestGoogleAccessToken();
   return {
     event: "command-center.discovery",
     schemaVersion: 1,
@@ -1696,7 +1781,25 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride) {
     variationKey: generateDiscoveryVariationKey(),
     requestedAt: new Date().toISOString(),
     discoveryProfile,
+    googleAccessToken: dashboardGoogleAccessToken || undefined,
   };
+}
+
+/**
+ * Returns the dashboard's current Google access token IFF the user is signed
+ * in AND the token has at least 60 seconds of lifetime left. Anything less
+ * isn't worth sending — discovery runs typically take 20–60s and a token that
+ * expires mid-run will fail at the Sheets write step.
+ */
+function getDiscoveryRequestGoogleAccessToken() {
+  if (!accessToken || typeof accessToken !== "string") return "";
+  const trimmed = accessToken.trim();
+  if (!trimmed) return "";
+  if (Number.isFinite(tokenExpiresAt)) {
+    const remainingMs = Number(tokenExpiresAt) - Date.now();
+    if (remainingMs < 60_000) return "";
+  }
+  return trimmed;
 }
 
 function getDiscoveryEngineStateFromVerificationResult(result) {
@@ -1734,7 +1837,19 @@ function showDiscoveryVerificationToast(result, options = {}) {
     : "Webhook verification finished.";
 
   let action;
-  if (!result.ok && isLocalDashboardOrigin()) {
+  if (!result.ok && result.kind === "auth_required") {
+    // The browser-use worker fail-closed because the secret is missing or
+    // wrong. The fix is "run bootstrap and reload" — give the user a copy
+    // button for the command so they don't have to retype it.
+    action = {
+      label: "Copy bootstrap command",
+      onClick: () => {
+        copyTextToClipboard(
+          result.suggestedCommand || "npm run discovery:bootstrap-local",
+        );
+      },
+    };
+  } else if (!result.ok && isLocalDashboardOrigin()) {
     const hasLocalTunnel = !!getDiscoveryTransportSetupState().tunnelPublicUrl;
     const endpointUrl = options.endpointUrl || "";
     const isTunnelFailure =
@@ -1772,12 +1887,17 @@ async function verifyDiscoveryWebhookWithSharedModel(
   options = {},
 ) {
   const verifyApi = getDiscoveryWizardVerifyApi();
+  const secret =
+    typeof options.secret === "string" && options.secret.trim()
+      ? options.secret.trim()
+      : getDiscoveryWebhookSecret();
   if (verifyApi && typeof verifyApi.verifyDiscoveryEndpoint === "function") {
     return verifyApi.verifyDiscoveryEndpoint(url, {
       payload,
       context: options.context || "test_webhook",
       sheetId: options.sheetId || "",
       timeoutMs: options.timeoutMs || 15000,
+      secret,
     });
   }
   return {
@@ -2416,16 +2536,7 @@ function buildDiscoveryPathSelectBody(runtime) {
 function buildDiscoveryDetectBody(runtime) {
   const snapshot = runtime.snapshot;
   const recovery = snapshot.localRecoveryState || "ok";
-  const recoverySentences = {
-    needs_full_restart:
-      "Your computer restarted, so the local worker and tunnel need to be brought back up.",
-    worker_down:
-      "The local discovery worker is not responding. It may need to be restarted.",
-    tunnel_down:
-      "The ngrok tunnel is not running. The public URL cannot reach the local worker.",
-    tunnel_rotated:
-      "The ngrok tunnel restarted with a new URL. The relay needs to be updated.",
-  };
+  const recoveryCopy = getDiscoveryRecoveryCopy(snapshot);
   const foundItems = [];
   const missingItems = [];
   const localEngineLabel = getDiscoveryLocalEngineLabel(snapshot);
@@ -2465,6 +2576,12 @@ function buildDiscoveryDetectBody(runtime) {
     missingItems.push("No ngrok tunnel running");
   }
 
+  if (recovery === "tunnel_rotated") {
+    missingItems.push(
+      "Relay still points to the previous ngrok URL — redeploy needed",
+    );
+  }
+
   if (snapshot.relayReady || snapshot.savedWebhookKind === "worker") {
     foundItems.push("Cloudflare relay deployed");
   } else if (
@@ -2494,11 +2611,8 @@ function buildDiscoveryDetectBody(runtime) {
   if (recovery !== "ok") {
     cards.push({
       type: "card",
-      title: "Recovery needed",
-      body: [
-        recoverySentences[recovery] ||
-          "Part of the local discovery chain is down after a restart.",
-      ],
+      title: recoveryCopy.title,
+      body: [...recoveryCopy.detectBody, recoveryCopy.actionHint],
     });
   }
   cards.push({
@@ -2762,18 +2876,23 @@ async function probeAndShowWizardTunnelBanner(slot, storedTunnelUrl, port) {
   if (!liveUrl) {
     banner.classList.add("tunnel-stale-banner--down");
     title.textContent = "No ngrok tunnel detected.";
-    detail.textContent = `Run ngrok http ${port || "8644"} to start a tunnel, then click Detect tunnel.`;
+    detail.textContent = `Run ngrok http ${port || "8644"} to bring the public tunnel back up, then click Detect tunnel.`;
   } else if (storedNorm && liveUrl !== storedNorm) {
-    title.textContent = "ngrok URL changed since last run.";
-    detail.textContent = `Old: ${storedNorm}\nLive: ${liveUrl}`;
+    title.textContent = "Public tunnel changed.";
+    detail.textContent = [
+      "ngrok gave your local setup a new public URL.",
+      `Previous tunnel: ${storedNorm}`,
+      `Current tunnel: ${liveUrl}`,
+      "Keep the same Worker URL saved in JobBored. Click Fix setup to redeploy the relay behind it.",
+    ].join("\n");
     const action = createWizardNode(
       "button",
       "btn-modal-primary tunnel-stale-banner__action",
-      "Detect tunnel",
+      "Fix setup",
     );
     action.type = "button";
     action.addEventListener("click", () => {
-      void handleDiscoveryWizardAction("local_tunnel_detect");
+      void handleDiscoveryWizardAction("wizard_fix_setup");
     });
     banner.appendChild(action);
   } else {
@@ -2920,34 +3039,22 @@ function buildDiscoveryVerifyBody(runtime) {
     "missing";
 
   if (recovery !== "ok") {
-    const recoverySentences = {
-      needs_full_restart:
-        "Your computer restarted, so the local worker and tunnel need to be brought back up.",
-      worker_down:
-        "The local discovery worker is not responding. It may need to be restarted.",
-      tunnel_down:
-        "The ngrok tunnel is not running. The public URL cannot reach the local worker.",
-      tunnel_rotated:
-        "The ngrok tunnel restarted with a new URL. The relay needs to be updated.",
-    };
+    const recoveryCopy = getDiscoveryRecoveryCopy(snapshot);
     const recoveryCard = createWizardNode(
       "div",
       "discovery-setup-wizard__summary-card discovery-setup-wizard__summary-card--recovery",
     );
     appendWizardParagraph(
       recoveryCard,
-      "Recovery needed",
+      recoveryCopy.title,
       "discovery-setup-wizard__card-title",
     );
+    for (const line of recoveryCopy.detectBody) {
+      appendWizardParagraph(recoveryCard, line, "discovery-setup-wizard__copy");
+    }
     appendWizardParagraph(
       recoveryCard,
-      recoverySentences[recovery] ||
-        "Part of the local discovery chain is down after a restart.",
-      "discovery-setup-wizard__copy",
-    );
-    appendWizardParagraph(
-      recoveryCard,
-      "Click Fix setup to restore the worker, tunnel, and relay in one step.",
+      recoveryCopy.actionHint,
       "discovery-setup-wizard__copy",
     );
     container.appendChild(recoveryCard);
@@ -3325,7 +3432,7 @@ function buildDiscoveryWizardSteps(runtime) {
       label: "Config",
       title: detectRecovery ? "Fix local setup" : "Load local config.",
       description: detectRecovery
-        ? "One click restores the local worker, tunnel, and relay."
+        ? "Fix setup restarts what is down and redeploys the relay if ngrok changed."
         : "Reads your saved local setup so the wizard knows your ports, URLs, and tunnel info.",
       body: () => buildDiscoveryBootstrapBody(getDiscoveryWizardRuntime()),
       actions: detectRecovery
@@ -4091,7 +4198,7 @@ async function handleDiscoveryWizardAction(actionId) {
       return renderDiscoverySetupWizard();
     }
     setDiscoveryWizardMessage(
-      "Running Fix setup — starting worker and tunnel...",
+      "Running Fix setup — checking worker, tunnel, and relay...",
     );
     await renderDiscoverySetupWizard();
     const result = await probes.requestFixSetup();
@@ -7561,8 +7668,10 @@ async function triggerDiscoveryRun() {
  */
 async function testDiscoveryWebhookFromSettings() {
   const urlEl = document.getElementById("settingsDiscoveryWebhookUrl");
+  const secretEl = document.getElementById("settingsDiscoveryWebhookSecret");
   const sheetEl = document.getElementById("settingsSheetId");
   const url = normalizeDiscoveryWebhookIdentity(urlEl && urlEl.value.trim());
+  const secret = secretEl ? String(secretEl.value || "").trim() : "";
   const sheetRaw = sheetEl && sheetEl.value.trim();
   const sheetId = parseGoogleSheetId(sheetRaw || "");
   if (!url) {
@@ -7580,6 +7689,7 @@ async function testDiscoveryWebhookFromSettings() {
     const result = await verifyDiscoveryWebhookWithSharedModel(url, payload, {
       context: "test_webhook",
       sheetId,
+      secret,
     });
     if (result.ok) {
       const engineState = getDiscoveryEngineStateFromVerificationResult(result);
@@ -7816,7 +7926,7 @@ async function probeAndShowTunnelStaleBanner() {
     banner.className = "tunnel-stale-banner tunnel-stale-banner--down";
     const port = inferLocalWebhookPort(stored.localWebhookUrl);
     bannerTitle.textContent = "No ngrok tunnel detected.";
-    bannerDetail.textContent = `Run ngrok http ${port} to restart, then click Detect.`;
+    bannerDetail.textContent = `Run ngrok http ${port} to restart the public tunnel to your local worker, then click Detect.`;
     bannerAction.style.display = "none";
     return;
   }
@@ -7824,14 +7934,26 @@ async function probeAndShowTunnelStaleBanner() {
   if (storedUrl && liveUrl !== storedUrl) {
     banner.style.display = "flex";
     banner.className = "tunnel-stale-banner";
-    bannerTitle.textContent = "Your ngrok URL changed since last save.";
-    bannerDetail.textContent = `Old: ${storedUrl}\nLive: ${liveUrl}`;
+    bannerTitle.textContent = "Public tunnel changed.";
+    bannerDetail.textContent = [
+      "ngrok gave your local setup a new public URL.",
+      `Previous tunnel: ${storedUrl}`,
+      `Current tunnel: ${liveUrl}`,
+      "Use the current tunnel URL here, then redeploy the Cloudflare relay. Keep the same Worker URL saved in JobBored.",
+    ].join("\n");
+    bannerAction.textContent = "Use current URL";
     bannerAction.style.display = "";
     bannerAction.onclick = () => {
       const tunnelInput = document.getElementById("discoveryTunnelPublicUrl");
       if (tunnelInput) tunnelInput.value = liveUrl;
       renderDiscoveryLocalTunnelSetupUi();
       saveDiscoveryLocalTunnelSetup(true);
+      const relayBtn = document.getElementById("discoveryLocalTunnelRelayBtn");
+      if (relayBtn && typeof relayBtn.focus === "function") relayBtn.focus();
+      showToast(
+        "Tunnel URL updated. Redeploy the Cloudflare relay so it points at the new tunnel. Keep the same Worker URL saved in JobBored.",
+        "info",
+      );
       banner.style.display = "none";
     };
     return;
@@ -8132,7 +8254,10 @@ async function applyCloudflareRelayWorkerUrl(testAfterApply) {
   showToast("Worker URL saved in this browser.", "success");
 }
 
-async function handleAppsScriptBrowserCorsFailure(url, resultKind = "network_error") {
+async function handleAppsScriptBrowserCorsFailure(
+  url,
+  resultKind = "network_error",
+) {
   if (!isLikelyAppsScriptWebAppUrl(url)) return false;
   const isNetworkLikeFailure =
     (resultKind === "network_error" &&
@@ -13492,6 +13617,7 @@ function populateCommandCenterSettingsForm() {
   set("settingsOAuthClientId", cfg.oauthClientId);
   set("settingsTitle", normalizeDashboardTitle(cfg.title));
   set("settingsDiscoveryWebhookUrl", cfg.discoveryWebhookUrl);
+  set("settingsDiscoveryWebhookSecret", cfg.discoveryWebhookSecret);
   set("settingsJobPostingScrapeUrl", cfg.jobPostingScrapeUrl);
   const atsMode = String(cfg.atsScoringMode || "server").toLowerCase();
   set("settingsAtsScoringMode", atsMode === "webhook" ? "webhook" : "server");
@@ -13709,6 +13835,7 @@ async function saveCommandCenterSettingsFromForm() {
     oauthClientId: val("settingsOAuthClientId"),
     title: normalizeDashboardTitle(val("settingsTitle")),
     discoveryWebhookUrl: val("settingsDiscoveryWebhookUrl"),
+    discoveryWebhookSecret: val("settingsDiscoveryWebhookSecret"),
     jobPostingScrapeUrl: val("settingsJobPostingScrapeUrl"),
     atsScoringMode:
       val("settingsAtsScoringMode").toLowerCase() === "webhook"
@@ -14308,7 +14435,10 @@ function buildAtsScorecardRequestPayload(text, job, session) {
   }
   if (bundle && bundle.profile) {
     payload.profile = {
-      candidateProfileText: clip(bundle.profile.candidateProfileText || "", 10000),
+      candidateProfileText: clip(
+        bundle.profile.candidateProfileText || "",
+        10000,
+      ),
       resumeSourceText: clip(bundle.profile.resumeSourceText || "", 8000),
       linkedinProfileText: clip(bundle.profile.linkedinProfileText || "", 5000),
       additionalContextText: clip(
@@ -15888,6 +16018,40 @@ function init() {
   setInterval(loadAllData, REFRESH_INTERVAL);
 }
 
+/**
+ * Normalize a source preset value to a valid enum string or empty.
+ * @param {unknown} raw
+ * @returns {"" | "browser_only" | "ats_only" | "browser_plus_ats"}
+ */
+function normalizeSourcePreset(raw) {
+  const SOURCE_PRESET_VALUES = Object.freeze([
+    "browser_only",
+    "ats_only",
+    "browser_plus_ats",
+  ]);
+  const v = raw == null ? "" : String(raw).trim();
+  if (SOURCE_PRESET_VALUES.includes(v)) return v;
+  return "";
+}
+
+/**
+ * Sync the source preset radio-group UI in the discovery prefs modal to
+ * reflect the given normalized preset value. Highlights the active option.
+ * @param {"" | "browser_only" | "ats_only" | "browser_plus_ats"} preset
+ */
+function syncSourcePresetUi(preset) {
+  const VALID_PRESETS = ["browser_only", "ats_only", "browser_plus_ats"];
+  const resolved = VALID_PRESETS.includes(preset) ? preset : "browser_plus_ats";
+  document.querySelectorAll('input[name="dpSourcePreset"]').forEach((el) => {
+    const isActive = el.value === resolved;
+    el.checked = isActive;
+    const option = el.closest(".dp-source-preset-option");
+    if (option) {
+      option.classList.toggle("dp-source-preset-option--active", isActive);
+    }
+  });
+}
+
 function syncDiscoveryButtonState() {
   const openBtn = document.getElementById("discoveryBtn");
   if (!openBtn) return;
@@ -15956,6 +16120,11 @@ function openDiscoveryPrefsModal() {
     // Handle grounded_web checkbox
     const gwEl = document.getElementById("dpGroundedWeb");
     if (gwEl) gwEl.checked = !p || p.groundedWebEnabled !== false;
+    // Handle source preset — mutual-exclusivity radio group
+    const preset = normalizeSourcePreset(
+      p && p.sourcePreset ? p.sourcePreset : "",
+    );
+    syncSourcePresetUi(preset || "browser_plus_ats");
     modal.style.display = "flex";
     const first = document.getElementById("dpTargetRoles");
     if (first) first.focus();
@@ -16259,6 +16428,18 @@ function initDiscoveryPrefsModal() {
     if (suggestBtn) suggestBtn.disabled = !canUse;
   }
 
+  /* ---- Source preset mutual-exclusivity ---- */
+  document
+    .querySelectorAll('input[name="dpSourcePreset"]')
+    .forEach((el) => {
+      el.addEventListener("change", () => {
+        const checked = document.querySelector(
+          'input[name="dpSourcePreset"]:checked',
+        );
+        syncSourcePresetUi(checked ? normalizeSourcePreset(checked.value) : "");
+      });
+    });
+
   /* ---- Scrape job listing ---- */
   const scrapeBtn = document.getElementById("dpScrapeBtn");
   let scrapedJobData = null;
@@ -16385,6 +16566,13 @@ function initDiscoveryPrefsModal() {
       // Handle grounded_web checkbox
       const gwEl = document.getElementById("dpGroundedWeb");
       const groundedWebEnabled = gwEl ? gwEl.checked : true;
+      // Capture selected source preset at submit time (last-selection-wins)
+      const selectedPresetEl = document.querySelector(
+        'input[name="dpSourcePreset"]:checked',
+      );
+      const sourcePreset = selectedPresetEl
+        ? normalizeSourcePreset(selectedPresetEl.value)
+        : "";
       if (UC && typeof UC.saveDiscoveryProfile === "function") {
         await UC.saveDiscoveryProfile({
           targetRoles: val("dpTargetRoles"),
@@ -16395,6 +16583,7 @@ function initDiscoveryPrefsModal() {
           keywordsExclude: val("dpKeywordsExclude"),
           maxLeadsPerRun: val("dpMaxLeads"),
           groundedWebEnabled,
+          sourcePreset,
         });
       }
       closeModal();
