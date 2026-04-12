@@ -38,6 +38,7 @@ High-level map of shared contracts that must stay aligned for browser-first disc
   - `browser_only`
   - `ats_only`
   - `browser_plus_ats`
+- Optional transient field: `googleAccessToken` (runtime passthrough only; never persisted)
 - Invalid/contradictory values must return explicit `400` errors.
 - Async acceptance must include `runId`, `statusPath`, and `pollAfterMs`.
 
