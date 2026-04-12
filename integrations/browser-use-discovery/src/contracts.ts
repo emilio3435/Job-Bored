@@ -165,8 +165,9 @@ export type ExtractionDiagnosticCode =
  * Provides machine-readable context paired with backward-compatible warning strings.
  */
 export type ExtractionDiagnostic = {
-  /** Stable diagnostic code identifying the event type. */
-  code: ExtractionDiagnosticCode;
+  /** Stable diagnostic code identifying the event type. When omitted, the diagnostic
+   * provides context without a specific machine-readable code (used for generic errors). */
+  code?: ExtractionDiagnosticCode;
   /** Human-readable context explaining why this diagnostic was emitted. */
   context: string;
   /** Optional URL or source this diagnostic applies to. */

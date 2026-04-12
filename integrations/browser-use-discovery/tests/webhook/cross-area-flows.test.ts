@@ -6,6 +6,7 @@ import {
   DISCOVERY_WEBHOOK_SCHEMA_VERSION,
 } from "../../src/contracts.ts";
 import { handleDiscoveryWebhook } from "../../src/webhook/handle-discovery-webhook.ts";
+import { mergeDiscoveryConfig } from "../../src/config.ts";
 
 // Shared header value used in tests that need to bypass auth validation.
 const SHARED_HEADER_VALUE = "cross-area-test-secret";
@@ -1400,26 +1401,38 @@ test("VAL-CROSS-001: disabling multiQueryEnabled produces isolated routing behav
   // Track what routing behavior was executed based on the resolved config
   const routingBehavior: string[] = [];
 
+  // Build the stored config that would be loaded by the real system
+  const storedConfig = {
+    sheetId: "sheet_cross_area",
+    mode: "hosted" as const,
+    timezone: "UTC",
+    companies: [{ name: "Acme" }],
+    includeKeywords: [],
+    excludeKeywords: [],
+    targetRoles: [],
+    locations: [],
+    remotePolicy: "",
+    seniority: "",
+    maxLeadsPerRun: 25,
+    enabledSources: ["greenhouse", "lever", "ashby", "grounded_web"] as const,
+    schedule: { enabled: false, cron: "" },
+  };
+
   const dependencies = makeDependencies({
     runStatusStore,
     runDiscovery: async (request, _trigger, runDeps) => {
-      // Get the ultraPlanTuning from the request (simulating what mergeDiscoveryConfig would do)
-      const requestTuning = request.discoveryProfile?.ultraPlanTuning;
-      // For browser_only with explicit multiQueryEnabled=false, other flags default to true
-      const resolvedTuning = {
-        multiQueryEnabled: requestTuning?.multiQueryEnabled ?? false,
-        retryBroadeningEnabled: requestTuning?.retryBroadeningEnabled ?? true,
-        parallelCompanyProcessingEnabled: requestTuning?.parallelCompanyProcessingEnabled ?? true,
-      };
+      // Call the REAL mergeDiscoveryConfig to resolve tuning
+      // This exercises resolveUltraPlanTuning with real async default-propagation
+      const resolvedConfig = mergeDiscoveryConfig(storedConfig, request);
 
       // Record the resolved tuning state to verify isolation
-      if (resolvedTuning.multiQueryEnabled === false) {
+      if (resolvedConfig.ultraPlanTuning.multiQueryEnabled === false) {
         routingBehavior.push("multiQueryDisabled");
       }
-      if (resolvedTuning.retryBroadeningEnabled) {
+      if (resolvedConfig.ultraPlanTuning.retryBroadeningEnabled) {
         routingBehavior.push("retryBroadeningEnabled");
       }
-      if (resolvedTuning.parallelCompanyProcessingEnabled) {
+      if (resolvedConfig.ultraPlanTuning.parallelCompanyProcessingEnabled) {
         routingBehavior.push("parallelProcessingEnabled");
       }
 
@@ -1434,31 +1447,7 @@ test("VAL-CROSS-001: disabling multiQueryEnabled produces isolated routing behav
             variationKey: "var_cross",
             requestedAt: "2026-04-12T00:00:00.000Z",
           },
-          config: {
-            sheetId: "sheet_cross_area",
-            mode: "hosted",
-            timezone: "UTC",
-            companies: [{ name: "Acme" }],
-            includeKeywords: [],
-            excludeKeywords: [],
-            targetRoles: [],
-            locations: [],
-            remotePolicy: "",
-            seniority: "",
-            maxLeadsPerRun: 25,
-            enabledSources: ["grounded_web"],
-            schedule: { enabled: false, cron: "" },
-            variationKey: "var_cross",
-            requestedAt: "2026-04-12T00:00:00.000Z",
-            sourcePreset: "browser_only",
-            effectiveSources: ["grounded_web"],
-            // Explicitly disable multiQuery only
-            ultraPlanTuning: {
-              multiQueryEnabled: false,
-              retryBroadeningEnabled: true,
-              parallelCompanyProcessingEnabled: true,
-            },
-          },
+          config: resolvedConfig,
         },
         lifecycle: {
           runId: runDeps.runId,
@@ -1531,7 +1520,7 @@ test("VAL-CROSS-001: disabling multiQueryEnabled produces isolated routing behav
     "parallelCompanyProcessingEnabled must remain enabled (not cascading side effect)",
   );
 
-  // Terminal status must expose the resolved ultraPlanTuning
+  // Terminal status must expose the resolved ultraPlanTuning from real mergeDiscoveryConfig
   assert.ok(
     terminalStatus.ultraPlanTuning,
     "Terminal status must expose ultraPlanTuning for cross-area verification",
@@ -1560,24 +1549,37 @@ test("VAL-CROSS-001: disabling retryBroadeningEnabled produces isolated routing 
 
   const routingBehavior: string[] = [];
 
+  // Build the stored config that would be loaded by the real system
+  const storedConfig = {
+    sheetId: "sheet_cross_area",
+    mode: "hosted" as const,
+    timezone: "UTC",
+    companies: [{ name: "Acme" }],
+    includeKeywords: [],
+    excludeKeywords: [],
+    targetRoles: [],
+    locations: [],
+    remotePolicy: "",
+    seniority: "",
+    maxLeadsPerRun: 25,
+    enabledSources: ["greenhouse", "lever", "ashby", "grounded_web"] as const,
+    schedule: { enabled: false, cron: "" },
+  };
+
   const dependencies = makeDependencies({
     runStatusStore,
     runDiscovery: async (request, _trigger, runDeps) => {
-      // Get the ultraPlanTuning from the request (simulating what mergeDiscoveryConfig would do)
-      const requestTuning = request.discoveryProfile?.ultraPlanTuning;
-      const resolvedTuning = {
-        multiQueryEnabled: requestTuning?.multiQueryEnabled ?? true,
-        retryBroadeningEnabled: requestTuning?.retryBroadeningEnabled ?? false,
-        parallelCompanyProcessingEnabled: requestTuning?.parallelCompanyProcessingEnabled ?? true,
-      };
+      // Call the REAL mergeDiscoveryConfig to resolve tuning
+      // This exercises resolveUltraPlanTuning with real async default-propagation
+      const resolvedConfig = mergeDiscoveryConfig(storedConfig, request);
 
-      if (resolvedTuning.multiQueryEnabled) {
+      if (resolvedConfig.ultraPlanTuning.multiQueryEnabled) {
         routingBehavior.push("multiQueryEnabled");
       }
-      if (resolvedTuning.retryBroadeningEnabled === false) {
+      if (resolvedConfig.ultraPlanTuning.retryBroadeningEnabled === false) {
         routingBehavior.push("retryBroadeningDisabled");
       }
-      if (resolvedTuning.parallelCompanyProcessingEnabled) {
+      if (resolvedConfig.ultraPlanTuning.parallelCompanyProcessingEnabled) {
         routingBehavior.push("parallelProcessingEnabled");
       }
 
@@ -1592,30 +1594,7 @@ test("VAL-CROSS-001: disabling retryBroadeningEnabled produces isolated routing 
             variationKey: "var_cross",
             requestedAt: "2026-04-12T00:00:00.000Z",
           },
-          config: {
-            sheetId: "sheet_cross_area",
-            mode: "hosted",
-            timezone: "UTC",
-            companies: [{ name: "Acme" }],
-            includeKeywords: [],
-            excludeKeywords: [],
-            targetRoles: [],
-            locations: [],
-            remotePolicy: "",
-            seniority: "",
-            maxLeadsPerRun: 25,
-            enabledSources: ["grounded_web"],
-            schedule: { enabled: false, cron: "" },
-            variationKey: "var_cross",
-            requestedAt: "2026-04-12T00:00:00.000Z",
-            sourcePreset: "browser_only",
-            effectiveSources: ["grounded_web"],
-            ultraPlanTuning: {
-              multiQueryEnabled: true,
-              retryBroadeningEnabled: false,
-              parallelCompanyProcessingEnabled: true,
-            },
-          },
+          config: resolvedConfig,
         },
         lifecycle: {
           runId: runDeps.runId,
@@ -1717,24 +1696,37 @@ test("VAL-CROSS-001: disabling parallelCompanyProcessingEnabled produces isolate
 
   const routingBehavior: string[] = [];
 
+  // Build the stored config that would be loaded by the real system
+  const storedConfig = {
+    sheetId: "sheet_cross_area",
+    mode: "hosted" as const,
+    timezone: "UTC",
+    companies: [{ name: "Acme" }],
+    includeKeywords: [],
+    excludeKeywords: [],
+    targetRoles: [],
+    locations: [],
+    remotePolicy: "",
+    seniority: "",
+    maxLeadsPerRun: 25,
+    enabledSources: ["greenhouse", "lever", "ashby", "grounded_web"] as const,
+    schedule: { enabled: false, cron: "" },
+  };
+
   const dependencies = makeDependencies({
     runStatusStore,
     runDiscovery: async (request, _trigger, runDeps) => {
-      // Get the ultraPlanTuning from the request (simulating what mergeDiscoveryConfig would do)
-      const requestTuning = request.discoveryProfile?.ultraPlanTuning;
-      const resolvedTuning = {
-        multiQueryEnabled: requestTuning?.multiQueryEnabled ?? true,
-        retryBroadeningEnabled: requestTuning?.retryBroadeningEnabled ?? true,
-        parallelCompanyProcessingEnabled: requestTuning?.parallelCompanyProcessingEnabled ?? false,
-      };
+      // Call the REAL mergeDiscoveryConfig to resolve tuning
+      // This exercises resolveUltraPlanTuning with real async default-propagation
+      const resolvedConfig = mergeDiscoveryConfig(storedConfig, request);
 
-      if (resolvedTuning.multiQueryEnabled) {
+      if (resolvedConfig.ultraPlanTuning.multiQueryEnabled) {
         routingBehavior.push("multiQueryEnabled");
       }
-      if (resolvedTuning.retryBroadeningEnabled) {
+      if (resolvedConfig.ultraPlanTuning.retryBroadeningEnabled) {
         routingBehavior.push("retryBroadeningEnabled");
       }
-      if (resolvedTuning.parallelCompanyProcessingEnabled === false) {
+      if (resolvedConfig.ultraPlanTuning.parallelCompanyProcessingEnabled === false) {
         routingBehavior.push("parallelProcessingDisabled");
       }
 
@@ -1749,30 +1741,7 @@ test("VAL-CROSS-001: disabling parallelCompanyProcessingEnabled produces isolate
             variationKey: "var_cross",
             requestedAt: "2026-04-12T00:00:00.000Z",
           },
-          config: {
-            sheetId: "sheet_cross_area",
-            mode: "hosted",
-            timezone: "UTC",
-            companies: [{ name: "Acme" }],
-            includeKeywords: [],
-            excludeKeywords: [],
-            targetRoles: [],
-            locations: [],
-            remotePolicy: "",
-            seniority: "",
-            maxLeadsPerRun: 25,
-            enabledSources: ["grounded_web"],
-            schedule: { enabled: false, cron: "" },
-            variationKey: "var_cross",
-            requestedAt: "2026-04-12T00:00:00.000Z",
-            sourcePreset: "browser_only",
-            effectiveSources: ["grounded_web"],
-            ultraPlanTuning: {
-              multiQueryEnabled: true,
-              retryBroadeningEnabled: true,
-              parallelCompanyProcessingEnabled: false,
-            },
-          },
+          config: resolvedConfig,
         },
         lifecycle: {
           runId: runDeps.runId,
@@ -1874,20 +1843,33 @@ test("VAL-CROSS-001: disabling all three ultraPlanTuning flags produces conserva
 
   const routingBehavior: string[] = [];
 
+  // Build the stored config that would be loaded by the real system
+  const storedConfig = {
+    sheetId: "sheet_cross_area",
+    mode: "hosted" as const,
+    timezone: "UTC",
+    companies: [{ name: "Acme" }],
+    includeKeywords: [],
+    excludeKeywords: [],
+    targetRoles: [],
+    locations: [],
+    remotePolicy: "",
+    seniority: "",
+    maxLeadsPerRun: 25,
+    enabledSources: ["greenhouse", "lever", "ashby", "grounded_web"] as const,
+    schedule: { enabled: false, cron: "" },
+  };
+
   const dependencies = makeDependencies({
     runStatusStore,
     runDiscovery: async (request, _trigger, runDeps) => {
-      // Get the ultraPlanTuning from the request (simulating what mergeDiscoveryConfig would do)
-      const requestTuning = request.discoveryProfile?.ultraPlanTuning;
-      const resolvedTuning = {
-        multiQueryEnabled: requestTuning?.multiQueryEnabled ?? false,
-        retryBroadeningEnabled: requestTuning?.retryBroadeningEnabled ?? false,
-        parallelCompanyProcessingEnabled: requestTuning?.parallelCompanyProcessingEnabled ?? false,
-      };
+      // Call the REAL mergeDiscoveryConfig to resolve tuning
+      // This exercises resolveUltraPlanTuning with real async default-propagation
+      const resolvedConfig = mergeDiscoveryConfig(storedConfig, request);
 
-      if (resolvedTuning.multiQueryEnabled === false) routingBehavior.push("multiQueryDisabled");
-      if (resolvedTuning.retryBroadeningEnabled === false) routingBehavior.push("retryBroadeningDisabled");
-      if (resolvedTuning.parallelCompanyProcessingEnabled === false) routingBehavior.push("parallelProcessingDisabled");
+      if (resolvedConfig.ultraPlanTuning.multiQueryEnabled === false) routingBehavior.push("multiQueryDisabled");
+      if (resolvedConfig.ultraPlanTuning.retryBroadeningEnabled === false) routingBehavior.push("retryBroadeningDisabled");
+      if (resolvedConfig.ultraPlanTuning.parallelCompanyProcessingEnabled === false) routingBehavior.push("parallelProcessingDisabled");
 
       return {
         run: {
@@ -1900,30 +1882,7 @@ test("VAL-CROSS-001: disabling all three ultraPlanTuning flags produces conserva
             variationKey: "var_cross",
             requestedAt: "2026-04-12T00:00:00.000Z",
           },
-          config: {
-            sheetId: "sheet_cross_area",
-            mode: "hosted",
-            timezone: "UTC",
-            companies: [{ name: "Acme" }],
-            includeKeywords: [],
-            excludeKeywords: [],
-            targetRoles: [],
-            locations: [],
-            remotePolicy: "",
-            seniority: "",
-            maxLeadsPerRun: 25,
-            enabledSources: ["grounded_web"],
-            schedule: { enabled: false, cron: "" },
-            variationKey: "var_cross",
-            requestedAt: "2026-04-12T00:00:00.000Z",
-            sourcePreset: "browser_only",
-            effectiveSources: ["grounded_web"],
-            ultraPlanTuning: {
-              multiQueryEnabled: false,
-              retryBroadeningEnabled: false,
-              parallelCompanyProcessingEnabled: false,
-            },
-          },
+          config: resolvedConfig,
         },
         lifecycle: {
           runId: runDeps.runId,

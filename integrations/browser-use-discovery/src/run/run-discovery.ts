@@ -858,44 +858,29 @@ async function processCompaniesBounded(
       results.push(result);
     }
   } else {
-    // Bounded parallel processing: use semaphore-style concurrency control
+    // Bounded parallel processing: process companies in chunks to avoid busy-wait
     // VAL-ROUTE-015: In-flight count never exceeds effectiveCap
-    const semaphore = { inFlight: 0 };
-    const pending: Promise<void>[] = [];
-
-    for (const company of companies) {
-      // Create a promise that processes this company and tracks concurrency
-      const companyPromise = (async () => {
-        // Wait until there's room in the semaphore
-        while (semaphore.inFlight >= effectiveCap) {
-          await new Promise((resolve) => setTimeout(resolve, 10));
-        }
-
-        // Acquire slot
-        semaphore.inFlight++;
+    for (let i = 0; i < companies.length; i += effectiveCap) {
+      const chunk = companies.slice(i, i + effectiveCap);
+      
+      // Track starts for this chunk
+      for (const _ of chunk) {
         concurrencyTracker.onStart();
-
-        try {
-          const result = await processSingleCompany(
-            company,
-            dependencies,
-            run,
-            timeouts,
-            budgetTracker,
-          );
-          results.push(result);
-        } finally {
-          // Release slot
-          semaphore.inFlight--;
-          concurrencyTracker.onEnd();
-        }
-      })();
-
-      pending.push(companyPromise);
+      }
+      
+      const chunkResults = await Promise.all(
+        chunk.map((company) =>
+          processSingleCompany(company, dependencies, run, timeouts, budgetTracker),
+        ),
+      );
+      
+      // Track ends for this chunk
+      for (const _ of chunk) {
+        concurrencyTracker.onEnd();
+      }
+      
+      results.push(...chunkResults);
     }
-
-    // Wait for all companies to complete
-    await Promise.all(pending);
   }
 
   // Sort results by company name for deterministic output
@@ -998,6 +983,11 @@ async function processSingleCompany(
     result.companyWarnings.push(...collectionResult.warnings);
     result.pagesVisited = collectionResult.pagesVisited;
     result.leadsSeen = collectionResult.rawListings.length;
+    // leadsAccepted reflects the count of leads that passed normalization.
+    // Since normalization happens after collection in runGroundedWebDiscovery,
+    // we track rawListings as the provisional leadsSeen; leadsAccepted will be
+    // updated after normalization when we know which listings were accepted.
+    result.leadsAccepted = collectionResult.rawListings.length;
 
     // VAL-OBS-001: Propagate structured diagnostics from grounded collection
     if (collectionResult.diagnostics?.length) {
@@ -1020,8 +1010,9 @@ async function processSingleCompany(
     result.companyWarnings.push(
       `Grounded discovery failed for ${company.name}: ${result.errorMessage}`,
     );
+    // Emit a diagnostic with context but without an overly generic code.
+    // The context contains the actual error message for debugging.
     result.companyDiagnostics.push({
-      code: "timeout", // Use timeout code as fallback; actual error is in context
       context: `Company "${company.name}" processing failed: ${result.errorMessage}`,
     });
     dependencies.log?.("discovery.run.company_failed", {
