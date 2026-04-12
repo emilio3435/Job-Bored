@@ -1,8 +1,10 @@
 commands:
   install: npm run install:repo
-  test: npm run test:repo
-  lint: npm run lint:repo
   typecheck: npm run typecheck:repo
+  lint: npm run lint:repo
+  test: npm run test:repo
+  test_discovery_serial: node --experimental-strip-types --test --test-concurrency=1 integrations/browser-use-discovery/tests/browser/*.test.ts integrations/browser-use-discovery/tests/sheets/*.test.ts integrations/browser-use-discovery/tests/webhook/*.test.ts integrations/browser-use-discovery/tests/e2e/*.test.ts
+  test_contracts: npm run test:contract:all
 
 services:
   web:
@@ -32,3 +34,10 @@ services:
     healthcheck: curl -sf http://127.0.0.1:8644/health
     port: 8644
     depends_on: []
+
+  ngrok_tunnel:
+    start: ngrok http 8644
+    stop: if lsof -ti tcp:4040 >/dev/null; then lsof -ti tcp:4040 | xargs kill; fi
+    healthcheck: curl -sf http://127.0.0.1:4040/api/tunnels
+    port: 4040
+    depends_on: [discovery_worker]
