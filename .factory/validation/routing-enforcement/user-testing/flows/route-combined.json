@@ -1,0 +1,73 @@
+{
+  "groupId": "route-combined",
+  "testedAt": "2026-04-12T03:02:48.310Z",
+  "isolation": {
+    "workerUrl": "http://127.0.0.1:8644",
+    "webhookEndpoint": "http://127.0.0.1:8644/webhook",
+    "authSecret": "REDACTED",
+    "workerConfig": "/Users/emilionunezgarcia/Job-Bored/integrations/browser-use-discovery/state/worker-config.json",
+    "stateDb": "/Users/emilionunezgarcia/Job-Bored/integrations/browser-use-discovery/state/worker-state.sqlite"
+  },
+  "toolsUsed": ["curl"],
+  "assertions": [
+    {
+      "id": "VAL-ROUTE-003",
+      "title": "Browser+ATS executes both lane families with attribution",
+      "status": "blocked",
+      "steps": [
+        { "action": "Submit webhook POST with sourcePreset: browser_plus_ats", "expected": "Run accepted with runId and statusPath", "observed": "Run accepted: run_8a7a6d5263cc48a3bf4bdbffed51b13b" },
+        { "action": "Poll /runs/{runId} for terminal status", "expected": "Terminal status with sources showing both grounded_web and ATS lanes", "observed": "Status: failed - 'Failed to refresh Google OAuth token: HTTP 400 - invalid_grant'" }
+      ],
+      "evidence": {
+        "webhookRequest": "POST /webhook with x-discovery-secret header and browser_plus_ats preset",
+        "webhookResponse": "{\"ok\":true,\"kind\":\"accepted_async\",\"runId\":\"run_8a7a6d5263cc48a3bf4bdbffed51b13b\",\"statusPath\":\"/runs/run_8a7a6d5263cc48a3bf4bdbffed51b13b\",\"pollAfterMs\":2000}",
+        "terminalStatus": "{\"ok\":true,\"runId\":\"run_8a7a6d5263cc48a3bf4bdbffed51b13b\",\"status\":\"failed\",\"terminal\":true,\"error\":\"Failed to refresh Google OAuth token: HTTP 400 - {\\\"error\\\": \\\"invalid_grant\\\", \\\"error_description\\\": \\\"Token has been expired or revoked.\\\"}\"}",
+        "healthEndpoint": "{\"readiness\":{\"enabledSources\":[\"greenhouse\",\"ashby\",\"grounded_web\"],\"groundedWeb\":{\"enabled\":true,\"ready\":false}}}"
+      },
+      "issues": "Run failed before any source execution could occur. The Google OAuth refresh token is expired/invalid. This is a pre-existing credential issue, not a routing logic issue."
+    },
+    {
+      "id": "VAL-ROUTE-004",
+      "title": "Per-source outcomes are explicit and attributable",
+      "status": "blocked",
+      "steps": [
+        { "action": "Submit webhook POST with sourcePreset: browser_plus_ats", "expected": "Run accepted with runId", "observed": "Run accepted: run_8a7a6d5263cc48a3bf4bdbffed51b13b" },
+        { "action": "Poll /runs/{runId} for terminal status with per-source counters", "expected": "Terminal status with sources[] array containing per-source counters/warnings", "observed": "Status: failed - sources[] was empty due to OAuth credential failure before source execution" }
+      ],
+      "evidence": {
+        "terminalStatus": "{\"ok\":true,\"runId\":\"run_8a7a6d5263cc48a3bf4bdbffed51b13b\",\"status\":\"failed\",\"terminal\":true,\"sources\":[],...}"
+      },
+      "issues": "Cannot verify per-source attribution because run failed before any sources could execute. The sources[] array was empty due to OAuth credential failure."
+    },
+    {
+      "id": "VAL-ROUTE-005",
+      "title": "Truth-table assertions are validated under positive-control inputs",
+      "status": "blocked",
+      "steps": [
+        { "action": "Verify both ATS and browser lanes are configured/enabled", "expected": "enabledSources includes both ATS lanes and grounded_web", "observed": "enabledSources: ['greenhouse', 'ashby', 'grounded_web'] - positive-control condition MET" },
+        { "action": "Submit browser_plus_ats run and verify terminal execution", "expected": "Run executes both lane families and shows detection of both", "observed": "Run failed due to OAuth token expiry before any source execution" }
+      ],
+      "evidence": {
+        "positiveControlCheck": "Health endpoint confirms both ATS (greenhouse, ashby) and browser (grounded_web) lanes are enabled and configured",
+        "runOutcome": "run_8a7a6d5263cc48a3bf4bdbffed51b13b failed with OAuth error before source execution"
+      },
+      "issues": "Positive-control condition is satisfied (both lane families are enabled), but run failed before routing assertions could be exercised due to expired OAuth credentials."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Webhook secret validation required correct x-discovery-secret header format and event value 'command-center.discovery'",
+      "resolved": true,
+      "resolution": "Used correct secret from .env file and event value 'command-center.discovery'",
+      "affectedAssertions": ["VAL-ROUTE-003", "VAL-ROUTE-004", "VAL-ROUTE-005"]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Google OAuth refresh token is expired/invalid. Worker returns: 'Failed to refresh Google OAuth token: HTTP 400 - {\"error\": \"invalid_grant\", \"error_description\": \"Token has been expired or revoked.\"}'. This prevents any discovery run from executing sources.",
+      "affectedAssertions": ["VAL-ROUTE-003", "VAL-ROUTE-004", "VAL-ROUTE-005"],
+      "quickFixAttempted": "Cannot fix OAuth token expiry without re-authenticating with Google. The BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_FILE or BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_JSON environment variable points to a token with an expired refresh_token."
+    }
+  ],
+  "summary": "Tested 3 assertions (VAL-ROUTE-003, VAL-ROUTE-004, VAL-ROUTE-005): All 3 are blocked due to expired Google OAuth credentials. The worker accepts webhook requests correctly and the positive-control condition is verified (both ATS and browser lanes are enabled in config), but every run fails immediately with 'invalid_grant' error when trying to refresh the OAuth token. This is a pre-existing credential issue that requires re-authentication with Google, which is outside subagent scope."
+}

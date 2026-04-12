@@ -1,0 +1,79 @@
+{
+  "groupId": "route-ats-only",
+  "testedAt": "2026-04-12T03:02:07.766Z",
+  "isolation": {
+    "workerUrl": "http://127.0.0.1:8644",
+    "webhookEndpoint": "http://127.0.0.1:8644/webhook",
+    "authSecret": "REDACTED",
+    "workerConfig": "/Users/emilionunezgarcia/Job-Bored/integrations/browser-use-discovery/state/worker-config.json",
+    "stateDb": "/Users/emilionunezgarcia/Job-Bored/integrations/browser-use-discovery/state/worker-state.sqlite"
+  },
+  "toolsUsed": ["curl"],
+  "assertions": [
+    {
+      "id": "VAL-ROUTE-002",
+      "title": "ATS-only excludes browser/grounded execution",
+      "status": "blocked",
+      "steps": [
+        { "action": "Start worker with webhook secret", "expected": "Worker running on port 8644", "observed": "Worker started successfully" },
+        { "action": "POST /webhook with sourcePreset: ats_only", "expected": "Run accepted with runId", "observed": "Run accepted with runId: run_2c9f36faacd04ab7b881278e8ec74cf1" },
+        { "action": "Poll /runs/{runId} until terminal", "expected": "Terminal status with sources evidence", "observed": "Run reached terminal state 'failed' with error: Failed to refresh Google OAuth token" },
+        { "action": "Verify sources array shows ATS lanes but not grounded_web", "expected": "Sources evidence of ATS execution and grounded_web exclusion", "observed": "Cannot verify - sources array is empty [] due to early OAuth failure" }
+      ],
+      "evidence": {
+        "webhookRequest": {
+          "url": "http://127.0.0.1:8644/webhook",
+          "method": "POST",
+          "headers": { "Content-Type": "application/json", "x-discovery-secret": "REDACTED" },
+          "body": {
+            "event": "command-center.discovery",
+            "schemaVersion": 1,
+            "requestedAt": "2026-04-12T00:00:00.000Z",
+            "variationKey": "test-ats-only-run",
+            "discoveryProfile": {
+              "sourcePreset": "ats_only",
+              "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ"
+            }
+          }
+        },
+        "webhookResponse": {
+          "ok": true,
+          "kind": "accepted_async",
+          "runId": "run_2c9f36faacd04ab7b881278e8ec74cf1",
+          "statusPath": "/runs/run_2c9f36faacd04ab7b881278e8ec74cf1",
+          "pollAfterMs": 2000
+        },
+        "terminalStatus": {
+          "ok": true,
+          "runId": "run_2c9f36faacd04ab7b881278e8ec74cf1",
+          "status": "failed",
+          "terminal": true,
+          "message": "Discovery failed — worker could not finish the run.",
+          "trigger": "manual",
+          "request": {
+            "sheetId": "",
+            "variationKey": "test-ats-only-run",
+            "requestedAt": "2026-04-12T00:00:00.000Z"
+          },
+          "acceptedAt": "2026-04-12T03:02:01.365Z",
+          "updatedAt": "2026-04-12T03:02:07.766Z",
+          "warnings": [],
+          "sources": [],
+          "startedAt": "2026-04-12T03:02:01.367Z",
+          "completedAt": "2026-04-12T03:02:07.766Z",
+          "error": "Failed to refresh Google OAuth token: HTTP 400 - {\n  \"error\": \"invalid_grant\",\n  \"error_description\": \"Token has been expired or revoked.\"\n}"
+        }
+      },
+      "issues": "Blocked by expired OAuth token. The run failed before any source execution could occur. Cannot verify routing enforcement without sources executing."
+    }
+  ],
+  "frictions": [],
+  "blockers": [
+    {
+      "description": "Google OAuth token has expired and refresh fails with 'invalid_grant'. The run fails at credential refresh before source execution, preventing verification of routing enforcement.",
+      "affectedAssertions": ["VAL-ROUTE-002"],
+      "quickFixAttempted": "Unable to refresh OAuth token without user re-authentication. The token file at ~/.hermes/google_token.json contains a refresh_token but Google rejected the refresh attempt."
+    }
+  ],
+  "summary": "VAL-ROUTE-002 is blocked. Webhook request with sourcePreset: 'ats_only' was correctly accepted (runId: run_2c9f36faacd04ab7b881278e8ec74cf1), but the run failed before source execution due to expired OAuth token. Cannot verify that ATS lanes executed without grounded_web because sources array is empty []. OAuth token requires user re-authentication to refresh."
+}
