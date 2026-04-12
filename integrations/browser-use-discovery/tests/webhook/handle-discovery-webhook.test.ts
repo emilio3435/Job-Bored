@@ -729,7 +729,12 @@ test("handleDiscoveryWebhook persists failed async outcomes for later inspection
   assert.match(stored.error, /grounded_web was skipped/i);
 });
 
-test("handleDiscoveryWebhook fails fast when no companies are configured", async () => {
+test("VAL-API-011: blank intent + empty companies fails with explicit 400 guidance (not company-required)", async () => {
+  // When both intent fields are blank/empty AND companies is empty,
+  // the request must fail with explicit 400 guidance about blank intent,
+  // NOT a 409 "no target companies" error.
+  // This validates VAL-API-011: blank-intent guardrail still fails closed
+  // under unrestricted company scope.
   const response = await handleDiscoveryWebhook(
     {
       method: "POST",
@@ -743,6 +748,7 @@ test("handleDiscoveryWebhook fails fast when no companies are configured", async
         sheetId: "sheet_123",
         variationKey: "var_123",
         requestedAt: "2026-04-09T12:00:00.000Z",
+        // No discoveryProfile → blank intent
       }),
     },
     makeDependencies({
@@ -785,11 +791,25 @@ test("handleDiscoveryWebhook fails fast when no companies are configured", async
     }),
   );
 
-  assert.equal(response.status, 409);
+  // Must fail with 400 (blank intent), not 409 (no companies)
+  assert.equal(response.status, 400, `Expected 400 for blank intent + empty companies, got ${response.status}: ${response.body}`);
   const body = JSON.parse(response.body);
   assert.equal(body.ok, false);
-  assert.match(body.message, /no target companies/i);
-  assert.match(body.detail, /worker-config\.json/);
+  // Must mention blank intent, not companies
+  assert.match(body.message, /blank|intent/i);
+  // Must have actionable guidance
+  assert.ok(
+    body.remediation || body.detail,
+    "Response must include remediation or detail with actionable guidance",
+  );
+  const guidanceText = `${body.message || ""} ${body.detail || ""} ${body.remediation || ""}`.toLowerCase();
+  assert.ok(
+    guidanceText.includes("ai sugg") || guidanceText.includes("suggester") || guidanceText.includes("targetroles") || guidanceText.includes("keywords"),
+    `Response should mention AI Suggester or intent fields. Got: ${guidanceText}`,
+  );
+  // Must NOT have run handle
+  assert.ok(!body.runId, "Response must not include runId for blank intent");
+  assert.ok(!body.statusPath, "Response must not include statusPath for blank intent");
 });
 
 test("handleDiscoveryWebhook fails fast when no sheets credential is configured", async () => {
@@ -2007,4 +2027,156 @@ test("VAL-API-008: rejects blank-only intent with explicit AI Suggester guidance
     /ai sugg/i.test(guidanceText),
     `Response should mention AI Suggester. Got: ${guidanceText}`,
   );
+});
+
+// === VAL-API-010: Empty companies config must not hard-fail preflight ===
+
+test("VAL-API-010: accepts non-blank intent with empty companies (unrestricted scope)", async () => {
+  // Requests with non-blank intent and empty companies must be accepted
+  // for unrestricted company scope discovery. This must NOT return
+  // "no target companies" preflight failure.
+  let runDiscoveryCalled = false;
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      runDiscoveryCalled = true;
+      return {
+        run: {
+          runId: "run_unrestricted",
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_123",
+            variationKey: "var_123",
+            requestedAt: "2026-04-09T12:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_123",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: ["Senior Engineer"],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["grounded_web"],
+            schedule: { enabled: false, cron: "" },
+          },
+        },
+        lifecycle: {
+          runId: "run_unrestricted",
+          trigger: "manual",
+          startedAt: "2026-04-09T12:00:00.000Z",
+          completedAt: "2026-04-09T12:00:01.000Z",
+          state: "completed",
+          companyCount: 0,
+          detectionCount: 0,
+          listingCount: 0,
+          normalizedLeadCount: 0,
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "sheet_123",
+          appended: 0,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        },
+        warnings: ["No companies are configured for this discovery run."],
+      };
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "browser_only",
+          targetRoles: "Senior Engineer",
+          keywordsInclude: "",
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  // Must be accepted (not 409 "no target companies")
+  assert.ok(
+    [200, 202].includes(response.status),
+    `Expected 200 or 202 for non-blank intent + empty companies, got ${response.status}: ${response.body}`,
+  );
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.ok(body.runId, "Must have runId for valid unrestricted request");
+  assert.ok(
+    runDiscoveryCalled,
+    "runDiscovery must be called for non-blank intent + empty companies",
+  );
+});
+
+test("VAL-API-010: blank intent with empty companies still fails (preserves VAL-API-011)", async () => {
+  // Even with unrestricted company scope, blank intent must still fail.
+  // This is the VAL-API-011 guardrail preserved under unrestricted scope.
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      throw new Error("runDiscovery should not be called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "browser_only",
+          targetRoles: "   ", // blank
+          keywordsInclude: "", // blank
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  // Must fail with 400 (blank intent), not 409 (no companies)
+  assert.equal(response.status, 400, `Expected 400 for blank intent + empty companies, got ${response.status}: ${response.body}`);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+  assert.ok(!body.runId, "Must not have runId for blank intent");
 });
