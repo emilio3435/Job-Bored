@@ -1,0 +1,75 @@
+{
+  "milestone": "failure-transparency-and-runtime-readiness",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": { "passed": true, "command": "npm run test:repo", "exitCode": 0 },
+    "typecheck": { "passed": true, "command": "npm run typecheck:repo", "exitCode": 0 },
+    "lint": { "passed": true, "command": "npm run lint:repo", "exitCode": 0 }
+  },
+  "reviewsSummary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [
+    {
+      "target": "library/contracts.md",
+      "description": "Document dual key pattern (statusPath vs status_path) for accepted_async polling metadata field name variants",
+      "sourceFeature": "browser-run-status-tracking-and-recovery"
+    },
+    {
+      "target": "library/environment.md",
+      "description": "Document BROWSER_USE_COMMAND alias for BROWSER_USE_DISCOVERY_BROWSER_COMMAND",
+      "sourceFeature": "worker-readiness-and-failure-transparency"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Add a naming convention guidance to prevent future accidental renaming of handleDiscoverySetupDeepLink vs handleDiscoveryWizardVerification. The two functions have similar names but different purposes (deep-link bootstrap vs webhook verification). A convention such as requiring a suffix pattern (e.g., DeepLink vs Verification) or adding a cross-reference comment near each function would prevent the accidental renaming that caused the bug in commit 0d2b092.",
+      "evidence": "Feature run-status-handoff-contract-and-test-restoration found that the accidental renaming in commit 0d2b092 caused a bootstrap failure because runPostAccessBootstrapOnce() calls handleDiscoverySetupDeepLink but found handleDiscoveryWizardVerification instead.",
+      "isSystemic": false
+    },
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Add guidance that services should be started before the browser verification step (Step 6 agent-browser) to avoid wasted setup time. The skill should either include a pre-check that the web server is running or explicitly list required service start commands from services.yaml before the browser verification step.",
+      "evidence": "Feature browser-run-status-tracking-and-recovery skillFeedback noted: 'Browser verification step requires services to be running; skill could pre-check or provide explicit setup instructions for the web server'. Worker spent time setting up services before verification could run.",
+      "isSystemic": false
+    },
+    {
+      "target": "skills",
+      "suggestion": "Add guidance for testing browser-only classes in Node.js VM context. Classes that reference top-level const declarations and use localStorage cannot be tested via Node.js vm.runInContext because const/class declarations are not accessible as context object properties (only var declarations are). The skill should note this testing limitation and recommend alternative approaches (browser-based tests, integration tests, or explicit skip with justification).",
+      "evidence": "Feature browser-run-status-tracking-and-recovery discovered that DiscoveryRunTracker could not be tested in Node.js vm.runInContext due to const/class isolation issues. Test file was removed and the issue was noted as a discovered issue.",
+      "isSystemic": false
+    },
+    {
+      "target": "AGENTS.md",
+      "suggestion": "The 'discovery-integration-worker' skill referenced in the worker-readiness-and-failure-transparency feature does not exist in .factory/skills/. Ensure all skill references in feature definitions resolve to an actual skill file, or clarify which skill(s) discovery-integration-worker tasks should follow.",
+      "evidence": "Feature worker-readiness-and-failure-transparency noted the skill 'discovery-integration-worker' doesn't exist in .factory/skills/. Worker followed procedure=true but there was no skill file to verify against.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "services.yaml doesn't document verification commands (npm run test:repo etc.)",
+      "reason": "Already documented via npm run scripts; services.yaml documents operational service start/stop/health not repo-level validation commands"
+    },
+    {
+      "observation": "Credential/readiness validator pattern not codified in library",
+      "reason": "Pattern is well-established in the codebase; codifying it would be adding guidance beyond factual knowledge. Library is for discovered facts, not implementation guidance."
+    },
+    {
+      "observation": "Automated checks for DiscoveryRunTracker transitions not added despite feature description mentioning it",
+      "reason": "The feature's primary goal (restore handleDiscoverySetupDeepLink + tests passing) was achieved. The gap is a deferred item, not a failure of the delivered feature. The feature description mentions it but the core verification (tests passing) is satisfied."
+    }
+  ],
+  "previousRound": null,
+  "reviews": [
+    "browser-run-status-tracking-and-recovery",
+    "run-status-handoff-contract-and-test-restoration",
+    "worker-readiness-and-failure-transparency"
+  ]
+}

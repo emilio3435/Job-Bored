@@ -37,7 +37,14 @@ Environment variables, external dependencies, and setup notes for this mission.
   - `integrations/browser-use-discovery/.env` (webhook secret + discovery env)
   - `server/.env` (Gemini fallback via `ATS_GEMINI_API_KEY`)
 
-## Worker state/config paths
+## Browser runtime env var aliases
+
+The browser-use discovery runtime recognizes two env var names for the same configuration:
+
+- `BROWSER_USE_DISCOVERY_BROWSER_COMMAND` (primary, discovery-specific)
+- `BROWSER_USE_COMMAND` (shorter alias, also recognized)
+
+Both point to the same underlying configuration. Remediation messages in runtime-readiness output reference both forms so users on either naming convention get actionable guidance.
 
 - `integrations/browser-use-discovery/state/worker-config.json`
 - `integrations/browser-use-discovery/state/worker-state.sqlite`
