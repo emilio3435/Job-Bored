@@ -189,7 +189,16 @@
     maxLeadsPerRun: "",
     /** When false, grounded web source is disabled for this discovery run. */
     groundedWebEnabled: true,
+    /**
+     * Canonical source preset — controls which lane families run.
+     * Allowed values: "browser_only" | "ats_only" | "browser_plus_ats"
+     * Undefined/empty means no stored preference; caller must resolve.
+     */
+    sourcePreset: "",
   };
+
+  /** Valid source preset values. */
+  const SOURCE_PRESET_VALUES = Object.freeze(["browser_only", "ats_only", "browser_plus_ats"]);
 
   const MAX_DISCOVERY_FIELD_LEN = 2000;
 
@@ -247,7 +256,21 @@
       maxLeadsPerRun: trim("maxLeadsPerRun"),
       groundedWebEnabled:
         o.groundedWebEnabled === true || o.groundedWebEnabled === "true",
+      sourcePreset: normalizeSourcePreset(o.sourcePreset),
     };
+  }
+
+  /**
+   * Normalize a source preset value to a valid enum string or empty.
+   * First-visit (undefined/empty) and legacy values map to an explicit default.
+   * @param {unknown} raw
+   * @returns {"" | "browser_only" | "ats_only" | "browser_plus_ats"}
+   */
+  function normalizeSourcePreset(raw) {
+    const v = raw == null ? "" : String(raw).trim();
+    if (SOURCE_PRESET_VALUES.includes(v)) return v;
+    // Legacy / first-visit: default to browser_plus_ats (mixed mode is safest)
+    return "";
   }
 
   async function getDiscoveryProfile() {
@@ -1003,7 +1026,9 @@
     getDiscoveryProfile,
     saveDiscoveryProfile,
     DEFAULT_DISCOVERY_PROFILE,
+    SOURCE_PRESET_VALUES,
     normalizeDiscoveryProfile,
+    normalizeSourcePreset,
     getAgentChecklist,
     saveAgentChecklist,
     DEFAULT_AGENT_CHECKLIST,
