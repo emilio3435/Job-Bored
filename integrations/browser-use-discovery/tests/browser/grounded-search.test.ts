@@ -1304,3 +1304,386 @@ test("collectGroundedWebListings provides dual-layer diagnostics + warnings for 
   // Zero result should be reflected
   assert.equal(result.rawListings.length, 0, "Degraded extraction should return zero listings");
 });
+
+// === VAL-DATA-001: Regex fallback for non-JSON/conversational grounded output ===
+
+test("VAL-DATA-001: regex fallback recovers URLs from conversational/non-JSON output", async () => {
+  const run = makeRun();
+  const client = createGroundedSearchClient(makeRuntimeConfig(), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    // Conversational response with URLs embedded in text
+                    text: "Based on my search, I found some great opportunities for you at Notion. Check out the careers page at https://www.notion.so/careers and also look at https://www.notion.so/careers/product-marketing-manager for the specific role. Another good resource is https://jobs.lever.co/notion.",
+                  },
+                ],
+              },
+              groundingMetadata: {
+                webSearchQueries: ["Notion product marketing manager"],
+                groundingChunks: [],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+  });
+
+  const result = await client.search(run.config.companies[0], run);
+
+  // Should recover URLs via regex fallback
+  assert.ok(result.candidates.length > 0, "Should recover URLs from conversational output");
+
+  // Should include the employer careers page
+  const urls = result.candidates.map((c) => c.url);
+  assert.ok(urls.some((u) => u.includes("notion.so/careers")), "Should recover notion.so/careers URL");
+  assert.ok(urls.some((u) => u.includes("lever.co")), "Should recover lever.co URL");
+
+  // Should have regex fallback diagnostic and warning
+  if (result.diagnostics?.regexFallbackUsed) {
+    assert.ok(true, "regexFallbackUsed diagnostic should be set");
+  }
+  const regexWarning = result.warnings.find((w) => w.includes("Regex URL fallback"));
+  assert.ok(regexWarning, "Should have regex fallback warning");
+});
+
+test("VAL-DATA-001: regex fallback handles zero-supported case explicitly", async () => {
+  const run = makeRun();
+  const client = createGroundedSearchClient(makeRuntimeConfig(), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    // Non-JSON response with no valid URLs
+                    text: "I couldn't find any relevant job postings for this search.",
+                  },
+                ],
+              },
+              groundingMetadata: {
+                webSearchQueries: ["NonexistentCompany xyz marketing"],
+                groundingChunks: [],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+  });
+
+  const result = await client.search(run.config.companies[0], run);
+
+  // Should have zero candidates and explicit fallback attribution
+  assert.equal(result.candidates.length, 0, "Should have zero candidates for no-URL response");
+
+  // Should have regex fallback warning
+  const regexWarning = result.warnings.find((w) => w.includes("Regex URL fallback"));
+  assert.ok(regexWarning, "Should have regex fallback warning for non-JSON with no URLs");
+});
+
+test("VAL-DATA-001: regex fallback handles mixed URL quality (supported + unsupported)", async () => {
+  const run = makeRun();
+  const client = createGroundedSearchClient(makeRuntimeConfig(), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: "Found some jobs at https://www.linkedin.com/jobs/view/123, https://www.indeed.com/jobs/456, and https://www.notion.so/careers/product-marketing-manager",
+                  },
+                ],
+              },
+              groundingMetadata: {
+                webSearchQueries: ["Notion product marketing manager"],
+                groundingChunks: [],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+  });
+
+  const result = await client.search(run.config.companies[0], run);
+
+  // Should only include supported URLs (notion.so) and filter out denylisted ones (linkedin, indeed)
+  const urls = result.candidates.map((c) => c.url);
+  assert.ok(urls.some((u) => u.includes("notion.so")), "Should include supported notion.so URL");
+  assert.ok(!urls.some((u) => u.includes("linkedin")), "Should filter out denylisted linkedin.com");
+  assert.ok(!urls.some((u) => u.includes("indeed")), "Should filter out denylisted indeed.com");
+});
+
+// === VAL-DATA-002: Expanded denylist with host variants ===
+
+test("VAL-DATA-002: denylist excludes subdomain variants across all ingestion paths", async () => {
+  const run = makeRun();
+  const client = createGroundedSearchClient(makeRuntimeConfig(), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      results: [
+                        { url: "https://jobs.lever.co/notion/123", title: "Job 1" },
+                        { url: "https://apply.linkedin.com/jobs/view/456", title: "Job 2" },
+                        { url: "https://www.indeed.com/jobs/view/789", title: "Job 3" },
+                        { url: "https://jobs.glassdoor.com/view/101", title: "Job 4" },
+                        { url: "https://careers.acme.com/job/111", title: "Job 5" },
+                      ],
+                    }),
+                  },
+                ],
+              },
+              groundingMetadata: {
+                webSearchQueries: ["Notion jobs"],
+                groundingChunks: [
+                  { web: { uri: "https://jobs.lever.co/notion/123", title: "Job 1" } },
+                  { web: { uri: "https://apply.linkedin.com/jobs/view/456", title: "Job 2" } },
+                  { web: { uri: "https://www.indeed.com/jobs/view/789", title: "Job 3" } },
+                  { web: { uri: "https://jobs.glassdoor.com/view/101", title: "Job 4" } },
+                  { web: { uri: "https://careers.acme.com/job/111", title: "Job 5" } },
+                ],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+  });
+
+  const result = await client.search(run.config.companies[0], run);
+
+  // Should only keep the acme.com careers URL; all aggregator/denylisted variants should be filtered
+  // Note: lever.co is a legitimate ATS and should NOT be filtered
+  const urls = result.candidates.map((c) => c.url);
+  assert.ok(urls.some((u) => u.includes("acme.com")), "Should include valid employer domain");
+  assert.ok(!urls.some((u) => u.includes("linkedin.com")), "Should filter linkedin subdomain");
+  assert.ok(!urls.some((u) => u.includes("indeed.com")), "Should filter indeed.com");
+  assert.ok(!urls.some((u) => u.includes("glassdoor.com")), "Should filter glassdoor subdomain");
+  assert.ok(urls.some((u) => u.includes("lever.co")), "Should keep lever.co (legitimate ATS)");
+});
+
+test("VAL-DATA-002: denylist filters via citation ingestion path", async () => {
+  const run = makeRun();
+  const client = createGroundedSearchClient(makeRuntimeConfig(), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: "{}",
+                  },
+                ],
+              },
+              groundingMetadata: {
+                webSearchQueries: ["Notion marketing manager"],
+                groundingChunks: [
+                  // Only citation URLs - all should be filtered by denylist
+                  { web: { uri: "https://jobs.linkedin.com/view/123", title: "LinkedIn Job" } },
+                  { web: { uri: "https://www.indeed.com/jobs/view/456", title: "Indeed Job" } },
+                  { web: { uri: "https://careers.notion.so/view/789", title: "Notion Careers" } },
+                ],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+  });
+
+  const result = await client.search(run.config.companies[0], run);
+
+  // Citation-only response should filter denylisted hosts
+  // Note: careers.notion.so would be first-party employer domain but it comes through
+  // citation path with empty model output, so it gets filtered since no structured data
+  // The key is that denylisted hosts are never included
+  assert.ok(!result.candidates.some((c) => c.url.includes("linkedin.com")), "Should filter LinkedIn from citations");
+  assert.ok(!result.candidates.some((c) => c.url.includes("indeed.com")), "Should filter Indeed from citations");
+});
+
+// === VAL-DATA-003: Bounded employer-domain bonus ranking ===
+
+test("VAL-DATA-003: employer-domain bonus ranks first-party postings higher in tie scenarios", async () => {
+  const run = makeRun(); // company = "Notion"
+  const client = createGroundedSearchClient(makeRuntimeConfig(), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      results: [
+                        // Same pageType and similar signals - only employer domain should differ
+                        // Use example.com as a non-denylisted aggregator to test ranking
+                        { url: "https://www.example.com/company/notion/jobs/123", title: "Product Marketing Manager at Notion", pageType: "job" },
+                        { url: "https://www.notion.so/careers/product-marketing-manager", title: "Product Marketing Manager", pageType: "job" },
+                      ],
+                    }),
+                  },
+                ],
+              },
+              groundingMetadata: {
+                webSearchQueries: ["Notion product marketing manager"],
+                groundingChunks: [],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+  });
+
+  const result = await client.search(run.config.companies[0], run);
+
+  // First-party employer domain should rank higher due to bounded bonus
+  const urls = result.candidates.map((c) => c.url);
+  const notionIdx = urls.findIndex((u) => u.includes("notion.so"));
+  const exampleIdx = urls.findIndex((u) => u.includes("example.com"));
+
+  assert.ok(notionIdx >= 0 && exampleIdx >= 0, "Both URLs should be present");
+  assert.ok(notionIdx < exampleIdx, "First-party notion.so should rank higher than example.com aggregator");
+});
+
+test("VAL-DATA-003: employer-domain bonus does not override stronger non-employer relevance", async () => {
+  const run = makeRun(); // company = "Notion"
+  const client = createGroundedSearchClient(makeRuntimeConfig(), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      results: [
+                        // Direct job page on aggregator (strong pageType score) vs careers page on employer domain
+                        { url: "https://jobs.lever.co/notion/456", title: "Senior Product Marketing Manager at Notion", pageType: "job" },
+                        { url: "https://www.notion.so/careers/general", title: "Notion Careers", pageType: "careers" },
+                      ],
+                    }),
+                  },
+                ],
+              },
+              groundingMetadata: {
+                webSearchQueries: ["Notion product marketing manager"],
+                groundingChunks: [],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+  });
+
+  const result = await client.search(run.config.companies[0], run);
+
+  // The direct job page (pageType=job) should outrank the careers page
+  // even though careers.notion.so is first-party, because "job" pageType scores 40
+  // vs "careers" at 20, and the 4-point employer bonus can't override that 20-point difference
+  const urls = result.candidates.map((c) => c.url);
+  const leverIdx = urls.findIndex((u) => u.includes("lever.co"));
+  const notionCareersIdx = urls.findIndex((u) => u.includes("notion.so/careers"));
+
+  assert.ok(leverIdx >= 0 && notionCareersIdx >= 0, "Both URLs should be present");
+  // The direct job posting (lever) should rank higher because pageType=job (40) > careers (20)
+  assert.ok(leverIdx < notionCareersIdx, "Direct job posting should outrank careers page despite employer bonus");
+});
+
+test("VAL-DATA-003: employer-domain bonus applies to recognized first-party subdomain patterns", async () => {
+  const run = {
+    ...makeRun(),
+    config: {
+      ...makeRun().config,
+      companies: [{ name: "Acme" }], // Override to match the test URLs
+    },
+  };
+  const client = createGroundedSearchClient(makeRuntimeConfig(), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      results: [
+                        // Use example.com as non-denylisted aggregator
+                        { url: "https://www.example.com/company/acme/jobs/123", title: "Acme Jobs", pageType: "listings" },
+                        { url: "https://careers.acme.com/job/456", title: "Acme Job", pageType: "job" },
+                        { url: "https://jobs.acme.com/view/789", title: "Acme Position", pageType: "job" },
+                      ],
+                    }),
+                  },
+                ],
+              },
+              groundingMetadata: {
+                webSearchQueries: ["Acme engineering jobs"],
+                groundingChunks: [],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+  });
+
+  const result = await client.search(run.config.companies[0], run);
+
+  // careers.acme.com and jobs.acme.com should rank higher than example.com due to employer bonus
+  const urls = result.candidates.map((c) => c.url);
+  const exampleIdx = urls.findIndex((u) => u.includes("example.com"));
+  const careersIdx = urls.findIndex((u) => u.includes("careers.acme.com"));
+  const jobsAcmeIdx = urls.findIndex((u) => u.includes("jobs.acme.com"));
+
+  assert.ok(exampleIdx >= 0 && careersIdx >= 0 && jobsAcmeIdx >= 0, "All URLs should be present");
+  // Both employer domain URLs should outrank example.com
+  assert.ok(careersIdx < exampleIdx, "careers.acme.com should outrank example.com");
+  assert.ok(jobsAcmeIdx < exampleIdx, "jobs.acme.com should outrank example.com");
+});

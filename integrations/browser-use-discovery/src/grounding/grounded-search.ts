@@ -29,27 +29,59 @@ const PAGE_EXTRACTION_PROMPT = [
   "Use absolute HTTPS URLs for each job.",
 ].join(" ");
 
-const SEED_HOST_DENYLIST = new Set([
+/**
+ * Denylist of hostnames blocked from grounded search results.
+ * Includes exact hostnames and wildcard patterns (e.g., "*.linkedin.com").
+ * VAL-DATA-002: Expanded denylist with host variants across all ingestion paths.
+ */
+const SEED_HOST_DENYLIST: Array<string | { pattern: RegExp; description: string }> = [
+  // Google
   "google.com",
   "www.google.com",
   "support.google.com",
+  // LinkedIn variants (catch ALL subdomains)
   "linkedin.com",
   "www.linkedin.com",
+  { pattern: /^[^/]+\.linkedin\.com$/i, description: "LinkedIn all subdomains" },
+  // Auth/LinkedIn special domains
+  { pattern: /^[^/]+\.licdn\.com$/i, description: "LinkedIn CDN subdomains" },
+  // Indeed variants
   "indeed.com",
   "www.indeed.com",
+  { pattern: /^[^/]+\.indeed\.com$/i, description: "indeed.com subdomains" },
+  // Glassdoor variants
   "glassdoor.com",
   "www.glassdoor.com",
+  { pattern: /^[^/]+\.glassdoor\.com$/i, description: "glassdoor.com subdomains" },
+  // Monster variants
   "monster.com",
   "www.monster.com",
+  { pattern: /^[^/]+\.monster\.com$/i, description: "monster.com subdomains" },
+  // ZipRecruiter variants
   "ziprecruiter.com",
   "www.ziprecruiter.com",
+  { pattern: /^[^/]+\.ziprecruiter\.com$/i, description: "ziprecruiter.com subdomains" },
+  // SimplyHired variants
   "simplyhired.com",
   "www.simplyhired.com",
+  { pattern: /^[^/]+\.simplyhired\.com$/i, description: "simplyhired.com subdomains" },
+  // Talent.com variants
   "talent.com",
   "www.talent.com",
+  { pattern: /^[^/]+\.talent\.com$/i, description: "talent.com subdomains" },
+  // Jooble variants
   "jooble.org",
   "www.jooble.org",
-]);
+  { pattern: /^[^/]+\.jooble\.org$/i, description: "jooble.org subdomains" },
+  // Career builder and variants
+  "careerbuilder.com",
+  "www.careerbuilder.com",
+  { pattern: /^[^/]+\.careerbuilder\.com$/i, description: "careerbuilder.com subdomains" },
+  // Dice and variants
+  "dice.com",
+  "www.dice.com",
+  { pattern: /^[^/]+\.dice\.com$/i, description: "dice.com subdomains" },
+];
 
 export type GroundedSearchCandidate = {
   url: string;
@@ -114,6 +146,8 @@ export type GroundedSearchDiagnostics = {
     query: string;
     finalRung: GroundedQueryRung;
   }>;
+  /** VAL-DATA-001: True if regex fallback was used for non-JSON/conversational output. */
+  regexFallbackUsed?: boolean;
 };
 
 export type GroundedSearchClient = {
@@ -217,11 +251,13 @@ async function executeQueryWithRetry(
   searchQueries: string[];
   evidence: GroundedQueryEvidence[];
   exhausted: boolean;
+  regexFallbackUsed: boolean;
 }> {
   const evidence: GroundedQueryEvidence[] = [];
   const searchQueries: string[] = [];
   const allCandidates: GroundedSearchCandidate[] = [];
   let exhausted = false;
+  let regexFallbackUsed = false;
 
   // VAL-ROUTE-013: Build the retry ladder
   // Rung 0: focused query (original)
@@ -246,6 +282,9 @@ async function executeQueryWithRetry(
 
     searchQueries.push(...result.searchQueries);
     allCandidates.push(...result.candidates);
+    if (result.regexFallbackUsed) {
+      regexFallbackUsed = true;
+    }
 
     evidence.push({
       query,
@@ -272,6 +311,7 @@ async function executeQueryWithRetry(
     searchQueries,
     evidence,
     exhausted,
+    regexFallbackUsed,
   };
 }
 
@@ -392,11 +432,11 @@ async function executeSingleQuery(
   const searchQueries = uniqueStrings(
     readStringArray(groundingMetadata?.webSearchQueries),
   );
-  const explicit = extractGroundedCandidatesFromText(responseText, company);
+  const explicitResult = extractGroundedCandidatesFromText(responseText, company);
   const cited = extractGroundedCandidatesFromMetadata(groundingMetadata, company);
-  const candidates = mergeGroundedCandidates(explicit, cited, company, maxResultsPerCompany);
+  const candidates = mergeGroundedCandidates(explicitResult.candidates, cited, company, maxResultsPerCompany);
 
-  return { candidates, searchQueries };
+  return { candidates, searchQueries, regexFallbackUsed: explicitResult.regexFallbackUsed };
 }
 
 /**
@@ -532,25 +572,32 @@ export function createGroundedSearchClient(
         const searchQueries = uniqueStrings(
           readStringArray(groundingMetadata?.webSearchQueries),
         );
-        const explicit = extractGroundedCandidatesFromText(responseText, company);
+        const explicitResult = extractGroundedCandidatesFromText(responseText, company);
         const cited = extractGroundedCandidatesFromMetadata(
           groundingMetadata,
           company,
         );
         const candidates = mergeGroundedCandidates(
-          explicit,
+          explicitResult.candidates,
           cited,
           company,
           maxResultsPerCompany,
         );
 
+        // VAL-DATA-001: Emit explicit warning for regex fallback on non-JSON/conversational output
+        const warnings = candidates.length > 0
+          ? []
+          : ["Grounded search returned no usable candidate links."];
+        if (explicitResult.regexFallbackUsed) {
+          warnings.push(
+            "Regex URL fallback used: grounded output was non-JSON or conversational; URLs recovered via pattern matching.",
+          );
+        }
+
         return {
           searchQueries,
           candidates,
-          warnings:
-            candidates.length > 0
-              ? []
-              : ["Grounded search returned no usable candidate links."],
+          warnings,
         };
       }
 
@@ -562,10 +609,11 @@ export function createGroundedSearchClient(
       const warnings: string[] = [];
       const exhaustedSubQueries: { query: string; finalRung: GroundedQueryRung }[] = [];
       let ladderExhausted = false;
+      let regexFallbackUsed = false;
 
       // Execute each focused query
       for (const focusedQuery of focusedQueries) {
-        const { candidates, searchQueries, evidence, exhausted } = await executeQueryWithRetry(
+        const { candidates, searchQueries, evidence, exhausted, regexFallbackUsed: queryRegexFallback } = await executeQueryWithRetry(
           focusedQuery,
           company,
           run,
@@ -579,6 +627,9 @@ export function createGroundedSearchClient(
         allCandidates.push(...candidates);
         allSearchQueries.push(...searchQueries);
         queryEvidence.push(...evidence);
+        if (queryRegexFallback) {
+          regexFallbackUsed = true;
+        }
 
         if (exhausted) {
           ladderExhausted = true;
@@ -606,6 +657,7 @@ export function createGroundedSearchClient(
         ...(ladderExhausted && exhaustedSubQueries.length > 0
           ? { exhaustedRungs: exhaustedSubQueries }
           : {}),
+        ...(regexFallbackUsed ? { regexFallbackUsed: true } : {}),
       };
 
       // Add warnings if no candidates found or ladder exhausted
@@ -615,6 +667,12 @@ export function createGroundedSearchClient(
       if (ladderExhausted && uniqueCandidates.length === 0) {
         warnings.push(
           `Query ladder exhausted: all ${focusedQueries.length} focused sub-queries returned zero candidates after retry broadening.`,
+        );
+      }
+      // VAL-DATA-001: Emit explicit warning for regex fallback on non-JSON/conversational output
+      if (regexFallbackUsed) {
+        warnings.push(
+          "Regex URL fallback used: grounded output was non-JSON or conversational; URLs recovered via pattern matching.",
         );
       }
 
@@ -1044,10 +1102,61 @@ function toRawListing(
   };
 }
 
+/**
+ * Result of URL extraction from text, including whether regex fallback was used.
+ */
+type ExtractCandidatesResult = {
+  candidates: GroundedSearchCandidate[];
+  /** True if JSON parsing failed/empty and regex fallback was used. */
+  regexFallbackUsed: boolean;
+};
+
+/**
+ * Extracts HTTPS URLs from conversational/non-JSON text using regex fallback.
+ * VAL-DATA-001: Regex fallback recovers exact supported canonical URL set.
+ */
+function extractUrlsViaRegex(text: string, company: CompanyTarget): GroundedSearchCandidate[] {
+  // Match HTTPS URLs that look like job/careers links
+  const urlPattern = /https:\/\/[^\s<>"')\]]+/gi;
+  const matches = String(text).match(urlPattern) || [];
+
+  // Dedupe and normalize URLs
+  const uniqueUrls = [...new Set(matches.map((url) => {
+    try {
+      return new URL(url).toString();
+    } catch {
+      return url;
+    }
+  }))];
+
+  // Convert to candidates, filtering by supported URLs only
+  const candidates: GroundedSearchCandidate[] = [];
+  for (const url of uniqueUrls) {
+    const candidate = toGroundedCandidate(
+      {
+        url,
+        title: url, // Use URL as title since we don't have structured data
+        pageType: classifyPageType(url, ""),
+        reason: "Regex fallback extraction from conversational output",
+      },
+      company,
+    );
+    if (candidate) {
+      candidates.push(candidate);
+    }
+  }
+
+  return candidates;
+}
+
+/**
+ * Extracts grounded candidates from text, with regex fallback for non-JSON output.
+ * VAL-DATA-001: Handles zero-supported case explicitly with fallback attribution.
+ */
 function extractGroundedCandidatesFromText(
   text: string,
   company: CompanyTarget,
-): GroundedSearchCandidate[] {
+): ExtractCandidatesResult {
   const parsed = parseJsonLoose(text);
   const rows = isPlainRecord(parsed)
     ? Array.isArray(parsed.results)
@@ -1061,9 +1170,24 @@ function extractGroundedCandidatesFromText(
       ? parsed
       : [];
 
-  return rows
+  const candidates = rows
     .map((entry) => toGroundedCandidate(entry, company))
     .filter((entry): entry is GroundedSearchCandidate => !!entry);
+
+  // VAL-DATA-001: If JSON parsing yielded no candidates, fall back to regex URL extraction
+  // This handles conversational/non-JSON grounded output
+  if (candidates.length === 0 && text.trim().length > 0) {
+    const regexCandidates = extractUrlsViaRegex(text, company);
+    return {
+      candidates: regexCandidates,
+      regexFallbackUsed: true,
+    };
+  }
+
+  return {
+    candidates,
+    regexFallbackUsed: false,
+  };
 }
 
 function extractGroundedCandidatesFromMetadata(
@@ -1137,6 +1261,49 @@ function mergeGroundedCandidates(
     .slice(0, Math.max(1, limit));
 }
 
+/**
+ * Checks if a URL appears to be a first-party employer domain.
+ * First-party means the URL is on the employer's own domain (e.g., careers.acme.com, acme.com/careers).
+ * VAL-DATA-003: Employer-domain bonus prioritizes first-party career pages.
+ */
+function isEmployerDomain(url: string, companyName: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    const companyLower = companyName.toLowerCase();
+
+    // Extract the base domain (e.g., "acme" from "www.acme.com" or "careers.acme.com")
+    const hostnameParts = hostname.split(".");
+    const baseDomain = hostnameParts.length >= 2 ? hostnameParts.slice(-2).join(".") : hostname;
+    const baseName = hostnameParts[0]; // First part before the TLD
+
+    // Check if the hostname contains a recognizable company identifier
+    // that matches the target company name
+    const companyTokens = companyLower.split(/[^a-z0-9]+/).filter(t => t.length >= 3);
+
+    // First-party indicators:
+    // 1. Subdomain that matches company name (e.g., careers.acme.com, jobs.acme.com)
+    // 2. Path-based career page on a domain that matches company
+    // 3. The base domain itself contains company tokens (e.g., workday.com/acme)
+
+    // Check if base domain name contains company identifier
+    const baseDomainMatchesCompany = companyTokens.some(token =>
+      baseDomain.includes(token) || baseName.includes(token)
+    );
+
+    if (!baseDomainMatchesCompany) return false;
+
+    // First-party employer domains typically have careers/, jobs/, or work with us paths
+    // or use subdomains like careers., jobs., work., etc.
+    const isFirstPartySubdomain = /^(careers|jobs|work|join|apply|hiring|career)\./i.test(hostname);
+    const isFirstPartyPath = /\/careers?\/|\/jobs\/|\/work-with-us|\/join-us|\/hiring\//i.test(parsed.pathname);
+
+    return isFirstPartySubdomain || isFirstPartyPath;
+  } catch {
+    return false;
+  }
+}
+
 function candidateScore(
   candidate: GroundedSearchCandidate,
   company: CompanyTarget,
@@ -1148,6 +1315,16 @@ function candidateScore(
   if (isLikelyJobLink(candidate.url)) score += 12;
   if (mentionsCompany(candidate.url, candidate.title, company.name)) score += 8;
   if (candidate.reason) score += 2;
+
+  // VAL-DATA-003: Bounded employer-domain bonus
+  // Apply a small tie-breaker bonus for first-party employer domains.
+  // The bonus is small enough (4 points) that it won't override materially stronger
+  // non-employer relevance (e.g., a "job" pageType scores 40 vs 20 for "careers",
+  // so employer-domain bonus on a careers page won't outrank a direct job page).
+  if (isEmployerDomain(candidate.url, company.name)) {
+    score += 4;
+  }
+
   return score;
 }
 
@@ -1177,11 +1354,31 @@ function normalizePageType(value: string): GroundedSearchCandidate["pageType"] {
   return "other";
 }
 
+/**
+ * Checks if a hostname is denylisted.
+ * Handles both exact string matches and regex patterns.
+ */
+function isHostnameDenied(hostname: string): boolean {
+  const lowerHostname = hostname.toLowerCase();
+  for (const entry of SEED_HOST_DENYLIST) {
+    if (typeof entry === "string") {
+      if (lowerHostname === entry) return true;
+    } else if (entry.pattern) {
+      if (entry.pattern.test(lowerHostname)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Checks if a URL is a supported seed URL (not denylisted).
+ * VAL-DATA-002: Expanded denylist with host variants enforced.
+ */
 function isSupportedSeedUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     if (!["https:", "http:"].includes(parsed.protocol)) return false;
-    if (SEED_HOST_DENYLIST.has(parsed.hostname.toLowerCase())) return false;
+    if (isHostnameDenied(parsed.hostname)) return false;
     return true;
   } catch {
     return false;
