@@ -1,0 +1,34 @@
+{
+  "milestone": "modifier-driven-grounded-query-followup",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "npm run test:repo",
+      "exitCode": 0,
+      "details": "312 tests passed (167 main suite + 145 browser-use-discovery suite)"
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "npm run typecheck:repo",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "npm run lint:repo",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [],
+  "rejectedObservations": [],
+  "previousRound": null
+}
