@@ -1,0 +1,117 @@
+{
+  "groupId": "unrestricted-company-scope",
+  "testedAt": "2026-04-12T11:49:30Z",
+  "isolation": {
+    "discoveryWorkerUrl": "http://127.0.0.1:8644",
+    "webhookEndpoint": "http://127.0.0.1:8644/webhook",
+    "webhookSecret": "USE_BOOTSTRAP_CONFIG",
+    "dashboardUrl": "http://localhost:8080",
+    "workingDirectory": "/Users/emilionunezgarcia/Job-Bored",
+    "missionDir": "/Users/emilionunezgarcia/.factory/missions/89d20ab8-2e45-4be3-8d44-7480490a8906"
+  },
+  "toolsUsed": ["curl"],
+  "assertions": [
+    {
+      "id": "VAL-API-010",
+      "title": "Empty companies config must not hard-fail preflight",
+      "status": "pass",
+      "steps": [
+        { "action": "POST webhook with empty companies + non-blank intent", "expected": "accepted_async with runId", "observed": "accepted_async with runId=run_fad1e190da1241a2a34be4390050dcd9" },
+        { "action": "Poll status for same runId", "expected": "run enters execution", "observed": "status=running, then partial terminal" }
+      ],
+      "evidence": {
+        "requestPayload": "discoveryProfile.sourcePreset=browser_only, targetRoles=Software Engineer, keywordsInclude=JavaScript,TypeScript (no companies field)",
+        "ackResponse": "{\"ok\":true,\"kind\":\"accepted_async\",\"runId\":\"run_fad1e190da1241a2a34be4390050dcd9\",\"statusPath\":\"/runs/run_fad1e190da1241a2a34be4390050dcd9\",\"pollAfterMs\":2000}",
+        "network": "POST /webhook -> 200, GET /runs/run_fad1e190da1241a2a34be4390050dcd9 -> 200"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-API-011",
+      "title": "Blank-intent guardrail still fails closed under unrestricted company scope",
+      "status": "pass",
+      "steps": [
+        { "action": "POST webhook with empty companies + blank intent (omit targetRoles and keywordsInclude)", "expected": "400 with explicit guidance, no runId", "observed": "400 with message: 'discoveryProfile.targetRoles and discoveryProfile.keywordsInclude cannot both be blank or missing.'" }
+      ],
+      "evidence": {
+        "requestPayload": "discoveryProfile.sourcePreset=browser_only (no targetRoles, no keywordsInclude, no companies)",
+        "responseBody": "{\"ok\":false,\"message\":\"discoveryProfile.targetRoles and discoveryProfile.keywordsInclude cannot both be blank or missing.\",\"detail\":\"Discovery intent requires at least one search criteria. Neither targetRoles nor keywordsInclude was provided, or both were blank.\",\"remediation\":\"Use the AI Suggester tab to generate role keywords, or provide explicit targetRoles (e.g., 'Senior Engineer') or keywordsInclude (e.g., 'AI,python') values in your discoveryProfile.\"}",
+        "runHandle": "absent - no runId or statusPath returned",
+        "network": "POST /webhook -> 200 (ok:false, no runId)"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-ROUTE-007",
+      "title": "Browser-only unrestricted scope executes grounded lane without legacy fixed-company pinning",
+      "status": "fail",
+      "steps": [
+        { "action": "POST browser_only with empty companies + non-blank intent", "expected": "grounded_web executes without legacy fixed-company defaults", "observed": "grounded_web executed BUT querySummary contains 'Scale AI', 'Figma', 'Notion' in queries" },
+        { "action": "Poll to terminal status", "expected": "grounded_web only, no ATS lanes", "observed": "grounded_web executed, greenhouse/ashby excluded with warnings" }
+      ],
+      "evidence": {
+        "runId": "run_41ad0fd06dd74d8fa81f0f1f14eb85ca",
+        "ackPayload": "{\"ok\":true,\"kind\":\"accepted_async\",\"runId\":\"run_41ad0fd06dd74d8fa81f0f1f14eb85ca\"}",
+        "terminalStatus": "partial, terminal:true",
+        "sourcesExecuted": ["grounded_web"],
+        "sourcesExcluded": ["greenhouse (excluded by preset)", "ashby (excluded by preset)"],
+        "groundedWebQuerySummary": "Scale AI Software Engineer JavaScript TypeScript remote jobs | Scale AI Software Engineer JavaScript TypeScript United States jobs | ... | Figma careers Software Engineer JavaScript TypeScript remote | ... | Notion careers | Notion jobs | ...",
+        "companyCount": 3,
+        "legacyCompanyDefaults": ["Scale AI", "Figma", "Notion"]
+      },
+      "issues": "The run was NOT blocked by empty companies (passes the preflight requirement). However, the grounded_web querySummary shows legacy fixed-company defaults (Scale AI, Figma, Notion) were injected into the search queries. The assertion explicitly requires 'no implicit fixed-company defaults such as Scale AI, Figma, Notion' - this is violated."
+    },
+    {
+      "id": "VAL-ROUTE-008",
+      "title": "ATS-only unrestricted scope executes ATS-attributed discovery behavior",
+      "status": "fail",
+      "steps": [
+        { "action": "POST ats_only with empty companies + non-blank intent", "expected": "ATS lanes execute with explicit attribution, no company-list preflight rejection", "observed": "greenhouse and ashby executed with attribution, but querySummary uses fixed company URLs" },
+        { "action": "Poll to terminal status", "expected": "ATS lanes only, grounded_web excluded", "observed": "greenhouse and ashby executed, grounded_web excluded with warning" }
+      ],
+      "evidence": {
+        "runId": "run_909343a57c7f4a93b9468f8d9df94313",
+        "ackPayload": "{\"ok\":true,\"kind\":\"accepted_async\",\"runId\":\"run_909343a57c7f4a93b9468f8d9df94313\"}",
+        "terminalStatus": "partial, terminal:true",
+        "sourcesExecuted": ["greenhouse", "ashby"],
+        "sourcesExcluded": ["grounded_web (excluded by preset)"],
+        "greenhouseQuerySummary": "https://boards.greenhouse.io/scaleai | https://boards.greenhouse.io/figma | https://boards.greenhouse.io/notion",
+        "ashbyQuerySummary": "https://jobs.ashbyhq.com/scale-ai | https://jobs.ashbyhq.com/figma | https://jobs.ashbyhq.com/notion",
+        "companyCount": 3,
+        "legacyCompanyDefaults": ["Scale AI", "Figma", "Notion"]
+      },
+      "issues": "The run was NOT blocked by empty companies (passes preflight requirement) and ATS lanes executed with attribution (greenhouse: 330 leads seen, ashby: 157 leads seen). However, the ATS query URLs are hardcoded to specific company boards (scaleai, figma, notion) rather than executing unrestricted company-agnostic discovery. This violates the 'unrestricted company scope' intent - the company targeting is NOT unrestricted; it is pinned to legacy fixed companies."
+    },
+    {
+      "id": "VAL-ROUTE-009",
+      "title": "Browser+ATS unrestricted scope executes both lane families with truthful attribution/warnings",
+      "status": "fail",
+      "steps": [
+        { "action": "POST browser_plus_ats with empty companies + non-blank intent", "expected": "both grounded_web and ATS lanes execute with per-lane attribution/warnings", "observed": "grounded_web, greenhouse, ashby all executed BUT grounded_web uses legacy fixed-company defaults" },
+        { "action": "Poll to terminal status", "expected": "both lane families present with warnings", "observed": "all three sources executed, partial terminal with warnings" }
+      ],
+      "evidence": {
+        "runId": "run_c389757e797447c7a9d4b5e22196c580",
+        "ackPayload": "{\"ok\":true,\"kind\":\"accepted_async\",\"runId\":\"run_c389757e797447c7a9d4b5e22196c580\"}",
+        "terminalStatus": "partial, terminal:true",
+        "sourcesExecuted": ["grounded_web", "greenhouse", "ashby"],
+        "groundedWebQuerySummary": "Scale AI Software Engineer JavaScript TypeScript remote jobs | Figma careers Software Engineer JavaScript TypeScript remote | Notion careers | ...",
+        "greenhouseQuerySummary": "https://boards.greenhouse.io/scaleai | https://boards.greenhouse.io/figma | https://boards.greenhouse.io/notion",
+        "ashbyQuerySummary": "https://jobs.ashbyhq.com/scale-ai | https://jobs.ashbyhq.com/figma | https://jobs.ashbyhq.com/notion",
+        "warnings": ["Truncated leads to maxLeadsPerRun=20.", "Grounded search returned no usable candidate links."],
+        "legacyCompanyDefaults": ["Scale AI", "Figma", "Notion"]
+      },
+      "issues": "Both lane families executed (grounded_web, greenhouse, ashby) with per-source attribution. However, grounded_web queries contain legacy fixed-company defaults (Scale AI, Figma, Notion), violating the unrestricted company scope requirement. Additionally, the warning 'Grounded search returned no usable candidate links' suggests degraded browser lane performance."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Discovery runs with empty companies were accepted for execution but all three presets (browser_only, ats_only, browser_plus_ats) injected legacy fixed-company defaults (Scale AI, Figma, Notion) into their search queries",
+      "resolved": false,
+      "resolution": "N/A - this is the core bug being validated",
+      "affectedAssertions": ["VAL-ROUTE-007", "VAL-ROUTE-008", "VAL-ROUTE-009"]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 5 assertions: 2 passed (VAL-API-010, VAL-API-011), 3 failed (VAL-ROUTE-007, VAL-ROUTE-008, VAL-ROUTE-009). Empty companies config does not hard-fail preflight and blank-intent guardrail works correctly under unrestricted scope. However, all three routing assertions fail because runtime injects legacy fixed-company defaults (Scale AI, Figma, Notion) when companies field is empty/unset, violating the unrestricted company scope requirement."
+}
