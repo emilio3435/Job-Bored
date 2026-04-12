@@ -15,6 +15,7 @@ Use for features that primarily touch service-side discovery behavior:
 - routing/execution gating across ATS and browser lanes
 - run-status/readiness/log transparency
 - Google Sheets write-path behavior and reconciliation
+- UltraPlan agentic behavior (multi-query fan-out, retry broadening, budget adaptation, bounded parallel company processing, structured diagnostics)
 
 ## Required Skills
 
@@ -38,12 +39,18 @@ Use for features that primarily touch service-side discovery behavior:
    - resolved config
    - source execution/non-execution proofs
    - terminal run-status output
-6. Verify readiness and failure transparency surfaces (`/health`, webhook responses, `/runs/{runId}`).
-7. Run validators from `.factory/services.yaml` before handoff:
+6. For UltraPlan features, verify behavior with deterministic fixtures:
+   - fan-out query count/cap and uniqueness
+   - retry rung order, first-rung short-circuit, and exhaustion attribution
+   - bounded concurrency peak and company failure isolation
+   - diagnostics `code` + `context` plus warning-string compatibility
+7. Verify readiness and failure transparency surfaces (`/health`, webhook responses, `/runs/{runId}`).
+8. Run validators from `.factory/services.yaml` before handoff:
    - `typecheck`
    - `lint`
+   - `test_ultraplan` for focused iteration on this mission
    - `test` (or targeted + full test before completion)
-8. If credentials/runtime blockers prevent real end-to-end verification, return to orchestrator with precise blocker details.
+9. If assertions require external credentials or runtime that are missing, return blocked with exact command/output evidence and missing prerequisite.
 
 ## Example Handoff
 

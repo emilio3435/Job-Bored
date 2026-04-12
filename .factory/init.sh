@@ -7,6 +7,7 @@ REPO_ROOT=$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)
 npm --prefix "$REPO_ROOT" run install:repo
 
 mkdir -p "$REPO_ROOT/.factory/library"
+mkdir -p "$REPO_ROOT/.factory/research"
 mkdir -p "$REPO_ROOT/integrations/browser-use-discovery/state"
 
 # Install pre-commit hook if not present

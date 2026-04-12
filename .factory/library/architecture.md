@@ -36,6 +36,9 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - Run intent is request-authoritative: preset and discovery-intent fields must be explicit in request payload.
 - No silent stored-profile fallback for omitted run-intent fields.
 - Resolves the effective lane set for a run from explicit preset + enabled source set.
+- For `browser_only`, omitted tuning fields resolve to agentic defaults (results/pages/query/runtime/token budgets).
+- Explicit tuning overrides are preserved field-by-field; omitted sibling fields still default.
+- `browser_only` uplift defaults are preset-scoped and must not leak into `ats_only` or `browser_plus_ats`.
 - Supports unrestricted company scope (empty company list) without hard preflight rejection.
 
 ### 4) Discovery execution router
@@ -47,7 +50,10 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - In unrestricted grounded execution, query/prompt composition must prioritize explicit intent modifiers (role, keywords, location, remote/seniority) rather than company-name terms.
 - UltraPlan adds a query-planning + retry model for grounded lanes:
   - decompose modifier intent into focused sub-queries (capped by config)
+  - keep focused query plans deterministic and unique for the same input intent
   - apply deterministic broadening ladder only when a focused query returns zero candidates
+  - broadening rung order is fixed (drop location first, then broaden role/keywords), with at-most-once execution per rung
+  - first-rung candidate success suppresses broader retries; full-ladder exhaustion emits explicit attribution
   - merge candidates with dedupe + ranking before page visits
 
 ### 5) Run status + observability surface
@@ -56,6 +62,7 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - Logs correlate readiness warnings to run-level outcomes.
 - Hard preflight failures (credential/runtime blockers) fail closed before enqueue.
 - Lifecycle progression remains traceable from ack -> pending/running -> terminal and recoverable after refresh/reopen.
+- Diagnostics are dual-layer per event scope: structured entries (`code`, `context`) plus backward-compatible warning strings.
 - UltraPlan adds structured diagnostics with stable codes + context fields for:
   - zero-result attribution
   - fetch fallback / low-content extraction attribution
@@ -75,16 +82,18 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - Run budget is tracked at discovery-run scope and shared across company processing.
 - Budget controller adaptively reduces per-company page traversal as time depletes and can skip late companies with explicit diagnostics.
 - Company execution can run in bounded parallel mode (config-capped concurrency) with failure isolation, so one company failure does not terminate the entire run.
+- Effective in-flight company work never exceeds the resolved concurrency cap; invalid caps are clamped safely.
+- Mixed company outcomes remain truthful in terminal status (successful companies complete even when peers fail).
 
 ## End-to-end flow
 
 1. User selects preset in browser UI.
 2. Browser posts webhook request with source preset + run metadata.
-3. Worker validates/authenticates request and resolves effective config.
+3. Worker validates/authenticates request, resolves effective config, and returns ack metadata (`runId`, `statusPath`, `pollAfterMs` for async).
 4. Router executes only allowed lane families; grounded lane plans focused sub-queries and applies retry broadening when needed.
 5. Budget + concurrency controller governs company traversal depth and parallelism.
-6. Worker writes results to sheet and updates run status until terminal.
-7. UI surfaces terminal run outcome for the same runId.
+6. Worker writes results to sheet and updates run status from pending/running to terminal.
+7. UI polls status by runId/path and surfaces terminal run outcome.
 
 ## Invariants
 
@@ -95,8 +104,12 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - Valid unrestricted intent should not be treated as a missing-company degraded state when grounded execution can proceed from modifiers.
 - ATS is optional; it is never implicitly forced in `browser_only`.
 - Multi-query fan-out, retry broadening, and parallel company processing are independently flag-gated so behavior can be rolled back selectively.
+- Focused fan-out output is deterministic, unique, and capped for the same resolved intent.
+- Retry broadening is deterministic and finite: ordered rungs, at-most-once each, no unnecessary broadening after first-rung success.
 - Structured diagnostics are machine-readable and stable while warning-string compatibility is preserved for existing consumers.
+- Diagnostics/warning dual-layer output is paired by shared event scope (same run/source/query context).
 - Browser-only agentic tuning defaults apply when omitted but never override explicit user-provided values.
+- Browser-only uplift defaults are isolated to `browser_only` and never applied to other presets unless explicitly overridden.
 - Async acceptance is never treated as terminal success.
 - Failures (auth, readiness, source, write path) are explicit and attributable.
 - Every terminal run is traceable by a stable runId from UI -> API -> status -> sheet evidence.
