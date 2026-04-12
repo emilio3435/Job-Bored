@@ -1,0 +1,45 @@
+{
+  "featureId": "discovery-source-preset-contract-and-fallback",
+  "reviewedAt": "2026-04-11T23:45:00.000Z",
+  "commitId": "db4195f",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Implementation fully covers VAL-API-001, VAL-API-002, VAL-API-005, VAL-API-006, and VAL-API-007. All 5 assertions are addressed with correct behavior for valid and invalid inputs. sourcePreset enum validation (browser_only, ats_only, browser_plus_ats) is correctly enforced in parseWebhookRequest with explicit 400 errors for invalid enum, wrong type, and contradictory sourcePreset+enabledSources. The resolveSourcePreset fallback truth table correctly implements rules 1-5 from VAL-API-006. mergeDiscoveryConfig propagates resolved sourcePreset to EffectiveDiscoveryConfig. validateDiscoveryPreflight correctly enforces sheetId boundary: local mode allows stored fallback, hosted mode rejects omission. googleAccessToken is correctly stripped before persistence. Test coverage includes all key branches.",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/src/config.ts",
+        "line": 271,
+        "severity": "non_blocking",
+        "description": "resolveSourcePreset ignores invalid stored preset and falls through to enabledSources inference (rule 2.5: invalid stored preset is skipped, not rejected). This is intentional per VAL-API-006 test 'resolveSourcePreset ignores invalid stored preset and falls back to source inference', but worth noting: invalid stored preset is silently ignored rather than surfaced as a configuration problem. No runtime error is raised."
+      },
+      {
+        "file": "integrations/browser-use-discovery/src/run/run-discovery.ts",
+        "line": 74,
+        "severity": "non_blocking",
+        "description": "sourcePreset is not used to filter or derive enabledSources before routing. Routing in run-discovery.ts still uses enabledSources directly. The architecture.md states 'Source preset is authoritative for lane execution' but sourcePreset is informational only in this implementation — it does not modify enabledSources. VAL-API-005 (preset propagates to resolved config) is satisfied, but VAL-ROUTE-001/002/003 (preset controls lane execution) is a separate concern. Routing enforcement is presumably covered by a different feature."
+      },
+      {
+        "file": "schemas/discovery-webhook-request.v1.schema.json",
+        "line": 27,
+        "severity": "non_blocking",
+        "description": "Schema has additionalProperties: true, so enabledSources (not listed in properties) would pass JSON Schema validation even though parseWebhookRequest rejects sourcePreset+enabledSources as contradictory. The validation is enforced at the application layer, not the schema layer. This is acceptable but means schema-based validation alone would not catch the contradiction."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The worker added a googleAccessToken field to the JSON schema and contracts without updating the AGENTS.md or mission.md to document this new optional field in the webhook payload. The field was implemented correctly with stripping before persistence, but the shared state does not reflect this addition.",
+      "evidence": "schemas/discovery-webhook-request.v1.schema.json adds googleAccessToken property; contracts.ts DiscoveryWebhookRequestV1 adds googleAccessToken field. Neither AGENTS.md nor mission.md mentions this field."
+    },
+    {
+      "area": "skills",
+      "observation": "The worker followed the discovery-integration-worker SKILL.md procedure correctly. No deviations found. All red-first test steps, minimal implementation, and pre-handoff validators were followed.",
+      "evidence": "skillFeedback.followedProcedure: true, deviations: []. Transcript skeleton confirms Read(mission.md), implementation, test-first approach, and validator runs."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Feature passes scrutiny. All five assigned validation assertions (VAL-API-001, VAL-API-002, VAL-API-005, VAL-API-006, VAL-API-007) are correctly implemented with appropriate test coverage. sourcePreset enum contract, contradictory-payload detection, deterministic fallback mapping, and sheetId boundary enforcement are all working as specified. Non-blocking observations: routing enforcement (VAL-ROUTE-*) is a separate concern not addressed here; schema-level validation of the sourcePreset+enabledSources contradiction is not enforced (application-layer only); invalid stored preset is silently skipped rather than flagged."
+}
