@@ -1,0 +1,120 @@
+{
+  "groupId": "val-api-control-plane",
+  "testedAt": "2026-04-12T19:06:00.000Z",
+  "isolation": {
+    "appUrl": "http://127.0.0.1:8644",
+    "webhookEndpoint": "/webhook",
+    "webhookSecret": "REDACTED",
+    "headerName": "x-discovery-secret",
+    "workingDirectory": "/Users/emilionunezgarcia/Job-Bored",
+    "missionDirectory": "/Users/emilionunezgarcia/Job-Bored/.factory/missions/8f3f4e94-0885-4917-8828-81066d00380c"
+  },
+  "toolsUsed": ["curl"],
+  "assertions": [
+    {
+      "id": "VAL-API-001",
+      "title": "browser_only applies agentic defaults when tuning fields are omitted",
+      "status": "blocked",
+      "steps": [
+        { "action": "POST /webhook with browser_only preset and no ultraPlanTuning", "expected": "202 accepted with runId", "observed": "202 accepted with runId run_24254adbd9e64e25add918bf6b8244bf" },
+        { "action": "Poll /runs/{runId} for terminal status", "expected": "Terminal status with resolved-config evidence", "observed": "Terminal status received - grounded_web source executed with multi-query (multiple queries in querySummary)" },
+        { "action": "Verify resolved ultraPlanTuning values in status", "expected": "multiQueryEnabled=true, retryBroadeningEnabled=true, parallelCompanyProcessingEnabled=true", "observed": "ultraPlanTuning not exposed in status response - cannot verify resolved values" }
+      ],
+      "evidence": {
+        "requestPayload": "ultraplan-control-plane/val-api-control-plane/VAL-API-001-request.json",
+        "ackPayload": "ultraplan-control-plane/val-api-control-plane/VAL-API-001-response.json",
+        "terminalStatus": "ultraplan-control-plane/val-api-control-plane/VAL-API-001-status.json"
+      },
+      "issues": "BLOCKED: The run status response does not expose ultraPlanTuning or groundedSearchTuning resolved values. Cannot verify that browser_only uplift defaults were applied. Evidence of browser_only behavior exists (grounded_web ran with multi-query), but explicit resolved-config evidence for tuning fields is not available in the API response."
+    },
+    {
+      "id": "VAL-API-002",
+      "title": "explicit browser_only tuning overrides are preserved",
+      "status": "blocked",
+      "steps": [
+        { "action": "POST /webhook with explicit ultraPlanTuning: multiQuery=false, retryBroadening=false, parallelCompanyProcessing=true", "expected": "202 accepted with runId", "observed": "202 accepted with runId run_172f729e0fea4ff6b7fbd4c3f4e57957" },
+        { "action": "POST /webhook with partial override: only retryBroadening=false", "expected": "202 accepted, omitted fields should resolve to browser_only defaults", "observed": "202 accepted with runId run_631ccefdfa33414db9fb143f6c8732b4" },
+        { "action": "Verify resolved tuning values in status", "expected": "Explicit values preserved exactly, omitted fields show browser_only defaults", "observed": "ultraPlanTuning not exposed in status response - cannot verify explicit values were preserved" }
+      ],
+      "evidence": {
+        "fullOverrideRequest": "ultraplan-control-plane/val-api-control-plane/VAL-API-002-request.json",
+        "partialOverrideRequest": "ultraplan-control-plane/val-api-control-plane/VAL-API-002-partial-request.json"
+      },
+      "issues": "BLOCKED: Cannot verify explicit tuning overrides were preserved because the run status does not expose ultraPlanTuning resolved values. Both requests were accepted (202), but there's no way to confirm the explicit values were actually applied vs. being coerced/clobbered."
+    },
+    {
+      "id": "VAL-API-003",
+      "title": "multi-query, retry, and parallel flags are independently togglable",
+      "status": "blocked",
+      "steps": [
+        { "action": "POST baseline browser_only with all flags enabled (omitted)", "expected": "202 accepted", "observed": "202 accepted run_24254adbd9e64e25add918bf6b8244bf" },
+        { "action": "POST variant1: multiQueryEnabled=false only", "expected": "202 accepted, other flags enabled", "observed": "202 accepted run_e0fb50063d644471a00a1fea1f993369" },
+        { "action": "POST variant2: retryBroadeningEnabled=false only", "expected": "202 accepted, other flags enabled", "observed": "202 accepted run_d6483561ce86469fb237a4e766f0f75f" },
+        { "action": "POST variant3: parallelCompanyProcessingEnabled=false only", "expected": "202 accepted, other flags enabled", "observed": "202 accepted run_1881ba84f7a245eb90eca7ab2c286c40" },
+        { "action": "Verify flag values in status for each variant", "expected": "Each variant shows only its disabled flag as false", "observed": "ultraPlanTuning not exposed in status - cannot verify isolated flag effects" }
+      ],
+      "evidence": {
+        "variant1Response": "ultraplan-control-plane/val-api-control-plane/VAL-API-003-variant1-response.json",
+        "variant2Response": "ultraplan-control-plane/val-api-control-plane/VAL-API-003-variant2-response.json",
+        "variant3Response": "ultraplan-control-plane/val-api-control-plane/VAL-API-003-variant3-response.json"
+      },
+      "issues": "BLOCKED: All requests were accepted but cannot verify that flag toggles actually affected behavior. The API does not expose ultraPlanTuning in run status, so there's no way to confirm the flags were independently set. Additionally, need behavior evidence (not just config) showing isolated flag effects - e.g., query count difference between multiQuery on/off variants."
+    },
+    {
+      "id": "VAL-API-004",
+      "title": "malformed control-plane payloads fail closed with explicit validation errors",
+      "status": "fail",
+      "steps": [
+        { "action": "POST with ultraPlanTuning.multiQueryEnabled='not-a-boolean' (string)", "expected": "400 with explicit error, no runId created", "observed": "202 accepted with runId run_8a2876df37094641b6874630496b13c2 - SHOULD BE 400" },
+        { "action": "POST with ultraPlanTuning.multiQueryEnabled=123 (number)", "expected": "400 with explicit error, no runId created", "observed": "202 accepted - SHOULD BE 400" },
+        { "action": "POST with ultraPlanTuning.unknownFlag=true (unknown key)", "expected": "400 with explicit error, no runId created", "observed": "202 accepted with runId run_70880d51ea84470cbab39bc16aecadad - SHOULD BE 400" },
+        { "action": "POST with wrong event value (sanity check)", "expected": "400 with explicit error", "observed": "400 with message 'event must be command-center.discovery' - CORRECT" }
+      ],
+      "evidence": {
+        "malformedVariant1": "ultraplan-control-plane/val-api-control-plane/VAL-API-004-variant1-response.json",
+        "malformedVariant2": "ultraplan-control-plane/val-api-control-plane/VAL-API-004-variant2-response.json",
+        "malformedVariant3": "ultraplan-control-plane/val-api-control-plane/VAL-API-004-variant3-response.json",
+        "networkEvidence": "HTTP 202 returned for malformed payloads instead of 400"
+      },
+      "issues": "FAIL: The API is accepting malformed control-plane payloads when it should return 400 errors. Non-boolean multiQueryEnabled values (string 'not-a-boolean' and number 123) and unknown flag keys are being silently accepted with 202 and runIds created. The validation logic exists in parseWebhookRequest() but is NOT being enforced for ultraPlanTuning fields. This is a security/correctness issue - malformed configuration can be injected."
+    },
+    {
+      "id": "VAL-API-005",
+      "title": "browser_only uplift defaults do not leak into other presets",
+      "status": "blocked",
+      "steps": [
+        { "action": "POST ats_only with omitted tuning fields", "expected": "grounded_web excluded, legacy defaults used", "observed": "202 accepted run_57f59e139ab043fab3b571decf08326f - grounded_web excluded with message 'Source grounded_web was excluded by preset ats_only'" },
+        { "action": "POST browser_plus_ats with omitted tuning fields", "expected": "all sources run, legacy defaults used (NOT browser_only uplift)", "observed": "202 accepted run_7b68346276004c89a4bbb6d9a626a050 - all sources ran including grounded_web" },
+        { "action": "Verify groundedSearchTuning values in status", "expected": "ats_only/browser_plus_ats use legacy values: maxResultsPerCompany=6, maxPagesPerCompany=4, etc.", "observed": "groundedSearchTuning not exposed in status - cannot verify legacy values were used vs. browser_only uplift" }
+      ],
+      "evidence": {
+        "atsOnlyResponse": "ultraplan-control-plane/val-api-control-plane/VAL-API-005-ats-only-response.json",
+        "atsOnlyStatus": "ultraplan-control-plane/val-api-control-plane/VAL-API-005-ats-only-status.json",
+        "browserPlusAtsResponse": "ultraplan-control-plane/val-api-control-plane/VAL-API-005-browser-plus-ats-response.json",
+        "browserPlusAtsStatus": "ultraplan-control-plane/val-api-control-plane/VAL-API-005-browser-plus-ats-status-final.json"
+      },
+      "issues": "BLOCKED: Cannot verify that groundedSearchTuning uses legacy values for non-browser_only presets. The routing behavior is correct (ats_only excludes grounded_web, browser_plus_ats runs all), but there's no way to verify the actual tuning values (maxResultsPerCompany, maxPagesPerCompany, maxRuntimeMs, maxTokensPerQuery) were NOT the browser_only uplift values. Need resolved config evidence showing these values."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Run status response does not expose ultraPlanTuning or groundedSearchTuning resolved values",
+      "resolved": false,
+      "resolution": "Would need API change to include resolved tuning config in status response, or alternative verification method (worker logs with structured config_resolved events)",
+      "affectedAssertions": ["VAL-API-001", "VAL-API-002", "VAL-API-003", "VAL-API-005"]
+    },
+    {
+      "description": "Non-boolean and unknown ultraPlanTuning fields are being silently accepted instead of returning 400",
+      "resolved": false,
+      "resolution": "Bug in validation - the code exists but appears not to be enforced at runtime",
+      "affectedAssertions": ["VAL-API-004"]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "API does not expose resolved tuning configuration (ultraPlanTuning, groundedSearchTuning) in /runs/{runId} status response. Cannot verify VAL-API-001, VAL-API-002, VAL-API-003, VAL-API-005 without this evidence.",
+      "affectedAssertions": ["VAL-API-001", "VAL-API-002", "VAL-API-003", "VAL-API-005"]
+    }
+  ],
+  "summary": "Tested 5 assertions: VAL-API-001/002/003/005 blocked (cannot verify resolved-config evidence - API doesn't expose tuning values in status), VAL-API-004 failed (malformed payloads accepted with 202 instead of 400). The validation logic for malformed ultraPlanTuning fields exists in the codebase but is not being enforced at runtime - non-boolean values and unknown keys are silently accepted. Routing behavior (browser_only runs grounded_web, ats_only excludes it) is correct, but tuning value verification requires API changes or alternative evidence sources."
+}
