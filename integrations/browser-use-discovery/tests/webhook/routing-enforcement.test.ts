@@ -1313,3 +1313,768 @@ test("VAL-ROUTE-011: ats_only with empty companies and no modifiers SHOULD emit 
     "Should emit 'No companies are configured' warning when no companies AND no modifiers"
   );
 });
+
+// === VAL-ROUTE-015: parallel company processing is bounded by configured concurrency ===
+
+test("VAL-ROUTE-015: parallel company processing respects concurrency cap (cap=3 with 5 companies)", async () => {
+  // When parallelCompanyProcessingEnabled=true with 5 companies and cap=3,
+  // peak in-flight should never exceed 3.
+  const processedCompanies: string[] = [];
+  const inFlightCounts: number[] = [];
+  let currentInFlight = 0;
+  const concurrencyLogs: { event: string; company?: string; inFlight?: number }[] = [];
+
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "test-key",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+    },
+    sourceAdapterRegistry: {
+      adapters: [],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    groundedSearchClient: {
+      search: async (company: { name: string }) => {
+        // Simulate processing delay to allow concurrency tracking
+        processedCompanies.push(company.name);
+        currentInFlight++;
+        inFlightCounts.push(currentInFlight);
+        concurrencyLogs.push({
+          event: "start",
+          company: company.name,
+          inFlight: currentInFlight,
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        currentInFlight--;
+        concurrencyLogs.push({
+          event: "end",
+          company: company.name,
+          inFlight: currentInFlight,
+        });
+
+        return {
+          searchQueries: [`query for ${company.name}`],
+          candidates: [
+            {
+              url: `https://${company.name}.com/careers`,
+              title: `${company.name} job`,
+              pageType: "job" as const,
+              reason: "Direct job posting",
+              sourceDomain: `${company.name}.com`,
+            },
+          ],
+          warnings: [],
+        };
+      },
+    },
+    browserSessionManager: {
+      run: async () => ({
+        url: "",
+        text: JSON.stringify({
+          pageType: "listings",
+          jobs: [
+            {
+              title: "Software Engineer",
+              company: "Test Company",
+              location: "Remote",
+              url: "https://example.com/job",
+              descriptionText: "Build software",
+              tags: [],
+            },
+          ],
+        }),
+        metadata: { mode: "browser_use_command" },
+      }),
+    },
+    pipelineWriter: {
+      write: async () => ({
+        sheetId: "sheet_123",
+        appended: 0,
+        updated: 0,
+        skippedDuplicates: 0,
+        warnings: [],
+      }),
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_123",
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [
+        { name: "Company A" },
+        { name: "Company B" },
+        { name: "Company C" },
+        { name: "Company D" },
+        { name: "Company E" },
+      ],
+      includeKeywords: ["engineer"],
+      excludeKeywords: [],
+      targetRoles: ["Software Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+      seniority: "senior",
+      maxLeadsPerRun: 25,
+      enabledSources: ["grounded_web"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored, request) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "browser_only",
+      effectiveSources: ["grounded_web"],
+      ultraPlanTuning: {
+        multiQueryEnabled: false,
+        retryBroadeningEnabled: false,
+        parallelCompanyProcessingEnabled: true,
+      },
+      groundedSearchTuning: {
+        maxResultsPerCompany: 6,
+        maxPagesPerCompany: 4,
+        maxRuntimeMs: 30000,
+        maxTokensPerQuery: 2048,
+        multiQueryCap: 3,
+      },
+    }),
+    log: (event: string, details: Record<string, unknown>) => {
+      if (event === "discovery.run.concurrency_summary") {
+        concurrencyLogs.push({
+          event: "concurrency_summary",
+          inFlight: details.peakInFlight as number,
+        });
+      }
+    },
+    now: () => new Date("2026-04-10T03:00:00.000Z"),
+    randomId: () => "run_concurrency_test",
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+
+  // VAL-ROUTE-015: Peak in-flight should not exceed the effective cap (3)
+  // The concurrency tracker in the code uses cap=3 for 5 companies with parallel enabled
+  const peakInFlight = Math.max(...inFlightCounts);
+
+  // All companies should have been processed
+  assert.equal(
+    processedCompanies.length,
+    5,
+    "All 5 companies should be processed",
+  );
+
+  // The peak in-flight count should be bounded (default cap is 3)
+  assert.ok(
+    peakInFlight <= 3,
+    `Peak in-flight (${peakInFlight}) should not exceed effective cap (3)`,
+  );
+
+  // Check the concurrency summary log
+  const summaryLog = concurrencyLogs.find(
+    (log) => log.event === "concurrency_summary",
+  );
+  assert.ok(summaryLog, "Concurrency summary should be logged");
+  assert.equal(summaryLog.inFlight, peakInFlight, "Logged peakInFlight should match observed");
+});
+
+test("VAL-ROUTE-015: cap=1 forces sequential processing", async () => {
+  // When parallelCompanyProcessingEnabled=false, cap resolves to 1 and
+  // processing should be sequential even with multiple companies.
+  const processingOrder: string[] = [];
+  const inFlightCounts: number[] = [];
+  let currentInFlight = 0;
+
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "test-key",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+    },
+    sourceAdapterRegistry: {
+      adapters: [],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    groundedSearchClient: {
+      search: async (company: { name: string }) => {
+        processingOrder.push(`start:${company.name}`);
+        currentInFlight++;
+        inFlightCounts.push(currentInFlight);
+
+        await new Promise((resolve) => setTimeout(resolve, 30));
+
+        processingOrder.push(`end:${company.name}`);
+        currentInFlight--;
+
+        return {
+          searchQueries: [`query for ${company.name}`],
+          candidates: [],
+          warnings: [],
+        };
+      },
+    },
+    browserSessionManager: {
+      run: async () => ({
+        url: "",
+        text: "[]",
+        metadata: {},
+      }),
+    },
+    pipelineWriter: {
+      write: async () => ({
+        sheetId: "sheet_123",
+        appended: 0,
+        updated: 0,
+        skippedDuplicates: 0,
+        warnings: [],
+      }),
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_123",
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [
+        { name: "Company A" },
+        { name: "Company B" },
+        { name: "Company C" },
+      ],
+      includeKeywords: ["engineer"],
+      excludeKeywords: [],
+      targetRoles: ["Software Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+      seniority: "senior",
+      maxLeadsPerRun: 25,
+      enabledSources: ["grounded_web"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored, request) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "browser_only",
+      effectiveSources: ["grounded_web"],
+      // parallelCompanyProcessingEnabled=false forces cap=1 (sequential)
+      ultraPlanTuning: {
+        multiQueryEnabled: false,
+        retryBroadeningEnabled: false,
+        parallelCompanyProcessingEnabled: false,
+      },
+      groundedSearchTuning: {
+        maxResultsPerCompany: 6,
+        maxPagesPerCompany: 4,
+        maxRuntimeMs: 30000,
+        maxTokensPerQuery: 2048,
+        multiQueryCap: 3,
+      },
+    }),
+    log: () => {},
+    now: () => new Date("2026-04-10T03:00:00.000Z"),
+    randomId: () => "run_sequential_test",
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+
+  // With parallel disabled (cap=1), only 1 company processes at a time
+  const peakInFlight = Math.max(...inFlightCounts);
+  assert.equal(
+    peakInFlight,
+    1,
+    "With parallel disabled, peak in-flight should be 1 (sequential)",
+  );
+});
+
+test("VAL-ROUTE-015: cap>=companyCount runs all in parallel", async () => {
+  // When there are fewer companies than the default cap (3),
+  // all companies can run in parallel.
+  const inFlightCounts: number[] = [];
+  let currentInFlight = 0;
+
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "test-key",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+    },
+    sourceAdapterRegistry: {
+      adapters: [],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    groundedSearchClient: {
+      search: async (company: { name: string }) => {
+        currentInFlight++;
+        inFlightCounts.push(currentInFlight);
+
+        await new Promise((resolve) => setTimeout(resolve, 30));
+
+        currentInFlight--;
+
+        return {
+          searchQueries: [`query for ${company.name}`],
+          candidates: [],
+          warnings: [],
+        };
+      },
+    },
+    browserSessionManager: {
+      run: async () => ({
+        url: "",
+        text: "[]",
+        metadata: {},
+      }),
+    },
+    pipelineWriter: {
+      write: async () => ({
+        sheetId: "sheet_123",
+        appended: 0,
+        updated: 0,
+        skippedDuplicates: 0,
+        warnings: [],
+      }),
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_123",
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [
+        { name: "Company A" },
+        { name: "Company B" },
+      ],
+      includeKeywords: ["engineer"],
+      excludeKeywords: [],
+      targetRoles: ["Software Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+      seniority: "senior",
+      maxLeadsPerRun: 25,
+      enabledSources: ["grounded_web"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored, request) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "browser_only",
+      effectiveSources: ["grounded_web"],
+      ultraPlanTuning: {
+        multiQueryEnabled: false,
+        retryBroadeningEnabled: false,
+        parallelCompanyProcessingEnabled: true,
+      },
+      groundedSearchTuning: {
+        maxResultsPerCompany: 6,
+        maxPagesPerCompany: 4,
+        maxRuntimeMs: 30000,
+        maxTokensPerQuery: 2048,
+        multiQueryCap: 3,
+      },
+    }),
+    log: () => {},
+    now: () => new Date("2026-04-10T03:00:00.000Z"),
+    randomId: () => "run_parallel_test",
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+
+  // With 2 companies and cap=3, both can run in parallel
+  const peakInFlight = Math.max(...inFlightCounts);
+  assert.equal(
+    peakInFlight,
+    2,
+    "2 companies with cap>=2 should both run in parallel (peak=2)",
+  );
+});
+
+// === VAL-ROUTE-016: one-company failure is isolated and does not abort successful companies ===
+
+test("VAL-ROUTE-016: one-company failure does not abort other companies", async () => {
+  // When one company fails, other companies should continue processing
+  // and successful outputs should still appear in results.
+  const processedCompanies: { name: string; succeeded: boolean }[] = [];
+
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "test-key",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+    },
+    sourceAdapterRegistry: {
+      adapters: [],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    groundedSearchClient: {
+      search: async (company: { name: string }) => {
+        processedCompanies.push({ name: company.name, succeeded: false });
+
+        // Company B fails with an error
+        if (company.name === "Company B") {
+          throw new Error("Simulated Company B failure");
+        }
+
+        // Companies A and C succeed
+        processedCompanies[processedCompanies.length - 1].succeeded = true;
+
+        return {
+          searchQueries: [`query for ${company.name}`],
+          candidates: [
+            {
+              url: `https://${company.name}.com/careers`,
+              title: `${company.name} job`,
+              pageType: "job" as const,
+              reason: "Direct job posting",
+              sourceDomain: `${company.name}.com`,
+            },
+          ],
+          warnings: [],
+        };
+      },
+    },
+    browserSessionManager: {
+      run: async () => ({
+        url: "",
+        text: JSON.stringify({
+          pageType: "listings",
+          jobs: [
+            {
+              title: "Software Engineer",
+              company: "Test Company",
+              location: "Remote",
+              url: "https://example.com/job",
+              descriptionText: "Build software",
+              tags: [],
+            },
+          ],
+        }),
+        metadata: { mode: "browser_use_command" },
+      }),
+    },
+    pipelineWriter: {
+      write: async () => ({
+        sheetId: "sheet_123",
+        appended: 0,
+        updated: 0,
+        skippedDuplicates: 0,
+        warnings: [],
+      }),
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_123",
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [
+        { name: "Company A" },
+        { name: "Company B" },
+        { name: "Company C" },
+      ],
+      includeKeywords: ["engineer"],
+      excludeKeywords: [],
+      targetRoles: ["Software Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+      seniority: "senior",
+      maxLeadsPerRun: 25,
+      enabledSources: ["grounded_web"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored, request) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "browser_only",
+      effectiveSources: ["grounded_web"],
+      ultraPlanTuning: {
+        multiQueryEnabled: false,
+        retryBroadeningEnabled: false,
+        parallelCompanyProcessingEnabled: true,
+      },
+      groundedSearchTuning: {
+        maxResultsPerCompany: 6,
+        maxPagesPerCompany: 4,
+        maxRuntimeMs: 30000,
+        maxTokensPerQuery: 2048,
+        multiQueryCap: 3,
+      },
+    }),
+    log: () => {},
+    now: () => new Date("2026-04-10T03:00:00.000Z"),
+    randomId: () => "run_isolation_test",
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+
+  // All 3 companies should have been attempted (failure isolation)
+  assert.equal(
+    processedCompanies.length,
+    3,
+    "All 3 companies should be attempted even with one failure",
+  );
+
+  // 2 companies succeeded
+  const succeededCompanies = processedCompanies.filter((c) => c.succeeded);
+  assert.equal(
+    succeededCompanies.length,
+    2,
+    "Companies A and C should have succeeded",
+  );
+
+  // Company B should have failed
+  const failedCompany = processedCompanies.find((c) => !c.succeeded);
+  assert.equal(
+    failedCompany?.name,
+    "Company B",
+    "Company B should have failed",
+  );
+
+  // The run should have warnings about Company B's failure
+  const companyBWarnings = result.warnings.filter(
+    (w) => w.includes("Company B") && w.includes("failed"),
+  );
+  assert.ok(
+    companyBWarnings.length > 0,
+    "Warnings should contain Company B failure attribution",
+  );
+
+  // VAL-ROUTE-016: Successful companies should still appear in source summary
+  const groundedEntry = result.sourceSummary.find(
+    (s) => s.sourceId === "grounded_web",
+  );
+  assert.ok(groundedEntry, "grounded_web should be in sourceSummary");
+
+  // Diagnostics should include company-attributed failure evidence
+  const companyBDiagnostics = groundedEntry?.diagnostics?.filter(
+    (d) => d.context.includes("Company B"),
+  );
+  assert.ok(
+    companyBDiagnostics && companyBDiagnostics.length > 0,
+    "Diagnostics should include Company B failure attribution",
+  );
+});
+
+test("VAL-ROUTE-016: company failure emits explicit company-attributed failure evidence", async () => {
+  // Company failures should emit structured diagnostic context that names
+  // the failed company, providing company-scoped failure attribution.
+  let failedWithAttribution = false;
+  let attributionContext = "";
+
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "test-key",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+    },
+    sourceAdapterRegistry: {
+      adapters: [],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    groundedSearchClient: {
+      search: async (company: { name: string }) => {
+        if (company.name === "FailingCompany") {
+          throw new Error("FailingCompany explicit failure");
+        }
+        return {
+          searchQueries: [`query for ${company.name}`],
+          candidates: [
+            {
+              url: `https://${company.name}.com/careers`,
+              title: `${company.name} job`,
+              pageType: "job" as const,
+              reason: "Direct job posting",
+              sourceDomain: `${company.name}.com`,
+            },
+          ],
+          warnings: [],
+        };
+      },
+    },
+    browserSessionManager: {
+      run: async () => ({
+        url: "",
+        text: JSON.stringify({
+          pageType: "listings",
+          jobs: [
+            {
+              title: "Software Engineer",
+              company: "Test Company",
+              location: "Remote",
+              url: "https://example.com/job",
+              descriptionText: "Build software",
+              tags: [],
+            },
+          ],
+        }),
+        metadata: { mode: "browser_use_command" },
+      }),
+    },
+    pipelineWriter: {
+      write: async () => ({
+        sheetId: "sheet_123",
+        appended: 0,
+        updated: 0,
+        skippedDuplicates: 0,
+        warnings: [],
+      }),
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_123",
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [
+        { name: "GoodCompany" },
+        { name: "FailingCompany" },
+      ],
+      includeKeywords: ["engineer"],
+      excludeKeywords: [],
+      targetRoles: ["Software Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+      seniority: "senior",
+      maxLeadsPerRun: 25,
+      enabledSources: ["grounded_web"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored, request) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "browser_only",
+      effectiveSources: ["grounded_web"],
+      ultraPlanTuning: {
+        multiQueryEnabled: false,
+        retryBroadeningEnabled: false,
+        parallelCompanyProcessingEnabled: true,
+      },
+      groundedSearchTuning: {
+        maxResultsPerCompany: 6,
+        maxPagesPerCompany: 4,
+        maxRuntimeMs: 30000,
+        maxTokensPerQuery: 2048,
+        multiQueryCap: 3,
+      },
+    }),
+    log: (event: string, details: Record<string, unknown>) => {
+      if (event === "discovery.run.company_failed") {
+        failedWithAttribution = true;
+        attributionContext = JSON.stringify(details);
+      }
+    },
+    now: () => new Date("2026-04-10T03:00:00.000Z"),
+    randomId: () => "run_attribution_test",
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+
+  // Company failure should be logged with attribution
+  assert.ok(
+    failedWithAttribution,
+    "Company failure should be logged with attribution",
+  );
+  assert.ok(
+    attributionContext.includes("FailingCompany"),
+    "Failure attribution should name the failed company",
+  );
+
+  // Diagnostics should include the company name in context
+  const groundedEntry = result.sourceSummary.find(
+    (s) => s.sourceId === "grounded_web",
+  );
+  const failingCompanyDiagnostics = groundedEntry?.diagnostics?.filter(
+    (d) => d.context.includes("FailingCompany"),
+  );
+  assert.ok(
+    failingCompanyDiagnostics && failingCompanyDiagnostics.length > 0,
+    "Diagnostics context should include FailingCompany name",
+  );
+
+  // Warnings should also include company name for backward compatibility
+  const failingCompanyWarnings = result.warnings.filter(
+    (w) => w.includes("FailingCompany"),
+  );
+  assert.ok(
+    failingCompanyWarnings.length > 0,
+    "Warnings should include FailingCompany name for backward compatibility",
+  );
+});
