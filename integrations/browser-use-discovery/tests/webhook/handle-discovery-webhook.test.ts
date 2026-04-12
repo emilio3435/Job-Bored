@@ -1368,7 +1368,10 @@ test("handleDiscoveryWebhook accepts valid sourcePreset values in discoveryProfi
           sheetId: "sheet_123",
           variationKey: "var_123",
           requestedAt: "2026-04-09T12:00:00.000Z",
-          discoveryProfile: { sourcePreset: preset },
+          discoveryProfile: {
+            sourcePreset: preset,
+            targetRoles: "Senior Engineer", // required intent field
+          },
         }),
       },
       dependencies,
@@ -1697,5 +1700,311 @@ test("handleDiscoveryWebhook rejects missing sheetId in hosted mode with explici
   assert.match(
     body.detail,
     /Hosted worker requests must include sheetId explicitly/i,
+  );
+});
+
+// === VAL-API-006: Missing required run-intent is rejected explicitly (no stored-profile fallback) ===
+
+test("VAL-API-006: rejects request with discoveryProfile but missing both targetRoles and keywordsInclude", async () => {
+  // When discoveryProfile is provided but BOTH targetRoles and keywordsInclude
+  // are absent, the request must be rejected with explicit 400 and no run handle.
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      throw new Error("runDiscovery should not be called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          // sourcePreset provided but NO targetRoles or keywordsInclude
+          sourcePreset: "browser_only",
+          // targetRoles: missing
+          // keywordsInclude: missing
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  // Must reject with 400
+  assert.equal(response.status, 400, `Expected 400, got ${response.status}: ${response.body}`);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+
+  // Must have explicit error about missing intent
+  assert.match(body.message, /targetRoles|keywordsInclude/i);
+
+  // Must NOT create a run handle
+  assert.ok(!body.runId, "Response must not include runId when intent is missing");
+  assert.ok(!body.statusPath, "Response must not include statusPath when intent is missing");
+
+  // Must have actionable guidance (AI Suggester remediation)
+  assert.ok(
+    body.remediation || body.detail,
+    "Response must include remediation or detail with actionable guidance",
+  );
+  const guidanceText = `${body.remediation || ""} ${body.detail || ""}`.toLowerCase();
+  assert.ok(
+    guidanceText.includes("ai sugg") || guidanceText.includes("suggester"),
+    "Response should mention AI Suggester tab as remediation",
+  );
+});
+
+test("VAL-API-006: rejects request with discoveryProfile having blank targetRoles and blank keywordsInclude", async () => {
+  // When discoveryProfile has BOTH targetRoles AND keywordsInclude as blank strings,
+  // the request must be rejected with explicit 400 and no run handle.
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      throw new Error("runDiscovery should not be called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "ats_only",
+          targetRoles: "   ",  // blank (whitespace only)
+          keywordsInclude: "", // blank (empty string)
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  // Must reject with 400
+  assert.equal(response.status, 400, `Expected 400, got ${response.status}: ${response.body}`);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+
+  // Must NOT create a run handle
+  assert.ok(!body.runId, "Response must not include runId when intent is blank");
+  assert.ok(!body.statusPath, "Response must not include statusPath when intent is blank");
+
+  // No run was accepted/enqueued
+  assert.ok(
+    !dependencies.runStatusStore.get("run_123"),
+    "No run status should be stored for rejected request",
+  );
+});
+
+test("VAL-API-006: runDiscovery must NOT be called when intent is missing", async () => {
+  // Verification that the explicit rejection happens BEFORE runDiscovery is invoked.
+  let runDiscoveryCallCount = 0;
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      runDiscoveryCallCount += 1;
+      throw new Error("runDiscovery should not have been called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "browser_only",
+          // both targetRoles and keywordsInclude missing
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400);
+  assert.equal(runDiscoveryCallCount, 0, "runDiscovery must not be called for missing intent");
+});
+
+// === VAL-API-008: Blank run intent is rejected explicitly (no silent fallback) ===
+
+test("VAL-API-008: accepts request when targetRoles is present (non-blank) even if keywordsInclude is blank", async () => {
+  // One non-blank intent field is sufficient - should NOT reject.
+  const dependencies = makeDependencies({
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "browser_only",
+          targetRoles: "Senior Engineer",
+          keywordsInclude: "", // blank but targetRoles is non-blank
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  // Should be accepted (202 async or 200 sync)
+  assert.ok(
+    [200, 202].includes(response.status),
+    `Expected 200 or 202, got ${response.status}: ${response.body}`,
+  );
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.ok(body.runId, "Must have runId for valid intent");
+});
+
+test("VAL-API-008: accepts request when keywordsInclude is present (non-blank) even if targetRoles is blank", async () => {
+  // One non-blank intent field is sufficient - should NOT reject.
+  const dependencies = makeDependencies({
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "ats_only",
+          targetRoles: "   ", // blank
+          keywordsInclude: "AI,python", // non-blank
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  // Should be accepted
+  assert.ok(
+    [200, 202].includes(response.status),
+    `Expected 200 or 202, got ${response.status}: ${response.body}`,
+  );
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.ok(body.runId, "Must have runId for valid intent");
+});
+
+test("VAL-API-008: rejects blank-only intent with explicit AI Suggester guidance", async () => {
+  // When both intent fields are blank, response must include AI Suggester guidance.
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      throw new Error("runDiscovery should not be called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          sourcePreset: "browser_plus_ats",
+          targetRoles: "",
+          keywordsInclude: "   ",
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+
+  // Check guidance mentions AI Suggester
+  const guidanceText = `${body.message || ""} ${body.detail || ""} ${body.remediation || ""}`;
+  assert.ok(
+    /ai sugg/i.test(guidanceText),
+    `Response should mention AI Suggester. Got: ${guidanceText}`,
   );
 });

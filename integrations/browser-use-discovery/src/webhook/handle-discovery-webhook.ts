@@ -105,6 +105,8 @@ export async function handleDiscoveryWebhook(
     return jsonResponse(400, {
       ok: false,
       message: parsed.message,
+      ...(parsed.detail ? { detail: parsed.detail } : {}),
+      ...(parsed.remediation ? { remediation: parsed.remediation } : {}),
     });
   }
 
@@ -461,7 +463,7 @@ function parseWebhookRequest(
   bodyText: string,
 ):
   | { ok: true; request: DiscoveryWebhookRequestV1 }
-  | { ok: false; message: string } {
+  | { ok: false; message: string; detail?: string; remediation?: string } {
   let payload: unknown;
   try {
     payload = JSON.parse(String(bodyText || ""));
@@ -535,6 +537,34 @@ function parseWebhookRequest(
         ok: false,
         message:
           "discoveryProfile.sourcePreset and discoveryProfile.enabledSources are mutually exclusive. Use sourcePreset as the canonical source selection field.",
+      };
+    }
+
+    // VAL-API-006/VAL-API-008: Run intent must be request-authoritative.
+    // If discoveryProfile is provided, at least one of targetRoles or keywordsInclude
+    // must be non-blank. Blank intent fails with explicit guidance to use AI Suggester.
+    // NOTE: We only validate when discoveryProfile is explicitly provided.
+    // When discoveryProfile is absent, we allow the request to proceed (the preflight
+    // and later intent-gating in the execution path will handle it).
+    const profile = discoveryProfile as Record<string, unknown>;
+    const rawTargetRoles = profile.targetRoles;
+    const rawKeywordsInclude = profile.keywordsInclude;
+    const targetRolesBlank =
+      rawTargetRoles == null ||
+      (typeof rawTargetRoles === "string" && !rawTargetRoles.trim());
+    const keywordsBlank =
+      rawKeywordsInclude == null ||
+      (typeof rawKeywordsInclude === "string" && !rawKeywordsInclude.trim());
+
+    if (targetRolesBlank && keywordsBlank) {
+      return {
+        ok: false,
+        message:
+          "discoveryProfile.targetRoles and discoveryProfile.keywordsInclude cannot both be blank or missing.",
+        detail:
+          "Discovery intent requires at least one search criteria. Neither targetRoles nor keywordsInclude was provided, or both were blank.",
+        remediation:
+          "Use the AI Suggester tab to generate role keywords, or provide explicit targetRoles (e.g., 'Senior Engineer') or keywordsInclude (e.g., 'AI,python') values in your discoveryProfile.",
       };
     }
   }
