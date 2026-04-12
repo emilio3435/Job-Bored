@@ -583,6 +583,131 @@ test("runDiscovery generates skip evidence for excluded ATS sources (VAL-ROUTE-0
   );
 });
 
+// === VAL-ROUTE-007: Browser-only unrestricted scope executes grounded lane without legacy fixed-company pinning ===
+
+test("VAL-ROUTE-007: browser_only with empty companies executes grounded_web using unrestricted scope (not legacy defaults)", async () => {
+  // When browser_only preset is used with empty companies (unrestricted scope),
+  // grounded_web should execute using the empty company placeholder [{ name: "" }]
+  // for unrestricted intent-based search, NOT legacy fixed-company defaults like Scale AI/Figma/Notion.
+  let groundedSearchCompanyName: string | undefined;
+
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "test-key",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+    },
+    sourceAdapterRegistry: {
+      adapters: [
+        {
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          detect: async () => null,
+          listJobs: async () => [],
+          normalize: async () => null,
+        },
+        {
+          sourceId: "ashby",
+          sourceLabel: "Ashby",
+          detect: async () => null,
+          listJobs: async () => [],
+          normalize: async () => null,
+        },
+      ],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    groundedSearchClient: {
+      search: async (company) => {
+        // Capture the company name used for grounded search
+        groundedSearchCompanyName = company.name;
+        return {
+          searchQueries: company.name ? [`${company.name} product manager`] : ["product manager"],
+          candidates: [],
+          warnings: [],
+        };
+      },
+    },
+    browserSessionManager: {
+      run: async () => ({
+        url: "",
+        text: "[]",
+        metadata: {},
+      }),
+    },
+    pipelineWriter: {
+      write: async () => ({
+        sheetId: "sheet_123",
+        appended: 0,
+        updated: 0,
+        skippedDuplicates: 0,
+        warnings: [],
+      }),
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_123",
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [], // Empty companies - unrestricted scope
+      includeKeywords: ["product"],
+      excludeKeywords: [],
+      targetRoles: ["Product Manager"],
+      locations: [],
+      remotePolicy: "",
+      seniority: "",
+      maxLeadsPerRun: 25,
+      enabledSources: ["greenhouse", "ashby", "grounded_web"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored, request) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "browser_only",
+      effectiveSources: ["grounded_web"],
+    }),
+    now: () => new Date("2026-04-10T03:00:00.000Z"),
+    randomId: () => "run_browser_unrestricted_test",
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+
+  // grounded_web should have executed
+  const groundedEntry = result.sourceSummary.find((s) => s.sourceId === "grounded_web");
+  assert.ok(groundedEntry, "grounded_web should be in sourceSummary for browser_only");
+
+  // grounded_web should have been called with empty company name (unrestricted scope)
+  assert.equal(
+    groundedSearchCompanyName,
+    "",
+    "grounded_web should be called with empty company name for unrestricted scope (not Scale AI/Figma/Notion legacy defaults)",
+  );
+
+  // ATS lanes should be excluded with skip warnings
+  const greenhouseEntry = result.sourceSummary.find((s) => s.sourceId === "greenhouse");
+  assert.ok(greenhouseEntry, "greenhouse should appear in sourceSummary for browser_only");
+  assert.ok(
+    greenhouseEntry.warnings.some((w) => w.includes("excluded by preset")),
+    "greenhouse should have 'excluded by preset' warning for browser_only",
+  );
+});
+
 // === VAL-ROUTE-008: ATS-only unrestricted scope executes ATS-attributed discovery behavior ===
 
 test("VAL-ROUTE-008: ats_only with empty companies attempts ATS lane execution (not skipped due to missing companies)", async () => {
