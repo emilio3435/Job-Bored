@@ -20,6 +20,7 @@ Testing surfaces, tools, setup notes, and concurrency guidance for this mission.
   - Preset controls are reachable while logged out via Settings → Discovery and discovery setup modal path.
   - **OAuth note:** The OAuth client is configured for `localhost:8080` but NOT for `127.0.0.1:8080`. Always use `http://localhost:8080` for OAuth flows.
   - **Preset controls access:** The preset controls (radio buttons `input[name='dpSourcePreset']`) are inside a hidden modal (`discoveryPrefsModal`). If normal UI flow is unavailable (e.g., due to auth), they can be accessed via JavaScript: `document.getElementById('discoveryPrefsModal').style.display='flex'` or call `openDiscoveryPrefsModal()` from the console.
+  - **Input guard check:** verify Run is blocked when both target roles and include keywords are blank, and UI suggests using the AI Suggester tab (no webhook request should fire).
 
 ### 2) Discovery worker API surface
 - **URL:** `http://127.0.0.1:8644`
@@ -30,6 +31,7 @@ Testing surfaces, tools, setup notes, and concurrency guidance for this mission.
   - Read the shared secret from `discovery-local-bootstrap.json` (`webhookSecret`) for curl requests.
   - For async runs, always poll `/runs/{runId}` to terminal.
   - Validate local vs hosted `sheetId` mode boundaries where applicable.
+  - Validate missing run-intent requests fail explicitly (no silent fallback): missing/blank preset and blank both targetRoles+keywordsInclude should be rejected with clear errors.
 
 ### 3) Google Sheets write-proof surface
 - **Tool:** `curl` + Google Sheets API readback (or equivalent deterministic sheet read evidence)
@@ -67,6 +69,11 @@ Dry-run baseline (2026-04-11): 18 logical CPUs, 48 GiB RAM, heavy discovery exec
 3. Source evidence: per-source counters/warnings and lane inclusion/exclusion proof
 4. Data evidence: writeResult + sheet readback for the same run window
 5. UI evidence (for browser assertions): screenshots showing preset selection and terminal state for the same runId
+
+## Quality-Hardening Follow-up Checks
+
+- Grounded HTML fallback extraction does not promote junk navigation text as job titles (e.g., “skip to content”).
+- Run-level dedupe uses multi-signal identity (not URL-only), reducing repeated low-quality opportunities across alternate URLs.
 
 ---
 

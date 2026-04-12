@@ -31,13 +31,10 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 - Async acknowledgements include `pollAfterMs` for status polling cadence.
 
 ### 3) Discovery config resolver
-- Merges request-level selection with stored worker config.
-- Resolves the effective lane set for a run.
-- Owns deterministic fallback truth table when preset is omitted:
-  - Stored explicit preset exists -> use stored preset.
-  - Only grounded lane enabled -> `browser_only`.
-  - Only ATS lanes enabled -> `ats_only`.
-  - Mixed/legacy state -> `browser_plus_ats`.
+- Merges request-level selection with operational worker config (sources, runtime limits, sheet boundaries).
+- Run intent is request-authoritative: preset and discovery-intent fields must be explicit in request payload.
+- No silent stored-profile fallback for omitted run-intent fields.
+- Resolves the effective lane set for a run from explicit preset + enabled source set.
 
 ### 4) Discovery execution router
 - Runs only the source families selected by the resolved preset.
@@ -73,8 +70,9 @@ The product remains sheet-centric: Google Sheets is still the durable data plane
 ## Invariants
 
 - Source preset is authoritative for lane execution.
+- Omitted/blank run-intent fields are rejected explicitly rather than silently inferred from stored profile defaults.
 - ATS is optional; it is never implicitly forced in `browser_only`.
 - Async acceptance is never treated as terminal success.
 - Failures (auth, readiness, source, write path) are explicit and attributable.
 - Every terminal run is traceable by a stable runId from UI -> API -> status -> sheet evidence.
-- First-visit and legacy-state users always resolve to a valid explicit preset.
+- UI run gating enforces minimum user intent before run dispatch (at least one of target roles or include keywords).
