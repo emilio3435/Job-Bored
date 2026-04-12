@@ -1,6 +1,6 @@
 # Contracts
 
-High-level map of the shared contracts that must stay aligned during this refactor mission.
+High-level map of shared contracts that must stay aligned for browser-first discovery selection and reliability.
 
 **What belongs here:** stable schemas, published payloads, sheet contracts, and where each contract is defined or validated.  
 **What does NOT belong here:** implementation details of a single module.
@@ -29,7 +29,17 @@ High-level map of the shared contracts that must stay aligned during this refact
   - browser discovery POST path
   - worker webhook handler
 - Mission risk:
-  - browser verification semantics, worker acceptance semantics, and docs must remain aligned
+  - preset field validation and fallback semantics can drift between browser payloads, schema, and worker parsing
+  - async acceptance semantics can be mistaken for terminal success without explicit run-status linkage
+
+#### Canonical preset contract (mission target)
+- Request field: `discoveryProfile.sourcePreset`
+- Allowed values:
+  - `browser_only`
+  - `ats_only`
+  - `browser_plus_ats`
+- Invalid/contradictory values must return explicit `400` errors.
+- Async acceptance must include `runId`, `statusPath`, and `pollAfterMs`.
 
 ### ATS scorecard contract
 - Primary references:
@@ -48,8 +58,10 @@ High-level map of the shared contracts that must stay aligned during this refact
 - `npm run test:ats-contract`
 - `npm run test:pipeline-contract`
 - `npm run test:contract:all`
+- `npm run test:browser-use-discovery`
 
 ## Worker guidance
 
 - When changing any contract-bearing surface, update the implementation and its contract references together.
 - If behavior must change intentionally, treat it as an explicit scope change and return to orchestrator rather than silently changing the contract.
+- For source-selection work, keep request schema, worker contracts, and run-status evidence fields aligned in the same feature set.
