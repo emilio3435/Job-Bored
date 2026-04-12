@@ -38,6 +38,10 @@ High-level map of shared contracts that must stay aligned for browser-first disc
   - `browser_only`
   - `ats_only`
   - `browser_plus_ats`
+- Run intent is request-authoritative (no silent stored-profile fallback for omitted discovery-intent fields).
+- Minimum required discovery intent for run dispatch/acceptance:
+  - explicit `discoveryProfile.sourcePreset`
+  - at least one non-empty value in `discoveryProfile.targetRoles` or `discoveryProfile.keywordsInclude`
 - Optional transient field: `googleAccessToken` (runtime passthrough only; never persisted)
 - Invalid/contradictory values must return explicit `400` errors.
 - Async acceptance must include `runId`, `statusPath`, and `pollAfterMs`.
