@@ -8053,6 +8053,18 @@ async function triggerDiscoveryRun() {
   }
   try {
     const payload = await buildDiscoveryWebhookPayload(SHEET_ID);
+    // Guardrail: verify intent is present before sending webhook request
+    const profile = payload && payload.discoveryProfile;
+    const targetRoles = (profile && profile.targetRoles || "").trim();
+    const keywordsInclude = (profile && profile.keywordsInclude || "").trim();
+    if (!targetRoles && !keywordsInclude) {
+      showToast(
+        "Add target roles or keywords to include, or use the AI Suggest tab to generate them.",
+        "warning",
+        true,
+      );
+      return { ok: false, reason: "blank_intent" };
+    }
     const result = await verifyDiscoveryWebhookWithSharedModel(hook, payload, {
       context: "run_discovery",
       sheetId: SHEET_ID || "",
@@ -17014,6 +17026,21 @@ function initDiscoveryPrefsModal() {
         const el = document.getElementById(id);
         return el ? el.value : "";
       };
+      const targetRoles = val("dpTargetRoles").trim();
+      const keywordsInclude = val("dpKeywordsInclude").trim();
+
+      // Intent guardrail: block run if both targetRoles and keywordsInclude are blank
+      if (!targetRoles && !keywordsInclude) {
+        showToast(
+          "Add target roles or keywords to include, or use the AI Suggest tab to generate them.",
+          "warning",
+          true,
+        );
+        // Switch to AI Suggest tab so user can generate suggestions
+        switchTab("ai");
+        return;
+      }
+
       // Handle grounded_web checkbox
       const gwEl = document.getElementById("dpGroundedWeb");
       const groundedWebEnabled = gwEl ? gwEl.checked : true;
@@ -17026,11 +17053,11 @@ function initDiscoveryPrefsModal() {
         : "";
       if (UC && typeof UC.saveDiscoveryProfile === "function") {
         await UC.saveDiscoveryProfile({
-          targetRoles: val("dpTargetRoles"),
+          targetRoles,
           locations: val("dpLocations"),
           remotePolicy: val("dpRemotePolicy"),
           seniority: val("dpSeniority"),
-          keywordsInclude: val("dpKeywordsInclude"),
+          keywordsInclude,
           keywordsExclude: val("dpKeywordsExclude"),
           maxLeadsPerRun: val("dpMaxLeads"),
           groundedWebEnabled,
