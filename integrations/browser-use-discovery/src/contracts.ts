@@ -5,10 +5,18 @@ export const DEFAULT_STATUS = "New";
 export const PIPELINE_DEDUPE_COLUMN = "E";
 export const PIPELINE_DEDUPE_HEADER = "Link";
 export const ATS_SOURCE_IDS = ["greenhouse", "lever", "ashby"] as const;
-export const SUPPORTED_SOURCE_IDS = [...ATS_SOURCE_IDS, "grounded_web"] as const;
+export const SUPPORTED_SOURCE_IDS = [
+  ...ATS_SOURCE_IDS,
+  "grounded_web",
+] as const;
 export const DEFAULT_ENABLED_SOURCE_IDS = [
   ...ATS_SOURCE_IDS,
   "grounded_web",
+] as const;
+export const SOURCE_PRESET_VALUES = [
+  "browser_only",
+  "ats_only",
+  "browser_plus_ats",
 ] as const;
 export const PIPELINE_HEADER_ROW = [
   "Date Found",
@@ -35,8 +43,10 @@ export const PIPELINE_HEADER_ROW = [
 
 export type SupportedSourceId = (typeof SUPPORTED_SOURCE_IDS)[number];
 export type AtsSourceId = (typeof ATS_SOURCE_IDS)[number];
+export type SourcePreset = (typeof SOURCE_PRESET_VALUES)[number];
 
 export type DiscoveryProfile = {
+  sourcePreset?: SourcePreset;
   targetRoles?: string;
   locations?: string;
   remotePolicy?: string;
@@ -53,6 +63,15 @@ export type DiscoveryWebhookRequestV1 = {
   variationKey: string;
   requestedAt: string;
   discoveryProfile?: DiscoveryProfile;
+  /**
+   * Optional Google OAuth access token sent by the dashboard for *this run
+   * only*. Lets a signed-in user trigger discovery without needing the worker
+   * to hold a long-lived service account or OAuth refresh token. Takes
+   * precedence over every credential in the worker's runtime env. The worker
+   * MUST strip this field before persisting the request to the run-status
+   * store so the secret never lands in SQLite.
+   */
+  googleAccessToken?: string;
 };
 
 export type NormalizedLeadPriority = "🔥" | "⚡" | "—" | "↓" | "";
@@ -209,11 +228,15 @@ export type StoredWorkerConfig = {
     enabled: boolean;
     cron: string;
   };
+  discoveryProfile?: {
+    sourcePreset?: SourcePreset;
+  };
 };
 
 export type EffectiveDiscoveryConfig = StoredWorkerConfig & {
   variationKey: string;
   requestedAt: string;
+  sourcePreset: SourcePreset;
 };
 
 export type DiscoveryRun = {

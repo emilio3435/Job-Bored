@@ -1,14 +1,16 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 
+import {
+  SOURCE_PRESET_VALUES,
+} from "../contracts.ts";
 import type {
   DiscoveryWebhookAck,
   DiscoveryRunStatusPayload,
   DiscoveryWebhookRequestV1,
+  SourcePreset,
   StoredWorkerConfig,
 } from "../contracts.ts";
-import type {
-  RunDiscoveryDependencies,
-} from "../run/run-discovery.ts";
+import type { RunDiscoveryDependencies } from "../run/run-discovery.ts";
 import {
   buildAcceptedRunStatus,
   buildCompletedRunStatus,
@@ -44,6 +46,16 @@ export type HandleWebhookDependencies = {
     dependencies: RunDiscoveryDependencies,
   ): Promise<RunDiscoveryResult>;
   runDependencies: RunDiscoveryDependencies;
+  /**
+   * Optional factory used when the request body carries a per-run
+   * `googleAccessToken`. Lets the handler build a fresh pipeline writer that
+   * authenticates with the user's request-time token instead of the global
+   * service account / OAuth credential. When omitted, the handler reuses
+   * `runDependencies.pipelineWriter` and the per-request token is ignored.
+   */
+  createPipelineWriterForRequest?(
+    runtimeConfigOverride: RunDiscoveryDependencies["runtimeConfig"],
+  ): RunDiscoveryDependencies["pipelineWriter"];
 };
 
 export async function handleDiscoveryWebhook(
@@ -88,11 +100,27 @@ export async function handleDiscoveryWebhook(
     createRunId(dependencies.runDependencies.randomId);
   const now = dependencies.now || (() => new Date());
   const acceptedAt = now().toISOString();
-  const statusPathBuilder = dependencies.runStatusPathForRun || buildRunStatusPath;
+  const statusPathBuilder =
+    dependencies.runStatusPathForRun || buildRunStatusPath;
   const statusPath = statusPathBuilder(runId);
   const pollAfterMs = Math.max(1000, dependencies.asyncPollAfterMs || 2000);
   const baseRunLogger = dependencies.runDependencies.log;
-  const runDependencies = {
+
+  // Per-request Google access token (the dashboard's GIS sign-in path). Held
+  // ONLY in this scope; never persisted, never logged, stripped from the
+  // request object handed downstream so it cannot leak through run.request.
+  const requestGoogleAccessToken =
+    typeof parsed.request.googleAccessToken === "string"
+      ? parsed.request.googleAccessToken.trim()
+      : "";
+  const requestForRun: DiscoveryWebhookRequestV1 = requestGoogleAccessToken
+    ? (() => {
+        const { googleAccessToken: _omitToken, ...rest } = parsed.request;
+        return rest as DiscoveryWebhookRequestV1;
+      })()
+    : parsed.request;
+
+  const baseRunDependencies: RunDiscoveryDependencies = {
     ...dependencies.runDependencies,
     runId,
     log: (event: string, details: Record<string, unknown>) => {
@@ -100,10 +128,27 @@ export async function handleDiscoveryWebhook(
       dependencies.log?.(event, details);
     },
   };
+  const runDependencies: RunDiscoveryDependencies =
+    requestGoogleAccessToken && dependencies.createPipelineWriterForRequest
+      ? (() => {
+          const overrideRuntimeConfig = {
+            ...baseRunDependencies.runtimeConfig,
+            googleAccessToken: requestGoogleAccessToken,
+          };
+          return {
+            ...baseRunDependencies,
+            runtimeConfig: overrideRuntimeConfig,
+            pipelineWriter: dependencies.createPipelineWriterForRequest(
+              overrideRuntimeConfig,
+            ),
+          };
+        })()
+      : baseRunDependencies;
+
   const runMode = dependencies.runSynchronously ? "sync" : "async";
   const preflight = await validateDiscoveryPreflight(
     parsed.request.sheetId,
-    dependencies.runDependencies,
+    runDependencies,
   );
   if (preflight) {
     dependencies.log?.("discovery.run.preflight_failed", {
@@ -153,7 +198,7 @@ export async function handleDiscoveryWebhook(
         variationKey: parsed.request.variationKey,
       });
       const result = await dependencies.runDiscovery(
-        parsed.request,
+        requestForRun,
         "manual",
         runDependencies,
       );
@@ -178,17 +223,14 @@ export async function handleDiscoveryWebhook(
           ...(entry.warnings.length ? { warnings: entry.warnings } : {}),
         })),
       });
-      return jsonResponse(
-        200,
-        {
-          ok: true,
-          kind: "completed_sync",
-          runId,
-          message: completedStatus.message,
-          statusPath,
-          outcome: completedStatus,
-        } satisfies DiscoveryWebhookAck,
-      );
+      return jsonResponse(200, {
+        ok: true,
+        kind: "completed_sync",
+        runId,
+        message: completedStatus.message,
+        statusPath,
+        outcome: completedStatus,
+      } satisfies DiscoveryWebhookAck);
     } catch (error) {
       dependencies.runStatusStore?.put(
         buildFailedRunStatus(acceptedStatus, error, now().toISOString()),
@@ -214,7 +256,7 @@ export async function handleDiscoveryWebhook(
 
   const startedAt = now().toISOString();
   void dependencies
-    .runDiscovery(parsed.request, "manual", runDependencies)
+    .runDiscovery(requestForRun, "manual", runDependencies)
     .then((result) => {
       dependencies.runStatusStore?.put(
         buildCompletedRunStatus(result, {
@@ -335,9 +377,7 @@ async function validateDiscoveryPreflight(
     };
   }
 
-  if (
-    !String(sheetId || "").trim()
-  ) {
+  if (!String(sheetId || "").trim()) {
     if (
       runDependencies.runtimeConfig.runMode === "local" &&
       String(storedConfig.sheetId || "").trim()
@@ -376,6 +416,7 @@ function parseWebhookRequest(
   const variationKey = stringValue(payload.variationKey);
   const requestedAt = stringValue(payload.requestedAt);
   const discoveryProfile = payload.discoveryProfile;
+  const googleAccessToken = stringValue(payload.googleAccessToken);
 
   if (event !== "command-center.discovery") {
     return { ok: false, message: "event must be command-center.discovery." };
@@ -402,6 +443,49 @@ function parseWebhookRequest(
     };
   }
 
+  // Validate sourcePreset enum when provided inside discoveryProfile.
+  if (isPlainObject(discoveryProfile)) {
+    if ("sourcePreset" in discoveryProfile) {
+      const sourcePreset = discoveryProfile.sourcePreset;
+      if (typeof sourcePreset !== "string") {
+        return {
+          ok: false,
+          message:
+            "discoveryProfile.sourcePreset must be a string when present.",
+        };
+      }
+      if (
+        !(SOURCE_PRESET_VALUES as readonly string[]).includes(sourcePreset)
+      ) {
+        return {
+          ok: false,
+          message: `discoveryProfile.sourcePreset must be one of: ${SOURCE_PRESET_VALUES.join(", ")}. Received: "${sourcePreset}".`,
+        };
+      }
+    }
+
+    // Reject contradictory legacy enabledSources alongside explicit sourcePreset.
+    if (
+      "sourcePreset" in discoveryProfile &&
+      "enabledSources" in discoveryProfile
+    ) {
+      return {
+        ok: false,
+        message:
+          "discoveryProfile.sourcePreset and discoveryProfile.enabledSources are mutually exclusive. Use sourcePreset as the canonical source selection field.",
+      };
+    }
+  }
+  if (
+    payload.googleAccessToken != null &&
+    typeof payload.googleAccessToken !== "string"
+  ) {
+    return {
+      ok: false,
+      message: "googleAccessToken must be a string when present.",
+    };
+  }
+
   return {
     ok: true,
     request: {
@@ -413,9 +497,10 @@ function parseWebhookRequest(
       ...(discoveryProfile
         ? {
             discoveryProfile:
-              discoveryProfile as DiscoveryWebhookRequestV1["discoveryProfile"],
+              normalizeDiscoveryProfile(discoveryProfile) as DiscoveryWebhookRequestV1["discoveryProfile"],
           }
         : {}),
+      ...(googleAccessToken ? { googleAccessToken } : {}),
     },
   };
 }
@@ -441,6 +526,26 @@ function stringValue(value: unknown): string {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeDiscoveryProfile(
+  raw: Record<string, unknown>,
+): DiscoveryWebhookRequestV1["discoveryProfile"] {
+  const out: NonNullable<DiscoveryWebhookRequestV1["discoveryProfile"]> = {};
+  if (typeof raw.sourcePreset === "string") {
+    out.sourcePreset = raw.sourcePreset as SourcePreset;
+  }
+  if (typeof raw.targetRoles === "string") out.targetRoles = raw.targetRoles;
+  if (typeof raw.locations === "string") out.locations = raw.locations;
+  if (typeof raw.remotePolicy === "string") out.remotePolicy = raw.remotePolicy;
+  if (typeof raw.seniority === "string") out.seniority = raw.seniority;
+  if (typeof raw.keywordsInclude === "string")
+    out.keywordsInclude = raw.keywordsInclude;
+  if (typeof raw.keywordsExclude === "string")
+    out.keywordsExclude = raw.keywordsExclude;
+  if (typeof raw.maxLeadsPerRun === "string")
+    out.maxLeadsPerRun = raw.maxLeadsPerRun;
+  return out;
 }
 
 function createRunId(randomId?: ((prefix: string) => string) | null): string {
