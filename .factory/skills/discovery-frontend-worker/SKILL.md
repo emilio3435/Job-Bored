@@ -26,11 +26,13 @@ Use for features that primarily touch browser-facing discovery behavior:
    - run trigger payload builder
    - run-status UI state transitions
 3. Add or update failing tests first (red) for the changed behavior.
+   - If a suitable automated test already exists, extend it to fail first and then pass.
+   - If no practical automated seam exists for a UI-only change, document that limitation explicitly in handoff and rely on stronger browser evidence.
 4. Implement the minimal UI/state change to make tests pass (green) while preserving unrelated dashboard behavior.
 5. Run targeted checks while iterating:
    - syntax/type checks for touched files
    - targeted tests for changed logic
-6. Verify fulfilled assertions with `agent-browser`:
+6. Verify fulfilled assertions with `agent-browser` (required for UI assertions; server-side tests are supplementary, not a substitute):
    - preset behavior
    - run handle visibility
    - async/terminal transition behavior
