@@ -140,6 +140,38 @@ export type NormalizedLead = {
   };
 };
 
+/**
+ * Stable diagnostic codes for extraction observability.
+ * Used in structured diagnostic entries paired with backward-compatible warning strings.
+ */
+export type ExtractionDiagnosticCode =
+  /** Browser-use command failed; fell back to plain HTTP fetch. */
+  | "fetch_fallback"
+  /** Response appears to be an SPA loading state or skeleton HTML (very short, mostly whitespace/script). */
+  | "low_content_spa"
+  /** Response is mostly HTML with minimal extractable content (likely a broken/minimal page). */
+  | "low_content_html"
+  /** Extraction returned zero job listings despite successful page load. */
+  | "zero_results";
+
+/**
+ * Structured diagnostic entry for extraction observability.
+ * Provides machine-readable context paired with backward-compatible warning strings.
+ */
+export type ExtractionDiagnostic = {
+  /** Stable diagnostic code identifying the event type. */
+  code: ExtractionDiagnosticCode;
+  /** Human-readable context explaining why this diagnostic was emitted. */
+  context: string;
+  /** Optional URL or source this diagnostic applies to. */
+  url?: string;
+};
+
+/**
+ * Extended extraction result with structured diagnostics for UltraPlan observability.
+ * The `diagnostics` field provides machine-readable event context paired with
+ * the `warnings` string array for backward compatibility.
+ */
 export type BrowserUseExtractionResult = {
   runId: string;
   sourceId: string;
@@ -151,6 +183,8 @@ export type BrowserUseExtractionResult = {
     leadsSeen: number;
     leadsAccepted: number;
   };
+  /** Structured diagnostic entries for extraction observability (VAL-OBS-001, VAL-OBS-003). */
+  diagnostics?: ExtractionDiagnostic[];
 };
 
 export type PipelineWriteResult = {
@@ -194,6 +228,8 @@ export type DiscoverySourceSummary = {
   leadsRejected: number;
   warnings: string[];
   rejectionSummary?: DiscoveryRejectionSummary;
+  /** Structured diagnostic entries for extraction observability (VAL-OBS-001, VAL-OBS-003). */
+  diagnostics?: ExtractionDiagnostic[];
 };
 
 export type DiscoveryLifecycleState = "completed" | "partial" | "empty";

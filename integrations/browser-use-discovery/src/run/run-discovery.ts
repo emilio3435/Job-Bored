@@ -7,6 +7,7 @@ import type {
   DiscoverySourceSummary,
   DiscoveryRun,
   DiscoveryWebhookRequestV1,
+  ExtractionDiagnostic,
   NormalizedLead,
   PipelineWriteResult,
   RawListing,
@@ -791,10 +792,21 @@ async function runGroundedWebDiscovery(
             seedUrls: [],
             warnings: [message],
             pagesVisited: 0,
+            diagnostics: [{
+              code: "fetch_fallback" as const,
+              context: `Grounded collection timed out after ${error.timeoutMs}ms for ${company.name}: ${error.message}`,
+            }],
           };
         }
         throw error;
       });
+      // VAL-OBS-001: Propagate structured diagnostics from grounded collection
+      if (result.diagnostics?.length) {
+        extractionResult.diagnostics = [
+          ...(extractionResult.diagnostics || []),
+          ...result.diagnostics,
+        ];
+      }
       listingCount += result.rawListings.length;
       extractionResult.querySummary = uniqueJoin([
         extractionResult.querySummary,
@@ -915,6 +927,10 @@ function buildSourceSummary(
               })),
             },
           }
+        : {}),
+      // VAL-OBS-001/003: Include structured diagnostics in source summary
+      ...(entry.diagnostics?.length
+        ? { diagnostics: entry.diagnostics }
         : {}),
     };
   });
