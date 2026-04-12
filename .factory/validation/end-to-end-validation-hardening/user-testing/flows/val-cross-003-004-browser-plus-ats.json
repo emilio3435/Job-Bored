@@ -1,0 +1,89 @@
+{
+  "groupId": "VAL-CROSS-003-004",
+  "testedAt": "2026-04-12T07:50:00Z",
+  "isolation": {
+    "workerUrl": "http://127.0.0.1:8644",
+    "webhookSecret": "REDACTED",
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+    "preset": "browser_plus_ats"
+  },
+  "toolsUsed": ["curl"],
+  "assertions": [
+    {
+      "id": "VAL-CROSS-003",
+      "title": "Browser+ATS yields mixed attribution with lane status",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "POST /webhook with discoveryProfile.sourcePreset: browser_plus_ats",
+          "expected": "Run accepted with runId returned",
+          "observed": "Run accepted: run_96720e78010441be8eb64df1818e2a0d, pollAfterMs: 2000"
+        },
+        {
+          "action": "Poll /runs/{runId} until terminal",
+          "expected": "Run reaches terminal state with sources array populated",
+          "observed": "Run terminalized after ~5 minutes with status 'partial' and sources populated"
+        },
+        {
+          "action": "Verify sources contains BOTH browser and ATS lanes",
+          "expected": "sources contains grounded_web (browser) AND greenhouse|ashby (ATS)",
+          "observed": "sources contains all 3: greenhouse, ashby (ATS), grounded_web (browser)"
+        },
+        {
+          "action": "Verify each source has explicit counters",
+          "expected": "Each source has pagesVisited, leadsSeen, leadsAccepted counters",
+          "observed": "All 3 sources have: pagesVisited, leadsSeen, leadsAccepted, leadsRejected counters"
+        },
+        {
+          "action": "Verify each source has warnings array",
+          "expected": "Each source has warnings array",
+          "observed": "greenhouse: warnings: [], ashby: warnings: [], grounded_web: warnings: ['Grounded search returned no usable candidate links.' x2]"
+        }
+      ],
+      "evidence": {
+        "screenshots": null,
+        "consoleErrors": "none (API test)",
+        "network": "POST /webhook -> 200 accepted_async, GET /runs/run_96720e78010441be8eb64df1818e2a0d -> 200 terminal partial"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-004",
+      "title": "Lane-specific failure never appears as full success",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Verify run status is not 'success'",
+          "expected": "Run status should be 'partial' or 'failed'",
+          "observed": "Run status is 'partial' with lifecycle.state: 'partial'"
+        },
+        {
+          "action": "Verify failing lane attribution in warnings",
+          "expected": "Warnings include lane-specific failure information",
+          "observed": "Warnings include: 'Truncated leads to maxLeadsPerRun=20.', 'Grounded search returned no usable candidate links.' (x2) - grounded_web lane warnings present"
+        },
+        {
+          "action": "Verify terminal state has explicit failure indication",
+          "expected": "Terminal run shows partial/failed with attribution",
+          "observed": "lifecycle.state: 'partial', writeResult shows appended:0 updated:13 (partial write success), grounded_web warnings indicate browser lane quality issues"
+        }
+      ],
+      "evidence": {
+        "screenshots": null,
+        "consoleErrors": "none (API test)",
+        "network": "GET /runs/run_96720e78010441be8eb64df1818e2a0d -> 200 with partial status and warnings"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "browser_plus_ats preset takes ~5 minutes to terminalize, longer than ats_only (2-3 min) mentioned in user-testing.md",
+      "resolved": false,
+      "resolution": "Waited for run to complete naturally",
+      "affectedAssertions": ["VAL-CROSS-003", "VAL-CROSS-004"]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 2 assertions: Both passed. VAL-CROSS-003: Confirmed browser_plus_ats yields 3 sources (greenhouse, ashby, grounded_web) with explicit per-source counters and warnings arrays. VAL-CROSS-004: Confirmed run terminalizes with 'partial' status (not 'success') and lane-specific warnings for grounded_web browser lane."
+}

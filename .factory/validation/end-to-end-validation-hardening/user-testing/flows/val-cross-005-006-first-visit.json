@@ -1,0 +1,93 @@
+{
+  "groupId": "VAL-CROSS-005-006-first-visit",
+  "testedAt": "2026-04-12T08:05:00.000Z",
+  "isolation": {
+    "workerUrl": "http://127.0.0.1:8644",
+    "webhookSecret": "REDACTED",
+    "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ"
+  },
+  "toolsUsed": ["curl"],
+  "assertions": [
+    {
+      "id": "VAL-CROSS-005",
+      "title": "First-visit run path is reachable and non-silent on failure",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "POST /webhook without discoveryProfile.sourcePreset (first-visit/legacy path)",
+          "expected": "Request accepted, not silent rejection, returns runId",
+          "observed": "Request accepted with status 202, runId: run_eba43d3e9be0484f80b8b19fbc26620f"
+        },
+        {
+          "action": "Poll /runs/{runId} until terminal",
+          "expected": "Terminal status reached with traceable runId and explicit message",
+          "observed": "Terminal reached after ~4 minutes with status: partial, message: 'Discovery completed with warnings — worker processed the run.'"
+        },
+        {
+          "action": "Verify statusPath references the same runId",
+          "expected": "statusPath includes runId from ack",
+          "observed": "statusPath: /runs/run_eba43d3e9be0484f80b8b19fbc26620f matches ack runId"
+        },
+        {
+          "action": "Verify terminal status has same runId as ack",
+          "expected": "runId consistency across ack and terminal status",
+          "observed": "Terminal status runId: run_eba43d3e9be0484f80b8b19fbc26620f matches ack runId"
+        },
+        {
+          "action": "Test auth failure with invalid secret",
+          "expected": "Explicit error (not silent accept)",
+          "observed": "Returns 200 with {ok: false, message: 'Unauthorized discovery webhook request.'} - explicit rejection"
+        }
+      ],
+      "evidence": {
+        "webhookAck": "evidence/end-to-end-validation-hardening/flow-val-cross-first-visit/VAL-CROSS-005-006-webhook-ack.json",
+        "terminalStatus": "evidence/end-to-end-validation-hardening/flow-val-cross-first-visit/VAL-CROSS-005-006-terminal-status.json",
+        "network": "POST /webhook -> 202 accepted; invalid secret -> 200 {ok:false}; GET /runs/run_eba43d3e9be0484f80b8b19fbc26620f -> 200 terminal after ~4 min"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-006",
+      "title": "End-to-end run lineage remains consistent",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Verify runId from UI/network ack is identical to polled terminal status runId",
+          "expected": "Same runId in ack and terminal status",
+          "observed": "Ack runId: run_eba43d3e9be0484f80b8b19fbc26620f, Terminal runId: run_eba43d3e9be0484f80b8b19fbc26620f - MATCH"
+        },
+        {
+          "action": "Verify statusPath references the same runId",
+          "expected": "statusPath includes the same runId",
+          "observed": "statusPath: /runs/run_eba43d3e9be0484f80b8b19fbc26620f - references same runId"
+        },
+        {
+          "action": "Verify lifecycle.runId matches ack runId",
+          "expected": "lifecycle object contains same runId",
+          "observed": "lifecycle.runId: run_eba43d3e9be0484f80b8b19fbc26620f - MATCH"
+        },
+        {
+          "action": "Verify writeResult evidence for that run",
+          "expected": "writeResult contains sheetId and mutation counts",
+          "observed": "writeResult: {sheetId: 1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ, appended: 1, updated: 13, skippedDuplicates: 0}"
+        }
+      ],
+      "evidence": {
+        "webhookAck": "evidence/end-to-end-validation-hardening/flow-val-cross-first-visit/VAL-CROSS-005-006-webhook-ack.json",
+        "terminalStatus": "evidence/end-to-end-validation-hardening/flow-val-cross-first-visit/VAL-CROSS-005-006-terminal-status.json",
+        "network": "runId consistency verified across ack.runId, statusPath, terminal runId, and lifecycle.runId"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "First-visit run without sourcePreset took ~4 minutes to terminalize (due to real discovery execution against actual ATS and grounded_web sources)",
+      "resolved": true,
+      "resolution": "Waited for async terminalization; the 5-minute safety timer (maxRunDurationMs) eventually forces terminalization as expected",
+      "affectedAssertions": ["VAL-CROSS-005", "VAL-CROSS-006"]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 2 assertions (VAL-CROSS-005 and VAL-CROSS-006): Both PASS. First-visit path (no sourcePreset) successfully accepts request, resolves preset, and terminalizes with consistent runId lineage. runId from ack matches terminal status, statusPath, and lifecycle.runId. Sheet mutations (appended: 1, updated: 13) confirm writeResult evidence. Auth failure returns explicit error (not silent accept)."
+}
