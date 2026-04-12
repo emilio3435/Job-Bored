@@ -1,0 +1,49 @@
+{
+  "groupId": "val-api-006-008",
+  "testedAt": "2026-04-12T09:25:00.000Z",
+  "isolation": {
+    "workerUrl": "http://127.0.0.1:8644",
+    "webhookSecret": "REDACTED",
+    "missionDir": "/Users/emilionunezgarcia/.factory/missions/89d20ab8-2e45-4be3-8d44-7480490a8906"
+  },
+  "toolsUsed": ["curl"],
+  "assertions": [
+    {
+      "id": "VAL-API-006",
+      "title": "Missing required run intent is rejected explicitly (no stored-profile fallback)",
+      "status": "blocked",
+      "steps": [
+        { "action": "POST webhook with discoveryProfile.sourcePreset but missing targetRoles and keywordsInclude", "expected": "400 with explicit field errors and NO runId/statusPath", "observed": "202 Accepted with runId: run_ba50cd18b4f446dcaa68add7e9cd0c60" },
+        { "action": "GET /runs/run_ba50cd18b4f446dcaa68add7e9cd0c60", "expected": "404 Not Found (run should not exist)", "observed": "200 OK with status=running, terminal=false - run exists and is executing" }
+      ],
+      "evidence": {
+        "webhookResponse": "input-quality-hardening-followup/val-api-006-008/VAL-API-006-response.txt",
+        "runLookupResponse": "Run exists and returns 200 with status=running"
+      },
+      "issues": "Server is running outdated code. The validation logic for VAL-API-006/008 was committed at 04:09:55 (8c4186c) but the worker server started at 01:48AM and has not been restarted to pick up the new code. The worker process (PID 33221) needs to be restarted to load the updated validation logic."
+    },
+    {
+      "id": "VAL-API-008",
+      "title": "Blank run intent is rejected explicitly (no silent fallback)",
+      "status": "blocked",
+      "steps": [
+        { "action": "POST webhook with discoveryProfile.targetRoles='' and discoveryProfile.keywordsInclude=''", "expected": "400 with AI Suggester guidance and NO runId/statusPath", "observed": "202 Accepted with runId: run_362f641c8fe94bb6a798c7046cb7a561" },
+        { "action": "GET /runs/run_362f641c8fe94bb6a798c7046cb7a561", "expected": "404 Not Found (run should not exist)", "observed": "200 OK with status=running, terminal=false - run exists and is executing" }
+      ],
+      "evidence": {
+        "webhookResponse": "input-quality-hardening-followup/val-api-006-008/VAL-API-008-response.txt",
+        "runLookupResponse": "Run exists and returns 200 with status=running"
+      },
+      "issues": "Server is running outdated code. Same root cause as VAL-API-006 - worker needs restart to load commit 8c4186c which adds the intent validation."
+    }
+  ],
+  "frictions": [],
+  "blockers": [
+    {
+      "description": "Worker server at http://127.0.0.1:8644 is running code prior to commit 8c4186c (feat(discovery): reject missing/blank run-intent with explicit 400 errors). The server process started at 01:48AM but the validation commit was at 04:09AM. Without a server restart, the VAL-API-006 and VAL-API-008 validation logic is not available.",
+      "affectedAssertions": ["VAL-API-006", "VAL-API-008"],
+      "quickFixAttempted": "Could not restart shared infrastructure per isolation guidelines. Other subagents may be using the worker at port 8644."
+    }
+  ],
+  "summary": "Tested 2 assertions (VAL-API-006, VAL-API-008): both blocked. The worker server at port 8644 is running outdated code that predates the validation implementation (commit 8c4186c). Requests that should be rejected with 400 errors are being accepted with 202 and creating valid run records. Server restart required to load updated validation logic."
+}
