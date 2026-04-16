@@ -1,0 +1,89 @@
+{
+  "groupId": "route-assertions",
+  "testedAt": "2026-04-12T19:45:00.000Z",
+  "isolation": {
+    "repoRoot": "/Users/emilionunezgarcia/Job-Bored",
+    "discoveryWorker": "http://127.0.0.1:8644",
+    "dashboard": "http://localhost:8080",
+    "webhookSecret": "22fb309934e7177f41228938f01bf2a3b277e0bbd671ced74ffff6798020c52b"
+  },
+  "toolsUsed": ["npm run test:browser-use-discovery"],
+  "assertions": [
+    {
+      "id": "VAL-ROUTE-012",
+      "title": "Unrestricted grounded execution fans out into focused modifier-driven queries within cap",
+      "status": "pass",
+      "steps": [
+        { "action": "Run test suite", "expected": "VAL-ROUTE-012 tests pass", "observed": "3 tests passed: multi-query fan-out generates multiple focused queries from modifiers, caps at configured multiQueryCap, produces deterministic unique queries for same input" }
+      ],
+      "evidence": {
+        "testOutput": "integrations/browser-use-discovery/tests/browser/grounded-search.test.ts",
+        "tests": [
+          "VAL-ROUTE-012: multi-query fan-out generates multiple focused queries from modifiers",
+          "VAL-ROUTE-012: multi-query fan-out caps at configured multiQueryCap",
+          "VAL-ROUTE-012: multi-query fan-out produces deterministic unique queries for same input"
+        ],
+        "consoleErrors": "none",
+        "network": "N/A - unit tests with mocked fetch"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-ROUTE-013",
+      "title": "Zero-candidate focused queries follow ordered broadening ladder",
+      "status": "pass",
+      "steps": [
+        { "action": "Run test suite", "expected": "VAL-ROUTE-013 tests pass", "observed": "2 tests passed: zero-candidate focused query triggers broadening ladder in correct order, broadening ladder executes each rung at most once per focused query" }
+      ],
+      "evidence": {
+        "testOutput": "integrations/browser-use-discovery/tests/browser/grounded-search.test.ts",
+        "tests": [
+          "VAL-ROUTE-013: zero-candidate focused query triggers broadening ladder in correct order",
+          "VAL-ROUTE-013: broadening ladder executes each rung at most once per focused query"
+        ],
+        "consoleErrors": "none",
+        "network": "N/A - unit tests with mocked fetch"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-ROUTE-014",
+      "title": "First-rung success does not trigger unnecessary broadening retries",
+      "status": "pass",
+      "steps": [
+        { "action": "Run test suite", "expected": "VAL-ROUTE-014 tests pass", "observed": "2 tests passed: first-rung success short-circuits retry ladder for that query, first-rung success means no broader retries for that query" }
+      ],
+      "evidence": {
+        "testOutput": "integrations/browser-use-discovery/tests/browser/grounded-search.test.ts",
+        "tests": [
+          "VAL-ROUTE-014: first-rung success short-circuits retry ladder for that query",
+          "VAL-ROUTE-014: first-rung success means no broader retries for that query"
+        ],
+        "consoleErrors": "none",
+        "network": "N/A - unit tests with mocked fetch"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-ROUTE-017",
+      "title": "Retry ladder exhaustion terminates finitely with explicit exhaustion attribution",
+      "status": "pass",
+      "steps": [
+        { "action": "Run test suite", "expected": "VAL-ROUTE-017 tests pass", "observed": "2 tests passed: all-zero ladder terminates finitely with exhaustion attribution, exhaustion attribution includes rung context" }
+      ],
+      "evidence": {
+        "testOutput": "integrations/browser-use-discovery/tests/browser/grounded-search.test.ts",
+        "tests": [
+          "VAL-ROUTE-017: all-zero ladder terminates finitely with exhaustion attribution",
+          "VAL-ROUTE-017: exhaustion attribution includes rung context"
+        ],
+        "consoleErrors": "none",
+        "network": "N/A - unit tests with mocked fetch"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 4 assertions (VAL-ROUTE-012, VAL-ROUTE-013, VAL-ROUTE-014, VAL-ROUTE-017) via 9 unit tests in grounded-search.test.ts. All 184 tests in the full test suite passed (0 failures). Routing assertions verify: multi-query fan-out with cap and determinism, ordered broadening ladder for zero-candidate queries, first-rung success short-circuit, and finite ladder exhaustion with attribution."
+}

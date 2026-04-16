@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -47,12 +47,18 @@ function makeStoredConfig(overrides: Record<string, unknown> = {}) {
 }
 
 test("default enabled sources include grounded_web", () => {
-  assert.deepEqual(DEFAULT_ENABLED_SOURCE_IDS, [
-    "greenhouse",
-    "lever",
-    "ashby",
-    "grounded_web",
-  ]);
+  assert.ok(
+    DEFAULT_ENABLED_SOURCE_IDS.includes("grounded_web"),
+    "grounded_web should remain enabled by default",
+  );
+  assert.ok(
+    DEFAULT_ENABLED_SOURCE_IDS.includes("greenhouse"),
+    "greenhouse should remain enabled by default",
+  );
+  assert.ok(
+    DEFAULT_ENABLED_SOURCE_IDS.includes("personio"),
+    "expanded ATS providers should be enabled by default",
+  );
 });
 
 test("loadRuntimeConfig defaults local workers to localhost browser origins", () => {
@@ -72,6 +78,33 @@ test("loadRuntimeConfig fails closed for hosted workers without explicit browser
   });
 
   assert.deepEqual(result.allowedOrigins, []);
+});
+
+test("loadRuntimeConfig loads discovery env file values and lets explicit env win", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "discovery-env-file-"));
+  const envPath = join(tempDir, ".env");
+  try {
+    await writeFile(
+      envPath,
+      [
+        "BROWSER_USE_DISCOVERY_RUN_MODE=local",
+        "BROWSER_USE_DISCOVERY_GEMINI_API_KEY=file-gemini-key",
+        "BROWSER_USE_DISCOVERY_GOOGLE_ACCESS_TOKEN=file-google-token",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const result = loadRuntimeConfig({
+      BROWSER_USE_DISCOVERY_ENV_FILE: envPath,
+      BROWSER_USE_DISCOVERY_GOOGLE_ACCESS_TOKEN: "override-google-token",
+    });
+
+    assert.equal(result.runMode, "local");
+    assert.equal(result.geminiApiKey, "file-gemini-key");
+    assert.equal(result.googleAccessToken, "override-google-token");
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("mergeDiscoveryConfig auto-enables grounded_web for legacy ATS-only configs", () => {
@@ -124,12 +157,73 @@ test("loadStoredWorkerConfig falls back to defaults with grounded_web enabled", 
     "sheet_123",
   );
 
-  assert.deepEqual(result.enabledSources, [
-    "greenhouse",
-    "lever",
-    "ashby",
-    "grounded_web",
-  ]);
+  assert.deepEqual(result.enabledSources, DEFAULT_ENABLED_SOURCE_IDS);
+  assert.deepEqual(
+    (result.atsCompanies || []).map((company) => company.name),
+    ["Scale AI", "Figma", "Notion"],
+  );
+  assert.deepEqual(result.companies, []);
+});
+
+test("loadStoredWorkerConfig reuses configured companies as ATS seeds when atsCompanies is omitted", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "discovery-config-"));
+  const configPath = join(tempDir, "worker-config.json");
+  try {
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        companies: [{ name: "Acme AI" }, { name: "Stripe" }],
+      }),
+      "utf8",
+    );
+
+    const result = await loadStoredWorkerConfig(
+      {
+        stateDatabasePath: join(tempDir, "state.sqlite"),
+        workerConfigPath: configPath,
+        browserUseCommand: "browser-use",
+        geminiApiKey: "",
+        geminiModel: "gemini-2.5-flash",
+        groundedSearchMaxResultsPerCompany: 6,
+        groundedSearchMaxPagesPerCompany: 4,
+        googleServiceAccountJson: "",
+        googleServiceAccountFile: "",
+        googleAccessToken: "",
+        googleOAuthTokenJson: "",
+        googleOAuthTokenFile: "",
+        webhookSecret: "",
+        allowedOrigins: ["http://localhost:8080"],
+        port: 8644,
+        host: "127.0.0.1",
+        runMode: "local",
+        asyncAckByDefault: true,
+      },
+      "sheet_123",
+    );
+
+    assert.deepEqual(
+      (result.atsCompanies || []).map((company) => company.name),
+      ["Acme AI", "Stripe"],
+    );
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("mergeDiscoveryConfig preserves ATS companies separately from broad company scope", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig({
+      companies: [],
+      atsCompanies: [{ name: "Scale AI" }, { name: "Figma" }],
+    }) as any,
+    makeRequest(),
+  );
+
+  assert.deepEqual(result.companies, []);
+  assert.deepEqual(
+    (result.atsCompanies || []).map((company) => company.name),
+    ["Scale AI", "Figma"],
+  );
 });
 
 // === resolveSourcePreset fallback truth table (VAL-API-006) ===
@@ -165,11 +259,11 @@ test("resolveSourcePreset falls back to browser_plus_ats when no stored preset a
   assert.equal(resolveSourcePreset(undefined, stored), "browser_plus_ats");
 });
 
-test("resolveSourcePreset falls back to browser_only when only grounded_web is enabled", () => {
+test("resolveSourcePreset falls back to browser_plus_ats when only grounded_web is enabled", () => {
   const stored = makeStoredConfig({
     enabledSources: ["grounded_web"],
   });
-  assert.equal(resolveSourcePreset(undefined, stored), "browser_only");
+  assert.equal(resolveSourcePreset(undefined, stored), "browser_plus_ats");
 });
 
 test("resolveSourcePreset falls back to ats_only when only ATS lanes are enabled", () => {
@@ -191,7 +285,7 @@ test("resolveSourcePreset ignores invalid stored preset and falls back to source
     discoveryProfile: { sourcePreset: "not_a_real_preset" },
     enabledSources: ["grounded_web"],
   });
-  assert.equal(resolveSourcePreset(undefined, stored), "browser_only");
+  assert.equal(resolveSourcePreset(undefined, stored), "browser_plus_ats");
 });
 
 // === mergeDiscoveryConfig includes resolved sourcePreset (VAL-API-005, VAL-API-006) ===
@@ -223,7 +317,7 @@ test("mergeDiscoveryConfig resolves sourcePreset from enabledSources fallback wh
     }) as any,
     makeRequest(),
   );
-  assert.equal(result.sourcePreset, "browser_only");
+  assert.equal(result.sourcePreset, "browser_plus_ats");
 });
 
 test("mergeDiscoveryConfig resolves browser_plus_ats for mixed default sources", () => {
@@ -260,7 +354,7 @@ test("VAL-API-001: browser_only resolves elevated groundedSearchTuning defaults 
   // browser_only should use elevated defaults
   assert.equal(result.groundedSearchTuning.maxResultsPerCompany, 12, "maxResultsPerCompany should be 12 for browser_only");
   assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 8, "maxPagesPerCompany should be 8 for browser_only");
-  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 120000, "maxRuntimeMs should be 120000 for browser_only");
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 300000, "maxRuntimeMs should be 300000 for browser_only");
   assert.equal(result.groundedSearchTuning.maxTokensPerQuery, 4096, "maxTokensPerQuery should be 4096 for browser_only");
 });
 
@@ -324,7 +418,7 @@ test("VAL-API-002: explicit groundedSearchTuning override is preserved exactly",
   assert.equal(result.groundedSearchTuning.maxResultsPerCompany, 20, "explicit maxResultsPerCompany override should be preserved");
   assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 15, "explicit maxPagesPerCompany override should be preserved");
   // Non-overridden fields should still use browser_only defaults
-  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 120000, "non-overridden maxRuntimeMs should use browser_only default");
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 300000, "non-overridden maxRuntimeMs should use browser_only default");
   assert.equal(result.groundedSearchTuning.maxTokensPerQuery, 4096, "non-overridden maxTokensPerQuery should use browser_only default");
 });
 
@@ -459,7 +553,7 @@ test("VAL-API-006: omitted browser_only maxRuntimeMs defaults to > 60000ms", () 
   );
   // VAL-API-006: omitted timeout must be strictly greater than 60000ms
   assert.ok(result.groundedSearchTuning.maxRuntimeMs > 60000, "omitted maxRuntimeMs must be > 60000ms for browser_only");
-  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 120000, "omitted maxRuntimeMs should be 120000ms for browser_only");
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 300000, "omitted maxRuntimeMs should be 300000ms for browser_only");
 });
 
 test("VAL-API-006: explicit maxRuntimeMs override is preserved exactly", () => {
@@ -482,7 +576,7 @@ test("VAL-API-006: explicit maxRuntimeMs override is preserved exactly", () => {
 });
 
 test("VAL-API-006: explicit override can be lower than uplift default", () => {
-  // Explicit override of 30000 is lower than the uplifted default of 120000
+  // Explicit override of 30000 is lower than the uplifted default of 300000
   const explicitTimeout = 30000;
   const result = mergeDiscoveryConfig(
     makeStoredConfig() as any,

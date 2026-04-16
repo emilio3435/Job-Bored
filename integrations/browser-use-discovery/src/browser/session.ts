@@ -10,6 +10,8 @@ export type BrowserUseSessionManager = {
   run(request: BrowserUseSessionRequest): Promise<BrowserUseSessionResult>;
 };
 
+const DEFAULT_BROWSER_COMMAND_TIMEOUT_MS = 30_000;
+
 export function createBrowserUseSessionManager(
   runtimeConfig: WorkerRuntimeConfig,
 ): BrowserUseSessionManager {
@@ -41,15 +43,50 @@ async function runCommandSession(
   command: string,
   request: BrowserUseSessionRequest,
 ): Promise<BrowserUseSessionResult> {
-  const payload = JSON.stringify(request);
+  const payload = JSON.stringify({
+    url: request.url,
+    instruction: request.instruction,
+    timeoutMs: request.timeoutMs,
+  });
+  const timeoutMs = normalizeBrowserCommandTimeoutMs(request.timeoutMs);
   const output = await new Promise<{ stdout: string; stderr: string }>(
     (resolve, reject) => {
+      if (request.abortSignal?.aborted) {
+        reject(createAbortError());
+        return;
+      }
       const child = spawn(command, [], {
         shell: true,
         stdio: ["pipe", "pipe", "pipe"],
       });
+      let settled = false;
       let stdout = "";
       let stderr = "";
+      const abortHandler = () => {
+        const message = "Browser Use command aborted";
+        stderr = stderr ? `${stderr}\n${message}` : message;
+        child.kill("SIGKILL");
+        if (settled) return;
+        settled = true;
+        reject(createAbortError());
+      };
+      const timer = setTimeout(() => {
+        const message = `Browser Use command timed out after ${timeoutMs}ms`;
+        stderr = stderr ? `${stderr}\n${message}` : message;
+        child.kill("SIGKILL");
+        if (settled) return;
+        settled = true;
+        reject(new Error(message));
+      }, timeoutMs);
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        request.abortSignal?.removeEventListener("abort", abortHandler);
+      };
+      request.abortSignal?.addEventListener("abort", abortHandler, {
+        once: true,
+      });
+
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
       child.stdout.on("data", (chunk) => {
@@ -58,8 +95,16 @@ async function runCommandSession(
       child.stderr.on("data", (chunk) => {
         stderr += String(chunk);
       });
-      child.once("error", reject);
+      child.once("error", (error) => {
+        cleanup();
+        if (settled) return;
+        settled = true;
+        reject(error);
+      });
       child.once("close", (code) => {
+        cleanup();
+        if (settled) return;
+        settled = true;
         if (code && code !== 0) {
           reject(new Error(`Browser Use command exited ${code}: ${stderr || stdout}`));
           return;
@@ -107,6 +152,7 @@ async function runFetchSession(
     headers: {
       accept: "application/json,text/html;q=0.9,text/plain;q=0.8,*/*;q=0.7",
     },
+    signal: request.abortSignal,
   });
   const text = await response.text();
   return {
@@ -140,4 +186,17 @@ function stringOr(value: unknown, fallback = ""): string {
 
 function stringifyError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function normalizeBrowserCommandTimeoutMs(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return DEFAULT_BROWSER_COMMAND_TIMEOUT_MS;
+  }
+  return Math.max(1_000, Math.floor(value));
+}
+
+function createAbortError(): Error {
+  const error = new Error("Aborted");
+  error.name = "AbortError";
+  return error;
 }

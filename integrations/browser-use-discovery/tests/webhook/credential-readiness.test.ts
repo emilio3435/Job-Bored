@@ -144,6 +144,54 @@ test("validateSheetsCredentialReadiness rejects malformed OAuth token JSON files
   }
 });
 
+test("validateSheetsCredentialReadiness rejects revoked OAuth token files when refresh fails", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "job-bored-credential-readiness-"));
+  const tokenPath = join(tempDir, "oauth-token.json");
+  try {
+    await writeFile(
+      tokenPath,
+      JSON.stringify({
+        token: "expired-access-token",
+        refresh_token: "revoked-refresh-token",
+        client_id: "client-id-123",
+        client_secret: "client-secret-456",
+        expiry: "2026-04-10T10:00:00.000Z",
+        token_uri: "https://oauth2.googleapis.com/token",
+      }),
+      "utf8",
+    );
+
+    const status = await validateSheetsCredentialReadiness(
+      {
+        ...baseRuntimeConfig,
+        googleOAuthTokenFile: tokenPath,
+      },
+      {
+        now: () => new Date("2026-04-10T12:00:00.000Z"),
+        fetchImpl: async () =>
+          new Response(
+            JSON.stringify({
+              error: "invalid_grant",
+              error_description: "Token has been expired or revoked.",
+            }),
+            {
+              status: 400,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      },
+    );
+
+    assert.equal(status.configured, false);
+    assert.equal(status.source, "oauth_token_file");
+    assert.match(status.message || "", /oauth token file is invalid/i);
+    assert.match(status.detail || "", /invalid_grant|revoked/i);
+    assert.match(status.remediation || "", /BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_FILE|GOOGLE_ACCESS_TOKEN/i);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("handleDiscoveryWebhook fails fast when a configured service-account file is missing", async () => {
   const tempDir = await mkdtemp(join(tmpdir(), "job-bored-credential-readiness-"));
   try {
@@ -178,6 +226,68 @@ test("handleDiscoveryWebhook fails fast when a configured service-account file i
       /BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE/i,
     );
   } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("handleDiscoveryWebhook fails fast when a configured OAuth token file is revoked", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "job-bored-credential-readiness-"));
+  const tokenPath = join(tempDir, "oauth-token.json");
+  const originalFetch = globalThis.fetch;
+  try {
+    await writeFile(
+      tokenPath,
+      JSON.stringify({
+        token: "expired-access-token",
+        refresh_token: "revoked-refresh-token",
+        client_id: "client-id-123",
+        client_secret: "client-secret-456",
+        expiry: "2026-04-10T10:00:00.000Z",
+        token_uri: "https://oauth2.googleapis.com/token",
+      }),
+      "utf8",
+    );
+
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          error: "invalid_grant",
+          error_description: "Token has been expired or revoked.",
+        }),
+        {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        },
+      )) as typeof fetch;
+
+    const response = await handleDiscoveryWebhook(
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-discovery-secret": "shared-proof-delta",
+        },
+        bodyText: JSON.stringify({
+          event: DISCOVERY_WEBHOOK_EVENT,
+          schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+          sheetId: "sheet_123",
+          variationKey: "var_123",
+          requestedAt: "2026-04-10T12:00:00.000Z",
+        }),
+      },
+      makeDependencies({
+        googleOAuthTokenFile: tokenPath,
+        webhookSecret: "shared-proof-delta",
+      }),
+    );
+
+    assert.equal(response.status, 409);
+    const body = JSON.parse(response.body);
+    assert.equal(body.ok, false);
+    assert.match(body.message, /oauth token file is invalid/i);
+    assert.match(body.detail, /invalid_grant|revoked/i);
+  } finally {
+    globalThis.fetch = originalFetch;
     await rm(tempDir, { recursive: true, force: true });
   }
 });

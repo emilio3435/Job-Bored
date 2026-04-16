@@ -257,14 +257,14 @@ export function shouldUseAiMatcher(
   run: DiscoveryRun,
   aiCallsUsed: number,
 ): boolean {
-  const maxCalls = Math.max(12, Math.min(40, run.config.maxLeadsPerRun * 3));
+  const maxCalls = Math.max(4, Math.min(12, run.config.maxLeadsPerRun));
   if (aiCallsUsed >= maxCalls) return false;
   if (decision.hardRejectReason) return false;
   if (decision.decision === "uncertain") return true;
   if (decision.decision === "accept") {
-    return decision.confidence < 0.78;
+    return decision.confidence < 0.72;
   }
-  return decision.overallScore >= 0.32;
+  return false;
 }
 
 export function createGeminiMatchClient(
@@ -654,8 +654,25 @@ function cleanTitleForMatching(title: string): string {
 function findMatchedPhrases(haystack: string, phrases: string[]): string[] {
   const normalizedHaystack = cleanText(haystack).toLowerCase();
   return tokenizeKeywords(phrases).filter((phrase) =>
-    normalizedHaystack.includes(phrase.toLowerCase()),
+    phraseMatchesHaystack(normalizedHaystack, phrase),
   );
+}
+
+function phraseMatchesHaystack(haystack: string, phrase: string): boolean {
+  const normalizedPhrase = cleanText(phrase).toLowerCase();
+  if (!normalizedPhrase) return false;
+  if (!/[a-z0-9]/.test(normalizedPhrase)) {
+    return haystack.includes(normalizedPhrase);
+  }
+  const pattern = new RegExp(
+    `(?:^|[^a-z0-9])${escapeRegExp(normalizedPhrase).replace(/ /g, "\\s+")}(?=$|[^a-z0-9])`,
+    "i",
+  );
+  return pattern.test(haystack);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function findMatchedLocationSignals(

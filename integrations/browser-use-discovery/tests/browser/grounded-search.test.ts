@@ -10,6 +10,51 @@ import {
   createGroundedSearchClient,
 } from "../../src/grounding/grounded-search.ts";
 
+const originalFetch = globalThis.fetch;
+
+function makePreflightResponse(url: string): Response {
+  const normalizedUrl = String(url || "");
+  const title = normalizedUrl.includes("/careers")
+    ? "Notion Careers"
+    : normalizedUrl.includes("lever.co")
+      ? "Product Marketing Manager at Notion"
+      : "Backend Engineer at Notion";
+  const longDescription = "This role includes job description, responsibilities, qualifications, and an apply now path for current openings. ".repeat(8);
+  const body = normalizedUrl.includes("/careers")
+    ? `
+      <html>
+      <head><title>${title}</title></head>
+      <body>
+        <h1>Open Roles</h1>
+        <a href="/jobs/123">Backend Engineer</a>
+        <p>${longDescription}</p>
+      </body>
+      </html>
+    `
+    : `
+      <html>
+      <head><title>${title}</title></head>
+      <body>
+        <h1>${title}</h1>
+        <button>Apply now</button>
+        <p>${longDescription}</p>
+      </body>
+      </html>
+    `;
+  return new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/html" },
+  });
+}
+
+test.beforeEach(() => {
+  globalThis.fetch = (async (input: string | URL | Request) => makePreflightResponse(String(input))) as typeof fetch;
+});
+
+test.after(() => {
+  globalThis.fetch = originalFetch;
+});
+
 function makeRun() {
   return {
     runId: "run_grounded_test",
@@ -65,7 +110,7 @@ function makeRuntimeConfig(overrides = {}) {
   };
 }
 
-test("createGroundedSearchClient merges explicit JSON results with grounded citations", async () => {
+test("createGroundedSearchClient keeps third-party boards as hint_only candidates while merging canonical results", async () => {
   const client = createGroundedSearchClient(makeRuntimeConfig(), {
     fetchImpl: async () =>
       new Response(
@@ -119,12 +164,15 @@ test("createGroundedSearchClient merges explicit JSON results with grounded cita
   const result = await client.search(run.config.companies[0], run);
 
   assert.deepEqual(result.searchQueries, ["Notion product marketing manager"]);
-  assert.equal(result.candidates.length, 2);
+  assert.equal(result.candidates.length, 3);
   assert.equal(
     result.candidates[0].url,
     "https://www.notion.so/careers/product-marketing-manager",
   );
-  assert.ok(result.candidates.every((entry) => !entry.url.includes("linkedin")));
+  const linkedinCandidate = result.candidates.find((entry) => entry.url.includes("linkedin.com/jobs/view/123"));
+  assert.ok(linkedinCandidate, "LinkedIn candidate should be preserved as hint-only");
+  assert.equal(linkedinCandidate?.sourcePolicy, "hint_only");
+  assert.ok(result.candidates.every((entry) => !entry.url.includes("google.com")));
 });
 
 test("collectGroundedWebListings expands a careers page into direct jobs", async () => {
@@ -184,6 +232,376 @@ test("collectGroundedWebListings expands a careers page into direct jobs", async
     "https://www.notion.so/careers/product-marketing-manager",
   );
   assert.match(String(result.rawListings[0].metadata?.sourceQuery || ""), /Notion product marketing manager/);
+});
+
+test("collectGroundedWebListings honors the resolved run page limit over runtime defaults", async () => {
+  const run = makeRun();
+  run.config.groundedSearchTuning = {
+    maxResultsPerCompany: 8,
+    maxPagesPerCompany: 4,
+    maxRuntimeMs: 300000,
+    maxTokensPerQuery: 4096,
+    multiQueryCap: 4,
+  };
+
+  const visitedUrls: string[] = [];
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig({
+      groundedSearchMaxPagesPerCompany: 2,
+    }),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Notion product marketing manager"],
+        candidates: [
+          {
+            url: "https://jobs.lever.co/notion/1",
+            title: "Product Marketing Manager | Notion",
+            pageType: "job",
+            reason: "ATS direct job page",
+            sourceDomain: "jobs.lever.co",
+          },
+          {
+            url: "https://jobs.lever.co/notion/2",
+            title: "Senior Product Marketing Manager | Notion",
+            pageType: "job",
+            reason: "ATS direct job page",
+            sourceDomain: "jobs.lever.co",
+          },
+          {
+            url: "https://jobs.lever.co/notion/3",
+            title: "Lifecycle Marketing Manager | Notion",
+            pageType: "job",
+            reason: "ATS direct job page",
+            sourceDomain: "jobs.lever.co",
+          },
+          {
+            url: "https://jobs.lever.co/notion/4",
+            title: "Growth Marketing Manager | Notion",
+            pageType: "job",
+            reason: "ATS direct job page",
+            sourceDomain: "jobs.lever.co",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    sessionManager: {
+      run: async ({ url }) => {
+        visitedUrls.push(url);
+        return {
+          url,
+          text: JSON.stringify({
+            pageType: "job",
+            jobs: [
+              {
+                title: `Role ${visitedUrls.length}`,
+                company: "Notion",
+                location: "Remote",
+                url,
+                descriptionText: "Product marketing role",
+              },
+            ],
+          }),
+          metadata: { mode: "browser_use_command" },
+        };
+      },
+    },
+  });
+
+  assert.equal(result.pagesVisited, 4, "Should visit 4 pages from resolved run config");
+  assert.equal(visitedUrls.length, 4, "Should not be capped by runtime default page limit");
+});
+
+test("collectGroundedWebListings resolves hint_only candidates to canonical ATS pages before extraction", async () => {
+  const run = makeRun();
+  const visitedUrls: string[] = [];
+  const preflightedUrls: string[] = [];
+
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Product Marketing Manager at Notion"],
+        candidates: [
+          {
+            url: "https://www.workingnomads.com/jobs/product-marketing-manager",
+            title: "Product Marketing Manager at Notion | Working Nomads",
+            pageType: "job",
+            reason: "Third-party hint",
+            sourceDomain: "www.workingnomads.com",
+            sourcePolicy: "hint_only",
+          },
+        ],
+        warnings: [],
+      }),
+      resolveHint: async () => [
+        {
+          url: "https://jobs.lever.co/notion/product-marketing-manager",
+          title: "Product Marketing Manager at Notion",
+          pageType: "job",
+          reason: "Canonical ATS job page",
+          sourceDomain: "jobs.lever.co",
+          sourcePolicy: "extractable",
+        },
+      ],
+    },
+    fetchImpl: async (url) => {
+      preflightedUrls.push(String(url));
+      return makePreflightResponse(String(url));
+    },
+    sessionManager: {
+      run: async ({ url }) => {
+        visitedUrls.push(url);
+        return {
+          url,
+          text: JSON.stringify({
+            pageType: "job",
+            jobs: [
+              {
+                title: "Product Marketing Manager",
+                company: "Notion",
+                location: "Remote",
+                url,
+                descriptionText: "Lead product marketing campaigns and launches.",
+              },
+            ],
+          }),
+          metadata: { mode: "browser_use_command" },
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(preflightedUrls, ["https://jobs.lever.co/notion/product-marketing-manager"]);
+  assert.deepEqual(visitedUrls, ["https://jobs.lever.co/notion/product-marketing-manager"]);
+  assert.equal(result.rawListings.length, 1);
+  assert.ok(
+    result.diagnostics?.some((entry) => entry.code === "hint_only_candidate"),
+    "Should emit hint_only_candidate diagnostic for the third-party board",
+  );
+});
+
+test("collectGroundedWebListings rejects broken candidates during strict preflight before browser extraction", async () => {
+  const run = makeRun();
+  let sessionCalls = 0;
+
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Notion product marketing manager"],
+        candidates: [
+          {
+            url: "https://jobs.lever.co/notion/broken-role",
+            title: "Product Marketing Manager at Notion",
+            pageType: "job",
+            reason: "ATS direct job page",
+            sourceDomain: "jobs.lever.co",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    fetchImpl: async () =>
+      new Response("<html><title>Page Not Found</title><body>404 Page Not Found</body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      }),
+    sessionManager: {
+      run: async ({ url }) => {
+        sessionCalls += 1;
+        return {
+          url,
+          text: "",
+          metadata: { mode: "browser_use_command" },
+        };
+      },
+    },
+  });
+
+  assert.equal(sessionCalls, 0, "Broken pages should be rejected before browser extraction");
+  assert.equal(result.pagesVisited, 0);
+  assert.equal(result.rawListings.length, 0);
+  assert.ok(
+    result.diagnostics?.some((entry) => entry.code === "preflight_rejected"),
+    "Should emit preflight_rejected diagnostic",
+  );
+});
+
+test("collectGroundedWebListings rejects informational company pages nested under /jobs paths", async () => {
+  const run = makeUnrestrictedRun({
+    config: {
+      companies: [{ name: "Two Barrels" }],
+      includeKeywords: ["marketing", "data"],
+      targetRoles: ["Marketing Data Analyst"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+    },
+  });
+  let sessionCalls = 0;
+
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Marketing Data Analyst remote jobs"],
+        candidates: [
+          {
+            url: "https://twobarrels.com/jobs/how-we-work",
+            title: "How We Work | Two Barrels",
+            pageType: "job",
+            reason: "Employer page under /jobs path",
+            sourceDomain: "twobarrels.com",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    fetchImpl: async () =>
+      new Response(
+        `
+          <html>
+          <head><title>How We Work</title></head>
+          <body>
+            <h1>How We Work</h1>
+            <p>${"Benefits, values, and company culture information for employees. ".repeat(12)}</p>
+          </body>
+          </html>
+        `,
+        {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        },
+      ),
+    sessionManager: {
+      run: async ({ url }) => {
+        sessionCalls += 1;
+        return {
+          url,
+          text: "",
+          metadata: { mode: "browser_use_command" },
+        };
+      },
+    },
+  });
+
+  assert.equal(sessionCalls, 0, "Informational company pages should be rejected before extraction");
+  assert.equal(result.pagesVisited, 0);
+  assert.equal(result.rawListings.length, 0);
+  assert.ok(
+    result.diagnostics?.some(
+      (entry) =>
+        entry.code === "preflight_rejected" &&
+        /informational company content/i.test(entry.context),
+    ),
+    "Should emit preflight_rejected diagnostic for informational job-adjacent pages",
+  );
+});
+
+test("collectGroundedWebListings extracts a direct job page from page signals when no JSON is present", async () => {
+  const run = makeUnrestrictedRun({
+    config: {
+      targetRoles: ["Growth Marketing Manager"],
+      includeKeywords: ["marketing", "growth"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+    },
+  });
+
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Growth Marketing Manager remote jobs"],
+        candidates: [
+          {
+            url: "https://jobs.lever.co/notion/growth-marketing-manager",
+            title: "Growth Marketing Manager at Notion",
+            pageType: "job",
+            reason: "ATS direct job page",
+            sourceDomain: "jobs.lever.co",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    sessionManager: {
+      run: async ({ url }) => ({
+        url,
+        text: `
+          <html>
+          <body>
+            <h1>Growth Marketing Manager</h1>
+            <div>Location: Remote</div>
+            <section>
+              <p>Own growth campaigns across product launches and lifecycle programs.</p>
+            </section>
+          </body>
+          </html>
+        `,
+        metadata: {
+          mode: "browser_use_command",
+          title: "Growth Marketing Manager | Notion",
+        },
+      }),
+    },
+  });
+
+  assert.equal(result.rawListings.length, 1);
+  assert.equal(result.rawListings[0].title, "Growth Marketing Manager");
+  assert.equal(result.rawListings[0].company, "Notion");
+  assert.equal(result.rawListings[0].location, "Remote");
+  assert.equal(result.rawListings[0].metadata?.extractionMode, "page_signals");
+});
+
+test("collectGroundedWebListings uses anchor attributes when inner text is junk", async () => {
+  const run = makeRun();
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Notion software engineer"],
+        candidates: [
+          {
+            url: "https://www.notion.so/careers",
+            title: "Notion Careers",
+            pageType: "careers",
+            reason: "Employer careers page",
+            sourceDomain: "www.notion.so",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    sessionManager: {
+      run: async ({ url }) => ({
+        url,
+        text: `
+          <html>
+          <body>
+            <a href="/jobs/456" aria-label="Senior Software Engineer"><span>Apply now</span></a>
+          </body>
+          </html>
+        `,
+        metadata: { mode: "browser_use_command" },
+      }),
+    },
+  });
+
+  assert.equal(result.rawListings.length, 1);
+  assert.equal(result.rawListings[0].title, "Senior Software Engineer");
 });
 
 // VAL-DATA-006: Grounded HTML fallback rejects junk navigation titles
@@ -953,6 +1371,170 @@ test("VAL-ROUTE-017: exhaustion attribution includes rung context", async () => 
   }
 });
 
+test("createGroundedSearchClient aggregates grounded text and citations across Gemini candidates", async () => {
+  const run = makeRun();
+  const client = createGroundedSearchClient(makeRuntimeConfig(), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [{ text: "" }],
+              },
+            },
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      results: [
+                        {
+                          url: "https://www.notion.so/careers",
+                          title: "Notion Careers",
+                          pageType: "careers",
+                          reason: "Employer careers page",
+                        },
+                      ],
+                    }),
+                  },
+                ],
+              },
+              groundingMetadata: {
+                webSearchQueries: ["Notion product marketing manager jobs"],
+                groundingChunks: [
+                  {
+                    web: {
+                      uri: "https://www.notion.so/careers/product-marketing-manager",
+                      title: "Product Marketing Manager - Notion",
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+  });
+
+  const result = await client.search(run.config.companies[0], run);
+
+  assert.deepEqual(result.searchQueries, ["Notion product marketing manager jobs"]);
+  assert.equal(result.candidates.length, 2);
+  assert.ok(
+    result.candidates.some((entry) => entry.url === "https://www.notion.so/careers"),
+    "Should capture structured URL from later candidate text",
+  );
+  assert.ok(
+    result.candidates.some(
+      (entry) =>
+        entry.url === "https://www.notion.so/careers/product-marketing-manager",
+    ),
+    "Should capture citation URL from later candidate grounding metadata",
+  );
+});
+
+test("grounded search surfaces upstream HTTP failures instead of misreporting zero candidates", async () => {
+  const run = makeUnrestrictedRun({
+    config: {
+      groundedSearchTuning: { multiQueryCap: 1 },
+    },
+  });
+  let callCount = 0;
+
+  const client = createGroundedSearchClient(makeRuntimeConfig(), {
+    fetchImpl: async () => {
+      callCount++;
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: "Quota exceeded for metric generate_content_free_tier_requests.",
+          },
+        }),
+        {
+          status: 429,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    },
+  });
+
+  const result = await client.search(run.config.companies[0], run);
+
+  assert.equal(callCount, 1, "429 should abort the ladder instead of broadening all rungs");
+  assert.equal(result.candidates.length, 0);
+  assert.ok(
+    result.warnings.some((warning) => /HTTP 429|quota exceeded/i.test(warning)),
+    "Should surface upstream quota failure in warnings",
+  );
+  assert.ok(
+    !result.warnings.some((warning) => /no usable candidate links|exhausted/i.test(warning)),
+    "Should not misreport quota failure as zero-result ladder exhaustion",
+  );
+  assert.ok(result.diagnostics?.requestFailures?.length, "Should expose request failure diagnostics");
+  assert.equal(result.diagnostics?.abortedDueToUpstreamError, true);
+});
+
+test("createGroundedSearchClient searchAtsHosts filters results to known ATS hosts", async () => {
+  const client = createGroundedSearchClient(makeRuntimeConfig(), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      results: [
+                        {
+                          url: "https://boards.greenhouse.io/acme/jobs/123",
+                          title: "Data Analyst at Acme",
+                          pageType: "job",
+                          reason: "Direct ATS page",
+                        },
+                        {
+                          url: "https://www.linkedin.com/jobs/view/999",
+                          title: "LinkedIn result that should be filtered",
+                          pageType: "job",
+                          reason: "Third-party board",
+                        },
+                      ],
+                    }),
+                  },
+                ],
+              },
+              groundingMetadata: {
+                webSearchQueries: ["greenhouse data analyst remote"],
+                groundingChunks: [],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+  });
+
+  const result = await client.searchAtsHosts?.({
+    run: makeUnrestrictedRun(),
+    sourceIds: ["greenhouse", "ashby"],
+  });
+
+  assert.ok(result, "searchAtsHosts should be implemented");
+  assert.equal(result?.candidates.length, 1);
+  assert.equal(
+    result?.candidates[0]?.url,
+    "https://boards.greenhouse.io/acme/jobs/123",
+  );
+});
+
 // === Edge cases ===
 
 test("multi-query fan-out is skipped when multiQueryEnabled is false", async () => {
@@ -1112,6 +1694,56 @@ test("collectGroundedWebListings emits fetch_fallback diagnostic when session fa
 
   // Should also have a backward-compatible warning about fallback
   assert.ok(result.warnings.some((w) => w.includes("fallback") || w.includes("browser-use command unavailable")), "Should have fallback warning");
+});
+
+test("collectGroundedWebListings emits upstream_error diagnostic and suppresses zero_results for search failures", async () => {
+  const run = makeRun();
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: [],
+        candidates: [],
+        warnings: [
+          "Grounded search upstream failure: HTTP 429: Quota exceeded for metric generate_content_free_tier_requests.",
+        ],
+        diagnostics: {
+          multiQueryFanOutEnabled: true,
+          multiQueryCap: 4,
+          focusedQueryCount: 1,
+          retryBroadeningEnabled: true,
+          ladderExhausted: false,
+          requestFailures: [
+            {
+              query: "Product Marketing Manager remote jobs",
+              rung: 0,
+              status: 429,
+              message: "Quota exceeded for metric generate_content_free_tier_requests.",
+              retryable: false,
+            },
+          ],
+          abortedDueToUpstreamError: true,
+        },
+      }),
+    },
+    sessionManager: {
+      run: async () => {
+        throw new Error("sessionManager should not run when search returned no candidates");
+      },
+    },
+  });
+
+  assert.ok(result.diagnostics, "Should have diagnostics");
+  assert.ok(
+    result.diagnostics.some((entry) => entry.code === "upstream_error"),
+    "Should emit upstream_error diagnostic",
+  );
+  assert.ok(
+    !result.diagnostics.some((entry) => entry.code === "zero_results"),
+    "Should not add zero_results when upstream search failed",
+  );
 });
 
 // === VAL-OBS-001: low_content_spa diagnostic for very short responses ===
@@ -1456,7 +2088,7 @@ test("VAL-DATA-001: regex fallback handles zero-supported case explicitly", asyn
   assert.ok(regexWarning, "Should have regex fallback warning for non-JSON with no URLs");
 });
 
-test("VAL-DATA-001: regex fallback handles mixed URL quality (supported + unsupported)", async () => {
+test("VAL-DATA-001: regex fallback keeps hint-only boards but blocks unsupported destinations", async () => {
   const run = makeRun();
   const client = createGroundedSearchClient(makeRuntimeConfig(), {
     fetchImpl: async () =>
@@ -1487,16 +2119,17 @@ test("VAL-DATA-001: regex fallback handles mixed URL quality (supported + unsupp
 
   const result = await client.search(run.config.companies[0], run);
 
-  // Should only include supported URLs (notion.so) and filter out denylisted ones (linkedin, indeed)
   const urls = result.candidates.map((c) => c.url);
+  const linkedin = result.candidates.find((c) => c.url.includes("linkedin"));
+  const indeed = result.candidates.find((c) => c.url.includes("indeed"));
   assert.ok(urls.some((u) => u.includes("notion.so")), "Should include supported notion.so URL");
-  assert.ok(!urls.some((u) => u.includes("linkedin")), "Should filter out denylisted linkedin.com");
-  assert.ok(!urls.some((u) => u.includes("indeed")), "Should filter out denylisted indeed.com");
+  assert.equal(linkedin?.sourcePolicy, "hint_only", "LinkedIn should be retained as hint_only");
+  assert.equal(indeed?.sourcePolicy, "hint_only", "Indeed should be retained as hint_only");
 });
 
-// === VAL-DATA-002: Expanded denylist with host variants ===
+// === VAL-DATA-002: Source policy classification across host variants ===
 
-test("VAL-DATA-002: denylist excludes subdomain variants across all ingestion paths", async () => {
+test("VAL-DATA-002: source policy classifies subdomain variants across all ingestion paths", async () => {
   const run = makeRun();
   const client = createGroundedSearchClient(makeRuntimeConfig(), {
     fetchImpl: async () =>
@@ -1512,7 +2145,7 @@ test("VAL-DATA-002: denylist excludes subdomain variants across all ingestion pa
                         { url: "https://jobs.lever.co/notion/123", title: "Job 1" },
                         { url: "https://apply.linkedin.com/jobs/view/456", title: "Job 2" },
                         { url: "https://www.indeed.com/jobs/view/789", title: "Job 3" },
-                        { url: "https://jobs.glassdoor.com/view/101", title: "Job 4" },
+                        { url: "https://www.glassdoor.com/job-listing/backend-engineer-acme-JV_IC1132348_KO0,16_KE17,21.htm", title: "Job 4" },
                         { url: "https://careers.acme.com/job/111", title: "Job 5" },
                       ],
                     }),
@@ -1525,7 +2158,7 @@ test("VAL-DATA-002: denylist excludes subdomain variants across all ingestion pa
                   { web: { uri: "https://jobs.lever.co/notion/123", title: "Job 1" } },
                   { web: { uri: "https://apply.linkedin.com/jobs/view/456", title: "Job 2" } },
                   { web: { uri: "https://www.indeed.com/jobs/view/789", title: "Job 3" } },
-                  { web: { uri: "https://jobs.glassdoor.com/view/101", title: "Job 4" } },
+                  { web: { uri: "https://www.glassdoor.com/job-listing/backend-engineer-acme-JV_IC1132348_KO0,16_KE17,21.htm", title: "Job 4" } },
                   { web: { uri: "https://careers.acme.com/job/111", title: "Job 5" } },
                 ],
               },
@@ -1541,17 +2174,84 @@ test("VAL-DATA-002: denylist excludes subdomain variants across all ingestion pa
 
   const result = await client.search(run.config.companies[0], run);
 
-  // Should only keep the acme.com careers URL; all aggregator/denylisted variants should be filtered
-  // Note: lever.co is a legitimate ATS and should NOT be filtered
   const urls = result.candidates.map((c) => c.url);
+  const linkedin = result.candidates.find((c) => c.url.includes("linkedin.com"));
+  const indeed = result.candidates.find((c) => c.url.includes("indeed.com"));
+  const lever = result.candidates.find((c) => c.url.includes("lever.co"));
+  const employer = result.candidates.find((c) => c.url.includes("acme.com"));
+
   assert.ok(urls.some((u) => u.includes("acme.com")), "Should include valid employer domain");
-  assert.ok(!urls.some((u) => u.includes("linkedin.com")), "Should filter linkedin subdomain");
-  assert.ok(!urls.some((u) => u.includes("indeed.com")), "Should filter indeed.com");
-  assert.ok(!urls.some((u) => u.includes("glassdoor.com")), "Should filter glassdoor subdomain");
-  assert.ok(urls.some((u) => u.includes("lever.co")), "Should keep lever.co (legitimate ATS)");
+  assert.equal(linkedin?.sourcePolicy, "hint_only", "LinkedIn should be hint_only");
+  assert.equal(indeed?.sourcePolicy, "hint_only", "Indeed should be hint_only");
+  assert.equal(lever?.sourcePolicy, "extractable", "Lever should remain extractable");
+  assert.equal(employer?.sourcePolicy, "extractable", "Employer domain should remain extractable");
 });
 
-test("VAL-DATA-002: denylist filters via citation ingestion path", async () => {
+test("VAL-DATA-002: widened hint-only hosts classify BuiltIn, Wellfound, WorkingNomads, and Google Jobs-like results correctly", async () => {
+  const run = makeRun();
+  const client = createGroundedSearchClient(
+    makeRuntimeConfig({ groundedSearchMaxResultsPerCompany: 8 }),
+    {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      results: [
+                        { url: "https://www.builtin.com/job/backend-engineer/333", title: "BuiltIn Job" },
+                        { url: "https://wellfound.com/jobs/444", title: "Wellfound Job" },
+                        { url: "https://www.workingnomads.com/jobs/555", title: "Working Nomads Job" },
+                        { url: "https://www.google.com/search?ibp=htl;jobs&q=backend+engineer", title: "Google Jobs" },
+                        { url: "https://jobs.lever.co/notion/123", title: "Lever Job" },
+                        { url: "https://careers.acme.com/job/111", title: "Employer Job" },
+                      ],
+                    }),
+                  },
+                ],
+              },
+              groundingMetadata: {
+                webSearchQueries: ["Notion jobs"],
+                groundingChunks: [
+                  { web: { uri: "https://www.builtin.com/job/backend-engineer/333", title: "BuiltIn Job" } },
+                  { web: { uri: "https://wellfound.com/jobs/444", title: "Wellfound Job" } },
+                  { web: { uri: "https://www.workingnomads.com/jobs/555", title: "Working Nomads Job" } },
+                  { web: { uri: "https://www.google.com/search?ibp=htl;jobs&q=backend+engineer", title: "Google Jobs" } },
+                  { web: { uri: "https://jobs.lever.co/notion/123", title: "Lever Job" } },
+                  { web: { uri: "https://careers.acme.com/job/111", title: "Employer Job" } },
+                ],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+  });
+
+  const result = await client.search(run.config.companies[0], run);
+
+  const builtin = result.candidates.find((c) => c.url.includes("builtin.com"));
+  const wellfound = result.candidates.find((c) => c.url.includes("wellfound.com"));
+  const workingNomads = result.candidates.find((c) => c.url.includes("workingnomads.com"));
+  const googleJobs = result.candidates.find((c) => c.url.includes("google.com/search"));
+  const lever = result.candidates.find((c) => c.url.includes("lever.co"));
+  const employer = result.candidates.find((c) => c.url.includes("acme.com"));
+
+  assert.equal(builtin?.sourcePolicy, "hint_only", "BuiltIn should be hint_only");
+  assert.equal(wellfound?.sourcePolicy, "hint_only", "Wellfound should be hint_only");
+  assert.equal(workingNomads?.sourcePolicy, "hint_only", "WorkingNomads should be hint_only");
+  assert.equal(googleJobs?.sourcePolicy, "hint_only", "Google Jobs-like search should be hint_only");
+  assert.equal(lever?.sourcePolicy, "extractable", "Lever should remain extractable");
+  assert.equal(employer?.sourcePolicy, "extractable", "Employer domain should remain extractable");
+});
+
+test("VAL-DATA-002: citation ingestion preserves hint_only candidates for later resolution", async () => {
   const run = makeRun();
   const client = createGroundedSearchClient(makeRuntimeConfig(), {
     fetchImpl: async () =>
@@ -1587,12 +2287,13 @@ test("VAL-DATA-002: denylist filters via citation ingestion path", async () => {
 
   const result = await client.search(run.config.companies[0], run);
 
-  // Citation-only response should filter denylisted hosts
-  // Note: careers.notion.so would be first-party employer domain but it comes through
-  // citation path with empty model output, so it gets filtered since no structured data
-  // The key is that denylisted hosts are never included
-  assert.ok(!result.candidates.some((c) => c.url.includes("linkedin.com")), "Should filter LinkedIn from citations");
-  assert.ok(!result.candidates.some((c) => c.url.includes("indeed.com")), "Should filter Indeed from citations");
+  const linkedin = result.candidates.find((c) => c.url.includes("linkedin.com"));
+  const indeed = result.candidates.find((c) => c.url.includes("indeed.com"));
+  const notion = result.candidates.find((c) => c.url.includes("careers.notion.so"));
+
+  assert.equal(linkedin?.sourcePolicy, "hint_only", "LinkedIn citation should be hint_only");
+  assert.equal(indeed?.sourcePolicy, "hint_only", "Indeed citation should be hint_only");
+  assert.equal(notion?.sourcePolicy, "extractable", "First-party employer citation should stay extractable");
 });
 
 // === VAL-DATA-003: Bounded employer-domain bonus ranking ===
@@ -1747,6 +2448,67 @@ test("VAL-DATA-003: employer-domain bonus applies to recognized first-party subd
   // Both employer domain URLs should outrank example.com
   assert.ok(careersIdx < exampleIdx, "careers.acme.com should outrank example.com");
   assert.ok(jobsAcmeIdx < exampleIdx, "jobs.acme.com should outrank example.com");
+});
+
+test("VAL-DATA-003: ATS-hosted direct job pages outrank weaker third-party job hosts", async () => {
+  const run = makeUnrestrictedRun({
+    config: {
+      companies: [{ name: "" }],
+      targetRoles: ["Growth Marketing Manager"],
+      includeKeywords: ["marketing"],
+      locations: ["Remote"],
+    },
+  });
+  const client = createGroundedSearchClient(makeRuntimeConfig(), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      results: [
+                        {
+                          url: "https://builtinboston.com/job/growth-marketing-manager-ai/123",
+                          title: "Growth Marketing Manager at Acme AI",
+                          pageType: "job",
+                        },
+                        {
+                          url: "https://jobs.lever.co/acme-ai/growth-marketing-manager",
+                          title: "Growth Marketing Manager at Acme AI",
+                          pageType: "job",
+                        },
+                      ],
+                    }),
+                  },
+                ],
+              },
+              groundingMetadata: {
+                webSearchQueries: ["Growth Marketing Manager remote jobs"],
+                groundingChunks: [],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+  });
+
+  const result = await client.search(run.config.companies[0], run);
+  const urls = result.candidates.map((entry) => entry.url);
+  const leverIdx = urls.findIndex((url) => url.includes("jobs.lever.co"));
+  const builtinIdx = urls.findIndex((url) => url.includes("builtinboston.com"));
+
+  assert.ok(leverIdx >= 0 && builtinIdx >= 0, "Both ATS and third-party URLs should be present");
+  assert.ok(
+    leverIdx < builtinIdx,
+    "Known ATS direct job pages should outrank weaker third-party job hosts",
+  );
 });
 
 // === VAL-OBS-002: Budget adaptation diagnostics ===

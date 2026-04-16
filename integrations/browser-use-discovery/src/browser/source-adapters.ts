@@ -13,29 +13,24 @@ import type {
 import { normalizeLeadUrl } from "../normalize/lead-normalizer.ts";
 import type { BrowserUseSessionManager } from "./session.ts";
 import {
-  ASHBY_BROWSER_INSTRUCTION,
-  GREENHOUSE_BROWSER_INSTRUCTION,
-  LEVER_BROWSER_INSTRUCTION,
-  buildAshbyBoardUrl,
-  buildAshbyJobsUrl,
-  buildGreenhouseBoardInfoUrl,
-  buildGreenhouseBoardUrl,
-  buildGreenhouseJobsUrl,
-  buildLeverBoardUrl,
-  buildLeverJobsUrl,
-  compactCompanyTokens,
-  extractTokenFromBoardHint,
-  sanitizeCompensationText,
-  slugifyCompanyName,
-  stripHtml,
-  toPlainText,
-} from "./selectors/index.ts";
+  createAtsProviderRegistry,
+  type ProviderMemorySnapshot,
+} from "./providers/index.ts";
+import type { AtsProvider, ProviderSurface } from "./providers/types.ts";
+import {
+  buildDetectionHints,
+  normalizeWhitespace,
+  sanitizeCompensationValue,
+  sanitizeDescriptionText,
+  sanitizeTags,
+} from "./providers/shared.ts";
 
 export type SourceAdapterRegistry = {
   adapters: SourceAdapter[];
   detectBoards(
     companyContext: CompanyContext,
     effectiveSources: SupportedSourceId[],
+    memory?: ProviderMemorySnapshot,
   ): Promise<DetectionResult[]>;
   collectListings(
     run: DiscoveryRun,
@@ -46,23 +41,21 @@ export type SourceAdapterRegistry = {
 export function createSourceAdapterRegistry(
   sessionManager: BrowserUseSessionManager,
 ): SourceAdapterRegistry {
-  const adapters = [
-    createGreenhouseAdapter(sessionManager),
-    createLeverAdapter(sessionManager),
-    createAshbyAdapter(sessionManager),
-  ];
+  const providerRegistry = createAtsProviderRegistry();
+  const adapters = providerRegistry.providers.map((provider) =>
+    createCompatSourceAdapter(provider, sessionManager),
+  );
+  const adapterMap = new Map(adapters.map((adapter) => [adapter.sourceId, adapter]));
   return {
     adapters,
-    async detectBoards(companyContext, effectiveSources) {
-      const effectiveSet = new Set(effectiveSources);
-      const eligibleAdapters = adapters.filter((adapter) =>
-        effectiveSet.has(adapter.sourceId),
+    async detectBoards(companyContext, effectiveSources, memory) {
+      const atsSources = effectiveSources.filter((sourceId): sourceId is AtsSourceId =>
+        !!providerRegistry.getProvider(sourceId as AtsSourceId),
       );
-      const results = await Promise.all(
-        eligibleAdapters.map((adapter) => adapter.detect(companyContext)),
-      );
-      return results.filter(
-        (entry): entry is DetectionResult => !!entry && entry.matched,
+      return providerRegistry.detectSurfaces(
+        companyContext.company,
+        atsSources,
+        memory,
       );
     },
     async collectListings(run, detections) {
@@ -71,18 +64,9 @@ export function createSourceAdapterRegistry(
       const listings: RawListing[] = [];
       for (const detection of detections) {
         if (!enabled.has(detection.sourceId)) continue;
-        const adapter = adapters.find(
-          (candidate) => candidate.sourceId === detection.sourceId,
-        );
+        const adapter = adapterMap.get(detection.sourceId);
         if (!adapter) continue;
-        const company =
-          run.config.companies.find((entry) => {
-            const slug = slugifyCompanyName(entry.name);
-            return (
-              detection.boardUrl.includes(slug) ||
-              slugifyCompanyName(detection.sourceLabel) === slug
-            );
-          }) ?? run.config.companies[0];
+        const company = resolveCompanyForDetection(run, detection);
         if (!company) continue;
         const boardContext = buildBoardContext({ company, run }, detection);
         const raw = await adapter.listJobs(boardContext);
@@ -108,175 +92,52 @@ export function buildBoardContext(
     boardUrl: detection.boardUrl,
     company: companyContext.company,
     run: companyContext.run,
+    providerType: detection.providerType,
+    boardToken: detection.boardToken,
+    canonicalUrl: detection.canonicalUrl,
+    surfaceId:
+      detection.metadata && typeof detection.metadata === "object"
+        ? String((detection.metadata as Record<string, unknown>).surfaceId || "")
+        : "",
   };
 }
 
-type AdapterDefinition = {
-  sourceId: AtsSourceId;
-  sourceLabel: string;
-  buildBoardUrl(boardToken: string): string;
-  buildJobsUrl(boardToken: string): string;
-  browserInstruction: string;
-  detectEndpoint(boardToken: string): string;
-  extractListingPayload(raw: unknown, boardContext: BoardContext): RawListing[];
-  fallbackListingFromHtml(
-    html: string,
-    boardContext: BoardContext,
-  ): RawListing[];
-};
-
-function createGreenhouseAdapter(
-  sessionManager: BrowserUseSessionManager,
-): SourceAdapter {
-  return buildAdapter(
-    {
-      sourceId: "greenhouse",
-      sourceLabel: "Greenhouse",
-      buildBoardUrl: buildGreenhouseBoardUrl,
-      buildJobsUrl: buildGreenhouseJobsUrl,
-      browserInstruction: GREENHOUSE_BROWSER_INSTRUCTION,
-      detectEndpoint: buildGreenhouseBoardInfoUrl,
-      extractListingPayload: (payload, boardContext) =>
-        extractGreenhouseListings(payload, boardContext),
-      fallbackListingFromHtml: (html, boardContext) =>
-        extractLinksFromHtml(
-          html,
-          boardContext,
-          /boards\.greenhouse\.io\/[^"'\\s>]+\/jobs\/\d+/i,
-        ),
-    },
-    sessionManager,
-  );
-}
-
-function createLeverAdapter(
-  sessionManager: BrowserUseSessionManager,
-): SourceAdapter {
-  return buildAdapter(
-    {
-      sourceId: "lever",
-      sourceLabel: "Lever",
-      buildBoardUrl: buildLeverBoardUrl,
-      buildJobsUrl: buildLeverJobsUrl,
-      browserInstruction: LEVER_BROWSER_INSTRUCTION,
-      detectEndpoint: buildLeverJobsUrl,
-      extractListingPayload: (payload, boardContext) =>
-        extractLeverListings(payload, boardContext),
-      fallbackListingFromHtml: (html, boardContext) =>
-        extractLinksFromHtml(
-          html,
-          boardContext,
-          /jobs\.lever\.co\/[^"'\\s>]+/i,
-        ),
-    },
-    sessionManager,
-  );
-}
-
-function createAshbyAdapter(
-  sessionManager: BrowserUseSessionManager,
-): SourceAdapter {
-  return buildAdapter(
-    {
-      sourceId: "ashby",
-      sourceLabel: "Ashby",
-      buildBoardUrl: buildAshbyBoardUrl,
-      buildJobsUrl: buildAshbyJobsUrl,
-      browserInstruction: ASHBY_BROWSER_INSTRUCTION,
-      detectEndpoint: (boardToken) => buildAshbyJobsUrl(boardToken, false),
-      extractListingPayload: (payload, boardContext) =>
-        extractAshbyListings(payload, boardContext),
-      fallbackListingFromHtml: (html, boardContext) =>
-        extractLinksFromHtml(
-          html,
-          boardContext,
-          /jobs\.ashbyhq\.com\/[^"'\\s>]+/i,
-        ),
-    },
-    sessionManager,
-  );
-}
-
-function buildAdapter(
-  definition: AdapterDefinition,
+function createCompatSourceAdapter(
+  provider: AtsProvider,
   sessionManager: BrowserUseSessionManager,
 ): SourceAdapter {
   return {
-    sourceId: definition.sourceId,
-    sourceLabel: definition.sourceLabel,
+    sourceId: provider.id,
+    sourceLabel: provider.label,
     async detect(companyContext) {
-      const hints = candidateBoardTokens(
-        companyContext.company,
-        definition.sourceId,
-      );
-      for (const token of hints) {
-        const endpoint = definition.detectEndpoint(token);
-        const payload = await fetchJson(endpoint);
-        if (payload.ok) {
-          const boardUrl = definition.buildBoardUrl(token);
-          return {
-            matched: true,
-            sourceId: definition.sourceId,
-            sourceLabel: definition.sourceLabel,
-            boardUrl,
-            confidence: token === hints[0] ? 1 : 0.8,
-            warnings: [],
-          };
-        }
-        const sessionResult = await sessionManager.run({
-          url: definition.buildBoardUrl(token),
-          instruction: definition.browserInstruction,
-          timeoutMs: 15_000,
-        });
-        if (looksLikeSourceBoard(sessionResult.text, definition.sourceId)) {
-          return {
-            matched: true,
-            sourceId: definition.sourceId,
-            sourceLabel: definition.sourceLabel,
-            boardUrl: definition.buildBoardUrl(token),
-            confidence: 0.5,
-            warnings: [
-              "Detected via Browser Use fallback rather than public API.",
-            ],
-          };
-        }
-      }
-      return null;
+      const hints = buildDetectionHints(companyContext.company, provider.id);
+      const surfaces = await provider.detectSurfaces(companyContext.company, hints);
+      return surfaces[0] || null;
     },
     async listJobs(boardContext) {
-      const boardToken =
-        extractBoardToken(boardContext.boardUrl) ||
-        candidateBoardTokens(boardContext.company, definition.sourceId)[0];
-      const endpoint = definition.buildJobsUrl(boardToken);
-      const payload = await fetchJson(endpoint);
-      if (payload.ok) {
-        const listings = definition.extractListingPayload(
-          payload.data,
-          boardContext,
-        );
-        if (listings.length) return listings;
-      }
-
-      const sessionResult = await sessionManager.run({
-        url: endpoint,
-        instruction: definition.browserInstruction,
-        timeoutMs: 20_000,
+      const surface = boardContextToSurface(provider, boardContext);
+      const listings = await provider.enumerateListings(surface, sessionManager);
+      return listings.map((listing) => {
+        const canonicalUrl = provider.canonicalizeUrl(listing.url) || normalizeLeadUrl(listing.url);
+        const externalJobId =
+          listing.externalJobId ||
+          provider.extractExternalJobId(canonicalUrl, listing.metadata);
+        return {
+          ...listing,
+          providerType: provider.id,
+          sourceLane: "ats_provider",
+          surfaceId: listing.surfaceId || boardContext.surfaceId || "",
+          canonicalUrl,
+          externalJobId,
+        };
       });
-      const sessionPayload = tryParseJson(sessionResult.text);
-      if (sessionPayload) {
-        const listings = definition.extractListingPayload(
-          sessionPayload,
-          boardContext,
-        );
-        if (listings.length) return listings;
-      }
-      return definition.fallbackListingFromHtml(
-        sessionResult.text,
-        boardContext,
-      );
     },
     async normalize(raw, run): Promise<NormalizedLead | null> {
       if (!raw.url) return null;
+      const canonicalUrl =
+        raw.canonicalUrl ||
+        provider.canonicalizeUrl(raw.url) ||
+        normalizeLeadUrl(raw.url);
       const sourceQuery =
         raw.metadata && typeof raw.metadata === "object"
           ? String((raw.metadata as Record<string, unknown>).sourceQuery || "")
@@ -288,14 +149,11 @@ function buildAdapter(
         company: normalizeWhitespace(raw.company),
         location: normalizeWhitespace(raw.location || ""),
         url: normalizeLeadUrl(raw.url),
-        compensationText: sanitizeCompensationText(raw.compensationText || ""),
+        compensationText: sanitizeCompensationValue(raw.compensationText || ""),
         fitScore: null,
         priority: "",
         tags: sanitizeTags(raw.tags || []),
-        fitAssessment: sanitizeDescriptionText(raw.descriptionText).slice(
-          0,
-          500,
-        ),
+        fitAssessment: sanitizeDescriptionText(raw.descriptionText).slice(0, 500),
         contact: normalizeWhitespace(raw.contact || ""),
         status: "New",
         appliedDate: "",
@@ -308,361 +166,166 @@ function buildAdapter(
           runId: run.runId,
           variationKey: run.request.variationKey,
           sourceQuery: sourceQuery || `${raw.sourceLabel}:${raw.url}`,
+          providerType: provider.id,
+          externalJobId:
+            raw.externalJobId ||
+            provider.extractExternalJobId(canonicalUrl, raw.metadata),
+          canonicalUrl,
+          boardToken: raw.metadata?.boardToken
+            ? String(raw.metadata.boardToken)
+            : "",
+          sourceLane: raw.sourceLane || "ats_provider",
+          surfaceId: raw.surfaceId || "",
         },
       };
     },
   };
 }
 
-function candidateBoardTokens(
-  company: CompanyTarget,
-  sourceId: AtsSourceId,
-): string[] {
-  const hint = company.boardHints?.[sourceId];
-  const tokens = new Set<string>();
-  if (hint) {
-    const extracted = extractTokenFromBoardHint(hint);
-    if (extracted) tokens.add(extracted);
+function boardContextToSurface(
+  provider: AtsProvider,
+  boardContext: BoardContext,
+): ProviderSurface {
+  const canonicalUrl =
+    boardContext.canonicalUrl ||
+    provider.canonicalizeUrl(boardContext.boardUrl) ||
+    normalizeLeadUrl(boardContext.boardUrl);
+  return {
+    matched: true,
+    sourceId: provider.id,
+    sourceLabel: provider.label,
+    providerType: provider.id,
+    boardUrl: canonicalUrl,
+    confidence: 1,
+    warnings: [],
+    surfaceType: isLikelyDirectJobSurface(canonicalUrl)
+      ? "job_posting"
+      : "provider_board",
+    canonicalUrl,
+    finalUrl: canonicalUrl,
+    boardToken: boardContext.boardToken || "",
+    sourceLane: "ats_provider",
+    metadata: {
+      companyName: boardContext.company.name,
+      companyKey: boardContext.company.companyKey || "",
+      surfaceId: boardContext.surfaceId || "",
+    },
+  };
+}
+
+function resolveCompanyForDetection(
+  run: DiscoveryRun,
+  detection: DetectionResult,
+): CompanyTarget | null {
+  const metadata =
+    detection.metadata && typeof detection.metadata === "object"
+      ? (detection.metadata as Record<string, unknown>)
+      : {};
+  const companyKey = String(metadata.companyKey || "").trim();
+  const companyName = String(metadata.companyName || "").trim();
+  if (companyKey) {
+    const byKey = run.config.companies.find(
+      (company) => String(company.companyKey || "").trim() === companyKey,
+    );
+    if (byKey) return byKey;
   }
-  for (const token of compactCompanyTokens(company.name)) {
-    tokens.add(token);
-  }
-  return [...tokens].filter(Boolean);
-}
-
-function extractBoardToken(boardUrl: string): string {
-  return extractTokenFromBoardHint(boardUrl);
-}
-
-function extractGreenhouseListings(
-  payload: unknown,
-  boardContext: BoardContext,
-): RawListing[] {
-  const jobs = Array.isArray(payload)
-    ? payload
-    : isPlainObject(payload) && Array.isArray(payload.jobs)
-      ? payload.jobs
-      : [];
-  return jobs
-    .map((job) => {
-      const record = isPlainObject(job) ? job : {};
-      const title = stringValue(record.title) || stringValue(record.name);
-      const url = stringValue(record.absolute_url) || stringValue(record.url);
-      const location =
-        objectString(record.location, "name") || stringValue(record.location);
-      const metadata = objectValue(record.metadata);
-      return {
-        sourceId: "greenhouse",
-        sourceLabel: "Greenhouse",
-        title,
-        company: boardContext.company.name,
-        location,
-        url,
-        compensationText: extractGreenhouseCompensation(record),
-        contact: "",
-        descriptionText: sanitizeDescriptionText(record.content),
-        tags: [
-          ...stringArrayFrom(record.departments),
-          ...stringArrayFrom(record.offices),
-        ],
-        metadata: {
-          sourceQuery: boardContext.boardUrl,
-          jobId: record.id,
-          internalJobId: record.internal_job_id,
-        },
-      };
-    })
-    .filter((item) => !!item.url && !!item.title);
-}
-
-function extractLeverListings(
-  payload: unknown,
-  boardContext: BoardContext,
-): RawListing[] {
-  const rows = Array.isArray(payload)
-    ? payload
-    : isPlainObject(payload) && Array.isArray(payload.postings)
-      ? payload.postings
-      : isPlainObject(payload) && Array.isArray(payload.jobs)
-        ? payload.jobs
-        : [];
-  return rows
-    .map((row) => {
-      const record = isPlainObject(row) ? row : {};
-      const categories = objectValue(record.categories);
-      const tags = [
-        stringValue(categories.team),
-        stringValue(categories.department),
-        stringValue(categories.commitment),
-        stringValue(categories.location),
-      ].filter(Boolean);
-      return {
-        sourceId: "lever",
-        sourceLabel: "Lever",
-        title: stringValue(record.text) || stringValue(record.title),
-        company: boardContext.company.name,
-        location:
-          stringValue(categories.location) || stringValue(record.location),
-        url:
-          stringValue(record.hostedUrl) ||
-          stringValue(record.applyUrl) ||
-          stringValue(record.url),
-        compensationText:
-          sanitizeCompensationValue(record.salaryRange) ||
-          sanitizeCompensationValue(record.compensation),
-        contact: stringValue(record.leadName) || stringValue(record.contact),
-        descriptionText:
-          sanitizeDescriptionText(record.description) ||
-          sanitizeDescriptionText(record.text),
-        tags,
-        metadata: {
-          sourceQuery: boardContext.boardUrl,
-          postingId: record.id,
-        },
-      };
-    })
-    .filter((item) => !!item.url && !!item.title);
-}
-
-function extractAshbyListings(
-  payload: unknown,
-  boardContext: BoardContext,
-): RawListing[] {
-  const jobs =
-    isPlainObject(payload) && Array.isArray(payload.jobs) ? payload.jobs : [];
-  return jobs
-    .map((job) => {
-      const record = isPlainObject(job) ? job : {};
-      const secondaryLocations = arrayOfObjects(record.secondaryLocations)
-        .map((entry) => stringValue(entry.location))
-        .filter(Boolean);
-      const jobUrl =
-        stringValue(record.jobUrl) ||
-        stringValue(record.url) ||
-        stringValue(record.absoluteUrl) ||
-        buildAshbyBoardUrl(extractBoardToken(boardContext.boardUrl));
-      const locations = [
-        stringValue(record.location),
-        ...secondaryLocations,
-      ].filter(Boolean);
-      const tags = [
-        stringValue(record.department),
-        stringValue(record.team),
-        stringValue(record.employmentType),
-      ].filter(Boolean);
-      return {
-        sourceId: "ashby",
-        sourceLabel: "Ashby",
-        title: stringValue(record.title),
-        company: boardContext.company.name,
-        location: locations.join(", "),
-        url: jobUrl,
-        compensationText:
-          sanitizeCompensationValue(record.compensation) ||
-          sanitizeCompensationValue(record.compensationText),
-        contact: "",
-        descriptionText:
-          sanitizeDescriptionText(record.descriptionHtml) ||
-          sanitizeDescriptionText(record.description),
-        tags,
-        metadata: {
-          sourceQuery: boardContext.boardUrl,
-          jobId: record.id,
-        },
-      };
-    })
-    .filter((item) => !!item.url && !!item.title);
-}
-
-function extractLinksFromHtml(
-  html: string,
-  boardContext: BoardContext,
-  pattern: RegExp,
-): RawListing[] {
-  const listings: RawListing[] = [];
-  const linkPattern = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-  let match;
-  while ((match = linkPattern.exec(String(html || "")))) {
-    const href = match[1] || "";
-    if (!pattern.test(href)) continue;
-    const resolved = resolveRelativeUrl(boardContext.boardUrl, href);
-    if (!/^https?:\/\//i.test(resolved)) continue;
-    const title = stripHtml(match[2]);
-    if (!title) continue;
-    listings.push({
-      sourceId: boardContext.sourceId,
-      sourceLabel: boardContext.sourceLabel,
-      title,
-      company: boardContext.company.name,
-      location: "",
-      url: normalizeLeadUrl(resolved),
-      compensationText: "",
-      contact: "",
-      descriptionText: "",
-      tags: [],
-      metadata: {
-        sourceQuery: boardContext.boardUrl,
-        extractionMode: "html",
-      },
+  if (companyName) {
+    const targetSlug = slugify(companyName);
+    const byName = run.config.companies.find((company) => {
+      const names = [company.name, company.normalizedName || "", ...(company.aliases || [])];
+      return names.some((value) => slugify(value) === targetSlug);
     });
+    if (byName) return byName;
   }
-  return dedupeRawListings(listings);
-}
-
-async function fetchJson(
-  url: string,
-): Promise<{ ok: boolean; data?: unknown; status: number }> {
-  try {
-    const response = await fetch(url, {
-      headers: {
-        accept: "application/json,text/plain;q=0.9,*/*;q=0.8",
-      },
+  const boardToken = detection.boardToken || "";
+  if (boardToken) {
+    const byHint = run.config.companies.find((company) => {
+      const hint = company.boardHints?.[detection.sourceId];
+      return (
+        hint &&
+        hint
+          .split(/[\n,;]+/g)
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+          .some((entry) => entry.includes(boardToken) || slugify(entry) === slugify(boardToken))
+      );
     });
-    const text = await response.text();
-    const data = tryParseJson(text);
-    return { ok: response.ok, data: data ?? text, status: response.status };
-  } catch {
-    return { ok: false, status: 0 };
+    if (byHint) return byHint;
   }
+  const fallbackName =
+    companyName ||
+    humanizeBoardToken(boardToken) ||
+    inferCompanyNameFromUrl(
+      detection.canonicalUrl || detection.finalUrl || detection.boardUrl,
+    );
+  if (fallbackName) {
+    return {
+      name: fallbackName,
+      companyKey: slugify(companyKey || fallbackName),
+      normalizedName: slugify(fallbackName),
+      aliases: [],
+      domains: [],
+      geoTags: [],
+      roleTags: [],
+      boardHints: {
+        [detection.sourceId]:
+          detection.canonicalUrl || detection.finalUrl || detection.boardUrl,
+      },
+    };
+  }
+  return run.config.companies[0] || null;
 }
 
-function looksLikeSourceBoard(
-  text: string,
-  sourceId: AtsSourceId,
-): boolean {
-  const haystack = String(text || "").toLowerCase();
-  if (!haystack) return false;
-  if (sourceId === "greenhouse") {
-    return haystack.includes("greenhouse") || haystack.includes('href="/jobs/');
-  }
-  if (sourceId === "lever") {
-    return haystack.includes("lever") || haystack.includes("jobs.lever.co");
-  }
-  return haystack.includes("ashby") || haystack.includes("jobs.ashbyhq.com");
+function slugify(value: string): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
-function resolveRelativeUrl(baseUrl: string, href: string): string {
-  try {
-    return new URL(href, baseUrl).toString();
-  } catch {
-    return href;
-  }
+function isLikelyDirectJobSurface(url: string): boolean {
+  const value = String(url || "");
+  return (
+    /\/jobs\/\d+/i.test(value) ||
+    /\/job\//i.test(value) ||
+    /\/o\//i.test(value) ||
+    /\/j\//i.test(value) ||
+    /\/p\//i.test(value) ||
+    /\/position\//i.test(value) ||
+    /jobdetail\.ftl/i.test(value) ||
+    /[?&](job|jobReq|jobreq)=/i.test(value)
+  );
 }
 
-function dedupeRawListings(listings: RawListing[]): RawListing[] {
-  const seen = new Set<string>();
-  const out: RawListing[] = [];
-  for (const item of listings) {
-    const key = normalizeLeadUrl(item.url);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(item);
-  }
-  return out;
-}
-
-function normalizeWhitespace(input: string): string {
-  return String(input || "")
+function humanizeBoardToken(value: string): string {
+  const cleaned = String(value || "")
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/[/?#].*$/, "")
+    .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+  if (!cleaned) return "";
+  const primary = cleaned.split(/[/.]/).filter(Boolean)[0] || cleaned;
+  return primary
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
-function toPlainTextValue(value: unknown): string {
-  return toPlainText(stringValue(value));
-}
-
-function sanitizeDescriptionText(value: unknown): string {
-  return toPlainTextValue(value);
-}
-
-function sanitizeCompensationValue(value: unknown): string {
-  return sanitizeCompensationText(stringValue(value));
-}
-
-function sanitizeTags(tags: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const tag of tags) {
-    const value = normalizeWhitespace(tag);
-    if (!value || seen.has(value.toLowerCase())) continue;
-    seen.add(value.toLowerCase());
-    out.push(value);
-  }
-  return out;
-}
-
-function stringValue(value: unknown): string {
-  if (typeof value === "string") return normalizeWhitespace(value);
-  if (typeof value === "number" || typeof value === "boolean")
-    return String(value);
-  return "";
-}
-
-function tryParseJson(input: string): unknown | null {
+function inferCompanyNameFromUrl(url: string): string {
   try {
-    return JSON.parse(String(input || ""));
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    const segments = parsed.pathname.split("/").map((entry) => entry.trim()).filter(Boolean);
+    const token =
+      segments[0] ||
+      hostname.split(".").find((part) => part && !["www", "jobs", "boards"].includes(part)) ||
+      "";
+    return humanizeBoardToken(token);
   } catch {
-    return null;
+    return "";
   }
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function stringArrayFrom(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) =>
-      isPlainObject(entry) ? stringValue(entry.name) : stringValue(entry),
-    )
-    .filter(Boolean);
-}
-
-function arrayOfObjects(value: unknown): Record<string, unknown>[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter(isPlainObject);
-}
-
-function objectValue(value: unknown): Record<string, unknown> {
-  return isPlainObject(value) ? value : {};
-}
-
-function objectString(value: unknown, key: string): string {
-  return stringValue(objectValue(value)[key]);
-}
-
-function extractGreenhouseCompensation(
-  record: Record<string, unknown>,
-): string {
-  const metadataObject = objectValue(record.metadata);
-  for (const candidate of [
-    metadataObject.compensation,
-    metadataObject.compensation_text,
-    metadataObject.compensationRange,
-    metadataObject.compensation_range,
-    metadataObject.salary,
-    metadataObject.salaryRange,
-    metadataObject.salary_range,
-  ]) {
-    const text = sanitizeCompensationValue(candidate);
-    if (text) return text;
-  }
-
-  for (const entry of arrayOfObjects(record.metadata)) {
-    const label = [
-      stringValue(entry.name),
-      stringValue(entry.label),
-      stringValue(entry.key),
-    ]
-      .filter(Boolean)
-      .join(" ");
-    if (!/compensation|salary|pay/i.test(label)) continue;
-    for (const candidate of [entry.value, entry.text, entry.content]) {
-      const text = sanitizeCompensationValue(candidate);
-      if (text) return text;
-    }
-  }
-
-  return "";
 }

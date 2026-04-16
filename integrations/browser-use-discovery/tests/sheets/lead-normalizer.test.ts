@@ -157,6 +157,33 @@ test("normalizeLead rejects jobs that only match generic keywords in the descrip
   assert.equal(lead, null);
 });
 
+test("normalizeLead does not treat single-letter keywords as arbitrary substring matches", () => {
+  const run = makeRun({
+    companies: [{ name: "Acme" }],
+    includeKeywords: ["R"],
+    targetRoles: [],
+    locations: ["Remote"],
+    remotePolicy: "",
+    seniority: "",
+  });
+  const result = normalizeLeadWithDiagnostics(
+    {
+      sourceId: "grounded_web",
+      sourceLabel: "Grounded Web",
+      title: "Customer Success Manager",
+      company: "Acme",
+      location: "Remote in United States",
+      url: "https://jobs.example.com/customer-success-manager",
+      descriptionText: "Support customers and resolve issues.",
+      tags: ["Customer Success"],
+    },
+    run,
+  );
+
+  assert.equal(result.lead, null);
+  assert.equal(result.rejection?.reason, "headline_mismatch");
+});
+
 test("normalizeLeadWithDiagnostics explains headline-only mismatch rejections", () => {
   const run = makeRun({
     companies: [{ name: "Stripe" }],

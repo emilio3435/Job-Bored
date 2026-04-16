@@ -3,12 +3,29 @@ import { URL } from "node:url";
 import type { BrowserUseSessionManager } from "../browser/session.ts";
 import type { WorkerRuntimeConfig } from "../config.ts";
 import type {
+  AtsSourceId,
   CompanyTarget,
   DiscoveryRun,
   ExtractionDiagnostic,
   GroundedSearchTuning,
   RawListing,
 } from "../contracts.ts";
+import {
+  canonicalizeCareerSurfaceUrl,
+  classifyCareerSurfacePageType,
+  classifyCareerSurfaceSourcePolicy,
+  detectCareerSurfaceCandidatesFromHtml,
+  isEmployerCareerSurface,
+  isKnownAtsCareerSurface,
+  isLikelyThirdPartyJobHost as isThirdPartyCareerSurface,
+  mergeCareerSurfaceCandidates,
+  normalizeCareerSurfaceCandidate,
+  resolveCareerSurfaceCandidate,
+  scoreCareerSurfaceCandidate,
+  type CareerSurfaceCandidate,
+  type CareerSurfaceSourcePolicy,
+} from "../discovery/career-surface-resolver.ts";
+import { dedupeFingerprintListings } from "../discovery/listing-fingerprint.ts";
 import type { BudgetTracker } from "../run/budget-tracker.ts";
 
 const SEARCH_SYSTEM_PROMPT = [
@@ -30,67 +47,31 @@ const PAGE_EXTRACTION_PROMPT = [
   "Use absolute HTTPS URLs for each job.",
 ].join(" ");
 
-/**
- * Denylist of hostnames blocked from grounded search results.
- * Includes exact hostnames and wildcard patterns (e.g., "*.linkedin.com").
- * VAL-DATA-002: Expanded denylist with host variants across all ingestion paths.
- */
-const SEED_HOST_DENYLIST: Array<string | { pattern: RegExp; description: string }> = [
-  // Google
-  "google.com",
-  "www.google.com",
-  "support.google.com",
-  // LinkedIn variants (catch ALL subdomains)
-  "linkedin.com",
-  "www.linkedin.com",
-  { pattern: /^[^/]+\.linkedin\.com$/i, description: "LinkedIn all subdomains" },
-  // Auth/LinkedIn special domains
-  { pattern: /^[^/]+\.licdn\.com$/i, description: "LinkedIn CDN subdomains" },
-  // Indeed variants
-  "indeed.com",
-  "www.indeed.com",
-  { pattern: /^[^/]+\.indeed\.com$/i, description: "indeed.com subdomains" },
-  // Glassdoor variants
-  "glassdoor.com",
-  "www.glassdoor.com",
-  { pattern: /^[^/]+\.glassdoor\.com$/i, description: "glassdoor.com subdomains" },
-  // Monster variants
-  "monster.com",
-  "www.monster.com",
-  { pattern: /^[^/]+\.monster\.com$/i, description: "monster.com subdomains" },
-  // ZipRecruiter variants
-  "ziprecruiter.com",
-  "www.ziprecruiter.com",
-  { pattern: /^[^/]+\.ziprecruiter\.com$/i, description: "ziprecruiter.com subdomains" },
-  // SimplyHired variants
-  "simplyhired.com",
-  "www.simplyhired.com",
-  { pattern: /^[^/]+\.simplyhired\.com$/i, description: "simplyhired.com subdomains" },
-  // Talent.com variants
-  "talent.com",
-  "www.talent.com",
-  { pattern: /^[^/]+\.talent\.com$/i, description: "talent.com subdomains" },
-  // Jooble variants
-  "jooble.org",
-  "www.jooble.org",
-  { pattern: /^[^/]+\.jooble\.org$/i, description: "jooble.org subdomains" },
-  // Career builder and variants
-  "careerbuilder.com",
-  "www.careerbuilder.com",
-  { pattern: /^[^/]+\.careerbuilder\.com$/i, description: "careerbuilder.com subdomains" },
-  // Dice and variants
-  "dice.com",
-  "www.dice.com",
-  { pattern: /^[^/]+\.dice\.com$/i, description: "dice.com subdomains" },
-];
+const INFORMATIONAL_PAGE_SLUGS = new Set([
+  "benefits",
+  "how-we-work",
+  "how-to-get-a-job-here",
+  "how-we-hire",
+  "why-work-here",
+  "our-culture",
+  "culture",
+  "life-at",
+  "about-us",
+  "about",
+  "our-story",
+  "our-team",
+  "team",
+  "values",
+  "mission",
+  "faq",
+]);
 
-export type GroundedSearchCandidate = {
-  url: string;
-  title: string;
-  pageType: "job" | "listings" | "careers" | "other";
-  reason: string;
-  sourceDomain: string;
-};
+export type GroundedCandidateSourcePolicy = CareerSurfaceSourcePolicy;
+
+const DEFAULT_HINT_RESOLUTION_LIMIT = 2;
+const PRE_FLIGHT_TIMEOUT_MS = 12_000;
+
+export type GroundedSearchCandidate = CareerSurfaceCandidate;
 
 export type GroundedSearchResult = {
   searchQueries: string[];
@@ -125,6 +106,14 @@ export type GroundedQueryEvidence = {
   terminal: boolean;
 };
 
+type GroundedSearchRequestFailure = {
+  query: string;
+  rung?: GroundedQueryRung;
+  status?: number;
+  message: string;
+  retryable: boolean;
+};
+
 /**
  * Structured diagnostics for grounded search operations.
  */
@@ -149,10 +138,31 @@ export type GroundedSearchDiagnostics = {
   }>;
   /** VAL-DATA-001: True if regex fallback was used for non-JSON/conversational output. */
   regexFallbackUsed?: boolean;
+  /** Upstream Gemini request failures encountered while searching. */
+  requestFailures?: GroundedSearchRequestFailure[];
+  /** True when search stopped early because an upstream failure made more fan-out/rungs unproductive. */
+  abortedDueToUpstreamError?: boolean;
 };
 
 export type GroundedSearchClient = {
-  search(company: CompanyTarget, run: DiscoveryRun): Promise<GroundedSearchResult>;
+  search(
+    company: CompanyTarget,
+    run: DiscoveryRun,
+    options?: { signal?: AbortSignal },
+  ): Promise<GroundedSearchResult>;
+  searchAtsHosts?(input: {
+    run: DiscoveryRun;
+    sourceIds: AtsSourceId[];
+    maxResults?: number;
+    signal?: AbortSignal;
+  }): Promise<GroundedSearchResult>;
+  resolveHint?(input: {
+    candidate: GroundedSearchCandidate;
+    company: CompanyTarget;
+    run: DiscoveryRun;
+    maxResults?: number;
+    signal?: AbortSignal;
+  }): Promise<GroundedSearchCandidate[]>;
 };
 
 export type GroundedWebCollectionResult = {
@@ -167,6 +177,31 @@ export type GroundedWebCollectionResult = {
 
 type FetchImpl = typeof fetch;
 type AnyRecord = Record<string, unknown>;
+type GroundedSearchLog = (
+  event: string,
+  details: Record<string, unknown>,
+) => void;
+
+const ATS_HOST_QUERY_HINTS: Record<AtsSourceId, string[]> = {
+  greenhouse: [
+    "boards.greenhouse.io",
+    "boards.eu.greenhouse.io",
+    "job-boards.greenhouse.io",
+  ],
+  lever: ["jobs.lever.co"],
+  ashby: ["jobs.ashbyhq.com"],
+  smartrecruiters: ["jobs.smartrecruiters.com"],
+  workday: ["myworkdayjobs.com", "workdayjobs.com"],
+  icims: ["icims.com"],
+  jobvite: ["jobvite.com"],
+  taleo: ["taleo.net"],
+  successfactors: ["successfactors.com"],
+  workable: ["apply.workable.com"],
+  breezy: ["breezy.hr"],
+  recruitee: ["recruitee.com"],
+  teamtailor: ["teamtailor.com"],
+  personio: ["jobs.personio.com", "jobs.personio.de"],
+};
 
 /**
  * Generates deterministic focused sub-queries from modifier intent.
@@ -192,34 +227,34 @@ function generateFocusedSubQueries(run: DiscoveryRun, cap: number): string[] {
     if (seniority) parts.push(seniority);
     if (remotePolicy === "remote") parts.push("remote");
     if (parts.length > 0) {
-      queries.push(parts.join(" "));
+      queries.push(ensureEmploymentIntentQuery(parts.join(" ")));
     }
   }
 
   // 2. Role + Location combinations
   for (const role of targetRoles.slice(0, 2)) {
     for (const location of locations.slice(0, 2)) {
-      queries.push(`${role} ${location}`);
+      queries.push(ensureEmploymentIntentQuery(`${role} ${location}`));
     }
   }
 
   // 3. Keywords + Location combinations
   for (const keyword of includeKeywords.slice(0, 2)) {
     for (const location of locations.slice(0, 2)) {
-      queries.push(`${keyword} ${location}`);
+      queries.push(ensureEmploymentIntentQuery(`${keyword} ${location}`));
     }
   }
 
   // 4. Role + Keywords combinations (without location)
   for (const role of targetRoles.slice(0, 2)) {
     for (const keyword of includeKeywords.slice(0, 2)) {
-      queries.push(`${role} ${keyword}`);
+      queries.push(ensureEmploymentIntentQuery(`${role} ${keyword}`));
     }
   }
 
   // 5. Keywords only (broader)
   for (const keyword of includeKeywords.slice(0, 3)) {
-    queries.push(keyword);
+    queries.push(ensureEmploymentIntentQuery(keyword));
   }
 
   // Dedupe and cap
@@ -247,6 +282,9 @@ async function executeQueryWithRetry(
   retryBroadeningEnabled: boolean,
   fetchImpl: FetchImpl,
   maxResultsPerCompany: number,
+  log: GroundedSearchLog | undefined,
+  companyLabel: string,
+  signal?: AbortSignal,
 ): Promise<{
   candidates: GroundedSearchCandidate[];
   searchQueries: string[];
@@ -254,13 +292,17 @@ async function executeQueryWithRetry(
   exhausted: boolean;
   regexFallbackUsed: boolean;
   regexFallbackAttempted: boolean;
+  failures: GroundedSearchRequestFailure[];
+  abortedDueToUpstreamError: boolean;
 }> {
   const evidence: GroundedQueryEvidence[] = [];
   const searchQueries: string[] = [];
   const allCandidates: GroundedSearchCandidate[] = [];
+  const failures: GroundedSearchRequestFailure[] = [];
   let exhausted = false;
   let regexFallbackUsed = false;
   let regexFallbackAttempted = false;
+  let abortedDueToUpstreamError = false;
 
   // VAL-ROUTE-013: Build the retry ladder
   // Rung 0: focused query (original)
@@ -271,7 +313,19 @@ async function executeQueryWithRetry(
 
   // Execute each rung in order
   for (let i = 0; i < ladder.length; i++) {
+    throwIfAborted(signal);
     const { query, rung, terminal } = ladder[i];
+    const attemptStartedAt = Date.now();
+    log?.("discovery.run.grounded_query_started", {
+      runId: run.runId,
+      company: company.name,
+      companyScope: companyLabel,
+      focusedQuery,
+      query,
+      rung,
+      terminal,
+      retryBroadeningEnabled,
+    });
 
     const result = await executeSingleQuery(
       query,
@@ -281,7 +335,25 @@ async function executeQueryWithRetry(
       apiKey,
       fetchImpl,
       maxResultsPerCompany,
+      signal,
     );
+    log?.("discovery.run.grounded_query_completed", {
+      runId: run.runId,
+      company: company.name,
+      companyScope: companyLabel,
+      focusedQuery,
+      query,
+      rung,
+      terminal,
+      durationMs: Date.now() - attemptStartedAt,
+      candidateCount: result.candidates.length,
+      searchQueryCount: result.searchQueries.length,
+      failureStatus: result.failure?.status,
+      failureRetryable: result.failure?.retryable,
+      ...(result.failure ? { failureMessage: result.failure.message } : {}),
+      regexFallbackUsed: result.regexFallbackUsed,
+      regexFallbackAttempted: result.regexFallbackAttempted,
+    });
 
     searchQueries.push(...result.searchQueries);
     allCandidates.push(...result.candidates);
@@ -290,6 +362,20 @@ async function executeQueryWithRetry(
     }
     if (result.regexFallbackAttempted) {
       regexFallbackAttempted = true;
+    }
+
+    if (result.failure) {
+      const failure = {
+        query,
+        rung,
+        status: result.failure.status,
+        message: result.failure.message,
+        retryable: result.failure.retryable,
+      } satisfies GroundedSearchRequestFailure;
+      failures.push(failure);
+      if (!result.failure.retryable) {
+        abortedDueToUpstreamError = true;
+      }
     }
 
     evidence.push({
@@ -306,8 +392,12 @@ async function executeQueryWithRetry(
       break;
     }
 
+    if (result.failure && !result.failure.retryable) {
+      break;
+    }
+
     // VAL-ROUTE-017: If this was the last rung (terminal) and still no candidates, mark exhausted
-    if (terminal) {
+    if (terminal && !result.failure) {
       exhausted = true;
     }
   }
@@ -319,6 +409,8 @@ async function executeQueryWithRetry(
     exhausted,
     regexFallbackUsed,
     regexFallbackAttempted,
+    failures,
+    abortedDueToUpstreamError,
   };
 }
 
@@ -360,7 +452,7 @@ function buildRetryLadder(
     const cleanedQuery = queryWithoutLocation.split(/\s+/).filter(Boolean).join(" ");
     if (cleanedQuery && cleanedQuery !== focusedQuery) {
       ladder.push({
-        query: cleanedQuery,
+        query: ensureEmploymentIntentQuery(cleanedQuery),
         rung: 1,
         terminal: false,
       });
@@ -376,7 +468,7 @@ function buildRetryLadder(
   for (const keyword of includeKeywords.slice(0, 2)) {
     coreTerms.push(keyword);
   }
-  const broadenQuery = coreTerms.join(" ");
+  const broadenQuery = ensureEmploymentIntentQuery(coreTerms.join(" "));
   if (broadenQuery && broadenQuery !== focusedQuery) {
     ladder.push({
       query: broadenQuery,
@@ -404,61 +496,29 @@ async function executeSingleQuery(
   apiKey: string,
   fetchImpl: FetchImpl,
   maxResultsPerCompany: number,
+  signal?: AbortSignal,
 ): Promise<{
   candidates: GroundedSearchCandidate[];
   searchQueries: string[];
+  regexFallbackUsed: boolean;
+  regexFallbackAttempted: boolean;
+  failure?: {
+    status?: number;
+    message: string;
+    retryable: boolean;
+  };
 }> {
   const prompt = buildSearchPromptForQuery(query, company, run, maxResultsPerCompany);
-
-  const response = await fetchImpl(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-goog-api-key": apiKey,
-    },
-    body: JSON.stringify({
-      systemInstruction: {
-        parts: [{ text: SEARCH_SYSTEM_PROMPT }],
-      },
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: prompt }],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 2048,
-      },
-      tools: [{ google_search: {} }],
-    }),
+  return executeGroundedSearchRequest({
+    prompt,
+    company,
+    run,
+    endpoint,
+    apiKey,
+    fetchImpl,
+    maxResultsPerCompany,
+    signal,
   });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    // Fail-open resilience: HTTP errors return empty candidates without throwing,
-    // allowing the retry ladder to continue with broader queries.
-    // The caller does not distinguish between 'zero candidates because query found nothing'
-    // vs 'zero candidates because query failed' - this is intentional to maximize
-    // recall under transient network failures. Error attribution is logged separately.
-    return { candidates: [], searchQueries: [] };
-  }
-
-  const responseText = extractModelText(payload);
-  const groundingMetadata = firstCandidateGroundingMetadata(payload);
-  const searchQueries = uniqueStrings(
-    readStringArray(groundingMetadata?.webSearchQueries),
-  );
-  const explicitResult = extractGroundedCandidatesFromText(responseText, company);
-  const cited = extractGroundedCandidatesFromMetadata(groundingMetadata, company);
-  const candidates = mergeGroundedCandidates(explicitResult.candidates, cited, company, maxResultsPerCompany);
-
-  return {
-    candidates,
-    searchQueries,
-    regexFallbackUsed: explicitResult.regexFallbackUsed,
-    regexFallbackAttempted: explicitResult.regexFallbackAttempted,
-  };
 }
 
 /**
@@ -505,6 +565,20 @@ function buildSearchPromptForQuery(
   return lines.join("\n");
 }
 
+function ensureEmploymentIntentQuery(query: string): string {
+  const cleaned = String(query || "").split(/\s+/).filter(Boolean).join(" ").trim();
+  if (!cleaned) return "";
+  if (/\b(job|jobs|career|careers|hiring|opening|openings)\b/i.test(cleaned)) {
+    return cleaned;
+  }
+  return `${cleaned} jobs`;
+}
+
+function describeGroundedSearchScope(company: CompanyTarget): string {
+  const name = String(company.name || "").trim();
+  return name || "unrestricted scope";
+}
+
 /**
  * Deduplicates candidates across multiple query executions.
  */
@@ -518,15 +592,17 @@ function deduplicateCandidates(
 
 export function createGroundedSearchClient(
   runtimeConfig: WorkerRuntimeConfig,
-  dependencies: { fetchImpl?: FetchImpl } = {},
+  dependencies: { fetchImpl?: FetchImpl; log?: GroundedSearchLog } = {},
 ): GroundedSearchClient {
   const fetchImpl = dependencies.fetchImpl || globalThis.fetch;
+  const log = dependencies.log;
   return {
-    async search(company, run) {
+    async search(company, run, options) {
       const apiKey = String(runtimeConfig.geminiApiKey || "").trim();
       if (!apiKey) {
         throw new Error("Gemini API key is not configured for grounded search.");
       }
+      throwIfAborted(options?.signal);
 
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || "gemini-2.5-flash")}:generateContent`;
       const tuning = run.config.groundedSearchTuning;
@@ -535,6 +611,20 @@ export function createGroundedSearchClient(
       const retryBroadeningEnabled = ultraPlanTuning?.retryBroadeningEnabled ?? false;
       const multiQueryCap = tuning?.multiQueryCap ?? (multiQueryEnabled ? 4 : 3);
       const maxResultsPerCompany = tuning?.maxResultsPerCompany ?? runtimeConfig.groundedSearchMaxResultsPerCompany;
+      const companyLabel = describeGroundedSearchScope(company);
+      const searchStartedAt = Date.now();
+      log?.("discovery.run.grounded_search_started", {
+        runId: run.runId,
+        company: company.name,
+        companyScope: companyLabel,
+        unrestrictedScope: !company.name,
+        multiQueryEnabled,
+        retryBroadeningEnabled,
+        multiQueryCap,
+        maxResultsPerCompany,
+        maxRuntimeMs: tuning?.maxRuntimeMs ?? null,
+        maxTokensPerQuery: tuning?.maxTokensPerQuery ?? null,
+      });
 
       // VAL-ROUTE-012: Multi-query fan-out from modifiers
       // When multiQueryEnabled, decompose modifier intent into focused sub-queries
@@ -549,71 +639,55 @@ export function createGroundedSearchClient(
 
       // If multi-query is disabled or we have a company target, use single broad query (legacy behavior)
       if (focusedQueries.length === 0) {
-        const response = await fetchImpl(endpoint, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-goog-api-key": apiKey,
-          },
-          body: JSON.stringify({
-            systemInstruction: {
-              parts: [{ text: SEARCH_SYSTEM_PROMPT }],
-            },
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    text: buildSearchPrompt(
-                      company,
-                      run,
-                      maxResultsPerCompany,
-                    ),
-                  },
-                ],
-              },
-            ],
-            generationConfig: {
-              temperature: 0.2,
-              maxOutputTokens: 2048,
-            },
-            tools: [{ google_search: {} }],
-          }),
-        });
-
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(
-            objectString(payload, "error", "message") ||
-              `Gemini grounded search HTTP ${response.status}`,
-          );
-        }
-
-        const responseText = extractModelText(payload);
-        const groundingMetadata = firstCandidateGroundingMetadata(payload);
-        const searchQueries = uniqueStrings(
-          readStringArray(groundingMetadata?.webSearchQueries),
-        );
-        const explicitResult = extractGroundedCandidatesFromText(responseText, company);
-        const cited = extractGroundedCandidatesFromMetadata(
-          groundingMetadata,
+        const result = await executeGroundedSearchRequest({
+          prompt: buildSearchPrompt(
+            company,
+            run,
+            maxResultsPerCompany,
+          ),
           company,
-        );
-        const candidates = mergeGroundedCandidates(
-          explicitResult.candidates,
-          cited,
-          company,
+          run,
+          endpoint,
+          apiKey,
+          fetchImpl,
           maxResultsPerCompany,
-        );
+          signal: options?.signal,
+        });
+        const warnings: string[] = [];
+        const diagnostics: GroundedSearchDiagnostics | undefined = result.failure
+          ? {
+              multiQueryFanOutEnabled: multiQueryEnabled,
+              multiQueryCap,
+              focusedQueryCount: 0,
+              retryBroadeningEnabled,
+              ladderExhausted: false,
+              requestFailures: [
+                {
+                  query: "broad_query",
+                  status: result.failure.status,
+                  message: result.failure.message,
+                  retryable: result.failure.retryable,
+                },
+              ],
+              abortedDueToUpstreamError: !result.failure.retryable,
+            }
+          : undefined;
 
         // VAL-DATA-001: Emit explicit warning for regex fallback on non-JSON/conversational output
         // Use regexFallbackAttempted to emit warning whenever fallback was tried (regardless of outcome),
         // but differentiate the message based on whether candidates were recovered
-        const warnings = candidates.length > 0
-          ? []
-          : ["Grounded search returned no usable candidate links."];
-        if (explicitResult.regexFallbackAttempted) {
-          if (explicitResult.regexFallbackUsed) {
+        if (result.failure) {
+          warnings.push(formatGroundedSearchFailureWarning({
+            query: "broad_query",
+            status: result.failure.status,
+            message: result.failure.message,
+            retryable: result.failure.retryable,
+          }));
+        } else if (result.candidates.length === 0) {
+          warnings.push("Grounded search returned no usable candidate links.");
+        }
+        if (result.regexFallbackAttempted) {
+          if (result.regexFallbackUsed) {
             warnings.push(
               "Regex URL fallback used: grounded output was non-JSON or conversational; URLs recovered via pattern matching.",
             );
@@ -623,11 +697,23 @@ export function createGroundedSearchClient(
             );
           }
         }
+        log?.("discovery.run.grounded_search_completed", {
+          runId: run.runId,
+          company: company.name,
+          companyScope: companyLabel,
+          durationMs: Date.now() - searchStartedAt,
+          candidateCount: result.candidates.length,
+          searchQueryCount: result.searchQueries.length,
+          warningCount: warnings.length,
+          requestFailureCount: diagnostics?.requestFailures?.length || 0,
+          focusedQueryCount: 0,
+        });
 
         return {
-          searchQueries,
-          candidates,
+          searchQueries: result.searchQueries,
+          candidates: result.candidates,
           warnings,
+          diagnostics,
         };
       }
 
@@ -638,13 +724,15 @@ export function createGroundedSearchClient(
       const queryEvidence: GroundedQueryEvidence[] = [];
       const warnings: string[] = [];
       const exhaustedSubQueries: { query: string; finalRung: GroundedQueryRung }[] = [];
+      const requestFailures: GroundedSearchRequestFailure[] = [];
       let ladderExhausted = false;
       let regexFallbackUsed = false;
       let regexFallbackAttempted = false;
+      let abortedDueToUpstreamError = false;
 
       // Execute each focused query
       for (const focusedQuery of focusedQueries) {
-        const { candidates, searchQueries, evidence, exhausted, regexFallbackUsed: queryRegexFallback, regexFallbackAttempted: queryRegexFallbackAttempted } = await executeQueryWithRetry(
+        const { candidates, searchQueries, evidence, exhausted, regexFallbackUsed: queryRegexFallback, regexFallbackAttempted: queryRegexFallbackAttempted, failures, abortedDueToUpstreamError: queryAbortedDueToUpstreamError } = await executeQueryWithRetry(
           focusedQuery,
           company,
           run,
@@ -652,8 +740,11 @@ export function createGroundedSearchClient(
           apiKey,
           retryBroadeningEnabled,
           fetchImpl,
-          maxResultsPerCompany,
-        );
+            maxResultsPerCompany,
+            log,
+            companyLabel,
+            options?.signal,
+          );
 
         allCandidates.push(...candidates);
         allSearchQueries.push(...searchQueries);
@@ -664,6 +755,7 @@ export function createGroundedSearchClient(
         if (queryRegexFallbackAttempted) {
           regexFallbackAttempted = true;
         }
+        requestFailures.push(...failures);
 
         if (exhausted) {
           ladderExhausted = true;
@@ -675,6 +767,10 @@ export function createGroundedSearchClient(
               finalRung: lastEvidence.rung,
             });
           }
+        }
+        if (queryAbortedDueToUpstreamError) {
+          abortedDueToUpstreamError = true;
+          break;
         }
       }
 
@@ -692,13 +788,25 @@ export function createGroundedSearchClient(
           ? { exhaustedRungs: exhaustedSubQueries }
           : {}),
         ...(regexFallbackUsed ? { regexFallbackUsed: true } : {}),
+        ...(requestFailures.length > 0
+          ? { requestFailures }
+          : {}),
+        ...(abortedDueToUpstreamError
+          ? { abortedDueToUpstreamError: true }
+          : {}),
       };
 
       // Add warnings if no candidates found or ladder exhausted
-      if (uniqueCandidates.length === 0) {
+      if (requestFailures.length > 0) {
+        warnings.push(
+          ...uniqueStrings(
+            requestFailures.map((failure) => formatGroundedSearchFailureWarning(failure)),
+          ),
+        );
+      } else if (uniqueCandidates.length === 0) {
         warnings.push("Grounded search returned no usable candidate links.");
       }
-      if (ladderExhausted && uniqueCandidates.length === 0) {
+      if (ladderExhausted && uniqueCandidates.length === 0 && requestFailures.length === 0) {
         warnings.push(
           `Query ladder exhausted: all ${focusedQueries.length} focused sub-queries returned zero candidates after retry broadening.`,
         );
@@ -717,6 +825,19 @@ export function createGroundedSearchClient(
           );
         }
       }
+      log?.("discovery.run.grounded_search_completed", {
+        runId: run.runId,
+        company: company.name,
+        companyScope: companyLabel,
+        durationMs: Date.now() - searchStartedAt,
+        candidateCount: uniqueCandidates.length,
+        searchQueryCount: uniqueStrings(allSearchQueries).length,
+        warningCount: warnings.length,
+        requestFailureCount: requestFailures.length,
+        focusedQueryCount: focusedQueries.length,
+        ladderExhausted,
+        abortedDueToUpstreamError,
+      });
 
       return {
         searchQueries: uniqueStrings(allSearchQueries),
@@ -726,7 +847,140 @@ export function createGroundedSearchClient(
         diagnostics,
       };
     },
+    async searchAtsHosts({ run, sourceIds, maxResults, signal }) {
+      const apiKey = String(runtimeConfig.geminiApiKey || "").trim();
+      if (!apiKey) {
+        throw new Error("Gemini API key is not configured for ATS host search.");
+      }
+      throwIfAborted(signal);
+
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || "gemini-2.5-flash")}:generateContent`;
+      const maxResultsPerCompany =
+        maxResults ??
+        run.config.groundedSearchTuning?.maxResultsPerCompany ??
+        runtimeConfig.groundedSearchMaxResultsPerCompany;
+      const result = await executeGroundedSearchRequest({
+        prompt: buildAtsHostSearchPrompt(run, sourceIds, maxResultsPerCompany),
+        company: { name: "" },
+        run,
+        endpoint,
+        apiKey,
+        fetchImpl,
+        maxResultsPerCompany,
+        signal,
+      });
+
+      const candidates = mergeGroundedCandidates(
+        result.candidates
+          .map((entry) => normalizeGroundedCandidate(entry, { name: "" }))
+          .filter((entry) =>
+            isKnownAtsCareerSurface(
+              entry.finalUrl || entry.canonicalUrl || entry.url,
+            ),
+          ),
+        [],
+        { name: "" },
+        maxResultsPerCompany,
+      );
+      const warnings: string[] = [];
+      if (result.failure) {
+        warnings.push(
+          formatGroundedSearchFailureWarning({
+            query: "ats_hosts",
+            status: result.failure.status,
+            message: result.failure.message,
+            retryable: result.failure.retryable,
+          }),
+        );
+      } else if (candidates.length === 0) {
+        warnings.push("ATS host search returned no usable provider surfaces.");
+      }
+      if (result.regexFallbackAttempted) {
+        warnings.push(
+          result.regexFallbackUsed
+            ? "Regex URL fallback used during ATS host search; URLs recovered via pattern matching."
+            : "Regex URL fallback used during ATS host search; no valid ATS URLs recovered.",
+        );
+      }
+
+      return {
+        searchQueries: result.searchQueries,
+        candidates,
+        warnings,
+        diagnostics: result.failure
+          ? {
+              multiQueryFanOutEnabled: false,
+              multiQueryCap: 1,
+              focusedQueryCount: 0,
+              retryBroadeningEnabled: false,
+              ladderExhausted: false,
+              requestFailures: [
+                {
+                  query: "ats_hosts",
+                  status: result.failure.status,
+                  message: result.failure.message,
+                  retryable: result.failure.retryable,
+                },
+              ],
+              abortedDueToUpstreamError: !result.failure.retryable,
+            }
+          : undefined,
+      };
+    },
+    async resolveHint({ candidate, company, run, maxResults, signal }) {
+      const apiKey = String(runtimeConfig.geminiApiKey || "").trim();
+      if (!apiKey) {
+        return [];
+      }
+      throwIfAborted(signal);
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || "gemini-2.5-flash")}:generateContent`;
+      const result = await executeGroundedSearchRequest({
+        prompt: buildHintResolutionPrompt(candidate, company, run, maxResults ?? DEFAULT_HINT_RESOLUTION_LIMIT),
+        company,
+        run,
+        endpoint,
+        apiKey,
+        fetchImpl,
+        maxResultsPerCompany: maxResults ?? DEFAULT_HINT_RESOLUTION_LIMIT,
+        signal,
+      });
+      if (result.failure) {
+        return [];
+      }
+      return mergeGroundedCandidates(
+        result.candidates
+          .map((entry) => normalizeGroundedCandidate(entry, company))
+          .filter((entry) => candidateSourcePolicy(entry) === "extractable"),
+        [],
+        company,
+        maxResults ?? DEFAULT_HINT_RESOLUTION_LIMIT,
+      );
+    },
   };
+}
+
+function buildAtsHostSearchPrompt(
+  run: DiscoveryRun,
+  sourceIds: AtsSourceId[],
+  maxResults: number,
+): string {
+  const hosts = uniqueStrings(
+    sourceIds.flatMap((sourceId) => ATS_HOST_QUERY_HINTS[sourceId] || []),
+  );
+  const config = run.config;
+  return [
+    "Search focus: ATS-only discovery.",
+    "Find live direct ATS job pages or ATS board/listings pages only.",
+    `Allowed ATS hosts: ${hosts.join(", ") || "known ATS hosts only"}`,
+    "Do not return employer about/culture/benefits pages or third-party job boards.",
+    `Target roles: ${joinOrAny(config.targetRoles)}`,
+    `Include keywords: ${joinOrAny(config.includeKeywords)}`,
+    `Exclude keywords: ${joinOrAny(config.excludeKeywords)}`,
+    `Locations: ${joinOrAny(config.locations)}`,
+    `Remote policy: ${config.remotePolicy || "any"}`,
+    `Seniority: ${config.seniority || "any"}`,
+    `Return at most ${Math.max(1, maxResults)} candidate links.`,
+  ].join("\n");
 }
 
 export async function collectGroundedWebListings(input: {
@@ -736,42 +990,106 @@ export async function collectGroundedWebListings(input: {
   groundedSearchClient: GroundedSearchClient;
   sessionManager: BrowserUseSessionManager;
   budgetTracker?: BudgetTracker;
+  log?: GroundedSearchLog;
+  fetchImpl?: FetchImpl;
+  isHostSuppressed?: (url: string, now?: string) => Promise<boolean> | boolean;
+  isDeadLinkCoolingDown?: (
+    url: string,
+    now?: string,
+  ) => Promise<boolean> | boolean;
+  now?: string;
+  abortSignal?: AbortSignal;
 }): Promise<GroundedWebCollectionResult> {
+  const fetchImpl = input.fetchImpl || globalThis.fetch;
+  const companyLabel = describeGroundedSearchScope(input.company);
+  const searchStartedAt = Date.now();
+  throwIfAborted(input.abortSignal);
   const searchResult = await input.groundedSearchClient.search(
     input.company,
     input.run,
+    { signal: input.abortSignal },
   );
+  input.log?.("discovery.run.grounded_collection_search_completed", {
+    runId: input.run.runId,
+    company: input.company.name,
+    companyScope: companyLabel,
+    durationMs: Date.now() - searchStartedAt,
+    candidateCount: searchResult.candidates.length,
+    searchQueryCount: searchResult.searchQueries.length,
+    warningCount: searchResult.warnings.length,
+    requestFailureCount: searchResult.diagnostics?.requestFailures?.length || 0,
+    ladderExhausted: searchResult.diagnostics?.ladderExhausted || false,
+  });
   const warnings = [...searchResult.warnings];
   const diagnostics: ExtractionDiagnostic[] = [];
 
   // VAL-OBS-002: Apply budget-based page limit reduction if tracker is provided
-  let basePageLimit = Math.max(1, input.runtimeConfig.groundedSearchMaxPagesPerCompany || 1);
+  let basePageLimit = resolveGroundedCollectionPageLimit(
+    input.run,
+    input.runtimeConfig.groundedSearchMaxPagesPerCompany,
+  );
   let effectivePageLimit = basePageLimit;
-  let pageLimitReductionDiagnostic: ExtractionDiagnostic | null = null;
 
   if (input.budgetTracker) {
     const reductionResult = input.budgetTracker.checkPageLimitReduction(basePageLimit);
     if (reductionResult.diagnostic) {
-      pageLimitReductionDiagnostic = reductionResult.diagnostic;
       diagnostics.push(reductionResult.diagnostic);
       warnings.push(`Budget adaptation: ${reductionResult.diagnostic.context}`);
     }
     effectivePageLimit = Math.max(1, Math.floor(basePageLimit * reductionResult.multiplier));
   }
 
-  const seedCandidates = searchResult.candidates.slice(
-    0,
-    effectivePageLimit,
-  );
+  const searchFailures = searchResult.diagnostics?.requestFailures || [];
+  if (searchFailures.length > 0) {
+    for (const failure of searchFailures) {
+      diagnostics.push({
+        code: "upstream_error",
+        context: buildGroundedSearchFailureContext(failure),
+      });
+    }
+  }
+
+  const seedCandidates = await prepareGroundedSeedCandidates({
+    candidates: searchResult.candidates,
+    company: input.company,
+    run: input.run,
+    pageLimit: effectivePageLimit,
+    groundedSearchClient: input.groundedSearchClient,
+    fetchImpl,
+    diagnostics,
+    log: input.log,
+    isHostSuppressed: input.isHostSuppressed,
+    isDeadLinkCoolingDown: input.isDeadLinkCoolingDown,
+    now: input.now,
+    abortSignal: input.abortSignal,
+  });
   const rawListings: RawListing[] = [];
   let pagesVisited = 0;
 
   for (const candidate of seedCandidates) {
     try {
+      throwIfAborted(input.abortSignal);
+      if (isCanonicalExtractableCandidate(candidate, input.company)) {
+        diagnostics.push({
+          code: "canonical_surface_extracted",
+          context: `Extracting canonical employer or ATS surface ${candidate.url}.`,
+          url: candidate.url,
+        });
+      }
+      const pageStartedAt = Date.now();
+      input.log?.("discovery.run.grounded_page_started", {
+        runId: input.run.runId,
+        company: input.company.name,
+        companyScope: companyLabel,
+        url: candidate.url,
+        pageType: candidate.pageType,
+        sourceDomain: candidate.sourceDomain,
+      });
       const sessionResult = await input.sessionManager.run({
         url: candidate.url,
         instruction: buildPagePrompt(input.company, input.run, candidate),
         timeoutMs: 25_000,
+        abortSignal: input.abortSignal,
       });
       pagesVisited += 1;
 
@@ -792,9 +1110,20 @@ export async function collectGroundedWebListings(input: {
 
       const listings = extractListingsFromSessionResult({
         text: sessionResult.text,
+        metadata: sessionResult.metadata,
         candidate,
         company: input.company,
         searchQueries: searchResult.searchQueries,
+      });
+      input.log?.("discovery.run.grounded_page_completed", {
+        runId: input.run.runId,
+        company: input.company.name,
+        companyScope: companyLabel,
+        url: candidate.url,
+        durationMs: Date.now() - pageStartedAt,
+        sessionMode,
+        textLength: sessionResult.text.length,
+        extractedListingCount: listings.length,
       });
 
       // VAL-OBS-001: Detect low-content SPA/skeleton responses and emit structured diagnostic
@@ -811,6 +1140,16 @@ export async function collectGroundedWebListings(input: {
 
       rawListings.push(...listings);
     } catch (error) {
+      if (isAbortError(error)) {
+        throw error;
+      }
+      input.log?.("discovery.run.grounded_page_failed", {
+        runId: input.run.runId,
+        company: input.company.name,
+        companyScope: companyLabel,
+        url: candidate.url,
+        error: formatError(error),
+      });
       warnings.push(
         `Grounded page extraction failed for ${candidate.url}: ${formatError(error)}`,
       );
@@ -821,10 +1160,12 @@ export async function collectGroundedWebListings(input: {
   // Covers both cases: (1) seedCandidates is empty (search returned no candidates),
   // and (2) seedCandidates had candidates but all extraction attempts failed
   const dedupedListings = dedupeRawListings(rawListings);
-  if (dedupedListings.length === 0) {
+  if (dedupedListings.length === 0 && searchFailures.length === 0) {
     const context = seedCandidates.length > 0
-      ? `Extracted zero job listings from ${seedCandidates.length} candidate pages. All pages either had no extractable content or failed to load.`
-      : `Grounded search returned zero candidates (no candidate URLs to extract from).`;
+      ? `Extracted zero job listings from ${seedCandidates.length} preflight-approved candidate pages. All pages either had no extractable content or failed to load.`
+      : searchResult.candidates.length > 0
+        ? "Grounded search found candidates, but none survived canonical hint resolution and strict preflight."
+        : "Grounded search returned zero candidates (no candidate URLs to extract from).";
     diagnostics.push({
       code: "zero_results",
       context,
@@ -846,6 +1187,460 @@ export async function collectGroundedWebListings(input: {
     pagesVisited,
     diagnostics: diagnostics.length > 0 ? diagnostics : undefined,
   };
+}
+
+async function prepareGroundedSeedCandidates(input: {
+  candidates: GroundedSearchCandidate[];
+  company: CompanyTarget;
+  run: DiscoveryRun;
+  pageLimit: number;
+  groundedSearchClient: GroundedSearchClient;
+  fetchImpl: FetchImpl;
+  diagnostics: ExtractionDiagnostic[];
+  log?: GroundedSearchLog;
+  isHostSuppressed?: (url: string, now?: string) => Promise<boolean> | boolean;
+  isDeadLinkCoolingDown?: (
+    url: string,
+    now?: string,
+  ) => Promise<boolean> | boolean;
+  now?: string;
+  abortSignal?: AbortSignal;
+}): Promise<GroundedSearchCandidate[]> {
+  const accepted: GroundedSearchCandidate[] = [];
+  const maxHintResolutions = Math.max(4, input.pageLimit * 2);
+  let hintResolutions = 0;
+  const suppressionNow =
+    input.now || input.run.request.requestedAt || new Date().toISOString();
+
+  for (const rawCandidate of input.candidates) {
+    throwIfAborted(input.abortSignal);
+    if (accepted.length >= input.pageLimit) break;
+
+    const candidate = normalizeGroundedCandidate(rawCandidate, input.company);
+    if (
+      input.isDeadLinkCoolingDown &&
+      await input.isDeadLinkCoolingDown(candidate.finalUrl || candidate.url, suppressionNow)
+    ) {
+      input.diagnostics.push({
+        code: "preflight_rejected",
+        context: `Strict preflight rejected ${candidate.url}: dead-link cooldown is still active from memory.`,
+        url: candidate.finalUrl || candidate.url,
+      });
+      continue;
+    }
+    if (
+      input.isHostSuppressed &&
+      await input.isHostSuppressed(candidate.finalUrl || candidate.url, suppressionNow)
+    ) {
+      input.diagnostics.push({
+        code: "junk_host_suppressed",
+        context: `Suppressed previously low-quality host before extraction: ${candidate.finalUrl || candidate.url}`,
+        url: candidate.finalUrl || candidate.url,
+      });
+      continue;
+    }
+    const policy = candidateSourcePolicy(candidate);
+    if (policy === "blocked") {
+      continue;
+    }
+
+    if (policy === "hint_only") {
+      input.diagnostics.push({
+        code: "hint_only_candidate",
+        context: `Third-party board kept as hint only: ${candidate.url}`,
+        url: candidate.url,
+      });
+      input.diagnostics.push({
+        code: "third_party_extraction_blocked",
+        context: `Direct extraction blocked for third-party board candidate ${candidate.url}. Canonical resolution is required first.`,
+        url: candidate.url,
+      });
+      if (hintResolutions >= maxHintResolutions) {
+        input.diagnostics.push({
+          code: "hint_resolution_failed",
+          context: `Skipped hint resolution for ${candidate.url}: hint resolution budget exhausted.`,
+          url: candidate.url,
+        });
+        continue;
+      }
+
+      hintResolutions += 1;
+      const resolutionStartedAt = Date.now();
+      input.log?.("discovery.run.grounded_hint_resolution_started", {
+        runId: input.run.runId,
+        company: input.company.name,
+        hintUrl: candidate.url,
+        hintTitle: candidate.title,
+      });
+      const resolvedCandidates = input.groundedSearchClient.resolveHint
+        ? await input.groundedSearchClient.resolveHint({
+            candidate,
+            company: input.company,
+            run: input.run,
+            maxResults: Math.max(1, Math.min(DEFAULT_HINT_RESOLUTION_LIMIT, input.pageLimit - accepted.length)),
+            signal: input.abortSignal,
+          })
+        : [];
+      input.log?.("discovery.run.grounded_hint_resolution_completed", {
+        runId: input.run.runId,
+        company: input.company.name,
+        hintUrl: candidate.url,
+        durationMs: Date.now() - resolutionStartedAt,
+        candidateCount: resolvedCandidates.length,
+      });
+      if (resolvedCandidates.length === 0) {
+        input.diagnostics.push({
+          code: "hint_resolution_failed",
+          context: `Could not resolve canonical employer or ATS page from third-party hint ${candidate.url}.`,
+          url: candidate.url,
+        });
+        continue;
+      }
+
+      let acceptedFromHint = false;
+      for (const resolvedCandidate of resolvedCandidates) {
+        if (accepted.length >= input.pageLimit) break;
+        const approval = await approveGroundedCandidateSet({
+          candidate: {
+            ...normalizeGroundedCandidate(resolvedCandidate, input.company),
+            resolvedFromUrl: candidate.url,
+          },
+          company: input.company,
+          fetchImpl: input.fetchImpl,
+          abortSignal: input.abortSignal,
+        });
+        for (const rejection of approval.rejected) {
+          input.diagnostics.push({
+            code: "preflight_rejected",
+            context: rejection.reason,
+            url: rejection.url,
+          });
+        }
+        for (const resolved of approval.resolved) {
+          if (!isCanonicalExtractableCandidate(resolved, input.company)) continue;
+          input.diagnostics.push({
+            code: "canonical_surface_resolved",
+            context: `Resolved canonical employer or ATS surface ${resolved.url} from third-party hint ${candidate.url}.`,
+            url: resolved.url,
+          });
+        }
+        if (approval.accepted.length === 0) {
+          continue;
+        }
+        accepted.push(
+          ...approval.accepted.slice(0, Math.max(0, input.pageLimit - accepted.length)),
+        );
+        acceptedFromHint = true;
+      }
+      if (!acceptedFromHint) {
+        input.diagnostics.push({
+          code: "hint_resolution_failed",
+          context: `Resolved hint candidates for ${candidate.url} were rejected by strict preflight.`,
+          url: candidate.url,
+        });
+      }
+      continue;
+    }
+
+    const approval = await approveGroundedCandidateSet({
+      candidate,
+      company: input.company,
+      fetchImpl: input.fetchImpl,
+      abortSignal: input.abortSignal,
+    });
+    for (const rejection of approval.rejected) {
+      input.diagnostics.push({
+        code: "preflight_rejected",
+        context: rejection.reason,
+        url: rejection.url,
+      });
+    }
+    for (const resolved of approval.resolved) {
+      if (!isCanonicalExtractableCandidate(resolved, input.company)) continue;
+      input.diagnostics.push({
+        code: "canonical_surface_resolved",
+        context: `Resolved canonical employer or ATS surface ${resolved.url} from ${candidate.url}.`,
+        url: resolved.url,
+      });
+    }
+    if (approval.accepted.length === 0) {
+      continue;
+    }
+    accepted.push(
+      ...approval.accepted.slice(0, Math.max(0, input.pageLimit - accepted.length)),
+    );
+  }
+
+  return mergeGroundedCandidates(accepted, [], input.company, input.pageLimit);
+}
+
+async function preflightGroundedCandidate(input: {
+  candidate: GroundedSearchCandidate;
+  company: CompanyTarget;
+  fetchImpl: FetchImpl;
+  abortSignal?: AbortSignal;
+}): Promise<
+  | { ok: true; candidate: GroundedSearchCandidate; discoveredCandidates: GroundedSearchCandidate[] }
+  | { ok: false; url: string; reason: string }
+> {
+  const candidate = normalizeGroundedCandidate(input.candidate, input.company);
+  const requestedUrl = candidate.url;
+  try {
+    throwIfAborted(input.abortSignal);
+    const { response, text } = await fetchTextWithTimeout(
+      requestedUrl,
+      input.fetchImpl,
+      PRE_FLIGHT_TIMEOUT_MS,
+      input.abortSignal,
+    );
+    const finalUrl = cleanAbsoluteUrl(response.url || requestedUrl) || requestedUrl;
+    const finalPolicy = classifySeedSourcePolicy(finalUrl);
+    if (!response.ok) {
+      return {
+        ok: false,
+        url: finalUrl,
+        reason: `Strict preflight rejected ${requestedUrl}: HTTP ${response.status} at ${finalUrl}.`,
+      };
+    }
+    if (finalPolicy !== "extractable") {
+      return {
+        ok: false,
+        url: finalUrl,
+        reason: `Strict preflight rejected ${requestedUrl}: final URL ${finalUrl} resolved to ${finalPolicy}.`,
+      };
+    }
+
+    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+    if (contentType && !/(html|text\/plain|json)/i.test(contentType)) {
+      return {
+        ok: false,
+        url: finalUrl,
+        reason: `Strict preflight rejected ${requestedUrl}: unsupported content-type "${contentType}" at ${finalUrl}.`,
+      };
+    }
+
+    const title = extractTitle(text) || cleanText(candidate.title);
+    const rejectionReason = detectPreflightFailure({
+      requestedUrl,
+      finalUrl,
+      title,
+      text,
+      contentType,
+    });
+    if (rejectionReason) {
+      return {
+        ok: false,
+        url: finalUrl,
+        reason: rejectionReason,
+      };
+    }
+
+    const approvedCandidate = normalizeGroundedCandidate(
+      {
+        ...candidate,
+        url: finalUrl,
+        finalUrl,
+        sourceDomain: safeHostname(finalUrl),
+        sourcePolicy: finalPolicy,
+        preflightStatus: "passed",
+        preflightReason: "",
+      },
+      input.company,
+    );
+    const shouldDiscoverCanonicalSurfaces =
+      approvedCandidate.pageType === "other" ||
+      !isCanonicalExtractableCandidate(approvedCandidate, input.company);
+    const discoveredCandidates = !shouldDiscoverCanonicalSurfaces
+      ? []
+      : detectCareerSurfaceCandidatesFromHtml({
+          url: requestedUrl,
+          finalUrl,
+          html: text,
+          company: input.company,
+          sourceLane: approvedCandidate.sourceLane || "grounded_web",
+          title,
+        }).candidates
+          .map((entry) =>
+            normalizeGroundedCandidate(
+              {
+                ...entry,
+                resolvedFromUrl: entry.resolvedFromUrl || approvedCandidate.url,
+              },
+              input.company,
+            ),
+          )
+          .filter((entry) => {
+            const key = entry.finalUrl || entry.canonicalUrl || entry.url;
+            const approvedKey =
+              approvedCandidate.finalUrl ||
+              approvedCandidate.canonicalUrl ||
+              approvedCandidate.url;
+            return key !== approvedKey;
+          });
+
+    return {
+      ok: true,
+      candidate: approvedCandidate,
+      discoveredCandidates: mergeGroundedCandidates(
+        discoveredCandidates,
+        [],
+        input.company,
+        6,
+      ),
+    };
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+    return {
+      ok: false,
+      url: requestedUrl,
+      reason: `Strict preflight rejected ${requestedUrl}: ${formatError(error)}.`,
+    };
+  }
+}
+
+async function approveGroundedCandidateSet(input: {
+  candidate: GroundedSearchCandidate;
+  company: CompanyTarget;
+  fetchImpl: FetchImpl;
+  abortSignal?: AbortSignal;
+}): Promise<{
+  accepted: GroundedSearchCandidate[];
+  resolved: GroundedSearchCandidate[];
+  rejected: Array<{ url: string; reason: string }>;
+}> {
+  const firstPass = await preflightGroundedCandidate(input);
+  if (!firstPass.ok) {
+    return {
+      accepted: [],
+      resolved: [],
+      rejected: [{ url: firstPass.url, reason: firstPass.reason }],
+    };
+  }
+
+  const accepted: GroundedSearchCandidate[] = [firstPass.candidate];
+  const resolved: GroundedSearchCandidate[] = [];
+  const rejected: Array<{ url: string; reason: string }> = [];
+  const seen = new Set<string>([
+    firstPass.candidate.finalUrl ||
+      firstPass.candidate.canonicalUrl ||
+      firstPass.candidate.url,
+  ]);
+
+  for (const discoveredCandidate of firstPass.discoveredCandidates) {
+    const key =
+      discoveredCandidate.finalUrl ||
+      discoveredCandidate.canonicalUrl ||
+      discoveredCandidate.url;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    const followUp = await preflightGroundedCandidate({
+      candidate: discoveredCandidate,
+      company: input.company,
+      fetchImpl: input.fetchImpl,
+      abortSignal: input.abortSignal,
+    });
+    if (!followUp.ok) {
+      rejected.push({ url: followUp.url, reason: followUp.reason });
+      continue;
+    }
+    accepted.push(followUp.candidate);
+    resolved.push(followUp.candidate);
+  }
+
+  return {
+    accepted: mergeGroundedCandidates(accepted, [], input.company, accepted.length || 1),
+    resolved: mergeGroundedCandidates(resolved, [], input.company, resolved.length || 1),
+    rejected,
+  };
+}
+
+async function fetchTextWithTimeout(
+  url: string,
+  fetchImpl: FetchImpl,
+  timeoutMs: number,
+  abortSignal?: AbortSignal,
+): Promise<{ response: Response; text: string }> {
+  throwIfAborted(abortSignal);
+  const controller = new AbortController();
+  const abortHandler = () => controller.abort(abortSignal?.reason);
+  abortSignal?.addEventListener("abort", abortHandler, { once: true });
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(url, {
+      headers: {
+        accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
+      },
+      redirect: "follow",
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    return { response, text };
+  } finally {
+    clearTimeout(timer);
+    abortSignal?.removeEventListener("abort", abortHandler);
+  }
+}
+
+function detectPreflightFailure(input: {
+  requestedUrl: string;
+  finalUrl: string;
+  title: string;
+  text: string;
+  contentType: string;
+}): string | null {
+  const title = cleanText(input.title);
+  const plainText = normalizeWhitespace(stripHtml(htmlDecode(input.text))).slice(0, 6000);
+  const haystack = `${title}\n${plainText}`.toLowerCase();
+  const lowContentReason = detectLowContent(input.text, input.finalUrl);
+
+  if (!input.text.trim()) {
+    return `Strict preflight rejected ${input.requestedUrl}: empty response body at ${input.finalUrl}.`;
+  }
+  if (/(captcha|verify you are human|unusual traffic|access denied|forbidden|unauthorized)/i.test(haystack)) {
+    return `Strict preflight rejected ${input.requestedUrl}: blocked or gated page at ${input.finalUrl}.`;
+  }
+  if (/(page not found|404|not found|job is no longer available|position has been filled|no longer accepting applications)/i.test(haystack)) {
+    return `Strict preflight rejected ${input.requestedUrl}: broken or expired job page at ${input.finalUrl}.`;
+  }
+  if (/(sign in to continue|log in to continue|login required|please sign in)/i.test(haystack)) {
+    return `Strict preflight rejected ${input.requestedUrl}: login wall at ${input.finalUrl}.`;
+  }
+  if (lowContentReason) {
+    return `Strict preflight rejected ${input.requestedUrl}: ${lowContentReason.context}`;
+  }
+  if (isLikelyInformationalJobPage(input.finalUrl, title)) {
+    return `Strict preflight rejected ${input.requestedUrl}: informational company content at ${input.finalUrl}.`;
+  }
+
+  const inferredPageType = classifyPageType(input.finalUrl, title);
+  if (inferredPageType === "other" && !hasStrongPreflightSignals(input.finalUrl, title, plainText, input.contentType)) {
+    return `Strict preflight rejected ${input.requestedUrl}: weak job signals at ${input.finalUrl}.`;
+  }
+
+  return null;
+}
+
+function hasStrongPreflightSignals(
+  url: string,
+  title: string,
+  text: string,
+  contentType: string,
+): boolean {
+  if (/application\/json/i.test(contentType) && /jobposting/i.test(text)) {
+    return true;
+  }
+  if (isKnownAtsJobHost(url)) {
+    return true;
+  }
+  const haystack = `${title}\n${text}`.toLowerCase();
+  return (
+    /jobposting/i.test(text) ||
+    /\b(apply now|apply for this job|job description|responsibilities|qualifications|about the role|open roles|view all jobs|search jobs|career opportunities)\b/i.test(haystack)
+  );
 }
 
 /**
@@ -970,8 +1765,316 @@ function buildPagePrompt(
   ].join("\n");
 }
 
+function buildHintResolutionPrompt(
+  candidate: GroundedSearchCandidate,
+  company: CompanyTarget,
+  run: DiscoveryRun,
+  maxResults: number,
+): string {
+  const hintedTitle = inferHintJobTitle(candidate.title);
+  const hintedCompany = uniqueStrings([
+    cleanText(company.name),
+    inferCompanyFromTitle(candidate.title),
+  ])[0] || "";
+  const hintedLocation = inferHintLocation(candidate.title);
+  const config = run.config;
+
+  return [
+    "Resolve this third-party job hint to a canonical employer or ATS page.",
+    "Return strict JSON only.",
+    'Use this shape: {"results":[{"url":"https://...","title":"...","pageType":"job|listings|careers|other","reason":"..."}]}.',
+    "Only return direct employer career sites or trusted ATS job pages.",
+    "Do not return LinkedIn, Glassdoor, Indeed, WorkingNomads, RemoteOK, We Work Remotely, Remote.co, Remotive, Jobspresso, JobGether, Himalayas, FlexJobs, Adzuna, CareerJet, JobRapido, JobIsJob, Google, or other third-party aggregators.",
+    `Hint URL: ${candidate.url}`,
+    `Hint title: ${candidate.title}`,
+    `Hinted job title: ${hintedTitle || "unknown"}`,
+    `Hinted company: ${hintedCompany || "unknown"}`,
+    `Hinted location: ${hintedLocation || "unknown"}`,
+    `Target roles: ${joinOrAny(config.targetRoles)}`,
+    `Include keywords: ${joinOrAny([
+      ...config.includeKeywords,
+      ...(company.includeKeywords || []),
+    ])}`,
+    `Locations: ${joinOrAny(config.locations)}`,
+    `Remote policy: ${config.remotePolicy || "any"}`,
+    `Return at most ${Math.max(1, maxResults)} candidate links.`,
+    "Prefer ATS hosts like Greenhouse, Lever, Ashby, Workday, iCIMS, Jobvite, Taleo, and SuccessFactors.",
+  ].join("\n");
+}
+
+function inferHintJobTitle(title: string): string {
+  const cleaned = cleanText(title)
+    .replace(
+      /\b(linkedin|glassdoor|indeed|monster|ziprecruiter|careerbuilder|simplyhired|builtin|wellfound|angel\.co|otta|working\s+nomads|remote\s*ok|remote\.co|we\s*work\s*remotely|remotive|dynamite\s*jobs|jobspresso|jobgether|himalayas|flexjobs|power\s*to\s*fly|jooble|jobisjob|careerjet|jobrapido|adzuna|jobtoday)\b/gi,
+      "",
+    )
+    .replace(/\s+[|:]\s+.*$/, "")
+    .trim();
+  const atMatch = cleaned.match(/^(.+?)\s+\bat\b\s+.+$/i);
+  if (atMatch?.[1] && isLikelyJobTitle(atMatch[1])) {
+    return cleanText(atMatch[1]);
+  }
+  const parts = cleaned
+    .split(/\s+[|:–—-]\s+/)
+    .map((entry) => cleanText(entry))
+    .filter(Boolean);
+  for (const part of parts) {
+    if (isLikelyJobTitle(part)) return part;
+  }
+  return isLikelyJobTitle(cleaned) ? cleaned : "";
+}
+
+function inferHintLocation(title: string): string {
+  const cleaned = cleanText(title);
+  if (!cleaned) return "";
+  if (/\bremote\b/i.test(cleaned)) {
+    return "Remote";
+  }
+  const parts = cleaned
+    .split(/\s+[|:–—-]\s+/)
+    .map((entry) => cleanText(entry))
+    .filter(Boolean);
+  for (const part of parts) {
+    if (/^[A-Z][A-Za-z .'-]+,\s*[A-Z]{2}$/i.test(part)) {
+      return part;
+    }
+  }
+  return "";
+}
+
+function resolveGroundedCollectionPageLimit(
+  run: DiscoveryRun,
+  fallbackPageLimit: number,
+): number {
+  const configuredPageLimit = run.config.groundedSearchTuning?.maxPagesPerCompany;
+  if (
+    typeof configuredPageLimit === "number" &&
+    Number.isFinite(configuredPageLimit) &&
+    configuredPageLimit > 0
+  ) {
+    return Math.max(1, Math.floor(configuredPageLimit));
+  }
+  if (typeof fallbackPageLimit === "number" && Number.isFinite(fallbackPageLimit) && fallbackPageLimit > 0) {
+    return Math.max(1, Math.floor(fallbackPageLimit));
+  }
+  return 1;
+}
+
+function inferDirectPageTitle(input: {
+  text: string;
+  metadata: Record<string, unknown>;
+  candidate: GroundedSearchCandidate;
+}): string {
+  const candidates = uniqueStrings([
+    extractMetaContent(input.text, "property", "og:title"),
+    extractMetaContent(input.text, "name", "twitter:title"),
+    extractTagText(input.text, "title"),
+    extractTagText(input.text, "h1"),
+    cleanText(String(input.metadata?.title || "")),
+    cleanText(input.candidate.title),
+  ]);
+  return candidates.find((entry) => isLikelyJobTitle(entry)) || "";
+}
+
+function inferCompanyFromPageSignals(input: {
+  candidate: GroundedSearchCandidate;
+  company: CompanyTarget;
+  metadata: Record<string, unknown>;
+  pageText: string;
+  title?: string;
+}): string {
+  const inferred = uniqueStrings([
+    cleanText(input.company.name),
+    extractCompanyFromTextSignals(input.pageText),
+    inferCompanyFromTitle(cleanText(String(input.metadata?.title || ""))),
+    inferCompanyFromTitle(input.title || ""),
+    inferCompanyFromTitle(cleanText(input.candidate.title)),
+    extractMetaContent(input.pageText, "property", "og:site_name"),
+    inferCompanyFromJobHost(input.candidate.url),
+  ]);
+  return inferred.find(Boolean) || "";
+}
+
+function inferLocationFromPageSignals(text: string): string {
+  const plainText = normalizeWhitespace(stripHtml(htmlDecode(text)));
+  const labelMatch = plainText.match(
+    /\b(?:location|locations|based in)\b[:\s-]+([A-Z][A-Za-z0-9 ,/&()-]{2,80})(?:\s{2,}|$)/i,
+  );
+  if (labelMatch?.[1]) {
+    return cleanText(labelMatch[1]);
+  }
+  if (/\bremote\b/i.test(plainText)) {
+    return "Remote";
+  }
+  return "";
+}
+
+function extractDescriptionSnippet(text: string, metadata: Record<string, unknown>): string {
+  const snippets = uniqueStrings([
+    extractMetaContent(text, "name", "description"),
+    extractMetaContent(text, "property", "og:description"),
+    extractTagText(text, "p"),
+    cleanText(String(metadata?.description || "")),
+  ]);
+  return snippets.find((entry) => entry.length >= 24) || "";
+}
+
+function extractAnchorTitle(anchorHtml: string, innerHtml: string): string {
+  const titleCandidates = uniqueStrings([
+    readHtmlAttribute(anchorHtml, "data-job-title"),
+    readHtmlAttribute(anchorHtml, "data-title"),
+    readHtmlAttribute(anchorHtml, "aria-label"),
+    cleanText(stripHtml(innerHtml)),
+    readHtmlAttribute(anchorHtml, "title"),
+  ]);
+  return titleCandidates.find((entry) => isLikelyJobTitle(entry)) || "";
+}
+
+function readHtmlAttribute(fragment: string, attributeName: string): string {
+  const escapedName = attributeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = String(fragment || "").match(
+    new RegExp(`${escapedName}\\s*=\\s*["']([^"']+)["']`, "i"),
+  );
+  return cleanText(htmlDecode(match?.[1] || ""));
+}
+
+function extractMetaContent(
+  html: string,
+  attributeName: "name" | "property",
+  attributeValue: string,
+): string {
+  const escapedValue = attributeValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `<meta\\b[^>]*${attributeName}\\s*=\\s*["']${escapedValue}["'][^>]*content\\s*=\\s*["']([^"']+)["'][^>]*>`,
+    "i",
+  );
+  const reversedPattern = new RegExp(
+    `<meta\\b[^>]*content\\s*=\\s*["']([^"']+)["'][^>]*${attributeName}\\s*=\\s*["']${escapedValue}["'][^>]*>`,
+    "i",
+  );
+  const match = String(html || "").match(pattern) || String(html || "").match(reversedPattern);
+  return cleanText(htmlDecode(match?.[1] || ""));
+}
+
+function extractTagText(html: string, tagName: string): string {
+  const escapedTag = tagName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = String(html || "").match(
+    new RegExp(`<${escapedTag}\\b[^>]*>([\\s\\S]*?)<\\/${escapedTag}>`, "i"),
+  );
+  return cleanText(stripHtml(htmlDecode(match?.[1] || "")));
+}
+
+function extractTitle(html: string): string {
+  return extractTagText(html, "title");
+}
+
+function extractCompanyFromTextSignals(text: string): string {
+  const plainText = normalizeWhitespace(stripHtml(htmlDecode(text)));
+  const match = plainText.match(
+    /\b(?:company|organization|employer|team)\b[:\s-]+([A-Z][A-Za-z0-9 '&.-]{1,80})(?:\s{2,}|$)/i,
+  );
+  if (!match?.[1]) return "";
+  const candidate = cleanText(match[1]);
+  return isLikelyCompanyName(candidate) ? candidate : "";
+}
+
+function inferCompanyFromTitle(title: string): string {
+  const cleaned = cleanText(title);
+  if (!cleaned) return "";
+
+  const atMatch = cleaned.match(/\bat\s+(.+)$/i);
+  if (atMatch?.[1]) {
+    const company = cleanText(atMatch[1]);
+    if (isLikelyCompanyName(company)) {
+      return company;
+    }
+  }
+
+  const parts = cleaned
+    .split(/\s+[|:–—-]\s+/)
+    .map((entry) => cleanText(entry))
+    .filter(Boolean);
+  if (parts.length < 2) {
+    return "";
+  }
+
+  for (const part of parts) {
+    if (isLikelyCompanyName(part) && !isLikelyJobTitle(part)) {
+      return part;
+    }
+  }
+
+  return "";
+}
+
+function inferCompanyFromJobHost(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    const pathSegments = parsed.pathname.split("/").map((entry) => entry.trim()).filter(Boolean);
+
+    if (/(\.|^)lever\.co$/i.test(hostname) && pathSegments[0]) {
+      return humanizeCompanySlug(pathSegments[0]);
+    }
+    if (/greenhouse\.io$/i.test(hostname) && pathSegments[0]) {
+      return humanizeCompanySlug(pathSegments[0]);
+    }
+    if (hostname === "jobs.ashbyhq.com" && pathSegments[0]) {
+      return humanizeCompanySlug(pathSegments[0]);
+    }
+    if (hostname === "apply.workable.com" && pathSegments[0]) {
+      return humanizeCompanySlug(pathSegments[0]);
+    }
+    if (hostname === "jobs.smartrecruiters.com" && pathSegments[0]) {
+      return humanizeCompanySlug(pathSegments[0]);
+    }
+    if (!isLikelyThirdPartyJobHost(url)) {
+      const hostParts = hostname.split(".");
+      const bestToken = /^(careers|jobs|join|apply|work|career)$/i.test(hostParts[0] || "")
+        ? hostParts[1] || hostParts[0] || ""
+        : hostParts.length >= 2
+          ? hostParts[hostParts.length - 2]
+          : hostParts[0] || "";
+      return humanizeCompanySlug(bestToken);
+    }
+  } catch {
+    return "";
+  }
+
+  return "";
+}
+
+function humanizeCompanySlug(input: string): string {
+  const cleaned = String(input || "")
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+  return cleaned
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function isLikelyCompanyName(input: string): boolean {
+  const cleaned = cleanText(input);
+  if (!cleaned || cleaned.length < 2) return false;
+  if (isLikelyJobTitle(cleaned)) return false;
+  if (/\b(careers?|jobs?|remote|united states|apply|view all)\b/i.test(cleaned)) return false;
+  if (/\b(built in|wellfound|otta|linkedin|indeed|glassdoor|remoteok|we work remotely)\b/i.test(cleaned)) {
+    return false;
+  }
+  if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(cleaned)) {
+    return false;
+  }
+  return /[a-z]/i.test(cleaned);
+}
+
 function extractListingsFromSessionResult(input: {
   text: string;
+  metadata: Record<string, unknown>;
   candidate: GroundedSearchCandidate;
   company: CompanyTarget;
   searchQueries: string[];
@@ -982,6 +2085,14 @@ function extractListingsFromSessionResult(input: {
   if (looksLikeHtml(input.text)) {
     const jsonLdListings = extractListingsFromJsonLd(input);
     if (jsonLdListings.length) return jsonLdListings;
+  }
+
+  const directPageListing = extractListingFromDirectPageSignals(input);
+  if (directPageListing) {
+    return [directPageListing];
+  }
+
+  if (looksLikeHtml(input.text)) {
     return extractListingsFromHtmlLinks(input);
   }
 
@@ -990,6 +2101,7 @@ function extractListingsFromSessionResult(input: {
 
 function extractListingsFromStructuredText(input: {
   text: string;
+  metadata: Record<string, unknown>;
   candidate: GroundedSearchCandidate;
   company: CompanyTarget;
   searchQueries: string[];
@@ -1010,6 +2122,7 @@ function extractListingsFromStructuredText(input: {
 
 function extractListingsFromJsonLd(input: {
   text: string;
+  metadata: Record<string, unknown>;
   candidate: GroundedSearchCandidate;
   company: CompanyTarget;
   searchQueries: string[];
@@ -1036,6 +2149,7 @@ function extractListingsFromJsonLd(input: {
 
 function extractListingsFromHtmlLinks(input: {
   text: string;
+  metadata: Record<string, unknown>;
   candidate: GroundedSearchCandidate;
   company: CompanyTarget;
   searchQueries: string[];
@@ -1046,13 +2160,18 @@ function extractListingsFromHtmlLinks(input: {
   while ((match = linkPattern.exec(String(input.text || "")))) {
     const url = resolveUrl(input.candidate.url, match[1] || "");
     if (!url || !isLikelyJobLink(url)) continue;
-    const title = cleanText(stripHtml(match[2] || ""));
+    const title = extractAnchorTitle(match[0] || "", match[2] || "");
     if (!isLikelyJobTitle(title)) continue;
     const listing = toRawListing(
       {
         title,
         url,
-        company: input.company.name,
+        company: inferCompanyFromPageSignals({
+          candidate: input.candidate,
+          company: input.company,
+          metadata: input.metadata,
+          pageText: input.text,
+        }),
       },
       {
         candidate: input.candidate,
@@ -1064,6 +2183,56 @@ function extractListingsFromHtmlLinks(input: {
     if (listing) listings.push(listing);
   }
   return dedupeRawListings(listings).slice(0, 8);
+}
+
+function extractListingFromDirectPageSignals(input: {
+  text: string;
+  metadata: Record<string, unknown>;
+  candidate: GroundedSearchCandidate;
+  company: CompanyTarget;
+  searchQueries: string[];
+}): RawListing | null {
+  const isDirectPage =
+    input.candidate.pageType === "job" || isLikelyJobLink(input.candidate.url);
+  if (!isDirectPage) {
+    return null;
+  }
+
+  const title = inferDirectPageTitle(input);
+  if (!title || !isLikelyJobTitle(title)) {
+    return null;
+  }
+
+  const company = inferCompanyFromPageSignals({
+    candidate: input.candidate,
+    company: input.company,
+    metadata: input.metadata,
+    pageText: input.text,
+    title,
+  });
+  if (!company) {
+    return null;
+  }
+
+  if (!hasStrongDirectPageEvidence(input, title, company)) {
+    return null;
+  }
+
+  return toRawListing(
+    {
+      title,
+      company,
+      location: inferLocationFromPageSignals(input.text),
+      url: input.candidate.url,
+      descriptionText: extractDescriptionSnippet(input.text, input.metadata),
+    },
+    {
+      candidate: input.candidate,
+      company: input.company,
+      searchQueries: input.searchQueries,
+      extractionMode: "page_signals",
+    },
+  );
 }
 
 function toRawListing(
@@ -1097,6 +2266,7 @@ function toRawListing(
     ]) || context.candidate.url,
   );
   if (!url || !/^https?:\/\//i.test(url)) return null;
+  if (classifySeedSourcePolicy(url) !== "extractable") return null;
 
   const companyName =
     readFirstStringValue(record, [
@@ -1110,6 +2280,9 @@ function toRawListing(
     context.company.name;
 
   if (!companiesLikelyMatch(companyName, context.company.name)) {
+    return null;
+  }
+  if (!hasStrongExtractionEvidence(record, context, url, companyName)) {
     return null;
   }
 
@@ -1156,6 +2329,10 @@ function toRawListing(
       ...readStringArray(record.departments),
       ...readStringArray(record.teams),
     ]),
+    providerType: context.candidate.providerType,
+    canonicalUrl: context.candidate.canonicalUrl,
+    finalUrl: context.candidate.finalUrl,
+    sourceLane: context.candidate.sourceLane || "grounded_web",
     metadata: {
       sourceQuery: uniqueStrings([
         ...context.searchQueries,
@@ -1166,8 +2343,89 @@ function toRawListing(
       seedReason: context.candidate.reason,
       seedTitle: context.candidate.title,
       seedDomain: context.candidate.sourceDomain,
+      seedPolicy: candidateSourcePolicy(context.candidate),
+      preflightStatus: context.candidate.preflightStatus || "",
+      resolvedFromUrl: context.candidate.resolvedFromUrl || "",
+      canonicalUrl: context.candidate.canonicalUrl || "",
+      providerType: context.candidate.providerType || "",
+      boardToken: context.candidate.boardToken || "",
+      surfaceType: context.candidate.surfaceType || "",
+      sourceLane: context.candidate.sourceLane || "grounded_web",
     },
   };
+}
+
+function hasStrongDirectPageEvidence(
+  input: {
+    text: string;
+    metadata: Record<string, unknown>;
+    candidate: GroundedSearchCandidate;
+    company: CompanyTarget;
+    searchQueries: string[];
+  },
+  title: string,
+  company: string,
+): boolean {
+  if (isLikelyInformationalJobPage(input.candidate.url, title)) {
+    return false;
+  }
+  const haystack = `${title}\n${cleanText(String(input.metadata?.title || ""))}\n${input.text}`.toLowerCase();
+  return (
+    /jobposting/i.test(input.text) ||
+    isKnownAtsJobHost(input.candidate.url) ||
+    /\b(apply now|apply for this job|job description|responsibilities|qualifications|about the role)\b/i.test(haystack) ||
+    (candidateSourcePolicy(input.candidate) === "extractable" &&
+      cleanText(company).length > 1 &&
+      cleanText(title).length > 3 &&
+      cleanText(extractDescriptionSnippet(input.text, input.metadata)).length >= 24)
+  );
+}
+
+function hasStrongExtractionEvidence(
+  record: AnyRecord,
+  context: {
+    candidate: GroundedSearchCandidate;
+    company: CompanyTarget;
+    searchQueries: string[];
+    extractionMode: string;
+  },
+  url: string,
+  companyName: string,
+): boolean {
+  const description = cleanText(
+    readFirstStringValue(record, ["descriptionText", "description", "summary", "excerpt"]),
+  );
+  if (context.extractionMode === "json_ld") {
+    return true;
+  }
+  if (isKnownAtsJobHost(url)) {
+    return true;
+  }
+  if (context.candidate.preflightStatus === "passed" && context.candidate.pageType === "job") {
+    return true;
+  }
+  if (objectString(record, "hiringOrganization", "name")) {
+    return true;
+  }
+  if (readFirstStringValue(record, ["applyUrl", "jobUrl", "hostedUrl"])) {
+    return true;
+  }
+  if (
+    context.extractionMode === "structured" &&
+    isLikelyJobLink(url) &&
+    cleanText(companyName).length > 1 &&
+    description.length >= 24
+  ) {
+    return true;
+  }
+  if (
+    context.extractionMode === "page_signals" &&
+    cleanText(companyName).length > 1 &&
+    description.length >= 24
+  ) {
+    return true;
+  }
+  return context.extractionMode === "html_link" && isLikelyJobLink(url);
 }
 
 /**
@@ -1294,27 +2552,25 @@ function toGroundedCandidate(
   company: CompanyTarget,
 ): GroundedSearchCandidate | null {
   const record = isPlainRecord(source) ? source : {};
-  const url = cleanAbsoluteUrl(
-    readFirstStringValue(record, ["url", "uri", "link", "href"]),
+  return resolveCareerSurfaceCandidate(
+    {
+      url: readFirstStringValue(record, ["url", "uri", "link", "href"]),
+      title: readFirstStringValue(record, ["title", "name"]),
+      pageType:
+        readFirstStringValue(record, ["pageType", "type"]) ||
+        classifyPageType(
+          readFirstStringValue(record, ["url", "uri", "link", "href"]),
+          readFirstStringValue(record, ["title", "name"]),
+        ),
+      reason:
+        readFirstStringValue(record, ["reason", "why"]) ||
+        `Grounded search result for ${company.name}`,
+    },
+    company,
+    {
+      sourceLane: "grounded_web",
+    },
   );
-  if (!url || !isSupportedSeedUrl(url)) return null;
-
-  const title = readFirstStringValue(record, ["title", "name"]) || url;
-  const pageType = normalizePageType(
-    readFirstStringValue(record, ["pageType", "type"]) ||
-      classifyPageType(url, title),
-  );
-  const reason =
-    readFirstStringValue(record, ["reason", "why"]) ||
-    `Grounded search result for ${company.name}`;
-
-  return {
-    url,
-    title,
-    pageType,
-    reason,
-    sourceDomain: safeHostname(url),
-  };
 }
 
 function mergeGroundedCandidates(
@@ -1323,17 +2579,7 @@ function mergeGroundedCandidates(
   company: CompanyTarget,
   limit: number,
 ): GroundedSearchCandidate[] {
-  const byUrl = new Map<string, GroundedSearchCandidate>();
-  for (const candidate of [...explicit, ...cited]) {
-    const key = candidate.url;
-    const existing = byUrl.get(key);
-    if (!existing || candidateScore(candidate, company) > candidateScore(existing, company)) {
-      byUrl.set(key, candidate);
-    }
-  }
-  return [...byUrl.values()]
-    .sort((left, right) => candidateScore(right, company) - candidateScore(left, company))
-    .slice(0, Math.max(1, limit));
+  return mergeCareerSurfaceCandidates([...explicit, ...cited], company, limit);
 }
 
 /**
@@ -1342,83 +2588,26 @@ function mergeGroundedCandidates(
  * VAL-DATA-003: Employer-domain bonus prioritizes first-party career pages.
  */
 function isEmployerDomain(url: string, companyName: string): boolean {
-  try {
-    const parsed = new URL(url);
-    const hostname = parsed.hostname.toLowerCase();
-    const companyLower = companyName.toLowerCase();
-
-    // Extract the base domain (e.g., "acme" from "www.acme.com" or "careers.acme.com")
-    const hostnameParts = hostname.split(".");
-    const baseDomain = hostnameParts.length >= 2 ? hostnameParts.slice(-2).join(".") : hostname;
-    const baseName = hostnameParts[0]; // First part before the TLD
-
-    // Check if the hostname contains a recognizable company identifier
-    // that matches the target company name
-    const companyTokens = companyLower.split(/[^a-z0-9]+/).filter(t => t.length >= 3);
-
-    // First-party indicators:
-    // 1. Subdomain that matches company name (e.g., careers.acme.com, jobs.acme.com)
-    // 2. Path-based career page on a domain that matches company
-    // 3. The base domain itself contains company tokens (e.g., workday.com/acme)
-
-    // Check if base domain name contains company identifier
-    const baseDomainMatchesCompany = companyTokens.some(token =>
-      baseDomain.includes(token) || baseName.includes(token)
-    );
-
-    if (!baseDomainMatchesCompany) return false;
-
-    // First-party employer domains typically have careers/, jobs/, or work with us paths
-    // or use subdomains like careers., jobs., work., etc.
-    const isFirstPartySubdomain = /^(careers|jobs|work|join|apply|hiring|career)\./i.test(hostname);
-    const isFirstPartyPath = /\/careers?\/|\/jobs\/|\/work-with-us|\/join-us|\/hiring\//i.test(parsed.pathname);
-
-    return isFirstPartySubdomain || isFirstPartyPath;
-  } catch {
-    return false;
-  }
+  return isEmployerCareerSurface(url, { name: companyName });
 }
 
 function candidateScore(
   candidate: GroundedSearchCandidate,
   company: CompanyTarget,
 ): number {
-  let score = 0;
-  if (candidate.pageType === "job") score += 40;
-  else if (candidate.pageType === "listings") score += 30;
-  else if (candidate.pageType === "careers") score += 20;
-  if (isLikelyJobLink(candidate.url)) score += 12;
-  if (mentionsCompany(candidate.url, candidate.title, company.name)) score += 8;
-  if (candidate.reason) score += 2;
+  return scoreCareerSurfaceCandidate(normalizeGroundedCandidate(candidate, company), company);
+}
 
-  // VAL-DATA-003: Bounded employer-domain bonus
-  // Apply a small tie-breaker bonus for first-party employer domains.
-  // The bonus is small enough (4 points) that it won't override materially stronger
-  // non-employer relevance (e.g., a "job" pageType scores 40 vs 20 for "careers",
-  // so employer-domain bonus on a careers page won't outrank a direct job page).
-  if (isEmployerDomain(candidate.url, company.name)) {
-    score += 4;
-  }
+function isKnownAtsJobHost(url: string): boolean {
+  return isKnownAtsCareerSurface(url);
+}
 
-  return score;
+function isLikelyThirdPartyJobHost(url: string): boolean {
+  return isThirdPartyCareerSurface(url);
 }
 
 function classifyPageType(url: string, title: string): GroundedSearchCandidate["pageType"] {
-  const haystack = `${url} ${title}`.toLowerCase();
-  if (
-    /(\/job\/|\/jobs\/|\/careers\/[^/?#]+|\/positions\/|gh_jid=|lever\.co\/[^/]+\/[^/?#]+|ashbyhq\.com\/[^/]+\/[^/?#]+)/i.test(
-      haystack,
-    )
-  ) {
-    return "job";
-  }
-  if (/(careers|open roles|job board|jobs search|all jobs|join us)/i.test(haystack)) {
-    return "listings";
-  }
-  if (/(career|jobs)/i.test(haystack)) {
-    return "careers";
-  }
-  return "other";
+  return classifyCareerSurfacePageType(url, title);
 }
 
 function normalizePageType(value: string): GroundedSearchCandidate["pageType"] {
@@ -1429,45 +2618,51 @@ function normalizePageType(value: string): GroundedSearchCandidate["pageType"] {
   return "other";
 }
 
-/**
- * Checks if a hostname is denylisted.
- * Handles both exact string matches and regex patterns.
- */
-function isHostnameDenied(hostname: string): boolean {
-  const lowerHostname = hostname.toLowerCase();
-  for (const entry of SEED_HOST_DENYLIST) {
-    if (typeof entry === "string") {
-      if (lowerHostname === entry) return true;
-    } else if (entry.pattern) {
-      if (entry.pattern.test(lowerHostname)) return true;
-    }
-  }
-  return false;
+function classifySeedSourcePolicy(url: string): GroundedCandidateSourcePolicy {
+  return classifyCareerSurfaceSourcePolicy(url);
 }
 
 /**
- * Checks if a URL is a supported seed URL (not denylisted).
- * VAL-DATA-002: Expanded denylist with host variants enforced.
+ * Checks if a URL is a supported seed URL.
+ * Blocked URLs are still rejected, while hint-only URLs remain available for
+ * canonical resolution.
  */
 function isSupportedSeedUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    if (!["https:", "http:"].includes(parsed.protocol)) return false;
-    if (isHostnameDenied(parsed.hostname)) return false;
+  return !!canonicalizeCareerSurfaceUrl(url) && classifySeedSourcePolicy(url) !== "blocked";
+}
+
+function candidateSourcePolicy(candidate: GroundedSearchCandidate): GroundedCandidateSourcePolicy {
+  return candidate.sourcePolicy || classifySeedSourcePolicy(candidate.finalUrl || candidate.url);
+}
+
+function isCanonicalExtractableCandidate(
+  candidate: GroundedSearchCandidate,
+  company: CompanyTarget,
+): boolean {
+  const normalized = normalizeGroundedCandidate(candidate, company);
+  if (normalized.sourcePolicy !== "extractable") return false;
+  if (normalized.providerType) return true;
+  if (isEmployerCareerSurface(normalized.finalUrl || normalized.url, company)) {
     return true;
-  } catch {
-    return false;
   }
+  return !isLikelyThirdPartyJobHost(normalized.finalUrl || normalized.url);
+}
+
+function normalizeGroundedCandidate(
+  candidate: GroundedSearchCandidate,
+  company: CompanyTarget = { name: "" },
+): GroundedSearchCandidate {
+  return normalizeCareerSurfaceCandidate(
+    {
+      ...candidate,
+      sourcePolicy: candidateSourcePolicy(candidate),
+    },
+    company,
+  );
 }
 
 function cleanAbsoluteUrl(input: string): string {
-  try {
-    const parsed = new URL(input);
-    parsed.hash = "";
-    return parsed.toString();
-  } catch {
-    return "";
-  }
+  return canonicalizeCareerSurfaceUrl(input);
 }
 
 function resolveUrl(baseUrl: string, maybeRelative: string): string {
@@ -1540,25 +2735,183 @@ function extractJsonArray(input: string): string {
   return start !== -1 && end > start ? input.slice(start, end + 1) : "";
 }
 
-function firstCandidateGroundingMetadata(payload: unknown): AnyRecord | null {
-  if (!isPlainRecord(payload) || !Array.isArray(payload.candidates)) return null;
-  const candidate = payload.candidates.find((entry) => isPlainRecord(entry));
-  if (!isPlainRecord(candidate) || !isPlainRecord(candidate.groundingMetadata)) {
-    return null;
+function executeGroundedSearchRequest(input: {
+  prompt: string;
+  company: CompanyTarget;
+  run: DiscoveryRun;
+  endpoint: string;
+  apiKey: string;
+  fetchImpl: FetchImpl;
+  maxResultsPerCompany: number;
+  signal?: AbortSignal;
+}): Promise<{
+  candidates: GroundedSearchCandidate[];
+  searchQueries: string[];
+  regexFallbackUsed: boolean;
+  regexFallbackAttempted: boolean;
+  failure?: {
+    status?: number;
+    message: string;
+    retryable: boolean;
+  };
+}> {
+  const maxOutputTokens = input.run.config.groundedSearchTuning?.maxTokensPerQuery ?? 2048;
+  throwIfAborted(input.signal);
+  return input.fetchImpl(input.endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-goog-api-key": input.apiKey,
+    },
+    signal: input.signal,
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [{ text: SEARCH_SYSTEM_PROMPT }],
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: input.prompt }],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens,
+      },
+      tools: [{ google_search: {} }],
+    }),
+  })
+    .then(async (response) => {
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        return {
+          candidates: [],
+          searchQueries: [],
+          regexFallbackUsed: false,
+          regexFallbackAttempted: false,
+          failure: {
+            status: response.status,
+            message:
+              objectString(payload, "error", "message") ||
+              `Gemini grounded search HTTP ${response.status}`,
+            retryable: isRetryableGroundedSearchStatus(response.status),
+          },
+        };
+      }
+      return parseGroundedSearchResponsePayload(
+        payload,
+        input.company,
+        input.maxResultsPerCompany,
+      );
+    })
+    .catch((error) => {
+      if (isAbortError(error)) {
+        throw error;
+      }
+      return {
+        candidates: [],
+        searchQueries: [],
+        regexFallbackUsed: false,
+        regexFallbackAttempted: false,
+        failure: {
+          message: `Gemini grounded search request failed: ${formatError(error)}`,
+          retryable: true,
+        },
+      };
+    });
+}
+
+function candidatePayloads(payload: unknown): AnyRecord[] {
+  if (!isPlainRecord(payload) || !Array.isArray(payload.candidates)) return [];
+  return payload.candidates.filter((entry) => isPlainRecord(entry)) as AnyRecord[];
+}
+
+function parseGroundedSearchResponsePayload(
+  payload: unknown,
+  company: CompanyTarget,
+  maxResultsPerCompany: number,
+): {
+  candidates: GroundedSearchCandidate[];
+  searchQueries: string[];
+  regexFallbackUsed: boolean;
+  regexFallbackAttempted: boolean;
+} {
+  const explicitCandidates: GroundedSearchCandidate[] = [];
+  const citedCandidates: GroundedSearchCandidate[] = [];
+  const searchQueries: string[] = [];
+  let regexFallbackUsed = false;
+  let regexFallbackAttempted = false;
+
+  for (const candidate of candidatePayloads(payload)) {
+    const text = extractCandidateText(candidate);
+    if (text) {
+      const explicitResult = extractGroundedCandidatesFromText(text, company);
+      explicitCandidates.push(...explicitResult.candidates);
+      if (explicitResult.regexFallbackUsed) {
+        regexFallbackUsed = true;
+      }
+      if (explicitResult.regexFallbackAttempted) {
+        regexFallbackAttempted = true;
+      }
+    }
+
+    const groundingMetadata = extractGroundingMetadata(candidate);
+    if (groundingMetadata) {
+      searchQueries.push(...readStringArray(groundingMetadata.webSearchQueries));
+      citedCandidates.push(
+        ...extractGroundedCandidatesFromMetadata(groundingMetadata, company),
+      );
+    }
   }
+
+  return {
+    candidates: mergeGroundedCandidates(
+      explicitCandidates,
+      citedCandidates,
+      company,
+      maxResultsPerCompany,
+    ),
+    searchQueries: uniqueStrings(searchQueries),
+    regexFallbackUsed,
+    regexFallbackAttempted,
+  };
+}
+
+function extractGroundingMetadata(candidate: AnyRecord): AnyRecord | null {
+  if (!isPlainRecord(candidate.groundingMetadata)) return null;
   return candidate.groundingMetadata as AnyRecord;
 }
 
-function extractModelText(payload: unknown): string {
-  if (!isPlainRecord(payload) || !Array.isArray(payload.candidates)) return "";
-  const candidate = payload.candidates.find((entry) => isPlainRecord(entry));
-  if (!isPlainRecord(candidate) || !isPlainRecord(candidate.content)) return "";
+function extractCandidateText(candidate: AnyRecord): string {
+  if (!isPlainRecord(candidate.content)) return "";
   const parts = Array.isArray(candidate.content.parts) ? candidate.content.parts : [];
   return parts
     .map((entry) => (isPlainRecord(entry) ? cleanText(entry.text) : ""))
     .filter(Boolean)
     .join("\n")
     .trim();
+}
+
+function isRetryableGroundedSearchStatus(status: number): boolean {
+  return status >= 500 || status === 408;
+}
+
+function buildGroundedSearchFailureContext(
+  failure: GroundedSearchRequestFailure,
+): string {
+  const scope = typeof failure.rung === "number"
+    ? `query "${failure.query}" (rung ${failure.rung})`
+    : `query "${failure.query}"`;
+  const status = failure.status ? `HTTP ${failure.status}: ` : "";
+  return `Grounded search request failed for ${scope}. ${status}${failure.message}`;
+}
+
+function formatGroundedSearchFailureWarning(
+  failure: GroundedSearchRequestFailure,
+): string {
+  const retryability = failure.retryable ? "retryable upstream failure" : "upstream failure";
+  const status = failure.status ? `HTTP ${failure.status}: ` : "";
+  return `Grounded search ${retryability}: ${status}${failure.message}`;
 }
 
 function companiesLikelyMatch(left: string, right: string): boolean {
@@ -1584,6 +2937,9 @@ function normalizeCompanyKey(input: string): string {
 }
 
 function isLikelyJobLink(url: string): boolean {
+  if (isLikelyInformationalJobPage(url, "")) {
+    return false;
+  }
   return /(\/job\/|\/jobs\/|\/careers\/[^/?#]+|\/positions\/|gh_jid=|lever\.co\/[^/]+\/[^/?#]+|ashbyhq\.com\/[^/]+\/[^/?#]+)/i.test(
     String(url || ""),
   );
@@ -1665,6 +3021,13 @@ const NAVIGATION_TITLE_DENYLIST = new Set([
 function isLikelyJobTitle(input: string): boolean {
   const text = cleanText(input).toLowerCase();
   if (!text || text.length < 4) return false;
+  if (
+    /(page not found|not found|404|403|forbidden|access denied|sign in|log in|login required|www\.[a-z0-9-]+\.[a-z]{2,})/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
   // Reject exact denylist matches
   if (NAVIGATION_TITLE_DENYLIST.has(text)) return false;
   // Reject titles that are prefixes of denylist entries (e.g. "read more about" -> "read more")
@@ -1688,59 +3051,67 @@ function isLikelyJobTitle(input: string): boolean {
   return /[a-z]/i.test(text);
 }
 
-/**
- * Multi-signal dedupe for raw listings: uses normalized (title + company)
- * identity in addition to URL to collapse semantic duplicates across alternate
- * URLs that point to the same job (e.g. short link vs long link, same job
- * accessed via different referral paths).
- *
- * Strategy: First group by (title, company) identity. For each identity group,
- * pick the best entry (longest description, or direct job link as tiebreaker).
- * This collapses alternate URLs for the same job into a single entry.
- */
-function dedupeRawListings(listings: RawListing[]): RawListing[] {
-  // Identity key -> best listing for that identity
-  const byIdentity = new Map<string, RawListing>();
-
-  for (const listing of listings) {
-    const urlKey = cleanAbsoluteUrl(listing.url);
-    if (!urlKey) continue;
-
-    // Build identity key from normalized title + company
-    const normalizedTitle = normalizeForDedup(listing.title || "");
-    const normalizedCompany = normalizeForDedup(listing.company || "");
-    if (!normalizedTitle || !normalizedCompany) continue;
-
-    const identityKey = `${normalizedTitle}|${normalizedCompany}`;
-    const existing = byIdentity.get(identityKey);
-
-    // Choose the better listing: longer description wins; if equal, prefer
-    // a URL that looks like a direct job link over a generic/redirect URL.
-    const existingDescLen = String(existing?.descriptionText || "").length;
-    const newDescLen = String(listing.descriptionText || "").length;
-    const better = !existing ||
-      newDescLen > existingDescLen ||
-      (newDescLen === existingDescLen &&
-        isLikelyJobLink(urlKey) && !isLikelyJobLink(existing.url || ""));
-
-    if (better) {
-      byIdentity.set(identityKey, { ...listing, url: urlKey });
+function isLikelyInformationalJobPage(url: string, title: string): boolean {
+  try {
+    const parsed = new URL(String(url || "").trim());
+    const segments = parsed.pathname
+      .toLowerCase()
+      .split("/")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    const finalSlug = segments[segments.length - 1] || "";
+    if (INFORMATIONAL_PAGE_SLUGS.has(finalSlug)) {
+      return true;
     }
+  } catch {
+    // Ignore malformed URLs and fall back to title-based checks.
   }
 
-  return [...byIdentity.values()];
+  const normalizedTitle = cleanText(title).toLowerCase();
+  return [
+    "benefits",
+    "how we work",
+    "how to get a job here",
+    "how we hire",
+    "why work here",
+    "our culture",
+    "life at",
+    "about us",
+    "our story",
+    "our team",
+    "values",
+    "mission",
+    "faq",
+  ].includes(normalizedTitle);
 }
 
-/**
- * Normalizes a string for use as part of a dedupe identity key.
- * Strips punctuation, folds whitespace, and lowercases.
- */
-function normalizeForDedup(input: string): string {
-  return String(input || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+function createAbortError(): Error {
+  const error = new Error("Aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof Error && error.name === "AbortError") ||
+    String(error).toLowerCase().includes("aborted")
+  );
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
+}
+
+function dedupeRawListings(listings: RawListing[]): RawListing[] {
+  const cleaned = listings
+    .map((listing) => {
+      const url = cleanAbsoluteUrl(listing.url);
+      return url ? { ...listing, url } : null;
+    })
+    .filter((listing): listing is RawListing => !!listing);
+  return dedupeFingerprintListings(cleaned).uniqueItems;
 }
 
 function joinOrAny(values: readonly string[]): string {

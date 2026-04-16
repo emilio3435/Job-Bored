@@ -1,0 +1,55 @@
+{
+  "runId": "run_df8faeb2b4bb456c83ed4570c0b8a8b8",
+  "testedAt": "2026-04-12T20:14:34.664Z",
+  "preset": "browser_plus_ats",
+  "targetRoles": "Senior Engineer",
+  "keywordsInclude": "AI",
+  "companies": [],
+  "terminal": true,
+  "status": "partial",
+  "message": "Discovery completed with warnings — worker processed the run.",
+  "grounded_web_diagnostics": [
+    {
+      "code": "fetch_fallback",
+      "context": "Browser-use command failed; fell back to plain HTTP fetch for https://www.cotiviti.com/careers/job-details/?jobId=R0008447. Error: Browser Use command exited 127: /bin/sh: browser-use: command not found\n",
+      "url": "https://www.cotiviti.com/careers/job-details/?jobId=R0008447"
+    },
+    {
+      "code": "low_content_spa",
+      "context": "Response for https://www.cotiviti.com/careers/job-details/?jobId=R0008447 contains skeleton/loading patterns suggesting an SPA or dynamic loading state.",
+      "url": "https://www.cotiviti.com/careers/job-details/?jobId=R0008447"
+    },
+    {
+      "code": "fetch_fallback",
+      "context": "Browser-use command failed; fell back to plain HTTP fetch for https://www.capitalone.com/careers/job-details/?jobId=R176722. Error: Browser Use command exited 127: /bin/sh: browser-use: command not found\n",
+      "url": "https://www.capitalone.com/careers/job-details/?jobId=R176722"
+    },
+    {
+      "code": "low_content_spa",
+      "context": "Response is only 100 characters, likely an SPA loading state or skeleton HTML for https://www.capitalone.com/careers/job-details/?jobId=R176722.",
+      "url": "https://www.capitalone.com/careers/job-details/?jobId=R176722"
+    },
+    {
+      "code": "fetch_fallback",
+      "context": "Browser-use command failed; fell back to plain HTTP fetch for https://qcells.com/us/company/careers/job-details/?jobId=R00000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000. Error: Browser Use command exited 127: /bin/sh: browser-use: command not found\n",
+      "url": "https://qcells.com/us/company/careers/job-details/?jobId=R00000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "code": "low_content_spa",
+      "context": "Response is only 144 characters, likely an SPA loading state or skeleton HTML for https://qcells.com/us/company/careers/job-details/?jobId=R00000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000.",
+      "url": "https://qcells.com/us/company/careers/job-details/?jobId=R00000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "code": "zero_results",
+      "context": "Extracted zero job listings from 4 candidate pages. All pages either had no extractable content or failed to load."
+    }
+  ],
+  "grounded_web_warnings": [
+    "Regex URL fallback used: grounded output was non-JSON or conversational; URLs recovered via pattern matching.",
+    "Session fallback: browser-use command unavailable for https://www.cotiviti.com/careers/job-details/?jobId=R0008447; used plain fetch instead.",
+    "Grounded page extraction failed for https://careers.mcgrawhill.com/job/United-States-Sr-Software-Engineer-AI/1154562000/: fetch failed",
+    "Session fallback: browser-use command unavailable for https://www.capitalone.com/careers/job-details/?jobId=R176722; used plain fetch instead.",
+    "Session fallback: browser-use command unavailable for https://qcells.com/us/company/careers/job-details/?jobId=R00000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000; used plain fetch instead.",
+    "Grounded web extraction returned zero job listings from 4 candidate pages."
+  ]
+}

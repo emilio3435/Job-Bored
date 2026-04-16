@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -60,6 +60,7 @@ const defaultStateDatabasePath = join(
   "state",
   "worker-state.sqlite",
 );
+const defaultRuntimeEnvFilePath = join(moduleDir, "..", ".env");
 const defaultHermesGoogleTokenPath = join(
   homedir(),
   ".hermes",
@@ -71,10 +72,45 @@ const defaultAllowedOrigins = ["http://localhost:8080", "http://127.0.0.1:8080"]
 const defaultScheduleCron = "0 7 * * 1-5";
 const defaultMaxLeadsPerRun = 25;
 const supportedSourceSet = new Set(SUPPORTED_SOURCE_IDS);
+const defaultAtsCompanies: CompanyTarget[] = [
+  {
+    name: "Scale AI",
+    companyKey: "scale-ai",
+    normalizedName: "scale-ai",
+    domains: ["scale.com"],
+    roleTags: ["ai strategy", "ai automation", "operations", "product manager"],
+    boardHints: {
+      greenhouse: "scaleai",
+      ashby: "scale-ai",
+    },
+  },
+  {
+    name: "Figma",
+    companyKey: "figma",
+    normalizedName: "figma",
+    domains: ["figma.com"],
+    roleTags: ["growth marketing", "product manager", "community", "marketing operations"],
+    boardHints: {
+      greenhouse: "figma",
+      ashby: "figma",
+    },
+  },
+  {
+    name: "Notion",
+    companyKey: "notion",
+    normalizedName: "notion",
+    domains: ["notion.so"],
+    roleTags: ["growth marketing", "product manager", "community", "marketing operations"],
+    boardHints: {
+      greenhouse: "notion",
+      ashby: "notion",
+    },
+  },
+];
 
 // === UltraPlan preset-specific default values ===
 // browser_only uses elevated agentic defaults:
-//   - groundedSearchTuning: maxResultsPerCompany=12, maxPagesPerCompany=8, maxRuntimeMs=120000, maxTokensPerQuery=4096
+//   - groundedSearchTuning: maxResultsPerCompany=12, maxPagesPerCompany=8, maxRuntimeMs=300000, maxTokensPerQuery=4096
 //   - ultraPlanTuning: multiQuery=true, retryBroadening=true, parallelCompanyProcessing=true
 // Other presets (ats_only, browser_plus_ats) use legacy conservative values:
 //   - groundedSearchTuning: maxResultsPerCompany=6, maxPagesPerCompany=4, maxRuntimeMs=30000, maxTokensPerQuery=2048
@@ -140,7 +176,7 @@ function resolveGroundedSearchTuning(
     return {
       maxResultsPerCompany: isBrowserOnly ? 12 : 6,
       maxPagesPerCompany: isBrowserOnly ? 8 : 4,
-      maxRuntimeMs: isBrowserOnly ? 120000 : 30000,
+      maxRuntimeMs: isBrowserOnly ? 300000 : 30000,
       maxTokensPerQuery: isBrowserOnly ? 4096 : 2048,
       multiQueryCap: isBrowserOnly ? 4 : 3,
     };
@@ -164,7 +200,7 @@ function resolveGroundedSearchTuning(
       explicitTuning.maxRuntimeMs !== undefined
         ? explicitTuning.maxRuntimeMs
         : isBrowserOnly
-          ? 120000
+          ? 300000
           : 30000,
     maxTokensPerQuery:
       explicitTuning.maxTokensPerQuery !== undefined
@@ -184,8 +220,9 @@ function resolveGroundedSearchTuning(
 export function loadRuntimeConfig(
   env: RuntimeEnv = process.env,
 ): WorkerRuntimeConfig {
+  const runtimeEnv = mergeRuntimeEnvWithDotEnv(env);
   const runMode = normalizeRunMode(
-    readFirst(env, [
+    readFirst(runtimeEnv, [
       "BROWSER_USE_DISCOVERY_RUN_MODE",
       "DISCOVERY_RUN_MODE",
       "RUN_MODE",
@@ -193,14 +230,14 @@ export function loadRuntimeConfig(
     "hosted",
   );
   const workerConfigPath = resolvePath(
-    readFirst(env, [
+    readFirst(runtimeEnv, [
       "BROWSER_USE_DISCOVERY_CONFIG_PATH",
       "DISCOVERY_WORKER_CONFIG_PATH",
       "DISCOVERY_CONFIG_PATH",
     ]) || defaultWorkerConfigPath,
   );
   const stateDatabasePath = resolvePath(
-    readFirst(env, [
+    readFirst(runtimeEnv, [
       "BROWSER_USE_DISCOVERY_STATE_DB_PATH",
       "BROWSER_USE_DISCOVERY_STATE_PATH",
       "DISCOVERY_STATE_DB_PATH",
@@ -208,34 +245,34 @@ export function loadRuntimeConfig(
     ]) || defaultStateDatabasePath,
   );
   const allowedOrigins = normalizeAllowedOrigins(
-    readList(env, [
+    readList(runtimeEnv, [
       "BROWSER_USE_DISCOVERY_ALLOWED_ORIGINS",
       "DISCOVERY_ALLOWED_ORIGINS",
     ]),
     runMode,
   );
-  const googleAccessToken = readFirst(env, [
+  const googleAccessToken = readFirst(runtimeEnv, [
     "BROWSER_USE_DISCOVERY_GOOGLE_ACCESS_TOKEN",
     "GOOGLE_ACCESS_TOKEN",
   ]);
-  const googleServiceAccountJson = readFirst(env, [
+  const googleServiceAccountJson = readFirst(runtimeEnv, [
     "BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON",
     "GOOGLE_SERVICE_ACCOUNT_JSON",
     "GOOGLE_APPLICATION_CREDENTIALS_JSON",
   ]);
   const googleServiceAccountFile = resolvePath(
-    readFirst(env, [
+    readFirst(runtimeEnv, [
       "BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE",
       "GOOGLE_SERVICE_ACCOUNT_FILE",
       "GOOGLE_APPLICATION_CREDENTIALS",
     ]),
   );
-  const googleOAuthTokenJson = readFirst(env, [
+  const googleOAuthTokenJson = readFirst(runtimeEnv, [
     "BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_JSON",
     "GOOGLE_OAUTH_TOKEN_JSON",
   ]);
   let googleOAuthTokenFile = resolvePath(
-    readFirst(env, [
+    readFirst(runtimeEnv, [
       "BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_FILE",
       "GOOGLE_OAUTH_TOKEN_FILE",
     ]),
@@ -254,31 +291,31 @@ export function loadRuntimeConfig(
     stateDatabasePath,
     workerConfigPath,
     browserUseCommand:
-      readFirst(env, [
+      readFirst(runtimeEnv, [
         "BROWSER_USE_DISCOVERY_BROWSER_COMMAND",
         "BROWSER_USE_COMMAND",
         "DISCOVERY_BROWSER_COMMAND",
       ]) || "browser-use",
-    geminiApiKey: readFirst(env, [
+    geminiApiKey: readFirst(runtimeEnv, [
       "BROWSER_USE_DISCOVERY_GEMINI_API_KEY",
       "DISCOVERY_GEMINI_API_KEY",
       "GEMINI_API_KEY",
     ]),
     geminiModel:
-      readFirst(env, [
+      readFirst(runtimeEnv, [
         "BROWSER_USE_DISCOVERY_GEMINI_MODEL",
         "DISCOVERY_GEMINI_MODEL",
         "GEMINI_MODEL",
       ]) || "gemini-2.5-flash",
     groundedSearchMaxResultsPerCompany: parsePositiveInt(
-      readFirst(env, [
+      readFirst(runtimeEnv, [
         "BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_RESULTS_PER_COMPANY",
         "DISCOVERY_GROUNDED_SEARCH_MAX_RESULTS_PER_COMPANY",
       ]),
       6,
     ),
     groundedSearchMaxPagesPerCompany: parsePositiveInt(
-      readFirst(env, [
+      readFirst(runtimeEnv, [
         "BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_PAGES_PER_COMPANY",
         "DISCOVERY_GROUNDED_SEARCH_MAX_PAGES_PER_COMPANY",
       ]),
@@ -289,14 +326,14 @@ export function loadRuntimeConfig(
     googleAccessToken,
     googleOAuthTokenJson,
     googleOAuthTokenFile,
-    webhookSecret: readFirst(env, [
+    webhookSecret: readFirst(runtimeEnv, [
       "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET",
       "DISCOVERY_WEBHOOK_SECRET",
       "WEBHOOK_SECRET",
     ]),
     allowedOrigins,
     port: parsePositiveInt(
-      readFirst(env, [
+      readFirst(runtimeEnv, [
         "BROWSER_USE_DISCOVERY_PORT",
         "DISCOVERY_PORT",
         "PORT",
@@ -304,14 +341,14 @@ export function loadRuntimeConfig(
       8644,
     ),
     host:
-      readFirst(env, [
+      readFirst(runtimeEnv, [
         "BROWSER_USE_DISCOVERY_HOST",
         "DISCOVERY_HOST",
         "HOST",
       ]) || "127.0.0.1",
     runMode,
     asyncAckByDefault: parseBoolean(
-      readFirst(env, [
+      readFirst(runtimeEnv, [
         "BROWSER_USE_DISCOVERY_ASYNC_ACK",
         "DISCOVERY_ASYNC_ACK",
         "ASYNC_ACK",
@@ -319,6 +356,80 @@ export function loadRuntimeConfig(
       true,
     ),
   };
+}
+
+function mergeRuntimeEnvWithDotEnv(env: RuntimeEnv): RuntimeEnv {
+  const envFilePath = resolveRuntimeEnvFilePath(env);
+  if (!envFilePath) return env;
+
+  const parsed = readRuntimeEnvFile(envFilePath, {
+    required: hasExplicitRuntimeEnvFile(env),
+  });
+  if (!parsed) return env;
+
+  return {
+    ...parsed,
+    ...env,
+  };
+}
+
+function hasExplicitRuntimeEnvFile(env: RuntimeEnv): boolean {
+  return !!readFirst(env, [
+    "BROWSER_USE_DISCOVERY_ENV_FILE",
+    "DISCOVERY_ENV_FILE",
+  ]);
+}
+
+function resolveRuntimeEnvFilePath(env: RuntimeEnv): string {
+  const explicit = resolvePath(
+    readFirst(env, [
+      "BROWSER_USE_DISCOVERY_ENV_FILE",
+      "DISCOVERY_ENV_FILE",
+    ]),
+  );
+  if (explicit) return explicit;
+  return env === process.env ? defaultRuntimeEnvFilePath : "";
+}
+
+function readRuntimeEnvFile(
+  pathname: string,
+  options: { required?: boolean } = {},
+): RuntimeEnv | null {
+  if (!pathname) return null;
+  if (!existsSync(pathname)) {
+    if (options.required) {
+      throw new Error(`Runtime env file does not exist at ${pathname}.`);
+    }
+    return null;
+  }
+  try {
+    return parseRuntimeEnvFile(readFileSync(pathname, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `Failed to read runtime env file at ${pathname}: ${formatError(error)}`,
+    );
+  }
+}
+
+function parseRuntimeEnvFile(text: string): RuntimeEnv {
+  const out: RuntimeEnv = {};
+  if (!text) return out;
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"') && value.length >= 2) ||
+      (value.startsWith("'") && value.endsWith("'") && value.length >= 2)
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (key) out[key] = value;
+  }
+  return out;
 }
 
 export async function loadStoredWorkerConfig(
@@ -391,6 +502,7 @@ export function mergeDiscoveryConfig(
     sheetId: cleanString(request.sheetId) || stored.sheetId,
     variationKey: cleanString(request.variationKey) || "",
     requestedAt: cleanString(request.requestedAt) || "",
+    atsCompanies: cloneCompanies(stored.atsCompanies || []),
     targetRoles: requestTargetRoles.length
       ? requestTargetRoles
       : stored.targetRoles,
@@ -451,9 +563,11 @@ export function normalizeSourceIdList(
  *
  * 1. Request-level preset provided → use it (explicit user intent).
  * 2. Stored explicit preset exists   → use stored preset.
- * 3. Only grounded_web enabled       → browser_only.
- * 4. Only ATS lanes enabled          → ats_only.
- * 5. All other mixed/legacy states   → browser_plus_ats.
+ * 3. Only ATS lanes enabled          → ats_only.
+ * 4. All other mixed/legacy states   → browser_plus_ats.
+ *
+ * browser_only remains an explicit/debug preset and is not inferred from
+ * enabledSources-only legacy states.
  */
 export function resolveSourcePreset(
   requestPreset: SourcePreset | undefined | null,
@@ -482,15 +596,13 @@ export function resolveSourcePreset(
     return storedPreset as SourcePreset;
   }
 
-  // 3-5. Infer from enabledSources.
+  // 3-4. Infer from enabledSources.
   const sources = storedConfig.enabledSources || [];
-  const hasGroundedWeb = sources.includes("grounded_web");
   const hasAts = sources.some((id) =>
     ATS_SOURCE_IDS.includes(id as (typeof ATS_SOURCE_IDS)[number]),
   );
 
-  if (hasGroundedWeb && !hasAts) return "browser_only";
-  if (hasAts && !hasGroundedWeb) return "ats_only";
+  if (hasAts && !sources.includes("grounded_web")) return "ats_only";
   return "browser_plus_ats";
 }
 
@@ -529,6 +641,7 @@ function buildDefaultStoredWorkerConfig(
     mode: runMode,
     timezone: defaultTimezone,
     companies: [],
+    atsCompanies: cloneCompanies(defaultAtsCompanies),
     includeKeywords: [],
     excludeKeywords: [],
     targetRoles: [],
@@ -551,6 +664,7 @@ function normalizeStoredWorkerConfig(
 ): StoredWorkerConfig {
   const requestedMode = normalizeRunMode(raw.mode, runMode);
   const companies = normalizeCompanies(raw.companies);
+  const atsCompanies = resolveAtsCompanies(raw, companies);
   const enabledSources = normalizeSourceIdList(readSourceIdArray(raw.enabledSources), {
     groundedWebEnabled:
       typeof raw.groundedWebEnabled === "boolean"
@@ -569,6 +683,7 @@ function normalizeStoredWorkerConfig(
     mode: requestedMode || runMode,
     timezone: cleanString(raw.timezone) || defaultTimezone,
     companies,
+    atsCompanies,
     includeKeywords: normalizeStringList(raw.includeKeywords),
     excludeKeywords: normalizeStringList(raw.excludeKeywords),
     targetRoles: normalizeStringList(raw.targetRoles),
@@ -650,19 +765,63 @@ function normalizeCompanies(input: unknown): CompanyTarget[] {
   return [...byName.values()];
 }
 
+function resolveAtsCompanies(
+  raw: AnyRecord,
+  companies: CompanyTarget[],
+): CompanyTarget[] {
+  if (Object.prototype.hasOwnProperty.call(raw, "atsCompanies")) {
+    return normalizeCompanies(raw.atsCompanies);
+  }
+  if (companies.length) {
+    return cloneCompanies(companies);
+  }
+  return cloneCompanies(defaultAtsCompanies);
+}
+
+function cloneCompanies(companies: readonly CompanyTarget[]): CompanyTarget[] {
+  return companies.map((company) => ({
+    ...company,
+    aliases: company.aliases ? [...company.aliases] : undefined,
+    domains: company.domains ? [...company.domains] : undefined,
+    geoTags: company.geoTags ? [...company.geoTags] : undefined,
+    roleTags: company.roleTags ? [...company.roleTags] : undefined,
+    includeKeywords: company.includeKeywords ? [...company.includeKeywords] : undefined,
+    excludeKeywords: company.excludeKeywords ? [...company.excludeKeywords] : undefined,
+    boardHints: company.boardHints ? { ...company.boardHints } : undefined,
+  }));
+}
+
 function normalizeCompanyTarget(input: unknown): CompanyTarget | null {
   if (typeof input === "string") {
     const name = cleanString(input);
-    return name ? { name } : null;
+    return name
+      ? {
+          name,
+          companyKey: normalizeCompanyKey(name),
+          normalizedName: normalizeCompanyName(name),
+        }
+      : null;
   }
   if (!isPlainRecord(input)) return null;
   const name = cleanString(input.name ?? input.company ?? input.title);
   if (!name) return null;
   const includeKeywords = normalizeStringList(input.includeKeywords);
   const excludeKeywords = normalizeStringList(input.excludeKeywords);
+  const aliases = normalizeStringList(input.aliases);
+  const domains = normalizeStringList(input.domains).map(normalizeDomain);
+  const geoTags = normalizeStringList(input.geoTags);
+  const roleTags = normalizeStringList(input.roleTags);
   const boardHints = normalizeBoardHints(input.boardHints);
   return {
     name,
+    companyKey:
+      cleanString(input.companyKey) || normalizeCompanyKey(name),
+    normalizedName:
+      cleanString(input.normalizedName) || normalizeCompanyName(name),
+    ...(aliases.length ? { aliases } : {}),
+    ...(domains.length ? { domains } : {}),
+    ...(geoTags.length ? { geoTags } : {}),
+    ...(roleTags.length ? { roleTags } : {}),
     ...(includeKeywords.length ? { includeKeywords } : {}),
     ...(excludeKeywords.length ? { excludeKeywords } : {}),
     ...(boardHints ? { boardHints } : {}),
@@ -750,6 +909,27 @@ function cleanString(value: unknown): string {
   return value == null ? "" : String(value).trim();
 }
 
+function normalizeCompanyName(value: string): string {
+  return cleanString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeCompanyKey(value: string): string {
+  return normalizeCompanyName(value).replace(/\s+/g, "-");
+}
+
+function normalizeDomain(value: string): string {
+  return cleanString(value)
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "")
+    .replace(/^www\./, "")
+    .trim();
+}
+
 function parsePositiveInt(value: unknown, fallback: number): number {
   const parsed = Number.parseInt(cleanString(value), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
@@ -771,6 +951,11 @@ function normalizeRunMode(
   const text = cleanString(value).toLowerCase();
   if (text === "local" || text === "hosted") return text;
   return fallback;
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }
 
 function readFirst(env: RuntimeEnv, keys: string[]): string {

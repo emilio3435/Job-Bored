@@ -172,7 +172,7 @@ Automation (e.g. [Hermes Agent](https://github.com/NousResearch/hermes-agent), n
 
 **Built-in real worker path:** use **[`integrations/browser-use-discovery/`](integrations/browser-use-discovery/)** for the repo’s Browser Use-backed discovery worker. It keeps the v1 webhook contract stable, supports local and hosted deployment, writes directly to the user’s Sheet, and covers Greenhouse / Lever / Ashby as the first-layer sources.
 
-**UltraPlan (agentic-primary lane):** `browser_only` now defaults to higher grounded-search limits (`maxResultsPerCompany=12`, `maxPagesPerCompany=8`, `maxRuntimeMs=120000`, `maxTokensPerQuery=4096`), with independent feature flags for multi-query fan-out, retry broadening, and bounded parallel company processing. Run status responses expose resolved `ultraPlanTuning` and `groundedSearchTuning` at `/runs/{runId}` for observability and rollback-safe tuning.
+**UltraPlan (agentic-primary lane):** `browser_only` now defaults to higher grounded-search limits (`maxResultsPerCompany=12`, `maxPagesPerCompany=8`, `maxRuntimeMs=300000`, `maxTokensPerQuery=4096`), with independent feature flags for multi-query fan-out, retry broadening, and bounded parallel company processing. Run status responses expose resolved `ultraPlanTuning` and `groundedSearchTuning` at `/runs/{runId}` for observability and rollback-safe tuning.
 
 **OpenClaw / agent skills (BYO):** use **[`integrations/openclaw-command-center/`](integrations/openclaw-command-center/)** as the agent-skill alternative to the built-in worker path. It teaches user-owned agents how to append rows and handle **Run discovery**; runs in **your** environment, not the maintainer’s.
 

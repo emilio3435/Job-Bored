@@ -2,12 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  ATS_SOURCE_IDS,
   DISCOVERY_WEBHOOK_EVENT,
   DISCOVERY_WEBHOOK_SCHEMA_VERSION,
 } from "../../src/contracts.ts";
+import { createAtsProviderRegistry } from "../../src/browser/providers/index.ts";
 import { createSourceAdapterRegistry } from "../../src/browser/source-adapters.ts";
 
-function makeRun() {
+function makeRun(options = {}) {
+  const enabledSources = options.enabledSources || ["greenhouse", "lever", "ashby"];
+  const boardHints = options.boardHints || {
+    greenhouse: "acme-ai",
+    lever: "acme-ai",
+    ashby: "acme-ai",
+  };
   return {
     runId: "run_test",
     trigger: "manual",
@@ -24,12 +32,9 @@ function makeRun() {
       timezone: "UTC",
       companies: [
         {
-          name: "Acme AI",
-          boardHints: {
-            greenhouse: "acme-ai",
-            lever: "acme-ai",
-            ashby: "acme-ai",
-          },
+          name: options.companyName || "Acme AI",
+          boardHints,
+          ...(options.domains ? { domains: options.domains } : {}),
         },
       ],
       includeKeywords: [],
@@ -39,12 +44,12 @@ function makeRun() {
       remotePolicy: "",
       seniority: "",
       maxLeadsPerRun: 25,
-      enabledSources: ["greenhouse", "lever", "ashby"],
+      enabledSources,
       schedule: { enabled: false, cron: "" },
       variationKey: "var_123",
       requestedAt: "2026-04-09T00:00:00.000Z",
       sourcePreset: "ats_only",
-      effectiveSources: ["greenhouse", "lever", "ashby"],
+      effectiveSources: enabledSources,
     },
   };
 }
@@ -251,4 +256,184 @@ test("greenhouse compensation sanitization strips encoded HTML junk", async () =
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("provider registry exposes the widened ATS provider set", () => {
+  const registry = createAtsProviderRegistry();
+  assert.deepEqual(
+    registry.providers.map((provider) => provider.id),
+    [...ATS_SOURCE_IDS],
+  );
+});
+
+test("provider registry returns responsive ATS detections even when one provider hangs", async () => {
+  const registry = createAtsProviderRegistry(
+    [
+      {
+        id: "greenhouse",
+        label: "Greenhouse",
+        async detectSurfaces(company) {
+          return [
+            {
+              matched: true,
+              sourceId: "greenhouse",
+              sourceLabel: "Greenhouse",
+              providerType: "greenhouse",
+              surfaceType: "provider_board",
+              boardUrl: "https://boards.greenhouse.io/acme-ai",
+              canonicalUrl: "https://boards.greenhouse.io/acme-ai",
+              finalUrl: "https://boards.greenhouse.io/acme-ai",
+              boardToken: "acme-ai",
+              confidence: 1,
+              warnings: [],
+              sourceLane: "ats_provider",
+              metadata: {
+                companyName: company.name,
+              },
+            },
+          ];
+        },
+        async enumerateListings() {
+          return [];
+        },
+        canonicalizeUrl(url) {
+          return String(url || "");
+        },
+        extractExternalJobId() {
+          return "";
+        },
+        scoreSurface() {
+          return 100;
+        },
+      },
+      {
+        id: "ashby",
+        label: "Ashby",
+        async detectSurfaces() {
+          return await new Promise(() => {});
+        },
+        async enumerateListings() {
+          return [];
+        },
+        canonicalizeUrl(url) {
+          return String(url || "");
+        },
+        extractExternalJobId() {
+          return "";
+        },
+        scoreSurface() {
+          return 50;
+        },
+      },
+    ],
+    { detectionTimeoutMs: 10 },
+  );
+
+  const detections = await registry.detectSurfaces(
+    { name: "Acme AI" },
+    ["greenhouse", "ashby"],
+  );
+
+  assert.equal(detections.length, 1);
+  assert.equal(detections[0]?.sourceId, "greenhouse");
+});
+
+test("provider canonicalization covers expanded ATS URLs", () => {
+  const registry = createAtsProviderRegistry();
+  const cases = [
+    [
+      "smartrecruiters",
+      "https://jobs.smartrecruiters.com/AcmeAI/platform-engineer?trid=123",
+      "https://jobs.smartrecruiters.com/AcmeAI/platform-engineer",
+    ],
+    [
+      "workday",
+      "https://acme.wd1.myworkdayjobs.com/en-US/Careers/job/Austin-TX/Platform-Engineer_1234?source=foo",
+      "https://acme.wd1.myworkdayjobs.com/en-US/Careers/job/Austin-TX/Platform-Engineer_1234",
+    ],
+    [
+      "icims",
+      "https://careers-acme.icims.com/jobs/1234/job?mobile=false",
+      "https://careers-acme.icims.com/jobs/1234/job",
+    ],
+    [
+      "jobvite",
+      "https://jobs.jobvite.com/acme/job/o123456?nl=1",
+      "https://jobs.jobvite.com/acme/job/o123456",
+    ],
+    [
+      "taleo",
+      "https://acme.taleo.net/careersection/2/jobdetail.ftl?job=12345&lang=en",
+      "https://acme.taleo.net/careersection/2/jobdetail.ftl?job=12345",
+    ],
+    [
+      "successfactors",
+      "https://career2.successfactors.eu/career?company=acme&career_job_req_id=9876",
+      "https://career2.successfactors.eu/career?jobReq=9876",
+    ],
+    [
+      "workable",
+      "https://apply.workable.com/acme/j/ABC123/?utm_source=test",
+      "https://apply.workable.com/acme/j/ABC123",
+    ],
+    [
+      "breezy",
+      "https://acme.breezy.hr/p/abc123-software-engineer?source=boards",
+      "https://acme.breezy.hr/p/abc123-software-engineer",
+    ],
+    [
+      "recruitee",
+      "https://acme.recruitee.com/o/platform-engineer?lang=en",
+      "https://acme.recruitee.com/o/platform-engineer",
+    ],
+    [
+      "teamtailor",
+      "https://acme.teamtailor.com/jobs/12345-platform-engineer?utm_campaign=test",
+      "https://acme.teamtailor.com/jobs/12345-platform-engineer",
+    ],
+    [
+      "personio",
+      "https://acme.jobs.personio.de/job/123456?display=en",
+      "https://acme.jobs.personio.de/job/123456",
+    ],
+  ];
+
+  for (const [sourceId, input, expected] of cases) {
+    const provider = registry.getProvider(sourceId);
+    assert.ok(provider, `Expected provider for ${sourceId}`);
+    assert.equal(provider?.canonicalizeUrl(input), expected);
+  }
+});
+
+test("registry supports multiple surfaces for a single provider/company", async () => {
+  const registry = createSourceAdapterRegistry({
+    run: async () => ({ text: "<html></html>", metadata: {} }),
+  });
+  const run = makeRun({
+    enabledSources: ["smartrecruiters"],
+    boardHints: {
+      smartrecruiters: [
+        "https://jobs.smartrecruiters.com/AcmeAI",
+        "https://jobs.smartrecruiters.com/AcmeAI/platform-engineer",
+      ].join("\n"),
+    },
+  });
+  const companyContext = { company: run.config.companies[0], run };
+  const detections = await registry.detectBoards(
+    companyContext,
+    run.config.effectiveSources,
+  );
+
+  assert.equal(detections.length, 2);
+  assert.deepEqual(
+    detections.map((item) => item.canonicalUrl).sort(),
+    [
+      "https://jobs.smartrecruiters.com/AcmeAI",
+      "https://jobs.smartrecruiters.com/AcmeAI/platform-engineer",
+    ],
+  );
+  assert.deepEqual(
+    detections.map((item) => item.surfaceType).sort(),
+    ["job_posting", "provider_board"],
+  );
 });

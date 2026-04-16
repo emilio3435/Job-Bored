@@ -1,0 +1,84 @@
+{
+  "groupId": "data-assertions",
+  "testedAt": "2026-04-12T15:30:00.000Z",
+  "isolation": {
+    "repoRoot": "/Users/emilionunezgarcia/Job-Bored",
+    "discoveryWorker": "http://127.0.0.1:8644",
+    "dashboard": "http://localhost:8080",
+    "webhookSecret": "22fb309934e7177f41228938f01bf2a3b277e0bbd671ced74ffff6798020c52b"
+  },
+  "toolsUsed": ["node"],
+  "assertions": [
+    {
+      "id": "VAL-DATA-001",
+      "title": "Regex fallback recovers URLs from conversational/non-JSON output",
+      "status": "pass",
+      "steps": [
+        { "action": "Executed npm run test:browser-use-discovery", "expected": "Tests VAL-DATA-001 (regex fallback) pass", "observed": "All 3 VAL-DATA-001 tests passed" }
+      ],
+      "evidence": {
+        "unitTests": {
+          "testFile": "integrations/browser-use-discovery/tests/browser/grounded-search.test.ts",
+          "passed": 3,
+          "testNames": [
+            "VAL-DATA-001: regex fallback recovers URLs from conversational/non-JSON output",
+            "VAL-DATA-001: regex fallback handles zero-supported case explicitly",
+            "VAL-DATA-001: regex fallback handles mixed URL quality (supported + unsupported)"
+          ]
+        },
+        "command": "npm run test:browser-use-discovery",
+        "exitCode": 0,
+        "totalTests": 184
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-DATA-002",
+      "title": "Expanded denylist excludes disallowed hosts from final candidates",
+      "status": "pass",
+      "steps": [
+        { "action": "Executed npm run test:browser-use-discovery", "expected": "Tests VAL-DATA-002 (denylist) pass", "observed": "All 2 VAL-DATA-002 tests passed" }
+      ],
+      "evidence": {
+        "unitTests": {
+          "testFile": "integrations/browser-use-discovery/tests/browser/grounded-search.test.ts",
+          "passed": 2,
+          "testNames": [
+            "VAL-DATA-002: denylist excludes subdomain variants across all ingestion paths",
+            "VAL-DATA-002: denylist filters via citation ingestion path"
+          ]
+        },
+        "command": "npm run test:browser-use-discovery",
+        "exitCode": 0,
+        "totalTests": 184
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-DATA-003",
+      "title": "Employer-domain bonus prioritizes first-party career pages over comparable aggregators",
+      "status": "pass",
+      "steps": [
+        { "action": "Executed npm run test:browser-use-discovery", "expected": "Tests VAL-DATA-003 (employer-domain bonus) pass", "observed": "All 3 VAL-DATA-003 tests passed" }
+      ],
+      "evidence": {
+        "unitTests": {
+          "testFile": "integrations/browser-use-discovery/tests/browser/grounded-search.test.ts",
+          "passed": 3,
+          "testNames": [
+            "VAL-DATA-003: employer-domain bonus ranks first-party postings higher in tie scenarios",
+            "VAL-DATA-003: employer-domain bonus does not override stronger non-employer relevance",
+            "VAL-DATA-003: employer-domain bonus applies to recognized first-party subdomain patterns"
+          ]
+        },
+        "command": "npm run test:browser-use-discovery",
+        "exitCode": 0,
+        "totalTests": 184
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 8 assertions across VAL-DATA-001 (3 tests), VAL-DATA-002 (2 tests), and VAL-DATA-003 (3 tests): all pass. Full test:browser-use-discovery suite passed with 184/184 tests. VAL-DATA-001 confirms regex fallback recovers URLs from conversational/non-JSON output with explicit warning. VAL-DATA-002 confirms expanded denylist with subdomain pattern matching enforced across all ingestion paths. VAL-DATA-003 confirms bounded 4-point employer-domain bonus preserves stronger non-employer relevance while prioritizing first-party career pages."
+}

@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 
 import type { WorkerRuntimeConfig } from "../config.ts";
 
+const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
+
 type GoogleServiceAccount = {
   client_email: string;
   private_key: string;
@@ -12,8 +14,11 @@ type GoogleOAuthToken = {
   refresh_token: string;
   client_id: string;
   client_secret: string;
+  token_uri: string;
   expiry: string;
 };
+
+type FetchLike = typeof fetch;
 
 export type SheetsCredentialSource =
   | "access_token"
@@ -72,6 +77,7 @@ function parseOAuthToken(rawJson: string): GoogleOAuthToken {
     refresh_token: asText(parsed.refresh_token),
     client_id: asText(parsed.client_id),
     client_secret: asText(parsed.client_secret),
+    token_uri: asText(parsed.token_uri) || GOOGLE_TOKEN_URI,
     expiry: asText(parsed.expiry),
   };
 }
@@ -113,6 +119,36 @@ function assertUsableOAuthToken(
   throw new Error(
     "Google OAuth token JSON must include a token or refresh_token, client_id, and client_secret.",
   );
+}
+
+async function refreshOAuthAccessToken(
+  tokenConfig: GoogleOAuthToken,
+  fetchImpl: FetchLike,
+): Promise<void> {
+  const response = await fetchImpl(tokenConfig.token_uri || GOOGLE_TOKEN_URI, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: tokenConfig.refresh_token,
+      client_id: tokenConfig.client_id,
+      client_secret: tokenConfig.client_secret,
+    }).toString(),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `Failed to refresh Google OAuth token: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+    );
+  }
+
+  const payload = (await response.json().catch(() => ({}))) as {
+    access_token?: string;
+  };
+  if (!payload.access_token) {
+    throw new Error("Google OAuth refresh response missing access_token");
+  }
 }
 
 async function readCredentialFile(
@@ -158,9 +194,11 @@ export async function validateSheetsCredentialReadiness(
   runtimeConfig: WorkerRuntimeConfig,
   options: {
     now?: () => Date;
+    fetchImpl?: FetchLike;
   } = {},
 ): Promise<SheetsCredentialReadiness> {
   const now = options.now || (() => new Date());
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
 
   if (asText(runtimeConfig.googleAccessToken)) {
     return {
@@ -212,7 +250,14 @@ export async function validateSheetsCredentialReadiness(
   const oauthTokenJson = asText(runtimeConfig.googleOAuthTokenJson);
   if (oauthTokenJson) {
     try {
-      assertUsableOAuthToken(parseOAuthToken(oauthTokenJson), now);
+      const tokenConfig = parseOAuthToken(oauthTokenJson);
+      assertUsableOAuthToken(tokenConfig, now);
+      if (
+        !hasFreshOAuthAccessToken(tokenConfig, now) &&
+        hasOAuthRefreshCredentials(tokenConfig)
+      ) {
+        await refreshOAuthAccessToken(tokenConfig, fetchImpl);
+      }
       return {
         configured: true,
         source: "oauth_token_json",
@@ -230,12 +275,16 @@ export async function validateSheetsCredentialReadiness(
   const oauthTokenFile = asText(runtimeConfig.googleOAuthTokenFile);
   if (oauthTokenFile) {
     try {
-      assertUsableOAuthToken(
-        parseOAuthToken(
-          await readCredentialFile(oauthTokenFile, "Google OAuth token"),
-        ),
-        now,
+      const tokenConfig = parseOAuthToken(
+        await readCredentialFile(oauthTokenFile, "Google OAuth token"),
       );
+      assertUsableOAuthToken(tokenConfig, now);
+      if (
+        !hasFreshOAuthAccessToken(tokenConfig, now) &&
+        hasOAuthRefreshCredentials(tokenConfig)
+      ) {
+        await refreshOAuthAccessToken(tokenConfig, fetchImpl);
+      }
       return {
         configured: true,
         source: "oauth_token_file",

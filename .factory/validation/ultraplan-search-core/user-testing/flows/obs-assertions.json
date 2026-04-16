@@ -1,0 +1,126 @@
+{
+  "groupId": "obs-assertions",
+  "testedAt": "2026-04-12T20:20:00.000Z",
+  "isolation": {
+    "repoRoot": "/Users/emilionunezgarcia/Job-Bored",
+    "discoveryWorker": "http://127.0.0.1:8644",
+    "webhookSecret": "22fb309934e7177f41228938f01bf2a3b277e0bbd671ced74ffff6798020c52b",
+    "dashboard": "http://localhost:8080"
+  },
+  "toolsUsed": ["curl"],
+  "assertions": [
+    {
+      "id": "VAL-OBS-001",
+      "title": "fetch fallback is explicitly attributed with low-content diagnostics",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Triggered discovery run with browser_plus_ats preset and unrestricted scope",
+          "expected": "Run executes grounded_web lane with fetch fallback diagnostics",
+          "observed": "Run completed with grounded_web diagnostics showing fetch_fallback and low_content_spa codes"
+        },
+        {
+          "action": "Retrieved run status from /runs/{runId}",
+          "expected": "Structured diagnostics array contains fetch_fallback and low_content_spa codes with context and URL attribution",
+          "observed": "diagnostics array contains 7 entries: 3 fetch_fallback codes with URL context, 3 low_content_spa codes, and 1 zero_results code"
+        }
+      ],
+      "evidence": {
+        "runId": "run_df8faeb2b4bb456c83ed4570c0b8a8b8",
+        "runStatusEndpoint": "http://127.0.0.1:8644/runs/run_df8faeb2b4bb456c83ed4570c0b8a8b8",
+        "screenshots": null,
+        "network": "POST /webhook -> 202 accepted_async; GET /runs/run_df8faeb2b4bb456c83ed4570c0b8a8b8 -> 200",
+        "diagnosticsFound": [
+          {
+            "code": "fetch_fallback",
+            "context": "Browser-use command failed; fell back to plain HTTP fetch for https://www.cotiviti.com/careers/job-details/?jobId=R0008447. Error: Browser Use command exited 127: /bin/sh: browser-use: command not found",
+            "url": "https://www.cotiviti.com/careers/job-details/?jobId=R0008447"
+          },
+          {
+            "code": "low_content_spa",
+            "context": "Response for https://www.cotiviti.com/careers/job-details/?jobId=R0008447 contains skeleton/loading patterns suggesting an SPA or dynamic loading state.",
+            "url": "https://www.cotiviti.com/careers/job-details/?jobId=R0008447"
+          }
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-OBS-003",
+      "title": "zero-result outcomes expose structured diagnostics while preserving warning compatibility",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Triggered discovery run with browser_plus_ats preset that produced zero results",
+          "expected": "Structured diagnostics contain zero_results code AND warnings array contains corresponding string",
+          "observed": "diagnostics array contains zero_results code with context; warnings array contains 'Grounded web extraction returned zero job listings from 4 candidate pages.'"
+        }
+      ],
+      "evidence": {
+        "runId": "run_df8faeb2b4bb456c83ed4570c0b8a8b8",
+        "structuredDiagnostic": {
+          "code": "zero_results",
+          "context": "Extracted zero job listings from 4 candidate pages. All pages either had no extractable content or failed to load."
+        },
+        "warningString": "Grounded web extraction returned zero job listings from 4 candidate pages.",
+        "dualLayerPresent": true
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-002",
+      "title": "degraded zero-result path remains source-attributed with dual-layer diagnostics",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Verified zero-result diagnostics include source attribution (URLs) and dual-layer structure",
+          "expected": "Structured diagnostics have URL attribution AND warnings array has string messages",
+          "observed": "fetch_fallback diagnostics include URL field; low_content_spa diagnostics include URL field; zero_results diagnostic includes context with page count; warnings array has corresponding string messages"
+        }
+      ],
+      "evidence": {
+        "runId": "run_df8faeb2b4bb456c83ed4570c0b8a8b8",
+        "sourceAttribution": "URLs present in fetch_fallback and low_content_spa diagnostics",
+        "dualLayerStructure": {
+          "structured": "diagnostics array with code + context + url fields",
+          "warnings": "warnings array with human-readable string messages"
+        },
+        "examples": [
+          {
+            "diagnostic": {
+              "code": "fetch_fallback",
+              "context": "Browser-use command failed; fell back to plain HTTP fetch for https://www.cotiviti.com/careers/job-details/?jobId=R0008447",
+              "url": "https://www.cotiviti.com/careers/job-details/?jobId=R0008447"
+            },
+            "warning": "Session fallback: browser-use command unavailable for https://www.cotiviti.com/careers/job-details/?jobId=R0008447; used plain fetch instead."
+          },
+          {
+            "diagnostic": {
+              "code": "low_content_spa",
+              "context": "Response for https://www.cotiviti.com/careers/job-details/?jobId=R0008447 contains skeleton/loading patterns",
+              "url": "https://www.cotiviti.com/careers/job-details/?jobId=R0008447"
+            },
+            "warning": "Session fallback: browser-use command unavailable for https://www.cotiviti.com/careers/job-details/?jobId=R0008447; used plain fetch instead."
+          }
+        ]
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Webho keeecret validation failed initially - had to use correct format (string instead of array for targetRoles)",
+      "resolved": true,
+      "resolution": "DiscoveryProfile type expects targetRoles as string, not array. Used comma-separated string format.",
+      "affectedAssertions": ["all"]
+    },
+    {
+      "description": "ats_only preset excludes grounded_web source, preventing testing of grounded_web diagnostics",
+      "resolved": true,
+      "resolution": "Used browser_plus_ats preset to enable grounded_web execution",
+      "affectedAssertions": ["VAL-OBS-001", "VAL-OBS-003", "VAL-CROSS-002"]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 3 assertions (VAL-OBS-001, VAL-OBS-003, VAL-CROSS-002) via curl API surface using run_df8faeb2b4bb456c83ed4570c0b8a8b8. All assertions PASS. Evidence shows: (1) fetch_fallback and low_content_spa diagnostic codes with URL attribution and context, (2) zero_results diagnostic code with dual-layer structure (structured code + warnings array string), (3) source attribution preserved in diagnostics with URL fields. No blockers encountered."
+}

@@ -1,8 +1,11 @@
+import { createHash } from "node:crypto";
+
 import {
   DEFAULT_STATUS,
   type DiscoveryRun,
   type NormalizedLead,
   type RawListing,
+  type RemoteBucket,
 } from "../contracts.ts";
 import {
   sanitizeCompensationText,
@@ -29,6 +32,40 @@ export type LeadNormalizationResult = {
 
 export type NormalizeLeadOptions = {
   enforceRelevanceFilters?: boolean;
+};
+
+export type LeadFingerprintBasis =
+  | "canonical_url_external_job_id"
+  | "company_title_location_remote"
+  | "content_hash";
+
+export type LeadFingerprintInput = {
+  title?: string;
+  company?: string;
+  location?: string;
+  url?: string;
+  canonicalUrl?: string;
+  externalJobId?: string;
+  descriptionText?: string;
+  fitAssessment?: string;
+  remoteBucket?: RemoteBucket | string;
+  employmentType?: string;
+  metadata?: Record<string, unknown> | NormalizedLead["metadata"] | null;
+};
+
+export type LeadFingerprint = {
+  fingerprintKey: string;
+  fingerprintBasis: LeadFingerprintBasis;
+  semanticKey: string;
+  companyKey: string;
+  titleKey: string;
+  locationKey: string;
+  canonicalUrlKey: string;
+  canonicalUrl: string;
+  externalJobId: string;
+  remoteBucket: RemoteBucket;
+  employmentType: string;
+  contentHash: string;
 };
 
 export function normalizeLeadUrl(input: string): string {
@@ -230,6 +267,23 @@ export function normalizeLeadWithDiagnostics(
       : "";
 
   const logoUrl = deriveLogoUrl(url, company);
+  const listingFingerprint = buildLeadFingerprint({
+    title,
+    company,
+    location,
+    url,
+    canonicalUrl:
+      rawListing.canonicalUrl || metadataString(rawListing.metadata, "canonicalUrl"),
+    externalJobId:
+      rawListing.externalJobId || metadataString(rawListing.metadata, "externalJobId"),
+    descriptionText,
+    fitAssessment,
+    remoteBucket:
+      rawListing.remoteBucket || metadataString(rawListing.metadata, "remoteBucket"),
+    employmentType:
+      rawListing.employmentType || metadataString(rawListing.metadata, "employmentType"),
+    metadata: rawListing.metadata,
+  });
 
   return {
     lead: {
@@ -256,6 +310,18 @@ export function normalizeLeadWithDiagnostics(
         runId: run.runId,
         variationKey: run.request.variationKey,
         sourceQuery: sourceQuery || `${rawListing.sourceLabel}:${url}`,
+        providerType: rawListing.providerType,
+        externalJobId: listingFingerprint.externalJobId || undefined,
+        canonicalUrl: listingFingerprint.canonicalUrl || undefined,
+        boardToken: metadataString(rawListing.metadata, "boardToken") || undefined,
+        sourceLane: rawListing.sourceLane,
+        surfaceId:
+          rawListing.surfaceId || metadataString(rawListing.metadata, "surfaceId") || undefined,
+        fingerprintKey: listingFingerprint.fingerprintKey || undefined,
+        semanticKey: listingFingerprint.semanticKey || undefined,
+        remoteBucket: listingFingerprint.remoteBucket,
+        employmentType: listingFingerprint.employmentType || undefined,
+        companyKey: listingFingerprint.companyKey || undefined,
       },
     },
     rejection: null,
@@ -277,7 +343,7 @@ function normalizeTimestamp(input: string): string {
     : parsed.toISOString();
 }
 
-function normalizeCompanyKey(input: string): string {
+export function normalizeCompanyKey(input: string): string {
   return String(input || "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "");
@@ -321,14 +387,34 @@ function tokenizeKeywords(values: string[]): string[] {
 }
 
 function findMatchedKeywords(haystack: string, keywords: string[]): string[] {
-  const normalizedHaystack = haystack.toLowerCase();
+  const normalizedHaystack = normalizeWhitespace(haystack).toLowerCase();
   return tokenizeKeywords(keywords).filter((keyword) =>
-    normalizedHaystack.includes(keyword.toLowerCase()),
+    keywordMatchesHaystack(normalizedHaystack, keyword),
   );
 }
 
 function matchesAnyKeyword(haystack: string, keywords: string[]): boolean {
   return findMatchedKeywords(haystack, keywords).length > 0;
+}
+
+function keywordMatchesHaystack(haystack: string, keyword: string): boolean {
+  const normalizedKeyword = normalizeWhitespace(keyword).toLowerCase();
+  if (!normalizedKeyword) return false;
+  if (!/[a-z0-9]/.test(normalizedKeyword)) {
+    return haystack.includes(normalizedKeyword);
+  }
+  if (/^[a-z0-9 ]+$/.test(normalizedKeyword)) {
+    const pattern = new RegExp(
+      `(?:^|[^a-z0-9])${escapeRegExp(normalizedKeyword).replace(/ /g, "\\s+")}(?=$|[^a-z0-9])`,
+      "i",
+    );
+    return pattern.test(haystack);
+  }
+  return haystack.includes(normalizedKeyword);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 const REMOTE_LOCATION_PATTERN =
@@ -337,13 +423,161 @@ const HYBRID_LOCATION_PATTERN = /\bhybrid\b/i;
 const ONSITE_LOCATION_PATTERN =
   /\b(on[\s-]?site|in[\s-]?office|office-based)\b/i;
 
-function normalizeLocationText(input: string): string {
+export function normalizeLocationText(input: string): string {
   return normalizeWhitespace(input)
     .toLowerCase()
     .replace(/\bu\.?s\.?a?\b/g, "united states")
     .replace(/\bu\.?k\.?\b/g, "united kingdom")
     .replace(/\bnyc\b/g, "new york")
     .replace(/[|/]+/g, " ");
+}
+
+export function normalizeSemanticIdentityText(input: string): string {
+  return normalizeWhitespace(toPlainText(input))
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function inferRemoteBucket(input: {
+  remoteBucket?: RemoteBucket | string;
+  location?: string;
+  descriptionText?: string;
+  fitAssessment?: string;
+  title?: string;
+}): RemoteBucket {
+  const explicit = normalizeRemoteBucket(input.remoteBucket);
+  if (explicit !== "unknown") return explicit;
+
+  const haystack = normalizeLocationText(
+    [
+      input.location,
+      input.descriptionText,
+      input.fitAssessment,
+      input.title,
+    ]
+      .map((value) => toPlainText(value || ""))
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  if (!haystack) return "unknown";
+  if (REMOTE_LOCATION_PATTERN.test(haystack)) return "remote";
+  if (HYBRID_LOCATION_PATTERN.test(haystack)) return "hybrid";
+  if (ONSITE_LOCATION_PATTERN.test(haystack)) return "onsite";
+  return "unknown";
+}
+
+export function buildLeadSemanticKey(input: LeadFingerprintInput): string {
+  const companyKey = normalizeCompanyKey(toPlainText(input.company || ""));
+  const titleKey = normalizeSemanticIdentityText(input.title || "");
+  const locationKey = normalizeSemanticIdentityText(
+    normalizeLocationText(input.location || ""),
+  );
+  const remoteBucket = inferRemoteBucket({
+    remoteBucket:
+      input.remoteBucket || metadataString(input.metadata, "remoteBucket"),
+    location: input.location,
+    descriptionText: input.descriptionText,
+    fitAssessment: input.fitAssessment,
+    title: input.title,
+  });
+  return [companyKey, titleKey, locationKey, remoteBucket].join("|");
+}
+
+export function buildLeadFingerprint(
+  input: LeadFingerprintInput,
+): LeadFingerprint {
+  const canonicalUrl = normalizeLeadUrl(
+    input.canonicalUrl || metadataString(input.metadata, "canonicalUrl") || input.url || "",
+  );
+  const canonicalUrlKey = canonicalUrl;
+  const externalJobId = normalizeExternalJobId(
+    input.externalJobId || metadataString(input.metadata, "externalJobId"),
+  );
+  const companyKey = normalizeCompanyKey(toPlainText(input.company || ""));
+  const titleKey = normalizeSemanticIdentityText(input.title || "");
+  const locationKey = normalizeSemanticIdentityText(
+    normalizeLocationText(input.location || ""),
+  );
+  const remoteBucket = inferRemoteBucket({
+    remoteBucket:
+      input.remoteBucket || metadataString(input.metadata, "remoteBucket"),
+    location: input.location,
+    descriptionText: input.descriptionText,
+    fitAssessment: input.fitAssessment,
+    title: input.title,
+  });
+  const employmentType = normalizeSemanticIdentityText(
+    input.employmentType || metadataString(input.metadata, "employmentType"),
+  );
+  const semanticKey = [companyKey, titleKey, locationKey, remoteBucket].join(
+    "|",
+  );
+  const descriptionFragment = buildDescriptionFragment(
+    input.descriptionText || input.fitAssessment || "",
+  );
+  const contentHash = hashIdentityParts([
+    titleKey,
+    locationKey,
+    descriptionFragment,
+  ]);
+
+  if (canonicalUrlKey && externalJobId) {
+    return {
+      fingerprintKey: `primary:${hashIdentityParts([
+        canonicalUrlKey,
+        externalJobId,
+      ])}`,
+      fingerprintBasis: "canonical_url_external_job_id",
+      semanticKey,
+      companyKey,
+      titleKey,
+      locationKey,
+      canonicalUrlKey,
+      canonicalUrl,
+      externalJobId,
+      remoteBucket,
+      employmentType,
+      contentHash,
+    };
+  }
+
+  if (companyKey && titleKey) {
+    return {
+      fingerprintKey: `semantic:${hashIdentityParts([semanticKey])}`,
+      fingerprintBasis: "company_title_location_remote",
+      semanticKey,
+      companyKey,
+      titleKey,
+      locationKey,
+      canonicalUrlKey,
+      canonicalUrl,
+      externalJobId,
+      remoteBucket,
+      employmentType,
+      contentHash,
+    };
+  }
+
+  return {
+    fingerprintKey: contentHash ? `content:${contentHash}` : "",
+    fingerprintBasis: "content_hash",
+    semanticKey,
+    companyKey,
+    titleKey,
+    locationKey,
+    canonicalUrlKey,
+    canonicalUrl,
+    externalJobId,
+    remoteBucket,
+    employmentType,
+    contentHash,
+  };
 }
 
 function findMatchedLocationSignals(
@@ -590,4 +824,46 @@ function buildTalkingPoints({
     points.push("Anchor examples at the requested seniority level");
   }
   return points.join(". ");
+}
+
+function normalizeExternalJobId(input: string): string {
+  return normalizeWhitespace(toPlainText(input))
+    .toLowerCase()
+    .replace(/\s+/g, "");
+}
+
+function normalizeRemoteBucket(input: RemoteBucket | string | undefined): RemoteBucket {
+  const normalized = normalizeWhitespace(String(input || "")).toLowerCase();
+  if (normalized === "remote") return "remote";
+  if (normalized === "hybrid") return "hybrid";
+  if (normalized === "onsite" || normalized === "on-site" || normalized === "on site") {
+    return "onsite";
+  }
+  return "unknown";
+}
+
+function buildDescriptionFragment(input: string): string {
+  return normalizeSemanticIdentityText(input)
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 32)
+    .join(" ");
+}
+
+function hashIdentityParts(parts: string[]): string {
+  const normalized = parts
+    .map((part) => normalizeWhitespace(part))
+    .filter(Boolean)
+    .join("|");
+  if (!normalized) return "";
+  return createHash("sha256").update(normalized).digest("hex");
+}
+
+function metadataString(
+  metadata: LeadFingerprintInput["metadata"] | RawListing["metadata"],
+  key: string,
+): string {
+  if (!metadata || typeof metadata !== "object") return "";
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === "string" ? toPlainText(value) : "";
 }
