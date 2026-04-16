@@ -873,10 +873,6 @@ export async function runDiscovery(
   }
 
   const completedAt = dependencies.now().toISOString();
-  const sourceSummary = buildSourceSummary(
-    extractionResultsBySource,
-    rejectionSummaryBySource,
-  );
   const lifecycleState = determineLifecycleState(leadsToWrite.length, warnings);
 
   // VAL-LOOP-CORE-008: Emit learn stage (memory persistence begins)
@@ -902,6 +898,8 @@ export async function runDiscovery(
   // This captures per-surface, per-run outcome data for future ranking and selection
   if (dependencies.discoveryMemoryStore) {
     const intentKey = `run:${runId}`;
+    let persistedOutcomeCount = 0;
+    let skippedOutcomeCount = 0;
 
     // Persist exploit outcome for each source that produced results
     for (const [sourceId, extractionResult] of extractionResultsBySource) {
@@ -911,24 +909,73 @@ export async function runDiscovery(
       const surfaceId = firstLead?.metadata?.surfaceId || sourceId;
       const sourceLane = firstLead?.metadata?.sourceLane || determineSourceLaneFromId(sourceId);
       const surfaceType = determineSurfaceTypeFromSourceId(sourceId);
+      const canonicalUrl = String(firstLead?.url || "").trim();
 
-      dependencies.discoveryMemoryStore.writeExploitOutcome({
-        runId,
-        intentKey,
-        surfaceId,
-        companyKey,
-        sourceId,
-        sourceLane,
-        surfaceType,
-        canonicalUrl: firstLead?.url || "",
-        observedAt: completedAt,
-        listingsSeen: extractionResult.stats.leadsSeen,
-        listingsAccepted: extractionResult.stats.leadsAccepted,
-        listingsRejected: rejectionSummary?.totalRejected || 0,
-        listingsWritten: leadsToWrite.filter((l) => l.sourceId === sourceId).length,
-        rejectionReasons: rejectionSummary?.rejectionReasons || {},
-        rejectionSamples: rejectionSummary?.rejectionSamples || [],
-      });
+      if (!canonicalUrl) {
+        skippedOutcomeCount += 1;
+        const warning =
+          `Exploit outcome memory persistence skipped for ${sourceId}: canonicalUrl unavailable because the source produced zero accepted leads.`;
+        extractionResult.warnings.push(warning);
+        extractionResult.diagnostics = [
+          ...(extractionResult.diagnostics || []),
+          {
+            context:
+              `Exploit outcome memory persistence skipped because canonicalUrl was unavailable after zero accepted leads for ${sourceId}.`,
+          },
+        ];
+        dependencies.log?.("discovery.run.memory_persistence_skipped", {
+          runId,
+          intentKey,
+          sourceId,
+          reason: "missing_canonical_url",
+          listingsSeen: extractionResult.stats.leadsSeen,
+          listingsAccepted: extractionResult.stats.leadsAccepted,
+          listingsWritten: leadsToWrite.filter((lead) => lead.sourceId === sourceId).length,
+        });
+        continue;
+      }
+
+      try {
+        dependencies.discoveryMemoryStore.writeExploitOutcome({
+          runId,
+          intentKey,
+          surfaceId,
+          companyKey,
+          sourceId,
+          sourceLane,
+          surfaceType,
+          canonicalUrl,
+          observedAt: completedAt,
+          listingsSeen: extractionResult.stats.leadsSeen,
+          listingsAccepted: extractionResult.stats.leadsAccepted,
+          listingsRejected: rejectionSummary?.totalRejected || 0,
+          listingsWritten: leadsToWrite.filter((l) => l.sourceId === sourceId).length,
+          rejectionReasons: rejectionSummary?.rejectionReasons || {},
+          rejectionSamples: rejectionSummary?.rejectionSamples || [],
+        });
+        persistedOutcomeCount += 1;
+      } catch (error) {
+        skippedOutcomeCount += 1;
+        const errorMessage = formatError(error);
+        const warning =
+          `Exploit outcome memory persistence skipped for ${sourceId}: ${errorMessage}`;
+        extractionResult.warnings.push(warning);
+        extractionResult.diagnostics = [
+          ...(extractionResult.diagnostics || []),
+          {
+            context:
+              `Exploit outcome memory persistence skipped for ${sourceId}: ${errorMessage}`,
+            ...(canonicalUrl ? { url: canonicalUrl } : {}),
+          },
+        ];
+        dependencies.log?.("discovery.run.memory_persistence_failed", {
+          runId,
+          intentKey,
+          sourceId,
+          canonicalUrl,
+          error: errorMessage,
+        });
+      }
     }
 
     // VAL-LOOP-MEM-004: Learn role families from accepted leads
@@ -947,10 +994,16 @@ export async function runDiscovery(
     dependencies.log?.("discovery.run.memory_persistence_completed", {
       runId,
       intentKey,
-      outcomeCount: extractionResultsBySource.size,
+      outcomeCount: persistedOutcomeCount,
+      skippedOutcomeCount,
       roleFamiliesLearned: leadsToWrite.length,
     });
   }
+
+  const sourceSummary = buildSourceSummary(
+    extractionResultsBySource,
+    rejectionSummaryBySource,
+  );
 
   return {
     run,
