@@ -67,6 +67,11 @@ Dry run confirmed this mission is CPU-heavy for realistic runs. Use conservative
   2. POST `/webhook` locally, capture `runId` + `statusPath`, poll until terminal.
   3. Record terminal outcome evidence for real integrations.
 
+- Required flow for `VAL-LOOP-CROSS-006`:
+  1. Trigger local webhook run with valid secret and variationKey.
+  2. Poll run status to terminal and capture payload.
+  3. Assert terminal payload does not contain error `canonicalUrl is required.` and ends in valid lifecycle semantics.
+
 ## Evidence Bundle Per End-to-End Assertion
 
 1. Webhook request + response (status + body, secret redacted)
