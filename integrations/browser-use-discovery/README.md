@@ -30,7 +30,7 @@ Environment variables:
 - `BROWSER_USE_DISCOVERY_ASYNC_ACK`: `true` by default
 - `BROWSER_USE_DISCOVERY_CONFIG_PATH`: path to worker config JSON
 - `BROWSER_USE_DISCOVERY_STATE_DB_PATH`: path to the worker state database
-- `BROWSER_USE_DISCOVERY_BROWSER_COMMAND`: optional Browser Use command; when unset or failing, adapters fall back to direct fetch
+- `BROWSER_USE_DISCOVERY_BROWSER_COMMAND`: optional browser automation command; local development can use `integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs`, and when unset or failing adapters fall back to direct fetch
 - `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`: optional Gemini key for grounded Google Search expansion
 - `BROWSER_USE_DISCOVERY_GEMINI_MODEL`: Gemini model for grounded search, defaults to `gemini-2.5-flash`
 - `BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_RESULTS_PER_COMPANY`: candidate links to keep per company, defaults to `6`
@@ -116,10 +116,16 @@ Example:
 BROWSER_USE_DISCOVERY_RUN_MODE=local \
 BROWSER_USE_DISCOVERY_CONFIG_PATH="$PWD/integrations/browser-use-discovery/state/worker-config.json" \
 BROWSER_USE_DISCOVERY_STATE_DB_PATH="$PWD/integrations/browser-use-discovery/state/worker-state.sqlite" \
+BROWSER_USE_DISCOVERY_BROWSER_COMMAND="$PWD/integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs" \
 BROWSER_USE_DISCOVERY_GEMINI_API_KEY="$GEMINI_API_KEY" \
 BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE="$PWD/service-account.json" \
 node --experimental-strip-types integrations/browser-use-discovery/src/server.ts
 ```
+
+The bundled `browser-use-agent-browser.mjs` adapter wraps the local `agent-browser`
+CLI and speaks the worker's JSON-over-stdin/stdout contract. It looks for
+`agent-browser` on `PATH`, `AGENT_BROWSER_PATH`, or the local default install at
+`~/.factory/tools/agent-browser/bin/agent-browser`.
 
 Health check:
 

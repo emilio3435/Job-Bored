@@ -737,6 +737,79 @@ export type IntentCoverageRecord = {
   completedAt: string;
 };
 
+/**
+ * Role-family pattern record learned from accepted/near-miss leads.
+ * Used by planner to find adjacent companies with matching role signals (VAL-LOOP-MEM-004).
+ */
+export type DiscoveryRoleFamilyRecord = {
+  familyKey: string;
+  baseRole: string;
+  roleVariantsJson: string;
+  companyKey: string;
+  sourceLane: string;
+  confirmedCount: number;
+  nearMissCount: number;
+  lastConfirmedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/**
+ * A scout-phase observation record capturing what was discovered during surface scouting.
+ * Persisted after scout completion for later ranking and selection consumption.
+ */
+export type ScoutObservationRecord = {
+  /** Unique observation reference (run_id + surface_id or generated). */
+  observationRef: string;
+  /** The run this observation belongs to. */
+  runId: string;
+  /** The surface that was observed. */
+  surfaceId: string;
+  /** The company being scouted. */
+  companyRef: string;
+  /** Source adapter that performed the scout (e.g., greenhouse, lever, grounded_web). */
+  sourceId: SupportedSourceId;
+  /** Discovery lane where the surface was found (ats_provider, company_surface, grounded_web). */
+  sourceLane: DiscoverySourceLane;
+  /** Type of surface observed (provider_board, employer_careers, employer_jobs, job_posting, hint_candidate). */
+  surfaceType: CareerSurfaceType;
+  /** Canonical URL of the observed surface. */
+  canonicalUrl: string;
+  /** ATS provider type if applicable. */
+  providerType: AtsSourceId | "";
+  /** Hostname of the surface URL. */
+  host: string;
+  /** Final URL after redirects. */
+  finalUrl: string;
+  /** Board token extracted from URL. */
+  boardToken: string;
+  /** When the observation was made. */
+  observedAt: string;
+  /** Number of listings seen during this scout observation. */
+  listingsSeen: number;
+  /** Whether the scout succeeded (surface was detected and accessible). */
+  success: boolean;
+  /** Error/reason if success is false. */
+  failureReason: string;
+};
+
+export type ScoutObservationQuery = {
+  /** Filter by run ID. */
+  runId?: string | null;
+  /** Filter by surface ID. */
+  surfaceId?: string | null;
+  /** Filter by company reference. */
+  companyRef?: string | null;
+  /** Filter by source ID. */
+  sourceId?: string | null;
+  /** Filter by source lane. */
+  sourceLane?: string | null;
+  /** Filter by success status. */
+  success?: boolean | null;
+  /** Limit results. */
+  limit?: number | null;
+};
+
 export type DiscoveryMemorySnapshot = {
   intentKey: string;
   companies: CompanyRegistryRecord[];
@@ -744,6 +817,8 @@ export type DiscoveryMemorySnapshot = {
   deadLinks: DeadLinkRecord[];
   listingFingerprints: ListingFingerprintRecord[];
   intentCoverage: IntentCoverageRecord[];
+  /** Role-family patterns learned from accepted/near-miss leads for adjacent company targeting (VAL-LOOP-MEM-004) */
+  roleFamilies: DiscoveryRoleFamilyRecord[];
 };
 
 export type PlannedCompanySelectionResult = {
@@ -802,6 +877,12 @@ export type DiscoveryMemoryStore = {
   recordIntentCoverage?(
     record: IntentCoverageRecord,
   ): Promise<void> | void;
+  writeScoutObservation?(
+    record: ScoutObservationRecord,
+  ): Promise<void> | void;
+  listScoutObservations?(
+    query?: ScoutObservationQuery,
+  ): Promise<ScoutObservationRecord[]> | ScoutObservationRecord[];
 };
 
 export type BrowserUseSessionRequest = {

@@ -519,6 +519,7 @@ export type PlannerMemorySnapshot = {
   companies: CompanyRegistryRecord[];
   careerSurfaces: CareerSurfaceRecord[];
   intentCoverage: IntentCoverageRecord[];
+  roleFamilies: RoleFamilyRecord[];
 };
 
 export type DiscoveryMemoryCounts = {
@@ -1338,11 +1339,15 @@ export function createDiscoveryMemoryStore(
         (item) => !companyKeys.length || companyKeys.includes(item.companyKey),
       );
 
+      // VAL-LOOP-MEM-004: Include role families for planner targeting
+      const roleFamilies = this.listRoleFamilies();
+
       return {
         generatedAt: now,
         companies,
         careerSurfaces,
         intentCoverage,
+        roleFamilies,
       };
     },
 

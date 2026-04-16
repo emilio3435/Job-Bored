@@ -11,6 +11,10 @@ import {
   loadStoredWorkerConfig,
   mergeDiscoveryConfig,
 } from "./config.ts";
+import {
+  buildDiscoveryIntent as buildPlannerIntent,
+  planCompanies as runCompanyPlanner,
+} from "./discovery/company-planner.ts";
 import { createGroundedSearchClient } from "./grounding/grounded-search.ts";
 import { buildCorsHeaders, isOriginAllowed } from "./http/origin-guard.ts";
 import { createGeminiMatchClient } from "./match/job-matcher.ts";
@@ -24,18 +28,229 @@ import {
   buildRunStatusPath,
   createDiscoveryRunStatusStore,
 } from "./state/run-status-store.ts";
+import { createDiscoveryMemoryStore } from "./state/discovery-memory-store.ts";
 import { handleDiscoveryWebhook } from "./webhook/handle-discovery-webhook.ts";
 import { createBrowserUseSessionManager } from "./browser/session.ts";
 
 const runtimeConfig = loadRuntimeConfig(process.env);
 const sessionManager = createBrowserUseSessionManager(runtimeConfig);
 const groundedSearchClient = runtimeConfig.geminiApiKey
-  ? createGroundedSearchClient(runtimeConfig)
+  ? createGroundedSearchClient(runtimeConfig, { log: logEvent })
   : null;
 const matchClient = runtimeConfig.geminiApiKey
   ? createGeminiMatchClient(runtimeConfig)
   : null;
 const sourceAdapterRegistry = createSourceAdapterRegistry(sessionManager);
+const rawDiscoveryMemoryStore = createDiscoveryMemoryStore(
+  runtimeConfig.stateDatabasePath,
+);
+const companyPlanner = {
+  buildIntent(config: Parameters<typeof buildPlannerIntent>[0]) {
+    return buildPlannerIntent(config);
+  },
+  planCompanies(input: {
+    run: { request: { requestedAt?: string } };
+    intent: ReturnType<typeof buildPlannerIntent>;
+    companies: Array<Record<string, unknown>>;
+      memory?: {
+        companies: unknown[];
+        careerSurfaces: unknown[];
+        intentCoverage: unknown[];
+      } | null;
+  }) {
+    const result = runCompanyPlanner({
+      ...input.intent,
+      companies: input.companies,
+      memory: input.memory
+        ? {
+            companyRegistry: (input.memory.companies || []).map(
+              toPlannerCompanyRecord,
+            ),
+            careerSurfaces: (input.memory.careerSurfaces || []).map(
+              toPlannerCareerSurfaceRecord,
+            ),
+            intentCoverage: input.memory.intentCoverage,
+          }
+        : undefined,
+      now: input.run.request.requestedAt
+        ? new Date(input.run.request.requestedAt)
+        : new Date(),
+    });
+    return {
+      plannedCompanies: result.plannedCompanies.map(mapPlannerCompany),
+      suppressedCompanies: result.suppressedCompanies.map(mapPlannerCompany),
+    };
+  },
+};
+const discoveryMemoryStore = {
+  loadSnapshot(input: {
+    intentKey: string;
+    run: { request: { requestedAt?: string } };
+  }) {
+    return toRunMemorySnapshot(
+      rawDiscoveryMemoryStore.loadPlannerSnapshot({
+        intentKey: input.intentKey,
+        now: input.run.request.requestedAt || new Date().toISOString(),
+      }),
+      input.intentKey,
+    );
+  },
+  upsertCompanyRecords(records: Array<Record<string, unknown>>) {
+    for (const record of records) {
+      rawDiscoveryMemoryStore.upsertCompany({
+        companyKey: String(record.companyKey || ""),
+        displayName: String(record.displayName || ""),
+        normalizedName: String(record.normalizedName || ""),
+        aliases: parseJsonArray(record.aliasesJson),
+        domains: parseJsonArray(record.domainsJson),
+        atsHints: flattenHintRecord(record.atsHintsJson),
+        geoTags: parseJsonArray(record.geoTagsJson),
+        roleTags: parseJsonArray(record.roleTagsJson),
+        firstSeenAt: nullableString(record.firstSeenAt),
+        lastSeenAt: nullableString(record.lastSeenAt),
+        lastSuccessAt: nullableString(record.lastSuccessAt),
+        successIncrement: Number(record.successCount || 0),
+        failureIncrement: Number(record.failureCount || 0),
+        confidence:
+          typeof record.confidence === "number"
+            ? record.confidence
+            : Number(record.confidence || 0),
+        cooldownUntil: nullableString(record.cooldownUntil),
+      });
+    }
+  },
+  upsertCareerSurfaces(records: Array<Record<string, unknown>>) {
+    for (const record of records) {
+      rawDiscoveryMemoryStore.upsertCareerSurface({
+        surfaceId: nullableString(record.surfaceId),
+        companyKey: String(record.companyKey || ""),
+        surfaceType: String(record.surfaceType || ""),
+        providerType: nullableString(record.providerType),
+        canonicalUrl: String(record.canonicalUrl || ""),
+        finalUrl: nullableString(record.finalUrl),
+        boardToken: nullableString(record.boardToken),
+        sourceLane: nullableString(record.sourceLane),
+        verifiedStatus: nullableString(record.verifiedStatus),
+        lastVerifiedAt: nullableString(record.lastVerifiedAt),
+        lastSuccessAt: nullableString(record.lastSuccessAt),
+        lastFailureAt: nullableString(record.lastFailureAt),
+        failureReason: nullableString(record.failureReason),
+        failureStreak: Number(record.failureStreak || 0),
+        cooldownUntil: nullableString(record.cooldownUntil),
+        metadata: parseJsonObject(record.metadataJson),
+      });
+    }
+  },
+  getHostSuppression(host: string) {
+    const record = rawDiscoveryMemoryStore.getHostSuppression(host);
+    return record ? toRunHostSuppressionRecord(record) : null;
+  },
+  isHostSuppressed(host: string, now?: string) {
+    return rawDiscoveryMemoryStore.isHostSuppressed(host, now);
+  },
+  upsertHostSuppression(record: Record<string, unknown>) {
+    rawDiscoveryMemoryStore.upsertHostSuppression({
+      host: String(record.host || ""),
+      qualityScore:
+        typeof record.qualityScore === "number"
+          ? record.qualityScore
+          : Number.isFinite(Number(record.qualityScore))
+            ? Number(record.qualityScore)
+            : null,
+      qualityDelta:
+        typeof record.qualityDelta === "number"
+          ? record.qualityDelta
+          : Number.isFinite(Number(record.qualityDelta))
+            ? Number(record.qualityDelta)
+            : null,
+      junkExtractionIncrement:
+        typeof record.junkExtractionIncrement === "number"
+          ? record.junkExtractionIncrement
+          : Number.isFinite(Number(record.junkExtractionIncrement))
+            ? Number(record.junkExtractionIncrement)
+            : null,
+      canonicalResolutionFailureIncrement:
+        typeof record.canonicalResolutionFailureIncrement === "number"
+          ? record.canonicalResolutionFailureIncrement
+          : Number.isFinite(Number(record.canonicalResolutionFailureIncrement))
+            ? Number(record.canonicalResolutionFailureIncrement)
+            : null,
+      suppressionIncrement:
+        typeof record.suppressionIncrement === "number"
+          ? record.suppressionIncrement
+          : Number.isFinite(Number(record.suppressionIncrement))
+            ? Number(record.suppressionIncrement)
+            : null,
+      lastSeenAt: nullableString(record.lastSeenAt),
+      lastReasonCode: nullableString(record.lastReasonCode),
+      nextRetryAt: nullableString(record.nextRetryAt),
+      cooldownUntil: nullableString(record.cooldownUntil),
+    });
+  },
+  getDeadLink(url: string) {
+    const record = rawDiscoveryMemoryStore.getDeadLink(url);
+    return record ? toRunDeadLinkRecord(record) : null;
+  },
+  isDeadLinkCoolingDown(url: string, now?: string) {
+    return rawDiscoveryMemoryStore.isDeadLinkCoolingDown(url, now);
+  },
+  recordDeadLink(record: Record<string, unknown>) {
+    rawDiscoveryMemoryStore.upsertDeadLink({
+      url: String(record.urlKey || record.finalUrl || ""),
+      finalUrl: nullableString(record.finalUrl),
+      host: nullableString(record.host),
+      reasonCode: String(record.reasonCode || ""),
+      httpStatus:
+        typeof record.httpStatus === "number"
+          ? record.httpStatus
+          : Number.isFinite(Number(record.httpStatus))
+            ? Number(record.httpStatus)
+            : null,
+      lastTitle: nullableString(record.lastTitle),
+      lastSeenAt: nullableString(record.lastSeenAt),
+      failureIncrement: Number(record.failureCount || 1),
+      nextRetryAt: nullableString(record.nextRetryAt),
+    });
+  },
+  findListingFingerprint(fingerprintKey: string) {
+    const record = rawDiscoveryMemoryStore.findListingFingerprint({
+      fingerprintKey,
+    });
+    return record ? toRunListingFingerprintRecord(record) : null;
+  },
+  upsertListingFingerprints(records: Array<Record<string, unknown>>) {
+    for (const record of records) {
+      rawDiscoveryMemoryStore.upsertListingFingerprint({
+        companyKey: String(record.companyKey || ""),
+        titleKey: String(record.titleKey || ""),
+        locationKey: String(record.locationKey || ""),
+        canonicalUrlKey: nullableString(record.canonicalUrlKey),
+        externalJobId: nullableString(record.externalJobId),
+        remoteBucket: String(record.remoteBucket || "unknown"),
+        employmentType: nullableString(record.employmentType),
+        contentHash: nullableString(record.contentHash),
+        seenAt: nullableString(record.lastSeenAt),
+        writtenAt: nullableString(record.lastWrittenAt),
+        runId: nullableString(record.lastRunId),
+        sheetId: nullableString(record.lastSheetId),
+        sourceIds: parseJsonArray(record.sourceIdsJson),
+      });
+    }
+  },
+  recordIntentCoverage(record: Record<string, unknown>) {
+    rawDiscoveryMemoryStore.writeIntentCoverage({
+      intentKey: String(record.intentKey || ""),
+      companyKey: String(record.companyKey || ""),
+      runId: String(record.runId || ""),
+      sourceLane: String(record.sourceLane || "grounded_web"),
+      surfacesSeen: Number(record.surfacesSeen || 0),
+      listingsSeen: Number(record.listingsSeen || 0),
+      listingsWritten: Number(record.listingsWritten || 0),
+      startedAt: nullableString(record.startedAt),
+      completedAt: nullableString(record.completedAt),
+    });
+  },
+};
 const pipelineWriter = createPipelineWriter(runtimeConfig);
 const runStatusStore = createDiscoveryRunStatusStore(
   runtimeConfig.stateDatabasePath,
@@ -45,6 +260,8 @@ const RUN_STATUS_TEMPLATE = "/runs/{runId}";
 const sharedRunDependencies = {
   runtimeConfig,
   sourceAdapterRegistry,
+  companyPlanner,
+  discoveryMemoryStore,
   browserSessionManager: sessionManager,
   groundedSearchClient,
   matchClient,
@@ -55,6 +272,269 @@ const sharedRunDependencies = {
   now: () => new Date(),
   randomId: (prefix: string) => `${prefix}_${randomUUID().replace(/-/g, "")}`,
 };
+
+function toRunMemorySnapshot(snapshot: {
+  companies: Array<Record<string, unknown>>;
+  careerSurfaces: Array<Record<string, unknown>>;
+  intentCoverage: Array<Record<string, unknown>>;
+  roleFamilies: Array<Record<string, unknown>>;
+}, intentKey: string) {
+  return {
+    intentKey,
+    companies: snapshot.companies.map((company) => ({
+      companyKey: String(company.companyKey || ""),
+      displayName: String(company.displayName || ""),
+      normalizedName: String(company.normalizedName || ""),
+      aliasesJson: JSON.stringify(company.aliases || []),
+      domainsJson: JSON.stringify(company.domains || []),
+      atsHintsJson: JSON.stringify(flattenHintRecord(company.atsHints)),
+      geoTagsJson: JSON.stringify(company.geoTags || []),
+      roleTagsJson: JSON.stringify(company.roleTags || []),
+      firstSeenAt: String(company.firstSeenAt || ""),
+      lastSeenAt: String(company.lastSeenAt || ""),
+      lastSuccessAt: String(company.lastSuccessAt || ""),
+      successCount: Number(company.successCount || 0),
+      failureCount: Number(company.failureCount || 0),
+      confidence: Number(company.confidence || 0),
+      cooldownUntil: String(company.cooldownUntil || ""),
+    })),
+    careerSurfaces: snapshot.careerSurfaces.map((surface) => ({
+      surfaceId: String(surface.surfaceId || ""),
+      companyKey: String(surface.companyKey || ""),
+      surfaceType: String(surface.surfaceType || ""),
+      providerType: String(surface.providerType || ""),
+      canonicalUrl: String(surface.canonicalUrl || ""),
+      host: String(surface.host || ""),
+      finalUrl: String(surface.finalUrl || ""),
+      boardToken: String(surface.boardToken || ""),
+      sourceLane: String(surface.sourceLane || "ats_provider"),
+      verifiedStatus: String(surface.verifiedStatus || "pending"),
+      lastVerifiedAt: String(surface.lastVerifiedAt || ""),
+      lastSuccessAt: String(surface.lastSuccessAt || ""),
+      lastFailureAt: String(surface.lastFailureAt || ""),
+      failureReason: String(surface.failureReason || ""),
+      failureStreak: Number(surface.failureStreak || 0),
+      cooldownUntil: String(surface.cooldownUntil || ""),
+      metadataJson: JSON.stringify(surface.metadata || {}),
+    })),
+    deadLinks: [],
+    listingFingerprints: [],
+    intentCoverage: snapshot.intentCoverage,
+    roleFamilies: snapshot.roleFamilies.map((family) => ({
+      familyKey: String(family.familyKey || ""),
+      baseRole: String(family.baseRole || ""),
+      roleVariantsJson: JSON.stringify(family.roleVariants || []),
+      companyKey: String(family.companyKey || ""),
+      sourceLane: String(family.sourceLane || ""),
+      confirmedCount: Number(family.confirmedCount || 0),
+      nearMissCount: Number(family.nearMissCount || 0),
+      lastConfirmedAt: String(family.lastConfirmedAt || ""),
+      createdAt: String(family.createdAt || ""),
+      updatedAt: String(family.updatedAt || ""),
+    })),
+  };
+}
+
+function mapPlannerCompany(company: Record<string, unknown>) {
+  const evidence =
+    company.evidence && typeof company.evidence === "object"
+      ? (company.evidence as Record<string, unknown>)
+      : {};
+  const scores =
+    company.scores && typeof company.scores === "object"
+      ? (company.scores as Record<string, unknown>)
+      : {};
+  const reasons = parseJsonArray(company.reasons || []);
+  const intendedLanes = parseJsonArray(evidence.sourceLanes || []);
+  const candidateSources = parseJsonArray(evidence.candidateSources || []);
+  return {
+    companyKey: String(company.companyKey || ""),
+    displayName: String(company.displayName || ""),
+    normalizedName: String(company.normalizedName || ""),
+    domains: parseJsonArray(company.domains || []),
+    aliases: parseJsonArray(company.aliases || []),
+    boardHints: flattenHintRecord(company.boardHints),
+    geoTags: parseJsonArray(company.geoTags || []),
+    roleTags: parseJsonArray(company.roleTags || []),
+    rank: Number(company.rank || 0),
+    intendedLanes: intendedLanes.length > 0 ? intendedLanes : [
+      "ats_provider",
+      "company_surface",
+      "grounded_web",
+    ],
+    scores: {
+      roleFit: Number(scores.roleFit || 0),
+      geoFit: Number(scores.geoFit || 0),
+      remoteFit: 0,
+      recentHiringEvidence: Number(scores.recentHiringEvidence || 0),
+      priorAcceptedYield: Number(scores.priorAcceptedYield || 0),
+      surfaceHealth: Number(evidence.surfaceHealth || 0),
+      diversity: Number(scores.diversity || 0),
+      freshness: Number(scores.freshness || 0),
+      cooldownPenalty: Number(scores.cooldownPenalty || 0),
+      recentCoveragePenalty:
+        Number(
+          (evidence.recentCoverage &&
+            typeof evidence.recentCoverage === "object" &&
+            (evidence.recentCoverage as Record<string, unknown>).penalty) ||
+            0,
+        ) || 0,
+    },
+    reasons,
+    evidence: [
+      ...reasons,
+      ...candidateSources.map((source) => `candidate:${source}`),
+    ],
+  };
+}
+
+function toPlannerCompanyRecord(company: Record<string, unknown>) {
+  return {
+    companyKey: String(company.companyKey || ""),
+    displayName: String(company.displayName || ""),
+    normalizedName: String(company.normalizedName || ""),
+    aliasesJson: String(company.aliasesJson || "[]"),
+    domainsJson: String(company.domainsJson || "[]"),
+    atsHintsJson: String(company.atsHintsJson || "{}"),
+    geoTagsJson: String(company.geoTagsJson || "[]"),
+    roleTagsJson: String(company.roleTagsJson || "[]"),
+    firstSeenAt: String(company.firstSeenAt || ""),
+    lastSeenAt: String(company.lastSeenAt || ""),
+    lastSuccessAt: String(company.lastSuccessAt || ""),
+    successCount: Number(company.successCount || 0),
+    failureCount: Number(company.failureCount || 0),
+    confidence: Number(company.confidence || 0),
+    cooldownUntil: String(company.cooldownUntil || ""),
+  };
+}
+
+function toPlannerCareerSurfaceRecord(surface: Record<string, unknown>) {
+  return {
+    surfaceId: String(surface.surfaceId || ""),
+    companyKey: String(surface.companyKey || ""),
+    surfaceType: String(surface.surfaceType || ""),
+    providerType: String(surface.providerType || ""),
+    canonicalUrl: String(surface.canonicalUrl || ""),
+    host: String(surface.host || ""),
+    finalUrl: String(surface.finalUrl || ""),
+    boardToken: String(surface.boardToken || ""),
+    sourceLane: String(surface.sourceLane || "ats_provider"),
+    verifiedStatus: String(surface.verifiedStatus || "pending"),
+    lastVerifiedAt: String(surface.lastVerifiedAt || ""),
+    lastSuccessAt: String(surface.lastSuccessAt || ""),
+    lastFailureAt: String(surface.lastFailureAt || ""),
+    failureReason: String(surface.failureReason || ""),
+    failureStreak: Number(surface.failureStreak || 0),
+    cooldownUntil: String(surface.cooldownUntil || ""),
+    metadataJson: String(surface.metadataJson || "{}"),
+  };
+}
+
+function toRunListingFingerprintRecord(record: Record<string, unknown>) {
+  return {
+    fingerprintKey: String(record.fingerprintKey || ""),
+    companyKey: String(record.companyKey || ""),
+    titleKey: String(record.titleKey || ""),
+    locationKey: String(record.locationKey || ""),
+    canonicalUrlKey: String(record.canonicalUrlKey || ""),
+    externalJobId: String(record.externalJobId || ""),
+    remoteBucket: String(record.remoteBucket || "unknown"),
+    employmentType: String(record.employmentType || ""),
+    semanticKey: String(record.semanticKey || ""),
+    contentHash: String(record.contentHash || ""),
+    firstSeenAt: String(record.firstSeenAt || ""),
+    lastSeenAt: String(record.lastSeenAt || ""),
+    lastWrittenAt: String(record.lastWrittenAt || ""),
+    lastRunId: String(record.lastRunId || ""),
+    lastSheetId: String(record.lastSheetId || ""),
+    writeCount: Number(record.writeCount || 0),
+    sourceIdsJson: JSON.stringify(record.sourceIds || []),
+  };
+}
+
+function toRunHostSuppressionRecord(record: Record<string, unknown>) {
+  return {
+    hostKey: String(record.hostKey || ""),
+    host: String(record.host || ""),
+    qualityScore: Number(record.qualityScore || 0),
+    junkExtractionCount: Number(record.junkExtractionCount || 0),
+    canonicalResolutionFailureCount: Number(
+      record.canonicalResolutionFailureCount || 0,
+    ),
+    suppressionCount: Number(record.suppressionCount || 0),
+    lastSeenAt: String(record.lastSeenAt || ""),
+    lastReasonCode: String(record.lastReasonCode || ""),
+    nextRetryAt: String(record.nextRetryAt || ""),
+    cooldownUntil: String(record.cooldownUntil || ""),
+  };
+}
+
+function toRunDeadLinkRecord(record: Record<string, unknown>) {
+  return {
+    urlKey: String(record.urlKey || ""),
+    finalUrl: String(record.finalUrl || ""),
+    host: String(record.host || ""),
+    reasonCode: String(record.reasonCode || ""),
+    httpStatus:
+      typeof record.httpStatus === "number"
+        ? record.httpStatus
+        : Number.isFinite(Number(record.httpStatus))
+          ? Number(record.httpStatus)
+          : null,
+    lastTitle: String(record.lastTitle || ""),
+    lastSeenAt: String(record.lastSeenAt || ""),
+    failureCount: Number(record.failureCount || 0),
+    nextRetryAt: String(record.nextRetryAt || ""),
+  };
+}
+
+function parseJsonArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry || "").trim()).filter(Boolean);
+  }
+  try {
+    const parsed = JSON.parse(String(value || "[]"));
+    return Array.isArray(parsed)
+      ? parsed.map((entry) => String(entry || "").trim()).filter(Boolean)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  try {
+    const parsed = JSON.parse(String(value || "{}"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function flattenHintRecord(value: unknown): Record<string, string> {
+  const parsed = parseJsonObject(value);
+  const out: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(parsed)) {
+    if (Array.isArray(entry)) {
+      const first = entry.map((item) => String(item || "").trim()).find(Boolean);
+      if (first) out[key] = first;
+      continue;
+    }
+    const normalized = String(entry || "").trim();
+    if (normalized) out[key] = normalized;
+  }
+  return out;
+}
+
+function nullableString(value: unknown): string | null {
+  const normalized = String(value || "").trim();
+  return normalized ? normalized : null;
+}
 
 /**
  * Used by the request handler when a discovery request carries its own
@@ -136,34 +616,58 @@ async function buildHealthPayload() {
     ? storedConfig.enabledSources
     : [];
   const groundedWebEnabled = enabledSources.includes("grounded_web");
-  const readinessWarnings: string[] = [];
+  const memoryCounts = rawDiscoveryMemoryStore.getCounts();
+  const companiesConfigured = Array.isArray(storedConfig?.companies)
+    ? storedConfig.companies.length
+    : 0;
+  const atsCompaniesConfigured = Array.isArray(storedConfig?.atsCompanies)
+    ? storedConfig.atsCompanies.length
+    : 0;
+  const modifierIntentConfigured = hasStoredModifierIntent(storedConfig);
+  const plannerSeedReady =
+    companiesConfigured > 0 ||
+    modifierIntentConfigured ||
+    memoryCounts.companyRegistry > 0 ||
+    memoryCounts.careerSurfaces > 0;
+  const atsSeedReady =
+    atsCompaniesConfigured > 0 ||
+    memoryCounts.companyRegistry > 0 ||
+    memoryCounts.careerSurfaces > 0;
+  const blockingWarnings: string[] = [];
+  const advisoryWarnings: string[] = [];
   const sheetsCredentialReadiness =
     await validateSheetsCredentialReadiness(runtimeConfig);
+  const localInteractiveSheetsReady =
+    runtimeConfig.runMode === "local" &&
+    !sheetsCredentialReadiness.configured;
 
   // VAL-OBS-001: Check browser runtime readiness
   const browserRuntimeReadiness =
     await validateBrowserRuntimeReadiness(runtimeConfig);
 
   if (configError) {
-    readinessWarnings.push(`Worker config could not be loaded: ${configError}`);
-  }
-  if (
-    !Array.isArray(storedConfig?.companies) ||
-    !storedConfig?.companies.length
-  ) {
-    readinessWarnings.push(
-      "Discovery worker has no target companies configured.",
+    blockingWarnings.push(`Worker config could not be loaded: ${configError}`);
+  } else if (!plannerSeedReady) {
+    advisoryWarnings.push(
+      "Discovery worker has no fixed companies, no configured modifier intent, and no planner memory yet. Request-time targetRoles or keywordsInclude will be needed to bootstrap planning.",
     );
   }
   if (!sheetsCredentialReadiness.configured) {
-    readinessWarnings.push(
-      formatSheetsCredentialReadinessWarning(sheetsCredentialReadiness),
+    const warning = formatSheetsCredentialReadinessWarning(
+      sheetsCredentialReadiness,
     );
+    if (localInteractiveSheetsReady) {
+      advisoryWarnings.push(
+        `${warning} Local interactive runs can still authenticate with a per-request googleAccessToken from the dashboard.`,
+      );
+    } else {
+      blockingWarnings.push(warning);
+    }
   }
 
   // VAL-OBS-001: Browser runtime not ready
   if (!browserRuntimeReadiness.available) {
-    readinessWarnings.push(
+    blockingWarnings.push(
       formatBrowserRuntimeReadinessWarning(browserRuntimeReadiness),
     );
   }
@@ -173,7 +677,7 @@ async function buildHealthPayload() {
     const groundedWebCause = runtimeConfig.geminiApiKey
       ? "Grounded web source is enabled but the grounded search client is unavailable."
       : "Grounded web source is enabled but BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.";
-    readinessWarnings.push(groundedWebCause);
+    blockingWarnings.push(groundedWebCause);
   }
 
   return {
@@ -188,14 +692,65 @@ async function buildHealthPayload() {
       runStatus: RUN_STATUS_TEMPLATE,
     },
     readiness: {
-      ready: readinessWarnings.length === 0,
+      ready: blockingWarnings.length === 0,
       configLoaded: !configError,
       configuredSheetId: !!String(storedConfig?.sheetId || "").trim(),
-      companiesConfigured: Array.isArray(storedConfig?.companies)
-        ? storedConfig.companies.length
-        : 0,
+      companiesConfigured,
+      atsCompaniesConfigured,
+      modifierIntentConfigured,
+      plannerSeedReady,
+      atsSeedReady,
       sheetsCredentialConfigured: sheetsCredentialReadiness.configured,
+      sheetsCredentialReady:
+        sheetsCredentialReadiness.configured || localInteractiveSheetsReady,
       enabledSources,
+      memory: {
+        companyRegistry: memoryCounts.companyRegistry,
+        careerSurfaces: memoryCounts.careerSurfaces,
+        deadLinkCache: memoryCounts.deadLinkCache,
+        listingFingerprints: memoryCounts.listingFingerprints,
+        intentCoverage: memoryCounts.intentCoverage,
+      },
+      planner: {
+        companiesConfigured,
+        modifierIntentConfigured,
+        memorySeededCompanies: memoryCounts.companyRegistry,
+        memorySeededSurfaces: memoryCounts.careerSurfaces,
+        memorySeededIntentCoverage: memoryCounts.intentCoverage,
+        ready: plannerSeedReady,
+      },
+      ats: {
+        companiesConfigured: atsCompaniesConfigured,
+        memorySeededCompanies: memoryCounts.companyRegistry,
+        memorySeededSurfaces: memoryCounts.careerSurfaces,
+        ready: atsSeedReady,
+      },
+      sheetsCredential: {
+        configured: sheetsCredentialReadiness.configured,
+        ready:
+          sheetsCredentialReadiness.configured || localInteractiveSheetsReady,
+        source: sheetsCredentialReadiness.source,
+        requestScopedAuthSupported: runtimeConfig.runMode === "local",
+        ...(localInteractiveSheetsReady
+          ? {
+              mode: "request_scoped",
+              detail:
+                "Local interactive runs can authenticate at request time with googleAccessToken from the dashboard.",
+            }
+          : {}),
+        ...(!sheetsCredentialReadiness.configured &&
+        sheetsCredentialReadiness.message
+          ? { message: sheetsCredentialReadiness.message }
+          : {}),
+        ...(!sheetsCredentialReadiness.configured &&
+        sheetsCredentialReadiness.detail
+          ? { detail: sheetsCredentialReadiness.detail }
+          : {}),
+        ...(!sheetsCredentialReadiness.configured &&
+        sheetsCredentialReadiness.remediation
+          ? { remediation: sheetsCredentialReadiness.remediation }
+          : {}),
+      },
       browserRuntime: {
         configured: browserRuntimeReadiness.configured,
         available: browserRuntimeReadiness.available,
@@ -223,9 +778,37 @@ async function buildHealthPayload() {
             }
           : {}),
       },
-      warnings: readinessWarnings,
+      warnings: [...blockingWarnings, ...advisoryWarnings],
+      ...(blockingWarnings.length ? { blockingWarnings } : {}),
+      ...(advisoryWarnings.length ? { advisoryWarnings } : {}),
     },
   };
+}
+
+function hasStoredModifierIntent(
+  storedConfig: {
+    targetRoles?: unknown;
+    includeKeywords?: unknown;
+    locations?: unknown;
+    remotePolicy?: unknown;
+    seniority?: unknown;
+  } | null,
+): boolean {
+  if (!storedConfig) return false;
+  return (
+    hasNonBlankStringValue(storedConfig.targetRoles) ||
+    hasNonBlankStringValue(storedConfig.includeKeywords) ||
+    hasNonBlankStringValue(storedConfig.locations) ||
+    Boolean(String(storedConfig.remotePolicy || "").trim()) ||
+    Boolean(String(storedConfig.seniority || "").trim())
+  );
+}
+
+function hasNonBlankStringValue(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some((entry) => hasNonBlankStringValue(entry));
+  }
+  return Boolean(String(value || "").trim());
 }
 
 const server = createServer(async (request, response) => {

@@ -26,6 +26,11 @@ const browserUseDiscoveryDir = join(
   "integrations",
   "browser-use-discovery",
 );
+const bundledBrowserCommandPath = join(
+  browserUseDiscoveryDir,
+  "bin",
+  "browser-use-agent-browser.mjs",
+);
 const browserUseDiscoveryEnvPath = join(browserUseDiscoveryDir, ".env");
 const WEBHOOK_SECRET_ENV_KEY = "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET";
 const ngrokTokenUrl = "https://dashboard.ngrok.com/get-started/your-authtoken";
@@ -629,6 +634,9 @@ async function ensureBrowserUseWorkerHealth(port, autoStartGateway, secret) {
     BROWSER_USE_DISCOVERY_RUN_MODE: "local",
     BROWSER_USE_DISCOVERY_PORT: String(port),
     BROWSER_USE_DISCOVERY_HOST: "127.0.0.1",
+    BROWSER_USE_DISCOVERY_BROWSER_COMMAND:
+      process.env.BROWSER_USE_DISCOVERY_BROWSER_COMMAND ||
+      bundledBrowserCommandPath,
     ...(secret ? { [WEBHOOK_SECRET_ENV_KEY]: secret } : {}),
   };
 

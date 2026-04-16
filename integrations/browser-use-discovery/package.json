@@ -5,6 +5,6 @@
   "description": "User-owned Browser Use-backed discovery worker for JobBored",
   "scripts": {
     "start": "node --experimental-strip-types src/server.ts",
-    "test": "node --experimental-strip-types --test tests/browser/*.test.ts tests/sheets/*.test.ts tests/webhook/*.test.ts tests/e2e/*.test.ts"
+    "test": "node --experimental-strip-types --test tests/browser/*.test.ts tests/discovery/*.test.ts tests/state/*.test.ts tests/sheets/*.test.ts tests/webhook/*.test.ts tests/e2e/*.test.ts"
   }
 }

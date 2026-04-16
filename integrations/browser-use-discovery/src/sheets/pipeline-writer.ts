@@ -7,6 +7,7 @@ import {
   type NormalizedLead,
   type PipelineWriteResult,
 } from "../contracts.ts";
+import { dedupeFingerprintListings } from "../discovery/listing-fingerprint.ts";
 import { normalizeLeadUrl } from "../normalize/lead-normalizer.ts";
 
 /**
@@ -170,38 +171,6 @@ function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
   if (!merged[12]) merged[12] = leadRow[12] || "New";
   if (!merged[16]) merged[16] = leadRow[16];
   return merged;
-}
-
-function pickBestLead(
-  existing: NormalizedLead | null,
-  candidate: NormalizedLead,
-): NormalizedLead {
-  if (!existing) return candidate;
-  const existingScore = existing.fitScore ?? -1;
-  const candidateScore = candidate.fitScore ?? -1;
-  if (candidateScore > existingScore) return candidate;
-  if (candidateScore < existingScore) return existing;
-
-  const existingCompleteness = [
-    existing.title,
-    existing.company,
-    existing.location,
-    existing.compensationText,
-    existing.contact,
-    existing.fitAssessment,
-    existing.talkingPoints,
-  ].filter(Boolean).length;
-  const candidateCompleteness = [
-    candidate.title,
-    candidate.company,
-    candidate.location,
-    candidate.compensationText,
-    candidate.contact,
-    candidate.fitAssessment,
-    candidate.talkingPoints,
-  ].filter(Boolean).length;
-  if (candidateCompleteness > existingCompleteness) return candidate;
-  return existing;
 }
 
 function buildHeaders(token: string, isJson = true): Record<string, string> {
@@ -529,19 +498,18 @@ function dedupeIncomingLeads(leads: NormalizedLead[]): {
   leads: NormalizedLead[];
   skippedDuplicates: number;
 } {
-  const byLink = new Map<string, NormalizedLead>();
-  let skippedDuplicates = 0;
-  for (const lead of leads) {
-    const link = normalizeLeadUrl(lead.url || "");
-    if (!link) {
-      skippedDuplicates += 1;
-      continue;
-    }
-    const existing = byLink.get(link) || null;
-    if (existing) skippedDuplicates += 1;
-    byLink.set(link, pickBestLead(existing, { ...lead, url: link }));
-  }
-  return { leads: Array.from(byLink.values()), skippedDuplicates };
+  const cleaned = leads
+    .map((lead) => {
+      const url = normalizeLeadUrl(lead.url || "");
+      return url ? { ...lead, url } : null;
+    })
+    .filter((lead): lead is NormalizedLead => !!lead);
+  const deduped = dedupeFingerprintListings(cleaned);
+  return {
+    leads: deduped.uniqueItems,
+    skippedDuplicates:
+      deduped.duplicateCount + Math.max(0, leads.length - cleaned.length),
+  };
 }
 
 export function createPipelineWriter(
