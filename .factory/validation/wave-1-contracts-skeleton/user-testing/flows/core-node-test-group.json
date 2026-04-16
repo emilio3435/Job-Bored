@@ -1,0 +1,406 @@
+{
+  "groupId": "core-node-test-group",
+  "testedAt": "2026-04-15T20:30:00.000Z",
+  "isolation": {
+    "tool": "node-test",
+    "workingDirectory": "/Users/emilionunezgarcia/Job-Bored",
+    "testCommand": "node --experimental-strip-types --test",
+    "testRoot": "integrations/browser-use-discovery/tests/webhook/",
+    "stateless": true,
+    "noSharedMutableState": true
+  },
+  "toolsUsed": ["node-test"],
+  "assertions": [
+    {
+      "id": "VAL-LOOP-CORE-001",
+      "title": "Webhook request contract remains backward compatible",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'rejects unsupported event with explicit 400 message'",
+          "expected": "Requests with unsupported event type rejected with 400",
+          "observed": "Test passed — unsupported event rejected with explicit 400 message"
+        },
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'rejects unsupported schemaVersion with explicit 400 message'",
+          "expected": "Requests with unsupported schemaVersion rejected with 400",
+          "observed": "Test passed — unsupported schemaVersion rejected with explicit 400 message"
+        },
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'validates requests before running' and 'accepts missing request sheetId when worker config provides one'",
+          "expected": "Valid v1 requests (event=command-center.discovery, schemaVersion=1) accepted",
+          "observed": "Tests passed — valid v1 requests accepted and processed"
+        }
+      ],
+      "evidence": {
+        "testFiles": ["tests/webhook/handle-discovery-webhook.test.ts"],
+        "testNames": [
+          "handleDiscoveryWebhook validates requests before running",
+          "handleDiscoveryWebhook accepts missing request sheetId when worker config provides one",
+          "handleDiscoveryWebhook rejects unsupported event with explicit 400 message",
+          "handleDiscoveryWebhook rejects unsupported schemaVersion with explicit 400 message"
+        ],
+        "outputFile": "wave-1-contracts-skeleton/core-node-test-group/handle-discovery-webhook-output.txt",
+        "allTestsPassed": true
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-CORE-002",
+      "title": "Webhook authentication fails closed",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'rejects requests when webhook secret is unconfigured'",
+          "expected": "Missing secret → request rejected before run execution",
+          "observed": "Test passed — unconfigured webhook secret rejected"
+        },
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'rejects requests with an incorrect webhook secret'",
+          "expected": "Mismatched secret → request rejected",
+          "observed": "Test passed — incorrect webhook secret rejected"
+        },
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'accepts requests with a correctly provided webhook secret'",
+          "expected": "Matching secret → request accepted and run proceeds",
+          "observed": "Test passed — correct webhook secret accepted"
+        },
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'rejects requests when webhook secret is unconfigured' (verifying no run started)",
+          "expected": "runDiscovery not called on auth failure",
+          "observed": "Auth rejection occurs before run execution"
+        }
+      ],
+      "evidence": {
+        "testFiles": ["tests/webhook/handle-discovery-webhook.test.ts"],
+        "testNames": [
+          "handleDiscoveryWebhook rejects requests when webhook secret is unconfigured",
+          "handleDiscoveryWebhook accepts requests with a correctly provided webhook secret",
+          "handleDiscoveryWebhook rejects requests with an incorrect webhook secret"
+        ],
+        "outputFile": "wave-1-contracts-skeleton/core-node-test-group/handle-discovery-webhook-output.txt",
+        "allTestsPassed": true
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-CORE-003",
+      "title": "Schema and preset validation fail closed",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'rejects invalid requestedAt with explicit 400 message'",
+          "expected": "Malformed requestedAt rejected with field-level 400",
+          "observed": "Test passed — invalid requestedAt rejected with explicit 400 message"
+        },
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'rejects array-typed discoveryProfile with 400'",
+          "expected": "Array-typed discoveryProfile rejected with 400",
+          "observed": "Test passed — array-typed discoveryProfile rejected"
+        },
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'rejects invalid sourcePreset enum value with 400'",
+          "expected": "Invalid sourcePreset rejected with 400",
+          "observed": "Test passed — invalid enum value rejected"
+        },
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'rejects non-string sourcePreset with 400'",
+          "expected": "Non-string sourcePreset rejected",
+          "observed": "Test passed"
+        },
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'rejects contradictory sourcePreset and enabledSources in discoveryProfile'",
+          "expected": "Contradictory preset/sources rejected with 400",
+          "observed": "Test passed — contradictory combinations rejected"
+        },
+        {
+          "action": "Run config.test.ts — preset resolution tests",
+          "expected": "Preset resolution works correctly",
+          "observed": "All 34 config tests passed including resolveSourcePreset tests"
+        }
+      ],
+      "evidence": {
+        "testFiles": [
+          "tests/webhook/handle-discovery-webhook.test.ts",
+          "tests/webhook/config.test.ts"
+        ],
+        "testNames": [
+          "handleDiscoveryWebhook rejects invalid sourcePreset enum value with 400",
+          "handleDiscoveryWebhook rejects non-string sourcePreset with 400",
+          "handleDiscoveryWebhook rejects contradictory sourcePreset and enabledSources in discoveryProfile",
+          "handleDiscoveryWebhook rejects invalid requestedAt with explicit 400 message",
+          "handleDiscoveryWebhook rejects array-typed discoveryProfile with 400",
+          "resolveSourcePreset uses request-level preset when provided",
+          "resolveSourcePreset uses stored discoveryProfile.sourcePreset when request omits preset",
+          "resolveSourcePreset falls back to browser_plus_ats when no stored preset and mixed sources",
+          "resolveSourcePreset ignores invalid stored preset and falls back to source inference"
+        ],
+        "outputFile": [
+          "wave-1-contracts-skeleton/core-node-test-group/handle-discovery-webhook-output.txt",
+          "wave-1-contracts-skeleton/core-node-test-group/config-output.txt"
+        ],
+        "allTestsPassed": true
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-CORE-004",
+      "title": "Preflight readiness blocks invalid real-integration runs",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run credential-readiness.test.ts — test: 'validateSheetsCredentialReadiness reports missing service-account files explicitly'",
+          "expected": "Missing service account file produces explicit error",
+          "observed": "Test passed — missing file reported explicitly"
+        },
+        {
+          "action": "Run credential-readiness.test.ts — test: 'validateSheetsCredentialReadiness rejects malformed OAuth token JSON files'",
+          "expected": "Malformed OAuth token rejected",
+          "observed": "Test passed"
+        },
+        {
+          "action": "Run credential-readiness.test.ts — test: 'validateSheetsCredentialReadiness rejects revoked OAuth token files when refresh fails'",
+          "expected": "Revoked token rejected",
+          "observed": "Test passed"
+        },
+        {
+          "action": "Run credential-readiness.test.ts — test: 'handleDiscoveryWebhook fails fast when a configured service-account file is missing'",
+          "expected": "Webhook returns error before run execution when credential missing",
+          "observed": "Test passed — fails fast with explicit error"
+        },
+        {
+          "action": "Run credential-readiness.test.ts — test: 'handleDiscoveryWebhook fails fast when a configured OAuth token file is revoked'",
+          "expected": "Webhook returns error before run execution when token revoked",
+          "observed": "Test passed"
+        },
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'fails fast when no sheets credential is configured'",
+          "expected": "No credential → explicit error, no run started",
+          "observed": "Test passed"
+        }
+      ],
+      "evidence": {
+        "testFiles": [
+          "tests/webhook/credential-readiness.test.ts",
+          "tests/webhook/handle-discovery-webhook.test.ts"
+        ],
+        "testNames": [
+          "validateSheetsCredentialReadiness reports missing service-account files explicitly",
+          "validateSheetsCredentialReadiness rejects malformed OAuth token JSON files",
+          "validateSheetsCredentialReadiness rejects revoked OAuth token files when refresh fails",
+          "handleDiscoveryWebhook fails fast when a configured service-account file is missing",
+          "handleDiscoveryWebhook fails fast when a configured OAuth token file is revoked",
+          "handleDiscoveryWebhook fails fast when no sheets credential is configured"
+        ],
+        "outputFile": [
+          "wave-1-contracts-skeleton/core-node-test-group/credential-readiness-output.txt",
+          "wave-1-contracts-skeleton/core-node-test-group/handle-discovery-webhook-output.txt"
+        ],
+        "allTestsPassed": true
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-CORE-005",
+      "title": "Async acknowledgement returns pollable lineage contract",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run cross-area-flows.test.ts — test: 'VAL-CROSS-003: accepted_async ack includes runId, statusPath, and pollAfterMs for terminal polling'",
+          "expected": "Async response includes runId, statusPath, pollAfterMs",
+          "observed": "Test passed — ack includes all three required fields"
+        },
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'returns accepted_async without waiting for the run'",
+          "expected": "Async ack returns immediately without blocking for terminal completion",
+          "observed": "Test passed — returns before run completion"
+        },
+        {
+          "action": "Run cross-area-flows.test.ts — test: 'VAL-CROSS-003: groundedSearchTuning propagates through terminal status for async lineage verification'",
+          "expected": "Tuning config propagates through for async lineage",
+          "observed": "Test passed"
+        }
+      ],
+      "evidence": {
+        "testFiles": [
+          "tests/webhook/cross-area-flows.test.ts",
+          "tests/webhook/handle-discovery-webhook.test.ts"
+        ],
+        "testNames": [
+          "VAL-CROSS-003: accepted_async ack includes runId, statusPath, and pollAfterMs for terminal polling",
+          "handleDiscoveryWebhook returns accepted_async without waiting for the run",
+          "VAL-CROSS-003: groundedSearchTuning propagates through terminal status for async lineage verification"
+        ],
+        "outputFile": [
+          "wave-1-contracts-skeleton/core-node-test-group/cross-area-flows-output.txt",
+          "wave-1-contracts-skeleton/core-node-test-group/handle-discovery-webhook-output.txt"
+        ],
+        "allTestsPassed": true
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-CORE-006",
+      "title": "Run status polling contract is stable",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run cross-area-flows.test.ts — test: 'VAL-CROSS-006: runId is consistent from webhook ack through terminal status'",
+          "expected": "GET /runs/{runId} returns valid status for known runs",
+          "observed": "Test passed — runId consistent from ack to terminal, status retrieval works"
+        },
+        {
+          "action": "Run cross-area-flows.test.ts — test: 'VAL-CROSS-006: runId is consistent across accepted → running → terminal transitions'",
+          "expected": "Run status progression from accepted through running to terminal tracked correctly",
+          "observed": "Test passed — runId consistent across all transitions, status endpoint returns valid payloads"
+        }
+      ],
+      "evidence": {
+        "testFiles": ["tests/webhook/cross-area-flows.test.ts"],
+        "testNames": [
+          "VAL-CROSS-006: runId is consistent from webhook ack through terminal status",
+          "VAL-CROSS-006: runId is consistent across accepted → running → terminal transitions"
+        ],
+        "outputFile": "wave-1-contracts-skeleton/core-node-test-group/cross-area-flows-output.txt",
+        "allTestsPassed": true
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-CORE-007",
+      "title": "Ack-to-terminal lineage remains consistent",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run cross-area-flows.test.ts — test: 'VAL-CROSS-006: runId is consistent from webhook ack through terminal status'",
+          "expected": "runId from ack matches statusPath and terminal status payload",
+          "observed": "Test passed — runId consistent across ack response, statusPath, and terminal payload"
+        },
+        {
+          "action": "Run cross-area-flows.test.ts — test: 'VAL-CROSS-006: runId is consistent across accepted → running → terminal transitions'",
+          "expected": "Same runId in ack, running state, and terminal state",
+          "observed": "Test passed — runId consistent through all lifecycle transitions"
+        }
+      ],
+      "evidence": {
+        "testFiles": ["tests/webhook/cross-area-flows.test.ts"],
+        "testNames": [
+          "VAL-CROSS-006: runId is consistent from webhook ack through terminal status",
+          "VAL-CROSS-006: runId is consistent across accepted → running → terminal transitions"
+        ],
+        "outputFile": "wave-1-contracts-skeleton/core-node-test-group/cross-area-flows-output.txt",
+        "allTestsPassed": true
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-CORE-008",
+      "title": "Unrestricted mixed runs expose machine-readable stage order",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run cross-area-flows.test.ts — test: 'VAL-LOOP-CORE-008: stageOrder is an array with monotonically increasing sequence numbers'",
+          "expected": "stageOrder array with monotonic sequence for scout → score → exploit → learn",
+          "observed": "Test passed — stageOrder is an array with monotonically increasing sequence numbers"
+        },
+        {
+          "action": "Run cross-area-flows.test.ts — test: 'VAL-LOOP-CORE-008: stage_transition log events are emitted for each loop stage'",
+          "expected": "stage_transition events emitted for each stage",
+          "observed": "Test passed — stage_transition events emitted"
+        },
+        {
+          "action": "Run cross-area-flows.test.ts — test: 'VAL-LOOP-CORE-008: browser_plus_ats mixed run exposes ordered stage progression'",
+          "expected": "browser_plus_ats run shows ordered scout → score → exploit → learn progression",
+          "observed": "Test passed — ordered stage progression exposed in mixed run"
+        }
+      ],
+      "evidence": {
+        "testFiles": ["tests/webhook/cross-area-flows.test.ts"],
+        "testNames": [
+          "VAL-LOOP-CORE-008: stageOrder is an array with monotonically increasing sequence numbers",
+          "VAL-LOOP-CORE-008: stage_transition log events are emitted for each loop stage",
+          "VAL-LOOP-CORE-008: browser_plus_ats mixed run exposes ordered stage progression"
+        ],
+        "outputFile": "wave-1-contracts-skeleton/core-node-test-group/cross-area-flows-output.txt",
+        "allTestsPassed": true
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-CORE-009",
+      "title": "Async lifecycle terminalizes within bounded duration",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run cross-area-flows.test.ts — test: 'VAL-LOOP-CORE-009: async run reaches terminal state without hanging indefinitely'",
+          "expected": "Async run reaches terminal state (not stuck in running)",
+          "observed": "Test passed — async run reaches terminal state"
+        },
+        {
+          "action": "Run cross-area-flows.test.ts — test: 'VAL-LOOP-CORE-009: async timeout force-terminalization produces explicit terminal reason'",
+          "expected": "Forced timeout produces explicit terminal reason",
+          "observed": "Test passed — timeout force-terminalization with explicit reason"
+        },
+        {
+          "action": "Run cross-area-flows.test.ts — test: 'VAL-LOOP-CORE-009: bounded duration enforcement prevents indefinite running state'",
+          "expected": "Max duration enforcement prevents indefinite running",
+          "observed": "Test passed — bounded duration enforced, run terminates"
+        }
+      ],
+      "evidence": {
+        "testFiles": ["tests/webhook/cross-area-flows.test.ts"],
+        "testNames": [
+          "VAL-LOOP-CORE-009: async run reaches terminal state without hanging indefinitely",
+          "VAL-LOOP-CORE-009: async timeout force-terminalization produces explicit terminal reason",
+          "VAL-LOOP-CORE-009: bounded duration enforcement prevents indefinite running state"
+        ],
+        "outputFile": "wave-1-contracts-skeleton/core-node-test-group/cross-area-flows-output.txt",
+        "allTestsPassed": true
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-CORE-010",
+      "title": "Rejected requests have no side effects and no secret leakage",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'VAL-API-006: runDiscovery must NOT be called when intent is missing'",
+          "expected": "Rejected request does not call runDiscovery",
+          "observed": "Test passed — runDiscovery not called on validation failure"
+        },
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'strips googleAccessToken from the request before runDiscovery sees it'",
+          "expected": "Request tokens stripped before run sees them",
+          "observed": "Test passed — googleAccessToken stripped"
+        },
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'keeps googleAccessToken out of persisted run-status payloads'",
+          "expected": "Token material not in persisted status outputs",
+          "observed": "Test passed — no token leakage in persisted payloads"
+        },
+        {
+          "action": "Run handle-discovery-webhook.test.ts — test: 'rejects requests when webhook secret is unconfigured' and 'rejects requests with an incorrect webhook secret'",
+          "expected": "Auth-rejected requests do not allocate runnable lineage",
+          "observed": "Tests passed — auth failures fail before run allocation"
+        }
+      ],
+      "evidence": {
+        "testFiles": ["tests/webhook/handle-discovery-webhook.test.ts"],
+        "testNames": [
+          "VAL-API-006: runDiscovery must NOT be called when intent is missing",
+          "handleDiscoveryWebhook strips googleAccessToken from the request before runDiscovery sees it",
+          "handleDiscoveryWebhook keeps googleAccessToken out of persisted run-status payloads",
+          "handleDiscoveryWebhook rejects requests when webhook secret is unconfigured",
+          "handleDiscoveryWebhook rejects requests with an incorrect webhook secret"
+        ],
+        "outputFile": "wave-1-contracts-skeleton/core-node-test-group/handle-discovery-webhook-output.txt",
+        "allTestsPassed": true
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 10 assertions (VAL-LOOP-CORE-001 through VAL-LOOP-CORE-010): all 10 passed. Ran 6 test files totaling 136 tests (handle-discovery-webhook: 39/39, credential-readiness: 5/5, cross-area-flows: 21/21, routing-enforcement: 21/21, config: 34/34, run-discovery: 16/16). Zero failures. Evidence saved to mission evidence directory."
+}
