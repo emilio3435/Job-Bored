@@ -1,0 +1,45 @@
+{
+  "featureId": "wave4-memory-runtime-and-coverage-fixes",
+  "reviewedAt": "2026-04-16T06:20:00.000Z",
+  "commitId": "f05d6e5",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix adequately addresses the two critical issues from the prior review: (1) the normalizePhrase ReferenceError is resolved by adding cleanString() and normalizePhrase() functions directly into discovery-memory-store.ts, matching the identical implementation from company-planner.ts; (2) four new real-store round-trip tests are added covering VAL-LOOP-MEM-002 (exploit outcomes persistence), VAL-LOOP-MEM-003 (yield history and cooldown memory influence), VAL-LOOP-MEM-005 (truthful memory signals), and a dedicated learnRoleFamilyFromLead test verifying runtime normalization across various seniority-prefixed titles. All 8 tests pass against the real SQLite store with reopen verification where appropriate. The feature description mentions 'remove dead role-normalization code' but the unused suffixesToStrip array flagged in the prior review was not removed — this is a minor gap against the stated scope. The normalizePhrase duplication between discovery-memory-store.ts and company-planner.ts is noted as a future extraction opportunity.",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/src/state/discovery-memory-store.ts",
+        "line": 2554,
+        "severity": "non_blocking",
+        "description": "suffixesToStrip array remains declared but unused (dead code). The feature description says 'remove dead role-normalization code' but this was not done. The roman numeral suffix stripping is done by an inline regex on line ~2570 instead. This was flagged in the prior review as non-blocking and persists here."
+      },
+      {
+        "file": "integrations/browser-use-discovery/src/state/discovery-memory-store.ts",
+        "line": 2510,
+        "severity": "non_blocking",
+        "description": "normalizePhrase is now duplicated in both discovery-memory-store.ts (line 2510) and company-planner.ts (line 1133). The implementations are identical. A future extraction to a shared utility module would reduce drift risk. This is acceptable for the fix scope but should be tracked."
+      },
+      {
+        "file": "integrations/browser-use-discovery/src/state/discovery-memory-store.ts",
+        "line": 2545,
+        "severity": "non_blocking",
+        "description": "seniorityPrefixes still includes 'ii', 'iii', 'iv', 'v' as prefixes (roman numerals), which could incorrectly strip from titles starting with these sequences. This was flagged in the prior review and is out of scope for this fix but persists."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "normalizePhrase and cleanString are now defined identically in both discovery-memory-store.ts and company-planner.ts. The prior review noted this cross-module dependency and the fix chose to duplicate rather than extract to a shared module. This should be documented as a known duplication with a note to extract when convenient, to prevent future drift.",
+      "evidence": "discovery-memory-store.ts:2500-2515 adds cleanString + normalizePhrase. company-planner.ts:1133-1138 has the identical normalizePhrase (with cleanString also present earlier in that file)."
+    },
+    {
+      "area": "skills",
+      "observation": "The loop-memory-worker skill says 'Write failing tests first for schema changes and run-persistence side effects.' The worker correctly followed this pattern in spirit by adding comprehensive real-store round-trip tests. The skill procedure was followed more faithfully in this fix than in the original feature.",
+      "evidence": "4 new test cases added with real SQLite store, reopen verification, and meaningful assertions on persistence behavior."
+    }
+  ],
+  "addressesFailureFrom": ".factory/validation/wave-4-learning-hardening/scrutiny/reviews/wave4-memory-outcomes-yield-cooldown.json",
+  "summary": "PASS. The fix successfully resolves the blocking runtime defect (normalizePhrase ReferenceError) by adding the missing cleanString/normalizePhrase functions to discovery-memory-store.ts, and closes the test coverage gaps by adding 4 real-store round-trip tests for VAL-LOOP-MEM-002/003/005 plus a learnRoleFamilyFromLead normalization test. All 8 targeted tests pass. The feature description's 'remove dead role-normalization code' promise is only partially fulfilled — the unused suffixesToStrip array was not removed. The normalizePhrase function is now duplicated between discovery-memory-store.ts and company-planner.ts rather than extracted to a shared utility. These are non-blocking concerns; the original blocking failure is fully addressed."
+}
