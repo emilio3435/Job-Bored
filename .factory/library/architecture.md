@@ -74,6 +74,34 @@ The ATS provider layer uses a factory pattern introduced in `providers/shared.ts
 - All 14 providers follow this pattern (greenhouse, lever, ashby, smartrecruiters, workday, icims, jobvite, taleo, successfactors, workable, breezy, recruitee, teamtailor, personio)
 - New providers should follow the same factory pattern
 
+## Browser Scout Policy Classification
+
+The browser scout lane uses a 3-tier policy model defined in `career-surface-resolver.ts`:
+
+1. **`blocked`** — Host is on the blocked list; no extraction or hint resolution attempted.
+2. **`hint_only`** — Third-party job board host (LinkedIn, Indeed, ZipRecruiter, etc.); candidate is recorded as a hint but never directly extracted. Hint resolution may upgrade to canonical if a canonical employer/ATS surface is discovered.
+3. **`extractable`** — Canonical employer/ATS surface eligible for extraction, subject to secondary gating via `isCanonicalExtractableCandidate()`.
+
+The canonical extraction gate (`isCanonicalExtractableCandidate` in `grounded-search.ts`) provides an additional filter beyond the 3-tier classification: only candidates that pass both policy classification AND canonical extraction gating proceed to deep extraction. This implements the VAL-LOOP-BROWSER-004 requirement.
+
+### Third-party host detection
+- `THIRD_PARTY_JOB_BOARD_HOSTS` in `career-surface-resolver.ts` maintains the authoritative list of blocked/hint-only hosts (30+ domains).
+- Test fixtures (e.g., `THIRD_PARTY_HOSTS` in `career-surface-resolver.test.ts`) may be a subset for targeted coverage; they do not need to be exhaustive but should cover the major hosts.
+- The validation contract specifies 4 policy classes but the implementation uses 3 with secondary gating — this is a naming gap, not a behavioral gap.
+
+## Memory Store Architecture
+
+The memory store (`src/state/discovery-memory-store.ts`) uses SQLite with the following tables:
+- `discovery_run_status` — Run lifecycle state (pre-existing, not modified by scout wave)
+- `company_registry` — Company records with surface outcome tracking
+- `career_surface_outcomes` — Surface-level outcomes per company
+- `intent_coverage` — Intent-to-company coverage tracking
+- `dead_link_cooldowns` — Failed URL retry cooldowns
+- `listing_fingerprints` — Cross-run deduplication fingerprints
+- `scout_observations` — Scout-phase observation records (run/surface identity, queryable by run and surface)
+
+Type patterns follow a dual-declaration convention where types appear in both `contracts.ts` (with JSDoc) and the store module (without JSDoc). This is an established project pattern, not a bug.
+
 ## Core Invariants
 
 - Webhook request and sheet write contracts remain backward compatible.

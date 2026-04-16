@@ -1,0 +1,39 @@
+{
+  "featureId": "wave2-browser-canonical-scout-policy",
+  "reviewedAt": "2026-04-16T03:00:00.000Z",
+  "commitId": "c3d70be",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The commit adds 820 lines of comprehensive test coverage in career-surface-resolver.test.ts for VAL-LOOP-BROWSER-001/002/003/006/007. The underlying implementation in career-surface-resolver.ts and grounded-search.ts was already in place (from prior work); this feature adds explicit assertion tests verifying deterministic policy classification, hint-only suppression, canonical resolution upgrade/failure paths, third-party host non-extractability, and auditable diagnostics with URL attribution.",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/tests/browser/career-surface-resolver.test.ts",
+        "line": 822,
+        "severity": "non_blocking",
+        "description": "VAL-LOOP-BROWSER-004 (exploit gating admits only canonical ATS/employer surfaces) and VAL-LOOP-BROWSER-005 (careers/listings pages yield embedded surfaces) are covered only as inline comments referencing implicit coverage from other tests, not with dedicated test cases. While the behavior IS exercised through VAL-LOOP-BROWSER-002/003 tests, explicit dedicated tests would provide clearer regression protection and traceability."
+      },
+      {
+        "file": ".factory/missions/b453d530-a63e-4f42-8ec6-c9d5f0e68daf/validation-contract.md",
+        "line": 0,
+        "severity": "non_blocking",
+        "description": "VAL-LOOP-BROWSER-001 validation contract specifies 4 policy classes (canonical_extractable, canonical_seed_only, hint_only, blocked) but implementation uses 3 classes (extractable, hint_only, blocked) with secondary gating via isCanonicalExtractableCandidate and isPreflightReadyCareerSurface. This is a contract-to-implementation naming gap, not a behavioral gap — the effective behavior is equivalent because the canonical gate provides the additional separation. Tests correctly verify the 3-class model."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The THIRD_PARTY_JOB_BOARD_HOSTS list in career-surface-resolver.ts and the test file are independently maintained. The test file defines its own THIRD_PARTY_HOSTS array (17 hosts) for VAL-LOOP-BROWSER-006 coverage, while the resolver has a longer THIRD_PARTY_JOB_BOARD_HOSTS array (30+ hosts). If new hosts are added to the resolver, tests won't automatically cover them. AGENTS.md does not mention the convention for keeping test fixtures in sync with implementation constants.",
+      "evidence": "career-surface-resolver.test.ts lines 23-42 define THIRD_PARTY_HOSTS with 17 entries; career-surface-resolver.ts lines 92-124 define THIRD_PARTY_JOB_BOARD_HOSTS with 30+ entries. Missing from test: dynamitejobs.com, jobspresso.co, jobgether.com, powertofly.com, jooble.org, talent.com, dice.com, snagajob.com, jobtoday.com, jobisjob.com, careerjet.com, jobrapido.com, adzuna.com, remote.co."
+    },
+    {
+      "area": "knowledge",
+      "observation": "The library/environment.md and library/architecture.md don't document the 3-tier policy classification model (blocked/hint_only/extractable) or the canonical extraction gate (isCanonicalExtractableCandidate). This is a core architectural decision for the browser scout lane that future workers would benefit from understanding.",
+      "evidence": "The career-surface-resolver.ts defines classifyCareerSurfaceSourcePolicy with 3 tiers, and grounded-search.ts uses isCanonicalExtractableCandidate as a secondary gate. Neither pattern is documented in .factory/library/."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS — The feature adds solid test coverage for VAL-LOOP-BROWSER-001/002/003/006/007. The underlying implementation in career-surface-resolver.ts and grounded-search.ts correctly enforces deterministic classification, hint-only suppression with no direct extraction, canonical hint resolution with explicit failure diagnostics, third-party host non-extractability, and auditable URL-attributed diagnostics. The commit stays within the loop-browser-worker write-scope (grounded-search.ts, career-surface-resolver.ts, and resolver tests). Two non-blocking notes: (1) VAL-LOOP-BROWSER-004/005 are only implicitly covered via comments, not dedicated tests; (2) the test fixture THIRD_PARTY_HOSTS list is a subset of the implementation list, meaning some third-party hosts lack dedicated test coverage."
+}
