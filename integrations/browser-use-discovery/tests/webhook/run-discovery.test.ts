@@ -7,6 +7,8 @@ import {
 } from "../../src/contracts.ts";
 import { mergeDiscoveryConfig } from "../../src/config.ts";
 import { runDiscovery } from "../../src/run/run-discovery.ts";
+import { createDiscoveryMemoryStore } from "../../src/state/discovery-memory-store.ts";
+import { createRunDiscoveryMemoryStore } from "../../src/state/run-discovery-memory-store.ts";
 
 const originalFetch = globalThis.fetch;
 
@@ -3173,6 +3175,172 @@ test("VAL-LOOP-ATS-002: ATS frontier pulls from memory career surfaces when conf
   // ATS host search fallback should NOT have been called since career surfaces provided seeds
   assert.equal(writtenLeads.length, 1, "Should have written 1 lead from career surface seed");
   assert.equal(writtenLeads[0]?.sourceId, "greenhouse");
+});
+
+test("runDiscovery persists memory when runtime store exposes writeExploitOutcome and learnRoleFamilyFromLead", async () => {
+  const rawMemoryStore = createDiscoveryMemoryStore(":memory:");
+  const writtenLeads: Array<Record<string, unknown>> = [];
+
+  try {
+    const dependencies = {
+      runtimeConfig: {
+        stateDatabasePath: "",
+        workerConfigPath: "",
+        browserUseCommand: "",
+        geminiApiKey: "test-key",
+        geminiModel: "gemini-2.5-flash",
+        groundedSearchMaxResultsPerCompany: 6,
+        groundedSearchMaxPagesPerCompany: 4,
+        googleServiceAccountJson: "",
+        googleServiceAccountFile: "",
+        googleAccessToken: "",
+        googleOAuthTokenJson: "",
+        googleOAuthTokenFile: "",
+        webhookSecret: "",
+        allowedOrigins: [],
+        port: 0,
+        host: "127.0.0.1",
+        runMode: "hosted",
+        asyncAckByDefault: true,
+      },
+      companyPlanner: {
+        buildIntent: () => ({
+          intentKey: "runtime-memory-write",
+          targetRoles: ["Platform Engineer"],
+          includeKeywords: ["typescript"],
+          excludeKeywords: [],
+          locations: ["Remote"],
+          remotePolicy: "remote",
+          seniority: "",
+          sourcePreset: "ats_only" as const,
+        }),
+        planCompanies: () => ({
+          plannedCompanies: [],
+          suppressedCompanies: [],
+        }),
+      },
+      discoveryMemoryStore: createRunDiscoveryMemoryStore(rawMemoryStore),
+      sourceAdapterRegistry: {
+        adapters: [],
+        detectBoards: async ({ company }) => {
+          assert.equal(company.name, "Acme AI");
+          return [
+            {
+              matched: true,
+              sourceId: "greenhouse",
+              sourceLabel: "Greenhouse",
+              boardUrl: "https://boards.greenhouse.io/acme-ai",
+              confidence: 1,
+              warnings: [],
+              boardToken: "acme-ai",
+              metadata: {
+                companyName: "Acme AI",
+                companyKey: "acme-ai",
+              },
+            },
+          ];
+        },
+        collectListings: async () => [
+          {
+            sourceId: "greenhouse",
+            sourceLabel: "Greenhouse",
+            title: "Platform Engineer",
+            company: "Acme AI",
+            location: "Remote",
+            url: "https://boards.greenhouse.io/acme-ai/jobs/9",
+            descriptionText: "TypeScript platform engineering role.",
+            tags: ["typescript", "platform"],
+            sourceLane: "ats_provider" as const,
+            surfaceId: "surface_greenhouse_acme_ai",
+            metadata: {
+              companyKey: "acme-ai",
+              sourceLane: "ats_provider",
+              surfaceId: "surface_greenhouse_acme_ai",
+            },
+          },
+        ],
+      },
+      groundedSearchClient: {
+        search: async () => ({
+          searchQueries: [],
+          candidates: [],
+          warnings: [],
+        }),
+      },
+      pipelineWriter: {
+        write: async (sheetId: string, leads: Array<Record<string, unknown>>) => {
+          writtenLeads.push(...leads);
+          return {
+            sheetId,
+            appended: leads.length,
+            updated: 0,
+            skippedDuplicates: 0,
+            warnings: [],
+          };
+        },
+      },
+      loadStoredWorkerConfig: async () => ({
+        sheetId: "sheet_runtime_memory",
+        mode: "hosted" as const,
+        timezone: "UTC",
+        companies: [],
+        atsCompanies: [
+          {
+            name: "Acme AI",
+            boardHints: {
+              greenhouse: "acme-ai",
+            },
+          },
+        ],
+        includeKeywords: ["typescript"],
+        excludeKeywords: [],
+        targetRoles: ["Platform Engineer"],
+        locations: ["Remote"],
+        remotePolicy: "remote",
+        seniority: "",
+        maxLeadsPerRun: 5,
+        enabledSources: ["greenhouse"],
+        schedule: { enabled: false, cron: "" },
+      }),
+      mergeDiscoveryConfig: (stored: any, request: any) => ({
+        ...stored,
+        sheetId: request.sheetId,
+        variationKey: request.variationKey,
+        requestedAt: request.requestedAt,
+        sourcePreset: "ats_only",
+        effectiveSources: ["greenhouse"],
+      }),
+      now: () => new Date("2026-04-15T09:00:00.000Z"),
+      randomId: (prefix: string) => `${prefix}_runtime_memory`,
+    };
+
+    const result = await runDiscovery(makeRequest(), "manual", dependencies as any);
+
+    assert.equal(result.lifecycle.normalizedLeadCount, 1);
+    assert.notEqual(result.lifecycle.state, "failed");
+    assert.equal(writtenLeads.length, 1);
+    assert.ok(
+      result.warnings.every((warning) => !warning.includes("writeExploitOutcome is not a function")),
+      `did not expect runtime memory wiring warning, saw: ${result.warnings.join(" | ")}`,
+    );
+
+    const exploitOutcomes = rawMemoryStore.listExploitOutcomes({
+      runId: result.lifecycle.runId,
+    });
+    assert.equal(exploitOutcomes.length, 1);
+    const persistedCompanyKey = exploitOutcomes[0]?.companyKey || "";
+    assert.equal(persistedCompanyKey, "acmeai");
+    assert.equal(exploitOutcomes[0]?.listingsWritten, 1);
+
+    const roleFamilies = rawMemoryStore.listRoleFamilies({
+      companyKey: persistedCompanyKey,
+    });
+    assert.equal(roleFamilies.length, 1);
+    assert.equal(roleFamilies[0]?.baseRole, "platform engineer");
+    assert.equal(roleFamilies[0]?.confirmedCount, 1);
+  } finally {
+    rawMemoryStore.close();
+  }
 });
 
 test("VAL-LOOP-ATS-006: Static fallback ATS seeds are demoted behind stronger signals", async () => {
