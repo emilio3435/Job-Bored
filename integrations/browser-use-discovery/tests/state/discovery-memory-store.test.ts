@@ -471,14 +471,19 @@ test("VAL-LOOP-MEM-002: exploit outcomes and rejection summaries persist post-ru
       location_mismatch: 1,
       seniority_mismatch: 1,
     });
-    // Note: rejectionSamples is stored as JSON but parseJsonObject returns {} for arrays
-    // This is a pre-existing limitation; rejectionReasons and counts verify persistence
+    // rejectionSamples round-trips correctly via parseJsonArray (not parseJsonObject which returns {} for arrays)
+    assert.equal(persistedRun1[0].rejectionSamples.length, 2);
+    assert.equal(persistedRun1[0].rejectionSamples[0].reason, "title_mismatch");
+    assert.equal(persistedRun1[0].rejectionSamples[0].title, "Senior Data Analyst");
+    assert.equal(persistedRun1[0].rejectionSamples[1].reason, "location_mismatch");
 
     const persistedRun2 = reopened.listExploitOutcomes({
       runId: "run_exploit_002",
     });
     assert.equal(persistedRun2.length, 1);
     assert.equal(persistedRun2[0].rejectionReasons.remote_mismatch, 1);
+    assert.equal(persistedRun2[0].rejectionSamples.length, 1);
+    assert.equal(persistedRun2[0].rejectionSamples[0].reason, "remote_mismatch");
   } finally {
     if (reopened) reopened.close();
     if (store) store.close();

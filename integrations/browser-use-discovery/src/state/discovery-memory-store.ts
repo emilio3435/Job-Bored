@@ -2475,13 +2475,7 @@ function mapExploitOutcomeRow(row: ExploitOutcomeRow): ExploitOutcomeRecord {
     listingsRejected: Number(row.listings_rejected || 0),
     listingsWritten: Number(row.listings_written || 0),
     rejectionReasons: parseJsonObject(row.rejection_reasons_json) as Record<string, number>,
-    rejectionSamples: parseJsonObject(row.rejection_samples_json) as Array<{
-      reason: string;
-      title: string;
-      company: string;
-      url: string;
-      detail: string;
-    }>,
+    rejectionSamples: parseJsonArray(row.rejection_samples_json),
   };
 }
 
@@ -2642,6 +2636,14 @@ function parseJsonObject(raw: string): JsonObject {
     return {};
   }
   return value as JsonObject;
+}
+
+function parseJsonArray<T>(raw: string): T[] {
+  const value = safeParseJson(raw);
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value as T[];
 }
 
 function safeParseJson(raw: string): unknown {
