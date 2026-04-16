@@ -1,0 +1,189 @@
+{
+  "groupId": "all-assertions",
+  "testedAt": "2026-04-16T00:00:00.000Z",
+  "isolation": {
+    "tool": "node --experimental-strip-types --test",
+    "workingDirectory": "/Users/emilionunezgarcia/Job-Bored",
+    "testDirectories": [
+      "integrations/browser-use-discovery/tests/state/",
+      "integrations/browser-use-discovery/tests/browser/",
+      "integrations/browser-use-discovery/tests/discovery/",
+      "integrations/browser-use-discovery/tests/sheets/",
+      "integrations/browser-use-discovery/tests/webhook/"
+    ]
+  },
+  "toolsUsed": ["node-test"],
+  "assertions": [
+    {
+      "id": "VAL-LOOP-MEM-002",
+      "title": "Exploit outcomes and rejection summaries persist post-run",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run node --experimental-strip-types --test with discovery-memory-store.test.ts and company-planner.test.ts",
+          "expected": "Exploit outcomes and rejection summaries persist through real store round-trip",
+          "observed": "Test 'VAL-LOOP-MEM-002: exploit outcomes and rejection summaries persist post-run (real store round-trip)' passed (11.23ms)"
+        }
+      ],
+      "evidence": {
+        "testOutput": "wave-4-learning-hardening/all-assertions/memory-tests-output.txt",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-MEM-003",
+      "title": "Yield history and cooldown memory influence future ranking",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run node --experimental-strip-types --test with discovery-memory-store.test.ts and company-planner.test.ts",
+          "expected": "Yield history and cooldown memory influence planner snapshot ranking outcomes",
+          "observed": "Test 'VAL-LOOP-MEM-003: yield history and cooldown memory influence planner snapshot' passed (13.17ms)"
+        }
+      ],
+      "evidence": {
+        "testOutput": "wave-4-learning-hardening/all-assertions/memory-tests-output.txt",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-MEM-004",
+      "title": "Deterministic role-family learning is persisted and reused",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run node --experimental-strip-types --test with company-planner.test.ts",
+          "expected": "Planner uses role-family memory to find adjacent companies deterministically",
+          "observed": "Test 'VAL-LOOP-MEM-004: planner uses role-family memory to find adjacent companies deterministically' passed (0.54ms)"
+        },
+        {
+          "action": "Verify role-family widening does not bypass final filters",
+          "expected": "Cooldown is enforced even when role-family widening discovers companies",
+          "observed": "Test 'VAL-LOOP-MEM-004: role-family widening does not bypass final filters (cooldown enforced)' passed (0.26ms)"
+        }
+      ],
+      "evidence": {
+        "testOutput": "wave-4-learning-hardening/all-assertions/memory-tests-output.txt",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-MEM-005",
+      "title": "Memory signals remain truthful and do not bypass final relevance gates",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run node --experimental-strip-types --test with discovery-memory-store.test.ts",
+          "expected": "Memory signals remain truthful - role-family widening does not bypass relevance filters",
+          "observed": "Test 'VAL-LOOP-MEM-005: memory signals remain truthful - role-family widening does not bypass relevance filters' passed (13.06ms)"
+        }
+      ],
+      "evidence": {
+        "testOutput": "wave-4-learning-hardening/all-assertions/memory-tests-output.txt",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-REL-001",
+      "title": "Informational non-job pages are vetoed before exploit",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run node --experimental-strip-types --test with grounded-search.test.ts",
+          "expected": "Informational company pages nested under /jobs paths are rejected",
+          "observed": "Test 'collectGroundedWebListings rejects informational company pages nested under /jobs paths' passed (0.47ms)"
+        }
+      ],
+      "evidence": {
+        "testOutput": "wave-4-learning-hardening/all-assertions/relevance-tests-output.txt",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-REL-002",
+      "title": "Employer mismatch and title-shape vetoes are enforced upstream",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run node --experimental-strip-types --test with lead-normalizer.test.ts",
+          "expected": "Headline-only mismatch rejections are explained with diagnostics",
+          "observed": "Test 'normalizeLeadWithDiagnostics explains headline-only mismatch rejections' passed (0.40ms)"
+        }
+      ],
+      "evidence": {
+        "testOutput": "wave-4-learning-hardening/all-assertions/relevance-tests-output.txt",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-REL-004",
+      "title": "Hint-only board-host veto is enforced consistently",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run node --experimental-strip-types --test with grounded-search.test.ts",
+          "expected": "Third-party boards are kept as hint_only candidates while merging canonical results",
+          "observed": "Test 'createGroundedSearchClient keeps third-party boards as hint_only candidates while merging canonical results' passed (12.05ms)"
+        },
+        {
+          "action": "Verify widened hint-only host classification",
+          "expected": "BuiltIn, Wellfound, WorkingNomads, and Google Jobs-like results are classified correctly",
+          "observed": "Test 'VAL-DATA-002: widened hint-only hosts classify BuiltIn, Wellfound, WorkingNomads, and Google Jobs-like results correctly' passed (1.06ms)"
+        }
+      ],
+      "evidence": {
+        "testOutput": "wave-4-learning-hardening/all-assertions/relevance-tests-output.txt",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-REL-005",
+      "title": "AI matcher is budgeted and scoped to uncertainty",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run node --experimental-strip-types --test with job-matcher.test.ts",
+          "expected": "AI matcher does not spend AI calls on deterministic rejects",
+          "observed": "Test 'shouldUseAiMatcher does not spend AI calls on deterministic rejects' passed (0.19ms)"
+        },
+        {
+          "action": "Verify ATS follow-up call budgeting",
+          "expected": "ATS follow-up calls are capped more aggressively",
+          "observed": "Test 'shouldUseAiMatcher caps ATS follow-up calls more aggressively' passed (0.05ms)"
+        }
+      ],
+      "evidence": {
+        "testOutput": "wave-4-learning-hardening/all-assertions/relevance-tests-output.txt",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-LOOP-CROSS-003",
+      "title": "Canonical-only write integrity is preserved in mixed runs",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run node --experimental-strip-types --test with grounded-search.test.ts",
+          "expected": "Regex fallback keeps hint-only boards but blocks unsupported destinations",
+          "observed": "Test 'VAL-DATA-001: regex fallback keeps hint-only boards but blocks unsupported destinations' passed (0.32ms)"
+        }
+      ],
+      "evidence": {
+        "testOutput": "wave-4-learning-hardening/all-assertions/relevance-tests-output.txt",
+        "consoleErrors": "none"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 9 assertions across 3 test runs (113 total tests, all passing): VAL-LOOP-MEM-002 pass, VAL-LOOP-MEM-003 pass, VAL-LOOP-MEM-004 pass, VAL-LOOP-MEM-005 pass, VAL-LOOP-REL-001 pass, VAL-LOOP-REL-002 pass, VAL-LOOP-REL-004 pass, VAL-LOOP-REL-005 pass, VAL-LOOP-CROSS-003 pass."
+}
