@@ -1,0 +1,27 @@
+{
+  "milestone": "wave-5-validation",
+  "round": 3,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 1,
+    "passed": 0,
+    "failed": 0,
+    "blocked": 1
+  },
+  "passedAssertions": [],
+  "failedAssertions": [],
+  "blockedAssertions": [
+    {
+      "id": "VAL-LOOP-CROSS-005",
+      "blockedBy": "Local /webhook accepted async lineage but terminalized failed with runtime error \"dependencies.discoveryMemoryStore.writeExploitOutcome is not a function\", and public relay POST /webhook remained unavailable (ERR_NGROK_3200)."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added curl flow guidance that discoveryProfile intent fields must be string-shaped contract values (array-shaped intent fields are rejected).",
+      "source": "flow-report"
+    }
+  ],
+  "previousRound": ".factory/validation/wave-5-validation/user-testing/synthesis.json (round 2)"
+}

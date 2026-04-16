@@ -1,0 +1,109 @@
+{
+  "groupId": "node-test-group",
+  "testedAt": "2026-04-16T00:00:00.000Z",
+  "isolation": {
+    "tool": "node-test",
+    "workingDirectory": "/Users/emilionunezgarcia/Job-Bored",
+    "concurrency": 1
+  },
+  "toolsUsed": ["node-test"],
+  "assertions": {
+    "VAL-LOOP-OBS-001": {
+      "status": "pass",
+      "evidence": {
+        "testFile": "integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts",
+        "namedTests": [
+          "VAL-LOOP-OBS-001: runDiscovery emits loop counters in lifecycle for ATS run",
+          "VAL-LOOP-OBS-001/003: runDiscovery emits stageOrder and reason attribution for partial status"
+        ],
+        "result": "both passed",
+        "rawOutput": "✔ VAL-LOOP-OBS-001: runDiscovery emits loop counters in lifecycle for ATS run (0.285541ms)\n✔ VAL-LOOP-OBS-001/003: runDiscovery emits stageOrder and reason attribution for partial status (0.105375ms)"
+      }
+    },
+    "VAL-LOOP-OBS-002": {
+      "status": "pass",
+      "evidence": {
+        "testFile": "integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts",
+        "namedTests": [
+          "VAL-LOOP-OBS-001: runDiscovery emits loop counters in lifecycle for ATS run"
+        ],
+        "note": "Invariant checks (atsScoutCount >= 0, selectedExploitTargets <= scoredSurfaces) verified within the OBS-001 test body",
+        "result": "passed with invariant assertions"
+      }
+    },
+    "VAL-LOOP-OBS-003": {
+      "status": "pass",
+      "evidence": {
+        "testFile": "integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts",
+        "namedTests": [
+          "VAL-LOOP-OBS-001/003: runDiscovery emits stageOrder and reason attribution for partial status"
+        ],
+        "note": "Reason code and message checks verified within the OBS-001/003 combined test",
+        "result": "passed"
+      }
+    },
+    "VAL-LOOP-OBS-004": {
+      "status": "pass",
+      "evidence": {
+        "testFile": "integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts",
+        "namedTests": [
+          "VAL-LOOP-OBS-004: failure class differentiates dominant failure categories",
+          "VAL-LOOP-OBS-004: strict_filtering_rejection classification is defined and available",
+          "VAL-LOOP-OBS-004: canonical_resolution_loss classification is defined and available",
+          "VAL-LOOP-OBS-004: exploit_budget_exhaustion when targets selected but no leads written",
+          "VAL-LOOP-OBS-004: weak_ats_seed_quality when ATS ran but produced no scorable candidates",
+          "VAL-LOOP-OBS-004: unknown failure class when state is degraded but reason is undetermined"
+        ],
+        "result": "all 6 passed",
+        "rawOutput": "✔ VAL-LOOP-OBS-004: failure class differentiates dominant failure categories (0.244041ms)\n✔ VAL-LOOP-OBS-004: strict_filtering_rejection classification is defined and available (0.030833ms)\n✔ VAL-LOOP-OBS-004: canonical_resolution_loss classification is defined and available (0.025792ms)\n✔ VAL-LOOP-OBS-004: exploit_budget_exhaustion when targets selected but no leads written (0.168125ms)\n✔ VAL-LOOP-OBS-004: weak_ats_seed_quality when ATS ran but produced no scorable candidates (0.087917ms)\n✔ VAL-LOOP-OBS-004: unknown failure class when state is degraded but reason is undetermined (0.06725ms)"
+      }
+    },
+    "VAL-LOOP-OBS-005": {
+      "status": "pass",
+      "evidence": {
+        "testFile": "integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts",
+        "namedTests": [
+          "VAL-LOOP-OBS-005: grounded_web without browser manager produces explicit diagnostic"
+        ],
+        "result": "passed",
+        "rawOutput": "✔ VAL-LOOP-OBS-005: grounded_web without browser manager produces explicit diagnostic (0.095416ms)"
+      }
+    },
+    "VAL-LOOP-CROSS-001": {
+      "status": "pass",
+      "evidence": {
+        "testFile": "integrations/browser-use-discovery/tests/webhook/cross-area-flows.test.ts",
+        "namedTests": [
+          "VAL-LOOP-CROSS-001: unrestricted browser_plus_ats with empty companies uses both ATS and browser lanes in shared loop"
+        ],
+        "result": "passed",
+        "rawOutput": "✔ VAL-LOOP-CROSS-001: unrestricted browser_plus_ats with empty companies uses both ATS and browser lanes in shared loop (11.213458ms)"
+      }
+    },
+    "VAL-LOOP-CROSS-002": {
+      "status": "pass",
+      "evidence": {
+        "testFile": "integrations/browser-use-discovery/tests/webhook/cross-area-flows.test.ts",
+        "namedTests": [
+          "VAL-LOOP-CROSS-002: ats_only preset produces explicit grounded_web exclusion evidence in terminal status"
+        ],
+        "result": "passed",
+        "rawOutput": "✔ VAL-LOOP-CROSS-002: ats_only preset produces explicit grounded_web exclusion evidence in terminal status (11.454042ms)"
+      }
+    },
+    "VAL-LOOP-CROSS-004": {
+      "status": "pass",
+      "evidence": {
+        "testFile": "integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts",
+        "namedTests": [
+          "VAL-LOOP-CROSS-004: runDiscovery tracks cross-lane duplicate suppression in loopCounters"
+        ],
+        "result": "passed",
+        "rawOutput": "✔ VAL-LOOP-CROSS-004: runDiscovery tracks cross-lane duplicate suppression in loopCounters (0.759375ms)"
+      }
+    }
+  },
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 8 assertions across 2 test files (57 total tests, 57 passed, 0 failed): VAL-LOOP-OBS-001 (pass), VAL-LOOP-OBS-002 (pass), VAL-LOOP-OBS-003 (pass), VAL-LOOP-OBS-004 (pass), VAL-LOOP-OBS-005 (pass), VAL-LOOP-CROSS-001 (pass), VAL-LOOP-CROSS-002 (pass), VAL-LOOP-CROSS-004 (pass). All assertions confirmed working as specified."
+}
