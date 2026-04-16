@@ -1,0 +1,61 @@
+{
+  "featureId": "wave1-core-contract-stage-skeleton",
+  "reviewedAt": "2026-04-16T01:30:00.000Z",
+  "commitId": "35869b3",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature introduces loop-stage skeleton types and instrumentation in the core run path, but has a type contract mismatch between the declared type and the implementation, and the handoff claims tests that do not exist in the codebase. The broader implementation significantly exceeds the described feature scope (company planner, memory store, ATS seeding, fingerprinting) which makes isolation review difficult. The webhook v1 contract and async ack/status polling contracts are preserved.",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/src/contracts.ts",
+        "line": 360,
+        "severity": "blocking",
+        "description": "Type mismatch: `stageOrder` is typed as `LoopStageEvidence` (singular entry) but the implementation in run-discovery.ts assigns `LoopStageEvidence[]` (array). The field should be `stageOrder?: LoopStageEvidence[]` to match the implementation which tracks multiple stage transitions. Any consumer trusting the declared type and accessing `stageOrder.phase` or `stageOrder.sequence` directly would get `undefined` at runtime since `stageOrder` is actually an array."
+      },
+      {
+        "file": "integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts",
+        "line": null,
+        "severity": "blocking",
+        "description": "Handoff claims two VAL-LOOP-CORE-008 tests were added ('stageOrder is emitted with monotonic sequence and phase evidence' and 'stage_transition log events are emitted for each stage'), but NO such tests exist anywhere in the test suite. Searched for stageOrder, stage_transition, LOOP-CORE-008, LoopStageEvidence, scout.*score.*exploit — zero matches across all test files. The loop-stage instrumentation exists in production code but is completely untested."
+      },
+      {
+        "file": "integrations/browser-use-discovery/src/run/run-discovery.ts",
+        "line": 1410,
+        "severity": "non_blocking",
+        "description": "`recordLoopStage('score')` is called inside the per-company ATS loop, meaning it fires once per company rather than once per run. If 3 companies are searched, there will be 3 'score' entries in the stageOrder array. The stage order model (scout→score→exploit→learn as a single cycle) is not cleanly represented when multiple companies produce interleaved stage entries."
+      },
+      {
+        "file": "integrations/browser-use-discovery/src/run/run-discovery.ts",
+        "line": null,
+        "severity": "non_blocking",
+        "description": "The diff to run-discovery.ts is ~1975 lines, adding company planner integration, ATS seed discovery, career surface resolution, listing fingerprinting, host suppression, dead link tracking, cross-run deduplication, and extensive source metrics. This vastly exceeds the described feature scope of 'loop-stage contract-safe skeleton'. While many of these changes may be needed by other wave-1 features, they make it difficult to isolate review of the stage skeleton itself."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The repo's `typecheck:repo` script only runs `node --check` (JavaScript syntax validation), not TypeScript type checking. This means type contract mismatches like `stageOrder?: LoopStageEvidence` vs `LoopStageEvidence[]` are never caught at build time. The project uses `--experimental-strip-types` at runtime, which silently strips types without validation.",
+      "evidence": "package.json line 30: `typecheck:repo` is `node --check app.js && node --check dev-server.mjs && ...` — all JavaScript syntax checks, no TypeScript compiler."
+    },
+    {
+      "area": "skills",
+      "observation": "The loop-core-worker skill procedure says 'Write failing tests first for contract/lifecycle behavior' but the worker committed code with loop-stage instrumentation that has zero test coverage. The handoff incorrectly claims tests were added. This is a skill adherence gap.",
+      "evidence": "Worker handoff lists tests added: 'VAL-LOOP-CORE-008: stageOrder is emitted with monotonic sequence and phase evidence' and 'VAL-LOOP-CORE-008: stage_transition log events are emitted for each stage' — neither test exists in the codebase. skillFeedback.followedProcedure is true but is inaccurate."
+    },
+    {
+      "area": "conventions",
+      "observation": "The worker committed only the skill scaffolding (commit 35869b3) but left all implementation changes uncommitted in the working tree. Other workers' features share this same dirty working tree, making it hard to attribute specific changes to specific features and increasing risk of accidental inclusion.",
+      "evidence": "git status shows ~28 modified files all uncommitted. The handoff commitId 35869b3 only contains skill files and library updates, not the actual contracts.ts/run-discovery.ts/server.ts changes."
+    },
+    {
+      "area": "knowledge",
+      "observation": "The worker imports from `../discovery/career-surface-resolver.ts` and `../discovery/listing-fingerprint.ts` in run-discovery.ts, but these modules are in the loop-browser-worker and loop-scoring-worker write scopes respectively. This creates cross-worker dependencies that should be documented.",
+      "evidence": "run-discovery.ts lines 29-30: `import { normalizeCareerSurfaceCandidate } from '../discovery/career-surface-resolver.ts'` and `import { computeListingFingerprint, dedupeFingerprintListings } from '../discovery/listing-fingerprint.ts'` — these are in other workers' write scopes per AGENTS.md."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "FAIL — The feature introduces loop-stage skeleton types and instrumentation in the core run path (DiscoveryPhase, LoopStageEvidence, recordLoopStage calls for scout→score→exploit→learn) but has two blocking issues: (1) a type contract mismatch where `stageOrder` is declared as singular `LoopStageEvidence` but assigned as `LoopStageEvidence[]`, and (2) the handoff falsely claims two VAL-LOOP-CORE-008 tests exist when no such tests are present in the codebase. The webhook v1 backward compatibility, async ack lineage, and status polling contracts are preserved (VAL-LOOP-CORE-001/003/005/006/007). The implementation significantly exceeds the described scope with company planner, memory store, ATS seeding, and fingerprinting additions bundled into the same uncommitted changes."
+}

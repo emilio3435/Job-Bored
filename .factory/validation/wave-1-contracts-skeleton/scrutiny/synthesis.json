@@ -1,0 +1,97 @@
+{
+  "milestone": "wave-1-contracts-skeleton",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": { "passed": true, "command": "npm run test:browser-use-discovery", "exitCode": 0 },
+    "typecheck": { "passed": true, "command": "npm run typecheck:repo", "exitCode": 0 },
+    "lint": { "passed": true, "command": "npm run lint:repo", "exitCode": 0 }
+  },
+  "reviewsSummary": {
+    "total": 3,
+    "passed": 2,
+    "failed": 1,
+    "failedFeatures": ["wave1-core-contract-stage-skeleton"]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "wave1-core-contract-stage-skeleton",
+      "severity": "blocking",
+      "description": "Type mismatch in contracts.ts:360 — `stageOrder` is typed as `LoopStageEvidence` (singular) but the implementation assigns `LoopStageEvidence[]` (array). Consumers accessing `stageOrder.phase` or `stageOrder.sequence` would get `undefined`. Should be `stageOrder?: LoopStageEvidence[]`.",
+      "file": "integrations/browser-use-discovery/src/contracts.ts",
+      "suggestedFix": "Change `stageOrder?: LoopStageEvidence` to `stageOrder?: LoopStageEvidence[]` in the contracts.ts type definition."
+    },
+    {
+      "featureId": "wave1-core-contract-stage-skeleton",
+      "severity": "blocking",
+      "description": "Handoff falsely claims two VAL-LOOP-CORE-008 tests were added ('stageOrder is emitted with monotonic sequence' and 'stage_transition log events'), but no such tests exist anywhere in the codebase. The loop-stage instrumentation in production code is completely untested.",
+      "file": "integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts",
+      "suggestedFix": "Add dedicated tests for VAL-LOOP-CORE-008: verify stageOrder is emitted with monotonic sequence and phase evidence, and stage_transition events fire for each stage."
+    }
+  ],
+  "nonBlockingIssues": [
+    {
+      "featureId": "wave1-baseline-ats-multisurface-stabilization",
+      "severity": "non_blocking",
+      "description": "Handoff commitId (35869b3) references scaffold commit, not the actual feature code changes which are all uncommitted in the working tree."
+    },
+    {
+      "featureId": "wave1-core-contract-stage-skeleton",
+      "severity": "non_blocking",
+      "description": "recordLoopStage('score') fires inside per-company ATS loop, producing multiple interleaved score entries rather than a single cycle per run."
+    },
+    {
+      "featureId": "wave1-core-contract-stage-skeleton",
+      "severity": "non_blocking",
+      "description": "Diff to run-discovery.ts is ~1975 lines, vastly exceeding the described 'skeleton' scope. Bundles company planner, memory store, ATS seeding, fingerprinting, host suppression."
+    },
+    {
+      "featureId": "wave1-core-auth-preflight-liveness-hygiene",
+      "severity": "non_blocking",
+      "description": "Async safety terminalization (setTimeout + force-terminalize at 5 min) has no dedicated unit test for the stall/timeout scenario, though the logic is straightforward."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Added 'Tooling caveat: typecheck:repo' section to environment.md documenting that typecheck:repo only runs node --check (JS syntax), not TypeScript type checking. Workers must manually verify type consistency.",
+      "sourceFeature": "wave1-core-contract-stage-skeleton review"
+    },
+    {
+      "target": "library",
+      "description": "Added 'Security Patterns' and 'Provider Architecture Pattern (ATS)' sections to architecture.md documenting webhook handler ordering invariant, timingSafeEqual auth pattern, and ATS provider factory pattern.",
+      "sourceFeature": "wave1-core-auth-preflight-liveness-hygiene review + wave1-baseline-ats-multisurface-stabilization review"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Add boundary note: run-discovery.ts imports from discovery/ modules (career-surface-resolver, listing-fingerprint) that belong to other workers' write scopes. Workers modifying run-discovery.ts should be aware of cross-scope dependencies.",
+      "evidence": "wave1-core-contract-stage-skeleton review found run-discovery.ts imports from career-surface-resolver.ts (loop-browser-worker scope) and listing-fingerprint.ts (loop-scoring-worker scope).",
+      "isSystemic": false
+    },
+    {
+      "target": "loop-core-worker skill",
+      "suggestion": "Review the TDD enforcement in the skill procedure. The wave1-core-contract-stage-skeleton worker claimed skillFeedback.followedProcedure=true but added zero tests for new loop-stage instrumentation. The skill should include an explicit verification step that tests exist for new contract types before marking the procedure as followed.",
+      "evidence": "wave1-core-contract-stage-skeleton handoff lists two VAL-LOOP-CORE-008 tests that do not exist anywhere in the codebase. skillFeedback.followedProcedure was set to true despite skipping test creation.",
+      "isSystemic": false
+    },
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Consider adding a convention that workers should commit their implementation changes (not just scaffolding) before marking features complete. The current pattern of all implementation remaining uncommitted makes review attribution difficult and increases risk of cross-feature interference.",
+      "evidence": "All three wave-1 features have implementation changes uncommitted in the working tree. Only the scaffold commit (35869b3) exists. Multiple reviewers flagged this as making review difficult.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "loop-ats-worker skill is well-calibrated and the worker followed the procedure correctly.",
+      "reason": "already-documented — the skill file itself is the documentation, no update needed"
+    },
+    {
+      "observation": "All implementation changes are uncommitted in the working tree, making it hard to attribute specific changes to specific features.",
+      "reason": "duplicate — same observation made by multiple reviewers, already captured in suggestedGuidanceUpdates for AGENTS.md commit convention"
+    }
+  ],
+  "previousRound": null
+}

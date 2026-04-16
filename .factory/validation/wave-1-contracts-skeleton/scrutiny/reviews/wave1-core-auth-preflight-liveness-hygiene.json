@@ -1,0 +1,33 @@
+{
+  "featureId": "wave1-core-auth-preflight-liveness-hygiene",
+  "reviewedAt": "2026-04-16T01:15:00.000Z",
+  "commitId": "35869b3",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The implementation correctly hardens fail-closed behavior for auth/preflight paths, async terminalization bounds, and token redaction. All four VAL assertions (002, 004, 009, 010) are well-covered with existing code and tests. The handoff indicates no new files were added — the worker verified existing implementations were complete and all tests pass (44 webhook tests + 15 cross-area tests + full lint/typecheck).",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/src/webhook/handle-discovery-webhook.ts",
+        "line": 278,
+        "severity": "non_blocking",
+        "description": "The async safety terminalization logic (setTimeout + force-terminalization at 5 minutes) has no dedicated unit test. The behavior is exercised indirectly via cross-area flow tests, but there is no test that specifically verifies: (a) a run that never resolves gets force-terminalized, (b) the 'force_terminalized' log event fires, (c) the status becomes 'partial' with terminal=true after the timeout. The cross-area tests cover normal async completion paths but not the stall/timeout safety path. This is non-blocking because the code logic is straightforward and the 5-minute bound is clearly documented."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The webhook handler follows a strict ordering convention: method check → auth check → parse request → extract/redact googleAccessToken → preflight → status store write → run execution. This ordering is critical for security (auth before any side effects) but is not documented in AGENTS.md. Workers touching the webhook handler need to know this ordering invariant.",
+      "evidence": "handle-discovery-webhook.ts lines 82-185 show the sequential ordering. The preflight and auth checks both return early before any runStatusStore.put() calls."
+    },
+    {
+      "area": "knowledge",
+      "observation": "The webhook handler uses timingSafeEqual from node:crypto for secret comparison, and separately checks buffer lengths before calling timingSafeEqual. This is a deliberate defense-in-depth pattern to prevent timing attacks. This pattern could be useful for future workers implementing similar auth checks.",
+      "evidence": "handle-discovery-webhook.ts hasValidWebhookSecret function, lines ~830-860"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS — The implementation fully satisfies all four VAL assertions (002, 004, 009, 010). Auth fails closed using timing-safe comparison with explicit categorized error responses. Preflight readiness checks block invalid runs before any status/lineage is created. Async runs have bounded terminalization via a 5-minute safety timeout. Token material (googleAccessToken) is stripped from the request object before passing to runDiscovery and kept out of persisted run-status payloads. Test coverage is strong with dedicated tests for auth rejection (401 on missing/mismatched/empty secret), token stripping, token non-persistence, preflight blocking (credential readiness, blank intent), and async lineage consistency. One non-blocking observation: the safety terminalization code path lacks a dedicated unit test for the stall scenario."
+}

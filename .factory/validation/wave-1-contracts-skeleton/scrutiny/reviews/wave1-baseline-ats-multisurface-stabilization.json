@@ -1,0 +1,33 @@
+{
+  "featureId": "wave1-baseline-ats-multisurface-stabilization",
+  "reviewedAt": "2026-04-16T01:15:00.000Z",
+  "commitId": "35869b3",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The feature stabilizes the failing 'registry supports multiple surfaces for a single provider/company' test through two targeted, well-reasoned fixes in the shared ATS provider layer. The refactoring introduces a clean provider abstraction (createAtsProvider, AtsProviderRegistry) that replaces the previous hardcoded adapter pattern, and the specific multi-surface fix ensures that absolute URL board hints and company-name-derived tokens don't create spurious probe surfaces.",
+    "issues": [
+      {
+        "file": "handoff",
+        "line": null,
+        "severity": "non_blocking",
+        "description": "The handoff references commitId '35869b3' (chore(mission): scaffold opportunity-loop execution artifacts), but that commit only contains scaffold artifacts (SKILL.md files, library updates). The actual code changes for this feature (providers/shared.ts, source-adapters.ts, source-adapters.test.ts) are all unstaged/uncommitted in the working tree. The commit reference is inaccurate but does not affect code correctness."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The provider architecture pattern (createAtsProvider factory with config object, AtsProviderRegistry with timeout isolation, canonicalizeProviderSurface for URL normalization) is a significant new pattern introduced in providers/shared.ts. This pattern is the canonical way to add new ATS providers going forward. AGENTS.md documents the loop-ats-worker write scope (providers/**, source-adapters.ts) but does not document the provider architecture convention itself.",
+      "evidence": "providers/shared.ts introduces createAtsProvider(), AtsProviderRegistry, CanonicalizedSurface, buildDetectionHints(), and related patterns. All 14 providers (greenhouse, lever, ashby, smartrecruiters, workday, icims, jobvite, taleo, successfactors, workable, breezy, recruitee, teamtailor, personio) follow this pattern. AGENTS.md write-scope is correct but architecture.md does not mention the provider abstraction layer."
+    },
+    {
+      "area": "skills",
+      "observation": "The loop-ats-worker SKILL.md correctly describes the work procedure and test commands. The worker followed the procedure (skillFeedback.followedProcedure: true). The skill file appears well-calibrated for this type of task.",
+      "evidence": "SKILL.md step 6 lists the exact test commands the worker ran. Worker ran those commands and reported exit code 0 for all."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS — The two targeted fixes in shared.ts correctly address the root cause of the multi-surface regression: (1) extractBoardHintCandidates now returns [raw] for absolute URLs instead of extracting spurious tokens from URL path segments, and (2) probeHints in detectSurfaces no longer includes companyTokens derived from the company name, preventing API probes from matching different companies with similar names. The test suite confirms: all 6 source-adapters tests and 3 source-adapters-ats-first tests pass. The implementation is clean, well-commented, preserves backward compatibility with the DetectionResult/BoardContext contracts, and stays within the loop-ats-worker write scope. Minor note: the handoff commit reference points to a scaffold commit rather than the actual code changes."
+}

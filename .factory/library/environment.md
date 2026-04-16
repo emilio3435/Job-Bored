@@ -54,6 +54,13 @@ Both point to the same underlying configuration. Remediation messages in runtime
 - Public webhook smoke URL is user-provided and may change between sessions.
 - Treat relay URL availability as an external dependency; if unavailable, return blocker to orchestrator.
 
+## Tooling caveat: typecheck:repo
+
+- `npm run typecheck:repo` runs `node --check` (JavaScript syntax validation only), NOT TypeScript type checking.
+- The project uses `--experimental-strip-types` at runtime, which silently strips TS types without validating them.
+- Type contract mismatches (e.g., declared type vs. actual assignment shape) are NOT caught by the current typecheck command.
+- Workers should manually verify type consistency in `.ts` files, especially for exported interfaces and contract shapes.
+
 ## Validation notes
 
 - Validation mode is **real integrations only** (no mock fallback).

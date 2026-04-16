@@ -46,6 +46,34 @@ This mission converts discovery execution into an explicit **scout -> score -> e
 - Source summary and terminal status expose loop counters and reason attribution.
 - Diagnostics must make degraded outcomes explainable.
 
+## Security Patterns
+
+### Webhook auth: timing-safe comparison
+- `handle-discovery-webhook.ts` uses `timingSafeEqual` from `node:crypto` for webhook secret comparison.
+- Buffer length is checked separately before calling `timingSafeEqual` (defense-in-depth against timing attacks).
+- Three explicit auth failure categories: `no_secret_configured`, `missing_secret_header`, `secret_mismatch`.
+
+### Webhook handler ordering invariant
+The webhook handler follows a strict ordering that must be preserved:
+1. Method check (POST only)
+2. Auth check (before any side effects)
+3. Parse request
+4. Extract/redact `googleAccessToken` (destructuring removal)
+5. Preflight validation (credential readiness, blank intent, sheet ID)
+6. `runStatusStore.put()` (first side effect — only after all checks pass)
+7. Run execution
+
+Any reordering that moves side-effectful operations before auth/preflight checks would be a security regression.
+
+## Provider Architecture Pattern (ATS)
+
+The ATS provider layer uses a factory pattern introduced in `providers/shared.ts`:
+- `createAtsProvider()` factory with config object
+- `AtsProviderRegistry` with timeout isolation per provider
+- `canonicalizeProviderSurface()` for URL normalization
+- All 14 providers follow this pattern (greenhouse, lever, ashby, smartrecruiters, workday, icims, jobvite, taleo, successfactors, workable, breezy, recruitee, teamtailor, personio)
+- New providers should follow the same factory pattern
+
 ## Core Invariants
 
 - Webhook request and sheet write contracts remain backward compatible.
