@@ -102,6 +102,20 @@ The memory store (`src/state/discovery-memory-store.ts`) uses SQLite with the fo
 
 Type patterns follow a dual-declaration convention where types appear in both `contracts.ts` (with JSDoc) and the store module (without JSDoc). This is an established project pattern, not a bug.
 
+### JSON Parsing Helpers
+
+The memory store provides three distinct JSON parsing helpers for deserializing SQLite-stored JSON fields. Future workers adding new fields to SQLite rows should use these instead of `safeParseJson` directly:
+
+- **`parseJsonObject`** — Returns `{}` for non-object JSON values. Use for object-typed fields (e.g., metadata objects).
+- **`parseJsonArray<T>`** — Returns `[]` for non-array JSON values. Use for array-typed fields (e.g., `rejectionSamples`, keyword lists).
+- **`parseStringArray`** — Returns `[]` with string normalization. Use for string-array fields.
+
+All three use `safeParseJson` as the underlying parser.
+
+### Shared Utility Function Duplication
+
+`normalizePhrase` and `cleanString` are defined identically in both `discovery-memory-store.ts` and `company-planner.ts`. A future extraction to a shared utility module would reduce drift risk.
+
 ## Core Invariants
 
 - Webhook request and sheet write contracts remain backward compatible.

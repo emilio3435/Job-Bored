@@ -1,41 +1,26 @@
 {
   "milestone": "wave-4-learning-hardening",
-  "round": 1,
-  "status": "fail",
+  "round": 2,
+  "status": "pass",
   "validatorsRun": {
-    "test": {
-      "passed": true,
-      "command": "npm run test:browser-use-discovery",
-      "exitCode": 0,
-      "observation": "306 tests passed, 0 failed, 0 skipped"
-    },
-    "typecheck": {
-      "passed": true,
-      "command": "npm run typecheck:repo",
-      "exitCode": 0,
-      "observation": "All node --check invocations passed"
-    },
-    "lint": {
-      "passed": true,
-      "command": "npm run lint:repo",
-      "exitCode": 0,
-      "observation": "lint:skills passed OK"
-    }
+    "test": { "passed": true, "command": "npm run test:browser-use-discovery", "exitCode": 0, "observation": "310 tests passed, 0 failed, 0 skipped, duration 1162ms" },
+    "typecheck": { "passed": true, "command": "npm run typecheck:repo", "exitCode": 0, "observation": "All node --check invocations passed" },
+    "lint": { "passed": true, "command": "npm run lint:repo", "exitCode": 0, "observation": "lint:skills passed OK" }
   },
   "reviewsSummary": {
-    "total": 3,
+    "total": 2,
     "passed": 2,
-    "failed": 1,
-    "failedFeatures": ["wave4-memory-outcomes-yield-cooldown"]
+    "failed": 0,
+    "failedFeatures": []
   },
-  "blockingIssues": [
+  "blockingIssues": [],
+  "appliedUpdates": [
     {
-      "featureId": "wave4-memory-outcomes-yield-cooldown",
-      "severity": "blocking",
-      "description": "extractBaseRole() in discovery-memory-store.ts:2513 calls normalizePhrase() which is not imported or defined in that file — it only exists as a local function in company-planner.ts. This causes a ReferenceError crash when learnRoleFamilyFromLead() is called with any non-empty title. All existing tests pass because they mock learnRoleFamilyFromLead, masking the bug. Fix: either import normalizePhrase from company-planner.ts, or extract it to a shared utility module."
+      "target": "library",
+      "description": "Added JSON parsing helpers documentation (parseJsonObject, parseJsonArray, parseStringArray) and normalizePhrase duplication note to architecture.md Memory Store section",
+      "sourceFeature": "wave4-memory-runtime-and-coverage-fixes"
     }
   ],
-  "appliedUpdates": [],
   "suggestedGuidanceUpdates": [
     {
       "target": "AGENTS.md",
@@ -57,8 +42,8 @@
     },
     {
       "target": "loop-memory-worker skill",
-      "suggestion": "Add explicit requirement that new persistence methods (writeExploitOutcome, listExploitOutcomes, upsertRoleFamily, listRoleFamilies, learnRoleFamilyFromLead) must have dedicated round-trip tests against the real store, not just mock stubs. The wave4-memory-outcomes-yield-cooldown feature claimed VAL-LOOP-MEM-002/003/005 but has zero dedicated test coverage for these methods — tests only mock them.",
-      "evidence": "discovery-memory-store.test.ts only adds count assertions (exploitOutcomes: 0, roleFamilies: 0). run-discovery.test.ts mocks all new methods. No test names reference VAL-LOOP-MEM-002, VAL-LOOP-MEM-003, or VAL-LOOP-MEM-005.",
+      "suggestion": "Add explicit requirement that new persistence methods (writeExploitOutcome, listExploitOutcomes, upsertRoleFamily, listRoleFamilies, learnRoleFamilyFromLead) must have dedicated round-trip tests against the real store, not just mock stubs. The wave4-memory-outcomes-yield-cooldown feature claimed VAL-LOOP-MEM-002/003/005 but had zero dedicated test coverage for these methods — tests only mocked them. This was fixed in wave4-memory-runtime-and-coverage-fixes but the skill should enforce it going forward.",
+      "evidence": "Original feature had mock-only coverage. Fix feature added 4 real-store round-trip tests to close the gap.",
       "isSystemic": false
     },
     {
@@ -70,21 +55,21 @@
   ],
   "rejectedObservations": [
     {
+      "observation": "normalizePhrase and cleanString duplication between discovery-memory-store.ts and company-planner.ts.",
+      "reason": "Documented in library/architecture.md as known duplication. Non-blocking code quality issue; does not need AGENTS.md guidance."
+    },
+    {
+      "observation": "suffixesToStrip array remains dead code in discovery-memory-store.ts.",
+      "reason": "Non-blocking code-level issue. Too specific for guidance documentation. Should be addressed in a cleanup feature if needed."
+    },
+    {
+      "observation": "seniorityPrefixes includes roman numerals that could incorrectly strip valid title prefixes.",
+      "reason": "Non-blocking pre-existing issue. Not systemic or cross-feature. Already noted in prior round."
+    },
+    {
       "observation": "AI matcher budget constants (4, 12, 0.72) lack documented rationale.",
-      "reason": "Non-blocking code quality suggestion; too specific for AGENTS.md guidance. Better addressed as a code comment in the implementation."
-    },
-    {
-      "observation": "Roman numerals in seniorityPrefixes array could incorrectly strip valid title prefixes.",
-      "reason": "Non-blocking code-level bug; not a systemic or cross-feature concern. Should be addressed in a fix feature if needed."
-    },
-    {
-      "observation": "Skill test command discrepancy between SKILL.md and features.json verification steps.",
-      "reason": "Minor and ambiguous — the features.json verification steps are more comprehensive than the skill's, which is acceptable. Not actionable as guidance."
-    },
-    {
-      "observation": "career-surface-resolver.ts was created by loop-memory-worker but AGENTS.md assigns it to loop-browser-worker.",
-      "reason": "Already covered by the broader commit-scope convention suggestion above. Deduplicating."
+      "reason": "Non-blocking code quality suggestion; too specific for AGENTS.md guidance. Better addressed as a code comment in the implementation. Already rejected in prior round."
     }
   ],
-  "previousRound": null
+  "previousRound": ".factory/validation/wave-4-learning-hardening/scrutiny/synthesis.json (round 1)"
 }

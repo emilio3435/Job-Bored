@@ -1,0 +1,21 @@
+{
+  "featureId": "wave4-memory-json-array-parse-fix",
+  "reviewedAt": "2026-04-16T06:30:00.000Z",
+  "commitId": "823a0bd",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix correctly addresses the array parsing bug identified in the prior review of wave4-memory-outcomes-yield-cooldown. A new parseJsonArray<T> helper was added that properly handles JSON array payloads (returning [] for invalid input instead of {}), and mapExploitOutcomeRow now uses it for rejectionSamples instead of parseJsonObject. The VAL-LOOP-MEM-002 test was updated with explicit assertions verifying rejectionSamples round-trip across store reopen. The fix is minimal, well-scoped, and all 8 targeted tests pass.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "discovery-memory-store.ts now has three JSON parsing helpers with distinct purposes: parseJsonObject (returns {} for non-objects), parseJsonArray (returns [] for non-arrays), and parseStringArray (returns [] with normalization). Future workers adding new fields to SQLite rows should consult these helpers before using safeParseJson directly. This pattern is not yet documented in the library.",
+      "evidence": "discovery-memory-store.ts:2638-2645 defines parseJsonArray<T>, discovery-memory-store.ts:2630-2637 defines parseJsonObject, and parseStringArray is also defined nearby. All three use safeParseJson as the underlying parser."
+    }
+  ],
+  "addressesFailureFrom": ".factory/validation/wave-4-learning-hardening/scrutiny/reviews/wave4-memory-outcomes-yield-cooldown.json",
+  "summary": "PASS — The fix is clean and directly addresses the array-round-trip data corruption issue. parseJsonArray<T> correctly handles JSON array payloads (returning [] instead of {} for non-array values), and mapExploitOutcomeRow now uses it for rejectionSamples. The VAL-LOOP-MEM-002 test has explicit round-trip assertions for both rejectionSamples arrays after store reopen. The fix is minimal (16 insertions, 9 deletions across 2 files), well-scoped, and all 8 targeted tests + typecheck + lint pass. No issues found."
+}
