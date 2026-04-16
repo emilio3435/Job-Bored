@@ -1,0 +1,90 @@
+{
+  "milestone": "wave-4-learning-hardening",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "npm run test:browser-use-discovery",
+      "exitCode": 0,
+      "observation": "306 tests passed, 0 failed, 0 skipped"
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "npm run typecheck:repo",
+      "exitCode": 0,
+      "observation": "All node --check invocations passed"
+    },
+    "lint": {
+      "passed": true,
+      "command": "npm run lint:repo",
+      "exitCode": 0,
+      "observation": "lint:skills passed OK"
+    }
+  },
+  "reviewsSummary": {
+    "total": 3,
+    "passed": 2,
+    "failed": 1,
+    "failedFeatures": ["wave4-memory-outcomes-yield-cooldown"]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "wave4-memory-outcomes-yield-cooldown",
+      "severity": "blocking",
+      "description": "extractBaseRole() in discovery-memory-store.ts:2513 calls normalizePhrase() which is not imported or defined in that file — it only exists as a local function in company-planner.ts. This causes a ReferenceError crash when learnRoleFamilyFromLead() is called with any non-empty title. All existing tests pass because they mock learnRoleFamilyFromLead, masking the bug. Fix: either import normalizePhrase from company-planner.ts, or extract it to a shared utility module."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Clarify that loop-memory-worker may modify company-planner.ts for memory-readback wiring (planner targeting, role-family candidate injection). The current write-scope partition lists company-planner.ts under loop-scoring-worker exclusively, but the loop-memory-worker skill explicitly includes 'wire memory readback into future seeding/ranking/cooldown behavior' which implies planner modifications.",
+      "evidence": "wave4-role-family-learning-deterministic created role-family candidate injection in company-planner.ts (lines 331-380) while assigned to loop-memory-worker. AGENTS.md lists company-planner.ts under loop-scoring-worker scope only.",
+      "isSystemic": false
+    },
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Clarify the scope overlap for grounded-search.ts between loop-relevance-worker and loop-browser-worker. The loop-relevance-worker skill includes 'relevance gating paths in grounded-search.ts' but AGENTS.md assigns grounded-search.ts to loop-browser-worker exclusively.",
+      "evidence": "wave4-relevance-routing-hardening modified grounded-search.ts (informational page veto). AGENTS.md write-scope partition lists grounded-search.ts under loop-browser-worker. The skill says it's in scope for relevance gating.",
+      "isSystemic": false
+    },
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Reinforce the convention 'Stage only mission-relevant files in commits.' Multiple wave-4 commits bundle large amounts of unrelated infrastructure scaffolding (e.g., wave4-role-family-learning-deterministic bundles 2,833 lines of career-surface-resolver.ts + listing-fingerprint.ts; wave4-relevance-routing-hardening has 58 files / 9,214 insertions including 17 new ATS provider files). While not functionally harmful, this makes git history harder to audit and blurs feature boundaries.",
+      "evidence": "Commit 8a35aae includes career-surface-resolver.ts (970 lines) and listing-fingerprint.ts (862 lines) with no dependency on role-family learning. Commit a4f75b4 includes 58 files spanning loop-ats-worker, loop-core-worker, and loop-browser-worker scopes.",
+      "isSystemic": true
+    },
+    {
+      "target": "loop-memory-worker skill",
+      "suggestion": "Add explicit requirement that new persistence methods (writeExploitOutcome, listExploitOutcomes, upsertRoleFamily, listRoleFamilies, learnRoleFamilyFromLead) must have dedicated round-trip tests against the real store, not just mock stubs. The wave4-memory-outcomes-yield-cooldown feature claimed VAL-LOOP-MEM-002/003/005 but has zero dedicated test coverage for these methods — tests only mock them.",
+      "evidence": "discovery-memory-store.test.ts only adds count assertions (exploitOutcomes: 0, roleFamilies: 0). run-discovery.test.ts mocks all new methods. No test names reference VAL-LOOP-MEM-002, VAL-LOOP-MEM-003, or VAL-LOOP-MEM-005.",
+      "isSystemic": false
+    },
+    {
+      "target": "loop-relevance-worker skill",
+      "suggestion": "Consider extracting shared utility functions (escapeRegExp, keyword/phrase matching) used by both lead-normalizer.ts and job-matcher.ts into a shared module to prevent future drift.",
+      "evidence": "lead-normalizer.ts:keywordMatchesHaystack (line 400) and job-matcher.ts:phraseMatchesHaystack (line 661) are near-identical. Both use the same regex boundary pattern and escapeRegExp helper.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "AI matcher budget constants (4, 12, 0.72) lack documented rationale.",
+      "reason": "Non-blocking code quality suggestion; too specific for AGENTS.md guidance. Better addressed as a code comment in the implementation."
+    },
+    {
+      "observation": "Roman numerals in seniorityPrefixes array could incorrectly strip valid title prefixes.",
+      "reason": "Non-blocking code-level bug; not a systemic or cross-feature concern. Should be addressed in a fix feature if needed."
+    },
+    {
+      "observation": "Skill test command discrepancy between SKILL.md and features.json verification steps.",
+      "reason": "Minor and ambiguous — the features.json verification steps are more comprehensive than the skill's, which is acceptable. Not actionable as guidance."
+    },
+    {
+      "observation": "career-surface-resolver.ts was created by loop-memory-worker but AGENTS.md assigns it to loop-browser-worker.",
+      "reason": "Already covered by the broader commit-scope convention suggestion above. Deduplicating."
+    }
+  ],
+  "previousRound": null
+}
