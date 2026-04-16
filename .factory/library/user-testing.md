@@ -52,6 +52,16 @@ Dry run confirmed this mission is CPU-heavy for realistic runs. Use conservative
 - Strict browser-only enforcement is a **final milestone gate**:
   - any non-browser extraction mode must be diagnosable and treated as validation failure for that gate.
 
+## Flow Validator Guidance: node-test
+
+- Tool: `node --experimental-strip-types --test`
+- All node-test assertions are stateless/unit tests — no shared mutable state between test files.
+- Concurrency: **1** (no benefit from parallelizing node-test runs; sequential is safest).
+- Isolation: no special isolation needed — test runner handles its own sandboxing.
+- Assertions can be tested by running the relevant test files and mapping named tests to assertion IDs.
+- Key test directories: `integrations/browser-use-discovery/tests/webhook/`, `tests/browser/`, `tests/sheets/`, `tests/discovery/`, `tests/state/`.
+- No browser or curl needed for node-test surface.
+
 ## Evidence Bundle Per End-to-End Assertion
 
 1. Webhook request + response (status + body, secret redacted)
