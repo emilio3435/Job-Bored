@@ -1,0 +1,72 @@
+{
+  "groupId": "curl-group",
+  "testedAt": "2026-04-16T07:46:32Z",
+  "isolation": {
+    "localWorkerUrl": "http://127.0.0.1:8644",
+    "publicRelayUrl": "https://jobbored-discovery-relay-6d6dab.jobbored.workers.dev/",
+    "webhookSecret": "***",
+    "workingDirectory": "/Users/emilionunezgarcia/Job-Bored"
+  },
+  "toolsUsed": ["curl"],
+  "assertions": [
+    {
+      "id": "VAL-LOOP-CROSS-005",
+      "title": "Local and public webhook POST smoke runs validate async lifecycle under real integrations",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "POST to http://127.0.0.1:8644/webhook with valid v1 payload including variationKey, requestedAt, discoveryProfile with targetRoles and sourcePreset=browser_plus_ats",
+          "expected": "202 Accepted with runId, statusPath, pollAfterMs",
+          "observed": "202 Accepted with { ok: true, kind: 'accepted_async', runId: 'run_f49c5354c4304f4aaffdb311789f62d0', statusPath: '/runs/run_f49c5354c4304f4aaffdb311789f62d0', pollAfterMs: 2000 }"
+        },
+        {
+          "action": "Poll GET /runs/{runId} every 5 seconds until terminal",
+          "expected": "Status transitions from running to terminal (completed/partial) with sourceSummary, loopCounters, stageOrder",
+          "observed": "Status transitions: running (polls 1-4, ~5-20s) -> failed (poll 5, ~25s). Terminal reached but with error: 'Failed to exchange service account token: HTTP 400 - Invalid JWT Signature.'"
+        },
+        {
+          "action": "Verify terminal status includes sourceSummary, loopCounters, stageOrder",
+          "expected": "Terminal payload includes these telemetry fields",
+          "observed": "Terminal payload lacks sourceSummary, loopCounters, and stageOrder because run failed during service account token exchange before discovery stages began"
+        },
+        {
+          "action": "POST to https://jobbored-discovery-relay-6d6dab.jobbored.workers.dev/webhook with same payload",
+          "expected": "202 Accepted or relay-specific accepted response",
+          "observed": "404 Not Found - relay returned 'The endpoint 96e3-99-62-49-146.ngrok-free.app is offline. ERR_NGROK_3200' - ngrok tunnel backend is down"
+        },
+        {
+          "action": "Poll relay run status to terminal",
+          "expected": "Reach terminal status via relay path",
+          "observed": "Cannot test - relay returned 404, no runId or statusPath to poll"
+        }
+      ],
+      "evidence": {
+        "localAck": "wave-5-validation/curl-group/VAL-LOOP-CROSS-005-local-ack.json",
+        "localTerminalStatus": "wave-5-validation/curl-group/VAL-LOOP-CROSS-005-local-terminal.json",
+        "relayResponse": "wave-5-validation/curl-group/VAL-LOOP-CROSS-005-relay-response.json"
+      },
+      "issues": "Local worker async lifecycle contract is fully functional (202 accepted, pollable runId, terminal within ~25s). However, the run fails with service account JWT signature error, preventing real Gemini+Sheets integration validation. Public relay ngrok tunnel is offline (ERR_NGROK_3200), blocking relay path validation entirely."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Task prompt provided webhook body with fields inside 'payload' that don't match the actual contract - variationKey, requestedAt are top-level fields, and discoveryProfile.targetRoles/keywordsInclude are required but not mentioned in the task steps",
+      "resolved": true,
+      "resolution": "Adapted payload based on previous successful test evidence in the codebase to include variationKey, requestedAt at top level, and targetRoles/keywordsInclude in discoveryProfile",
+      "affectedAssertions": ["VAL-LOOP-CROSS-005"]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Local worker service account credentials have invalid JWT signature - Google returns 'invalid_grant' error during token exchange. This prevents real Gemini+Sheets integration validation.",
+      "affectedAssertions": ["VAL-LOOP-CROSS-005"],
+      "quickFixAttempted": "None - service account credential file is an external dependency outside test scope"
+    },
+    {
+      "description": "Public relay ngrok tunnel backend (96e3-99-62-49-146.ngrok-free.app) is offline - relay returns 404 ERR_NGROK_3200. Cannot test relay webhook path.",
+      "affectedAssertions": ["VAL-LOOP-CROSS-005"],
+      "quickFixAttempted": "None - ngrok tunnel is shared infrastructure outside test scope"
+    }
+  ],
+  "summary": "Tested 1 assertion: VAL-LOOP-CROSS-005 is blocked. Local worker async lifecycle contract works correctly (202 accepted, pollable status, terminal within bounded time), but the run fails due to invalid service account JWT signature, preventing real Gemini+Sheets integration validation. Public relay is unreachable because the ngrok tunnel backend is offline. Both blockers are external infrastructure issues, not code defects."
+}
