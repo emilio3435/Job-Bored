@@ -3343,6 +3343,128 @@ test("runDiscovery persists memory when runtime store exposes writeExploitOutcom
   }
 });
 
+test("runDiscovery skips exploit outcome memory persistence when browser_only zero-lead sources have no canonicalUrl", async () => {
+  const rawMemoryStore = createDiscoveryMemoryStore(":memory:");
+
+  try {
+    const dependencies = {
+      runtimeConfig: {
+        stateDatabasePath: "",
+        workerConfigPath: "",
+        browserUseCommand: "browser-use",
+        geminiApiKey: "test-key",
+        geminiModel: "gemini-2.5-flash",
+        groundedSearchMaxResultsPerCompany: 6,
+        groundedSearchMaxPagesPerCompany: 4,
+        googleServiceAccountJson: "",
+        googleServiceAccountFile: "",
+        googleAccessToken: "oauth-proof-123",
+        googleOAuthTokenJson: "",
+        googleOAuthTokenFile: "",
+        webhookSecret: "",
+        allowedOrigins: [],
+        port: 0,
+        host: "127.0.0.1",
+        runMode: "hosted",
+        asyncAckByDefault: true,
+      },
+      discoveryMemoryStore: createRunDiscoveryMemoryStore(rawMemoryStore),
+      sourceAdapterRegistry: {
+        adapters: [],
+        detectBoards: async () => [],
+        collectListings: async () => [],
+      },
+      groundedSearchClient: {
+        search: async () => ({
+          searchQueries: ["platform engineer remote"],
+          candidates: [],
+          warnings: [],
+        }),
+      },
+      browserSessionManager: {
+        run: async () => {
+          throw new Error("browserSessionManager.run should not be called when search yields zero candidates");
+        },
+      },
+      pipelineWriter: {
+        write: async () => ({
+          sheetId: "sheet_zero_lead_memory",
+          appended: 0,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        }),
+      },
+      loadStoredWorkerConfig: async () => ({
+        sheetId: "sheet_zero_lead_memory",
+        mode: "hosted" as const,
+        timezone: "UTC",
+        companies: [],
+        includeKeywords: ["typescript"],
+        excludeKeywords: [],
+        targetRoles: ["Platform Engineer"],
+        locations: ["Remote"],
+        remotePolicy: "remote",
+        seniority: "senior",
+        maxLeadsPerRun: 5,
+        enabledSources: ["grounded_web"],
+        schedule: { enabled: false, cron: "" },
+        sourcePreset: "browser_only" as const,
+      }),
+      mergeDiscoveryConfig,
+      now: (() => {
+        let index = 0;
+        const dates = [
+          new Date("2026-04-16T12:00:00.000Z"),
+          new Date("2026-04-16T12:00:01.000Z"),
+          new Date("2026-04-16T12:00:02.000Z"),
+        ];
+        return () => dates[Math.min(index++, dates.length - 1)];
+      })(),
+      randomId: (prefix: string) => `${prefix}_zero_lead_memory`,
+    };
+
+    const result = await runDiscovery(
+      {
+        ...makeRequest(),
+        sheetId: "sheet_zero_lead_memory",
+        variationKey: "var_zero_lead_memory",
+        discoveryProfile: {
+          sourcePreset: "browser_only",
+          targetRoles: "Platform Engineer",
+          keywordsInclude: "typescript",
+          locations: "Remote",
+          remotePolicy: "remote",
+          seniority: "senior",
+          maxLeadsPerRun: "5",
+        },
+      },
+      "manual",
+      dependencies as any,
+    );
+
+    assert.equal(result.lifecycle.state, "empty");
+    assert.equal(result.lifecycle.normalizedLeadCount, 0);
+    assert.equal(rawMemoryStore.listExploitOutcomes({ runId: result.lifecycle.runId }).length, 0);
+    const groundedSource = result.sourceSummary.find((entry) => entry.sourceId === "grounded_web");
+    assert.ok(groundedSource, "expected grounded_web source summary for zero-lead browser run");
+    assert.ok(
+      groundedSource!.warnings.some((warning) =>
+        /memory persistence skipped/i.test(warning) && /canonicalurl/i.test(warning)
+      ),
+      `expected canonicalUrl skip warning, saw: ${(groundedSource!.warnings || []).join(" | ")}`,
+    );
+    assert.ok(
+      groundedSource!.diagnostics?.some((diagnostic) =>
+        /canonicalurl/i.test(diagnostic.context) && /zero accepted leads/i.test(diagnostic.context)
+      ),
+      `expected canonicalUrl diagnostic, saw: ${JSON.stringify(groundedSource!.diagnostics || [])}`,
+    );
+  } finally {
+    rawMemoryStore.close();
+  }
+});
+
 test("VAL-LOOP-ATS-006: Static fallback ATS seeds are demoted behind stronger signals", async () => {
   // When fallback ATS seeds are the only option (no configured/memory seeds),
   // the run should still produce leads. The demotion of fallback seeds

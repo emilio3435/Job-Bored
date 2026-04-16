@@ -5,6 +5,10 @@ import {
   DISCOVERY_WEBHOOK_EVENT,
   DISCOVERY_WEBHOOK_SCHEMA_VERSION,
 } from "../../src/contracts.ts";
+import { mergeDiscoveryConfig } from "../../src/config.ts";
+import { runDiscovery } from "../../src/run/run-discovery.ts";
+import { createDiscoveryMemoryStore } from "../../src/state/discovery-memory-store.ts";
+import { createRunDiscoveryMemoryStore } from "../../src/state/run-discovery-memory-store.ts";
 import {
   formatWebhookAck,
   handleDiscoveryWebhook,
@@ -727,6 +731,135 @@ test("handleDiscoveryWebhook persists failed async outcomes for later inspection
   const stored = dependencies.runStatusStore.get("run_queued");
   assert.equal(stored.status, "failed");
   assert.match(stored.error, /grounded_web was skipped/i);
+});
+
+test("VAL-LOOP-CROSS-006: handleDiscoveryWebhook async zero-lead browser_only runs do not fail with canonicalUrl is required", async () => {
+  const rawMemoryStore = createDiscoveryMemoryStore(":memory:");
+
+  try {
+    const dependencies = makeDependencies({
+      runSynchronously: false,
+      runDiscovery,
+      runDependencies: {
+        runtimeConfig: {
+          stateDatabasePath: "",
+          workerConfigPath: "",
+          browserUseCommand: "browser-use",
+          geminiApiKey: "test-key",
+          geminiModel: "gemini-2.5-flash",
+          groundedSearchMaxResultsPerCompany: 6,
+          groundedSearchMaxPagesPerCompany: 4,
+          googleServiceAccountJson: "",
+          googleServiceAccountFile: "",
+          googleAccessToken: "oauth-proof-123",
+          googleOAuthTokenJson: "",
+          googleOAuthTokenFile: "",
+          webhookSecret: SHARED_HEADER_VALUE,
+          allowedOrigins: [],
+          port: 0,
+          host: "127.0.0.1",
+          runMode: "hosted",
+          asyncAckByDefault: true,
+        },
+        discoveryMemoryStore: createRunDiscoveryMemoryStore(rawMemoryStore),
+        sourceAdapterRegistry: {
+          adapters: [],
+          detectBoards: async () => [],
+          collectListings: async () => [],
+        },
+        groundedSearchClient: {
+          search: async () => ({
+            searchQueries: ["platform engineer remote"],
+            candidates: [],
+            warnings: [],
+          }),
+        },
+        browserSessionManager: {
+          run: async () => {
+            throw new Error("browserSessionManager.run should not execute when grounded search returns zero candidates");
+          },
+        },
+        pipelineWriter: {
+          write: async () => ({
+            sheetId: "sheet_123",
+            appended: 0,
+            updated: 0,
+            skippedDuplicates: 0,
+            warnings: [],
+          }),
+        },
+        loadStoredWorkerConfig: async () => ({
+          sheetId: "sheet_123",
+          mode: "hosted",
+          timezone: "UTC",
+          companies: [],
+          includeKeywords: ["typescript"],
+          excludeKeywords: [],
+          targetRoles: ["Platform Engineer"],
+          locations: ["Remote"],
+          remotePolicy: "remote",
+          seniority: "senior",
+          maxLeadsPerRun: 5,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+          sourcePreset: "browser_only" as const,
+        }),
+        mergeDiscoveryConfig,
+        now: (() => {
+          let index = 0;
+          const dates = [
+            new Date("2026-04-16T12:00:00.000Z"),
+            new Date("2026-04-16T12:00:01.000Z"),
+            new Date("2026-04-16T12:00:02.000Z"),
+            new Date("2026-04-16T12:00:03.000Z"),
+          ];
+          return () => dates[Math.min(index++, dates.length - 1)];
+        })(),
+        randomId: (prefix) => `${prefix}_queued`,
+      },
+    });
+
+    const response = await handleDiscoveryWebhook(
+      makeRequestWithSecret(SHARED_HEADER_VALUE, {
+        discoveryProfile: {
+          sourcePreset: "browser_only",
+          targetRoles: "Platform Engineer",
+          keywordsInclude: "typescript",
+          locations: "Remote",
+          remotePolicy: "remote",
+          seniority: "senior",
+          maxLeadsPerRun: "5",
+        },
+      }),
+      dependencies,
+    );
+
+    assert.equal(response.status, 202, response.body);
+    const accepted = JSON.parse(response.body);
+    assert.equal(accepted.kind, "accepted_async");
+    assert.equal(accepted.statusPath, "/runs/run_queued");
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const stored = dependencies.runStatusStore.get("run_queued");
+    assert.ok(stored, "expected async run status to be persisted");
+    assert.equal(stored.status, "empty");
+    assert.equal(stored.terminal, true);
+    assert.ok(!stored.error, `did not expect terminal error, saw: ${stored.error}`);
+    assert.ok(
+      JSON.stringify(stored).indexOf("canonicalUrl is required") === -1,
+      `terminal payload must not contain canonicalUrl failure: ${JSON.stringify(stored)}`,
+    );
+    const groundedSource = (stored.sources || []).find((entry) => entry.sourceId === "grounded_web");
+    assert.ok(groundedSource, "expected grounded_web source summary in terminal status");
+    assert.ok(
+      (groundedSource.warnings || []).some((warning) =>
+        /memory persistence skipped/i.test(String(warning)) && /canonicalurl/i.test(String(warning))
+      ),
+      `expected canonicalUrl skip warning in terminal source summary, saw: ${JSON.stringify(groundedSource)}`,
+    );
+  } finally {
+    rawMemoryStore.close();
+  }
 });
 
 test("VAL-API-011: blank intent + empty companies fails with explicit 400 guidance (not company-required)", async () => {
