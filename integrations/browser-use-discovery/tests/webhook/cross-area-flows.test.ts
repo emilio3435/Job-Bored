@@ -630,13 +630,21 @@ test("VAL-CROSS-002: ats_only preset includes only ATS sources in terminal sourc
     );
   }
 
-  // No browser/grounded_web as executed source
-  const hasBrowserSource = executedSources.some(
-    (s) => s.sourceId === "grounded_web",
+  // grounded_web appears only as excluded preset evidence (not as executed source)
+  // VAL-LOOP-CROSS-002: Preset isolation — excluded lane shows "excluded by preset" warning with pagesVisited=0
+  const groundedEntry = terminalStatus.sources.find((s) => s.sourceId === "grounded_web");
+  assert.ok(
+    groundedEntry,
+    "grounded_web must appear in terminal sources with exclusion evidence",
   );
   assert.ok(
-    !hasBrowserSource,
-    "ats_only must not have grounded_web as executed source",
+    groundedEntry.warnings.some((w) => w.includes("excluded by preset")),
+    "grounded_web must have 'excluded by preset' warning (VAL-LOOP-CROSS-002 isolation evidence)",
+  );
+  assert.equal(
+    groundedEntry.pagesVisited,
+    0,
+    "excluded grounded_web must have pagesVisited=0 (VAL-LOOP-CROSS-002)",
   );
 
   // Write result must be from ATS source
