@@ -2395,8 +2395,14 @@ test("VAL-LOOP-ATS-002: ATS frontier pulls from memory company registry when con
           deadLinks: [],
           listingFingerprints: [],
           intentCoverage: [],
+          roleFamilies: [],
+          exploitOutcomes: [],
         };
       },
+      writeExploitOutcome: () => ({}),
+      listExploitOutcomes: () => [],
+      learnRoleFamilyFromLead: () => null,
+      listRoleFamilies: () => [],
     },
     sourceAdapterRegistry: {
       adapters: [],
@@ -3060,8 +3066,14 @@ test("VAL-LOOP-ATS-002: ATS frontier pulls from memory career surfaces when conf
           deadLinks: [],
           listingFingerprints: [],
           intentCoverage: [],
+          roleFamilies: [],
+          exploitOutcomes: [],
         };
       },
+      writeExploitOutcome: () => ({}),
+      listExploitOutcomes: () => [],
+      learnRoleFamilyFromLead: () => null,
+      listRoleFamilies: () => [],
     },
     sourceAdapterRegistry: {
       adapters: [],
