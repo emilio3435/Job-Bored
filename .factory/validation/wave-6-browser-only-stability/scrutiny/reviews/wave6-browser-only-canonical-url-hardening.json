@@ -1,0 +1,26 @@
+{
+  "featureId": "wave6-browser-only-canonical-url-hardening",
+  "reviewedAt": "2026-04-16T18:52:06Z",
+  "commitId": "3caa51367040cca300a8045212af06fed9178e0c",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Implementation satisfies expected behavior: exploit outcome persistence now safely skips missing canonical URLs, preserves terminal lifecycle semantics for zero-lead browser-only runs, and emits source diagnostics/warnings instead of crashing. Added regressions cover both direct run-discovery and async webhook terminal status paths for VAL-LOOP-CROSS-006.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "loop-memory-worker SKILL.md test procedure does not mention webhook-level regression coverage, but this feature required async webhook status-path tests to satisfy expected behavior and validation contract evidence for VAL-LOOP-CROSS-006.",
+      "evidence": ".factory/skills/loop-memory-worker/SKILL.md (Work Procedure step 6 only lists state/browser/planner tests) vs commit 3caa513 updates integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts and integrations/browser-use-discovery/tests/webhook/handle-discovery-webhook.test.ts."
+    },
+    {
+      "area": "conventions",
+      "observation": "Mission AGENTS write-scope partition lists memory tests under tests/state and tests/browser for loop-memory-worker, but contract-safe verification here depended on webhook test updates; scope guidance could better reflect allowed cross-seam test ownership for lifecycle regressions.",
+      "evidence": "/Users/emilionunezgarcia/.factory/missions/b453d530-a63e-4f42-8ec6-c9d5f0e68daf/AGENTS.md (loop-memory-worker section) compared with commit 3caa513 modifying webhook test files."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed handoff, transcript skeleton, and commit 3caa513 for wave6-browser-only-canonical-url-hardening. The fix is contract-safe and complete for the stated goal: local/browser-only zero-lead runs no longer fail on missing canonicalUrl and now terminalize with diagnostics. No blocking code issues found."
+}
