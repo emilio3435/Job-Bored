@@ -1,9 +1,11 @@
 import type {
   BrowserUseExtractionResult,
+  DiscoveryIntent,
   DiscoveryLifecycleState,
   DiscoveryRejectionSample,
   DiscoveryRejectionSummary,
   DiscoveryRunLifecycle,
+  DiscoverySourceLane,
   DiscoverySourceSummary,
   DiscoveryRun,
   DiscoveryWebhookRequestV1,
@@ -409,6 +411,94 @@ export async function runDiscovery(
       );
     }
     normalizedLeads.push(...groundedResult.normalizedLeads);
+  }
+
+  // VAL-LOOP-SCORE-001/003/005: Apply frontier scoring and exploit target selection
+  // before deep extraction. This ensures only selected exploit targets receive
+  // deep extraction work, and exploration budgets are enforced.
+  if (normalizedLeads.length > 0) {
+    // Build DiscoveryIntent from config for scoring
+    const intent: DiscoveryIntent = {
+      intentKey: `run:${run.runId}`,
+      targetRoles: config.targetRoles || [],
+      includeKeywords: config.includeKeywords || [],
+      excludeKeywords: config.excludeKeywords || [],
+      locations: config.locations || [],
+      remotePolicy: config.remotePolicy || "",
+      seniority: config.seniority || "",
+      sourcePreset: config.sourcePreset,
+    };
+
+    // Build frontier candidates from normalized leads
+    const frontierCandidates: FrontierCandidate[] = [];
+    for (const lead of normalizedLeads) {
+      const sourceLane = determineLeadSourceLane(lead);
+      const candidate = leadToFrontierCandidate(lead, sourceLane);
+      frontierCandidates.push(candidate);
+    }
+
+    // Apply exploit target selection with exploration budget
+    const selectionResult = selectExploitTargets(
+      frontierCandidates,
+      DEFAULT_EXPLORATION_BUDGET,
+      intent,
+    );
+
+    // VAL-LOOP-SCORE-005: Filter leads to only selected exploit targets
+    const selectedCandidateIds = new Set(
+      selectionResult.selectedTargets.map((t) => t.candidateId),
+    );
+    const suppressedCandidateIds = new Set(
+      selectionResult.rejectedCandidates.map((c) => c.candidateId),
+    );
+
+    // Build suppression diagnostics for rejected candidates
+    for (const candidate of selectionResult.rejectedCandidates) {
+      if (candidate.suppressionReasons.length > 0) {
+        const diagnostic: ExtractionDiagnostic = {
+          code: "threshold_suppressed",
+          context: `Candidate ${candidate.candidateId} suppressed: ${candidate.suppressionReasons.join("; ")}`,
+        };
+        // Find the corresponding source and add diagnostic
+        const sourceId = candidate.sourceId;
+        const existingResult = extractionResultsBySource.get(sourceId);
+        if (existingResult) {
+          existingResult.diagnostics = [...(existingResult.diagnostics || []), diagnostic];
+        }
+      }
+    }
+
+    // Log selection telemetry
+    dependencies.log?.("discovery.run.exploit_selection_completed", {
+      runId,
+      totalCandidates: selectionResult.telemetry.totalCandidates,
+      atsCandidates: selectionResult.telemetry.atsCandidates,
+      browserCandidates: selectionResult.telemetry.browserCandidates,
+      selectedCount: selectionResult.telemetry.selectedCount,
+      budgetRejectedCount: selectionResult.telemetry.budgetRejectedCount,
+      qualityRejectedCount: selectionResult.telemetry.qualityRejectedCount,
+      deterministic: selectionResult.telemetry.deterministic,
+      finalBudgetUsage: selectionResult.finalBudgetUsage,
+    });
+
+    // Filter normalizedLeads to only those from selected candidates
+    // VAL-LOOP-SCORE-005: No non-selected target receives deep extraction work
+    // Note: leadToFrontierCandidate uses 'lead:' prefix for all candidates
+    const filteredNormalizedLeads = normalizedLeads.filter((lead) => {
+      const candidateId = `lead:${lead.url}`;
+      return selectedCandidateIds.has(candidateId);
+    });
+
+    dependencies.log?.("discovery.run.frontier_filtering", {
+      runId,
+      originalLeadCount: normalizedLeads.length,
+      selectedLeadCount: filteredNormalizedLeads.length,
+      suppressedCount: normalizedLeads.length - filteredNormalizedLeads.length,
+    });
+
+    // Update normalizedLeads to only selected leads
+    normalizedLeads.length = 0;
+    normalizedLeads.push(...filteredNormalizedLeads);
   }
 
   // Add skip evidence for sources excluded by the preset (VAL-ROUTE-006)
@@ -1275,6 +1365,42 @@ function buildSourceSummary(
         : {}),
     };
   });
+}
+
+/**
+ * Determines the source lane for a normalized lead based on its sourceId.
+ * Used for frontier candidate building and exploit target selection.
+ */
+function determineLeadSourceLane(lead: NormalizedLead): DiscoverySourceLane {
+  // Check metadata.sourceLane first if available
+  if (lead.metadata?.sourceLane) {
+    return lead.metadata.sourceLane as DiscoverySourceLane;
+  }
+
+  // Infer from sourceId for ATS providers
+  const atsSourceIds: readonly string[] = [
+    "greenhouse",
+    "lever",
+    "ashby",
+    "smartrecruiters",
+    "workday",
+    "icims",
+    "jobvite",
+    "taleo",
+    "successfactors",
+    "workable",
+    "breezy",
+    "recruitee",
+    "teamtailor",
+    "personio",
+  ];
+
+  if (atsSourceIds.includes(lead.sourceId)) {
+    return "ats_provider";
+  }
+
+  // Default to grounded_web for browser-discovered leads
+  return "grounded_web";
 }
 
 function determineLifecycleState(
