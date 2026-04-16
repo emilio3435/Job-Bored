@@ -123,6 +123,38 @@ type ScoutObservationRow = {
   failure_reason: string;
 };
 
+type ExploitOutcomeRow = {
+  outcome_key: string;
+  run_id: string;
+  intent_key: string;
+  surface_id: string;
+  company_key: string;
+  source_id: string;
+  source_lane: string;
+  surface_type: string;
+  canonical_url: string;
+  observed_at: string;
+  listings_seen: number;
+  listings_accepted: number;
+  listings_rejected: number;
+  listings_written: number;
+  rejection_reasons_json: string;
+  rejection_samples_json: string;
+};
+
+type RoleFamilyRow = {
+  family_key: string;
+  base_role: string;
+  role_variants_json: string;
+  company_key: string;
+  source_lane: string;
+  confirmed_count: number;
+  near_miss_count: number;
+  last_confirmed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type CompanyRegistryRecord = {
   companyKey: string;
   displayName: string;
@@ -384,6 +416,94 @@ export type ScoutObservationQuery = {
   limit?: number | null;
 };
 
+export type ExploitOutcomeRecord = {
+  outcomeKey: string;
+  runId: string;
+  intentKey: string;
+  surfaceId: string;
+  companyKey: string;
+  sourceId: string;
+  sourceLane: string;
+  surfaceType: string;
+  canonicalUrl: string;
+  observedAt: string;
+  listingsSeen: number;
+  listingsAccepted: number;
+  listingsRejected: number;
+  listingsWritten: number;
+  rejectionReasons: Record<string, number>;
+  rejectionSamples: Array<{
+    reason: string;
+    title: string;
+    company: string;
+    url: string;
+    detail: string;
+  }>;
+};
+
+export type ExploitOutcomeWrite = {
+  runId: string;
+  intentKey: string;
+  surfaceId?: string | null;
+  companyKey: string;
+  sourceId: string;
+  sourceLane: string;
+  surfaceType: string;
+  canonicalUrl: string;
+  observedAt?: string | null;
+  listingsSeen?: number;
+  listingsAccepted?: number;
+  listingsRejected?: number;
+  listingsWritten?: number;
+  rejectionReasons?: Record<string, number>;
+  rejectionSamples?: Array<{
+    reason: string;
+    title: string;
+    company: string;
+    url: string;
+    detail: string;
+  }>;
+};
+
+export type ExploitOutcomeQuery = {
+  runId?: string | null;
+  intentKey?: string | null;
+  surfaceId?: string | null;
+  companyKey?: string | null;
+  sourceId?: string | null;
+  sourceLane?: string | null;
+  limit?: number | null;
+};
+
+export type RoleFamilyRecord = {
+  familyKey: string;
+  baseRole: string;
+  roleVariants: string[];
+  companyKey: string;
+  sourceLane: string;
+  confirmedCount: number;
+  nearMissCount: number;
+  lastConfirmedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RoleFamilyUpsert = {
+  baseRole: string;
+  roleVariant?: string | null;
+  companyKey?: string | null;
+  sourceLane?: string | null;
+  confirmed?: boolean;
+  nearMiss?: boolean;
+};
+
+export type RoleFamilyQuery = {
+  baseRole?: string | null;
+  companyKey?: string | null;
+  sourceLane?: string | null;
+  limit?: number | null;
+};
+
 export type PlannerMemoryQuery = {
   intentKey?: string | null;
   companyKeys?: string[] | null;
@@ -409,6 +529,8 @@ export type DiscoveryMemoryCounts = {
   listingFingerprints: number;
   intentCoverage: number;
   scoutObservations: number;
+  exploitOutcomes: number;
+  roleFamilies: number;
 };
 
 export type DiscoveryMemoryStore = {
@@ -441,6 +563,16 @@ export type DiscoveryMemoryStore = {
   listIntentCoverage(query?: IntentCoverageQuery): IntentCoverageRecord[];
   writeScoutObservation(input: ScoutObservationRecord): ScoutObservationRecord;
   listScoutObservations(query?: ScoutObservationQuery): ScoutObservationRecord[];
+  writeExploitOutcome(input: ExploitOutcomeWrite): ExploitOutcomeRecord;
+  listExploitOutcomes(query?: ExploitOutcomeQuery): ExploitOutcomeRecord[];
+  upsertRoleFamily(input: RoleFamilyUpsert): RoleFamilyRecord;
+  listRoleFamilies(query?: RoleFamilyQuery): RoleFamilyRecord[];
+  learnRoleFamilyFromLead(input: {
+    title: string;
+    companyKey: string;
+    sourceLane: string;
+    accepted: boolean;
+  }): RoleFamilyRecord | null;
   close(): void;
 };
 
@@ -571,6 +703,38 @@ export function createDiscoveryMemoryStore(
       failure_reason TEXT NOT NULL DEFAULT ''
     );
 
+    CREATE TABLE IF NOT EXISTS exploit_outcomes (
+      outcome_key TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      intent_key TEXT NOT NULL,
+      surface_id TEXT NOT NULL,
+      company_key TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      source_lane TEXT NOT NULL,
+      surface_type TEXT NOT NULL,
+      canonical_url TEXT NOT NULL,
+      observed_at TEXT NOT NULL,
+      listings_seen INTEGER NOT NULL DEFAULT 0,
+      listings_accepted INTEGER NOT NULL DEFAULT 0,
+      listings_rejected INTEGER NOT NULL DEFAULT 0,
+      listings_written INTEGER NOT NULL DEFAULT 0,
+      rejection_reasons_json TEXT NOT NULL,
+      rejection_samples_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS role_families (
+      family_key TEXT PRIMARY KEY,
+      base_role TEXT NOT NULL,
+      role_variants_json TEXT NOT NULL,
+      company_key TEXT NOT NULL,
+      source_lane TEXT NOT NULL,
+      confirmed_count INTEGER NOT NULL DEFAULT 0,
+      near_miss_count INTEGER NOT NULL DEFAULT 0,
+      last_confirmed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_company_registry_cooldown
       ON company_registry (cooldown_until, last_success_at);
     CREATE INDEX IF NOT EXISTS idx_company_registry_name
@@ -597,6 +761,18 @@ export function createDiscoveryMemoryStore(
       ON scout_observations (surface_id);
     CREATE INDEX IF NOT EXISTS idx_scout_observations_run_surface
       ON scout_observations (run_id, surface_id);
+    CREATE INDEX IF NOT EXISTS idx_exploit_outcomes_run
+      ON exploit_outcomes (run_id);
+    CREATE INDEX IF NOT EXISTS idx_exploit_outcomes_intent
+      ON exploit_outcomes (intent_key);
+    CREATE INDEX IF NOT EXISTS idx_exploit_outcomes_surface
+      ON exploit_outcomes (surface_id);
+    CREATE INDEX IF NOT EXISTS idx_exploit_outcomes_company
+      ON exploit_outcomes (company_key);
+    CREATE INDEX IF NOT EXISTS idx_role_families_base
+      ON role_families (base_role);
+    CREATE INDEX IF NOT EXISTS idx_role_families_company
+      ON role_families (company_key);
   `);
 
   const getCompanyStatement = database.prepare(`
@@ -672,6 +848,90 @@ export function createDiscoveryMemoryStore(
   const listScoutObservationsStatement = database.prepare(`
     SELECT *
     FROM scout_observations
+    WHERE 1=1
+  `);
+  const countExploitOutcomesStatement = database.prepare(`
+    SELECT COUNT(*) AS count
+    FROM exploit_outcomes
+  `);
+  const countRoleFamiliesStatement = database.prepare(`
+    SELECT COUNT(*) AS count
+    FROM role_families
+  `);
+  const upsertExploitOutcomeStatement = database.prepare(`
+    INSERT INTO exploit_outcomes (
+      outcome_key,
+      run_id,
+      intent_key,
+      surface_id,
+      company_key,
+      source_id,
+      source_lane,
+      surface_type,
+      canonical_url,
+      observed_at,
+      listings_seen,
+      listings_accepted,
+      listings_rejected,
+      listings_written,
+      rejection_reasons_json,
+      rejection_samples_json
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(outcome_key) DO UPDATE SET
+      run_id = excluded.run_id,
+      intent_key = excluded.intent_key,
+      surface_id = excluded.surface_id,
+      company_key = excluded.company_key,
+      source_id = excluded.source_id,
+      source_lane = excluded.source_lane,
+      surface_type = excluded.surface_type,
+      canonical_url = excluded.canonical_url,
+      observed_at = excluded.observed_at,
+      listings_seen = excluded.listings_seen,
+      listings_accepted = excluded.listings_accepted,
+      listings_rejected = excluded.listings_rejected,
+      listings_written = excluded.listings_written,
+      rejection_reasons_json = excluded.rejection_reasons_json,
+      rejection_samples_json = excluded.rejection_samples_json
+  `);
+  const listExploitOutcomesStatement = database.prepare(`
+    SELECT *
+    FROM exploit_outcomes
+    WHERE 1=1
+  `);
+  const upsertRoleFamilyStatement = database.prepare(`
+    INSERT INTO role_families (
+      family_key,
+      base_role,
+      role_variants_json,
+      company_key,
+      source_lane,
+      confirmed_count,
+      near_miss_count,
+      last_confirmed_at,
+      created_at,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(family_key) DO UPDATE SET
+      role_variants_json = excluded.role_variants_json,
+      company_key = excluded.company_key,
+      source_lane = excluded.source_lane,
+      confirmed_count = excluded.confirmed_count,
+      near_miss_count = excluded.near_miss_count,
+      last_confirmed_at = excluded.last_confirmed_at,
+      updated_at = excluded.updated_at
+  `);
+  const getRoleFamilyByKeyStatement = database.prepare(`
+    SELECT *
+    FROM role_families
+    WHERE family_key = ?
+    LIMIT 1
+  `);
+  const listRoleFamiliesStatement = database.prepare(`
+    SELECT *
+    FROM role_families
     WHERE 1=1
   `);
   const upsertCompanyStatement = database.prepare(`
@@ -943,6 +1203,8 @@ export function createDiscoveryMemoryStore(
         listingFingerprints: readCount(countListingFingerprintsStatement),
         intentCoverage: readCount(countIntentCoverageStatement),
         scoutObservations: readCount(countScoutObservationsStatement),
+        exploitOutcomes: readCount(countExploitOutcomesStatement),
+        roleFamilies: readCount(countRoleFamiliesStatement),
       };
     },
 
@@ -1685,6 +1947,200 @@ export function createDiscoveryMemoryStore(
       return rows.map(mapScoutObservationRow);
     },
 
+    writeExploitOutcome(input) {
+      const now = normalizeTimestamp(input.observedAt, new Date().toISOString());
+      const runId = normalizeRequiredString(input.runId, "runId");
+      const intentKey = normalizeRequiredString(input.intentKey, "intentKey");
+      const companyKey = normalizeRequiredString(input.companyKey, "companyKey");
+      const sourceId = normalizeRequiredString(input.sourceId, "sourceId");
+      const sourceLane = normalizeRequiredString(input.sourceLane, "sourceLane");
+      const surfaceType = normalizeRequiredString(input.surfaceType, "surfaceType");
+      const canonicalUrl = normalizeRequiredString(input.canonicalUrl, "canonicalUrl");
+      const surfaceId = normalizeNullableString(input.surfaceId) || "";
+
+      const outcomeKey = createDigest(
+        [runId, intentKey, surfaceId, companyKey, sourceId, sourceLane, canonicalUrl].join("::"),
+      );
+
+      const record: ExploitOutcomeRecord = {
+        outcomeKey,
+        runId,
+        intentKey,
+        surfaceId,
+        companyKey,
+        sourceId,
+        sourceLane,
+        surfaceType,
+        canonicalUrl,
+        observedAt: now,
+        listingsSeen: normalizeNonNegativeInteger(input.listingsSeen),
+        listingsAccepted: normalizeNonNegativeInteger(input.listingsAccepted),
+        listingsRejected: normalizeNonNegativeInteger(input.listingsRejected),
+        listingsWritten: normalizeNonNegativeInteger(input.listingsWritten),
+        rejectionReasons: input.rejectionReasons || {},
+        rejectionSamples: input.rejectionSamples || [],
+      };
+
+      upsertExploitOutcomeStatement.run(
+        record.outcomeKey,
+        record.runId,
+        record.intentKey,
+        record.surfaceId,
+        record.companyKey,
+        record.sourceId,
+        record.sourceLane,
+        record.surfaceType,
+        record.canonicalUrl,
+        record.observedAt,
+        record.listingsSeen,
+        record.listingsAccepted,
+        record.listingsRejected,
+        record.listingsWritten,
+        stringifyJson(record.rejectionReasons),
+        stringifyJson(record.rejectionSamples),
+      );
+
+      return record;
+    },
+
+    listExploitOutcomes(query = {}) {
+      const sqlParts = ["SELECT *", "FROM exploit_outcomes"];
+      const where: string[] = [];
+      const params: unknown[] = [];
+
+      if (query.runId) {
+        where.push("run_id = ?");
+        params.push(normalizeRequiredString(query.runId, "runId"));
+      }
+      if (query.intentKey) {
+        where.push("intent_key = ?");
+        params.push(normalizeRequiredString(query.intentKey, "intentKey"));
+      }
+      if (query.surfaceId) {
+        where.push("surface_id = ?");
+        params.push(normalizeRequiredString(query.surfaceId, "surfaceId"));
+      }
+      if (query.companyKey) {
+        where.push("company_key = ?");
+        params.push(normalizeRequiredString(query.companyKey, "companyKey"));
+      }
+      if (query.sourceId) {
+        where.push("source_id = ?");
+        params.push(normalizeRequiredString(query.sourceId, "sourceId"));
+      }
+      if (query.sourceLane) {
+        where.push("source_lane = ?");
+        params.push(normalizeRequiredString(query.sourceLane, "sourceLane"));
+      }
+      if (where.length) {
+        sqlParts.push(`WHERE ${where.join(" AND ")}`);
+      }
+      sqlParts.push("ORDER BY observed_at DESC");
+      if (typeof query.limit === "number" && query.limit > 0) {
+        sqlParts.push("LIMIT ?");
+        params.push(Math.floor(query.limit));
+      }
+
+      const rows = database
+        .prepare(sqlParts.join("\n"))
+        .all(...params) as ExploitOutcomeRow[];
+      return rows.map(mapExploitOutcomeRow);
+    },
+
+    upsertRoleFamily(input) {
+      const baseRole = normalizeRequiredString(input.baseRole, "baseRole");
+      const companyKey = normalizeNullableString(input.companyKey) || "global";
+      const sourceLane = normalizeNullableString(input.sourceLane) || "unknown";
+      const familyKey = createDigest([baseRole, companyKey, sourceLane].join("::"));
+
+      const existing = getRoleFamilyByKeyStatement.get(familyKey) as RoleFamilyRow | undefined;
+      const now = new Date().toISOString();
+
+      const confirmedIncrement = input.confirmed === true ? 1 : 0;
+      const nearMissIncrement = input.nearMiss === true ? 1 : 0;
+
+      const existingVariants = existing ? parseStringArray(existing.role_variants_json) : [];
+      const newVariant = normalizeNullableString(input.roleVariant);
+      const mergedVariants = newVariant && !existingVariants.includes(newVariant)
+        ? [...existingVariants, newVariant]
+        : existingVariants;
+
+      const record: RoleFamilyRecord = {
+        familyKey,
+        baseRole,
+        roleVariants: mergedVariants,
+        companyKey,
+        sourceLane,
+        confirmedCount: (existing?.confirmed_count || 0) + confirmedIncrement,
+        nearMissCount: (existing?.near_miss_count || 0) + nearMissIncrement,
+        lastConfirmedAt: input.confirmed === true ? now : (existing?.last_confirmed_at || null),
+        createdAt: existing?.created_at || now,
+        updatedAt: now,
+      };
+
+      upsertRoleFamilyStatement.run(
+        record.familyKey,
+        record.baseRole,
+        stringifyJson(record.roleVariants),
+        record.companyKey,
+        record.sourceLane,
+        record.confirmedCount,
+        record.nearMissCount,
+        record.lastConfirmedAt,
+        record.createdAt,
+        record.updatedAt,
+      );
+
+      return record;
+    },
+
+    listRoleFamilies(query = {}) {
+      const sqlParts = ["SELECT *", "FROM role_families"];
+      const where: string[] = [];
+      const params: unknown[] = [];
+
+      if (query.baseRole) {
+        where.push("base_role = ?");
+        params.push(normalizeRequiredString(query.baseRole, "baseRole"));
+      }
+      if (query.companyKey) {
+        where.push("company_key = ?");
+        params.push(normalizeRequiredString(query.companyKey, "companyKey"));
+      }
+      if (query.sourceLane) {
+        where.push("source_lane = ?");
+        params.push(normalizeRequiredString(query.sourceLane, "sourceLane"));
+      }
+      if (where.length) {
+        sqlParts.push(`WHERE ${where.join(" AND ")}`);
+      }
+      sqlParts.push("ORDER BY confirmed_count DESC, last_confirmed_at DESC");
+      if (typeof query.limit === "number" && query.limit > 0) {
+        sqlParts.push("LIMIT ?");
+        params.push(Math.floor(query.limit));
+      }
+
+      const rows = database
+        .prepare(sqlParts.join("\n"))
+        .all(...params) as RoleFamilyRow[];
+      return rows.map(mapRoleFamilyRow);
+    },
+
+    learnRoleFamilyFromLead(input) {
+      const title = normalizeRequiredString(input.title, "title");
+      const baseRole = extractBaseRole(title);
+      if (!baseRole) return null;
+
+      return this.upsertRoleFamily({
+        baseRole,
+        roleVariant: title,
+        companyKey: input.companyKey,
+        sourceLane: input.sourceLane,
+        confirmed: input.accepted,
+        nearMiss: !input.accepted,
+      });
+    },
+
     close() {
       database.close();
     },
@@ -1995,6 +2451,113 @@ function mapScoutObservationRow(row: ScoutObservationRow): ScoutObservationRecor
     success: row.success === 1,
     failureReason: row.failure_reason,
   };
+}
+
+function mapExploitOutcomeRow(row: ExploitOutcomeRow): ExploitOutcomeRecord {
+  return {
+    outcomeKey: row.outcome_key,
+    runId: row.run_id,
+    intentKey: row.intent_key,
+    surfaceId: row.surface_id,
+    companyKey: row.company_key,
+    sourceId: row.source_id,
+    sourceLane: row.source_lane,
+    surfaceType: row.surface_type,
+    canonicalUrl: row.canonical_url,
+    observedAt: row.observed_at,
+    listingsSeen: Number(row.listings_seen || 0),
+    listingsAccepted: Number(row.listings_accepted || 0),
+    listingsRejected: Number(row.listings_rejected || 0),
+    listingsWritten: Number(row.listings_written || 0),
+    rejectionReasons: parseJsonObject(row.rejection_reasons_json) as Record<string, number>,
+    rejectionSamples: parseJsonObject(row.rejection_samples_json) as Array<{
+      reason: string;
+      title: string;
+      company: string;
+      url: string;
+      detail: string;
+    }>,
+  };
+}
+
+function mapRoleFamilyRow(row: RoleFamilyRow): RoleFamilyRecord {
+  return {
+    familyKey: row.family_key,
+    baseRole: row.base_role,
+    roleVariants: parseStringArray(row.role_variants_json),
+    companyKey: row.company_key,
+    sourceLane: row.source_lane,
+    confirmedCount: Number(row.confirmed_count || 0),
+    nearMissCount: Number(row.near_miss_count || 0),
+    lastConfirmedAt: row.last_confirmed_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * Extracts the base role from a title by stripping seniority prefixes and common suffixes.
+ * This is a deterministic transformation - same input always yields same output.
+ * Examples:
+ *   "Senior Platform Engineer" -> "platform engineer"
+ *   "Lead Backend Developer" -> "backend developer"
+ *   "Staff Software Engineer II" -> "software engineer"
+ *   "Principal ML Engineer" -> "ml engineer"
+ */
+function extractBaseRole(title: string): string | null {
+  const normalized = normalizePhrase(title);
+  if (!normalized) return null;
+
+  // Seniority prefixes to strip
+  const seniorityPrefixes = [
+    "intern",
+    "junior",
+    "jr",
+    "associate",
+    "senior",
+    "sr",
+    "staff",
+    "principal",
+    "lead",
+    "manager",
+    "director",
+    "vp",
+    "chief",
+    "head of",
+    "ii",
+    "iii",
+    "iv",
+    "v",
+  ];
+
+  // Common suffixes to strip
+  const suffixesToStrip = [
+    " i$",
+    " ii$",
+    " iii$",
+    " iv$",
+    " v$",
+    " (.*)$",
+  ];
+
+  let base = normalized;
+
+  // Strip seniority prefixes
+  for (const prefix of seniorityPrefixes) {
+    const regex = new RegExp(`^${prefix}\\s+`, "i");
+    base = base.replace(regex, "");
+  }
+
+  // Strip roman numeral suffixes
+  base = base.replace(/\s+(i{1,3}|iv|v)$/i, "");
+
+  // Strip parenthetical content
+  base = base.replace(/\s*\([^)]*\)\s*/g, " ");
+
+  // Clean up extra whitespace
+  base = base.replace(/\s+/g, " ").trim();
+
+  return base || null;
 }
 
 function mergeProviderHints(

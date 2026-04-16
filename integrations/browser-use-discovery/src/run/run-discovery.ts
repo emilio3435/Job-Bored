@@ -1,6 +1,7 @@
 import type {
   AtsSourceId,
   BrowserUseExtractionResult,
+  CareerSurfaceType,
   DiscoveryIntent,
   DiscoveryLifecycleState,
   DiscoveryMemorySnapshot,
@@ -826,6 +827,60 @@ export async function runDiscovery(
     rejectionSummaryBySource,
   );
   const lifecycleState = determineLifecycleState(leadsToWrite.length, warnings);
+
+  // VAL-LOOP-MEM-002: Persist exploit outcomes and rejection summaries after run completion
+  // This captures per-surface, per-run outcome data for future ranking and selection
+  if (dependencies.discoveryMemoryStore) {
+    const intentKey = `run:${runId}`;
+
+    // Persist exploit outcome for each source that produced results
+    for (const [sourceId, extractionResult] of extractionResultsBySource) {
+      const rejectionSummary = rejectionSummaryBySource.get(sourceId);
+      const firstLead = extractionResult.leads[0];
+      const companyKey = firstLead?.metadata?.companyKey || "unknown";
+      const surfaceId = firstLead?.metadata?.surfaceId || sourceId;
+      const sourceLane = firstLead?.metadata?.sourceLane || determineSourceLaneFromId(sourceId);
+      const surfaceType = determineSurfaceTypeFromSourceId(sourceId);
+
+      dependencies.discoveryMemoryStore.writeExploitOutcome({
+        runId,
+        intentKey,
+        surfaceId,
+        companyKey,
+        sourceId,
+        sourceLane,
+        surfaceType,
+        canonicalUrl: firstLead?.url || "",
+        observedAt: completedAt,
+        listingsSeen: extractionResult.stats.leadsSeen,
+        listingsAccepted: extractionResult.stats.leadsAccepted,
+        listingsRejected: rejectionSummary?.totalRejected || 0,
+        listingsWritten: leadsToWrite.filter((l) => l.sourceId === sourceId).length,
+        rejectionReasons: rejectionSummary?.rejectionReasons || {},
+        rejectionSamples: rejectionSummary?.rejectionSamples || [],
+      });
+    }
+
+    // VAL-LOOP-MEM-004: Learn role families from accepted leads
+    // Deterministic role-family learning from confirmed opportunities
+    for (const lead of leadsToWrite) {
+      if (lead.title && lead.metadata?.companyKey) {
+        dependencies.discoveryMemoryStore.learnRoleFamilyFromLead({
+          title: lead.title,
+          companyKey: lead.metadata.companyKey,
+          sourceLane: (lead.metadata?.sourceLane as string) || "unknown",
+          accepted: true,
+        });
+      }
+    }
+
+    dependencies.log?.("discovery.run.memory_persistence_completed", {
+      runId,
+      intentKey,
+      outcomeCount: extractionResultsBySource.size,
+      roleFamiliesLearned: leadsToWrite.length,
+    });
+  }
 
   return {
     run,
@@ -1857,6 +1912,64 @@ function uniqueJoin(values: string[]): string {
       values.map((value) => String(value || "").trim()).filter(Boolean),
     ),
   ].join(" | ");
+}
+
+function determineSourceLaneFromId(sourceId: string): DiscoverySourceLane {
+  const atsSourceIds: readonly string[] = [
+    "greenhouse",
+    "lever",
+    "ashby",
+    "smartrecruiters",
+    "workday",
+    "icims",
+    "jobvite",
+    "taleo",
+    "successfactors",
+    "workable",
+    "breezy",
+    "recruitee",
+    "teamtailor",
+    "personio",
+  ];
+
+  if (atsSourceIds.includes(sourceId)) {
+    return "ats_provider";
+  }
+
+  if (sourceId === "grounded_web") {
+    return "grounded_web";
+  }
+
+  return "company_surface";
+}
+
+function determineSurfaceTypeFromSourceId(sourceId: string): CareerSurfaceType {
+  const atsSourceIds: readonly string[] = [
+    "greenhouse",
+    "lever",
+    "ashby",
+    "smartrecruiters",
+    "workday",
+    "icims",
+    "jobvite",
+    "taleo",
+    "successfactors",
+    "workable",
+    "breezy",
+    "recruitee",
+    "teamtailor",
+    "personio",
+  ];
+
+  if (atsSourceIds.includes(sourceId)) {
+    return "provider_board";
+  }
+
+  if (sourceId === "grounded_web") {
+    return "employer_jobs";
+  }
+
+  return "job_posting";
 }
 
 function formatError(error: unknown): string {
