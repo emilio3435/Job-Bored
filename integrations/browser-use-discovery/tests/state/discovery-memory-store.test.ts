@@ -14,6 +14,7 @@ import {
   buildUrlKey,
   createDiscoveryMemoryStore,
 } from "../../src/state/discovery-memory-store.ts";
+import { createRunDiscoveryMemoryStore } from "../../src/state/run-discovery-memory-store.ts";
 
 async function makeTempDbPath(): Promise<{ tempDir: string; dbPath: string }> {
   const tempDir = await mkdtemp(join(tmpdir(), "job-bored-discovery-memory-"));
@@ -735,6 +736,78 @@ test("VAL-LOOP-MEM-005: memory signals remain truthful - role-family widening do
     }
   } finally {
     await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime discovery memory store exposes writeExploitOutcome and learnRoleFamilyFromLead for run-discovery", () => {
+  const rawStore = createDiscoveryMemoryStore(":memory:");
+
+  try {
+    const runtimeStore = createRunDiscoveryMemoryStore(rawStore);
+
+    const initialSnapshot = runtimeStore.loadSnapshot({
+      intentKey: "run:runtime-memory",
+      run: {
+        request: {
+          requestedAt: "2026-04-15T09:00:00.000Z",
+        },
+      } as any,
+    });
+
+    assert.equal(initialSnapshot.intentKey, "run:runtime-memory");
+    assert.deepEqual(initialSnapshot.roleFamilies, []);
+
+    runtimeStore.writeExploitOutcome({
+      runId: "run_runtime_memory",
+      intentKey: "run:runtime-memory",
+      surfaceId: "surface_runtime_memory",
+      companyKey: "acme-ai",
+      sourceId: "greenhouse",
+      sourceLane: "ats_provider",
+      surfaceType: "provider_board",
+      canonicalUrl: "https://boards.greenhouse.io/acme-ai",
+      observedAt: "2026-04-15T09:05:00.000Z",
+      listingsSeen: 3,
+      listingsAccepted: 1,
+      listingsRejected: 2,
+      listingsWritten: 1,
+      rejectionReasons: {
+        title_mismatch: 2,
+      },
+      rejectionSamples: [
+        {
+          reason: "title_mismatch",
+          title: "Data Engineer",
+          company: "Acme AI",
+          url: "https://boards.greenhouse.io/acme-ai/jobs/42",
+          detail: "Expected platform role",
+        },
+      ],
+    });
+
+    const learnedFamily = runtimeStore.learnRoleFamilyFromLead({
+      title: "Staff Platform Engineer",
+      companyKey: "acme-ai",
+      sourceLane: "ats_provider",
+      accepted: true,
+    });
+
+    assert.ok(learnedFamily, "learnRoleFamilyFromLead should persist through the runtime adapter");
+    assert.equal(rawStore.listExploitOutcomes({ runId: "run_runtime_memory" }).length, 1);
+
+    const persistedSnapshot = runtimeStore.loadSnapshot({
+      intentKey: "run:runtime-memory",
+      run: {
+        request: {
+          requestedAt: "2026-04-15T09:10:00.000Z",
+        },
+      } as any,
+    });
+
+    assert.equal(persistedSnapshot.roleFamilies.length, 1);
+    assert.equal(persistedSnapshot.roleFamilies[0]?.baseRole, "platform engineer");
+  } finally {
+    rawStore.close();
   }
 });
 

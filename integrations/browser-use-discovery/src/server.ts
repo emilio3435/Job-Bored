@@ -29,6 +29,7 @@ import {
   createDiscoveryRunStatusStore,
 } from "./state/run-status-store.ts";
 import { createDiscoveryMemoryStore } from "./state/discovery-memory-store.ts";
+import { createRunDiscoveryMemoryStore } from "./state/run-discovery-memory-store.ts";
 import { handleDiscoveryWebhook } from "./webhook/handle-discovery-webhook.ts";
 import { createBrowserUseSessionManager } from "./browser/session.ts";
 
@@ -83,18 +84,7 @@ const companyPlanner = {
   },
 };
 const discoveryMemoryStore = {
-  loadSnapshot(input: {
-    intentKey: string;
-    run: { request: { requestedAt?: string } };
-  }) {
-    return toRunMemorySnapshot(
-      rawDiscoveryMemoryStore.loadPlannerSnapshot({
-        intentKey: input.intentKey,
-        now: input.run.request.requestedAt || new Date().toISOString(),
-      }),
-      input.intentKey,
-    );
-  },
+  ...createRunDiscoveryMemoryStore(rawDiscoveryMemoryStore),
   upsertCompanyRecords(records: Array<Record<string, unknown>>) {
     for (const record of records) {
       rawDiscoveryMemoryStore.upsertCompany({
@@ -272,68 +262,6 @@ const sharedRunDependencies = {
   now: () => new Date(),
   randomId: (prefix: string) => `${prefix}_${randomUUID().replace(/-/g, "")}`,
 };
-
-function toRunMemorySnapshot(snapshot: {
-  companies: Array<Record<string, unknown>>;
-  careerSurfaces: Array<Record<string, unknown>>;
-  intentCoverage: Array<Record<string, unknown>>;
-  roleFamilies: Array<Record<string, unknown>>;
-}, intentKey: string) {
-  return {
-    intentKey,
-    companies: snapshot.companies.map((company) => ({
-      companyKey: String(company.companyKey || ""),
-      displayName: String(company.displayName || ""),
-      normalizedName: String(company.normalizedName || ""),
-      aliasesJson: JSON.stringify(company.aliases || []),
-      domainsJson: JSON.stringify(company.domains || []),
-      atsHintsJson: JSON.stringify(flattenHintRecord(company.atsHints)),
-      geoTagsJson: JSON.stringify(company.geoTags || []),
-      roleTagsJson: JSON.stringify(company.roleTags || []),
-      firstSeenAt: String(company.firstSeenAt || ""),
-      lastSeenAt: String(company.lastSeenAt || ""),
-      lastSuccessAt: String(company.lastSuccessAt || ""),
-      successCount: Number(company.successCount || 0),
-      failureCount: Number(company.failureCount || 0),
-      confidence: Number(company.confidence || 0),
-      cooldownUntil: String(company.cooldownUntil || ""),
-    })),
-    careerSurfaces: snapshot.careerSurfaces.map((surface) => ({
-      surfaceId: String(surface.surfaceId || ""),
-      companyKey: String(surface.companyKey || ""),
-      surfaceType: String(surface.surfaceType || ""),
-      providerType: String(surface.providerType || ""),
-      canonicalUrl: String(surface.canonicalUrl || ""),
-      host: String(surface.host || ""),
-      finalUrl: String(surface.finalUrl || ""),
-      boardToken: String(surface.boardToken || ""),
-      sourceLane: String(surface.sourceLane || "ats_provider"),
-      verifiedStatus: String(surface.verifiedStatus || "pending"),
-      lastVerifiedAt: String(surface.lastVerifiedAt || ""),
-      lastSuccessAt: String(surface.lastSuccessAt || ""),
-      lastFailureAt: String(surface.lastFailureAt || ""),
-      failureReason: String(surface.failureReason || ""),
-      failureStreak: Number(surface.failureStreak || 0),
-      cooldownUntil: String(surface.cooldownUntil || ""),
-      metadataJson: JSON.stringify(surface.metadata || {}),
-    })),
-    deadLinks: [],
-    listingFingerprints: [],
-    intentCoverage: snapshot.intentCoverage,
-    roleFamilies: snapshot.roleFamilies.map((family) => ({
-      familyKey: String(family.familyKey || ""),
-      baseRole: String(family.baseRole || ""),
-      roleVariantsJson: JSON.stringify(family.roleVariants || []),
-      companyKey: String(family.companyKey || ""),
-      sourceLane: String(family.sourceLane || ""),
-      confirmedCount: Number(family.confirmedCount || 0),
-      nearMissCount: Number(family.nearMissCount || 0),
-      lastConfirmedAt: String(family.lastConfirmedAt || ""),
-      createdAt: String(family.createdAt || ""),
-      updatedAt: String(family.updatedAt || ""),
-    })),
-  };
-}
 
 function mapPlannerCompany(company: Record<string, unknown>) {
   const evidence =

@@ -823,6 +823,43 @@ export type IntentCoverageRecord = {
   completedAt: string;
 };
 
+export type DiscoveryExploitOutcomeWrite = {
+  runId: string;
+  intentKey: string;
+  surfaceId: string;
+  companyKey: string;
+  sourceId: SupportedSourceId;
+  sourceLane: DiscoverySourceLane;
+  surfaceType: CareerSurfaceType;
+  canonicalUrl: string;
+  observedAt?: string | null;
+  listingsSeen?: number;
+  listingsAccepted?: number;
+  listingsRejected?: number;
+  listingsWritten?: number;
+  rejectionReasons?: Record<string, number>;
+  rejectionSamples?: DiscoveryRejectionSample[];
+};
+
+export type DiscoveryExploitOutcomeRecord = {
+  outcomeKey: string;
+  runId: string;
+  intentKey: string;
+  surfaceId: string;
+  companyKey: string;
+  sourceId: SupportedSourceId;
+  sourceLane: DiscoverySourceLane;
+  surfaceType: CareerSurfaceType;
+  canonicalUrl: string;
+  observedAt: string;
+  listingsSeen: number;
+  listingsAccepted: number;
+  listingsRejected: number;
+  listingsWritten: number;
+  rejectionReasonsJson: string;
+  rejectionSamplesJson: string;
+};
+
 /**
  * Role-family pattern record learned from accepted/near-miss leads.
  * Used by planner to find adjacent companies with matching role signals (VAL-LOOP-MEM-004).
@@ -838,6 +875,13 @@ export type DiscoveryRoleFamilyRecord = {
   lastConfirmedAt: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type DiscoveryRoleFamilyLearnInput = {
+  title: string;
+  companyKey: string;
+  sourceLane: DiscoverySourceLane | string;
+  accepted: boolean;
 };
 
 /**
@@ -969,6 +1013,17 @@ export type DiscoveryMemoryStore = {
   listScoutObservations?(
     query?: ScoutObservationQuery,
   ): Promise<ScoutObservationRecord[]> | ScoutObservationRecord[];
+  writeExploitOutcome?(
+    record: DiscoveryExploitOutcomeWrite,
+  ):
+    | Promise<DiscoveryExploitOutcomeRecord>
+    | DiscoveryExploitOutcomeRecord;
+  learnRoleFamilyFromLead?(
+    input: DiscoveryRoleFamilyLearnInput,
+  ):
+    | Promise<DiscoveryRoleFamilyRecord | null>
+    | DiscoveryRoleFamilyRecord
+    | null;
 };
 
 export type BrowserUseSessionRequest = {
