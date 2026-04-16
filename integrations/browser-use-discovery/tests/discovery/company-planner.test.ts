@@ -463,3 +463,219 @@ test("planner rewards provider and source-lane diversity in the rank output", ()
     result.plannedCompanies[0].reasons.includes("strong provider/source diversity"),
   );
 });
+
+test("VAL-LOOP-MEM-004: planner uses role-family memory to find adjacent companies deterministically", () => {
+  // Role family learned from a successful backend engineer lead at Acme
+  const roleFamilyBackendEngineer = {
+    familyKey: "backend engineer::acme::ats_provider",
+    baseRole: "backend engineer",
+    roleVariants: [
+      "senior backend engineer",
+      "staff backend engineer",
+      "principal backend engineer",
+      "backend engineer",
+    ],
+    companyKey: "acme",
+    sourceLane: "ats_provider",
+    confirmedCount: 3,
+    nearMissCount: 1,
+    lastConfirmedAt: "2026-04-10T00:00:00.000Z",
+    createdAt: "2026-04-01T00:00:00.000Z",
+    updatedAt: "2026-04-10T00:00:00.000Z",
+  };
+
+  const result = planCompanies({
+    ...makePlannerInput(),
+    companies: [
+      // Only Acme is configured
+      makeCompany({
+        name: "Acme",
+        companyKey: "acme",
+      }),
+    ],
+    memory: {
+      companyRegistry: [
+        makeCompanyRegistryRecord({
+          companyKey: "acme",
+          displayName: "Acme",
+          normalizedName: "acme",
+          successCount: 3,
+          failureCount: 1,
+          confidence: 0.85,
+        }),
+        // Adjacent company with matching role tags but not in configured companies
+        makeCompanyRegistryRecord({
+          companyKey: "adjacent-co",
+          displayName: "Adjacent Co",
+          normalizedName: "adjacent co",
+          domainsJson: JSON.stringify(["adjacent.co"]),
+          roleTagsJson: JSON.stringify([
+            "backend engineer",
+            "senior backend engineer",
+            "node js",
+          ]),
+          atsHintsJson: JSON.stringify({ greenhouse: "adjacent" }),
+          successCount: 2,
+          failureCount: 0,
+          confidence: 0.7,
+        }),
+        // Another adjacent company with partial match
+        makeCompanyRegistryRecord({
+          companyKey: "partial-adjacent",
+          displayName: "Partial Adjacent",
+          normalizedName: "partial adjacent",
+          domainsJson: JSON.stringify(["partial.example"]),
+          roleTagsJson: JSON.stringify(["backend engineer"]), // Only exact match
+          atsHintsJson: JSON.stringify({}),
+          successCount: 1,
+          failureCount: 0,
+          confidence: 0.5,
+        }),
+      ],
+      careerSurfaces: [
+        makeSurfaceRecord({
+          companyKey: "acme",
+          surfaceId: "surface_acme_greenhouse",
+          boardToken: "acme",
+          verifiedStatus: "verified",
+          lastVerifiedAt: "2026-04-10T00:00:00.000Z",
+          lastSuccessAt: "2026-04-10T00:00:00.000Z",
+        }),
+        makeSurfaceRecord({
+          companyKey: "adjacent-co",
+          surfaceId: "surface_adjacent_greenhouse",
+          boardToken: "adjacent",
+          verifiedStatus: "verified",
+          lastVerifiedAt: "2026-04-08T00:00:00.000Z",
+          lastSuccessAt: "2026-04-08T00:00:00.000Z",
+        }),
+        makeSurfaceRecord({
+          companyKey: "partial-adjacent",
+          surfaceId: "surface_partial_greenhouse",
+          boardToken: "partial",
+          verifiedStatus: "pending",
+        }),
+      ],
+      intentCoverage: [],
+      // Role family memory from accepted leads
+      roleFamilies: [roleFamilyBackendEngineer],
+    },
+  });
+
+  // Acme should be first since it's directly configured
+  assert.equal(result.plannedCompanies[0]?.companyKey, "acme");
+
+  // Adjacent-co should be found via role-family targeting (has matching role variants)
+  const adjacentCo = result.plannedCompanies.find((c) => c.companyKey === "adjacent-co");
+  assert.ok(adjacentCo, "adjacent-co should be found via role-family targeting");
+
+  // Verify the candidate source includes role_family_adjacent
+  assert.ok(
+    adjacentCo?.evidence?.candidateSources?.includes("role_family_adjacent"),
+    "adjacent-co should have role_family_adjacent candidate source",
+  );
+
+  // Verify role-family evidence is recorded
+  assert.ok(
+    adjacentCo?.reasons?.some((r) => r.includes("role-family adjacent via")),
+    "adjacent-co should have role-family adjacent evidence in reasons",
+  );
+
+  // Partial-adjacent should also be found (exact match on "backend engineer")
+  const partialAdjacent = result.plannedCompanies.find(
+    (c) => c.companyKey === "partial-adjacent",
+  );
+  assert.ok(
+    partialAdjacent,
+    "partial-adjacent should also be found via role-family targeting",
+  );
+  assert.ok(
+    partialAdjacent?.evidence?.candidateSources?.includes("role_family_adjacent"),
+    "partial-adjacent should have role_family_adjacent candidate source",
+  );
+});
+
+test("VAL-LOOP-MEM-004: role-family widening does not bypass final filters (cooldown enforced)", () => {
+  const roleFamilyBackendEngineer = {
+    familyKey: "backend engineer::acme::ats_provider",
+    baseRole: "backend engineer",
+    roleVariants: ["senior backend engineer", "backend engineer"],
+    companyKey: "acme",
+    sourceLane: "ats_provider",
+    confirmedCount: 2,
+    nearMissCount: 0,
+    lastConfirmedAt: "2026-04-10T00:00:00.000Z",
+    createdAt: "2026-04-01T00:00:00.000Z",
+    updatedAt: "2026-04-10T00:00:00.000Z",
+  };
+
+  const result = planCompanies({
+    ...makePlannerInput(),
+    includeSuppressed: true, // Include suppressed to verify cooldown is enforced
+    companies: [
+      makeCompany({
+        name: "Acme",
+        companyKey: "acme",
+      }),
+    ],
+    memory: {
+      companyRegistry: [
+        makeCompanyRegistryRecord({
+          companyKey: "acme",
+          displayName: "Acme",
+          normalizedName: "acme",
+          successCount: 2,
+          failureCount: 0,
+          confidence: 0.8,
+        }),
+        // Adjacent company with matching role tags but cooled down
+        makeCompanyRegistryRecord({
+          companyKey: "cooled-adjacent",
+          displayName: "Cooled Adjacent",
+          normalizedName: "cooled adjacent",
+          domainsJson: JSON.stringify(["cooled.example"]),
+          roleTagsJson: JSON.stringify(["backend engineer", "senior backend engineer"]),
+          cooldownUntil: "2026-04-20T00:00:00.000Z", // Cooldown active
+          failureCount: 5,
+          confidence: 0.6,
+        }),
+      ],
+      careerSurfaces: [
+        makeSurfaceRecord({
+          companyKey: "acme",
+          surfaceId: "surface_acme_greenhouse",
+          boardToken: "acme",
+          verifiedStatus: "verified",
+        }),
+        makeSurfaceRecord({
+          companyKey: "cooled-adjacent",
+          surfaceId: "surface_cooled_greenhouse",
+          boardToken: "cooled",
+          verifiedStatus: "dead",
+          cooldownUntil: "2026-04-20T00:00:00.000Z",
+          failureStreak: 4,
+        }),
+      ],
+      intentCoverage: [],
+      roleFamilies: [roleFamilyBackendEngineer],
+    },
+  });
+
+  // Acme should be planned
+  assert.equal(result.plannedCompanies[0]?.companyKey, "acme");
+
+  // Cooled-adjacent should be in suppressed list (cooldown bypasses role-family widening)
+  const cooledAdjacent = result.suppressedCompanies.find(
+    (c) => c.companyKey === "cooled-adjacent",
+  );
+  assert.ok(
+    cooledAdjacent,
+    "cooled-adjacent should be in suppressed companies despite role-family match",
+  );
+  assert.ok(
+    cooledAdjacent?.suppressionReasons?.some((r) =>
+      r.includes("company cooldown active"),
+    ),
+    "cooled-adjacent suppression reason should mention cooldown",
+  );
+});
