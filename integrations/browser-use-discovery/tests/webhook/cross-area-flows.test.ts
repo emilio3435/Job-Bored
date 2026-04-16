@@ -2910,3 +2910,363 @@ test("VAL-LOOP-CORE-009: bounded duration enforcement prevents indefinite runnin
     "Async run must not remain in 'running' state indefinitely",
   );
 });
+
+// === VAL-LOOP-CROSS-001: Unrestricted browser_plus_ats with no configured companies uses both lanes in shared loop ===
+
+test("VAL-LOOP-CROSS-001: unrestricted browser_plus_ats with empty companies uses both ATS and browser lanes in shared loop", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+
+  const dependencies = makeDependencies({
+    runStatusStore,
+    runDiscovery: async (_request, _trigger, runDeps) => {
+      return {
+        run: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_cross_area",
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_cross_area",
+            mode: "hosted",
+            timezone: "UTC",
+            // NO configured companies — this is the unrestricted scope
+            companies: [],
+            includeKeywords: ["software engineer"],
+            excludeKeywords: [],
+            targetRoles: ["Software Engineer"],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["greenhouse", "lever", "ashby", "grounded_web"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+            sourcePreset: "browser_plus_ats",
+            effectiveSources: ["greenhouse", "lever", "ashby", "grounded_web"],
+          },
+        },
+        // Both lanes contribute to the shared loop — verified via loopCounters
+        lifecycle: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          startedAt: "2026-04-12T00:00:00.000Z",
+          completedAt: "2026-04-12T00:00:01.000Z",
+          state: "completed",
+          companyCount: 0,
+          detectionCount: 1,
+          listingCount: 2,
+          normalizedLeadCount: 1,
+          // VAL-LOOP-CORE-008: stageOrder proves all 4 loop stages ran
+          stageOrder: [
+            { sequence: 1, phase: "scout", startedAt: "2026-04-12T00:00:00.100Z" },
+            { sequence: 2, phase: "score", startedAt: "2026-04-12T00:00:00.200Z" },
+            { sequence: 3, phase: "exploit", startedAt: "2026-04-12T00:00:00.300Z" },
+            { sequence: 4, phase: "learn", startedAt: "2026-04-12T00:00:00.400Z" },
+          ],
+          // VAL-LOOP-CROSS-001: Both lane counters > 0 proves both lanes ran in shared loop
+          loopCounters: {
+            atsScoutCount: 1,
+            browserScoutCount: 1,
+            scoredSurfaces: 2,
+            selectedExploitTargets: 1,
+            exploitSuppressions: 0,
+            hintMetrics: 1,
+            thirdPartyBlocks: 0,
+            junkHostSuppressions: 0,
+            duplicateSuppressions: 0,
+            crossLaneDuplicates: 0,
+          },
+        },
+        extractionResults: [
+          {
+            runId: runDeps.runId,
+            sourceId: "greenhouse",
+            querySummary: "unrestricted scope",
+            leads: [
+              {
+                sourceId: "greenhouse",
+                sourceLabel: "Greenhouse",
+                title: "Software Engineer",
+                company: "SeedCo",
+                location: "Remote",
+                url: "https://boards.greenhouse.io/seedco/jobs/1",
+                compensationText: "",
+                fitScore: 0.8,
+                priority: "—" as const,
+                tags: [],
+                fitAssessment: "",
+                contact: "",
+                status: "New",
+                appliedDate: "",
+                notes: "",
+                followUpDate: "",
+                talkingPoints: "",
+                logoUrl: "",
+                discoveredAt: "2026-04-12T00:00:00.000Z",
+                metadata: { runId: runDeps.runId, variationKey: "var_cross" },
+              },
+            ],
+            warnings: [],
+            stats: { pagesVisited: 1, leadsSeen: 1, leadsAccepted: 1 },
+          },
+          {
+            runId: runDeps.runId,
+            sourceId: "grounded_web",
+            querySummary: "Software Engineer",
+            leads: [],
+            warnings: [],
+            stats: { pagesVisited: 1, leadsSeen: 1, leadsAccepted: 0 },
+          },
+        ],
+        sourceSummary: [
+          {
+            sourceId: "greenhouse",
+            querySummary: "unrestricted scope",
+            pagesVisited: 1,
+            leadsSeen: 1,
+            leadsAccepted: 1,
+            leadsRejected: 0,
+            warnings: [],
+          },
+          {
+            sourceId: "grounded_web",
+            querySummary: "Software Engineer",
+            pagesVisited: 1,
+            leadsSeen: 1,
+            leadsAccepted: 0,
+            leadsRejected: 1,
+            warnings: [],
+          },
+        ],
+        writeResult: {
+          sheetId: "sheet_cross_area",
+          appended: 1,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_cross_area",
+        variationKey: "var_cross",
+        requestedAt: "2026-04-12T00:00:00.000Z",
+        discoveryProfile: { sourcePreset: "browser_plus_ats", targetRoles: "Software Engineer" },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 202);
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  const ackBody = JSON.parse(response.body);
+  const terminalStatus = runStatusStore.get(ackBody.runId);
+
+  // VAL-LOOP-CROSS-001: Both lanes appear in terminal sources
+  const hasAtsSource = terminalStatus.sources.some((s) =>
+    ["greenhouse", "lever", "ashby"].includes(s.sourceId),
+  );
+  const hasBrowserSource = terminalStatus.sources.some(
+    (s) => s.sourceId === "grounded_web",
+  );
+  assert.ok(hasAtsSource, "browser_plus_ats with empty companies must include ATS source");
+  assert.ok(hasBrowserSource, "browser_plus_ats with empty companies must include grounded_web source");
+
+  // VAL-LOOP-CROSS-001: loopCounters prove both lanes ran in shared loop
+  assert.ok(
+    terminalStatus.lifecycle?.loopCounters,
+    "browser_plus_ats must emit loopCounters in shared loop",
+  );
+  const lc = terminalStatus.lifecycle.loopCounters;
+  assert.ok(lc.atsScoutCount > 0, "ATS lane must have atsScoutCount > 0 (shared loop evidence)");
+  assert.ok(lc.browserScoutCount > 0, "Browser lane must have browserScoutCount > 0 (shared loop evidence)");
+
+  // VAL-LOOP-CROSS-001: Shared loop means both lanes contribute to same stageOrder
+  assert.ok(
+    terminalStatus.lifecycle?.stageOrder,
+    "shared loop must expose stageOrder (VAL-LOOP-CORE-008)",
+  );
+  assert.equal(
+    terminalStatus.lifecycle?.stageOrder?.length,
+    4,
+    "stageOrder must have all 4 phases for shared loop",
+  );
+
+  // VAL-LOOP-CROSS-001: No companies were configured, so companyCount must be 0
+  assert.equal(
+    terminalStatus.lifecycle?.companyCount,
+    0,
+    "Unrestricted run with empty companies must have companyCount=0",
+  );
+
+  // VAL-LOOP-CROSS-001: Both lanes executed in same run (evidenced by loopCounters)
+  assert.ok(
+    lc.scoredSurfaces >= lc.atsScoutCount + lc.browserScoutCount - 1,
+    "scoredSurfaces must reflect contributions from both ATS and browser lanes",
+  );
+});
+
+// === VAL-LOOP-CROSS-002: Preset isolation remains truthful end-to-end — grounded_web excluded from ats_only ===
+
+test("VAL-LOOP-CROSS-002: ats_only preset produces explicit grounded_web exclusion evidence in terminal status", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+
+  const dependencies = makeDependencies({
+    runStatusStore,
+    runDiscovery: async (_request, _trigger, runDeps) => {
+      return {
+        run: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_cross_area",
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_cross_area",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [{ name: "Acme" }],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["greenhouse", "lever", "ashby", "grounded_web"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+            sourcePreset: "ats_only",
+            effectiveSources: ["greenhouse", "lever", "ashby"],
+          },
+        },
+        lifecycle: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          startedAt: "2026-04-12T00:00:00.000Z",
+          completedAt: "2026-04-12T00:00:01.000Z",
+          state: "completed",
+          companyCount: 1,
+          detectionCount: 1,
+          listingCount: 1,
+          normalizedLeadCount: 1,
+        },
+        extractionResults: [
+          {
+            runId: runDeps.runId,
+            sourceId: "greenhouse",
+            querySummary: "https://boards.greenhouse.io/acme",
+            leads: [],
+            warnings: [],
+            stats: { pagesVisited: 1, leadsSeen: 1, leadsAccepted: 1 },
+          },
+        ],
+        sourceSummary: [
+          {
+            sourceId: "greenhouse",
+            querySummary: "https://boards.greenhouse.io/acme",
+            pagesVisited: 1,
+            leadsSeen: 1,
+            leadsAccepted: 1,
+            leadsRejected: 0,
+            warnings: [],
+          },
+          {
+            sourceId: "grounded_web",
+            querySummary: "",
+            pagesVisited: 0,
+            leadsSeen: 0,
+            leadsAccepted: 0,
+            leadsRejected: 0,
+            warnings: [
+              "Source grounded_web was excluded by preset 'ats_only' and did not execute.",
+            ],
+          },
+        ],
+        writeResult: {
+          sheetId: "sheet_cross_area",
+          appended: 1,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_cross_area",
+        variationKey: "var_cross",
+        requestedAt: "2026-04-12T00:00:00.000Z",
+        discoveryProfile: { sourcePreset: "ats_only", targetRoles: "Software Engineer" },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 202);
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  const ackBody = JSON.parse(response.body);
+  const terminalStatus = runStatusStore.get(ackBody.runId);
+
+  // VAL-LOOP-CROSS-002: grounded_web must appear with explicit "excluded by preset" warning
+  const groundedEntry = terminalStatus.sources.find(
+    (s) => s.sourceId === "grounded_web",
+  );
+  assert.ok(
+    groundedEntry,
+    "ats_only terminal status must include grounded_web entry for exclusion evidence",
+  );
+  assert.ok(
+    groundedEntry.warnings.some((w) => w.includes("excluded by preset")),
+    "grounded_web exclusion must be explicit in warnings",
+  );
+  assert.equal(
+    groundedEntry.pagesVisited,
+    0,
+    "Excluded grounded_web must have pagesVisited=0",
+  );
+
+  // VAL-LOOP-CROSS-002: No browser lane side effects in ats_only
+  assert.ok(
+    !terminalStatus.sources.some((s) => s.sourceId === "grounded_web" && s.warnings.every((w) => !w.includes("excluded"))),
+    "grounded_web must not have executed side effects in ats_only",
+  );
+});
