@@ -708,13 +708,10 @@ test("VAL-ROUTE-007: browser_only with empty companies executes grounded_web usi
   );
 });
 
-// === VAL-ROUTE-008: ATS-only unrestricted scope executes ATS-attributed discovery behavior ===
+// === VAL-ROUTE-008: ATS-only unrestricted scope does not fabricate empty-company ATS execution ===
 
-test("VAL-ROUTE-008: ats_only with empty companies attempts ATS lane execution (not skipped due to missing companies)", async () => {
-  // When ats_only preset is used with empty companies (unrestricted scope),
-  // ATS lanes should attempt execution using an empty company placeholder,
-  // not be skipped entirely due to missing company targets.
-  const atsDetectCalls: string[] = [];
+test("VAL-ROUTE-008: ats_only with empty companies does not fabricate ATS placeholder execution", async () => {
+  let detectBoardsCalls = 0;
 
   const dependencies = {
     runtimeConfig: {
@@ -742,18 +739,14 @@ test("VAL-ROUTE-008: ats_only with empty companies attempts ATS lane execution (
         {
           sourceId: "greenhouse",
           sourceLabel: "Greenhouse",
-          detect: async () => {
-            atsDetectCalls.push("greenhouse");
-            return null; // No board found with empty company
-          },
+          detect: async () => null,
           listJobs: async () => [],
           normalize: async () => null,
         },
       ],
-      detectBoards: async ({ company }, effectiveSources) => {
-        // detectBoards is called with the empty company placeholder
-        assert.deepEqual(company, { name: "" }, "detectBoards should receive empty company placeholder");
-        return []; // No boards found
+      detectBoards: async () => {
+        detectBoardsCalls += 1;
+        return [];
       },
       collectListings: async () => [],
     },
@@ -809,32 +802,42 @@ test("VAL-ROUTE-008: ats_only with empty companies attempts ATS lane execution (
 
   const result = await runDiscovery(makeRequest(), "manual", dependencies);
 
-  // The run should complete with empty results (no boards found with empty company placeholder)
-  // but the ATS lane should have attempted execution (not skipped entirely)
-  assert.ok(result.lifecycle.state === "empty" || result.lifecycle.state === "partial",
-    "Lifecycle state should be empty or partial (no boards found)");
+  assert.ok(
+    result.lifecycle.state === "empty" || result.lifecycle.state === "partial",
+    "Lifecycle state should be empty or partial when no ATS company seeds exist",
+  );
 
-  // grounded_web should NOT be in sourceSummary (excluded by ats_only preset)
   const groundedEntry = result.sourceSummary.find((s) => s.sourceId === "grounded_web");
   assert.ok(groundedEntry, "grounded_web should appear in sourceSummary even when excluded");
   assert.ok(
     groundedEntry.warnings.some((w) => w.includes("excluded by preset")),
-    "grounded_web should have 'excluded by preset' warning for ats_only"
+    "grounded_web should have 'excluded by preset' warning for ats_only",
   );
 
-  // ATS lanes should appear with explicit attribution (even with zero results from empty company placeholder)
   const greenhouseEntry = result.sourceSummary.find((s) => s.sourceId === "greenhouse");
-  assert.ok(greenhouseEntry, "greenhouse should be in sourceSummary for ats_only");
-  // ATS lanes should have executed (even if they found no boards)
-  assert.equal(greenhouseEntry.leadsSeen, 0, "greenhouse should have 0 leadsSeen (empty company placeholder)");
+  // Wave-3: ATS source entries are created for unrestricted scope to provide lane-execution evidence.
+  // The entry should have a warning indicating no boards were found (not fabricated detections).
+  assert.ok(greenhouseEntry, "greenhouse should appear in sourceSummary with unrestricted-scope warning");
+  assert.ok(
+    greenhouseEntry.warnings.some((w) => /unrestricted scope/i.test(w)),
+    "greenhouse warning should indicate unrestricted scope with empty company target",
+  );
+  assert.equal(
+    greenhouseEntry.leadsAccepted,
+    0,
+    "greenhouse should have zero accepted leads when no real boards exist",
+  );
+  assert.equal(
+    detectBoardsCalls,
+    0,
+    "detectBoards should not be called with a fabricated empty company placeholder",
+  );
 });
 
-// === VAL-ROUTE-009: Browser+ATS unrestricted scope executes both lane families ===
+// === VAL-ROUTE-009: Browser+ATS unrestricted scope runs grounded lane without fabricating ATS summaries ===
 
-test("VAL-ROUTE-009: browser_plus_ats with empty companies executes both grounded_web and ATS lanes", async () => {
-  // When browser_plus_ats preset is used with empty companies (unrestricted scope),
-  // both grounded_web and ATS lanes should execute, with truthful per-lane attribution.
-  const detectBoardsCalls: { company: { name: string } }[] = [];
+test("VAL-ROUTE-009: browser_plus_ats with empty companies runs grounded lane without fake ATS placeholder entries", async () => {
+  let detectBoardsCalls = 0;
   let groundedSearchCalled = false;
 
   const dependencies = {
@@ -868,9 +871,9 @@ test("VAL-ROUTE-009: browser_plus_ats with empty companies executes both grounde
           normalize: async () => null,
         },
       ],
-      detectBoards: async ({ company }, effectiveSources) => {
-        detectBoardsCalls.push({ company: { name: company.name } });
-        return []; // No boards found with empty company placeholder
+      detectBoards: async () => {
+        detectBoardsCalls += 1;
+        return [];
       },
       collectListings: async () => [],
     },
@@ -929,23 +932,38 @@ test("VAL-ROUTE-009: browser_plus_ats with empty companies executes both grounde
 
   const result = await runDiscovery(makeRequest(), "manual", dependencies);
 
-  // grounded_web should have been called (runs with empty company placeholder for intent-only search)
-  assert.ok(groundedSearchCalled, "grounded_web should be called for browser_plus_ats unrestricted");
+  assert.ok(
+    groundedSearchCalled,
+    "grounded_web should be called for browser_plus_ats unrestricted scope",
+  );
 
-  // Both lane families should appear in sourceSummary with truthful attribution
   const groundedEntry = result.sourceSummary.find((s) => s.sourceId === "grounded_web");
   assert.ok(groundedEntry, "grounded_web should appear in sourceSummary for browser_plus_ats");
   assert.equal(groundedEntry.leadsSeen, 0, "grounded_web should have 0 leadsSeen (no candidates found)");
 
   const greenhouseEntry = result.sourceSummary.find((s) => s.sourceId === "greenhouse");
-  assert.ok(greenhouseEntry, "greenhouse should appear in sourceSummary for browser_plus_ats");
-  assert.equal(greenhouseEntry.leadsSeen, 0, "greenhouse should have 0 leadsSeen (empty company placeholder)");
+  // Wave-3: ATS source entries are created for unrestricted scope to provide lane-execution evidence.
+  // The entry should have a warning indicating no boards were found (not fabricated detections).
+  assert.ok(greenhouseEntry, "greenhouse should appear in sourceSummary with unrestricted-scope warning");
+  assert.ok(
+    greenhouseEntry.warnings.some((w) => /unrestricted scope/i.test(w)),
+    "greenhouse warning should indicate unrestricted scope with empty company target",
+  );
+  assert.equal(
+    greenhouseEntry.leadsAccepted,
+    0,
+    "greenhouse should have zero accepted leads when no real boards exist",
+  );
+  assert.equal(
+    detectBoardsCalls,
+    0,
+    "detectBoards should not be called with a fabricated empty company placeholder",
+  );
 
-  // No lane should be skipped due to missing companies
   for (const entry of result.sourceSummary) {
     assert.ok(
       !entry.warnings.some((w) => w.includes("excluded by preset")),
-      `Source ${entry.sourceId} should NOT have 'excluded by preset' warning (all lanes should execute)`
+      `Source ${entry.sourceId} should NOT have 'excluded by preset' warning (all active lanes should execute)`,
     );
   }
 });

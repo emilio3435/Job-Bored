@@ -176,6 +176,7 @@ export async function runDiscovery(
     resolvedSheetId: config.sheetId,
     variationKey: request.variationKey,
     companies: config.companies.map((company) => company.name),
+    atsCompanies: (config.atsCompanies ?? []).map((company) => company.name),
     enabledSources: config.enabledSources,
     sourcePreset: config.sourcePreset,
     effectiveSources: config.effectiveSources,
@@ -376,9 +377,14 @@ export async function runDiscovery(
         } else if (candidate.url.includes("ashbyhq.com") || candidate.url.includes("ashby.io")) {
           atsSourceId = "ashby";
         }
-        
+
+        // Extract company name from "Role at Company" title pattern,
+        // falling back to the host domain if no pattern matches.
+        const atMatch = candidate.title?.match(/\bat\s+(.+)$/i);
+        const companyName = atMatch?.[1]?.trim() || host;
+
         atsCompaniesToSearch.push({
-          name: candidate.title?.replace(/\s+at\s+.*$/i, "").trim() || host,
+          name: companyName,
           companyKey: host.replace(/[^a-z0-9]+/gi, "-").toLowerCase(),
           normalizedName: host.replace(/[^a-z0-9]+/gi, "-").toLowerCase(),
           aliases: [],
