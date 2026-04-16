@@ -1,7 +1,9 @@
 import type {
+  AtsSourceId,
   BrowserUseExtractionResult,
   DiscoveryIntent,
   DiscoveryLifecycleState,
+  DiscoveryMemorySnapshot,
   DiscoveryRejectionSample,
   DiscoveryRejectionSummary,
   DiscoveryRunLifecycle,
@@ -17,6 +19,7 @@ import type {
 } from "../contracts.ts";
 import type { ResolvedRunSettings, WorkerRuntimeConfig } from "../config.ts";
 import type { BrowserUseSessionManager } from "../browser/session.ts";
+import type { DiscoveryMemoryStore } from "../contracts.ts";
 import type { SourceAdapterRegistry } from "../browser/source-adapters.ts";
 import { buildBoardContext } from "../browser/source-adapters.ts";
 import {
@@ -66,6 +69,7 @@ export type RunDiscoveryDependencies = {
   groundedSearchClient?: GroundedSearchClient | null;
   matchClient?: DiscoveryMatchClient | null;
   pipelineWriter: PipelineWriter;
+  discoveryMemoryStore?: DiscoveryMemoryStore | null;
   log?(event: string, details: Record<string, unknown>): void;
   runId?: string;
   loadStoredWorkerConfig(sheetId: string): Promise<StoredWorkerConfig>;
@@ -228,12 +232,182 @@ export async function runDiscovery(
   const hasAtsLanes = config.effectiveSources.some((sid) =>
     atsSourceIds.includes(sid as (typeof atsSourceIds)[number]),
   );
-  const atsCompaniesToSearch =
-    config.companies.length > 0
-      ? config.companies
-      : hasAtsLanes
-        ? [{ name: "" }]
-        : [];
+
+  // VAL-LOOP-ATS-001/002: Load memory snapshot for ATS seed channels
+  // Memory provides company registry and career surface records that can seed ATS detection
+  // even when no companies are explicitly configured.
+  let memorySnapshot: DiscoveryMemorySnapshot | null = null;
+  if (hasAtsLanes && dependencies.discoveryMemoryStore) {
+    const intentKey = `run:${runId}`;
+    memorySnapshot = await Promise.resolve(
+      dependencies.discoveryMemoryStore.loadSnapshot({ run, intentKey }),
+    ).catch((error) => {
+      dependencies.log?.("discovery.run.memory_load_failed", {
+        runId,
+        intentKey,
+        error: formatError(error),
+      });
+      return null;
+    }) || null;
+  }
+
+  // VAL-LOOP-ATS-002: Build ATS company list from configured + memory channels
+  // Seed sufficiency is met when we have at least one company to search.
+  // atsCompanies takes precedence over companies for ATS-specific seed channels.
+  const configuredAtsCompanies = (config.atsCompanies ?? config.companies) || [];
+  
+  // Convert memory company registry records to CompanyTarget format for ATS detection
+  const memoryAtsCompanies: CompanyTarget[] = [];
+  if (memorySnapshot?.companies) {
+    for (const companyRecord of memorySnapshot.companies) {
+      // Only include companies that have ATS hints (boardHints)
+      const atsHints: Partial<Record<AtsSourceId, string>> = {};
+      try {
+        const hints = JSON.parse(companyRecord.atsHintsJson || "{}");
+        for (const [sourceId, hint] of Object.entries(hints)) {
+          if (hint && typeof hint === "string") {
+            atsHints[sourceId as AtsSourceId] = hint;
+          }
+        }
+      } catch {
+        // Ignore JSON parse errors
+      }
+      
+      // Only add if company has ATS hints
+      if (Object.keys(atsHints).length > 0) {
+        memoryAtsCompanies.push({
+          name: companyRecord.displayName,
+          companyKey: companyRecord.companyKey,
+          normalizedName: companyRecord.normalizedName,
+          aliases: JSON.parse(companyRecord.aliasesJson || "[]"),
+          domains: JSON.parse(companyRecord.domainsJson || "[]"),
+          geoTags: JSON.parse(companyRecord.geoTagsJson || "[]"),
+          roleTags: JSON.parse(companyRecord.roleTagsJson || "[]"),
+          boardHints: atsHints,
+        });
+      }
+    }
+  }
+
+  // VAL-LOOP-ATS-002: Convert memory career surfaces to CompanyTarget format
+  // Career surfaces provide direct ATS board URLs that can seed ATS detection
+  if (memorySnapshot?.careerSurfaces) {
+    for (const surface of memorySnapshot.careerSurfaces) {
+      // Only include provider-type surfaces with valid ATS provider type
+      if (surface.surfaceType !== "provider_board" || !surface.providerType) {
+        continue;
+      }
+      
+      // Build company name from companyKey (e.g., "career-surface-company" -> "Career Surface Company")
+      const companyKey = surface.companyKey || "";
+      const displayName = companyKey
+        .split(/[-_]/)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(" ");
+      
+      // Determine the board hint based on surface data
+      const boardToken = surface.boardToken || surface.canonicalUrl || "";
+      if (!boardToken) continue;
+      
+      memoryAtsCompanies.push({
+        name: displayName || companyKey,
+        companyKey,
+        boardHints: {
+          [surface.providerType as AtsSourceId]: boardToken,
+        },
+      });
+    }
+  }
+
+  // VAL-LOOP-ATS-002/003: Determine seed sufficiency and build company list
+  // Seed sufficiency is met when we have configured companies OR memory companies
+  const hasConfiguredSeeds = configuredAtsCompanies.length > 0;
+  const hasMemorySeeds = memoryAtsCompanies.length > 0;
+  const hasSeedSufficiency = hasConfiguredSeeds || hasMemorySeeds;
+
+  // Build the final ATS company list: configured first, then memory
+  const atsCompaniesToSearch: CompanyTarget[] = [
+    ...configuredAtsCompanies,
+    ...memoryAtsCompanies,
+  ];
+
+  // VAL-LOOP-ATS-003: If seed sufficiency is NOT met (no configured, no memory),
+  // use grounded search ATS host fallback to discover ATS boards
+  // This is the "host search fallback" for ATS seeding
+  let atsHostSearchCandidates: GroundedSearchCandidate[] = [];
+  if (hasAtsLanes && !hasSeedSufficiency && dependencies.groundedSearchClient?.searchAtsHosts) {
+    dependencies.log?.("discovery.run.ats_host_search_fallback_started", {
+      runId,
+      reason: "seed_sufficiency_not_met",
+      configuredCompanies: configuredAtsCompanies.length,
+      memoryCompanies: memoryAtsCompanies.length,
+    });
+
+    try {
+      const atsHostSearchResult = await withTimeout(
+        "ats_host_search",
+        "ats_sources",
+        sourceTimeoutMs,
+        dependencies.groundedSearchClient.searchAtsHosts({
+          run,
+          sourceIds: config.effectiveSources.filter((sid): sid is AtsSourceId =>
+            atsSourceIds.includes(sid as AtsSourceId),
+          ),
+          maxResults: 10,
+        }),
+      );
+      atsHostSearchCandidates = atsHostSearchResult.candidates || [];
+      
+      dependencies.log?.("discovery.run.ats_host_search_fallback_completed", {
+        runId,
+        candidateCount: atsHostSearchCandidates.length,
+        warnings: atsHostSearchResult.warnings?.length || 0,
+      });
+
+      // Build ATS companies from host search results
+      for (const candidate of atsHostSearchCandidates) {
+        const host = candidate.sourceDomain || new URL(candidate.url).hostname;
+        // Determine ATS source ID from URL patterns
+        let atsSourceId: AtsSourceId = "greenhouse";
+        if (candidate.url.includes("boards.greenhouse.io") || candidate.url.includes("boards.eu.greenhouse.io")) {
+          atsSourceId = "greenhouse";
+        } else if (candidate.url.includes("jobs.lever.co")) {
+          atsSourceId = "lever";
+        } else if (candidate.url.includes("ashbyhq.com") || candidate.url.includes("ashby.io")) {
+          atsSourceId = "ashby";
+        }
+        
+        atsCompaniesToSearch.push({
+          name: candidate.title?.replace(/\s+at\s+.*$/i, "").trim() || host,
+          companyKey: host.replace(/[^a-z0-9]+/gi, "-").toLowerCase(),
+          normalizedName: host.replace(/[^a-z0-9]+/gi, "-").toLowerCase(),
+          aliases: [],
+          domains: [host],
+          geoTags: [],
+          roleTags: [],
+          boardHints: {
+            [atsSourceId]: candidate.url,
+          },
+        });
+      }
+    } catch (error) {
+      if (error instanceof TimeoutError) {
+        const message = `ATS host search timed out after ${error.timeoutMs}ms: ${error.message}`;
+        warnings.push(message);
+        dependencies.log?.("discovery.run.ats_host_search_timeout", {
+          runId,
+          timeoutMs: error.timeoutMs,
+        });
+      } else {
+        const message = `ATS host search failed: ${formatError(error)}`;
+        warnings.push(message);
+        dependencies.log?.("discovery.run.ats_host_search_failed", {
+          runId,
+          error: formatError(error),
+        });
+      }
+    }
+  }
 
   for (const company of atsCompaniesToSearch) {
     try {
@@ -262,46 +436,85 @@ export async function runDiscovery(
       stageProgress.detectCompleted = true;
       detectionCount += detections.length;
 
+      // Group detections by sourceId for efficient listing collection
+      const detectionsBySource = new Map<string, typeof detections>();
       for (const detection of detections) {
-        const adapter = adapterMap.get(detection.sourceId);
-        if (!adapter) {
-          warnings.push(`No adapter registered for source ${detection.sourceId}.`);
-          continue;
+        const existing = detectionsBySource.get(detection.sourceId);
+        if (existing) {
+          existing.push(detection);
+        } else {
+          detectionsBySource.set(detection.sourceId, [detection]);
         }
+      }
 
-        const boardContext = buildBoardContext({ company, run }, detection);
+      // Process each source's detections
+      for (const [sourceId, sourceDetections] of detectionsBySource) {
+        const adapter = adapterMap.get(sourceId);
+        
+        // Build board contexts for all detections from this source
+        const boardContexts = sourceDetections.map((detection) =>
+          buildBoardContext({ company, run }, detection)
+        );
+        
+        const firstBoardUrl = boardContexts[0]?.boardUrl || `unknown:${sourceId}`;
         const extractionResult =
-          extractionResultsBySource.get(detection.sourceId) ||
-          createExtractionResult(runId, detection.sourceId, boardContext.boardUrl);
+          extractionResultsBySource.get(sourceId) ||
+          createExtractionResult(runId, sourceId, firstBoardUrl);
 
         try {
           stageProgress.listStarted = true;
-          const rawListings = await withTimeout(
-            `listing_collection[${detection.sourceId}]`,
-            detection.sourceId,
-            sourceTimeoutMs,
-            adapter.listJobs(boardContext),
-          ).catch((error) => {
-            if (error instanceof TimeoutError) {
-              const message = `Listing collection timed out for ${detection.sourceId} after ${error.timeoutMs}ms: ${error.message}`;
-              extractionResult.warnings.push(message);
-              warnings.push(message);
-              dependencies.log?.("discovery.run.list_timeout", {
-                runId,
-                sourceId: detection.sourceId,
-                timeoutMs: error.timeoutMs,
-              });
-              return [];
-            }
-            throw error;
-          });
+          
+          let rawListings: RawListing[] = [];
+          
+          if (adapter) {
+            // Use adapter.listJobs for each board context (adapter-based implementation)
+            const listingResults = await Promise.all(
+              boardContexts.map((boardContext) =>
+                withTimeout(
+                  `listing_collection[${sourceId}]`,
+                  sourceId,
+                  sourceTimeoutMs,
+                  adapter.listJobs(boardContext),
+                ).catch((error) => {
+                  if (error instanceof TimeoutError) {
+                    return [];
+                  }
+                  throw error;
+                }),
+              ),
+            );
+            rawListings = listingResults.flat();
+          } else if (dependencies.sourceAdapterRegistry.collectListings) {
+            // Fall back to registry.collectListings (for test mocks and legacy support)
+            rawListings = await withTimeout(
+              `listing_collection[${sourceId}]`,
+              sourceId,
+              sourceTimeoutMs,
+              dependencies.sourceAdapterRegistry.collectListings(run, sourceDetections),
+            ).catch((error) => {
+              if (error instanceof TimeoutError) {
+                const message = `Listing collection timed out for ${sourceId} after ${error.timeoutMs}ms: ${error.message}`;
+                extractionResult.warnings.push(message);
+                warnings.push(message);
+                dependencies.log?.("discovery.run.list_timeout", {
+                  runId,
+                  sourceId,
+                  timeoutMs: error.timeoutMs,
+                });
+                return [];
+              }
+              throw error;
+            });
+          } else {
+            warnings.push(`No adapter registered for source ${sourceId} and no collectListings fallback available.`);
+          }
+
           stageProgress.listCompleted = true;
           listingCount += rawListings.length;
-          extractionResult.querySummary = uniqueJoin([
-            extractionResult.querySummary,
-            boardContext.boardUrl,
-          ]);
-          extractionResult.stats.pagesVisited += 1;
+          extractionResult.querySummary = uniqueJoin(
+            boardContexts.map((bc) => bc.boardUrl),
+          );
+          extractionResult.stats.pagesVisited += sourceDetections.length;
           extractionResult.stats.leadsSeen += rawListings.length;
 
           for (const rawListing of rawListings) {
@@ -317,7 +530,7 @@ export async function runDiscovery(
               if (normalized.rejection) {
                 recordRejection(
                   rejectionSummaryBySource,
-                  detection.sourceId,
+                  sourceId,
                   rawListing,
                   normalized.rejection,
                 );
@@ -329,12 +542,12 @@ export async function runDiscovery(
             extractionResult.stats.leadsAccepted += 1;
           }
         } catch (error) {
-          const message = `Listing collection failed for ${detection.sourceId}: ${formatError(error)}`;
+          const message = `Listing collection failed for ${sourceId}: ${error}`;
           extractionResult.warnings.push(message);
           warnings.push(message);
         }
 
-        extractionResultsBySource.set(detection.sourceId, extractionResult);
+        extractionResultsBySource.set(sourceId, extractionResult);
       }
     } catch (error) {
       warnings.push(
