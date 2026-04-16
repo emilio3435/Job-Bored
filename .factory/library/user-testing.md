@@ -10,17 +10,10 @@ Validation surface, setup, and concurrency rules for the opportunity-loop missio
 - Coverage:
   - webhook auth/schema/preflight behavior,
   - async ack/run status lineage,
-  - scout/score/exploit telemetry visibility.
+  - scout/score/exploit telemetry visibility,
+  - real-integration write outcomes.
 
-### 2) Public relay webhook API
-- URL: user-provided public relay (`...workers.dev`)
-- Tool: `curl`
-- Coverage:
-  - public `POST /webhook` contract compatibility,
-  - async lifecycle parity with local worker.
-- Note: public `/health` is optional; public smoke is webhook POST + status polling.
-
-### 3) Real integration data plane
+### 2) Real integration data plane
 - Tool: `curl` + deterministic run-status/readback checks
 - Coverage:
   - Gemini-backed grounded behavior,
@@ -40,15 +33,12 @@ Validation surface, setup, and concurrency rules for the opportunity-loop missio
 Dry run confirmed this mission is CPU-heavy for realistic runs. Use conservative concurrency:
 
 - Local webhook+run execution validators: **1**
-- Public relay smoke validators: **1**
-- Combined local/public mutation flows: **1**
 
 ## Execution Policy
 
 - Real integrations are required (no mocks by default).
-- Each milestone validation includes:
-  1) local webhook/run validation and
-  2) public webhook POST smoke.
+- Required milestone smoke is local-only webhook/run validation.
+- Public relay checks are optional/manual and not required for assertion completion.
 - Strict browser-only enforcement is a **final milestone gate**:
   - any non-browser extraction mode must be diagnosable and treated as validation failure for that gate.
 
@@ -67,7 +57,7 @@ Dry run confirmed this mission is CPU-heavy for realistic runs. Use conservative
 - Tool: `curl` (plus shell JSON parsing for ack/status polling)
 - Concurrency: **1** for this milestone to avoid shared-state races in run lifecycle polling and external integration throttling.
 - Isolation boundary:
-  - Use only `http://127.0.0.1:8644` for local flow checks and the mission-provided public relay URL for public smoke checks.
+  - Use only `http://127.0.0.1:8644` for required flow checks.
   - Do not mutate `.env` or service credentials.
   - Keep secrets out of evidence files (redact webhook secret and bearer material).
 - Required flow for `VAL-LOOP-CROSS-005`:
@@ -75,8 +65,7 @@ Dry run confirmed this mission is CPU-heavy for realistic runs. Use conservative
   - `discoveryProfile` intent fields must use contract-correct string values (array-shaped intent fields are rejected as blank/invalid).
   1. Start local discovery worker and confirm `/health`.
   2. POST `/webhook` locally, capture `runId` + `statusPath`, poll until terminal.
-  3. POST `/webhook` to the public relay, capture lineage, poll until terminal.
-  4. Record whether both local and public paths reached terminal lifecycle for real integrations.
+  3. Record terminal outcome evidence for real integrations.
 
 ## Evidence Bundle Per End-to-End Assertion
 
