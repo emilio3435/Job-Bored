@@ -883,12 +883,19 @@ export async function runDiscovery(
   stageOrder.push(nextStage("learn"));
 
   // VAL-LOOP-OBS-001: Aggregate hint/third-party/junk counters from sourceSummary diagnostics
-  // and per-source telemetry fields
+  // and per-source telemetry fields.
+  // NOTE: duplicateSuppressions is NOT aggregated here from per-source duplicateListingsSuppressed
+  // because that field tracks intra-source dedup BEFORE normalization, which is a different
+  // dimension from the cross-source dedup (loopCounters.duplicateSuppressions set above).
+  // Per-source duplicate suppression is available in sourceSummary[].duplicateListingsSuppressed.
   for (const source of buildSourceSummary(extractionResultsBySource, rejectionSummaryBySource)) {
     loopCounters.hintMetrics += source.hintOnlyCandidatesSeen || 0;
     loopCounters.thirdPartyBlocks += source.thirdPartyExtractionsBlocked || 0;
     loopCounters.junkHostSuppressions += source.junkHostsSuppressed || 0;
-    loopCounters.duplicateSuppressions += source.duplicateListingsSuppressed || 0;
+    // duplicateListingsSuppressed per source is NOT added to loopCounters.duplicateSuppressions
+    // to avoid conflating two different dedupe dimensions:
+    // - loopCounters.duplicateSuppressions: cross-source duplicate suppression (post-normalization)
+    // - source.duplicateListingsSuppressed: intra-source duplicate suppression (pre-normalization)
   }
 
   // VAL-LOOP-MEM-002: Persist exploit outcomes and rejection summaries after run completion
@@ -960,9 +967,9 @@ export async function runDiscovery(
       // VAL-LOOP-CORE-008: Ordered stage evidence for the loop lifecycle
       stageOrder: stageOrder.length > 0 ? stageOrder : undefined,
       // VAL-LOOP-OBS-001/002: Run-level loop counters for terminal telemetry
-      loopCounters: loopCounters.atsScoutCount > 0 || loopCounters.browserScoutCount > 0 || loopCounters.scoredSurfaces > 0
-        ? loopCounters
-        : undefined,
+      // Always present with safe zero-values for empty/degraded terminal runs
+      // so telemetry consumers always have counter data regardless of run outcome.
+      loopCounters,
       // VAL-LOOP-OBS-003/004: Failure reason attribution for degraded/failure states
       ...classifyFailureReason(lifecycleState, writeResult, loopCounters, warnings),
     },
