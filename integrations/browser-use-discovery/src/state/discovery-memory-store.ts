@@ -2501,6 +2501,27 @@ function mapRoleFamilyRow(row: RoleFamilyRow): RoleFamilyRecord {
 }
 
 /**
+ * Minimal string cleaner for normalizing user input fields.
+ */
+function cleanString(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return value == null ? "" : String(value).trim();
+}
+
+/**
+ * Normalizes a phrase for comparison by lowercasing and collapsing punctuation
+ * into spaces. Used for role titles, keywords, and intent signals.
+ */
+function normalizePhrase(value: unknown): string {
+  return cleanString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * Extracts the base role from a title by stripping seniority prefixes and common suffixes.
  * This is a deterministic transformation - same input always yields same output.
  * Examples:
