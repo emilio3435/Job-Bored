@@ -1,36 +1,18 @@
 commands:
   install: npm run install:repo
-  typecheck: npm run typecheck:repo
   lint: npm run lint:repo
-  test: npm run test:repo
-  test_ultraplan: node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/grounded-search.test.ts integrations/browser-use-discovery/tests/browser/session.test.ts integrations/browser-use-discovery/tests/webhook/config.test.ts integrations/browser-use-discovery/tests/webhook/handle-discovery-webhook.test.ts integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts integrations/browser-use-discovery/tests/webhook/routing-enforcement.test.ts
-  test_discovery_serial: node --experimental-strip-types --test --test-concurrency=1 integrations/browser-use-discovery/tests/browser/*.test.ts integrations/browser-use-discovery/tests/sheets/*.test.ts integrations/browser-use-discovery/tests/webhook/*.test.ts integrations/browser-use-discovery/tests/e2e/*.test.ts
-  test_contracts: npm run test:contract:all
+  typecheck: npm run typecheck:repo
+  test: npm run test:browser-use-discovery
+  validate_all: npm run lint:repo && npm run typecheck:repo && npm run test:browser-use-discovery
+  test_wave1: node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/handle-discovery-webhook.test.ts integrations/browser-use-discovery/tests/webhook/routing-enforcement.test.ts
+  test_wave2: node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/source-adapters.test.ts integrations/browser-use-discovery/tests/browser/source-adapters-ats-first.test.ts integrations/browser-use-discovery/tests/browser/grounded-search.test.ts integrations/browser-use-discovery/tests/browser/career-surface-resolver.test.ts
+  test_wave3: node --experimental-strip-types --test integrations/browser-use-discovery/tests/discovery/company-planner.test.ts integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts
+  test_wave4: node --experimental-strip-types --test integrations/browser-use-discovery/tests/state/discovery-memory-store.test.ts integrations/browser-use-discovery/tests/browser/discovery-memory-store.test.ts integrations/browser-use-discovery/tests/sheets/job-matcher.test.ts integrations/browser-use-discovery/tests/sheets/lead-normalizer.test.ts
+  test_wave5: node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/ats-first-telemetry.test.ts integrations/browser-use-discovery/tests/webhook/cross-area-flows.test.ts integrations/browser-use-discovery/tests/e2e/local-qa-happy-path.test.ts
 
 services:
-  web:
-    start: node dev-server.mjs
-    stop: if lsof -ti tcp:8080 >/dev/null; then lsof -ti tcp:8080 | xargs kill; fi
-    healthcheck: curl -sf http://localhost:8080/
-    port: 8080
-    depends_on: []
-
-  web_tls:
-    start: npm run web-only:https
-    stop: if lsof -ti tcp:8080 >/dev/null; then lsof -ti tcp:8080 | xargs kill; fi
-    healthcheck: curl -skf https://localhost:8080/
-    port: 8080
-    depends_on: []
-
-  scraper:
-    start: npm run start --prefix server
-    stop: if lsof -ti tcp:3847 >/dev/null; then lsof -ti tcp:3847 | xargs kill; fi
-    healthcheck: curl -sf http://127.0.0.1:3847/health
-    port: 3847
-    depends_on: []
-
   discovery_worker:
-    start: set -a; [ -f "$PWD/integrations/browser-use-discovery/.env" ] && . "$PWD/integrations/browser-use-discovery/.env"; [ -f "$PWD/server/.env" ] && . "$PWD/server/.env"; set +a; BROWSER_USE_DISCOVERY_RUN_MODE=local BROWSER_USE_DISCOVERY_HOST=127.0.0.1 BROWSER_USE_DISCOVERY_PORT=8644 BROWSER_USE_DISCOVERY_CONFIG_PATH="$PWD/integrations/browser-use-discovery/state/worker-config.json" BROWSER_USE_DISCOVERY_STATE_DB_PATH="$PWD/integrations/browser-use-discovery/state/worker-state.sqlite" BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE="/Users/emilionunezgarcia/Downloads/elio-ai-prod-4bae66f7bba7.json" BROWSER_USE_DISCOVERY_GEMINI_API_KEY="${BROWSER_USE_DISCOVERY_GEMINI_API_KEY:-${ATS_GEMINI_API_KEY:-}}" node --experimental-strip-types integrations/browser-use-discovery/src/server.ts
+    start: set -a; [ -f "$PWD/integrations/browser-use-discovery/.env" ] && . "$PWD/integrations/browser-use-discovery/.env"; [ -f "$PWD/server/.env" ] && . "$PWD/server/.env"; set +a; BROWSER_USE_DISCOVERY_RUN_MODE=local BROWSER_USE_DISCOVERY_HOST=127.0.0.1 BROWSER_USE_DISCOVERY_PORT=8644 BROWSER_USE_DISCOVERY_CONFIG_PATH="$PWD/integrations/browser-use-discovery/state/worker-config.json" BROWSER_USE_DISCOVERY_STATE_DB_PATH="$PWD/integrations/browser-use-discovery/state/worker-state.sqlite" BROWSER_USE_DISCOVERY_BROWSER_COMMAND="${BROWSER_USE_DISCOVERY_BROWSER_COMMAND:-$PWD/integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs}" BROWSER_USE_DISCOVERY_GEMINI_API_KEY="${BROWSER_USE_DISCOVERY_GEMINI_API_KEY:-${ATS_GEMINI_API_KEY:-}}" node --experimental-strip-types integrations/browser-use-discovery/src/server.ts
     stop: if lsof -ti tcp:8644 >/dev/null; then lsof -ti tcp:8644 | xargs kill; fi
     healthcheck: curl -sf http://127.0.0.1:8644/health
     port: 8644

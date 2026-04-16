@@ -1,118 +1,56 @@
 # Architecture
 
-## Mission scope architecture
+## Opportunity Loop Rebuild (Mission View)
 
-This mission refactors discovery into an explicit **source preset pipeline** where one selected mode controls execution:
+This mission converts discovery execution into an explicit **scout -> score -> exploit -> learn** loop for unrestricted `browser_plus_ats` runs while preserving webhook and sheet contracts.
 
-- `browser_only`
-- `ats_only`
-- `browser_plus_ats`
+## System Components
 
-The product remains sheet-centric: Google Sheets is still the durable data plane, and discovery writes append/update rows there.
+### 1) Contract Boundary (Webhook + Run Status)
+- Input contract remains `command-center.discovery` v1.
+- Auth/preflight enforce fail-closed behavior.
+- Async acceptance returns `runId` + `statusPath`.
+- `/runs/{runId}` remains the status boundary for lifecycle and evidence.
 
-## Core components
+### 2) Unified Opportunity Frontier
+- Two lanes feed one frontier:
+  - ATS lane: provider/company surfaces.
+  - Browser lane: canonical employer/ATS surfaces discovered through grounded search.
+- Third-party board/detail hosts are hint-only, never direct write sources.
 
-### 1) Browser preset surface (dashboard/settings/run modal)
-- Captures and persists selected source preset.
-- Captures discovery intent from canonical manual fields and AI-suggestion output fields, then resolves to canonical intent before run dispatch.
-- Displays the active preset before run.
-- Starts discovery run and shows run status progression.
-- Enforces mutual exclusivity and last-selection-wins at submit time.
-- Normalizes first-visit and legacy stored state to one explicit valid preset.
+### 3) Scout Phase
+- ATS scout collects lightweight board/surface signals (not full normalization).
+- Browser scout discovers canonical surfaces and resolves hints.
+- Scout outputs become scored frontier candidates plus persisted scout observations.
 
-### 2) Discovery webhook contract boundary
-- Accepts `command-center.discovery` requests from browser.
-- Validates auth (`x-discovery-secret`) and payload schema.
-- Produces synchronous or async acknowledgements with run tracking (`runId`, `statusPath`).
-- Canonical preset contract field is `discoveryProfile.sourcePreset` with enum:
-  - `browser_only`
-  - `ats_only`
-  - `browser_plus_ats`
-- Invalid/contradictory preset payloads return explicit `400` field errors.
-- Async acknowledgements include `pollAfterMs` for status polling cadence.
+### 4) Score + Selection Phase
+- Shared scoring ranks candidates across ATS/browser lanes.
+- Inputs include fit, freshness, historical outcomes, diversity, and suppression/cooldown signals.
+- Shared exploration budgets gate selected exploit targets.
 
-### 3) Discovery config resolver
-- Merges request-level selection with operational worker config (sources, runtime limits, sheet boundaries).
-- Run intent is request-authoritative: preset and discovery-intent fields must be explicit in request payload.
-- No silent stored-profile fallback for omitted run-intent fields.
-- Resolves the effective lane set for a run from explicit preset + enabled source set.
-- For `browser_only`, omitted tuning fields resolve to agentic defaults (results/pages/query/runtime/token budgets).
-- Browser-only grounded timeout defaults are intentionally uplifted above the prior 60s baseline to avoid premature collection cutoff.
-- Explicit tuning overrides are preserved field-by-field; omitted sibling fields still default.
-- `browser_only` uplift defaults are preset-scoped and must not leak into `ats_only` or `browser_plus_ats`.
-- Supports unrestricted company scope (empty company list) without hard preflight rejection.
+### 5) Exploit Phase
+- Deep extraction runs only on selected exploit targets.
+- Upstream vetoes apply before expensive extraction:
+  - non-job/informational pages,
+  - hint-only host veto,
+  - mismatch/title-shape checks,
+  - threshold suppression.
 
-### 4) Discovery execution router
-- Runs only the source families selected by the resolved preset.
-- Emits per-source outcomes and lane-level warnings.
-- Must provide explicit non-execution evidence for excluded lanes.
-- Non-execution evidence is structured and measurable (stage-level detect/list invocation counters or equivalent skip telemetry).
-- In unrestricted mode, discovery is not pinned to preconfigured company targets and must preserve truthful source attribution under all presets.
-- In unrestricted grounded execution, query/prompt composition must prioritize explicit intent modifiers (role, keywords, location, remote/seniority) rather than company-name terms.
-- UltraPlan adds a query-planning + retry model for grounded lanes:
-  - decompose modifier intent into focused sub-queries (capped by config)
-  - keep focused query plans deterministic and unique for the same input intent
-  - apply deterministic broadening ladder only when a focused query returns zero candidates
-  - broadening rung order is fixed (drop location first, then broaden role/keywords), with at-most-once execution per rung
-  - first-rung candidate success suppresses broader retries; full-ladder exhaustion emits explicit attribution
-  - merge candidates with dedupe + ranking before page visits
+### 6) Learn Phase
+- Persist scout observations and exploit outcomes.
+- Persist yield/cooldown history and deterministic role-family memory.
+- Next runs consume this memory for seeding and ranking.
 
-### 5) Run status + observability surface
-- `/health` reports readiness causes (browser runtime, Gemini, Sheets credentials).
-- `/runs/{runId}` reports lifecycle and per-source outcomes.
-- Logs correlate readiness warnings to run-level outcomes.
-- Hard preflight failures (credential/runtime blockers) fail closed before enqueue.
-- Lifecycle progression remains traceable from ack -> pending/running -> terminal and recoverable after refresh/reopen.
-- Diagnostics are dual-layer per event scope: structured entries (`code`, `context`) plus backward-compatible warning strings.
-- UltraPlan adds structured diagnostics with stable codes + context fields for:
-  - zero-result attribution
-  - fetch fallback / low-content extraction attribution
-  - budget-driven reduction/skip decisions
-  - retry broadening rung usage
+### 7) Output + Telemetry
+- Normalize/dedupe/write paths remain contract-compatible.
+- Source summary and terminal status expose loop counters and reason attribution.
+- Diagnostics must make degraded outcomes explainable.
 
-### 6) Google Sheets writer
-- Persists accepted leads as append/update mutations.
-- Write execution order is sequential: `batchUpdateRows` runs first, then `appendRows`. This means update-phase failures prevent appends, and append-phase failures occur after updates are already committed (no transaction semantics).
-- Preserves canonical link identity and source attribution.
-- Returns writeResult counters that reconcile with observable sheet deltas.
-- Local vs hosted mode preserve explicit `sheetId` boundary behavior.
-- Write failures are phase-attributed (append path vs update path) via `SheetWriteError` custom error class with `phase`, `httpStatus`, `detail`, and `sheetId` fields.
-- On write failure, counters are zeroed (appended: 0, updated: 0) even if partial writes succeeded; the `writeError` field provides failure details.
+## Core Invariants
 
-### 7) Run budget + concurrency controller
-- Run budget is tracked at discovery-run scope and shared across company processing.
-- Budget controller adaptively reduces per-company page traversal as time depletes and can skip late companies with explicit diagnostics.
-- Company execution can run in bounded parallel mode (config-capped concurrency) with failure isolation, so one company failure does not terminate the entire run.
-- Effective in-flight company work never exceeds the resolved concurrency cap; invalid caps are clamped safely.
-- Mixed company outcomes remain truthful in terminal status (successful companies complete even when peers fail).
-
-## End-to-end flow
-
-1. User selects preset in browser UI.
-2. Browser posts webhook request with source preset + run metadata.
-3. Worker validates/authenticates request, resolves effective config, and returns ack metadata (`runId`, `statusPath`, `pollAfterMs` for async).
-4. Router executes only allowed lane families; grounded lane plans focused sub-queries and applies retry broadening when needed.
-5. Budget + concurrency controller governs company traversal depth and parallelism.
-6. Worker writes results to sheet and updates run status from pending/running to terminal.
-7. UI polls status by runId/path and surfaces terminal run outcome.
-
-## Invariants
-
-- Source preset is authoritative for lane execution.
-- Omitted/blank run-intent fields are rejected explicitly rather than silently inferred from stored profile defaults.
-- Run dispatch resolves intent from user-visible inputs: if manual intent is blank but AI suggestions are non-blank, those values must be promoted into canonical intent fields before payload dispatch.
-- Empty company config does not imply run rejection; unrestricted execution remains valid when intent and credentials are present.
-- Valid unrestricted intent should not be treated as a missing-company degraded state when grounded execution can proceed from modifiers.
-- ATS is optional; it is never implicitly forced in `browser_only`.
-- Multi-query fan-out, retry broadening, and parallel company processing are independently flag-gated so behavior can be rolled back selectively.
-- Focused fan-out output is deterministic, unique, and capped for the same resolved intent.
-- Retry broadening is deterministic and finite: ordered rungs, at-most-once each, no unnecessary broadening after first-rung success.
-- Structured diagnostics are machine-readable and stable while warning-string compatibility is preserved for existing consumers.
-- Diagnostics/warning dual-layer output is paired by shared event scope (same run/source/query context).
-- Browser-only agentic tuning defaults apply when omitted but never override explicit user-provided values.
-- Timeout uplift remains defaulted behavior (when omitted) and still yields to explicit caller-provided timeout overrides.
-- Browser-only uplift defaults are isolated to `browser_only` and never applied to other presets unless explicitly overridden.
-- Async acceptance is never treated as terminal success.
-- Failures (auth, readiness, source, write path) are explicit and attributable.
-- Every terminal run is traceable by a stable runId from UI -> API -> status -> sheet evidence.
-- UI run gating enforces minimum user intent before run dispatch (at least one of target roles or include keywords).
+- Webhook request and sheet write contracts remain backward compatible.
+- `browser_plus_ats` unrestricted flow uses both lanes in a shared frontier.
+- Direct third-party extraction remains blocked (hint-only).
+- ATS seeding remains independent of planner emptiness.
+- Precision-over-recall remains the write policy.
+- Deterministic logic is preferred over new model dependencies.

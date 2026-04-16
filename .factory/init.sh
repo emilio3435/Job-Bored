@@ -10,31 +10,24 @@ mkdir -p "$REPO_ROOT/.factory/library"
 mkdir -p "$REPO_ROOT/.factory/research"
 mkdir -p "$REPO_ROOT/integrations/browser-use-discovery/state"
 
-# Install pre-commit hook if not present
-if [ ! -f "${REPO_ROOT}/.git/hooks/pre-commit" ] && [ -f "${REPO_ROOT}/scripts/pre-commit-hook.sh" ]; then
-  cp "${REPO_ROOT}/scripts/pre-commit-hook.sh" "${REPO_ROOT}/.git/hooks/pre-commit"
-  chmod +x "${REPO_ROOT}/.git/hooks/pre-commit"
-  echo "Pre-commit hook installed."
+ENV_FILE="$REPO_ROOT/integrations/browser-use-discovery/.env"
+if [ ! -f "$ENV_FILE" ] && [ -f "$REPO_ROOT/integrations/browser-use-discovery/.env.example" ]; then
+  cp "$REPO_ROOT/integrations/browser-use-discovery/.env.example" "$ENV_FILE"
+  echo "Initialized integrations/browser-use-discovery/.env from .env.example"
 fi
 
-warn_missing() {
-  VAR_NAME="$1"
-  eval "VAR_VALUE=\${$VAR_NAME:-}"
-  if [ -z "$VAR_VALUE" ]; then
-    echo "WARN: ${VAR_NAME} is not set in this shell."
+warn_env_key_missing() {
+  KEY="$1"
+  if [ ! -f "$ENV_FILE" ]; then
+    echo "WARN: $ENV_FILE is missing; cannot verify $KEY"
+    return
+  fi
+  if ! grep -E "^[[:space:]]*${KEY}=" "$ENV_FILE" >/dev/null 2>&1; then
+    echo "WARN: ${KEY} is not configured in $ENV_FILE"
   fi
 }
 
-warn_missing "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET"
-warn_missing "BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE"
-warn_missing "BROWSER_USE_DISCOVERY_GEMINI_API_KEY"
-
-if [ -n "${BROWSER_USE_DISCOVERY_BROWSER_COMMAND:-}" ]; then
-  if ! command -v "${BROWSER_USE_DISCOVERY_BROWSER_COMMAND}" >/dev/null 2>&1; then
-    echo "WARN: BROWSER_USE_DISCOVERY_BROWSER_COMMAND does not resolve to an executable."
-  fi
-else
-  if ! command -v browser-use >/dev/null 2>&1; then
-    echo "WARN: browser-use command is not on PATH."
-  fi
-fi
+warn_env_key_missing "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET"
+warn_env_key_missing "BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE"
+warn_env_key_missing "BROWSER_USE_DISCOVERY_GEMINI_API_KEY"
+warn_env_key_missing "BROWSER_USE_DISCOVERY_BROWSER_COMMAND"
