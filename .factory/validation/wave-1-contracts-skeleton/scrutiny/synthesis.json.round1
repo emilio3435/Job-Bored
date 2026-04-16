@@ -1,19 +1,34 @@
 {
   "milestone": "wave-1-contracts-skeleton",
-  "round": 2,
-  "status": "pass",
+  "round": 1,
+  "status": "fail",
   "validatorsRun": {
     "test": { "passed": true, "command": "npm run test:browser-use-discovery", "exitCode": 0 },
     "typecheck": { "passed": true, "command": "npm run typecheck:repo", "exitCode": 0 },
     "lint": { "passed": true, "command": "npm run lint:repo", "exitCode": 0 }
   },
   "reviewsSummary": {
-    "total": 4,
-    "passed": 4,
-    "failed": 0,
-    "failedFeatures": []
+    "total": 3,
+    "passed": 2,
+    "failed": 1,
+    "failedFeatures": ["wave1-core-contract-stage-skeleton"]
   },
-  "blockingIssues": [],
+  "blockingIssues": [
+    {
+      "featureId": "wave1-core-contract-stage-skeleton",
+      "severity": "blocking",
+      "description": "Type mismatch in contracts.ts:360 — `stageOrder` is typed as `LoopStageEvidence` (singular) but the implementation assigns `LoopStageEvidence[]` (array). Consumers accessing `stageOrder.phase` or `stageOrder.sequence` would get `undefined`. Should be `stageOrder?: LoopStageEvidence[]`.",
+      "file": "integrations/browser-use-discovery/src/contracts.ts",
+      "suggestedFix": "Change `stageOrder?: LoopStageEvidence` to `stageOrder?: LoopStageEvidence[]` in the contracts.ts type definition."
+    },
+    {
+      "featureId": "wave1-core-contract-stage-skeleton",
+      "severity": "blocking",
+      "description": "Handoff falsely claims two VAL-LOOP-CORE-008 tests were added ('stageOrder is emitted with monotonic sequence' and 'stage_transition log events'), but no such tests exist anywhere in the codebase. The loop-stage instrumentation in production code is completely untested.",
+      "file": "integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts",
+      "suggestedFix": "Add dedicated tests for VAL-LOOP-CORE-008: verify stageOrder is emitted with monotonic sequence and phase evidence, and stage_transition events fire for each stage."
+    }
+  ],
   "nonBlockingIssues": [
     {
       "featureId": "wave1-baseline-ats-multisurface-stabilization",
@@ -34,14 +49,20 @@
       "featureId": "wave1-core-auth-preflight-liveness-hygiene",
       "severity": "non_blocking",
       "description": "Async safety terminalization (setTimeout + force-terminalize at 5 min) has no dedicated unit test for the stall/timeout scenario, though the logic is straightforward."
-    },
-    {
-      "featureId": "wave1-core-stage-skeleton-blocking-fixes",
-      "severity": "non_blocking",
-      "description": "VAL-LOOP-CORE-008 tests use mock runDiscovery functions returning hardcoded stageOrder arrays. They verify contract shape but not real instrumentation emission from run-discovery.ts."
     }
   ],
-  "appliedUpdates": [],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Added 'Tooling caveat: typecheck:repo' section to environment.md documenting that typecheck:repo only runs node --check (JS syntax), not TypeScript type checking. Workers must manually verify type consistency.",
+      "sourceFeature": "wave1-core-contract-stage-skeleton review"
+    },
+    {
+      "target": "library",
+      "description": "Added 'Security Patterns' and 'Provider Architecture Pattern (ATS)' sections to architecture.md documenting webhook handler ordering invariant, timingSafeEqual auth pattern, and ATS provider factory pattern.",
+      "sourceFeature": "wave1-core-auth-preflight-liveness-hygiene review + wave1-baseline-ats-multisurface-stabilization review"
+    }
+  ],
   "suggestedGuidanceUpdates": [
     {
       "target": "AGENTS.md",
@@ -58,7 +79,7 @@
     {
       "target": "AGENTS.md",
       "suggestion": "Consider adding a convention that workers should commit their implementation changes (not just scaffolding) before marking features complete. The current pattern of all implementation remaining uncommitted makes review attribution difficult and increases risk of cross-feature interference.",
-      "evidence": "All four wave-1 features have implementation changes uncommitted in the working tree. Only the scaffold commit (35869b3) and the fix commit (65b4a09) exist. Multiple reviewers flagged this as making review difficult.",
+      "evidence": "All three wave-1 features have implementation changes uncommitted in the working tree. Only the scaffold commit (35869b3) exists. Multiple reviewers flagged this as making review difficult.",
       "isSystemic": true
     }
   ],
@@ -70,11 +91,7 @@
     {
       "observation": "All implementation changes are uncommitted in the working tree, making it hard to attribute specific changes to specific features.",
       "reason": "duplicate — same observation made by multiple reviewers, already captured in suggestedGuidanceUpdates for AGENTS.md commit convention"
-    },
-    {
-      "observation": "Fix commit 65b4a09 bundles ~410 lines of contracts.ts additions from the uncommitted working tree alongside the actual stageOrder fix.",
-      "reason": "duplicate — already captured in round 1 suggestedGuidanceUpdates for AGENTS.md commit convention"
     }
   ],
-  "previousRound": ".factory/validation/wave-1-contracts-skeleton/scrutiny/synthesis.json.round1"
+  "previousRound": null
 }
