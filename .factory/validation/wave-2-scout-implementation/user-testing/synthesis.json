@@ -1,0 +1,65 @@
+{
+  "milestone": "wave-2-scout-implementation",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 12,
+    "passed": 12,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-LOOP-ATS-001",
+    "VAL-LOOP-ATS-002",
+    "VAL-LOOP-ATS-003",
+    "VAL-LOOP-ATS-004",
+    "VAL-LOOP-BROWSER-001",
+    "VAL-LOOP-BROWSER-002",
+    "VAL-LOOP-BROWSER-003",
+    "VAL-LOOP-BROWSER-005",
+    "VAL-LOOP-BROWSER-006",
+    "VAL-LOOP-BROWSER-007",
+    "VAL-LOOP-MEM-001"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": null,
+  "testEvidence": {
+    "atsTests": {
+      "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/source-adapters.test.ts integrations/browser-use-discovery/tests/browser/source-adapters-ats-first.test.ts integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts",
+      "totalTests": 30,
+      "passed": 30,
+      "failed": 0,
+      "relevantTests": {
+        "VAL-LOOP-ATS-001": ["runDiscovery uses configured ATS companies even when the broad company planner returns zero companies"],
+        "VAL-LOOP-ATS-002": ["VAL-LOOP-ATS-002: ATS frontier pulls from memory company registry when configured companies are empty", "VAL-LOOP-ATS-002: ATS frontier pulls from memory career surfaces when configured companies are empty"],
+        "VAL-LOOP-ATS-003": ["VAL-LOOP-ATS-003: ATS host-search fallback is NOT called when seed sufficiency is met", "VAL-LOOP-ATS-003: ATS host-search fallback IS called when seed sufficiency fails"],
+        "VAL-LOOP-ATS-004": ["VAL-LOOP-ATS-004: ATS scout stays lightweight - does not invoke AI matcher during scout phase"]
+      }
+    },
+    "browserTests": {
+      "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/career-surface-resolver.test.ts integrations/browser-use-discovery/tests/browser/grounded-search.test.ts",
+      "totalTests": 60,
+      "passed": 60,
+      "failed": 0,
+      "relevantTests": {
+        "VAL-LOOP-BROWSER-001": ["VAL-LOOP-BROWSER-001: classifyCareerSurfaceSourcePolicy is deterministic", "VAL-LOOP-BROWSER-001: classifyCareerSurfaceSourcePolicy returns exactly one of three policy classes"],
+        "VAL-LOOP-BROWSER-002": ["VAL-LOOP-BROWSER-002: hint_only candidates never enter direct extraction path"],
+        "VAL-LOOP-BROWSER-003": ["VAL-LOOP-BROWSER-003: hint resolution succeeds and upgrades to canonical ATS surface", "VAL-LOOP-BROWSER-003: hint resolution fails explicitly with hint_resolution_failed diagnostic"],
+        "VAL-LOOP-BROWSER-005": ["career surface resolver detects first-party paths, ATS links, sitemap URLs, and job schema URLs", "collectGroundedWebListings upgrades employer pages into canonical career surfaces before extraction", "collectGroundedWebListings expands a careers page into direct jobs"],
+        "VAL-LOOP-BROWSER-006": ["VAL-LOOP-BROWSER-006: all known third-party job board hosts classify as hint_only", "VAL-LOOP-BROWSER-006: third-party hosts classify consistently regardless of URL path variations", "VAL-LOOP-BROWSER-006: resolveCareerSurfaceCandidate returns null for blocked hosts", "VAL-LOOP-BROWSER-006: resolveCareerSurfaceCandidate marks third-party boards as hint_only"],
+        "VAL-LOOP-BROWSER-007": ["VAL-LOOP-BROWSER-007: canonical_surface_extracted diagnostic includes URL attribution", "VAL-LOOP-BROWSER-007: hint_only_candidate diagnostic includes URL attribution", "VAL-LOOP-BROWSER-007: third_party_extraction_blocked diagnostic includes URL attribution", "VAL-LOOP-BROWSER-007: hint_resolution_failed diagnostic includes URL attribution"]
+      }
+    },
+    "memoryTests": {
+      "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/state/discovery-memory-store.test.ts integrations/browser-use-discovery/tests/browser/discovery-memory-store.test.ts",
+      "totalTests": 11,
+      "passed": 11,
+      "failed": 0,
+      "relevantTests": {
+        "VAL-LOOP-MEM-001": ["scout observations persist with run/surface identity and are queryable"]
+      }
+    }
+  }
+}
