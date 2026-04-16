@@ -1,0 +1,55 @@
+{
+  "featureId": "wave4-relevance-routing-hardening",
+  "reviewedAt": "2026-04-16T05:45:00.000Z",
+  "commitId": "a4f75b4",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The relevance routing hardening implementation correctly delivers all five assertions (VAL-LOOP-REL-001 through VAL-LOOP-REL-005 and VAL-LOOP-CROSS-003). The informational page veto (isLikelyInformationalJobPage) uses both URL slug matching and title-based heuristics with appropriate coverage of common company culture pages. The headline_mismatch, location_mismatch, and remote_policy_mismatch rejection reasons in lead-normalizer.ts are well-structured and tested. The hint-only board-host veto correctly classifies third-party job boards via career-surface-resolver.ts and emits both hint_only_candidate and third_party_extraction_blocked diagnostics before attempting canonical resolution with a budget cap. The AI matcher budgeting (shouldUseAiMatcher) was tightened from max(12,min(40,maxLeads*3)) to max(4,min(12,maxLeads)) with a lowered accept confidence threshold (0.78→0.72) and elimination of the overallScore fallback for rejects. Canonical-only write integrity is preserved through the existing isCanonicalExtractableCandidate check and hint-only resolution flow. The implementation is solid with proper edge case handling (malformed URLs, empty inputs, budget exhaustion).",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/src/normalize/lead-normalizer.ts",
+        "line": 416,
+        "severity": "non_blocking",
+        "description": "Duplicate `escapeRegExp` function exists in both lead-normalizer.ts (line 416) and job-matcher.ts (line 674). Similarly, `keywordMatchesHaystack` and `phraseMatchesHaystack` are near-identical functions in respective files. These should be extracted to a shared utility module to avoid drift."
+      },
+      {
+        "file": "integrations/browser-use-discovery/src/match/job-matcher.ts",
+        "line": 260,
+        "severity": "non_blocking",
+        "description": "shouldUseAiMatcher budget cap change from max(12,min(40,maxLeads*3)) to max(4,min(12,maxLeads)) is significant — the old formula allowed up to 40 AI calls, the new one caps at 12. The removal of the overallScore fallback (return false at end) means borderline candidates that were previously getting AI assessment no longer do. This is intentional budget tightening but the threshold values (4, 12, 0.72) have no documented rationale or configurability — they are hardcoded constants. Consider extracting these as named constants with comments explaining the budget rationale."
+      },
+      {
+        "file": "integrations/browser-use-discovery/src/grounding/grounded-search.ts",
+        "line": 3054,
+        "severity": "non_blocking",
+        "description": "INFORMATIONAL_PAGE_SLUGS is a hardcoded set of 14 slugs. The set is reasonable but could miss legitimate informational pages with locale-specific slugs (e.g., 'uber-uns' for German 'about us'). Not blocking for current scope but worth noting for internationalization."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Commit a4f75b4 is extremely large (58 files, 9214 insertions) for a single feature. It includes changes to files across multiple worker scopes: browser/providers/*.ts (loop-ats-worker), source-adapters.ts (loop-ats-worker), server.ts (loop-core-worker), contracts.ts (loop-core-worker), pipeline-writer.ts (loop-core-worker), and career-surface-resolver.ts (loop-browser-worker). AGENTS.md says 'Stage only mission-relevant files in commits; do not clean unrelated changes.' The worker appears to have committed all accumulated working tree changes in this single commit rather than only relevance-routing changes.",
+      "evidence": "git diff 8a35aae..a4f75b4 --stat shows 58 files changed. AGENTS.md write-scope partition lists grounded-search.ts as loop-browser-worker territory, but the loop-relevance-worker skill explicitly includes 'relevance gating paths in grounded-search.ts'. The commit includes browser/providers/*.ts (17 new provider files) which are clearly loop-ats-worker scope."
+    },
+    {
+      "area": "conventions",
+      "observation": "There is a scope overlap between loop-relevance-worker skill and AGENTS.md write-scope partition regarding grounded-search.ts. The skill says 'relevance gating paths in grounded-search.ts' are in scope, but AGENTS.md assigns grounded-search.ts to loop-browser-worker exclusively. This ambiguity could cause future conflicts.",
+      "evidence": "loop-relevance-worker SKILL.md 'When to Use This Skill' section lists 'relevance gating paths in integrations/browser-use-discovery/src/grounding/grounded-search.ts'. AGENTS.md 'Worker Write-Scope Partition' section lists grounded-search.ts under loop-browser-worker only."
+    },
+    {
+      "area": "knowledge",
+      "observation": "The escapeRegExp and word-boundary keyword matching pattern `(?:^|[^a-z0-9])...(?=$|[^a-z0-9])` was independently implemented in both lead-normalizer.ts and job-matcher.ts. This is a shared pattern that should be extracted to a utility module and documented in the library to prevent future drift.",
+      "evidence": "lead-normalizer.ts:keywordMatchesHaystack (line 400) and job-matcher.ts:phraseMatchesHaystack (line 661) are near-identical. Both use the same regex boundary pattern and escapeRegExp helper."
+    },
+    {
+      "area": "skills",
+      "observation": "The loop-relevance-worker skill's verification steps only specify running lead-normalizer.test.ts, job-matcher.test.ts, and grounded-search.test.ts. The worker additionally ran `npm test` (all 306 tests) and `npm run typecheck:repo`. The skill's verification commands are narrower than what the worker actually ran, which is good practice but suggests the skill could be updated to include the broader validation commands.",
+      "evidence": "Skill verification step 5 specifies: `node --experimental-strip-types --test integrations/browser-use-discovery/tests/sheets/job-matcher.test.ts integrations/browser-use-discovery/tests/sheets/lead-normalizer.test.ts integrations/browser-use-discovery/tests/browser/grounded-search.test.ts`. Worker handoff shows commands run were `npm test` and `npm run typecheck:repo`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS — The relevance routing hardening implementation correctly delivers all five validation assertions. The informational page veto, employer mismatch/title-shape vetoes, hint-only board-host suppression with diagnostics, AI matcher budgeting, and canonical-only write integrity are all properly implemented with test coverage. Minor issues: duplicated utility functions (escapeRegExp, keyword/phrase matching) across lead-normalizer.ts and job-matcher.ts should be consolidated; the AI matcher budget constants lack documented rationale; and the commit is concerningly large (58 files, 9214 insertions) including many files outside the loop-relevance-worker write scope defined in AGENTS.md."
+}

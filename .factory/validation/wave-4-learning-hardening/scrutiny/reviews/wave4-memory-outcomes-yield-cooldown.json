@@ -1,0 +1,68 @@
+{
+  "featureId": "wave4-memory-outcomes-yield-cooldown",
+  "reviewedAt": "2026-04-16T05:45:00.000Z",
+  "commitId": "a38641e",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature adds exploit outcome persistence (exploit_outcomes table) and role-family learning (role_families table) with correct schema design, proper indexes, and lifecycle wiring in run-discovery. However, there is a blocking runtime bug: extractBaseRole() calls normalizePhrase() which is not imported or defined in discovery-memory-store.ts — it only exists in company-planner.ts. This causes a ReferenceError when learnRoleFamilyFromLead() is invoked with any non-empty title. All existing tests pass only because they mock learnRoleFamilyFromLead. Additionally, there are no dedicated tests for any of the new persistence methods (writeExploitOutcome, listExploitOutcomes, upsertRoleFamily, listRoleFamilies, learnRoleFamilyFromLead) against the real store.",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/src/state/discovery-memory-store.ts",
+        "line": 2513,
+        "severity": "blocking",
+        "description": "extractBaseRole() calls normalizePhrase() but this function is not defined in this file nor imported. It only exists as a local function in company-planner.ts. This causes a ReferenceError at runtime when learnRoleFamilyFromLead() is called with any non-empty title. Verified by running: store.learnRoleFamilyFromLead({title: 'Senior Backend Engineer', ...}) throws ReferenceError: normalizePhrase is not defined."
+      },
+      {
+        "file": "integrations/browser-use-discovery/src/state/discovery-memory-store.ts",
+        "line": 2539,
+        "severity": "non_blocking",
+        "description": "suffixesToStrip array is declared but never used. The roman numeral stripping is done with a separate hardcoded regex on line ~2555. Dead code should be removed or the array should be used instead of the inline regex."
+      },
+      {
+        "file": "integrations/browser-use-discovery/src/run/run-discovery.ts",
+        "line": 836,
+        "severity": "non_blocking",
+        "description": "companyKey is derived from firstLead?.metadata?.companyKey, but a single source (e.g., an ATS board) can contain leads from multiple companies. Using only the first lead's company key means the exploit outcome record is attributed to a single company when it actually contains data for multiple. This is an attribution fidelity concern for multi-company source scenarios."
+      },
+      {
+        "file": "integrations/browser-use-discovery/src/state/discovery-memory-store.ts",
+        "line": 2530,
+        "severity": "non_blocking",
+        "description": "seniorityPrefixes includes 'ii', 'iii', 'iv', 'v' which are roman numerals, not seniority prefixes. When used as regex prefixes (^ii\\s+, ^v\\s+), they could incorrectly strip from titles starting with these sequences. For example, 'V Engineer' would become 'Engineer' and 'II Corps Developer' would become 'Corps Developer'. The roman numeral handling should be suffix-only, not prefix."
+      },
+      {
+        "file": "integrations/browser-use-discovery/tests",
+        "line": null,
+        "severity": "non_blocking",
+        "description": "No dedicated tests exist for writeExploitOutcome, listExploitOutcomes, upsertRoleFamily, listRoleFamilies, or learnRoleFamilyFromLead against the real store. The tests in discovery-memory-store.test.ts only update count assertions to include exploitOutcomes: 0 and roleFamilies: 0. The run-discovery.test.ts mocks all new methods. No test names reference VAL-LOOP-MEM-002, VAL-LOOP-MEM-003, or VAL-LOOP-MEM-005. This means the feature's three assertion claims have zero automated test coverage."
+      },
+      {
+        "file": "integrations/browser-use-discovery/src/run/run-discovery.ts",
+        "line": 1917,
+        "severity": "non_blocking",
+        "description": "determineSourceLaneFromId and determineSurfaceTypeFromSourceId duplicate the same ATS source ID list. This list should be extracted into a shared constant to avoid drift between the two functions."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The worker added a dependency on normalizePhrase (from company-planner.ts) without importing it. This suggests a gap in understanding the module boundary between discovery-memory-store.ts and company-planner.ts. AGENTS.md documents the write-scope partition (loop-memory-worker owns memory-store, loop-scoring-worker owns company-planner) but doesn't clarify that utility functions in one module shouldn't be implicitly assumed available in another.",
+      "evidence": "discovery-memory-store.ts:2513 calls normalizePhrase() without import. company-planner.ts:1133 defines it as a module-local function. The write-scope partition in AGENTS.md lists these as separate worker domains."
+    },
+    {
+      "area": "skills",
+      "observation": "The loop-memory-worker skill says 'Run: node --experimental-strip-types --test ...' but the worker's test approach relied entirely on mocks for the new methods. The skill doesn't specify that new persistence methods should have dedicated round-trip tests against the real store. The skill also says 'Write failing tests first for schema changes and run-persistence side effects' but no such tests were written for the new tables/methods.",
+      "evidence": "The skill SKILL.md step 2: 'Write failing tests first for schema changes and run-persistence side effects.' The worker added 0 new test files and 0 new test cases. Only count assertions and mock stubs were updated in existing tests. skillFeedback.followedProcedure is true, but this conflicts with the lack of new tests."
+    },
+    {
+      "area": "knowledge",
+      "observation": "normalizePhrase is a utility function defined in company-planner.ts that strips non-alphanumeric characters and lowercases. It's used by extractBaseRole in discovery-memory-store.ts. This cross-module dependency should be documented or the function should be extracted to a shared utility module.",
+      "evidence": "company-planner.ts:1133-1138 defines normalizePhrase. discovery-memory-store.ts:2513 uses it. No shared utility module exists for this function."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "The feature adds the correct database schema and lifecycle wiring for exploit outcome persistence and role-family learning, but has a blocking runtime bug: extractBaseRole() calls normalizePhrase() which is undefined in the memory store module (it's a local function in company-planner.ts). This causes learnRoleFamilyFromLead() to crash with ReferenceError for any non-empty title. The bug is masked in tests because all test mocks bypass the actual implementation. Additionally, none of the three claimed assertions (VAL-LOOP-MEM-002, VAL-LOOP-MEM-003, VAL-LOOP-MEM-005) have dedicated test coverage — the feature lacks round-trip persistence tests for the new methods."
+}
