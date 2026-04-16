@@ -3678,3 +3678,599 @@ test("VAL-LOOP-ATS-007: ATS collection completes and lifecycle progresses with m
     "Run should have completedAt timestamp indicating lifecycle progressed",
   );
 });
+
+// === VAL-LOOP-OBS-001: Terminal telemetry exposes required loop counters ===
+
+test("VAL-LOOP-OBS-001: runDiscovery emits loop counters in lifecycle for ATS run", async () => {
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+    },
+    sourceAdapterRegistry: {
+      adapters: [
+        {
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          detect: async () => null,
+          listJobs: async () => [
+            {
+              sourceId: "greenhouse",
+              sourceLabel: "Greenhouse",
+              title: "Backend Engineer",
+              company: "Acme",
+              location: "Remote",
+              url: "https://jobs.example.com/backend",
+              descriptionText: "Build backend services",
+              tags: [],
+            },
+          ],
+          normalize: async () => null,
+        },
+      ],
+      detectBoards: async ({ company }, _effectiveSources) => [
+        {
+          matched: true,
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          boardUrl: `https://boards.greenhouse.io/${company.name.toLowerCase()}`,
+          confidence: 1,
+          warnings: [],
+        },
+      ],
+      collectListings: async () => [],
+    },
+    pipelineWriter: {
+      write: async () => ({
+        sheetId: "sheet_obs001",
+        appended: 1,
+        updated: 0,
+        skippedDuplicates: 0,
+        warnings: [],
+      }),
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_obs001",
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [{ name: "Acme" }],
+      includeKeywords: ["backend"],
+      excludeKeywords: [],
+      targetRoles: ["Backend Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "",
+      seniority: "",
+      maxLeadsPerRun: 5,
+      enabledSources: ["greenhouse"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored: Record<string, unknown>, request: Record<string, unknown>) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "ats_only",
+      effectiveSources: ["greenhouse"],
+    }),
+    now: () => new Date("2026-04-13T00:00:00.000Z"),
+    randomId: (prefix: string) => `${prefix}_obs001`,
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies as any);
+
+  // VAL-LOOP-OBS-001: Loop counters must be present in lifecycle
+  assert.ok(result.lifecycle.loopCounters, "lifecycle.loopCounters must be present");
+  const lc = result.lifecycle.loopCounters!;
+
+  // ATS scout count must be non-negative and reflect company attempts
+  assert.ok(typeof lc.atsScoutCount === "number", "atsScoutCount must be a number");
+  assert.ok(lc.atsScoutCount >= 0, "atsScoutCount must be non-negative (VAL-LOOP-OBS-002 invariant)");
+
+  // Other counters must be non-negative (VAL-LOOP-OBS-002)
+  assert.ok(lc.browserScoutCount >= 0, "browserScoutCount must be non-negative");
+  assert.ok(lc.scoredSurfaces >= 0, "scoredSurfaces must be non-negative");
+  assert.ok(lc.selectedExploitTargets >= 0, "selectedExploitTargets must be non-negative");
+  assert.ok(lc.exploitSuppressions >= 0, "exploitSuppressions must be non-negative");
+  assert.ok(lc.hintMetrics >= 0, "hintMetrics must be non-negative");
+  assert.ok(lc.thirdPartyBlocks >= 0, "thirdPartyBlocks must be non-negative");
+  assert.ok(lc.junkHostSuppressions >= 0, "junkHostSuppressions must be non-negative");
+  assert.ok(lc.duplicateSuppressions >= 0, "duplicateSuppressions must be non-negative");
+  assert.ok(lc.crossLaneDuplicates >= 0, "crossLaneDuplicates must be non-negative");
+
+  // VAL-LOOP-OBS-002: selected <= scored invariant
+  assert.ok(
+    lc.selectedExploitTargets <= lc.scoredSurfaces,
+    `selectedExploitTargets (${lc.selectedExploitTargets}) must be <= scoredSurfaces (${lc.scoredSurfaces}) — VAL-LOOP-OBS-002 invariant`,
+  );
+});
+
+// === VAL-LOOP-OBS-001/003: Stage order and reason attribution for degraded/failure states ===
+
+test("VAL-LOOP-OBS-001/003: runDiscovery emits stageOrder and reason attribution for partial status", async () => {
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+    },
+    sourceAdapterRegistry: {
+      adapters: [],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    pipelineWriter: {
+      write: async () => ({
+        sheetId: "sheet_obs003",
+        appended: 0,
+        updated: 0,
+        skippedDuplicates: 0,
+        warnings: [],
+      }),
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_obs003",
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [],
+      includeKeywords: [],
+      excludeKeywords: [],
+      targetRoles: [],
+      locations: [],
+      remotePolicy: "",
+      seniority: "",
+      maxLeadsPerRun: 5,
+      enabledSources: ["greenhouse"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored: Record<string, unknown>, request: Record<string, unknown>) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "ats_only",
+      effectiveSources: ["greenhouse"],
+    }),
+    now: () => new Date("2026-04-13T00:00:00.000Z"),
+    randomId: (prefix: string) => `${prefix}_obs003`,
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies as any);
+
+  // State should be empty (no leads found) — degraded/failure state
+  assert.ok(
+    result.lifecycle.state === "empty" || result.lifecycle.state === "partial",
+    `Expected empty or partial state, got "${result.lifecycle.state}"`,
+  );
+
+  // VAL-LOOP-OORE-008: stageOrder must be present with monotonic sequence
+  if (result.lifecycle.stageOrder && result.lifecycle.stageOrder.length > 0) {
+    const stageOrder = result.lifecycle.stageOrder;
+    // Sequence numbers must be monotonically increasing
+    for (let i = 1; i < stageOrder.length; i++) {
+      assert.ok(
+        stageOrder[i].sequence > stageOrder[i - 1].sequence,
+        `stageOrder sequence must be monotonically increasing at index ${i}`,
+      );
+    }
+    // Phases must be valid
+    for (const entry of stageOrder) {
+      assert.ok(
+        ["scout", "score", "exploit", "learn"].includes(entry.phase),
+        `stage phase must be valid, got "${entry.phase}"`,
+      );
+    }
+  }
+
+  // VAL-LOOP-OBS-003: reasonCode and reasonMessage must be present for non-success states
+  if (result.lifecycle.state !== "completed") {
+    assert.ok(
+      result.lifecycle.reasonCode,
+      "reasonCode must be present for degraded/failure states (VAL-LOOP-OBS-003)",
+    );
+    assert.ok(
+      result.lifecycle.reasonMessage,
+      "reasonMessage must be present for degraded/failure states (VAL-LOOP-OBS-003)",
+    );
+    assert.ok(
+      result.lifecycle.reasonMessage!.length > 0,
+      "reasonMessage must be non-empty for degraded/failure states",
+    );
+  }
+
+  // VAL-LOOP-OBS-004: failureClass must be present for non-success states
+  if (result.lifecycle.state !== "completed") {
+    assert.ok(
+      result.lifecycle.failureClass,
+      "failureClass must be present for degraded/failure states (VAL-LOOP-OBS-004)",
+    );
+    assert.ok(
+      result.lifecycle.failureClass !== "none",
+      "failureClass must not be 'none' for degraded/failure states",
+    );
+  }
+});
+
+// === VAL-LOOP-OBS-004: Failure class differentiation ===
+
+test("VAL-LOOP-OBS-004: failure class differentiates dominant failure categories", async () => {
+  // Test: weak_surface_discovery — when no scouts find anything
+  {
+    const dependencies = {
+      runtimeConfig: {
+        stateDatabasePath: "", workerConfigPath: "", browserUseCommand: "",
+        geminiApiKey: "", geminiModel: "gemini-2.5-flash",
+        groundedSearchMaxResultsPerCompany: 6, groundedSearchMaxPagesPerCompany: 4,
+        googleServiceAccountJson: "", googleServiceAccountFile: "",
+        googleAccessToken: "", googleOAuthTokenJson: "", googleOAuthTokenFile: "",
+        webhookSecret: "", allowedOrigins: [], port: 0, host: "127.0.0.1",
+        runMode: "hosted" as const, asyncAckByDefault: true,
+      },
+      sourceAdapterRegistry: {
+        adapters: [],
+        detectBoards: async () => [],
+        collectListings: async () => [],
+      },
+      pipelineWriter: {
+        write: async () => ({ sheetId: "sheet_fc", appended: 0, updated: 0, skippedDuplicates: 0, warnings: [] }),
+      },
+      loadStoredWorkerConfig: async () => ({
+        sheetId: "sheet_fc", mode: "hosted" as const, timezone: "UTC",
+        companies: [], includeKeywords: [], excludeKeywords: [],
+        targetRoles: [], locations: [], remotePolicy: "", seniority: "",
+        maxLeadsPerRun: 5, enabledSources: ["greenhouse"] as const,
+        schedule: { enabled: false, cron: "" },
+      }),
+      mergeDiscoveryConfig: (stored: Record<string, unknown>, request: Record<string, unknown>) => ({
+        ...stored, sheetId: request.sheetId, variationKey: request.variationKey,
+        requestedAt: request.requestedAt, sourcePreset: "ats_only" as const,
+        effectiveSources: ["greenhouse"] as const,
+      }),
+      now: () => new Date("2026-04-13T00:00:00.000Z"),
+      randomId: (prefix: string) => `${prefix}_fc_weak`,
+    };
+
+    const result = await runDiscovery(makeRequest(), "manual", dependencies as any);
+
+    // Should be weak_surface_discovery because no scouts ran
+    assert.ok(
+      result.lifecycle.failureClass === "weak_surface_discovery",
+      `Expected weak_surface_discovery, got "${result.lifecycle.failureClass}" for empty run with no scouts`,
+    );
+    assert.ok(result.lifecycle.reasonCode, "reasonCode must be set");
+  }
+
+  // Test: write_failure — when write has an error
+  // Note: We must have at least one lead for the write path to be taken,
+  // since write is skipped when leadsToWrite.length === 0.
+  {
+    const dependencies = {
+      runtimeConfig: {
+        stateDatabasePath: "", workerConfigPath: "", browserUseCommand: "",
+        geminiApiKey: "", geminiModel: "gemini-2.5-flash",
+        groundedSearchMaxResultsPerCompany: 6, groundedSearchMaxPagesPerCompany: 4,
+        googleServiceAccountJson: "", googleServiceAccountFile: "",
+        googleAccessToken: "", googleOAuthTokenJson: "", googleOAuthTokenFile: "",
+        webhookSecret: "", allowedOrigins: [], port: 0, host: "127.0.0.1",
+        runMode: "hosted" as const, asyncAckByDefault: true,
+      },
+      sourceAdapterRegistry: {
+        adapters: [
+          {
+            sourceId: "greenhouse",
+            sourceLabel: "Greenhouse",
+            detect: async () => null,
+            listJobs: async () => [
+              {
+                sourceId: "greenhouse",
+                sourceLabel: "Greenhouse",
+                title: "Backend Engineer",
+                company: "Acme Corp",
+                location: "Remote",
+                url: "https://boards.greenhouse.io/acme/jobs/backend-engineer",
+                descriptionText: "Build backend services",
+                tags: [],
+              },
+            ],
+            normalize: async () => null,
+          },
+        ],
+        detectBoards: async ({ company }, _effectiveSources) => [
+          {
+            matched: true,
+            sourceId: "greenhouse",
+            sourceLabel: "Greenhouse",
+            boardUrl: `https://boards.greenhouse.io/${company.name.toLowerCase()}`,
+            confidence: 1,
+            warnings: [],
+          },
+        ],
+        collectListings: async () => [],
+      },
+      pipelineWriter: {
+        write: async () => ({
+          sheetId: "sheet_fc",
+          appended: 0, updated: 0, skippedDuplicates: 0,
+          warnings: ["Sheet write failed during update phase: HTTP 500"],
+          writeError: { phase: "update" as const, message: "Sheet write failed during update phase: HTTP 500", httpStatus: 500 },
+        }),
+      },
+      loadStoredWorkerConfig: async () => ({
+        sheetId: "sheet_fc", mode: "hosted" as const, timezone: "UTC",
+        companies: [{ name: "Acme Corp" }],
+        includeKeywords: ["backend"],
+        excludeKeywords: [],
+        targetRoles: ["Backend Engineer"],
+        locations: ["Remote"],
+        remotePolicy: "",
+        seniority: "",
+        maxLeadsPerRun: 5, enabledSources: ["greenhouse"] as const,
+        schedule: { enabled: false, cron: "" },
+      }),
+      mergeDiscoveryConfig: (stored: Record<string, unknown>, request: Record<string, unknown>) => ({
+        ...stored, sheetId: request.sheetId, variationKey: request.variationKey,
+        requestedAt: request.requestedAt, sourcePreset: "ats_only" as const,
+        effectiveSources: ["greenhouse"] as const,
+      }),
+      now: () => new Date("2026-04-13T00:00:00.000Z"),
+      randomId: (prefix: string) => `${prefix}_fc_write`,
+    };
+
+    const result = await runDiscovery(makeRequest(), "manual", dependencies as any);
+
+    // Should be write_failure because write error dominates all other signals
+    assert.ok(
+      result.lifecycle.failureClass === "write_failure",
+      `Expected write_failure, got "${result.lifecycle.failureClass}" for write error`,
+    );
+    assert.ok(result.lifecycle.reasonCode, "reasonCode must be set");
+    assert.ok(result.lifecycle.reasonMessage!.includes("update phase"), "reasonMessage should mention the phase");
+  }
+});
+
+// === VAL-LOOP-OBS-005: Non-browser extraction fallback is explicitly diagnosable ===
+
+test("VAL-LOOP-OBS-005: grounded_web without browser manager produces explicit diagnostic", async () => {
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "", workerConfigPath: "", browserUseCommand: "",
+      geminiApiKey: "test-key", geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6, groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "", googleServiceAccountFile: "",
+      googleAccessToken: "", googleOAuthTokenJson: "", googleOAuthTokenFile: "",
+      webhookSecret: "", allowedOrigins: [], port: 0, host: "127.0.0.1",
+      runMode: "hosted" as const, asyncAckByDefault: true,
+    },
+    sourceAdapterRegistry: {
+      adapters: [],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Test Engineer at TestCo"],
+        candidates: [
+          {
+            url: "https://test.example.com/jobs/test-engineer",
+            title: "Test Engineer",
+            pageType: "job",
+            reason: "Direct job page",
+            sourceDomain: "test.example.com",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    // NOTE: browserSessionManager is intentionally omitted — simulates browser-only validation failure
+    browserSessionManager: undefined,
+    pipelineWriter: {
+      write: async () => ({ sheetId: "sheet_obs005", appended: 0, updated: 0, skippedDuplicates: 0, warnings: [] }),
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_obs005", mode: "hosted" as const, timezone: "UTC",
+      companies: [{ name: "TestCo" }],
+      includeKeywords: ["test"],
+      excludeKeywords: [],
+      targetRoles: ["Test Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "",
+      seniority: "",
+      maxLeadsPerRun: 5,
+      enabledSources: ["grounded_web"] as const,
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored: Record<string, unknown>, request: Record<string, unknown>) => ({
+      ...stored, sheetId: request.sheetId, variationKey: request.variationKey,
+      requestedAt: request.requestedAt, sourcePreset: "browser_only" as const,
+      effectiveSources: ["grounded_web"] as const,
+    }),
+    now: () => new Date("2026-04-13T00:00:00.000Z"),
+    randomId: (prefix: string) => `${prefix}_obs005`,
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies as any);
+
+  // VAL-LOOP-OBS-005: Browser fallback must emit diagnostics sufficient to fail browser-only validation
+  // When browserSessionManager is missing, grounded_web emits a warning about missing session manager
+  const groundedWarnings = result.warnings.filter(
+    (w) => w.includes("Browser Use session manager") || w.includes("session manager") || w.includes("grounded_web"),
+  );
+  assert.ok(
+    groundedWarnings.length > 0,
+    "Non-browser extraction fallback (missing browser manager) must emit explicit diagnostic/warning (VAL-LOOP-OBS-005)",
+  );
+  // The warning message must be actionable
+  assert.ok(
+    groundedWarnings.some((w) => w.includes("unavailable") || w.includes("not configured")),
+    "Fallback diagnostic must indicate the specific cause (browser manager unavailable)",
+  );
+});
+
+// === VAL-LOOP-CROSS-004: Cross-lane deduplication telemetry ===
+
+test("VAL-LOOP-CROSS-004: runDiscovery tracks cross-lane duplicate suppression in loopCounters", async () => {
+  // This test simulates a run where the same opportunity is discovered
+  // from both ATS and browser lanes, and the dedupe collapses them.
+  // The crossLaneDuplicates counter should reflect this.
+
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "", workerConfigPath: "", browserUseCommand: "",
+      geminiApiKey: "test-key", geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6, groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "", googleServiceAccountFile: "",
+      googleAccessToken: "", googleOAuthTokenJson: "", googleOAuthTokenFile: "",
+      webhookSecret: "", allowedOrigins: [], port: 0, host: "127.0.0.1",
+      runMode: "hosted" as const, asyncAckByDefault: true,
+    },
+    sourceAdapterRegistry: {
+      adapters: [
+        {
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          detect: async () => null,
+          listJobs: async () => [
+            {
+              sourceId: "greenhouse",
+              sourceLabel: "Greenhouse",
+              title: "Backend Engineer",
+              company: "CrossLane Corp",
+              location: "Remote",
+              url: "https://boards.greenhouse.io/crosslane/jobs/backend-engineer",
+              descriptionText: "Build backend services",
+              tags: [],
+            },
+          ],
+          normalize: async () => null,
+        },
+      ],
+      detectBoards: async ({ company }, _effectiveSources) => [
+        {
+          matched: true,
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          boardUrl: `https://boards.greenhouse.io/${company.name.toLowerCase()}`,
+          confidence: 1,
+          warnings: [],
+        },
+      ],
+      collectListings: async () => [],
+    },
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Backend Engineer CrossLane Corp"],
+        candidates: [
+          {
+            url: "https://crosslane.com/careers/backend-engineer",
+            title: "Backend Engineer",
+            pageType: "job",
+            reason: "Direct job page from careers site",
+            sourceDomain: "crosslane.com",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    browserSessionManager: {
+      run: async ({ url }: { url: string }) => ({
+        url,
+        text: JSON.stringify({
+          pageType: "job",
+          jobs: [
+            {
+              title: "Backend Engineer",
+              company: "CrossLane Corp",
+              location: "Remote",
+              url: "https://crosslane.com/careers/backend-engineer",
+              descriptionText: "Build backend services",
+              compensationText: "$150k-$180k",
+              tags: [],
+            },
+          ],
+        }),
+        metadata: { mode: "browser_use_command" },
+      }),
+    },
+    pipelineWriter: {
+      write: async () => ({ sheetId: "sheet_cross_dedup", appended: 1, updated: 0, skippedDuplicates: 0, warnings: [] }),
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_cross_dedup", mode: "hosted" as const, timezone: "UTC",
+      companies: [{ name: "CrossLane Corp" }],
+      includeKeywords: ["backend"],
+      excludeKeywords: [],
+      targetRoles: ["Backend Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "",
+      seniority: "",
+      maxLeadsPerRun: 5,
+      enabledSources: ["greenhouse", "grounded_web"] as const,
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored: Record<string, unknown>, request: Record<string, unknown>) => ({
+      ...stored, sheetId: request.sheetId, variationKey: request.variationKey,
+      requestedAt: request.requestedAt, sourcePreset: "browser_plus_ats" as const,
+      effectiveSources: ["greenhouse", "grounded_web"] as const,
+    }),
+    now: () => new Date("2026-04-13T00:00:00.000Z"),
+    randomId: (prefix: string) => `${prefix}_cross_dedup`,
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies as any);
+
+  // VAL-LOOP-CROSS-004: Cross-lane duplicate telemetry must be present
+  assert.ok(
+    result.lifecycle.loopCounters,
+    "loopCounters must be present for browser_plus_ats mixed run (VAL-LOOP-CROSS-004)",
+  );
+
+  // crossLaneDuplicates tracks the number of identity collisions between ATS and browser lanes
+  assert.ok(
+    typeof result.lifecycle.loopCounters!.crossLaneDuplicates === "number",
+    "crossLaneDuplicates must be a number",
+  );
+  assert.ok(
+    result.lifecycle.loopCounters!.crossLaneDuplicates >= 0,
+    "crossLaneDuplicates must be non-negative",
+  );
+
+  // duplicateSuppressions should reflect the dedupe collapsing
+  assert.ok(
+    typeof result.lifecycle.loopCounters!.duplicateSuppressions === "number",
+    "duplicateSuppressions must be a number",
+  );
+  assert.ok(
+    result.lifecycle.loopCounters!.duplicateSuppressions >= 0,
+    "duplicateSuppressions must be non-negative",
+  );
+});

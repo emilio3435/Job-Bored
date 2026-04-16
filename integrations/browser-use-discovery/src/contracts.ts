@@ -358,6 +358,27 @@ export type DiscoveryRunLifecycle = {
    * Machine-readable evidence for VAL-LOOP-CORE-008.
    */
   stageOrder?: LoopStageEvidence[];
+  /**
+   * Run-level loop counters for terminal telemetry.
+   * VAL-LOOP-OBS-001: Required loop counters exposed in terminal status.
+   * VAL-LOOP-OBS-002: Counter invariants validated (non-negative, reconcilable).
+   */
+  loopCounters?: LoopCounters;
+  /**
+   * Machine-readable failure reason code for degraded/failure terminal states.
+   * VAL-LOOP-OBS-003: Degraded/failure states include machine-readable reason.
+   */
+  reasonCode?: string;
+  /**
+   * Human-readable failure explanation for degraded/failure terminal states.
+   * VAL-LOOP-OBS-003: Degraded/failure states include human-readable explanation.
+   */
+  reasonMessage?: string;
+  /**
+   * Failure class for terminal degraded/failure states.
+   * VAL-LOOP-OBS-004: Reason attribution differentiates dominant failure classes.
+   */
+  failureClass?: LoopFailureClass;
 };
 
 /**
@@ -365,6 +386,44 @@ export type DiscoveryRunLifecycle = {
  * These represent the distinct phases in the scout -> score -> exploit -> learn cycle.
  */
 export type DiscoveryPhase = "scout" | "score" | "exploit" | "learn";
+
+/**
+ * Failure reason classification for terminal degraded/failure states.
+ * Used for VAL-LOOP-OBS-003/004: machine-readable reason attribution.
+ */
+export type LoopFailureClass =
+  /**
+   * No failure — run completed successfully or was empty.
+   */
+  | "none"
+  /**
+   * Weak surface discovery: insufficient scout yield from both ATS and browser lanes.
+   */
+  | "weak_surface_discovery"
+  /**
+   * Strict filtering rejection: candidates were found but filtered by relevance/matcher.
+   */
+  | "strict_filtering_rejection"
+  /**
+   * Canonical resolution loss: browser candidates could not be resolved to canonical surfaces.
+   */
+  | "canonical_resolution_loss"
+  /**
+   * Exploit budget exhaustion: selected targets were exhausted before reaching write threshold.
+   */
+  | "exploit_budget_exhaustion"
+  /**
+   * Weak ATS seed quality: ATS lane had insufficient or low-quality seeds.
+   */
+  | "weak_ats_seed_quality"
+  /**
+   * Write failure: sheet write operation failed after successful extraction.
+   */
+  | "write_failure"
+  /**
+   * Unknown/unclassified failure.
+   */
+  | "unknown";
 
 /**
  * Machine-readable stage transition evidence.
@@ -385,6 +444,33 @@ export type LoopStageEvidence = {
    * ISO timestamp when this stage began.
    */
   startedAt: string;
+};
+
+/**
+ * Run-level loop counters for terminal telemetry.
+ * Used for VAL-LOOP-OBS-001/002: required loop counters and reconciliation invariants.
+ */
+export type LoopCounters = {
+  /** Number of ATS scout detections performed. */
+  atsScoutCount: number;
+  /** Number of browser scout surface visits performed. */
+  browserScoutCount: number;
+  /** Number of candidate surfaces that entered scoring. */
+  scoredSurfaces: number;
+  /** Number of candidates selected for deep exploit extraction. */
+  selectedExploitTargets: number;
+  /** Number of candidates suppressed by exploit threshold or budget. */
+  exploitSuppressions: number;
+  /** Number of hint-only candidates seen (third-party board candidates retained as hints). */
+  hintMetrics: number;
+  /** Number of third-party board candidates explicitly blocked from direct extraction. */
+  thirdPartyBlocks: number;
+  /** Number of junk-host candidates suppressed from extraction. */
+  junkHostSuppressions: number;
+  /** Number of duplicate listings suppressed by cross-lane dedupe. */
+  duplicateSuppressions: number;
+  /** Number of cross-lane duplicate collapses (same opportunity from ATS+browser). */
+  crossLaneDuplicates: number;
 };
 
 export type DiscoveryRunStatus =

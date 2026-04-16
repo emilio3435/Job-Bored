@@ -5,6 +5,7 @@ import type {
   DiscoveryIntent,
   DiscoveryLifecycleState,
   DiscoveryMemorySnapshot,
+  DiscoveryPhase,
   DiscoveryRejectionSample,
   DiscoveryRejectionSummary,
   DiscoveryRunLifecycle,
@@ -13,6 +14,9 @@ import type {
   DiscoveryRun,
   DiscoveryWebhookRequestV1,
   ExtractionDiagnostic,
+  LoopCounters,
+  LoopFailureClass,
+  LoopStageEvidence,
   NormalizedLead,
   PipelineWriteResult,
   RawListing,
@@ -222,6 +226,27 @@ export async function runDiscovery(
     groundedCompleted: false,
   };
 
+  // VAL-LOOP-OBS-001 / VAL-LOOP-CORE-008: Stage sequence tracker for monotonic stageOrder emission
+  let stageSequence = 0;
+  function nextStage(phase: DiscoveryPhase): LoopStageEvidence {
+    return { sequence: ++stageSequence, phase, startedAt: dependencies.now().toISOString() };
+  }
+  const stageOrder: LoopStageEvidence[] = [];
+
+  // VAL-LOOP-OBS-001/002: Loop counters for terminal telemetry
+  const loopCounters: LoopCounters = {
+    atsScoutCount: 0,
+    browserScoutCount: 0,
+    scoredSurfaces: 0,
+    selectedExploitTargets: 0,
+    exploitSuppressions: 0,
+    hintMetrics: 0,
+    thirdPartyBlocks: 0,
+    junkHostSuppressions: 0,
+    duplicateSuppressions: 0,
+    crossLaneDuplicates: 0,
+  };
+
   // Use configured timeouts or defaults
   const sourceTimeoutMs = dependencies.sourceTimeoutMs ?? DEFAULT_SOURCE_TIMEOUT_MS;
   const matcherTimeoutMs = dependencies.matcherTimeoutMs ?? DEFAULT_MATCHER_TIMEOUT_MS;
@@ -417,8 +442,14 @@ export async function runDiscovery(
   }
 
   for (const company of atsCompaniesToSearch) {
+    // VAL-LOOP-CORE-008: Emit scout stage start (first ATS company iteration)
+    if (!stageProgress.detectStarted) {
+      stageOrder.push(nextStage("scout"));
+    }
     try {
       stageProgress.detectStarted = true;
+      // VAL-LOOP-OBS-001: Increment ATS scout count for this company detection
+      loopCounters.atsScoutCount += 1;
       const detections = await withTimeout(
         "board_detection",
         "ats_sources",
@@ -589,6 +620,11 @@ export async function runDiscovery(
 
   if (config.effectiveSources.includes("grounded_web")) {
     stageProgress.groundedStarted = true;
+    // VAL-LOOP-CORE-008: Emit scout stage for browser discovery (if not already emitted)
+    if (stageOrder.length === 0 || stageOrder[stageOrder.length - 1].phase !== "scout") {
+      stageOrder.push(nextStage("scout"));
+    }
+    loopCounters.browserScoutCount += 1;
 
     // VAL-OBS-002: Create budget tracker for adaptive page-limit reduction and company skip decisions
     const maxRunDurationMs = dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
@@ -637,6 +673,9 @@ export async function runDiscovery(
   // before deep extraction. This ensures only selected exploit targets receive
   // deep extraction work, and exploration budgets are enforced.
   if (normalizedLeads.length > 0) {
+    // VAL-LOOP-CORE-008: Emit score stage (frontier scoring begins)
+    stageOrder.push(nextStage("score"));
+
     // Build DiscoveryIntent from config for scoring
     const intent: DiscoveryIntent = {
       intentKey: `run:${run.runId}`,
@@ -663,6 +702,16 @@ export async function runDiscovery(
       DEFAULT_EXPLORATION_BUDGET,
       intent,
     );
+
+    // VAL-LOOP-CORE-008: Emit exploit stage (deep extraction on selected targets)
+    stageOrder.push(nextStage("exploit"));
+
+    // VAL-LOOP-OBS-001: Populate loop counters from selection telemetry
+    loopCounters.scoredSurfaces = selectionResult.telemetry.totalCandidates;
+    loopCounters.selectedExploitTargets = selectionResult.telemetry.selectedCount;
+    loopCounters.exploitSuppressions =
+      selectionResult.telemetry.budgetRejectedCount +
+      selectionResult.telemetry.qualityRejectedCount;
 
     // VAL-LOOP-SCORE-005: Filter leads to only selected exploit targets
     const selectedCandidateIds = new Set(
@@ -735,7 +784,9 @@ export async function runDiscovery(
     }
   }
 
-  const dedupedLeads = dedupeNormalizedLeads(normalizedLeads);
+  const [dedupedLeads, crossLaneDuplicates] = dedupeNormalizedLeads(normalizedLeads);
+  loopCounters.crossLaneDuplicates = crossLaneDuplicates;
+  loopCounters.duplicateSuppressions = normalizedLeads.length - dedupedLeads.length;
   let leadsToWrite = selectLeadsForWrite(dedupedLeads, config);
   if (config.maxLeadsPerRun > 0 && dedupedLeads.length > config.maxLeadsPerRun) {
     warnings.push(`Truncated leads to maxLeadsPerRun=${config.maxLeadsPerRun}.`);
@@ -828,6 +879,18 @@ export async function runDiscovery(
   );
   const lifecycleState = determineLifecycleState(leadsToWrite.length, warnings);
 
+  // VAL-LOOP-CORE-008: Emit learn stage (memory persistence begins)
+  stageOrder.push(nextStage("learn"));
+
+  // VAL-LOOP-OBS-001: Aggregate hint/third-party/junk counters from sourceSummary diagnostics
+  // and per-source telemetry fields
+  for (const source of buildSourceSummary(extractionResultsBySource, rejectionSummaryBySource)) {
+    loopCounters.hintMetrics += source.hintOnlyCandidatesSeen || 0;
+    loopCounters.thirdPartyBlocks += source.thirdPartyExtractionsBlocked || 0;
+    loopCounters.junkHostSuppressions += source.junkHostsSuppressed || 0;
+    loopCounters.duplicateSuppressions += source.duplicateListingsSuppressed || 0;
+  }
+
   // VAL-LOOP-MEM-002: Persist exploit outcomes and rejection summaries after run completion
   // This captures per-surface, per-run outcome data for future ranking and selection
   if (dependencies.discoveryMemoryStore) {
@@ -894,6 +957,14 @@ export async function runDiscovery(
       detectionCount,
       listingCount,
       normalizedLeadCount: leadsToWrite.length,
+      // VAL-LOOP-CORE-008: Ordered stage evidence for the loop lifecycle
+      stageOrder: stageOrder.length > 0 ? stageOrder : undefined,
+      // VAL-LOOP-OBS-001/002: Run-level loop counters for terminal telemetry
+      loopCounters: loopCounters.atsScoutCount > 0 || loopCounters.browserScoutCount > 0 || loopCounters.scoredSurfaces > 0
+        ? loopCounters
+        : undefined,
+      // VAL-LOOP-OBS-003/004: Failure reason attribution for degraded/failure states
+      ...classifyFailureReason(lifecycleState, writeResult, loopCounters, warnings),
     },
     extractionResults: [...extractionResultsBySource.values()],
     sourceSummary,
@@ -1569,10 +1640,19 @@ async function runGroundedWebDiscovery(
  * Strategy: First group by (title, company) identity. For each identity group,
  * pick the lead with the highest fitScore. This collapses alternate URLs for
  * the same job into a single entry.
+ *
+ * VAL-LOOP-CROSS-004: Cross-lane duplicates (same opportunity from ATS+browser)
+ * are collapsed and counted in the returned crossLaneDuplicates value.
+ *
+ * @returns Tuple of [deduplicated leads, cross-lane duplicate count]
  */
-function dedupeNormalizedLeads(leads: NormalizedLead[]): NormalizedLead[] {
+function dedupeNormalizedLeads(
+  leads: NormalizedLead[],
+): [NormalizedLead[], number] {
   // Identity key -> best lead for that identity
   const byIdentity = new Map<string, NormalizedLead>();
+  // Identity key -> source lanes seen for this identity (for cross-lane detection)
+  const lanesByIdentity = new Map<string, Set<string>>();
 
   for (const lead of leads) {
     if (!lead.url) continue;
@@ -1585,6 +1665,13 @@ function dedupeNormalizedLeads(leads: NormalizedLead[]): NormalizedLead[] {
     const identityKey = `${normalizedTitle}|${normalizedCompany}`;
     const existing = byIdentity.get(identityKey);
 
+    // Track source lanes for cross-lane duplicate detection
+    const leadLane = lead.metadata?.sourceLane || "unknown";
+    if (!lanesByIdentity.has(identityKey)) {
+      lanesByIdentity.set(identityKey, new Set());
+    }
+    lanesByIdentity.get(identityKey)!.add(leadLane);
+
     // Choose the better lead: higher fitScore wins
     const better = !existing || (lead.fitScore || 0) > (existing.fitScore || 0);
 
@@ -1593,7 +1680,16 @@ function dedupeNormalizedLeads(leads: NormalizedLead[]): NormalizedLead[] {
     }
   }
 
-  return [...byIdentity.values()];
+  // Count cross-lane duplicates: identity keys where both ATS and browser lanes were present
+  let crossLaneDuplicates = 0;
+  for (const [identityKey, lanes] of lanesByIdentity) {
+    if (lanes.size > 1 && byIdentity.has(identityKey)) {
+      // Multiple lanes competed for this identity and one won
+      crossLaneDuplicates++;
+    }
+  }
+
+  return [[...byIdentity.values()], crossLaneDuplicates];
 }
 
 /**
@@ -1970,6 +2066,107 @@ function determineSurfaceTypeFromSourceId(sourceId: string): CareerSurfaceType {
   }
 
   return "job_posting";
+}
+
+/**
+ * Classifies the dominant failure reason for terminal degraded/failure states.
+ * VAL-LOOP-OBS-003: Machine-readable reason code and human-readable explanation.
+ * VAL-LOOP-OBS-004: Failure class differentiates dominant failure categories.
+ *
+ * Classification order (first match wins):
+ * 1. write_failure — explicit write error
+ * 2. weak_surface_discovery — no leads found at all
+ * 3. strict_filtering_rejection — leads found but all rejected by matcher/normalizer
+ * 4. canonical_resolution_loss — browser lane had canonical resolution failures
+ * 5. exploit_budget_exhaustion — targets selected but no writes resulted
+ * 6. weak_ats_seed_quality — ATS lane had insufficient detections
+ * 7. unknown — unclassified
+ * 8. none — successful completion
+ */
+function classifyFailureReason(
+  lifecycleState: DiscoveryLifecycleState,
+  writeResult: PipelineWriteResult,
+  loopCounters: LoopCounters,
+  warnings: string[],
+): { reasonCode?: string; reasonMessage?: string; failureClass?: LoopFailureClass } {
+  // Success: no failure attribution needed
+  if (lifecycleState === "completed") {
+    return { failureClass: "none" };
+  }
+
+  // Classification order (first match wins):
+  // 1. write_failure — explicit write error (checked first — write failures are terminal and dominate)
+  // 2. weak_surface_discovery — no listings seen at all
+  // 3. strict_filtering_rejection — leads found but all rejected by matcher/normalizer
+  // 4. canonical_resolution_loss — browser lane had canonical resolution failures
+  // 5. exploit_budget_exhaustion — targets selected but no writes resulted
+  // 6. weak_ats_seed_quality — ATS lane had insufficient detections
+  // 7. unknown — unclassified
+
+  // 1. Write failure — takes highest priority since it is terminal and overrides any other signal
+  if (writeResult.writeError) {
+    return {
+      reasonCode: "write_failure",
+      reasonMessage: `Sheet write failed during ${writeResult.writeError.phase} phase: ${writeResult.writeError.message}`,
+      failureClass: "write_failure",
+    };
+  }
+
+  // 2. Weak surface discovery: no listings seen at all
+  if (loopCounters.scoredSurfaces === 0 && loopCounters.atsScoutCount === 0 && loopCounters.browserScoutCount === 0) {
+    return {
+      reasonCode: "weak_surface_discovery",
+      reasonMessage: "No surface discoveries were made by ATS or browser scouts. Check configured companies, intent keywords, and ATS board availability.",
+      failureClass: "weak_surface_discovery",
+    };
+  }
+
+  // 3. Strict filtering rejection: leads were seen but all were rejected
+  if (loopCounters.scoredSurfaces > 0 && loopCounters.selectedExploitTargets === 0 && loopCounters.exploitSuppressions > 0) {
+    return {
+      reasonCode: "strict_filtering_rejection",
+      reasonMessage: "Candidates were found but all were suppressed by exploit threshold. The matcher or relevance filters rejected all opportunities.",
+      failureClass: "strict_filtering_rejection",
+    };
+  }
+
+  // 4. Canonical resolution loss: browser lane had resolution failures
+  const browserHadResolutionFailures = warnings.some(
+    (w) => w.includes("hint_resolution_failed") || w.includes("canonical"),
+  );
+  if (browserHadResolutionFailures && loopCounters.browserScoutCount > 0) {
+    return {
+      reasonCode: "canonical_resolution_loss",
+      reasonMessage: "Browser scout found candidates but canonical resolution failed. Candidates could not be upgraded to canonical employer or ATS surfaces.",
+      failureClass: "canonical_resolution_loss",
+    };
+  }
+
+  // 5. Exploit budget exhaustion: targets selected but no writes
+  if (loopCounters.selectedExploitTargets > 0 && loopCounters.exploitSuppressions === 0) {
+    return {
+      reasonCode: "exploit_budget_exhaustion",
+      reasonMessage: "Exploit targets were selected but the run reached budget limits before producing written leads.",
+      failureClass: "exploit_budget_exhaustion",
+    };
+  }
+
+  // 6. Weak ATS seed quality: ATS had detections but few/none succeeded
+  if (loopCounters.atsScoutCount > 0 && loopCounters.scoredSurfaces === 0) {
+    return {
+      reasonCode: "weak_ats_seed_quality",
+      reasonMessage: "ATS scout attempted detection but produced no scorable candidates. ATS seed quality may be insufficient.",
+      failureClass: "weak_ats_seed_quality",
+    };
+  }
+
+  // 7. Unknown failure
+  const warningSummary = warnings.length > 0 ? ` Warnings: ${warnings.slice(0, 3).join("; ")}` : "";
+  return {
+    reasonCode: "unknown",
+    reasonMessage: `Discovery completed with ${lifecycleState} state but reason could not be determined.${warningSummary}`,
+    failureClass: "unknown",
+  };
 }
 
 function formatError(error: unknown): string {
