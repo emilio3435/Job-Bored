@@ -36,6 +36,19 @@ import {
   createBudgetTracker,
   type BudgetTracker,
 } from "./budget-tracker.ts";
+import {
+  companyToFrontierCandidate,
+  leadToFrontierCandidate,
+  selectExploitTargets,
+  sortFrontierCandidates,
+  isCandidateSelected,
+  createExplorationBudgetTracker,
+  DEFAULT_EXPLORATION_BUDGET,
+  type ExplorationBudget,
+  type ExploitTarget,
+  type FrontierCandidate,
+  type ExploitSelectionResult,
+} from "./frontier-scorer.ts";
 
 // Default maximum run duration: 5 minutes
 const DEFAULT_MAX_RUN_DURATION_MS = 5 * 60 * 1000;
