@@ -24,7 +24,7 @@ Environment variables, external dependencies, and setup notes for this mission.
 - `BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE` (absolute local path)
 - Service account JSON must contain valid `client_email` and `private_key`
 - Target sheet must be shared with the service account email
-- Current local validation path: `/Users/emilionunezgarcia/Downloads/elio-ai-prod-4bae66f7bba7.json`
+- Do not hardcode credential file paths in committed manifests; read from `.env` at runtime
 
 ### Browser-enabled search runtime
 - `BROWSER_USE_DISCOVERY_BROWSER_COMMAND` (or `browser-use` on PATH)
@@ -49,6 +49,11 @@ Both point to the same underlying configuration. Remediation messages in runtime
 - `integrations/browser-use-discovery/state/worker-config.json`
 - `integrations/browser-use-discovery/state/worker-state.sqlite`
 
+## Public relay dependency
+
+- Public webhook smoke URL is user-provided and may change between sessions.
+- Treat relay URL availability as an external dependency; if unavailable, return blocker to orchestrator.
+
 ## Validation notes
 
 - Validation mode is **real integrations only** (no mock fallback).
@@ -59,4 +64,4 @@ Both point to the same underlying configuration. Remediation messages in runtime
 
 - Never commit service-account JSON, API keys, OAuth tokens, or full secrets.
 - Treat values in `config.js`, `.env`, and local token files as sensitive.
-- The provided service-account key is temporary and should be rotated by the user after mission completion.
+- Never paste private keys or token material into commits, test fixtures, or handoff notes.
