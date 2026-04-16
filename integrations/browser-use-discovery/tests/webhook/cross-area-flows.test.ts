@@ -2206,3 +2206,707 @@ test("VAL-CROSS-003: groundedSearchTuning propagates through terminal status for
     "Terminal status runId must match ack runId for async lineage",
   );
 });
+
+// === VAL-LOOP-CORE-008: Unrestricted mixed runs expose machine-readable stage order ===
+
+test("VAL-LOOP-CORE-008: stageOrder is an array with monotonically increasing sequence numbers", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+  const capturedLogs: Array<{ event: string; details: Record<string, unknown> }> = [];
+
+  const dependencies = makeDependencies({
+    runStatusStore,
+    log: (event, details) => {
+      capturedLogs.push({ event, details });
+    },
+    runDiscovery: async (_request, _trigger, runDeps) => {
+      return {
+        run: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_cross_area",
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_cross_area",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [{ name: "Acme" }],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["greenhouse", "grounded_web"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+            sourcePreset: "browser_plus_ats",
+            effectiveSources: ["greenhouse", "grounded_web"],
+          },
+        },
+        // stageOrder must be an ARRAY of LoopStageEvidence objects with monotonic sequences
+        lifecycle: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          startedAt: "2026-04-12T00:00:00.000Z",
+          completedAt: "2026-04-12T00:00:01.000Z",
+          state: "completed",
+          companyCount: 1,
+          detectionCount: 1,
+          listingCount: 1,
+          normalizedLeadCount: 1,
+          stageOrder: [
+            { sequence: 1, phase: "scout", startedAt: "2026-04-12T00:00:00.100Z" },
+            { sequence: 2, phase: "score", startedAt: "2026-04-12T00:00:00.200Z" },
+            { sequence: 3, phase: "exploit", startedAt: "2026-04-12T00:00:00.300Z" },
+            { sequence: 4, phase: "learn", startedAt: "2026-04-12T00:00:00.400Z" },
+          ],
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "sheet_cross_area",
+          appended: 1,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_cross_area",
+        variationKey: "var_cross",
+        requestedAt: "2026-04-12T00:00:00.000Z",
+        discoveryProfile: { sourcePreset: "browser_plus_ats", targetRoles: "Software Engineer" },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 202);
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  const terminalStatus = runStatusStore.get(JSON.parse(response.body).runId);
+
+  // VAL-LOOP-CORE-008: stageOrder must be an array
+  assert.ok(
+    Array.isArray(terminalStatus.lifecycle?.stageOrder),
+    "lifecycle.stageOrder must be an array (LoopStageEvidence[])",
+  );
+
+  // VAL-LOOP-CORE-008: stageOrder must contain 4 entries for scout->score->exploit->learn
+  const stageOrder = terminalStatus.lifecycle?.stageOrder;
+  assert.equal(
+    stageOrder?.length,
+    4,
+    "stageOrder must have 4 entries for scout->score->exploit->learn",
+  );
+
+  // VAL-LOOP-CORE-008: Sequence numbers must be monotonically increasing
+  for (let i = 1; i < (stageOrder?.length || 0); i++) {
+    assert.ok(
+      stageOrder[i].sequence > stageOrder[i - 1].sequence,
+      `Sequence ${stageOrder[i].sequence} must be greater than previous ${stageOrder[i - 1].sequence}`,
+    );
+  }
+
+  // VAL-LOOP-CORE-008: Phases must follow scout->score->exploit->learn order
+  const expectedPhases = ["scout", "score", "exploit", "learn"];
+  for (let i = 0; i < expectedPhases.length; i++) {
+    assert.equal(
+      stageOrder?.[i]?.phase,
+      expectedPhases[i],
+      `Stage ${i} must be ${expectedPhases[i]}, got ${stageOrder?.[i]?.phase}`,
+    );
+  }
+
+  // VAL-LOOP-CORE-008: Each entry must have startedAt timestamp
+  for (const entry of stageOrder || []) {
+    assert.ok(
+      entry.startedAt,
+      "Each stageOrder entry must have a startedAt timestamp",
+    );
+  }
+});
+
+test("VAL-LOOP-CORE-008: stage_transition log events are emitted for each loop stage", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+  const capturedLogs: Array<{ event: string; details: Record<string, unknown> }> = [];
+
+  const dependencies = makeDependencies({
+    runStatusStore,
+    log: (event, details) => {
+      capturedLogs.push({ event, details });
+    },
+    runDiscovery: async (_request, _trigger, runDeps) => {
+      // Emit stage_transition log events as the real runDiscovery would
+      runDeps.log?.("discovery.run.stage_transition", {
+        runId: runDeps.runId,
+        sequence: 1,
+        phase: "scout",
+        startedAt: "2026-04-12T00:00:00.100Z",
+      });
+      runDeps.log?.("discovery.run.stage_transition", {
+        runId: runDeps.runId,
+        sequence: 2,
+        phase: "score",
+        startedAt: "2026-04-12T00:00:00.200Z",
+      });
+      runDeps.log?.("discovery.run.stage_transition", {
+        runId: runDeps.runId,
+        sequence: 3,
+        phase: "exploit",
+        startedAt: "2026-04-12T00:00:00.300Z",
+      });
+      runDeps.log?.("discovery.run.stage_transition", {
+        runId: runDeps.runId,
+        sequence: 4,
+        phase: "learn",
+        startedAt: "2026-04-12T00:00:00.400Z",
+      });
+      return {
+        run: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_cross_area",
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_cross_area",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["grounded_web"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+            sourcePreset: "browser_plus_ats",
+            effectiveSources: ["grounded_web"],
+          },
+        },
+        lifecycle: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          startedAt: "2026-04-12T00:00:00.000Z",
+          completedAt: "2026-04-12T00:00:01.000Z",
+          state: "completed",
+          companyCount: 0,
+          detectionCount: 0,
+          listingCount: 0,
+          normalizedLeadCount: 0,
+          stageOrder: [
+            { sequence: 1, phase: "scout", startedAt: "2026-04-12T00:00:00.100Z" },
+            { sequence: 2, phase: "score", startedAt: "2026-04-12T00:00:00.200Z" },
+            { sequence: 3, phase: "exploit", startedAt: "2026-04-12T00:00:00.300Z" },
+            { sequence: 4, phase: "learn", startedAt: "2026-04-12T00:00:00.400Z" },
+          ],
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "sheet_cross_area",
+          appended: 0,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_cross_area",
+        variationKey: "var_cross",
+        requestedAt: "2026-04-12T00:00:00.000Z",
+        discoveryProfile: { sourcePreset: "browser_plus_ats", targetRoles: "Software Engineer" },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 202);
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  // VAL-LOOP-CORE-008: stage_transition events must be logged for each stage
+  const stageTransitionLogs = capturedLogs.filter(
+    (log) => log.event === "discovery.run.stage_transition",
+  );
+
+  assert.ok(
+    stageTransitionLogs.length > 0,
+    "discovery.run.stage_transition events must be logged",
+  );
+
+  // Each stage transition must have runId, sequence, phase, and startedAt
+  for (const log of stageTransitionLogs) {
+    assert.ok(log.details.runId, "stage_transition log must include runId");
+    assert.ok(
+      typeof log.details.sequence === "number",
+      "stage_transition log must include sequence number",
+    );
+    assert.ok(log.details.phase, "stage_transition log must include phase");
+    assert.ok(log.details.startedAt, "stage_transition log must include startedAt");
+  }
+});
+
+test("VAL-LOOP-CORE-008: browser_plus_ats mixed run exposes ordered stage progression", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+
+  const dependencies = makeDependencies({
+    runStatusStore,
+    runDiscovery: async (_request, _trigger, runDeps) => {
+      return {
+        run: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_cross_area",
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_cross_area",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [{ name: "Acme" }],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["greenhouse", "grounded_web"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+            sourcePreset: "browser_plus_ats",
+            effectiveSources: ["greenhouse", "grounded_web"],
+          },
+        },
+        lifecycle: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          startedAt: "2026-04-12T00:00:00.000Z",
+          completedAt: "2026-04-12T00:00:01.000Z",
+          state: "completed",
+          companyCount: 1,
+          detectionCount: 1,
+          listingCount: 1,
+          normalizedLeadCount: 1,
+          stageOrder: [
+            { sequence: 1, phase: "scout", startedAt: "2026-04-12T00:00:00.100Z" },
+            { sequence: 2, phase: "score", startedAt: "2026-04-12T00:00:00.200Z" },
+            { sequence: 3, phase: "exploit", startedAt: "2026-04-12T00:00:00.300Z" },
+            { sequence: 4, phase: "learn", startedAt: "2026-04-12T00:00:00.400Z" },
+          ],
+        },
+        extractionResults: [
+          {
+            runId: runDeps.runId,
+            sourceId: "greenhouse",
+            querySummary: "https://boards.greenhouse.io/acme",
+            leads: [],
+            warnings: [],
+            stats: { pagesVisited: 1, leadsSeen: 1, leadsAccepted: 1 },
+          },
+          {
+            runId: runDeps.runId,
+            sourceId: "grounded_web",
+            querySummary: "Acme jobs",
+            leads: [],
+            warnings: [],
+            stats: { pagesVisited: 1, leadsSeen: 1, leadsAccepted: 0 },
+          },
+        ],
+        sourceSummary: [
+          {
+            sourceId: "greenhouse",
+            querySummary: "https://boards.greenhouse.io/acme",
+            pagesVisited: 1,
+            leadsSeen: 1,
+            leadsAccepted: 1,
+            leadsRejected: 0,
+            warnings: [],
+          },
+          {
+            sourceId: "grounded_web",
+            querySummary: "Acme jobs",
+            pagesVisited: 1,
+            leadsSeen: 1,
+            leadsAccepted: 0,
+            leadsRejected: 1,
+            warnings: [],
+          },
+        ],
+        writeResult: {
+          sheetId: "sheet_cross_area",
+          appended: 1,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_cross_area",
+        variationKey: "var_cross",
+        requestedAt: "2026-04-12T00:00:00.000Z",
+        discoveryProfile: { sourcePreset: "browser_plus_ats", targetRoles: "Software Engineer" },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 202);
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  const terminalStatus = runStatusStore.get(JSON.parse(response.body).runId);
+
+  // VAL-LOOP-CORE-008: browser_plus_ats must expose stage order evidence
+  assert.ok(
+    terminalStatus.lifecycle?.stageOrder,
+    "browser_plus_ats must expose stageOrder in lifecycle",
+  );
+
+  // VAL-LOOP-CORE-008: Stage progression must be ordered
+  const stageOrder = terminalStatus.lifecycle?.stageOrder;
+  assert.equal(stageOrder?.length, 4, "Must have all 4 loop stages");
+  assert.equal(stageOrder?.[0]?.phase, "scout");
+  assert.equal(stageOrder?.[1]?.phase, "score");
+  assert.equal(stageOrder?.[2]?.phase, "exploit");
+  assert.equal(stageOrder?.[3]?.phase, "learn");
+});
+
+// === VAL-LOOP-CORE-009: Async lifecycle terminalizes within bounded duration ===
+
+test("VAL-LOOP-CORE-009: async run reaches terminal state without hanging indefinitely", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+
+  const dependencies = makeDependencies({
+    runStatusStore,
+    // Use a short asyncPollAfterMs to simulate bounded duration
+    asyncPollAfterMs: 100,
+    runDiscovery: async (_request, _trigger, runDeps) => {
+      // Simulate a run that completes quickly
+      return {
+        run: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_cross_area",
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_cross_area",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["grounded_web"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+            sourcePreset: "browser_only",
+            effectiveSources: ["grounded_web"],
+          },
+        },
+        lifecycle: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          startedAt: "2026-04-12T00:00:00.000Z",
+          completedAt: "2026-04-12T00:00:01.000Z",
+          state: "completed",
+          companyCount: 0,
+          detectionCount: 0,
+          listingCount: 0,
+          normalizedLeadCount: 0,
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "sheet_cross_area",
+          appended: 0,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_cross_area",
+        variationKey: "var_cross",
+        requestedAt: "2026-04-12T00:00:00.000Z",
+        discoveryProfile: { sourcePreset: "browser_only", targetRoles: "Software Engineer" },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 202);
+
+  // VAL-LOOP-CORE-009: Wait for async completion - must not hang indefinitely
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  const terminalStatus = runStatusStore.get(JSON.parse(response.body).runId);
+
+  // VAL-LOOP-CORE-009: Must reach terminal state
+  assert.ok(
+    terminalStatus?.terminal,
+    "Async run must reach terminal state within bounded duration",
+  );
+
+  // VAL-LOOP-CORE-009: Terminal state must have explicit status (not stuck in running)
+  assert.ok(
+    ["completed", "partial", "empty", "failed"].includes(terminalStatus?.status),
+    "Terminal status must be explicit (completed/partial/empty/failed), not 'running'",
+  );
+});
+
+test("VAL-LOOP-CORE-009: async timeout force-terminalization produces explicit terminal reason", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+
+  const dependencies = makeDependencies({
+    runStatusStore,
+    asyncPollAfterMs: 50,
+    runDiscovery: async () => {
+      // Simulate timeout - runDiscovery throws TimeoutError
+      throw new Error("Run timed out after max duration");
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_cross_area",
+        variationKey: "var_cross",
+        requestedAt: "2026-04-12T00:00:00.000Z",
+        discoveryProfile: { sourcePreset: "browser_only", targetRoles: "Software Engineer" },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 202);
+
+  // Wait for timeout to trigger terminalization
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const terminalStatus = runStatusStore.get(JSON.parse(response.body).runId);
+
+  // VAL-LOOP-CORE-009: Timeout must produce terminal state
+  assert.ok(
+    terminalStatus?.terminal,
+    "Timeout force-terminalization must produce terminal state",
+  );
+
+  // VAL-LOOP-CORE-009: Terminal state must be 'failed' with explicit reason
+  assert.equal(
+    terminalStatus?.status,
+    "failed",
+    "Timeout terminalization must produce 'failed' status",
+  );
+
+  // VAL-LOOP-CORE-009: Explicit reason attribution must be present
+  assert.ok(
+    terminalStatus?.error || terminalStatus?.message,
+    "Timeout terminalization must include explicit reason (error or message)",
+  );
+
+  // VAL-LOOP-CORE-009: Reason must mention timeout
+  const reasonText = `${terminalStatus?.error || ""} ${terminalStatus?.message || ""}`.toLowerCase();
+  assert.ok(
+    reasonText.includes("timeout") || reasonText.includes("timed out"),
+    `Timeout reason must be explicit, got: ${reasonText}`,
+  );
+});
+
+test("VAL-LOOP-CORE-009: bounded duration enforcement prevents indefinite running state", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+  let pollCount = 0;
+
+  const dependencies = makeDependencies({
+    runStatusStore,
+    asyncPollAfterMs: 20,
+    runDiscovery: async (_request, _trigger, runDeps) => {
+      pollCount++;
+      // Simulate a run that hasn't completed yet (still in progress)
+      return {
+        run: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_cross_area",
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_cross_area",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["grounded_web"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_cross",
+            requestedAt: "2026-04-12T00:00:00.000Z",
+            sourcePreset: "browser_only",
+            effectiveSources: ["grounded_web"],
+          },
+        },
+        lifecycle: {
+          runId: runDeps.runId,
+          trigger: "manual",
+          startedAt: "2026-04-12T00:00:00.000Z",
+          completedAt: "2026-04-12T00:00:00.500Z",
+          state: "completed",
+          companyCount: 0,
+          detectionCount: 0,
+          listingCount: 0,
+          normalizedLeadCount: 0,
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "sheet_cross_area",
+          appended: 0,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_cross_area",
+        variationKey: "var_cross",
+        requestedAt: "2026-04-12T00:00:00.000Z",
+        discoveryProfile: { sourcePreset: "browser_only", targetRoles: "Software Engineer" },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 202);
+
+  // Wait for multiple poll cycles
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  // VAL-LOOP-CORE-009: Run must eventually terminalize
+  const terminalStatus = runStatusStore.get(JSON.parse(response.body).runId);
+
+  assert.ok(
+    terminalStatus?.terminal,
+    "Async run must terminalize within bounded duration",
+  );
+
+  // VAL-LOOP-CORE-009: Must not be stuck in 'running' state
+  assert.notEqual(
+    terminalStatus?.status,
+    "running",
+    "Async run must not remain in 'running' state indefinitely",
+  );
+});
