@@ -1,0 +1,22 @@
+{
+  "featureId": "wave2-ats-scout-frontier-lightweight",
+  "reviewedAt": "2026-04-16T03:30:00.000Z",
+  "commitId": "4518606",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The commit adds 1628 lines of comprehensive test coverage in run-discovery.test.ts for VAL-LOOP-ATS-001/002/003/004. The tests verify that ATS seeding executes independently of planner output, that ATS frontier pulls from memory company registry and career surfaces when configured companies are empty, that host-search fallback is guarded by seed sufficiency, and that ATS scout stays lightweight (does not invoke AI matcher during scout phase). The underlying implementation in source-adapters.ts and run-discovery.ts was already in place from prior work; this commit adds explicit assertion tests.",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts",
+        "line": 2385,
+        "severity": "non_blocking",
+        "description": "VAL-LOOP-ATS-001 (ATS seeding is independent of planner output) does not have a dedicated named test. The assertion is implicitly covered by tests like 'runDiscovery uses configured ATS companies even when the broad company planner returns zero companies' (which predates this commit). A dedicated VAL-LOOP-ATS-001 test with explicit assertion name would improve traceability."
+      }
+    ]
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "PASS — The feature adds comprehensive test coverage for VAL-LOOP-ATS-002/003/004 with well-structured mock-based tests verifying ATS frontier behavior. VAL-LOOP-ATS-001 is implicitly covered by pre-existing tests but lacks a dedicated named test. The commit stays within the loop-ats-worker write-scope (test files). All 301 tests pass. Implementation correctly enforces: ATS seeding independence from planner, memory-backed seed channels with sufficiency guard, guarded host-search fallback, and lightweight scout behavior."
+}

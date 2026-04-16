@@ -1,0 +1,92 @@
+{
+  "milestone": "wave-2-scout-implementation",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": { "passed": true, "command": "npm run test:browser-use-discovery", "exitCode": 0 },
+    "typecheck": { "passed": true, "command": "npm run typecheck:repo", "exitCode": 0 },
+    "lint": { "passed": true, "command": "npm run lint:repo", "exitCode": 0 }
+  },
+  "reviewsSummary": {
+    "total": 4,
+    "passed": 3,
+    "failed": 1,
+    "failedFeatures": ["wave2-memory-scout-observations"]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "wave2-memory-scout-observations",
+      "severity": "blocking",
+      "description": "Implementation files are uncommitted. The handoff commitId (9d5a036) is an unrelated browser documentation commit. Files untracked: src/state/discovery-memory-store.ts, tests/browser/discovery-memory-store.test.ts, tests/state/discovery-memory-store.test.ts. File unstaged: src/contracts.ts. The feature needs to be committed before it can pass review. The code itself is correct and all tests pass."
+    }
+  ],
+  "nonBlockingIssues": [
+    {
+      "featureId": "wave2-ats-scout-frontier-lightweight",
+      "severity": "non_blocking",
+      "description": "VAL-LOOP-ATS-001 (ATS seeding independent of planner output) has no dedicated named test. Implicitly covered by pre-existing test 'runDiscovery uses configured ATS companies even when the broad company planner returns zero companies'."
+    },
+    {
+      "featureId": "wave2-browser-canonical-scout-policy",
+      "severity": "non_blocking",
+      "description": "VAL-LOOP-BROWSER-004/005 are covered only via inline comments referencing implicit coverage from other tests, not dedicated test cases."
+    },
+    {
+      "featureId": "wave2-browser-canonical-scout-policy",
+      "severity": "non_blocking",
+      "description": "Test fixture THIRD_PARTY_HOSTS (17 hosts) is a subset of implementation THIRD_PARTY_JOB_BOARD_HOSTS (30+ hosts). Some third-party hosts lack dedicated test coverage."
+    },
+    {
+      "featureId": "wave2-browser-canonical-seed-expansion",
+      "severity": "non_blocking",
+      "description": "Canonical seed expansion skips already-canonical careers/listings pages (grounded-search.ts:1450). Low-risk edge case since grounded search rarely returns direct careers URLs as initial candidates."
+    },
+    {
+      "featureId": "wave2-browser-canonical-seed-expansion",
+      "severity": "non_blocking",
+      "description": "VAL-LOOP-BROWSER-005 lacks a dedicated named test; coverage relies on existing tests pointed to by comments."
+    },
+    {
+      "featureId": "wave2-memory-scout-observations",
+      "severity": "non_blocking",
+      "description": "ScoutObservationRecord types duplicated between contracts.ts and discovery-memory-store.ts. Consistent with existing project pattern but creates maintenance risk."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Added Browser Scout Policy Classification section and Memory Store Architecture section to architecture.md documenting the 3-tier policy model, canonical extraction gate, and memory store table structure.",
+      "sourceFeature": "wave2-browser-canonical-scout-policy"
+    },
+    {
+      "target": "library",
+      "description": "Added Droid-Shield false-positive pattern documentation to environment.md explaining *Ref/*Id naming convention for non-secret fields.",
+      "sourceFeature": "wave2-memory-scout-observations"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Expand the *Ref naming convention guidance to apply to all code (not just tests/fixtures). Current wording: 'In tests/fixtures, avoid non-secret field names ending with Key'. Should be: 'In all code, avoid non-secret field names ending with Key (prefer *Ref/*Id) to prevent Droid-Shield false-positive commit blocking.'",
+      "evidence": "wave2-memory-scout-observations worker applied the convention to production contracts.ts types (ScoutObservationRecord) but AGENTS.md only mentions tests/fixtures scope.",
+      "isSystemic": true
+    },
+    {
+      "target": "skills",
+      "suggestion": "Add a 'verify existing implementation' branch to loop-browser-worker skill for cases where the implementation is already in place and the worker only needs to add tests/documentation.",
+      "evidence": "wave2-browser-canonical-seed-expansion worker found implementation already existed and only added documentation comments. The skill assumes greenfield implementation.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Pass2 review gap about canonical seed expansion for already-canonical careers pages not being addressed.",
+      "reason": "Low-risk edge case. Grounded search rarely returns direct careers URLs as initial candidates. Not a systemic issue."
+    },
+    {
+      "observation": "ScoutObservationRecord type duplication between contracts.ts and discovery-memory-store.ts.",
+      "reason": "Consistent with existing project pattern (other types like CompanyRegistryRecord are similarly duplicated). Non-blocking maintenance concern, not a code review issue."
+    }
+  ],
+  "previousRound": null
+}

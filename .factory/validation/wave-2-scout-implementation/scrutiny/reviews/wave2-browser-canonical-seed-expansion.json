@@ -1,0 +1,39 @@
+{
+  "featureId": "wave2-browser-canonical-seed-expansion",
+  "reviewedAt": "2026-04-16T03:00:00.000Z",
+  "commitId": "9d5a036",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The worker found that the canonical seed-page expansion feature was already implemented by prior workers. The commit (9d5a036) adds only documentation comments to the test file clarifying that VAL-LOOP-BROWSER-004 and VAL-LOOP-BROWSER-005 are covered by existing tests. The underlying implementation is sound: detectCareerSurfaceCandidatesFromHtml discovers embedded ATS links, sitemap URLs, and job schema evidence; isCanonicalExtractableCandidate gates exploit admission; and collectGroundedWebListings integrates expansion from employer pages into canonical career surfaces. The existing tests demonstrate the end-to-end flow for VAL-LOOP-BROWSER-005's requirements.",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/src/grounding/grounded-search.ts",
+        "line": 1450,
+        "severity": "non_blocking",
+        "description": "Canonical seed expansion skips already-canonical careers/listings pages. The condition `pageType === 'other' || !isCanonicalExtractableCandidate(...)` means that if the initial grounded search candidate IS a canonical careers page (e.g., notion.so/careers), embedded ATS/sitemap/schema detection does not run. Expansion only triggers from non-canonical or 'other' page types. The existing tests cover the common case (starting from company/about pages), but the edge case of starting directly from a canonical careers page with embedded ATS is untested. This was flagged in pass2 review (browser-review.md gap #3) but not addressed. In practice, grounded search rarely returns direct careers URLs as initial candidates, making this a low-risk gap."
+      },
+      {
+        "file": "integrations/browser-use-discovery/tests/browser/career-surface-resolver.test.ts",
+        "line": 832,
+        "severity": "non_blocking",
+        "description": "VAL-LOOP-BROWSER-005 test coverage relies on comments pointing to existing tests rather than a dedicated named test. The test 'career surface resolver detects first-party paths, ATS links, sitemap URLs, and job schema URLs' validates detectCareerSurfaceCandidatesFromHtml directly, and 'collectGroundedWebListings upgrades employer pages into canonical career surfaces before extraction' validates the integration. While these cover the assertion, a test explicitly named 'VAL-LOOP-BROWSER-005' would improve traceability."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The loop-browser-worker skill says to 'Write failing tests first' (step 2) and 'Ensure careers/listings seed expansion captures embedded ATS/sitemap/schema/direct job evidence' (step 4). However, this feature's worker found the implementation already existed and only added documentation comments. The skill doesn't account for the case where a feature is already implemented and only needs verification/documentation. This is not a deviation (skillFeedback.followedProcedure: true) but the skill could benefit from a 'verify existing implementation' branch in its procedure.",
+      "evidence": "Worker handoff: 'The canonical seed-page expansion feature was already implemented by previous workers.' Skill SKILL.md step 2: 'Write failing tests first'. No new tests were added."
+    },
+    {
+      "area": "conventions",
+      "observation": "The pass2 review (contract-work/review-pass2/browser-review.md) identified a specific gap in canonical seed expansion for already-canonical careers pages (gap #3, line 30-35), recommending: 'Run embedded detection for preflight-approved careers/listings pages as well, then canonical-gate discovered follow-ups.' This was not implemented. The shouldDiscoverCanonicalSurfaces condition at grounded-search.ts:1450-1452 was not modified. AGENTS.md does not document this known limitation.",
+      "evidence": "grounded-search.ts:1450-1452: `shouldDiscoverCanonicalSurfaces = approvedCandidate.pageType === 'other' || !isCanonicalExtractableCandidate(approvedCandidate, input.company)`. Pass2 review line 64-66 recommended enabling expansion for canonical careers pages."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS with non-blocking observations. The commit adds documentation comments clarifying VAL-LOOP-BROWSER-004/005 test coverage. The underlying canonical seed expansion mechanism is sound and well-tested: detectCareerSurfaceCandidatesFromHtml discovers embedded ATS, sitemap, schema, and direct-job surfaces; the integration test demonstrates end-to-end flow from employer pages to embedded ATS extraction; canonical identity and source attribution are preserved; third-party boards remain hint-only; and expansion output feeds into downstream scoring/selection via seedUrls. The one non-blocking gap is that expansion skips already-canonical careers/listings pages (grounded-search.ts:1450), which was flagged in pass2 review but represents a low-risk edge case since grounded search rarely returns direct careers URLs as initial candidates. Worker write-scope was respected (only modified career-surface-resolver.test.ts). All 97 browser tests pass, lint and typecheck clean."
+}

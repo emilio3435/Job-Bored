@@ -1,0 +1,44 @@
+{
+  "featureId": "wave2-memory-scout-observations",
+  "reviewedAt": "2026-04-16T03:15:00.000Z",
+  "commitId": "9d5a0361c20604fa751cbd4f3da1db7e16d5c83f",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The implementation correctly adds scout observation persistence infrastructure (ScoutObservationRecord/Query types, writeScoutObservation/listScoutObservations methods, scout_observations table with run/surface/company indexes, and comprehensive test coverage). The *Ref naming convention is correctly applied to public-facing TypeScript types. All 11 tests pass. However, the handoff commitId (9d5a036) points to an unrelated browser documentation commit. The actual implementation files are entirely untracked (discovery-memory-store.ts, browser/discovery-memory-store.test.ts, tests/state/) or unstaged (contracts.ts). The feature has not been committed to the repository.",
+    "issues": [
+      {
+        "file": "N/A (git state)",
+        "line": null,
+        "severity": "blocking",
+        "description": "The handoff references commit 9d5a036 which only contains browser test documentation (VAL-LOOP-BROWSER-004/005). All feature implementation files are untracked or unstaged: src/state/discovery-memory-store.ts (untracked), tests/browser/discovery-memory-store.test.ts (untracked), tests/state/ (untracked), and src/contracts.ts (unstaged modified). The feature was never committed despite the handoff claiming success."
+      },
+      {
+        "file": "integrations/browser-use-discovery/src/contracts.ts",
+        "line": 744,
+        "severity": "non_blocking",
+        "description": "ScoutObservationRecord and ScoutObservationQuery types are duplicated between contracts.ts and discovery-memory-store.ts. The contracts.ts version has JSDoc comments while the store version does not. This follows the existing project pattern (other types like CompanyRegistryRecord are similarly duplicated) but creates a maintenance risk if they diverge."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The *Ref naming convention for non-secret fields (to avoid Droid-Shield false positives) is documented in AGENTS.md but only applies to tests/fixtures. The worker correctly applied it to the ScoutObservation types in production code. This convention should potentially be clarified as applying to all code, not just tests/fixtures, or the AGENTS.md wording should be tightened.",
+      "evidence": "AGENTS.md line 65: 'In tests/fixtures, avoid non-secret field names ending with Key (prefer *Ref/*Id)'. But the actual rename was applied to contracts.ts ScoutObservationRecord and discovery-memory-store.ts exported types."
+    },
+    {
+      "area": "skills",
+      "observation": "The loop-memory-worker skill's verification command does not include tests/state/discovery-memory-store.test.ts, which is the state-layer test file. The skill only lists tests/browser/discovery-memory-store.test.ts and tests/discovery/company-planner.test.ts. The feature's verificationSteps correctly include both files, but the skill template is incomplete.",
+      "evidence": "SKILL.md step 6 only lists: 'integrations/browser-use-discovery/tests/state/discovery-memory-store.test.ts integrations/browser-use-discovery/tests/browser/discovery-memory-store.test.ts integrations/browser-use-discovery/tests/discovery/company-planner.test.ts' — this actually does include the state tests. Correction: the skill does list the correct files."
+    },
+    {
+      "area": "knowledge",
+      "observation": "Droid-Shield false-positive on field names ending in 'Key' is a known blocker pattern that should be documented in the library for future workers. The first worker session (0e49b0d3) hit this and returned partial. AGENTS.md captures the convention but not the root cause or the Droid-Shield mechanism.",
+      "evidence": "First worker handoff: 'Cannot commit due to Droid-Shield false positive: field name observationKey in test file flagged as potential secret pattern despite values being descriptive URLs.' Second worker fixed it by renaming to *Ref."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "FAIL — blocking issue: the feature implementation is not committed to the repository. The handoff commitId (9d5a036) is an unrelated browser documentation commit. All implementation files (discovery-memory-store.ts, both test files, contracts.ts changes) are either untracked or unstaged in the working tree. The code itself is correct: scout observation persistence infrastructure is well-implemented with proper *Ref naming convention, comprehensive test coverage (11/11 passing including the VAL-LOOP-MEM-001 test), appropriate SQLite table schema with run/surface/company indexes, and correct query-by-identity filters. No regressions in existing memory tables/queries. The feature needs to be committed before it can pass review."
+}
