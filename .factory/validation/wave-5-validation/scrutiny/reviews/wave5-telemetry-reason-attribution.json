@@ -1,0 +1,45 @@
+{
+  "featureId": "wave5-telemetry-reason-attribution",
+  "reviewedAt": "2026-04-16T07:30:00.000Z",
+  "commitId": "0f6ef34",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Well-structured implementation of loop telemetry counters, stage order emissions, and failure reason attribution. The code adds 3 types to contracts.ts (LoopFailureClass, LoopCounters, extended DiscoveryRunLifecycle), a nextStage() helper, a classifyFailureReason() function with 8-category hierarchy, cross-lane dedupe tracking, and 5 new tests covering VAL-LOOP-OBS-001/002/003/004/005 and VAL-LOOP-CROSS-004. All expected behaviors are met.",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/src/run/run-discovery.ts",
+        "line": 784,
+        "severity": "non_blocking",
+        "description": "duplicateSuppressions counter first gets set to `normalizedLeads.length - dedupedLeads.length` (cross-source dedupe), then at line ~883 accumulates `source.duplicateListingsSuppressed` (per-source dedupe) via `+=`. While these measure different deduplication stages, the single counter conflates two distinct suppression sources. This isn't a functional bug but could confuse telemetry consumers who expect the counter to represent a single deduplication dimension."
+      },
+      {
+        "file": "integrations/browser-use-discovery/src/run/run-discovery.ts",
+        "line": 960,
+        "severity": "non_blocking",
+        "description": "loopCounters is conditionally emitted only when atsScoutCount > 0 || browserScoutCount > 0 || scoredSurfaces > 0. For fully empty runs (no companies configured, no scouts ran), loopCounters will be undefined even though failureClass will be 'weak_surface_discovery'. The reasonCode/reasonMessage/failureClass still provide explainability, but the absence of zero-valued counters may surprise telemetry consumers who expect all degraded states to have counter data."
+      },
+      {
+        "file": "integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts",
+        "line": 3893,
+        "severity": "non_blocking",
+        "description": "VAL-LOOP-OBS-004 test only covers 2 of 8 failure categories (weak_surface_discovery and write_failure). Categories strict_filtering_rejection, canonical_resolution_loss, exploit_budget_exhaustion, weak_ats_seed_quality, and unknown have no explicit test coverage. While the classification logic is straightforward, boundary conditions between categories (e.g., atsScoutCount > 0 with scoredSurfaces === 0 hitting weak_ats_seed_quality vs. strict_filtering_rejection) could benefit from explicit test assertions."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The feature references skillName 'loop-telemetry-worker' but no corresponding SKILL.md was found at .factory/skills/loop-telemetry-worker/SKILL.md. The .factory/skills/ directory exists but this skill file is absent. The worker appears to have followed a correct procedure based on the transcript skeleton, so the skill may never have been created or was removed during a prior refactor.",
+      "evidence": "features.json shows skillName: 'loop-telemetry-worker'; Glob for '**/*loop-telemetry*' in .factory/skills/ returned no results"
+    },
+    {
+      "area": "conventions",
+      "observation": "The duplicateSuppressions counter in LoopCounters aggregates two distinct deduplication dimensions (cross-source identity dedup + per-source duplicate listing suppression) into a single field. This pattern is not documented in AGENTS.md or contracts.md. Future workers modifying telemetry counters may not realize the additive semantics.",
+      "evidence": "run-discovery.ts line ~784 sets duplicateSuppressions from dedupeNormalizedLeads delta, then line ~883 adds per-source duplicateListingsSuppressed via += operator"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS. The wave5-telemetry-reason-attribution feature delivers a solid implementation of loop telemetry counters, monotonic stage order emissions, and an 8-category failure reason classification hierarchy. All 6 expected behaviors are met: loop counters are present in terminal status, counter invariants (non-negative, selected <= scored) hold, stage transitions are run-level not per-company, threshold suppression is captured, degraded states include reason code + explanation, and non-browser fallback is diagnosable. Three non-blocking issues noted: duplicateSuppressions conflates two dedup dimensions, loopCounters is absent for fully empty runs, and only 2/8 failure categories have explicit test coverage. The worker skill file is missing from disk."
+}

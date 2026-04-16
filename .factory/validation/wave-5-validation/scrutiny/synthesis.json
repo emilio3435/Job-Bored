@@ -1,0 +1,39 @@
+{
+  "milestone": "wave-5-validation",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": { "passed": true, "command": "npm run test:browser-use-discovery", "exitCode": 0 },
+    "typecheck": { "passed": true, "command": "npm run typecheck:repo", "exitCode": 0 },
+    "lint": { "passed": true, "command": "npm run lint:repo", "exitCode": 0 }
+  },
+  "reviewsSummary": {
+    "total": 2,
+    "passed": 2,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Add convention note: duplicateSuppressions counter aggregates both cross-source identity dedup and per-source duplicate listing suppression. Future workers adding telemetry counters should document multi-dimensional counters in contracts or comments.",
+      "evidence": "wave5-telemetry-reason-attribution review: run-discovery.ts line ~784 sets duplicateSuppressions from dedupeNormalizedLeads delta, then line ~883 adds per-source duplicateListingsSuppressed via +=. Not documented anywhere.",
+      "isSystemic": false
+    },
+    {
+      "target": "skills",
+      "suggestion": "Consider creating .factory/skills/loop-telemetry-worker/SKILL.md. The worker session followed correct procedure without a skill file, suggesting either it was never created or was removed during refactor.",
+      "evidence": "features.json shows skillName: 'loop-telemetry-worker' but no SKILL.md found in .factory/skills/",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Worker added wave5-cross-lane-notes.md to .factory/library/ documenting cross-lane regression patterns.",
+      "reason": "already-present — the file already exists in the library and was written by the implementation worker, not a scrutiny observation needing action"
+    }
+  ],
+  "previousRound": null
+}

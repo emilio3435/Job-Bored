@@ -1,0 +1,28 @@
+{
+  "featureId": "wave5-cross-lane-regression-and-smoke",
+  "reviewedAt": "2026-04-16T07:30:00.000Z",
+  "commitId": "ad89121",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The commit adds 360 lines to cross-area-flows.test.ts with two new test cases (VAL-LOOP-CROSS-001 and VAL-LOOP-CROSS-002) and covers manual webhook smoke validation (VAL-LOOP-CROSS-005). Both tests follow established patterns in the file (makeDependencies, createMemoryRunStatusStore, handleDiscoveryWebhook). The mock data is comprehensive and the assertions are substantive, verifying loopCounters, stageOrder, source presence, preset exclusion evidence, and company count. All 317 tests pass; typecheck and lint are clean.",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/tests/webhook/cross-area-flows.test.ts",
+        "line": 3267,
+        "severity": "non_blocking",
+        "description": "VAL-LOOP-CROSS-002 final assertion: `!terminalStatus.sources.some((s) => s.sourceId === 'grounded_web' && s.warnings.every((w) => !w.includes('excluded')))` claims to verify 'grounded_web must not have executed side effects in ats_only' but actually only checks that at least one warning includes the word 'excluded'. This is redundant with the prior assertion on line 3259 (`groundedEntry.warnings.some((w) => w.includes('excluded by preset'))`). The real side-effect verification is the pagesVisited===0 check on line 3263. The assertion's message is misleading — it suggests broader side-effect coverage (leads, extractions) that the logic does not actually verify."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "Worker added wave5-cross-lane-notes.md to .factory/library/ documenting cross-lane regression patterns. This is appropriate and well-placed.",
+      "evidence": ".factory/library/wave5-cross-lane-notes.md exists as an untracked file"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS — The implementation is solid and thorough. VAL-LOOP-CROSS-001 properly verifies unrestricted browser_plus_ats with empty companies showing both ATS and browser lanes in a shared loop via loopCounters, stageOrder, and source presence. VAL-LOOP-CROSS-002 correctly validates preset isolation by checking that ats_only mode produces explicit grounded_web exclusion evidence with pagesVisited=0 and 'excluded by preset' warning. VAL-LOOP-CROSS-005 is covered via manual webhook smoke tests (local 127.0.0.1:8644 and public ngrok relay). The expectedBehavior mention of VAL-LOOP-BROWSER-004/005 refers to already-existing coverage in career-surface-resolver.test.ts (lines 822-834), not new tests needed here. One non-blocking style issue: the final assertion in CROSS-002 has a misleading message that claims to verify absence of side effects but only re-checks that an 'excluded' warning exists. All 317 tests pass, typecheck and lint are clean."
+}
