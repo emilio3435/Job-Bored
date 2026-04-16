@@ -4,7 +4,35 @@ export const DEFAULT_PIPELINE_SHEET_NAME = "Pipeline";
 export const DEFAULT_STATUS = "New";
 export const PIPELINE_DEDUPE_COLUMN = "E";
 export const PIPELINE_DEDUPE_HEADER = "Link";
-export const ATS_SOURCE_IDS = ["greenhouse", "lever", "ashby"] as const;
+export const ATS_SOURCE_IDS = [
+  "greenhouse",
+  "lever",
+  "ashby",
+  "smartrecruiters",
+  "workday",
+  "icims",
+  "jobvite",
+  "taleo",
+  "successfactors",
+  "workable",
+  "breezy",
+  "recruitee",
+  "teamtailor",
+  "personio",
+] as const;
+export const HINT_SOURCE_IDS = [
+  "linkedin",
+  "glassdoor",
+  "indeed",
+  "monster",
+  "ziprecruiter",
+  "careerbuilder",
+  "simplyhired",
+  "builtin",
+  "wellfound",
+  "otta",
+  "google_jobs",
+] as const;
 export const SUPPORTED_SOURCE_IDS = [
   ...ATS_SOURCE_IDS,
   "grounded_web",
@@ -43,7 +71,29 @@ export const PIPELINE_HEADER_ROW = [
 
 export type SupportedSourceId = (typeof SUPPORTED_SOURCE_IDS)[number];
 export type AtsSourceId = (typeof ATS_SOURCE_IDS)[number];
+export type HintSourceId = (typeof HINT_SOURCE_IDS)[number];
 export type SourcePreset = (typeof SOURCE_PRESET_VALUES)[number];
+export type DiscoverySourceLane =
+  | "ats_provider"
+  | "company_surface"
+  | "hint_resolution"
+  | "grounded_web";
+export type CareerSurfaceType =
+  | "provider_board"
+  | "employer_careers"
+  | "employer_jobs"
+  | "job_posting"
+  | "hint_candidate";
+export type CareerSurfaceVerifiedStatus =
+  | "verified"
+  | "suspect"
+  | "dead"
+  | "pending";
+export type RemoteBucket =
+  | "remote"
+  | "hybrid"
+  | "onsite"
+  | "unknown";
 
 /**
  * UltraPlan control-plane tuning flags.
@@ -93,6 +143,17 @@ export type DiscoveryProfile = {
   groundedSearchTuning?: GroundedSearchTuning;
 };
 
+export type DiscoveryIntent = {
+  intentKey: string;
+  targetRoles: string[];
+  includeKeywords: string[];
+  excludeKeywords: string[];
+  locations: string[];
+  remotePolicy: string;
+  seniority: string;
+  sourcePreset: SourcePreset;
+};
+
 export type DiscoveryWebhookRequestV1 = {
   event: typeof DISCOVERY_WEBHOOK_EVENT;
   schemaVersion: typeof DISCOVERY_WEBHOOK_SCHEMA_VERSION;
@@ -137,6 +198,17 @@ export type NormalizedLead = {
     runId: string;
     variationKey: string;
     sourceQuery: string;
+    providerType?: AtsSourceId;
+    externalJobId?: string;
+    canonicalUrl?: string;
+    boardToken?: string;
+    sourceLane?: DiscoverySourceLane;
+    surfaceId?: string;
+    fingerprintKey?: string;
+    semanticKey?: string;
+    remoteBucket?: RemoteBucket;
+    employmentType?: string;
+    companyKey?: string;
   };
 };
 
@@ -147,6 +219,22 @@ export type NormalizedLead = {
 export type ExtractionDiagnosticCode =
   /** Browser-use command failed; fell back to plain HTTP fetch. */
   | "fetch_fallback"
+  /** Upstream search provider failed before candidate extraction could run. */
+  | "upstream_error"
+  /** Third-party board candidate was retained as a hint but not extracted directly. */
+  | "hint_only_candidate"
+  /** Third-party board candidate was explicitly blocked from direct extraction. */
+  | "third_party_extraction_blocked"
+  /** A hint-only candidate could not be resolved to a canonical employer or ATS page. */
+  | "hint_resolution_failed"
+  /** A canonical employer or ATS surface was resolved from a weaker hint or generic page. */
+  | "canonical_surface_resolved"
+  /** A canonical employer or ATS surface was selected for extraction. */
+  | "canonical_surface_extracted"
+  /** Candidate was rejected by strict preflight before browser extraction. */
+  | "preflight_rejected"
+  /** Candidate host was suppressed from memory due to prior junk or repeated failures. */
+  | "junk_host_suppressed"
   /** Response appears to be an SPA loading state or skeleton HTML (very short, mostly whitespace/script). */
   | "low_content_spa"
   /** Response is mostly HTML with minimal extractable content (likely a broken/minimal page). */
@@ -233,6 +321,18 @@ export type DiscoverySourceSummary = {
   leadsSeen: number;
   leadsAccepted: number;
   leadsRejected: number;
+  companiesPlanned?: number;
+  companiesSuppressed?: number;
+  surfacesVerified?: number;
+  canonicalSurfacesResolved?: number;
+  canonicalSurfacesExtracted?: number;
+  hintOnlyCandidatesSeen?: number;
+  hintResolutionsSucceeded?: number;
+  hintResolutionsDropped?: number;
+  deadLinksSuppressed?: number;
+  thirdPartyExtractionsBlocked?: number;
+  junkHostsSuppressed?: number;
+  duplicateListingsSuppressed?: number;
   warnings: string[];
   rejectionSummary?: DiscoveryRejectionSummary;
   /** Structured diagnostic entries for extraction observability (VAL-OBS-001, VAL-OBS-003). */
@@ -251,6 +351,40 @@ export type DiscoveryRunLifecycle = {
   detectionCount: number;
   listingCount: number;
   normalizedLeadCount: number;
+  /**
+   * Ordered stage evidence for the loop lifecycle.
+   * Tracks the monotonic progression through scout -> score -> exploit -> learn.
+   * Each entry records when the stage started and optionally completed.
+   * Machine-readable evidence for VAL-LOOP-CORE-008.
+   */
+  stageOrder?: LoopStageEvidence[];
+};
+
+/**
+ * Loop stage names for the opportunity loop.
+ * These represent the distinct phases in the scout -> score -> exploit -> learn cycle.
+ */
+export type DiscoveryPhase = "scout" | "score" | "exploit" | "learn";
+
+/**
+ * Machine-readable stage transition evidence.
+ * Records the timestamp when each loop stage begins.
+ * Monotonic sequence is enforced: later stages cannot complete before earlier stages start.
+ */
+export type LoopStageEvidence = {
+  /**
+   * Monotonically increasing sequence number for the stage transition.
+   * A higher sequence indicates a later stage in the loop progression.
+   */
+  sequence: number;
+  /**
+   * The name of the stage that started.
+   */
+  phase: DiscoveryPhase;
+  /**
+   * ISO timestamp when this stage began.
+   */
+  startedAt: string;
 };
 
 export type DiscoveryRunStatus =
@@ -308,6 +442,12 @@ export type TriggerKind = "manual" | "scheduled";
 
 export type CompanyTarget = {
   name: string;
+  companyKey?: string;
+  normalizedName?: string;
+  aliases?: string[];
+  domains?: string[];
+  geoTags?: string[];
+  roleTags?: string[];
   includeKeywords?: string[];
   excludeKeywords?: string[];
   boardHints?: Partial<Record<AtsSourceId, string>>;
@@ -318,6 +458,7 @@ export type StoredWorkerConfig = {
   mode: "local" | "hosted";
   timezone: string;
   companies: CompanyTarget[];
+  atsCompanies?: CompanyTarget[];
   includeKeywords: string[];
   excludeKeywords: string[];
   targetRoles: string[];
@@ -364,6 +505,13 @@ export type DetectionResult = {
   boardUrl: string;
   confidence: number;
   warnings: string[];
+  providerType?: AtsSourceId;
+  surfaceType?: CareerSurfaceType;
+  canonicalUrl?: string;
+  finalUrl?: string;
+  boardToken?: string;
+  sourceLane?: DiscoverySourceLane;
+  metadata?: Record<string, unknown>;
 };
 
 export type BoardContext = {
@@ -372,6 +520,10 @@ export type BoardContext = {
   boardUrl: string;
   company: CompanyTarget;
   run: DiscoveryRun;
+  providerType?: AtsSourceId;
+  boardToken?: string;
+  canonicalUrl?: string;
+  surfaceId?: string;
 };
 
 export type RawListing = {
@@ -386,6 +538,14 @@ export type RawListing = {
   descriptionText?: string;
   tags?: string[];
   metadata?: Record<string, unknown>;
+  providerType?: AtsSourceId;
+  externalJobId?: string;
+  canonicalUrl?: string;
+  finalUrl?: string;
+  sourceLane?: DiscoverySourceLane;
+  surfaceId?: string;
+  remoteBucket?: RemoteBucket;
+  employmentType?: string;
 };
 
 export type SourceAdapter = {
@@ -396,10 +556,259 @@ export type SourceAdapter = {
   normalize(raw: RawListing, run: DiscoveryRun): Promise<NormalizedLead | null>;
 };
 
+export type PlannedCompany = {
+  companyKey: string;
+  displayName: string;
+  normalizedName: string;
+  domains: string[];
+  aliases: string[];
+  boardHints: Partial<Record<AtsSourceId, string>>;
+  geoTags: string[];
+  roleTags: string[];
+  rank: number;
+  intendedLanes: DiscoverySourceLane[];
+  scores: {
+    roleFit: number;
+    geoFit: number;
+    remoteFit: number;
+    recentHiringEvidence: number;
+    priorAcceptedYield: number;
+    surfaceHealth: number;
+    diversity: number;
+    freshness: number;
+    cooldownPenalty: number;
+    recentCoveragePenalty: number;
+  };
+  reasons: string[];
+  evidence: string[];
+  sourceCompany?: CompanyTarget;
+};
+
+export type CareerSurface = {
+  surfaceId: string;
+  companyKey: string;
+  surfaceType: CareerSurfaceType;
+  providerType?: AtsSourceId;
+  canonicalUrl: string;
+  host: string;
+  finalUrl: string;
+  boardToken: string;
+  sourceLane: DiscoverySourceLane;
+  verifiedStatus: CareerSurfaceVerifiedStatus;
+  confidence: number;
+  score: number;
+  lastVerifiedAt: string;
+  lastSuccessAt: string;
+  lastFailureAt: string;
+  failureReason: string;
+  failureStreak: number;
+  cooldownUntil: string;
+  metadata: Record<string, unknown>;
+};
+
+export type ProviderDiscoveryResult = {
+  sourceId: AtsSourceId;
+  sourceLabel: string;
+  companyKey: string;
+  companyName: string;
+  surfaces: CareerSurface[];
+  warnings: string[];
+  metadata?: Record<string, unknown>;
+};
+
+export type CareerSurfaceRecord = {
+  surfaceId: string;
+  companyKey: string;
+  surfaceType: CareerSurfaceType;
+  providerType: AtsSourceId | "";
+  canonicalUrl: string;
+  host: string;
+  finalUrl: string;
+  boardToken: string;
+  sourceLane: DiscoverySourceLane;
+  verifiedStatus: CareerSurfaceVerifiedStatus;
+  lastVerifiedAt: string;
+  lastSuccessAt: string;
+  lastFailureAt: string;
+  failureReason: string;
+  failureStreak: number;
+  cooldownUntil: string;
+  metadataJson: string;
+};
+
+export type CompanyRegistryRecord = {
+  companyKey: string;
+  displayName: string;
+  normalizedName: string;
+  aliasesJson: string;
+  domainsJson: string;
+  atsHintsJson: string;
+  geoTagsJson: string;
+  roleTagsJson: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastSuccessAt: string;
+  successCount: number;
+  failureCount: number;
+  confidence: number;
+  cooldownUntil: string;
+};
+
+export type DeadLinkRecord = {
+  urlKey: string;
+  finalUrl: string;
+  host: string;
+  reasonCode: string;
+  httpStatus: number | null;
+  lastTitle: string;
+  lastSeenAt: string;
+  failureCount: number;
+  nextRetryAt: string;
+};
+
+export type ListingFingerprintRecord = {
+  fingerprintKey: string;
+  companyKey: string;
+  titleKey: string;
+  locationKey: string;
+  canonicalUrlKey: string;
+  externalJobId: string;
+  remoteBucket: RemoteBucket;
+  employmentType: string;
+  semanticKey: string;
+  contentHash: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastWrittenAt: string;
+  lastRunId: string;
+  lastSheetId: string;
+  writeCount: number;
+  sourceIdsJson: string;
+};
+
+export type ListingFingerprint = {
+  fingerprintKey: string;
+  companyKey: string;
+  titleKey: string;
+  locationKey: string;
+  canonicalUrlKey: string;
+  externalJobId: string;
+  remoteBucket: RemoteBucket;
+  employmentType: string;
+  semanticKey: string;
+  contentHash: string;
+};
+
+export type HostSuppressionRecord = {
+  hostKey: string;
+  host: string;
+  qualityScore: number;
+  junkExtractionCount: number;
+  canonicalResolutionFailureCount: number;
+  suppressionCount: number;
+  lastSeenAt: string;
+  lastReasonCode: string;
+  nextRetryAt: string;
+  cooldownUntil: string;
+};
+
+export type HostSuppressionUpsert = {
+  host: string;
+  qualityScore?: number | null;
+  qualityDelta?: number | null;
+  junkExtractionIncrement?: number | null;
+  canonicalResolutionFailureIncrement?: number | null;
+  suppressionIncrement?: number | null;
+  lastSeenAt?: string | null;
+  lastReasonCode?: string | null;
+  nextRetryAt?: string | null;
+  cooldownUntil?: string | null;
+};
+
+export type IntentCoverageRecord = {
+  intentKey: string;
+  companyKey: string;
+  runId: string;
+  sourceLane: DiscoverySourceLane;
+  surfacesSeen: number;
+  listingsSeen: number;
+  listingsWritten: number;
+  startedAt: string;
+  completedAt: string;
+};
+
+export type DiscoveryMemorySnapshot = {
+  intentKey: string;
+  companies: CompanyRegistryRecord[];
+  careerSurfaces: CareerSurfaceRecord[];
+  deadLinks: DeadLinkRecord[];
+  listingFingerprints: ListingFingerprintRecord[];
+  intentCoverage: IntentCoverageRecord[];
+};
+
+export type PlannedCompanySelectionResult = {
+  plannedCompanies: PlannedCompany[];
+  suppressedCompanies?: PlannedCompany[];
+};
+
+export type CompanyPlanner = {
+  buildIntent(config: EffectiveDiscoveryConfig): DiscoveryIntent;
+  planCompanies(input: {
+    run: DiscoveryRun;
+    intent: DiscoveryIntent;
+    companies: CompanyTarget[];
+    memory?: DiscoveryMemorySnapshot | null;
+  }):
+    | Promise<PlannedCompany[] | PlannedCompanySelectionResult>
+    | PlannedCompany[]
+    | PlannedCompanySelectionResult;
+};
+
+export type DiscoveryMemoryStore = {
+  loadSnapshot(input: {
+    run: DiscoveryRun;
+    intentKey: string;
+  }): Promise<DiscoveryMemorySnapshot> | DiscoveryMemorySnapshot;
+  upsertCompanyRecords?(
+    records: CompanyRegistryRecord[],
+  ): Promise<void> | void;
+  upsertCareerSurfaces?(
+    records: CareerSurfaceRecord[],
+  ): Promise<void> | void;
+  getHostSuppression?(
+    host: string,
+  ): Promise<HostSuppressionRecord | null> | HostSuppressionRecord | null;
+  isHostSuppressed?(
+    host: string,
+    now?: string,
+  ): Promise<boolean> | boolean;
+  upsertHostSuppression?(
+    input: HostSuppressionUpsert,
+  ): Promise<void> | void;
+  getDeadLink?(
+    url: string,
+  ): Promise<DeadLinkRecord | null> | DeadLinkRecord | null;
+  isDeadLinkCoolingDown?(
+    url: string,
+    now?: string,
+  ): Promise<boolean> | boolean;
+  recordDeadLink?(record: DeadLinkRecord): Promise<void> | void;
+  findListingFingerprint?(
+    fingerprintKey: string,
+  ): Promise<ListingFingerprintRecord | null> | ListingFingerprintRecord | null;
+  upsertListingFingerprints?(
+    records: ListingFingerprintRecord[],
+  ): Promise<void> | void;
+  recordIntentCoverage?(
+    record: IntentCoverageRecord,
+  ): Promise<void> | void;
+};
+
 export type BrowserUseSessionRequest = {
   url: string;
   instruction: string;
   timeoutMs?: number;
+  abortSignal?: AbortSignal;
 };
 
 export type BrowserUseSessionResult = {
