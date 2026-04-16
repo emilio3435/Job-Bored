@@ -1,0 +1,28 @@
+{
+  "featureId": "wave1-core-stage-skeleton-blocking-fixes",
+  "reviewedAt": "2026-04-16T02:15:00.000Z",
+  "commitId": "65b4a09",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix adequately addresses both original blocking issues: (1) stageOrder contract type corrected from singular LoopStageEvidence to array LoopStageEvidence[] at contracts.ts:360, and (2) 6 new tests added in cross-area-flows.test.ts covering VAL-LOOP-CORE-008 (monotonic stage evidence, stage_transition events, browser_plus_ats stage progression) and VAL-LOOP-CORE-009 (async terminalization, timeout force-terminalization, bounded duration). All tests use mock runDiscovery functions that return hardcoded stageOrder data, verifying contract structure through the webhook handler but not testing real instrumentation emission. The contracts.ts diff bundles ~410 lines of additional type definitions from the uncommitted working tree alongside the actual fix, inherited from the original feature's uncommitted state.",
+    "issues": [
+      {
+        "file": "integrations/browser-use-discovery/tests/webhook/cross-area-flows.test.ts",
+        "line": 2212,
+        "severity": "non_blocking",
+        "description": "All VAL-LOOP-CORE-008 tests use mock runDiscovery functions returning hardcoded stageOrder arrays. They verify the contract shape passes through the webhook handler but do not test that real runDiscovery in run-discovery.ts actually emits LoopStageEvidence[] entries with monotonic sequences or logs stage_transition events. The instrumentation in production code remains untested end-to-end."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The fix commit 65b4a09 bundles ~410 lines of contracts.ts additions (ATS_SOURCE_IDS expansion, HINT_SOURCE_IDS, DiscoverySourceLane, CareerSurfaceType, PlannedCompany, CareerSurface, DiscoveryMemoryStore, CompanyPlanner, etc.) alongside the actual stageOrder fix. These are uncommitted working tree changes from the original wave1-core-contract-stage-skeleton feature. Both the original worker and fix worker operated on a dirty working tree, which the prior review also flagged. No AGENTS.md guidance exists about committing implementation changes alongside scaffolding.",
+      "evidence": "contracts.ts diff in 65b4a09 shows 411 additions. The parent commit 35869b3 only contained .factory/ scaffolding files, meaning all contracts.ts changes accumulated uncommitted and were batched into the fix commit."
+    }
+  ],
+  "addressesFailureFrom": ".factory/validation/wave-1-contracts-skeleton/scrutiny/reviews/wave1-core-contract-stage-skeleton.json",
+  "summary": "PASS — Both original blocking issues are adequately addressed: (1) stageOrder type corrected to LoopStageEvidence[] at contracts.ts:360, matching the array payload emitted by run-discovery.ts. (2) 6 new tests added: 3 for VAL-LOOP-CORE-008 (monotonic sequence, stage_transition events, browser_plus_ats stage progression) and 3 for VAL-LOOP-CORE-009 (async terminalization, timeout force-terminalization, bounded duration). Non-blocking: tests use mock runDiscovery and verify contract shape, not real instrumentation emission. The contracts.ts diff bundles additional type definitions from the uncommitted working tree inherited from the original feature."
+}
