@@ -1,0 +1,41 @@
+{
+  "groupId": "cross-006",
+  "testedAt": "2026-04-16T18:57:55.171955Z",
+  "isolation": {
+    "surface": "curl",
+    "localWorkerUrl": "http://127.0.0.1:8644",
+    "concurrency": "serialized",
+    "secretHandling": "x-discovery-secret redacted in evidence"
+  },
+  "toolsUsed": [
+    "curl"
+  ],
+  "assertionResults": [
+    {
+      "id": "VAL-LOOP-CROSS-006",
+      "status": "pass",
+      "reason": "terminal status=partial, lifecycle.state=partial, canonicalUrl error present=False",
+      "evidence": {
+        "runId": "run_081c076c51ea44b1857f5a98779f5cfa",
+        "statusPath": "/runs/run_081c076c51ea44b1857f5a98779f5cfa",
+        "terminalStatus": "partial",
+        "terminalLifecycleState": "partial",
+        "canonicalUrlMissingErrorPresent": false,
+        "artifacts": [
+          "wave-6-browser-only-stability/cross-006/local-health.json",
+          "wave-6-browser-only-stability/cross-006/local-health.http",
+          "wave-6-browser-only-stability/cross-006/request-payload.json",
+          "wave-6-browser-only-stability/cross-006/local-ack.json",
+          "wave-6-browser-only-stability/cross-006/local-ack.http",
+          "wave-6-browser-only-stability/cross-006/local-lineage.json",
+          "wave-6-browser-only-stability/cross-006/local-polling.ndjson",
+          "wave-6-browser-only-stability/cross-006/local-terminal.json",
+          "wave-6-browser-only-stability/cross-006/command-transcript.txt"
+        ],
+        "terminalStatusSummary": "status=partial; lifecycle.state=partial; canonicalUrl is required present=False"
+      }
+    }
+  ],
+  "frictions": [],
+  "blockers": []
+}
