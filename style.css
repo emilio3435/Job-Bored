@@ -10385,6 +10385,28 @@ a.btn-materials {
   align-items: baseline;
 }
 
+.settings-profile-skip-btn {
+  background: transparent;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  color: var(--text-muted, #57606a);
+  font-size: var(--text-xs);
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background 0.1s ease, color 0.1s ease, border-color 0.1s ease;
+}
+
+.settings-profile-skip-btn:hover:not(:disabled) {
+  background: var(--danger-surface, #fdecea);
+  border-color: var(--danger, #d0362c);
+  color: var(--danger, #d0362c);
+}
+
+.settings-profile-skip-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .settings-profile-company-name {
   font-size: var(--text-sm);
   font-weight: 700;

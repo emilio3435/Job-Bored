@@ -960,6 +960,8 @@ const server = createServer(async (request, response) => {
         {
           runtimeConfig,
           upsertStoredWorkerConfig,
+          loadStoredWorkerConfig: (sheetId: string) =>
+            loadStoredWorkerConfig(runtimeConfig, sheetId),
           log: (event, details) =>
             logEvent(event, {
               requestId,
