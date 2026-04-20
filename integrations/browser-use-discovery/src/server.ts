@@ -31,7 +31,10 @@ import {
 } from "./state/run-status-store.ts";
 import { createDiscoveryMemoryStore } from "./state/discovery-memory-store.ts";
 import { createRunDiscoveryMemoryStore } from "./state/run-discovery-memory-store.ts";
-import { handleDiscoveryWebhook } from "./webhook/handle-discovery-webhook.ts";
+import {
+  handleDiscoveryWebhook,
+  hasValidWebhookSecret,
+} from "./webhook/handle-discovery-webhook.ts";
 import { handleDiscoveryProfileWebhook } from "./webhook/handle-discovery-profile.ts";
 import { createBrowserUseSessionManager } from "./browser/session.ts";
 
@@ -187,8 +190,14 @@ const discoveryMemoryStore = {
     return rawDiscoveryMemoryStore.isDeadLinkCoolingDown(url, now);
   },
   recordDeadLink(record: Record<string, unknown>) {
+    // The grounded-search producer (maybeRecordGroundedDeadLink) emits
+    //   { url, host, reason, firstSeenAt, cooldownUntil, reasonCode, httpStatus }
+    // — NOT urlKey/finalUrl/nextRetryAt. The earlier adapter keyed on
+    // urlKey/nextRetryAt, so upsertDeadLink either threw "url must be a
+    // non-empty URL" or stored rows with nextRetryAt=null, defeating the
+    // cooldown on every subsequent run. Accept both naming schemes.
     rawDiscoveryMemoryStore.upsertDeadLink({
-      url: String(record.urlKey || record.finalUrl || ""),
+      url: String(record.url || record.urlKey || record.finalUrl || ""),
       finalUrl: nullableString(record.finalUrl),
       host: nullableString(record.host),
       reasonCode: String(record.reasonCode || ""),
@@ -199,9 +208,9 @@ const discoveryMemoryStore = {
             ? Number(record.httpStatus)
             : null,
       lastTitle: nullableString(record.lastTitle),
-      lastSeenAt: nullableString(record.lastSeenAt),
+      lastSeenAt: nullableString(record.firstSeenAt || record.lastSeenAt),
       failureIncrement: Number(record.failureCount || 1),
-      nextRetryAt: nullableString(record.nextRetryAt),
+      nextRetryAt: nullableString(record.cooldownUntil || record.nextRetryAt),
     });
   },
   findListingFingerprint(fingerprintKey: string) {
@@ -485,12 +494,35 @@ function getHeaderValue(header: string | string[] | undefined): string {
   return String(header || "");
 }
 
+// 2 MiB is comfortably larger than the largest plausible resume payload
+// (client-side extraction already truncates to a few tens of KB) while
+// preventing an unauthenticated-or-authenticated client from forcing the
+// worker to buffer arbitrary megabytes.
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
+
+class BodyTooLargeError extends Error {
+  constructor(limit: number) {
+    super(`Request body exceeds ${limit} bytes`);
+    this.name = "BodyTooLargeError";
+  }
+}
+
 async function readBody(
   request: import("node:http").IncomingMessage,
+  maxBytes: number = MAX_BODY_BYTES,
 ): Promise<string> {
   const chunks: Buffer[] = [];
+  let total = 0;
   for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buf.length;
+    if (total > maxBytes) {
+      // Drain the remaining payload so the client gets a clean 413 instead of
+      // an aborted connection that upstream proxies might retry.
+      request.resume();
+      throw new BodyTooLargeError(maxBytes);
+    }
+    chunks.push(buf);
   }
   return Buffer.concat(chunks).toString("utf8");
 }
@@ -875,6 +907,35 @@ const server = createServer(async (request, response) => {
   // same x-discovery-secret auth as the main webhook; never persists raw
   // resume text; optionally writes the inferred companies to worker-config.
   if (requestPath === "/discovery-profile") {
+    // Pre-body auth gate: reject missing/invalid secrets BEFORE buffering the
+    // request body. Without this, an unauthenticated client can force the
+    // worker to buffer arbitrary-size payloads (100MB+) and then only get 401
+    // back — a trivial memory/CPU DoS. Body-size cap in readBody is the
+    // second layer of defense for authenticated-but-hostile clients.
+    const preAuthHeaders = Object.fromEntries(
+      Object.entries(request.headers).map(([key, value]) => [
+        key,
+        Array.isArray(value) ? value : (value ?? undefined),
+      ]),
+    );
+    const preAuth = hasValidWebhookSecret(
+      runtimeConfig.webhookSecret,
+      preAuthHeaders,
+    );
+    if (!preAuth.valid) {
+      logEvent("http.request.unauthorized", {
+        requestId,
+        method,
+        path: requestPath,
+        category: preAuth.category,
+      });
+      finishJson(
+        401,
+        { ok: false, message: preAuth.detail || "Unauthorized" },
+        corsHeaders,
+      );
+      return;
+    }
     try {
       const bodyText = await readBody(request);
       logEvent("http.request.body", {
@@ -922,6 +983,21 @@ const server = createServer(async (request, response) => {
       });
       response.end(result.body);
     } catch (error) {
+      if (error instanceof BodyTooLargeError) {
+        logEvent("http.request.rejected", {
+          requestId,
+          method,
+          path: requestPath,
+          reason: "body_too_large",
+          limit: MAX_BODY_BYTES,
+        });
+        finishJson(
+          413,
+          { ok: false, message: "Request body exceeds the configured limit." },
+          corsHeaders,
+        );
+        return;
+      }
       logEvent("http.request.failed", {
         requestId,
         method,
