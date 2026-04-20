@@ -123,7 +123,7 @@ const defaultAtsCompanies: CompanyTarget[] = [
 //   - groundedSearchTuning: maxResultsPerCompany=12, maxPagesPerCompany=8, maxRuntimeMs=300000, maxTokensPerQuery=4096
 //   - ultraPlanTuning: multiQuery=true, retryBroadening=true, parallelCompanyProcessing=true
 // Other presets (ats_only, browser_plus_ats) use legacy conservative values:
-//   - groundedSearchTuning: maxResultsPerCompany=6, maxPagesPerCompany=4, maxRuntimeMs=90000, maxTokensPerQuery=2048
+//   - groundedSearchTuning: maxResultsPerCompany=6, maxPagesPerCompany=4, maxRuntimeMs=180000, maxTokensPerQuery=2048
 //   - ultraPlanTuning: multiQuery=false, retryBroadening=false, parallelCompanyProcessing=false
 
 /**
@@ -186,7 +186,7 @@ function resolveGroundedSearchTuning(
     return {
       maxResultsPerCompany: isBrowserOnly ? 12 : 6,
       maxPagesPerCompany: isBrowserOnly ? 8 : 4,
-      maxRuntimeMs: isBrowserOnly ? 300000 : 90000,
+      maxRuntimeMs: isBrowserOnly ? 300000 : 180000,
       maxTokensPerQuery: isBrowserOnly ? 4096 : 2048,
       multiQueryCap: isBrowserOnly ? 4 : 3,
     };
@@ -211,7 +211,7 @@ function resolveGroundedSearchTuning(
         ? explicitTuning.maxRuntimeMs
         : isBrowserOnly
           ? 300000
-          : 90000,
+          : 180000,
     maxTokensPerQuery:
       explicitTuning.maxTokensPerQuery !== undefined
         ? explicitTuning.maxTokensPerQuery
