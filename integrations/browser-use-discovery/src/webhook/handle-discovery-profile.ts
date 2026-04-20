@@ -148,16 +148,18 @@ function parseRequest(bodyText: string):
     form = rawForm as ProfileFormInput;
   }
   const rawMode = typeof record.mode === "string" ? record.mode : "manual";
-  const mode: "manual" | "refresh" | "skip_company" =
+  const mode: "manual" | "refresh" | "skip_company" | "status" =
     rawMode === "refresh"
       ? "refresh"
       : rawMode === "skip_company"
         ? "skip_company"
-        : "manual";
+        : rawMode === "status"
+          ? "status"
+          : "manual";
 
   // Only manual mode requires resume/form at the request level. Refresh
   // pulls from the stored candidateProfile; skip_company only touches the
-  // negative list.
+  // negative list; status short-circuits before Gemini.
   if (mode === "manual" && !resumeText.trim() && !hasAnyFormField(form)) {
     return {
       ok: false,
@@ -272,6 +274,80 @@ export async function handleDiscoveryProfileWebhook(
     dependencies.extractCandidateProfile || extractCandidateProfile;
   const discoverFn =
     dependencies.discoverCompaniesForProfile || discoverCompaniesForProfile;
+
+  // --- mode: status ---
+  // Read-only snapshot for the dashboard's daily-refresh status panel. Never
+  // calls Gemini. Returns the fields the UI needs to show whether a stored
+  // profile exists, how many negative-list entries have been recorded, and
+  // when the last successful refresh happened.
+  if (parsedRequest.mode === "status") {
+    const targetSheetId =
+      parsedRequest.sheetId ||
+      (dependencies.runtimeConfig as Record<string, unknown>).defaultSheetId ||
+      "";
+    if (!targetSheetId || typeof targetSheetId !== "string") {
+      return jsonResponse(400, {
+        ok: false,
+        message: "sheetId is required for status mode.",
+      });
+    }
+    if (!dependencies.loadStoredWorkerConfig) {
+      return jsonResponse(500, {
+        ok: false,
+        message: "loadStoredWorkerConfig not wired; cannot read status.",
+      });
+    }
+    try {
+      const existing = await dependencies.loadStoredWorkerConfig(
+        String(targetSheetId),
+      );
+      const storedProfile = existing?.candidateProfile;
+      const storedResumeText =
+        typeof storedProfile?.resumeText === "string"
+          ? storedProfile.resumeText
+          : "";
+      const storedForm = storedProfile?.form;
+      const storedFormFieldCount = storedForm
+        ? Object.values(storedForm).filter((value) => {
+            if (typeof value === "string") return value.trim() !== "";
+            if (typeof value === "number") return Number.isFinite(value);
+            return false;
+          }).length
+        : 0;
+      const status = {
+        hasStoredProfile: !!storedProfile,
+        resumeTextLength: storedResumeText.length,
+        formFieldCount: storedFormFieldCount,
+        profileUpdatedAt:
+          typeof storedProfile?.updatedAt === "string"
+            ? storedProfile.updatedAt
+            : null,
+        companyCount: Array.isArray(existing?.companies)
+          ? existing!.companies.length
+          : 0,
+        negativeCompanyCount: Array.isArray(existing?.negativeCompanyKeys)
+          ? existing!.negativeCompanyKeys!.length
+          : 0,
+        lastRefreshAt: existing?.lastRefreshAt?.at || null,
+        lastRefreshSource: existing?.lastRefreshAt?.source || null,
+      };
+      dependencies.log?.("discovery.profile.status", {
+        hasStoredProfile: status.hasStoredProfile,
+        companyCount: status.companyCount,
+        negativeCompanyCount: status.negativeCompanyCount,
+      });
+      return jsonResponse(200, { ok: true, status });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error || "unknown error");
+      dependencies.log?.("discovery.profile.status_failed", { message });
+      return jsonResponse(502, {
+        ok: false,
+        message: "Failed to read status.",
+        detail: message,
+      });
+    }
+  }
 
   // --- mode: skip_company ---
   // Append the given companyKeys to the StoredWorkerConfig.negativeCompanyKeys
@@ -487,11 +563,18 @@ export async function handleDiscoveryProfileWebhook(
               },
             }
           : {};
+      const refreshSource: "manual" | "refresh" =
+        parsedRequest.mode === "refresh" ? "refresh" : "manual";
+      const lastRefreshAt = {
+        at: new Date().toISOString(),
+        source: refreshSource,
+      };
       try {
         await dependencies.upsertStoredWorkerConfig(dependencies.runtimeConfig, {
           sheetId: String(targetSheetId),
           mutations: {
             companies: persistedCompanies,
+            lastRefreshAt,
             ...candidateProfileMutation,
           },
         });
@@ -500,6 +583,7 @@ export async function handleDiscoveryProfileWebhook(
           companyCount: companies.length,
           sheetId: String(targetSheetId),
           storedCandidateProfile: parsedRequest.mode !== "refresh",
+          source: refreshSource,
         });
       } catch (error) {
         const message =

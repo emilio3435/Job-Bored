@@ -759,6 +759,9 @@ function normalizeStoredWorkerConfig(
   const storedSourcePreset = rawDiscoveryProfile
     ? cleanString(rawDiscoveryProfile.sourcePreset)
     : cleanString(raw.sourcePreset);
+  const candidateProfile = normalizeCandidateProfile(raw.candidateProfile);
+  const negativeCompanyKeys = normalizeStringList(raw.negativeCompanyKeys);
+  const lastRefreshAt = normalizeLastRefreshAt(raw.lastRefreshAt);
   return {
     sheetId: cleanString(raw.sheetId) || cleanString(sheetId),
     mode: requestedMode || runMode,
@@ -785,7 +788,67 @@ function normalizeStoredWorkerConfig(
           },
         }
       : {}),
+    ...(candidateProfile ? { candidateProfile } : {}),
+    ...(negativeCompanyKeys.length > 0 ? { negativeCompanyKeys } : {}),
+    ...(lastRefreshAt ? { lastRefreshAt } : {}),
   };
+}
+
+function normalizeCandidateProfile(
+  input: unknown,
+): StoredWorkerConfig["candidateProfile"] | undefined {
+  if (!isPlainRecord(input)) return undefined;
+  const resumeText =
+    typeof input.resumeText === "string" ? input.resumeText : undefined;
+  const rawForm = isPlainRecord(input.form)
+    ? (input.form as AnyRecord)
+    : undefined;
+  const updatedAt =
+    typeof input.updatedAt === "string" ? input.updatedAt : undefined;
+  if (!resumeText && !rawForm && !updatedAt) return undefined;
+
+  let form: StoredWorkerConfig["candidateProfile"] extends { form?: infer F } ? F : never;
+  form = undefined as typeof form;
+  if (rawForm) {
+    const out: Record<string, string | number> = {};
+    const strKeys = [
+      "targetRoles",
+      "skills",
+      "seniority",
+      "locations",
+      "remotePolicy",
+      "industries",
+    ] as const;
+    for (const key of strKeys) {
+      const value = rawForm[key];
+      if (typeof value === "string" && value.trim()) out[key] = value;
+    }
+    const yoe = rawForm.yearsOfExperience;
+    if (typeof yoe === "number" && Number.isFinite(yoe)) {
+      out.yearsOfExperience = yoe;
+    } else if (typeof yoe === "string" && yoe.trim()) {
+      out.yearsOfExperience = yoe;
+    }
+    if (Object.keys(out).length > 0) {
+      form = out as typeof form;
+    }
+  }
+
+  return {
+    ...(resumeText ? { resumeText } : {}),
+    ...(form ? { form } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
+  };
+}
+
+function normalizeLastRefreshAt(
+  input: unknown,
+): StoredWorkerConfig["lastRefreshAt"] | undefined {
+  if (!isPlainRecord(input)) return undefined;
+  const at = typeof input.at === "string" ? input.at.trim() : "";
+  const source = input.source === "refresh" ? "refresh" : "manual";
+  if (!at) return undefined;
+  return { at, source };
 }
 
 function isLegacyAtsOnlySourceSelection(

@@ -233,10 +233,24 @@ export type DiscoveryProfileRequestV1 = {
    * and persists the new company list. Used by the Cloudflare Cron Trigger.
    * "skip_company" adds companyKey(s) to the negative list and returns the
    * current config without running Gemini.
+   * "status" short-circuits before any Gemini call; returns a snapshot of
+   * the stored profile, negative list length, and last refresh timestamp
+   * for the dashboard's daily-refresh status panel.
    */
-  mode?: "manual" | "refresh" | "skip_company";
+  mode?: "manual" | "refresh" | "skip_company" | "status";
   /** For mode="skip_company": CompanyTarget.companyKey values to blacklist. */
   skipCompanyKeys?: string[];
+};
+
+export type DiscoveryProfileStatusV1 = {
+  hasStoredProfile: boolean;
+  resumeTextLength: number;
+  formFieldCount: number;
+  profileUpdatedAt: string | null;
+  companyCount: number;
+  negativeCompanyCount: number;
+  lastRefreshAt: string | null;
+  lastRefreshSource: "manual" | "refresh" | null;
 };
 
 export type DiscoveryProfileResponseV1 =
@@ -245,6 +259,10 @@ export type DiscoveryProfileResponseV1 =
       profile: CandidateProfile;
       companies: CompanyTarget[];
       persisted: boolean;
+    }
+  | {
+      ok: true;
+      status: DiscoveryProfileStatusV1;
     }
   | {
       ok: false;
@@ -682,6 +700,15 @@ export type StoredWorkerConfig = {
    * companies against this list so skipped employers never re-appear.
    */
   negativeCompanyKeys?: string[];
+  /**
+   * Timestamp + source of the most recent successful /discovery-profile
+   * persist. Written on every manual/refresh run that writes companies.
+   * Surfaced in the dashboard's daily-refresh status panel.
+   */
+  lastRefreshAt?: {
+    at: string;
+    source: "manual" | "refresh";
+  };
 };
 
 export type EffectiveDiscoveryConfig = StoredWorkerConfig & {
