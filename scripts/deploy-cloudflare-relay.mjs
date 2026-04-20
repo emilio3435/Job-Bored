@@ -753,6 +753,11 @@ async function main() {
           compatibility_date: getCompatibilityDate(),
           account_id: accountId,
           workers_dev: true,
+          // Daily refresh cron — fires the worker's scheduled() handler
+          // which POSTs {mode:"refresh"} to <TARGET_URL origin>/discovery-profile.
+          // 08:00 UTC = 02:00 Mountain Time. Override via --cron or by editing
+          // this script's config shape.
+          triggers: { crons: ["0 8 * * *"] },
           ...(corsOrigin ? { vars: { CORS_ORIGIN: corsOrigin } } : {}),
         },
         null,
