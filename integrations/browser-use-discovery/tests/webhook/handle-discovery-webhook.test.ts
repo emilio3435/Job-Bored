@@ -127,6 +127,7 @@ function makeDependencies(overrides = {}) {
         host: "127.0.0.1",
         runMode: "hosted",
         asyncAckByDefault: true,
+        useStructuredExtraction: false,
       },
       sourceAdapterRegistry: {
         adapters: [],
@@ -760,6 +761,7 @@ test("VAL-LOOP-CROSS-006: handleDiscoveryWebhook async zero-lead browser_only ru
           host: "127.0.0.1",
           runMode: "hosted",
           asyncAckByDefault: true,
+          useStructuredExtraction: false,
         },
         discoveryMemoryStore: createRunDiscoveryMemoryStore(rawMemoryStore),
         sourceAdapterRegistry: {
@@ -918,6 +920,7 @@ test("VAL-API-011: blank intent + empty companies fails with explicit 400 guidan
           host: "127.0.0.1",
           runMode: "hosted",
           asyncAckByDefault: true,
+          useStructuredExtraction: false,
         },
         randomId: (prefix) => `${prefix}_queued`,
       },
@@ -994,6 +997,7 @@ test("handleDiscoveryWebhook fails fast when no sheets credential is configured"
           host: "127.0.0.1",
           runMode: "hosted",
           asyncAckByDefault: true,
+          useStructuredExtraction: false,
         },
         randomId: (prefix) => `${prefix}_queued`,
       },

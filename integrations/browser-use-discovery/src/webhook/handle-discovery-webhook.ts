@@ -794,7 +794,7 @@ function createRunId(randomId?: ((prefix: string) => string) | null): string {
   return `run_${randomUUID().replace(/-/g, "")}`;
 }
 
-type WebhookAuthCheckResult =
+export type WebhookAuthCheckResult =
   | { valid: true }
   | {
       valid: false;
@@ -810,7 +810,7 @@ type WebhookAuthCheckResult =
  * Validates the webhook secret and returns detailed auth failure information.
  * VAL-OBS-004: Authentication failures are explicitly categorized
  */
-function hasValidWebhookSecret(
+export function hasValidWebhookSecret(
   configuredSecret: string,
   headers: Record<string, string | string[] | undefined>,
 ): WebhookAuthCheckResult {

@@ -62,6 +62,7 @@ const THIRD_PARTY_JOB_BOARD_HOSTS: HostnameRule[] = [
   "ziprecruiter.com",
   "careerbuilder.com",
   "simplyhired.com",
+  "simplyhired.co.uk",
   "builtin.com",
   "wellfound.com",
   "otta.com",
@@ -86,6 +87,16 @@ const THIRD_PARTY_JOB_BOARD_HOSTS: HostnameRule[] = [
   "jobrapido.com",
   "adzuna.com",
   "angel.co",
+  // Layer 3 additions — aggregators Gemini cited that reliably 404 or mask
+  // first-party URLs behind interstitials. Treating as hint_only forces
+  // canonical resolution before extraction.
+  "jobtarget.com",
+  "hireology.com",
+  "jobot.com",
+  "jobleads.com",
+  "lensa.com",
+  "workfromhome.ng",
+  "instituteofdata.jobs",
 ];
 
 const FIRST_PARTY_PATH_PATTERN =

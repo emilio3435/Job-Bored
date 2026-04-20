@@ -172,6 +172,70 @@ export type DiscoveryWebhookRequestV1 = {
   googleAccessToken?: string;
 };
 
+/**
+ * Feature B / Layer 5 — profile-driven company discovery.
+ *
+ * Shape of a user's job-seeking profile after extraction from resume text
+ * or a form submission. Used as input to `discoverCompaniesForProfile`.
+ */
+export type CandidateProfile = {
+  targetRoles: string[];
+  skills: string[];
+  seniority: string;
+  yearsOfExperience?: number;
+  locations: string[];
+  remotePolicy?: "remote" | "hybrid" | "onsite";
+  industries?: string[];
+};
+
+/**
+ * Raw form input a client can POST to the discovery-profile endpoint.
+ * All fields are strings (or a number for yearsOfExperience) so the endpoint
+ * is tolerant of HTML-form submissions; extraction normalizes into
+ * CandidateProfile.
+ */
+export type ProfileFormInput = {
+  targetRoles?: string;
+  skills?: string;
+  seniority?: string;
+  yearsOfExperience?: number | string;
+  locations?: string;
+  remotePolicy?: string;
+  industries?: string;
+};
+
+export const DISCOVERY_PROFILE_EVENT = "discovery.profile.request" as const;
+export const DISCOVERY_PROFILE_SCHEMA_VERSION = 1 as const;
+
+export type DiscoveryProfileRequestV1 = {
+  event: typeof DISCOVERY_PROFILE_EVENT;
+  schemaVersion: typeof DISCOVERY_PROFILE_SCHEMA_VERSION;
+  /**
+   * Raw resume text (PDF/DOCX already extracted client-side via resume-ingest).
+   * Held only in-memory; never logged, never persisted.
+   */
+  resumeText?: string;
+  /** Structured form input. At least one of resumeText or form must be non-blank. */
+  form?: ProfileFormInput;
+  /** If true, write the returned companies into worker-config.json. */
+  persist?: boolean;
+  /** Target sheet for persistence; falls back to configured default when omitted. */
+  sheetId?: string;
+};
+
+export type DiscoveryProfileResponseV1 =
+  | {
+      ok: true;
+      profile: CandidateProfile;
+      companies: CompanyTarget[];
+      persisted: boolean;
+    }
+  | {
+      ok: false;
+      message: string;
+      detail?: string;
+    };
+
 export type NormalizedLeadPriority = "🔥" | "⚡" | "—" | "↓" | "";
 
 export type NormalizedLead = {
@@ -233,6 +297,12 @@ export type ExtractionDiagnosticCode =
   | "canonical_surface_extracted"
   /** Candidate was rejected by strict preflight before browser extraction. */
   | "preflight_rejected"
+  /** Vertex AI grounding-api-redirect URL could not be resolved to a canonical target (stale token, 4xx, or missing Location header). */
+  | "vertex_redirect_unresolved"
+  /** Call 2 structured-extraction pass succeeded and its candidates were used as the primary result (Layer 4). */
+  | "structured_extraction_used"
+  /** Call 2 structured-extraction pass failed or was skipped; fell back to Call 1's prose/regex parse. */
+  | "structured_extraction_failed"
   /** Candidate host was suppressed from memory due to prior junk or repeated failures. */
   | "junk_host_suppressed"
   /** Response appears to be an SPA loading state or skeleton HTML (very short, mostly whitespace/script). */

@@ -82,6 +82,7 @@ test("runDiscovery with browser_only preset excludes ATS adapters (VAL-ROUTE-001
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [
@@ -224,6 +225,7 @@ test("runDiscovery with ats_only preset excludes grounded_web (VAL-ROUTE-002)", 
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [
@@ -360,6 +362,7 @@ test("runDiscovery with browser_plus_ats executes both families (VAL-ROUTE-003)"
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [
@@ -484,6 +487,7 @@ test("runDiscovery generates skip evidence for excluded ATS sources (VAL-ROUTE-0
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [
@@ -611,6 +615,7 @@ test("VAL-ROUTE-007: browser_only with empty companies executes grounded_web usi
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [
@@ -733,6 +738,7 @@ test("VAL-ROUTE-008: ats_only with empty companies does not fabricate ATS placeh
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [
@@ -860,6 +866,7 @@ test("VAL-ROUTE-009: browser_plus_ats with empty companies runs grounded lane wi
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [
@@ -996,6 +1003,7 @@ test("VAL-ROUTE-010: browser_only with empty companies uses modifier-driven grou
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [],
@@ -1134,6 +1142,7 @@ test("VAL-ROUTE-011: browser_only with empty companies and non-blank modifiers d
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [],
@@ -1256,6 +1265,7 @@ test("VAL-ROUTE-011: ats_only with empty companies and no modifiers SHOULD emit 
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [
@@ -1362,6 +1372,7 @@ test("VAL-ROUTE-015: parallel company processing respects concurrency cap (cap=3
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [],
@@ -1539,6 +1550,7 @@ test("VAL-ROUTE-015: cap=1 forces sequential processing", async () => {
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [],
@@ -1661,6 +1673,7 @@ test("VAL-ROUTE-015: cap>=companyCount runs all in parallel", async () => {
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [],
@@ -1780,6 +1793,7 @@ test("VAL-ROUTE-016: one-company failure does not abort other companies", async 
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [],
@@ -1961,6 +1975,7 @@ test("VAL-ROUTE-016: company failure emits explicit company-attributed failure e
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [],

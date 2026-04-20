@@ -19,6 +19,7 @@ const runtimeConfig = {
   host: "127.0.0.1",
   runMode: "hosted",
   asyncAckByDefault: true,
+  useStructuredExtraction: false,
 };
 
 function row(values) {
