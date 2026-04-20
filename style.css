@@ -10200,3 +10200,219 @@ a.btn-materials {
 .profile-btn-done {
   min-width: 6rem;
 }
+
+/* ── Settings → Profile tab (Feature B / Layer 5) ─────────────────── */
+.settings-profile-block {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--divider);
+  background: var(--surface-2);
+}
+
+.settings-profile-block__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.settings-profile-file {
+  display: block;
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.settings-profile-file::file-selector-button {
+  margin-right: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.settings-profile-file::file-selector-button:hover {
+  background: var(--surface-hover);
+}
+
+.settings-profile-textarea {
+  width: 100%;
+  min-height: 8rem;
+  resize: vertical;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.settings-profile-clear-btn {
+  margin-top: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.settings-profile-clear-btn:hover {
+  background: var(--surface-hover);
+}
+
+#settingsProfileResumeStatus[data-kind="error"] {
+  color: #b91c1c;
+}
+
+#settingsProfileResumeStatus[data-kind="warn"] {
+  color: #b45309;
+}
+
+#settingsProfileResumeStatus[data-kind="ok"] {
+  color: #047857;
+}
+
+.settings-profile-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.settings-profile-spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--divider);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: settings-profile-spin 0.8s linear infinite;
+}
+
+@keyframes settings-profile-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.settings-profile-error {
+  display: block;
+  margin-top: var(--space-2);
+}
+
+.settings-profile-results {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--divider);
+  background: var(--surface);
+}
+
+.settings-profile-results-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.settings-profile-badge {
+  display: inline-flex;
+  padding: 2px var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--divider);
+  border-radius: 999px;
+}
+
+.settings-profile-badge--ok {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.settings-profile-profile {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.settings-profile-profile-row {
+  display: contents;
+}
+
+.settings-profile-profile-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.settings-profile-profile-value {
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.settings-profile-company-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-profile-company {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.settings-profile-company-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.settings-profile-company-name {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.settings-profile-company-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.settings-profile-company-domains {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.settings-profile-company-tag {
+  padding: 1px var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--divider);
+  border-radius: 999px;
+}
+
+.settings-profile-company-aliases {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-style: italic;
+}
