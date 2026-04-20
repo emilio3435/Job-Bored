@@ -305,6 +305,10 @@ export type ExtractionDiagnosticCode =
   | "structured_extraction_used"
   /** Call 2 structured-extraction pass failed or was skipped; fell back to Call 1's prose/regex parse. */
   | "structured_extraction_failed"
+  /** Call 1.5 prose-recovery pass re-extracted URLs from Call 1's conversational output (Layer 4.5). */
+  | "prose_recovery_used"
+  /** Call 1.5 prose-recovery pass produced no URLs from Call 1's prose; terminal for that company. */
+  | "prose_recovery_failed"
   /** Candidate host was suppressed from memory due to prior junk or repeated failures. */
   | "junk_host_suppressed"
   /** Response appears to be an SPA loading state or skeleton HTML (very short, mostly whitespace/script). */

@@ -158,6 +158,15 @@ export type GroundedSearchResult = {
    * Diagnostics for the overall search operation.
    */
   diagnostics?: GroundedSearchDiagnostics;
+  /**
+   * Raw prose text from Call 1's Gemini response, concatenated across all
+   * candidate parts. Preserved so the prose-recovery step
+   * (extractUrlsFromProseViaSchema in collectGroundedWebListings) can fire a
+   * Call 1.5 when JSON parse + regex fallback both produce zero URLs — exactly
+   * the case where Gemini answered conversationally ("Accenture has many
+   * openings..."). Empty string when nothing to recover from.
+   */
+  rawText?: string;
 };
 
 export type GroundedQueryRung = 0 | 1 | 2;
@@ -788,6 +797,7 @@ export function createGroundedSearchClient(
           candidates: result.candidates,
           warnings,
           diagnostics,
+          rawText: result.rawText || "",
         };
       }
 
@@ -919,6 +929,10 @@ export function createGroundedSearchClient(
         warnings,
         queryEvidence,
         diagnostics,
+        // TODO: plumb rawText through the multi-query focused/retry ladder.
+        // For now the prose-recovery helper only runs on the broad-query path,
+        // which is what single-company runs (e.g. Accenture) actually use.
+        rawText: "",
       };
     },
     async searchAtsHosts({ run, sourceIds, maxResults, signal }) {
@@ -1126,31 +1140,111 @@ export async function collectGroundedWebListings(input: {
     }
   }
 
-  // Feature A / Layer 4 — structured extraction (Call 2). Runs only when the
-  // flag is on, Call 1 produced candidates, and an API key is configured. The
-  // helper is a no-op (returns null) on any failure; we fall back cleanly to
-  // Call 1's output in that case.
+  // Layer 4.5 / Call 1.5 — prose-recovery pass.
+  // Fires only when Call 1 returned conversational prose that both JSON parse
+  // and regex URL fallback failed to extract any URLs from. That used to be a
+  // terminal state ("Grounded search returned no usable candidate links") —
+  // for companies like Accenture that obviously have careers pages, Gemini
+  // sometimes just replies in prose. We hand the prose back to Gemini with a
+  // strict responseSchema and ask it to either (a) re-extract URLs it
+  // mentioned, or (b) emit canonical careers URLs from the company's
+  // configured domains. Results feed into the existing Feature A structurer
+  // below as if they were Call 1 candidates.
   let effectiveCandidates = searchResult.candidates;
+  const geminiApiKey = String(input.runtimeConfig.geminiApiKey || "").trim();
+  // TEMP DEBUG: always log prose-recovery gate decision so we can see why it
+  // doesn't fire in practice. Remove once we confirm the pipeline works.
+  input.log?.("discovery.run.grounded_prose_recovery_gate", {
+    runId: input.run.runId,
+    company: input.company.name,
+    companyScope: companyLabel,
+    useStructuredExtraction: input.runtimeConfig.useStructuredExtraction !== false,
+    call1CandidateCount: searchResult.candidates.length,
+    rawTextLength: (searchResult.rawText || "").length,
+    rawTextPreview: (searchResult.rawText || "").slice(0, 200),
+    hasApiKey: !!geminiApiKey,
+  });
   if (
     input.runtimeConfig.useStructuredExtraction !== false &&
-    searchResult.candidates.length > 0 &&
-    String(input.runtimeConfig.geminiApiKey || "").trim()
+    searchResult.candidates.length === 0 &&
+    (searchResult.rawText || "").trim().length > 0 &&
+    geminiApiKey
+  ) {
+    const proseEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(input.runtimeConfig.geminiModel || "gemini-2.5-flash")}:generateContent`;
+    const proseMaxResults =
+      input.run.config.groundedSearchTuning?.maxResultsPerCompany ??
+      input.runtimeConfig.groundedSearchMaxResultsPerCompany ??
+      8;
+    const proseStartedAt = Date.now();
+    const proseRecovered = await extractUrlsFromProseViaSchema({
+      proseText: searchResult.rawText || "",
+      company: input.company,
+      run: input.run,
+      endpoint: proseEndpoint,
+      apiKey: geminiApiKey,
+      fetchImpl,
+      maxResults: proseMaxResults,
+      signal: input.abortSignal,
+    });
+    const proseDurationMs = Date.now() - proseStartedAt;
+    if (proseRecovered && proseRecovered.length > 0) {
+      effectiveCandidates = mergeGroundedCandidates(
+        proseRecovered,
+        [],
+        input.company,
+        proseMaxResults,
+      );
+      diagnostics.push({
+        code: "prose_recovery_used",
+        context: `Prose recovery (Call 1.5) extracted ${proseRecovered.length} candidate(s) from ${searchResult.rawText!.length} chars of conversational Call 1 output in ${proseDurationMs}ms.`,
+      });
+      input.log?.("discovery.run.grounded_prose_recovery", {
+        runId: input.run.runId,
+        company: input.company.name,
+        companyScope: companyLabel,
+        outcome: "used",
+        proseLength: searchResult.rawText!.length,
+        recoveredCandidateCount: proseRecovered.length,
+        durationMs: proseDurationMs,
+      });
+    } else {
+      diagnostics.push({
+        code: "prose_recovery_failed",
+        context: `Prose recovery (Call 1.5) produced no usable URLs from ${searchResult.rawText!.length} chars of Call 1 prose in ${proseDurationMs}ms.`,
+      });
+      input.log?.("discovery.run.grounded_prose_recovery", {
+        runId: input.run.runId,
+        company: input.company.name,
+        companyScope: companyLabel,
+        outcome: "failed",
+        proseLength: searchResult.rawText!.length,
+        durationMs: proseDurationMs,
+      });
+    }
+  }
+
+  // Feature A / Layer 4 — structured extraction (Call 2). Runs only when the
+  // flag is on, candidates exist (either from Call 1 or prose recovery above),
+  // and an API key is configured. The helper is a no-op (returns null) on any
+  // failure; we fall back cleanly to Call 1's output in that case.
+  if (
+    input.runtimeConfig.useStructuredExtraction !== false &&
+    effectiveCandidates.length > 0 &&
+    geminiApiKey
   ) {
     const structuringEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(input.runtimeConfig.geminiModel || "gemini-2.5-flash")}:generateContent`;
-    const structuringApiKey = String(
-      input.runtimeConfig.geminiApiKey || "",
-    ).trim();
     const structuringMaxResults =
       input.run.config.groundedSearchTuning?.maxResultsPerCompany ??
       input.runtimeConfig.groundedSearchMaxResultsPerCompany ??
-      searchResult.candidates.length;
+      effectiveCandidates.length;
     const structuringStartedAt = Date.now();
+    const structuringInput = effectiveCandidates;
     const structured = await structureGroundedCandidatesViaSchema({
-      candidates: searchResult.candidates,
+      candidates: structuringInput,
       company: input.company,
       run: input.run,
       endpoint: structuringEndpoint,
-      apiKey: structuringApiKey,
+      apiKey: geminiApiKey,
       fetchImpl,
       maxResults: structuringMaxResults,
       signal: input.abortSignal,
@@ -1159,20 +1253,20 @@ export async function collectGroundedWebListings(input: {
     if (structured && structured.length > 0) {
       effectiveCandidates = mergeGroundedCandidates(
         structured,
-        searchResult.candidates,
+        structuringInput,
         input.company,
         structuringMaxResults,
       );
       diagnostics.push({
         code: "structured_extraction_used",
-        context: `Structured extraction produced ${structured.length} candidate(s) from ${searchResult.candidates.length} Call-1 candidate(s) in ${structuringDurationMs}ms.`,
+        context: `Structured extraction produced ${structured.length} candidate(s) from ${structuringInput.length} input candidate(s) in ${structuringDurationMs}ms.`,
       });
       input.log?.("discovery.run.grounded_structured_extraction", {
         runId: input.run.runId,
         company: input.company.name,
         companyScope: companyLabel,
         outcome: "used",
-        call1CandidateCount: searchResult.candidates.length,
+        call1CandidateCount: structuringInput.length,
         structuredCandidateCount: structured.length,
         mergedCandidateCount: effectiveCandidates.length,
         durationMs: structuringDurationMs,
@@ -1180,14 +1274,14 @@ export async function collectGroundedWebListings(input: {
     } else {
       diagnostics.push({
         code: "structured_extraction_failed",
-        context: `Structured extraction returned no usable candidates in ${structuringDurationMs}ms; falling back to Call-1 output (${searchResult.candidates.length} candidate(s)).`,
+        context: `Structured extraction returned no usable candidates in ${structuringDurationMs}ms; falling back to input candidates (${structuringInput.length}).`,
       });
       input.log?.("discovery.run.grounded_structured_extraction", {
         runId: input.run.runId,
         company: input.company.name,
         companyScope: companyLabel,
         outcome: "failed",
-        call1CandidateCount: searchResult.candidates.length,
+        call1CandidateCount: structuringInput.length,
         durationMs: structuringDurationMs,
       });
     }
@@ -3386,6 +3480,148 @@ async function structureGroundedCandidatesViaSchema(input: {
   }
 }
 
+/**
+ * Prose-recovery pass: Call 1.5.
+ *
+ * Fires when Call 1's grounded search returned conversational text (no parseable
+ * JSON, no regex-recoverable URLs) — the exact failure mode that used to produce
+ * "Grounded search returned no usable candidate links" for companies like
+ * Accenture that obviously have careers pages. Gemini's JSON mode is not
+ * available on calls that attach `google_search`; this helper re-prompts Gemini
+ * in a second (tool-less) call with the raw prose and a strict responseSchema,
+ * asking it to either (a) re-extract URLs it mentioned, or (b) emit canonical
+ * careers URLs for the company when prose only named it in words.
+ *
+ * Returns null on any failure (network, parse, empty response); the caller
+ * falls through to the existing warning path unchanged.
+ */
+async function extractUrlsFromProseViaSchema(input: {
+  proseText: string;
+  company: CompanyTarget;
+  run: DiscoveryRun;
+  endpoint: string;
+  apiKey: string;
+  fetchImpl: FetchImpl;
+  maxResults: number;
+  signal?: AbortSignal;
+}): Promise<GroundedSearchCandidate[] | null> {
+  const trimmed = input.proseText.trim();
+  if (!trimmed) return null;
+  throwIfAborted(input.signal);
+
+  const config = input.run.config;
+  const companyContext = input.company.name
+    ? `Target company: ${input.company.name}. Primary domains: ${(input.company.domains || []).join(", ") || "(none configured)"}.`
+    : "Modifier-driven intent search (no fixed company).";
+
+  const systemPrompt = [
+    "You convert conversational/prose search output into strict JSON URL lists.",
+    "You will receive the full raw text Gemini produced from a prior grounded web search plus context about the user's target company and role preferences.",
+    "Your job is to produce a concrete list of live first-party or major-ATS job-posting / job-listings URLs derivable from that text.",
+    "Rules:",
+    "- If the prose contains full or partial URLs, reconstruct them into well-formed https:// URLs and include them.",
+    "- If the prose only *names* a company's careers page without a URL (e.g. 'Accenture careers'), emit the canonical careers URL using the primary domain listed above (e.g. https://accenture.com/careers).",
+    "- Prefer ATS-hosted boards when they are listed as active hiring URLs (greenhouse.io, ashbyhq.com, lever.co, workday, myworkdayjobs.com).",
+    "- Drop: aggregators (indeed, linkedin/jobs, glassdoor, monster, ziprecruiter), link shorteners, vertexaisearch redirects, tracking URLs, placeholder IDs, sitemaps, search-engine results pages.",
+    "- Never invent URLs for companies the prose does not reference. If the prose says 'I could not find current openings,' return {\"results\":[]}.",
+    "- No prose, no markdown, no code fences, no explanation in your output. JSON only.",
+  ].join("\n");
+
+  const userPrompt = [
+    companyContext,
+    `Target roles: ${joinOrAny(config.targetRoles)}`,
+    `Include keywords: ${joinOrAny(config.includeKeywords)}`,
+    `Exclude keywords: ${joinOrAny(config.excludeKeywords)}`,
+    `Locations: ${joinOrAny(config.locations)}`,
+    `Remote policy: ${config.remotePolicy || "any"}`,
+    `Seniority: ${config.seniority || "any"}`,
+    "",
+    "Raw grounded-search output (conversational, non-JSON):",
+    trimmed.slice(0, 12000),
+    "",
+    `Return strict JSON matching the schema. At most ${Math.max(1, input.maxResults)} results. If no URL or implied canonical careers URL is derivable, return {"results":[]}.`,
+  ].join("\n");
+
+  const maxOutputTokens = Math.min(
+    4096,
+    input.run.config.groundedSearchTuning?.maxTokensPerQuery ?? 2048,
+  );
+
+  try {
+    const response = await input.fetchImpl(input.endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-goog-api-key": input.apiKey,
+      },
+      signal: input.signal,
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: systemPrompt }],
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: userPrompt }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens,
+          responseMimeType: "application/json",
+          responseSchema: CANDIDATE_RESULTS_SCHEMA,
+        },
+        // Deliberately no `tools` — enforces responseSchema strictly.
+      }),
+    });
+
+    if (!response.ok) return null;
+    const payload = await response.json().catch(() => null);
+    if (!isPlainRecord(payload)) return null;
+
+    const cands = candidatePayloads(payload);
+    if (cands.length === 0) return null;
+
+    for (const candidate of cands) {
+      const text = extractCandidateText(candidate);
+      if (!text) continue;
+      const jsonString = extractJsonObject(text) || text;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(jsonString);
+      } catch {
+        continue;
+      }
+      if (!isPlainRecord(parsed) || !Array.isArray(parsed.results)) continue;
+
+      const extracted = parsed.results
+        .filter((entry): entry is AnyRecord => isPlainRecord(entry))
+        .map((entry) =>
+          toGroundedCandidate(
+            {
+              url: String(entry.url || ""),
+              title: String(entry.title || ""),
+              pageType: String(entry.pageType || "other"),
+              reason:
+                String(entry.reason || "") ||
+                "Prose-recovery extraction (Layer 4.5)",
+            },
+            input.company,
+          ),
+        )
+        .filter((entry): entry is GroundedSearchCandidate => entry !== null);
+
+      if (extracted.length === 0) return null;
+      return extracted.slice(0, Math.max(1, input.maxResults));
+    }
+
+    return null;
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return null;
+  }
+}
+
 function executeGroundedSearchRequest(input: {
   prompt: string;
   company: CompanyTarget;
@@ -3400,6 +3636,7 @@ function executeGroundedSearchRequest(input: {
   searchQueries: string[];
   regexFallbackUsed: boolean;
   regexFallbackAttempted: boolean;
+  rawText: string;
   failure?: {
     status?: number;
     message: string;
@@ -3446,6 +3683,7 @@ function executeGroundedSearchRequest(input: {
           searchQueries: [],
           regexFallbackUsed: false,
           regexFallbackAttempted: false,
+          rawText: "",
           failure: {
             status: response.status,
             message:
@@ -3492,16 +3730,19 @@ function parseGroundedSearchResponsePayload(
   searchQueries: string[];
   regexFallbackUsed: boolean;
   regexFallbackAttempted: boolean;
+  rawText: string;
 } {
   const explicitCandidates: GroundedSearchCandidate[] = [];
   const citedCandidates: GroundedSearchCandidate[] = [];
   const searchQueries: string[] = [];
+  const rawTexts: string[] = [];
   let regexFallbackUsed = false;
   let regexFallbackAttempted = false;
 
   for (const candidate of candidatePayloads(payload)) {
     const text = extractCandidateText(candidate);
     if (text) {
+      rawTexts.push(text);
       const explicitResult = extractGroundedCandidatesFromText(text, company);
       explicitCandidates.push(...explicitResult.candidates);
       if (explicitResult.regexFallbackUsed) {
@@ -3531,6 +3772,10 @@ function parseGroundedSearchResponsePayload(
     searchQueries: uniqueStrings(searchQueries),
     regexFallbackUsed,
     regexFallbackAttempted,
+    // Preserve Call 1's raw text so the prose-recovery step downstream can
+    // re-extract URLs when JSON parse + regex fallback both come up empty.
+    // See extractUrlsFromProseViaSchema.
+    rawText: rawTexts.join("\n\n").trim(),
   };
 }
 
