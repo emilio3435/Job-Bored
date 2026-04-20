@@ -1610,9 +1610,15 @@ async function preflightGroundedCandidate(input: {
     );
     const finalUrl = cleanAbsoluteUrl(response.url || requestedUrl) || requestedUrl;
     const finalPolicy = classifySeedSourcePolicy(finalUrl);
+    // Rejections record under `requestedUrl` (the original grounded-search URL)
+    // so the isDeadLinkCoolingDown check at the top of preflightGroundedCandidate
+    // matches on subsequent runs. Previously we recorded under `finalUrl`, which
+    // meant any redirect-to-dead (login wall, 403/404 at final) would miss the
+    // cooldown and refetch the same dead link on every run. The reason string
+    // still carries both URLs for debuggability.
     if (!response.ok) {
       return rejectGroundedPreflight({
-        url: finalUrl,
+        url: requestedUrl,
         reason: `Strict preflight rejected ${requestedUrl}: HTTP ${response.status} at ${finalUrl}.`,
         recordDeadLink: input.recordDeadLink,
         now: input.now,
@@ -1620,7 +1626,7 @@ async function preflightGroundedCandidate(input: {
     }
     if (finalPolicy !== "extractable") {
       return rejectGroundedPreflight({
-        url: finalUrl,
+        url: requestedUrl,
         reason: `Strict preflight rejected ${requestedUrl}: final URL ${finalUrl} resolved to ${finalPolicy}.`,
         recordDeadLink: input.recordDeadLink,
         now: input.now,
@@ -1630,7 +1636,7 @@ async function preflightGroundedCandidate(input: {
     const contentType = String(response.headers.get("content-type") || "").toLowerCase();
     if (contentType && !/(html|text\/plain|json)/i.test(contentType)) {
       return rejectGroundedPreflight({
-        url: finalUrl,
+        url: requestedUrl,
         reason: `Strict preflight rejected ${requestedUrl}: unsupported content-type "${contentType}" at ${finalUrl}.`,
         recordDeadLink: input.recordDeadLink,
         now: input.now,
@@ -1647,7 +1653,7 @@ async function preflightGroundedCandidate(input: {
     });
     if (rejectionReason) {
       return rejectGroundedPreflight({
-        url: finalUrl,
+        url: requestedUrl,
         reason: rejectionReason,
         recordDeadLink: input.recordDeadLink,
         now: input.now,
@@ -1794,6 +1800,12 @@ async function approveGroundedCandidateSet(input: {
 
 async function rejectGroundedPreflight(input: {
   url: string;
+  // When the preflight fetch followed a redirect, the candidate's ORIGINAL
+  // URL differs from `url` (the final URL). The dead-link cooldown check at
+  // the top of prepareGroundedSeedCandidates uses the original candidate URL
+  // as its lookup key, so we must also record that key — otherwise a
+  // redirected dead link never fires the cooldown on subsequent runs.
+  requestedUrl?: string;
   reason: string;
   recordDeadLink?: (
     record: GroundedDeadLinkRecord,
@@ -1810,6 +1822,7 @@ async function rejectGroundedPreflight(input: {
 
 async function maybeRecordGroundedDeadLink(input: {
   url: string;
+  requestedUrl?: string;
   reason: string;
   recordDeadLink?: (
     record: GroundedDeadLinkRecord,
@@ -1823,20 +1836,29 @@ async function maybeRecordGroundedDeadLink(input: {
   const firstSeenAt = input.now || new Date().toISOString();
   const cooldownUntil = addDaysToIsoTimestamp(firstSeenAt, 7);
   const deadLinkReason = classifyGroundedDeadLinkReason(input.reason);
-  try {
-    await input.recordDeadLink({
-      url: input.url,
-      host: safeHostname(input.url),
-      reason: input.reason,
-      firstSeenAt,
-      cooldownUntil,
-      reasonCode: deadLinkReason.reasonCode,
-      httpStatus: deadLinkReason.httpStatus,
-    });
-    return true;
-  } catch {
-    return false;
+  const urls = new Set<string>();
+  urls.add(input.url);
+  if (input.requestedUrl && input.requestedUrl !== input.url) {
+    urls.add(input.requestedUrl);
   }
+  let recorded = false;
+  for (const candidateUrl of urls) {
+    try {
+      await input.recordDeadLink({
+        url: candidateUrl,
+        host: safeHostname(candidateUrl),
+        reason: input.reason,
+        firstSeenAt,
+        cooldownUntil,
+        reasonCode: deadLinkReason.reasonCode,
+        httpStatus: deadLinkReason.httpStatus,
+      });
+      recorded = true;
+    } catch {
+      // Keep trying other keys; dead-link recording is best-effort.
+    }
+  }
+  return recorded;
 }
 
 function isTerminalDeadLinkReason(reason: string): boolean {
