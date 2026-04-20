@@ -199,6 +199,70 @@ This project is **static and free to host** (e.g. GitHub Pages). There is **no c
 
 All template paths in one place: **[SETUP.md — BYO automation templates](SETUP.md#byo-automation-templates)**.
 
+### Daily refresh: pick one cadence path
+
+Once you've saved a resume on the **Profile & Companies** tab and run
+**Discover companies** at least once (with _Persist_ checked so the worker
+stores the inferred profile), pick one of three ways to keep the company
+shortlist fresh. All three POST `{mode:"refresh"}` to the worker's
+`/discovery-profile` endpoint — the worker replays the stored profile
+against Gemini and dedupes against the per-sheet `negativeCompanyKeys`
+list, so companies you've skipped never re-appear.
+
+**A — Browser tab only (zero infra).** In **Settings → Profile &
+Companies**, enable **Auto-refresh while this tab is open** and pick
+6h / 12h / 24h. State is stored in `localStorage`, so returning to the
+tab resumes the schedule at the right offset. Closing the tab pauses
+the schedule. No Cloudflare account, no cron, nothing to install.
+
+**B — Local daily fire via macOS launchd (laptop on, dashboard closed).**
+
+```bash
+npm run schedule:install-local
+# or customise: npm run schedule:install-local -- --hour 7 --minute 30
+```
+
+Writes `~/Library/LaunchAgents/com.jobbored.refresh.plist` and loads it.
+At the configured local time, launchd fires a `curl` against the local
+worker on `http://127.0.0.1:8644/discovery-profile`. The worker
+(`npm run discovery:worker:start-local`) must be running when the agent
+fires. Remove later with `npm run schedule:uninstall-local`.
+
+Linux equivalent — add this line to your crontab (`crontab -e`):
+
+```
+0 8 * * * /usr/bin/curl -sS --max-time 600 -X POST -H "content-type: application/json" -H "x-discovery-secret: $BROWSER_USE_DISCOVERY_WEBHOOK_SECRET" -d '{"event":"discovery.profile.request","schemaVersion":1,"mode":"refresh"}' http://127.0.0.1:8644/discovery-profile >> ~/.jobbored-refresh.log 2>&1
+```
+
+**C — 24/7 refresh via Cloudflare Cron (laptop can be off).**
+
+```bash
+npm run cloudflare-relay:deploy -- \
+  --target-url "https://your-public-worker-ingress.example/webhook" \
+  --sheet-id  "YOUR_SHEET_ID" \
+  --discovery-secret "$BROWSER_USE_DISCOVERY_WEBHOOK_SECRET" \
+  --cron "0 8 * * *"
+```
+
+Requires a [free Cloudflare account](https://dash.cloudflare.com/sign-up)
+and [Wrangler](https://developers.cloudflare.com/workers/wrangler/install-and-update/).
+The deploy helper uploads `TARGET_URL`, `DISCOVERY_SECRET`, and (when
+`--sheet-id` is provided) `REFRESH_SHEET_ID` as Worker secrets, and
+writes the `--cron` expression into `triggers.crons` on the generated
+`wrangler.json`. The Worker's `scheduled()` handler POSTs
+`{mode:"refresh"}` to `<TARGET_URL origin>/discovery-profile` at each
+fire.
+
+**Rotating `TARGET_URL` when your tunnel rotates.** If you use ngrok (or
+any tunnel that cycles URLs), re-run the deploy with the new URL:
+
+```bash
+npm run cloudflare-relay:deploy -- --target-url "https://<new-tunnel>.ngrok-free.app/webhook" --sheet-id "YOUR_SHEET_ID"
+```
+
+The helper keeps the same Worker name, so the workers.dev URL you pasted
+into Command Center is unchanged — only the upstream secret gets rotated.
+
 ## How it works
 
 ```
