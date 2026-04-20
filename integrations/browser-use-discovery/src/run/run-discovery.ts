@@ -2294,11 +2294,24 @@ function classifyFailureReason(
   }
 
   // 6. Weak browser seed quality: browser-only run had candidates but none became scorable
+  //    Guard against operational failures — if the browser lane's upstream was
+  //    unavailable (browser-use manager missing) or the grounded-search call
+  //    itself errored, this is NOT a seed-quality problem. Let those runs fall
+  //    through to `unknown` so the warning summary surfaces the real cause.
+  const browserOperationalFailure = warnings.some(
+    (w) =>
+      w.includes("Grounded web source is enabled but the Browser Use session manager is unavailable") ||
+      w.includes("Grounded search upstream failure") ||
+      w.includes("Grounded web discovery timed out") ||
+      w.includes("Gemini grounded search request failed") ||
+      w.includes("Gemini grounded search HTTP"),
+  );
   if (
     effectiveSources.length > 0 &&
     effectiveSources.every((sourceId) => sourceId === "grounded_web") &&
     loopCounters.browserScoutCount > 0 &&
-    loopCounters.scoredSurfaces === 0
+    loopCounters.scoredSurfaces === 0 &&
+    !browserOperationalFailure
   ) {
     return {
       reasonCode: "weak_browser_seed_quality",

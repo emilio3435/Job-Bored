@@ -1619,6 +1619,7 @@ async function preflightGroundedCandidate(input: {
     if (!response.ok) {
       return rejectGroundedPreflight({
         url: requestedUrl,
+        requestedUrl: finalUrl,
         reason: `Strict preflight rejected ${requestedUrl}: HTTP ${response.status} at ${finalUrl}.`,
         recordDeadLink: input.recordDeadLink,
         now: input.now,
@@ -1627,6 +1628,7 @@ async function preflightGroundedCandidate(input: {
     if (finalPolicy !== "extractable") {
       return rejectGroundedPreflight({
         url: requestedUrl,
+        requestedUrl: finalUrl,
         reason: `Strict preflight rejected ${requestedUrl}: final URL ${finalUrl} resolved to ${finalPolicy}.`,
         recordDeadLink: input.recordDeadLink,
         now: input.now,
@@ -1637,6 +1639,7 @@ async function preflightGroundedCandidate(input: {
     if (contentType && !/(html|text\/plain|json)/i.test(contentType)) {
       return rejectGroundedPreflight({
         url: requestedUrl,
+        requestedUrl: finalUrl,
         reason: `Strict preflight rejected ${requestedUrl}: unsupported content-type "${contentType}" at ${finalUrl}.`,
         recordDeadLink: input.recordDeadLink,
         now: input.now,
@@ -1654,6 +1657,7 @@ async function preflightGroundedCandidate(input: {
     if (rejectionReason) {
       return rejectGroundedPreflight({
         url: requestedUrl,
+        requestedUrl: finalUrl,
         reason: rejectionReason,
         recordDeadLink: input.recordDeadLink,
         now: input.now,
