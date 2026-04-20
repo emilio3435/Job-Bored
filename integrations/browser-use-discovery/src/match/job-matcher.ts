@@ -497,22 +497,31 @@ function decideMatch(input: {
   negativeScore: number;
   overallScore: number;
 }): MatchDecision["decision"] {
+  // Hybrid gate — only hard garbage rejects. Anything plausible becomes either
+  // "accept" (high-confidence good match) or "uncertain" (marginal but worth
+  // surfacing). The downstream pipeline writes both to the sheet with the
+  // overallScore in a "Match Score" column so the user can sort/filter in-
+  // sheet instead of having the matcher silently discard borderline jobs.
   if (input.hardRejectReason) return "reject";
-  if (input.negativeScore <= 0.1) return "reject";
-  if (input.roleScore < 0.2) return "reject";
-  if (input.remoteScore < 0.15) return "reject";
-  if (input.locationScore < 0.15) return "reject";
+  // Extreme-negative content (explicit excluded keywords matched heavily)
+  if (input.negativeScore <= 0.05) return "reject";
+  // Completely-unrelated role. <= 0.1 catches the scoreRoleAlignment "no
+  // match found" baseline (exactly 0.1) in addition to any weaker signal.
+  if (input.roleScore <= 0.1) return "reject";
+  // Absolute trash overall
+  if (input.overallScore < 0.2) return "reject";
+  // High-confidence accept (kept strict so "accept" means something)
   if (
-    input.overallScore >= 0.72 &&
-    input.roleScore >= 0.65 &&
-    input.locationScore >= 0.45 &&
-    input.remoteScore >= 0.45 &&
-    input.negativeScore >= 0.45
+    input.overallScore >= 0.6 &&
+    input.roleScore >= 0.5 &&
+    input.locationScore >= 0.35 &&
+    input.remoteScore >= 0.35 &&
+    input.negativeScore >= 0.35
   ) {
     return "accept";
   }
-  if (input.overallScore < 0.45) return "reject";
-  if (input.roleScore < 0.45) return "reject";
+  // Everything else: uncertain → still surfaced to the sheet, with the score
+  // for the user to triage.
   return "uncertain";
 }
 

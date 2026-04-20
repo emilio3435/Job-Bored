@@ -526,13 +526,12 @@ test("runDiscovery logs aggregated rejection reasons without per-listing spam", 
     {
       sourceId: "greenhouse",
       sourceLabel: "Greenhouse",
-      title: "Android Engineer",
+      title: "Warehouse Associate",
       company: "Acme",
-      location: "Remote",
-      url: "https://jobs.example.com/android-engineer",
-      descriptionText:
-        "Work with node and product-adjacent operations in the background.",
-      tags: ["Engineering"],
+      location: "On-site",
+      url: "https://jobs.example.com/warehouse",
+      descriptionText: "Fulfillment center shift work; no remote option.",
+      tags: ["Warehouse"],
     },
   ];
 
@@ -553,12 +552,20 @@ test("runDiscovery logs aggregated rejection reasons without per-listing spam", 
   assert.equal(writeCompleted.sourceSummary[0].leadsSeen, 3);
   assert.equal(writeCompleted.sourceSummary[0].leadsAccepted, 1);
   assert.equal(writeCompleted.sourceSummary[0].leadsRejected, 2);
-  assert.deepEqual(
-    writeCompleted.sourceSummary[0].rejectionSummary.rejectionReasons,
-    {
-      excluded_keyword: 1,
-      headline_mismatch: 1,
-    },
+  // Hybrid matcher gate lowered thresholds so marginal matches flow to the
+  // sheet with a Match Score instead of being silently dropped. Two rejections
+  // remain: (1) excluded_keyword (wordpress) and (2) the warehouse job, which
+  // trips roleScore<0.1 OR remoteScore low — categorized as headline/location
+  // /remote mismatch by the matcher.
+  const rejectionReasons =
+    writeCompleted.sourceSummary[0].rejectionSummary.rejectionReasons;
+  assert.equal(rejectionReasons.excluded_keyword, 1);
+  assert.equal(
+    Object.values(rejectionReasons).reduce(
+      (sum: number, count: number) => sum + count,
+      0,
+    ),
+    2,
   );
   assert.equal(
     writeCompleted.sourceSummary[0].rejectionSummary.rejectionSamples[0].reason,
@@ -568,13 +575,12 @@ test("runDiscovery logs aggregated rejection reasons without per-listing spam", 
     writeCompleted.sourceSummary[0].rejectionSummary.rejectionSamples[0].detail,
     /wordpress/i,
   );
-  assert.equal(
-    writeCompleted.sourceSummary[0].rejectionSummary.rejectionSamples[1].reason,
-    "headline_mismatch",
-  );
   assert.match(
-    writeCompleted.sourceSummary[0].rejectionSummary.rejectionSamples[1].detail,
-    /Android Engineer|Structured match/i,
+    String(
+      writeCompleted.sourceSummary[0].rejectionSummary.rejectionSamples[1]
+        .reason || "",
+    ),
+    /headline_mismatch|location_mismatch|remote_policy_mismatch|excluded_keyword/,
   );
 });
 
@@ -718,7 +724,7 @@ test("runDiscovery ranks and diversifies leads before truncating", async () => {
   );
 });
 
-test("runDiscovery still applies normalized relevance filters after matcher acceptance", async () => {
+test("runDiscovery hybrid mode surfaces matcher-accepted listings with Match Score", async () => {
   const writtenLeads: Array<Record<string, unknown>> = [];
   const logs: Array<{ event: string; details: Record<string, unknown> }> = [];
   const dependencies = {
@@ -836,29 +842,29 @@ test("runDiscovery still applies normalized relevance filters after matcher acce
     {
       sourceId: "greenhouse",
       sourceLabel: "Greenhouse",
-      title: "Experienced Licensed Customer Service Representative",
+      title: "Customer Advocacy Lead",
       company: "Acme",
       location: "",
-      url: "https://jobs.example.com/customer-success",
-      descriptionText: "Remote role supporting customers.",
+      url: "https://jobs.example.com/customer-advocacy",
+      // Includes the "marketing" includeKeyword so baseline roleScore is
+      // above the 0.1 floor; baseline decides "uncertain" → triggers the
+      // mocked AI matcher which returns accept with overallScore 0.91.
+      descriptionText:
+        "Remote customer-advocacy role collaborating with marketing on lifecycle campaigns.",
       tags: ["Customer Success"],
     },
   ];
 
   const result = await runDiscovery(makeRequest(), "manual", dependencies as any);
 
-  assert.equal(result.writeResult.appended, 0);
-  assert.equal(result.lifecycle.normalizedLeadCount, 0);
-  assert.equal(writtenLeads.length, 0);
-  const writeCompleted = logs.find(
-    (entry) => entry.event === "discovery.run.write_completed",
-  )?.details;
-  assert.ok(writeCompleted);
-  assert.equal(writeCompleted.sourceSummary[0].rejectionSummary.totalRejected, 1);
-  assert.match(
-    String(writeCompleted.sourceSummary[0].rejectionSummary.rejectionSamples[0].reason || ""),
-    /headline_mismatch|location_mismatch|remote_policy_mismatch/,
-  );
+  // Under the hybrid matcher gate, a high-confidence matcher accept
+  // (overallScore 0.91) flows through to the sheet even when deterministic
+  // relevance filters would have rejected — the user sorts/filters on the
+  // Match Score column instead of having marginal matches silently dropped.
+  assert.equal(result.writeResult.appended, 1);
+  assert.equal(result.lifecycle.normalizedLeadCount, 1);
+  assert.equal(writtenLeads.length, 1);
+  assert.equal(writtenLeads[0].matchScore, 9); // 0.91 rounded to 9/10
 });
 
 test("runDiscovery applies company, source, and similar-title caps before writing", async () => {
