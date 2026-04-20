@@ -371,6 +371,14 @@
       var headers = { "Content-Type": "application/json" };
       if (config.secret) headers["x-discovery-secret"] = config.secret;
 
+      // Surface the resolved endpoint in the console so future misrouting bugs
+      // are one F12-open away from diagnosis.
+      try {
+        console.info("[settings-profile-tab] POST", endpoint);
+      } catch (_) {
+        // console may be unavailable in unusual embeddings
+      }
+
       var res = await fetch(endpoint, {
         method: "POST",
         headers: headers,
@@ -394,7 +402,10 @@
             : "Request failed with HTTP " + res.status + ".";
         var detail =
           data && typeof data.detail === "string" ? " — " + data.detail : "";
-        setError(serverMessage + detail);
+        // Suffix the attempted endpoint so a resolver bug (request landed on
+        // the wrong path) is visible in the UI itself rather than requiring
+        // the user to open DevTools.
+        setError(serverMessage + detail + " [endpoint=" + endpoint + "]");
         return;
       }
 
