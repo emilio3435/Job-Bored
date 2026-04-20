@@ -64,6 +64,12 @@ const defaultStateDatabasePath = join(
   "state",
   "worker-state.sqlite",
 );
+const bundledBrowserUseCommandPath = join(
+  moduleDir,
+  "..",
+  "bin",
+  "browser-use-agent-browser.mjs",
+);
 const defaultRuntimeEnvFilePath = join(moduleDir, "..", ".env");
 const defaultHermesGoogleTokenPath = join(
   homedir(),
@@ -294,12 +300,7 @@ export function loadRuntimeConfig(
   return {
     stateDatabasePath,
     workerConfigPath,
-    browserUseCommand:
-      readFirst(runtimeEnv, [
-        "BROWSER_USE_DISCOVERY_BROWSER_COMMAND",
-        "BROWSER_USE_COMMAND",
-        "DISCOVERY_BROWSER_COMMAND",
-      ]) || "browser-use",
+    browserUseCommand: resolveBrowserUseCommand(runtimeEnv),
     geminiApiKey: readFirst(runtimeEnv, [
       "BROWSER_USE_DISCOVERY_GEMINI_API_KEY",
       "DISCOVERY_GEMINI_API_KEY",
@@ -367,6 +368,24 @@ export function loadRuntimeConfig(
       true,
     ),
   };
+}
+
+export function resolveBrowserUseCommand(
+  env: RuntimeEnv,
+  fileExists: (path: string) => boolean = existsSync,
+): string {
+  const configuredCommand = readFirst(env, [
+    "BROWSER_USE_DISCOVERY_BROWSER_COMMAND",
+    "BROWSER_USE_COMMAND",
+    "DISCOVERY_BROWSER_COMMAND",
+  ]);
+  if (configuredCommand) {
+    return configuredCommand;
+  }
+  if (fileExists(bundledBrowserUseCommandPath)) {
+    return bundledBrowserUseCommandPath;
+  }
+  return "browser-use";
 }
 
 function mergeRuntimeEnvWithDotEnv(env: RuntimeEnv): RuntimeEnv {
