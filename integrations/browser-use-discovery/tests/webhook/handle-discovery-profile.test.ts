@@ -373,3 +373,115 @@ test("POST /discovery-profile returns 502 when company discovery throws", async 
   assert.equal(response.status, 502);
   assert.match(response.body, /Company discovery failed/);
 });
+
+test("POST /discovery-profile mode:status returns snapshot from stored config", async () => {
+  const storedConfig = {
+    sheetId: "sheet_abc123",
+    mode: "hosted" as const,
+    timezone: "UTC",
+    companies: [
+      { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+      { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+    ],
+    atsCompanies: [],
+    includeKeywords: [],
+    excludeKeywords: [],
+    targetRoles: [],
+    locations: [],
+    remotePolicy: "",
+    seniority: "",
+    maxLeadsPerRun: 25,
+    enabledSources: ["grounded_web"],
+    schedule: { enabled: false, cron: "" },
+    candidateProfile: {
+      resumeText: "x".repeat(1847),
+      form: { targetRoles: "PM", skills: "SQL", seniority: "senior" },
+      updatedAt: "2026-04-15T10:00:00.000Z",
+    },
+    negativeCompanyKeys: ["acme", "beta", "gamma"],
+    lastRefreshAt: { at: "2026-04-20T08:00:00.000Z", source: "refresh" as const },
+  } as StoredWorkerConfig;
+
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        mode: "status",
+        sheetId: "sheet_abc123",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      loadStoredWorkerConfig: async () => storedConfig,
+      // Gemini deps intentionally omitted — mode:status must not invoke them.
+    },
+  );
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.deepEqual(body.status, {
+    hasStoredProfile: true,
+    resumeTextLength: 1847,
+    formFieldCount: 3,
+    profileUpdatedAt: "2026-04-15T10:00:00.000Z",
+    companyCount: 2,
+    negativeCompanyCount: 3,
+    lastRefreshAt: "2026-04-20T08:00:00.000Z",
+    lastRefreshSource: "refresh",
+  });
+});
+
+test("POST /discovery-profile mode:status returns empty snapshot when no stored profile", async () => {
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        mode: "status",
+        sheetId: "sheet_fresh",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      loadStoredWorkerConfig: async () => null,
+    },
+  );
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.deepEqual(body.status, {
+    hasStoredProfile: false,
+    resumeTextLength: 0,
+    formFieldCount: 0,
+    profileUpdatedAt: null,
+    companyCount: 0,
+    negativeCompanyCount: 0,
+    lastRefreshAt: null,
+    lastRefreshSource: null,
+  });
+});
+
+test("POST /discovery-profile mode:status requires sheetId", async () => {
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        mode: "status",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      loadStoredWorkerConfig: async () => null,
+    },
+  );
+  assert.equal(response.status, 400);
+  assert.match(response.body, /sheetId is required/);
+});

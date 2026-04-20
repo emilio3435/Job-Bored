@@ -12,10 +12,14 @@
   var DISCOVERY_PROFILE_EVENT = "discovery.profile.request";
   var DISCOVERY_PROFILE_SCHEMA_VERSION = 1;
   var RUN_TIMEOUT_MS = 90_000;
+  var AUTO_REFRESH_STORAGE_KEY = "settings_profile_auto_refresh";
+  var AUTO_REFRESH_VALID_HOURS = [6, 12, 24];
 
   var els = {};
   var bound = false;
   var runInFlight = false;
+  var autoRefreshTimerId = null;
+  var lastStatus = null;
 
   function qs(id) {
     return document.getElementById(id);
@@ -40,6 +44,10 @@
       spinner: qs("settingsProfileSpinner"),
       error: qs("settingsProfileError"),
       results: qs("settingsProfileResults"),
+      statusPanel: qs("settingsProfileStatus"),
+      autoRefreshToggle: qs("settingsProfileAutoRefreshToggle"),
+      autoRefreshCadence: qs("settingsProfileAutoRefreshCadence"),
+      autoRefreshHint: qs("settingsProfileAutoRefreshHint"),
     };
   }
 
@@ -436,6 +444,7 @@
       }
 
       renderResults(data);
+      refreshStatusPanel();
     } catch (err) {
       if (err && err.name === "AbortError") {
         setError(
@@ -532,6 +541,7 @@
         return;
       }
       renderResults(data);
+      refreshStatusPanel();
     } catch (err) {
       if (err && err.name === "AbortError") {
         setError(
@@ -581,6 +591,251 @@
     }
   }
 
+  // ── Daily refresh status panel ─────────────────────────────────────
+  // Short-circuit the worker to get a read-only snapshot of stored profile,
+  // negative list, and last-refresh timestamp. Called on tab activation and
+  // after every successful run/refresh so the panel reflects reality without
+  // requiring a page reload.
+
+  function formatRelativeAbsolute(isoDate) {
+    if (!isoDate) return "";
+    try {
+      var d = new Date(isoDate);
+      if (isNaN(d.getTime())) return isoDate;
+      return (
+        d.toLocaleDateString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        }) +
+        " " +
+        d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+      );
+    } catch (_) {
+      return isoDate;
+    }
+  }
+
+  function renderStatusPanel(status) {
+    if (!els.statusPanel) return;
+    if (!status) {
+      els.statusPanel.hidden = true;
+      els.statusPanel.innerHTML = "";
+      return;
+    }
+    var auto = readAutoRefreshState();
+    var storedValue = status.hasStoredProfile
+      ? escapeHtml(
+          status.resumeTextLength.toLocaleString() +
+            " char resume" +
+            (status.profileUpdatedAt
+              ? " · updated " + formatRelativeAbsolute(status.profileUpdatedAt)
+              : ""),
+        )
+      : '<span class="settings-profile-status__value--muted">Not saved yet — run Discover below to store one</span>';
+    var lastRefreshValue = status.lastRefreshAt
+      ? escapeHtml(
+          formatRelativeAbsolute(status.lastRefreshAt) +
+            (status.lastRefreshSource
+              ? " (via " + status.lastRefreshSource + ")"
+              : ""),
+        )
+      : '<span class="settings-profile-status__value--muted">Never</span>';
+    var autoValue = auto.enabled
+      ? escapeHtml("Every " + auto.intervalHours + "h (this tab only)")
+      : '<span class="settings-profile-status__value--muted">Off</span>';
+    var negativeValue = status.negativeCompanyCount
+      ? escapeHtml(status.negativeCompanyCount + " skipped")
+      : '<span class="settings-profile-status__value--muted">None</span>';
+    var companyValue = escapeHtml(String(status.companyCount || 0));
+
+    els.statusPanel.innerHTML =
+      '<div class="settings-profile-status__head">📅 Daily refresh</div>' +
+      '<div class="settings-profile-status__grid">' +
+      '<span class="settings-profile-status__label">Stored profile</span>' +
+      '<span class="settings-profile-status__value">' + storedValue + "</span>" +
+      '<span class="settings-profile-status__label">Companies</span>' +
+      '<span class="settings-profile-status__value">' + companyValue + "</span>" +
+      '<span class="settings-profile-status__label">Auto-refresh</span>' +
+      '<span class="settings-profile-status__value">' + autoValue + "</span>" +
+      '<span class="settings-profile-status__label">Skipped</span>' +
+      '<span class="settings-profile-status__value">' + negativeValue + "</span>" +
+      '<span class="settings-profile-status__label">Last refresh</span>' +
+      '<span class="settings-profile-status__value">' + lastRefreshValue + "</span>" +
+      "</div>";
+    els.statusPanel.hidden = false;
+  }
+
+  async function refreshStatusPanel() {
+    if (!els.statusPanel) return;
+    var config = resolveWebhookConfig();
+    // Require both URL + sheetId; without sheetId the worker rejects status.
+    if (!config.url || !config.sheetId) {
+      renderStatusPanel(null);
+      return;
+    }
+    try {
+      var data = await postProfileEndpoint({ mode: "status" }, 10000);
+      if (data && data.ok === true && data.status) {
+        lastStatus = data.status;
+        renderStatusPanel(lastStatus);
+      }
+    } catch (err) {
+      // Non-fatal — status panel is a convenience. Keep the UI clean.
+      try {
+        console.info(
+          "[settings-profile-tab] status fetch failed:",
+          err && err.message ? err.message : err,
+        );
+      } catch (_) {
+        // ignore
+      }
+    }
+  }
+
+  // ── Auto-refresh while tab is open ────────────────────────────────
+  // Path A of the daily-refresh cadence options. Fires handleRefresh() at
+  // the user-selected cadence (6/12/24h) while the dashboard tab is open.
+  // State persists in localStorage so returning to the tab resumes the
+  // schedule at the correct offset. Idempotent with Cloudflare cron — both
+  // can be enabled; extra fires just overwrite the same company list.
+
+  function readAutoRefreshState() {
+    var fallback = { enabled: false, intervalHours: 12, lastFiredAt: 0 };
+    try {
+      var raw = localStorage.getItem(AUTO_REFRESH_STORAGE_KEY);
+      if (!raw) return fallback;
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return fallback;
+      var hours = Number(parsed.intervalHours);
+      if (!AUTO_REFRESH_VALID_HOURS.includes(hours)) hours = 12;
+      return {
+        enabled: parsed.enabled === true,
+        intervalHours: hours,
+        lastFiredAt:
+          typeof parsed.lastFiredAt === "number" && Number.isFinite(parsed.lastFiredAt)
+            ? parsed.lastFiredAt
+            : 0,
+      };
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  function writeAutoRefreshState(patch) {
+    var current = readAutoRefreshState();
+    var next = Object.assign({}, current, patch || {});
+    if (!AUTO_REFRESH_VALID_HOURS.includes(Number(next.intervalHours))) {
+      next.intervalHours = 12;
+    }
+    try {
+      localStorage.setItem(AUTO_REFRESH_STORAGE_KEY, JSON.stringify(next));
+    } catch (_) {
+      // Private mode / storage full — ignore; auto-refresh becomes session-only.
+    }
+    return next;
+  }
+
+  function applyAutoRefreshUiFromState() {
+    var state = readAutoRefreshState();
+    if (els.autoRefreshToggle) els.autoRefreshToggle.checked = state.enabled;
+    if (els.autoRefreshCadence)
+      els.autoRefreshCadence.value = String(state.intervalHours);
+    updateAutoRefreshHint();
+  }
+
+  function updateAutoRefreshHint() {
+    if (!els.autoRefreshHint) return;
+    var state = readAutoRefreshState();
+    if (!state.enabled) {
+      els.autoRefreshHint.textContent =
+        "Zero-infra cadence. Runs in this browser tab only; closing the tab pauses the schedule.";
+      return;
+    }
+    var intervalMs = state.intervalHours * 3600 * 1000;
+    var nextAt = state.lastFiredAt ? state.lastFiredAt + intervalMs : Date.now();
+    var when = new Date(nextAt);
+    els.autoRefreshHint.textContent =
+      "Enabled. Next fire around " +
+      when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) +
+      ". Closing this tab pauses the schedule.";
+  }
+
+  function clearAutoRefreshTimer() {
+    if (autoRefreshTimerId !== null) {
+      window.clearTimeout(autoRefreshTimerId);
+      autoRefreshTimerId = null;
+    }
+  }
+
+  function scheduleAutoRefresh(delayMs) {
+    clearAutoRefreshTimer();
+    var state = readAutoRefreshState();
+    if (!state.enabled) return;
+    var wait = Math.max(0, Number(delayMs) || 0);
+    autoRefreshTimerId = window.setTimeout(async function () {
+      autoRefreshTimerId = null;
+      // Skip this tick if a run is already in flight; reschedule for the
+      // next interval. Guards against double-firing when the user kicks off
+      // a manual run that overlaps the scheduled fire.
+      if (!runInFlight) {
+        try {
+          await handleRefresh();
+        } catch (_) {
+          // handleRefresh already surfaces errors in the UI; swallow here so
+          // the timer loop keeps running through transient failures.
+        }
+      }
+      writeAutoRefreshState({ lastFiredAt: Date.now() });
+      updateAutoRefreshHint();
+      // After the run completes, refresh the status panel so lastRefreshAt
+      // is reflected in the UI without a page reload.
+      refreshStatusPanel();
+      var current = readAutoRefreshState();
+      if (current.enabled) {
+        scheduleAutoRefresh(current.intervalHours * 3600 * 1000);
+      }
+    }, wait);
+  }
+
+  function initAutoRefresh() {
+    applyAutoRefreshUiFromState();
+    var state = readAutoRefreshState();
+    if (!state.enabled) return;
+    var intervalMs = state.intervalHours * 3600 * 1000;
+    var elapsed = state.lastFiredAt ? Date.now() - state.lastFiredAt : intervalMs;
+    var delay = elapsed >= intervalMs ? 0 : intervalMs - elapsed;
+    scheduleAutoRefresh(delay);
+  }
+
+  function handleAutoRefreshToggleChange() {
+    var enabled = !!(els.autoRefreshToggle && els.autoRefreshToggle.checked);
+    writeAutoRefreshState({ enabled });
+    updateAutoRefreshHint();
+    if (enabled) {
+      var state = readAutoRefreshState();
+      var intervalMs = state.intervalHours * 3600 * 1000;
+      var elapsed = state.lastFiredAt ? Date.now() - state.lastFiredAt : intervalMs;
+      scheduleAutoRefresh(elapsed >= intervalMs ? 0 : intervalMs - elapsed);
+    } else {
+      clearAutoRefreshTimer();
+    }
+    refreshStatusPanel();
+  }
+
+  function handleAutoRefreshCadenceChange() {
+    if (!els.autoRefreshCadence) return;
+    var hours = Number(els.autoRefreshCadence.value);
+    if (!AUTO_REFRESH_VALID_HOURS.includes(hours)) hours = 12;
+    writeAutoRefreshState({ intervalHours: hours });
+    updateAutoRefreshHint();
+    var state = readAutoRefreshState();
+    if (state.enabled) {
+      scheduleAutoRefresh(hours * 3600 * 1000);
+    }
+    refreshStatusPanel();
+  }
+
   function bind() {
     if (bound) return;
     cacheElements();
@@ -589,6 +844,18 @@
     if (els.clearBtn) els.clearBtn.addEventListener("click", handleClearResume);
     els.runBtn.addEventListener("click", handleRun);
     if (els.refreshBtn) els.refreshBtn.addEventListener("click", handleRefresh);
+    if (els.autoRefreshToggle) {
+      els.autoRefreshToggle.addEventListener(
+        "change",
+        handleAutoRefreshToggleChange,
+      );
+    }
+    if (els.autoRefreshCadence) {
+      els.autoRefreshCadence.addEventListener(
+        "change",
+        handleAutoRefreshCadenceChange,
+      );
+    }
     // Delegated click handler for per-company Skip buttons rendered inside
     // els.results. Survives re-renders without needing to re-bind per row.
     if (els.results) {
@@ -603,6 +870,8 @@
         if (key) handleSkipCompany(key, name, target);
       });
     }
+    initAutoRefresh();
+    refreshStatusPanel();
     bound = true;
   }
 
@@ -615,5 +884,6 @@
   window.JobBoredSettingsProfileTab = {
     bind: bind,
     resolveProfileEndpoint: resolveProfileEndpoint,
+    refreshStatusPanel: refreshStatusPanel,
   };
 })();

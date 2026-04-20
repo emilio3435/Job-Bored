@@ -2103,6 +2103,13 @@
                 </button>
               </div>
 
+              <div
+                class="settings-profile-status"
+                id="settingsProfileStatus"
+                hidden
+                aria-live="polite"
+              ></div>
+
               <div class="settings-profile-block">
                 <h5 class="settings-profile-block__title">
                   2. Form (fills gaps the resume misses)
@@ -2234,6 +2241,44 @@
                   role="alert"
                   hidden
                 ></p>
+
+                <div
+                  class="settings-profile-auto-refresh"
+                  role="group"
+                  aria-labelledby="settingsProfileAutoRefreshLabel"
+                >
+                  <label
+                    class="field-label field-label--checkbox"
+                    id="settingsProfileAutoRefreshLabel"
+                  >
+                    <input
+                      type="checkbox"
+                      id="settingsProfileAutoRefreshToggle"
+                    />
+                    Auto-refresh while this tab is open
+                  </label>
+                  <label
+                    class="field-label settings-profile-auto-refresh__cadence"
+                    for="settingsProfileAutoRefreshCadence"
+                  >
+                    <span>Every</span>
+                    <select
+                      id="settingsProfileAutoRefreshCadence"
+                      class="status-select settings-select"
+                    >
+                      <option value="6">6 hours</option>
+                      <option value="12" selected>12 hours</option>
+                      <option value="24">24 hours</option>
+                    </select>
+                  </label>
+                  <p
+                    class="settings-field-hint"
+                    id="settingsProfileAutoRefreshHint"
+                  >
+                    Zero-infra cadence. Runs in this browser tab only;
+                    closing the tab pauses the schedule.
+                  </p>
+                </div>
               </div>
 
               <div
@@ -5273,7 +5318,7 @@ https://your-static-site.example</pre
     <script src="settings-tab-schema.js"></script>
     <script src="settings-tabs.js"></script>
     <script src="settings-discovery-adapters.js"></script>
-    <script src="settings-profile-tab.js?v=3"></script>
+    <script src="settings-profile-tab.js?v=4"></script>
     <script src="app.js"></script>
   </body>
 </html>
