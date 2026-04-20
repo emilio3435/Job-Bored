@@ -701,6 +701,16 @@ export async function discoverCompaniesForProfile(
       ),
     );
 
+    // Honor caller-supplied abort signal: Promise.allSettled hides AbortError
+    // as an ordinary rejected result. If any fan-out attempt failed with an
+    // AbortError, surface it so cancellation propagates consistently with the
+    // first-attempt and thin-retry paths.
+    for (const result of fanoutResults) {
+      if (result.status === "rejected" && isAbortError(result.reason)) {
+        throw result.reason;
+      }
+    }
+
     const fulfilled = fanoutResults.filter(
       (result): result is PromiseFulfilledResult<CompanyDiscoveryAttemptResult> =>
         result.status === "fulfilled",
