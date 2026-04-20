@@ -8,6 +8,7 @@ import {
   loadRuntimeConfig,
   loadStoredWorkerConfig,
   mergeDiscoveryConfig,
+  resolveBrowserUseCommand,
   resolveSourcePreset,
 } from "../../src/config.ts";
 import {
@@ -78,6 +79,31 @@ test("loadRuntimeConfig fails closed for hosted workers without explicit browser
   });
 
   assert.deepEqual(result.allowedOrigins, []);
+});
+
+test("resolveBrowserUseCommand prefers explicit env over bundled fallback", () => {
+  const result = resolveBrowserUseCommand(
+    {
+      BROWSER_USE_DISCOVERY_BROWSER_COMMAND: "custom-browser-use",
+    },
+    () => true,
+  );
+
+  assert.equal(result, "custom-browser-use");
+});
+
+test("resolveBrowserUseCommand uses bundled wrapper when env is unset and script exists", () => {
+  const result = resolveBrowserUseCommand({}, (pathname) =>
+    pathname.endsWith("bin/browser-use-agent-browser.mjs")
+  );
+
+  assert.match(result, /bin\/browser-use-agent-browser\.mjs$/);
+});
+
+test("resolveBrowserUseCommand falls back to browser-use when env is unset and wrapper is absent", () => {
+  const result = resolveBrowserUseCommand({}, () => false);
+
+  assert.equal(result, "browser-use");
 });
 
 test("loadRuntimeConfig loads discovery env file values and lets explicit env win", async () => {

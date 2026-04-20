@@ -113,6 +113,22 @@ const INFORMATIONAL_PAGE_SLUGS = new Set([
 
 export type GroundedCandidateSourcePolicy = CareerSurfaceSourcePolicy;
 
+type GroundedDeadLinkRecord = {
+  url: string;
+  host: string;
+  reason: string;
+  firstSeenAt: string;
+  cooldownUntil: string;
+  reasonCode?: string;
+  httpStatus?: number | null;
+};
+
+type GroundedPreflightRejection = {
+  url: string;
+  reason: string;
+  deadLinkRecorded?: boolean;
+};
+
 const DEFAULT_HINT_RESOLUTION_LIMIT = 2;
 const PRE_FLIGHT_TIMEOUT_MS = 12_000;
 // Vertex AI grounded search returns citations as opaque redirect URLs on
@@ -1055,6 +1071,9 @@ export async function collectGroundedWebListings(input: {
     url: string,
     now?: string,
   ) => Promise<boolean> | boolean;
+  recordDeadLink?: (
+    record: GroundedDeadLinkRecord,
+  ) => Promise<void> | void;
   now?: string;
   abortSignal?: AbortSignal;
 }): Promise<GroundedWebCollectionResult> {
@@ -1185,6 +1204,7 @@ export async function collectGroundedWebListings(input: {
     log: input.log,
     isHostSuppressed: input.isHostSuppressed,
     isDeadLinkCoolingDown: input.isDeadLinkCoolingDown,
+    recordDeadLink: input.recordDeadLink,
     now: input.now,
     abortSignal: input.abortSignal,
   });
@@ -1328,6 +1348,9 @@ async function prepareGroundedSeedCandidates(input: {
     url: string,
     now?: string,
   ) => Promise<boolean> | boolean;
+  recordDeadLink?: (
+    record: GroundedDeadLinkRecord,
+  ) => Promise<void> | void;
   now?: string;
   abortSignal?: AbortSignal;
 }): Promise<GroundedSearchCandidate[]> {
@@ -1446,6 +1469,8 @@ async function prepareGroundedSeedCandidates(input: {
           },
           company: input.company,
           fetchImpl: input.fetchImpl,
+          recordDeadLink: input.recordDeadLink,
+          now: suppressionNow,
           abortSignal: input.abortSignal,
         });
         for (const rejection of approval.rejected) {
@@ -1454,6 +1479,13 @@ async function prepareGroundedSeedCandidates(input: {
             context: rejection.reason,
             url: rejection.url,
           });
+          if (rejection.deadLinkRecorded) {
+            input.diagnostics.push({
+              code: "dead_link_recorded",
+              context: `Recorded dead-link cooldown for ${rejection.url}: ${rejection.reason}`,
+              url: rejection.url,
+            });
+          }
         }
         for (const resolved of approval.resolved) {
           if (!isCanonicalExtractableCandidate(resolved, input.company)) continue;
@@ -1485,6 +1517,8 @@ async function prepareGroundedSeedCandidates(input: {
       candidate,
       company: input.company,
       fetchImpl: input.fetchImpl,
+      recordDeadLink: input.recordDeadLink,
+      now: suppressionNow,
       abortSignal: input.abortSignal,
     });
     for (const rejection of approval.rejected) {
@@ -1493,6 +1527,13 @@ async function prepareGroundedSeedCandidates(input: {
         context: rejection.reason,
         url: rejection.url,
       });
+      if (rejection.deadLinkRecorded) {
+        input.diagnostics.push({
+          code: "dead_link_recorded",
+          context: `Recorded dead-link cooldown for ${rejection.url}: ${rejection.reason}`,
+          url: rejection.url,
+        });
+      }
     }
     for (const resolved of approval.resolved) {
       if (!isCanonicalExtractableCandidate(resolved, input.company)) continue;
@@ -1517,10 +1558,14 @@ async function preflightGroundedCandidate(input: {
   candidate: GroundedSearchCandidate;
   company: CompanyTarget;
   fetchImpl: FetchImpl;
+  recordDeadLink?: (
+    record: GroundedDeadLinkRecord,
+  ) => Promise<void> | void;
+  now?: string;
   abortSignal?: AbortSignal;
 }): Promise<
   | { ok: true; candidate: GroundedSearchCandidate; discoveredCandidates: GroundedSearchCandidate[] }
-  | { ok: false; url: string; reason: string }
+  | ({ ok: false } & GroundedPreflightRejection)
 > {
   let candidate = normalizeGroundedCandidate(input.candidate, input.company);
   // Defensive Vertex unwrap: the top-level pre-pass in prepareGroundedSeedCandidates
@@ -1536,11 +1581,12 @@ async function preflightGroundedCandidate(input: {
       input.abortSignal,
     );
     if (!resolved.ok) {
-      return {
-        ok: false,
+      return rejectGroundedPreflight({
         url: candidate.url,
         reason: `Vertex grounding redirect ${candidate.url} unresolved before preflight: ${resolved.reason}.`,
-      };
+        recordDeadLink: input.recordDeadLink,
+        now: input.now,
+      });
     }
     candidate = normalizeGroundedCandidate(
       {
@@ -1565,27 +1611,30 @@ async function preflightGroundedCandidate(input: {
     const finalUrl = cleanAbsoluteUrl(response.url || requestedUrl) || requestedUrl;
     const finalPolicy = classifySeedSourcePolicy(finalUrl);
     if (!response.ok) {
-      return {
-        ok: false,
+      return rejectGroundedPreflight({
         url: finalUrl,
         reason: `Strict preflight rejected ${requestedUrl}: HTTP ${response.status} at ${finalUrl}.`,
-      };
+        recordDeadLink: input.recordDeadLink,
+        now: input.now,
+      });
     }
     if (finalPolicy !== "extractable") {
-      return {
-        ok: false,
+      return rejectGroundedPreflight({
         url: finalUrl,
         reason: `Strict preflight rejected ${requestedUrl}: final URL ${finalUrl} resolved to ${finalPolicy}.`,
-      };
+        recordDeadLink: input.recordDeadLink,
+        now: input.now,
+      });
     }
 
     const contentType = String(response.headers.get("content-type") || "").toLowerCase();
     if (contentType && !/(html|text\/plain|json)/i.test(contentType)) {
-      return {
-        ok: false,
+      return rejectGroundedPreflight({
         url: finalUrl,
         reason: `Strict preflight rejected ${requestedUrl}: unsupported content-type "${contentType}" at ${finalUrl}.`,
-      };
+        recordDeadLink: input.recordDeadLink,
+        now: input.now,
+      });
     }
 
     const title = extractTitle(text) || cleanText(candidate.title);
@@ -1597,11 +1646,12 @@ async function preflightGroundedCandidate(input: {
       contentType,
     });
     if (rejectionReason) {
-      return {
-        ok: false,
+      return rejectGroundedPreflight({
         url: finalUrl,
         reason: rejectionReason,
-      };
+        recordDeadLink: input.recordDeadLink,
+        now: input.now,
+      });
     }
 
     const approvedCandidate = normalizeGroundedCandidate(
@@ -1661,11 +1711,12 @@ async function preflightGroundedCandidate(input: {
     if (isAbortError(error)) {
       throw error;
     }
-    return {
-      ok: false,
+    return rejectGroundedPreflight({
       url: requestedUrl,
       reason: `Strict preflight rejected ${requestedUrl}: ${formatError(error)}.`,
-    };
+      recordDeadLink: input.recordDeadLink,
+      now: input.now,
+    });
   }
 }
 
@@ -1673,24 +1724,32 @@ async function approveGroundedCandidateSet(input: {
   candidate: GroundedSearchCandidate;
   company: CompanyTarget;
   fetchImpl: FetchImpl;
+  recordDeadLink?: (
+    record: GroundedDeadLinkRecord,
+  ) => Promise<void> | void;
+  now?: string;
   abortSignal?: AbortSignal;
 }): Promise<{
   accepted: GroundedSearchCandidate[];
   resolved: GroundedSearchCandidate[];
-  rejected: Array<{ url: string; reason: string }>;
+  rejected: GroundedPreflightRejection[];
 }> {
   const firstPass = await preflightGroundedCandidate(input);
   if (!firstPass.ok) {
     return {
       accepted: [],
       resolved: [],
-      rejected: [{ url: firstPass.url, reason: firstPass.reason }],
+      rejected: [{
+        url: firstPass.url,
+        reason: firstPass.reason,
+        deadLinkRecorded: firstPass.deadLinkRecorded,
+      }],
     };
   }
 
   const accepted: GroundedSearchCandidate[] = [firstPass.candidate];
   const resolved: GroundedSearchCandidate[] = [];
-  const rejected: Array<{ url: string; reason: string }> = [];
+  const rejected: GroundedPreflightRejection[] = [];
   const seen = new Set<string>([
     firstPass.candidate.finalUrl ||
       firstPass.candidate.canonicalUrl ||
@@ -1710,10 +1769,16 @@ async function approveGroundedCandidateSet(input: {
       candidate: discoveredCandidate,
       company: input.company,
       fetchImpl: input.fetchImpl,
+      recordDeadLink: input.recordDeadLink,
+      now: input.now,
       abortSignal: input.abortSignal,
     });
     if (!followUp.ok) {
-      rejected.push({ url: followUp.url, reason: followUp.reason });
+      rejected.push({
+        url: followUp.url,
+        reason: followUp.reason,
+        deadLinkRecorded: followUp.deadLinkRecorded,
+      });
       continue;
     }
     accepted.push(followUp.candidate);
@@ -1725,6 +1790,90 @@ async function approveGroundedCandidateSet(input: {
     resolved: mergeGroundedCandidates(resolved, [], input.company, resolved.length || 1),
     rejected,
   };
+}
+
+async function rejectGroundedPreflight(input: {
+  url: string;
+  reason: string;
+  recordDeadLink?: (
+    record: GroundedDeadLinkRecord,
+  ) => Promise<void> | void;
+  now?: string;
+}): Promise<{ ok: false } & GroundedPreflightRejection> {
+  return {
+    ok: false,
+    url: input.url,
+    reason: input.reason,
+    deadLinkRecorded: await maybeRecordGroundedDeadLink(input),
+  };
+}
+
+async function maybeRecordGroundedDeadLink(input: {
+  url: string;
+  reason: string;
+  recordDeadLink?: (
+    record: GroundedDeadLinkRecord,
+  ) => Promise<void> | void;
+  now?: string;
+}): Promise<boolean> {
+  if (!input.recordDeadLink || !isTerminalDeadLinkReason(input.reason)) {
+    return false;
+  }
+
+  const firstSeenAt = input.now || new Date().toISOString();
+  const cooldownUntil = addDaysToIsoTimestamp(firstSeenAt, 7);
+  const deadLinkReason = classifyGroundedDeadLinkReason(input.reason);
+  try {
+    await input.recordDeadLink({
+      url: input.url,
+      host: safeHostname(input.url),
+      reason: input.reason,
+      firstSeenAt,
+      cooldownUntil,
+      reasonCode: deadLinkReason.reasonCode,
+      httpStatus: deadLinkReason.httpStatus,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isTerminalDeadLinkReason(reason: string): boolean {
+  const normalized = reason.toLowerCase();
+  return (
+    normalized.includes("http 403") ||
+    normalized.includes("http 404") ||
+    normalized.includes("http 410") ||
+    normalized.includes("broken or expired") ||
+    normalized.includes("login wall")
+  );
+}
+
+function classifyGroundedDeadLinkReason(reason: string): {
+  reasonCode: string;
+  httpStatus: number | null;
+} {
+  const normalized = reason.toLowerCase();
+  if (normalized.includes("http 403")) {
+    return { reasonCode: "http_403", httpStatus: 403 };
+  }
+  if (normalized.includes("http 404")) {
+    return { reasonCode: "http_404", httpStatus: 404 };
+  }
+  if (normalized.includes("http 410")) {
+    return { reasonCode: "http_410", httpStatus: 410 };
+  }
+  if (normalized.includes("login wall")) {
+    return { reasonCode: "login_wall", httpStatus: null };
+  }
+  return { reasonCode: "broken_or_expired", httpStatus: null };
+}
+
+function addDaysToIsoTimestamp(isoTimestamp: string, days: number): string {
+  const parsed = new Date(isoTimestamp).getTime();
+  const safeTime = Number.isFinite(parsed) ? parsed : Date.now();
+  return new Date(safeTime + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 export function isVertexGroundingRedirect(url: string): boolean {

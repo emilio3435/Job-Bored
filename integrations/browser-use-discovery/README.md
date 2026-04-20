@@ -30,7 +30,7 @@ Environment variables:
 - `BROWSER_USE_DISCOVERY_ASYNC_ACK`: `true` by default
 - `BROWSER_USE_DISCOVERY_CONFIG_PATH`: path to worker config JSON
 - `BROWSER_USE_DISCOVERY_STATE_DB_PATH`: path to the worker state database
-- `BROWSER_USE_DISCOVERY_BROWSER_COMMAND`: optional browser automation command; local development can use `integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs`, and when unset or failing adapters fall back to direct fetch
+- `BROWSER_USE_DISCOVERY_BROWSER_COMMAND`: optional browser automation command; when unset, the worker first tries the bundled `integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs` wrapper if it exists, then falls back to plain `browser-use`, and finally falls back to direct fetch on command failure
 - `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`: optional Gemini key for grounded Google Search expansion
 - `BROWSER_USE_DISCOVERY_GEMINI_MODEL`: Gemini model for grounded search, defaults to `gemini-2.5-flash`
 - `BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_RESULTS_PER_COMPANY`: candidate links to keep per company, defaults to `6`
@@ -123,8 +123,10 @@ node --experimental-strip-types integrations/browser-use-discovery/src/server.ts
 ```
 
 The bundled `browser-use-agent-browser.mjs` adapter wraps the local `agent-browser`
-CLI and speaks the worker's JSON-over-stdin/stdout contract. It looks for
-`agent-browser` on `PATH`, `AGENT_BROWSER_PATH`, or the local default install at
+CLI and speaks the worker's JSON-over-stdin/stdout contract. When
+`BROWSER_USE_DISCOVERY_BROWSER_COMMAND` is unset, the runtime now auto-selects
+this bundled wrapper if the file exists. The wrapper looks for `agent-browser`
+on `PATH`, `AGENT_BROWSER_PATH`, or the local default install at
 `~/.factory/tools/agent-browser/bin/agent-browser`.
 
 Health check:
