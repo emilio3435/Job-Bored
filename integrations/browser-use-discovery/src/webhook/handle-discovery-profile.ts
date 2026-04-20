@@ -101,10 +101,46 @@ function parseRequest(bodyText: string):
   }
   const resumeText =
     typeof record.resumeText === "string" ? record.resumeText : "";
-  const form =
+  const rawForm =
     record.form && typeof record.form === "object" && !Array.isArray(record.form)
-      ? (record.form as ProfileFormInput)
+      ? (record.form as Record<string, unknown>)
       : undefined;
+  // Validate form field types: all ProfileFormInput fields are strings except
+  // yearsOfExperience (number|string). Reject arrays/objects/bools so they
+  // can't end up stringified as "[object Object]" inside the Gemini prompt
+  // (codex-challenge finding E-5).
+  let form: ProfileFormInput | undefined;
+  if (rawForm) {
+    const stringFields = [
+      "targetRoles",
+      "skills",
+      "seniority",
+      "locations",
+      "remotePolicy",
+      "industries",
+    ] as const;
+    for (const field of stringFields) {
+      const value = rawForm[field];
+      if (value !== undefined && typeof value !== "string") {
+        return {
+          ok: false,
+          message: `form.${field} must be a string when present.`,
+        };
+      }
+    }
+    const yoeRaw = rawForm.yearsOfExperience;
+    if (
+      yoeRaw !== undefined &&
+      typeof yoeRaw !== "number" &&
+      typeof yoeRaw !== "string"
+    ) {
+      return {
+        ok: false,
+        message: "form.yearsOfExperience must be a number or numeric string when present.",
+      };
+    }
+    form = rawForm as ProfileFormInput;
+  }
   if (!resumeText.trim() && !hasAnyFormField(form)) {
     return {
       ok: false,
@@ -258,10 +294,23 @@ export async function handleDiscoveryProfileWebhook(
         companyCount: companies.length,
       });
     } else {
+      // Strip profile-derived tags before persisting. `companies` is durable
+      // public state (written to the worker-config JSON / sheet-anchored
+      // config); roleTags/geoTags are inferred from the candidate's profile
+      // and constitute intent PII. The in-memory response still carries the
+      // full company shape for the caller's preview.
+      const persistedCompanies = companies.map((company) => {
+        const {
+          roleTags: _roleTags,
+          geoTags: _geoTags,
+          ...rest
+        } = company;
+        return rest;
+      });
       try {
         await dependencies.upsertStoredWorkerConfig(dependencies.runtimeConfig, {
           sheetId: String(targetSheetId),
-          mutations: { companies },
+          mutations: { companies: persistedCompanies },
         });
         persisted = true;
         dependencies.log?.("discovery.profile.persisted", {
