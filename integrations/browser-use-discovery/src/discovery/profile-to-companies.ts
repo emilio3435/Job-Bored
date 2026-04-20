@@ -264,9 +264,13 @@ export async function extractCandidateProfile(
   const hasResume = typeof input.resumeText === "string" && input.resumeText.trim().length > 0;
   const hasForm =
     !!input.form &&
-    Object.values(input.form).some(
-      (value) => typeof value === "string" && value.trim() !== "",
-    );
+    Object.values(input.form).some((value) => {
+      if (typeof value === "string") return value.trim() !== "";
+      // yearsOfExperience can arrive as a finite number from the UI; counts
+      // as a filled form field. Mirrors the tolerance in handleDiscoveryProfileWebhook.
+      if (typeof value === "number") return Number.isFinite(value);
+      return false;
+    });
   if (!hasResume && !hasForm) {
     throw new Error(
       "extractCandidateProfile: at least one of resumeText or form must be non-blank.",
@@ -464,7 +468,14 @@ type CompanyDiscoveryAttemptResult = {
   callACompanyCount: number;
   callADurationMs: number;
   callBDurationMs: number;
+  callBFailed: boolean;
 };
+
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const name = (error as { name?: unknown }).name;
+  return name === "AbortError";
+}
 
 async function runCompanyDiscoveryAttempt(input: {
   profile: CandidateProfile;
@@ -544,18 +555,31 @@ async function runCompanyDiscoveryAttempt(input: {
   };
 
   const callBStartedAt = Date.now();
-  const callBPayload = await callGemini({
-    endpoint: input.endpoint,
-    apiKey: input.apiKey,
-    fetchImpl: input.fetchImpl,
-    body: callBBody,
-    signal: input.signal,
-  });
-  const callBDurationMs = Date.now() - callBStartedAt;
-  const callBText = extractGenerationText(callBPayload);
-  const callBCompanies = normalizeCompanyList(parseFirstJsonBlock(callBText), {
-    maxResults: input.maxResults,
-  });
+  let callBCompanies: CompanyTarget[] = [];
+  let callBDurationMs = 0;
+  let callBFailed = false;
+  try {
+    const callBPayload = await callGemini({
+      endpoint: input.endpoint,
+      apiKey: input.apiKey,
+      fetchImpl: input.fetchImpl,
+      body: callBBody,
+      signal: input.signal,
+    });
+    callBDurationMs = Date.now() - callBStartedAt;
+    const callBText = extractGenerationText(callBPayload);
+    callBCompanies = normalizeCompanyList(parseFirstJsonBlock(callBText), {
+      maxResults: input.maxResults,
+    });
+  } catch (error) {
+    callBDurationMs = Date.now() - callBStartedAt;
+    callBFailed = true;
+    // Call B (the structuring pass) is purely a quality-uplift over Call A's
+    // grounded output. Transient failures (429/5xx, schema mismatch, abort)
+    // must not abort the whole attempt when Call A already produced a usable
+    // company list — fall back to Call A alone.
+    if (isAbortError(error)) throw error;
+  }
 
   return {
     companies: mergeCompanyLists([callACompanies, callBCompanies], {
@@ -564,6 +588,7 @@ async function runCompanyDiscoveryAttempt(input: {
     callACompanyCount: callACompanies.length,
     callADurationMs,
     callBDurationMs,
+    callBFailed,
   };
 }
 

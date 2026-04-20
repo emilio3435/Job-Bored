@@ -383,12 +383,12 @@ export function resolveBrowserUseCommand(
   if (configuredCommand) {
     return configuredCommand;
   }
-  // Preserve the "explicit empty -> fetch-only" escape hatch: if any of the
-  // env keys is set (even to an empty string), honor that as an opt-out from
-  // the bundled fallback. Only fall back when none of the keys are present.
-  if (keys.some((key) => Object.prototype.hasOwnProperty.call(env, key))) {
-    return "";
-  }
+  // Empty / unset → auto-mode: prefer the bundled wrapper if it exists, else
+  // fall back to the PATH-resolved "browser-use" binary. The previous
+  // hasOwnProperty escape hatch treated a literal empty env value (e.g. the
+  // shipped `BROWSER_USE_DISCOVERY_BROWSER_COMMAND=` in .env.example) as an
+  // explicit fetch-only opt-out, which silently disabled browser automation
+  // for every user of the default config.
   if (fileExists(bundledBrowserUseCommandPath)) {
     return bundledBrowserUseCommandPath;
   }
