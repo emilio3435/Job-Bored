@@ -1492,6 +1492,12 @@ async function processSingleCompany(
       groundedSearchClient: dependencies.groundedSearchClient!,
       sessionManager: dependencies.browserSessionManager!,
       budgetTracker,
+      // Forward the lifecycle log so diagnostic events emitted from inside
+      // collectGroundedWebListings (prose-recovery, structured-extraction,
+      // preflight dead-link records, seed preparation) actually reach the
+      // worker's stdout. Previously log was omitted, which silently swallowed
+      // every grounded-web diagnostic.
+      log: dependencies.log,
       isDeadLinkCoolingDown: dependencies.discoveryMemoryStore?.isDeadLinkCoolingDown
         ? (url, now) =>
             dependencies.discoveryMemoryStore!.isDeadLinkCoolingDown!(url, now)

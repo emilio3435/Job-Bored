@@ -407,7 +407,7 @@ test("VAL-API-001: ats_only resolves legacy groundedSearchTuning defaults when o
   // ats_only should use legacy defaults
   assert.equal(result.groundedSearchTuning.maxResultsPerCompany, 6, "maxResultsPerCompany should be 6 for ats_only");
   assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 4, "maxPagesPerCompany should be 4 for ats_only");
-  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 30000, "maxRuntimeMs should be 30000 for ats_only");
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 90000, "maxRuntimeMs should be 90000 for ats_only");
   assert.equal(result.groundedSearchTuning.maxTokensPerQuery, 2048, "maxTokensPerQuery should be 2048 for ats_only");
 });
 
