@@ -647,11 +647,17 @@ export async function discoverCompaniesForProfile(
   }
 
   const uniqueIndustries = dedupeCaseInsensitive(profile.industries || []);
-  if (companies.length < minimumAcceptable && uniqueIndustries.length > 0) {
+  // Cap the fan-out breadth: each industry triggers two Gemini calls, so an
+  // unbounded industries list on the thin-result path can fire dozens of
+  // parallel requests and hit timeouts/rate-limits on exactly the recovery
+  // path we are trying to keep cheap.
+  const FANOUT_INDUSTRY_CAP = 4;
+  const fanoutIndustries = uniqueIndustries.slice(0, FANOUT_INDUSTRY_CAP);
+  if (companies.length < minimumAcceptable && fanoutIndustries.length > 0) {
     fanoutUsed = true;
     const fanoutStartedAt = Date.now();
     const fanoutResults = await Promise.allSettled(
-      uniqueIndustries.map((industry) =>
+      fanoutIndustries.map((industry) =>
         runCompanyDiscoveryAttempt({
           profile,
           endpoint,
@@ -686,6 +692,7 @@ export async function discoverCompaniesForProfile(
       beforeCount: companies.length,
       afterCount: mergedCompanies.length,
       industryCount: uniqueIndustries.length,
+      fannedOutCount: fanoutIndustries.length,
       fulfilledCount: fulfilled.length,
       rejectedCount: fanoutResults.length - fulfilled.length,
       addedCount: Math.max(0, mergedCompanies.length - companies.length),
