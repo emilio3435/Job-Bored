@@ -1496,6 +1496,18 @@
               type="button"
               role="tab"
               class="settings-tablist__btn"
+              id="settings-tab-profile"
+              data-tab-id="profile"
+              aria-controls="settings-panel-profile"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              Profile
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="settings-tablist__btn"
               id="settings-tab-scraping"
               data-tab-id="scraping"
               aria-controls="settings-panel-scraping"
@@ -2035,6 +2047,193 @@
                   </p>
                 </div>
               </details>
+            </div>
+
+            <!-- ── Profile tab (Feature B / Layer 5) ───────────────── -->
+            <div
+              role="tabpanel"
+              id="settings-panel-profile"
+              class="settings-tab-panel"
+              aria-labelledby="settings-tab-profile"
+              hidden
+            >
+              <h4 class="settings-tab-panel__title">Profile-driven discovery</h4>
+              <p class="settings-tab-panel__lede">
+                Drop your resume or fill the form, and the worker infers a
+                shortlist of companies to target. Resume text stays in this
+                browser — only extracted plain text is sent over the wire, and
+                it is never persisted server-side.
+              </p>
+
+              <div class="settings-profile-block">
+                <h5 class="settings-profile-block__title">1. Resume (optional)</h5>
+                <input
+                  type="file"
+                  id="settingsProfileResumeFile"
+                  class="settings-profile-file"
+                  accept=".pdf,.docx,.doc,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                />
+                <p
+                  class="settings-field-hint settings-field-hint--compact"
+                  id="settingsProfileResumeStatus"
+                  role="status"
+                  aria-live="polite"
+                >
+                  PDF, DOCX, or plain text. Extracted client-side; the file
+                  itself never leaves your browser.
+                </p>
+                <label
+                  class="field-label"
+                  for="settingsProfileResumeText"
+                  >Extracted text (editable)</label
+                >
+                <textarea
+                  id="settingsProfileResumeText"
+                  class="modal-input settings-profile-textarea"
+                  rows="6"
+                  placeholder="Paste resume text here, or upload a file above."
+                  spellcheck="false"
+                ></textarea>
+                <button
+                  type="button"
+                  id="settingsProfileResumeClear"
+                  class="btn-modal-secondary settings-profile-clear-btn"
+                >
+                  Clear resume text
+                </button>
+              </div>
+
+              <div class="settings-profile-block">
+                <h5 class="settings-profile-block__title">
+                  2. Form (fills gaps the resume misses)
+                </h5>
+
+                <label class="field-label" for="settingsProfileFormTargetRoles"
+                  >Target roles</label
+                >
+                <input
+                  type="text"
+                  id="settingsProfileFormTargetRoles"
+                  class="modal-input"
+                  placeholder="Senior Product Manager, Staff PM"
+                  autocomplete="off"
+                />
+
+                <label class="field-label" for="settingsProfileFormSkills"
+                  >Skills</label
+                >
+                <input
+                  type="text"
+                  id="settingsProfileFormSkills"
+                  class="modal-input"
+                  placeholder="Roadmapping, SQL, Figma"
+                  autocomplete="off"
+                />
+
+                <label class="field-label" for="settingsProfileFormSeniority"
+                  >Seniority</label
+                >
+                <select
+                  id="settingsProfileFormSeniority"
+                  class="status-select settings-select"
+                >
+                  <option value="">— unspecified —</option>
+                  <option value="junior">Junior</option>
+                  <option value="mid">Mid</option>
+                  <option value="senior">Senior</option>
+                  <option value="staff">Staff</option>
+                  <option value="principal">Principal</option>
+                  <option value="director">Director</option>
+                  <option value="vp">VP</option>
+                </select>
+
+                <label class="field-label" for="settingsProfileFormYears"
+                  >Years of experience</label
+                >
+                <input
+                  type="number"
+                  id="settingsProfileFormYears"
+                  class="modal-input"
+                  min="0"
+                  max="60"
+                  step="1"
+                  inputmode="numeric"
+                  placeholder="e.g. 8"
+                  autocomplete="off"
+                />
+
+                <label class="field-label" for="settingsProfileFormLocations"
+                  >Locations</label
+                >
+                <input
+                  type="text"
+                  id="settingsProfileFormLocations"
+                  class="modal-input"
+                  placeholder="Denver, CO · New York, NY"
+                  autocomplete="off"
+                />
+
+                <label class="field-label" for="settingsProfileFormRemotePolicy"
+                  >Remote policy</label
+                >
+                <select
+                  id="settingsProfileFormRemotePolicy"
+                  class="status-select settings-select"
+                >
+                  <option value="">— unspecified —</option>
+                  <option value="remote">Remote</option>
+                  <option value="hybrid">Hybrid</option>
+                  <option value="onsite">On-site</option>
+                </select>
+
+                <label class="field-label" for="settingsProfileFormIndustries"
+                  >Industries</label
+                >
+                <input
+                  type="text"
+                  id="settingsProfileFormIndustries"
+                  class="modal-input"
+                  placeholder="AI infra, climate, healthtech"
+                  autocomplete="off"
+                />
+              </div>
+
+              <div class="settings-profile-block">
+                <h5 class="settings-profile-block__title">3. Run</h5>
+                <label class="field-label field-label--checkbox">
+                  <input type="checkbox" id="settingsProfilePersist" />
+                  Persist inferred companies to worker-config (next run is
+                  company-anchored)
+                </label>
+                <div class="settings-profile-actions">
+                  <button
+                    type="button"
+                    id="settingsProfileRunBtn"
+                    class="btn-modal-primary"
+                  >
+                    Discover companies
+                  </button>
+                  <span
+                    class="settings-profile-spinner"
+                    id="settingsProfileSpinner"
+                    hidden
+                    aria-hidden="true"
+                  ></span>
+                </div>
+                <p
+                  class="settings-form-error settings-profile-error"
+                  id="settingsProfileError"
+                  role="alert"
+                  hidden
+                ></p>
+              </div>
+
+              <div
+                class="settings-profile-results"
+                id="settingsProfileResults"
+                hidden
+                aria-live="polite"
+              ></div>
             </div>
 
             <!-- ── Scraping tab ───────────────────────────────────── -->
@@ -5066,6 +5265,7 @@ https://your-static-site.example</pre
     <script src="settings-tab-schema.js"></script>
     <script src="settings-tabs.js"></script>
     <script src="settings-discovery-adapters.js"></script>
+    <script src="settings-profile-tab.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

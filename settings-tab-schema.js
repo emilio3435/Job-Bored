@@ -9,6 +9,7 @@
     SETUP: "setup",
     SHEET: "sheet",
     DISCOVERY: "discovery",
+    PROFILE: "profile",
     SCRAPING: "scraping",
     ATS_SCORING: "ats_scoring",
     AI_PROVIDERS: "ai_providers",
@@ -18,6 +19,7 @@
     SETTINGS_TAB_IDS.SETUP,
     SETTINGS_TAB_IDS.SHEET,
     SETTINGS_TAB_IDS.DISCOVERY,
+    SETTINGS_TAB_IDS.PROFILE,
     SETTINGS_TAB_IDS.SCRAPING,
     SETTINGS_TAB_IDS.ATS_SCORING,
     SETTINGS_TAB_IDS.AI_PROVIDERS,
@@ -41,6 +43,12 @@
       label: "Discovery",
       panelId: "settings-panel-discovery",
       buttonId: "settings-tab-discovery",
+    },
+    [SETTINGS_TAB_IDS.PROFILE]: {
+      id: SETTINGS_TAB_IDS.PROFILE,
+      label: "Profile",
+      panelId: "settings-panel-profile",
+      buttonId: "settings-tab-profile",
     },
     [SETTINGS_TAB_IDS.SCRAPING]: {
       id: SETTINGS_TAB_IDS.SCRAPING,
@@ -109,6 +117,23 @@
     settingsDiscoveryKeywordsExclude: SETTINGS_TAB_IDS.DISCOVERY,
     settingsDiscoveryMaxLeadsPerRun: SETTINGS_TAB_IDS.DISCOVERY,
     settingsDiscoveryTestHint: SETTINGS_TAB_IDS.DISCOVERY,
+
+    // Profile (Feature B / Layer 5)
+    settingsProfileResumeFile: SETTINGS_TAB_IDS.PROFILE,
+    settingsProfileResumeText: SETTINGS_TAB_IDS.PROFILE,
+    settingsProfileResumeClear: SETTINGS_TAB_IDS.PROFILE,
+    settingsProfileResumeStatus: SETTINGS_TAB_IDS.PROFILE,
+    settingsProfileFormTargetRoles: SETTINGS_TAB_IDS.PROFILE,
+    settingsProfileFormSkills: SETTINGS_TAB_IDS.PROFILE,
+    settingsProfileFormSeniority: SETTINGS_TAB_IDS.PROFILE,
+    settingsProfileFormYears: SETTINGS_TAB_IDS.PROFILE,
+    settingsProfileFormLocations: SETTINGS_TAB_IDS.PROFILE,
+    settingsProfileFormRemotePolicy: SETTINGS_TAB_IDS.PROFILE,
+    settingsProfileFormIndustries: SETTINGS_TAB_IDS.PROFILE,
+    settingsProfilePersist: SETTINGS_TAB_IDS.PROFILE,
+    settingsProfileRunBtn: SETTINGS_TAB_IDS.PROFILE,
+    settingsProfileError: SETTINGS_TAB_IDS.PROFILE,
+    settingsProfileResults: SETTINGS_TAB_IDS.PROFILE,
 
     // Scraping
     settingsJobPostingScrapeUrl: SETTINGS_TAB_IDS.SCRAPING,
