@@ -176,7 +176,21 @@ test("POST /discovery-profile persists companies when persist:true + sheetId is 
   assert.equal(body.persisted, true);
   assert.ok(captured, "upsertStoredWorkerConfig should be invoked");
   assert.equal(captured!.sheetId, "sheet_abc123");
-  assert.deepEqual(captured!.mutations.companies, CANNED_COMPANIES);
+  // Profile-derived roleTags/geoTags are stripped before persist (E-4
+  // codex-challenge finding). The in-memory response still includes them
+  // for the caller's preview.
+  const expectedPersisted = CANNED_COMPANIES.map(
+    ({ roleTags: _r, geoTags: _g, ...rest }) => rest,
+  );
+  assert.deepEqual(captured!.mutations.companies, expectedPersisted);
+  assert.ok(
+    Array.isArray(body.companies) &&
+      body.companies.every(
+        (c: { roleTags?: unknown; geoTags?: unknown }) =>
+          Array.isArray(c.roleTags) && Array.isArray(c.geoTags),
+      ),
+    "response preview should retain roleTags/geoTags",
+  );
   assert.ok(
     logSink.some(([event]) => event === "discovery.profile.persisted"),
     "should emit discovery.profile.persisted event",
