@@ -155,12 +155,15 @@
     try {
       var u = new URL(base);
       var path = (u.pathname || "").replace(/\/+$/, "");
-      if (
-        path === "/webhook" ||
-        path === "/discovery" ||
-        path === "/discovery-profile"
-      ) {
-        u.pathname = "/discovery-profile";
+      // Replace only the trailing recognized segment so path-prefixed deployments
+      // (/api/webhook -> /api/discovery-profile) resolve to the sibling endpoint
+      // rather than a nested /api/webhook/discovery-profile 404.
+      var replaced = path.replace(
+        /\/(?:webhook|discovery|discovery-profile)$/i,
+        "/discovery-profile",
+      );
+      if (replaced !== path) {
+        u.pathname = replaced;
       } else if (path === "") {
         u.pathname = "/discovery-profile";
       } else {

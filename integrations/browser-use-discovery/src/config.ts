@@ -374,13 +374,20 @@ export function resolveBrowserUseCommand(
   env: RuntimeEnv,
   fileExists: (path: string) => boolean = existsSync,
 ): string {
-  const configuredCommand = readFirst(env, [
+  const keys = [
     "BROWSER_USE_DISCOVERY_BROWSER_COMMAND",
     "BROWSER_USE_COMMAND",
     "DISCOVERY_BROWSER_COMMAND",
-  ]);
+  ];
+  const configuredCommand = readFirst(env, keys);
   if (configuredCommand) {
     return configuredCommand;
+  }
+  // Preserve the "explicit empty -> fetch-only" escape hatch: if any of the
+  // env keys is set (even to an empty string), honor that as an opt-out from
+  // the bundled fallback. Only fall back when none of the keys are present.
+  if (keys.some((key) => Object.prototype.hasOwnProperty.call(env, key))) {
+    return "";
   }
   if (fileExists(bundledBrowserUseCommandPath)) {
     return bundledBrowserUseCommandPath;
