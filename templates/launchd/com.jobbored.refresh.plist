@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  JobBored daily refresh — macOS launchd template.
+
+  Placeholders replaced at install time by scripts/install-launchd-refresh.mjs:
+    {{SECRET}}        BROWSER_USE_DISCOVERY_WEBHOOK_SECRET (url-safe ascii)
+    {{WORKER_URL}}    http://127.0.0.1:{{PORT}}/discovery-profile
+    {{LOG_PATH}}      Absolute path to the launchd stderr/stdout log
+    {{HOUR}}          Hour of day to fire (0-23, local time)
+    {{MINUTE}}        Minute of hour to fire (0-59)
+
+  Behavior: fires curl on the local browser-use-discovery worker's
+  /discovery-profile endpoint with {mode:"refresh"} so the worker replays
+  the stored candidateProfile against Gemini and dedupes against the
+  negativeCompanyKeys list. The worker must be running for this to land.
+
+  RunAtLoad=false — loading the plist does NOT immediately fire a refresh.
+  To fire manually for testing: `launchctl start com.jobbored.refresh`.
+-->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.jobbored.refresh</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/usr/bin/curl</string>
+      <string>-sS</string>
+      <string>--max-time</string>
+      <string>600</string>
+      <string>-X</string>
+      <string>POST</string>
+      <string>-H</string>
+      <string>content-type: application/json</string>
+      <string>-H</string>
+      <string>x-discovery-secret: {{SECRET}}</string>
+      <string>-d</string>
+      <string>{"event":"discovery.profile.request","schemaVersion":1,"mode":"refresh"}</string>
+      <string>{{WORKER_URL}}</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key>
+      <integer>{{HOUR}}</integer>
+      <key>Minute</key>
+      <integer>{{MINUTE}}</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>{{LOG_PATH}}</string>
+
+    <key>StandardErrorPath</key>
+    <string>{{LOG_PATH}}</string>
+  </dict>
+</plist>
