@@ -297,6 +297,8 @@ export type ExtractionDiagnosticCode =
   | "canonical_surface_extracted"
   /** Candidate was rejected by strict preflight before browser extraction. */
   | "preflight_rejected"
+  /** A terminal preflight rejection was recorded into dead-link memory for cooldown. */
+  | "dead_link_recorded"
   /** Vertex AI grounding-api-redirect URL could not be resolved to a canonical target (stale token, 4xx, or missing Location header). */
   | "vertex_redirect_unresolved"
   /** Call 2 structured-extraction pass succeeded and its candidates were used as the primary result (Layer 4). */
@@ -482,6 +484,10 @@ export type LoopFailureClass =
    * Exploit budget exhaustion: selected targets were exhausted before reaching write threshold.
    */
   | "exploit_budget_exhaustion"
+  /**
+   * Weak browser seed quality: browser lane had insufficient or low-quality seeds.
+   */
+  | "weak_browser_seed_quality"
   /**
    * Weak ATS seed quality: ATS lane had insufficient or low-quality seeds.
    */
