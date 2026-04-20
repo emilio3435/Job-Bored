@@ -104,6 +104,7 @@ function createGroundedTimeoutDependencies() {
         host: "127.0.0.1",
         runMode: "hosted",
         asyncAckByDefault: true,
+        useStructuredExtraction: false,
       },
       sourceAdapterRegistry: {
         adapters: [],
@@ -238,6 +239,7 @@ test("runDiscovery composes config, adapters, normalizer, and writer", async () 
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [
@@ -431,6 +433,7 @@ test("runDiscovery logs aggregated rejection reasons without per-listing spam", 
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [
@@ -597,6 +600,7 @@ test("runDiscovery ranks and diversifies leads before truncating", async () => {
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [
@@ -737,6 +741,7 @@ test("runDiscovery still applies normalized relevance filters after matcher acce
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [
@@ -878,6 +883,7 @@ test("runDiscovery applies company, source, and similar-title caps before writin
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [
@@ -1104,6 +1110,7 @@ test("runDiscovery expands grounded web links through Browser Use and writes nor
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [],
@@ -1266,6 +1273,7 @@ test("runDiscovery uses configured ATS companies even when the broad company pla
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     companyPlanner: {
       buildIntent: () => ({
@@ -1402,6 +1410,7 @@ test("runDiscovery seeds ATS discovery from ATS host search when no companies ar
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     companyPlanner: {
       buildIntent: () => ({
@@ -1600,6 +1609,7 @@ test("runDiscovery marks grounded source readiness problems as partial outcomes 
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [],
@@ -1692,6 +1702,7 @@ test("runDiscovery captures write error with update phase and returns partial st
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: false,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [],
@@ -1865,6 +1876,7 @@ test("runDiscovery captures write error with append phase and returns partial st
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: false,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [],
@@ -2034,6 +2046,7 @@ test("runDiscovery write error provides actionable details in writeError (VAL-DA
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: false,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [],
@@ -2187,6 +2200,7 @@ test("runDiscovery collapses semantically duplicate leads across alternate URLs 
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [
@@ -2351,6 +2365,7 @@ test("VAL-LOOP-ATS-002: ATS frontier pulls from memory company registry when con
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     companyPlanner: {
       buildIntent: () => ({
@@ -2536,6 +2551,7 @@ test("VAL-LOOP-ATS-003: ATS host-search fallback is NOT called when seed suffici
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     companyPlanner: {
       buildIntent: () => ({
@@ -2687,6 +2703,7 @@ test("VAL-LOOP-ATS-003: ATS host-search fallback IS called when seed sufficiency
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     companyPlanner: {
       buildIntent: () => ({
@@ -2842,6 +2859,7 @@ test("VAL-LOOP-ATS-004: ATS scout stays lightweight - does not invoke AI matcher
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     companyPlanner: {
       buildIntent: () => ({
@@ -3021,6 +3039,7 @@ test("VAL-LOOP-ATS-002: ATS frontier pulls from memory career surfaces when conf
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     companyPlanner: {
       buildIntent: () => ({
@@ -3202,6 +3221,7 @@ test("runDiscovery persists memory when runtime store exposes writeExploitOutcom
         host: "127.0.0.1",
         runMode: "hosted",
         asyncAckByDefault: true,
+        useStructuredExtraction: false,
       },
       companyPlanner: {
         buildIntent: () => ({
@@ -3367,6 +3387,7 @@ test("runDiscovery skips exploit outcome memory persistence when browser_only ze
         host: "127.0.0.1",
         runMode: "hosted",
         asyncAckByDefault: true,
+        useStructuredExtraction: false,
       },
       discoveryMemoryStore: createRunDiscoveryMemoryStore(rawMemoryStore),
       sourceAdapterRegistry: {
@@ -3494,6 +3515,7 @@ test("VAL-LOOP-ATS-006: Static fallback ATS seeds are demoted behind stronger si
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     companyPlanner: {
       buildIntent: () => ({
@@ -3665,6 +3687,7 @@ test("VAL-LOOP-ATS-007: ATS timeout/error branches do not stall the run lifecycl
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     companyPlanner: {
       buildIntent: () => ({
@@ -3816,6 +3839,7 @@ test("VAL-LOOP-ATS-007: ATS collection completes and lifecycle progresses with m
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     companyPlanner: {
       buildIntent: () => ({
@@ -3992,6 +4016,7 @@ test("VAL-LOOP-OBS-001: runDiscovery emits loop counters in lifecycle for ATS ru
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [
@@ -4113,6 +4138,7 @@ test("VAL-LOOP-OBS-001/003: runDiscovery emits stageOrder and reason attribution
       host: "127.0.0.1",
       runMode: "hosted",
       asyncAckByDefault: true,
+      useStructuredExtraction: false,
     },
     sourceAdapterRegistry: {
       adapters: [],

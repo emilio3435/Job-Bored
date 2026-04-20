@@ -1,0 +1,361 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import type {
+  CandidateProfile,
+  CompanyTarget,
+  StoredWorkerConfig,
+  WorkerRuntimeConfig,
+} from "../../src/contracts.ts";
+import {
+  DISCOVERY_PROFILE_EVENT,
+  DISCOVERY_PROFILE_SCHEMA_VERSION,
+} from "../../src/contracts.ts";
+import { handleDiscoveryProfileWebhook } from "../../src/webhook/handle-discovery-profile.ts";
+
+function makeRuntimeConfig(
+  overrides: Partial<WorkerRuntimeConfig> = {},
+): WorkerRuntimeConfig {
+  return {
+    stateDatabasePath: "",
+    workerConfigPath: "",
+    browserUseCommand: "browser-use",
+    geminiApiKey: "test-api-key",
+    geminiModel: "gemini-2.5-flash",
+    groundedSearchMaxResultsPerCompany: 5,
+    groundedSearchMaxPagesPerCompany: 2,
+    googleServiceAccountJson: "",
+    googleServiceAccountFile: "",
+    googleAccessToken: "",
+    googleOAuthTokenJson: "",
+    googleOAuthTokenFile: "",
+    webhookSecret: "secret-xyz",
+    allowedOrigins: [],
+    port: 0,
+    host: "127.0.0.1",
+    runMode: "hosted",
+    asyncAckByDefault: true,
+    useStructuredExtraction: false,
+    ...overrides,
+  };
+}
+
+const CANNED_PROFILE: CandidateProfile = {
+  targetRoles: ["Growth Marketing Manager", "Performance Marketing Lead"],
+  skills: ["SEO", "paid acquisition", "lifecycle", "AI automation"],
+  seniority: "senior",
+  yearsOfExperience: 7,
+  locations: ["Remote", "Denver", "United States"],
+  remotePolicy: "remote",
+  industries: ["AI tooling", "B2B SaaS"],
+};
+
+const CANNED_COMPANIES: CompanyTarget[] = [
+  {
+    name: "Notion",
+    companyKey: "notion",
+    normalizedName: "notion",
+    domains: ["notion.so"],
+    roleTags: ["growth marketing", "performance marketing"],
+    geoTags: ["remote"],
+  },
+  {
+    name: "Ramp",
+    companyKey: "ramp",
+    normalizedName: "ramp",
+    domains: ["ramp.com"],
+    roleTags: ["growth marketing"],
+    geoTags: ["remote", "new york"],
+  },
+  {
+    name: "Figma",
+    companyKey: "figma",
+    normalizedName: "figma",
+    domains: ["figma.com"],
+    roleTags: ["performance marketing"],
+    geoTags: ["remote", "san francisco"],
+  },
+];
+
+function makeHappyDeps(overrides: {
+  upsertStoredWorkerConfig?: (
+    runtimeConfig: WorkerRuntimeConfig,
+    input: { sheetId: string; mutations: Partial<StoredWorkerConfig> },
+  ) => Promise<StoredWorkerConfig>;
+  logSink?: Array<[string, Record<string, unknown>]>;
+}) {
+  return {
+    runtimeConfig: makeRuntimeConfig(),
+    extractCandidateProfile: async () => CANNED_PROFILE,
+    discoverCompaniesForProfile: async () => [...CANNED_COMPANIES],
+    upsertStoredWorkerConfig: overrides.upsertStoredWorkerConfig,
+    log: overrides.logSink
+      ? (event: string, details: Record<string, unknown>) => {
+          overrides.logSink!.push([event, details]);
+        }
+      : undefined,
+  };
+}
+
+test("POST /discovery-profile happy path returns profile + companies and does not persist by default", async () => {
+  const logSink: Array<[string, Record<string, unknown>]> = [];
+  const deps = makeHappyDeps({ logSink });
+
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        resumeText: "Senior Growth Marketer with 7 years of experience.",
+      }),
+    },
+    deps,
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.persisted, false);
+  assert.deepEqual(body.profile, CANNED_PROFILE);
+  assert.equal(body.companies.length, CANNED_COMPANIES.length);
+  assert.equal(body.companies[0].name, "Notion");
+});
+
+test("POST /discovery-profile persists companies when persist:true + sheetId is provided", async () => {
+  let captured:
+    | {
+        runtimeConfig: WorkerRuntimeConfig;
+        sheetId: string;
+        mutations: Partial<StoredWorkerConfig>;
+      }
+    | null = null;
+  const logSink: Array<[string, Record<string, unknown>]> = [];
+  const deps = makeHappyDeps({
+    logSink,
+    upsertStoredWorkerConfig: async (runtimeConfig, input) => {
+      captured = { runtimeConfig, ...input };
+      return {
+        sheetId: input.sheetId,
+        mode: runtimeConfig.runMode,
+        timezone: "UTC",
+        companies: input.mutations.companies || [],
+        atsCompanies: [],
+        includeKeywords: [],
+        excludeKeywords: [],
+        targetRoles: [],
+        locations: [],
+        remotePolicy: "",
+        seniority: "",
+        maxLeadsPerRun: 25,
+        enabledSources: ["grounded_web"],
+        schedule: { enabled: false, cron: "" },
+      } as StoredWorkerConfig;
+    },
+  });
+
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        resumeText: "Senior Growth Marketer.",
+        persist: true,
+        sheetId: "sheet_abc123",
+      }),
+    },
+    deps,
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.persisted, true);
+  assert.ok(captured, "upsertStoredWorkerConfig should be invoked");
+  assert.equal(captured!.sheetId, "sheet_abc123");
+  assert.deepEqual(captured!.mutations.companies, CANNED_COMPANIES);
+  assert.ok(
+    logSink.some(([event]) => event === "discovery.profile.persisted"),
+    "should emit discovery.profile.persisted event",
+  );
+});
+
+test("POST /discovery-profile rejects missing/invalid x-discovery-secret with 401", async () => {
+  const deps = makeHappyDeps({});
+
+  const missingHeader = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: {},
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        resumeText: "x",
+      }),
+    },
+    deps,
+  );
+  assert.equal(missingHeader.status, 401);
+  assert.match(missingHeader.body, /missing_secret_header/);
+
+  const wrongHeader = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "not-the-secret" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        resumeText: "x",
+      }),
+    },
+    deps,
+  );
+  assert.equal(wrongHeader.status, 401);
+  assert.match(wrongHeader.body, /secret_mismatch/);
+});
+
+test("POST /discovery-profile rejects non-POST with 405", async () => {
+  const deps = makeHappyDeps({});
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "GET",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: "",
+    },
+    deps,
+  );
+  assert.equal(response.status, 405);
+});
+
+test("POST /discovery-profile rejects empty intent (no resumeText, no form)", async () => {
+  const deps = makeHappyDeps({});
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+      }),
+    },
+    deps,
+  );
+  assert.equal(response.status, 400);
+  assert.match(response.body, /resumeText or form must be non-blank/);
+});
+
+test("POST /discovery-profile never logs raw resumeText content (PII guard)", async () => {
+  const logSink: Array<[string, Record<string, unknown>]> = [];
+  const deps = makeHappyDeps({ logSink });
+  const secretResume =
+    "SECRET-PII-MARKER: John Q. Public, john@example.com, SSN 123-45-6789.";
+
+  await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        resumeText: secretResume,
+      }),
+    },
+    deps,
+  );
+
+  for (const [event, details] of logSink) {
+    const serialized = JSON.stringify(details);
+    assert.ok(
+      !serialized.includes("SECRET-PII-MARKER"),
+      `log event ${event} leaked raw resume content: ${serialized}`,
+    );
+    assert.ok(
+      !serialized.includes("SSN 123-45-6789"),
+      `log event ${event} leaked SSN substring: ${serialized}`,
+    );
+    assert.ok(
+      !serialized.includes("john@example.com"),
+      `log event ${event} leaked email substring: ${serialized}`,
+    );
+  }
+  assert.ok(
+    logSink.some(
+      ([, details]) =>
+        typeof details.resumeTextLength === "number" &&
+        details.resumeTextLength === secretResume.length,
+    ),
+    "should record resumeTextLength as a safe proxy for resume content",
+  );
+});
+
+test("POST /discovery-profile accepts form input only (no resumeText)", async () => {
+  const deps = makeHappyDeps({});
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        form: {
+          targetRoles: "Growth Marketing",
+          skills: "SEO, paid",
+          seniority: "senior",
+        },
+      }),
+    },
+    deps,
+  );
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+});
+
+test("POST /discovery-profile returns 502 when profile extraction throws", async () => {
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        resumeText: "anything",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      extractCandidateProfile: async () => {
+        throw new Error("simulated Gemini outage");
+      },
+      discoverCompaniesForProfile: async () => [],
+    },
+  );
+  assert.equal(response.status, 502);
+  assert.match(response.body, /Profile extraction failed/);
+});
+
+test("POST /discovery-profile returns 502 when company discovery throws", async () => {
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        resumeText: "anything",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      extractCandidateProfile: async () => CANNED_PROFILE,
+      discoverCompaniesForProfile: async () => {
+        throw new Error("grounded search down");
+      },
+    },
+  );
+  assert.equal(response.status, 502);
+  assert.match(response.body, /Company discovery failed/);
+});

@@ -29,6 +29,7 @@ import type { SourceAdapterRegistry } from "../browser/source-adapters.ts";
 import { buildBoardContext } from "../browser/source-adapters.ts";
 import {
   collectGroundedWebListings,
+  describeGroundedSearchScope,
   type GroundedSearchClient,
 } from "../grounding/grounded-search.ts";
 import {
@@ -441,6 +442,12 @@ export async function runDiscovery(
     }
   }
 
+  // Only iterate ATS detection when an ATS lane is actually active. Browser-only
+  // runs (sourcePreset === "browser_only") exclude greenhouse/lever/ashby via
+  // effectiveSources, so iterating here would waste a Browser Use call per company
+  // and inflate loopCounters.atsScoutCount, which causes classifyFailureReason to
+  // incorrectly tag zero-result browser_only runs as weak_ats_seed_quality.
+  if (hasAtsLanes) {
   for (const company of atsCompaniesToSearch) {
     // VAL-LOOP-CORE-008: Emit scout stage start (first ATS company iteration)
     if (!stageProgress.detectStarted) {
@@ -593,6 +600,7 @@ export async function runDiscovery(
       );
     }
   }
+  }
 
   // VAL-ROUTE-008/009: For unrestricted scope (empty companies with ATS lanes),
   // ensure ATS sources that attempted execution appear in sourceSummary even when
@@ -619,54 +627,76 @@ export async function runDiscovery(
   }
 
   if (config.effectiveSources.includes("grounded_web")) {
-    stageProgress.groundedStarted = true;
-    // VAL-LOOP-CORE-008: Emit scout stage for browser discovery (if not already emitted)
-    if (stageOrder.length === 0 || stageOrder[stageOrder.length - 1].phase !== "scout") {
-      stageOrder.push(nextStage("scout"));
-    }
-    loopCounters.browserScoutCount += 1;
-
-    // VAL-OBS-002: Create budget tracker for adaptive page-limit reduction and company skip decisions
-    const maxRunDurationMs = dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
-    const budgetTracker = createBudgetTracker({
-      maxRunDurationMs,
-      safetyBufferMs: Math.ceil(maxRunDurationMs * 0.05),
-      reducePageLimitThreshold: 0.5,
-      pageLimitReductionFactor: 0.5,
-    });
-
-    const groundedResult = await runGroundedWebDiscovery(
-      run,
-      dependencies,
-      rejectionSummaryBySource,
-      matchingState,
-      { sourceTimeoutMs, matcherTimeoutMs },
-      budgetTracker,
-    ).catch((error) => {
-      if (error instanceof TimeoutError) {
-        const message = `Grounded web discovery timed out after ${error.timeoutMs}ms: ${error.message}`;
-        warnings.push(message);
-        dependencies.log?.("discovery.run.grounded_timeout", {
-          runId,
-          timeoutMs: error.timeoutMs,
-        });
-        return {
-          extractionResult: createExtractionResult(run.runId, "grounded_web", ""),
-          normalizedLeads: [],
-          listingCount: 0,
-        };
+    // Skip grounded_web dispatch when there is literally nothing to search for:
+    // no seed companies AND no role/keyword/location/remote/seniority intent.
+    // Without this guard the placeholder-company substitution at line 1620 still
+    // triggers the source, which then spends up to the full grounded timeout on
+    // empty queries. Matches the "excluded by preset" skip-with-evidence shape
+    // at lines 607-617. reasonCode in classifyFailureReason will correctly land
+    // on weak_surface_discovery (no scouts, no scoredSurfaces) for this case.
+    if (
+      config.companies.length === 0 &&
+      !hasNonBlankModifierIntent(config)
+    ) {
+      const skipMessage =
+        "grounded_web skipped: no companies and no role/keyword intent configured";
+      warnings.push(skipMessage);
+      dependencies.log?.("discovery.run.grounded_skipped_empty_intent", {
+        runId,
+      });
+      const skipResult = createExtractionResult(runId, "grounded_web", "");
+      skipResult.warnings.push(skipMessage);
+      extractionResultsBySource.set("grounded_web", skipResult);
+    } else {
+      stageProgress.groundedStarted = true;
+      // VAL-LOOP-CORE-008: Emit scout stage for browser discovery (if not already emitted)
+      if (stageOrder.length === 0 || stageOrder[stageOrder.length - 1].phase !== "scout") {
+        stageOrder.push(nextStage("scout"));
       }
-      throw error;
-    });
-    stageProgress.groundedCompleted = true;
-    listingCount += groundedResult.listingCount;
-    if (groundedResult.extractionResult) {
-      extractionResultsBySource.set(
-        groundedResult.extractionResult.sourceId,
-        groundedResult.extractionResult,
-      );
+      loopCounters.browserScoutCount += 1;
+
+      // VAL-OBS-002: Create budget tracker for adaptive page-limit reduction and company skip decisions
+      const maxRunDurationMs = dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
+      const budgetTracker = createBudgetTracker({
+        maxRunDurationMs,
+        safetyBufferMs: Math.ceil(maxRunDurationMs * 0.05),
+        reducePageLimitThreshold: 0.5,
+        pageLimitReductionFactor: 0.5,
+      });
+
+      const groundedResult = await runGroundedWebDiscovery(
+        run,
+        dependencies,
+        rejectionSummaryBySource,
+        matchingState,
+        { sourceTimeoutMs, matcherTimeoutMs },
+        budgetTracker,
+      ).catch((error) => {
+        if (error instanceof TimeoutError) {
+          const message = `Grounded web discovery timed out after ${error.timeoutMs}ms: ${error.message}`;
+          warnings.push(message);
+          dependencies.log?.("discovery.run.grounded_timeout", {
+            runId,
+            timeoutMs: error.timeoutMs,
+          });
+          return {
+            extractionResult: createExtractionResult(run.runId, "grounded_web", ""),
+            normalizedLeads: [],
+            listingCount: 0,
+          };
+        }
+        throw error;
+      });
+      stageProgress.groundedCompleted = true;
+      listingCount += groundedResult.listingCount;
+      if (groundedResult.extractionResult) {
+        extractionResultsBySource.set(
+          groundedResult.extractionResult.sourceId,
+          groundedResult.extractionResult,
+        );
+      }
+      normalizedLeads.push(...groundedResult.normalizedLeads);
     }
-    normalizedLeads.push(...groundedResult.normalizedLeads);
   }
 
   // VAL-LOOP-SCORE-001/003/005: Apply frontier scoring and exploit target selection
@@ -1426,6 +1456,11 @@ async function processSingleCompany(
     failed: false,
   };
 
+  // Use describeGroundedSearchScope so log/warning/diagnostic strings read
+  // "unrestricted scope" instead of an empty company name when grounded_web runs
+  // broadcast mode (companies: [] → [{ name: "" }] placeholder).
+  const companyLabel = describeGroundedSearchScope(company);
+
   // VAL-OBS-002: Check if company should be skipped due to budget exhaustion
   if (budgetTracker) {
     const skipDiagnostic = budgetTracker.checkCompanySkip(company.name);
@@ -1452,21 +1487,22 @@ async function processSingleCompany(
     });
 
     const collectionResult = await withTimeout(
-      `grounded_collection[${company.name}]`,
+      `grounded_collection[${companyLabel}]`,
       "grounded_web",
       timeouts.sourceTimeoutMs,
       collectionPromise,
     ).catch((error) => {
       if (error instanceof TimeoutError) {
-        const message = `Grounded collection timed out after ${error.timeoutMs}ms for ${company.name}`;
+        const message = `Grounded collection timed out after ${error.timeoutMs}ms for ${companyLabel}`;
         result.companyWarnings.push(message);
         result.companyDiagnostics.push({
           code: "timeout",
-          context: `Grounded collection timed out after ${error.timeoutMs}ms for ${company.name}: ${error.message}`,
+          context: `Grounded collection timed out after ${error.timeoutMs}ms for ${companyLabel}: ${error.message}`,
         });
         dependencies.log?.("discovery.run.grounded_company_timeout", {
           runId: run.runId,
           company: company.name,
+          companyScope: companyLabel,
           timeoutMs: error.timeoutMs,
         });
         return {
@@ -1477,7 +1513,7 @@ async function processSingleCompany(
           pagesVisited: 0,
           diagnostics: [{
             code: "timeout" as const,
-            context: `Grounded collection timed out after ${error.timeoutMs}ms for ${company.name}: ${error.message}`,
+            context: `Grounded collection timed out after ${error.timeoutMs}ms for ${companyLabel}: ${error.message}`,
           }],
         };
       }
@@ -1488,7 +1524,14 @@ async function processSingleCompany(
     result.rawListings = collectionResult.rawListings;
     result.searchQueries = collectionResult.searchQueries;
     result.seedUrls = collectionResult.seedUrls;
-    result.companyWarnings.push(...collectionResult.warnings);
+    // Dedup: the timeout catch above synthesizes a warning and also returns it
+    // in collectionResult.warnings, so a naive spread-push would add the same
+    // string twice to companyWarnings.
+    for (const warning of collectionResult.warnings) {
+      if (!result.companyWarnings.includes(warning)) {
+        result.companyWarnings.push(warning);
+      }
+    }
     result.pagesVisited = collectionResult.pagesVisited;
     result.leadsSeen = collectionResult.rawListings.length;
     // leadsAccepted reflects the count of leads that passed normalization.
@@ -1516,16 +1559,17 @@ async function processSingleCompany(
     result.failed = true;
     result.errorMessage = formatError(error);
     result.companyWarnings.push(
-      `Grounded discovery failed for ${company.name}: ${result.errorMessage}`,
+      `Grounded discovery failed for ${companyLabel}: ${result.errorMessage}`,
     );
     // Emit a diagnostic with context but without an overly generic code.
     // The context contains the actual error message for debugging.
     result.companyDiagnostics.push({
-      context: `Company "${company.name}" processing failed: ${result.errorMessage}`,
+      context: `Company "${companyLabel}" processing failed: ${result.errorMessage}`,
     });
     dependencies.log?.("discovery.run.company_failed", {
       runId: run.runId,
       company: company.name,
+      companyScope: companyLabel,
       error: result.errorMessage,
       failed: true,
     });
@@ -1585,7 +1629,16 @@ async function runGroundedWebDiscovery(
     };
   }
 
-  const sourceTimeoutMs = timeouts?.sourceTimeoutMs ?? DEFAULT_SOURCE_TIMEOUT_MS;
+  // Honor groundedSearchTuning.maxRuntimeMs for grounded_web collection — the
+  // browser_only preset resolves this to 300_000ms (see config.ts:199) to give
+  // multi-query fan-out + per-page Browser Use calls room to finish. Fall back to
+  // the shared sourceTimeoutMs (60_000ms) for other presets or when tuning is
+  // absent. The outer run-budget at dependencies.maxRunDurationMs still bounds
+  // the whole run if this grounded timeout exceeds it.
+  const sourceTimeoutMs =
+    run.config.groundedSearchTuning?.maxRuntimeMs
+    ?? timeouts?.sourceTimeoutMs
+    ?? DEFAULT_SOURCE_TIMEOUT_MS;
   const matcherTimeoutMs = timeouts?.matcherTimeoutMs ?? DEFAULT_MATCHER_TIMEOUT_MS;
 
   // VAL-API-010 / VAL-ROUTE-007: When companies is empty but intent is non-blank,

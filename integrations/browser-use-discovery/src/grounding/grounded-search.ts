@@ -29,13 +29,58 @@ import { dedupeFingerprintListings } from "../discovery/listing-fingerprint.ts";
 import type { BudgetTracker } from "../run/budget-tracker.ts";
 
 const SEARCH_SYSTEM_PROMPT = [
-  "You source current live job postings from the public web.",
-  "Use Google Search grounding to find candidate links.",
-  "Return strict JSON only.",
-  'Use this shape: {"results":[{"url":"https://...","title":"...","pageType":"job|listings|careers|other","reason":"..."}]}.',
-  "Prefer direct employer job pages and active careers/listings pages that can be expanded into direct jobs.",
-  "Use absolute HTTPS URLs.",
-].join(" ");
+  "You are a job-discovery agent. Your output feeds an automated pipeline that fetches and parses each URL you return, so stale, gated, or invalid URLs waste the entire run's budget.",
+  "",
+  "OUTPUT FORMAT — STRICT:",
+  '- Return ONE JSON object with this exact shape: {"results":[{"url":"https://...","title":"...","pageType":"job|listings|careers|other","reason":"..."}]}.',
+  "- No prose, no markdown, no code fences, no explanation. JSON only.",
+  "- If nothing current is available, return {\"results\":[]}.",
+  "",
+  "URL QUALITY — STRICT:",
+  "- Use absolute HTTPS URLs only. Never cite vertexaisearch.cloud.google.com redirects, link shorteners, Google cache URLs, or search-result landing pages.",
+  "- Cite only currently-live postings: apply button reachable, posted within the last 60 days, not archived.",
+  "- Strongly prefer first-party employer domains (e.g. careers.stripe.com, example.com/careers/engineer, jobs.<company>.com) and major ATS-hosted URLs: boards.greenhouse.io, jobs.lever.co, jobs.ashbyhq.com, apply.workable.com, *.myworkdayjobs.com, jobs.jobvite.com, *.recruitee.com, *.teamtailor.com, apply.smartrecruiters.com, *.breezy.hr, *.successfactors.com.",
+  "- Do NOT cite job aggregators: linkedin.com, indeed.com, glassdoor.com, simplyhired.com, ziprecruiter.com, monster.com, careerbuilder.com, wellfound.com, builtin.com, dice.com, jobtarget.com, hireology.com, jobgether.com, remoteok.com, remote.co, weworkremotely.com, jobspresso.co, otta.com, jobot.com, lensa.com.",
+  "- Prefer direct job pages (pageType=job) over listings/careers pages when both exist for the same role.",
+  "",
+  "If Google Search grounding surfaces an aggregator result, use it to find the underlying first-party/ATS URL and cite THAT instead.",
+].join("\n");
+
+// JSON schema used by the structured-extraction Call 2 pass (Feature A / Layer 4).
+// Gemini enforces responseSchema reliably when no tool is attached, so Call 2
+// runs without google_search and produces guaranteed-shape output. Keeping this
+// near SEARCH_SYSTEM_PROMPT for easy co-maintenance with the shape described
+// in the system prompt.
+const CANDIDATE_RESULTS_SCHEMA = {
+  type: "object",
+  properties: {
+    results: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          url: { type: "string" },
+          title: { type: "string" },
+          pageType: {
+            type: "string",
+            enum: ["job", "listings", "careers", "other"],
+          },
+          reason: { type: "string" },
+        },
+        required: ["url", "pageType"],
+      },
+    },
+  },
+  required: ["results"],
+} as const;
+
+const STRUCTURING_SYSTEM_PROMPT = [
+  "You receive the raw output of a grounded web search plus the list of URLs Google cited.",
+  "Extract only URLs that are currently-live first-party employer job postings or major ATS-hosted URLs (greenhouse.io, lever.co, ashbyhq.com, workable.com, myworkdayjobs.com, jobvite.com, recruitee.com, teamtailor.com, smartrecruiters.com, breezy.hr, successfactors.com).",
+  "Drop aggregators (linkedin, indeed, glassdoor, simplyhired, ziprecruiter, monster, wellfound, builtin, dice, jobtarget, hireology, jobleads, jobgether, lensa).",
+  "Drop vertexaisearch redirects, link shorteners, Google cache URLs.",
+  "Return strict JSON matching the schema. If nothing qualifies, return {\"results\":[]}.",
+].join("\n");
 
 const PAGE_EXTRACTION_PROMPT = [
   "Extract active job postings from this page.",
@@ -70,6 +115,17 @@ export type GroundedCandidateSourcePolicy = CareerSurfaceSourcePolicy;
 
 const DEFAULT_HINT_RESOLUTION_LIMIT = 2;
 const PRE_FLIGHT_TIMEOUT_MS = 12_000;
+// Vertex AI grounded search returns citations as opaque redirect URLs on
+// vertexaisearch.cloud.google.com/grounding-api-redirect/*. Resolving these to
+// their canonical target up front means downstream preflight, host suppression,
+// dead-link cache, and dedup all operate on the real employer/ATS domain. The
+// tokens are also short-lived — stale tokens 4xx directly on vertex, so
+// resolving early emits a dedicated "vertex_redirect_unresolved" diagnostic
+// instead of a misleading "preflight_rejected: HTTP 404 at vertex...".
+const VERTEX_GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com";
+const VERTEX_GROUNDING_REDIRECT_PATH_PREFIX = "/grounding-api-redirect/";
+const VERTEX_REDIRECT_RESOLUTION_TIMEOUT_MS = 8_000;
+const VERTEX_REDIRECT_RESOLUTION_CONCURRENCY = 6;
 
 export type GroundedSearchCandidate = CareerSurfaceCandidate;
 
@@ -559,7 +615,9 @@ function buildSearchPromptForQuery(
     `Remote policy: ${config.remotePolicy || "any"}`,
     `Seniority: ${config.seniority || "any"}`,
     `Return at most ${Math.max(1, maxResults)} candidate links.`,
-    "Mix direct employer job pages with expandable careers/listings pages when useful.",
+    "Prefer direct employer job pages (pageType=job) on first-party or ATS-hosted domains over listings/careers pages.",
+    "Only cite currently-live postings. Do not cite aggregators (linkedin.com, indeed.com, glassdoor.com, simplyhired.com, ziprecruiter.com, monster.com, jobtarget.com, hireology.com, jobgether.com, lensa.com, etc.) — use their pages only to discover the underlying first-party URL and cite that.",
+    "Respond with strict JSON only. Do not include any prose or markdown.",
   );
 
   return lines.join("\n");
@@ -574,7 +632,7 @@ function ensureEmploymentIntentQuery(query: string): string {
   return `${cleaned} jobs`;
 }
 
-function describeGroundedSearchScope(company: CompanyTarget): string {
+export function describeGroundedSearchScope(company: CompanyTarget): string {
   const name = String(company.name || "").trim();
   return name || "unrestricted scope";
 }
@@ -1049,8 +1107,75 @@ export async function collectGroundedWebListings(input: {
     }
   }
 
+  // Feature A / Layer 4 — structured extraction (Call 2). Runs only when the
+  // flag is on, Call 1 produced candidates, and an API key is configured. The
+  // helper is a no-op (returns null) on any failure; we fall back cleanly to
+  // Call 1's output in that case.
+  let effectiveCandidates = searchResult.candidates;
+  if (
+    input.runtimeConfig.useStructuredExtraction !== false &&
+    searchResult.candidates.length > 0 &&
+    String(input.runtimeConfig.geminiApiKey || "").trim()
+  ) {
+    const structuringEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(input.runtimeConfig.geminiModel || "gemini-2.5-flash")}:generateContent`;
+    const structuringApiKey = String(
+      input.runtimeConfig.geminiApiKey || "",
+    ).trim();
+    const structuringMaxResults =
+      input.run.config.groundedSearchTuning?.maxResultsPerCompany ??
+      input.runtimeConfig.groundedSearchMaxResultsPerCompany ??
+      searchResult.candidates.length;
+    const structuringStartedAt = Date.now();
+    const structured = await structureGroundedCandidatesViaSchema({
+      candidates: searchResult.candidates,
+      company: input.company,
+      run: input.run,
+      endpoint: structuringEndpoint,
+      apiKey: structuringApiKey,
+      fetchImpl,
+      maxResults: structuringMaxResults,
+      signal: input.abortSignal,
+    });
+    const structuringDurationMs = Date.now() - structuringStartedAt;
+    if (structured && structured.length > 0) {
+      effectiveCandidates = mergeGroundedCandidates(
+        structured,
+        searchResult.candidates,
+        input.company,
+        structuringMaxResults,
+      );
+      diagnostics.push({
+        code: "structured_extraction_used",
+        context: `Structured extraction produced ${structured.length} candidate(s) from ${searchResult.candidates.length} Call-1 candidate(s) in ${structuringDurationMs}ms.`,
+      });
+      input.log?.("discovery.run.grounded_structured_extraction", {
+        runId: input.run.runId,
+        company: input.company.name,
+        companyScope: companyLabel,
+        outcome: "used",
+        call1CandidateCount: searchResult.candidates.length,
+        structuredCandidateCount: structured.length,
+        mergedCandidateCount: effectiveCandidates.length,
+        durationMs: structuringDurationMs,
+      });
+    } else {
+      diagnostics.push({
+        code: "structured_extraction_failed",
+        context: `Structured extraction returned no usable candidates in ${structuringDurationMs}ms; falling back to Call-1 output (${searchResult.candidates.length} candidate(s)).`,
+      });
+      input.log?.("discovery.run.grounded_structured_extraction", {
+        runId: input.run.runId,
+        company: input.company.name,
+        companyScope: companyLabel,
+        outcome: "failed",
+        call1CandidateCount: searchResult.candidates.length,
+        durationMs: structuringDurationMs,
+      });
+    }
+  }
+
   const seedCandidates = await prepareGroundedSeedCandidates({
-    candidates: searchResult.candidates,
+    candidates: effectiveCandidates,
     company: input.company,
     run: input.run,
     pageLimit: effectivePageLimit,
@@ -1212,7 +1337,21 @@ async function prepareGroundedSeedCandidates(input: {
   const suppressionNow =
     input.now || input.run.request.requestedAt || new Date().toISOString();
 
-  for (const rawCandidate of input.candidates) {
+  // Resolve Vertex grounding-api-redirect URLs up front. Gemini cites via opaque
+  // vertexaisearch.cloud.google.com tokens; resolving here means the rest of
+  // this function — dead-link cooldown, host suppression, source policy, and
+  // preflight — all see the real employer/ATS URL. Failed tokens get a
+  // dedicated vertex_redirect_unresolved diagnostic rather than a misleading
+  // "preflight_rejected: HTTP 404 at https://vertexaisearch..." entry.
+  const preResolvedCandidates = await resolveVertexRedirectsInCandidates({
+    candidates: input.candidates,
+    company: input.company,
+    fetchImpl: input.fetchImpl,
+    diagnostics: input.diagnostics,
+    abortSignal: input.abortSignal,
+  });
+
+  for (const rawCandidate of preResolvedCandidates) {
     throwIfAborted(input.abortSignal);
     if (accepted.length >= input.pageLimit) break;
 
@@ -1383,7 +1522,37 @@ async function preflightGroundedCandidate(input: {
   | { ok: true; candidate: GroundedSearchCandidate; discoveredCandidates: GroundedSearchCandidate[] }
   | { ok: false; url: string; reason: string }
 > {
-  const candidate = normalizeGroundedCandidate(input.candidate, input.company);
+  let candidate = normalizeGroundedCandidate(input.candidate, input.company);
+  // Defensive Vertex unwrap: the top-level pre-pass in prepareGroundedSeedCandidates
+  // catches citations from the initial search, but hint-resolution (resolveHint)
+  // makes fresh Gemini calls whose citations can also be opaque Vertex redirects.
+  // Resolving here means every candidate reaching preflight is a canonical URL,
+  // regardless of which code path produced it.
+  if (isVertexGroundingRedirect(candidate.url)) {
+    const resolved = await resolveVertexGroundingRedirect(
+      candidate.url,
+      input.fetchImpl,
+      VERTEX_REDIRECT_RESOLUTION_TIMEOUT_MS,
+      input.abortSignal,
+    );
+    if (!resolved.ok) {
+      return {
+        ok: false,
+        url: candidate.url,
+        reason: `Vertex grounding redirect ${candidate.url} unresolved before preflight: ${resolved.reason}.`,
+      };
+    }
+    candidate = normalizeGroundedCandidate(
+      {
+        ...candidate,
+        url: resolved.finalUrl,
+        finalUrl: resolved.finalUrl,
+        sourceDomain: safeHostname(resolved.finalUrl),
+        resolvedFromUrl: candidate.resolvedFromUrl || candidate.url,
+      },
+      input.company,
+    );
+  }
   const requestedUrl = candidate.url;
   try {
     throwIfAborted(input.abortSignal);
@@ -1556,6 +1725,170 @@ async function approveGroundedCandidateSet(input: {
     resolved: mergeGroundedCandidates(resolved, [], input.company, resolved.length || 1),
     rejected,
   };
+}
+
+export function isVertexGroundingRedirect(url: string): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.hostname === VERTEX_GROUNDING_REDIRECT_HOST &&
+      parsed.pathname.startsWith(VERTEX_GROUNDING_REDIRECT_PATH_PREFIX)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolves a Vertex AI grounded-search redirect URL to its canonical target.
+ *
+ * Uses a single-hop HEAD with manual redirect so we read the Location header
+ * without pulling body bytes. When Vertex returns a redirect (3xx), the Location
+ * header is the canonical URL. Any other response (404 on stale tokens, 200
+ * opaque pages, network errors, or a redirect that loops back to Vertex) is
+ * treated as unresolvable — the caller should drop the candidate with a
+ * dedicated vertex_redirect_unresolved diagnostic.
+ */
+async function resolveVertexGroundingRedirect(
+  url: string,
+  fetchImpl: FetchImpl,
+  timeoutMs: number,
+  abortSignal?: AbortSignal,
+): Promise<
+  | { ok: true; finalUrl: string }
+  | { ok: false; reason: string }
+> {
+  throwIfAborted(abortSignal);
+  const controller = new AbortController();
+  const handleAbort = () => controller.abort(abortSignal?.reason);
+  abortSignal?.addEventListener("abort", handleAbort, { once: true });
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(url, {
+      method: "HEAD",
+      redirect: "manual",
+      signal: controller.signal,
+    });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location") || "";
+      const resolved = cleanAbsoluteUrl(location) || location;
+      if (!resolved) {
+        return {
+          ok: false,
+          reason: `redirect response ${response.status} missing Location header`,
+        };
+      }
+      if (resolved === url || isVertexGroundingRedirect(resolved)) {
+        return {
+          ok: false,
+          reason: `redirect resolved back to a Vertex URL (${resolved})`,
+        };
+      }
+      return { ok: true, finalUrl: resolved };
+    }
+    return {
+      ok: false,
+      reason: `HTTP ${response.status} on redirect lookup (token likely stale)`,
+    };
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return {
+      ok: false,
+      reason: `redirect lookup error: ${formatError(error)}`,
+    };
+  } finally {
+    clearTimeout(timer);
+    abortSignal?.removeEventListener("abort", handleAbort);
+  }
+}
+
+/**
+ * Pre-resolves Vertex grounding-api-redirect URLs in a candidate list to their
+ * canonical targets, concurrency-bounded. Failed resolutions emit a
+ * vertex_redirect_unresolved diagnostic and are dropped from the output list.
+ * Non-Vertex candidates pass through untouched. After resolution, duplicates
+ * by canonical URL are consolidated (Gemini sometimes emits multiple redirect
+ * tokens that point to the same target page).
+ */
+async function resolveVertexRedirectsInCandidates(input: {
+  candidates: GroundedSearchCandidate[];
+  company: CompanyTarget;
+  fetchImpl: FetchImpl;
+  diagnostics: ExtractionDiagnostic[];
+  abortSignal?: AbortSignal;
+}): Promise<GroundedSearchCandidate[]> {
+  if (input.candidates.length === 0) return [];
+  const resolved: GroundedSearchCandidate[] = [];
+  for (
+    let i = 0;
+    i < input.candidates.length;
+    i += VERTEX_REDIRECT_RESOLUTION_CONCURRENCY
+  ) {
+    throwIfAborted(input.abortSignal);
+    const batch = input.candidates.slice(
+      i,
+      i + VERTEX_REDIRECT_RESOLUTION_CONCURRENCY,
+    );
+    const results = await Promise.all(
+      batch.map(async (candidate) => {
+        const url = candidate.url || candidate.finalUrl || "";
+        if (!isVertexGroundingRedirect(url)) {
+          return { candidate, outcome: "passthrough" as const };
+        }
+        const outcome = await resolveVertexGroundingRedirect(
+          url,
+          input.fetchImpl,
+          VERTEX_REDIRECT_RESOLUTION_TIMEOUT_MS,
+          input.abortSignal,
+        );
+        return {
+          candidate,
+          originalUrl: url,
+          outcome: "resolved" as const,
+          result: outcome,
+        };
+      }),
+    );
+    for (const entry of results) {
+      if (entry.outcome === "passthrough") {
+        resolved.push(entry.candidate);
+        continue;
+      }
+      if (entry.result.ok) {
+        resolved.push(
+          normalizeGroundedCandidate(
+            {
+              ...entry.candidate,
+              url: entry.result.finalUrl,
+              finalUrl: entry.result.finalUrl,
+              sourceDomain: safeHostname(entry.result.finalUrl),
+              resolvedFromUrl:
+                entry.candidate.resolvedFromUrl || entry.originalUrl,
+            },
+            input.company,
+          ),
+        );
+      } else {
+        input.diagnostics.push({
+          code: "vertex_redirect_unresolved",
+          context: `Dropped Vertex grounding redirect ${entry.originalUrl}: ${entry.result.reason}.`,
+          url: entry.originalUrl,
+        });
+      }
+    }
+  }
+
+  // Dedup by canonical URL (multiple Vertex tokens can share a target page)
+  const seen = new Set<string>();
+  const deduped: GroundedSearchCandidate[] = [];
+  for (const candidate of resolved) {
+    const key = (candidate.finalUrl || candidate.url || "").toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(candidate);
+  }
+  return deduped;
 }
 
 async function fetchTextWithTimeout(
@@ -1733,7 +2066,9 @@ function buildSearchPrompt(
     `Remote policy: ${config.remotePolicy || "any"}`,
     `Seniority: ${config.seniority || "any"}`,
     `Return at most ${Math.max(1, maxResults)} candidate links.`,
-    "Mix direct employer job pages with expandable careers/listings pages when useful.",
+    "Prefer direct employer job pages (pageType=job) on first-party or ATS-hosted domains over listings/careers pages.",
+    "Only cite currently-live postings. Do not cite aggregators (linkedin.com, indeed.com, glassdoor.com, simplyhired.com, ziprecruiter.com, monster.com, jobtarget.com, hireology.com, jobgether.com, lensa.com, etc.) — use their pages only to discover the underlying first-party URL and cite that.",
+    "Respond with strict JSON only. Do not include any prose or markdown.",
   );
 
   return lines.join("\n");
@@ -2735,6 +3070,147 @@ function extractJsonArray(input: string): string {
   return start !== -1 && end > start ? input.slice(start, end + 1) : "";
 }
 
+/**
+ * Feature A / Layer 4 — structured extraction via Gemini responseSchema.
+ *
+ * Runs a second Gemini call (Call 2) AFTER the grounded search Call 1 returns.
+ * Call 2 uses responseMimeType: application/json + a strict JSON schema and
+ * NO tools — so schema enforcement is hard, not best-effort. Gemini 2.5 honors
+ * responseSchema reliably when no tool is attached; only the google_search tool
+ * makes JSON mode flaky.
+ *
+ * Contract:
+ * - Input: the current candidate list from Call 1 plus the run intent.
+ * - Output: a clean GroundedSearchCandidate[] derived from Gemini's structured
+ *   response, or null on ANY failure (network, parse, empty schema match).
+ * - The caller merges Call 2's output with Call 1 candidates via
+ *   mergeGroundedCandidates and emits the structured_extraction_used /
+ *   structured_extraction_failed diagnostic codes.
+ */
+async function structureGroundedCandidatesViaSchema(input: {
+  candidates: GroundedSearchCandidate[];
+  company: CompanyTarget;
+  run: DiscoveryRun;
+  endpoint: string;
+  apiKey: string;
+  fetchImpl: FetchImpl;
+  maxResults: number;
+  signal?: AbortSignal;
+}): Promise<GroundedSearchCandidate[] | null> {
+  if (input.candidates.length === 0) return null;
+  throwIfAborted(input.signal);
+
+  const config = input.run.config;
+  const companyContext = input.company.name
+    ? `Target company: ${input.company.name}`
+    : "Modifier-driven intent search (no fixed company target)";
+
+  const candidateLines = input.candidates
+    .slice(0, 50)
+    .map(
+      (candidate, index) =>
+        `${index + 1}. ${candidate.url}\n   title: ${candidate.title || "(none)"}\n   reason: ${candidate.reason || "(none)"}\n   pageType: ${candidate.pageType || "other"}`,
+    )
+    .join("\n");
+
+  const userPrompt = [
+    companyContext,
+    `Target roles: ${joinOrAny(config.targetRoles)}`,
+    `Include keywords: ${joinOrAny(config.includeKeywords)}`,
+    `Exclude keywords: ${joinOrAny(config.excludeKeywords)}`,
+    `Locations: ${joinOrAny(config.locations)}`,
+    `Remote policy: ${config.remotePolicy || "any"}`,
+    `Seniority: ${config.seniority || "any"}`,
+    "",
+    "Candidate URLs from a grounded web search:",
+    candidateLines,
+    "",
+    `Return strict JSON matching the schema. Keep only URLs that are currently-live first-party or major-ATS job postings. Drop aggregators, malformed URLs, placeholder IDs, vertexaisearch redirects, link shorteners. Return at most ${Math.max(1, input.maxResults)} results. If nothing qualifies, return {"results":[]}.`,
+  ].join("\n");
+
+  const maxOutputTokens = Math.min(
+    4096,
+    input.run.config.groundedSearchTuning?.maxTokensPerQuery ?? 2048,
+  );
+
+  try {
+    const response = await input.fetchImpl(input.endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-goog-api-key": input.apiKey,
+      },
+      signal: input.signal,
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: STRUCTURING_SYSTEM_PROMPT }],
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: userPrompt }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens,
+          responseMimeType: "application/json",
+          responseSchema: CANDIDATE_RESULTS_SCHEMA,
+        },
+        // Deliberately no `tools` — Gemini enforces responseSchema strictly only
+        // when no tool is attached. This is the whole point of the two-call
+        // pattern: Call 1 has google_search, Call 2 has the schema.
+      }),
+    });
+
+    if (!response.ok) return null;
+    const payload = await response.json().catch(() => null);
+    if (!isPlainRecord(payload)) return null;
+
+    const cands = candidatePayloads(payload);
+    if (cands.length === 0) return null;
+
+    // Walk Gemini's response candidates; take the first one that parses.
+    for (const candidate of cands) {
+      const text = extractCandidateText(candidate);
+      if (!text) continue;
+      const jsonString = extractJsonObject(text) || text;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(jsonString);
+      } catch {
+        continue;
+      }
+      if (!isPlainRecord(parsed) || !Array.isArray(parsed.results)) continue;
+
+      const structured = parsed.results
+        .filter((entry): entry is AnyRecord => isPlainRecord(entry))
+        .map((entry) =>
+          toGroundedCandidate(
+            {
+              url: String(entry.url || ""),
+              title: String(entry.title || ""),
+              pageType: String(entry.pageType || "other"),
+              reason:
+                String(entry.reason || "") ||
+                "Structured extraction (Layer 4)",
+            },
+            input.company,
+          ),
+        )
+        .filter((entry): entry is GroundedSearchCandidate => entry !== null);
+
+      if (structured.length === 0) return null;
+      return structured.slice(0, Math.max(1, input.maxResults));
+    }
+
+    return null;
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return null;
+  }
+}
+
 function executeGroundedSearchRequest(input: {
   prompt: string;
   company: CompanyTarget;
@@ -2777,6 +3253,12 @@ function executeGroundedSearchRequest(input: {
       generationConfig: {
         temperature: 0.2,
         maxOutputTokens,
+        // Deliberately NO `responseMimeType` here — Gemini's v1beta API returns
+        // HTTP 400 ("Tool use with a response mime type: 'application/json' is
+        // unsupported") when google_search is attached. Structured output is
+        // handled by the Layer 4 Call 2 pass in collectGroundedWebListings,
+        // which runs a separate request WITHOUT tools so responseSchema can be
+        // strictly enforced.
       },
       tools: [{ google_search: {} }],
     }),

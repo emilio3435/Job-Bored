@@ -10,6 +10,7 @@ import {
   loadRuntimeConfig,
   loadStoredWorkerConfig,
   mergeDiscoveryConfig,
+  upsertStoredWorkerConfig,
 } from "./config.ts";
 import {
   buildDiscoveryIntent as buildPlannerIntent,
@@ -31,6 +32,7 @@ import {
 import { createDiscoveryMemoryStore } from "./state/discovery-memory-store.ts";
 import { createRunDiscoveryMemoryStore } from "./state/run-discovery-memory-store.ts";
 import { handleDiscoveryWebhook } from "./webhook/handle-discovery-webhook.ts";
+import { handleDiscoveryProfileWebhook } from "./webhook/handle-discovery-profile.ts";
 import { createBrowserUseSessionManager } from "./browser/session.ts";
 
 const runtimeConfig = loadRuntimeConfig(process.env);
@@ -617,6 +619,7 @@ async function buildHealthPayload() {
       health: "/health",
       webhook: "/webhook",
       discovery: "/discovery",
+      discoveryProfile: "/discovery-profile",
       runStatus: RUN_STATUS_TEMPLATE,
     },
     readiness: {
@@ -841,7 +844,7 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (!["/", "/webhook", "/discovery"].includes(requestPath)) {
+  if (!["/", "/webhook", "/discovery", "/discovery-profile"].includes(requestPath)) {
     finishJson(
       404,
       {
@@ -865,6 +868,77 @@ const server = createServer(async (request, response) => {
         allow: "POST,OPTIONS",
       },
     );
+    return;
+  }
+
+  // Feature B / Layer 5 — profile-driven company discovery endpoint. Uses the
+  // same x-discovery-secret auth as the main webhook; never persists raw
+  // resume text; optionally writes the inferred companies to worker-config.
+  if (requestPath === "/discovery-profile") {
+    try {
+      const bodyText = await readBody(request);
+      logEvent("http.request.body", {
+        requestId,
+        method,
+        path: requestPath,
+        bytes: Buffer.byteLength(bodyText, "utf8"),
+        contentType:
+          getHeaderValue(request.headers["content-type"]) || undefined,
+      });
+      const result = await handleDiscoveryProfileWebhook(
+        {
+          method,
+          headers: Object.fromEntries(
+            Object.entries(request.headers).map(([key, value]) => [
+              key,
+              Array.isArray(value) ? value : (value ?? undefined),
+            ]),
+          ),
+          bodyText,
+        },
+        {
+          runtimeConfig,
+          upsertStoredWorkerConfig,
+          log: (event, details) =>
+            logEvent(event, {
+              requestId,
+              method,
+              path: requestPath,
+              ...details,
+            }),
+        },
+      );
+      logEvent("http.request.completed", {
+        requestId,
+        method,
+        path: requestPath,
+        status: result.status,
+        durationMs: Date.now() - startedAt,
+      });
+      response.statusCode = result.status;
+      setHeaders(response, {
+        ...corsHeaders,
+        ...result.headers,
+      });
+      response.end(result.body);
+    } catch (error) {
+      logEvent("http.request.failed", {
+        requestId,
+        method,
+        path: requestPath,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      finishJson(
+        500,
+        {
+          ok: false,
+          message: "Internal error handling discovery-profile request.",
+          detail: error instanceof Error ? error.message : String(error),
+        },
+        corsHeaders,
+      );
+    }
     return;
   }
 

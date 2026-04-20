@@ -106,6 +106,9 @@ function makeRuntimeConfig(overrides = {}) {
     host: "127.0.0.1",
     runMode: "hosted",
     asyncAckByDefault: true,
+    // Tests default to useStructuredExtraction OFF so they exercise Call 1
+    // only — the Layer 4 tests opt in explicitly via `overrides`.
+    useStructuredExtraction: false,
     ...overrides,
   };
 }
@@ -2626,4 +2629,490 @@ test("collectGroundedWebListings does not emit reduced_page_limit when budget tr
   // Should NOT have reduced_page_limit diagnostic
   assert.ok(!result.diagnostics || !result.diagnostics.find((d) => d.code === "reduced_page_limit"),
     "Should not have reduced_page_limit diagnostic when budget is healthy");
+});
+
+test("collectGroundedWebListings resolves Vertex grounding-api-redirect URLs to canonical targets before preflight", async () => {
+  const run = makeUnrestrictedRun({
+    config: {
+      companies: [{ name: "" }],
+      targetRoles: ["Growth Marketing Manager"],
+      includeKeywords: ["growth"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+    },
+  });
+
+  const vertexUrl =
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQ_canonical_token_ok";
+  const canonicalUrl = "https://jobs.lever.co/notion/growth-marketing-manager";
+  let headCalls = 0;
+  let preflightCalls = 0;
+
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    const method = String(init?.method || "GET").toUpperCase();
+    if (method === "HEAD" && url === vertexUrl) {
+      headCalls += 1;
+      return new Response(null, {
+        status: 302,
+        headers: { location: canonicalUrl },
+      });
+    }
+    if (url === canonicalUrl) {
+      preflightCalls += 1;
+      const body = `
+        <html>
+        <head><title>Growth Marketing Manager at Notion</title></head>
+        <body>
+          <h1>Growth Marketing Manager</h1>
+          <button>Apply now</button>
+          <p>${"Responsibilities, qualifications, and benefits for this remote role. ".repeat(10)}</p>
+        </body>
+        </html>
+      `;
+      return new Response(body, { status: 200, headers: { "content-type": "text/html" } });
+    }
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Growth Marketing Manager remote"],
+        candidates: [
+          {
+            url: vertexUrl,
+            title: "Growth Marketing Manager - Notion",
+            pageType: "job",
+            reason: "Grounded Google Search citation",
+            sourceDomain: "vertexaisearch.cloud.google.com",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    fetchImpl,
+    sessionManager: {
+      run: async ({ url }) => ({
+        url,
+        text: JSON.stringify({
+          pageType: "job",
+          jobs: [
+            {
+              title: "Growth Marketing Manager",
+              company: "Notion",
+              location: "Remote",
+              url: canonicalUrl,
+              descriptionText: "Full description text.",
+            },
+          ],
+        }),
+        metadata: { mode: "browser_use_command" },
+      }),
+    },
+  });
+
+  assert.equal(headCalls, 1, "Vertex redirect should be HEAD-resolved exactly once");
+  assert.equal(
+    preflightCalls,
+    1,
+    "Preflight GET should hit the canonical URL (not the Vertex URL)",
+  );
+  assert.ok(
+    !result.diagnostics?.some((d) => d.code === "vertex_redirect_unresolved"),
+    "Should not emit vertex_redirect_unresolved when resolution succeeds",
+  );
+  assert.ok(
+    !result.diagnostics?.some(
+      (d) =>
+        d.code === "preflight_rejected" &&
+        (d.context || "").includes("vertexaisearch"),
+    ),
+    "Preflight diagnostics should reference the canonical URL, not the Vertex redirect",
+  );
+});
+
+test("collectGroundedWebListings drops stale Vertex redirects with a vertex_redirect_unresolved diagnostic", async () => {
+  const run = makeUnrestrictedRun({
+    config: {
+      companies: [{ name: "" }],
+      targetRoles: ["Growth Marketing Manager"],
+      includeKeywords: ["growth"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+    },
+  });
+
+  const staleVertexUrl =
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQ_stale_token_404";
+  let preflightCalls = 0;
+
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    const method = String(init?.method || "GET").toUpperCase();
+    if (method === "HEAD" && url === staleVertexUrl) {
+      return new Response(null, { status: 404 });
+    }
+    preflightCalls += 1;
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Growth Marketing Manager remote"],
+        candidates: [
+          {
+            url: staleVertexUrl,
+            title: "Some stale citation",
+            pageType: "job",
+            reason: "Grounded Google Search citation",
+            sourceDomain: "vertexaisearch.cloud.google.com",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    fetchImpl,
+    sessionManager: {
+      run: async ({ url }) => ({
+        url,
+        text: "",
+        metadata: { mode: "browser_use_command" },
+      }),
+    },
+  });
+
+  assert.equal(preflightCalls, 0, "Stale Vertex tokens should short-circuit before preflight");
+  assert.equal(result.pagesVisited, 0);
+  assert.equal(result.rawListings.length, 0);
+  const unresolvedDiag = result.diagnostics?.find(
+    (d) => d.code === "vertex_redirect_unresolved",
+  );
+  assert.ok(unresolvedDiag, "Should emit vertex_redirect_unresolved for stale token");
+  assert.match(unresolvedDiag!.context, /HTTP 404/);
+  assert.equal(unresolvedDiag!.url, staleVertexUrl);
+});
+
+test("collectGroundedWebListings deduplicates Vertex redirects pointing to the same canonical URL", async () => {
+  const run = makeUnrestrictedRun({
+    config: {
+      companies: [{ name: "" }],
+      targetRoles: ["Growth Marketing Manager"],
+      includeKeywords: ["growth"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+    },
+  });
+
+  const canonicalUrl = "https://jobs.lever.co/notion/growth-marketing-manager";
+  let headCalls = 0;
+  let preflightCalls = 0;
+
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    const method = String(init?.method || "GET").toUpperCase();
+    if (method === "HEAD" && url.startsWith("https://vertexaisearch.cloud.google.com/")) {
+      headCalls += 1;
+      return new Response(null, {
+        status: 302,
+        headers: { location: canonicalUrl },
+      });
+    }
+    if (url === canonicalUrl) {
+      preflightCalls += 1;
+      return new Response(
+        `<html><head><title>Growth Marketing Manager</title></head><body><h1>Growth Marketing Manager</h1><p>${"Lots of text. ".repeat(100)}</p></body></html>`,
+        { status: 200, headers: { "content-type": "text/html" } },
+      );
+    }
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Growth Marketing Manager remote"],
+        candidates: [
+          { url: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/token_a", title: "A", pageType: "job", reason: "citation", sourceDomain: "vertexaisearch.cloud.google.com" },
+          { url: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/token_b", title: "B", pageType: "job", reason: "citation", sourceDomain: "vertexaisearch.cloud.google.com" },
+          { url: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/token_c", title: "C", pageType: "job", reason: "citation", sourceDomain: "vertexaisearch.cloud.google.com" },
+        ],
+        warnings: [],
+      }),
+    },
+    fetchImpl,
+    sessionManager: {
+      run: async ({ url }) => ({ url, text: "", metadata: { mode: "browser_use_command" } }),
+    },
+  });
+
+  assert.equal(headCalls, 3, "Each Vertex token gets resolved");
+  assert.equal(
+    preflightCalls,
+    1,
+    "After dedup by canonical URL, preflight should only run once",
+  );
+  assert.ok(result, "result returned");
+});
+
+// Feature A / Layer 4 tests — structured extraction (Call 2)
+
+test("Layer 4: structured extraction replaces candidates when Call 2 returns clean JSON", async () => {
+  const run = makeUnrestrictedRun({
+    config: {
+      companies: [{ name: "" }],
+      targetRoles: ["Growth Marketing Manager"],
+      includeKeywords: ["growth"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+    },
+  });
+
+  const call1CandidateUrl = "https://jobs.lever.co/notion/growth-marketing-manager";
+  const structuredCandidateUrl = "https://careers.notion.so/jobs/growth-marketing-manager";
+  let generateContentCalls = 0;
+  let preflightCalls = 0;
+
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    const method = String(init?.method || "GET").toUpperCase();
+    if (url.includes("generativelanguage.googleapis.com")) {
+      generateContentCalls += 1;
+      // Second call (Call 2 — the structuring pass) returns a strict JSON shape
+      // from the model, echoing the Call-1 URL plus an upgraded canonical one.
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      results: [
+                        {
+                          url: structuredCandidateUrl,
+                          title: "Growth Marketing Manager at Notion",
+                          pageType: "job",
+                          reason: "First-party canonical URL",
+                        },
+                      ],
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (method === "HEAD" && url.startsWith("https://vertexaisearch.cloud.google.com/")) {
+      return new Response(null, { status: 302, headers: { location: call1CandidateUrl } });
+    }
+    if (url === structuredCandidateUrl || url === call1CandidateUrl) {
+      preflightCalls += 1;
+      return new Response(
+        `<html><head><title>Growth Marketing Manager</title></head><body><h1>Growth Marketing Manager</h1><button>Apply now</button><p>${"Role description lorem ipsum. ".repeat(40)}</p></body></html>`,
+        { status: 200, headers: { "content-type": "text/html" } },
+      );
+    }
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig({ useStructuredExtraction: true }),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Growth Marketing Manager remote"],
+        candidates: [
+          {
+            url: call1CandidateUrl,
+            title: "Growth Marketing Manager at Notion",
+            pageType: "job",
+            reason: "Grounded Google Search citation",
+            sourceDomain: "jobs.lever.co",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    fetchImpl,
+    sessionManager: {
+      run: async ({ url }) => ({
+        url,
+        text: JSON.stringify({
+          pageType: "job",
+          jobs: [
+            {
+              title: "Growth Marketing Manager",
+              company: "Notion",
+              location: "Remote",
+              url,
+              descriptionText: "desc",
+            },
+          ],
+        }),
+        metadata: { mode: "browser_use_command" },
+      }),
+    },
+  });
+
+  assert.equal(generateContentCalls, 1, "Call 2 should fire exactly once per collection");
+  assert.ok(
+    result.diagnostics?.some((d) => d.code === "structured_extraction_used"),
+    "Should emit structured_extraction_used diagnostic",
+  );
+  assert.ok(
+    !result.diagnostics?.some((d) => d.code === "structured_extraction_failed"),
+    "Should not emit structured_extraction_failed on success",
+  );
+});
+
+test("Layer 4: structured extraction failure falls back to Call 1 candidates cleanly", async () => {
+  const run = makeUnrestrictedRun({
+    config: {
+      companies: [{ name: "" }],
+      targetRoles: ["Growth Marketing Manager"],
+      includeKeywords: ["growth"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+    },
+  });
+
+  const call1CandidateUrl = "https://jobs.lever.co/notion/growth-marketing-manager";
+
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    const method = String(init?.method || "GET").toUpperCase();
+    if (url.includes("generativelanguage.googleapis.com")) {
+      // Call 2 fails upstream — helper should swallow and return null.
+      return new Response("upstream boom", {
+        status: 500,
+        headers: { "content-type": "text/plain" },
+      });
+    }
+    if (method === "HEAD" && url.startsWith("https://vertexaisearch.cloud.google.com/")) {
+      return new Response(null, { status: 302, headers: { location: call1CandidateUrl } });
+    }
+    if (url === call1CandidateUrl) {
+      return new Response(
+        `<html><head><title>Growth Marketing Manager</title></head><body><h1>Growth Marketing Manager</h1><button>Apply now</button><p>${"Role description lorem ipsum. ".repeat(40)}</p></body></html>`,
+        { status: 200, headers: { "content-type": "text/html" } },
+      );
+    }
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig({ useStructuredExtraction: true }),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Growth Marketing Manager remote"],
+        candidates: [
+          {
+            url: call1CandidateUrl,
+            title: "Growth Marketing Manager at Notion",
+            pageType: "job",
+            reason: "Grounded Google Search citation",
+            sourceDomain: "jobs.lever.co",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    fetchImpl,
+    sessionManager: {
+      run: async ({ url }) => ({ url, text: "", metadata: { mode: "browser_use_command" } }),
+    },
+  });
+
+  assert.ok(
+    result.diagnostics?.some((d) => d.code === "structured_extraction_failed"),
+    "Should emit structured_extraction_failed diagnostic on Call 2 failure",
+  );
+  assert.ok(
+    !result.diagnostics?.some((d) => d.code === "structured_extraction_used"),
+    "Should not emit structured_extraction_used on failure",
+  );
+});
+
+test("Layer 4: useStructuredExtraction=false skips Call 2 entirely", async () => {
+  const run = makeUnrestrictedRun({
+    config: {
+      companies: [{ name: "" }],
+      targetRoles: ["Growth Marketing Manager"],
+      includeKeywords: ["growth"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+    },
+  });
+
+  const call1CandidateUrl = "https://jobs.lever.co/notion/growth-marketing-manager";
+  let generateContentCalls = 0;
+
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    const method = String(init?.method || "GET").toUpperCase();
+    if (url.includes("generativelanguage.googleapis.com")) {
+      generateContentCalls += 1;
+      return new Response("should not be called", { status: 200 });
+    }
+    if (method === "HEAD" && url.startsWith("https://vertexaisearch.cloud.google.com/")) {
+      return new Response(null, { status: 302, headers: { location: call1CandidateUrl } });
+    }
+    if (url === call1CandidateUrl) {
+      return new Response(
+        `<html><head><title>Growth Marketing Manager</title></head><body><h1>Growth Marketing Manager</h1><p>${"text. ".repeat(120)}</p></body></html>`,
+        { status: 200, headers: { "content-type": "text/html" } },
+      );
+    }
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig({ useStructuredExtraction: false }),
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Growth Marketing Manager remote"],
+        candidates: [
+          {
+            url: call1CandidateUrl,
+            title: "Growth Marketing Manager at Notion",
+            pageType: "job",
+            reason: "Grounded Google Search citation",
+            sourceDomain: "jobs.lever.co",
+          },
+        ],
+        warnings: [],
+      }),
+    },
+    fetchImpl,
+    sessionManager: {
+      run: async ({ url }) => ({ url, text: "", metadata: { mode: "browser_use_command" } }),
+    },
+  });
+
+  assert.equal(generateContentCalls, 0, "Call 2 must not fire when flag is off");
+  assert.ok(
+    !result.diagnostics?.some(
+      (d) => d.code === "structured_extraction_used" || d.code === "structured_extraction_failed",
+    ),
+    "Should emit no Layer-4 diagnostics when flag is off",
+  );
 });

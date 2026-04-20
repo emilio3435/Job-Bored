@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,6 +38,10 @@ export type WorkerRuntimeConfig = {
   host: string;
   runMode: "local" | "hosted";
   asyncAckByDefault: boolean;
+  // Feature A / Layer 4: when true (default), grounded-search runs a second
+  // Gemini call with responseSchema to extract structured candidates, bypassing
+  // the regex URL fallback. Disable to roll back to Call-1-only behavior.
+  useStructuredExtraction: boolean;
 };
 
 export type ResolvedRunSettings = EffectiveDiscoveryConfig & {
@@ -355,6 +359,13 @@ export function loadRuntimeConfig(
       ]),
       true,
     ),
+    useStructuredExtraction: parseBoolean(
+      readFirst(runtimeEnv, [
+        "BROWSER_USE_DISCOVERY_USE_STRUCTURED_EXTRACTION",
+        "DISCOVERY_USE_STRUCTURED_EXTRACTION",
+      ]),
+      true,
+    ),
   };
 }
 
@@ -450,6 +461,50 @@ export async function loadStoredWorkerConfig(
     sheetId,
     runtimeConfig.runMode,
   );
+}
+
+/**
+ * Feature B / Layer 5 — merge caller-supplied mutations into the stored worker
+ * config at `runtimeConfig.workerConfigPath` and atomically write back.
+ *
+ * Shallow-merge only: callers pass just the fields they want to replace
+ * (e.g. `{ companies: [...] }`), everything else is preserved. Writing is
+ * atomic via write-to-tmp + rename so a concurrent reader never sees a
+ * half-written file.
+ *
+ * Returns the merged-and-normalized config.
+ *
+ * If no config file exists yet, one is created from the caller's mutations
+ * plus the default shape produced by `buildDefaultStoredWorkerConfig`.
+ */
+export async function upsertStoredWorkerConfig(
+  runtimeConfig: WorkerRuntimeConfig,
+  input: {
+    sheetId: string;
+    mutations: Partial<StoredWorkerConfig>;
+  },
+): Promise<StoredWorkerConfig> {
+  const pathname = runtimeConfig.workerConfigPath;
+  if (!pathname) {
+    throw new Error(
+      "upsertStoredWorkerConfig: runtimeConfig.workerConfigPath is empty.",
+    );
+  }
+  const existing = await loadStoredWorkerConfig(runtimeConfig, input.sheetId);
+  const merged = normalizeStoredWorkerConfig(
+    { ...existing, ...input.mutations, sheetId: input.sheetId } as AnyRecord,
+    input.sheetId,
+    runtimeConfig.runMode,
+  );
+  const tmpPath = `${pathname}.tmp-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+  await writeFile(tmpPath, `${JSON.stringify(merged, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  await rename(tmpPath, pathname);
+  return merged;
 }
 
 export function mergeDiscoveryConfig(
