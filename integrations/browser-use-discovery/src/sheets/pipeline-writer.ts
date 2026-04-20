@@ -124,6 +124,12 @@ function buildLeadRow(lead: NormalizedLead, now: Date): string[] {
   const dateFound = lead.discoveredAt
     ? String(lead.discoveredAt).slice(0, 10)
     : now.toISOString().slice(0, 10);
+  // Match Score is already 0–10 from finalizeMatchDecision; clampScore treats
+  // it the same way as fitScore.
+  const matchScore =
+    lead.matchScore == null || !Number.isFinite(lead.matchScore)
+      ? ""
+      : String(Math.min(10, Math.max(0, Math.round(lead.matchScore))));
   return [
     dateFound,
     lead.title || "",
@@ -145,6 +151,7 @@ function buildLeadRow(lead: NormalizedLead, now: Date): string[] {
     "",
     "",
     lead.logoUrl || "",
+    matchScore,
   ];
 }
 

@@ -1176,7 +1176,10 @@ function finalizeMatchDecision(
   decision: MatchDecision,
   matchUsedAi: boolean,
 ): ReturnType<typeof normalizeLeadWithDiagnostics> & { matchUsedAi: boolean } {
-  if (decision.decision !== "accept") {
+  // Hybrid matcher gate: only "reject" drops the listing. "uncertain" flows
+  // through to the sheet — the Match Score column lets the user sort and
+  // triage marginal matches instead of the matcher silently discarding them.
+  if (decision.decision === "reject") {
     return {
       lead: null,
       rejection: matchDecisionToRejection(decision, rawListing, run),
@@ -1200,8 +1203,17 @@ function finalizeMatchDecision(
     };
   }
 
+  // Inject the matcher's overallScore (0–1) as a 0–10 Match Score so the
+  // sheet writer can surface it in its new column. Keeps the deterministic
+  // fitScore untouched. Guarded by the `if (!normalized.lead)` check above so
+  // we never spread a null lead into a truthy placeholder.
+  const matchScore = Number.isFinite(decision.overallScore)
+    ? Math.round(Math.max(0, Math.min(1, decision.overallScore)) * 10)
+    : null;
+
   return {
     ...normalized,
+    lead: { ...normalized.lead, matchScore },
     matchUsedAi,
   };
 }

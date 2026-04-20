@@ -67,6 +67,10 @@ export const PIPELINE_HEADER_ROW = [
   "Last contact",
   "Did they reply?",
   "Logo URL",
+  // Appended so existing sheet layouts shift by zero columns. 0–10 AI match
+  // score from the job-matcher's overallScore, letting users sort/filter in-
+  // sheet rather than having the matcher silently drop marginal jobs.
+  "Match Score",
 ] as const;
 
 export type SupportedSourceId = (typeof SUPPORTED_SOURCE_IDS)[number];
@@ -247,6 +251,14 @@ export type NormalizedLead = {
   url: string;
   compensationText: string;
   fitScore: number | null;
+  /**
+   * 0–10 score from the Gemini job-matcher's overallScore (0–1 multiplied by
+   * 10 and rounded). Distinct from fitScore, which is the deterministic
+   * keyword-overlap score. Populated by finalizeMatchDecision in
+   * run-discovery.ts when a matcher decision is available; null when the run
+   * skipped the AI matcher.
+   */
+  matchScore: number | null;
   priority: NormalizedLeadPriority;
   tags: string[];
   fitAssessment: string;

@@ -151,6 +151,7 @@ function createCompatSourceAdapter(
         url: normalizeLeadUrl(raw.url),
         compensationText: sanitizeCompensationValue(raw.compensationText || ""),
         fitScore: null,
+        matchScore: null,
         priority: "",
         tags: sanitizeTags(raw.tags || []),
         fitAssessment: sanitizeDescriptionText(raw.descriptionText).slice(0, 500),

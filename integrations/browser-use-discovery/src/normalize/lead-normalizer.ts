@@ -295,6 +295,10 @@ export function normalizeLeadWithDiagnostics(
       url,
       compensationText,
       fitScore,
+      // matchScore is populated later by finalizeMatchDecision in
+      // run-discovery.ts when the AI job-matcher produced a decision. Leaves
+      // it null by default for runs that skip the matcher.
+      matchScore: null,
       priority,
       tags,
       fitAssessment,
