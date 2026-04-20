@@ -47,7 +47,12 @@ Options:
   --worker-name    Optional. Cloudflare Worker name. Defaults to a stable JobBored relay name.
   --account-id     Optional. Cloudflare account id. Otherwise uses CLOUDFLARE_ACCOUNT_ID or wrangler whoami.
   --workers-subdomain Optional. Override the account-level workers.dev subdomain to create when using API-token auth.
-  --sheet-id       Optional. Included only in the final printed verify command.
+  --sheet-id       Optional. When provided, ALSO uploaded as the Worker's REFRESH_SHEET_ID secret so the
+                   daily cron knows which sheet's worker-config to refresh. Included in the final
+                   printed verify command either way.
+  --cron           Optional. Cron expression for the daily refresh trigger. Defaults to "0 8 * * *"
+                   (08:00 UTC daily). The Worker's scheduled() handler POSTs {mode:"refresh"} to
+                   <TARGET_URL origin>/discovery-profile at each fire.
   --discovery-secret Optional. Uploaded as the Worker's DISCOVERY_SECRET. The relay
                    then injects it as x-discovery-secret on the upstream POST.
                    Falls back to DISCOVERY_WEBHOOK_SECRET / BROWSER_USE_DISCOVERY_WEBHOOK_SECRET env.
@@ -71,6 +76,29 @@ function fail(message, code = 1) {
   process.exit(code);
 }
 
+const DEFAULT_CRON = "0 8 * * *";
+// Five space-separated fields, each either a literal or a glob/range/step.
+// Keeps the worker from being handed a malformed crontab that silently
+// disables the scheduled() handler.
+const CRON_FIELD_RE = /^(\*|\?|[0-9A-Za-z*/,\-]+)$/;
+
+function validateCronExpression(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return DEFAULT_CRON;
+  const fields = value.split(/\s+/);
+  if (fields.length !== 5) {
+    fail(
+      `--cron must be a 5-field cron expression (minute hour day-of-month month day-of-week). Got ${fields.length} fields.`,
+    );
+  }
+  for (const field of fields) {
+    if (!CRON_FIELD_RE.test(field)) {
+      fail(`--cron field "${field}" contains unsupported characters.`);
+    }
+  }
+  return value;
+}
+
 function parseArgs(argv) {
   const out = {
     targetUrl: "",
@@ -80,6 +108,7 @@ function parseArgs(argv) {
     workersSubdomain: "",
     sheetId: "",
     discoverySecret: "",
+    cron: DEFAULT_CRON,
     autoLogin: true,
     autoVerify: true,
     json: false,
@@ -107,7 +136,8 @@ function parseArgs(argv) {
       arg === "--account-id" ||
       arg === "--workers-subdomain" ||
       arg === "--sheet-id" ||
-      arg === "--discovery-secret"
+      arg === "--discovery-secret" ||
+      arg === "--cron"
     ) {
       if (!next || next.startsWith("--")) {
         fail(`missing value for ${arg}`);
@@ -119,6 +149,7 @@ function parseArgs(argv) {
       else if (arg === "--workers-subdomain") out.workersSubdomain = next;
       else if (arg === "--sheet-id") out.sheetId = next;
       else if (arg === "--discovery-secret") out.discoverySecret = next;
+      else if (arg === "--cron") out.cron = next;
       i += 1;
       continue;
     }
@@ -130,6 +161,7 @@ function parseArgs(argv) {
       process.env.BROWSER_USE_DISCOVERY_WEBHOOK_SECRET ||
       "";
   }
+  out.cron = validateCronExpression(out.cron);
   return out;
 }
 
@@ -755,9 +787,8 @@ async function main() {
           workers_dev: true,
           // Daily refresh cron — fires the worker's scheduled() handler
           // which POSTs {mode:"refresh"} to <TARGET_URL origin>/discovery-profile.
-          // 08:00 UTC = 02:00 Mountain Time. Override via --cron or by editing
-          // this script's config shape.
-          triggers: { crons: ["0 8 * * *"] },
+          // Default 08:00 UTC. Override with --cron.
+          triggers: { crons: [args.cron] },
           ...(corsOrigin ? { vars: { CORS_ORIGIN: corsOrigin } } : {}),
         },
         null,
@@ -797,6 +828,20 @@ async function main() {
       );
     }
 
+    if (args.sheetId) {
+      console.log("cloudflare-relay: setting REFRESH_SHEET_ID secret...");
+      runWrangler(
+        ["secret", "put", "REFRESH_SHEET_ID", "--config", configPath],
+        {
+          cwd: tempDir,
+          input: `${args.sheetId}\n`,
+          outputFile: secretOutputPath,
+          failureMessage:
+            "wrangler secret put REFRESH_SHEET_ID failed. Check your Cloudflare auth and account permissions.",
+        },
+      );
+    }
+
     const workerUrl =
       parseUrlsFromJsonLines(secretOutputPath)[0] ||
       parseUrlsFromJsonLines(deployOutputPath)[0] ||
@@ -818,6 +863,8 @@ async function main() {
       targetUrl,
       targetClassification: targetClassification.kind,
       corsOrigin: corsOrigin || "*",
+      cron: args.cron,
+      refreshSheetIdUploaded: !!args.sheetId,
       auth: {
         mode: authGuidance.mode,
         accountId,
@@ -851,6 +898,14 @@ async function main() {
       console.log(`Target URL: ${targetUrl}`);
       console.log(`Target classification: ${targetClassification.kind}`);
       console.log(`CORS origin: ${corsOrigin || "*"}`);
+      console.log(`Daily refresh cron: ${args.cron}`);
+      if (args.sheetId) {
+        console.log(`REFRESH_SHEET_ID secret: uploaded (${args.sheetId})`);
+      } else {
+        console.log(
+          "REFRESH_SHEET_ID secret: not set — cron will fall back to the worker's default sheetId. Re-run with --sheet-id to pin it.",
+        );
+      }
       console.log(authGuidance.detail);
       for (const step of authGuidance.steps) {
         console.log(`- ${step}`);
