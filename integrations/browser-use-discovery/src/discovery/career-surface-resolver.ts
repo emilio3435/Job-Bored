@@ -283,6 +283,17 @@ export function classifyCareerSurfaceSourcePolicy(url: string): CareerSurfaceSou
     if (!["https:", "http:"].includes(parsed.protocol)) {
       return "blocked";
     }
+    // SSRF guard: reject URLs that would let the preflight fetch hit loopback,
+    // private IPv4 ranges, link-local (incl. 169.254.169.254 cloud-metadata),
+    // IPv6 loopback/link-local, or embed credentials in userinfo. Previously
+    // a schema-compliant Gemini response pointing at internal addresses flowed
+    // straight into prepareGroundedSeedCandidates' real fetch.
+    if (parsed.username || parsed.password) {
+      return "blocked";
+    }
+    if (isPrivateOrLoopbackHost(hostname)) {
+      return "blocked";
+    }
     if (isGoogleJobsLikeSurface(parsed)) {
       return "hint_only";
     }
@@ -299,6 +310,26 @@ export function classifyCareerSurfaceSourcePolicy(url: string): CareerSurfaceSou
     return "blocked";
   }
   return "extractable";
+}
+
+function isPrivateOrLoopbackHost(hostname: string): boolean {
+  if (!hostname) return true;
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) return true;
+  // IPv6 loopback "::1" or link-local "fe80::" come in as "[::1]" or "[fe80::...]"
+  // after URL parsing, .hostname strips the brackets, so match the bare form.
+  if (hostname === "::1" || hostname.startsWith("fe80:") || hostname.startsWith("fc") || hostname.startsWith("fd")) {
+    return true;
+  }
+  const ipv4 = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!ipv4) return false;
+  const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
+  if (a === 10) return true;                       // 10.0.0.0/8
+  if (a === 127) return true;                      // 127.0.0.0/8 loopback
+  if (a === 0) return true;                        // 0.0.0.0/8
+  if (a === 169 && b === 254) return true;         // 169.254.0.0/16 link-local + cloud metadata
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+  if (a === 192 && b === 168) return true;         // 192.168.0.0/16
+  return false;
 }
 
 export function isThirdPartyJobBoardHost(url: string): boolean {
