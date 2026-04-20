@@ -115,4 +115,63 @@ export default {
       headers: { ...h, "Content-Type": ct },
     });
   },
+
+  // Cron trigger — fires on the schedule configured in wrangler.toml
+  // `[triggers]` section. Posts a `mode:"refresh"` request to the worker's
+  // /discovery-profile endpoint so the stored candidateProfile gets replayed
+  // daily against Gemini; newly-discovered companies dedupe against the
+  // StoredWorkerConfig.negativeCompanyKeys list. Requires the same TARGET_URL
+  // + DISCOVERY_SECRET secrets as the fetch path.
+  async scheduled(event, env, ctx) {
+    const target = env.TARGET_URL;
+    if (!target) {
+      console.error("[cron] TARGET_URL secret not set — skipping refresh");
+      return;
+    }
+    let upstream_url;
+    try {
+      const parsed = new URL(target);
+      parsed.pathname = "/discovery-profile";
+      parsed.search = "";
+      upstream_url = parsed.toString();
+    } catch (err) {
+      console.error("[cron] TARGET_URL parse failed:", err && err.message);
+      return;
+    }
+
+    const sheetId = env.REFRESH_SHEET_ID || "";
+    const body = JSON.stringify({
+      event: "discovery.profile.request",
+      schemaVersion: 1,
+      mode: "refresh",
+      sheetId: sheetId || undefined,
+    });
+
+    const upstreamHeaders = {
+      "Content-Type": "application/json",
+    };
+    if (env.DISCOVERY_SECRET) {
+      upstreamHeaders["x-discovery-secret"] = env.DISCOVERY_SECRET;
+    }
+
+    try {
+      const response = await fetch(upstream_url, {
+        method: "POST",
+        headers: upstreamHeaders,
+        body,
+      });
+      const statusLine = `[cron ${event.cron}] refresh -> ${upstream_url} HTTP ${response.status}`;
+      if (response.ok) {
+        console.log(statusLine);
+      } else {
+        const text = await response.text().catch(() => "");
+        console.error(`${statusLine} body=${text.slice(0, 200)}`);
+      }
+    } catch (err) {
+      console.error(
+        `[cron ${event.cron}] refresh failed:`,
+        err && err.message,
+      );
+    }
+  },
 };

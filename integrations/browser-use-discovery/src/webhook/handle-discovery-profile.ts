@@ -54,6 +54,12 @@ export type HandleDiscoveryProfileDependencies = {
     },
   ): Promise<StoredWorkerConfig>;
   /**
+   * Required for mode:"refresh" and mode:"skip_company". Loads the current
+   * StoredWorkerConfig so refresh runs can replay the stored candidateProfile
+   * and dedupe against negativeCompanyKeys.
+   */
+  loadStoredWorkerConfig?(sheetId: string): Promise<StoredWorkerConfig | null>;
+  /**
    * Optional overrides so tests can inject canned profile and company results
    * without mocking Gemini. Production leaves these unset; the handler uses
    * the real `extractCandidateProfile` / `discoverCompaniesForProfile`.
@@ -141,7 +147,18 @@ function parseRequest(bodyText: string):
     }
     form = rawForm as ProfileFormInput;
   }
-  if (!resumeText.trim() && !hasAnyFormField(form)) {
+  const rawMode = typeof record.mode === "string" ? record.mode : "manual";
+  const mode: "manual" | "refresh" | "skip_company" =
+    rawMode === "refresh"
+      ? "refresh"
+      : rawMode === "skip_company"
+        ? "skip_company"
+        : "manual";
+
+  // Only manual mode requires resume/form at the request level. Refresh
+  // pulls from the stored candidateProfile; skip_company only touches the
+  // negative list.
+  if (mode === "manual" && !resumeText.trim() && !hasAnyFormField(form)) {
     return {
       ok: false,
       message: "At least one of resumeText or form must be non-blank.",
@@ -149,6 +166,24 @@ function parseRequest(bodyText: string):
         "Supply resumeText (extracted plain text from the user's resume) and/or a `form` object with at least one filled field (targetRoles, skills, seniority, etc.).",
     };
   }
+
+  let skipCompanyKeys: string[] | undefined;
+  if (mode === "skip_company") {
+    const rawSkip = Array.isArray(record.skipCompanyKeys)
+      ? record.skipCompanyKeys
+      : [];
+    skipCompanyKeys = rawSkip
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    if (skipCompanyKeys.length === 0) {
+      return {
+        ok: false,
+        message: "skipCompanyKeys must be a non-empty array of strings when mode=skip_company.",
+      };
+    }
+  }
+
   const sheetId = typeof record.sheetId === "string" ? record.sheetId.trim() : "";
   const persist =
     typeof record.persist === "boolean" ? record.persist : false;
@@ -161,6 +196,8 @@ function parseRequest(bodyText: string):
       form,
       persist,
       sheetId: sheetId || undefined,
+      mode,
+      skipCompanyKeys,
     },
   };
 }
@@ -228,6 +265,7 @@ export async function handleDiscoveryProfileWebhook(
     formFieldCount,
     persist: parsedRequest.persist === true,
     hasSheetId: !!parsedRequest.sheetId,
+    mode: parsedRequest.mode || "manual",
   });
 
   const extractFn =
@@ -235,12 +273,122 @@ export async function handleDiscoveryProfileWebhook(
   const discoverFn =
     dependencies.discoverCompaniesForProfile || discoverCompaniesForProfile;
 
+  // --- mode: skip_company ---
+  // Append the given companyKeys to the StoredWorkerConfig.negativeCompanyKeys
+  // list so future refresh runs dedupe against them. No Gemini call.
+  if (parsedRequest.mode === "skip_company") {
+    const targetSheetId =
+      parsedRequest.sheetId ||
+      (dependencies.runtimeConfig as Record<string, unknown>).defaultSheetId ||
+      "";
+    if (!targetSheetId || typeof targetSheetId !== "string") {
+      return jsonResponse(400, {
+        ok: false,
+        message: "sheetId is required for skip_company mode.",
+      });
+    }
+    if (!dependencies.loadStoredWorkerConfig || !dependencies.upsertStoredWorkerConfig) {
+      return jsonResponse(500, {
+        ok: false,
+        message: "Storage helpers not wired; cannot update skip list.",
+      });
+    }
+    try {
+      const existing = await dependencies.loadStoredWorkerConfig(
+        String(targetSheetId),
+      );
+      const prior = Array.isArray(existing?.negativeCompanyKeys)
+        ? existing!.negativeCompanyKeys!
+        : [];
+      const merged = Array.from(
+        new Set([...prior, ...(parsedRequest.skipCompanyKeys || [])]),
+      );
+      await dependencies.upsertStoredWorkerConfig(dependencies.runtimeConfig, {
+        sheetId: String(targetSheetId),
+        mutations: { negativeCompanyKeys: merged },
+      });
+      dependencies.log?.("discovery.profile.skip_recorded", {
+        added: parsedRequest.skipCompanyKeys?.length || 0,
+        totalSkipped: merged.length,
+      });
+      return jsonResponse(200, {
+        ok: true,
+        profile: {
+          targetRoles: [],
+          skills: [],
+          seniority: "",
+          locations: [],
+          industries: [],
+        },
+        companies: [],
+        persisted: true,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error || "unknown error");
+      dependencies.log?.("discovery.profile.skip_failed", { message });
+      return jsonResponse(502, {
+        ok: false,
+        message: "Failed to record skip list.",
+        detail: message,
+      });
+    }
+  }
+
+  // --- mode: refresh ---
+  // Replay stored candidateProfile against Gemini and dedupe against
+  // negativeCompanyKeys. No new input accepted.
+  let refreshResumeText: string | undefined = parsedRequest.resumeText;
+  let refreshForm: ProfileFormInput | undefined = parsedRequest.form;
+  let negativeCompanyKeys: string[] = [];
+  let refreshStoredSheetId: string | null = null;
+
+  if (parsedRequest.mode === "refresh") {
+    const targetSheetId =
+      parsedRequest.sheetId ||
+      (dependencies.runtimeConfig as Record<string, unknown>).defaultSheetId ||
+      "";
+    if (!targetSheetId || typeof targetSheetId !== "string") {
+      return jsonResponse(400, {
+        ok: false,
+        message: "sheetId is required for refresh mode.",
+      });
+    }
+    if (!dependencies.loadStoredWorkerConfig) {
+      return jsonResponse(500, {
+        ok: false,
+        message: "loadStoredWorkerConfig not wired; refresh requires stored profile.",
+      });
+    }
+    const existing = await dependencies.loadStoredWorkerConfig(
+      String(targetSheetId),
+    );
+    if (!existing || !existing.candidateProfile) {
+      return jsonResponse(400, {
+        ok: false,
+        message:
+          "No stored candidateProfile found. Run a manual /discovery-profile with persist:true first so refresh has something to replay.",
+      });
+    }
+    refreshResumeText = existing.candidateProfile.resumeText;
+    refreshForm = existing.candidateProfile.form;
+    negativeCompanyKeys = Array.isArray(existing.negativeCompanyKeys)
+      ? existing.negativeCompanyKeys
+      : [];
+    refreshStoredSheetId = String(targetSheetId);
+    dependencies.log?.("discovery.profile.refresh_loaded", {
+      hasStoredResume: !!refreshResumeText,
+      hasStoredForm: !!refreshForm,
+      negativeCompanyCount: negativeCompanyKeys.length,
+    });
+  }
+
   let profile: CandidateProfile;
   try {
     profile = await extractFn(
       {
-        resumeText: parsedRequest.resumeText,
-        form: parsedRequest.form,
+        resumeText: refreshResumeText,
+        form: refreshForm,
       },
       {
         runtimeConfig: dependencies.runtimeConfig,
@@ -277,8 +425,25 @@ export async function handleDiscoveryProfileWebhook(
     });
   }
 
+  // Refresh mode: dedupe against stored negative list so skipped companies
+  // never re-appear in the persisted list regardless of what Gemini suggested.
+  if (parsedRequest.mode === "refresh" && negativeCompanyKeys.length > 0) {
+    const blocked = new Set(negativeCompanyKeys);
+    const beforeCount = companies.length;
+    companies = companies.filter((company) => !blocked.has(company.companyKey));
+    dependencies.log?.("discovery.profile.refresh_deduped", {
+      beforeCount,
+      afterCount: companies.length,
+      negativeCompanyCount: negativeCompanyKeys.length,
+    });
+  }
+
+  // Refresh mode implicitly persists (no `persist` flag in the cron request).
+  const shouldPersist =
+    parsedRequest.mode === "refresh" || parsedRequest.persist === true;
+
   let persisted = false;
-  if (parsedRequest.persist === true && companies.length > 0) {
+  if (shouldPersist && companies.length > 0) {
     const targetSheetId =
       parsedRequest.sheetId ||
       (dependencies.runtimeConfig as Record<string, unknown>).defaultSheetId ||
@@ -307,15 +472,34 @@ export async function handleDiscoveryProfileWebhook(
         } = company;
         return rest;
       });
+      // Save the candidateProfile alongside the companies when this was a
+      // manual persist (not a refresh — refresh is replaying what's already
+      // stored). This lets the scheduled daily refresh call /discovery-profile
+      // {mode:"refresh"} and replay the last-used inputs without any UI
+      // interaction.
+      const candidateProfileMutation =
+        parsedRequest.mode !== "refresh"
+          ? {
+              candidateProfile: {
+                resumeText: parsedRequest.resumeText,
+                form: parsedRequest.form,
+                updatedAt: new Date().toISOString(),
+              },
+            }
+          : {};
       try {
         await dependencies.upsertStoredWorkerConfig(dependencies.runtimeConfig, {
           sheetId: String(targetSheetId),
-          mutations: { companies: persistedCompanies },
+          mutations: {
+            companies: persistedCompanies,
+            ...candidateProfileMutation,
+          },
         });
         persisted = true;
         dependencies.log?.("discovery.profile.persisted", {
           companyCount: companies.length,
           sheetId: String(targetSheetId),
+          storedCandidateProfile: parsedRequest.mode !== "refresh",
         });
       } catch (error) {
         const message =

@@ -216,7 +216,8 @@ export type DiscoveryProfileRequestV1 = {
   schemaVersion: typeof DISCOVERY_PROFILE_SCHEMA_VERSION;
   /**
    * Raw resume text (PDF/DOCX already extracted client-side via resume-ingest).
-   * Held only in-memory; never logged, never persisted.
+   * Ephemeral when mode is undefined; persisted to worker-config.json when
+   * persist is true so a daily refresh can replay it.
    */
   resumeText?: string;
   /** Structured form input. At least one of resumeText or form must be non-blank. */
@@ -225,6 +226,17 @@ export type DiscoveryProfileRequestV1 = {
   persist?: boolean;
   /** Target sheet for persistence; falls back to configured default when omitted. */
   sheetId?: string;
+  /**
+   * Request mode. Default ("manual") treats resumeText/form as the input.
+   * "refresh" ignores those fields, loads the stored candidateProfile from
+   * worker-config, re-runs discovery, dedupes against negativeCompanyKeys,
+   * and persists the new company list. Used by the Cloudflare Cron Trigger.
+   * "skip_company" adds companyKey(s) to the negative list and returns the
+   * current config without running Gemini.
+   */
+  mode?: "manual" | "refresh" | "skip_company";
+  /** For mode="skip_company": CompanyTarget.companyKey values to blacklist. */
+  skipCompanyKeys?: string[];
 };
 
 export type DiscoveryProfileResponseV1 =
@@ -652,6 +664,24 @@ export type StoredWorkerConfig = {
   discoveryProfile?: {
     sourcePreset?: SourcePreset;
   };
+  /**
+   * Last-used resume/form inputs to /discovery-profile, persisted so a
+   * scheduled daily refresh (Cloudflare Cron → POST /discovery-profile
+   * {mode:"refresh"}) can re-run company discovery without the dashboard
+   * being open. Populated when POST /discovery-profile is called with
+   * `persist: true`. Local-only; never pushed to a remote sheet.
+   */
+  candidateProfile?: {
+    resumeText?: string;
+    form?: ProfileFormInput;
+    updatedAt?: string;
+  };
+  /**
+   * Companies the user has explicitly skipped from the Profile tab. Keys are
+   * CompanyTarget.companyKey values. Refresh runs dedupe discovered
+   * companies against this list so skipped employers never re-appear.
+   */
+  negativeCompanyKeys?: string[];
 };
 
 export type EffectiveDiscoveryConfig = StoredWorkerConfig & {

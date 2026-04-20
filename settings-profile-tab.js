@@ -36,6 +36,7 @@
       industries: qs("settingsProfileFormIndustries"),
       persist: qs("settingsProfilePersist"),
       runBtn: qs("settingsProfileRunBtn"),
+      refreshBtn: qs("settingsProfileRefreshBtn"),
       spinner: qs("settingsProfileSpinner"),
       error: qs("settingsProfileError"),
       results: qs("settingsProfileResults"),
@@ -279,8 +280,23 @@
             escapeHtml(c.aliases.join(", ")) +
             "</div>"
           : "";
+      var companyKey =
+        c && typeof c.companyKey === "string" && c.companyKey
+          ? c.companyKey
+          : "";
+      var skipButton = companyKey
+        ? '<button type="button" class="settings-profile-skip-btn" ' +
+          'data-company-key="' +
+          escapeHtml(companyKey) +
+          '" data-company-name="' +
+          escapeHtml(c && c.name ? c.name : companyKey) +
+          '" title="Skip this company — it won\'t re-appear on refresh">' +
+          "Skip</button>"
+        : "";
       return (
-        '<li class="settings-profile-company">' +
+        '<li class="settings-profile-company" data-company-key="' +
+        escapeHtml(companyKey) +
+        '">' +
         '<div class="settings-profile-company-head">' +
         '<span class="settings-profile-company-name">' +
         name +
@@ -290,6 +306,7 @@
             meta.join("") +
             "</div>"
           : "") +
+        skipButton +
         "</div>" +
         aliases +
         "</li>"
@@ -436,6 +453,134 @@
     }
   }
 
+  // Shared helper for POSTing to /discovery-profile from non-run paths.
+  // Returns parsed response or throws.
+  async function postProfileEndpoint(payload, timeoutMs) {
+    var config = resolveWebhookConfig();
+    var endpoint = resolveProfileEndpoint(config.url);
+    if (!endpoint) {
+      throw new Error(
+        "No discovery webhook URL configured. Set it in the Discovery tab first.",
+      );
+    }
+    var headers = { "Content-Type": "application/json" };
+    if (config.secret) headers["x-discovery-secret"] = config.secret;
+    var body = Object.assign(
+      {
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+      },
+      payload || {},
+    );
+    if (config.sheetId && !body.sheetId) body.sheetId = config.sheetId;
+
+    var controller =
+      typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timeoutId = controller
+      ? window.setTimeout(function () {
+          controller.abort();
+        }, timeoutMs || RUN_TIMEOUT_MS)
+      : null;
+
+    try {
+      console.info("[settings-profile-tab] POST", endpoint, "mode=" + (body.mode || "manual"));
+      var res = await fetch(endpoint, {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify(body),
+        signal: controller ? controller.signal : undefined,
+      });
+      var text = await res.text().catch(function () {
+        return "";
+      });
+      var data = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch (_) {
+        data = null;
+      }
+      if (!res.ok) {
+        var message =
+          (data && typeof data.message === "string"
+            ? data.message
+            : "Request failed with HTTP " + res.status) +
+          (data && typeof data.detail === "string" ? " — " + data.detail : "") +
+          " [endpoint=" + endpoint + "]";
+        throw new Error(message);
+      }
+      return data;
+    } finally {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    }
+  }
+
+  async function handleRefresh() {
+    if (runInFlight) return;
+    setError("");
+    setRunning(true);
+    if (els.results) {
+      els.results.hidden = true;
+      els.results.innerHTML = "";
+    }
+    try {
+      var data = await postProfileEndpoint({ mode: "refresh" });
+      if (!data || data.ok !== true) {
+        setError(
+          (data && data.message) ||
+            "Refresh failed — no response from the worker.",
+        );
+        return;
+      }
+      renderResults(data);
+    } catch (err) {
+      if (err && err.name === "AbortError") {
+        setError(
+          "Refresh timed out after " +
+            Math.round(RUN_TIMEOUT_MS / 1000) +
+            "s. Worker may be cold-starting — try again.",
+        );
+      } else {
+        setError("Refresh failed: " + (err && err.message ? err.message : err));
+      }
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function handleSkipCompany(companyKey, companyName, buttonEl) {
+    if (!companyKey) return;
+    if (buttonEl && buttonEl.disabled) return;
+    if (buttonEl) {
+      buttonEl.disabled = true;
+      buttonEl.textContent = "Skipping…";
+    }
+    try {
+      await postProfileEndpoint(
+        {
+          mode: "skip_company",
+          skipCompanyKeys: [companyKey],
+        },
+        15000,
+      );
+      // Visually remove the skipped company from the rendered list so the UI
+      // reflects the new negative-list entry without requiring a refresh.
+      var row =
+        buttonEl && buttonEl.closest ? buttonEl.closest(".settings-profile-company") : null;
+      if (row && row.parentNode) row.parentNode.removeChild(row);
+    } catch (err) {
+      setError(
+        "Could not skip " +
+          (companyName || companyKey) +
+          ": " +
+          (err && err.message ? err.message : err),
+      );
+      if (buttonEl) {
+        buttonEl.disabled = false;
+        buttonEl.textContent = "Skip";
+      }
+    }
+  }
+
   function bind() {
     if (bound) return;
     cacheElements();
@@ -443,6 +588,21 @@
     if (els.file) els.file.addEventListener("change", handleFileChange);
     if (els.clearBtn) els.clearBtn.addEventListener("click", handleClearResume);
     els.runBtn.addEventListener("click", handleRun);
+    if (els.refreshBtn) els.refreshBtn.addEventListener("click", handleRefresh);
+    // Delegated click handler for per-company Skip buttons rendered inside
+    // els.results. Survives re-renders without needing to re-bind per row.
+    if (els.results) {
+      els.results.addEventListener("click", function (event) {
+        var target =
+          event && event.target && event.target.closest
+            ? event.target.closest(".settings-profile-skip-btn")
+            : null;
+        if (!target) return;
+        var key = target.getAttribute("data-company-key");
+        var name = target.getAttribute("data-company-name") || key;
+        if (key) handleSkipCompany(key, name, target);
+      });
+    }
     bound = true;
   }
 
