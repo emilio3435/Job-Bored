@@ -13,6 +13,7 @@ import type {
   DiscoverySourceSummary,
   DiscoveryRun,
   DiscoveryWebhookRequestV1,
+  DeadLinkRecord,
   ExtractionDiagnostic,
   LoopCounters,
   LoopFailureClass,
@@ -21,6 +22,7 @@ import type {
   PipelineWriteResult,
   RawListing,
   StoredWorkerConfig,
+  SupportedSourceId,
 } from "../contracts.ts";
 import type { ResolvedRunSettings, WorkerRuntimeConfig } from "../config.ts";
 import type { BrowserUseSessionManager } from "../browser/session.ts";
@@ -1054,7 +1056,13 @@ export async function runDiscovery(
       // so telemetry consumers always have counter data regardless of run outcome.
       loopCounters,
       // VAL-LOOP-OBS-003/004: Failure reason attribution for degraded/failure states
-      ...classifyFailureReason(lifecycleState, writeResult, loopCounters, warnings),
+      ...classifyFailureReason(
+        lifecycleState,
+        writeResult,
+        loopCounters,
+        warnings,
+        config.effectiveSources,
+      ),
     },
     extractionResults: [...extractionResultsBySource.values()],
     sourceSummary,
@@ -1484,6 +1492,24 @@ async function processSingleCompany(
       groundedSearchClient: dependencies.groundedSearchClient!,
       sessionManager: dependencies.browserSessionManager!,
       budgetTracker,
+      isDeadLinkCoolingDown: dependencies.discoveryMemoryStore?.isDeadLinkCoolingDown
+        ? (url, now) =>
+            dependencies.discoveryMemoryStore!.isDeadLinkCoolingDown!(url, now)
+        : undefined,
+      recordDeadLink: dependencies.discoveryMemoryStore?.recordDeadLink
+        ? (record) =>
+            dependencies.discoveryMemoryStore!.recordDeadLink!({
+              urlKey: record.url,
+              finalUrl: record.url,
+              host: record.host,
+              reasonCode: record.reasonCode || record.reason,
+              httpStatus: record.httpStatus ?? null,
+              lastTitle: "",
+              lastSeenAt: record.firstSeenAt,
+              failureCount: 1,
+              nextRetryAt: record.cooldownUntil,
+            } as DeadLinkRecord)
+        : undefined,
     });
 
     const collectionResult = await withTimeout(
@@ -2192,15 +2218,17 @@ function determineSurfaceTypeFromSourceId(sourceId: string): CareerSurfaceType {
  * 3. strict_filtering_rejection — leads found but all rejected by matcher/normalizer
  * 4. canonical_resolution_loss — browser lane had canonical resolution failures
  * 5. exploit_budget_exhaustion — targets selected but no writes resulted
- * 6. weak_ats_seed_quality — ATS lane had insufficient detections
- * 7. unknown — unclassified
- * 8. none — successful completion
+ * 6. weak_browser_seed_quality — browser-only lane had insufficient detections
+ * 7. weak_ats_seed_quality — ATS lane had insufficient detections
+ * 8. unknown — unclassified
+ * 9. none — successful completion
  */
 function classifyFailureReason(
   lifecycleState: DiscoveryLifecycleState,
   writeResult: PipelineWriteResult,
   loopCounters: LoopCounters,
   warnings: string[],
+  effectiveSources: SupportedSourceId[],
 ): { reasonCode?: string; reasonMessage?: string; failureClass?: LoopFailureClass } {
   // Success: no failure attribution needed
   if (lifecycleState === "completed") {
@@ -2213,8 +2241,9 @@ function classifyFailureReason(
   // 3. strict_filtering_rejection — leads found but all rejected by matcher/normalizer
   // 4. canonical_resolution_loss — browser lane had canonical resolution failures
   // 5. exploit_budget_exhaustion — targets selected but no writes resulted
-  // 6. weak_ats_seed_quality — ATS lane had insufficient detections
-  // 7. unknown — unclassified
+  // 6. weak_browser_seed_quality — browser-only lane had insufficient detections
+  // 7. weak_ats_seed_quality — ATS lane had insufficient detections
+  // 8. unknown — unclassified
 
   // 1. Write failure — takes highest priority since it is terminal and overrides any other signal
   if (writeResult.writeError) {
@@ -2264,7 +2293,21 @@ function classifyFailureReason(
     };
   }
 
-  // 6. Weak ATS seed quality: ATS had detections but few/none succeeded
+  // 6. Weak browser seed quality: browser-only run had candidates but none became scorable
+  if (
+    effectiveSources.length > 0 &&
+    effectiveSources.every((sourceId) => sourceId === "grounded_web") &&
+    loopCounters.browserScoutCount > 0 &&
+    loopCounters.scoredSurfaces === 0
+  ) {
+    return {
+      reasonCode: "weak_browser_seed_quality",
+      reasonMessage: "Browser scout attempted discovery but produced no scorable candidates. Gemini URL recall may be weak, or profile companies may not be hiring currently.",
+      failureClass: "weak_browser_seed_quality",
+    };
+  }
+
+  // 7. Weak ATS seed quality: ATS had detections but few/none succeeded
   if (loopCounters.atsScoutCount > 0 && loopCounters.scoredSurfaces === 0) {
     return {
       reasonCode: "weak_ats_seed_quality",
@@ -2273,7 +2316,7 @@ function classifyFailureReason(
     };
   }
 
-  // 7. Unknown failure
+  // 8. Unknown failure
   const warningSummary = warnings.length > 0 ? ` Warnings: ${warnings.slice(0, 3).join("; ")}` : "";
   return {
     reasonCode: "unknown",

@@ -437,6 +437,106 @@ test("collectGroundedWebListings rejects broken candidates during strict preflig
   );
 });
 
+test("collectGroundedWebListings records preflight 404 dead links and skips them during cooldown", async () => {
+  const run = makeRun();
+  const deadLinkUrl = "https://jobs.lever.co/notion/missing-role";
+  const recordedDeadLinks: Array<Record<string, unknown>> = [];
+  const cooledDownUrls = new Set<string>();
+  let fetchCalls = 0;
+  let sessionCalls = 0;
+
+  const groundedSearchClient = {
+    search: async () => ({
+      searchQueries: ["Notion product marketing manager"],
+      candidates: [
+        {
+          url: deadLinkUrl,
+          title: "Missing Role at Notion",
+          pageType: "job" as const,
+          reason: "ATS direct job page",
+          sourceDomain: "jobs.lever.co",
+        },
+      ],
+      warnings: [],
+    }),
+  };
+
+  const firstResult = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return new Response("missing", {
+        status: 404,
+        headers: { "content-type": "text/html" },
+      });
+    },
+    recordDeadLink: async (record) => {
+      recordedDeadLinks.push(record);
+      cooledDownUrls.add(String(record.url || ""));
+    },
+    isDeadLinkCoolingDown: (url) => cooledDownUrls.has(url),
+    sessionManager: {
+      run: async ({ url }) => {
+        sessionCalls += 1;
+        return {
+          url,
+          text: "",
+          metadata: { mode: "browser_use_command" },
+        };
+      },
+    },
+  });
+
+  assert.equal(fetchCalls, 1, "First preflight should fetch once");
+  assert.equal(sessionCalls, 0, "404 candidates should never reach browser extraction");
+  assert.equal(recordedDeadLinks.length, 1, "Dead-link recorder should run once for the 404");
+  assert.equal(recordedDeadLinks[0]?.url, deadLinkUrl);
+  assert.ok(
+    firstResult.diagnostics?.some((entry) => entry.code === "dead_link_recorded" && entry.url === deadLinkUrl),
+    "Should emit dead_link_recorded diagnostic for terminal preflight rejections",
+  );
+
+  const secondResult = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig(),
+    groundedSearchClient,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return new Response("unexpected second fetch", { status: 200 });
+    },
+    recordDeadLink: async (record) => {
+      recordedDeadLinks.push(record);
+      cooledDownUrls.add(String(record.url || ""));
+    },
+    isDeadLinkCoolingDown: (url) => cooledDownUrls.has(url),
+    sessionManager: {
+      run: async ({ url }) => {
+        sessionCalls += 1;
+        return {
+          url,
+          text: "",
+          metadata: { mode: "browser_use_command" },
+        };
+      },
+    },
+  });
+
+  assert.equal(fetchCalls, 1, "Cooldown should skip the second preflight fetch entirely");
+  assert.equal(sessionCalls, 0, "Cooldown should prevent browser extraction on rerun");
+  assert.ok(
+    secondResult.diagnostics?.some(
+      (entry) =>
+        entry.code === "preflight_rejected" &&
+        String(entry.context).includes("dead-link cooldown is still active"),
+    ),
+    "Second run should reject from dead-link memory before preflight fetch",
+  );
+});
+
 test("collectGroundedWebListings rejects informational company pages nested under /jobs paths", async () => {
   const run = makeUnrestrictedRun({
     config: {

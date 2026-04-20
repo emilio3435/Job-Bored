@@ -4607,7 +4607,7 @@ test("VAL-LOOP-OBS-004: strict_filtering_rejection classification is defined and
   const validFailureClasses = [
     "none", "weak_surface_discovery", "strict_filtering_rejection",
     "canonical_resolution_loss", "exploit_budget_exhaustion",
-    "weak_ats_seed_quality", "write_failure", "unknown"
+    "weak_browser_seed_quality", "weak_ats_seed_quality", "write_failure", "unknown"
   ];
   assert.ok(
     validFailureClasses.includes("strict_filtering_rejection"),
@@ -4632,7 +4632,7 @@ test("VAL-LOOP-OBS-004: canonical_resolution_loss classification is defined and 
   const validFailureClasses = [
     "none", "weak_surface_discovery", "strict_filtering_rejection",
     "canonical_resolution_loss", "exploit_budget_exhaustion",
-    "weak_ats_seed_quality", "write_failure", "unknown"
+    "weak_browser_seed_quality", "weak_ats_seed_quality", "write_failure", "unknown"
   ];
   assert.ok(
     validFailureClasses.includes("canonical_resolution_loss"),
@@ -4720,6 +4720,79 @@ test("VAL-LOOP-OBS-004: exploit_budget_exhaustion when targets selected but no l
   assert.ok(
     result.lifecycle.failureClass !== undefined,
     `failureClass must be set, got "${result.lifecycle.failureClass}"`,
+  );
+});
+
+// Test: weak_ats_seed_quality — ATS had detections but no scorable candidates
+test("VAL-LOOP-OBS-004: weak_browser_seed_quality when browser-only scout produces no scorable candidates", async () => {
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "", workerConfigPath: "", browserUseCommand: "",
+      geminiApiKey: "test-key", geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6, groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "", googleServiceAccountFile: "",
+      googleAccessToken: "", googleOAuthTokenJson: "", googleOAuthTokenFile: "",
+      webhookSecret: "", allowedOrigins: [], port: 0, host: "127.0.0.1",
+      runMode: "hosted" as const, asyncAckByDefault: true,
+    },
+    sourceAdapterRegistry: {
+      adapters: [],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Acme Corp backend engineer remote"],
+        candidates: [],
+        warnings: [],
+      }),
+    },
+    browserSessionManager: {
+      run: async () => {
+        throw new Error("browserSessionManager.run should not be called when grounded search yields zero candidates");
+      },
+    },
+    pipelineWriter: {
+      write: async () => ({ sheetId: "sheet_fc_browser_seed", appended: 0, updated: 0, skippedDuplicates: 0, warnings: [] }),
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_fc_browser_seed", mode: "hosted" as const, timezone: "UTC",
+      companies: [{ name: "Acme Corp" }],
+      includeKeywords: ["backend"],
+      excludeKeywords: [],
+      targetRoles: ["Backend Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+      seniority: "",
+      maxLeadsPerRun: 5, enabledSources: ["grounded_web"] as const,
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored: Record<string, unknown>, request: Record<string, unknown>) => ({
+      ...stored, sheetId: request.sheetId, variationKey: request.variationKey,
+      requestedAt: request.requestedAt, sourcePreset: "browser_only" as const,
+      effectiveSources: ["grounded_web"] as const,
+    }),
+    now: () => new Date("2026-04-13T00:00:00.000Z"),
+    randomId: (prefix: string) => `${prefix}_fc_browser_seed`,
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies as any);
+
+  assert.ok(
+    result.lifecycle.loopCounters,
+    "loopCounters must be present",
+  );
+  assert.ok(
+    result.lifecycle.loopCounters!.browserScoutCount > 0,
+    "browserScoutCount should be > 0 since grounded_web ran",
+  );
+  assert.equal(
+    result.lifecycle.failureClass,
+    "weak_browser_seed_quality",
+  );
+  assert.equal(
+    result.lifecycle.reasonCode,
+    "weak_browser_seed_quality",
   );
 });
 
@@ -4869,7 +4942,7 @@ test("VAL-LOOP-OBS-004: unknown failure class when state is degraded but reason 
   const validFailureClasses = [
     "none", "weak_surface_discovery", "strict_filtering_rejection",
     "canonical_resolution_loss", "exploit_budget_exhaustion",
-    "weak_ats_seed_quality", "write_failure", "unknown"
+    "weak_browser_seed_quality", "weak_ats_seed_quality", "write_failure", "unknown"
   ];
   assert.ok(
     validFailureClasses.includes(result.lifecycle.failureClass!),
