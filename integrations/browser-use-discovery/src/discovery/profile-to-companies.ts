@@ -48,7 +48,18 @@ const COMPANY_DISCOVERY_SYSTEM_PROMPT = [
   "Prefer companies with an active careers page and recent (last 60 days) job postings matching the target roles.",
   "Prefer first-party employer domains and major ATS hosts (greenhouse.io, lever.co, ashbyhq.com, workable.com, myworkdayjobs.com, jobvite.com, recruitee.com, teamtailor.com, smartrecruiters.com).",
   "Skip aggregators (linkedin, indeed, glassdoor, simplyhired, ziprecruiter, monster, wellfound, builtin, dice, jobtarget, hireology, jobleads, jobgether, lensa).",
+  "Return a broad slate: at least 20 companies and up to 30 when current hiring signals support it. Do NOT stop at 5-10 companies.",
+  "Push for domain diversity in every pass: include 5+ venture-backed startups (roughly Series A-C), 5+ public tech companies, 3+ agencies/services firms, 3+ consumer brands, and 3+ companies in the candidate's stated industries whenever the profile supports it.",
+  "Prioritize unique employers over duplicate variants, and broaden into adjacent sectors when the first obvious companies are exhausted.",
   "Return strict JSON. Each company should include a display name, its public domain(s), 2-4 role tags describing the type of hire, and 1-3 geo tags (use 'remote' for remote-friendly).",
+].join("\n");
+
+const COMPANY_DISCOVERY_STRUCTURING_SYSTEM_PROMPT = [
+  "You receive grounded search output about companies hiring for a candidate profile.",
+  "Extract only named employers that plausibly match the hiring target.",
+  "Keep the result broad and diverse: aim for at least 20 companies and up to 30 when the grounded evidence supports it. Do NOT stop at 5-10 companies.",
+  "Preserve only employer entities. Drop aggregators, recruiters, staffing intermediaries, schools, conferences, investors, and duplicate employer variants.",
+  "Return strict JSON matching the schema. If nothing qualifies, return {\"companies\":[]}.",
 ].join("\n");
 
 const CANDIDATE_PROFILE_SCHEMA = {
@@ -91,6 +102,10 @@ const COMPANY_LIST_SCHEMA = {
 
 const MAX_RESUME_INPUT_CHARS = 20_000;
 const MAX_FORM_FIELD_CHARS = 2_000;
+const COMPANY_DISCOVERY_TARGET_MIN = 20;
+const COMPANY_DISCOVERY_TARGET_MAX = 30;
+const COMPANY_DISCOVERY_MIN_ACCEPTABLE = 15;
+const MAX_GROUNDED_OUTPUT_CHARS = 12_000;
 
 function clampText(input: string | undefined, max: number): string {
   return String(input || "").slice(0, max);
@@ -323,7 +338,21 @@ export async function extractCandidateProfile(
   return profile;
 }
 
-function buildCompanyDiscoveryPrompt(profile: CandidateProfile): string {
+function getCompanyDiscoveryAcceptableMinimum(maxResults: number): number {
+  return Math.min(COMPANY_DISCOVERY_MIN_ACCEPTABLE, Math.max(1, maxResults));
+}
+
+function buildCompanyDiscoveryPrompt(
+  profile: CandidateProfile,
+  options: {
+    maxResults: number;
+    extraInstructions?: string;
+    industryFocus?: string;
+    excludedCompanyNames?: string[];
+  },
+): string {
+  const callerCap = Math.max(1, Math.min(COMPANY_DISCOVERY_TARGET_MAX, options.maxResults));
+  const requestedMin = Math.min(COMPANY_DISCOVERY_TARGET_MIN, callerCap);
   const lines: string[] = [
     `Target roles: ${profile.targetRoles.join(", ") || "(unspecified)"}`,
     `Skills: ${profile.skills.join(", ") || "(unspecified)"}`,
@@ -339,10 +368,24 @@ function buildCompanyDiscoveryPrompt(profile: CandidateProfile): string {
   if (profile.industries && profile.industries.length > 0) {
     lines.push(`Industries of interest: ${profile.industries.join(", ")}`);
   }
+  if (options.industryFocus) {
+    lines.push(`Industry focus for this pass: ${options.industryFocus}`);
+  }
+  if (options.excludedCompanyNames && options.excludedCompanyNames.length > 0) {
+    lines.push(
+      `Already found employers to avoid repeating: ${options.excludedCompanyNames.slice(0, 30).join(", ")}`,
+    );
+  }
   lines.push(
     "",
-    "List 20-30 companies currently hiring for these roles. Return strict JSON matching the schema.",
+    `Return at least ${requestedMin} companies and up to ${callerCap}. Do NOT stop at 5-10 companies.`,
+    "Balance the slate across 5+ startups (Series A-C), 5+ public tech companies, 3+ agencies/services firms, 3+ consumer brands, and 3+ companies in the candidate's industries whenever the evidence supports it.",
+    "Broaden into adjacent sectors and overlooked employer types before returning a short list.",
+    "Prefer companies with active careers pages or recent direct job postings. Return strict JSON matching the schema.",
   );
+  if (options.extraInstructions) {
+    lines.push(options.extraInstructions);
+  }
   return lines.join("\n");
 }
 
@@ -385,6 +428,145 @@ function normalizeCompanyList(
   return out;
 }
 
+function mergeCompanyLists(
+  lists: CompanyTarget[][],
+  { maxResults }: { maxResults: number },
+): CompanyTarget[] {
+  return normalizeCompanyList(
+    {
+      companies: lists.flatMap((list) =>
+        list.map((company) => ({
+          name: company.name,
+          domains: company.domains || [],
+          roleTags: company.roleTags || [],
+          geoTags: company.geoTags || [],
+        }))
+      ),
+    },
+    { maxResults },
+  );
+}
+
+function dedupeCaseInsensitive(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(value.trim());
+  }
+  return out;
+}
+
+type CompanyDiscoveryAttemptResult = {
+  companies: CompanyTarget[];
+  callACompanyCount: number;
+  callADurationMs: number;
+  callBDurationMs: number;
+};
+
+async function runCompanyDiscoveryAttempt(input: {
+  profile: CandidateProfile;
+  endpoint: string;
+  apiKey: string;
+  fetchImpl: FetchImpl;
+  signal?: AbortSignal;
+  maxResults: number;
+  extraInstructions?: string;
+  industryFocus?: string;
+  excludedCompanyNames?: string[];
+}): Promise<CompanyDiscoveryAttemptResult> {
+  const userPrompt = buildCompanyDiscoveryPrompt(input.profile, {
+    maxResults: input.maxResults,
+    extraInstructions: input.extraInstructions,
+    industryFocus: input.industryFocus,
+    excludedCompanyNames: input.excludedCompanyNames,
+  });
+
+  const callABody = {
+    systemInstruction: {
+      parts: [{ text: COMPANY_DISCOVERY_SYSTEM_PROMPT }],
+    },
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: userPrompt }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: 4096,
+    },
+    tools: [{ google_search: {} }],
+  };
+
+  const callAStartedAt = Date.now();
+  const callAPayload = await callGemini({
+    endpoint: input.endpoint,
+    apiKey: input.apiKey,
+    fetchImpl: input.fetchImpl,
+    body: callABody,
+    signal: input.signal,
+  });
+  const callAText = extractGenerationText(callAPayload);
+  const callADurationMs = Date.now() - callAStartedAt;
+
+  const callACompanies = normalizeCompanyList(parseFirstJsonBlock(callAText), {
+    maxResults: input.maxResults,
+  });
+
+  const callBBody = {
+    systemInstruction: {
+      parts: [{ text: COMPANY_DISCOVERY_STRUCTURING_SYSTEM_PROMPT }],
+    },
+    contents: [
+      {
+        role: "user",
+        parts: [
+          {
+            text: [
+              userPrompt,
+              "",
+              "Grounded output to structure:",
+              callAText.slice(0, MAX_GROUNDED_OUTPUT_CHARS),
+            ].join("\n"),
+          },
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 4096,
+      responseMimeType: "application/json",
+      responseSchema: COMPANY_LIST_SCHEMA,
+    },
+  };
+
+  const callBStartedAt = Date.now();
+  const callBPayload = await callGemini({
+    endpoint: input.endpoint,
+    apiKey: input.apiKey,
+    fetchImpl: input.fetchImpl,
+    body: callBBody,
+    signal: input.signal,
+  });
+  const callBDurationMs = Date.now() - callBStartedAt;
+  const callBText = extractGenerationText(callBPayload);
+  const callBCompanies = normalizeCompanyList(parseFirstJsonBlock(callBText), {
+    maxResults: input.maxResults,
+  });
+
+  return {
+    companies: mergeCompanyLists([callACompanies, callBCompanies], {
+      maxResults: input.maxResults,
+    }),
+    callACompanyCount: callACompanies.length,
+    callADurationMs,
+    callBDurationMs,
+  };
+}
+
 export async function discoverCompaniesForProfile(
   profile: CandidateProfile,
   dependencies: {
@@ -410,103 +592,115 @@ export async function discoverCompaniesForProfile(
     targetRoleCount: profile.targetRoles.length,
     skillCount: profile.skills.length,
     locationCount: profile.locations.length,
+    industryCount: profile.industries?.length ?? 0,
   });
 
-  // Call A — grounded web call that identifies actively hiring companies.
-  // NO responseMimeType here (google_search + application/json returns HTTP
-  // 400 on Gemini's v1beta API). We'll structure the output in Call B.
-  const callABody = {
-    systemInstruction: {
-      parts: [{ text: COMPANY_DISCOVERY_SYSTEM_PROMPT }],
-    },
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: buildCompanyDiscoveryPrompt(profile) }],
-      },
-    ],
-    generationConfig: {
-      temperature: 0.2,
-      maxOutputTokens: 4096,
-    },
-    tools: [{ google_search: {} }],
-  };
+  const minimumAcceptable = getCompanyDiscoveryAcceptableMinimum(maxResults);
 
-  const callAStartedAt = Date.now();
-  const callAPayload = await callGemini({
+  const firstAttempt = await runCompanyDiscoveryAttempt({
+    profile,
     endpoint,
     apiKey,
     fetchImpl,
-    body: callABody,
     signal: dependencies.signal,
-  });
-  const callAText = extractGenerationText(callAPayload);
-  const callADurationMs = Date.now() - callAStartedAt;
-
-  // Attempt to parse Call A directly (sometimes Gemini returns clean JSON even
-  // without responseMimeType). If it fails or returns too few companies, run
-  // Call B as a structuring pass.
-  let companies = normalizeCompanyList(parseFirstJsonBlock(callAText), {
     maxResults,
   });
 
-  let callBDurationMs = 0;
-  if (companies.length === 0) {
-    const callBBody = {
-      systemInstruction: {
-        parts: [
-          {
-            text: [
-              "You receive grounded search output about companies hiring. Extract only the named employers into a structured list.",
-              "Drop aggregators and any non-employer entities. Return strict JSON matching the schema.",
-            ].join("\n"),
-          },
-        ],
-      },
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              text: [
-                buildCompanyDiscoveryPrompt(profile),
-                "",
-                "Grounded output to structure:",
-                callAText.slice(0, 12000),
-              ].join("\n"),
-            },
-          ],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 4096,
-        responseMimeType: "application/json",
-        responseSchema: COMPANY_LIST_SCHEMA,
-      },
-      // Intentionally NO tools — this enforces responseSchema hard.
-    };
+  let companies = firstAttempt.companies;
+  let totalCallADurationMs = firstAttempt.callADurationMs;
+  let totalCallBDurationMs = firstAttempt.callBDurationMs;
+  let retryUsed = false;
+  let fanoutUsed = false;
 
-    const callBStartedAt = Date.now();
-    const callBPayload = await callGemini({
+  if (companies.length < minimumAcceptable) {
+    retryUsed = true;
+    const retryStartedAt = Date.now();
+    const retryAttempt = await runCompanyDiscoveryAttempt({
+      profile,
       endpoint,
       apiKey,
       fetchImpl,
-      body: callBBody,
       signal: dependencies.signal,
+      maxResults,
+      excludedCompanyNames: companies.map((company) => company.name),
+      extraInstructions: [
+        `The first search returned only ${companies.length} unique companies, which is too few.`,
+        "Find 15 MORE unique companies beyond the employers already listed.",
+        "Prioritize industries and sectors the first pass missed, including adjacent markets and overlooked employer categories.",
+      ].join(" "),
     });
-    callBDurationMs = Date.now() - callBStartedAt;
-    const callBText = extractGenerationText(callBPayload);
-    companies = normalizeCompanyList(parseFirstJsonBlock(callBText), {
+    const mergedCompanies = mergeCompanyLists([companies, retryAttempt.companies], {
       maxResults,
     });
+    totalCallADurationMs += retryAttempt.callADurationMs;
+    totalCallBDurationMs += retryAttempt.callBDurationMs;
+    dependencies.log?.("discovery.profile.companies_thin_retry", {
+      beforeCount: companies.length,
+      afterCount: mergedCompanies.length,
+      retryAddedCount: Math.max(0, mergedCompanies.length - companies.length),
+      retryCallACompanyCount: retryAttempt.callACompanyCount,
+      durationMs: Date.now() - retryStartedAt,
+      callADurationMs: retryAttempt.callADurationMs,
+      callBDurationMs: retryAttempt.callBDurationMs,
+    });
+    companies = mergedCompanies;
+  }
+
+  const uniqueIndustries = dedupeCaseInsensitive(profile.industries || []);
+  if (companies.length < minimumAcceptable && uniqueIndustries.length > 0) {
+    fanoutUsed = true;
+    const fanoutStartedAt = Date.now();
+    const fanoutResults = await Promise.allSettled(
+      uniqueIndustries.map((industry) =>
+        runCompanyDiscoveryAttempt({
+          profile,
+          endpoint,
+          apiKey,
+          fetchImpl,
+          signal: dependencies.signal,
+          maxResults,
+          industryFocus: industry,
+          excludedCompanyNames: companies.map((company) => company.name),
+          extraInstructions: [
+            `The general search is still thin at ${companies.length} unique companies.`,
+            `Focus this pass on the ${industry} industry and find additional companies not already listed.`,
+            "Prioritize employers with current hiring signals in this industry before repeating adjacent sectors.",
+          ].join(" "),
+        })
+      ),
+    );
+
+    const fulfilled = fanoutResults.filter(
+      (result): result is PromiseFulfilledResult<CompanyDiscoveryAttemptResult> =>
+        result.status === "fulfilled",
+    );
+    for (const result of fulfilled) {
+      totalCallADurationMs += result.value.callADurationMs;
+      totalCallBDurationMs += result.value.callBDurationMs;
+    }
+    const mergedCompanies = mergeCompanyLists(
+      [companies, ...fulfilled.map((result) => result.value.companies)],
+      { maxResults },
+    );
+    dependencies.log?.("discovery.profile.companies_industry_fanout", {
+      beforeCount: companies.length,
+      afterCount: mergedCompanies.length,
+      industryCount: uniqueIndustries.length,
+      fulfilledCount: fulfilled.length,
+      rejectedCount: fanoutResults.length - fulfilled.length,
+      addedCount: Math.max(0, mergedCompanies.length - companies.length),
+      durationMs: Date.now() - fanoutStartedAt,
+    });
+    companies = mergedCompanies;
   }
 
   dependencies.log?.("discovery.profile.companies_completed", {
     companyCount: companies.length,
-    callADurationMs,
-    callBUsed: callBDurationMs > 0,
-    callBDurationMs,
+    callADurationMs: totalCallADurationMs,
+    callBUsed: totalCallBDurationMs > 0,
+    callBDurationMs: totalCallBDurationMs,
+    retryUsed,
+    fanoutUsed,
   });
 
   return companies;
