@@ -7,7 +7,7 @@ import "dotenv/config";
 import express from "express";
 import { normalizeAtsRequestPayload } from "./ats-request-payload.mjs";
 import { analyzeAtsScorecard, getAtsConfigStatus } from "./ats-scorecard.mjs";
-import { scrapeJobPosting } from "./job-scraper.mjs";
+import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
 import {
   normalizeAllowedBrowserOrigins,
   resolveAllowedBrowserOrigin,
