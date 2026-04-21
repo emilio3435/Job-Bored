@@ -22,9 +22,6 @@ import {
   type WebhookResponseLike,
 } from "./handle-discovery-webhook.ts";
 
-// @ts-ignore -- Cross-package shared ESM module in this monorepo.
-import { scrapeJobPosting } from "../../../../server/shared/job-scraper-core.mjs";
-
 type ScrapeResult = {
   url: string;
   title: string | null;
@@ -424,7 +421,7 @@ async function scrapeToRawListing(
       httpStatus?: number;
     }
 > {
-  const scrape = dependencies.scrapeJobPosting || scrapeJobPosting;
+  const scrape = dependencies.scrapeJobPosting || defaultScrapeJobPosting;
   try {
     const scraped = (await scrape(url)) as ScrapeResult;
     const resolvedUrl = String(scraped.url || url).trim();
@@ -528,4 +525,12 @@ function extractHttpStatus(message: string): number | undefined {
   if (!match) return undefined;
   const status = Number(match[1]);
   return Number.isFinite(status) ? status : undefined;
+}
+
+async function defaultScrapeJobPosting(url: string): Promise<ScrapeResult> {
+  const module = await import("../../../../server/shared/job-scraper-core.mjs");
+  if (!module || typeof module.scrapeJobPosting !== "function") {
+    throw new Error("Shared job scraper module is unavailable.");
+  }
+  return (await module.scrapeJobPosting(url)) as ScrapeResult;
 }
