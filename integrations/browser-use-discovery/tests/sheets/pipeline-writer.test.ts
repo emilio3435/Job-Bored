@@ -58,14 +58,14 @@ function createMockFetch({ headerRows, dataRows, responses }) {
     if (
       url.pathname.includes("/values/") &&
       method === "GET" &&
-      url.href.includes("A1%3AT1")
+      url.href.includes("A1%3AU1")
     ) {
       return responseJson({ values: headerRows });
     }
     if (
       url.pathname.includes("/values/") &&
       method === "GET" &&
-      url.href.includes("A2%3AT")
+      url.href.includes("A2%3AU")
     ) {
       return responseJson({ values: dataRows });
     }
@@ -214,17 +214,17 @@ test("createPipelineWriter updates existing rows and appends new ones", async ()
   assert.match(result.warnings[0], /duplicate existing Pipeline rows/i);
 
   assert.equal(calls.length, 4);
-  assert.match(calls[0].url, /values\/Pipeline!A1%3AT1/);
-  assert.match(calls[1].url, /values\/Pipeline!A2%3AT/);
+  assert.match(calls[0].url, /values\/Pipeline!A1%3AU1/);
+  assert.match(calls[1].url, /values\/Pipeline!A2%3AU/);
   assert.equal(calls[2].method, "POST");
   assert.match(calls[2].url, /values:batchUpdate$/);
   assert.equal(calls[3].method, "POST");
-  assert.match(calls[3].url, /values\/Pipeline!A%3AT:append/);
+  assert.match(calls[3].url, /values\/Pipeline!A%3AU:append/);
 
   const batchUpdateBody = JSON.parse(calls[2].body);
   assert.equal(batchUpdateBody.valueInputOption, "USER_ENTERED");
   assert.equal(batchUpdateBody.data.length, 1);
-  assert.equal(batchUpdateBody.data[0].range, "Pipeline!A2:T2");
+  assert.equal(batchUpdateBody.data[0].range, "Pipeline!A2:U2");
 
   const updatedRow = batchUpdateBody.data[0].values[0];
   assert.equal(updatedRow[1], "Senior Backend Engineer");
@@ -318,9 +318,9 @@ test("createPipelineWriter upgrades blank trailing optional headers", async () =
 
   assert.equal(calls[1].method, "POST");
   const headerUpgradeBody = JSON.parse(calls[1].body);
-  assert.equal(headerUpgradeBody.data[0].range, "Pipeline!A1:T1");
+  assert.equal(headerUpgradeBody.data[0].range, "Pipeline!A1:U1");
   assert.deepEqual(headerUpgradeBody.data[0].values[0], PIPELINE_HEADER_ROW);
-  assert.match(calls[3].url, /values\/Pipeline!A%3AT:append/);
+  assert.match(calls[3].url, /values\/Pipeline!A%3AU:append/);
 });
 
 test("createPipelineWriter refreshes a Google OAuth token when no service account is configured", async () => {
@@ -384,7 +384,7 @@ test("createPipelineWriter refreshes a Google OAuth token when no service accoun
 
   assert.match(calls[0].url, /oauth2\.googleapis\.com\/token/);
   assert.equal(calls[0].method, "POST");
-  assert.match(calls[1].url, /values\/Pipeline!A1%3AT1/);
+  assert.match(calls[1].url, /values\/Pipeline!A1%3AU1/);
   assert.equal(calls[1].headers.authorization, "Bearer refreshed-token");
   assert.equal(calls[2].headers.authorization, "Bearer refreshed-token");
   assert.equal(calls[3].headers.authorization, "Bearer refreshed-token");
