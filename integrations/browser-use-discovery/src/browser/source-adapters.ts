@@ -152,6 +152,8 @@ function createCompatSourceAdapter(
         compensationText: sanitizeCompensationValue(raw.compensationText || ""),
         fitScore: null,
         matchScore: null,
+        favorite: false,
+        dismissedAt: null,
         priority: "",
         tags: sanitizeTags(raw.tags || []),
         fitAssessment: sanitizeDescriptionText(raw.descriptionText).slice(0, 500),
