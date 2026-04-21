@@ -75,7 +75,7 @@ test("Windows Task Scheduler arguments create the daily refresh task", () => {
     "/TN",
     "JobBoredRefresh",
     "/TR",
-    `powershell -File "${join(repoRoot, "scripts", "windows", "refresh.ps1")}"`,
+    `powershell -NoProfile -ExecutionPolicy Bypass -File "${join(repoRoot, "scripts", "windows", "refresh.ps1")}"`,
     "/ST",
     "08:05",
     "/F",
