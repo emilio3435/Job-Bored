@@ -42,6 +42,11 @@ export type WorkerRuntimeConfig = {
   // Gemini call with responseSchema to extract structured candidates, bypassing
   // the regex URL fallback. Disable to roll back to Call-1-only behavior.
   useStructuredExtraction: boolean;
+  // Layer 5 Tier 1: SerpApi Google Jobs API key. When set, enables the
+  // serpapi_google_jobs source lane, which queries Google Jobs and receives
+  // structured JobPosting data without extraction. When empty, the lane
+  // skips gracefully. See https://serpapi.com/.
+  serpApiKey: string;
 };
 
 export type ResolvedRunSettings = EffectiveDiscoveryConfig & {
@@ -367,6 +372,11 @@ export function loadRuntimeConfig(
       ]),
       true,
     ),
+    serpApiKey: readFirst(runtimeEnv, [
+      "BROWSER_USE_DISCOVERY_SERPAPI_API_KEY",
+      "DISCOVERY_SERPAPI_API_KEY",
+      "SERPAPI_API_KEY",
+    ]),
   };
 }
 
@@ -701,10 +711,18 @@ export function computeEffectiveSources(
 ): SupportedSourceId[] {
   const allAts = [...ATS_SOURCE_IDS] as const;
   switch (sourcePreset) {
-    case "browser_only":
-      return enabledSources.includes("grounded_web")
-        ? ["grounded_web"]
-        : [];
+    case "browser_only": {
+      // browser_only keeps the profile-/role-driven web lanes: grounded_web
+      // (Gemini) and serpapi_google_jobs (Google Jobs index). ATS provider
+      // probes are excluded because this preset is for users who haven't
+      // curated a company list yet.
+      const out: SupportedSourceId[] = [];
+      if (enabledSources.includes("grounded_web")) out.push("grounded_web");
+      if (enabledSources.includes("serpapi_google_jobs")) {
+        out.push("serpapi_google_jobs");
+      }
+      return out;
+    }
     case "ats_only":
       return allAts.filter((id) => enabledSources.includes(id));
     case "browser_plus_ats":

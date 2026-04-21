@@ -36,10 +36,12 @@ export const HINT_SOURCE_IDS = [
 export const SUPPORTED_SOURCE_IDS = [
   ...ATS_SOURCE_IDS,
   "grounded_web",
+  "serpapi_google_jobs",
 ] as const;
 export const DEFAULT_ENABLED_SOURCE_IDS = [
   ...ATS_SOURCE_IDS,
   "grounded_web",
+  "serpapi_google_jobs",
 ] as const;
 export const SOURCE_PRESET_VALUES = [
   "browser_only",
