@@ -69,6 +69,8 @@ export function rawListingToSingleLead(
     ...normalized.lead,
     fitScore,
     matchScore: null,
+    favorite: normalized.lead.favorite ?? false,
+    dismissedAt: normalized.lead.dismissedAt ?? null,
   };
 }
 

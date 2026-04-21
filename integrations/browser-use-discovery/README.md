@@ -19,6 +19,29 @@ The runtime is Node-based, uses native `fetch`, can persist state locally, and k
 - `src/normalize/lead-normalizer.ts`: URL canonicalization, keyword-aware filtering, fit scoring, stable Pipeline defaults
 - `src/sheets/pipeline-writer.ts`: direct Google Sheets writer with Link-based dedupe and conservative row updates
 
+### Blacklist tab
+
+The worker supports a sibling tab named `Blacklist` in the same spreadsheet.
+When present, it is read as `Blacklist!A2:A` and normalized through the same
+URL normalizer used for Pipeline dedupe.
+
+Expected columns:
+
+- `A URL`: normalized URL key
+- `B Dismissed At`: ISO timestamp
+- `C Title`: audit text
+- `D Company`: audit text
+- `E Reason`: reserved for future use
+
+Behavior:
+
+- incoming leads with URLs found in `Blacklist` are skipped (not appended)
+- existing Pipeline rows with non-empty `Dismissed At` (column `W`) are treated
+  as blacklisted and are not updated
+- missing `Blacklist` tab is treated as empty (no error)
+- the worker does not auto-create the `Blacklist` tab; the dashboard creates it
+  on first dismiss action
+
 ## Runtime Inputs
 
 Environment variables:

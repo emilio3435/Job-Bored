@@ -1,6 +1,7 @@
 export const DISCOVERY_WEBHOOK_EVENT = "command-center.discovery";
 export const DISCOVERY_WEBHOOK_SCHEMA_VERSION = 1;
 export const DEFAULT_PIPELINE_SHEET_NAME = "Pipeline";
+export const DEFAULT_BLACKLIST_SHEET_NAME = "Blacklist";
 export const DEFAULT_STATUS = "New";
 export const PIPELINE_DEDUPE_COLUMN = "E";
 export const PIPELINE_DEDUPE_HEADER = "Link";
@@ -73,6 +74,8 @@ export const PIPELINE_HEADER_ROW = [
   // score from the job-matcher's overallScore, letting users sort/filter in-
   // sheet rather than having the matcher silently drop marginal jobs.
   "Match Score",
+  "Favorite",
+  "Dismissed At",
 ] as const;
 
 export type SupportedSourceId = (typeof SUPPORTED_SOURCE_IDS)[number];
@@ -353,6 +356,8 @@ export type NormalizedLead = {
    * skipped the AI matcher.
    */
   matchScore: number | null;
+  favorite: boolean;
+  dismissedAt: string | null;
   priority: NormalizedLeadPriority;
   tags: string[];
   fitAssessment: string;
@@ -469,6 +474,7 @@ export type PipelineWriteResult = {
   appended: number;
   updated: number;
   skippedDuplicates: number;
+  skippedBlacklist: number;
   warnings: string[];
   /**
    * Present when a write error occurred. Indicates the phase where the error
