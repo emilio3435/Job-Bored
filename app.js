@@ -6676,6 +6676,8 @@ let pipelineData = [];
 let pipelineRawRows = []; // Keep raw rows for row index mapping
 let currentSort = "fit";
 let currentSearch = "";
+let favoritesOnly = false;
+let showDismissed = false;
 let dataLoadFailed = false;
 let dashboardDataHydrated = false;
 let initialSheetAccessResolved = false;
@@ -7106,6 +7108,8 @@ function showToast(message, type = "success", persistent = false, action) {
   if (!persistent && type !== "error") {
     setTimeout(dismiss, 3000);
   }
+
+  return dismiss;
 }
 
 // ============================================
@@ -9202,6 +9206,330 @@ async function updateMultipleCells(updates, isRetry) {
   }
 }
 
+// ============================================
+// Favorite / Dismiss + Blacklist (Layer 5)
+// ============================================
+
+// Mirror the backend's normalizeLeadUrl. Keep the two in lockstep —
+// the Blacklist dedup breaks if frontend writes a differently-normalized
+// URL than the backend reads.
+const BLACKLIST_STRIP_PARAMS =
+  /^(utm_.+|ref|source|src|gh_src|lever-source|fbclid|gclid|trk)$/i;
+
+function normalizeLeadUrlClient(raw) {
+  if (!raw) return "";
+  const trimmed = String(raw).trim();
+  if (!trimmed) return "";
+  let u;
+  try {
+    u = new URL(trimmed);
+  } catch {
+    return trimmed;
+  }
+  u.hash = "";
+  u.username = "";
+  u.password = "";
+  if (
+    (u.protocol === "http:" && u.port === "80") ||
+    (u.protocol === "https:" && u.port === "443")
+  ) {
+    u.port = "";
+  }
+  const keep = [];
+  for (const [k, v] of u.searchParams) {
+    if (!BLACKLIST_STRIP_PARAMS.test(k)) keep.push([k, v]);
+  }
+  // Rebuild query in original order minus stripped keys
+  const params = new URLSearchParams();
+  for (const [k, v] of keep) params.append(k, v);
+  u.search = params.toString() ? `?${params.toString()}` : "";
+  // Strip trailing slashes from pathname, but keep root "/"
+  if (u.pathname && u.pathname !== "/") {
+    u.pathname = u.pathname.replace(/\/+$/, "") || "/";
+  }
+  return u.toString();
+}
+
+async function sheetsBatchUpdate(body, isRetry) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}:batchUpdate`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (resp.status === 401 && !isRetry) {
+    const ok = await refreshAccessTokenSilently();
+    if (ok) return sheetsBatchUpdate(body, true);
+  }
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    const msg = err.error?.message || `HTTP ${resp.status}`;
+    throw new Error(msg);
+  }
+  return resp.json();
+}
+
+async function sheetsValuesAppend(range, values, isRetry) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(
+    range,
+  )}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ values }),
+  });
+  if (resp.status === 401 && !isRetry) {
+    const ok = await refreshAccessTokenSilently();
+    if (ok) return sheetsValuesAppend(range, values, true);
+  }
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    const msg = err.error?.message || `HTTP ${resp.status}`;
+    const e = new Error(msg);
+    e.status = resp.status;
+    throw e;
+  }
+  return resp.json();
+}
+
+async function sheetsValuesGet(range, isRetry) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(
+    range,
+  )}`;
+  const resp = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (resp.status === 401 && !isRetry) {
+    const ok = await refreshAccessTokenSilently();
+    if (ok) return sheetsValuesGet(range, true);
+  }
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    const e = new Error(err.error?.message || `HTTP ${resp.status}`);
+    e.status = resp.status;
+    throw e;
+  }
+  return resp.json();
+}
+
+async function sheetsValuesUpdate(range, values, isRetry) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(
+    range,
+  )}?valueInputOption=RAW`;
+  const resp = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ values }),
+  });
+  if (resp.status === 401 && !isRetry) {
+    const ok = await refreshAccessTokenSilently();
+    if (ok) return sheetsValuesUpdate(range, values, true);
+  }
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error?.message || `HTTP ${resp.status}`);
+  }
+  return resp.json();
+}
+
+async function ensureBlacklistTab() {
+  // Create the Blacklist tab + header row. Called only on the
+  // "Unable to parse range" failure path, so we know the tab is missing.
+  await sheetsBatchUpdate({
+    requests: [{ addSheet: { properties: { title: "Blacklist" } } }],
+  });
+  await sheetsValuesUpdate("Blacklist!A1:E1", [
+    ["URL", "Dismissed At", "Title", "Company", "Reason"],
+  ]);
+}
+
+async function appendBlacklistRow({ url, dismissedAt, title, company }) {
+  if (!accessToken) throw new Error("Not signed in");
+  const normalized = normalizeLeadUrlClient(url || "");
+  const row = [
+    normalized,
+    dismissedAt || "",
+    title || "",
+    company || "",
+    "",
+  ];
+  try {
+    await sheetsValuesAppend("Blacklist!A:E", [row]);
+    return;
+  } catch (err) {
+    const msg = String(err?.message || "");
+    if (/Unable to parse range/i.test(msg)) {
+      await ensureBlacklistTab();
+      await sheetsValuesAppend("Blacklist!A:E", [row]);
+      return;
+    }
+    throw err;
+  }
+}
+
+async function deleteBlacklistRowByUrl(url) {
+  if (!accessToken) throw new Error("Not signed in");
+  const normalized = normalizeLeadUrlClient(url || "");
+  if (!normalized) return false;
+  let data;
+  try {
+    data = await sheetsValuesGet("Blacklist!A:A");
+  } catch (err) {
+    const msg = String(err?.message || "");
+    if (/Unable to parse range/i.test(msg)) return false;
+    throw err;
+  }
+  const values = data.values || [];
+  let rowIndex = -1; // 0-based sheet row
+  for (let i = 0; i < values.length; i++) {
+    const cell = (values[i] && values[i][0]) || "";
+    if (normalizeLeadUrlClient(cell) === normalized) {
+      rowIndex = i;
+      break;
+    }
+  }
+  if (rowIndex < 1) return false; // skip header row (0) or missing
+  // Look up the sheetId for "Blacklist"
+  const meta = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}?fields=sheets.properties`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  ).then((r) => r.json());
+  const sheet = (meta.sheets || []).find(
+    (s) => s.properties && s.properties.title === "Blacklist",
+  );
+  if (!sheet) return false;
+  await sheetsBatchUpdate({
+    requests: [
+      {
+        deleteDimension: {
+          range: {
+            sheetId: sheet.properties.sheetId,
+            dimension: "ROWS",
+            startIndex: rowIndex,
+            endIndex: rowIndex + 1,
+          },
+        },
+      },
+    ],
+  });
+  return true;
+}
+
+async function toggleFavorite(stableKey) {
+  const job = pipelineData[stableKey];
+  if (!job) return;
+  if (!accessToken) {
+    showToast("Sign in with Google first", "error");
+    return;
+  }
+  const sheetRow = getSheetRow(stableKey);
+  if (!sheetRow) return;
+  const next = !job.favorite;
+  job.favorite = next;
+  renderPipeline();
+  const ok = await updateMultipleCells([
+    { range: `Pipeline!V${sheetRow}`, value: next ? "★" : "" },
+  ]);
+  if (ok) {
+    showToast(next ? "Favorited" : "Unfavorited", "success");
+  } else {
+    job.favorite = !next;
+    renderPipeline();
+    showToast("Couldn't save favorite", "error");
+  }
+}
+
+async function dismissJob(stableKey) {
+  const job = pipelineData[stableKey];
+  if (!job) return;
+  if (!accessToken) {
+    showToast("Sign in with Google first", "error");
+    return;
+  }
+  const sheetRow = getSheetRow(stableKey);
+  if (!sheetRow) return;
+  const now = new Date().toISOString();
+  job.dismissedAt = now;
+  renderPipeline();
+
+  let undone = false;
+  const dismissToast = showToast(
+    `Dismissed "${job.title || "role"}"`,
+    "info",
+    true,
+    {
+      label: "Undo",
+      onClick: () => {
+        undone = true;
+        job.dismissedAt = null;
+        renderPipeline();
+      },
+    },
+  );
+
+  await new Promise((r) => setTimeout(r, 10_000));
+  if (typeof dismissToast === "function") dismissToast();
+  if (undone) return;
+
+  try {
+    await Promise.all([
+      (async () => {
+        const ok = await updateMultipleCells([
+          { range: `Pipeline!W${sheetRow}`, value: now },
+        ]);
+        if (!ok) throw new Error("Pipeline W write failed");
+      })(),
+      appendBlacklistRow({
+        url: job.link || "",
+        dismissedAt: now,
+        title: job.title || "",
+        company: job.company || "",
+      }),
+    ]);
+  } catch (err) {
+    console.error("[JobBored] dismiss persist failed", err);
+    job.dismissedAt = null;
+    renderPipeline();
+    showToast("Couldn't save dismiss — reverted", "error");
+  }
+}
+
+async function restoreJob(stableKey) {
+  const job = pipelineData[stableKey];
+  if (!job) return;
+  if (!accessToken) {
+    showToast("Sign in with Google first", "error");
+    return;
+  }
+  const sheetRow = getSheetRow(stableKey);
+  if (!sheetRow) return;
+  const prev = job.dismissedAt;
+  job.dismissedAt = null;
+  renderPipeline();
+  try {
+    const ok = await updateMultipleCells([
+      { range: `Pipeline!W${sheetRow}`, value: "" },
+    ]);
+    if (!ok) throw new Error("Pipeline W clear failed");
+    await deleteBlacklistRowByUrl(job.link || "");
+    showToast("Restored", "success");
+  } catch (err) {
+    console.error("[JobBored] restore failed", err);
+    job.dismissedAt = prev;
+    renderPipeline();
+    showToast("Couldn't restore — reverted", "error");
+  }
+}
+
 // Row index: the position in pipelineData maps to raw row index
 // pipelineData[i] comes from pipelineRawRows[i], which is rows[i+1] (skip header)
 // So sheet row = rawRowIndex + 2 (1-indexed, +1 for header)
@@ -9739,6 +10067,8 @@ function parsePipelineCSV(rows) {
           ? String(row[18]).trim()
           : null,
       logoUrl: row[19] ? String(row[19]).trim() : null,
+      favorite: row[21] === "★",
+      dismissedAt: row[22] ? String(row[22]).trim() || null : null,
     });
   }
 
@@ -10125,10 +10455,34 @@ function renderKanbanCard(job, index) {
     : "";
 
   const stageClass = `kanban-card--stage-${stageToCssKey((job.status || "new").trim() || "new")}`;
+  const isFavorite = !!job.favorite;
+  const isDismissed = !!job.dismissedAt;
+  const cardModClasses = [
+    stageClass,
+    isViewed ? "kanban-card--viewed" : "",
+    isFavorite ? "kanban-card--favorited" : "",
+    isDismissed ? "kanban-card--dismissed" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const favBtnHtml = `<button type="button" class="card-action-btn card-action-btn--fav${isFavorite ? " is-active" : ""}" data-action="toggle-favorite" data-key="${stableKey}" aria-label="${isFavorite ? "Unfavorite" : "Favorite"}" aria-pressed="${isFavorite}" title="${isFavorite ? "Unfavorite" : "Favorite"}">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="${isFavorite ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+  </button>`;
+  const dismissBtnHtml = isDismissed
+    ? `<button type="button" class="card-action-btn card-action-btn--restore" data-action="restore" data-key="${stableKey}" aria-label="Restore" title="Restore">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 7 3 12 8 12"/><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/></svg>
+  </button>`
+    : `<button type="button" class="card-action-btn card-action-btn--dismiss" data-action="dismiss" data-key="${stableKey}" aria-label="Dismiss" title="Dismiss">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+  </button>`;
 
   return `
-    <article class="kanban-card ${stageClass}${isViewed ? " kanban-card--viewed" : ""}" role="button" tabindex="0" data-action="open-detail" data-stable-key="${stableKey}" ${dataIndex >= 0 ? `data-index="${dataIndex}"` : ""} style="animation-delay:${index * 30}ms">
+    <article class="kanban-card ${cardModClasses}" role="button" tabindex="0" data-action="open-detail" data-stable-key="${stableKey}" ${dataIndex >= 0 ? `data-index="${dataIndex}"` : ""} style="animation-delay:${index * 30}ms">
       ${isViewed ? `<span class="kanban-card__viewed-dot" aria-label="Previously viewed" title="Previously viewed"></span>` : ""}
+      <div class="kanban-card__actions" aria-label="Card actions">
+        ${favBtnHtml}
+        ${dismissBtnHtml}
+      </div>
       <div class="kanban-card__identity">
         ${renderLogoHtml(job, "kanban")}
         <div class="kanban-card__identity-text">
@@ -10775,6 +11129,32 @@ function attachBoardListeners() {
       }
     });
   });
+
+  // Card action buttons (favorite / dismiss / restore) — stop propagation
+  // so clicks don't bubble into the card's open-detail handler.
+  document
+    .querySelectorAll('[data-action="toggle-favorite"]')
+    .forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const key = parseInt(btn.dataset.key, 10);
+        if (!Number.isNaN(key)) toggleFavorite(key);
+      });
+    });
+  document.querySelectorAll('[data-action="dismiss"]').forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const key = parseInt(btn.dataset.key, 10);
+      if (!Number.isNaN(key)) dismissJob(key);
+    });
+  });
+  document.querySelectorAll('[data-action="restore"]').forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const key = parseInt(btn.dataset.key, 10);
+      if (!Number.isNaN(key)) restoreJob(key);
+    });
+  });
 }
 
 // ---- Board filtering & sort (pure functions) ----
@@ -10790,6 +11170,9 @@ function attachBoardListeners() {
  */
 function filterAndSortJobs(jobs, search, sort) {
   let data = [...jobs];
+
+  if (!showDismissed) data = data.filter((j) => !j.dismissedAt);
+  if (favoritesOnly) data = data.filter((j) => j.favorite);
 
   if (search) {
     const q = search.toLowerCase();
@@ -16659,6 +17042,26 @@ function init() {
       renderPipeline();
     }, 200);
   });
+
+  // Pipeline filter chips — favorites-only + show-dismissed
+  const favChip = document.getElementById("favoritesOnlyChip");
+  if (favChip) {
+    favChip.addEventListener("click", () => {
+      favoritesOnly = !favoritesOnly;
+      favChip.classList.toggle("active", favoritesOnly);
+      favChip.setAttribute("aria-pressed", String(favoritesOnly));
+      renderPipeline();
+    });
+  }
+  const dismissedChip = document.getElementById("showDismissedChip");
+  if (dismissedChip) {
+    dismissedChip.addEventListener("click", () => {
+      showDismissed = !showDismissed;
+      dismissedChip.classList.toggle("active", showDismissed);
+      dismissedChip.setAttribute("aria-pressed", String(showDismissed));
+      renderPipeline();
+    });
+  }
 
   // Refresh
   document.getElementById("refreshBtn")?.addEventListener("click", () => {
