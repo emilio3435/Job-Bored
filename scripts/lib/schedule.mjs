@@ -10,7 +10,7 @@ export const stateDir = join(discoveryRoot, "state");
 export const envPath = join(discoveryRoot, ".env");
 export const scheduleInstalledPath = join(stateDir, "schedule-installed.json");
 export const refreshRequestBody =
-  '{"event":"discovery.profile.request","schemaVersion":1,"mode":"refresh"}';
+  '{"event":"discovery.profile.request","schemaVersion":1,"mode":"refresh","trigger":"scheduled-local"}';
 
 export function renderTemplate(template, replacements) {
   let out = template;

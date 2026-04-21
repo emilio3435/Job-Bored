@@ -2,6 +2,18 @@ export const DISCOVERY_WEBHOOK_EVENT = "command-center.discovery";
 export const DISCOVERY_WEBHOOK_SCHEMA_VERSION = 1;
 export const DEFAULT_PIPELINE_SHEET_NAME = "Pipeline";
 export const DEFAULT_BLACKLIST_SHEET_NAME = "Blacklist";
+export const DISCOVERY_RUNS_SHEET_NAME = "DiscoveryRuns";
+export const DISCOVERY_RUNS_HEADER_ROW = [
+  "Run At",
+  "Trigger",
+  "Status",
+  "Duration (s)",
+  "Companies Seen",
+  "Leads Written",
+  "Source",
+  "Variation Key",
+  "Error",
+] as const;
 export const DEFAULT_STATUS = "New";
 export const PIPELINE_DEDUPE_COLUMN = "E";
 export const PIPELINE_DEDUPE_HEADER = "Link";
@@ -179,6 +191,12 @@ export type DiscoveryWebhookRequestV1 = {
    * store so the secret never lands in SQLite.
    */
   googleAccessToken?: string;
+  /**
+   * Who/what initiated this run. Recorded in column B of the DiscoveryRuns
+   * sheet tab. Omit for UI-initiated runs (the worker defaults to "manual").
+   * See docs/INTERFACE-DISCOVERY-RUNS.md §2.
+   */
+  trigger?: DiscoveryRunTrigger;
 };
 
 /**
@@ -217,6 +235,44 @@ export const DISCOVERY_PROFILE_EVENT = "discovery.profile.request" as const;
 export const DISCOVERY_PROFILE_SCHEMA_VERSION = 1 as const;
 export const INGEST_URL_EVENT = "ingest.url.request" as const;
 export const INGEST_URL_SCHEMA_VERSION = 1 as const;
+
+/**
+ * Label stored in column B of the DiscoveryRuns sheet tab. Identifies who or
+ * what initiated a given discovery run. See docs/INTERFACE-DISCOVERY-RUNS.md §2.
+ */
+export const DISCOVERY_RUN_TRIGGERS = [
+  "manual",
+  "scheduled-local",
+  "scheduled-github",
+  "scheduled-appsscript",
+  "cli",
+] as const;
+
+export type DiscoveryRunTrigger = (typeof DISCOVERY_RUN_TRIGGERS)[number];
+
+export type DiscoveryRunStatusCell = "success" | "partial" | "failure";
+
+/**
+ * One row's worth of data for the DiscoveryRuns sheet tab. Column order matches
+ * DISCOVERY_RUNS_HEADER_ROW.
+ */
+export type DiscoveryRunLogRow = {
+  /** ISO-8601 UTC completion timestamp. */
+  runAt: string;
+  trigger: DiscoveryRunTrigger;
+  status: DiscoveryRunStatusCell;
+  /** Integer seconds, whole-run duration. */
+  durationS: number;
+  companiesSeen: number;
+  /** Distinct new rows appended to Pipeline this run. */
+  leadsWritten: number;
+  /** Free-form worker identity (e.g. "worker@v0.4.1"). */
+  source: string;
+  /** Existing concept from DiscoveryWebhookRequestV1.variationKey; blank when not applicable. */
+  variationKey: string;
+  /** Blank when status=success. Truncated to <= 200 chars by the writer. */
+  error: string;
+};
 
 export type WorkerScheduleMode = "browser" | "local" | "github";
 
@@ -279,6 +335,13 @@ export type DiscoveryProfileRequestV1 = {
     minute?: number;
     mode?: WorkerScheduleMode;
   };
+  /**
+   * Who/what initiated this run. Recorded in column B of the DiscoveryRuns
+   * sheet tab. Omit for UI-initiated runs (the worker defaults to "manual"
+   * when mode="manual" and "cli" when mode="refresh"). See
+   * docs/INTERFACE-DISCOVERY-RUNS.md §2.
+   */
+  trigger?: DiscoveryRunTrigger;
 };
 
 export type IngestUrlRequestV1 = {

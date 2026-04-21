@@ -6784,6 +6784,20 @@ let activeDetailKey = -1;
 // Auth state — access token stays in memory; localStorage only keeps a restore marker
 let accessToken = null;
 let userEmail = null;
+
+// Minimal external accessor for modules that need the live access token
+// without grabbing internal symbols. Kept tiny on purpose — just getters,
+// no setters. Used by runs-tab.js to read the DiscoveryRuns sheet tab.
+// Guarded for vm-sliced test contexts that don't define `window`.
+if (typeof window !== "undefined") {
+  window.JobBored = window.JobBored || {};
+  window.JobBored.getAccessToken = function () {
+    return accessToken;
+  };
+  window.JobBored.getSheetId = function () {
+    return typeof SHEET_ID === "string" ? SHEET_ID : "";
+  };
+}
 /** Profile photo URL from Google userinfo (optional). */
 let userPictureUrl = null;
 let grantedOauthScopes = "";

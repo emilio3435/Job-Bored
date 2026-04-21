@@ -46,6 +46,6 @@ $Headers = @{
   "x-discovery-secret" = $Secret
   "content-type" = "application/json"
 }
-$Body = '{"event":"discovery.profile.request","schemaVersion":1,"mode":"refresh"}'
+$Body = '{"event":"discovery.profile.request","schemaVersion":1,"mode":"refresh","trigger":"scheduled-local"}'
 
 Invoke-WebRequest -UseBasicParsing -TimeoutSec 600 -Method POST -Uri $Uri -Headers $Headers -Body $Body
