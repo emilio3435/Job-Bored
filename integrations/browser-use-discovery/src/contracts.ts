@@ -212,6 +212,8 @@ export type ProfileFormInput = {
 
 export const DISCOVERY_PROFILE_EVENT = "discovery.profile.request" as const;
 export const DISCOVERY_PROFILE_SCHEMA_VERSION = 1 as const;
+export const INGEST_URL_EVENT = "ingest.url.request" as const;
+export const INGEST_URL_SCHEMA_VERSION = 1 as const;
 
 export type DiscoveryProfileRequestV1 = {
   event: typeof DISCOVERY_PROFILE_EVENT;
@@ -243,6 +245,63 @@ export type DiscoveryProfileRequestV1 = {
   /** For mode="skip_company": CompanyTarget.companyKey values to blacklist. */
   skipCompanyKeys?: string[];
 };
+
+export type IngestUrlRequestV1 = {
+  event: typeof INGEST_URL_EVENT;
+  schemaVersion: typeof INGEST_URL_SCHEMA_VERSION;
+  url: string;
+  sheetId?: string;
+  manual?: {
+    title: string;
+    company: string;
+    location?: string;
+    description?: string;
+    fitScore?: number;
+  };
+};
+
+export type IngestUrlResponseV1 =
+  | {
+      ok: true;
+      strategy: "ats_api" | "jsonld" | "cheerio_dom" | "manual_fill";
+      lead: NormalizedLead;
+      appended: boolean;
+      rowNumber?: number;
+    }
+  | {
+      ok: false;
+      reason: "invalid_url";
+      message: string;
+    }
+  | {
+      ok: false;
+      reason: "private_network";
+      message: string;
+    }
+  | {
+      ok: false;
+      reason: "blocked_aggregator";
+      host: string;
+      message: string;
+    }
+  | {
+      ok: false;
+      reason: "scrape_failed";
+      httpStatus?: number;
+      message: string;
+      hint: string;
+    }
+  | {
+      ok: false;
+      reason: "duplicate";
+      rowNumber: number;
+      message: string;
+    }
+  | {
+      ok: false;
+      reason: "worker_error";
+      message: string;
+    };
 
 export type DiscoveryProfileStatusV1 = {
   hasStoredProfile: boolean;
