@@ -312,7 +312,7 @@ export function classifyCareerSurfaceSourcePolicy(url: string): CareerSurfaceSou
   return "extractable";
 }
 
-function isPrivateOrLoopbackHost(hostname: string): boolean {
+export function isPrivateOrLoopbackHost(hostname: string): boolean {
   if (!hostname) return true;
   if (hostname === "localhost" || hostname.endsWith(".localhost")) return true;
   // IPv6 loopback "::1" or link-local "fe80::" come in as "[::1]" or "[fe80::...]"

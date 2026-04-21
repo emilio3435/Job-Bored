@@ -36,6 +36,7 @@ import {
   hasValidWebhookSecret,
 } from "./webhook/handle-discovery-webhook.ts";
 import { handleDiscoveryProfileWebhook } from "./webhook/handle-discovery-profile.ts";
+import { handleIngestUrlWebhook } from "./webhook/handle-ingest-url.ts";
 import { createBrowserUseSessionManager } from "./browser/session.ts";
 
 const runtimeConfig = loadRuntimeConfig(process.env);
@@ -652,6 +653,7 @@ async function buildHealthPayload() {
       webhook: "/webhook",
       discovery: "/discovery",
       discoveryProfile: "/discovery-profile",
+      ingestUrl: "/ingest-url",
       runStatus: RUN_STATUS_TEMPLATE,
     },
     readiness: {
@@ -896,7 +898,7 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (!["/", "/webhook", "/discovery", "/discovery-profile"].includes(requestPath)) {
+  if (!["/", "/webhook", "/discovery", "/discovery-profile", "/ingest-url"].includes(requestPath)) {
     finishJson(
       404,
       {
@@ -1032,6 +1034,118 @@ const server = createServer(async (request, response) => {
         {
           ok: false,
           message: "Internal error handling discovery-profile request.",
+          detail: error instanceof Error ? error.message : String(error),
+        },
+        corsHeaders,
+      );
+    }
+    return;
+  }
+
+  if (requestPath === "/ingest-url") {
+    const preAuthHeaders = Object.fromEntries(
+      Object.entries(request.headers).map(([key, value]) => [
+        key,
+        Array.isArray(value) ? value : (value ?? undefined),
+      ]),
+    );
+    const preAuth = hasValidWebhookSecret(
+      runtimeConfig.webhookSecret,
+      preAuthHeaders,
+    );
+    if (!preAuth.valid) {
+      logEvent("http.request.unauthorized", {
+        requestId,
+        method,
+        path: requestPath,
+        category: preAuth.category,
+      });
+      finishJson(
+        401,
+        { ok: false, message: preAuth.detail || "Unauthorized" },
+        corsHeaders,
+      );
+      return;
+    }
+    try {
+      const bodyText = await readBody(request);
+      logEvent("http.request.body", {
+        requestId,
+        method,
+        path: requestPath,
+        bytes: Buffer.byteLength(bodyText, "utf8"),
+        contentType:
+          getHeaderValue(request.headers["content-type"]) || undefined,
+      });
+      const result = await handleIngestUrlWebhook(
+        {
+          method,
+          headers: Object.fromEntries(
+            Object.entries(request.headers).map(([key, value]) => [
+              key,
+              Array.isArray(value) ? value : (value ?? undefined),
+            ]),
+          ),
+          bodyText,
+        },
+        {
+          runtimeConfig,
+          pipelineWriter,
+          loadStoredWorkerConfig: (sheetId: string) =>
+            loadStoredWorkerConfig(runtimeConfig, sheetId),
+          now: () => new Date(),
+          randomId: (prefix: string) =>
+            `${prefix}_${randomUUID().replace(/-/g, "")}`,
+          log: (event, details) =>
+            logEvent(event, {
+              requestId,
+              method,
+              path: requestPath,
+              ...details,
+            }),
+        },
+      );
+      logEvent("http.request.completed", {
+        requestId,
+        method,
+        path: requestPath,
+        status: result.status,
+        durationMs: Date.now() - startedAt,
+      });
+      response.statusCode = result.status;
+      setHeaders(response, {
+        ...corsHeaders,
+        ...result.headers,
+      });
+      response.end(result.body);
+    } catch (error) {
+      if (error instanceof BodyTooLargeError) {
+        logEvent("http.request.rejected", {
+          requestId,
+          method,
+          path: requestPath,
+          reason: "body_too_large",
+          limit: MAX_BODY_BYTES,
+        });
+        finishJson(
+          413,
+          { ok: false, message: "Request body exceeds the configured limit." },
+          corsHeaders,
+        );
+        return;
+      }
+      logEvent("http.request.failed", {
+        requestId,
+        method,
+        path: requestPath,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      finishJson(
+        500,
+        {
+          ok: false,
+          message: "Internal error handling ingest-url request.",
           detail: error instanceof Error ? error.message : String(error),
         },
         corsHeaders,
