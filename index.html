@@ -834,6 +834,31 @@
                 <option value="priority">Priority</option>
               </select>
             </div>
+            <form
+              class="ingest-url-form"
+              id="ingestUrlForm"
+              autocomplete="off"
+              novalidate
+            >
+              <label class="sr-only" for="ingestUrlInput"
+                >Paste a job URL to add to Pipeline</label
+              >
+              <input
+                type="url"
+                class="search-input ingest-url-input"
+                id="ingestUrlInput"
+                placeholder="Paste a job URL to add to Pipeline…"
+                inputmode="url"
+                spellcheck="false"
+              />
+              <button
+                type="submit"
+                class="btn-modal-primary ingest-url-submit"
+                id="ingestUrlSubmit"
+              >
+                Add
+              </button>
+            </form>
           </div>
 
           <!-- Job Cards Container -->
@@ -5368,6 +5393,131 @@ https://your-static-site.example</pre
       aria-hidden="true"
     ></div>
 
+    <!-- Manual-fill modal: shown when /ingest-url cannot scrape (blocked aggregator or scrape_failed) -->
+    <div
+      class="modal-overlay"
+      id="ingestManualModal"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ingestManualModalTitle"
+    >
+      <div class="modal-card modal-card--wide">
+        <div class="settings-modal-head">
+          <h3 id="ingestManualModalTitle">Fill in the job details</h3>
+          <button
+            type="button"
+            class="settings-modal-close"
+            id="ingestManualModalClose"
+            aria-label="Close"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <p
+          class="modal-lede settings-modal-lede"
+          id="ingestManualModalExplain"
+        >
+          We couldn't auto-scrape this URL — fill in what you can.
+        </p>
+        <p
+          class="settings-form-error"
+          id="ingestManualModalError"
+          style="display: none"
+          role="alert"
+        ></p>
+        <form id="ingestManualForm" autocomplete="off" novalidate>
+          <label class="field-label" for="ingestManualUrl">Job URL</label>
+          <input
+            type="url"
+            id="ingestManualUrl"
+            class="modal-input"
+            readonly
+          />
+
+          <label class="field-label" for="ingestManualTitle"
+            >Title <span aria-hidden="true">*</span></label
+          >
+          <input
+            type="text"
+            id="ingestManualTitle"
+            class="modal-input"
+            required
+            placeholder="Senior Product Manager"
+          />
+
+          <label class="field-label" for="ingestManualCompany"
+            >Company <span aria-hidden="true">*</span></label
+          >
+          <input
+            type="text"
+            id="ingestManualCompany"
+            class="modal-input"
+            required
+            placeholder="Acme Corp"
+          />
+
+          <label class="field-label" for="ingestManualLocation">Location</label>
+          <input
+            type="text"
+            id="ingestManualLocation"
+            class="modal-input"
+            placeholder="Remote — US"
+          />
+
+          <label class="field-label" for="ingestManualDescription"
+            >Description</label
+          >
+          <textarea
+            id="ingestManualDescription"
+            class="modal-input"
+            rows="5"
+            placeholder="Paste the job description (optional)"
+          ></textarea>
+
+          <label class="field-label" for="ingestManualFitScore">
+            Fit score: <span id="ingestManualFitScoreValue">5</span> / 10
+          </label>
+          <input
+            type="range"
+            id="ingestManualFitScore"
+            min="0"
+            max="10"
+            step="1"
+            value="5"
+            class="ingest-manual-slider"
+          />
+
+          <div class="modal-actions modal-actions--split">
+            <button
+              type="button"
+              class="btn-modal-secondary"
+              id="ingestManualCancel"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="btn-modal-primary"
+              id="ingestManualSubmit"
+            >
+              Add to Pipeline
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
 
@@ -5391,6 +5541,6 @@ https://your-static-site.example</pre
     <script src="settings-tabs.js"></script>
     <script src="settings-discovery-adapters.js"></script>
     <script src="settings-profile-tab.js?v=4"></script>
-    <script src="app.js"></script>
+    <script src="app.js?v=5"></script>
   </body>
 </html>
