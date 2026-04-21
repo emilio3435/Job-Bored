@@ -2387,43 +2387,242 @@
                   hidden
                 ></p>
 
-                <div
-                  class="settings-profile-auto-refresh"
-                  role="group"
-                  aria-labelledby="settingsProfileAutoRefreshLabel"
+              </div>
+
+              <div class="settings-profile-block settings-profile-schedule">
+                <h5 class="settings-profile-block__title">4. Schedule</h5>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Pick how discovery runs on its own. Tiers are independent —
+                  any combination is fine; overlapping fires just overwrite
+                  the same company list.
+                </p>
+
+                <section
+                  class="settings-profile-schedule__tier"
+                  data-tier="1"
+                  aria-labelledby="settingsProfileScheduleTier1Title"
                 >
-                  <label
-                    class="field-label field-label--checkbox"
-                    id="settingsProfileAutoRefreshLabel"
+                  <header class="settings-profile-schedule__tier-head">
+                    <h6
+                      class="settings-profile-schedule__tier-title"
+                      id="settingsProfileScheduleTier1Title"
+                    >
+                      Runs while this tab is open
+                    </h6>
+                    <span class="settings-profile-badge">Tier 1 · zero-infra</span>
+                  </header>
+                  <div
+                    class="settings-profile-auto-refresh"
+                    role="group"
+                    aria-labelledby="settingsProfileAutoRefreshLabel"
                   >
+                    <label
+                      class="field-label field-label--checkbox"
+                      id="settingsProfileAutoRefreshLabel"
+                    >
+                      <input
+                        type="checkbox"
+                        id="settingsProfileAutoRefreshToggle"
+                      />
+                      Enable — refresh in this browser tab
+                    </label>
+                    <label
+                      class="field-label settings-profile-auto-refresh__cadence"
+                      for="settingsProfileAutoRefreshCadence"
+                    >
+                      <span>Every</span>
+                      <select
+                        id="settingsProfileAutoRefreshCadence"
+                        class="status-select settings-select"
+                      >
+                        <option value="6">6 hours</option>
+                        <option value="12" selected>12 hours</option>
+                        <option value="24">24 hours</option>
+                      </select>
+                    </label>
+                    <p
+                      class="settings-field-hint"
+                      id="settingsProfileAutoRefreshHint"
+                    >
+                      Zero-infra cadence. Runs in this browser tab only;
+                      closing the tab pauses the schedule.
+                    </p>
+                  </div>
+                </section>
+
+                <section
+                  class="settings-profile-schedule__tier"
+                  data-tier="2"
+                  aria-labelledby="settingsProfileScheduleLocalTitle"
+                >
+                  <header class="settings-profile-schedule__tier-head">
+                    <h6
+                      class="settings-profile-schedule__tier-title"
+                      id="settingsProfileScheduleLocalTitle"
+                    >
+                      Runs daily on this computer
+                    </h6>
+                    <span
+                      class="settings-profile-badge"
+                      id="settingsProfileScheduleLocalBadge"
+                      data-state="unknown"
+                    >Not installed yet</span>
+                  </header>
+                  <label class="field-label field-label--checkbox">
                     <input
                       type="checkbox"
-                      id="settingsProfileAutoRefreshToggle"
+                      id="settingsProfileScheduleLocalEnable"
                     />
-                    Auto-refresh while this tab is open
+                    Enable — save this time and install on the OS scheduler
                   </label>
                   <label
-                    class="field-label settings-profile-auto-refresh__cadence"
-                    for="settingsProfileAutoRefreshCadence"
+                    class="field-label"
+                    for="settingsProfileScheduleLocalTime"
                   >
-                    <span>Every</span>
-                    <select
-                      id="settingsProfileAutoRefreshCadence"
-                      class="status-select settings-select"
-                    >
-                      <option value="6">6 hours</option>
-                      <option value="12" selected>12 hours</option>
-                      <option value="24">24 hours</option>
-                    </select>
+                    Local time (your computer's clock)
                   </label>
+                  <input
+                    type="time"
+                    id="settingsProfileScheduleLocalTime"
+                    class="modal-input settings-profile-schedule__time"
+                    value="08:00"
+                    step="60"
+                  />
                   <p
-                    class="settings-field-hint"
-                    id="settingsProfileAutoRefreshHint"
+                    class="settings-field-hint settings-field-hint--compact"
+                    id="settingsProfileScheduleLocalOsHint"
                   >
-                    Zero-infra cadence. Runs in this browser tab only;
-                    closing the tab pauses the schedule.
+                    Detecting your operating system…
                   </p>
-                </div>
+                  <pre
+                    class="settings-profile-schedule__command"
+                    id="settingsProfileScheduleLocalCommand"
+                    aria-label="Install command to run in your terminal"
+                  ></pre>
+                  <div class="settings-profile-schedule__actions">
+                    <button
+                      type="button"
+                      id="settingsProfileScheduleLocalCopyInstall"
+                      class="btn-modal-primary"
+                    >
+                      Copy install command
+                    </button>
+                    <button
+                      type="button"
+                      id="settingsProfileScheduleLocalCopyUninstall"
+                      class="btn-modal-secondary"
+                      title="Copy the command that removes the scheduled job"
+                    >
+                      Copy uninstall command
+                    </button>
+                  </div>
+                  <p
+                    class="settings-field-hint settings-field-hint--compact"
+                    id="settingsProfileScheduleLocalArtifact"
+                    hidden
+                  ></p>
+                  <p
+                    class="settings-form-error settings-profile-error"
+                    id="settingsProfileScheduleLocalError"
+                    role="alert"
+                    hidden
+                  ></p>
+                </section>
+
+                <section
+                  class="settings-profile-schedule__tier"
+                  data-tier="3"
+                  aria-labelledby="settingsProfileScheduleCloudTitle"
+                >
+                  <header class="settings-profile-schedule__tier-head">
+                    <h6
+                      class="settings-profile-schedule__tier-title"
+                      id="settingsProfileScheduleCloudTitle"
+                    >
+                      Runs in the cloud on a schedule
+                    </h6>
+                    <span
+                      class="settings-profile-badge"
+                      id="settingsProfileScheduleCloudBadge"
+                      data-state="idle"
+                    >Advisory</span>
+                  </header>
+                  <label class="field-label field-label--checkbox">
+                    <input
+                      type="checkbox"
+                      id="settingsProfileScheduleCloudEnable"
+                    />
+                    Enable — generate a GitHub Actions workflow for this schedule
+                  </label>
+                  <label
+                    class="field-label"
+                    for="settingsProfileScheduleCloudTime"
+                  >
+                    UTC time (GitHub cron is always UTC)
+                  </label>
+                  <input
+                    type="time"
+                    id="settingsProfileScheduleCloudTime"
+                    class="modal-input settings-profile-schedule__time"
+                    value="14:00"
+                    step="60"
+                  />
+                  <p
+                    class="settings-field-hint settings-field-hint--compact"
+                    id="settingsProfileScheduleCloudLocalPreview"
+                  ></p>
+                  <div class="settings-profile-schedule__actions">
+                    <button
+                      type="button"
+                      id="settingsProfileScheduleCloudDownload"
+                      class="btn-modal-primary"
+                    >
+                      Download workflow file
+                    </button>
+                  </div>
+                  <ol class="settings-profile-schedule__steps">
+                    <li>
+                      Fork or open your Command Center repo on GitHub.
+                    </li>
+                    <li>
+                      Add the repo secrets
+                      <code>COMMAND_CENTER_DISCOVERY_WEBHOOK_URL</code> and
+                      <code>COMMAND_CENTER_SHEET_ID</code> —
+                      <a
+                        href="https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions"
+                        target="_blank"
+                        rel="noopener"
+                        >how secrets work →</a
+                      >
+                    </li>
+                    <li>
+                      Upload the downloaded file to
+                      <code>.github/workflows/command-center-discovery.yml</code>
+                      and commit.
+                    </li>
+                    <li>
+                      Open the
+                      <a
+                        href="https://docs.github.com/en/actions/learn-github-actions/finding-and-customizing-actions"
+                        target="_blank"
+                        rel="noopener"
+                        >Actions tab</a
+                      >
+                      in your repo and confirm the workflow shows up.
+                    </li>
+                  </ol>
+                  <p class="settings-field-hint settings-field-hint--compact">
+                    The dashboard cannot verify GitHub remotely — the badge
+                    stays "Advisory." Check your GitHub Actions tab to
+                    confirm the schedule is live.
+                  </p>
+                  <p
+                    class="settings-form-error settings-profile-error"
+                    id="settingsProfileScheduleCloudError"
+                    role="alert"
+                    hidden
+                  ></p>
+                </section>
               </div>
 
               <div
