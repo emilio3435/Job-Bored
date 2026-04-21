@@ -218,6 +218,22 @@ export const DISCOVERY_PROFILE_SCHEMA_VERSION = 1 as const;
 export const INGEST_URL_EVENT = "ingest.url.request" as const;
 export const INGEST_URL_SCHEMA_VERSION = 1 as const;
 
+export type WorkerScheduleMode = "browser" | "local" | "github";
+
+export interface WorkerScheduleConfig {
+  enabled: boolean;
+  /** Legacy; retained so old worker-config.json files still parse. */
+  cron?: string;
+  /** Local hour of day (0-23). Source of truth for the UI time picker. */
+  hour?: number;
+  /** Local minute of hour (0-59). */
+  minute?: number;
+  /** Which daily-refresh tier the user picked in Settings -> Schedule. */
+  mode?: WorkerScheduleMode;
+  /** ISO timestamp written by local installer scripts. */
+  installedAt?: string;
+}
+
 export type DiscoveryProfileRequestV1 = {
   event: typeof DISCOVERY_PROFILE_EVENT;
   schemaVersion: typeof DISCOVERY_PROFILE_SCHEMA_VERSION;
@@ -243,10 +259,26 @@ export type DiscoveryProfileRequestV1 = {
    * "status" short-circuits before any Gemini call; returns a snapshot of
    * the stored profile, negative list length, and last refresh timestamp
    * for the dashboard's daily-refresh status panel.
+   * "schedule-save" writes the user's chosen schedule fields.
+   * "schedule-status" returns saved schedule fields plus local installer
+   * breadcrumb status.
    */
-  mode?: "manual" | "refresh" | "skip_company" | "status";
+  mode?:
+    | "manual"
+    | "refresh"
+    | "skip_company"
+    | "status"
+    | "schedule-save"
+    | "schedule-status";
   /** For mode="skip_company": CompanyTarget.companyKey values to blacklist. */
   skipCompanyKeys?: string[];
+  /** For mode="schedule-save": schedule fields to persist. */
+  schedule?: {
+    enabled?: boolean;
+    hour?: number;
+    minute?: number;
+    mode?: WorkerScheduleMode;
+  };
 };
 
 export type IngestUrlRequestV1 = {
@@ -320,6 +352,19 @@ export type DiscoveryProfileStatusV1 = {
   lastRefreshSource: "manual" | "refresh" | null;
 };
 
+export type DiscoveryProfileScheduleResponseV1 = {
+  enabled: boolean;
+  hour?: number;
+  minute?: number;
+  mode?: WorkerScheduleMode;
+  installedAt?: string | null;
+};
+
+export type ScheduleInstalledArtifactV1 = {
+  platform: string;
+  path: string;
+};
+
 export type DiscoveryProfileResponseV1 =
   | {
       ok: true;
@@ -330,6 +375,12 @@ export type DiscoveryProfileResponseV1 =
   | {
       ok: true;
       status: DiscoveryProfileStatusV1;
+    }
+  | {
+      ok: true;
+      schedule: DiscoveryProfileScheduleResponseV1;
+      installed?: boolean;
+      installedArtifact?: ScheduleInstalledArtifactV1 | null;
     }
   | {
       ok: false;
@@ -745,10 +796,7 @@ export type StoredWorkerConfig = {
   seniority: string;
   maxLeadsPerRun: number;
   enabledSources: SupportedSourceId[];
-  schedule: {
-    enabled: boolean;
-    cron: string;
-  };
+  schedule: WorkerScheduleConfig;
   discoveryProfile?: {
     sourcePreset?: SourcePreset;
   };

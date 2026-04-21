@@ -1,0 +1,8 @@
+[Unit]
+Description=JobBored daily discovery refresh
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory={{REPO_ROOT}}
+ExecStart=/usr/bin/curl -sS --max-time 600 -X POST -H "content-type: application/json" -H "x-discovery-secret: {{SECRET}}" -d "{\"event\":\"discovery.profile.request\",\"schemaVersion\":1,\"mode\":\"refresh\"}" "http://127.0.0.1:{{PORT}}/discovery-profile"
