@@ -177,40 +177,40 @@ export async function handleIngestUrlWebhook(
         message: "Local and private-network URLs are not allowed.",
       } satisfies IngestUrlResponseV1);
     }
+    let rawListing: RawListing | null = null;
+    let strategy: "ats_api" | "jsonld" | "cheerio_dom" | "url_only" = "cheerio_dom";
+
     if (classified.kind === "blocked_aggregator") {
+      // LinkedIn/Indeed/Glassdoor etc. block scrapers. Instead of forcing a
+      // manual-fill interruption, land the row with URL-derived placeholders
+      // (hostname → company, URL slug → title). The dashboard row-drawer
+      // enrichment path (/api/scrape-job + LLM inference) can still extract
+      // details on row open, which is often enough to be useful even when a
+      // raw fetch returns a login wall.
       dependencies.log?.("discovery.run.ingest_url_blocked_aggregator", {
         runId,
         host: classified.host,
         provider: classified.provider,
       });
-      return jsonResponse(200, {
-        ok: false,
-        reason: "blocked_aggregator",
-        host: classified.host,
-        message:
-          "This job board blocks automated extraction. Use manual fill for this listing.",
-      } satisfies IngestUrlResponseV1);
-    }
-
-    let rawListing: RawListing | null = null;
-    let strategy: "ats_api" | "jsonld" | "cheerio_dom" = "cheerio_dom";
-
-    if (classified.kind === "ats_direct") {
+      rawListing = buildUrlOnlyRawListing(
+        ingestRequest.url,
+        classified.host,
+        `Couldn't auto-extract — ${classified.provider} blocks direct scrapers. Open the row for drawer-based detail fetch.`,
+      );
+      strategy = "url_only";
+    } else if (classified.kind === "ats_direct") {
       const atsResult = await fetchFromAts(classified, dependencies);
-      if (!atsResult.ok) {
-        // Workable ATS links currently have no public fetcher here; fallback
-        // to battle-tested Cheerio extraction.
-        if (classified.provider !== "workable") {
-          return jsonResponse(200, {
-            ok: false,
-            reason: "scrape_failed",
-            httpStatus: atsResult.httpStatus,
-            message: atsResult.message,
-            hint:
-              "Try the listing URL in a browser and use manual fill if the posting is gated or gone.",
-          } satisfies IngestUrlResponseV1);
-        }
-      } else {
+      if (!atsResult.ok && classified.provider !== "workable") {
+        // ATS JSON API failed (deleted posting, region-locked, network blip).
+        // Fall back to the generic Cheerio scrape on the same URL — the
+        // board's HTML detail page often still works.
+        dependencies.log?.("discovery.run.ingest_url_ats_fetch_failed", {
+          runId,
+          provider: classified.provider,
+          host: classified.host,
+          message: atsResult.message,
+        });
+      } else if (atsResult.ok) {
         rawListing = atsResult.rawListing;
         strategy = "ats_api";
       }
@@ -222,17 +222,26 @@ export async function handleIngestUrlWebhook(
         dependencies,
       );
       if (!scraped.ok) {
-        return jsonResponse(200, {
-          ok: false,
-          reason: "scrape_failed",
+        // Cheerio threw (HTTP 4xx/5xx upstream, timeout, or oversize page).
+        // Land the row anyway with URL-derived placeholders — the drawer
+        // enrichment will have another shot at fetching details when the
+        // user opens the row.
+        dependencies.log?.("discovery.run.ingest_url_scrape_fallback", {
+          runId,
+          host: safeHost(ingestRequest.url),
           httpStatus: scraped.httpStatus,
           message: scraped.message,
-          hint:
-            "The page may require login or block bots. Use manual fill if this keeps failing.",
-        } satisfies IngestUrlResponseV1);
+        });
+        rawListing = buildUrlOnlyRawListing(
+          ingestRequest.url,
+          safeHost(ingestRequest.url),
+          `Couldn't auto-extract (${scraped.httpStatus ? `HTTP ${scraped.httpStatus}` : "scrape failed"}). Open the row for drawer-based detail fetch.`,
+        );
+        strategy = "url_only";
+      } else {
+        rawListing = scraped.rawListing;
+        strategy = scraped.strategy;
       }
-      rawListing = scraped.rawListing;
-      strategy = scraped.strategy;
     }
 
     const lead = rawListingToSingleLead(rawListing, {
@@ -467,7 +476,7 @@ async function writeLeadAndRespond(input: {
   dependencies: HandleIngestUrlDependencies;
   sheetId: string;
   lead: NormalizedLead;
-  strategy: "ats_api" | "jsonld" | "cheerio_dom" | "manual_fill";
+  strategy: "ats_api" | "jsonld" | "cheerio_dom" | "manual_fill" | "url_only";
   runId: string;
 }): Promise<WebhookResponseLike> {
   const writeResult = await input.dependencies.pipelineWriter.write(
@@ -518,6 +527,82 @@ function inferCompanyFromHost(host: string): string {
     .filter(Boolean)
     .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
     .join(" ");
+}
+
+// Derive a best-guess human-readable title from a URL slug. Strips numeric
+// ids + job-request noise so `/jobs/4369653076` → "", but
+// `/jobs/senior-product-manager-at-plaid` → "Senior Product Manager At Plaid".
+// Returns empty string when nothing usable remains (normalizer will then
+// substitute a placeholder upstream).
+function inferTitleFromUrlPath(url: string): string {
+  let pathname = "";
+  try {
+    pathname = new URL(url).pathname || "";
+  } catch {
+    return "";
+  }
+  const segments = pathname
+    .split("/")
+    .filter(Boolean)
+    // Drop purely numeric ids and very short opaque segments.
+    .filter((seg) => !/^\d+$/.test(seg) && seg.length > 2);
+  if (segments.length === 0) return "";
+  // Prefer the last segment (usually the title). Strip query-like noise
+  // (utm_*, jk=, etc. would never be in a pathname, but defensively).
+  const candidate = segments[segments.length - 1]
+    .split(/[?#]/)[0]
+    .replace(/\.(html|htm|aspx|php)$/i, "")
+    .replace(/[-_+]+/g, " ")
+    // Strip trailing numeric ids that commonly tag job URLs
+    // ("senior-pm-at-plaid-4369653076" → "senior pm at plaid"). Also
+    // drop long opaque hex tokens. Keep short numbers (e.g. "java 17")
+    // by only stripping runs of 4+ digits.
+    .replace(/\s+[0-9a-f]{8,}\s*$/i, "")
+    .replace(/\s+\d{4,}\s*$/i, "")
+    .trim();
+  if (!candidate) return "";
+  return candidate
+    .split(/\s+/)
+    .map((token) =>
+      token.length > 0
+        ? token.charAt(0).toUpperCase() + token.slice(1).toLowerCase()
+        : "",
+    )
+    .join(" ")
+    .trim();
+}
+
+// Build a minimal RawListing from just the URL. Used when classification
+// hits a blocked aggregator OR when the Cheerio scrape fails outright.
+// The row lands in the Pipeline with whatever we can derive (hostname as
+// company, last URL path segment as title) and the dashboard's per-row
+// enrichment (fetchJobPostingEnrichment in app.js) does a second scrape
+// when the user opens the drawer — that path has LLM inference on top of
+// Cheerio output and often extracts fields even for aggregators.
+function buildUrlOnlyRawListing(
+  url: string,
+  host: string,
+  noteForDescription: string,
+): RawListing {
+  const resolvedUrl = String(url || "").trim();
+  const inferredTitle = inferTitleFromUrlPath(resolvedUrl);
+  const company = inferCompanyFromHost(host) || "Unknown company";
+  // Title must be non-empty for the normalizer to accept the listing;
+  // fall back to a generic placeholder when URL slug is opaque.
+  const title = inferredTitle || `Job at ${company}`;
+  return {
+    sourceId: "ingest_url_scrape" as RawListing["sourceId"],
+    sourceLabel: "URL paste (link-only)",
+    sourceLane: "grounded_web",
+    title,
+    company,
+    location: undefined,
+    url: resolvedUrl,
+    canonicalUrl: resolvedUrl,
+    finalUrl: resolvedUrl,
+    descriptionText: noteForDescription,
+    tags: [],
+  };
 }
 
 function extractHttpStatus(message: string): number | undefined {
