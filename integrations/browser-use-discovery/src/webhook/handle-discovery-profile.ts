@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import {
   DISCOVERY_PROFILE_EVENT,
   DISCOVERY_PROFILE_SCHEMA_VERSION,
+  DISCOVERY_RUN_TRIGGERS,
 } from "../contracts.ts";
 import type {
   CandidateProfile,
@@ -27,6 +28,8 @@ import type {
   DiscoveryProfileScheduleResponseV1,
   DiscoveryProfileRequestV1,
   DiscoveryProfileResponseV1,
+  DiscoveryRunLogRow,
+  DiscoveryRunTrigger,
   ProfileFormInput,
   StoredWorkerConfig,
   WorkerRuntimeConfig,
@@ -37,6 +40,7 @@ import {
   extractCandidateProfile,
   discoverCompaniesForProfile,
 } from "../discovery/profile-to-companies.ts";
+import type { DiscoveryRunsLogger } from "../sheets/discovery-runs-writer.ts";
 import {
   hasValidWebhookSecret,
   type WebhookRequestLike,
@@ -85,6 +89,21 @@ export type HandleDiscoveryProfileDependencies = {
    */
   extractCandidateProfile?: typeof extractCandidateProfile;
   discoverCompaniesForProfile?: typeof discoverCompaniesForProfile;
+  /**
+   * Optional DiscoveryRuns sheet-tab logger. When present, a row is appended
+   * at the completion of every manual/refresh /discovery-profile call (both
+   * success and caught-error paths — see docs/INTERFACE-DISCOVERY-RUNS.md §3).
+   * Best-effort: a logger failure never fails the handler. Status/schedule/
+   * skip_company modes are NOT logged (they are not discovery runs).
+   */
+  discoveryRunsLogger?: DiscoveryRunsLogger | null;
+  /**
+   * Worker identity recorded in column G of DiscoveryRuns rows (e.g.
+   * "worker@v0.4.1"). Defaults to "worker@profile" when omitted.
+   */
+  discoveryRunsSource?: string;
+  /** Optional clock override so tests can assert duration math deterministically. */
+  now?(): Date;
 };
 
 function jsonResponse(
@@ -290,6 +309,25 @@ function parseRequest(bodyText: string):
   const sheetId = typeof record.sheetId === "string" ? record.sheetId.trim() : "";
   const persist =
     typeof record.persist === "boolean" ? record.persist : false;
+
+  // Optional trigger field — see docs/INTERFACE-DISCOVERY-RUNS.md §2. When
+  // absent, the downstream run-log writer fills in a mode-based default.
+  // Unknown values reject the request so installer scripts can't silently
+  // drift from the enum.
+  let trigger: DiscoveryRunTrigger | undefined;
+  if (record.trigger !== undefined) {
+    if (
+      typeof record.trigger !== "string" ||
+      !(DISCOVERY_RUN_TRIGGERS as readonly string[]).includes(record.trigger)
+    ) {
+      return {
+        ok: false,
+        message: `trigger must be one of: ${DISCOVERY_RUN_TRIGGERS.join(", ")} when present.`,
+      };
+    }
+    trigger = record.trigger as DiscoveryRunTrigger;
+  }
+
   return {
     ok: true,
     request: {
@@ -302,6 +340,7 @@ function parseRequest(bodyText: string):
       mode,
       skipCompanyKeys,
       schedule,
+      ...(trigger ? { trigger } : {}),
     },
   };
 }
@@ -421,6 +460,8 @@ export async function handleDiscoveryProfileWebhook(
   request: WebhookRequestLike,
   dependencies: HandleDiscoveryProfileDependencies,
 ): Promise<WebhookResponseLike> {
+  const clock = dependencies.now || (() => new Date());
+  const handlerStartedAtMs = clock().getTime();
   if (String(request.method || "").toUpperCase() !== "POST") {
     return jsonResponse(
       405,
@@ -472,7 +513,76 @@ export async function handleDiscoveryProfileWebhook(
     persist: parsedRequest.persist === true,
     hasSheetId: !!parsedRequest.sheetId,
     mode: parsedRequest.mode || "manual",
+    trigger: parsedRequest.trigger || null,
   });
+
+  // Discovery-run log (contract §3 + INTERFACE-DISCOVERY-RUNS.md).
+  // Fires once per completed discovery run — which, for /discovery-profile,
+  // means any manual or refresh call that reached the extract + discover
+  // path. skip_company / status / schedule-* modes are not discovery runs
+  // and are excluded. Best-effort: a logger failure never fails the handler.
+  const effectiveMode = parsedRequest.mode || "manual";
+  const isDiscoveryRunMode =
+    effectiveMode === "manual" || effectiveMode === "refresh";
+  let runLogFired = false;
+  async function logRun(
+    status: "success" | "failure",
+    companyCount: number,
+    errorText: string,
+  ): Promise<void> {
+    if (!isDiscoveryRunMode) return;
+    if (!dependencies.discoveryRunsLogger) return;
+    if (runLogFired) return;
+    runLogFired = true;
+    const completedAt = clock();
+    const durationS = Math.max(
+      0,
+      Math.round((completedAt.getTime() - handlerStartedAtMs) / 1000),
+    );
+    const trigger: DiscoveryRunTrigger =
+      parsedRequest.trigger ||
+      (effectiveMode === "refresh" ? "cli" : "manual");
+    const sheetId =
+      parsedRequest.sheetId ||
+      (dependencies.runtimeConfig as Record<string, unknown>).defaultSheetId ||
+      "";
+    if (!sheetId || typeof sheetId !== "string") return;
+    const row: DiscoveryRunLogRow = {
+      runAt: completedAt.toISOString(),
+      trigger,
+      status,
+      durationS,
+      companiesSeen: Math.max(0, companyCount | 0),
+      // /discovery-profile enriches the company list; it does not write to
+      // Pipeline. Always 0 for this endpoint — see INTERFACE-DISCOVERY-RUNS §3.
+      leadsWritten: 0,
+      source: dependencies.discoveryRunsSource || "worker@profile",
+      variationKey: sheetId,
+      error: status === "success" ? "" : errorText,
+    };
+    try {
+      const result = await dependencies.discoveryRunsLogger.append(
+        sheetId,
+        row,
+      );
+      if (!result.ok) {
+        dependencies.log?.("discovery.runs_log.append_skipped", {
+          reason: result.reason,
+          mode: effectiveMode,
+        });
+      } else if (result.created) {
+        dependencies.log?.("discovery.runs_log.tab_created", {
+          sheetId,
+          mode: effectiveMode,
+        });
+      }
+    } catch (error) {
+      dependencies.log?.("discovery.runs_log.append_crashed", {
+        message: error instanceof Error ? error.message : String(error),
+        mode: effectiveMode,
+      });
+    }
+  }
 
   const extractFn =
     dependencies.extractCandidateProfile || extractCandidateProfile;
@@ -808,6 +918,7 @@ export async function handleDiscoveryProfileWebhook(
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
     dependencies.log?.("discovery.profile.extract_failed", { message });
+    await logRun("failure", 0, `Profile extraction failed: ${message}`);
     return jsonResponse(502, {
       ok: false,
       message: "Profile extraction failed.",
@@ -826,6 +937,7 @@ export async function handleDiscoveryProfileWebhook(
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
     dependencies.log?.("discovery.profile.discover_failed", { message });
+    await logRun("failure", 0, `Company discovery failed: ${message}`);
     return jsonResponse(502, {
       ok: false,
       message: "Company discovery failed.",
@@ -923,6 +1035,11 @@ export async function handleDiscoveryProfileWebhook(
             ? error.message
             : String(error || "unknown error");
         dependencies.log?.("discovery.profile.persist_failed", { message });
+        await logRun(
+          "failure",
+          companies.length,
+          `Persist failed after successful discovery: ${message}`,
+        );
         return jsonResponse(502, {
           ok: false,
           message: "Persist failed after successful discovery.",
@@ -937,6 +1054,8 @@ export async function handleDiscoveryProfileWebhook(
     persisted,
     targetRoleCount: profile.targetRoles.length,
   });
+
+  await logRun("success", companies.length, "");
 
   const response: DiscoveryProfileResponseV1 = {
     ok: true,

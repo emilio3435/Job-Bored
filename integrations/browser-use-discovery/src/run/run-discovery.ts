@@ -9,6 +9,8 @@ import type {
   DiscoveryRejectionSample,
   DiscoveryRejectionSummary,
   DiscoveryRunLifecycle,
+  DiscoveryRunLogRow,
+  DiscoveryRunTrigger,
   DiscoverySourceLane,
   DiscoverySourceSummary,
   DiscoveryRun,
@@ -24,6 +26,7 @@ import type {
   StoredWorkerConfig,
   SupportedSourceId,
 } from "../contracts.ts";
+import type { DiscoveryRunsLogger } from "../sheets/discovery-runs-writer.ts";
 import type { ResolvedRunSettings, WorkerRuntimeConfig } from "../config.ts";
 import type { BrowserUseSessionManager } from "../browser/session.ts";
 import type { DiscoveryMemoryStore } from "../contracts.ts";
@@ -82,6 +85,18 @@ export type RunDiscoveryDependencies = {
   matchClient?: DiscoveryMatchClient | null;
   pipelineWriter: PipelineWriter;
   discoveryMemoryStore?: DiscoveryMemoryStore | null;
+  /**
+   * Optional appender that writes one row to the DiscoveryRuns sheet tab when
+   * the run completes. Best-effort: failures are logged but never fail the
+   * run. See docs/INTERFACE-DISCOVERY-RUNS.md §3. Omit to disable run-level
+   * sheet logging (e.g. in unit tests that don't care).
+   */
+  discoveryRunsLogger?: DiscoveryRunsLogger | null;
+  /**
+   * Worker identity recorded in column G of DiscoveryRuns rows (e.g.
+   * "worker@v0.4.1"). Defaults to "worker" when omitted.
+   */
+  discoveryRunsSource?: string;
   log?(event: string, details: Record<string, unknown>): void;
   runId?: string;
   loadStoredWorkerConfig(sheetId: string): Promise<StoredWorkerConfig>;
@@ -1106,6 +1121,52 @@ export async function runDiscovery(
     extractionResultsBySource,
     rejectionSummaryBySource,
   );
+
+  // DiscoveryRuns sheet log (contract §3 / docs/INTERFACE-DISCOVERY-RUNS.md).
+  // Best-effort: a logging failure must never fail the run itself.
+  if (dependencies.discoveryRunsLogger) {
+    try {
+      const durationS = Math.max(
+        0,
+        Math.round(
+          (Date.parse(completedAt) - Date.parse(startedAt)) / 1000,
+        ),
+      );
+      const logRow: DiscoveryRunLogRow = {
+        runAt: completedAt,
+        trigger: resolveDiscoveryRunTrigger(request.trigger, trigger),
+        status: mapLifecycleStateToLogStatus(lifecycleState, writeResult),
+        durationS,
+        companiesSeen: config.companies.length,
+        leadsWritten: writeResult.appended,
+        source: dependencies.discoveryRunsSource || "worker",
+        variationKey: request.variationKey || "",
+        error: writeResult.writeError
+          ? `Sheet write failed during ${writeResult.writeError.phase} phase: ${writeResult.writeError.message}`
+          : "",
+      };
+      const logResult = await dependencies.discoveryRunsLogger.append(
+        config.sheetId,
+        logRow,
+      );
+      if (!logResult.ok) {
+        dependencies.log?.("discovery.runs_log.append_skipped", {
+          runId,
+          reason: logResult.reason,
+        });
+      } else if (logResult.created) {
+        dependencies.log?.("discovery.runs_log.tab_created", {
+          runId,
+          sheetId: config.sheetId,
+        });
+      }
+    } catch (error) {
+      dependencies.log?.("discovery.runs_log.append_crashed", {
+        runId,
+        message: formatError(error),
+      });
+    }
+  }
 
   return {
     run,
@@ -2429,4 +2490,43 @@ function classifyFailureReason(
 function formatError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+const VALID_DISCOVERY_RUN_TRIGGERS: ReadonlySet<DiscoveryRunTrigger> = new Set([
+  "manual",
+  "scheduled-local",
+  "scheduled-github",
+  "scheduled-appsscript",
+  "cli",
+]);
+
+/**
+ * Pick the trigger label to record in the DiscoveryRuns sheet tab.
+ *
+ * Precedence:
+ *   1. The request's explicit `trigger` field (from installer scripts / UI /
+ *      GitHub Actions YAML) when it's one of the known values.
+ *   2. Fall back to mapping the runDiscovery dispatcher's trigger arg
+ *      ("manual" | "scheduled") onto the log enum.
+ */
+function resolveDiscoveryRunTrigger(
+  requestTrigger: DiscoveryRunTrigger | undefined,
+  dispatcherTrigger: "manual" | "scheduled",
+): DiscoveryRunTrigger {
+  if (requestTrigger && VALID_DISCOVERY_RUN_TRIGGERS.has(requestTrigger)) {
+    return requestTrigger;
+  }
+  return dispatcherTrigger === "scheduled" ? "cli" : "manual";
+}
+
+function mapLifecycleStateToLogStatus(
+  state: DiscoveryLifecycleState,
+  writeResult: PipelineWriteResult,
+): "success" | "partial" | "failure" {
+  if (writeResult.writeError) return "failure";
+  if (state === "completed") return "success";
+  if (state === "partial") return "partial";
+  // DiscoveryLifecycleState "empty" — no leads but the run itself finished
+  // cleanly. Record as success so the UI filter's Failure chip stays meaningful.
+  return "success";
 }

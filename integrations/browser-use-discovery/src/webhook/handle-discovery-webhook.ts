@@ -1,12 +1,14 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 
 import {
+  DISCOVERY_RUN_TRIGGERS,
   SOURCE_PRESET_VALUES,
 } from "../contracts.ts";
 import type {
   DiscoveryWebhookAck,
   DiscoveryRunStatusPayload,
   DiscoveryWebhookRequestV1,
+  DiscoveryRunTrigger,
   SourcePreset,
   StoredWorkerConfig,
 } from "../contracts.ts";
@@ -687,6 +689,23 @@ function parseWebhookRequest(
     };
   }
 
+  // Optional trigger field — see docs/INTERFACE-DISCOVERY-RUNS.md §2. Used by
+  // runDiscovery to label the DiscoveryRuns sheet row (e.g. GitHub Actions
+  // workflow sends trigger:"scheduled-github").
+  let trigger: DiscoveryRunTrigger | undefined;
+  if (payload.trigger !== undefined) {
+    if (
+      typeof payload.trigger !== "string" ||
+      !(DISCOVERY_RUN_TRIGGERS as readonly string[]).includes(payload.trigger)
+    ) {
+      return {
+        ok: false,
+        message: `trigger must be one of: ${DISCOVERY_RUN_TRIGGERS.join(", ")} when present.`,
+      };
+    }
+    trigger = payload.trigger as DiscoveryRunTrigger;
+  }
+
   return {
     ok: true,
     request: {
@@ -702,6 +721,7 @@ function parseWebhookRequest(
           }
         : {}),
       ...(googleAccessToken ? { googleAccessToken } : {}),
+      ...(trigger ? { trigger } : {}),
     },
   };
 }

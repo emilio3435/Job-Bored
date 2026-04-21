@@ -37,7 +37,8 @@ jobs:
               sheetId: $s,
               variationKey: $v,
               requestedAt: $t,
-              discoveryProfile: {}
+              discoveryProfile: {},
+              trigger: "scheduled-github"
             }')
           curl -sS -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \

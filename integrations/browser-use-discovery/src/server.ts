@@ -25,6 +25,7 @@ import {
   validateSheetsCredentialReadiness,
 } from "./sheets/credential-readiness.ts";
 import { createPipelineWriter } from "./sheets/pipeline-writer.ts";
+import { createDiscoveryRunsLogger } from "./sheets/discovery-runs-writer.ts";
 import {
   buildRunStatusPath,
   createDiscoveryRunStatusStore,
@@ -254,6 +255,10 @@ const discoveryMemoryStore = {
   },
 };
 const pipelineWriter = createPipelineWriter(runtimeConfig);
+const discoveryRunsLogger = createDiscoveryRunsLogger({
+  runtimeConfig,
+  log: logEvent,
+});
 const runStatusStore = createDiscoveryRunStatusStore(
   runtimeConfig.stateDatabasePath,
 );
@@ -268,6 +273,7 @@ const sharedRunDependencies = {
   groundedSearchClient,
   matchClient,
   pipelineWriter,
+  discoveryRunsLogger,
   loadStoredWorkerConfig: (sheetId: string) =>
     loadStoredWorkerConfig(runtimeConfig, sheetId),
   mergeDiscoveryConfig,
@@ -984,6 +990,8 @@ const server = createServer(async (request, response) => {
           upsertStoredWorkerConfig,
           loadStoredWorkerConfig: (sheetId: string) =>
             loadStoredWorkerConfig(runtimeConfig, sheetId),
+          discoveryRunsLogger,
+          discoveryRunsSource: "worker@profile",
           log: (event, details) =>
             logEvent(event, {
               requestId,

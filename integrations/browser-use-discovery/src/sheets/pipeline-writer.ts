@@ -371,7 +371,17 @@ async function refreshOAuthAccessToken(
   return data.access_token;
 }
 
-async function resolveAccessToken(
+/**
+ * Resolve a Google Sheets access token from the worker's runtime config using
+ * the same precedence the Pipeline writer uses:
+ *   1. runtimeConfig.googleAccessToken (highest — per-request token from the dashboard)
+ *   2. service account JSON/file (JWT exchange)
+ *   3. OAuth refresh token JSON/file (refresh flow)
+ *
+ * Exported so sibling Sheets writers (e.g. DiscoveryRuns logger) can share the
+ * same auth resolution without duplicating the three-tier precedence logic.
+ */
+export async function resolveAccessToken(
   runtimeConfig: WorkerRuntimeConfig,
   fetchImpl: FetchLike,
   now: () => Date,
