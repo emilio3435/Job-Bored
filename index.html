@@ -887,6 +887,26 @@
                 <option value="priority">Priority</option>
               </select>
             </div>
+            <div class="filter-buttons" role="group" aria-label="Pipeline filters">
+              <button
+                type="button"
+                class="filter-btn"
+                id="favoritesOnlyChip"
+                aria-pressed="false"
+                title="Show only favorited roles"
+              >
+                <span aria-hidden="true">⭐</span> Favorites only
+              </button>
+              <button
+                type="button"
+                class="filter-btn"
+                id="showDismissedChip"
+                aria-pressed="false"
+                title="Include dismissed roles in the board"
+              >
+                Show dismissed
+              </button>
+            </div>
           </div>
 
           <!-- Job Cards Container -->
@@ -5569,6 +5589,6 @@ https://your-static-site.example</pre
     <script src="settings-tabs.js"></script>
     <script src="settings-discovery-adapters.js"></script>
     <script src="settings-profile-tab.js?v=4"></script>
-    <script src="app.js?v=10"></script>
+    <script src="app.js?v=11"></script>
   </body>
 </html>
