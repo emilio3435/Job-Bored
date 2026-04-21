@@ -17456,30 +17456,93 @@ function refreshPipelineAfterIngest() {
 // manually or wait for drawer-open enrichment to retry.
 async function autoEnrichIngestedRow(url, persistedLead) {
   if (!url) return;
-  try {
-    // 1. Wait for pipeline to refresh so the new row is in pipelineData.
-    if (typeof loadAllData === "function") {
-      await loadAllData().catch(() => {});
-    }
-    // 2. Find the row by URL (stable primary key).
-    const normalizedUrl = String(url || "").trim();
-    const idx = pipelineData.findIndex(
-      (job) =>
-        job && String(job.link || "").trim() === normalizedUrl,
-    );
-    if (idx < 0) return;
 
-    // 3. Skip entirely when the Cheerio scraper URL is not configured — the
-    //    drawer-open enrichment path would also short-circuit here, so the
-    //    row just stays as url_only. No toast spam for a missing dep.
+  // Collect every URL candidate we know about. The backend normalizes URLs
+  // before writing (strips utm_*, trailing slashes, etc.) so the raw pasted
+  // `url` often ≠ `pipelineData[i].link`. Try both and fall back to a loose
+  // hostname+path match if strict matching misses.
+  const trim = (value) => String(value || "").trim();
+  const candidates = [
+    trim(url),
+    trim(persistedLead && (persistedLead.url || persistedLead.link)),
+    trim(persistedLead && persistedLead.canonicalUrl),
+    trim(persistedLead && persistedLead.finalUrl),
+  ].filter(Boolean);
+  if (candidates.length === 0) return;
+
+  function looseUrlKey(value) {
+    try {
+      const u = new URL(value);
+      // Hostname without www + pathname without trailing slash. Ignores
+      // protocol, query, hash. Good enough to match "https://www.linkedin.com/
+      // jobs/view/123?utm_source=foo" and "https://linkedin.com/jobs/view/123".
+      const host = u.hostname.toLowerCase().replace(/^www\./, "");
+      const path = u.pathname.replace(/\/+$/, "");
+      return host + path;
+    } catch {
+      return "";
+    }
+  }
+  const looseKeys = candidates.map(looseUrlKey).filter(Boolean);
+
+  function findRowIndex() {
+    for (const cand of candidates) {
+      const strictIdx = pipelineData.findIndex(
+        (job) => job && trim(job.link) === cand,
+      );
+      if (strictIdx >= 0) return strictIdx;
+    }
+    for (const key of looseKeys) {
+      const looseIdx = pipelineData.findIndex(
+        (job) => job && looseUrlKey(job.link || "") === key,
+      );
+      if (looseIdx >= 0) return looseIdx;
+    }
+    return -1;
+  }
+
+  try {
+    // Skip entirely when the Cheerio scraper URL is not configured — the
+    // drawer-open enrichment path would also short-circuit here, so the
+    // row just stays as url_only. No toast spam for a missing dep.
     if (typeof getJobPostingScrapeUrl === "function" && !getJobPostingScrapeUrl()) {
+      console.info("[JobBored] auto-enrich skipped: no scraper URL configured");
       return;
     }
 
-    // 4. Fire the same enrichment the drawer uses. Populates
+    // 1. Wait for pipeline to refresh so the new row is in pipelineData.
+    //    Google Sheets has eventual consistency on read-after-write, so
+    //    retry up to 4x with short backoff (total ~6s) before giving up.
+    let idx = -1;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      if (typeof loadAllData === "function") {
+        await loadAllData().catch(() => {});
+      }
+      idx = findRowIndex();
+      if (idx >= 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 500 + attempt * 500));
+    }
+    if (idx < 0) {
+      console.warn(
+        "[JobBored] auto-enrich: row not found after 4 retries. URL candidates:",
+        candidates,
+      );
+      return;
+    }
+
+    // 2. Visible progress signal — takes 3-8s typically.
+    if (typeof showToast === "function") {
+      showToast("Fetching job details…", "info");
+    }
+
+    // 3. Fire the same enrichment the drawer uses. Populates
     //    pipelineData[idx]._postingEnrichment with inferredTitle/Company/
-    //    Location + the full LLM bundle.
-    await fetchJobPostingEnrichment(idx).catch(() => {});
+    //    Location + the full LLM bundle (which ALSO writes to localStorage
+    //    cache keyed by job.link, so the drawer picks it up instantly on
+    //    open regardless of subsequent loadAllData() re-hydrations).
+    await fetchJobPostingEnrichment(idx).catch((err) => {
+      console.warn("[JobBored] auto-enrich enrichment call:", err);
+    });
 
     const job = pipelineData[idx];
     const enr = job && job._postingEnrichment;
