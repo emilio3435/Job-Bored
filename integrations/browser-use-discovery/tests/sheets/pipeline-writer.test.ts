@@ -110,6 +110,39 @@ function createMockFetch({
   return { fetchImpl, calls };
 }
 
+function makeLead(overrides = {}) {
+  return {
+    sourceId: "greenhouse",
+    sourceLabel: "Greenhouse",
+    title: "Backend Engineer",
+    company: "Acme",
+    location: "Remote",
+    url: "https://jobs.example.com/backend-engineer?jobId=1",
+    compensationText: "",
+    fitScore: 8,
+    priority: "⚡",
+    tags: ["backend"],
+    fitAssessment: "Strong fit",
+    contact: "",
+    status: "New",
+    appliedDate: "",
+    notes: "",
+    followUpDate: "",
+    talkingPoints: "",
+    logoUrl: "",
+    discoveredAt: "2026-04-09T12:00:00.000Z",
+    favorite: false,
+    dismissedAt: null,
+    metadata: {
+      runId: "run_1",
+      variationKey: "var_1",
+      sourceQuery: "Backend Engineer Acme",
+      ...(overrides.metadata || {}),
+    },
+    ...overrides,
+  };
+}
+
 test("createPipelineWriter updates existing rows and appends new ones", async () => {
   const existingRow = row([
     "2026-04-01",
@@ -306,6 +339,128 @@ test("createPipelineWriter rejects a sheet with the wrong Pipeline headers", asy
     writer.write("sheet_123", []),
     /Pipeline header mismatch/,
   );
+});
+
+test("createPipelineWriter skips incoming leads whose URL is in the Blacklist tab", async () => {
+  const { fetchImpl, calls } = createMockFetch({
+    headerRows: [PIPELINE_HEADER_ROW],
+    blacklistRows: [
+      ["https://jobs.example.com/backend-engineer/?utm_source=linkedin&jobId=1"],
+    ],
+    dataRows: [],
+    responses: [],
+  });
+  const writer = createPipelineWriter(runtimeConfig, {
+    fetchImpl,
+    now: () => new Date("2026-04-09T12:00:00.000Z"),
+  });
+
+  const result = await writer.write("sheet_123", [
+    makeLead({
+      url: "https://jobs.example.com/backend-engineer?jobId=1&utm_source=twitter",
+    }),
+  ]);
+
+  assert.equal(result.appended, 0);
+  assert.equal(result.updated, 0);
+  assert.equal(result.skippedBlacklist, 1);
+  assert.equal(result.skippedDuplicates, 0);
+  assert.equal(calls.length, 3);
+  assert.equal(calls.some((call) => call.method === "POST"), false);
+});
+
+test("createPipelineWriter writes favorite=★ and dismissedAt to columns V and W", async () => {
+  const dismissedAt = "2026-04-10T15:30:00.000Z";
+  const { fetchImpl, calls } = createMockFetch({
+    headerRows: [PIPELINE_HEADER_ROW],
+    dataRows: [],
+    responses: [responseJson({ appendedRows: 1 })],
+  });
+  const writer = createPipelineWriter(runtimeConfig, {
+    fetchImpl,
+    now: () => new Date("2026-04-09T12:00:00.000Z"),
+  });
+
+  const result = await writer.write("sheet_123", [
+    makeLead({
+      favorite: true,
+      dismissedAt,
+    }),
+  ]);
+
+  assert.equal(result.appended, 1);
+  assert.equal(result.skippedBlacklist, 0);
+  const appendBody = JSON.parse(calls[3].body);
+  const appendedRow = appendBody.values[0];
+  assert.equal(appendedRow[21], "★");
+  assert.equal(appendedRow[22], dismissedAt);
+});
+
+test("createPipelineWriter treats an existing Pipeline row with non-empty column W as blacklisted", async () => {
+  const existingDismissedRow = row([
+    "2026-04-01",
+    "Backend Engineer",
+    "Acme",
+    "Remote",
+    "https://jobs.example.com/backend-engineer?jobId=1",
+    "Greenhouse",
+    "",
+    "8",
+    "⚡",
+    "backend",
+    "Strong fit",
+    "",
+    "New",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "2026-04-08T10:00:00.000Z",
+  ]);
+  const { fetchImpl, calls } = createMockFetch({
+    headerRows: [PIPELINE_HEADER_ROW],
+    dataRows: [existingDismissedRow],
+    responses: [],
+  });
+  const writer = createPipelineWriter(runtimeConfig, {
+    fetchImpl,
+    now: () => new Date("2026-04-09T12:00:00.000Z"),
+  });
+
+  const result = await writer.write("sheet_123", [makeLead()]);
+
+  assert.equal(result.updated, 0);
+  assert.equal(result.appended, 0);
+  assert.equal(result.skippedBlacklist, 1);
+  assert.equal(calls.length, 3);
+  assert.equal(calls.some((call) => call.method === "POST"), false);
+});
+
+test("createPipelineWriter handles missing Blacklist tab gracefully", async () => {
+  const { fetchImpl, calls } = createMockFetch({
+    headerRows: [PIPELINE_HEADER_ROW],
+    blacklistReadError: {
+      status: 400,
+      body: "Unable to parse range: Blacklist!A2:A",
+    },
+    dataRows: [],
+    responses: [responseJson({ appendedRows: 1 })],
+  });
+  const writer = createPipelineWriter(runtimeConfig, {
+    fetchImpl,
+    now: () => new Date("2026-04-09T12:00:00.000Z"),
+  });
+
+  const result = await writer.write("sheet_123", [makeLead()]);
+
+  assert.equal(result.appended, 1);
+  assert.equal(result.skippedBlacklist, 0);
+  assert.match(calls[1].url, /values\/Blacklist!A2%3AA/);
 });
 
 test("createPipelineWriter upgrades blank trailing optional headers", async () => {
