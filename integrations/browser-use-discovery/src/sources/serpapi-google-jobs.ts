@@ -25,6 +25,10 @@ import type {
 } from "../contracts.ts";
 import { ATS_SOURCE_IDS } from "../contracts.ts";
 import type { WorkerRuntimeConfig } from "../config.ts";
+import {
+  AGGREGATOR_HOST_SIGNATURES,
+  ATS_HOST_SIGNATURES,
+} from "./host-signatures.ts";
 
 type FetchImpl = typeof globalThis.fetch;
 
@@ -332,24 +336,6 @@ function resolveApplyUrl(raw: SerpApiJobsResult): string {
   return ranked[0].url;
 }
 
-// Lower number = preferred. Direct-ATS hosts win, then company pages, then
-// aggregators that block the scraper.
-const AGGREGATOR_HOST_SIGNATURES: RegExp[] = [
-  /(^|\.)linkedin\.com$/i,
-  /(^|\.)indeed\.com$/i,
-  /(^|\.)glassdoor\.com$/i,
-  /(^|\.)ziprecruiter\.com$/i,
-  /(^|\.)monster\.com$/i,
-  /(^|\.)careerbuilder\.com$/i,
-  /(^|\.)simplyhired\.com$/i,
-  /(^|\.)wellfound\.com$/i,
-  /(^|\.)angel\.co$/i,
-  /(^|\.)builtin(?:\w+)?\.com$/i,
-  /(^|\.)dice\.com$/i,
-  /(^|\.)jobs2careers\.com$/i,
-  /(^|\.)google\.com$/i, // google jobs /search redirect
-];
-
 function applyUrlPriority(url: string): number {
   let host = "";
   try {
@@ -362,8 +348,8 @@ function applyUrlPriority(url: string): number {
   for (const signature of ATS_HOST_SIGNATURES) {
     if (signature.match.test(host)) return 10;
   }
-  for (const pattern of AGGREGATOR_HOST_SIGNATURES) {
-    if (pattern.test(host)) return 90;
+  for (const signature of AGGREGATOR_HOST_SIGNATURES) {
+    if (signature.match.test(host)) return 90;
   }
   // Generic HTTPS (likely a company careers page). Preferred over aggregators,
   // worse than a known ATS slug.
@@ -384,27 +370,6 @@ function extractPostedAt(raw: SerpApiJobsResult): string | undefined {
   }
   return undefined;
 }
-
-// Heuristic only — if `via` or the apply URL host matches a known ATS host,
-// tag the listing's providerType so downstream dedupe across lanes treats
-// e.g. a Greenhouse board URL from SerpApi and the same URL from the
-// Greenhouse ATS lane as the same surface.
-const ATS_HOST_SIGNATURES: Array<{ match: RegExp; provider: AtsSourceId }> = [
-  { match: /greenhouse/i, provider: "greenhouse" },
-  { match: /lever(?:\.co|\b)/i, provider: "lever" },
-  { match: /ashby(?:hq)?/i, provider: "ashby" },
-  { match: /smartrecruiters/i, provider: "smartrecruiters" },
-  { match: /workday|myworkdayjobs/i, provider: "workday" },
-  { match: /icims/i, provider: "icims" },
-  { match: /jobvite/i, provider: "jobvite" },
-  { match: /taleo/i, provider: "taleo" },
-  { match: /successfactors/i, provider: "successfactors" },
-  { match: /workable/i, provider: "workable" },
-  { match: /breezy/i, provider: "breezy" },
-  { match: /recruitee/i, provider: "recruitee" },
-  { match: /teamtailor/i, provider: "teamtailor" },
-  { match: /personio/i, provider: "personio" },
-];
 
 function inferProviderType(
   via: string | undefined,
