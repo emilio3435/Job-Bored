@@ -834,6 +834,31 @@
                 <option value="priority">Priority</option>
               </select>
             </div>
+            <form
+              class="ingest-url-form"
+              id="ingestUrlForm"
+              autocomplete="off"
+              novalidate
+            >
+              <label class="sr-only" for="ingestUrlInput"
+                >Paste a job URL to add to Pipeline</label
+              >
+              <input
+                type="url"
+                class="search-input ingest-url-input"
+                id="ingestUrlInput"
+                placeholder="Paste a job URL to add to Pipeline…"
+                inputmode="url"
+                spellcheck="false"
+              />
+              <button
+                type="submit"
+                class="btn-modal-primary ingest-url-submit"
+                id="ingestUrlSubmit"
+              >
+                Add
+              </button>
+            </form>
           </div>
 
           <!-- Job Cards Container -->
