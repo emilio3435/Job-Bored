@@ -152,6 +152,41 @@ Hosted mode uses the same code path and contract. The difference is infrastructu
 - provide a persistent config/state path
 - provide a Google Sheets credential the worker can use directly
 
+### POST /ingest-url
+
+`POST /ingest-url` accepts a single pasted job URL and attempts a tiered ingest strategy that writes one normalized Pipeline row: ATS public API first (when parsable), then JSON-LD/DOM extraction via the shared Cheerio scraper, with an explicit blocked-aggregator response for known anti-scraping boards.
+
+```ts
+POST /ingest-url
+Content-Type: application/json
+
+Body IngestUrlRequestV1:
+{
+  event: "ingest.url.request",
+  schemaVersion: 1,
+  url: string,
+  sheetId?: string,
+  manual?: {
+    title: string,
+    company: string,
+    location?: string,
+    description?: string,
+    fitScore?: number   // 0-10
+  }
+}
+
+Response IngestUrlResponseV1 (HTTP 200 unless server-side 5xx):
+  | { ok: true, strategy: "ats_api"|"jsonld"|"cheerio_dom"|"manual_fill", lead: NormalizedLead, appended: boolean, rowNumber?: number }
+  | { ok: false, reason: "invalid_url", message: string }
+  | { ok: false, reason: "private_network", message: string }
+  | { ok: false, reason: "blocked_aggregator", host: string, message: string }
+  | { ok: false, reason: "scrape_failed", httpStatus?: number, message: string, hint: string }
+  | { ok: false, reason: "duplicate", rowNumber: number, message: string }
+  | { ok: false, reason: "worker_error", message: string }
+```
+
+LinkedIn / Indeed / Glassdoor / ZipRecruiter return `blocked_aggregator` — the dashboard surfaces a manual-fill modal for these; do not attempt to scrape them.
+
 ## Testing
 
 Browser-scope tests:
