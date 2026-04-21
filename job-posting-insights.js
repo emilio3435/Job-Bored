@@ -14,6 +14,24 @@
   const ENRICHMENT_SCHEMA = {
     type: "object",
     properties: {
+      // Clean structured extractions used to promote URL-only Pipeline rows
+      // (pasted from hero card) from hostname placeholders to real values
+      // without a second round-trip or manual-fill.
+      inferredTitle: {
+        type: "string",
+        description:
+          "Just the role title, cleaned of boilerplate. Examples: 'Media Supervisor', 'Senior Product Manager'. Empty string if you cannot determine a title.",
+      },
+      inferredCompany: {
+        type: "string",
+        description:
+          "The hiring company (not the aggregator site). If the URL is a LinkedIn/Indeed/Glassdoor posting, the actual employer, not 'LinkedIn'. Empty string if unknown.",
+      },
+      inferredLocation: {
+        type: "string",
+        description:
+          "Location as displayed in the posting. Examples: 'Remote', 'Denver, CO', 'New York, NY (Hybrid)'. Empty string if unknown.",
+      },
       postingSummary: {
         type: "string",
         description: "2-3 sentences: what the role is and why it matters.",
@@ -60,6 +78,9 @@
       },
     },
     required: [
+      "inferredTitle",
+      "inferredCompany",
+      "inferredLocation",
       "postingSummary",
       "roleInOneLine",
       "mustHaves",
@@ -258,6 +279,9 @@
 
   function normalizeEnrichmentJson(parsed) {
     return {
+      inferredTitle: String(parsed.inferredTitle || "").trim(),
+      inferredCompany: String(parsed.inferredCompany || "").trim(),
+      inferredLocation: String(parsed.inferredLocation || "").trim(),
       postingSummary: String(parsed.postingSummary || "").trim(),
       roleInOneLine: String(parsed.roleInOneLine || "").trim(),
       mustHaves: strArr(parsed.mustHaves).slice(0, 12),
