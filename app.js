@@ -6864,11 +6864,22 @@ function persistOAuthSession() {
 }
 
 function persistRuntimeOAuthSession() {
-  if (!canUseSessionStorage() || !tokenExpiresAt || !accessToken) return;
+  // Runtime session (access token + expiry) lives in localStorage so it
+  // survives hard refresh. Token is short-lived (~1h) and auto-expires via
+  // the loadPersistedRuntimeOAuthSession expiry check below.
+  if (!canUseLocalStorage() || !tokenExpiresAt || !accessToken) {
+    console.info(
+      `[JobBored][auth] persist: skipped (ls=${canUseLocalStorage()} exp=${!!tokenExpiresAt} tok=${!!accessToken})`,
+    );
+    return;
+  }
   const cid = getOAuthClientId();
-  if (!cid) return;
+  if (!cid) {
+    console.warn("[JobBored][auth] persist: no oauth client id");
+    return;
+  }
   try {
-    sessionStorage.setItem(
+    localStorage.setItem(
       OAUTH_RUNTIME_SESSION_STORAGE_KEY,
       JSON.stringify({
         accessToken,
@@ -6880,8 +6891,19 @@ function persistRuntimeOAuthSession() {
         hasOauthSession: true,
       }),
     );
+    console.info(
+      `[JobBored][auth] persist: OK (expires in ${Math.round((tokenExpiresAt - Date.now()) / 1000)}s)`,
+    );
   } catch (e) {
-    // Quota or private mode
+    console.warn("[JobBored][auth] persist: exception", e);
+  }
+  // Best-effort cleanup of legacy sessionStorage entry from earlier versions.
+  if (canUseSessionStorage()) {
+    try {
+      sessionStorage.removeItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
+    } catch (e) {
+      /* ignore */
+    }
   }
 }
 
@@ -6899,11 +6921,19 @@ function clearPersistedOAuthSession() {
 }
 
 function clearPersistedRuntimeOAuthSession() {
-  if (!canUseSessionStorage()) return;
-  try {
-    sessionStorage.removeItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
-  } catch (e) {
-    /* ignore */
+  if (canUseLocalStorage()) {
+    try {
+      localStorage.removeItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+  if (canUseSessionStorage()) {
+    try {
+      sessionStorage.removeItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
+    } catch (e) {
+      /* ignore */
+    }
   }
 }
 
@@ -6948,28 +6978,73 @@ function loadPersistedOAuthSession() {
 }
 
 function loadPersistedRuntimeOAuthSession() {
-  if (!canUseSessionStorage()) return null;
+  if (!canUseLocalStorage()) {
+    console.info("[JobBored][auth] restore: localStorage unavailable");
+    return null;
+  }
   const cid = getOAuthClientId();
-  if (!cid) return null;
+  if (!cid) {
+    console.info("[JobBored][auth] restore: oauth client id not resolved yet");
+    return null;
+  }
   try {
-    const raw = sessionStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
-    if (!raw) return null;
+    let raw = localStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
+    // Migration from v<12: read any legacy sessionStorage entry, promote it
+    // to localStorage on the fly so the first refresh after upgrade Just Works.
+    if (!raw && canUseSessionStorage()) {
+      try {
+        raw = sessionStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
+        if (raw) {
+          localStorage.setItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY, raw);
+          sessionStorage.removeItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
+          console.info("[JobBored][auth] restore: promoted legacy sessionStorage entry");
+        }
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    if (!raw) {
+      console.info("[JobBored][auth] restore: no persisted token");
+      return null;
+    }
     const o = JSON.parse(raw);
-    if (
-      !o ||
-      typeof o !== "object" ||
-      o.hasOauthSession !== true ||
-      typeof o.accessToken !== "string" ||
-      !o.accessToken ||
-      typeof o.expiresAt !== "number" ||
-      o.expiresAt <= Date.now() ||
-      o.oauthClientId !== cid
-    ) {
+    // Allow up to 60s of negative clock skew: treat the token as valid until
+    // 60s AFTER its recorded expiry, since system clocks occasionally drift
+    // backward on wake-from-sleep. The 401/retry/refresh machinery will
+    // handle the actual server-side rejection if the token really is dead.
+    const nowMs = Date.now();
+    const expiresAt = typeof o?.expiresAt === "number" ? o.expiresAt : 0;
+    const secondsRemaining = Math.round((expiresAt - nowMs) / 1000);
+    if (!o || typeof o !== "object" || o.hasOauthSession !== true) {
+      console.warn("[JobBored][auth] restore: payload shape invalid");
       clearPersistedRuntimeOAuthSession();
       return null;
     }
+    if (typeof o.accessToken !== "string" || !o.accessToken) {
+      console.warn("[JobBored][auth] restore: no access token in payload");
+      clearPersistedRuntimeOAuthSession();
+      return null;
+    }
+    if (expiresAt + 60_000 <= nowMs) {
+      console.info(
+        `[JobBored][auth] restore: token expired (${secondsRemaining}s remaining incl. grace)`,
+      );
+      clearPersistedRuntimeOAuthSession();
+      return null;
+    }
+    if (o.oauthClientId !== cid) {
+      console.warn(
+        `[JobBored][auth] restore: client id mismatch (stored=${o.oauthClientId?.slice(0, 12)}… current=${cid.slice(0, 12)}…)`,
+      );
+      clearPersistedRuntimeOAuthSession();
+      return null;
+    }
+    console.info(
+      `[JobBored][auth] restore: OK (${secondsRemaining}s remaining)`,
+    );
     return o;
   } catch (e) {
+    console.warn("[JobBored][auth] restore: exception", e);
     clearPersistedRuntimeOAuthSession();
     return null;
   }
@@ -7049,7 +7124,14 @@ function restoreOAuthSession() {
     return;
   }
   const persisted = loadPersistedOAuthSession();
-  if (!persisted || !tokenClient) return;
+  if (!persisted || !tokenClient) {
+    // No runtime token AND no restorable metadata → user is truly signed out.
+    // Open the gate now so the dashboard never renders in a broken state.
+    if (getOAuthClientId() && !accessToken) {
+      showSheetAccessGate("signin");
+    }
+    return;
+  }
 
   oauthPendingOp = { kind: "silent-restore" };
   try {
@@ -7057,6 +7139,9 @@ function restoreOAuthSession() {
   } catch (e) {
     oauthPendingOp = null;
     clearPersistedOAuthSession();
+    if (getOAuthClientId() && !accessToken) {
+      showSheetAccessGate("signin");
+    }
   }
 }
 
@@ -7161,9 +7246,10 @@ function initAuth() {
           if (oauthPendingOp?.kind === "silent-restore") {
             clearPersistedOAuthSession();
             oauthPendingOp = null;
-            // Do not clobber interactive sign-in: silent restore can fail after the user
-            // already completed OAuth; showing the gate hides the setup/onboarding screen.
-            if (!SHEET_ID && getOAuthClientId() && !accessToken) {
+            // Silent restore failed — user's Google session is dead or consent was
+            // revoked. Open the sign-in gate instead of letting the dashboard render
+            // and then throw toasts on the first click.
+            if (getOAuthClientId() && !accessToken) {
               showSheetAccessGate("signin");
             }
             return;
@@ -7215,7 +7301,7 @@ function handleTokenResponse(tokenResponse) {
       }
       oauthPendingOp = null;
     }
-    if (silentOp && !SHEET_ID && getOAuthClientId() && !accessToken) {
+    if (silentOp && getOAuthClientId() && !accessToken) {
       showSheetAccessGate("signin");
     }
     if (!silentOp) {
@@ -7331,6 +7417,12 @@ function signIn(options = {}) {
     );
     return;
   }
+  if (oauthPendingOp?.kind === "silent-refresh") {
+    oauthPendingOp.finish(false);
+  } else if (oauthPendingOp?.kind === "silent-restore") {
+    oauthPendingOp = null;
+  }
+  oauthPendingOp = { kind: "interactive" };
   const request = {};
   const prompt =
     options && typeof options === "object" && options.prompt != null
@@ -7352,12 +7444,24 @@ function signOut() {
     }
   }
   clearSessionAuthState();
+  // Wipe in-memory and on-DOM pipeline data so the signed-out session can't
+  // see or interact with what was loaded before.
+  pipelineRawRows = null;
+  pipelineData = [];
+  dashboardDataHydrated = false;
+  try {
+    renderPipeline();
+  } catch (e) {
+    /* render may no-op if the dashboard is hidden — safe to ignore */
+  }
   showToast("Signed out", "info");
   maybeSyncSettingsModalModeAfterAuth();
   if (SHEET_ID) {
     initialSheetAccessResolved = false;
+    // Do NOT call loadAllData() here — the JSONP fallback would re-populate
+    // pipelineData from a public sheet and re-reveal the dashboard. The gate
+    // is the terminal state until the user signs back in.
     showSheetAccessGate(getOAuthClientId() ? "signin" : "loading");
-    loadAllData();
   } else {
     const setup = document.getElementById("setupScreen");
     if (setup) setup.style.display = "none";
@@ -7872,7 +7976,7 @@ function renderSetupStarterSheetUi() {
 
 async function createBlankStarterSheet(isRetry) {
   if (!accessToken) {
-    showToast("Sign in with Google first to create a starter sheet.", "error");
+    showSheetAccessGate("signin");
     return null;
   }
 
@@ -8053,7 +8157,7 @@ async function handleSetupCreateStarterSheet() {
 
 async function updateSheetCell(range, value, isRetry) {
   if (!accessToken) {
-    showToast("Sign in with Google first", "error");
+    showSheetAccessGate("signin");
     return false;
   }
 
@@ -9158,7 +9262,7 @@ function initDiscoverySetupGuide() {
 async function updateMultipleCells(updates, isRetry) {
   // updates: Array of { range, value }
   if (!accessToken) {
-    showToast("Sign in with Google first", "error");
+    showSheetAccessGate("signin");
     return false;
   }
 
@@ -9428,7 +9532,7 @@ async function toggleFavorite(stableKey) {
   const job = pipelineData[stableKey];
   if (!job) return;
   if (!accessToken) {
-    showToast("Sign in with Google first", "error");
+    showSheetAccessGate("signin");
     return;
   }
   const sheetRow = getSheetRow(stableKey);
@@ -9452,7 +9556,7 @@ async function dismissJob(stableKey) {
   const job = pipelineData[stableKey];
   if (!job) return;
   if (!accessToken) {
-    showToast("Sign in with Google first", "error");
+    showSheetAccessGate("signin");
     return;
   }
   const sheetRow = getSheetRow(stableKey);
@@ -9507,7 +9611,7 @@ async function restoreJob(stableKey) {
   const job = pipelineData[stableKey];
   if (!job) return;
   if (!accessToken) {
-    showToast("Sign in with Google first", "error");
+    showSheetAccessGate("signin");
     return;
   }
   const sheetRow = getSheetRow(stableKey);
@@ -10080,6 +10184,17 @@ function parsePipelineCSV(rows) {
 // ============================================
 
 async function loadAllData() {
+  // Auth gate: if OAuth is configured but the user has no valid token, never
+  // fetch the sheet (the public JSONP fallback would otherwise leak a
+  // publicly-shared sheet's contents to a signed-out session).
+  if (getOAuthClientId() && !accessToken) {
+    pipelineRawRows = null;
+    pipelineData = [];
+    dashboardDataHydrated = false;
+    showSheetAccessGate("signin");
+    return false;
+  }
+
   const refreshBtn = document.getElementById("refreshBtn");
   if (refreshBtn) refreshBtn.classList.add("loading");
 
@@ -10114,17 +10229,14 @@ async function loadAllData() {
     renderAll();
     updateLastRefresh();
     if (!initialSheetAccessResolved) {
+      // OAuth is configured but the user is signed out — block the dashboard
+      // entirely, even if the JSONP path would have succeeded against a
+      // publicly-shared sheet. The gate is the only thing the user should see.
       if (getOAuthClientId() && !accessToken) {
-        // OAuth is configured but user is signed out. If data loaded successfully
-        // via JSONP (public sheet), allow read-only dashboard access. Only block
-        // with sign-in gate when data failed to load.
-        if (pipelineRows) {
-          initialSheetAccessResolved = true;
-          revealDashboardShell();
-          runPostAccessBootstrapOnce();
-        } else {
-          showSheetAccessGate("signin");
-        }
+        pipelineRawRows = null;
+        pipelineData = [];
+        dashboardDataHydrated = false;
+        showSheetAccessGate("signin");
         return true;
       }
       initialSheetAccessResolved = true;
