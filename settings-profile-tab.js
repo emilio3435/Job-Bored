@@ -1211,12 +1211,18 @@
     }
     scheduleSaveTimers[bucket] = window.setTimeout(function () {
       scheduleSaveTimers[bucket] = null;
-      postScheduleSave(mode, state).catch(function (err) {
-        setScheduleError(
-          bucket === "github" ? "github" : "local",
-          "Couldn't save schedule: " + (err && err.message ? err.message : err),
-        );
-      });
+      postScheduleSave(mode, state)
+        .catch(function (err) {
+          setScheduleError(
+            bucket === "github" ? "github" : "local",
+            "Couldn't save schedule: " + (err && err.message ? err.message : err),
+          );
+        })
+        .then(function () {
+          // Refresh the installed-status badge so enable/disable and
+          // time changes reflect in the UI without a page reload.
+          return fetchScheduleStatus();
+        });
     }, SCHEDULE_SAVE_DEBOUNCE_MS);
   }
 
@@ -1226,12 +1232,18 @@
       window.clearTimeout(scheduleSaveTimers[bucket]);
       scheduleSaveTimers[bucket] = null;
     }
-    return postScheduleSave(mode, state).catch(function (err) {
-      setScheduleError(
-        bucket === "github" ? "github" : "local",
-        "Couldn't save schedule: " + (err && err.message ? err.message : err),
-      );
-    });
+    return postScheduleSave(mode, state)
+      .catch(function (err) {
+        setScheduleError(
+          bucket === "github" ? "github" : "local",
+          "Couldn't save schedule: " + (err && err.message ? err.message : err),
+        );
+      })
+      .then(function () {
+        // Refresh the installed-status badge so enable/disable and
+        // time changes reflect in the UI without a page reload.
+        return fetchScheduleStatus();
+      });
   }
 
   async function fetchScheduleStatus() {
