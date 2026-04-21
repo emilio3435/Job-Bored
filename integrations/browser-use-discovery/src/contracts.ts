@@ -357,7 +357,7 @@ export type DiscoveryProfileScheduleResponseV1 = {
   hour?: number;
   minute?: number;
   mode?: WorkerScheduleMode;
-  installedAt: string | null;
+  installedAt?: string | null;
 };
 
 export type ScheduleInstalledArtifactV1 = {
