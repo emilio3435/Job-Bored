@@ -172,6 +172,8 @@ function buildLeadRow(lead: NormalizedLead, now: Date): string[] {
     "",
     lead.logoUrl || "",
     matchScore,
+    lead.favorite ? "★" : "",
+    lead.dismissedAt ?? "",
   ];
 }
 
@@ -632,6 +634,7 @@ export function createPipelineWriter(
       appended,
       updated,
       skippedDuplicates: skippedDuplicates + existingDuplicateCount,
+      skippedBlacklist: 0,
       warnings: existingDuplicateCount
         ? [
             `Found ${existingDuplicateCount} duplicate existing Pipeline rows for normalized Link values.`,

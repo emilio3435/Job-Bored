@@ -284,6 +284,17 @@ export function normalizeLeadWithDiagnostics(
       rawListing.employmentType || metadataString(rawListing.metadata, "employmentType"),
     metadata: rawListing.metadata,
   });
+  const candidateFavorite = (rawListing as RawListing & { favorite?: unknown })
+    .favorite;
+  const candidateDismissedAt = (
+    rawListing as RawListing & { dismissedAt?: unknown }
+  ).dismissedAt;
+  const favorite =
+    typeof candidateFavorite === "boolean" ? candidateFavorite : false;
+  const dismissedAt =
+    typeof candidateDismissedAt === "string" && candidateDismissedAt.trim()
+      ? candidateDismissedAt.trim()
+      : null;
 
   return {
     lead: {
@@ -299,6 +310,8 @@ export function normalizeLeadWithDiagnostics(
       // run-discovery.ts when the AI job-matcher produced a decision. Leaves
       // it null by default for runs that skip the matcher.
       matchScore: null,
+      favorite,
+      dismissedAt,
       priority,
       tags,
       fitAssessment,

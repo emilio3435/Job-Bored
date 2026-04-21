@@ -29,6 +29,20 @@ function row(values) {
   );
 }
 
+function columnIndexToLetter(index) {
+  if (!Number.isFinite(index) || index < 1) return "A";
+  let n = Math.floor(index);
+  let out = "";
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    out = String.fromCharCode(65 + rem) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out;
+}
+
+const LAST_COLUMN_LETTER = columnIndexToLetter(PIPELINE_HEADER_ROW.length);
+
 function responseJson(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
@@ -58,14 +72,14 @@ function createMockFetch({ headerRows, dataRows, responses }) {
     if (
       url.pathname.includes("/values/") &&
       method === "GET" &&
-      url.href.includes("A1%3AU1")
+      url.href.includes(`A1%3A${LAST_COLUMN_LETTER}1`)
     ) {
       return responseJson({ values: headerRows });
     }
     if (
       url.pathname.includes("/values/") &&
       method === "GET" &&
-      url.href.includes("A2%3AU")
+      url.href.includes(`A2%3A${LAST_COLUMN_LETTER}`)
     ) {
       return responseJson({ values: dataRows });
     }
@@ -214,17 +228,26 @@ test("createPipelineWriter updates existing rows and appends new ones", async ()
   assert.match(result.warnings[0], /duplicate existing Pipeline rows/i);
 
   assert.equal(calls.length, 4);
-  assert.match(calls[0].url, /values\/Pipeline!A1%3AU1/);
-  assert.match(calls[1].url, /values\/Pipeline!A2%3AU/);
+  assert.match(
+    calls[0].url,
+    new RegExp(`values/Pipeline!A1%3A${LAST_COLUMN_LETTER}1`),
+  );
+  assert.match(
+    calls[1].url,
+    new RegExp(`values/Pipeline!A2%3A${LAST_COLUMN_LETTER}`),
+  );
   assert.equal(calls[2].method, "POST");
   assert.match(calls[2].url, /values:batchUpdate$/);
   assert.equal(calls[3].method, "POST");
-  assert.match(calls[3].url, /values\/Pipeline!A%3AU:append/);
+  assert.match(
+    calls[3].url,
+    new RegExp(`values/Pipeline!A%3A${LAST_COLUMN_LETTER}:append`),
+  );
 
   const batchUpdateBody = JSON.parse(calls[2].body);
   assert.equal(batchUpdateBody.valueInputOption, "USER_ENTERED");
   assert.equal(batchUpdateBody.data.length, 1);
-  assert.equal(batchUpdateBody.data[0].range, "Pipeline!A2:U2");
+  assert.equal(batchUpdateBody.data[0].range, `Pipeline!A2:${LAST_COLUMN_LETTER}2`);
 
   const updatedRow = batchUpdateBody.data[0].values[0];
   assert.equal(updatedRow[1], "Senior Backend Engineer");
@@ -268,9 +291,7 @@ test("createPipelineWriter rejects a sheet with the wrong Pipeline headers", asy
 test("createPipelineWriter upgrades blank trailing optional headers", async () => {
   const legacyHeaderRow = [
     ...PIPELINE_HEADER_ROW.slice(0, 17),
-    "",
-    "",
-    "",
+    ...Array.from({ length: PIPELINE_HEADER_ROW.length - 17 }, () => ""),
   ];
   const responses = [
     responseJson({ updatedRows: 1 }),
@@ -318,9 +339,15 @@ test("createPipelineWriter upgrades blank trailing optional headers", async () =
 
   assert.equal(calls[1].method, "POST");
   const headerUpgradeBody = JSON.parse(calls[1].body);
-  assert.equal(headerUpgradeBody.data[0].range, "Pipeline!A1:U1");
+  assert.equal(
+    headerUpgradeBody.data[0].range,
+    `Pipeline!A1:${LAST_COLUMN_LETTER}1`,
+  );
   assert.deepEqual(headerUpgradeBody.data[0].values[0], PIPELINE_HEADER_ROW);
-  assert.match(calls[3].url, /values\/Pipeline!A%3AU:append/);
+  assert.match(
+    calls[3].url,
+    new RegExp(`values/Pipeline!A%3A${LAST_COLUMN_LETTER}:append`),
+  );
 });
 
 test("createPipelineWriter refreshes a Google OAuth token when no service account is configured", async () => {
@@ -384,7 +411,10 @@ test("createPipelineWriter refreshes a Google OAuth token when no service accoun
 
   assert.match(calls[0].url, /oauth2\.googleapis\.com\/token/);
   assert.equal(calls[0].method, "POST");
-  assert.match(calls[1].url, /values\/Pipeline!A1%3AU1/);
+  assert.match(
+    calls[1].url,
+    new RegExp(`values/Pipeline!A1%3A${LAST_COLUMN_LETTER}1`),
+  );
   assert.equal(calls[1].headers.authorization, "Bearer refreshed-token");
   assert.equal(calls[2].headers.authorization, "Bearer refreshed-token");
   assert.equal(calls[3].headers.authorization, "Bearer refreshed-token");
