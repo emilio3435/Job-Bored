@@ -17378,6 +17378,130 @@ async function handleIngestUrlSubmit(url, manualOverride) {
   }
 }
 
+function getIngestManualModalEls() {
+  return {
+    modal: document.getElementById("ingestManualModal"),
+    form: document.getElementById("ingestManualForm"),
+    explain: document.getElementById("ingestManualModalExplain"),
+    error: document.getElementById("ingestManualModalError"),
+    urlField: document.getElementById("ingestManualUrl"),
+    title: document.getElementById("ingestManualTitle"),
+    company: document.getElementById("ingestManualCompany"),
+    location: document.getElementById("ingestManualLocation"),
+    description: document.getElementById("ingestManualDescription"),
+    fit: document.getElementById("ingestManualFitScore"),
+    fitLabel: document.getElementById("ingestManualFitScoreValue"),
+    submit: document.getElementById("ingestManualSubmit"),
+    cancel: document.getElementById("ingestManualCancel"),
+    close: document.getElementById("ingestManualModalClose"),
+  };
+}
+
+function setIngestManualModalError(message) {
+  const els = getIngestManualModalEls();
+  if (!els.error) return;
+  if (!message) {
+    els.error.style.display = "none";
+    els.error.textContent = "";
+    return;
+  }
+  els.error.style.display = "";
+  els.error.textContent = message;
+}
+
+function openIngestManualModal({ url, message }) {
+  const els = getIngestManualModalEls();
+  if (!els.modal || !els.form) return;
+  els.form.reset();
+  if (els.urlField) els.urlField.value = url || "";
+  if (els.fit) els.fit.value = "5";
+  if (els.fitLabel) els.fitLabel.textContent = "5";
+  if (els.explain) {
+    els.explain.textContent =
+      message || "We couldn't auto-scrape this URL — fill in what you can.";
+  }
+  setIngestManualModalError("");
+  els.modal.style.display = "flex";
+  if (els.title) {
+    setTimeout(() => els.title.focus(), 0);
+  }
+}
+
+function closeIngestManualModal() {
+  const els = getIngestManualModalEls();
+  if (els.modal) els.modal.style.display = "none";
+  setIngestManualModalError("");
+}
+
+function refreshPipelineAfterIngest() {
+  if (typeof loadAllData === "function") {
+    loadAllData().catch((err) => {
+      console.warn("[JobBored] post-ingest refresh failed:", err);
+    });
+  }
+}
+
+function handleIngestUrlResponse(data, url) {
+  if (!data || typeof data !== "object") {
+    showToast("Unexpected response from worker", "error", true);
+    return;
+  }
+  if (data.ok === true) {
+    const title =
+      (data.lead && (data.lead.title || data.lead.role)) || "job";
+    showToast("Added: " + title, "success");
+    closeIngestManualModal();
+    refreshPipelineAfterIngest();
+    return;
+  }
+  if (data.ok === false) {
+    switch (data.reason) {
+      case "blocked_aggregator": {
+        const label = aggregatorLabelForHost(data.host);
+        openIngestManualModal({
+          url,
+          message:
+            label +
+            " blocks scrapers — fill in details manually (about 20 seconds).",
+        });
+        return;
+      }
+      case "scrape_failed": {
+        const hint =
+          (typeof data.hint === "string" && data.hint.trim()) ||
+          (typeof data.message === "string" && data.message.trim()) ||
+          "We couldn't auto-scrape this URL — fill in what you can.";
+        openIngestManualModal({ url, message: hint });
+        return;
+      }
+      case "duplicate": {
+        const row = data.rowNumber;
+        const suffix = Number.isFinite(row) ? " (row " + row + ")" : "";
+        showToast("Already in Pipeline" + suffix, "info");
+        closeIngestManualModal();
+        return;
+      }
+      case "invalid_url":
+      case "private_network": {
+        showToast(
+          data.message || "Could not ingest URL: " + data.reason,
+          "error",
+        );
+        return;
+      }
+      default: {
+        showToast(
+          data.message || "Unexpected response from worker",
+          "error",
+          true,
+        );
+        return;
+      }
+    }
+  }
+  showToast("Unexpected response from worker", "error", true);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initCommandCenterSettings();
   initSetupAndSheetAccessActions();
