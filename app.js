@@ -17233,6 +17233,151 @@ function initDiscoveryButton() {
   syncDiscoveryButtonState();
 }
 
+// ============================================
+// INGEST URL — paste-a-job-URL flow
+// ============================================
+
+const INGEST_URL_TIMEOUT_MS = 20000;
+const INGEST_URL_BLOCKED_HOST_LABELS = {
+  "linkedin.com": "LinkedIn",
+  "indeed.com": "Indeed",
+  "glassdoor.com": "Glassdoor",
+  "ziprecruiter.com": "ZipRecruiter",
+};
+
+function resolveIngestUrlEndpoint(baseUrl) {
+  const base = String(baseUrl || "").trim();
+  if (!base) return "";
+  try {
+    const u = new URL(base);
+    const path = (u.pathname || "").replace(/\/+$/, "");
+    const replaced = path.replace(
+      /\/(?:webhook|discovery|discovery-profile|ingest-url)$/i,
+      "/ingest-url",
+    );
+    if (replaced !== path) {
+      u.pathname = replaced;
+    } else if (path === "") {
+      u.pathname = "/ingest-url";
+    } else {
+      u.pathname = path + "/ingest-url";
+    }
+    u.search = "";
+    u.hash = "";
+    return u.toString();
+  } catch (_) {
+    return base.replace(/\/+$/, "") + "/ingest-url";
+  }
+}
+
+function isParseableUrl(value) {
+  const v = String(value || "").trim();
+  if (!v) return false;
+  try {
+    const u = new URL(v);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch (_) {
+    return false;
+  }
+}
+
+function aggregatorLabelForHost(host) {
+  const h = String(host || "")
+    .toLowerCase()
+    .replace(/^www\./, "");
+  for (const key in INGEST_URL_BLOCKED_HOST_LABELS) {
+    if (h === key || h.endsWith("." + key)) {
+      return INGEST_URL_BLOCKED_HOST_LABELS[key];
+    }
+  }
+  return host || "this site";
+}
+
+/**
+ * POST to the worker's /ingest-url endpoint.
+ * @param {string} url — pasted job URL
+ * @param {object} [manualOverride] — { title, company, location, description, fitScore }
+ * @returns {Promise<object>} parsed response
+ */
+async function handleIngestUrlSubmit(url, manualOverride) {
+  const webhook = getDiscoveryWebhookUrl();
+  if (!webhook) {
+    showToast(
+      "Configure your discovery webhook URL first",
+      "error",
+      false,
+      {
+        label: "Open settings",
+        onClick: () => {
+          openSettingsForDiscoveryWebhook().catch(() => {});
+        },
+      },
+    );
+    throw new Error("missing_discovery_webhook");
+  }
+
+  const endpoint = resolveIngestUrlEndpoint(webhook);
+  if (!endpoint) {
+    showToast("Invalid discovery webhook URL", "error");
+    throw new Error("invalid_endpoint");
+  }
+
+  const body = {
+    event: "ingest.url.request",
+    schemaVersion: 1,
+    url: String(url || "").trim(),
+  };
+  const sheetId = getSheetId();
+  if (sheetId) body.sheetId = sheetId;
+  if (manualOverride && typeof manualOverride === "object") {
+    body.manual = {
+      title: String(manualOverride.title || "").trim(),
+      company: String(manualOverride.company || "").trim(),
+      location: String(manualOverride.location || "").trim(),
+      description: String(manualOverride.description || "").trim(),
+      fitScore: Number.isFinite(manualOverride.fitScore)
+        ? manualOverride.fitScore
+        : 5,
+    };
+  }
+
+  const headers = { "content-type": "application/json" };
+  const secret = getDiscoveryWebhookSecret();
+  if (secret) headers["x-discovery-secret"] = secret;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    INGEST_URL_TIMEOUT_MS,
+  );
+
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = null;
+    }
+    if (!res.ok && !data) {
+      throw new Error("http_" + res.status);
+    }
+    return data;
+  } catch (err) {
+    if (err && err.name === "AbortError") {
+      throw new Error("timeout");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initCommandCenterSettings();
   initSetupAndSheetAccessActions();
