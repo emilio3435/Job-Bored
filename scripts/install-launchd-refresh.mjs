@@ -26,6 +26,7 @@ import { homedir, platform } from "os";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { parseDotEnv, sanitizeSecret } from "./lib/env.mjs";
+import { writeScheduleBreadcrumb } from "./lib/schedule.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
@@ -49,13 +50,6 @@ const logPath = join(
   "browser-use-discovery",
   "state",
   "launchd-refresh.log",
-);
-const scheduleInstalledPath = join(
-  repoRoot,
-  "integrations",
-  "browser-use-discovery",
-  "state",
-  "schedule-installed.json",
 );
 const LABEL = "com.jobbored.refresh";
 
@@ -134,26 +128,6 @@ export function renderTemplate(template, replacements) {
   return out;
 }
 
-function writeBreadcrumb({ hour, minute, port }) {
-  mkdirSync(dirname(scheduleInstalledPath), { recursive: true });
-  writeFileSync(
-    scheduleInstalledPath,
-    `${JSON.stringify(
-      {
-        platform: "darwin",
-        installedAt: new Date().toISOString(),
-        artifactPath: agentPath,
-        hour,
-        minute,
-        port,
-      },
-      null,
-      2,
-    )}\n`,
-    { encoding: "utf8", mode: 0o600 },
-  );
-}
-
 function main() {
   if (platform() !== "darwin") {
     fail(
@@ -217,7 +191,13 @@ function main() {
   if (load.status !== 0) {
     fail(`launchctl load failed (exit ${load.status}). Plist left at ${agentPath}.`);
   }
-  writeBreadcrumb({ hour: args.hour, minute: args.minute, port });
+  writeScheduleBreadcrumb({
+    platform: "darwin",
+    artifactPath: agentPath,
+    hour: args.hour,
+    minute: args.minute,
+    port,
+  });
 
   console.log("schedule:install-local: OK");
   console.log(`  Plist:      ${agentPath}`);
