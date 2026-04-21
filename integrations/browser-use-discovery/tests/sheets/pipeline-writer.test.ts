@@ -55,7 +55,13 @@ function normalizeHeaders(headersInit) {
   return Object.fromEntries(headers.entries());
 }
 
-function createMockFetch({ headerRows, dataRows, responses }) {
+function createMockFetch({
+  headerRows,
+  blacklistRows = [],
+  blacklistReadError = null,
+  dataRows,
+  responses,
+}) {
   const calls = [];
   let responseIndex = 0;
 
@@ -75,6 +81,18 @@ function createMockFetch({ headerRows, dataRows, responses }) {
       url.href.includes(`A1%3A${LAST_COLUMN_LETTER}1`)
     ) {
       return responseJson({ values: headerRows });
+    }
+    if (
+      url.pathname.includes("/values/") &&
+      method === "GET" &&
+      url.href.includes("Blacklist!A2%3AA")
+    ) {
+      if (blacklistReadError) {
+        return new Response(String(blacklistReadError.body || "read error"), {
+          status: Number(blacklistReadError.status || 400),
+        });
+      }
+      return responseJson({ values: blacklistRows });
     }
     if (
       url.pathname.includes("/values/") &&
@@ -224,27 +242,29 @@ test("createPipelineWriter updates existing rows and appends new ones", async ()
   assert.equal(result.updated, 1);
   assert.equal(result.appended, 1);
   assert.equal(result.skippedDuplicates, 2);
+  assert.equal(result.skippedBlacklist, 0);
   assert.equal(result.warnings.length, 1);
   assert.match(result.warnings[0], /duplicate existing Pipeline rows/i);
 
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 5);
   assert.match(
     calls[0].url,
     new RegExp(`values/Pipeline!A1%3A${LAST_COLUMN_LETTER}1`),
   );
+  assert.match(calls[1].url, /values\/Blacklist!A2%3AA/);
   assert.match(
-    calls[1].url,
+    calls[2].url,
     new RegExp(`values/Pipeline!A2%3A${LAST_COLUMN_LETTER}`),
   );
-  assert.equal(calls[2].method, "POST");
-  assert.match(calls[2].url, /values:batchUpdate$/);
   assert.equal(calls[3].method, "POST");
+  assert.match(calls[3].url, /values:batchUpdate$/);
+  assert.equal(calls[4].method, "POST");
   assert.match(
-    calls[3].url,
+    calls[4].url,
     new RegExp(`values/Pipeline!A%3A${LAST_COLUMN_LETTER}:append`),
   );
 
-  const batchUpdateBody = JSON.parse(calls[2].body);
+  const batchUpdateBody = JSON.parse(calls[3].body);
   assert.equal(batchUpdateBody.valueInputOption, "USER_ENTERED");
   assert.equal(batchUpdateBody.data.length, 1);
   assert.equal(batchUpdateBody.data[0].range, `Pipeline!A2:${LAST_COLUMN_LETTER}2`);
@@ -259,7 +279,7 @@ test("createPipelineWriter updates existing rows and appends new ones", async ()
   assert.equal(updatedRow[17], "2026-04-05");
   assert.equal(updatedRow[18], "No");
 
-  const appendBody = JSON.parse(calls[3].body);
+  const appendBody = JSON.parse(calls[4].body);
   assert.equal(appendBody.values.length, 1);
   const appendedRow = appendBody.values[0];
   assert.equal(appendedRow[1], "Data Engineer");
@@ -344,8 +364,9 @@ test("createPipelineWriter upgrades blank trailing optional headers", async () =
     `Pipeline!A1:${LAST_COLUMN_LETTER}1`,
   );
   assert.deepEqual(headerUpgradeBody.data[0].values[0], PIPELINE_HEADER_ROW);
+  assert.match(calls[2].url, /values\/Blacklist!A2%3AA/);
   assert.match(
-    calls[3].url,
+    calls[4].url,
     new RegExp(`values/Pipeline!A%3A${LAST_COLUMN_LETTER}:append`),
   );
 });
@@ -415,9 +436,11 @@ test("createPipelineWriter refreshes a Google OAuth token when no service accoun
     calls[1].url,
     new RegExp(`values/Pipeline!A1%3A${LAST_COLUMN_LETTER}1`),
   );
+  assert.match(calls[2].url, /values\/Blacklist!A2%3AA/);
   assert.equal(calls[1].headers.authorization, "Bearer refreshed-token");
   assert.equal(calls[2].headers.authorization, "Bearer refreshed-token");
   assert.equal(calls[3].headers.authorization, "Bearer refreshed-token");
+  assert.equal(calls[4].headers.authorization, "Bearer refreshed-token");
 });
 
 test("SheetWriteError is thrown with update phase on batchUpdate failure (VAL-DATA-005)", async () => {

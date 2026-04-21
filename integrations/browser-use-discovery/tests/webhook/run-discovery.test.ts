@@ -154,6 +154,7 @@ function createGroundedTimeoutDependencies() {
             appended: leads.length,
             updated: 0,
             skippedDuplicates: 0,
+            skippedBlacklist: 0,
             warnings: [],
           };
         },
@@ -300,6 +301,7 @@ test("runDiscovery composes config, adapters, normalizer, and writer", async () 
           appended: 1,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: ["writer warning"],
         };
       },
@@ -396,6 +398,7 @@ test("runDiscovery composes config, adapters, normalizer, and writer", async () 
       appended: 1,
       updated: 0,
       skippedDuplicates: 0,
+      skippedBlacklist: 0,
       warningCount: 1,
       sourceSummary: [
         {
@@ -463,6 +466,7 @@ test("runDiscovery logs aggregated rejection reasons without per-listing spam", 
         appended: leads.length,
         updated: 0,
         skippedDuplicates: 0,
+        skippedBlacklist: 0,
         warnings: [],
       }),
     },
@@ -638,6 +642,7 @@ test("runDiscovery ranks and diversifies leads before truncating", async () => {
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -797,6 +802,7 @@ test("runDiscovery hybrid mode surfaces matcher-accepted listings with Match Sco
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -942,6 +948,7 @@ test("runDiscovery applies company, source, and similar-title caps before writin
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -1167,6 +1174,7 @@ test("runDiscovery expands grounded web links through Browser Use and writes nor
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -1346,6 +1354,7 @@ test("runDiscovery uses configured ATS companies even when the broad company pla
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -1496,6 +1505,7 @@ test("runDiscovery seeds ATS discovery from ATS host search when no companies ar
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -1630,6 +1640,7 @@ test("runDiscovery marks grounded source readiness problems as partial outcomes 
           appended: 0,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -2238,6 +2249,7 @@ test("runDiscovery collapses semantically duplicate leads across alternate URLs 
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -2485,6 +2497,7 @@ test("VAL-LOOP-ATS-002: ATS frontier pulls from memory company registry when con
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -2630,6 +2643,7 @@ test("VAL-LOOP-ATS-003: ATS host-search fallback is NOT called when seed suffici
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -2791,6 +2805,7 @@ test("VAL-LOOP-ATS-003: ATS host-search fallback IS called when seed sufficiency
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -2952,6 +2967,7 @@ test("VAL-LOOP-ATS-004: ATS scout stays lightweight - does not invoke AI matcher
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -3160,6 +3176,7 @@ test("VAL-LOOP-ATS-002: ATS frontier pulls from memory career surfaces when conf
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -3301,6 +3318,7 @@ test("runDiscovery persists memory when runtime store exposes writeExploitOutcom
             appended: leads.length,
             updated: 0,
             skippedDuplicates: 0,
+            skippedBlacklist: 0,
             warnings: [],
           };
         },
@@ -3419,6 +3437,7 @@ test("runDiscovery skips exploit outcome memory persistence when browser_only ze
           appended: 0,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         }),
       },
@@ -3606,6 +3625,7 @@ test("VAL-LOOP-ATS-006: Static fallback ATS seeds are demoted behind stronger si
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -3757,6 +3777,7 @@ test("VAL-LOOP-ATS-007: ATS timeout/error branches do not stall the run lifecycl
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -3928,6 +3949,7 @@ test("VAL-LOOP-ATS-007: ATS collection completes and lifecycle progresses with m
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },
@@ -4063,6 +4085,7 @@ test("VAL-LOOP-OBS-001: runDiscovery emits loop counters in lifecycle for ATS ru
         appended: 1,
         updated: 0,
         skippedDuplicates: 0,
+        skippedBlacklist: 0,
         warnings: [],
       }),
     },
@@ -4157,6 +4180,7 @@ test("VAL-LOOP-OBS-001/003: runDiscovery emits stageOrder and reason attribution
         appended: 0,
         updated: 0,
         skippedDuplicates: 0,
+        skippedBlacklist: 0,
         warnings: [],
       }),
     },
@@ -4264,7 +4288,7 @@ test("VAL-LOOP-OBS-004: failure class differentiates dominant failure categories
         collectListings: async () => [],
       },
       pipelineWriter: {
-        write: async () => ({ sheetId: "sheet_fc", appended: 0, updated: 0, skippedDuplicates: 0, warnings: [] }),
+        write: async () => ({ sheetId: "sheet_fc", appended: 0, updated: 0, skippedDuplicates: 0, skippedBlacklist: 0, warnings: [] }),
       },
       loadStoredWorkerConfig: async () => ({
         sheetId: "sheet_fc", mode: "hosted" as const, timezone: "UTC",
@@ -4342,8 +4366,7 @@ test("VAL-LOOP-OBS-004: failure class differentiates dominant failure categories
       pipelineWriter: {
         write: async () => ({
           sheetId: "sheet_fc",
-          appended: 0, updated: 0, skippedDuplicates: 0,
-          warnings: ["Sheet write failed during update phase: HTTP 500"],
+          appended: 0, updated: 0, skippedDuplicates: 0, skippedBlacklist: 0, warnings: ["Sheet write failed during update phase: HTTP 500"],
           writeError: { phase: "update" as const, message: "Sheet write failed during update phase: HTTP 500", httpStatus: 500 },
         }),
       },
@@ -4416,7 +4439,7 @@ test("VAL-LOOP-OBS-005: grounded_web without browser manager produces explicit d
     // NOTE: browserSessionManager is intentionally omitted — simulates browser-only validation failure
     browserSessionManager: undefined,
     pipelineWriter: {
-      write: async () => ({ sheetId: "sheet_obs005", appended: 0, updated: 0, skippedDuplicates: 0, warnings: [] }),
+      write: async () => ({ sheetId: "sheet_obs005", appended: 0, updated: 0, skippedDuplicates: 0, skippedBlacklist: 0, warnings: [] }),
     },
     loadStoredWorkerConfig: async () => ({
       sheetId: "sheet_obs005", mode: "hosted" as const, timezone: "UTC",
@@ -4544,7 +4567,7 @@ test("VAL-LOOP-CROSS-004: runDiscovery tracks cross-lane duplicate suppression i
       }),
     },
     pipelineWriter: {
-      write: async () => ({ sheetId: "sheet_cross_dedup", appended: 1, updated: 0, skippedDuplicates: 0, warnings: [] }),
+      write: async () => ({ sheetId: "sheet_cross_dedup", appended: 1, updated: 0, skippedDuplicates: 0, skippedBlacklist: 0, warnings: [] }),
     },
     loadStoredWorkerConfig: async () => ({
       sheetId: "sheet_cross_dedup", mode: "hosted" as const, timezone: "UTC",
@@ -4696,7 +4719,7 @@ test("VAL-LOOP-OBS-004: exploit_budget_exhaustion when targets selected but no l
       collectListings: async () => [],
     },
     pipelineWriter: {
-      write: async () => ({ sheetId: "sheet_fc_budget", appended: 0, updated: 0, skippedDuplicates: 0, warnings: [] }),
+      write: async () => ({ sheetId: "sheet_fc_budget", appended: 0, updated: 0, skippedDuplicates: 0, skippedBlacklist: 0, warnings: [] }),
     },
     loadStoredWorkerConfig: async () => ({
       sheetId: "sheet_fc_budget", mode: "hosted" as const, timezone: "UTC",
@@ -4759,7 +4782,7 @@ test("VAL-LOOP-OBS-004: weak_browser_seed_quality when browser-only scout produc
       },
     },
     pipelineWriter: {
-      write: async () => ({ sheetId: "sheet_fc_browser_seed", appended: 0, updated: 0, skippedDuplicates: 0, warnings: [] }),
+      write: async () => ({ sheetId: "sheet_fc_browser_seed", appended: 0, updated: 0, skippedDuplicates: 0, skippedBlacklist: 0, warnings: [] }),
     },
     loadStoredWorkerConfig: async () => ({
       sheetId: "sheet_fc_browser_seed", mode: "hosted" as const, timezone: "UTC",
@@ -4848,7 +4871,7 @@ test("VAL-LOOP-OBS-004: weak_ats_seed_quality when ATS ran but produced no scora
       collectListings: async () => [],
     },
     pipelineWriter: {
-      write: async () => ({ sheetId: "sheet_fc_ats_seed", appended: 0, updated: 0, skippedDuplicates: 0, warnings: [] }),
+      write: async () => ({ sheetId: "sheet_fc_ats_seed", appended: 0, updated: 0, skippedDuplicates: 0, skippedBlacklist: 0, warnings: [] }),
     },
     loadStoredWorkerConfig: async () => ({
       sheetId: "sheet_fc_ats_seed", mode: "hosted" as const, timezone: "UTC",
@@ -4913,7 +4936,7 @@ test("VAL-LOOP-OBS-004: unknown failure class when state is degraded but reason 
       collectListings: async () => [],
     },
     pipelineWriter: {
-      write: async () => ({ sheetId: "sheet_fc_unknown", appended: 0, updated: 0, skippedDuplicates: 0, warnings: [] }),
+      write: async () => ({ sheetId: "sheet_fc_unknown", appended: 0, updated: 0, skippedDuplicates: 0, skippedBlacklist: 0, warnings: [] }),
     },
     loadStoredWorkerConfig: async () => ({
       sheetId: "sheet_fc_unknown", mode: "hosted" as const, timezone: "UTC",
@@ -5036,6 +5059,7 @@ test("runDiscovery serpapi_google_jobs lane writes structured SerpApi leads end-
           appended: leads.length,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         };
       },

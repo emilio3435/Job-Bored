@@ -952,6 +952,7 @@ export async function runDiscovery(
     appended: writeResult.appended,
     updated: writeResult.updated,
     skippedDuplicates: writeResult.skippedDuplicates,
+    skippedBlacklist: writeResult.skippedBlacklist,
     warningCount: writeResult.warnings.length,
     sourceSummary: buildSourceSummary(
       extractionResultsBySource,

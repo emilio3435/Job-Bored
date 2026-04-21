@@ -74,6 +74,7 @@ function makeDependencies(runtimeConfigOverrides = {}) {
           appended: 0,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [],
         }),
       },
