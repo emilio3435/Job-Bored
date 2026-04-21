@@ -13190,6 +13190,14 @@ async function fetchJobPostingEnrichment(dataIndex) {
     showToast("Posting details loaded", "success");
   } catch (e) {
     console.error(e);
+    const errMsg = String((e && e.message) || "");
+    // Upstream site blocked the scraper (LinkedIn/Indeed/Glassdoor/etc.
+    // returning 401/403/429). This is expected for known-blocked
+    // aggregators; do NOT surface as an error toast. Instead try the
+    // LLM with what we already have from the sheet — for many
+    // postings the title + company alone is enough for Gemini to
+    // produce a useful role summary.
+    const isUpstreamBlock = /\bHTTP\s+(401|403|429)\b/i.test(errMsg);
     if (isFetchNetworkError(e)) {
       showToast(
         `Can't reach the scraper at ${base}. From the project folder run: npm install && npm start — keep that terminal open, then try again.`,
@@ -13197,6 +13205,8 @@ async function fetchJobPostingEnrichment(dataIndex) {
         true,
       );
       openScraperSetupModal();
+    } else if (isUpstreamBlock) {
+      await fallbackEnrichmentFromSheetOnly(job, dataIndex, errMsg);
     } else {
       showToast(e.message || "Could not fetch posting", "error");
     }
@@ -13205,6 +13215,71 @@ async function fetchJobPostingEnrichment(dataIndex) {
     delete job._enrichmentLoading;
     refreshDrawerIfOpen(dataIndex);
   }
+}
+
+// When the upstream job site blocks the scraper (LinkedIn/Indeed/etc.
+// returning 401/403/429), fall back to the LLM using only the sheet-
+// stored title + company + URL. The response won't have a real job
+// description but the LLM can still produce a useful role summary from
+// the role+company context. Caches the result so the drawer doesn't
+// retry the scrape on every open.
+async function fallbackEnrichmentFromSheetOnly(job, dataIndex, errMsg) {
+  const stub = {
+    title: job.title || "",
+    description: "",
+    requirements: [],
+    skills: [],
+    scrapedAt: Date.now(),
+    _scrapeBlocked: true,
+    _scrapeError: errMsg || "upstream blocked scraper",
+  };
+  let merged = { ...stub };
+  if (
+    window.CommandCenterJobPostingInsights &&
+    window.CommandCenterJobPostingInsights.canEnrichWithLLM()
+  ) {
+    try {
+      let profileExcerpt = "";
+      const UC = getUserContent();
+      if (UC) {
+        await UC.openDb();
+        profileExcerpt = await buildCandidateProfileExcerpt(UC, 14000);
+      }
+      const llm = await window.CommandCenterJobPostingInsights.enrichFromScrape(
+        stub,
+        { title: job.title, company: job.company },
+        profileExcerpt,
+      );
+      merged = {
+        ...merged,
+        inferredTitle: llm.inferredTitle,
+        inferredCompany: llm.inferredCompany,
+        inferredLocation: llm.inferredLocation,
+        postingSummary: llm.postingSummary,
+        roleInOneLine: llm.roleInOneLine,
+        mustHaves: llm.mustHaves,
+        niceToHaves: llm.niceToHaves,
+        responsibilities: llm.responsibilities,
+        toolsAndStack: llm.toolsAndStack,
+        fitAngle: llm.fitAngle,
+        talkingPoints: llm.talkingPoints,
+        extraKeywords: llm.extraKeywords,
+      };
+    } catch (llmErr) {
+      console.warn("[JobBored] fallback LLM enrich:", llmErr);
+      merged.llmError =
+        (llmErr && llmErr.message) ||
+        "AI insight failed (source blocks scrapers).";
+    }
+  }
+  job._postingEnrichment = merged;
+  cacheEnrichment(job.link, merged);
+  renderPipeline();
+  // Subtle info toast instead of the error toast the old path showed.
+  showToast(
+    "This site blocks scrapers — details below are inferred from title + company.",
+    "info",
+  );
 }
 
 /**
@@ -17653,11 +17728,37 @@ async function autoEnrichIngestedRow(url, persistedLead) {
     // time (e.g. LinkedIn/Indeed favicon) with a company-specific logo
     // resolved via Clearbit autocomplete. Fires in parallel with the
     // other updates so the sheet write batches together.
-    if (inferredCompany && isPlaceholderLogoUrl(job.logoUrl)) {
+    //
+    // Gating: we update the logo when EITHER the company name was just
+    // promoted (definite stale-logo signal — ignore the placeholder
+    // regex entirely), OR the existing Logo URL cell still matches a
+    // known aggregator-favicon pattern. User-edited logos (custom hosts
+    // outside the aggregator regex) stay untouched when the company
+    // didn't change.
+    const companyPromotedThisRun = updates.some(
+      (u) => u.range === `Pipeline!C${sheetRow}`,
+    );
+    const shouldUpdateLogo =
+      inferredCompany &&
+      (companyPromotedThisRun || isPlaceholderLogoUrl(job.logoUrl));
+    console.info("[JobBored] auto-enrich logo check:", {
+      inferredCompany,
+      existingLogoUrl: job.logoUrl,
+      companyPromotedThisRun,
+      isPlaceholder: isPlaceholderLogoUrl(job.logoUrl),
+      shouldUpdateLogo,
+    });
+    if (shouldUpdateLogo) {
       const newLogoUrl = await resolveCompanyLogoUrl(inferredCompany);
+      console.info("[JobBored] auto-enrich resolved logo:", newLogoUrl);
       if (newLogoUrl) {
         updates.push({ range: `Pipeline!T${sheetRow}`, value: newLogoUrl });
         job.logoUrl = newLogoUrl;
+        // In-memory bump so the next renderPipeline reflects the real
+        // logo even before the sheet round-trip completes. Without
+        // this, the card can stay as the LinkedIn "in" icon for ~2s
+        // while the sheet write + re-read propagates.
+        if (typeof renderPipeline === "function") renderPipeline();
       }
     }
 
