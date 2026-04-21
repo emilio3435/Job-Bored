@@ -73,6 +73,26 @@ const DEFAULT_TOKEN_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
 const COLUMN_COUNT = PIPELINE_HEADER_ROW.length;
 const REQUIRED_HEADER_COUNT = 17;
+// Last A1-notation column letter covering every column in PIPELINE_HEADER_ROW.
+// Derived from COLUMN_COUNT so when the header row grows (Match Score added as
+// the 21st column in commit b95e093), range strings A1:..., A2:..., and A:...
+// automatically widen. Previously these were hard-coded to "T" (20 cols),
+// which caused HTTP 400 "tried writing to column [U]" once Match Score leads
+// started flowing through.
+const LAST_COLUMN_LETTER = columnIndexToLetter(COLUMN_COUNT);
+
+function columnIndexToLetter(index: number): string {
+  // 1 -> "A", 26 -> "Z", 27 -> "AA".
+  if (!Number.isFinite(index) || index < 1) return "A";
+  let n = Math.floor(index);
+  let out = "";
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    out = String.fromCharCode(65 + rem) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out;
+}
 
 function asText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -430,7 +450,7 @@ async function batchUpdateRows(
     body: JSON.stringify({
       valueInputOption: "USER_ENTERED",
       data: rowUpdates.map((entry) => ({
-        range: `${sheetName}!A${entry.rowNumber}:T${entry.rowNumber}`,
+        range: `${sheetName}!A${entry.rowNumber}:${LAST_COLUMN_LETTER}${entry.rowNumber}`,
         majorDimension: "ROWS",
         values: [entry.values],
       })),
@@ -457,7 +477,7 @@ async function appendRows(
 ): Promise<void> {
   if (!rows.length) return;
   const url = new URL(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeRange(`${sheetName}!A:T`)}:append`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeRange(`${sheetName}!A:${LAST_COLUMN_LETTER}`)}:append`,
   );
   url.searchParams.set("valueInputOption", "USER_ENTERED");
   url.searchParams.set("insertDataOption", "INSERT_ROWS");
@@ -543,7 +563,7 @@ export function createPipelineWriter(
     );
     const headerValues = await getSheetValues(
       sheetId,
-      `${sheetName}!A1:T1`,
+      `${sheetName}!A1:${LAST_COLUMN_LETTER}1`,
       accessToken,
       fetchImpl,
     );
@@ -557,7 +577,7 @@ export function createPipelineWriter(
 
     const existingRows = await getSheetValues(
       sheetId,
-      `${sheetName}!A2:T`,
+      `${sheetName}!A2:${LAST_COLUMN_LETTER}`,
       accessToken,
       fetchImpl,
     );
