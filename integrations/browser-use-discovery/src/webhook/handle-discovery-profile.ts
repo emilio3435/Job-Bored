@@ -357,7 +357,11 @@ function toScheduleResponse(
     installedAtOverride !== undefined
       ? installedAtOverride
       : schedule?.installedAt || null;
-  if (installedAt || schedule?.installedAt !== undefined) {
+  if (
+    installedAtOverride !== undefined ||
+    installedAt ||
+    schedule?.installedAt !== undefined
+  ) {
     response.installedAt = installedAt;
   }
   return response;
