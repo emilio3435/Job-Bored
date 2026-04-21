@@ -12,24 +12,15 @@
 import { spawnSync } from "child_process";
 import { existsSync, rmSync } from "fs";
 import { homedir, platform } from "os";
-import { dirname, join, resolve } from "path";
-import { fileURLToPath } from "url";
+import { join } from "path";
+import { deleteScheduleBreadcrumb } from "./lib/schedule.mjs";
 
 const LABEL = "com.jobbored.refresh";
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(__dirname, "..");
 const agentPath = join(
   homedir(),
   "Library",
   "LaunchAgents",
   `${LABEL}.plist`,
-);
-const scheduleInstalledPath = join(
-  repoRoot,
-  "integrations",
-  "browser-use-discovery",
-  "state",
-  "schedule-installed.json",
 );
 
 function main() {
@@ -54,7 +45,7 @@ function main() {
   }
   // Best-effort remove from runtime table in case the plist was hand-deleted.
   spawnSync("launchctl", ["remove", LABEL], { stdio: "ignore" });
-  rmSync(scheduleInstalledPath, { force: true });
+  deleteScheduleBreadcrumb();
 
   if (removed) {
     console.log(`schedule:uninstall-local: removed ${agentPath}`);
