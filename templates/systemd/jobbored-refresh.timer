@@ -1,0 +1,10 @@
+[Unit]
+Description=Run JobBored discovery refresh daily
+
+[Timer]
+OnCalendar=*-*-* {{HOUR}}:{{MINUTE}}:00
+Persistent=true
+Unit=jobbored-refresh.service
+
+[Install]
+WantedBy=timers.target

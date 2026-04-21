@@ -24,7 +24,9 @@ import {
 } from "fs";
 import { homedir, platform } from "os";
 import { dirname, join, resolve } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
+import { parseDotEnv, sanitizeSecret } from "./lib/env.mjs";
+import { writeScheduleBreadcrumb } from "./lib/schedule.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
@@ -118,42 +120,7 @@ function parseArgs(argv) {
   return out;
 }
 
-function parseDotEnv(path) {
-  if (!existsSync(path)) return {};
-  const raw = readFileSync(path, "utf8");
-  const out = {};
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
-    if (!match) continue;
-    let value = match[2];
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    out[match[1]] = value;
-  }
-  return out;
-}
-
-function sanitizeSecret(secret) {
-  // launchd plists are XML — strip characters that would break the
-  // <string>{{SECRET}}</string> substitution. The discovery webhook secret
-  // should already be url-safe ascii; reject anything else so users learn
-  // early rather than later.
-  const ok = /^[A-Za-z0-9_\-\.~+/=]+$/.test(secret);
-  if (!ok) {
-    fail(
-      "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET contains characters that are unsafe to embed in a launchd plist. Regenerate it with only [A-Za-z0-9_\\-.~+/=].",
-    );
-  }
-  return secret;
-}
-
-function renderTemplate(template, replacements) {
+export function renderTemplate(template, replacements) {
   let out = template;
   for (const [key, value] of Object.entries(replacements)) {
     out = out.split(`{{${key}}}`).join(String(value));
@@ -180,7 +147,11 @@ function main() {
       "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET is not set in integrations/browser-use-discovery/.env. Set it and rerun.",
     );
   }
-  sanitizeSecret(secret);
+  try {
+    sanitizeSecret(secret);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
 
   const port = Number(
     args.port || env.BROWSER_USE_DISCOVERY_PORT || 8644,
@@ -220,6 +191,13 @@ function main() {
   if (load.status !== 0) {
     fail(`launchctl load failed (exit ${load.status}). Plist left at ${agentPath}.`);
   }
+  writeScheduleBreadcrumb({
+    platform: "darwin",
+    artifactPath: agentPath,
+    hour: args.hour,
+    minute: args.minute,
+    port,
+  });
 
   console.log("schedule:install-local: OK");
   console.log(`  Plist:      ${agentPath}`);
@@ -236,4 +214,6 @@ function main() {
   );
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}

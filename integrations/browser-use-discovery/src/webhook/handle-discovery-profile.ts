@@ -13,6 +13,10 @@
  * info) and, via the normalized config path, the fields the caller opted into.
  */
 
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import {
   DISCOVERY_PROFILE_EVENT,
   DISCOVERY_PROFILE_SCHEMA_VERSION,
@@ -20,11 +24,14 @@ import {
 import type {
   CandidateProfile,
   CompanyTarget,
+  DiscoveryProfileScheduleResponseV1,
   DiscoveryProfileRequestV1,
   DiscoveryProfileResponseV1,
   ProfileFormInput,
   StoredWorkerConfig,
   WorkerRuntimeConfig,
+  WorkerScheduleConfig,
+  WorkerScheduleMode,
 } from "../contracts.ts";
 import {
   extractCandidateProfile,
@@ -37,6 +44,16 @@ import {
 } from "./handle-discovery-webhook.ts";
 
 type FetchImpl = typeof globalThis.fetch;
+type DiscoveryProfileMode = NonNullable<DiscoveryProfileRequestV1["mode"]>;
+
+type ScheduleInstalledBreadcrumb = {
+  platform: string;
+  installedAt: string;
+  artifactPath: string;
+  hour: number;
+  minute: number;
+  port: number;
+};
 
 export type HandleDiscoveryProfileDependencies = {
   runtimeConfig: WorkerRuntimeConfig;
@@ -59,6 +76,8 @@ export type HandleDiscoveryProfileDependencies = {
    * and dedupe against negativeCompanyKeys.
    */
   loadStoredWorkerConfig?(sheetId: string): Promise<StoredWorkerConfig | null>;
+  /** Optional override so tests can point schedule-status at a temp breadcrumb. */
+  scheduleInstalledPath?: string;
   /**
    * Optional overrides so tests can inject canned profile and company results
    * without mocking Gemini. Production leaves these unset; the handler uses
@@ -148,18 +167,22 @@ function parseRequest(bodyText: string):
     form = rawForm as ProfileFormInput;
   }
   const rawMode = typeof record.mode === "string" ? record.mode : "manual";
-  const mode: "manual" | "refresh" | "skip_company" | "status" =
+  const mode: DiscoveryProfileMode =
     rawMode === "refresh"
       ? "refresh"
       : rawMode === "skip_company"
         ? "skip_company"
         : rawMode === "status"
           ? "status"
-          : "manual";
+          : rawMode === "schedule-save"
+            ? "schedule-save"
+            : rawMode === "schedule-status"
+              ? "schedule-status"
+              : "manual";
 
   // Only manual mode requires resume/form at the request level. Refresh
   // pulls from the stored candidateProfile; skip_company only touches the
-  // negative list; status short-circuits before Gemini.
+  // negative list; status/schedule modes short-circuit before Gemini.
   if (mode === "manual" && !resumeText.trim() && !hasAnyFormField(form)) {
     return {
       ok: false,
@@ -186,6 +209,84 @@ function parseRequest(bodyText: string):
     }
   }
 
+  let schedule: DiscoveryProfileRequestV1["schedule"] | undefined;
+  if (mode === "schedule-save") {
+    const rawSchedule =
+      record.schedule &&
+      typeof record.schedule === "object" &&
+      !Array.isArray(record.schedule)
+        ? (record.schedule as Record<string, unknown>)
+        : null;
+    if (!rawSchedule) {
+      return {
+        ok: false,
+        message: "schedule must be an object when mode=schedule-save.",
+      };
+    }
+    if (typeof rawSchedule.enabled !== "boolean") {
+      return {
+        ok: false,
+        message: "schedule.enabled must be a boolean when mode=schedule-save.",
+      };
+    }
+    const scheduleEnabled = rawSchedule.enabled;
+    const rawHour = rawSchedule.hour;
+    const rawMinute = rawSchedule.minute;
+    const rawScheduleMode = rawSchedule.mode;
+    const hour =
+      rawHour === undefined ? undefined : parseBoundedInteger(rawHour, 0, 23);
+    const minute =
+      rawMinute === undefined
+        ? undefined
+        : parseBoundedInteger(rawMinute, 0, 59);
+    const scheduleMode = parseScheduleMode(rawScheduleMode);
+
+    if (scheduleEnabled && hour === undefined) {
+      return {
+        ok: false,
+        message: "schedule.hour must be an integer from 0-23 when schedule.enabled=true.",
+      };
+    }
+    if (!scheduleEnabled && rawHour !== undefined && hour === undefined) {
+      return {
+        ok: false,
+        message: "schedule.hour must be an integer from 0-23 when present.",
+      };
+    }
+    if (scheduleEnabled && minute === undefined) {
+      return {
+        ok: false,
+        message: "schedule.minute must be an integer from 0-59 when schedule.enabled=true.",
+      };
+    }
+    if (!scheduleEnabled && rawMinute !== undefined && minute === undefined) {
+      return {
+        ok: false,
+        message: "schedule.minute must be an integer from 0-59 when present.",
+      };
+    }
+    if (scheduleEnabled && !scheduleMode) {
+      return {
+        ok: false,
+        message:
+          'schedule.mode must be one of "browser", "local", or "github" when schedule.enabled=true.',
+      };
+    }
+    if (!scheduleEnabled && rawScheduleMode !== undefined && !scheduleMode) {
+      return {
+        ok: false,
+        message: 'schedule.mode must be one of "browser", "local", or "github" when present.',
+      };
+    }
+
+    schedule = {
+      enabled: scheduleEnabled,
+      ...(hour !== undefined ? { hour } : {}),
+      ...(minute !== undefined ? { minute } : {}),
+      ...(scheduleMode ? { mode: scheduleMode } : {}),
+    };
+  }
+
   const sheetId = typeof record.sheetId === "string" ? record.sheetId.trim() : "";
   const persist =
     typeof record.persist === "boolean" ? record.persist : false;
@@ -200,8 +301,25 @@ function parseRequest(bodyText: string):
       sheetId: sheetId || undefined,
       mode,
       skipCompanyKeys,
+      schedule,
     },
   };
+}
+
+function parseBoundedInteger(
+  value: unknown,
+  min: number,
+  max: number,
+): number | undefined {
+  if (typeof value !== "number" || !Number.isInteger(value)) return undefined;
+  if (value < min || value > max) return undefined;
+  return value;
+}
+
+function parseScheduleMode(value: unknown): WorkerScheduleMode | undefined {
+  return value === "browser" || value === "local" || value === "github"
+    ? value
+    : undefined;
 }
 
 function hasAnyFormField(form: ProfileFormInput | undefined): boolean {
@@ -211,6 +329,92 @@ function hasAnyFormField(form: ProfileFormInput | undefined): boolean {
     if (typeof value === "number") return Number.isFinite(value);
     return false;
   });
+}
+
+function requireSheetId(
+  request: DiscoveryProfileRequestV1,
+  dependencies: HandleDiscoveryProfileDependencies,
+): string | null {
+  const targetSheetId =
+    request.sheetId ||
+    (dependencies.runtimeConfig as Record<string, unknown>).defaultSheetId ||
+    "";
+  if (!targetSheetId || typeof targetSheetId !== "string") return null;
+  const trimmed = targetSheetId.trim();
+  return trimmed ? trimmed : null;
+}
+
+function toScheduleResponse(
+  schedule: WorkerScheduleConfig | undefined,
+  installedAtOverride?: string | null,
+): DiscoveryProfileScheduleResponseV1 {
+  const enabled = schedule?.enabled === true;
+  const response: DiscoveryProfileScheduleResponseV1 = { enabled };
+  if (typeof schedule?.hour === "number") response.hour = schedule.hour;
+  if (typeof schedule?.minute === "number") response.minute = schedule.minute;
+  if (schedule?.mode) response.mode = schedule.mode;
+  const installedAt =
+    installedAtOverride !== undefined
+      ? installedAtOverride
+      : schedule?.installedAt || null;
+  if (
+    installedAtOverride !== undefined ||
+    installedAt ||
+    schedule?.installedAt !== undefined
+  ) {
+    response.installedAt = installedAt;
+  }
+  return response;
+}
+
+function resolveScheduleInstalledPath(
+  dependencies: HandleDiscoveryProfileDependencies,
+): string {
+  if (dependencies.scheduleInstalledPath) return dependencies.scheduleInstalledPath;
+  const workerConfigPath = dependencies.runtimeConfig.workerConfigPath;
+  if (workerConfigPath) {
+    return join(dirname(workerConfigPath), "schedule-installed.json");
+  }
+  return join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "state",
+    "schedule-installed.json",
+  );
+}
+
+async function readScheduleInstalledBreadcrumb(
+  path: string,
+): Promise<ScheduleInstalledBreadcrumb | null> {
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const record = parsed as Record<string, unknown>;
+  const platform = typeof record.platform === "string" ? record.platform : "";
+  const installedAt =
+    typeof record.installedAt === "string" ? record.installedAt : "";
+  const artifactPath =
+    typeof record.artifactPath === "string" ? record.artifactPath : "";
+  const hour = parseBoundedInteger(record.hour, 0, 23);
+  const minute = parseBoundedInteger(record.minute, 0, 59);
+  const port = parseBoundedInteger(record.port, 1, 65535);
+  if (!platform || !installedAt || !artifactPath) return null;
+  if (hour === undefined || minute === undefined || port === undefined) {
+    return null;
+  }
+  return { platform, installedAt, artifactPath, hour, minute, port };
 }
 
 export async function handleDiscoveryProfileWebhook(
@@ -274,6 +478,134 @@ export async function handleDiscoveryProfileWebhook(
     dependencies.extractCandidateProfile || extractCandidateProfile;
   const discoverFn =
     dependencies.discoverCompaniesForProfile || discoverCompaniesForProfile;
+
+  // --- mode: schedule-save ---
+  // Persist the user's chosen schedule fields to worker-config.schedule. This
+  // records intent only; OS scheduler artifacts are installed by CLI scripts.
+  if (parsedRequest.mode === "schedule-save") {
+    const targetSheetId = requireSheetId(parsedRequest, dependencies);
+    if (!targetSheetId) {
+      return jsonResponse(400, {
+        ok: false,
+        message: "sheetId is required for schedule-save mode.",
+      });
+    }
+    if (!dependencies.loadStoredWorkerConfig || !dependencies.upsertStoredWorkerConfig) {
+      return jsonResponse(500, {
+        ok: false,
+        message: "Storage helpers not wired; cannot save schedule.",
+      });
+    }
+    try {
+      const existing = await dependencies.loadStoredWorkerConfig(targetSheetId);
+      const priorSchedule = existing?.schedule || { enabled: false };
+      const requestedSchedule = parsedRequest.schedule;
+      if (!requestedSchedule) {
+        return jsonResponse(400, {
+          ok: false,
+          message: "schedule is required for schedule-save mode.",
+        });
+      }
+      const nextSchedule: WorkerScheduleConfig = {
+        ...priorSchedule,
+        enabled: requestedSchedule.enabled === true,
+        ...(requestedSchedule.hour !== undefined
+          ? { hour: requestedSchedule.hour }
+          : {}),
+        ...(requestedSchedule.minute !== undefined
+          ? { minute: requestedSchedule.minute }
+          : {}),
+        ...(requestedSchedule.mode ? { mode: requestedSchedule.mode } : {}),
+      };
+      const saved = await dependencies.upsertStoredWorkerConfig(
+        dependencies.runtimeConfig,
+        {
+          sheetId: targetSheetId,
+          mutations: { schedule: nextSchedule },
+        },
+      );
+      dependencies.log?.("discovery.profile.schedule_saved", {
+        enabled: saved.schedule.enabled,
+        hour: saved.schedule.hour ?? null,
+        minute: saved.schedule.minute ?? null,
+        mode: saved.schedule.mode ?? null,
+      });
+      return jsonResponse(200, {
+        ok: true,
+        schedule: toScheduleResponse(
+          saved.schedule,
+          saved.schedule.installedAt || null,
+        ),
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error || "unknown error");
+      dependencies.log?.("discovery.profile.schedule_save_failed", { message });
+      return jsonResponse(502, {
+        ok: false,
+        message: "Failed to save schedule.",
+        detail: message,
+      });
+    }
+  }
+
+  // --- mode: schedule-status ---
+  // Read-only schedule snapshot plus local installer breadcrumb. Never calls
+  // Gemini and never shells out to the OS scheduler.
+  if (parsedRequest.mode === "schedule-status") {
+    const targetSheetId = requireSheetId(parsedRequest, dependencies);
+    if (!targetSheetId) {
+      return jsonResponse(400, {
+        ok: false,
+        message: "sheetId is required for schedule-status mode.",
+      });
+    }
+    if (!dependencies.loadStoredWorkerConfig) {
+      return jsonResponse(500, {
+        ok: false,
+        message: "loadStoredWorkerConfig not wired; cannot read schedule status.",
+      });
+    }
+    try {
+      const existing = await dependencies.loadStoredWorkerConfig(targetSheetId);
+      const breadcrumb = await readScheduleInstalledBreadcrumb(
+        resolveScheduleInstalledPath(dependencies),
+      );
+      const installed =
+        !!breadcrumb &&
+        existing?.schedule.enabled === true &&
+        existing.schedule.mode === "local";
+      const schedule = toScheduleResponse(
+        existing?.schedule,
+        installed ? breadcrumb?.installedAt || null : undefined,
+      );
+      dependencies.log?.("discovery.profile.schedule_status", {
+        enabled: schedule.enabled,
+        installed,
+        mode: schedule.mode ?? null,
+      });
+      return jsonResponse(200, {
+        ok: true,
+        schedule,
+        installed,
+        installedArtifact: breadcrumb
+          ? {
+              platform: breadcrumb.platform,
+              path: breadcrumb.artifactPath,
+            }
+          : null,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error || "unknown error");
+      dependencies.log?.("discovery.profile.schedule_status_failed", { message });
+      return jsonResponse(502, {
+        ok: false,
+        message: "Failed to read schedule status.",
+        detail: message,
+      });
+    }
+  }
 
   // --- mode: status ---
   // Read-only snapshot for the dashboard's daily-refresh status panel. Never

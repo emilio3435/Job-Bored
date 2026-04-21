@@ -13,6 +13,7 @@ import { spawnSync } from "child_process";
 import { existsSync, rmSync } from "fs";
 import { homedir, platform } from "os";
 import { join } from "path";
+import { deleteScheduleBreadcrumb } from "./lib/schedule.mjs";
 
 const LABEL = "com.jobbored.refresh";
 const agentPath = join(
@@ -44,6 +45,7 @@ function main() {
   }
   // Best-effort remove from runtime table in case the plist was hand-deleted.
   spawnSync("launchctl", ["remove", LABEL], { stdio: "ignore" });
+  deleteScheduleBreadcrumb();
 
   if (removed) {
     console.log(`schedule:uninstall-local: removed ${agentPath}`);
