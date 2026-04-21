@@ -128,12 +128,19 @@ test("handleIngestUrlWebhook returns 400 on private-network URL", async () => {
   assert.equal(body.reason, "private_network");
 });
 
-test("handleIngestUrlWebhook short-circuits blocked_aggregator without downstream calls", async () => {
+test("handleIngestUrlWebhook blocked_aggregator lands url-only row without scraping", async () => {
+  // LinkedIn/Indeed/etc. block scrapers. Instead of forcing a manual-fill
+  // modal, the handler now builds a minimal URL-only RawListing
+  // (hostname-derived company, slug-derived title) and lands the row. The
+  // dashboard's drawer enrichment pass fills in details on row open.
   let fetcherCalls = 0;
   let scraperCalls = 0;
   let writerCalls = 0;
+  let capturedLead: Record<string, unknown> | null = null;
   const response = await handleIngestUrlWebhook(
-    makeRequest({ url: "https://www.linkedin.com/jobs/view/4369653076" }),
+    makeRequest({
+      url: "https://www.linkedin.com/jobs/view/senior-product-manager-at-plaid",
+    }),
     makeDependencies({
       fetchGreenhouseJob: async () => {
         fetcherCalls += 1;
@@ -152,8 +159,9 @@ test("handleIngestUrlWebhook short-circuits blocked_aggregator without downstrea
         throw new Error("should not be called");
       },
       pipelineWriter: {
-        write: async () => {
+        write: async (_sheetId, leads) => {
           writerCalls += 1;
+          capturedLead = leads[0] as unknown as Record<string, unknown>;
           return {
             sheetId: "sheet_123",
             appended: 1,
@@ -168,11 +176,21 @@ test("handleIngestUrlWebhook short-circuits blocked_aggregator without downstrea
 
   assert.equal(response.status, 200);
   const body = JSON.parse(response.body);
-  assert.equal(body.ok, false);
-  assert.equal(body.reason, "blocked_aggregator");
+  assert.equal(body.ok, true);
+  assert.equal(body.strategy, "url_only");
+  assert.equal(body.appended, true);
+  // Fetchers still skipped (no point calling Greenhouse for LinkedIn URL).
   assert.equal(fetcherCalls, 0);
+  // Cheerio scraper also skipped — LinkedIn will 403 it anyway; save the RTT.
   assert.equal(scraperCalls, 0);
-  assert.equal(writerCalls, 0);
+  // But the writer IS called — that's the whole point of the new behavior.
+  assert.equal(writerCalls, 1);
+  assert.ok(capturedLead, "lead should have been written");
+  // Title derived from URL path, not a generic "Job at linkedin" fallback.
+  assert.match(
+    String((capturedLead as Record<string, unknown>).title),
+    /Senior Product Manager At Plaid/i,
+  );
 });
 
 test("handleIngestUrlWebhook ats_direct happy path appends row", async () => {
@@ -272,4 +290,51 @@ test("handleIngestUrlWebhook returns duplicate when writer reports skipped dupli
   const body = JSON.parse(response.body);
   assert.equal(body.ok, false);
   assert.equal(body.reason, "duplicate");
+});
+
+test("handleIngestUrlWebhook generic_https scrape failure lands url-only row", async () => {
+  // When the Cheerio scrape throws (HTTP 4xx/5xx upstream, timeout, etc.)
+  // the handler falls back to a URL-only RawListing and still lands the row,
+  // rather than returning scrape_failed and forcing manual fill. The
+  // dashboard's drawer enrichment can retry when the user opens the row.
+  let writerCalls = 0;
+  let capturedLead: Record<string, unknown> | null = null;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "https://careers.example.com/roles/principal-engineer-payments",
+    }),
+    makeDependencies({
+      scrapeJobPosting: async () => {
+        throw new Error("HTTP 403");
+      },
+      pipelineWriter: {
+        write: async (_sheetId, leads) => {
+          writerCalls += 1;
+          capturedLead = leads[0] as unknown as Record<string, unknown>;
+          return {
+            sheetId: "sheet_123",
+            appended: 1,
+            updated: 0,
+            skippedDuplicates: 0,
+            warnings: [],
+          };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.strategy, "url_only");
+  assert.equal(writerCalls, 1);
+  assert.ok(capturedLead);
+  assert.match(
+    String((capturedLead as Record<string, unknown>).title),
+    /Principal Engineer Payments/i,
+  );
+  assert.match(
+    String((capturedLead as Record<string, unknown>).company),
+    /Careers|Example/i,
+  );
 });
