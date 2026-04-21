@@ -615,6 +615,16 @@ export function mergeDiscoveryConfig(
     schedule: {
       enabled: !!stored.schedule?.enabled,
       cron: cleanString(stored.schedule?.cron) || defaultScheduleCron,
+      ...(typeof stored.schedule?.hour === "number"
+        ? { hour: stored.schedule.hour }
+        : {}),
+      ...(typeof stored.schedule?.minute === "number"
+        ? { minute: stored.schedule.minute }
+        : {}),
+      ...(stored.schedule?.mode ? { mode: stored.schedule.mode } : {}),
+      ...(stored.schedule?.installedAt
+        ? { installedAt: stored.schedule.installedAt }
+        : {}),
     },
     sourcePreset: resolvedSourcePreset,
     effectiveSources: computeEffectiveSources(resolvedSourcePreset, stored.enabledSources),
@@ -751,7 +761,6 @@ function buildDefaultStoredWorkerConfig(
     enabledSources: [...DEFAULT_ENABLED_SOURCE_IDS],
     schedule: {
       enabled: false,
-      cron: defaultScheduleCron,
     },
   };
 }
@@ -794,10 +803,7 @@ function normalizeStoredWorkerConfig(
     seniority: cleanString(raw.seniority),
     maxLeadsPerRun: parsePositiveInt(raw.maxLeadsPerRun, defaultMaxLeadsPerRun),
     enabledSources,
-    schedule: {
-      enabled: parseBoolean(schedule.enabled, false),
-      cron: cleanString(schedule.cron) || defaultScheduleCron,
-    },
+    schedule: normalizeScheduleConfig(schedule),
     ...(storedSourcePreset &&
     (SOURCE_PRESET_VALUES as readonly string[]).includes(storedSourcePreset)
       ? {
@@ -810,6 +816,41 @@ function normalizeStoredWorkerConfig(
     ...(negativeCompanyKeys.length > 0 ? { negativeCompanyKeys } : {}),
     ...(lastRefreshAt ? { lastRefreshAt } : {}),
   };
+}
+
+function normalizeScheduleConfig(input: AnyRecord): StoredWorkerConfig["schedule"] {
+  const cron = cleanString(input.cron);
+  const hour = parseOptionalIntInRange(input.hour, 0, 23);
+  const minute = parseOptionalIntInRange(input.minute, 0, 59);
+  const mode = normalizeScheduleMode(input.mode);
+  const installedAt = cleanString(input.installedAt);
+  return {
+    enabled: parseBoolean(input.enabled, false),
+    ...(cron ? { cron } : {}),
+    ...(hour !== undefined ? { hour } : {}),
+    ...(minute !== undefined ? { minute } : {}),
+    ...(mode ? { mode } : {}),
+    ...(installedAt ? { installedAt } : {}),
+  };
+}
+
+function normalizeScheduleMode(
+  input: unknown,
+): StoredWorkerConfig["schedule"]["mode"] | undefined {
+  return input === "browser" || input === "local" || input === "github"
+    ? input
+    : undefined;
+}
+
+function parseOptionalIntInRange(
+  value: unknown,
+  min: number,
+  max: number,
+): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(n) || n < min || n > max) return undefined;
+  return n;
 }
 
 function normalizeCandidateProfile(
