@@ -35,6 +35,10 @@ import {
   type GroundedSearchClient,
 } from "../grounding/grounded-search.ts";
 import {
+  collectSerpApiGoogleJobsListings,
+  SERPAPI_GOOGLE_JOBS_SOURCE_ID,
+} from "../sources/serpapi-google-jobs.ts";
+import {
   normalizeLeadWithDiagnostics,
   type LeadNormalizationRejection,
 } from "../normalize/lead-normalizer.ts";
@@ -699,6 +703,69 @@ export async function runDiscovery(
       }
       normalizedLeads.push(...groundedResult.normalizedLeads);
     }
+  }
+
+  // Layer 5 Tier-1: SerpApi Google Jobs lane. Runs profile-wide (role +
+  // location driven), not company-scoped. Bypasses Gemini extraction — the
+  // SerpApi response is already structured JobPosting data. Listings flow
+  // through the same normalize/matcher/rank pipeline as other lanes.
+  if (config.effectiveSources.includes(SERPAPI_GOOGLE_JOBS_SOURCE_ID)) {
+    const extractionResult = createExtractionResult(
+      runId,
+      SERPAPI_GOOGLE_JOBS_SOURCE_ID,
+      "",
+    );
+    try {
+      const serpResult = await collectSerpApiGoogleJobsListings({
+        profile: {
+          targetRoles: [...config.targetRoles],
+          locations: [...config.locations],
+          remotePolicy: config.remotePolicy,
+        },
+        runtimeConfig: dependencies.runtimeConfig,
+        log: dependencies.log,
+      });
+      extractionResult.warnings.push(...serpResult.warnings);
+      extractionResult.stats.leadsSeen = serpResult.rawListings.length;
+      for (const rawListing of serpResult.rawListings) {
+        const normalized = await normalizeRawListing(rawListing, run, {
+          dependencies,
+          matchingState,
+          matcherTimeoutMs,
+        });
+        if (normalized.matchUsedAi) {
+          matchingState.aiMatchCallsUsed += 1;
+        }
+        if (!normalized.lead) {
+          if (normalized.rejection) {
+            recordRejection(
+              rejectionSummaryBySource,
+              SERPAPI_GOOGLE_JOBS_SOURCE_ID,
+              rawListing,
+              normalized.rejection,
+            );
+          }
+          continue;
+        }
+        normalizedLeads.push(normalized.lead);
+        extractionResult.leads.push(normalized.lead);
+        extractionResult.stats.leadsAccepted += 1;
+      }
+      listingCount += serpResult.rawListings.length;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      extractionResult.warnings.push(
+        `serpapi_google_jobs lane failed: ${message}`,
+      );
+      dependencies.log?.("discovery.run.serpapi_google_jobs_lane_failed", {
+        runId,
+        message,
+      });
+    }
+    extractionResultsBySource.set(
+      SERPAPI_GOOGLE_JOBS_SOURCE_ID,
+      extractionResult,
+    );
   }
 
   // VAL-LOOP-SCORE-001/003/005: Apply frontier scoring and exploit target selection

@@ -4955,3 +4955,158 @@ test("VAL-LOOP-OBS-004: unknown failure class when state is degraded but reason 
     `failureClass "${result.lifecycle.failureClass}" must be one of: ${validFailureClasses.join(", ")}`,
   );
 });
+
+test("runDiscovery serpapi_google_jobs lane writes structured SerpApi leads end-to-end", async () => {
+  const writtenLeads: Array<Record<string, unknown>> = [];
+  // Intercept both the run-discovery preflight HTML path AND serpapi calls.
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes("serpapi.com")) {
+      return new Response(
+        JSON.stringify({
+          jobs_results: [
+            {
+              title: "Senior Backend Engineer",
+              company_name: "Notion",
+              location: "Remote",
+              description: "Backend role. Node.js, TypeScript.",
+              via: "via Greenhouse",
+              apply_options: [
+                {
+                  title: "Apply on Greenhouse",
+                  link: "https://boards.greenhouse.io/notion/jobs/111",
+                },
+              ],
+              detected_extensions: { posted_at: "2 days ago" },
+            },
+            {
+              title: "Staff Backend Engineer",
+              company_name: "Figma",
+              location: "Remote",
+              description: "TypeScript backend staff role.",
+              via: "via Ashby",
+              apply_options: [
+                {
+                  title: "Apply",
+                  link: "https://jobs.ashbyhq.com/figma/abcd",
+                },
+              ],
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    return makePreflightResponse(url);
+  }) as typeof fetch;
+
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "browser-use",
+      geminiApiKey: "",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+      useStructuredExtraction: false,
+      serpApiKey: "test-serpapi-key",
+    },
+    sourceAdapterRegistry: {
+      adapters: [],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    pipelineWriter: {
+      write: async (sheetId: string, leads: Array<Record<string, unknown>>) => {
+        writtenLeads.push(...leads);
+        return {
+          sheetId,
+          appended: leads.length,
+          updated: 0,
+          skippedDuplicates: 0,
+          warnings: [],
+        };
+      },
+    },
+    loadStoredWorkerConfig: async (sheetId: string) => ({
+      sheetId,
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [],
+      includeKeywords: [],
+      excludeKeywords: [],
+      targetRoles: ["Backend Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+      seniority: "",
+      maxLeadsPerRun: 5,
+      enabledSources: ["serpapi_google_jobs"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored: Record<string, unknown>, request: Record<string, unknown>) => ({
+      ...stored,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "browser_only",
+      effectiveSources: ["serpapi_google_jobs"],
+    }),
+    now: (() => {
+      let index = 0;
+      const dates = [
+        new Date("2026-04-21T12:00:00.000Z"),
+        new Date("2026-04-21T12:00:01.000Z"),
+      ];
+      return () => dates[Math.min(index++, dates.length - 1)];
+    })(),
+    randomId: (prefix: string) => `${prefix}_serp`,
+  };
+
+  const request = {
+    event: DISCOVERY_WEBHOOK_EVENT,
+    schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+    sheetId: "sheet_serp",
+    variationKey: "var_serp",
+    requestedAt: "2026-04-21T12:00:00.000Z",
+    discoveryProfile: {
+      targetRoles: "Backend Engineer",
+      locations: "Remote",
+      remotePolicy: "remote",
+      maxLeadsPerRun: "5",
+    },
+  };
+
+  const result = await runDiscovery(request, "manual", dependencies as any);
+
+  // Lane may land "completed" or "partial" depending on other warnings in
+  // this dependency shape; the acceptance signal is that SerpApi leads
+  // actually wrote to the pipeline via the standard source attribution.
+  assert.ok(
+    ["completed", "partial"].includes(result.lifecycle.state),
+    `unexpected lifecycle state: ${result.lifecycle.state}`,
+  );
+  assert.ok(writtenLeads.length >= 1, "at least one serpapi lead should land");
+  const serpLeads = writtenLeads.filter(
+    (lead) => lead.sourceId === "serpapi_google_jobs",
+  );
+  assert.ok(
+    serpLeads.length >= 1,
+    "serp leads attributed to the new source id",
+  );
+  const leadCompanies = new Set(serpLeads.map((l) => l.company));
+  assert.ok(
+    leadCompanies.has("Notion") || leadCompanies.has("Figma"),
+    "serp leads should carry the SerpApi-provided company name",
+  );
+});
