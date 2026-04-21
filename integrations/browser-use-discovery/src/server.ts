@@ -741,6 +741,26 @@ async function buildHealthPayload() {
             }
           : {}),
       },
+      // Layer 5 Tier 1: SerpApi Google Jobs lane — highest-recall source
+      // in the worker. "enabled" means it's in enabledSources; "configured"
+      // means SERPAPI_API_KEY is present. Both are required for the lane
+      // to produce listings. Surfaced on /health so the dashboard can
+      // render an onboarding CTA when unset.
+      serpApiGoogleJobs: {
+        enabled: enabledSources.includes("serpapi_google_jobs"),
+        configured: !!String(runtimeConfig.serpApiKey || "").trim(),
+        ready:
+          enabledSources.includes("serpapi_google_jobs") &&
+          !!String(runtimeConfig.serpApiKey || "").trim(),
+        ...(enabledSources.includes("serpapi_google_jobs") &&
+        !String(runtimeConfig.serpApiKey || "").trim()
+          ? {
+              cause: "SERPAPI_API_KEY not configured.",
+              remediation:
+                "Add SERPAPI_API_KEY to integrations/browser-use-discovery/.env. Free tier: 100 searches/month at https://serpapi.com/.",
+            }
+          : {}),
+      },
       warnings: [...blockingWarnings, ...advisoryWarnings],
       ...(blockingWarnings.length ? { blockingWarnings } : {}),
       ...(advisoryWarnings.length ? { advisoryWarnings } : {}),

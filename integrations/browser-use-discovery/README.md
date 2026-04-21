@@ -35,6 +35,7 @@ Environment variables:
 - `BROWSER_USE_DISCOVERY_GEMINI_MODEL`: Gemini model for grounded search, defaults to `gemini-2.5-flash`
 - `BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_RESULTS_PER_COMPANY`: candidate links to keep per company, defaults to `6`
 - `BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_PAGES_PER_COMPANY`: grounded pages to expand per company, defaults to `4`
+- `SERPAPI_API_KEY` (also read as `BROWSER_USE_DISCOVERY_SERPAPI_API_KEY` or `DISCOVERY_SERPAPI_API_KEY`): **strongly recommended.** Enables the `serpapi_google_jobs` source lane which queries Google Jobs directly — structured `title/company/location/description/apply_url` data with no scraping step. Free tier: 100 searches/month (~20 discovery runs). Developer tier: $50/mo for 5K. Lane is feature-gated: skips gracefully when unset. Get a key at https://serpapi.com/
 - `BROWSER_USE_DISCOVERY_GOOGLE_ACCESS_TOKEN`: optional bearer token for Sheets API
 - `BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON`: optional inline service-account JSON
 - `BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE`: optional service-account JSON file path

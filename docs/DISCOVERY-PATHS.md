@@ -68,6 +68,8 @@ You want the button to **POST JSON** to an URL you control (contract: [AGENT_CON
 
 **Trade-off:** Each user (or team) deploys **their own** endpoint in **their** account — the repo ships **templates**, not a shared global URL ([why](../integrations/apps-script/README.md#who-needs-to-deploy)). The bundled Apps Script path is a **stub** unless you replace it with real discovery logic. For a local agent, keep these roles separate: **local webhook = real engine**, **ngrok URL = public tunnel**, **Cloudflare Worker URL = browser-facing endpoint saved in JobBored**.
 
+**Recommended: enable the SerpApi Google Jobs source for high-recall matches.** Once the local worker is running, add `SERPAPI_API_KEY=...` to `integrations/browser-use-discovery/.env` and restart. Free tier = 100 searches/mo (~20 daily runs). Without it, the worker still runs but produces far fewer matches because it falls back to scraping individual career pages that often block scrapers. Get a key at [serpapi.com](https://serpapi.com/users/sign_up). Full instructions: [SETUP.md → Recommended: enable the SerpApi Google Jobs source](../SETUP.md#recommended-enable-the-serpapi-google-jobs-source).
+
 ---
 
 ## Path D — Hybrid (recommended for many setups)

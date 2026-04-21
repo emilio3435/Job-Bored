@@ -1775,6 +1775,78 @@
               </div>
 
               <div
+                class="settings-discovery-callout settings-discovery-callout--serpapi"
+                id="settingsSerpApiCallout"
+                data-configured="unknown"
+                role="note"
+              >
+                <div class="settings-discovery-callout__head">
+                  <span
+                    class="settings-discovery-callout__icon"
+                    aria-hidden="true"
+                    >⚡</span
+                  >
+                  <strong>Boost job match quality (recommended)</strong>
+                  <span
+                    class="settings-discovery-callout__status"
+                    id="settingsSerpApiCalloutStatus"
+                    aria-live="polite"
+                    >Checking…</span
+                  >
+                </div>
+                <p class="settings-field-hint">
+                  Your worker uses Google Jobs (via SerpApi) as its
+                  highest-quality source of real, live job openings. Google
+                  has already indexed every job posted through Greenhouse,
+                  Lever, Ashby, Workday, and 100+ other ATS platforms — so
+                  this one integration replaces the need for brittle
+                  career-page scraping. Without it, the worker still runs,
+                  but you'll get far fewer matches.
+                </p>
+                <ol class="settings-discovery-callout__steps">
+                  <li>
+                    Create a free account at
+                    <a
+                      href="https://serpapi.com/users/sign_up"
+                      target="_blank"
+                      rel="noopener"
+                      >serpapi.com</a
+                    >
+                    — the free tier includes <strong>100 searches/month</strong>
+                    (~20 daily discovery runs).
+                  </li>
+                  <li>
+                    Copy your API key from the
+                    <a
+                      href="https://serpapi.com/manage-api-key"
+                      target="_blank"
+                      rel="noopener"
+                      >SerpApi dashboard</a
+                    >.
+                  </li>
+                  <li>
+                    Open
+                    <code>integrations/browser-use-discovery/.env</code>
+                    and add a new line:
+                    <code class="settings-discovery-callout__snippet"
+                      >SERPAPI_API_KEY=paste-your-key-here</code
+                    >
+                  </li>
+                  <li>
+                    Restart your local worker
+                    (<code>npm run discovery:worker:start-local</code>) so
+                    the new env var is picked up, then run discovery again.
+                  </li>
+                </ol>
+                <p
+                  class="settings-field-hint settings-field-hint--compact settings-discovery-callout__reminder"
+                >
+                  Already set up? This status indicator updates when you
+                  save your webhook URL or reload the page.
+                </p>
+              </div>
+
+              <div
                 class="settings-discovery-toolbar settings-discovery-toolbar--wrap"
               >
                 <button

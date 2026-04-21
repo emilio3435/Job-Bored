@@ -5924,7 +5924,71 @@ async function verifyAppsScriptDeploymentPublicAccess(
   };
 }
 
+// Layer 5 Tier 1: read-only status refresh for the SerpApi Google Jobs
+// onboarding callout. Hits the worker's /health endpoint (same host as the
+// saved webhook URL) and updates the [data-configured] attribute on the
+// callout so CSS can swap colors + the status badge text reflects reality.
+// Silent on network errors — the callout stays in its "Checking…" state
+// rather than throwing console noise the user can't act on.
+function refreshSerpApiCalloutStatus() {
+  const el = document.getElementById("settingsSerpApiCallout");
+  const badge = document.getElementById("settingsSerpApiCalloutStatus");
+  if (!el || !badge) return;
+  const snapshot = getDiscoveryReadinessSnapshot();
+  const webhookUrl = (snapshot && snapshot.savedWebhookUrl) || "";
+  // Only attempt the probe for locally-reachable workers. A Cloudflare
+  // relay hides the real /health from the browser, so skip the probe in
+  // that case and leave the callout neutral.
+  const isLocalHost = /(^|\/\/)(localhost|127\.0\.0\.1)(:|\/|$)/i.test(
+    webhookUrl,
+  );
+  if (!webhookUrl || !isLocalHost) {
+    el.dataset.configured = "unknown";
+    badge.textContent = "Worker status unknown";
+    return;
+  }
+  const healthUrl = (() => {
+    try {
+      const u = new URL(webhookUrl);
+      u.pathname = "/health";
+      u.search = "";
+      u.hash = "";
+      return u.toString();
+    } catch (_) {
+      return "";
+    }
+  })();
+  if (!healthUrl) {
+    el.dataset.configured = "unknown";
+    badge.textContent = "Worker status unknown";
+    return;
+  }
+  fetch(healthUrl, { method: "GET", mode: "cors" })
+    .then(async (r) => (r.ok ? r.json() : null))
+    .then((payload) => {
+      const flag =
+        payload && payload.readiness && payload.readiness.serpApiGoogleJobs;
+      if (!flag) {
+        el.dataset.configured = "unknown";
+        badge.textContent = "Worker too old to report";
+        return;
+      }
+      if (flag.configured) {
+        el.dataset.configured = "yes";
+        badge.textContent = "✓ Configured";
+      } else {
+        el.dataset.configured = "no";
+        badge.textContent = "Not configured";
+      }
+    })
+    .catch(() => {
+      el.dataset.configured = "unknown";
+      badge.textContent = "Worker unreachable";
+    });
+}
+
 function renderDiscoveryEngineStatusUi() {
+  refreshSerpApiCalloutStatus();
   const statusCard = document.getElementById("settingsDiscoveryEngineStatus");
   const statusTitle = document.getElementById(
     "settingsDiscoveryEngineStatusTitle",

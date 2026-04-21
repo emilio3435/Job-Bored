@@ -172,7 +172,21 @@ Automation (e.g. [Hermes Agent](https://github.com/NousResearch/hermes-agent), n
 
 **Built-in real worker path:** use **[`integrations/browser-use-discovery/`](integrations/browser-use-discovery/)** for the repo’s Browser Use-backed discovery worker. It keeps the v1 webhook contract stable, supports local and hosted deployment, writes directly to the user’s Sheet, and covers Greenhouse / Lever / Ashby as the first-layer sources.
 
-**Tier 1 high-recall source (SerpApi Google Jobs):** set `SERPAPI_API_KEY` in the worker `.env` to enable the `serpapi_google_jobs` source lane. It queries Google Jobs (which indexes every ATS-shipped `JobPosting` schema markup on the web) and pipes structured `title/company/location/description/apply_url` straight into the discovery pipeline — no career-page scraping, no extraction fragility. Free tier: 100 searches/mo. Developer tier: $50/mo for 5K. Lane is skipped when the key is unset.
+**Recommended: enable the SerpApi Google Jobs source for high-quality matches.** The discovery worker ships with three source lanes. One of them — `serpapi_google_jobs` — reads Google Jobs directly. Google has already indexed every `JobPosting` schema markup on the web (every Greenhouse, Lever, Ashby, Workday, iCIMS, SmartRecruiters board), so this one source replaces brittle page-by-page scraping with clean structured job data.
+
+**Why you want it:** without SerpApi, the worker falls back to Gemini-grounded web search + browser-use agent traversal. Those lanes work but produce far fewer clean matches per run for most candidates — especially when your target companies are on enterprise ATS systems (Workday, iCIMS) that block scrapers. With SerpApi enabled, a typical daily refresh produces 10–40 high-quality pipeline rows per run.
+
+**How to enable it (takes ~2 minutes):**
+
+1. Create a free account at [serpapi.com](https://serpapi.com/users/sign_up). The free tier includes **100 searches per month** (~20 daily discovery runs). Paid tier: $50/month for 5000 searches.
+2. Copy your API key from the [SerpApi dashboard](https://serpapi.com/manage-api-key).
+3. Add it to `integrations/browser-use-discovery/.env`:
+   ```
+   SERPAPI_API_KEY=your-key-here
+   ```
+4. Restart the local worker (`npm run discovery:worker:start-local`) so the env var loads.
+
+That's it. The dashboard's **Settings → Discovery** tab has a live status indicator showing whether the key is picked up, and a green "✓ Configured" badge appears once it's working. If SerpApi is unset, the lane skips gracefully — no errors, just fewer matches.
 
 **UltraPlan (agentic-primary lane):** `browser_only` now defaults to higher grounded-search limits (`maxResultsPerCompany=12`, `maxPagesPerCompany=8`, `maxRuntimeMs=300000`, `maxTokensPerQuery=4096`), with independent feature flags for multi-query fan-out, retry broadening, and bounded parallel company processing. Run status responses expose resolved `ultraPlanTuning` and `groundedSearchTuning` at `/runs/{runId}` for observability and rollback-safe tuning.
 
