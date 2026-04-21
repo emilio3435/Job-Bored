@@ -150,6 +150,36 @@ describe("Schedule card — Tier 2 (local) localStorage round-trip", () => {
   });
 });
 
+describe("Schedule card — Tier 1 (auto-refresh) default", () => {
+  it("readAutoRefreshState returns enabled:true when localStorage has no record", async () => {
+    const { module } = await loadScheduleModule();
+    const state = module.autoRefresh.readAutoRefreshState();
+    assert.deepEqual(asPlain(state), {
+      enabled: true,
+      intervalHours: 12,
+      lastFiredAt: 0,
+    });
+  });
+
+  it("readAutoRefreshState preserves explicit enabled:false from storage", async () => {
+    const { module, localStorageRaw } = await loadScheduleModule();
+    localStorageRaw.set(
+      module.autoRefresh.STORAGE_KEY,
+      JSON.stringify({ enabled: false, intervalHours: 12, lastFiredAt: 0 }),
+    );
+    const state = module.autoRefresh.readAutoRefreshState();
+    assert.equal(state.enabled, false);
+  });
+
+  it("readAutoRefreshState falls back to enabled:true on malformed JSON", async () => {
+    const { module, localStorageRaw } = await loadScheduleModule();
+    localStorageRaw.set(module.autoRefresh.STORAGE_KEY, "{not json");
+    const state = module.autoRefresh.readAutoRefreshState();
+    assert.equal(state.enabled, true);
+    assert.equal(state.intervalHours, 12);
+  });
+});
+
 describe("Schedule card — OS detection emits correct install command", () => {
   const cases = [
     {
