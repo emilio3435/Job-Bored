@@ -295,12 +295,20 @@ function mapJobsResult(
 }
 
 function resolveApplyUrl(raw: SerpApiJobsResult): string {
+  // Collect candidate URLs from apply_options, related_links, share_link in
+  // a single array, then re-rank. SerpApi's apply_options often puts an
+  // aggregator (LinkedIn / Indeed / Glassdoor) as entry 0 and the actual
+  // ATS link as entry 1+. Aggregators block the local Cheerio scraper with
+  // HTTP 403, so the downstream "load posting details" UI fails. Ranking
+  // direct ATS hosts first, company careers pages second, and known
+  // aggregators last fixes the dominant enrichment-403 failure mode.
+  const candidates: string[] = [];
   const applyOptions = Array.isArray(raw.apply_options) ? raw.apply_options : [];
   for (const option of applyOptions) {
     if (option && typeof option === "object") {
       const link = (option as Record<string, unknown>).link;
       if (typeof link === "string" && link.startsWith("http")) {
-        return link;
+        candidates.push(link);
       }
     }
   }
@@ -309,14 +317,57 @@ function resolveApplyUrl(raw: SerpApiJobsResult): string {
     if (link && typeof link === "object") {
       const href = (link as Record<string, unknown>).link;
       if (typeof href === "string" && href.startsWith("http")) {
-        return href;
+        candidates.push(href);
       }
     }
   }
   if (typeof raw.share_link === "string" && raw.share_link.startsWith("http")) {
-    return raw.share_link;
+    candidates.push(raw.share_link);
   }
-  return "";
+  if (candidates.length === 0) return "";
+  // Pick the one with the lowest priority number (best).
+  const ranked = candidates
+    .map((url) => ({ url, priority: applyUrlPriority(url) }))
+    .sort((a, b) => a.priority - b.priority);
+  return ranked[0].url;
+}
+
+// Lower number = preferred. Direct-ATS hosts win, then company pages, then
+// aggregators that block the scraper.
+const AGGREGATOR_HOST_SIGNATURES: RegExp[] = [
+  /(^|\.)linkedin\.com$/i,
+  /(^|\.)indeed\.com$/i,
+  /(^|\.)glassdoor\.com$/i,
+  /(^|\.)ziprecruiter\.com$/i,
+  /(^|\.)monster\.com$/i,
+  /(^|\.)careerbuilder\.com$/i,
+  /(^|\.)simplyhired\.com$/i,
+  /(^|\.)wellfound\.com$/i,
+  /(^|\.)angel\.co$/i,
+  /(^|\.)builtin(?:\w+)?\.com$/i,
+  /(^|\.)dice\.com$/i,
+  /(^|\.)jobs2careers\.com$/i,
+  /(^|\.)google\.com$/i, // google jobs /search redirect
+];
+
+function applyUrlPriority(url: string): number {
+  let host = "";
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return 99;
+  }
+  // Known ATS hosts from our shared inference table — reuse the same regexes
+  // we already use for providerType so there's one source of truth.
+  for (const signature of ATS_HOST_SIGNATURES) {
+    if (signature.match.test(host)) return 10;
+  }
+  for (const pattern of AGGREGATOR_HOST_SIGNATURES) {
+    if (pattern.test(host)) return 90;
+  }
+  // Generic HTTPS (likely a company careers page). Preferred over aggregators,
+  // worse than a known ATS slug.
+  return 50;
 }
 
 function extractPostedAt(raw: SerpApiJobsResult): string | undefined {

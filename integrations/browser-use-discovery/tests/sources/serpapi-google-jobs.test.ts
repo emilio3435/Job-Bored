@@ -259,6 +259,95 @@ test("collectSerpApiGoogleJobsListings skips listings missing title, company, or
   assert.equal(result.listings[0].company, "Aco");
 });
 
+test("collectSerpApiGoogleJobsListings prefers ATS apply URLs over LinkedIn/Indeed aggregators", async () => {
+  const result = await collectSerpApiGoogleJobsListings({
+    profile: {
+      targetRoles: ["Product Manager"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+    },
+    runtimeConfig: makeRuntimeConfig(),
+    fetchImpl: fetchReturning({
+      jobs_results: [
+        {
+          title: "Senior PM",
+          company_name: "Plaid",
+          location: "Remote",
+          via: "via Greenhouse",
+          // Aggregator listed first (SerpApi's common ordering); direct ATS
+          // link is second. Collector must re-rank and pick the ATS link.
+          apply_options: [
+            {
+              title: "Apply on LinkedIn",
+              link: "https://www.linkedin.com/jobs/view/12345",
+            },
+            {
+              title: "Apply on Greenhouse",
+              link: "https://boards.greenhouse.io/plaid/jobs/4728292",
+            },
+            {
+              title: "Apply on Indeed",
+              link: "https://www.indeed.com/viewjob?jk=abc",
+            },
+          ],
+        },
+        {
+          title: "Staff PM",
+          company_name: "Ramp",
+          location: "Remote",
+          // No ATS URL in the apply options — fall back to generic company URL.
+          apply_options: [
+            {
+              title: "Apply on LinkedIn",
+              link: "https://www.linkedin.com/jobs/view/67890",
+            },
+            {
+              title: "Apply on Ramp careers",
+              link: "https://ramp.com/careers/staff-pm",
+            },
+          ],
+        },
+        {
+          title: "PM at PureAgg",
+          company_name: "PureAgg",
+          location: "Remote",
+          // Only aggregators available — take the first one gracefully.
+          apply_options: [
+            {
+              title: "Apply on Glassdoor",
+              link: "https://www.glassdoor.com/Job/foo.htm",
+            },
+            {
+              title: "Apply on Indeed",
+              link: "https://www.indeed.com/viewjob?jk=xyz",
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  assert.equal(result.listings.length, 3);
+  const byCompany = Object.fromEntries(
+    result.listings.map((l) => [l.company, l.url]),
+  );
+  assert.equal(
+    byCompany["Plaid"],
+    "https://boards.greenhouse.io/plaid/jobs/4728292",
+    "should pick Greenhouse over LinkedIn/Indeed",
+  );
+  assert.equal(
+    byCompany["Ramp"],
+    "https://ramp.com/careers/staff-pm",
+    "should pick company careers page over LinkedIn",
+  );
+  assert.ok(
+    byCompany["PureAgg"].includes("glassdoor.com") ||
+      byCompany["PureAgg"].includes("indeed.com"),
+    "aggregator-only listings still get a URL, just not a preferred one",
+  );
+});
+
 test("collectSerpApiGoogleJobsListings returns no_queries when targetRoles is empty", async () => {
   let fetchCallCount = 0;
   const result = await collectSerpApiGoogleJobsListings({
