@@ -9930,6 +9930,66 @@ function _fetchCompanyLogo(name) {
     });
 }
 
+// Promise-returning version of the Clearbit/Google-favicon lookup used by
+// the auto-enrich path. Resolves to a usable logo URL or empty string.
+// Never rejects — worst case returns a Google-favicon fallback built from
+// the company's slug, which renders as a generic "?" icon if the domain
+// doesn't exist (harmless).
+async function resolveCompanyLogoUrl(companyName) {
+  const name = String(companyName || "").trim();
+  if (!name) return "";
+  // Fast path: already cached from earlier render.
+  const cached = _LOGO_CACHE.get(name);
+  if (cached !== undefined) return cached || "";
+  // Piggyback on the existing fetcher so the in-memory cache + DOM upgrade
+  // both fire as a side-effect. We still do our own fetch because we need
+  // a Promise-shaped return for the auto-enrich caller.
+  _fetchCompanyLogo(name);
+  try {
+    const resp = await fetch(
+      "https://autocomplete.clearbit.com/v1/companies/suggest?query=" +
+        encodeURIComponent(name),
+      { method: "GET" },
+    );
+    if (resp.ok) {
+      const results = await resp.json();
+      if (Array.isArray(results) && results.length) {
+        const hit = results[0];
+        if (hit && hit.logo) return String(hit.logo);
+        if (hit && hit.domain) {
+          return (
+            "https://www.google.com/s2/favicons?domain=" +
+            encodeURIComponent(hit.domain) +
+            "&sz=128"
+          );
+        }
+      }
+    }
+  } catch (_) {
+    /* network failure → fall through to slug fallback */
+  }
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (!slug) return "";
+  return (
+    "https://www.google.com/s2/favicons?domain=" +
+    encodeURIComponent(slug + ".com") +
+    "&sz=128"
+  );
+}
+
+// True when the existing Logo URL cell is a placeholder that was derived
+// from an aggregator hostname (linkedin.com, indeed.com, etc.). Those were
+// written by the worker's deriveLogoUrl when the company name was still
+// the aggregator-hostname placeholder; auto-enrich should replace them.
+function isPlaceholderLogoUrl(value) {
+  const v = String(value || "").trim().toLowerCase();
+  if (!v) return true;
+  // Google-favicon URLs keyed to an aggregator or to the raw hostname slug
+  // of the paste URL. Match the ?domain= query-string param directly.
+  const aggrMatch = /domain=(?:[a-z0-9-.%]+\.)?(linkedin|indeed|glassdoor|ziprecruiter|monster|simplyhired|careerbuilder|wellfound|google|builtin|dice)/i;
+  return aggrMatch.test(v);
+}
+
 function _upgradePlaceholders(companyName, logoUrl) {
   document
     .querySelectorAll(
@@ -17588,6 +17648,17 @@ async function autoEnrichIngestedRow(url, persistedLead) {
     if (inferredLocation && !String(job.location || "").trim()) {
       updates.push({ range: `Pipeline!D${sheetRow}`, value: inferredLocation });
       job.location = inferredLocation;
+    }
+    // Replace the aggregator-hostname favicon the worker wrote at ingest
+    // time (e.g. LinkedIn/Indeed favicon) with a company-specific logo
+    // resolved via Clearbit autocomplete. Fires in parallel with the
+    // other updates so the sheet write batches together.
+    if (inferredCompany && isPlaceholderLogoUrl(job.logoUrl)) {
+      const newLogoUrl = await resolveCompanyLogoUrl(inferredCompany);
+      if (newLogoUrl) {
+        updates.push({ range: `Pipeline!T${sheetRow}`, value: newLogoUrl });
+        job.logoUrl = newLogoUrl;
+      }
     }
 
     if (updates.length === 0) {
