@@ -59,6 +59,7 @@ function makeDependencies(overrides: Record<string, unknown> = {}) {
         appended: 1,
         updated: 0,
         skippedDuplicates: 0,
+        skippedBlacklist: 0,
         warnings: [],
       }),
     },
@@ -167,6 +168,7 @@ test("handleIngestUrlWebhook blocked_aggregator lands url-only row without scrap
             appended: 1,
             updated: 0,
             skippedDuplicates: 0,
+            skippedBlacklist: 0,
             warnings: [],
           };
         },
@@ -221,6 +223,7 @@ test("handleIngestUrlWebhook ats_direct happy path appends row", async () => {
             appended: 1,
             updated: 0,
             skippedDuplicates: 0,
+            skippedBlacklist: 0,
             warnings: [],
           };
         },
@@ -280,6 +283,7 @@ test("handleIngestUrlWebhook returns duplicate when writer reports skipped dupli
           appended: 0,
           updated: 0,
           skippedDuplicates: 1,
+          skippedBlacklist: 0,
           warnings: [],
         }),
       },
@@ -316,6 +320,7 @@ test("handleIngestUrlWebhook generic_https scrape failure lands url-only row", a
             appended: 1,
             updated: 0,
             skippedDuplicates: 0,
+            skippedBlacklist: 0,
             warnings: [],
           };
         },

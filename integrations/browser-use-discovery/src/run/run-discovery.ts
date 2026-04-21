@@ -905,6 +905,7 @@ export async function runDiscovery(
       appended: 0,
       updated: 0,
       skippedDuplicates: 0,
+      skippedBlacklist: 0,
       warnings: [],
     };
   } else {
@@ -929,6 +930,7 @@ export async function runDiscovery(
           appended: 0,
           updated: 0,
           skippedDuplicates: 0,
+          skippedBlacklist: 0,
           warnings: [
             `Sheet write failed during ${error.phase} phase: ${error.message}`,
           ],
@@ -950,6 +952,7 @@ export async function runDiscovery(
     appended: writeResult.appended,
     updated: writeResult.updated,
     skippedDuplicates: writeResult.skippedDuplicates,
+    skippedBlacklist: writeResult.skippedBlacklist,
     warningCount: writeResult.warnings.length,
     sourceSummary: buildSourceSummary(
       extractionResultsBySource,

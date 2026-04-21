@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 
 import type { WorkerRuntimeConfig } from "../config.ts";
 import {
+  DEFAULT_BLACKLIST_SHEET_NAME,
   PIPELINE_HEADER_ROW,
   type NormalizedLead,
   type PipelineWriteResult,
@@ -74,11 +75,8 @@ const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
 const COLUMN_COUNT = PIPELINE_HEADER_ROW.length;
 const REQUIRED_HEADER_COUNT = 17;
 // Last A1-notation column letter covering every column in PIPELINE_HEADER_ROW.
-// Derived from COLUMN_COUNT so when the header row grows (Match Score added as
-// the 21st column in commit b95e093), range strings A1:..., A2:..., and A:...
-// automatically widen. Previously these were hard-coded to "T" (20 cols),
-// which caused HTTP 400 "tried writing to column [U]" once Match Score leads
-// started flowing through.
+// Derived from COLUMN_COUNT so range strings automatically widen when optional
+// Pipeline columns are appended.
 const LAST_COLUMN_LETTER = columnIndexToLetter(COLUMN_COUNT);
 
 function columnIndexToLetter(index: number): string {
@@ -172,6 +170,8 @@ function buildLeadRow(lead: NormalizedLead, now: Date): string[] {
     "",
     lead.logoUrl || "",
     matchScore,
+    lead.favorite ? "★" : "",
+    lead.dismissedAt ?? "",
   ];
 }
 
@@ -574,6 +574,17 @@ export function createPipelineWriter(
       sheetName,
       headerValues,
     );
+    const blacklistRows = await getSheetValues(
+      sheetId,
+      `${DEFAULT_BLACKLIST_SHEET_NAME}!A2:A`,
+      accessToken,
+      fetchImpl,
+    ).catch(() => []);
+    const blacklistedUrls = new Set<string>(
+      blacklistRows
+        .map((row) => normalizeLeadUrl(row[0] || ""))
+        .filter((value) => Boolean(value)),
+    );
 
     const existingRows = await getSheetValues(
       sheetId,
@@ -603,6 +614,7 @@ export function createPipelineWriter(
     const uniqueLeads = deduped.leads;
     const updates: Array<{ rowNumber: number; values: string[] }> = [];
     const appends: string[][] = [];
+    const skippedBlacklist: Array<{ url: string; title: string }> = [];
     let updated = 0;
     let appended = 0;
     let skippedDuplicates = deduped.skippedDuplicates;
@@ -613,11 +625,19 @@ export function createPipelineWriter(
       if (!link) continue;
       const match = existingByLink.get(link);
       if (match) {
+        if (match.row[22]) {
+          skippedBlacklist.push({ url: link, title: lead.title || "" });
+          continue;
+        }
         updates.push({
           rowNumber: match.rowNumber,
           values: mergeExistingRow(match.row, leadRow),
         });
         updated += 1;
+        continue;
+      }
+      if (blacklistedUrls.has(link)) {
+        skippedBlacklist.push({ url: link, title: lead.title || "" });
         continue;
       }
       appends.push(leadRow);
@@ -632,6 +652,7 @@ export function createPipelineWriter(
       appended,
       updated,
       skippedDuplicates: skippedDuplicates + existingDuplicateCount,
+      skippedBlacklist: skippedBlacklist.length,
       warnings: existingDuplicateCount
         ? [
             `Found ${existingDuplicateCount} duplicate existing Pipeline rows for normalized Link values.`,
