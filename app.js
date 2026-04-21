@@ -17456,22 +17456,28 @@ function handleIngestUrlResponse(data, url) {
   }
   if (data.ok === false) {
     switch (data.reason) {
-      case "blocked_aggregator": {
-        const label = aggregatorLabelForHost(data.host);
+      case "blocked_aggregator":
+      case "scrape_failed": {
+        // Defensive branch: the backend now auto-lands a url-only row for
+        // these cases (and returns ok:true, strategy:"url_only"). If an
+        // older worker is still returning these reasons, fall back to the
+        // explicit manual-fill modal so users aren't blocked on the fix
+        // deploy. Newer workers never hit this path.
+        const label =
+          data.reason === "blocked_aggregator"
+            ? aggregatorLabelForHost(data.host) + " blocks scrapers — "
+            : "";
+        const hint =
+          (typeof data.hint === "string" && data.hint.trim()) ||
+          (typeof data.message === "string" && data.message.trim()) ||
+          "We couldn't auto-scrape this URL.";
         openIngestManualModal({
           url,
           message:
             label +
-            " blocks scrapers — fill in details manually (about 20 seconds).",
+            hint +
+            " (This shouldn't normally happen — check your worker version if it keeps showing up.)",
         });
-        return;
-      }
-      case "scrape_failed": {
-        const hint =
-          (typeof data.hint === "string" && data.hint.trim()) ||
-          (typeof data.message === "string" && data.message.trim()) ||
-          "We couldn't auto-scrape this URL — fill in what you can.";
-        openIngestManualModal({ url, message: hint });
         return;
       }
       case "duplicate": {
@@ -17649,6 +17655,19 @@ function initIngestUrlFlow() {
   }
   if (els.close) {
     els.close.addEventListener("click", () => closeIngestManualModal());
+  }
+  // Explicit "Add manually" escape hatch in the hero card footnote. Lets
+  // users skip URL paste entirely (e.g. posting only exists on a site we
+  // can't link to, or they want to track a job they heard about verbally).
+  const manualOpenBtn = document.getElementById("ingestManualModalOpenBtn");
+  if (manualOpenBtn) {
+    manualOpenBtn.addEventListener("click", () => {
+      openIngestManualModal({
+        url: "",
+        message:
+          "No URL handy? Fill in the basics and we'll track it in your Pipeline.",
+      });
+    });
   }
   if (els.modal) {
     els.modal.addEventListener("click", (e) => {

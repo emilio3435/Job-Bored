@@ -3518,30 +3518,180 @@ button.feed-item {
   margin-left: auto;
 }
 
-.ingest-url-form {
-  display: flex;
+/* ── URL paste hero card ──────────────────────────────────────────
+   Prominent primary action placed above the Pipeline toolbar. Visual
+   weight sits between the section header and the filter bar — a
+   distinct surface with a subtle accent so "paste a URL" reads as
+   first-class, not as an afterthought in the search/sort row. */
+.ingest-url-hero {
+  margin-bottom: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.06) 0%,
+    rgba(139, 92, 246, 0.04) 100%
+  );
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  border-radius: var(--radius-lg);
+  position: relative;
+  overflow: hidden;
+}
+
+.ingest-url-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at 0% 0%,
+    rgba(59, 130, 246, 0.08),
+    transparent 60%
+  );
+}
+
+.ingest-url-hero__body {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  grid-template-areas:
+    "copy copy"
+    "form form"
+    "foot foot";
+  gap: var(--space-3);
+  align-items: start;
+}
+
+@media (min-width: 900px) {
+  .ingest-url-hero__body {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "copy"
+      "form"
+      "foot";
+  }
+}
+
+.ingest-url-hero__copy {
+  grid-area: copy;
+}
+
+.ingest-url-hero__eyebrow {
+  display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  margin-left: auto;
-  flex: 0 1 auto;
-  min-width: 0;
-}
-
-.ingest-url-input {
-  width: 280px;
-  padding-left: var(--space-3);
-  max-width: 100%;
-}
-
-.ingest-url-submit {
-  padding: var(--space-1) var(--space-3);
   font-size: var(--text-xs);
-  white-space: nowrap;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  margin-bottom: var(--space-1);
 }
 
-.ingest-url-submit[disabled] {
+.ingest-url-hero__icon {
+  font-size: 1.05em;
+}
+
+.ingest-url-hero__title {
+  margin: 0 0 var(--space-1) 0;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.ingest-url-hero__subtitle {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+  max-width: 64ch;
+}
+
+.ingest-url-hero__form {
+  grid-area: form;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.ingest-url-hero__input {
+  flex: 1 1 320px;
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+  line-height: 1.3;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.ingest-url-hero__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 3px rgba(59, 130, 246, 0.18),
+    0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.ingest-url-hero__input::placeholder {
+  color: var(--text-faint);
+}
+
+.ingest-url-hero__submit {
+  flex: 0 0 auto;
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+  transition: transform var(--transition), box-shadow var(--transition),
+    opacity var(--transition);
+}
+
+.ingest-url-hero__submit:hover:not([disabled]) {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(59, 130, 246, 0.28);
+}
+
+.ingest-url-hero__submit:active:not([disabled]) {
+  transform: translateY(0);
+}
+
+.ingest-url-hero__submit[disabled] {
   opacity: 0.6;
   cursor: progress;
+}
+
+.ingest-url-hero__footnote {
+  grid-area: foot;
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.ingest-url-hero__manual-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ingest-url-hero__manual-link:hover {
+  text-decoration: none;
 }
 
 .ingest-manual-slider {
@@ -3555,14 +3705,16 @@ button.feed-item {
   color: var(--text-muted);
 }
 
-@media (max-width: 720px) {
-  .ingest-url-form {
-    margin-left: 0;
-    width: 100%;
+@media (max-width: 640px) {
+  .ingest-url-hero {
+    padding: var(--space-3) var(--space-4);
   }
-  .ingest-url-input {
-    flex: 1 1 auto;
-    width: auto;
+  .ingest-url-hero__form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .ingest-url-hero__submit {
+    width: 100%;
   }
 }
 
