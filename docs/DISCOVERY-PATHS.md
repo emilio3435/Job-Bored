@@ -1,5 +1,7 @@
 # Discovery: paths, webhooks, and alternatives
 
+> **🆕 For newby-friendly scheduling, start here:** **[docs/SETTINGS-SCHEDULE.md](SETTINGS-SCHEDULE.md)** — a three-tier ladder (browser tab / local OS / GitHub Actions) all configurable from **Settings → Profile → Schedule** in the dashboard. The rest of this doc is the underlying reference material for custom setups and edge cases.
+
 Command Center can **show and edit** jobs that already live in your **Pipeline** sheet. **Discovery** is the optional step of _finding_ new roles and adding rows. This doc maps **every common path** — with webhooks, without webhooks, and hybrid — so you can pick what matches your comfort level.
 
 ---

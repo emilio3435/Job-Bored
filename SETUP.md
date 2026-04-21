@@ -10,6 +10,8 @@ Read-only mode works out of the box — just point it at any published Google Sh
 
 **Discovery paths (not only webhooks):** [docs/DISCOVERY-PATHS.md](docs/DISCOVERY-PATHS.md) explains manual Pipeline entry, scheduled jobs (GitHub Actions, Apps Script triggers), and the optional **Run discovery** POST — with diagrams. **Apps Script:** step-by-step [integrations/apps-script/WALKTHROUGH.md](integrations/apps-script/WALKTHROUGH.md).
 
+**Daily refresh schedule (new):** pick a time in **Settings → Profile → Schedule** and install a cross-platform scheduler (launchd / systemd / Task Scheduler) with one copy-paste command, or generate a GitHub Actions workflow file. Full walkthrough: **[docs/SETTINGS-SCHEDULE.md](docs/SETTINGS-SCHEDULE.md)** — includes a Windows-first section for PowerShell users.
+
 ## BYO automation templates
 
 Copy-paste automation you deploy into **your** Google, GitHub, Cloudflare, or agent environment. The **Run discovery** POST shape and Pipeline rules are defined in **[AGENT_CONTRACT.md](AGENT_CONTRACT.md)**.

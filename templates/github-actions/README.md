@@ -1,5 +1,7 @@
 # GitHub Actions — discovery webhook ping (no CORS)
 
+> **🆕 Easier path for most users:** the dashboard's **Settings → Profile → Schedule → Tier 3** card generates a personalized version of this workflow file with your chosen time baked in. See **[docs/SETTINGS-SCHEDULE.md](../../docs/SETTINGS-SCHEDULE.md)** for the walkthrough. The template below is still the source of truth for what gets deployed.
+
 Use this when the dashboard **cannot** POST to your webhook from the browser (common with **Google Apps Script**). GitHub Actions runs **`curl` on Ubuntu** — **no CORS** — so the same webhook URL works.
 
 ## Setup
