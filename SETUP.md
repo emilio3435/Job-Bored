@@ -92,6 +92,28 @@ Upload the files anywhere static files are served:
 
 ---
 
+## Recommended: enable the SerpApi Google Jobs source
+
+The discovery worker at `integrations/browser-use-discovery/` has three source lanes. The highest-quality one — `serpapi_google_jobs` — queries Google Jobs directly, which has already indexed every ATS board on the web (Greenhouse, Lever, Ashby, Workday, SmartRecruiters, iCIMS, etc.). Enabling it skips the brittle "scrape each company's career page" step and produces far more clean matches per run.
+
+**Without SerpApi**, the worker runs but tends to produce few matches, especially for enterprise companies on Workday/iCIMS that block scrapers.
+
+**Takes ~2 minutes. Free tier is 100 searches/month.**
+
+1. Sign up at [serpapi.com](https://serpapi.com/users/sign_up) — 100 free searches per month (~20 daily discovery runs).
+2. Copy your API key from the [SerpApi dashboard](https://serpapi.com/manage-api-key).
+3. Add it to `integrations/browser-use-discovery/.env`:
+   ```
+   SERPAPI_API_KEY=paste-your-key-here
+   ```
+4. Restart the worker (`npm run discovery:worker:start-local`) so the new env var loads.
+
+The dashboard's **Settings → Discovery** tab shows a live "✓ Configured" badge once it's working. If the key is unset, the lane just skips — no errors.
+
+For $50/month you can upgrade to 5000 searches — plenty for daily refresh + multiple ad-hoc runs.
+
+---
+
 ## URL Parameters
 
 You can override the Sheet ID via URL parameter:

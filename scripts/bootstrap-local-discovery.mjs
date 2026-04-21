@@ -1200,6 +1200,54 @@ async function main() {
   console.log("3. Run this Cloudflare command:");
   console.log(`   ${cloudflareDeployCommand}`);
   console.log("4. Paste the final workers.dev URL into Discovery webhook URL.");
+
+  // Layer 5 Tier 1 onboarding nudge. When SERPAPI_API_KEY is unset, the
+  // discovery worker falls back to Gemini-grounded search + browser-use —
+  // which works but yields far fewer matches per run. Most new users miss
+  // this because the lane skips silently on an empty key. Emit a visible
+  // "recommended next step" hint at the end of bootstrap so it's the last
+  // thing they see before running discovery for the first time.
+  const envSnapshot = readBrowserUseDiscoveryEnvFile();
+  const serpApiKey =
+    (envSnapshot && envSnapshot.parsed && envSnapshot.parsed.SERPAPI_API_KEY) ||
+    process.env.SERPAPI_API_KEY ||
+    "";
+  if (!String(serpApiKey).trim()) {
+    console.log("");
+    console.log(
+      "⚡ RECOMMENDED — enable the SerpApi Google Jobs source for high-quality matches",
+    );
+    console.log(
+      "  Without it, the worker runs but produces far fewer matches because it",
+    );
+    console.log(
+      "  falls back to scraping individual career pages that often block scrapers.",
+    );
+    console.log("  Free tier = 100 searches/month (~20 daily discovery runs).");
+    console.log("");
+    console.log(
+      "  a. Sign up: https://serpapi.com/users/sign_up",
+    );
+    console.log(
+      "  b. Copy your key: https://serpapi.com/manage-api-key",
+    );
+    console.log(
+      `  c. Add to ${browserUseDiscoveryEnvPath}:`,
+    );
+    console.log("       SERPAPI_API_KEY=your-key-here");
+    console.log(
+      "  d. Restart the worker: npm run discovery:worker:start-local",
+    );
+    console.log("");
+    console.log(
+      "  Full walkthrough: SETUP.md -> Recommended: enable the SerpApi Google Jobs source",
+    );
+  } else {
+    console.log("");
+    console.log(
+      "✓ SerpApi Google Jobs key detected — high-recall discovery lane is active.",
+    );
+  }
 }
 
 // Only run the CLI entry point when this file is invoked directly
