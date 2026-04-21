@@ -3544,6 +3544,17 @@ button.feed-item {
   cursor: progress;
 }
 
+.ingest-manual-slider {
+  width: 100%;
+  margin-bottom: var(--space-3);
+}
+
+#ingestManualUrl {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
 @media (max-width: 720px) {
   .ingest-url-form {
     margin-left: 0;
