@@ -14,6 +14,61 @@
   var RUN_TIMEOUT_MS = 90_000;
   var AUTO_REFRESH_STORAGE_KEY = "settings_profile_auto_refresh";
   var AUTO_REFRESH_VALID_HOURS = [6, 12, 24];
+  var SCHEDULE_LOCAL_STORAGE_KEY = "settings_profile_schedule_local";
+  var SCHEDULE_CLOUD_STORAGE_KEY = "settings_profile_schedule_cloud";
+  var SCHEDULE_SAVE_DEBOUNCE_MS = 600;
+  var SCHEDULE_GITHUB_FILENAME = "command-center-discovery.yml";
+  // Verbatim copy of templates/github-actions/command-center-discovery.yml.
+  // Stored as an array of lines to avoid any JS template-literal collision
+  // with GitHub's own ${{ ... }} expression syntax.
+  var GITHUB_ACTIONS_TEMPLATE = [
+    "# Command Center — POST discovery webhook from GitHub Actions (no browser CORS)",
+    "#",
+    "# Copy this file to: .github/workflows/command-center-discovery.yml",
+    "# Set repository secrets (see templates/github-actions/README.md)",
+    "",
+    "name: Command Center discovery ping",
+    "",
+    "on:",
+    "  workflow_dispatch:",
+    "  schedule:",
+    "    # Daily 14:00 UTC — change to your timezone preference",
+    "    - cron: \"0 14 * * *\"",
+    "",
+    "jobs:",
+    "  discovery:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - name: POST discovery webhook",
+    "        env:",
+    "          WEBHOOK_URL: ${{ secrets.COMMAND_CENTER_DISCOVERY_WEBHOOK_URL }}",
+    "          SHEET_ID: ${{ secrets.COMMAND_CENTER_SHEET_ID }}",
+    "        run: |",
+    "          set -euo pipefail",
+    "          if [ -z \"${WEBHOOK_URL:-}\" ] || [ -z \"${SHEET_ID:-}\" ]; then",
+    "            echo \"Set secrets COMMAND_CENTER_DISCOVERY_WEBHOOK_URL and COMMAND_CENTER_SHEET_ID\"",
+    "            exit 1",
+    "          fi",
+    "          VAR_KEY=\"gh-${{ github.run_id }}-${{ github.run_attempt }}-$(date +%s)\"",
+    "          REQ_AT=\"$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")\"",
+    "          BODY=$(jq -n \\",
+    "            --arg v \"$VAR_KEY\" \\",
+    "            --arg s \"$SHEET_ID\" \\",
+    "            --arg t \"$REQ_AT\" \\",
+    "            '{",
+    "              event: \"command-center.discovery\",",
+    "              schemaVersion: 1,",
+    "              sheetId: $s,",
+    "              variationKey: $v,",
+    "              requestedAt: $t,",
+    "              discoveryProfile: {}",
+    "            }')",
+    "          curl -sS -X POST \"$WEBHOOK_URL\" \\",
+    "            -H \"Content-Type: application/json\" \\",
+    "            -d \"$BODY\" \\",
+    "            -w \"\\nHTTP %{http_code}\\n\"",
+    "",
+  ].join("\n");
 
   var els = {};
   var bound = false;
@@ -48,6 +103,21 @@
       autoRefreshToggle: qs("settingsProfileAutoRefreshToggle"),
       autoRefreshCadence: qs("settingsProfileAutoRefreshCadence"),
       autoRefreshHint: qs("settingsProfileAutoRefreshHint"),
+      scheduleLocalEnable: qs("settingsProfileScheduleLocalEnable"),
+      scheduleLocalTime: qs("settingsProfileScheduleLocalTime"),
+      scheduleLocalOsHint: qs("settingsProfileScheduleLocalOsHint"),
+      scheduleLocalCommand: qs("settingsProfileScheduleLocalCommand"),
+      scheduleLocalCopyInstall: qs("settingsProfileScheduleLocalCopyInstall"),
+      scheduleLocalCopyUninstall: qs("settingsProfileScheduleLocalCopyUninstall"),
+      scheduleLocalBadge: qs("settingsProfileScheduleLocalBadge"),
+      scheduleLocalArtifact: qs("settingsProfileScheduleLocalArtifact"),
+      scheduleLocalError: qs("settingsProfileScheduleLocalError"),
+      scheduleCloudEnable: qs("settingsProfileScheduleCloudEnable"),
+      scheduleCloudTime: qs("settingsProfileScheduleCloudTime"),
+      scheduleCloudLocalPreview: qs("settingsProfileScheduleCloudLocalPreview"),
+      scheduleCloudDownload: qs("settingsProfileScheduleCloudDownload"),
+      scheduleCloudBadge: qs("settingsProfileScheduleCloudBadge"),
+      scheduleCloudError: qs("settingsProfileScheduleCloudError"),
     };
   }
 
@@ -836,6 +906,502 @@
     refreshStatusPanel();
   }
 
+  // ── Schedule card: Tier 2 (local OS) + Tier 3 (GitHub Actions) ─────
+  // Tier 1 (browser tab auto-refresh) lives in the auto-refresh block above.
+  // These helpers are pure where possible so the client tests can import
+  // them via window.JobBoredSettingsProfileTab.schedule and exercise the
+  // OS-detection / YAML-download / install-command code paths without a DOM.
+
+  function detectOs(userAgent, platform) {
+    var ua = String(userAgent || "").toLowerCase();
+    var pl = String(platform || "").toLowerCase();
+    if (pl.indexOf("win") !== -1 || ua.indexOf("windows") !== -1) return "win32";
+    if (pl.indexOf("mac") !== -1 || pl.indexOf("darwin") !== -1 || ua.indexOf("mac os") !== -1) {
+      return "darwin";
+    }
+    if (pl.indexOf("linux") !== -1 || ua.indexOf("linux") !== -1) return "linux";
+    return "other";
+  }
+
+  function clampHour(hour, fallback) {
+    var n = Number(hour);
+    if (Number.isFinite(n) && n >= 0 && n <= 23 && Math.floor(n) === n) return n;
+    return fallback;
+  }
+
+  function clampMinute(minute, fallback) {
+    var n = Number(minute);
+    if (Number.isFinite(n) && n >= 0 && n <= 59 && Math.floor(n) === n) return n;
+    return fallback;
+  }
+
+  function parseTimeString(value) {
+    var m = /^(\d{1,2}):(\d{2})/.exec(String(value || ""));
+    if (!m) return null;
+    var hour = clampHour(Number(m[1]), null);
+    var minute = clampMinute(Number(m[2]), null);
+    if (hour === null || minute === null) return null;
+    return { hour: hour, minute: minute };
+  }
+
+  function formatTimeString(hour, minute) {
+    var h = String(clampHour(hour, 0)).padStart(2, "0");
+    var m = String(clampMinute(minute, 0)).padStart(2, "0");
+    return h + ":" + m;
+  }
+
+  function buildInstallCommand(platform, hour, minute) {
+    var h = clampHour(hour, 8);
+    var m = clampMinute(minute, 0);
+    return (
+      "npm run schedule:install -- --hour " + String(h) + " --minute " + String(m)
+    );
+  }
+
+  function buildUninstallCommand() {
+    return "npm run schedule:uninstall";
+  }
+
+  function describeOsArtifact(platform) {
+    switch (platform) {
+      case "darwin":
+        return "macOS detected — the install command will register a launchd agent in ~/Library/LaunchAgents.";
+      case "linux":
+        return "Linux detected — the install command will register a systemd user timer (or crontab as fallback).";
+      case "win32":
+        return "Windows detected — the install command will register a Task Scheduler task. Run it from a Command Prompt or PowerShell in the repo folder.";
+      default:
+        return "Unrecognized OS — Tier 2 may not be supported here. Tier 3 (GitHub Actions) is a good alternative.";
+    }
+  }
+
+  function formatCronLine(hour, minute) {
+    var h = clampHour(hour, 14);
+    var m = clampMinute(minute, 0);
+    return String(m) + " " + String(h) + " * * *";
+  }
+
+  function buildGithubActionsYaml(hour, minute, template) {
+    var source =
+      typeof template === "string" && template
+        ? template
+        : GITHUB_ACTIONS_TEMPLATE;
+    var h = clampHour(hour, 14);
+    var m = clampMinute(minute, 0);
+    var cron = formatCronLine(h, m);
+    var hh = String(h).padStart(2, "0");
+    var mm = String(m).padStart(2, "0");
+    var out = source.replace(
+      /- cron: "[^"]*"/,
+      '- cron: "' + cron + '"',
+    );
+    out = out.replace(
+      /# Daily [0-9]{1,2}:[0-9]{2} UTC[^\n]*/,
+      "# Daily " +
+        hh +
+        ":" +
+        mm +
+        " UTC — matches the time picked in Settings → Profile → Schedule",
+    );
+    return out;
+  }
+
+  function formatLocalTimeFromUtc(utcHour, utcMinute, referenceDate) {
+    var h = clampHour(utcHour, 14);
+    var m = clampMinute(utcMinute, 0);
+    var base = referenceDate instanceof Date ? referenceDate : new Date();
+    var d = new Date(
+      Date.UTC(
+        base.getUTCFullYear(),
+        base.getUTCMonth(),
+        base.getUTCDate(),
+        h,
+        m,
+        0,
+        0,
+      ),
+    );
+    return formatTimeString(d.getHours(), d.getMinutes());
+  }
+
+  function readScheduleState(storageKey, defaults) {
+    var fallback = {
+      enabled: false,
+      hour: defaults.hour,
+      minute: defaults.minute,
+    };
+    try {
+      var raw = localStorage.getItem(storageKey);
+      if (!raw) return fallback;
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return fallback;
+      return {
+        enabled: parsed.enabled === true,
+        hour: clampHour(parsed.hour, defaults.hour),
+        minute: clampMinute(parsed.minute, defaults.minute),
+      };
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  function writeScheduleState(storageKey, patch, defaults) {
+    var current = readScheduleState(storageKey, defaults);
+    var next = {
+      enabled: patch && patch.enabled != null ? !!patch.enabled : current.enabled,
+      hour: clampHour(patch && patch.hour, current.hour),
+      minute: clampMinute(patch && patch.minute, current.minute),
+    };
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch (_) {
+      // Private mode / quota — state becomes session-only; non-fatal.
+    }
+    return next;
+  }
+
+  function readLocalScheduleState() {
+    return readScheduleState(SCHEDULE_LOCAL_STORAGE_KEY, { hour: 8, minute: 0 });
+  }
+
+  function writeLocalScheduleState(patch) {
+    return writeScheduleState(SCHEDULE_LOCAL_STORAGE_KEY, patch, {
+      hour: 8,
+      minute: 0,
+    });
+  }
+
+  function readCloudScheduleState() {
+    return readScheduleState(SCHEDULE_CLOUD_STORAGE_KEY, { hour: 14, minute: 0 });
+  }
+
+  function writeCloudScheduleState(patch) {
+    return writeScheduleState(SCHEDULE_CLOUD_STORAGE_KEY, patch, {
+      hour: 14,
+      minute: 0,
+    });
+  }
+
+  function renderLocalBadge(statusResponse) {
+    if (!els.scheduleLocalBadge) return;
+    var badge = els.scheduleLocalBadge;
+    var artifact = els.scheduleLocalArtifact;
+    var installed =
+      statusResponse && statusResponse.installed === true ? true : false;
+    var artifactPath =
+      statusResponse &&
+      statusResponse.installedArtifact &&
+      typeof statusResponse.installedArtifact.path === "string"
+        ? statusResponse.installedArtifact.path
+        : "";
+    if (installed) {
+      badge.textContent = "Installed";
+      badge.classList.add("settings-profile-badge--ok");
+      badge.setAttribute("data-state", "installed");
+      if (artifact) {
+        if (artifactPath) {
+          artifact.textContent = "Artifact: " + artifactPath;
+          artifact.hidden = false;
+        } else {
+          artifact.textContent = "";
+          artifact.hidden = true;
+        }
+      }
+    } else {
+      badge.textContent = "Not installed yet";
+      badge.classList.remove("settings-profile-badge--ok");
+      badge.setAttribute("data-state", "not_installed");
+      if (artifact) {
+        artifact.textContent = "";
+        artifact.hidden = true;
+      }
+    }
+  }
+
+  function renderCloudBadge(enabled) {
+    if (!els.scheduleCloudBadge) return;
+    var badge = els.scheduleCloudBadge;
+    if (enabled) {
+      badge.textContent = "Advisory — verify in your GitHub Actions tab";
+      badge.setAttribute("data-state", "advisory");
+    } else {
+      badge.textContent = "Advisory";
+      badge.setAttribute("data-state", "idle");
+    }
+  }
+
+  function applyLocalUiFromState() {
+    var state = readLocalScheduleState();
+    if (els.scheduleLocalEnable) els.scheduleLocalEnable.checked = state.enabled;
+    if (els.scheduleLocalTime) {
+      els.scheduleLocalTime.value = formatTimeString(state.hour, state.minute);
+    }
+    var platform = detectOs(
+      typeof navigator !== "undefined" ? navigator.userAgent : "",
+      typeof navigator !== "undefined" ? navigator.platform : "",
+    );
+    if (els.scheduleLocalOsHint) {
+      els.scheduleLocalOsHint.textContent = describeOsArtifact(platform);
+    }
+    if (els.scheduleLocalCommand) {
+      els.scheduleLocalCommand.textContent = buildInstallCommand(
+        platform,
+        state.hour,
+        state.minute,
+      );
+    }
+  }
+
+  function applyCloudUiFromState() {
+    var state = readCloudScheduleState();
+    if (els.scheduleCloudEnable) els.scheduleCloudEnable.checked = state.enabled;
+    if (els.scheduleCloudTime) {
+      els.scheduleCloudTime.value = formatTimeString(state.hour, state.minute);
+    }
+    if (els.scheduleCloudLocalPreview) {
+      var local = formatLocalTimeFromUtc(state.hour, state.minute);
+      els.scheduleCloudLocalPreview.textContent =
+        formatTimeString(state.hour, state.minute) +
+        " UTC is about " +
+        local +
+        " in your local time today.";
+    }
+    renderCloudBadge(state.enabled);
+  }
+
+  // Debounced schedule-save by mode so rapid time-picker changes coalesce
+  // into a single POST, and cross-tier changes don't cancel each other.
+  var scheduleSaveTimers = { local: null, github: null };
+
+  function setScheduleError(kind, message) {
+    var el = kind === "local" ? els.scheduleLocalError : els.scheduleCloudError;
+    if (!el) return;
+    if (!message) {
+      el.textContent = "";
+      el.hidden = true;
+      el.style.display = "none";
+      return;
+    }
+    el.textContent = String(message);
+    el.hidden = false;
+    el.style.display = "";
+  }
+
+  function postScheduleSave(mode, state) {
+    var payload = {
+      mode: "schedule-save",
+      schedule: {
+        enabled: !!state.enabled,
+        hour: state.hour,
+        minute: state.minute,
+        mode: mode,
+      },
+    };
+    return postProfileEndpoint(payload, 15000);
+  }
+
+  function scheduleSaveDebounced(mode, state) {
+    var bucket = mode === "github" ? "github" : "local";
+    if (scheduleSaveTimers[bucket] !== null) {
+      window.clearTimeout(scheduleSaveTimers[bucket]);
+    }
+    scheduleSaveTimers[bucket] = window.setTimeout(function () {
+      scheduleSaveTimers[bucket] = null;
+      postScheduleSave(mode, state).catch(function (err) {
+        setScheduleError(
+          bucket === "github" ? "github" : "local",
+          "Couldn't save schedule: " + (err && err.message ? err.message : err),
+        );
+      });
+    }, SCHEDULE_SAVE_DEBOUNCE_MS);
+  }
+
+  function postScheduleSaveImmediate(mode, state) {
+    var bucket = mode === "github" ? "github" : "local";
+    if (scheduleSaveTimers[bucket] !== null) {
+      window.clearTimeout(scheduleSaveTimers[bucket]);
+      scheduleSaveTimers[bucket] = null;
+    }
+    return postScheduleSave(mode, state).catch(function (err) {
+      setScheduleError(
+        bucket === "github" ? "github" : "local",
+        "Couldn't save schedule: " + (err && err.message ? err.message : err),
+      );
+    });
+  }
+
+  async function fetchScheduleStatus() {
+    var config = resolveWebhookConfig();
+    if (!config.url || !config.sheetId) {
+      renderLocalBadge(null);
+      return null;
+    }
+    try {
+      var data = await postProfileEndpoint({ mode: "schedule-status" }, 10000);
+      if (data && data.ok === true) {
+        renderLocalBadge(data);
+      }
+      return data;
+    } catch (err) {
+      // Non-fatal — don't surface an error toast for a convenience badge.
+      try {
+        console.info(
+          "[settings-profile-tab] schedule-status fetch failed:",
+          err && err.message ? err.message : err,
+        );
+      } catch (_) {
+        // ignore
+      }
+      return null;
+    }
+  }
+
+  async function copyToClipboard(text) {
+    var value = String(text || "");
+    if (!value) return false;
+    if (
+      typeof navigator !== "undefined" &&
+      navigator.clipboard &&
+      typeof navigator.clipboard.writeText === "function"
+    ) {
+      try {
+        await navigator.clipboard.writeText(value);
+        return true;
+      } catch (_) {
+        // fall through to legacy path
+      }
+    }
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = value;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand && document.execCommand("copy");
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function downloadBlob(filename, contents, mimeType) {
+    var blob = new Blob([contents], {
+      type: mimeType || "application/octet-stream",
+    });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // Revoke on next tick so the browser has time to start the download.
+    window.setTimeout(function () {
+      try {
+        URL.revokeObjectURL(url);
+      } catch (_) {
+        // ignore
+      }
+    }, 0);
+  }
+
+  function handleScheduleLocalTimeChange() {
+    if (!els.scheduleLocalTime) return;
+    var parsed = parseTimeString(els.scheduleLocalTime.value);
+    if (!parsed) return;
+    var state = writeLocalScheduleState({
+      hour: parsed.hour,
+      minute: parsed.minute,
+    });
+    applyLocalUiFromState();
+    setScheduleError("local", "");
+    if (state.enabled) {
+      scheduleSaveDebounced("local", state);
+    }
+  }
+
+  function handleScheduleLocalEnableChange() {
+    if (!els.scheduleLocalEnable) return;
+    var enabled = !!els.scheduleLocalEnable.checked;
+    var state = writeLocalScheduleState({ enabled: enabled });
+    applyLocalUiFromState();
+    setScheduleError("local", "");
+    postScheduleSaveImmediate("local", state);
+  }
+
+  async function handleScheduleLocalCopyInstall() {
+    var state = readLocalScheduleState();
+    var platform = detectOs(
+      typeof navigator !== "undefined" ? navigator.userAgent : "",
+      typeof navigator !== "undefined" ? navigator.platform : "",
+    );
+    var cmd = buildInstallCommand(platform, state.hour, state.minute);
+    var ok = await copyToClipboard(cmd);
+    if (els.scheduleLocalCopyInstall) {
+      var original = "Copy install command";
+      els.scheduleLocalCopyInstall.textContent = ok ? "Copied ✓" : "Copy failed";
+      window.setTimeout(function () {
+        if (els.scheduleLocalCopyInstall) {
+          els.scheduleLocalCopyInstall.textContent = original;
+        }
+      }, 1500);
+    }
+  }
+
+  async function handleScheduleLocalCopyUninstall() {
+    var ok = await copyToClipboard(buildUninstallCommand());
+    if (els.scheduleLocalCopyUninstall) {
+      var original = "Copy uninstall command";
+      els.scheduleLocalCopyUninstall.textContent = ok ? "Copied ✓" : "Copy failed";
+      window.setTimeout(function () {
+        if (els.scheduleLocalCopyUninstall) {
+          els.scheduleLocalCopyUninstall.textContent = original;
+        }
+      }, 1500);
+    }
+  }
+
+  function handleScheduleCloudTimeChange() {
+    if (!els.scheduleCloudTime) return;
+    var parsed = parseTimeString(els.scheduleCloudTime.value);
+    if (!parsed) return;
+    var state = writeCloudScheduleState({
+      hour: parsed.hour,
+      minute: parsed.minute,
+    });
+    applyCloudUiFromState();
+    setScheduleError("github", "");
+    if (state.enabled) {
+      scheduleSaveDebounced("github", state);
+    }
+  }
+
+  function handleScheduleCloudEnableChange() {
+    if (!els.scheduleCloudEnable) return;
+    var enabled = !!els.scheduleCloudEnable.checked;
+    var state = writeCloudScheduleState({ enabled: enabled });
+    applyCloudUiFromState();
+    setScheduleError("github", "");
+    postScheduleSaveImmediate("github", state);
+  }
+
+  function handleScheduleCloudDownload() {
+    var state = readCloudScheduleState();
+    var yaml = buildGithubActionsYaml(state.hour, state.minute);
+    downloadBlob(SCHEDULE_GITHUB_FILENAME, yaml, "text/yaml");
+  }
+
+  function initSchedule() {
+    if (!els.scheduleLocalTime && !els.scheduleCloudTime) return;
+    applyLocalUiFromState();
+    applyCloudUiFromState();
+    // Kick off a background status fetch; badge updates when it resolves.
+    fetchScheduleStatus();
+  }
+
   function bind() {
     if (bound) return;
     cacheElements();
@@ -870,7 +1436,58 @@
         if (key) handleSkipCompany(key, name, target);
       });
     }
+    if (els.scheduleLocalEnable) {
+      els.scheduleLocalEnable.addEventListener(
+        "change",
+        handleScheduleLocalEnableChange,
+      );
+    }
+    if (els.scheduleLocalTime) {
+      els.scheduleLocalTime.addEventListener(
+        "change",
+        handleScheduleLocalTimeChange,
+      );
+      els.scheduleLocalTime.addEventListener(
+        "input",
+        handleScheduleLocalTimeChange,
+      );
+    }
+    if (els.scheduleLocalCopyInstall) {
+      els.scheduleLocalCopyInstall.addEventListener(
+        "click",
+        handleScheduleLocalCopyInstall,
+      );
+    }
+    if (els.scheduleLocalCopyUninstall) {
+      els.scheduleLocalCopyUninstall.addEventListener(
+        "click",
+        handleScheduleLocalCopyUninstall,
+      );
+    }
+    if (els.scheduleCloudEnable) {
+      els.scheduleCloudEnable.addEventListener(
+        "change",
+        handleScheduleCloudEnableChange,
+      );
+    }
+    if (els.scheduleCloudTime) {
+      els.scheduleCloudTime.addEventListener(
+        "change",
+        handleScheduleCloudTimeChange,
+      );
+      els.scheduleCloudTime.addEventListener(
+        "input",
+        handleScheduleCloudTimeChange,
+      );
+    }
+    if (els.scheduleCloudDownload) {
+      els.scheduleCloudDownload.addEventListener(
+        "click",
+        handleScheduleCloudDownload,
+      );
+    }
     initAutoRefresh();
+    initSchedule();
     refreshStatusPanel();
     bound = true;
   }
@@ -885,5 +1502,27 @@
     bind: bind,
     resolveProfileEndpoint: resolveProfileEndpoint,
     refreshStatusPanel: refreshStatusPanel,
+    schedule: {
+      detectOs: detectOs,
+      buildInstallCommand: buildInstallCommand,
+      buildUninstallCommand: buildUninstallCommand,
+      describeOsArtifact: describeOsArtifact,
+      formatCronLine: formatCronLine,
+      buildGithubActionsYaml: buildGithubActionsYaml,
+      formatLocalTimeFromUtc: formatLocalTimeFromUtc,
+      parseTimeString: parseTimeString,
+      formatTimeString: formatTimeString,
+      readLocalScheduleState: readLocalScheduleState,
+      writeLocalScheduleState: writeLocalScheduleState,
+      readCloudScheduleState: readCloudScheduleState,
+      writeCloudScheduleState: writeCloudScheduleState,
+      renderLocalBadge: renderLocalBadge,
+      renderCloudBadge: renderCloudBadge,
+      STORAGE_KEYS: {
+        local: SCHEDULE_LOCAL_STORAGE_KEY,
+        cloud: SCHEDULE_CLOUD_STORAGE_KEY,
+      },
+      GITHUB_ACTIONS_TEMPLATE: GITHUB_ACTIONS_TEMPLATE,
+    },
   };
 })();
