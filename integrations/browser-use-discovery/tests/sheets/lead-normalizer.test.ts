@@ -92,6 +92,28 @@ test("normalizeLead returns a scored normalized lead with stable defaults", () =
   assert.match(lead?.logoUrl || "", /google\.com\/s2\/favicons/);
 });
 
+test("normalizeLeadWithDiagnostics defaults favorite=false and dismissedAt=null when inputs omit them", () => {
+  const run = makeRun();
+  const result = normalizeLeadWithDiagnostics(
+    {
+      sourceId: "greenhouse",
+      sourceLabel: "Greenhouse",
+      title: "Senior Platform Engineer",
+      company: "Acme",
+      location: "Remote - US",
+      url: "https://jobs.example.com/backend-engineer?jobId=123",
+      descriptionText:
+        "Build browser automation systems in Node and TypeScript for a senior backend platform team.",
+      tags: ["automation"],
+    },
+    run,
+  );
+
+  assert.ok(result.lead);
+  assert.equal(result.lead?.favorite, false);
+  assert.equal(result.lead?.dismissedAt, null);
+});
+
 test("normalizeLead filters out excluded-keyword matches", () => {
   const run = makeRun();
   const lead = normalizeLead(
