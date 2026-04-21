@@ -572,7 +572,9 @@ export async function handleDiscoveryProfileWebhook(
         resolveScheduleInstalledPath(dependencies),
       );
       const installed =
-        !!breadcrumb && existing?.schedule.mode !== "github";
+        !!breadcrumb &&
+        existing?.schedule.enabled === true &&
+        existing.schedule.mode === "local";
       const schedule = toScheduleResponse(
         existing?.schedule,
         installed ? breadcrumb?.installedAt || null : undefined,
@@ -586,7 +588,7 @@ export async function handleDiscoveryProfileWebhook(
         ok: true,
         schedule,
         installed,
-        installedArtifact: installed && breadcrumb
+        installedArtifact: breadcrumb
           ? {
               platform: breadcrumb.platform,
               path: breadcrumb.artifactPath,

@@ -293,3 +293,63 @@ test("POST /discovery-profile mode:schedule-status returns installed:true when b
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("POST /discovery-profile mode:schedule-status returns installed:false for stale local breadcrumb", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jobbored-schedule-"));
+  const breadcrumbPath = join(dir, "schedule-installed.json");
+  try {
+    await writeFile(
+      breadcrumbPath,
+      `${JSON.stringify({
+        platform: "darwin",
+        installedAt: "2026-04-21T14:32:10.000Z",
+        artifactPath: "/Users/emilio/Library/LaunchAgents/com.jobbored.refresh.plist",
+        hour: 8,
+        minute: 0,
+        port: 8644,
+      })}\n`,
+      "utf8",
+    );
+
+    const response = await handleDiscoveryProfileWebhook(
+      {
+        method: "POST",
+        headers: { "x-discovery-secret": "secret-xyz" },
+        bodyText: requestBody({
+          mode: "schedule-status",
+          sheetId: "sheet_abc123",
+        }),
+      },
+      {
+        runtimeConfig: makeRuntimeConfig(),
+        scheduleInstalledPath: breadcrumbPath,
+        loadStoredWorkerConfig: async () =>
+          makeStoredConfig({
+            schedule: {
+              enabled: false,
+              hour: 8,
+              minute: 0,
+              mode: "browser",
+            },
+          }),
+      },
+    );
+
+    assert.equal(response.status, 200);
+    const body = JSON.parse(response.body);
+    assert.equal(body.ok, true);
+    assert.deepEqual(body.schedule, {
+      enabled: false,
+      hour: 8,
+      minute: 0,
+      mode: "browser",
+    });
+    assert.equal(body.installed, false);
+    assert.deepEqual(body.installedArtifact, {
+      platform: "darwin",
+      path: "/Users/emilio/Library/LaunchAgents/com.jobbored.refresh.plist",
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

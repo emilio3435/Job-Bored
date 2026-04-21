@@ -30,7 +30,15 @@ if (-not $Secret) {
 
 $Port = 8644
 if ($EnvMap.ContainsKey("BROWSER_USE_DISCOVERY_PORT") -and $EnvMap["BROWSER_USE_DISCOVERY_PORT"]) {
-  $Port = [int]$EnvMap["BROWSER_USE_DISCOVERY_PORT"]
+  if (-not [int]::TryParse([string]$EnvMap["BROWSER_USE_DISCOVERY_PORT"], [ref]$Port)) {
+    Write-Error "BROWSER_USE_DISCOVERY_PORT must be an integer from 1 to 65535."
+    exit 1
+  }
+}
+
+if ($Port -lt 1 -or $Port -gt 65535) {
+  Write-Error "BROWSER_USE_DISCOVERY_PORT must be an integer from 1 to 65535."
+  exit 1
 }
 
 $Uri = "http://127.0.0.1:$Port/discovery-profile"
@@ -40,4 +48,4 @@ $Headers = @{
 }
 $Body = '{"event":"discovery.profile.request","schemaVersion":1,"mode":"refresh"}'
 
-Invoke-WebRequest -UseBasicParsing -Method POST -Uri $Uri -Headers $Headers -Body $Body
+Invoke-WebRequest -UseBasicParsing -TimeoutSec 600 -Method POST -Uri $Uri -Headers $Headers -Body $Body

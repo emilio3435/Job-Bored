@@ -112,7 +112,7 @@ function resolveEnv(args) {
 }
 
 export function buildSchtasksArgs({ hour, minute, force }) {
-  const taskRun = `powershell -File "${refreshScriptPath}"`;
+  const taskRun = `powershell -NoProfile -ExecutionPolicy Bypass -File "${refreshScriptPath}"`;
   const args = [
     "/Create",
     "/SC",
