@@ -453,7 +453,13 @@
       els.results.hidden = true;
       els.results.innerHTML = "";
     }
+    // Tell the Runs modal (if open) that a manual run is now in flight so
+    // it can show a ghost row at the top until the real row lands in the
+    // sheet. Listener: runs-tab.js. Best-effort — document may be missing
+    // in tests; ignore failures.
+    dispatchDiscoveryRunEvent("jobbored:discovery-run-started", { trigger: "manual" });
 
+    var runOk = false;
     var controller =
       typeof AbortController !== "undefined" ? new AbortController() : null;
     var timeoutId = controller
@@ -513,6 +519,7 @@
         return;
       }
 
+      runOk = true;
       renderResults(data);
       refreshStatusPanel();
     } catch (err) {
@@ -529,6 +536,22 @@
     } finally {
       if (timeoutId !== null) window.clearTimeout(timeoutId);
       setRunning(false);
+      dispatchDiscoveryRunEvent("jobbored:discovery-run-finished", {
+        trigger: "manual",
+        ok: runOk,
+      });
+    }
+  }
+
+  // Best-effort CustomEvent dispatcher used by handleRun / handleRefresh.
+  // Keeps runs-tab.js decoupled from this module's fetch internals.
+  function dispatchDiscoveryRunEvent(name, detail) {
+    try {
+      if (typeof document === "undefined") return;
+      if (typeof CustomEvent !== "function") return;
+      document.dispatchEvent(new CustomEvent(name, { detail: detail || {} }));
+    } catch (_) {
+      // Swallow — this is purely a UX nicety for the Runs modal.
     }
   }
 
@@ -601,6 +624,11 @@
       els.results.hidden = true;
       els.results.innerHTML = "";
     }
+    dispatchDiscoveryRunEvent("jobbored:discovery-run-started", {
+      trigger: "manual",
+      mode: "refresh",
+    });
+    var refreshOk = false;
     try {
       var data = await postProfileEndpoint({ mode: "refresh" });
       if (!data || data.ok !== true) {
@@ -610,6 +638,7 @@
         );
         return;
       }
+      refreshOk = true;
       renderResults(data);
       refreshStatusPanel();
     } catch (err) {
@@ -624,6 +653,11 @@
       }
     } finally {
       setRunning(false);
+      dispatchDiscoveryRunEvent("jobbored:discovery-run-finished", {
+        trigger: "manual",
+        mode: "refresh",
+        ok: refreshOk,
+      });
     }
   }
 

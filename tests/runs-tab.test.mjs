@@ -36,6 +36,175 @@ async function loadRunsTab() {
   return window.JobBoredRunsLog;
 }
 
+/**
+ * Build a fake-DOM harness rich enough to exercise initRunsTab() end to end.
+ * Just a bag of query-able element stubs — the tests drive it by invoking
+ * the captured document-level event listeners and reading innerHTML.
+ */
+function makeFakeDom() {
+  const docListeners = new Map();
+
+  function makeEl(id, extras = {}) {
+    const el = {
+      id,
+      innerHTML: "",
+      _className: "",
+      _attrs: {},
+      _listeners: new Map(),
+      style: {},
+      children: extras.children || [],
+      setAttribute(name, value) { this._attrs[name] = String(value); },
+      getAttribute(name) { return name in this._attrs ? this._attrs[name] : null; },
+      removeAttribute(name) { delete this._attrs[name]; },
+      addEventListener(type, fn) {
+        if (!this._listeners.has(type)) this._listeners.set(type, []);
+        this._listeners.get(type).push(fn);
+      },
+      removeEventListener(type, fn) {
+        const arr = this._listeners.get(type);
+        if (!arr) return;
+        const i = arr.indexOf(fn);
+        if (i !== -1) arr.splice(i, 1);
+      },
+      dispatch(type, event) {
+        const arr = this._listeners.get(type) || [];
+        for (const fn of arr) fn(event);
+      },
+      querySelector(sel) {
+        if (sel === ".runs-table-wrap") return extras.tableWrap || null;
+        return null;
+      },
+      querySelectorAll(sel) {
+        if (sel === "[data-runs-filter-group]") return extras.filterGroups || [];
+        if (sel === ".runs-filter-chip") return extras.chips || [];
+        return [];
+      },
+      closest() { return null; },
+      classList: {
+        add() {},
+        remove() {},
+        toggle() {},
+        contains() { return false; },
+      },
+    };
+    Object.defineProperty(el, "className", {
+      get() { return this._className; },
+      set(v) { this._className = String(v); },
+    });
+    return el;
+  }
+
+  const tbody = makeEl("runsTableBody");
+  // tableWrap holds the real <table> markup so initRunsTab can capture its
+  // originalTableWrapHtml and restore after empty-state renders.
+  const tableWrap = makeEl("__tableWrap", {});
+  tableWrap.innerHTML =
+    '<table class="runs-table" id="runsTable"><thead></thead>' +
+    '<tbody id="runsTableBody"></tbody></table>';
+  // querySelector on tableWrap returns the persistent table/tbody so the
+  // controller can re-hydrate after the empty state wipes them.
+  const table = makeEl("runsTable");
+  tableWrap.querySelector = function (sel) {
+    if (sel === "#runsTable") return table;
+    if (sel === "#runsTableBody") return tbody;
+    return null;
+  };
+  const modal = makeEl("runsModal", {
+    tableWrap,
+    filterGroups: [],
+    chips: [],
+  });
+  const openBtn = makeEl("runsBtn");
+  const closeBtn = makeEl("runsModalClose");
+  const refreshBtn = makeEl("runsRefreshBtn");
+  const statusEl = makeEl("runsStatus");
+
+  const byId = new Map([
+    ["runsModal", modal],
+    ["runsBtn", openBtn],
+    ["runsModalClose", closeBtn],
+    ["runsRefreshBtn", refreshBtn],
+    ["runsStatus", statusEl],
+    ["runsTableBody", tbody],
+    ["runsTable", table],
+  ]);
+
+  const document = {
+    readyState: "complete",
+    addEventListener(type, fn) {
+      if (!docListeners.has(type)) docListeners.set(type, []);
+      docListeners.get(type).push(fn);
+    },
+    removeEventListener(type, fn) {
+      const arr = docListeners.get(type);
+      if (!arr) return;
+      const i = arr.indexOf(fn);
+      if (i !== -1) arr.splice(i, 1);
+    },
+    dispatchDoc(type, event) {
+      const arr = docListeners.get(type) || [];
+      for (const fn of arr) fn(event);
+    },
+    getElementById(id) {
+      return byId.get(id) || null;
+    },
+    createElement() {
+      return {
+        style: {},
+        setAttribute() {},
+        appendChild() {},
+        classList: { add() {}, remove() {} },
+      };
+    },
+  };
+
+  return { document, modal, openBtn, tbody, tableWrap, statusEl, docListeners };
+}
+
+async function bootInitRunsTab({ fetchImpl, sheetId = "sheet-1", accessToken = "tok" } = {}) {
+  const source = await readFile(join(repoRoot, "runs-tab.js"), "utf8");
+  const dom = makeFakeDom();
+  const window = {
+    JobBored: {
+      getSheetId: () => sheetId,
+      getAccessToken: () => accessToken,
+    },
+  };
+  const timers = [];
+  const context = {
+    window,
+    document: dom.document,
+    CustomEvent: class CustomEvent {
+      constructor(type, init = {}) {
+        this.type = type;
+        this.detail = init.detail;
+      }
+    },
+    Element: class {},
+    navigator: { userAgent: "test" },
+    console,
+    URL,
+    setInterval: (fn, ms) => {
+      const id = timers.length;
+      timers.push({ fn, ms });
+      return id;
+    },
+    clearInterval: () => {},
+    setTimeout,
+    clearTimeout,
+    fetch: fetchImpl || (async () => {
+      throw new Error("fetch not stubbed");
+    }),
+  };
+  vm.runInNewContext(source, context, { filename: "runs-tab.js" });
+  // initRunsTab() runs via readyState !== "loading" — all listeners are
+  // registered against openBtn + document. Simulate an open click.
+  dom.openBtn.dispatch("click", {});
+  // Flush any pending microtasks from loadRuns().
+  await new Promise((resolve) => setImmediate(resolve));
+  return { dom, window, context };
+}
+
 function asPlain(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -283,5 +452,163 @@ describe("fetchDiscoveryRuns", () => {
     assert.match(seen.url, /DiscoveryRuns!A2%3AI/);
     assert.match(seen.url, /valueRenderOption=UNFORMATTED_VALUE/);
     assert.equal(seen.headers.Authorization, "Bearer tok-xyz");
+  });
+});
+
+describe("renderGhostRowHtml (ghost row markup)", () => {
+  it("returns a runs-row--in-progress <tr> with a data-runs-ghost marker and an in_progress status badge", async () => {
+    const mod = await loadRunsTab();
+    const html = mod.__test.renderGhostRowHtml({ runAt: "2026-04-21T20:00:00Z" });
+    assert.match(html, /class="runs-row runs-row--in-progress"/);
+    assert.match(html, /data-runs-ghost="1"/);
+    assert.match(html, /runs-status-badge--in_progress/);
+    // The non-status cells are em-dashes per the brief.
+    assert.match(html, /<span class="runs-dash">—<\/span>/);
+    // The manual trigger label.
+    assert.match(html, /Manual/);
+  });
+
+  it("defaults to the current time when no runAt is supplied", async () => {
+    const mod = await loadRunsTab();
+    const before = Date.now();
+    const html = mod.__test.renderGhostRowHtml({});
+    const after = Date.now();
+    // Extract the ISO string from the title attribute of the first cell.
+    const match = html.match(/title="([^"]+)"/);
+    assert.ok(match, "expected a title with the ISO timestamp");
+    const ts = Date.parse(match[1]);
+    assert.ok(ts >= before - 1000 && ts <= after + 1000);
+  });
+});
+
+describe("renderSkeletonRows", () => {
+  it("writes N loading rows with runs-row--skeleton markers", async () => {
+    const mod = await loadRunsTab();
+    const tbody = { innerHTML: "" };
+    mod.__test.renderSkeletonRows(tbody, 4);
+    const matches = tbody.innerHTML.match(/runs-row--skeleton/g);
+    assert.ok(matches, "skeleton rows should be present");
+    assert.equal(matches.length, 4);
+    // Each row has 9 skeleton bars (one per column).
+    const bars = tbody.innerHTML.match(/runs-skeleton-bar/g);
+    assert.ok(bars && bars.length === 4 * 9);
+  });
+});
+
+describe("discovery-run events (ghost row lifecycle)", () => {
+  it("renders the ghost row in the tbody when jobbored:discovery-run-started fires while the modal is open", async () => {
+    const { dom } = await bootInitRunsTab({
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ values: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    // Empty state should be visible first — no ghost row yet.
+    assert.equal(
+      /data-runs-ghost="1"/.test(dom.tbody.innerHTML),
+      false,
+      "no ghost row before the event fires",
+    );
+
+    dom.document.dispatchDoc("jobbored:discovery-run-started", {
+      detail: { trigger: "manual" },
+    });
+
+    assert.match(dom.tbody.innerHTML, /data-runs-ghost="1"/);
+    assert.match(dom.tbody.innerHTML, /runs-status-badge--in_progress/);
+  });
+
+  it("removes the ghost row and triggers a fresh fetchDiscoveryRuns on jobbored:discovery-run-finished", async () => {
+    let fetchCalls = 0;
+    const fetchImpl = async () => {
+      fetchCalls += 1;
+      // First call (initial load): empty sheet.
+      // After the finished event: one completed row.
+      if (fetchCalls === 1) {
+        return new Response(JSON.stringify({ values: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          values: [
+            [
+              "2026-04-21T20:05:00Z",
+              "manual",
+              "success",
+              42,
+              7,
+              3,
+              "worker",
+              "var-k",
+              "",
+            ],
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    const { dom } = await bootInitRunsTab({ fetchImpl });
+    const initialFetchCount = fetchCalls;
+
+    dom.document.dispatchDoc("jobbored:discovery-run-started", {
+      detail: { trigger: "manual" },
+    });
+    assert.match(dom.tbody.innerHTML, /data-runs-ghost="1"/);
+
+    dom.document.dispatchDoc("jobbored:discovery-run-finished", {
+      detail: { trigger: "manual", ok: true },
+    });
+    // loadRuns() is async — flush pending microtasks so the fetch resolves
+    // and the rerender paints the real row.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.ok(
+      fetchCalls > initialFetchCount,
+      "finished event should trigger an immediate fetchDiscoveryRuns",
+    );
+    assert.equal(
+      /data-runs-ghost="1"/.test(dom.tbody.innerHTML),
+      false,
+      "ghost row should be gone after finished event + refetch",
+    );
+    assert.match(dom.tbody.innerHTML, /runs-status-badge--success/);
+  });
+
+  it("ignores discovery-run events when the modal is closed (no render, no fetch)", async () => {
+    let fetchCalls = 0;
+    const fetchImpl = async () => {
+      fetchCalls += 1;
+      return new Response(JSON.stringify({ values: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    const { dom } = await bootInitRunsTab({ fetchImpl });
+    // Close the modal — simulates the "modal closed when user clicks Run" path.
+    dom.modal._listeners.get("click") || [];
+    // Easiest: directly call the close handler wired to closeBtn.
+    const closeBtn = dom.document.getElementById("runsModalClose");
+    closeBtn.dispatch("click", {});
+    const fetchesBefore = fetchCalls;
+
+    dom.document.dispatchDoc("jobbored:discovery-run-started", { detail: {} });
+    assert.equal(
+      /data-runs-ghost="1"/.test(dom.tbody.innerHTML),
+      false,
+      "no ghost row should render while the modal is closed",
+    );
+
+    dom.document.dispatchDoc("jobbored:discovery-run-finished", { detail: {} });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(
+      fetchCalls,
+      fetchesBefore,
+      "no extra fetch should fire while the modal is closed",
+    );
   });
 });

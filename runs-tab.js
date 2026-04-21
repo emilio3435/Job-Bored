@@ -195,11 +195,12 @@
 
   function statusBadge(status) {
     var safe = escapeHtml(status || "");
+    var label = status === "in_progress" ? "In progress" : safe;
     return (
       '<span class="runs-status-badge runs-status-badge--' +
       safe +
       '">' +
-      safe +
+      label +
       "</span>"
     );
   }
@@ -213,28 +214,96 @@
     return trigger || "";
   }
 
-  function renderRunsTable(tbody, runs) {
+  // Short form for the Run At column so the first column doesn't blow
+  // out into two wrapped lines and break the sticky-header grid.
+  function formatRunAtShort(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso);
+    try {
+      return d.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    } catch (_) {
+      return d.toLocaleString();
+    }
+  }
+
+  function renderRunsTable(tbody, runs, options) {
     if (!tbody) return;
-    if (!runs || runs.length === 0) {
-      tbody.innerHTML = "";
-      return;
+    var opts = options || {};
+    var ghost = opts.ghost || null;
+    var parts = [];
+    if (ghost) parts.push(renderGhostRowHtml(ghost));
+    if (runs && runs.length > 0) {
+      for (var i = 0; i < runs.length; i++) {
+        var r = runs[i];
+        var errorText = r.error ? String(r.error) : "";
+        parts.push(
+          '<tr class="runs-row runs-row--' + escapeHtml(r.status) + '">' +
+            '<td title="' + escapeHtml(formatRunAt(r.runAt)) + '">' +
+              escapeHtml(formatRunAtShort(r.runAt)) +
+            "</td>" +
+            "<td>" + escapeHtml(triggerLabel(r.trigger)) + "</td>" +
+            "<td>" + statusBadge(r.status) + "</td>" +
+            "<td>" + escapeHtml(formatDuration(r.durationS)) + "</td>" +
+            "<td>" + escapeHtml(String(r.companiesSeen)) + "</td>" +
+            "<td>" + escapeHtml(String(r.leadsWritten)) + "</td>" +
+            "<td>" + escapeHtml(r.source) + "</td>" +
+            "<td><code>" + escapeHtml(r.variationKey) + "</code></td>" +
+            '<td class="runs-error-cell"' +
+              (errorText ? ' title="' + escapeHtml(errorText) + '"' : "") +
+              ">" +
+              escapeHtml(errorText) +
+            "</td>" +
+          "</tr>"
+        );
+      }
     }
+    tbody.innerHTML = parts.join("");
+  }
+
+  function renderGhostRowHtml(ghost) {
+    var runAt = ghost && ghost.runAt ? new Date(ghost.runAt) : new Date();
+    var runAtIso = runAt.toISOString();
+    return (
+      '<tr class="runs-row runs-row--in-progress" data-runs-ghost="1">' +
+        '<td title="' + escapeHtml(runAtIso) + '">' +
+          escapeHtml(formatRunAtShort(runAtIso)) +
+        "</td>" +
+        "<td>" + escapeHtml(triggerLabel("manual")) + "</td>" +
+        "<td>" + statusBadge("in_progress") + "</td>" +
+        '<td><span class="runs-dash">—</span></td>' +
+        '<td><span class="runs-dash">—</span></td>' +
+        '<td><span class="runs-dash">—</span></td>' +
+        '<td><span class="runs-dash">—</span></td>' +
+        '<td><span class="runs-dash">—</span></td>' +
+        '<td class="runs-error-cell"></td>' +
+      "</tr>"
+    );
+  }
+
+  function renderSkeletonRows(tbody, count) {
+    if (!tbody) return;
+    var n = count > 0 ? count : 5;
+    var bar = '<span class="runs-skeleton-bar" aria-hidden="true"></span>';
+    var row =
+      '<tr class="runs-row runs-row--skeleton" aria-hidden="true">' +
+        "<td>" + bar + "</td>" +
+        "<td>" + bar + "</td>" +
+        "<td>" + bar + "</td>" +
+        "<td>" + bar + "</td>" +
+        "<td>" + bar + "</td>" +
+        "<td>" + bar + "</td>" +
+        "<td>" + bar + "</td>" +
+        "<td>" + bar + "</td>" +
+        "<td>" + bar + "</td>" +
+      "</tr>";
     var html = "";
-    for (var i = 0; i < runs.length; i++) {
-      var r = runs[i];
-      html +=
-        '<tr class="runs-row runs-row--' + escapeHtml(r.status) + '">' +
-        "<td>" + escapeHtml(formatRunAt(r.runAt)) + "</td>" +
-        "<td>" + escapeHtml(triggerLabel(r.trigger)) + "</td>" +
-        "<td>" + statusBadge(r.status) + "</td>" +
-        "<td>" + escapeHtml(formatDuration(r.durationS)) + "</td>" +
-        "<td>" + escapeHtml(String(r.companiesSeen)) + "</td>" +
-        "<td>" + escapeHtml(String(r.leadsWritten)) + "</td>" +
-        "<td>" + escapeHtml(r.source) + "</td>" +
-        "<td><code>" + escapeHtml(r.variationKey) + "</code></td>" +
-        '<td class="runs-error-cell">' + escapeHtml(r.error) + "</td>" +
-        "</tr>";
-    }
+    for (var i = 0; i < n; i++) html += row;
     tbody.innerHTML = html;
   }
 
@@ -242,6 +311,28 @@
     if (!statusEl) return;
     statusEl.className = "runs-status runs-status--" + kind;
     statusEl.textContent = message || "";
+  }
+
+  function renderEmptyState(container, options) {
+    if (!container) return;
+    var opts = options || {};
+    var title = escapeHtml(opts.title || "No runs logged yet");
+    var hint = escapeHtml(
+      opts.hint ||
+        "Trigger a discovery to populate this list. Every manual and scheduled run appears here.",
+    );
+    container.innerHTML =
+      '<div class="runs-empty" role="status">' +
+        '<div class="runs-empty__icon" aria-hidden="true">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>' +
+            '<path d="M3 3v5h5"/>' +
+            '<path d="M12 7v5l3 2"/>' +
+          "</svg>" +
+        "</div>" +
+        '<p class="runs-empty__title">' + title + "</p>" +
+        '<p class="runs-empty__hint">' + hint + "</p>" +
+      "</div>";
   }
 
   function initRunsTab() {
@@ -252,7 +343,12 @@
     var statusEl = document.getElementById("runsStatus");
     var tbody = document.getElementById("runsTableBody");
     var table = document.getElementById("runsTable");
+    var tableWrap = modal ? modal.querySelector(".runs-table-wrap") : null;
     if (!modal || !openBtn || !tbody || !statusEl) return;
+
+    // Stash the original wrap HTML so we can restore the table after the
+    // empty state replaces its contents.
+    var originalTableWrapHtml = tableWrap ? tableWrap.innerHTML : "";
 
     var state = {
       rawRuns: [],
@@ -260,7 +356,30 @@
       sort: { key: DEFAULT_SORT.key, direction: DEFAULT_SORT.direction },
       refreshTimer: null,
       loading: false,
+      hasLoadedOnce: false,
+      ghostRun: null,
+      isOpen: false,
     };
+
+    function refreshTableRefs() {
+      // Empty state nukes the <table>, so after we restore we need fresh
+      // references to the new thead/tbody nodes.
+      table = document.getElementById("runsTable");
+      tbody = document.getElementById("runsTableBody");
+    }
+
+    function showTable() {
+      if (!tableWrap) return;
+      if (!tableWrap.querySelector("#runsTable")) {
+        tableWrap.innerHTML = originalTableWrapHtml;
+        refreshTableRefs();
+      }
+    }
+
+    function showEmpty(options) {
+      if (!tableWrap) return;
+      renderEmptyState(tableWrap, options);
+    }
 
     function readSheetId() {
       if (window.JobBored && typeof window.JobBored.getSheetId === "function") {
@@ -289,27 +408,38 @@
     function rerender() {
       var filtered = filterRuns(state.rawRuns, state.filters);
       var sorted = sortRuns(filtered, state.sort.key, state.sort.direction);
-      renderRunsTable(tbody, sorted);
-      if (state.rawRuns.length === 0) {
-        // Initial empty state is handled by the status line, not the table.
+      var hasContent = sorted.length > 0 || !!state.ghostRun;
+      if (hasContent) {
+        showTable();
+        renderRunsTable(tbody, sorted, { ghost: state.ghostRun });
+      } else if (state.rawRuns.length > 0) {
+        // Filter chips emptied the visible set, but we do have rows —
+        // keep the table visible with no rows + a status hint.
+        showTable();
+        renderRunsTable(tbody, [], { ghost: null });
+      }
+      if (state.rawRuns.length === 0 && !state.ghostRun) {
+        // Leave whatever empty/skeleton state is already painted.
         return;
       }
-      if (filtered.length === 0) {
+      if (filtered.length === 0 && !state.ghostRun) {
         setStatus(
           statusEl,
           "info",
           "No runs match the current filters.",
         );
       } else if (!state.loading) {
+        var extra = state.ghostRun ? " (+1 in progress)" : "";
         setStatus(
           statusEl,
           "ok",
-          "Showing " + filtered.length + " of " + state.rawRuns.length + " runs.",
+          "Showing " + filtered.length + " of " + state.rawRuns.length + " runs" + extra + ".",
         );
       }
     }
 
-    async function loadRuns() {
+    async function loadRuns(options) {
+      var opts = options || {};
       if (state.loading) return;
       state.loading = true;
       var sheetId = readSheetId();
@@ -320,6 +450,10 @@
           "warn",
           "Connect a sheet in Settings → Sheet before runs can be loaded.",
         );
+        showEmpty({
+          title: "No sheet connected",
+          hint: "Open Settings → Sheet and paste your pipeline sheet ID so the DiscoveryRuns tab can be read.",
+        });
         state.loading = false;
         return;
       }
@@ -329,33 +463,54 @@
           "warn",
           "Sign in with Google to read the DiscoveryRuns tab.",
         );
+        showEmpty({
+          title: "Sign in to see runs",
+          hint: "Discovery run history is read directly from your Google Sheet — sign in above and reopen this panel.",
+        });
         state.loading = false;
         return;
       }
-      setStatus(statusEl, "info", "Loading…");
+
+      var isInitial = !state.hasLoadedOnce && !opts.silent;
+      if (isInitial) {
+        showTable();
+        renderSkeletonRows(tbody, 6);
+        setStatus(statusEl, "info", "Loading runs…");
+      } else if (!opts.silent) {
+        setStatus(statusEl, "info", "Refreshing…");
+      }
+
       try {
         var result = await fetchDiscoveryRuns(sheetId, token);
+        state.hasLoadedOnce = true;
         if (!result.ok) {
           setStatus(statusEl, "error", "Couldn't load runs: " + result.reason);
+          if (isInitial) {
+            showEmpty({
+              title: "Couldn't load runs",
+              hint: "Check your connection and try Reload. Full detail: " + result.reason,
+            });
+          }
           return;
         }
         state.rawRuns = result.runs;
-        if (result.reason === "missing_tab") {
-          setStatus(
-            statusEl,
-            "info",
-            "No runs logged yet — trigger a discovery to populate this list.",
-          );
-          tbody.innerHTML = "";
-          return;
-        }
-        if (result.reason === "empty") {
-          setStatus(
-            statusEl,
-            "info",
-            "No runs logged yet — trigger a discovery to populate this list.",
-          );
-          tbody.innerHTML = "";
+        if (result.reason === "missing_tab" || result.reason === "empty") {
+          if (state.ghostRun) {
+            // Render a table view with just the ghost row so the pending
+            // manual run stays visible while the sheet is still empty.
+            showTable();
+            renderRunsTable(tbody, [], { ghost: state.ghostRun });
+            setStatus(statusEl, "info", "Manual run in progress…");
+          } else {
+            showEmpty({
+              title: "No runs logged yet",
+              hint:
+                result.reason === "missing_tab"
+                  ? "The DiscoveryRuns tab will appear on the first completed run. Trigger a discovery to get started."
+                  : "Trigger a discovery from Settings → Profile → Run discovery to populate this list.",
+            });
+            setStatus(statusEl, "info", "");
+          }
           return;
         }
         rerender();
@@ -379,6 +534,7 @@
     function openModal() {
       modal.style.display = "flex";
       modal.setAttribute("aria-hidden", "false");
+      state.isOpen = true;
       loadRuns();
       startAutoRefresh();
     }
@@ -386,12 +542,13 @@
     function closeModal() {
       modal.style.display = "none";
       modal.setAttribute("aria-hidden", "true");
+      state.isOpen = false;
       stopAutoRefresh();
     }
 
     openBtn.addEventListener("click", openModal);
     if (closeBtn) closeBtn.addEventListener("click", closeModal);
-    if (refreshBtn) refreshBtn.addEventListener("click", loadRuns);
+    if (refreshBtn) refreshBtn.addEventListener("click", function () { loadRuns(); });
     modal.addEventListener("click", function (event) {
       if (event.target === modal) closeModal();
     });
@@ -419,8 +576,10 @@
       });
     });
 
-    if (table) {
-      table.addEventListener("click", function (event) {
+    // The <table> can be swapped by the empty-state renderer, so delegate
+    // the sort-header click to the (stable) .runs-table-wrap.
+    if (tableWrap) {
+      tableWrap.addEventListener("click", function (event) {
         var target = event.target;
         if (!(target instanceof Element)) return;
         var th = target.closest("th[data-runs-sort]");
@@ -442,6 +601,28 @@
         closeModal();
       }
     });
+
+    // Job 2 — in-progress ghost row for manual runs.
+    // settings-profile-tab.js dispatches these events around its POST to
+    // /discovery-profile. The ghost row is client-side only; once the run
+    // finishes we immediately refetch so the real row from the sheet
+    // replaces it. If the modal is closed, we simply ignore the events —
+    // the next open will fetch the fresh list on its own.
+    document.addEventListener("jobbored:discovery-run-started", function () {
+      if (!state.isOpen) return;
+      state.ghostRun = { runAt: new Date().toISOString() };
+      rerender();
+      setStatus(statusEl, "info", "Manual run in progress…");
+    });
+
+    document.addEventListener("jobbored:discovery-run-finished", function () {
+      if (state.ghostRun) {
+        state.ghostRun = null;
+      }
+      if (!state.isOpen) return;
+      // Immediate refetch — don't wait for the 60s interval.
+      loadRuns({ silent: false });
+    });
   }
 
   if (document.readyState === "loading") {
@@ -455,5 +636,14 @@
     parseDiscoveryRunsValues: parseDiscoveryRunsValues,
     sortRuns: sortRuns,
     filterRuns: filterRuns,
+    // Test-only hooks (not part of the runtime UI surface).
+    __test: {
+      renderGhostRowHtml: renderGhostRowHtml,
+      renderSkeletonRows: renderSkeletonRows,
+      renderRunsTable: renderRunsTable,
+      renderEmptyState: renderEmptyState,
+      initRunsTab: initRunsTab,
+      triggerLabel: triggerLabel,
+    },
   };
 })();

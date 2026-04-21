@@ -76,6 +76,23 @@
   --toast-info: #006482;
   --toast-info-bg: rgba(0, 100, 130, 0.08);
 
+  /* Generic run/task status — consumed by .runs-status-badge and the
+     Discovery runs log. Separate from kanban stage tokens on purpose: a
+     discovery run's success/partial/failure is orthogonal to a job's
+     pipeline stage. AA-contrast text colors, soft tinted backgrounds. */
+  --status-ok: #15803d;
+  --status-ok-bg: rgba(22, 163, 74, 0.12);
+  --status-ok-border: rgba(22, 163, 74, 0.32);
+  --status-warn: #a16207;
+  --status-warn-bg: rgba(234, 179, 8, 0.14);
+  --status-warn-border: rgba(234, 179, 8, 0.34);
+  --status-err: #b91c1c;
+  --status-err-bg: rgba(220, 38, 38, 0.12);
+  --status-err-border: rgba(220, 38, 38, 0.32);
+  --status-info: #006482;
+  --status-info-bg: rgba(0, 100, 130, 0.1);
+  --status-info-border: rgba(0, 100, 130, 0.28);
+
   /* Typography */
   --font-body: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "JetBrains Mono", "Fira Code", monospace;
@@ -10951,18 +10968,34 @@ a.btn-materials {
   border-color: rgba(234, 179, 8, 0.3);
 }
 
-/* Discovery runs log modal (docs/INTERFACE-DISCOVERY-RUNS.md §5) */
+/* ============================================
+   DISCOVERY RUNS LOG MODAL
+   Contract: docs/INTERFACE-DISCOVERY-RUNS.md §5
+   Tokens: --space-*, --text-*, --radius-*, --status-{ok,warn,err,info}
+   ============================================ */
+
 .runs-modal {
-  max-width: min(1040px, calc(100vw - 2rem));
+  width: min(1080px, calc(100vw - 2rem));
+  max-width: min(1080px, calc(100vw - 2rem));
   max-height: min(90vh, 960px);
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
+.runs-modal .settings-modal-head,
+.runs-modal .modal-lede,
+.runs-modal .runs-filters,
+.runs-modal .runs-status {
+  flex-shrink: 0;
+}
+
+/* Filter bar: trigger + status chip groups, reload on the right */
 .runs-filters {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: var(--space-3);
+  gap: var(--space-4);
   margin-bottom: var(--space-3);
 }
 
@@ -10973,30 +11006,80 @@ a.btn-materials {
   padding: 0;
   margin: 0;
   border: 0;
+  min-width: 0;
 }
 
 .runs-filters__legend {
   font-size: var(--text-xs);
   font-weight: 600;
-  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-faint);
   padding: 0;
   margin-bottom: var(--space-1);
 }
 
 .runs-filters__chips {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: var(--space-1);
 }
 
 .runs-filter-chip {
   appearance: none;
-  padding: 0.3rem 0.75rem;
+  padding: var(--space-1) var(--space-3);
+  font: inherit;
   font-size: var(--text-sm);
   font-weight: 500;
+  line-height: 1.3;
   color: var(--text-muted);
   background: var(--surface);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-pill, 9999px);
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  cursor: pointer;
+  transition:
+    color var(--transition),
+    background var(--transition),
+    border-color var(--transition),
+    box-shadow var(--transition);
+}
+
+.runs-filter-chip:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+  border-color: var(--border-bright);
+}
+
+.runs-filter-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.runs-filter-chip.is-active {
+  color: var(--text-inverse);
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(89, 203, 137, 0.18);
+}
+
+.runs-filter-chip.is-active:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.runs-refresh-btn {
+  align-self: flex-end;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition:
     color var(--transition),
@@ -11004,131 +11087,333 @@ a.btn-materials {
     border-color var(--transition);
 }
 
-.runs-filter-chip:hover {
-  color: var(--text);
-  background: var(--surface-hover);
-}
-
-.runs-filter-chip.is-active {
-  color: var(--on-accent, #fff);
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.runs-refresh-btn {
-  align-self: flex-end;
-  margin-left: auto;
-  padding: 0.4rem 0.9rem;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition:
-    color var(--transition),
-    background var(--transition);
-}
-
 .runs-refresh-btn:hover {
   background: var(--surface-hover);
+  border-color: var(--border-bright);
 }
 
+.runs-refresh-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Status line — collapses vertical space when empty so the table sits
+   snug against the filters. */
 .runs-status {
   font-size: var(--text-sm);
   color: var(--text-muted);
   margin-bottom: var(--space-2);
-  min-height: 1.25em;
+  min-height: 0;
+  line-height: 1.5;
+}
+
+.runs-status:empty {
+  margin-bottom: 0;
 }
 
 .runs-status--warn {
-  color: #b45309;
+  color: var(--status-warn);
 }
 
 .runs-status--error {
-  color: #b91c1c;
+  color: var(--status-err);
 }
 
 .runs-status--ok {
   color: var(--text-muted);
 }
 
+/* The scroll region — the header is sticky against this wrap, not the
+   modal itself, so users can scroll a long list while filters stay put. */
 .runs-table-wrap {
-  overflow-x: auto;
-  border: 1px solid var(--surface-border);
+  flex: 1 1 auto;
+  overflow: auto;
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  background: var(--surface);
+  min-height: 0;
 }
 
 .runs-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: var(--text-sm);
 }
 
 .runs-table thead th {
   position: sticky;
   top: 0;
+  z-index: 1;
   text-align: left;
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface);
-  border-bottom: 1px solid var(--surface-border);
+  padding: var(--space-3);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
   color: var(--text-muted);
+  font-size: var(--text-xs);
   font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
+  transition: color var(--transition), background var(--transition);
 }
 
 .runs-table thead th:hover {
   color: var(--text);
+  background: var(--surface-hover);
+}
+
+.runs-table thead th:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .runs-table tbody td {
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--surface-border);
-  vertical-align: top;
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--divider);
+  vertical-align: middle;
   color: var(--text);
+  line-height: 1.45;
 }
 
 .runs-table tbody tr:last-child td {
   border-bottom: 0;
 }
 
-.runs-row--failure td {
-  background: rgba(220, 38, 38, 0.05);
+.runs-table tbody tr:hover td {
+  background: var(--surface-hover);
 }
 
+.runs-table tbody tr:nth-child(even) td {
+  background: rgba(241, 245, 249, 0.45);
+}
+
+.runs-table tbody tr:nth-child(even):hover td {
+  background: var(--surface-hover);
+}
+
+/* Column-scoped hierarchy:
+   - col 1 Run At + col 3 Status are primary (full contrast).
+   - cols 4-6 are metrics (right-aligned, tabular figures).
+   - col 7 Source + col 8 Variation Key are secondary (muted, mono where relevant). */
+.runs-table tbody td:nth-child(1) {
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.runs-table tbody td:nth-child(2) {
+  color: var(--text-muted);
+}
+
+.runs-table tbody td:nth-child(4),
+.runs-table tbody td:nth-child(5),
+.runs-table tbody td:nth-child(6) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  color: var(--text);
+}
+
+.runs-table tbody td:nth-child(7),
+.runs-table tbody td:nth-child(8) {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.runs-table tbody td:nth-child(8) code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  padding: 2px var(--space-1);
+  border-radius: var(--radius-sm);
+}
+
+/* Failure rows get a subtle red wash that survives zebra striping. */
+.runs-row--failure td,
+.runs-table tbody tr.runs-row--failure:nth-child(even) td {
+  background: rgba(220, 38, 38, 0.06);
+}
+
+.runs-row--failure:hover td,
+.runs-table tbody tr.runs-row--failure:nth-child(even):hover td {
+  background: rgba(220, 38, 38, 0.1);
+}
+
+/* Status badges — one pill per enum value. Colors come from the
+   semantic --status-* tokens so a theme swap flows through. */
 .runs-status-badge {
   display: inline-block;
-  padding: 0.15rem 0.55rem;
+  padding: 2px var(--space-2);
   font-size: var(--text-xs);
   font-weight: 600;
-  border-radius: var(--radius-pill, 9999px);
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  border-radius: 9999px;
   text-transform: capitalize;
+  white-space: nowrap;
 }
 
 .runs-status-badge--success {
-  color: #166534;
-  background: rgba(22, 163, 74, 0.1);
-  border: 1px solid rgba(22, 163, 74, 0.3);
+  color: var(--status-ok);
+  background: var(--status-ok-bg);
+  border: 1px solid var(--status-ok-border);
 }
 
 .runs-status-badge--partial {
-  color: #92400e;
-  background: rgba(234, 179, 8, 0.1);
-  border: 1px solid rgba(234, 179, 8, 0.3);
+  color: var(--status-warn);
+  background: var(--status-warn-bg);
+  border: 1px solid var(--status-warn-border);
 }
 
 .runs-status-badge--failure {
-  color: #991b1b;
-  background: rgba(220, 38, 38, 0.1);
-  border: 1px solid rgba(220, 38, 38, 0.3);
+  color: var(--status-err);
+  background: var(--status-err-bg);
+  border: 1px solid var(--status-err-border);
 }
 
+.runs-status-badge--in_progress {
+  color: var(--status-info);
+  background: var(--status-info-bg);
+  border: 1px solid var(--status-info-border);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.runs-status-badge--in_progress::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+/* Single-line truncation with ellipsis; the JS sets a `title` attr so
+   the full error is available on hover without blowing out the row. */
 .runs-error-cell {
-  max-width: 20rem;
-  word-break: break-word;
+  max-width: 22rem;
   font-size: var(--text-xs);
+  color: var(--status-err);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.runs-error-cell:empty::before {
+  content: "—";
+  color: var(--text-faint);
+}
+
+/* Ghost row for an in-flight manual run (Job 2). Lives client-side only,
+   removed once the real row lands from Sheets. */
+.runs-row--in-progress td {
+  background: rgba(0, 100, 130, 0.06) !important;
+  font-style: italic;
   color: var(--text-muted);
+}
+
+.runs-row--in-progress td:nth-child(1) {
+  color: var(--text);
+  font-style: normal;
+  font-weight: 500;
+}
+
+.runs-row--in-progress .runs-dash {
+  color: var(--text-faint);
+}
+
+/* Skeleton rows for the first fetch so the modal doesn't flash empty. */
+.runs-row--skeleton td {
+  padding: var(--space-3);
+}
+
+.runs-row--skeleton .runs-skeleton-bar {
+  display: block;
+  height: 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  animation: skeletonPulse 1.4s ease-in-out infinite;
+}
+
+.runs-row--skeleton td:nth-child(1) .runs-skeleton-bar { width: 70%; }
+.runs-row--skeleton td:nth-child(2) .runs-skeleton-bar { width: 55%; }
+.runs-row--skeleton td:nth-child(3) .runs-skeleton-bar { width: 4rem; }
+.runs-row--skeleton td:nth-child(4) .runs-skeleton-bar { width: 50%; margin-left: auto; }
+.runs-row--skeleton td:nth-child(5) .runs-skeleton-bar { width: 40%; margin-left: auto; }
+.runs-row--skeleton td:nth-child(6) .runs-skeleton-bar { width: 40%; margin-left: auto; }
+.runs-row--skeleton td:nth-child(7) .runs-skeleton-bar { width: 60%; }
+.runs-row--skeleton td:nth-child(8) .runs-skeleton-bar { width: 65%; }
+.runs-row--skeleton td:nth-child(9) .runs-skeleton-bar { width: 30%; }
+
+/* Empty state — lives inside .runs-table-wrap (replaces the tbody when
+   there are no rows) so the border + radius frame it cleanly. */
+.runs-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-10) var(--space-5);
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.runs-empty__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.runs-empty__icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.runs-empty__title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.runs-empty__hint {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin: 0;
+  max-width: 36ch;
+  line-height: 1.5;
+}
+
+/* Narrow-viewport adjustments: 13" laptops and split-screens. */
+@media (max-width: 720px) {
+  .runs-modal {
+    width: calc(100vw - 1rem);
+  }
+
+  .runs-filters {
+    gap: var(--space-3);
+  }
+
+  .runs-refresh-btn {
+    margin-left: 0;
+  }
+
+  .runs-table thead th,
+  .runs-table tbody td {
+    padding: var(--space-2);
+  }
+
+  .runs-error-cell {
+    max-width: 12rem;
+  }
 }
