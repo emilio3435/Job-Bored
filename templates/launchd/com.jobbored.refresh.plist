@@ -36,7 +36,7 @@
       <string>-H</string>
       <string>x-discovery-secret: {{SECRET}}</string>
       <string>-d</string>
-      <string>{"event":"discovery.profile.request","schemaVersion":1,"mode":"refresh"}</string>
+      <string>{"event":"discovery.profile.request","schemaVersion":1,"mode":"refresh","trigger":"scheduled-local"}</string>
       <string>{{WORKER_URL}}</string>
     </array>
 

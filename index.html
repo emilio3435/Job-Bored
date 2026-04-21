@@ -577,6 +577,29 @@
             </button>
             <button
               type="button"
+              class="btn-materials btn-materials--icon btn-runs-log"
+              id="runsBtn"
+              title="Discovery run history"
+              aria-label="Open discovery run history"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+                <path d="M3 3v5h5" />
+                <path d="M12 7v5l3 2" />
+              </svg>
+            </button>
+            <button
+              type="button"
               class="btn-materials btn-materials--icon btn-settings"
               id="settingsBtn"
               title="Sheet, discovery, AI keys, and setup"
@@ -1469,6 +1492,120 @@
               Finish setup
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Discovery runs log: reads DiscoveryRuns sheet tab -->
+    <div
+      class="modal-overlay"
+      id="runsModal"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="runsModalTitle"
+    >
+      <div class="modal-card modal-card--wide runs-modal">
+        <div class="settings-modal-head">
+          <h3 id="runsModalTitle">Discovery runs</h3>
+          <button
+            type="button"
+            class="settings-modal-close"
+            id="runsModalClose"
+            aria-label="Close"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <p class="modal-lede settings-modal-lede">
+          Every discovery run your workers complete — manual, scheduled, or
+          CLI — logged to the
+          <code class="modal-code">DiscoveryRuns</code>
+          tab of your sheet. Newest first. Auto-refreshes while this panel is
+          open.
+        </p>
+        <div class="runs-filters" role="group" aria-label="Run filters">
+          <fieldset class="runs-filters__group">
+            <legend class="runs-filters__legend">Trigger</legend>
+            <div class="runs-filters__chips" data-runs-filter-group="trigger">
+              <button
+                type="button"
+                class="runs-filter-chip is-active"
+                data-runs-filter-trigger="all"
+              >All</button>
+              <button
+                type="button"
+                class="runs-filter-chip"
+                data-runs-filter-trigger="manual"
+              >Manual</button>
+              <button
+                type="button"
+                class="runs-filter-chip"
+                data-runs-filter-trigger="scheduled"
+              >Scheduled</button>
+            </div>
+          </fieldset>
+          <fieldset class="runs-filters__group">
+            <legend class="runs-filters__legend">Status</legend>
+            <div class="runs-filters__chips" data-runs-filter-group="status">
+              <button
+                type="button"
+                class="runs-filter-chip is-active"
+                data-runs-filter-status="all"
+              >All</button>
+              <button
+                type="button"
+                class="runs-filter-chip"
+                data-runs-filter-status="success"
+              >Success</button>
+              <button
+                type="button"
+                class="runs-filter-chip"
+                data-runs-filter-status="failure"
+              >Failure</button>
+            </div>
+          </fieldset>
+          <button
+            type="button"
+            class="runs-refresh-btn"
+            id="runsRefreshBtn"
+            title="Reload now"
+            aria-label="Reload runs"
+          >Reload</button>
+        </div>
+        <div
+          class="runs-status"
+          id="runsStatus"
+          role="status"
+          aria-live="polite"
+        ></div>
+        <div class="runs-table-wrap">
+          <table class="runs-table" id="runsTable">
+            <thead>
+              <tr>
+                <th data-runs-sort="runAt" scope="col">Run at</th>
+                <th data-runs-sort="trigger" scope="col">Trigger</th>
+                <th data-runs-sort="status" scope="col">Status</th>
+                <th data-runs-sort="durationS" scope="col">Duration</th>
+                <th data-runs-sort="companiesSeen" scope="col">Companies</th>
+                <th data-runs-sort="leadsWritten" scope="col">Leads</th>
+                <th data-runs-sort="source" scope="col">Source</th>
+                <th data-runs-sort="variationKey" scope="col">Variation</th>
+                <th scope="col">Error</th>
+              </tr>
+            </thead>
+            <tbody id="runsTableBody"></tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -5788,6 +5925,7 @@ https://your-static-site.example</pre
     <script src="settings-tabs.js"></script>
     <script src="settings-discovery-adapters.js"></script>
     <script src="settings-profile-tab.js?v=4"></script>
+    <script src="runs-tab.js"></script>
     <script src="app.js?v=14"></script>
   </body>
 </html>
