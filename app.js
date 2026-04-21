@@ -13102,6 +13102,13 @@ async function fetchJobPostingEnrichment(dataIndex) {
           );
         merged = {
           ...merged,
+          // Clean LLM-extracted structured fields used by the paste-to-Pipeline
+          // auto-promotion path to patch B/C/D cells in place of the URL-only
+          // placeholders ("View" / "linkedin.com" / etc.). Empty strings when
+          // the LLM cannot determine a value.
+          inferredTitle: llm.inferredTitle,
+          inferredCompany: llm.inferredCompany,
+          inferredLocation: llm.inferredLocation,
           postingSummary: llm.postingSummary,
           roleInOneLine: llm.roleInOneLine,
           mustHaves: llm.mustHaves,
@@ -17441,6 +17448,114 @@ function refreshPipelineAfterIngest() {
   }
 }
 
+// Auto-enrich a freshly-ingested row so the card doesn't live on as
+// "View / linkedin.com" placeholders. Reuses fetchJobPostingEnrichment (the
+// same scraper + LLM pipeline the drawer runs on click) then patches the
+// sheet's Title/Company/Location cells when the LLM inferred better values.
+// All errors are non-fatal — row stays in Pipeline regardless, user can edit
+// manually or wait for drawer-open enrichment to retry.
+async function autoEnrichIngestedRow(url, persistedLead) {
+  if (!url) return;
+  try {
+    // 1. Wait for pipeline to refresh so the new row is in pipelineData.
+    if (typeof loadAllData === "function") {
+      await loadAllData().catch(() => {});
+    }
+    // 2. Find the row by URL (stable primary key).
+    const normalizedUrl = String(url || "").trim();
+    const idx = pipelineData.findIndex(
+      (job) =>
+        job && String(job.link || "").trim() === normalizedUrl,
+    );
+    if (idx < 0) return;
+
+    // 3. Skip entirely when the Cheerio scraper URL is not configured — the
+    //    drawer-open enrichment path would also short-circuit here, so the
+    //    row just stays as url_only. No toast spam for a missing dep.
+    if (typeof getJobPostingScrapeUrl === "function" && !getJobPostingScrapeUrl()) {
+      return;
+    }
+
+    // 4. Fire the same enrichment the drawer uses. Populates
+    //    pipelineData[idx]._postingEnrichment with inferredTitle/Company/
+    //    Location + the full LLM bundle.
+    await fetchJobPostingEnrichment(idx).catch(() => {});
+
+    const job = pipelineData[idx];
+    const enr = job && job._postingEnrichment;
+    if (!enr) return;
+
+    // 5. Compute cell updates. Only replace placeholders ("View", "Linkedin",
+    //    "Job at <host>", empty) — never overwrite values the user has
+    //    typed/edited since paste.
+    const sheetRow = typeof getSheetRow === "function" ? getSheetRow(idx) : null;
+    if (!sheetRow) return;
+
+    const isPlaceholderTitle = (value) => {
+      const v = String(value || "").trim();
+      if (!v) return true;
+      if (/^view$/i.test(v)) return true;
+      if (/^job at /i.test(v)) return true;
+      // URL-slug-derived titles land as Title Case with no real role noun.
+      // Leave them alone unless inferred title is clearly richer.
+      return false;
+    };
+    const isPlaceholderCompany = (value) => {
+      const v = String(value || "").trim();
+      if (!v) return true;
+      if (/^unknown company$/i.test(v)) return true;
+      // Aggregator-hostname names we wrote as URL-only fallbacks.
+      const aggr = /^(linkedin|indeed|glassdoor|ziprecruiter|monster|simplyhired|careerbuilder|wellfound|google|angel|dice|builtin)$/i;
+      return aggr.test(v);
+    };
+
+    const inferredTitle = String(enr.inferredTitle || "").trim();
+    const inferredCompany = String(enr.inferredCompany || "").trim();
+    const inferredLocation = String(enr.inferredLocation || "").trim();
+
+    const updates = [];
+    if (inferredTitle && isPlaceholderTitle(job.title)) {
+      updates.push({ range: `Pipeline!B${sheetRow}`, value: inferredTitle });
+      job.title = inferredTitle;
+    }
+    if (inferredCompany && isPlaceholderCompany(job.company)) {
+      updates.push({ range: `Pipeline!C${sheetRow}`, value: inferredCompany });
+      job.company = inferredCompany;
+    }
+    if (inferredLocation && !String(job.location || "").trim()) {
+      updates.push({ range: `Pipeline!D${sheetRow}`, value: inferredLocation });
+      job.location = inferredLocation;
+    }
+
+    if (updates.length === 0) {
+      // Nothing to promote — drawer enrichment did run and is cached, so
+      // drawer open will be instant next time. Just re-render so the card
+      // picks up any _postingEnrichment-derived display tweaks.
+      if (typeof renderPipeline === "function") renderPipeline();
+      return;
+    }
+
+    const ok = await updateMultipleCells(updates).catch(() => false);
+    if (!ok) {
+      // Non-fatal — the row is already in the sheet, just with placeholders.
+      // Re-render anyway so the in-memory title/company update is visible
+      // locally, even if it doesn't persist to Sheets.
+      if (typeof renderPipeline === "function") renderPipeline();
+      return;
+    }
+
+    // Sheet patched. Refresh again so the pipeline reflects the real values.
+    if (typeof loadAllData === "function") {
+      await loadAllData().catch(() => {});
+    }
+    if (typeof showToast === "function") {
+      showToast("Details filled in: " + inferredTitle, "success");
+    }
+  } catch (err) {
+    console.warn("[JobBored] autoEnrichIngestedRow:", err);
+  }
+}
+
 function handleIngestUrlResponse(data, url) {
   if (!data || typeof data !== "object") {
     showToast("Unexpected response from worker", "error", true);
@@ -17449,9 +17564,19 @@ function handleIngestUrlResponse(data, url) {
   if (data.ok === true) {
     const title =
       (data.lead && (data.lead.title || data.lead.role)) || "job";
+    const strategy = (data && data.strategy) || "";
     showToast("Added: " + title, "success");
     closeIngestManualModal();
-    refreshPipelineAfterIngest();
+    // For url_only rows we only have URL-derived placeholder title/company.
+    // Fire the drawer enrichment pipeline now (scrape + LLM) and promote the
+    // sheet row's B/C/D cells with the LLM-inferred real values. Other
+    // strategies (ats_api / jsonld / cheerio_dom / manual_fill) already have
+    // clean fields — just refresh.
+    if (strategy === "url_only") {
+      void autoEnrichIngestedRow(url, data.lead);
+    } else {
+      refreshPipelineAfterIngest();
+    }
     return;
   }
   if (data.ok === false) {
