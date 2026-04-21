@@ -771,7 +771,11 @@
   // can be enabled; extra fires just overwrite the same company list.
 
   function readAutoRefreshState() {
-    var fallback = { enabled: false, intervalHours: 12, lastFiredAt: 0 };
+    // Default to enabled so new users get passive discovery cadence for free.
+    // The fallback only fires when AUTO_REFRESH_STORAGE_KEY has no record, so
+    // users who previously chose "off" keep that choice — localStorage
+    // distinguishes "no record" from "record with enabled:false".
+    var fallback = { enabled: true, intervalHours: 12, lastFiredAt: 0 };
     try {
       var raw = localStorage.getItem(AUTO_REFRESH_STORAGE_KEY);
       if (!raw) return fallback;
@@ -1502,6 +1506,12 @@
     bind: bind,
     resolveProfileEndpoint: resolveProfileEndpoint,
     refreshStatusPanel: refreshStatusPanel,
+    autoRefresh: {
+      readAutoRefreshState: readAutoRefreshState,
+      writeAutoRefreshState: writeAutoRefreshState,
+      STORAGE_KEY: AUTO_REFRESH_STORAGE_KEY,
+      VALID_HOURS: AUTO_REFRESH_VALID_HOURS,
+    },
     schedule: {
       detectOs: detectOs,
       buildInstallCommand: buildInstallCommand,
