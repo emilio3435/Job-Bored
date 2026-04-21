@@ -17233,11 +17233,441 @@ function initDiscoveryButton() {
   syncDiscoveryButtonState();
 }
 
+// ============================================
+// INGEST URL — paste-a-job-URL flow
+// ============================================
+
+const INGEST_URL_TIMEOUT_MS = 20000;
+const INGEST_URL_BLOCKED_HOST_LABELS = {
+  "linkedin.com": "LinkedIn",
+  "indeed.com": "Indeed",
+  "glassdoor.com": "Glassdoor",
+  "ziprecruiter.com": "ZipRecruiter",
+};
+
+function resolveIngestUrlEndpoint(baseUrl) {
+  const base = String(baseUrl || "").trim();
+  if (!base) return "";
+  try {
+    const u = new URL(base);
+    const path = (u.pathname || "").replace(/\/+$/, "");
+    const replaced = path.replace(
+      /\/(?:webhook|discovery|discovery-profile|ingest-url)$/i,
+      "/ingest-url",
+    );
+    if (replaced !== path) {
+      u.pathname = replaced;
+    } else if (path === "") {
+      u.pathname = "/ingest-url";
+    } else {
+      u.pathname = path + "/ingest-url";
+    }
+    u.search = "";
+    u.hash = "";
+    return u.toString();
+  } catch (_) {
+    return base.replace(/\/+$/, "") + "/ingest-url";
+  }
+}
+
+function isParseableUrl(value) {
+  const v = String(value || "").trim();
+  if (!v) return false;
+  try {
+    const u = new URL(v);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch (_) {
+    return false;
+  }
+}
+
+function aggregatorLabelForHost(host) {
+  const h = String(host || "")
+    .toLowerCase()
+    .replace(/^www\./, "");
+  for (const key in INGEST_URL_BLOCKED_HOST_LABELS) {
+    if (h === key || h.endsWith("." + key)) {
+      return INGEST_URL_BLOCKED_HOST_LABELS[key];
+    }
+  }
+  return host || "this site";
+}
+
+/**
+ * POST to the worker's /ingest-url endpoint.
+ * @param {string} url — pasted job URL
+ * @param {object} [manualOverride] — { title, company, location, description, fitScore }
+ * @returns {Promise<object>} parsed response
+ */
+async function handleIngestUrlSubmit(url, manualOverride) {
+  const webhook = getDiscoveryWebhookUrl();
+  if (!webhook) {
+    showToast(
+      "Configure your discovery webhook URL first",
+      "error",
+      false,
+      {
+        label: "Open settings",
+        onClick: () => {
+          openSettingsForDiscoveryWebhook().catch(() => {});
+        },
+      },
+    );
+    throw new Error("missing_discovery_webhook");
+  }
+
+  const endpoint = resolveIngestUrlEndpoint(webhook);
+  if (!endpoint) {
+    showToast("Invalid discovery webhook URL", "error");
+    throw new Error("invalid_endpoint");
+  }
+
+  const body = {
+    event: "ingest.url.request",
+    schemaVersion: 1,
+    url: String(url || "").trim(),
+  };
+  const sheetId = getSheetId();
+  if (sheetId) body.sheetId = sheetId;
+  if (manualOverride && typeof manualOverride === "object") {
+    body.manual = {
+      title: String(manualOverride.title || "").trim(),
+      company: String(manualOverride.company || "").trim(),
+      location: String(manualOverride.location || "").trim(),
+      description: String(manualOverride.description || "").trim(),
+      fitScore: Number.isFinite(manualOverride.fitScore)
+        ? manualOverride.fitScore
+        : 5,
+    };
+  }
+
+  const headers = { "content-type": "application/json" };
+  const secret = getDiscoveryWebhookSecret();
+  if (secret) headers["x-discovery-secret"] = secret;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    INGEST_URL_TIMEOUT_MS,
+  );
+
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = null;
+    }
+    if (!res.ok && !data) {
+      throw new Error("http_" + res.status);
+    }
+    return data;
+  } catch (err) {
+    if (err && err.name === "AbortError") {
+      throw new Error("timeout");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function getIngestManualModalEls() {
+  return {
+    modal: document.getElementById("ingestManualModal"),
+    form: document.getElementById("ingestManualForm"),
+    explain: document.getElementById("ingestManualModalExplain"),
+    error: document.getElementById("ingestManualModalError"),
+    urlField: document.getElementById("ingestManualUrl"),
+    title: document.getElementById("ingestManualTitle"),
+    company: document.getElementById("ingestManualCompany"),
+    location: document.getElementById("ingestManualLocation"),
+    description: document.getElementById("ingestManualDescription"),
+    fit: document.getElementById("ingestManualFitScore"),
+    fitLabel: document.getElementById("ingestManualFitScoreValue"),
+    submit: document.getElementById("ingestManualSubmit"),
+    cancel: document.getElementById("ingestManualCancel"),
+    close: document.getElementById("ingestManualModalClose"),
+  };
+}
+
+function setIngestManualModalError(message) {
+  const els = getIngestManualModalEls();
+  if (!els.error) return;
+  if (!message) {
+    els.error.style.display = "none";
+    els.error.textContent = "";
+    return;
+  }
+  els.error.style.display = "";
+  els.error.textContent = message;
+}
+
+function openIngestManualModal({ url, message }) {
+  const els = getIngestManualModalEls();
+  if (!els.modal || !els.form) return;
+  els.form.reset();
+  if (els.urlField) els.urlField.value = url || "";
+  if (els.fit) els.fit.value = "5";
+  if (els.fitLabel) els.fitLabel.textContent = "5";
+  if (els.explain) {
+    els.explain.textContent =
+      message || "We couldn't auto-scrape this URL — fill in what you can.";
+  }
+  setIngestManualModalError("");
+  els.modal.style.display = "flex";
+  if (els.title) {
+    setTimeout(() => els.title.focus(), 0);
+  }
+}
+
+function closeIngestManualModal() {
+  const els = getIngestManualModalEls();
+  if (els.modal) els.modal.style.display = "none";
+  setIngestManualModalError("");
+}
+
+function refreshPipelineAfterIngest() {
+  if (typeof loadAllData === "function") {
+    loadAllData().catch((err) => {
+      console.warn("[JobBored] post-ingest refresh failed:", err);
+    });
+  }
+}
+
+function handleIngestUrlResponse(data, url) {
+  if (!data || typeof data !== "object") {
+    showToast("Unexpected response from worker", "error", true);
+    return;
+  }
+  if (data.ok === true) {
+    const title =
+      (data.lead && (data.lead.title || data.lead.role)) || "job";
+    showToast("Added: " + title, "success");
+    closeIngestManualModal();
+    refreshPipelineAfterIngest();
+    return;
+  }
+  if (data.ok === false) {
+    switch (data.reason) {
+      case "blocked_aggregator": {
+        const label = aggregatorLabelForHost(data.host);
+        openIngestManualModal({
+          url,
+          message:
+            label +
+            " blocks scrapers — fill in details manually (about 20 seconds).",
+        });
+        return;
+      }
+      case "scrape_failed": {
+        const hint =
+          (typeof data.hint === "string" && data.hint.trim()) ||
+          (typeof data.message === "string" && data.message.trim()) ||
+          "We couldn't auto-scrape this URL — fill in what you can.";
+        openIngestManualModal({ url, message: hint });
+        return;
+      }
+      case "duplicate": {
+        const row = data.rowNumber;
+        const suffix = Number.isFinite(row) ? " (row " + row + ")" : "";
+        showToast("Already in Pipeline" + suffix, "info");
+        closeIngestManualModal();
+        return;
+      }
+      case "invalid_url":
+      case "private_network": {
+        showToast(
+          data.message || "Could not ingest URL: " + data.reason,
+          "error",
+        );
+        return;
+      }
+      default: {
+        showToast(
+          data.message || "Unexpected response from worker",
+          "error",
+          true,
+        );
+        return;
+      }
+    }
+  }
+  showToast("Unexpected response from worker", "error", true);
+}
+
+function setIngestSubmitLoading(button, loading) {
+  if (!button) return;
+  if (loading) {
+    button.disabled = true;
+    button.dataset.originalLabel = button.textContent || "";
+    button.textContent = "Adding…";
+  } else {
+    button.disabled = false;
+    if (button.dataset.originalLabel) {
+      button.textContent = button.dataset.originalLabel;
+      delete button.dataset.originalLabel;
+    }
+  }
+}
+
+async function submitIngestFromToolbar() {
+  const input = document.getElementById("ingestUrlInput");
+  const button = document.getElementById("ingestUrlSubmit");
+  if (!input) return;
+  const url = String(input.value || "").trim();
+  if (!url) {
+    showToast("Paste a job URL first", "error");
+    input.focus();
+    return;
+  }
+  if (!isParseableUrl(url)) {
+    showToast("That doesn't look like a valid http(s) URL", "error");
+    input.focus();
+    if (typeof input.select === "function") input.select();
+    return;
+  }
+  setIngestSubmitLoading(button, true);
+  try {
+    const data = await handleIngestUrlSubmit(url);
+    handleIngestUrlResponse(data, url);
+    if (data && data.ok === true) {
+      input.value = "";
+    }
+  } catch (err) {
+    if (err && err.message === "missing_discovery_webhook") {
+      // toast + settings already triggered inside handleIngestUrlSubmit
+    } else if (err && err.message === "timeout") {
+      showToast("Ingest timed out — try again", "error");
+    } else if (err && err.message === "invalid_endpoint") {
+      // toast already shown
+    } else {
+      console.error("[JobBored] ingest-url submit failed:", err);
+      showToast("Network error — could not reach worker", "error");
+    }
+  } finally {
+    setIngestSubmitLoading(button, false);
+  }
+}
+
+async function submitIngestFromManualModal() {
+  const els = getIngestManualModalEls();
+  if (!els.form) return;
+  const url = (els.urlField && els.urlField.value.trim()) || "";
+  const title = (els.title && els.title.value.trim()) || "";
+  const company = (els.company && els.company.value.trim()) || "";
+  const location = (els.location && els.location.value.trim()) || "";
+  const description =
+    (els.description && els.description.value.trim()) || "";
+  const fitScoreRaw = els.fit ? Number(els.fit.value) : 5;
+  const fitScore = Number.isFinite(fitScoreRaw) ? fitScoreRaw : 5;
+
+  setIngestManualModalError("");
+  if (!title) {
+    setIngestManualModalError("Title is required.");
+    if (els.title) els.title.focus();
+    return;
+  }
+  if (!company) {
+    setIngestManualModalError("Company is required.");
+    if (els.company) els.company.focus();
+    return;
+  }
+  if (!url || !isParseableUrl(url)) {
+    setIngestManualModalError("URL is missing or invalid.");
+    return;
+  }
+
+  setIngestSubmitLoading(els.submit, true);
+  try {
+    const data = await handleIngestUrlSubmit(url, {
+      title,
+      company,
+      location,
+      description,
+      fitScore,
+    });
+    if (data && data.ok === true) {
+      handleIngestUrlResponse(data, url);
+      const toolbarInput = document.getElementById("ingestUrlInput");
+      if (toolbarInput) toolbarInput.value = "";
+      return;
+    }
+    if (data && data.ok === false && data.reason === "duplicate") {
+      handleIngestUrlResponse(data, url);
+      return;
+    }
+    setIngestManualModalError(
+      (data && data.message) ||
+        "Worker rejected the manual entry. Check the fields and try again.",
+    );
+  } catch (err) {
+    if (err && err.message === "missing_discovery_webhook") {
+      setIngestManualModalError(
+        "Configure your discovery webhook URL in Settings first.",
+      );
+    } else if (err && err.message === "timeout") {
+      setIngestManualModalError("Request timed out. Try again.");
+    } else {
+      console.error("[JobBored] manual-fill submit failed:", err);
+      setIngestManualModalError("Network error — could not reach worker.");
+    }
+  } finally {
+    setIngestSubmitLoading(els.submit, false);
+  }
+}
+
+function initIngestUrlFlow() {
+  const form = document.getElementById("ingestUrlForm");
+  if (form) {
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      submitIngestFromToolbar();
+    });
+  }
+
+  const els = getIngestManualModalEls();
+  if (els.form) {
+    els.form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      submitIngestFromManualModal();
+    });
+  }
+  if (els.fit && els.fitLabel) {
+    els.fit.addEventListener("input", () => {
+      els.fitLabel.textContent = String(els.fit.value);
+    });
+  }
+  if (els.cancel) {
+    els.cancel.addEventListener("click", () => closeIngestManualModal());
+  }
+  if (els.close) {
+    els.close.addEventListener("click", () => closeIngestManualModal());
+  }
+  if (els.modal) {
+    els.modal.addEventListener("click", (e) => {
+      if (e.target === els.modal) closeIngestManualModal();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && els.modal.style.display === "flex") {
+        closeIngestManualModal();
+      }
+    });
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initCommandCenterSettings();
   initSetupAndSheetAccessActions();
   initScraperSetupGuide();
   initDiscoverySetupGuide();
   initPipelineEmptyAndBriefActions();
+  initIngestUrlFlow();
   init();
 });
