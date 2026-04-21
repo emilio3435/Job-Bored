@@ -23,7 +23,7 @@
     "schedule:status": "node scripts/install-schedule.mjs --status",
     "schedule:install-local": "node scripts/install-launchd-refresh.mjs",
     "schedule:uninstall-local": "node scripts/uninstall-launchd-refresh.mjs",
-    "test": "node --experimental-strip-types --test",
+    "test": "node scripts/run-tests.mjs",
     "test:discovery-webhook": "node scripts/verify-discovery-webhook.mjs",
     "test:browser-use-discovery": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/*.test.ts integrations/browser-use-discovery/tests/discovery/*.test.ts integrations/browser-use-discovery/tests/sources/*.test.ts integrations/browser-use-discovery/tests/state/*.test.ts integrations/browser-use-discovery/tests/sheets/*.test.ts integrations/browser-use-discovery/tests/webhook/*.test.ts integrations/browser-use-discovery/tests/e2e/*.test.ts",
     "test:contract": "node scripts/test-contract.mjs",
