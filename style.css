@@ -4146,6 +4146,91 @@ button.feed-item {
   letter-spacing: 0.01em;
 }
 
+/* Card action icons (favorite / dismiss / restore) — top-right corner,
+   fade in on hover so the resting card stays quiet. Favorite stays
+   visible when active so the filled star reads as state, not chrome. */
+.kanban-card__actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 160ms var(--ease);
+}
+
+.kanban-card:hover .kanban-card__actions,
+.kanban-card:focus-within .kanban-card__actions,
+.kanban-card--dismissed .kanban-card__actions,
+.kanban-card--favorited .kanban-card__actions {
+  opacity: 1;
+}
+
+.card-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition:
+    color 140ms var(--ease),
+    background 140ms var(--ease),
+    border-color 140ms var(--ease);
+}
+
+.card-action-btn:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.card-action-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.card-action-btn--fav.is-active {
+  color: var(--hot-orange);
+}
+.card-action-btn--fav.is-active:hover {
+  color: var(--hot-orange);
+  background: var(--hot-bg);
+  border-color: var(--hot-border);
+}
+
+.card-action-btn--dismiss:hover {
+  color: var(--toast-error);
+  background: var(--toast-error-bg);
+  border-color: #fecaca;
+}
+
+.card-action-btn--restore:hover {
+  color: var(--accent-text);
+  background: var(--accent-dim);
+  border-color: rgba(89, 203, 137, 0.3);
+}
+
+/* Dismissed-row treatment — muted + strikethrough on title.
+   Used when "Show dismissed" is toggled on. */
+.kanban-card--dismissed {
+  opacity: 0.6;
+}
+.kanban-card--dismissed:hover {
+  opacity: 0.85;
+}
+.kanban-card--dismissed .kanban-card__title {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-faint);
+  text-decoration-thickness: 1px;
+}
+
 /* ============================================
    DETAIL DRAWER
    ============================================ */
