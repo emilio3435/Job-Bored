@@ -19,8 +19,9 @@ import type {
   CandidateProfile,
   CompanyTarget,
   ProfileFormInput,
-  WorkerRuntimeConfig,
 } from "../contracts.ts";
+import type { WorkerRuntimeConfig } from "../config.ts";
+import { collectSerpApiGoogleJobsListings } from "../sources/serpapi-google-jobs.ts";
 
 type FetchImpl = typeof globalThis.fetch;
 
@@ -400,6 +401,81 @@ function normalizeCompanyKey(name: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+function domainFromUrl(raw: string): string {
+  try {
+    const url = new URL(String(raw || "").trim());
+    return url.hostname.replace(/^www\./i, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+async function discoverCompaniesViaSerpApi(input: {
+  profile: CandidateProfile;
+  runtimeConfig: WorkerRuntimeConfig;
+  fetchImpl: FetchImpl;
+  log?: ProfileLog;
+  maxResults: number;
+}): Promise<CompanyTarget[]> {
+  if (!String(input.runtimeConfig.serpApiKey || "").trim()) {
+    return [];
+  }
+  const startedAt = Date.now();
+  const result = await collectSerpApiGoogleJobsListings({
+    profile: {
+      targetRoles: input.profile.targetRoles,
+      locations: input.profile.locations,
+      remotePolicy: input.profile.remotePolicy || "",
+    },
+    runtimeConfig: input.runtimeConfig,
+    fetchImpl: input.fetchImpl,
+    log: input.log,
+    maxQueriesPerRun: 3,
+    queryTimeoutMs: 8_000,
+    resultsPerQuery: 10,
+  });
+  const byKey = new Map<string, CompanyTarget>();
+  for (const listing of result.listings) {
+    const name = String(listing.company || "").trim();
+    const companyKey = normalizeCompanyKey(name);
+    if (!name || !companyKey) continue;
+    const existing = byKey.get(companyKey);
+    const domain = domainFromUrl(listing.url);
+    const nextDomains = dedupeCaseInsensitive([
+      ...(existing?.domains || []),
+      ...(domain ? [domain] : []),
+    ]).slice(0, 3);
+    const nextRoleTags = dedupeCaseInsensitive([
+      ...(existing?.roleTags || []),
+      ...(listing.title ? [listing.title] : []),
+      ...input.profile.targetRoles,
+    ]).slice(0, 4);
+    const nextGeoTags = dedupeCaseInsensitive([
+      ...(existing?.geoTags || []),
+      ...(listing.location ? [listing.location] : []),
+      ...(input.profile.remotePolicy === "remote" ? ["remote"] : []),
+    ]).slice(0, 3);
+    byKey.set(companyKey, {
+      name,
+      companyKey,
+      normalizedName: companyKey,
+      ...(nextDomains.length > 0 ? { domains: nextDomains } : {}),
+      ...(nextRoleTags.length > 0 ? { roleTags: nextRoleTags } : {}),
+      ...(nextGeoTags.length > 0 ? { geoTags: nextGeoTags } : {}),
+    });
+    if (byKey.size >= input.maxResults) break;
+  }
+  const companies = [...byKey.values()];
+  input.log?.("discovery.profile.companies_serpapi_completed", {
+    companyCount: companies.length,
+    listingCount: result.stats.listingCount,
+    queryCount: result.stats.queryCount,
+    httpFailureCount: result.stats.httpFailureCount,
+    durationMs: Date.now() - startedAt,
+  });
+  return companies;
+}
+
 function normalizeCompanyList(
   raw: unknown,
   { maxResults }: { maxResults: number },
@@ -602,15 +678,7 @@ export async function discoverCompaniesForProfile(
     maxResults?: number;
   },
 ): Promise<CompanyTarget[]> {
-  const apiKey = String(dependencies.runtimeConfig.geminiApiKey || "").trim();
-  if (!apiKey) {
-    throw new Error(
-      "discoverCompaniesForProfile: Gemini API key is not configured (BROWSER_USE_DISCOVERY_GEMINI_API_KEY).",
-    );
-  }
   const fetchImpl = dependencies.fetchImpl || globalThis.fetch;
-  const model = dependencies.runtimeConfig.geminiModel || "gemini-2.5-flash";
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   const maxResults = Math.max(1, Math.min(50, dependencies.maxResults ?? 30));
 
   dependencies.log?.("discovery.profile.companies_started", {
@@ -619,6 +687,35 @@ export async function discoverCompaniesForProfile(
     locationCount: profile.locations.length,
     industryCount: profile.industries?.length ?? 0,
   });
+
+  const serpApiCompanies = await discoverCompaniesViaSerpApi({
+    profile,
+    runtimeConfig: dependencies.runtimeConfig,
+    fetchImpl,
+    log: dependencies.log,
+    maxResults,
+  });
+  if (serpApiCompanies.length > 0) {
+    dependencies.log?.("discovery.profile.companies_completed", {
+      companyCount: serpApiCompanies.length,
+      source: "serpapi_google_jobs",
+      callADurationMs: 0,
+      callBUsed: false,
+      callBDurationMs: 0,
+      retryUsed: false,
+      fanoutUsed: false,
+    });
+    return serpApiCompanies;
+  }
+
+  const apiKey = String(dependencies.runtimeConfig.geminiApiKey || "").trim();
+  if (!apiKey) {
+    throw new Error(
+      "discoverCompaniesForProfile: Gemini API key is not configured (BROWSER_USE_DISCOVERY_GEMINI_API_KEY).",
+    );
+  }
+  const model = dependencies.runtimeConfig.geminiModel || "gemini-2.5-flash";
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
   const minimumAcceptable = getCompanyDiscoveryAcceptableMinimum(maxResults);
 

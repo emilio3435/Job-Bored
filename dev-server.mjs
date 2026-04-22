@@ -80,6 +80,124 @@ function proxyRequest(target, _req, res) {
   upstream.end();
 }
 
+function requestLocalJson(target, { method = "GET", body = null, timeout = 3000 } = {}) {
+  return new Promise((resolve) => {
+    const opts = {
+      hostname: target.host,
+      port: target.port,
+      path: target.path,
+      method,
+      timeout,
+      headers: body
+        ? {
+            "content-type": "application/json",
+            "content-length": Buffer.byteLength(body),
+          }
+        : undefined,
+    };
+    const upstream = httpRequest(opts, (upRes) => {
+      let text = "";
+      upRes.setEncoding("utf8");
+      upRes.on("data", (chunk) => {
+        text += chunk;
+      });
+      upRes.on("end", () => {
+        let json = null;
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch {
+          json = null;
+        }
+        resolve({
+          ok: !!upRes.statusCode && upRes.statusCode >= 200 && upRes.statusCode < 300,
+          status: upRes.statusCode || 0,
+          json,
+          text,
+        });
+      });
+    });
+    upstream.on("error", (error) => {
+      resolve({
+        ok: false,
+        status: 0,
+        json: null,
+        text: "",
+        error: error && error.message ? error.message : String(error || "error"),
+      });
+    });
+    upstream.on("timeout", () => {
+      upstream.destroy();
+      resolve({ ok: false, status: 0, json: null, text: "", error: "timeout" });
+    });
+    if (body) upstream.write(body);
+    upstream.end();
+  });
+}
+
+function normalizeDiscoveryWorkerPort(raw) {
+  const port = Number.parseInt(String(raw || "8644"), 10);
+  return Number.isInteger(port) && port > 0 && port < 65536 ? port : 8644;
+}
+
+async function probeDiscoveryWorkerHealth(port) {
+  const response = await requestLocalJson({
+    host: "127.0.0.1",
+    port: normalizeDiscoveryWorkerPort(port),
+    path: "/health",
+  });
+  const payload = response.json && typeof response.json === "object" ? response.json : {};
+  return {
+    ok:
+      response.ok &&
+      String(payload.status || "").toLowerCase() === "ok" &&
+      String(payload.service || "").toLowerCase() === "browser-use-discovery-worker",
+    response,
+  };
+}
+
+async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
+  const resolvedPort = normalizeDiscoveryWorkerPort(port);
+  const before = await probeDiscoveryWorkerHealth(resolvedPort);
+  if (before.ok) {
+    return {
+      ok: true,
+      alreadyRunning: true,
+      started: false,
+      port: resolvedPort,
+    };
+  }
+
+  const child = spawn("npm", ["run", "start:discovery-worker"], {
+    cwd: ROOT,
+    detached: true,
+    stdio: "ignore",
+    env: process.env,
+  });
+  child.unref();
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const health = await probeDiscoveryWorkerHealth(resolvedPort);
+    if (health.ok) {
+      return {
+        ok: true,
+        alreadyRunning: false,
+        started: true,
+        port: resolvedPort,
+        pid: child.pid || 0,
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    started: true,
+    port: resolvedPort,
+    pid: child.pid || 0,
+    message: "Discovery worker did not become healthy after starting.",
+  };
+}
+
 async function serveStatic(urlPath, res) {
   let filePath = join(ROOT, urlPath === "/" ? "index.html" : urlPath);
   try {
@@ -313,6 +431,41 @@ async function handleFixSetup(req, res) {
   }));
 }
 
+async function handleStartDiscoveryWorker(req, res, discoveryWorkerStarter) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, message: "Localhost only." }));
+    return;
+  }
+
+  const url = new URL(req.url || "/", "http://localhost");
+  const port = normalizeDiscoveryWorkerPort(url.searchParams.get("port"));
+  try {
+    const starter =
+      typeof discoveryWorkerStarter === "function"
+        ? discoveryWorkerStarter
+        : defaultDiscoveryWorkerStarter;
+    const result = await starter({ port });
+    res.writeHead(result && result.ok ? 200 : 502, corsHeaders);
+    res.end(JSON.stringify(result || { ok: false, message: "No starter result." }));
+  } catch (error) {
+    res.writeHead(500, corsHeaders);
+    res.end(
+      JSON.stringify({
+        ok: false,
+        message:
+          error && error.message
+            ? error.message
+            : String(error || "Failed to start discovery worker."),
+      }),
+    );
+  }
+}
+
 function normalizePort(port) {
   const parsed = Number.parseInt(String(port ?? DEFAULT_PORT), 10);
   if (Number.isInteger(parsed) && parsed >= 0 && parsed < 65536) {
@@ -382,7 +535,7 @@ function ensureLocalTlsMaterial() {
   };
 }
 
-function createRequestHandler({ currentPort, logger }) {
+function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
   const log =
     logger && typeof logger.log === "function" ? logger.log.bind(logger) : () => {};
   const logError =
@@ -415,6 +568,17 @@ function createRequestHandler({ currentPort, logger }) {
       return;
     }
 
+    if (req.method === "POST" && pathname === "/__proxy/start-discovery-worker") {
+      handleStartDiscoveryWorker(req, res, discoveryWorkerStarter).catch((err) => {
+        logError("  Discovery-worker start error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, message: "Internal error." }));
+        }
+      });
+      return;
+    }
+
     const target = parseLocalProxyRoute(pathname, url.searchParams);
     if (target) {
       proxyRequest(target, req, res);
@@ -434,10 +598,15 @@ export function createDevServer({
   port = DEFAULT_PORT,
   logger = console,
   tls = false,
+  discoveryWorkerStarter,
 } = {}) {
   const currentPort = normalizePort(port);
   const useTls = normalizeBooleanFlag(tls);
-  const requestHandler = createRequestHandler({ currentPort, logger });
+  const requestHandler = createRequestHandler({
+    currentPort,
+    logger,
+    discoveryWorkerStarter,
+  });
 
   if (useTls) {
     const tlsMaterial = ensureLocalTlsMaterial();
@@ -453,14 +622,24 @@ export function createDevServer({
   return createHttpServer(requestHandler);
 }
 
-export function startDevServer({ port = DEFAULT_PORT, logger = console, tls = false } = {}) {
+export function startDevServer({
+  port = DEFAULT_PORT,
+  logger = console,
+  tls = false,
+  discoveryWorkerStarter,
+} = {}) {
   const requestedPort = normalizePort(port);
   const useTls = normalizeBooleanFlag(tls);
   const log =
     logger && typeof logger.log === "function" ? logger.log.bind(logger) : () => {};
 
   return new Promise((resolve, reject) => {
-    const server = createDevServer({ port: requestedPort, logger, tls: useTls });
+    const server = createDevServer({
+      port: requestedPort,
+      logger,
+      tls: useTls,
+      discoveryWorkerStarter,
+    });
     server.once("error", reject);
     server.listen(requestedPort, () => {
       const address = server.address();
@@ -473,6 +652,7 @@ export function startDevServer({ port = DEFAULT_PORT, logger = console, tls = fa
       log(`  Proxying /__proxy/local-health → 127.0.0.1:8644/health`);
       log(`  Proxying /__proxy/ngrok-tunnels → 127.0.0.1:4040/api/tunnels`);
       log(`  POST /__proxy/fix-setup → one-click recovery helper`);
+      log(`  POST /__proxy/start-discovery-worker → starts local discovery worker`);
       resolve(server);
     });
   });

@@ -319,6 +319,16 @@ describe("Profile tab — resume restore source selection", () => {
         if (String(url) === "http://127.0.0.1:8644/health") {
           throw new Error("connect ECONNREFUSED");
         }
+        if (
+          String(url) ===
+          "http://localhost:8080/__proxy/start-discovery-worker?port=8644"
+        ) {
+          return {
+            ok: false,
+            status: 502,
+            text: async () => JSON.stringify({ ok: false, message: "start failed" }),
+          };
+        }
         throw new Error("stale relay should not be called");
       },
     });
@@ -331,7 +341,73 @@ describe("Profile tab — resume restore source selection", () => {
         }),
       /Local discovery worker is not running.*npm run dev/,
     );
-    assert.deepEqual(calls, ["http://127.0.0.1:8644/health"]);
+    assert.deepEqual(calls, [
+      "http://127.0.0.1:8644/health",
+      "http://localhost:8080/__proxy/start-discovery-worker?port=8644",
+    ]);
+  });
+
+  it("auto-starts the local worker once and retries the profile request", async () => {
+    const calls = [];
+    let healthAttempts = 0;
+    const { module } = await loadScheduleModule({
+      location: {
+        hostname: "localhost",
+        port: "8080",
+        origin: "http://localhost:8080",
+      },
+      window: {
+        COMMAND_CENTER_CONFIG: {
+          discoveryWebhookUrl:
+            "https://jobbored-discovery-relay.example.workers.dev/discovery-profile",
+          discoveryWebhookSecret: "secret-xyz",
+          sheetId: "sheet_abc123",
+        },
+      },
+      fetch: async (url) => {
+        calls.push(String(url));
+        if (String(url) === "http://127.0.0.1:8644/health") {
+          healthAttempts += 1;
+          if (healthAttempts === 1) throw new Error("connect ECONNREFUSED");
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ status: "ok" }),
+          };
+        }
+        if (
+          String(url) ===
+          "http://localhost:8080/__proxy/start-discovery-worker?port=8644"
+        ) {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ ok: true, started: true }),
+          };
+        }
+        if (String(url) === "http://127.0.0.1:8644/discovery-profile") {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ ok: true, persisted: true }),
+          };
+        }
+        throw new Error("stale relay should not be called");
+      },
+    });
+
+    const response = await module.__test.postProfileEndpoint({
+      mode: "schedule-save",
+      schedule: { enabled: true, hour: 8, minute: 15, mode: "local" },
+    });
+
+    assert.equal(response.ok, true);
+    assert.deepEqual(calls, [
+      "http://127.0.0.1:8644/health",
+      "http://localhost:8080/__proxy/start-discovery-worker?port=8644",
+      "http://127.0.0.1:8644/health",
+      "http://127.0.0.1:8644/discovery-profile",
+    ]);
   });
 });
 
