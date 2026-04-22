@@ -328,6 +328,83 @@ test("POST /discovery-profile accepts form input only (no resumeText)", async ()
   assert.equal(body.ok, true);
 });
 
+test("POST /discovery-profile repairs empty successful profile extraction before company discovery", async () => {
+  let discoveredProfile: CandidateProfile | null = null;
+  let capturedMutations: Partial<StoredWorkerConfig> | null = null;
+  const logSink: Array<[string, Record<string, unknown>]> = [];
+
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        resumeText: [
+          "Senior Performance Marketing Manager.",
+          "Led paid social, paid search, Google Ads, Meta Ads, CRM, lifecycle campaigns, SQL analytics, and B2B SaaS growth.",
+          "Remote-friendly.",
+        ].join("\n"),
+        persist: true,
+        sheetId: "sheet_abc123",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      extractCandidateProfile: async () => ({
+        targetRoles: [],
+        skills: [],
+        seniority: "",
+        locations: [],
+        industries: [],
+      }),
+      discoverCompaniesForProfile: async (profile) => {
+        discoveredProfile = profile;
+        return [...CANNED_COMPANIES];
+      },
+      upsertStoredWorkerConfig: async (runtimeConfig, input) => {
+        capturedMutations = input.mutations;
+        return {
+          sheetId: input.sheetId,
+          mode: runtimeConfig.runMode,
+          timezone: "UTC",
+          companies: input.mutations.companies || [],
+          atsCompanies: [],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+        } as StoredWorkerConfig;
+      },
+      log: (event, details) => {
+        logSink.push([event, details]);
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.persisted, true);
+  assert.equal(body.fallback, undefined);
+  assert.ok(discoveredProfile, "company discovery should receive a repaired profile");
+  assert.ok(
+    discoveredProfile!.targetRoles.includes("Performance Marketing Manager"),
+  );
+  assert.ok(discoveredProfile!.skills.includes("Google Ads"));
+  assert.ok(discoveredProfile!.industries?.includes("B2B SaaS"));
+  assert.equal(capturedMutations?.companies?.length, CANNED_COMPANIES.length);
+  assert.ok(
+    logSink.some(([event]) => event === "discovery.profile.extract_empty_fallback_used"),
+    "should log the empty-extraction repair path",
+  );
+});
+
 test("POST /discovery-profile returns 502 when profile extraction throws", async () => {
   const response = await handleDiscoveryProfileWebhook(
     {
