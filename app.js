@@ -84,6 +84,18 @@ class DiscoveryRunTracker {
         errorMessage: parsed.errorMessage || "",
         pollErrorCount: parsed.pollErrorCount || 0,
         lastPollAt: parsed.lastPollAt || "",
+        trigger: parsed.trigger || "manual",
+        variationKey: parsed.variationKey || "",
+        requestedAt: parsed.requestedAt || "",
+        message: parsed.message || "",
+        startedAt: parsed.startedAt || "",
+        completedAt: parsed.completedAt || "",
+        companiesSeen: Number.isFinite(parsed.companiesSeen)
+          ? parsed.companiesSeen
+          : 0,
+        leadsWritten: Number.isFinite(parsed.leadsWritten)
+          ? parsed.leadsWritten
+          : 0,
       };
     } catch (_) {
       return this._idle();
@@ -96,6 +108,7 @@ class DiscoveryRunTracker {
     } catch (_) {
       /* storage full or unavailable — run state is best-effort */
     }
+    dispatchDiscoveryRunTrackerEvent(state);
   }
 
   _idle() {
@@ -111,6 +124,14 @@ class DiscoveryRunTracker {
       errorMessage: "",
       pollErrorCount: 0,
       lastPollAt: "",
+      trigger: "manual",
+      variationKey: "",
+      requestedAt: "",
+      message: "",
+      startedAt: "",
+      completedAt: "",
+      companiesSeen: 0,
+      leadsWritten: 0,
     };
   }
 
@@ -127,7 +148,15 @@ class DiscoveryRunTracker {
    * @param {number} [options.pollAfterMs] polling interval in ms (default 2000)
    * @param {string} [options.webhookUrl]  the webhook URL for status polling
    */
-  beginTracking({ runId, statusPath = "", pollAfterMs = 2000, webhookUrl = "" }) {
+  beginTracking({
+    runId,
+    statusPath = "",
+    pollAfterMs = 2000,
+    webhookUrl = "",
+    trigger = "manual",
+    variationKey = "",
+    requestedAt = "",
+  }) {
     this._state = {
       status: "pending",
       runId: String(runId || "").trim(),
@@ -140,6 +169,14 @@ class DiscoveryRunTracker {
       errorMessage: "",
       pollErrorCount: 0,
       lastPollAt: "",
+      trigger: String(trigger || "manual"),
+      variationKey: String(variationKey || "").trim(),
+      requestedAt: String(requestedAt || "").trim(),
+      message: "",
+      startedAt: "",
+      completedAt: "",
+      companiesSeen: 0,
+      leadsWritten: 0,
     };
     this._persist(this._state);
     return this;
@@ -162,6 +199,33 @@ class DiscoveryRunTracker {
     this._state.lastPollAt = new Date().toISOString();
     const isTerminal = !!statusData.terminal;
     const runStatus = String(statusData.status || "").toLowerCase();
+    const request = statusData.request && typeof statusData.request === "object"
+      ? statusData.request
+      : {};
+    const lifecycle =
+      statusData.lifecycle && typeof statusData.lifecycle === "object"
+        ? statusData.lifecycle
+        : {};
+    const writeResult =
+      statusData.writeResult && typeof statusData.writeResult === "object"
+        ? statusData.writeResult
+        : {};
+    this._state.trigger = String(statusData.trigger || this._state.trigger || "manual");
+    this._state.variationKey = String(
+      request.variationKey || this._state.variationKey || "",
+    );
+    this._state.requestedAt = String(
+      request.requestedAt || this._state.requestedAt || "",
+    );
+    this._state.message = String(statusData.message || this._state.message || "");
+    this._state.startedAt = String(statusData.startedAt || this._state.startedAt || "");
+    this._state.completedAt = String(statusData.completedAt || "");
+    if (Number.isFinite(lifecycle.companyCount)) {
+      this._state.companiesSeen = lifecycle.companyCount;
+    }
+    if (Number.isFinite(writeResult.appended)) {
+      this._state.leadsWritten = writeResult.appended;
+    }
     if (isTerminal) {
       this._state.status = runStatus; // completed | empty | partial | failed
       this._state.terminalAt = new Date().toISOString();
@@ -217,6 +281,7 @@ class DiscoveryRunTracker {
     try {
       localStorage.removeItem(this._key);
     } catch (_) {}
+    dispatchDiscoveryRunTrackerEvent(this._state);
     return this;
   }
 
@@ -238,6 +303,20 @@ class DiscoveryRunTracker {
 
 /** Shared singleton — initialized once at module load */
 const discoveryRunTracker = new DiscoveryRunTracker();
+
+function dispatchDiscoveryRunTrackerEvent(state) {
+  try {
+    if (typeof document === "undefined") return;
+    if (typeof CustomEvent !== "function") return;
+    document.dispatchEvent(
+      new CustomEvent("jobbored:job-discovery-run-updated", {
+        detail: { state: { ...(state || {}) } },
+      }),
+    );
+  } catch (_) {
+    // Best-effort UI bridge for runs-tab.js.
+  }
+}
 
 const COMMAND_CENTER_OVERRIDE_KEYS = [
   "sheetId",
@@ -4935,10 +5014,14 @@ function buildRunStatusUrl(statusPath, webhookUrl) {
     if (path.startsWith("http://") || path.startsWith("https://")) {
       return path;
     }
-    // Relative — resolve against webhook URL
-    const base = String(webhookUrl || "").replace(/\/+$/, "");
-    if (!base) return "";
-    return base + path;
+    const base = new URL(String(webhookUrl || ""));
+    if (path.startsWith("/")) {
+      return new URL(path, base.origin).toString();
+    }
+    const baseDir = base.href.endsWith("/")
+      ? base.href
+      : base.href.replace(/\/[^/]*$/, "/");
+    return new URL(path, baseDir).toString();
   } catch (_) {
     return "";
   }
@@ -8274,6 +8357,9 @@ async function triggerDiscoveryRun() {
           statusPath,
           pollAfterMs: Number.isFinite(result.pollAfterMs) ? result.pollAfterMs : 2000,
           webhookUrl,
+          trigger: "manual",
+          variationKey: payload.variationKey || "",
+          requestedAt: payload.requestedAt || "",
         });
         // Show initial pending feedback immediately
         renderDiscoveryRunStatus();

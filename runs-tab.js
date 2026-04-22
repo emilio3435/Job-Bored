@@ -21,11 +21,17 @@
   var AUTO_REFRESH_MS = 60 * 1000;
   var DEFAULT_SORT = { key: "runAt", direction: "desc" };
   var MAX_ROWS = 200;
+  var JOB_DISCOVERY_RUN_STORAGE_KEY = "command_center_discovery_run_state";
 
   var SCHEDULED_TRIGGERS = {
     "scheduled-local": true,
     "scheduled-github": true,
     "scheduled-appsscript": true,
+  };
+  var ACTIVE_JOB_DISCOVERY_STATUSES = {
+    pending: true,
+    running: true,
+    polling_error: true,
   };
 
   function escapeHtml(value) {
@@ -193,9 +199,9 @@
     return mins + "m " + secs + "s";
   }
 
-  function statusBadge(status) {
+  function statusBadge(status, labelOverride) {
     var safe = escapeHtml(status || "");
-    var label = status === "in_progress" ? "In progress" : safe;
+    var label = labelOverride || (status === "in_progress" ? "In progress" : safe);
     return (
       '<span class="runs-status-badge runs-status-badge--' +
       safe +
@@ -232,11 +238,52 @@
     }
   }
 
+  function normalizeJobDiscoveryRunState(raw) {
+    var o = raw && raw.state && typeof raw.state === "object" ? raw.state : raw;
+    if (!o || typeof o !== "object") return null;
+    var status = String(o.status || "").toLowerCase();
+    var runId = String(o.runId || "").trim();
+    if (!runId || !ACTIVE_JOB_DISCOVERY_STATUSES[status]) return null;
+    var runAt = String(o.initiatedAt || o.requestedAt || o.startedAt || "").trim();
+    if (!runAt) runAt = new Date().toISOString();
+    return {
+      runAt: runAt,
+      trigger: String(o.trigger || "manual"),
+      status: status,
+      runId: runId,
+      statusPath: String(o.statusPath || ""),
+      variationKey: String(o.variationKey || ""),
+      message: String(o.message || o.errorMessage || ""),
+      error: String(o.errorMessage || ""),
+      companiesSeen: toInt(o.companiesSeen),
+      leadsWritten: toInt(o.leadsWritten),
+    };
+  }
+
+  function readStoredJobDiscoveryRun() {
+    try {
+      if (typeof localStorage === "undefined" || !localStorage) return null;
+      var raw = localStorage.getItem(JOB_DISCOVERY_RUN_STORAGE_KEY);
+      if (!raw) return null;
+      return normalizeJobDiscoveryRunState(JSON.parse(raw));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function jobDiscoveryStatusLabel(status) {
+    if (status === "pending") return "Accepted";
+    if (status === "polling_error") return "Retrying";
+    return "Running";
+  }
+
   function renderRunsTable(tbody, runs, options) {
     if (!tbody) return;
     var opts = options || {};
     var ghost = opts.ghost || null;
+    var liveJobRun = opts.liveJobRun || null;
     var parts = [];
+    if (liveJobRun) parts.push(renderLiveJobRunRowHtml(liveJobRun));
     if (ghost) parts.push(renderGhostRowHtml(ghost));
     if (runs && runs.length > 0) {
       for (var i = 0; i < runs.length; i++) {
@@ -282,6 +329,36 @@
         '<td><span class="runs-dash">—</span></td>' +
         '<td><span class="runs-dash">—</span></td>' +
         '<td class="runs-error-cell"></td>' +
+      "</tr>"
+    );
+  }
+
+  function renderLiveJobRunRowHtml(run) {
+    var runAt = run && run.runAt ? new Date(run.runAt) : new Date();
+    var runAtIso = Number.isNaN(runAt.getTime())
+      ? new Date().toISOString()
+      : runAt.toISOString();
+    var status = run && run.status ? run.status : "running";
+    var errorText = run && run.error ? String(run.error) : "";
+    var companiesSeen = run && run.companiesSeen > 0 ? String(run.companiesSeen) : "—";
+    var leadsWritten = run && run.leadsWritten > 0 ? String(run.leadsWritten) : "—";
+    return (
+      '<tr class="runs-row runs-row--in-progress" data-runs-live="job-discovery">' +
+        '<td title="' + escapeHtml(runAtIso) + '">' +
+          escapeHtml(formatRunAtShort(runAtIso)) +
+        "</td>" +
+        "<td>" + escapeHtml(triggerLabel((run && run.trigger) || "manual")) + "</td>" +
+        "<td>" + statusBadge("in_progress", jobDiscoveryStatusLabel(status)) + "</td>" +
+        '<td><span class="runs-dash">Live</span></td>' +
+        "<td>" + escapeHtml(companiesSeen) + "</td>" +
+        "<td>" + escapeHtml(leadsWritten) + "</td>" +
+        "<td>Job discovery</td>" +
+        "<td><code>" + escapeHtml((run && run.variationKey) || "") + "</code></td>" +
+        '<td class="runs-error-cell"' +
+          (errorText ? ' title="' + escapeHtml(errorText) + '"' : "") +
+          ">" +
+          escapeHtml(errorText) +
+        "</td>" +
       "</tr>"
     );
   }
@@ -358,6 +435,7 @@
       loading: false,
       hasLoadedOnce: false,
       ghostRun: null,
+      liveJobRun: readStoredJobDiscoveryRun(),
       isOpen: false,
     };
 
@@ -408,28 +486,41 @@
     function rerender() {
       var filtered = filterRuns(state.rawRuns, state.filters);
       var sorted = sortRuns(filtered, state.sort.key, state.sort.direction);
-      var hasContent = sorted.length > 0 || !!state.ghostRun;
+      var hasContent = sorted.length > 0 || !!state.ghostRun || !!state.liveJobRun;
       if (hasContent) {
         showTable();
-        renderRunsTable(tbody, sorted, { ghost: state.ghostRun });
+        renderRunsTable(tbody, sorted, {
+          ghost: state.ghostRun,
+          liveJobRun: state.liveJobRun,
+        });
       } else if (state.rawRuns.length > 0) {
         // Filter chips emptied the visible set, but we do have rows —
         // keep the table visible with no rows + a status hint.
         showTable();
         renderRunsTable(tbody, [], { ghost: null });
       }
-      if (state.rawRuns.length === 0 && !state.ghostRun) {
-        // Leave whatever empty/skeleton state is already painted.
+      if (state.rawRuns.length === 0 && !state.ghostRun && !state.liveJobRun) {
+        if (!state.loading && state.hasLoadedOnce) {
+          showTable();
+          renderRunsTable(tbody, [], { ghost: null, liveJobRun: null });
+          showEmpty({
+            title: "No runs logged yet",
+            hint: "Trigger a discovery to populate this list. Every manual and scheduled run appears here.",
+          });
+        }
         return;
       }
-      if (filtered.length === 0 && !state.ghostRun) {
+      if (filtered.length === 0 && !state.ghostRun && !state.liveJobRun) {
         setStatus(
           statusEl,
           "info",
           "No runs match the current filters.",
         );
       } else if (!state.loading) {
-        var extra = state.ghostRun ? " (+1 in progress)" : "";
+        var extras = [];
+        if (state.liveJobRun) extras.push("+1 live job run");
+        if (state.ghostRun) extras.push("+1 company run");
+        var extra = extras.length ? " (" + extras.join(", ") + ")" : "";
         setStatus(
           statusEl,
           "ok",
@@ -495,12 +586,15 @@
         }
         state.rawRuns = result.runs;
         if (result.reason === "missing_tab" || result.reason === "empty") {
-          if (state.ghostRun) {
+          if (state.ghostRun || state.liveJobRun) {
             // Render a table view with just the ghost row so the pending
-            // manual run stays visible while the sheet is still empty.
+            // manual/live run stays visible while the sheet is still empty.
             showTable();
-            renderRunsTable(tbody, [], { ghost: state.ghostRun });
-            setStatus(statusEl, "info", "Manual run in progress…");
+            renderRunsTable(tbody, [], {
+              ghost: state.ghostRun,
+              liveJobRun: state.liveJobRun,
+            });
+            setStatus(statusEl, "info", "Discovery run in progress…");
           } else {
             showEmpty({
               title: "No runs logged yet",
@@ -535,6 +629,7 @@
       modal.style.display = "flex";
       modal.setAttribute("aria-hidden", "false");
       state.isOpen = true;
+      state.liveJobRun = readStoredJobDiscoveryRun();
       loadRuns();
       startAutoRefresh();
     }
@@ -623,6 +718,22 @@
       // Immediate refetch — don't wait for the 60s interval.
       loadRuns({ silent: false });
     });
+
+    document.addEventListener("jobbored:job-discovery-run-updated", function (event) {
+      var next = normalizeJobDiscoveryRunState(event && event.detail);
+      var hadLiveRun = !!state.liveJobRun;
+      state.liveJobRun = next;
+      if (!state.isOpen) return;
+      if (state.liveJobRun) {
+        rerender();
+        setStatus(statusEl, "info", "Job discovery run in progress…");
+        return;
+      }
+      rerender();
+      if (hadLiveRun) {
+        loadRuns({ silent: false });
+      }
+    });
   }
 
   if (document.readyState === "loading") {
@@ -642,6 +753,9 @@
       renderSkeletonRows: renderSkeletonRows,
       renderRunsTable: renderRunsTable,
       renderEmptyState: renderEmptyState,
+      normalizeJobDiscoveryRunState: normalizeJobDiscoveryRunState,
+      readStoredJobDiscoveryRun: readStoredJobDiscoveryRun,
+      renderLiveJobRunRowHtml: renderLiveJobRunRowHtml,
       initRunsTab: initRunsTab,
       triggerLabel: triggerLabel,
     },

@@ -9,6 +9,18 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 async function loadRunsTab() {
   const source = await readFile(join(repoRoot, "runs-tab.js"), "utf8");
+  const storage = new Map();
+  const localStorage = {
+    getItem(key) {
+      return storage.has(key) ? storage.get(key) : null;
+    },
+    setItem(key, value) {
+      storage.set(key, String(value));
+    },
+    removeItem(key) {
+      storage.delete(key);
+    },
+  };
   const document = {
     readyState: "loading",
     addEventListener() {},
@@ -26,6 +38,7 @@ async function loadRunsTab() {
     navigator: { userAgent: "test" },
     console,
     URL,
+    localStorage,
     setInterval,
     clearInterval,
     fetch: async () => {
@@ -161,9 +174,32 @@ function makeFakeDom() {
   return { document, modal, openBtn, tbody, tableWrap, statusEl, docListeners };
 }
 
-async function bootInitRunsTab({ fetchImpl, sheetId = "sheet-1", accessToken = "tok" } = {}) {
+async function bootInitRunsTab({
+  fetchImpl,
+  sheetId = "sheet-1",
+  accessToken = "tok",
+  storedJobRunState = null,
+} = {}) {
   const source = await readFile(join(repoRoot, "runs-tab.js"), "utf8");
   const dom = makeFakeDom();
+  const storage = new Map();
+  if (storedJobRunState) {
+    storage.set(
+      "command_center_discovery_run_state",
+      JSON.stringify(storedJobRunState),
+    );
+  }
+  const localStorage = {
+    getItem(key) {
+      return storage.has(key) ? storage.get(key) : null;
+    },
+    setItem(key, value) {
+      storage.set(key, String(value));
+    },
+    removeItem(key) {
+      storage.delete(key);
+    },
+  };
   const window = {
     JobBored: {
       getSheetId: () => sheetId,
@@ -184,6 +220,7 @@ async function bootInitRunsTab({ fetchImpl, sheetId = "sheet-1", accessToken = "
     navigator: { userAgent: "test" },
     console,
     URL,
+    localStorage,
     setInterval: (fn, ms) => {
       const id = timers.length;
       timers.push({ fn, ms });
@@ -202,7 +239,7 @@ async function bootInitRunsTab({ fetchImpl, sheetId = "sheet-1", accessToken = "
   dom.openBtn.dispatch("click", {});
   // Flush any pending microtasks from loadRuns().
   await new Promise((resolve) => setImmediate(resolve));
-  return { dom, window, context };
+  return { dom, window, context, localStorageRaw: storage };
 }
 
 function asPlain(value) {
@@ -478,6 +515,94 @@ describe("renderGhostRowHtml (ghost row markup)", () => {
     assert.ok(match, "expected a title with the ISO timestamp");
     const ts = Date.parse(match[1]);
     assert.ok(ts >= before - 1000 && ts <= after + 1000);
+  });
+});
+
+describe("live job-discovery run row", () => {
+  it("normalizes active job discovery tracker state and rejects terminal state", async () => {
+    const mod = await loadRunsTab();
+    const active = mod.__test.normalizeJobDiscoveryRunState({
+      status: "running",
+      runId: "run_123",
+      initiatedAt: "2026-04-21T20:00:00Z",
+      variationKey: "var-1",
+    });
+    assert.equal(active.runId, "run_123");
+    assert.equal(active.status, "running");
+    assert.equal(active.variationKey, "var-1");
+
+    const terminal = mod.__test.normalizeJobDiscoveryRunState({
+      status: "completed",
+      runId: "run_123",
+    });
+    assert.equal(terminal, null);
+  });
+
+  it("renders an active job-discovery run from localStorage when the modal opens", async () => {
+    const { dom } = await bootInitRunsTab({
+      storedJobRunState: {
+        status: "running",
+        runId: "run_live_1",
+        initiatedAt: "2026-04-21T20:00:00Z",
+        trigger: "manual",
+        variationKey: "var-live",
+      },
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ values: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+
+    assert.match(dom.tbody.innerHTML, /data-runs-live="job-discovery"/);
+    assert.match(dom.tbody.innerHTML, /Job discovery/);
+    assert.match(dom.tbody.innerHTML, /var-live/);
+  });
+
+  it("updates the live job row from tracker events and refreshes after terminal events", async () => {
+    let fetchCalls = 0;
+    const { dom } = await bootInitRunsTab({
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        return new Response(JSON.stringify({ values: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    const initialFetchCount = fetchCalls;
+
+    dom.document.dispatchDoc("jobbored:job-discovery-run-updated", {
+      detail: {
+        state: {
+          status: "running",
+          runId: "run_event_1",
+          initiatedAt: "2026-04-21T20:00:00Z",
+          variationKey: "var-event",
+        },
+      },
+    });
+    assert.match(dom.tbody.innerHTML, /data-runs-live="job-discovery"/);
+    assert.match(dom.tbody.innerHTML, /var-event/);
+
+    dom.document.dispatchDoc("jobbored:job-discovery-run-updated", {
+      detail: {
+        state: {
+          status: "completed",
+          runId: "run_event_1",
+        },
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(
+      /data-runs-live="job-discovery"/.test(dom.tbody.innerHTML),
+      false,
+    );
+    assert.ok(
+      fetchCalls > initialFetchCount,
+      "terminal job-run event should refresh the sheet-backed run log",
+    );
   });
 });
 

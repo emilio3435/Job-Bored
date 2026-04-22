@@ -434,6 +434,10 @@ export type DiscoveryProfileResponseV1 =
       profile: CandidateProfile;
       companies: CompanyTarget[];
       persisted: boolean;
+      fallback?: {
+        reason: "profile_extraction_failed" | "company_discovery_failed";
+        message: string;
+      };
     }
   | {
       ok: true;
