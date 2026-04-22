@@ -89,9 +89,9 @@ async function loadScheduleModule(overrides = {}) {
     URL,
     AbortController,
     Blob: globalThis.Blob,
-    fetch: async () => {
+    fetch: overrides.fetch || (async () => {
       throw new Error("fetch should not be called in schedule-card tests");
-    },
+    }),
   };
 
   vm.runInNewContext(source, context, {
@@ -250,6 +250,88 @@ describe("Profile tab — resume restore source selection", () => {
       module.__test.shouldRetryProfileEndpoint({ network: true }),
       true,
     );
+  });
+
+  it("prefers the local worker before a Cloudflare relay on localhost dashboards", async () => {
+    const calls = [];
+    const { module } = await loadScheduleModule({
+      location: {
+        hostname: "localhost",
+        port: "8080",
+      },
+      window: {
+        COMMAND_CENTER_CONFIG: {
+          discoveryWebhookUrl:
+            "https://jobbored-discovery-relay.example.workers.dev/discovery-profile",
+          discoveryWebhookSecret: "secret-xyz",
+          sheetId: "sheet_abc123",
+        },
+      },
+      fetch: async (url) => {
+        calls.push(String(url));
+        if (String(url) === "http://127.0.0.1:8644/health") {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => "{}",
+          };
+        }
+        if (String(url) === "http://127.0.0.1:8644/discovery-profile") {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ ok: true, schedule: { enabled: true } }),
+          };
+        }
+        throw new Error("stale relay should not be called");
+      },
+    });
+
+    const response = await module.__test.postProfileEndpoint({
+      mode: "schedule-save",
+      schedule: { enabled: true, hour: 8, minute: 15, mode: "local" },
+    });
+
+    assert.equal(response.ok, true);
+    assert.deepEqual(calls, [
+      "http://127.0.0.1:8644/health",
+      "http://127.0.0.1:8644/discovery-profile",
+    ]);
+  });
+
+  it("turns a stopped local worker into actionable guidance instead of relay 502", async () => {
+    const calls = [];
+    const { module } = await loadScheduleModule({
+      location: {
+        hostname: "localhost",
+        port: "8080",
+      },
+      window: {
+        COMMAND_CENTER_CONFIG: {
+          discoveryWebhookUrl:
+            "https://jobbored-discovery-relay.example.workers.dev/discovery-profile",
+          discoveryWebhookSecret: "secret-xyz",
+          sheetId: "sheet_abc123",
+        },
+      },
+      fetch: async (url) => {
+        calls.push(String(url));
+        if (String(url) === "http://127.0.0.1:8644/health") {
+          throw new Error("connect ECONNREFUSED");
+        }
+        throw new Error("stale relay should not be called");
+      },
+    });
+
+    await assert.rejects(
+      () =>
+        module.__test.postProfileEndpoint({
+          mode: "schedule-save",
+          schedule: { enabled: true, hour: 8, minute: 15, mode: "local" },
+        }),
+      /Local discovery worker is not running.*npm run dev/,
+    );
+    assert.deepEqual(calls, ["http://127.0.0.1:8644/health"]);
   });
 });
 

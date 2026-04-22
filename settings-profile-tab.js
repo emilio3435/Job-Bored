@@ -493,6 +493,26 @@
     return error.network === true;
   }
 
+  function shouldPreferLocalProfileEndpoint(primaryEndpoint, fallbackEndpoint) {
+    return (
+      isLocalDashboardOrigin() &&
+      !!fallbackEndpoint &&
+      fallbackEndpoint !== primaryEndpoint &&
+      !isLocalWebhookUrl(primaryEndpoint)
+    );
+  }
+
+  function localWorkerUnavailableError(fallbackEndpoint) {
+    var health = profileHealthEndpoint(fallbackEndpoint) || "http://127.0.0.1:8644/health";
+    var err = new Error(
+      "Local discovery worker is not running or is still starting. Start it with root `npm run dev`, wait for `[browser-use-discovery] listening on http://127.0.0.1:8644`, then try again. Health check: " +
+        health,
+    );
+    err.localWorkerUnavailable = true;
+    err.endpoint = fallbackEndpoint;
+    return err;
+  }
+
   function readSettingValue(id) {
     var el = qs(id);
     return el && typeof el.value === "string" ? el.value.trim() : "";
@@ -829,6 +849,34 @@
       }
     }
 
+    var fallbackEndpoint = resolveLocalProfileEndpointCandidate(primaryEndpoint);
+    var preferLocal = shouldPreferLocalProfileEndpoint(
+      primaryEndpoint,
+      fallbackEndpoint,
+    );
+    if (preferLocal) {
+      if (await isProfileFallbackReady(fallbackEndpoint)) {
+        try {
+          console.info(
+            "[settings-profile-tab] using local discovery worker for profile request",
+            fallbackEndpoint,
+          );
+          return await sendProfileRequest(fallbackEndpoint);
+        } catch (localErr) {
+          try {
+            console.info(
+              "[settings-profile-tab] local profile request failed:",
+              localErr && localErr.message ? localErr.message : localErr,
+            );
+          } catch (_) {
+            // ignore
+          }
+          throw localErr;
+        }
+      }
+      throw localWorkerUnavailableError(fallbackEndpoint);
+    }
+
     var primaryError;
     try {
       return await sendProfileRequest(primaryEndpoint);
@@ -836,7 +884,6 @@
       primaryError = err;
     }
 
-    var fallbackEndpoint = resolveLocalProfileEndpointCandidate(primaryEndpoint);
     if (
       fallbackEndpoint &&
       fallbackEndpoint !== primaryEndpoint &&
@@ -1993,6 +2040,9 @@
       formatSavedProfileValue: formatSavedProfileValue,
       resolveLocalProfileEndpointCandidate: resolveLocalProfileEndpointCandidate,
       shouldRetryProfileEndpoint: shouldRetryProfileEndpoint,
+      shouldPreferLocalProfileEndpoint: shouldPreferLocalProfileEndpoint,
+      localWorkerUnavailableError: localWorkerUnavailableError,
+      postProfileEndpoint: postProfileEndpoint,
       normalizeResumeText: normalizeResumeText,
       MIN_RESTORABLE_WORKER_RESUME_CHARS: MIN_RESTORABLE_WORKER_RESUME_CHARS,
     },
