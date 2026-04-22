@@ -67,7 +67,12 @@ async function loadScheduleModule(overrides = {}) {
   const window = {
     setTimeout,
     clearTimeout,
+    location: overrides.location || {
+      hostname: "localhost",
+      port: "8080",
+    },
     JobBoredSettingsProfileTab: undefined,
+    ...(overrides.window || {}),
   };
 
   const navigator = overrides.navigator || {
@@ -147,6 +152,104 @@ describe("Schedule card — Tier 2 (local) localStorage round-trip", () => {
     // Local is untouched by cloud writes.
     const afterLocal = schedule.readLocalScheduleState();
     assert.deepEqual(asPlain(afterLocal), { enabled: false, hour: 8, minute: 0 });
+  });
+});
+
+describe("Profile tab — resume restore source selection", () => {
+  it("prefers the browser-local saved profile resume over worker status text", async () => {
+    const { module } = await loadScheduleModule();
+    const source = module.__test.chooseResumeRestoreSource(
+      {
+        resumeText: "worker resume text that is long enough to restore",
+      },
+      {
+        text: "saved profile resume text",
+        label: "Primary resume",
+      },
+    );
+    assert.equal(source.source, "profile");
+    assert.equal(source.text, "saved profile resume text");
+  });
+
+  it("rejects implausibly short worker resume text so stale values like f do not hydrate", async () => {
+    const { module } = await loadScheduleModule();
+    const source = module.__test.chooseResumeRestoreSource(
+      { resumeText: "f" },
+      null,
+    );
+    assert.equal(source, null);
+  });
+
+  it("formats status card resume value from browser-local profile before stale worker text", async () => {
+    const { module } = await loadScheduleModule();
+    const value = module.__test.formatSavedProfileValue(
+      {
+        hasStoredProfile: true,
+        resumeTextLength: 1,
+        profileUpdatedAt: "2026-04-20T12:00:00.000Z",
+      },
+      {
+        text: "saved profile resume text",
+        label: "Primary resume",
+        updatedAt: "",
+      },
+    );
+    assert.match(value, /25 chars resume saved in this browser/);
+    assert.doesNotMatch(value, /1 char resume/);
+  });
+
+  it("resolves a local discovery-profile fallback for stale Worker profile endpoints in local dev", async () => {
+    const { module, localStorageRaw } = await loadScheduleModule({
+      location: {
+        hostname: "localhost",
+        port: "8080",
+      },
+    });
+    localStorageRaw.set(
+      "command_center_discovery_transport_setup",
+      JSON.stringify({ localWebhookUrl: "http://127.0.0.1:8644/webhook" }),
+    );
+
+    const endpoint = module.__test.resolveLocalProfileEndpointCandidate(
+      "https://jobbored-discovery-relay.example.workers.dev/discovery-profile",
+    );
+
+    assert.equal(endpoint, "http://127.0.0.1:8644/discovery-profile");
+  });
+
+  it("does not resolve a localhost fallback for hosted dashboard origins", async () => {
+    const { module, localStorageRaw } = await loadScheduleModule({
+      location: {
+        hostname: "app.example.com",
+        port: "",
+      },
+    });
+    localStorageRaw.set(
+      "command_center_discovery_transport_setup",
+      JSON.stringify({ localWebhookUrl: "http://127.0.0.1:8644/webhook" }),
+    );
+
+    const endpoint = module.__test.resolveLocalProfileEndpointCandidate(
+      "https://jobbored-discovery-relay.example.workers.dev/discovery-profile",
+    );
+
+    assert.equal(endpoint, "");
+  });
+
+  it("retries profile endpoint failures only for recoverable relay/network failures", async () => {
+    const { module } = await loadScheduleModule();
+    assert.equal(
+      module.__test.shouldRetryProfileEndpoint({ httpStatus: 502 }),
+      true,
+    );
+    assert.equal(
+      module.__test.shouldRetryProfileEndpoint({ httpStatus: 401 }),
+      false,
+    );
+    assert.equal(
+      module.__test.shouldRetryProfileEndpoint({ network: true }),
+      true,
+    );
   });
 });
 

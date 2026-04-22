@@ -126,7 +126,7 @@ cp config.example.js config.js
 open index.html
 # Or use any local server:
 npm run dev
-# → http://localhost:8080  (static root + optional scraper; see package.json)
+# → http://localhost:8080  (static root + scraper + local discovery worker)
 # Or:
 python3 -m http.server 8080
 ```

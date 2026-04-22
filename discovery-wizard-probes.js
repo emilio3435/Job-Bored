@@ -181,6 +181,21 @@
     })();
   }
 
+  function isLocalDashboardOrigin() {
+    if (!window || !window.location) return false;
+    const host = String(window.location.hostname || "")
+      .replace(/^\[|\]$/g, "")
+      .toLowerCase();
+    if (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1"
+    ) {
+      return true;
+    }
+    return String(window.location.port || "") === "8080";
+  }
+
   function classifySavedWebhookKind(rawUrl) {
     return typeof H.classifySavedWebhookKind === "function" ? H.classifySavedWebhookKind(rawUrl) : (() => {
       const url = normalizeUrl(rawUrl);
@@ -791,11 +806,16 @@
       );
 
     const savedWebhookKind = classifySavedWebhookKind(savedWebhookUrl);
+    const savedLocalWebhookUrl =
+      savedWebhookKind === SAVED_WEBHOOK_KIND_LOCAL_HTTP
+        ? savedWebhookUrl
+        : "";
 
     const localWebhookUrl =
       normalizeUrl(
         (bootstrapData && bootstrapData.localWebhookUrl) ||
-          transport.localWebhookUrl,
+          transport.localWebhookUrl ||
+          savedLocalWebhookUrl,
       ) || "";
     const localHealthUrl =
       normalizeUrl((bootstrapData && bootstrapData.localHealthUrl) || "") ||
@@ -835,7 +855,13 @@
       normalizeUrl((bootstrapData && bootstrapData.publicTargetUrl) || "") ||
       buildRelayTargetUrl(localWebhookUrl, tunnelPublicUrl) ||
       "";
-    const relayReady = !!(relayTargetUrl && localWebhookUrl && tunnelPublicUrl);
+    const directLocalWebhookReady =
+      savedWebhookKind === SAVED_WEBHOOK_KIND_LOCAL_HTTP &&
+      isLocalDashboardOrigin() &&
+      localWebhookReady;
+    const relayReady =
+      directLocalWebhookReady ||
+      !!(relayTargetUrl && localWebhookUrl && tunnelPublicUrl);
 
     const appsScriptState = classifyAppsScriptState(appsScriptDeployState);
     const hasSavedExternalEndpoint =
@@ -899,7 +925,12 @@
       blockingIssue = "stub_only";
     } else if (localWebhookUrl && !localWebhookReady) {
       blockingIssue = "local_health_unavailable";
-    } else if (localWebhookUrl && localWebhookReady && !tunnelReady) {
+    } else if (
+      localWebhookUrl &&
+      localWebhookReady &&
+      !tunnelReady &&
+      !directLocalWebhookReady
+    ) {
       blockingIssue = "ngrok_missing";
     } else if (
       savedWebhookKind === SAVED_WEBHOOK_KIND_LOCAL_HTTP &&
@@ -914,8 +945,8 @@
     const localRecoveryState = deriveLocalRecoveryState({
       isLocalSetup,
       localWebhookReady,
-      tunnelLive,
-      tunnelStale,
+      tunnelLive: directLocalWebhookReady ? true : tunnelLive,
+      tunnelStale: directLocalWebhookReady ? false : tunnelStale,
     });
 
     return {

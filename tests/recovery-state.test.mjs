@@ -311,7 +311,7 @@ describe("Simulation overrides", () => {
   // These tests use a fresh VM context with isolated localStorage
   // to test the simulation override mechanism
 
-  async function loadProbeFunctionsWithStorage() {
+  async function loadProbeFunctionsWithStorage(options = {}) {
     const source = await readFile(
       join(repoRoot, "discovery-wizard-probes.js"),
       "utf8",
@@ -336,14 +336,18 @@ describe("Simulation overrides", () => {
     const window = {
       setTimeout,
       clearTimeout,
+      ...(options.window || {}),
     };
 
     const context = {
       window,
       localStorage,
-      fetch: async () => {
-        throw new Error("Unexpected fetch while loading recovery probe helpers");
-      },
+      fetch:
+        options.fetch ||
+        (async () => ({
+          ok: false,
+          json: async () => null,
+        })),
       URL,
       AbortController,
       console,
@@ -358,6 +362,43 @@ describe("Simulation overrides", () => {
       localStorage,
     };
   }
+
+  it("enables a healthy saved localhost webhook when the dashboard is local", async () => {
+    const { probes, localStorage } = await loadProbeFunctionsWithStorage({
+      window: {
+        location: {
+          hostname: "localhost",
+          port: "8080",
+        },
+      },
+    });
+    localStorage.clear();
+    localStorage.setItem(
+      "command_center_config_overrides",
+      JSON.stringify({
+        sheetId: "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+        discoveryWebhookUrl: "http://127.0.0.1:8644/webhook",
+      }),
+    );
+    localStorage.setItem(
+      "discovery_local_simulation_override",
+      JSON.stringify({
+        enabled: true,
+        workerHealthy: true,
+        tunnelUrl: null,
+        storedTunnelUrl: "",
+        isLocalSetup: true,
+      }),
+    );
+
+    const snapshot = await probes.buildReadinessSnapshot();
+
+    assert.equal(snapshot.localWebhookUrl, "http://127.0.0.1:8644/webhook");
+    assert.equal(snapshot.localWebhookReady, true);
+    assert.equal(snapshot.localRecoveryState, "ok");
+    assert.equal(snapshot.relayReady, true);
+    assert.equal(snapshot.views.settings.runDiscoveryEnabled, true);
+  });
 
   it("readSimulationOverrides returns null when no simulation is set", async () => {
     const { probes, localStorage } = await loadProbeFunctionsWithStorage();

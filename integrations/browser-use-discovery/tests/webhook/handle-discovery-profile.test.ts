@@ -351,6 +351,64 @@ test("POST /discovery-profile returns 502 when profile extraction throws", async
   assert.match(response.body, /Profile extraction failed/);
 });
 
+test("POST /discovery-profile falls back to stored companies when profile extraction is quota-limited", async () => {
+  let discoverCalled = false;
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        resumeText:
+          "Senior product manager with SQL analytics and AI operations experience.",
+        form: {
+          targetRoles: "Senior Product Manager, AI Product Manager",
+          skills: "SQL, analytics, roadmap",
+          locations: "Denver, Remote US",
+          remotePolicy: "remote",
+        },
+        sheetId: "sheet_abc123",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      extractCandidateProfile: async () => {
+        throw new Error("Gemini HTTP 429: quota exceeded");
+      },
+      discoverCompaniesForProfile: async () => {
+        discoverCalled = true;
+        return [];
+      },
+      loadStoredWorkerConfig: async () =>
+        ({
+          sheetId: "sheet_abc123",
+          mode: "hosted",
+          timezone: "UTC",
+          companies: CANNED_COMPANIES,
+          atsCompanies: [],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+        }) as StoredWorkerConfig,
+    },
+  );
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.fallback.reason, "profile_extraction_failed");
+  assert.equal(body.companies.length, CANNED_COMPANIES.length);
+  assert.ok(body.profile.targetRoles.includes("Senior Product Manager"));
+  assert.ok(body.profile.targetRoles.includes("AI Product Manager"));
+  assert.equal(discoverCalled, false);
+});
+
 test("POST /discovery-profile returns 502 when company discovery throws", async () => {
   const response = await handleDiscoveryProfileWebhook(
     {
@@ -372,6 +430,51 @@ test("POST /discovery-profile returns 502 when company discovery throws", async 
   );
   assert.equal(response.status, 502);
   assert.match(response.body, /Company discovery failed/);
+});
+
+test("POST /discovery-profile falls back to stored companies when company discovery fails", async () => {
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        resumeText: "anything",
+        sheetId: "sheet_abc123",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      extractCandidateProfile: async () => CANNED_PROFILE,
+      discoverCompaniesForProfile: async () => {
+        throw new Error("Gemini HTTP 429: quota exceeded");
+      },
+      loadStoredWorkerConfig: async () =>
+        ({
+          sheetId: "sheet_abc123",
+          mode: "hosted",
+          timezone: "UTC",
+          companies: CANNED_COMPANIES,
+          atsCompanies: [],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+        }) as StoredWorkerConfig,
+    },
+  );
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.fallback.reason, "company_discovery_failed");
+  assert.equal(body.companies.length, CANNED_COMPANIES.length);
+  assert.deepEqual(body.profile, CANNED_PROFILE);
 });
 
 test("POST /discovery-profile mode:status returns snapshot from stored config", async () => {

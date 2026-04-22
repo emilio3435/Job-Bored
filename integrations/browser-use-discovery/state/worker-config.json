@@ -1,0 +1,34 @@
+{
+  "sheetId": "",
+  "mode": "local",
+  "timezone": "America/Chicago",
+  "companies": [],
+  "includeKeywords": [],
+  "excludeKeywords": [],
+  "targetRoles": [],
+  "locations": [],
+  "remotePolicy": "",
+  "seniority": "",
+  "maxLeadsPerRun": 25,
+  "enabledSources": [
+    "greenhouse",
+    "lever",
+    "ashby",
+    "smartrecruiters",
+    "workday",
+    "icims",
+    "jobvite",
+    "taleo",
+    "successfactors",
+    "workable",
+    "breezy",
+    "recruitee",
+    "teamtailor",
+    "personio",
+    "grounded_web",
+    "serpapi_google_jobs"
+  ],
+  "schedule": {
+    "enabled": false
+  }
+}

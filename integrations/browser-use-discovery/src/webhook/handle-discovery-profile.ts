@@ -370,6 +370,189 @@ function hasAnyFormField(form: ProfileFormInput | undefined): boolean {
   });
 }
 
+function splitFallbackList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((entry) => splitFallbackList(entry))
+      .filter((entry, index, list) => {
+        const key = entry.toLowerCase();
+        return list.findIndex((candidate) => candidate.toLowerCase() === key) === index;
+      });
+  }
+  return String(value || "")
+    .split(/[,;\n\r\t|/]+|\s+·\s+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .filter((entry, index, list) => {
+      const key = entry.toLowerCase();
+      return list.findIndex((candidate) => candidate.toLowerCase() === key) === index;
+    });
+}
+
+function normalizeFallbackRemotePolicy(
+  value: unknown,
+): CandidateProfile["remotePolicy"] {
+  const text = String(value || "").trim().toLowerCase();
+  if (text.includes("hybrid")) return "hybrid";
+  if (text.includes("on-site") || text.includes("onsite")) return "onsite";
+  if (text.includes("remote")) return "remote";
+  return undefined;
+}
+
+function normalizeFallbackSeniority(value: unknown, resumeText = ""): string {
+  const text = `${String(value || "")} ${resumeText}`.toLowerCase();
+  if (/\bc[- ]?level\b|\bchief\b|\bcto\b|\bcio\b|\bceo\b/.test(text)) return "c-level";
+  if (/\bvp\b|\bvice president\b/.test(text)) return "vp";
+  if (/\bdirector\b/.test(text)) return "director";
+  if (/\bprincipal\b/.test(text)) return "principal";
+  if (/\bstaff\b/.test(text)) return "staff";
+  if (/\bmanager\b|\bmanagement\b|\blead\b/.test(text)) return "manager";
+  if (/\bsenior\b|\bsr\.?\b/.test(text)) return "senior";
+  if (/\bmid\b/.test(text)) return "mid";
+  if (/\bjunior\b|\bentry\b/.test(text)) return "entry";
+  if (/\bintern\b/.test(text)) return "intern";
+  return String(value || "").trim();
+}
+
+function inferFallbackProfile(
+  input: { resumeText?: string; form?: ProfileFormInput },
+): CandidateProfile {
+  const form = input.form || {};
+  const resumeText = String(input.resumeText || "");
+  const resumeLower = resumeText.toLowerCase();
+  const targetRoles = splitFallbackList(form.targetRoles);
+  const skills = splitFallbackList(form.skills);
+  const industries = splitFallbackList(form.industries);
+  const locations = splitFallbackList(form.locations);
+
+  const roleHints: Array<[RegExp, string]> = [
+    [/\bproduct manager\b|\bproduct management\b|\bpm\b/, "Product Manager"],
+    [/\bprogram manager\b/, "Program Manager"],
+    [/\bsoftware engineer\b|\bdeveloper\b|\bfull[- ]stack\b/, "Software Engineer"],
+    [/\bdata scientist\b|\bmachine learning\b|\bml\b/, "Data Scientist"],
+    [/\bdesigner\b|\bux\b|\bui\b/, "Product Designer"],
+    [/\bmarketing\b|\bgrowth\b/, "Growth Marketing Manager"],
+    [/\boperations\b|\bops\b/, "Operations Manager"],
+  ];
+  for (const [pattern, role] of roleHints) {
+    if (targetRoles.length >= 3) break;
+    if (pattern.test(resumeLower) && !targetRoles.includes(role)) {
+      targetRoles.push(role);
+    }
+  }
+
+  const skillHints = [
+    "SQL",
+    "Python",
+    "JavaScript",
+    "TypeScript",
+    "React",
+    "Figma",
+    "analytics",
+    "roadmap",
+    "AI",
+    "automation",
+    "lifecycle",
+    "stakeholder leadership",
+  ];
+  for (const skill of skillHints) {
+    if (skills.length >= 12) break;
+    if (resumeLower.includes(skill.toLowerCase()) && !skills.includes(skill)) {
+      skills.push(skill);
+    }
+  }
+
+  const yoeRaw = form.yearsOfExperience;
+  const yearsOfExperience =
+    typeof yoeRaw === "number" && Number.isFinite(yoeRaw)
+      ? yoeRaw
+      : typeof yoeRaw === "string" && yoeRaw.trim()
+        ? Number.parseFloat(yoeRaw.trim())
+        : undefined;
+
+  return {
+    targetRoles,
+    skills,
+    seniority: normalizeFallbackSeniority(form.seniority, resumeText),
+    ...(typeof yearsOfExperience === "number" && Number.isFinite(yearsOfExperience)
+      ? { yearsOfExperience }
+      : {}),
+    locations,
+    ...(normalizeFallbackRemotePolicy(form.remotePolicy || resumeText)
+      ? { remotePolicy: normalizeFallbackRemotePolicy(form.remotePolicy || resumeText) }
+      : {}),
+    industries,
+  };
+}
+
+async function loadStoredConfigForFallback(
+  parsedRequest: DiscoveryProfileRequestV1,
+  dependencies: HandleDiscoveryProfileDependencies,
+  refreshStoredSheetId: string | null,
+): Promise<StoredWorkerConfig | null> {
+  if (!dependencies.loadStoredWorkerConfig) return null;
+  const targetSheetId =
+    refreshStoredSheetId ||
+    parsedRequest.sheetId ||
+    (dependencies.runtimeConfig as Record<string, unknown>).defaultSheetId ||
+    "";
+  if (!targetSheetId || typeof targetSheetId !== "string") return null;
+  try {
+    return await dependencies.loadStoredWorkerConfig(String(targetSheetId));
+  } catch (error) {
+    dependencies.log?.("discovery.profile.fallback_config_failed", {
+      message: error instanceof Error ? error.message : String(error || "unknown error"),
+    });
+    return null;
+  }
+}
+
+function fallbackCompaniesFromConfig(
+  storedConfig: StoredWorkerConfig | null,
+  profile: CandidateProfile,
+): CompanyTarget[] {
+  if (!storedConfig) return [];
+  const candidates = [
+    ...(Array.isArray(storedConfig.companies) ? storedConfig.companies : []),
+    ...(Array.isArray(storedConfig.atsCompanies) ? storedConfig.atsCompanies : []),
+  ];
+  const terms = [
+    ...profile.targetRoles,
+    ...profile.skills,
+    ...(profile.industries || []),
+  ]
+    .map((term) => term.toLowerCase())
+    .filter(Boolean);
+  const seen = new Set<string>();
+  return candidates
+    .map((company, index) => {
+      const key = company.companyKey || company.normalizedName || company.name;
+      const normalizedKey = String(key || "").toLowerCase();
+      const haystack = [
+        company.name,
+        ...(company.roleTags || []),
+        ...(company.geoTags || []),
+        ...(company.includeKeywords || []),
+        ...(company.domains || []),
+      ]
+        .join(" ")
+        .toLowerCase();
+      const score = terms.reduce(
+        (total, term) => total + (term && haystack.includes(term) ? 1 : 0),
+        0,
+      );
+      return { company, index, normalizedKey, score };
+    })
+    .filter((entry) => {
+      if (!entry.normalizedKey || seen.has(entry.normalizedKey)) return false;
+      seen.add(entry.normalizedKey);
+      return true;
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, 30)
+    .map((entry) => entry.company);
+}
+
 function requireSheetId(
   request: DiscoveryProfileRequestV1,
   dependencies: HandleDiscoveryProfileDependencies,
@@ -911,6 +1094,13 @@ export async function handleDiscoveryProfileWebhook(
   }
 
   let profile: CandidateProfile;
+  let fallback:
+    | {
+        reason: "profile_extraction_failed" | "company_discovery_failed";
+        message: string;
+      }
+    | undefined;
+  let companiesFromExtractFallback: CompanyTarget[] | null = null;
   try {
     profile = await extractFn(
       {
@@ -927,31 +1117,81 @@ export async function handleDiscoveryProfileWebhook(
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
     dependencies.log?.("discovery.profile.extract_failed", { message });
-    await logRun("failure", 0, `Profile extraction failed: ${message}`);
-    return jsonResponse(502, {
-      ok: false,
-      message: "Profile extraction failed.",
-      detail: message,
+    const fallbackProfile = inferFallbackProfile({
+      resumeText: refreshResumeText,
+      form: refreshForm,
     });
+    const fallbackStoredConfig = await loadStoredConfigForFallback(
+      parsedRequest,
+      dependencies,
+      refreshStoredSheetId,
+    );
+    const fallbackCompanies = fallbackCompaniesFromConfig(
+      fallbackStoredConfig,
+      fallbackProfile,
+    );
+    if (fallbackCompanies.length === 0) {
+      await logRun("failure", 0, `Profile extraction failed: ${message}`);
+      return jsonResponse(502, {
+        ok: false,
+        message: "Profile extraction failed.",
+        detail: message,
+      });
+    }
+    profile = fallbackProfile;
+    fallback = {
+      reason: "profile_extraction_failed",
+      message:
+        "AI profile extraction is unavailable, so the worker used your stored company targets as a fallback.",
+    };
+    dependencies.log?.("discovery.profile.extract_fallback_used", {
+      companyCount: fallbackCompanies.length,
+      targetRoleCount: profile.targetRoles.length,
+    });
+    companiesFromExtractFallback = fallbackCompanies;
   }
 
   let companies: CompanyTarget[];
-  try {
-    companies = await discoverFn(profile, {
-      runtimeConfig: dependencies.runtimeConfig,
-      fetchImpl: dependencies.fetchImpl,
-      log: dependencies.log,
-    });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : String(error || "unknown error");
-    dependencies.log?.("discovery.profile.discover_failed", { message });
-    await logRun("failure", 0, `Company discovery failed: ${message}`);
-    return jsonResponse(502, {
-      ok: false,
-      message: "Company discovery failed.",
-      detail: message,
-    });
+  if (companiesFromExtractFallback) {
+    companies = companiesFromExtractFallback;
+  } else {
+    try {
+      companies = await discoverFn(profile, {
+        runtimeConfig: dependencies.runtimeConfig,
+        fetchImpl: dependencies.fetchImpl,
+        log: dependencies.log,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error || "unknown error");
+      dependencies.log?.("discovery.profile.discover_failed", { message });
+      const fallbackStoredConfig = await loadStoredConfigForFallback(
+        parsedRequest,
+        dependencies,
+        refreshStoredSheetId,
+      );
+      const fallbackCompanies = fallbackCompaniesFromConfig(
+        fallbackStoredConfig,
+        profile,
+      );
+      if (fallbackCompanies.length === 0) {
+        await logRun("failure", 0, `Company discovery failed: ${message}`);
+        return jsonResponse(502, {
+          ok: false,
+          message: "Company discovery failed.",
+          detail: message,
+        });
+      }
+      companies = fallbackCompanies;
+      fallback = {
+        reason: "company_discovery_failed",
+        message:
+          "AI company discovery is unavailable, so the worker used your stored company targets as a fallback.",
+      };
+      dependencies.log?.("discovery.profile.company_fallback_used", {
+        companyCount: companies.length,
+      });
+    }
   }
 
   // Refresh mode: dedupe against stored negative list so skipped companies
@@ -1071,6 +1311,7 @@ export async function handleDiscoveryProfileWebhook(
     profile,
     companies,
     persisted,
+    ...(fallback ? { fallback } : {}),
   };
   return jsonResponse(200, response);
 }

@@ -116,6 +116,21 @@
         })();
   }
 
+  function isLocalDashboardOrigin() {
+    if (!window || !window.location) return false;
+    const host = String(window.location.hostname || "")
+      .replace(/^\[|\]$/g, "")
+      .toLowerCase();
+    if (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1"
+    ) {
+      return true;
+    }
+    return String(window.location.port || "") === "8080";
+  }
+
   function isWorkerForwardPath(raw) {
     return typeof H.isWorkerForwardUrl === "function"
       ? H.isWorkerForwardUrl(raw)
@@ -166,20 +181,35 @@
     if (text(src.suggestedUrl)) {
       result.suggestedUrl = text(src.suggestedUrl);
     }
+    if (text(src.runId)) {
+      result.runId = text(src.runId);
+    }
+    if (text(src.statusPath)) {
+      result.statusPath = text(src.statusPath);
+    }
+    if (text(src.status_path)) {
+      result.status_path = text(src.status_path);
+    }
+    if (Number.isFinite(Number(src.pollAfterMs))) {
+      result.pollAfterMs = Number(src.pollAfterMs);
+    }
     return result;
   }
 
   function isAsyncDiscoveryAcceptedResponse(data, status) {
     const httpStatus = Number(status);
     if (!data || typeof data !== "object") return false;
-    if (data.ok === true) return false;
     if (httpStatus !== 202 && httpStatus !== 200) return false;
-    return !!(
+    const hasAcceptedSignal = !!(
       text(data.status).toLowerCase() === "accepted" ||
+      text(data.kind).toLowerCase() === "accepted_async" ||
       data.accepted === true ||
+      text(data.runId) ||
       text(data.event).toLowerCase() === "command-center.discovery" ||
       Object.prototype.hasOwnProperty.call(data, "delivery_id")
     );
+    if (data.ok === true && !hasAcceptedSignal) return false;
+    return hasAcceptedSignal;
   }
 
   function isStubOnlyResponse(data) {
@@ -272,7 +302,10 @@
       });
     }
 
-    if (isLocalOnlyUrl(url)) {
+    const localOnly = isLocalOnlyUrl(url);
+    const localDashboard = isLocalDashboardOrigin();
+
+    if (localOnly && !localDashboard) {
       return createVerificationResult({
         ok: false,
         kind: "invalid_endpoint",
@@ -301,7 +334,7 @@
       return null;
     }
 
-    if (!/^https:\/\//i.test(url)) {
+    if (!/^https:\/\//i.test(url) && !(localOnly && localDashboard)) {
       return createVerificationResult({
         ok: false,
         kind: "invalid_endpoint",
@@ -374,20 +407,6 @@
     }
 
     if (data && typeof data === "object") {
-      if (data.ok === true) {
-        return createVerificationResult({
-          ok: true,
-          kind: "connected_ok",
-          engineState: "connected",
-          httpStatus: Number(status) || 200,
-          message: isTestContext
-            ? "Connected — webhook is working."
-            : "Discovery started — new rows should appear shortly.",
-          detail: "The endpoint returned a success response.",
-          layer: "upstream",
-        });
-      }
-
       if (isAsyncDiscoveryAcceptedResponse(data, status)) {
         return createVerificationResult({
           ok: true,
@@ -404,6 +423,20 @@
           pollAfterMs: Number.isFinite(Number(data.pollAfterMs))
             ? Number(data.pollAfterMs)
             : 2000,
+        });
+      }
+
+      if (data.ok === true) {
+        return createVerificationResult({
+          ok: true,
+          kind: "connected_ok",
+          engineState: "connected",
+          httpStatus: Number(status) || 200,
+          message: isTestContext
+            ? "Connected — webhook is working."
+            : "Discovery started — new rows should appear shortly.",
+          detail: "The endpoint returned a success response.",
+          layer: "upstream",
         });
       }
     }
