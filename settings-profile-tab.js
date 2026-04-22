@@ -1280,11 +1280,37 @@
       });
   }
 
+  var scheduleStatusRetryTimerId = null;
+  var scheduleStatusRetryAttempt = 0;
+  var SCHEDULE_STATUS_RETRY_DELAYS_MS = [300, 800, 2000, 5000];
+
   async function fetchScheduleStatus() {
     var config = resolveWebhookConfig();
     if (!config.url || !config.sheetId) {
+      // The webhook/sheet config isn't populated yet — common right after a
+      // hard refresh when app.js hydrates COMMAND_CENTER_CONFIG async. Retry
+      // on a short schedule so the badge settles on the real state instead
+      // of locking to "Not installed". After the last retry budget, render
+      // null (gray) and wait for the next mount.
       renderLocalBadge(null);
+      if (scheduleStatusRetryTimerId !== null) {
+        window.clearTimeout(scheduleStatusRetryTimerId);
+        scheduleStatusRetryTimerId = null;
+      }
+      if (scheduleStatusRetryAttempt < SCHEDULE_STATUS_RETRY_DELAYS_MS.length) {
+        var delay = SCHEDULE_STATUS_RETRY_DELAYS_MS[scheduleStatusRetryAttempt];
+        scheduleStatusRetryAttempt += 1;
+        scheduleStatusRetryTimerId = window.setTimeout(function () {
+          scheduleStatusRetryTimerId = null;
+          fetchScheduleStatus();
+        }, delay);
+      }
       return null;
+    }
+    scheduleStatusRetryAttempt = 0;
+    if (scheduleStatusRetryTimerId !== null) {
+      window.clearTimeout(scheduleStatusRetryTimerId);
+      scheduleStatusRetryTimerId = null;
     }
     try {
       var data = await postProfileEndpoint({ mode: "schedule-status" }, 10000);
@@ -1452,10 +1478,50 @@
     fetchScheduleStatus();
   }
 
+  // Pull the user's active resume from the Resume tab's IndexedDB store so
+  // the Profile tab stops asking for a re-upload every session. No-ops if
+  // the store hasn't loaded yet, the user has no resume on file, or the
+  // textarea already has content (don't clobber a freshly-pasted resume).
+  async function autoPopulateResumeFromStore() {
+    if (!els.textarea) return;
+    if (String(els.textarea.value || "").trim()) return;
+    var store = window.CommandCenterUserContent;
+    if (!store || typeof store.getActiveResume !== "function") return;
+    try {
+      var active = await store.getActiveResume();
+      var text = active && active.extractedText
+        ? String(active.extractedText).trim()
+        : "";
+      if (!text) return;
+      if (String(els.textarea.value || "").trim()) return; // user typed while we waited
+      els.textarea.value = text;
+      var chars = text.length;
+      setStatus(
+        "Loaded resume from Resume tab (" +
+          chars.toLocaleString() +
+          " characters). You can edit or clear it before discovering.",
+        "info",
+      );
+    } catch (err) {
+      // Non-fatal — the user can always paste or upload manually.
+      try {
+        console.info(
+          "[settings-profile-tab] auto-populate resume failed:",
+          err && err.message ? err.message : err,
+        );
+      } catch (_) {
+        // ignore
+      }
+    }
+  }
+
   function bind() {
     if (bound) return;
     cacheElements();
     if (!els.runBtn) return;
+    // Fire-and-forget: populate resume from the Resume tab's store. Runs in
+    // parallel with the rest of bind(); UI stays responsive.
+    autoPopulateResumeFromStore();
     if (els.file) els.file.addEventListener("change", handleFileChange);
     if (els.clearBtn) els.clearBtn.addEventListener("click", handleClearResume);
     els.runBtn.addEventListener("click", handleRun);
