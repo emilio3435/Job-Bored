@@ -425,6 +425,8 @@ test("POST /discovery-profile mode:status returns snapshot from stored config", 
   assert.deepEqual(body.status, {
     hasStoredProfile: true,
     resumeTextLength: 1847,
+    resumeText: "x".repeat(1847),
+    form: { targetRoles: "PM", skills: "SQL", seniority: "senior" },
     formFieldCount: 3,
     profileUpdatedAt: "2026-04-15T10:00:00.000Z",
     companyCount: 2,
@@ -457,6 +459,8 @@ test("POST /discovery-profile mode:status returns empty snapshot when no stored 
   assert.deepEqual(body.status, {
     hasStoredProfile: false,
     resumeTextLength: 0,
+    resumeText: "",
+    form: null,
     formFieldCount: 0,
     profileUpdatedAt: null,
     companyCount: 0,

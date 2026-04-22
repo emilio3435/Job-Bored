@@ -759,6 +759,15 @@ export async function handleDiscoveryProfileWebhook(
       const status = {
         hasStoredProfile: !!storedProfile,
         resumeTextLength: storedResumeText.length,
+        // Full text of the persisted resume so the dashboard can hydrate
+        // its Discovery textarea on tab open without asking the user to
+        // re-upload. Only present when persist:true was sent on a prior
+        // /discovery-profile run. Capped at 200 KB to avoid pathological
+        // payloads — typical resumes are 5-50 KB.
+        resumeText: storedResumeText.slice(0, 200_000),
+        // Persisted form fields (target roles, skills, etc.) so the
+        // dashboard can hydrate the form too. Null when nothing persisted.
+        form: storedForm || null,
         formFieldCount: storedFormFieldCount,
         profileUpdatedAt:
           typeof storedProfile?.updatedAt === "string"
