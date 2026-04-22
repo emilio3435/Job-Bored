@@ -252,6 +252,33 @@ test("mergeDiscoveryConfig preserves ATS companies separately from broad company
   );
 });
 
+test("mergeDiscoveryConfig excludes skipped companies from run targets", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig({
+      companies: [
+        { name: "Scale AI", companyKey: "scale-ai" },
+        { name: "Figma", companyKey: "figma" },
+        { name: "Ramp", companyKey: "ramp" },
+      ],
+      atsCompanies: [
+        { name: "Notion", companyKey: "notion" },
+        { name: "Ashby", companyKey: "ashby" },
+      ],
+      negativeCompanyKeys: ["scale-ai", "figma", "notion"],
+    }) as any,
+    makeRequest(),
+  );
+
+  assert.deepEqual(
+    result.companies.map((company) => company.companyKey),
+    ["ramp"],
+  );
+  assert.deepEqual(
+    (result.atsCompanies || []).map((company) => company.companyKey),
+    ["ashby"],
+  );
+});
+
 // === resolveSourcePreset fallback truth table (VAL-API-006) ===
 
 test("resolveSourcePreset uses request-level preset when provided", () => {

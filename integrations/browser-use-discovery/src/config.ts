@@ -587,13 +587,22 @@ export function mergeDiscoveryConfig(
     resolvedSourcePreset,
     profile.groundedSearchTuning,
   );
+  const companies = filterSkippedCompanies(
+    stored.companies,
+    stored.negativeCompanyKeys,
+  );
+  const atsCompanies = filterSkippedCompanies(
+    stored.atsCompanies || [],
+    stored.negativeCompanyKeys,
+  );
 
   return {
     ...stored,
+    companies: cloneCompanies(companies),
     sheetId: cleanString(request.sheetId) || stored.sheetId,
     variationKey: cleanString(request.variationKey) || "",
     requestedAt: cleanString(request.requestedAt) || "",
-    atsCompanies: cloneCompanies(stored.atsCompanies || []),
+    atsCompanies: cloneCompanies(atsCompanies),
     targetRoles: requestTargetRoles.length
       ? requestTargetRoles
       : stored.targetRoles,
@@ -631,6 +640,24 @@ export function mergeDiscoveryConfig(
     ultraPlanTuning: resolvedUltraPlanTuning,
     groundedSearchTuning: resolvedGroundedSearchTuning,
   };
+}
+
+function filterSkippedCompanies(
+  companies: readonly CompanyTarget[],
+  negativeCompanyKeys: readonly string[] | undefined,
+): CompanyTarget[] {
+  const blocked = new Set(
+    (negativeCompanyKeys || [])
+      .map((key) => cleanString(key).toLowerCase())
+      .filter(Boolean),
+  );
+  if (blocked.size === 0) return cloneCompanies(companies);
+  return cloneCompanies(companies).filter((company) => {
+    const key = cleanString(
+      company.companyKey || company.normalizedName || company.name,
+    ).toLowerCase();
+    return key ? !blocked.has(key) : true;
+  });
 }
 
 export function normalizeSourceIdList(

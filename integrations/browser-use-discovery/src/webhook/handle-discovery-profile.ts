@@ -516,6 +516,7 @@ function fallbackCompaniesFromConfig(
     ...(Array.isArray(storedConfig.companies) ? storedConfig.companies : []),
     ...(Array.isArray(storedConfig.atsCompanies) ? storedConfig.atsCompanies : []),
   ];
+  const blocked = buildCompanyKeySet(storedConfig.negativeCompanyKeys);
   const terms = [
     ...profile.targetRoles,
     ...profile.skills,
@@ -526,8 +527,7 @@ function fallbackCompaniesFromConfig(
   const seen = new Set<string>();
   return candidates
     .map((company, index) => {
-      const key = company.companyKey || company.normalizedName || company.name;
-      const normalizedKey = String(key || "").toLowerCase();
+      const normalizedKey = companyFilterKey(company);
       const haystack = [
         company.name,
         ...(company.roleTags || []),
@@ -544,13 +544,58 @@ function fallbackCompaniesFromConfig(
       return { company, index, normalizedKey, score };
     })
     .filter((entry) => {
-      if (!entry.normalizedKey || seen.has(entry.normalizedKey)) return false;
+      if (
+        !entry.normalizedKey ||
+        seen.has(entry.normalizedKey) ||
+        blocked.has(entry.normalizedKey)
+      ) {
+        return false;
+      }
       seen.add(entry.normalizedKey);
       return true;
     })
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .slice(0, 30)
     .map((entry) => entry.company);
+}
+
+function storedFallbackCompaniesAllSkipped(
+  storedConfig: StoredWorkerConfig | null,
+): boolean {
+  if (!storedConfig) return false;
+  const candidates = [
+    ...(Array.isArray(storedConfig.companies) ? storedConfig.companies : []),
+    ...(Array.isArray(storedConfig.atsCompanies) ? storedConfig.atsCompanies : []),
+  ];
+  if (candidates.length === 0) return false;
+  const blocked = buildCompanyKeySet(storedConfig.negativeCompanyKeys);
+  if (blocked.size === 0) return false;
+  return candidates.every((company) => {
+    return blocked.has(companyFilterKey(company));
+  });
+}
+
+function buildCompanyKeySet(keys: unknown): Set<string> {
+  return new Set(
+    (Array.isArray(keys) ? keys : [])
+      .map((key) => String(key || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+function companyFilterKey(company: CompanyTarget): string {
+  const key = company.companyKey || company.normalizedName || company.name;
+  return String(key || "").trim().toLowerCase();
+}
+
+function filterSkippedCompanies(
+  companies: CompanyTarget[] | undefined,
+  negativeCompanyKeys: unknown,
+): CompanyTarget[] {
+  const blocked = buildCompanyKeySet(negativeCompanyKeys);
+  const source = Array.isArray(companies) ? companies : [];
+  if (blocked.size === 0) return source;
+  return source.filter((company) => !blocked.has(companyFilterKey(company)));
 }
 
 function requireSheetId(
@@ -939,6 +984,13 @@ export async function handleDiscoveryProfileWebhook(
             return false;
           }).length
         : 0;
+      const storedNegativeCompanyKeys = Array.isArray(existing?.negativeCompanyKeys)
+        ? existing!.negativeCompanyKeys!
+        : [];
+      const visibleCompanies = filterSkippedCompanies(
+        existing?.companies,
+        storedNegativeCompanyKeys,
+      );
       const status = {
         hasStoredProfile: !!storedProfile,
         resumeTextLength: storedResumeText.length,
@@ -956,12 +1008,8 @@ export async function handleDiscoveryProfileWebhook(
           typeof storedProfile?.updatedAt === "string"
             ? storedProfile.updatedAt
             : null,
-        companyCount: Array.isArray(existing?.companies)
-          ? existing!.companies.length
-          : 0,
-        negativeCompanyCount: Array.isArray(existing?.negativeCompanyKeys)
-          ? existing!.negativeCompanyKeys!.length
-          : 0,
+        companyCount: visibleCompanies.length,
+        negativeCompanyCount: storedNegativeCompanyKeys.length,
         lastRefreshAt: existing?.lastRefreshAt?.at || null,
         lastRefreshSource: existing?.lastRefreshAt?.source || null,
       };
@@ -1013,13 +1061,17 @@ export async function handleDiscoveryProfileWebhook(
       const merged = Array.from(
         new Set([...prior, ...(parsedRequest.skipCompanyKeys || [])]),
       );
+      const companies = filterSkippedCompanies(existing?.companies, merged);
+      const atsCompanies = filterSkippedCompanies(existing?.atsCompanies, merged);
       await dependencies.upsertStoredWorkerConfig(dependencies.runtimeConfig, {
         sheetId: String(targetSheetId),
-        mutations: { negativeCompanyKeys: merged },
+        mutations: { negativeCompanyKeys: merged, companies, atsCompanies },
       });
       dependencies.log?.("discovery.profile.skip_recorded", {
         added: parsedRequest.skipCompanyKeys?.length || 0,
         totalSkipped: merged.length,
+        companyCount: companies.length,
+        atsCompanyCount: atsCompanies.length,
       });
       return jsonResponse(200, {
         ok: true,
@@ -1131,24 +1183,39 @@ export async function handleDiscoveryProfileWebhook(
       fallbackProfile,
     );
     if (fallbackCompanies.length === 0) {
-      await logRun("failure", 0, `Profile extraction failed: ${message}`);
-      return jsonResponse(502, {
-        ok: false,
-        message: "Profile extraction failed.",
-        detail: message,
+      if (storedFallbackCompaniesAllSkipped(fallbackStoredConfig)) {
+        profile = fallbackProfile;
+        fallback = {
+          reason: "profile_extraction_failed",
+          message:
+            "AI profile extraction is unavailable, and every stored fallback company has already been skipped. Nothing was persisted.",
+        };
+        dependencies.log?.("discovery.profile.extract_fallback_empty", {
+          reason: "all_fallback_companies_skipped",
+          targetRoleCount: profile.targetRoles.length,
+        });
+        companiesFromExtractFallback = [];
+      } else {
+        await logRun("failure", 0, `Profile extraction failed: ${message}`);
+        return jsonResponse(502, {
+          ok: false,
+          message: "Profile extraction failed.",
+          detail: message,
+        });
+      }
+    } else {
+      profile = fallbackProfile;
+      fallback = {
+        reason: "profile_extraction_failed",
+        message:
+          "AI profile extraction is unavailable, so the worker used your stored company targets as a preview fallback. These fallback companies were not persisted.",
+      };
+      dependencies.log?.("discovery.profile.extract_fallback_used", {
+        companyCount: fallbackCompanies.length,
+        targetRoleCount: profile.targetRoles.length,
       });
+      companiesFromExtractFallback = fallbackCompanies;
     }
-    profile = fallbackProfile;
-    fallback = {
-      reason: "profile_extraction_failed",
-      message:
-        "AI profile extraction is unavailable, so the worker used your stored company targets as a fallback.",
-    };
-    dependencies.log?.("discovery.profile.extract_fallback_used", {
-      companyCount: fallbackCompanies.length,
-      targetRoleCount: profile.targetRoles.length,
-    });
-    companiesFromExtractFallback = fallbackCompanies;
   }
 
   let companies: CompanyTarget[];
@@ -1175,31 +1242,43 @@ export async function handleDiscoveryProfileWebhook(
         profile,
       );
       if (fallbackCompanies.length === 0) {
-        await logRun("failure", 0, `Company discovery failed: ${message}`);
-        return jsonResponse(502, {
-          ok: false,
-          message: "Company discovery failed.",
-          detail: message,
+        if (storedFallbackCompaniesAllSkipped(fallbackStoredConfig)) {
+          companies = [];
+          fallback = {
+            reason: "company_discovery_failed",
+            message:
+              "AI company discovery is unavailable, and every stored fallback company has already been skipped. Nothing was persisted.",
+          };
+          dependencies.log?.("discovery.profile.company_fallback_empty", {
+            reason: "all_fallback_companies_skipped",
+          });
+        } else {
+          await logRun("failure", 0, `Company discovery failed: ${message}`);
+          return jsonResponse(502, {
+            ok: false,
+            message: "Company discovery failed.",
+            detail: message,
+          });
+        }
+      } else {
+        companies = fallbackCompanies;
+        fallback = {
+          reason: "company_discovery_failed",
+          message:
+            "AI company discovery is unavailable, so the worker used your stored company targets as a preview fallback. These fallback companies were not persisted.",
+        };
+        dependencies.log?.("discovery.profile.company_fallback_used", {
+          companyCount: companies.length,
         });
       }
-      companies = fallbackCompanies;
-      fallback = {
-        reason: "company_discovery_failed",
-        message:
-          "AI company discovery is unavailable, so the worker used your stored company targets as a fallback.",
-      };
-      dependencies.log?.("discovery.profile.company_fallback_used", {
-        companyCount: companies.length,
-      });
     }
   }
 
   // Refresh mode: dedupe against stored negative list so skipped companies
   // never re-appear in the persisted list regardless of what Gemini suggested.
   if (parsedRequest.mode === "refresh" && negativeCompanyKeys.length > 0) {
-    const blocked = new Set(negativeCompanyKeys);
     const beforeCount = companies.length;
-    companies = companies.filter((company) => !blocked.has(company.companyKey));
+    companies = filterSkippedCompanies(companies, negativeCompanyKeys);
     dependencies.log?.("discovery.profile.refresh_deduped", {
       beforeCount,
       afterCount: companies.length,
@@ -1209,7 +1288,18 @@ export async function handleDiscoveryProfileWebhook(
 
   // Refresh mode implicitly persists (no `persist` flag in the cron request).
   const shouldPersist =
-    parsedRequest.mode === "refresh" || parsedRequest.persist === true;
+    !fallback &&
+    (parsedRequest.mode === "refresh" || parsedRequest.persist === true);
+
+  if (
+    fallback &&
+    (parsedRequest.mode === "refresh" || parsedRequest.persist === true)
+  ) {
+    dependencies.log?.("discovery.profile.persist_skipped", {
+      reason: "fallback_result",
+      companyCount: companies.length,
+    });
+  }
 
   let persisted = false;
   if (shouldPersist && companies.length > 0) {
