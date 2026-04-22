@@ -28,6 +28,7 @@ function makeRuntimeConfig(): WorkerRuntimeConfig {
     runMode: "hosted",
     asyncAckByDefault: true,
     useStructuredExtraction: false,
+    serpApiKey: "",
   };
 }
 
@@ -148,6 +149,73 @@ test("thin-result retry fires when the first pass returns fewer than 15 companie
   assert.match(firstUserPrompt, /Do NOT stop at 5-10 companies/i);
   const retryUserPrompt = JSON.stringify(requestBodies[2]);
   assert.match(retryUserPrompt, /Find 15 MORE unique companies/i);
+});
+
+test("SerpApi company discovery returns companies without waiting on Gemini", async () => {
+  const calls: string[] = [];
+  const fetchImpl: typeof globalThis.fetch = async (input) => {
+    const url = String(input || "");
+    calls.push(url);
+    assert.match(url, /serpapi\.com/);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        jobs_results: [
+          {
+            title: "Senior Growth Marketing Manager",
+            company_name: "Klaviyo",
+            location: "Remote",
+            apply_options: [{ link: "https://www.klaviyo.com/careers/job-1" }],
+          },
+          {
+            title: "Product Marketing Manager",
+            company_name: "HubSpot",
+            location: "United States",
+            apply_options: [{ link: "https://www.hubspot.com/careers/job-2" }],
+          },
+          {
+            title: "Growth Marketing Lead",
+            company_name: "Klaviyo",
+            location: "Remote",
+            apply_options: [{ link: "https://www.klaviyo.com/careers/job-3" }],
+          },
+        ],
+      }),
+      text: async () => "",
+    } as Response;
+  };
+  const logs = logSink();
+
+  const companies = await discoverCompaniesForProfile(PROFILE, {
+    runtimeConfig: {
+      ...makeRuntimeConfig(),
+      serpApiKey: "test-serpapi-key",
+    },
+    fetchImpl,
+    log: logs.log,
+  });
+
+  assert.equal(companies.length, 2);
+  assert.deepEqual(companies.map((company) => company.name), [
+    "Klaviyo",
+    "HubSpot",
+  ]);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((url) => url.includes("engine=google_jobs")));
+  assert.ok(
+    logs.events.some(
+      ([event]) => event === "discovery.profile.companies_serpapi_completed",
+    ),
+  );
+  assert.ok(
+    logs.events.some(([event, details]) => {
+      return (
+        event === "discovery.profile.companies_completed" &&
+        details.source === "serpapi_google_jobs"
+      );
+    }),
+  );
 });
 
 test("industry fan-out fires when retry also returns fewer than 15 companies", async () => {

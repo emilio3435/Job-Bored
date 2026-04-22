@@ -513,6 +513,69 @@
     return err;
   }
 
+  function profileEndpointPort(profileEndpoint) {
+    try {
+      var u = new URL(String(profileEndpoint || ""));
+      var port = u.port || (u.protocol === "https:" ? "443" : "80");
+      return /^\d+$/.test(port) ? port : "8644";
+    } catch (_) {
+      return "8644";
+    }
+  }
+
+  async function requestLocalWorkerStart(profileEndpoint) {
+    var origin =
+      window && window.location && window.location.origin
+        ? window.location.origin
+        : "http://localhost:8080";
+    var port = profileEndpointPort(profileEndpoint);
+    var url =
+      origin.replace(/\/+$/, "") +
+      "/__proxy/start-discovery-worker?port=" +
+      encodeURIComponent(port);
+    try {
+      var res = await fetch(url, { method: "POST" });
+      var text = await res.text().catch(function () {
+        return "";
+      });
+      var data = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch (_) {
+        data = null;
+      }
+      if (res.ok && data && data.ok === true) return data;
+      return {
+        ok: false,
+        status: res.status,
+        message:
+          (data && data.message) ||
+          "The local dev server could not start the discovery worker.",
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        message: err && err.message ? err.message : String(err || "error"),
+      };
+    }
+  }
+
+  async function ensureLocalProfileEndpointReady(fallbackEndpoint) {
+    if (await isProfileFallbackReady(fallbackEndpoint)) {
+      return { ok: true, started: false };
+    }
+    var startResult = await requestLocalWorkerStart(fallbackEndpoint);
+    if (startResult && startResult.ok === true) {
+      if (await isProfileFallbackReady(fallbackEndpoint)) {
+        return { ok: true, started: true, startResult: startResult };
+      }
+    }
+    return {
+      ok: false,
+      startResult: startResult,
+    };
+  }
+
   function readSettingValue(id) {
     var el = qs(id);
     return el && typeof el.value === "string" ? el.value.trim() : "";
@@ -855,7 +918,8 @@
       fallbackEndpoint,
     );
     if (preferLocal) {
-      if (await isProfileFallbackReady(fallbackEndpoint)) {
+      var localReady = await ensureLocalProfileEndpointReady(fallbackEndpoint);
+      if (localReady.ok) {
         try {
           console.info(
             "[settings-profile-tab] using local discovery worker for profile request",
@@ -2042,6 +2106,9 @@
       shouldRetryProfileEndpoint: shouldRetryProfileEndpoint,
       shouldPreferLocalProfileEndpoint: shouldPreferLocalProfileEndpoint,
       localWorkerUnavailableError: localWorkerUnavailableError,
+      profileEndpointPort: profileEndpointPort,
+      requestLocalWorkerStart: requestLocalWorkerStart,
+      ensureLocalProfileEndpointReady: ensureLocalProfileEndpointReady,
       postProfileEndpoint: postProfileEndpoint,
       normalizeResumeText: normalizeResumeText,
       MIN_RESTORABLE_WORKER_RESUME_CHARS: MIN_RESTORABLE_WORKER_RESUME_CHARS,
