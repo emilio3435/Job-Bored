@@ -770,6 +770,63 @@
     els.statusPanel.hidden = false;
   }
 
+  // Track whether we've already restored persisted profile fields this
+  // session so we don't keep clobbering edits on every status poll.
+  var profileRestoredThisSession = false;
+
+  function restorePersistedProfile(status) {
+    if (profileRestoredThisSession) return;
+    if (!status || !status.hasStoredProfile) return;
+    var didRestore = false;
+    // Resume textarea: only restore if empty AND worker has text.
+    if (
+      els.textarea &&
+      !String(els.textarea.value || "").trim() &&
+      typeof status.resumeText === "string" &&
+      status.resumeText.length > 0
+    ) {
+      els.textarea.value = status.resumeText;
+      didRestore = true;
+    }
+    // Form fields: only restore each one when its input is empty.
+    var form = status.form || {};
+    var fieldMap = {
+      targetRoles: els.targetRoles,
+      skills: els.skills,
+      seniority: els.seniority,
+      years: els.years,
+      locations: els.locations,
+      remotePolicy: els.remotePolicy,
+      industries: els.industries,
+    };
+    Object.keys(fieldMap).forEach(function (key) {
+      var el = fieldMap[key];
+      if (!el) return;
+      var current = String(el.value || "").trim();
+      if (current) return;
+      var stored = form[key];
+      if (stored === undefined || stored === null) return;
+      el.value = String(stored);
+      didRestore = true;
+    });
+    if (didRestore) {
+      profileRestoredThisSession = true;
+      var bits = [];
+      if (typeof status.resumeText === "string" && status.resumeText.length > 0) {
+        bits.push(status.resumeText.length.toLocaleString() + " chars resume");
+      }
+      if (status.formFieldCount) {
+        bits.push(status.formFieldCount + " form field" + (status.formFieldCount === 1 ? "" : "s"));
+      }
+      if (bits.length) {
+        setStatus(
+          "Loaded your saved profile (" + bits.join(", ") + "). Edit or clear before discovering.",
+          "info",
+        );
+      }
+    }
+  }
+
   async function refreshStatusPanel() {
     if (!els.statusPanel) return;
     var config = resolveWebhookConfig();
@@ -783,6 +840,7 @@
       if (data && data.ok === true && data.status) {
         lastStatus = data.status;
         renderStatusPanel(lastStatus);
+        restorePersistedProfile(lastStatus);
       }
     } catch (err) {
       // Non-fatal — status panel is a convenience. Keep the UI clean.
