@@ -414,6 +414,16 @@ function normalizeFallbackSeniority(value: unknown, resumeText = ""): string {
   return String(value || "").trim();
 }
 
+function pushFallbackUnique(values: string[], value: string, limit: number): void {
+  if (values.length >= limit) return;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return;
+  if (values.some((candidate) => candidate.trim().toLowerCase() === normalized)) {
+    return;
+  }
+  values.push(value);
+}
+
 function inferFallbackProfile(
   input: { resumeText?: string; form?: ProfileFormInput },
 ): CandidateProfile {
@@ -426,8 +436,22 @@ function inferFallbackProfile(
   const locations = splitFallbackList(form.locations);
 
   const roleHints: Array<[RegExp, string]> = [
+    [
+      /\bperformance marketing\b|\bpaid social\b|\bpaid search\b|\bpaid media\b|\bmedia buying\b|\bacquisition marketing\b/,
+      "Performance Marketing Manager",
+    ],
+    [
+      /\bdemand generation\b|\bdemand gen\b|\bgrowth marketing\b|\blifecycle marketing\b|\bdigital marketing\b/,
+      "Growth Marketing Manager",
+    ],
+    [/\bproduct marketing\b|\bgo[- ]to[- ]market\b|\bgtm\b/, "Product Marketing Manager"],
     [/\bproduct manager\b|\bproduct management\b|\bpm\b/, "Product Manager"],
-    [/\bprogram manager\b/, "Program Manager"],
+    [/\bprogram manager\b|\bproject manager\b/, "Program Manager"],
+    [/\baccount director\b|\bclient services\b|\baccount management\b/, "Account Director"],
+    [/\bpartnerships?\b|\bstrategic partnerships?\b/, "Partnerships Manager"],
+    [/\bcustomer success\b/, "Customer Success Manager"],
+    [/\bsolutions consultant\b|\bsolutions engineer\b|\bimplementation\b/, "Solutions Consultant"],
+    [/\bdata analyst\b|\bbusiness intelligence\b|\bbi\b/, "Data Analyst"],
     [/\bsoftware engineer\b|\bdeveloper\b|\bfull[- ]stack\b/, "Software Engineer"],
     [/\bdata scientist\b|\bmachine learning\b|\bml\b/, "Data Scientist"],
     [/\bdesigner\b|\bux\b|\bui\b/, "Product Designer"],
@@ -436,8 +460,8 @@ function inferFallbackProfile(
   ];
   for (const [pattern, role] of roleHints) {
     if (targetRoles.length >= 3) break;
-    if (pattern.test(resumeLower) && !targetRoles.includes(role)) {
-      targetRoles.push(role);
+    if (pattern.test(resumeLower)) {
+      pushFallbackUnique(targetRoles, role, 3);
     }
   }
 
@@ -454,11 +478,51 @@ function inferFallbackProfile(
     "automation",
     "lifecycle",
     "stakeholder leadership",
+    "performance marketing",
+    "paid social",
+    "paid search",
+    "paid media",
+    "Google Ads",
+    "Meta Ads",
+    "SEO",
+    "SEM",
+    "CRM",
+    "HubSpot",
+    "Salesforce",
+    "Excel",
+    "Tableau",
+    "Looker",
+    "Power BI",
+    "A/B testing",
+    "campaigns",
+    "demand generation",
+    "go-to-market",
+    "budget management",
+    "client services",
+    "customer success",
+    "partnerships",
   ];
   for (const skill of skillHints) {
     if (skills.length >= 12) break;
-    if (resumeLower.includes(skill.toLowerCase()) && !skills.includes(skill)) {
-      skills.push(skill);
+    if (resumeLower.includes(skill.toLowerCase())) {
+      pushFallbackUnique(skills, skill, 12);
+    }
+  }
+
+  const industryHints: Array<[RegExp, string]> = [
+    [/\bb2b\b|\bsaas\b|\bsoftware as a service\b/, "B2B SaaS"],
+    [/\bfintech\b|\bpayments?\b|\bbanking\b|\bfinance\b/, "Fintech"],
+    [/\bhealthtech\b|\bhealthcare\b|\bmedical\b/, "Healthcare"],
+    [/\be[- ]?commerce\b|\bretail\b|\bconsumer brand\b/, "E-commerce"],
+    [/\bmarketplace\b|\bmarketplaces\b/, "Marketplaces"],
+    [/\bagenc(y|ies)\b|\bclient services\b/, "Agencies"],
+    [/\bai\b|\bartificial intelligence\b|\bmachine learning\b|\bml\b/, "AI tooling"],
+    [/\bclimate\b|\bsustainability\b|\bclean energy\b/, "Climate"],
+  ];
+  for (const [pattern, industry] of industryHints) {
+    if (industries.length >= 6) break;
+    if (pattern.test(resumeLower)) {
+      pushFallbackUnique(industries, industry, 6);
     }
   }
 
@@ -483,6 +547,21 @@ function inferFallbackProfile(
       : {}),
     industries,
   };
+}
+
+function candidateProfileHasDiscoverySignal(profile: CandidateProfile): boolean {
+  return (
+    profile.targetRoles.length > 0 ||
+    profile.skills.length > 0 ||
+    (profile.industries?.length ?? 0) > 0
+  );
+}
+
+function requestHasProfileInputSignal(input: {
+  resumeText?: string;
+  form?: ProfileFormInput;
+}): boolean {
+  return String(input.resumeText || "").trim() !== "" || hasAnyFormField(input.form);
 }
 
 async function loadStoredConfigForFallback(
@@ -1153,18 +1232,41 @@ export async function handleDiscoveryProfileWebhook(
       }
     | undefined;
   let companiesFromExtractFallback: CompanyTarget[] | null = null;
+  const profileInput = {
+    resumeText: refreshResumeText,
+    form: refreshForm,
+  };
   try {
     profile = await extractFn(
-      {
-        resumeText: refreshResumeText,
-        form: refreshForm,
-      },
+      profileInput,
       {
         runtimeConfig: dependencies.runtimeConfig,
         fetchImpl: dependencies.fetchImpl,
         log: dependencies.log,
       },
     );
+    if (
+      !candidateProfileHasDiscoverySignal(profile) &&
+      requestHasProfileInputSignal(profileInput)
+    ) {
+      const fallbackProfile = inferFallbackProfile(profileInput);
+      if (candidateProfileHasDiscoverySignal(fallbackProfile)) {
+        profile = fallbackProfile;
+        dependencies.log?.("discovery.profile.extract_empty_fallback_used", {
+          targetRoleCount: profile.targetRoles.length,
+          skillCount: profile.skills.length,
+          locationCount: profile.locations.length,
+          industryCount: profile.industries?.length ?? 0,
+          resumeTextLength: String(profileInput.resumeText || "").length,
+          formFieldCount,
+        });
+      } else {
+        dependencies.log?.("discovery.profile.extract_empty_fallback_empty", {
+          resumeTextLength: String(profileInput.resumeText || "").length,
+          formFieldCount,
+        });
+      }
+    }
   } catch (error) {
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
