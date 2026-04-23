@@ -67,7 +67,12 @@ async function loadScheduleModule(overrides = {}) {
   const window = {
     setTimeout,
     clearTimeout,
+    location: overrides.location || {
+      hostname: "localhost",
+      port: "8080",
+    },
     JobBoredSettingsProfileTab: undefined,
+    ...(overrides.window || {}),
   };
 
   const navigator = overrides.navigator || {
@@ -84,9 +89,9 @@ async function loadScheduleModule(overrides = {}) {
     URL,
     AbortController,
     Blob: globalThis.Blob,
-    fetch: async () => {
+    fetch: overrides.fetch || (async () => {
       throw new Error("fetch should not be called in schedule-card tests");
-    },
+    }),
   };
 
   vm.runInNewContext(source, context, {
@@ -147,6 +152,437 @@ describe("Schedule card — Tier 2 (local) localStorage round-trip", () => {
     // Local is untouched by cloud writes.
     const afterLocal = schedule.readLocalScheduleState();
     assert.deepEqual(asPlain(afterLocal), { enabled: false, hour: 8, minute: 0 });
+  });
+});
+
+describe("Profile tab — resume restore source selection", () => {
+  it("prefers the browser-local saved profile resume over worker status text", async () => {
+    const { module } = await loadScheduleModule();
+    const source = module.__test.chooseResumeRestoreSource(
+      {
+        resumeText: "worker resume text that is long enough to restore",
+      },
+      {
+        text: "saved profile resume text",
+        label: "Primary resume",
+      },
+    );
+    assert.equal(source.source, "profile");
+    assert.equal(source.text, "saved profile resume text");
+  });
+
+  it("rejects implausibly short worker resume text so stale values like f do not hydrate", async () => {
+    const { module } = await loadScheduleModule();
+    const source = module.__test.chooseResumeRestoreSource(
+      { resumeText: "f" },
+      null,
+    );
+    assert.equal(source, null);
+  });
+
+  it("formats status card resume value from browser-local profile before stale worker text", async () => {
+    const { module } = await loadScheduleModule();
+    const value = module.__test.formatSavedProfileValue(
+      {
+        hasStoredProfile: true,
+        resumeTextLength: 1,
+        profileUpdatedAt: "2026-04-20T12:00:00.000Z",
+      },
+      {
+        text: "saved profile resume text",
+        label: "Primary resume",
+        updatedAt: "",
+      },
+    );
+    assert.match(value, /25 chars resume saved in this browser/);
+    assert.doesNotMatch(value, /1 char resume/);
+  });
+
+  it("resolves a local discovery-profile fallback for stale Worker profile endpoints in local dev", async () => {
+    const { module, localStorageRaw } = await loadScheduleModule({
+      location: {
+        hostname: "localhost",
+        port: "8080",
+      },
+    });
+    localStorageRaw.set(
+      "command_center_discovery_transport_setup",
+      JSON.stringify({ localWebhookUrl: "http://127.0.0.1:8644/webhook" }),
+    );
+
+    const endpoint = module.__test.resolveLocalProfileEndpointCandidate(
+      "https://jobbored-discovery-relay.example.workers.dev/discovery-profile",
+    );
+
+    assert.equal(endpoint, "http://127.0.0.1:8644/discovery-profile");
+  });
+
+  it("normalizes stale localhost /webhooks routes on port 8644 to /discovery-profile", async () => {
+    const { module } = await loadScheduleModule();
+    assert.equal(
+      module.resolveProfileEndpoint("http://127.0.0.1:8644/webhooks/abc123"),
+      "http://127.0.0.1:8644/discovery-profile",
+    );
+    assert.equal(
+      module.resolveProfileEndpoint(
+        "http://127.0.0.1:8644/webhooks/abc123/webhook",
+      ),
+      "http://127.0.0.1:8644/discovery-profile",
+    );
+  });
+
+  it("keeps hosted /webhooks routes path-prefixed for non-local origins", async () => {
+    const { module } = await loadScheduleModule();
+    assert.equal(
+      module.resolveProfileEndpoint(
+        "https://relay.example.workers.dev/webhooks/abc123",
+      ),
+      "https://relay.example.workers.dev/webhooks/abc123/discovery-profile",
+    );
+  });
+
+  it("does not duplicate path when endpoint already ends with /discovery-profile", async () => {
+    const { module } = await loadScheduleModule();
+    assert.equal(
+      module.resolveProfileEndpoint("http://127.0.0.1:8644/discovery-profile"),
+      "http://127.0.0.1:8644/discovery-profile",
+    );
+  });
+
+  it("does not resolve a localhost fallback for hosted dashboard origins", async () => {
+    const { module, localStorageRaw } = await loadScheduleModule({
+      location: {
+        hostname: "app.example.com",
+        port: "",
+      },
+    });
+    localStorageRaw.set(
+      "command_center_discovery_transport_setup",
+      JSON.stringify({ localWebhookUrl: "http://127.0.0.1:8644/webhook" }),
+    );
+
+    const endpoint = module.__test.resolveLocalProfileEndpointCandidate(
+      "https://jobbored-discovery-relay.example.workers.dev/discovery-profile",
+    );
+
+    assert.equal(endpoint, "");
+  });
+
+  it("retries profile endpoint failures only for recoverable relay/network failures", async () => {
+    const { module } = await loadScheduleModule();
+    assert.equal(
+      module.__test.shouldRetryProfileEndpoint({ httpStatus: 502 }),
+      true,
+    );
+    assert.equal(
+      module.__test.shouldRetryProfileEndpoint({ httpStatus: 401 }),
+      false,
+    );
+    assert.equal(
+      module.__test.shouldRetryProfileEndpoint({ network: true }),
+      true,
+    );
+  });
+
+  it("prefers the local worker before a Cloudflare relay on localhost dashboards", async () => {
+    const calls = [];
+    const { module } = await loadScheduleModule({
+      location: {
+        hostname: "localhost",
+        port: "8080",
+      },
+      window: {
+        COMMAND_CENTER_CONFIG: {
+          discoveryWebhookUrl:
+            "https://jobbored-discovery-relay.example.workers.dev/discovery-profile",
+          discoveryWebhookSecret: "secret-xyz",
+          sheetId: "sheet_abc123",
+        },
+      },
+      fetch: async (url) => {
+        calls.push(String(url));
+        if (String(url) === "http://127.0.0.1:8644/health") {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => "{}",
+          };
+        }
+        if (String(url) === "http://127.0.0.1:8644/discovery-profile") {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ ok: true, schedule: { enabled: true } }),
+          };
+        }
+        throw new Error("stale relay should not be called");
+      },
+    });
+
+    const response = await module.__test.postProfileEndpoint({
+      mode: "schedule-save",
+      schedule: { enabled: true, hour: 8, minute: 15, mode: "local" },
+    });
+
+    assert.equal(response.ok, true);
+    assert.deepEqual(calls, [
+      "http://127.0.0.1:8644/health",
+      "http://127.0.0.1:8644/discovery-profile",
+    ]);
+  });
+
+  it("uses normalized /discovery-profile for status mode when config has stale localhost /webhooks route", async () => {
+    const calls = [];
+    const { module } = await loadScheduleModule({
+      window: {
+        COMMAND_CENTER_CONFIG: {
+          discoveryWebhookUrl: "http://127.0.0.1:8644/webhooks/stale-id",
+          discoveryWebhookSecret: "secret-xyz",
+          sheetId: "sheet_abc123",
+        },
+      },
+      fetch: async (url) => {
+        calls.push(String(url));
+        if (String(url) === "http://127.0.0.1:8644/discovery-profile") {
+          return {
+            ok: true,
+            status: 200,
+            text: async () =>
+              JSON.stringify({
+                ok: true,
+                status: {
+                  hasStoredProfile: true,
+                  companyCount: 5,
+                  negativeCompanyCount: 1,
+                  lastRefreshAt: "2026-04-21T18:00:00.000Z",
+                },
+              }),
+          };
+        }
+        throw new Error("unexpected endpoint: " + String(url));
+      },
+    });
+
+    const response = await module.__test.postProfileEndpoint(
+      { mode: "status" },
+      10_000,
+    );
+    assert.equal(response.ok, true);
+    assert.equal(response.status.hasStoredProfile, true);
+    assert.deepEqual(calls, ["http://127.0.0.1:8644/discovery-profile"]);
+  });
+
+  it("uses runtime getDiscoveryWebhookSecret getter when settings fields are empty", async () => {
+    const seenHeaders = [];
+    const { module } = await loadScheduleModule({
+      window: {
+        COMMAND_CENTER_CONFIG: {
+          discoveryWebhookUrl: "http://127.0.0.1:8644/discovery-profile",
+          sheetId: "sheet_abc123",
+        },
+        getDiscoveryWebhookSecret: () => "secret-from-runtime",
+      },
+      fetch: async (url, init) => {
+        if (String(url) === "http://127.0.0.1:8644/discovery-profile") {
+          seenHeaders.push(init && init.headers ? init.headers : {});
+          return {
+            ok: true,
+            status: 200,
+            text: async () =>
+              JSON.stringify({
+                ok: true,
+                status: {
+                  hasStoredProfile: true,
+                  companyCount: 3,
+                  negativeCompanyCount: 0,
+                },
+              }),
+          };
+        }
+        throw new Error("unexpected endpoint: " + String(url));
+      },
+    });
+
+    const response = await module.__test.postProfileEndpoint(
+      { mode: "status" },
+      10_000,
+    );
+
+    assert.equal(response.ok, true);
+    assert.equal(seenHeaders.length, 1);
+    assert.equal(seenHeaders[0]["x-discovery-secret"], "secret-from-runtime");
+  });
+
+  it("hydrates missing local webhook secret from discovery-local-bootstrap.json before profile status calls", async () => {
+    const seenHeaders = [];
+    const calls = [];
+    const { module, localStorageRaw } = await loadScheduleModule({
+      location: {
+        hostname: "localhost",
+        port: "8080",
+      },
+      window: {
+        COMMAND_CENTER_CONFIG: {
+          discoveryWebhookUrl: "http://127.0.0.1:8644/discovery-profile",
+          sheetId: "sheet_abc123",
+        },
+      },
+      fetch: async (url, init) => {
+        calls.push(String(url));
+        if (String(url) === "discovery-local-bootstrap.json") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ webhookSecret: "secret-from-bootstrap" }),
+          };
+        }
+        if (String(url) === "http://127.0.0.1:8644/discovery-profile") {
+          seenHeaders.push(init && init.headers ? init.headers : {});
+          return {
+            ok: true,
+            status: 200,
+            text: async () =>
+              JSON.stringify({
+                ok: true,
+                status: {
+                  hasStoredProfile: true,
+                  companyCount: 3,
+                  negativeCompanyCount: 0,
+                },
+              }),
+          };
+        }
+        throw new Error("unexpected endpoint: " + String(url));
+      },
+    });
+
+    const response = await module.__test.postProfileEndpoint(
+      { mode: "status" },
+      10_000,
+    );
+
+    assert.equal(response.ok, true);
+    assert.deepEqual(calls, [
+      "discovery-local-bootstrap.json",
+      "http://127.0.0.1:8644/discovery-profile",
+    ]);
+    assert.equal(seenHeaders.length, 1);
+    assert.equal(seenHeaders[0]["x-discovery-secret"], "secret-from-bootstrap");
+    const overrides = JSON.parse(
+      localStorageRaw.get("command_center_config_overrides") || "{}",
+    );
+    assert.equal(overrides.discoveryWebhookSecret, "secret-from-bootstrap");
+  });
+
+  it("turns a stopped local worker into actionable guidance instead of relay 502", async () => {
+    const calls = [];
+    const { module } = await loadScheduleModule({
+      location: {
+        hostname: "localhost",
+        port: "8080",
+      },
+      window: {
+        COMMAND_CENTER_CONFIG: {
+          discoveryWebhookUrl:
+            "https://jobbored-discovery-relay.example.workers.dev/discovery-profile",
+          discoveryWebhookSecret: "secret-xyz",
+          sheetId: "sheet_abc123",
+        },
+      },
+      fetch: async (url) => {
+        calls.push(String(url));
+        if (String(url) === "http://127.0.0.1:8644/health") {
+          throw new Error("connect ECONNREFUSED");
+        }
+        if (
+          String(url) ===
+          "http://localhost:8080/__proxy/start-discovery-worker?port=8644"
+        ) {
+          return {
+            ok: false,
+            status: 502,
+            text: async () => JSON.stringify({ ok: false, message: "start failed" }),
+          };
+        }
+        throw new Error("stale relay should not be called");
+      },
+    });
+
+    await assert.rejects(
+      () =>
+        module.__test.postProfileEndpoint({
+          mode: "schedule-save",
+          schedule: { enabled: true, hour: 8, minute: 15, mode: "local" },
+        }),
+      /Local discovery worker is not running.*npm run dev/,
+    );
+    assert.deepEqual(calls, [
+      "http://127.0.0.1:8644/health",
+      "http://localhost:8080/__proxy/start-discovery-worker?port=8644",
+    ]);
+  });
+
+  it("auto-starts the local worker once and retries the profile request", async () => {
+    const calls = [];
+    let healthAttempts = 0;
+    const { module } = await loadScheduleModule({
+      location: {
+        hostname: "localhost",
+        port: "8080",
+        origin: "http://localhost:8080",
+      },
+      window: {
+        COMMAND_CENTER_CONFIG: {
+          discoveryWebhookUrl:
+            "https://jobbored-discovery-relay.example.workers.dev/discovery-profile",
+          discoveryWebhookSecret: "secret-xyz",
+          sheetId: "sheet_abc123",
+        },
+      },
+      fetch: async (url) => {
+        calls.push(String(url));
+        if (String(url) === "http://127.0.0.1:8644/health") {
+          healthAttempts += 1;
+          if (healthAttempts === 1) throw new Error("connect ECONNREFUSED");
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ status: "ok" }),
+          };
+        }
+        if (
+          String(url) ===
+          "http://localhost:8080/__proxy/start-discovery-worker?port=8644"
+        ) {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ ok: true, started: true }),
+          };
+        }
+        if (String(url) === "http://127.0.0.1:8644/discovery-profile") {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ ok: true, persisted: true }),
+          };
+        }
+        throw new Error("stale relay should not be called");
+      },
+    });
+
+    const response = await module.__test.postProfileEndpoint({
+      mode: "schedule-save",
+      schedule: { enabled: true, hour: 8, minute: 15, mode: "local" },
+    });
+
+    assert.equal(response.ok, true);
+    assert.deepEqual(calls, [
+      "http://127.0.0.1:8644/health",
+      "http://localhost:8080/__proxy/start-discovery-worker?port=8644",
+      "http://127.0.0.1:8644/health",
+      "http://127.0.0.1:8644/discovery-profile",
+    ]);
   });
 });
 

@@ -28,6 +28,7 @@ function makeRuntimeConfig(): WorkerRuntimeConfig {
     runMode: "hosted",
     asyncAckByDefault: true,
     useStructuredExtraction: false,
+    serpApiKey: "",
   };
 }
 
@@ -125,6 +126,7 @@ test("thin-result retry fires when the first pass returns fewer than 15 companie
     firstPass,
     retryPass,
     retryPass,
+    retryPass,
   ]);
   const logs = logSink();
 
@@ -135,7 +137,7 @@ test("thin-result retry fires when the first pass returns fewer than 15 companie
   });
 
   assert.equal(companies.length, 16);
-  assert.equal(getCallCount(), 4);
+  assert.equal(getCallCount(), 5);
   assert.ok(
     logs.events.some(([event]) => event === "discovery.profile.companies_thin_retry"),
   );
@@ -148,6 +150,268 @@ test("thin-result retry fires when the first pass returns fewer than 15 companie
   assert.match(firstUserPrompt, /Do NOT stop at 5-10 companies/i);
   const retryUserPrompt = JSON.stringify(requestBodies[2]);
   assert.match(retryUserPrompt, /Find 15 MORE unique companies/i);
+});
+
+test("SerpApi company discovery returns companies without waiting on Gemini", async () => {
+  const calls: string[] = [];
+  const fetchImpl: typeof globalThis.fetch = async (input) => {
+    const url = String(input || "");
+    calls.push(url);
+    assert.match(url, /serpapi\.com/);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        jobs_results: [
+          {
+            title: "Senior Growth Marketing Manager",
+            company_name: "Klaviyo",
+            location: "Remote",
+            apply_options: [{ link: "https://www.klaviyo.com/careers/job-1" }],
+          },
+          {
+            title: "Product Marketing Manager",
+            company_name: "HubSpot",
+            location: "United States",
+            apply_options: [{ link: "https://www.hubspot.com/careers/job-2" }],
+          },
+          {
+            title: "Growth Marketing Lead",
+            company_name: "Klaviyo",
+            location: "Remote",
+            apply_options: [{ link: "https://www.klaviyo.com/careers/job-3" }],
+          },
+        ],
+      }),
+      text: async () => "",
+    } as Response;
+  };
+  const logs = logSink();
+
+  const companies = await discoverCompaniesForProfile(PROFILE, {
+    runtimeConfig: {
+      ...makeRuntimeConfig(),
+      geminiApiKey: "",
+      serpApiKey: "test-serpapi-key",
+    },
+    fetchImpl,
+    log: logs.log,
+  });
+
+  assert.equal(companies.length, 2);
+  assert.deepEqual(companies.map((company) => company.name), [
+    "Klaviyo",
+    "HubSpot",
+  ]);
+  assert.ok(calls.length >= 2 && calls.length <= 3);
+  assert.ok(calls.every((url) => url.includes("engine=google_jobs")));
+  assert.ok(
+    logs.events.some(
+      ([event]) => event === "discovery.profile.companies_serpapi_completed",
+    ),
+  );
+  assert.ok(
+    logs.events.some(([event, details]) => {
+      return (
+        event === "discovery.profile.companies_completed" &&
+        details.source === "serpapi_google_jobs"
+      );
+    }),
+  );
+});
+
+test("SerpApi company discovery drops aggregator-host domains", async () => {
+  const calls: string[] = [];
+  const fetchImpl: typeof globalThis.fetch = async (input) => {
+    const url = String(input || "");
+    calls.push(url);
+    assert.match(url, /serpapi\.com/);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        jobs_results: [
+          {
+            title: "Senior Growth Marketing Manager",
+            company_name: "CLEAR (clearme.com)",
+            location: "New York",
+            apply_options: [{ link: "https://www.mediabistro.com/jobs/123" }],
+          },
+          {
+            title: "Marketing Manager",
+            company_name: "NBCUniversal",
+            location: "Remote",
+            apply_options: [{ link: "https://www.showbizjobs.com/jobs/123" }],
+          },
+          {
+            title: "Senior Marketing Manager",
+            company_name: "Superbolt",
+            location: "Remote",
+            apply_options: [{ link: "https://us.jobrapido.com/job/123" }],
+          },
+          {
+            title: "Growth Marketing Manager",
+            company_name: "Equinox",
+            location: "New York",
+            apply_options: [
+              { link: "https://jobs.smartrecruiters.com/Equinox/744000070913145" },
+            ],
+          },
+        ],
+      }),
+      text: async () => "",
+    } as Response;
+  };
+
+  const companies = await discoverCompaniesForProfile(PROFILE, {
+    runtimeConfig: {
+      ...makeRuntimeConfig(),
+      geminiApiKey: "",
+      serpApiKey: "test-serpapi-key",
+    },
+    fetchImpl,
+  });
+
+  assert.ok(calls.length >= 2 && calls.length <= 3);
+  assert.deepEqual(companies.map((company) => company.name), ["Equinox"]);
+  assert.deepEqual(companies[0].domains, ["jobs.smartrecruiters.com"]);
+});
+
+test("SerpApi company discovery respects excluded company keys", async () => {
+  const fetchImpl: typeof globalThis.fetch = async (input) => {
+    const url = String(input || "");
+    assert.match(url, /serpapi\.com/);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        jobs_results: [
+          {
+            title: "Senior Growth Marketing Manager",
+            company_name: "Figma",
+            location: "Remote",
+            apply_options: [{ link: "https://www.figma.com/careers/job-1" }],
+          },
+          {
+            title: "Senior Growth Marketing Manager",
+            company_name: "Notion",
+            location: "Remote",
+            apply_options: [{ link: "https://www.notion.so/careers/job-2" }],
+          },
+        ],
+      }),
+      text: async () => "",
+    } as Response;
+  };
+
+  const companies = await discoverCompaniesForProfile(PROFILE, {
+    runtimeConfig: {
+      ...makeRuntimeConfig(),
+      geminiApiKey: "",
+      serpApiKey: "test-serpapi-key",
+    },
+    fetchImpl,
+    excludedCompanyKeys: ["notion"],
+  });
+
+  assert.deepEqual(companies.map((company) => company.companyKey), ["figma"]);
+});
+
+test("SerpApi company discovery normalizes excluded company keys before filtering", async () => {
+  const fetchImpl: typeof globalThis.fetch = async () => {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        jobs_results: [
+          {
+            title: "Senior Growth Marketing Manager",
+            company_name: "Meta Platforms, Inc.",
+            location: "Remote",
+            apply_options: [{ link: "https://www.metacareers.com/jobs/1" }],
+          },
+          {
+            title: "Senior Growth Marketing Manager",
+            company_name: "Figma",
+            location: "Remote",
+            apply_options: [{ link: "https://www.figma.com/careers/job-1" }],
+          },
+        ],
+      }),
+      text: async () => "",
+    } as Response;
+  };
+
+  const companies = await discoverCompaniesForProfile(PROFILE, {
+    runtimeConfig: {
+      ...makeRuntimeConfig(),
+      geminiApiKey: "",
+      serpApiKey: "test-serpapi-key",
+    },
+    fetchImpl,
+    excludedCompanyKeys: ["Meta Platforms, Inc."],
+  });
+
+  assert.deepEqual(companies.map((company) => company.companyKey), ["figma"]);
+});
+
+test("Gemini company discovery drops job-board-only companies and keeps employer domains", async () => {
+  const mixedPass = JSON.stringify({
+    companies: [
+      {
+        name: "Apple",
+        domains: ["jobleads.com"],
+        roleTags: ["growth marketing"],
+        geoTags: ["remote"],
+      },
+      {
+        name: "Figma",
+        domains: ["figma.com"],
+        roleTags: ["growth marketing"],
+        geoTags: ["remote"],
+      },
+      {
+        name: "Google",
+        domains: ["jobget.com", "ihiremarketing.com"],
+        roleTags: ["growth marketing"],
+        geoTags: ["remote"],
+      },
+      {
+        name: "Notion",
+        domains: ["notion.so"],
+        roleTags: ["growth marketing"],
+        geoTags: ["remote"],
+      },
+      {
+        name: "Scale AI",
+        domains: ["scale.com"],
+        roleTags: ["growth marketing"],
+        geoTags: ["remote"],
+      },
+    ],
+  });
+  const { fetchImpl, getCallCount } = makeFetchStub([mixedPass, mixedPass, mixedPass]);
+
+  const companies = await discoverCompaniesForProfile(PROFILE, {
+    runtimeConfig: makeRuntimeConfig(),
+    fetchImpl,
+    maxResults: 3,
+  });
+
+  assert.equal(getCallCount(), 3);
+  assert.equal(companies.length, 3);
+  assert.deepEqual(
+    companies.map((company) => company.name).sort(),
+    ["Figma", "Notion", "Scale AI"].sort(),
+  );
+  assert.ok(
+    companies.every((company) => {
+      const domains = company.domains || [];
+      return !domains.some((domain) =>
+        /(jobleads\.com|jobget\.com|ihiremarketing\.com)/i.test(domain),
+      );
+    }),
+  );
 });
 
 test("industry fan-out fires when retry also returns fewer than 15 companies", async () => {
@@ -193,6 +457,7 @@ test("industry fan-out fires when retry also returns fewer than 15 companies", a
     aiToolingPass,
     saasPass,
     saasPass,
+    saasPass,
   ]);
   const logs = logSink();
 
@@ -203,7 +468,7 @@ test("industry fan-out fires when retry also returns fewer than 15 companies", a
   });
 
   assert.equal(companies.length, 17);
-  assert.equal(getCallCount(), 8);
+  assert.equal(getCallCount(), 9);
   assert.ok(
     logs.events.some(([event]) => event === "discovery.profile.companies_thin_retry"),
   );
@@ -240,7 +505,7 @@ test("healthy first pass does not trigger retry or fan-out", async () => {
       "Twilio",
     ]),
   });
-  const { fetchImpl, getCallCount } = makeFetchStub([healthyPass, healthyPass]);
+  const { fetchImpl, getCallCount } = makeFetchStub([healthyPass, healthyPass, healthyPass]);
   const logs = logSink();
 
   const companies = await discoverCompaniesForProfile(PROFILE, {
@@ -250,7 +515,7 @@ test("healthy first pass does not trigger retry or fan-out", async () => {
   });
 
   assert.equal(companies.length, 15);
-  assert.equal(getCallCount(), 2);
+  assert.equal(getCallCount(), 3);
   assert.ok(
     !logs.events.some(([event]) => event === "discovery.profile.companies_thin_retry"),
   );
@@ -310,6 +575,7 @@ test("dedup holds across retry merges", async () => {
     retryPass,
     aiToolingPass,
     aiToolingPass,
+    saasPass,
     saasPass,
     saasPass,
   ]);

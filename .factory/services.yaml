@@ -2,8 +2,8 @@ commands:
   install: npm run install:repo
   lint: npm run lint:repo
   typecheck: npm run typecheck:repo
-  test: npm run test:browser-use-discovery
-  validate_all: npm run lint:repo && npm run typecheck:repo && npm run test:browser-use-discovery
+  test: npm run test:repo
+  validate_all: npm run lint:repo && npm run typecheck:repo && npm run test:repo
   test_wave1: node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/handle-discovery-webhook.test.ts integrations/browser-use-discovery/tests/webhook/routing-enforcement.test.ts
   test_wave2: node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/source-adapters.test.ts integrations/browser-use-discovery/tests/browser/source-adapters-ats-first.test.ts integrations/browser-use-discovery/tests/browser/grounded-search.test.ts integrations/browser-use-discovery/tests/browser/career-surface-resolver.test.ts
   test_wave3: node --experimental-strip-types --test integrations/browser-use-discovery/tests/discovery/company-planner.test.ts integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts
@@ -24,3 +24,10 @@ services:
     healthcheck: curl -sf http://127.0.0.1:4040/api/tunnels
     port: 4040
     depends_on: [discovery_worker]
+
+  web_tls:
+    start: npm run web-only:https
+    stop: if lsof -ti tcp:8080 >/dev/null; then lsof -ti tcp:8080 | xargs kill; fi
+    healthcheck: curl -skf https://localhost:8080/
+    port: 8080
+    depends_on: []

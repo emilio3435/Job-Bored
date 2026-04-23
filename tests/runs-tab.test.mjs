@@ -9,6 +9,18 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 async function loadRunsTab() {
   const source = await readFile(join(repoRoot, "runs-tab.js"), "utf8");
+  const storage = new Map();
+  const localStorage = {
+    getItem(key) {
+      return storage.has(key) ? storage.get(key) : null;
+    },
+    setItem(key, value) {
+      storage.set(key, String(value));
+    },
+    removeItem(key) {
+      storage.delete(key);
+    },
+  };
   const document = {
     readyState: "loading",
     addEventListener() {},
@@ -26,6 +38,7 @@ async function loadRunsTab() {
     navigator: { userAgent: "test" },
     console,
     URL,
+    localStorage,
     setInterval,
     clearInterval,
     fetch: async () => {
@@ -161,9 +174,32 @@ function makeFakeDom() {
   return { document, modal, openBtn, tbody, tableWrap, statusEl, docListeners };
 }
 
-async function bootInitRunsTab({ fetchImpl, sheetId = "sheet-1", accessToken = "tok" } = {}) {
+async function bootInitRunsTab({
+  fetchImpl,
+  sheetId = "sheet-1",
+  accessToken = "tok",
+  storedJobRunState = null,
+} = {}) {
   const source = await readFile(join(repoRoot, "runs-tab.js"), "utf8");
   const dom = makeFakeDom();
+  const storage = new Map();
+  if (storedJobRunState) {
+    storage.set(
+      "command_center_discovery_run_state",
+      JSON.stringify(storedJobRunState),
+    );
+  }
+  const localStorage = {
+    getItem(key) {
+      return storage.has(key) ? storage.get(key) : null;
+    },
+    setItem(key, value) {
+      storage.set(key, String(value));
+    },
+    removeItem(key) {
+      storage.delete(key);
+    },
+  };
   const window = {
     JobBored: {
       getSheetId: () => sheetId,
@@ -184,6 +220,7 @@ async function bootInitRunsTab({ fetchImpl, sheetId = "sheet-1", accessToken = "
     navigator: { userAgent: "test" },
     console,
     URL,
+    localStorage,
     setInterval: (fn, ms) => {
       const id = timers.length;
       timers.push({ fn, ms });
@@ -202,7 +239,7 @@ async function bootInitRunsTab({ fetchImpl, sheetId = "sheet-1", accessToken = "
   dom.openBtn.dispatch("click", {});
   // Flush any pending microtasks from loadRuns().
   await new Promise((resolve) => setImmediate(resolve));
-  return { dom, window, context };
+  return { dom, window, context, localStorageRaw: storage };
 }
 
 function asPlain(value) {
@@ -242,8 +279,32 @@ describe("parseDiscoveryRunsValues", () => {
     assert.equal(runs[0].durationS, 47);
     assert.equal(runs[0].companiesSeen, 12);
     assert.equal(runs[0].leadsWritten, 3);
+    assert.equal(runs[0].leadsUpdated, 0);
     assert.equal(runs[1].status, "failure");
     assert.equal(runs[1].error, "timeout on acme.com");
+  });
+
+  it("parses the extended 10-column shape with leadsUpdated", async () => {
+    const mod = await loadRunsTab();
+    const rows = [
+      [
+        "2026-04-21T15:12:03Z",
+        "manual",
+        "success",
+        47,
+        12,
+        3,
+        9,
+        "worker@v0.4.1",
+        "gh-1234-abcd",
+        "",
+      ],
+    ];
+    const runs = mod.parseDiscoveryRunsValues(rows);
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].leadsWritten, 3);
+    assert.equal(runs[0].leadsUpdated, 9);
+    assert.equal(runs[0].source, "worker@v0.4.1");
   });
 
   it("skips rows missing Run At / Trigger / Status", async () => {
@@ -268,9 +329,9 @@ describe("sortRuns", () => {
   it("sorts descending by runAt when direction='desc'", async () => {
     const mod = await loadRunsTab();
     const runs = [
-      { runAt: "2026-04-21T10:00:00Z", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
-      { runAt: "2026-04-21T16:00:00Z", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
-      { runAt: "2026-04-21T12:00:00Z", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
+      { runAt: "2026-04-21T10:00:00Z", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "" },
+      { runAt: "2026-04-21T16:00:00Z", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "" },
+      { runAt: "2026-04-21T12:00:00Z", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "" },
     ];
     const sorted = mod.sortRuns(runs, "runAt", "desc");
     assert.equal(sorted[0].runAt, "2026-04-21T16:00:00Z");
@@ -280,9 +341,9 @@ describe("sortRuns", () => {
   it("sorts numerically on leadsWritten", async () => {
     const mod = await loadRunsTab();
     const runs = [
-      { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 2, source: "", variationKey: "", error: "" },
-      { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 10, source: "", variationKey: "", error: "" },
-      { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
+      { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 2, leadsUpdated: 0, source: "", variationKey: "", error: "" },
+      { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 10, leadsUpdated: 0, source: "", variationKey: "", error: "" },
+      { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "" },
     ];
     const sorted = mod.sortRuns(runs, "leadsWritten", "asc");
     assert.deepEqual(sorted.map((r) => r.leadsWritten), [0, 2, 10]);
@@ -291,10 +352,10 @@ describe("sortRuns", () => {
 
 describe("filterRuns", () => {
   const sample = [
-    { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
-    { runAt: "t", trigger: "scheduled-local", status: "failure", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "x" },
-    { runAt: "t", trigger: "scheduled-github", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
-    { runAt: "t", trigger: "cli", status: "partial", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
+    { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "" },
+    { runAt: "t", trigger: "scheduled-local", status: "failure", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "x" },
+    { runAt: "t", trigger: "scheduled-github", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "" },
+    { runAt: "t", trigger: "cli", status: "partial", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "" },
   ];
 
   it("all/all returns every row", async () => {
@@ -361,7 +422,7 @@ describe("fetchDiscoveryRuns", () => {
         makeResponse(
           400,
           null,
-          '{"error":{"code":400,"message":"Unable to parse range: DiscoveryRuns!A2:I"}}',
+          '{"error":{"code":400,"message":"Unable to parse range: DiscoveryRuns!A2:J"}}',
         ),
     });
     assert.equal(result.ok, true);
@@ -436,7 +497,7 @@ describe("fetchDiscoveryRuns", () => {
     assert.equal(result.reason, "unauthorized");
   });
 
-  it("sends Bearer token and hits the DiscoveryRuns!A2:I range with UNFORMATTED_VALUE", async () => {
+  it("sends Bearer token and hits the DiscoveryRuns!A2:J range with UNFORMATTED_VALUE", async () => {
     const mod = await loadRunsTab();
     let seen = null;
     await mod.fetchDiscoveryRuns("sheet-abc", "tok-xyz", {
@@ -448,8 +509,8 @@ describe("fetchDiscoveryRuns", () => {
     assert.ok(seen);
     assert.match(seen.url, /\/spreadsheets\/sheet-abc\/values\//);
     // `!` is an unreserved char per encodeURIComponent, so the range stays as
-    // "DiscoveryRuns!A2%3AI" (colon is percent-encoded, bang is not).
-    assert.match(seen.url, /DiscoveryRuns!A2%3AI/);
+    // "DiscoveryRuns!A2%3AJ" (colon is percent-encoded, bang is not).
+    assert.match(seen.url, /DiscoveryRuns!A2%3AJ/);
     assert.match(seen.url, /valueRenderOption=UNFORMATTED_VALUE/);
     assert.equal(seen.headers.Authorization, "Bearer tok-xyz");
   });
@@ -481,6 +542,134 @@ describe("renderGhostRowHtml (ghost row markup)", () => {
   });
 });
 
+describe("live job-discovery run row", () => {
+  it("normalizes active job discovery tracker state and rejects terminal state", async () => {
+    const mod = await loadRunsTab();
+    const active = mod.__test.normalizeJobDiscoveryRunState({
+      status: "running",
+      runId: "run_123",
+      initiatedAt: "2026-04-21T20:00:00Z",
+      variationKey: "var-1",
+    });
+    assert.equal(active.runId, "run_123");
+    assert.equal(active.status, "running");
+    assert.equal(active.variationKey, "var-1");
+
+    const terminal = mod.__test.normalizeJobDiscoveryRunState({
+      status: "completed",
+      runId: "run_123",
+    });
+    assert.equal(terminal, null);
+  });
+
+  it("renders an active job-discovery run from localStorage when the modal opens", async () => {
+    const { dom } = await bootInitRunsTab({
+      storedJobRunState: {
+        status: "running",
+        runId: "run_live_1",
+        initiatedAt: "2026-04-21T20:00:00Z",
+        trigger: "manual",
+        variationKey: "var-live",
+      },
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ values: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+
+    assert.match(dom.tbody.innerHTML, /data-runs-live="job-discovery"/);
+    assert.match(dom.tbody.innerHTML, /Job discovery/);
+    assert.match(dom.tbody.innerHTML, /var-live/);
+  });
+
+  it("updates the live job row from tracker events and refreshes after terminal events", async () => {
+    let fetchCalls = 0;
+    const { dom } = await bootInitRunsTab({
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        return new Response(JSON.stringify({ values: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    const initialFetchCount = fetchCalls;
+
+    dom.document.dispatchDoc("jobbored:job-discovery-run-updated", {
+      detail: {
+        state: {
+          status: "running",
+          runId: "run_event_1",
+          initiatedAt: "2026-04-21T20:00:00Z",
+          variationKey: "var-event",
+        },
+      },
+    });
+    assert.match(dom.tbody.innerHTML, /data-runs-live="job-discovery"/);
+    assert.match(dom.tbody.innerHTML, /var-event/);
+
+    dom.document.dispatchDoc("jobbored:job-discovery-run-updated", {
+      detail: {
+        state: {
+          status: "completed",
+          runId: "run_event_1",
+        },
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(
+      /data-runs-live="job-discovery"/.test(dom.tbody.innerHTML),
+      false,
+    );
+    assert.ok(
+      fetchCalls > initialFetchCount,
+      "terminal job-run event should refresh the sheet-backed run log",
+    );
+  });
+
+  it("suppresses stale live rows when the sheet already has a matching terminal run", async () => {
+    const { dom } = await bootInitRunsTab({
+      storedJobRunState: {
+        status: "running",
+        runId: "run_stale_1",
+        initiatedAt: "2026-04-22T11:04:20.000Z",
+        trigger: "manual",
+        variationKey: "83c18c8789eb1b30",
+      },
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            values: [
+              [
+                "2026-04-22T11:08:47.000Z",
+                "manual",
+                "partial",
+                267,
+                25,
+                0,
+                "worker",
+                "83c18c8789eb1b30",
+                "",
+              ],
+            ],
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    });
+
+    assert.equal(
+      /data-runs-live="job-discovery"/.test(dom.tbody.innerHTML),
+      false,
+    );
+    assert.match(dom.tbody.innerHTML, /runs-row--partial/);
+  });
+});
+
 describe("renderSkeletonRows", () => {
   it("writes N loading rows with runs-row--skeleton markers", async () => {
     const mod = await loadRunsTab();
@@ -489,9 +678,9 @@ describe("renderSkeletonRows", () => {
     const matches = tbody.innerHTML.match(/runs-row--skeleton/g);
     assert.ok(matches, "skeleton rows should be present");
     assert.equal(matches.length, 4);
-    // Each row has 9 skeleton bars (one per column).
+    // Each row has 10 skeleton bars (one per column).
     const bars = tbody.innerHTML.match(/runs-skeleton-bar/g);
-    assert.ok(bars && bars.length === 4 * 9);
+    assert.ok(bars && bars.length === 4 * 10);
   });
 });
 

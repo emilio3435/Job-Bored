@@ -84,6 +84,21 @@ class DiscoveryRunTracker {
         errorMessage: parsed.errorMessage || "",
         pollErrorCount: parsed.pollErrorCount || 0,
         lastPollAt: parsed.lastPollAt || "",
+        trigger: parsed.trigger || "manual",
+        variationKey: parsed.variationKey || "",
+        requestedAt: parsed.requestedAt || "",
+        message: parsed.message || "",
+        startedAt: parsed.startedAt || "",
+        completedAt: parsed.completedAt || "",
+        companiesSeen: Number.isFinite(parsed.companiesSeen)
+          ? parsed.companiesSeen
+          : 0,
+        leadsWritten: Number.isFinite(parsed.leadsWritten)
+          ? parsed.leadsWritten
+          : 0,
+        leadsUpdated: Number.isFinite(parsed.leadsUpdated)
+          ? parsed.leadsUpdated
+          : 0,
       };
     } catch (_) {
       return this._idle();
@@ -96,6 +111,7 @@ class DiscoveryRunTracker {
     } catch (_) {
       /* storage full or unavailable — run state is best-effort */
     }
+    dispatchDiscoveryRunTrackerEvent(state);
   }
 
   _idle() {
@@ -111,6 +127,15 @@ class DiscoveryRunTracker {
       errorMessage: "",
       pollErrorCount: 0,
       lastPollAt: "",
+      trigger: "manual",
+      variationKey: "",
+      requestedAt: "",
+      message: "",
+      startedAt: "",
+      completedAt: "",
+      companiesSeen: 0,
+      leadsWritten: 0,
+      leadsUpdated: 0,
     };
   }
 
@@ -127,7 +152,15 @@ class DiscoveryRunTracker {
    * @param {number} [options.pollAfterMs] polling interval in ms (default 2000)
    * @param {string} [options.webhookUrl]  the webhook URL for status polling
    */
-  beginTracking({ runId, statusPath = "", pollAfterMs = 2000, webhookUrl = "" }) {
+  beginTracking({
+    runId,
+    statusPath = "",
+    pollAfterMs = 2000,
+    webhookUrl = "",
+    trigger = "manual",
+    variationKey = "",
+    requestedAt = "",
+  }) {
     this._state = {
       status: "pending",
       runId: String(runId || "").trim(),
@@ -140,6 +173,15 @@ class DiscoveryRunTracker {
       errorMessage: "",
       pollErrorCount: 0,
       lastPollAt: "",
+      trigger: String(trigger || "manual"),
+      variationKey: String(variationKey || "").trim(),
+      requestedAt: String(requestedAt || "").trim(),
+      message: "",
+      startedAt: "",
+      completedAt: "",
+      companiesSeen: 0,
+      leadsWritten: 0,
+      leadsUpdated: 0,
     };
     this._persist(this._state);
     return this;
@@ -162,6 +204,36 @@ class DiscoveryRunTracker {
     this._state.lastPollAt = new Date().toISOString();
     const isTerminal = !!statusData.terminal;
     const runStatus = String(statusData.status || "").toLowerCase();
+    const request = statusData.request && typeof statusData.request === "object"
+      ? statusData.request
+      : {};
+    const lifecycle =
+      statusData.lifecycle && typeof statusData.lifecycle === "object"
+        ? statusData.lifecycle
+        : {};
+    const writeResult =
+      statusData.writeResult && typeof statusData.writeResult === "object"
+        ? statusData.writeResult
+        : {};
+    this._state.trigger = String(statusData.trigger || this._state.trigger || "manual");
+    this._state.variationKey = String(
+      request.variationKey || this._state.variationKey || "",
+    );
+    this._state.requestedAt = String(
+      request.requestedAt || this._state.requestedAt || "",
+    );
+    this._state.message = String(statusData.message || this._state.message || "");
+    this._state.startedAt = String(statusData.startedAt || this._state.startedAt || "");
+    this._state.completedAt = String(statusData.completedAt || "");
+    if (Number.isFinite(lifecycle.companyCount)) {
+      this._state.companiesSeen = lifecycle.companyCount;
+    }
+    if (Number.isFinite(writeResult.appended)) {
+      this._state.leadsWritten = writeResult.appended;
+    }
+    if (Number.isFinite(writeResult.updated)) {
+      this._state.leadsUpdated = writeResult.updated;
+    }
     if (isTerminal) {
       this._state.status = runStatus; // completed | empty | partial | failed
       this._state.terminalAt = new Date().toISOString();
@@ -217,6 +289,7 @@ class DiscoveryRunTracker {
     try {
       localStorage.removeItem(this._key);
     } catch (_) {}
+    dispatchDiscoveryRunTrackerEvent(this._state);
     return this;
   }
 
@@ -238,6 +311,20 @@ class DiscoveryRunTracker {
 
 /** Shared singleton — initialized once at module load */
 const discoveryRunTracker = new DiscoveryRunTracker();
+
+function dispatchDiscoveryRunTrackerEvent(state) {
+  try {
+    if (typeof document === "undefined") return;
+    if (typeof CustomEvent !== "function") return;
+    document.dispatchEvent(
+      new CustomEvent("jobbored:job-discovery-run-updated", {
+        detail: { state: { ...(state || {}) } },
+      }),
+    );
+  } catch (_) {
+    // Best-effort UI bridge for runs-tab.js.
+  }
+}
 
 const COMMAND_CENTER_OVERRIDE_KEYS = [
   "sheetId",
@@ -527,10 +614,10 @@ function getOAuthClientId() {
 
 /** Optional POST target for &ldquo;Run discovery&rdquo; (browser-use worker / Hermes / n8n / Apps Script). */
 function getDiscoveryWebhookUrl() {
-  const cfg = getConfig();
-  const u = cfg && cfg.discoveryWebhookUrl;
-  if (!u || typeof u !== "string") return "";
-  const t = u.trim();
+  const cfg = window.COMMAND_CENTER_CONFIG || {};
+  const value = cfg.discoveryWebhookUrl;
+  if (!value || typeof value !== "string") return "";
+  const t = value.trim();
   return t.length > 0 ? t : "";
 }
 
@@ -540,10 +627,10 @@ function getDiscoveryWebhookUrl() {
  * on empty secrets (e.g. the browser-use worker) accept the request.
  */
 function getDiscoveryWebhookSecret() {
-  const cfg = getConfig();
-  const s = cfg && cfg.discoveryWebhookSecret;
-  if (!s || typeof s !== "string") return "";
-  const t = s.trim();
+  const cfg = window.COMMAND_CENTER_CONFIG || {};
+  const value = cfg.discoveryWebhookSecret;
+  if (!value || typeof value !== "string") return "";
+  const t = value.trim();
   return t.length > 0 ? t : "";
 }
 
@@ -4931,14 +5018,59 @@ const STATUS_POLL_DEBOUNCE_MS = 500;
 function buildRunStatusUrl(statusPath, webhookUrl) {
   const path = String(statusPath || "").trim();
   if (!path) return "";
+  const hook = normalizeDiscoveryWebhookIdentity(webhookUrl);
+  const localRunStatusOrigin = (() => {
+    if (!hook || !isLikelyCloudflareWorkerUrl(hook)) return "";
+    let statusRoute = path;
+    if (path.startsWith("http://") || path.startsWith("https://")) {
+      try {
+        const absolute = new URL(path);
+        statusRoute = `${absolute.pathname}${absolute.search || ""}`;
+      } catch (_) {
+        statusRoute = path;
+      }
+    }
+    if (!/^\/runs\/[^/?#]+/i.test(statusRoute)) return "";
+
+    const snapshot = getDiscoveryReadinessSnapshot();
+    const localFromSnapshot = normalizeDiscoveryLocalWebhookUrl(
+      snapshot && snapshot.localWebhookUrl ? snapshot.localWebhookUrl : "",
+    );
+    const transport = getDiscoveryTransportSetupState();
+    const localFromTransport = normalizeDiscoveryLocalWebhookUrl(
+      transport && transport.localWebhookUrl ? transport.localWebhookUrl : "",
+    );
+    const localWebhook = localFromSnapshot || localFromTransport;
+    if (!localWebhook) return "";
+    try {
+      return new URL(localWebhook).origin;
+    } catch (_) {
+      return "";
+    }
+  })();
+
   try {
     if (path.startsWith("http://") || path.startsWith("https://")) {
-      return path;
+      const absolute = new URL(path);
+      if (localRunStatusOrigin && /^\/runs\/[^/?#]+/i.test(absolute.pathname)) {
+        return new URL(
+          `${absolute.pathname}${absolute.search || ""}`,
+          localRunStatusOrigin,
+        ).toString();
+      }
+      return absolute.toString();
     }
-    // Relative — resolve against webhook URL
-    const base = String(webhookUrl || "").replace(/\/+$/, "");
-    if (!base) return "";
-    return base + path;
+    const base = new URL(String(webhookUrl || ""));
+    if (path.startsWith("/")) {
+      if (localRunStatusOrigin) {
+        return new URL(path, localRunStatusOrigin).toString();
+      }
+      return new URL(path, base.origin).toString();
+    }
+    const baseDir = base.href.endsWith("/")
+      ? base.href
+      : base.href.replace(/\/[^/]*$/, "/");
+    return new URL(path, baseDir).toString();
   } catch (_) {
     return "";
   }
@@ -5035,7 +5167,7 @@ async function startDiscoveryStatusPolling(webhookUrl) {
       return;
     }
 
-    if (updated.isTerminal()) {
+    if (tracker.isTerminal()) {
       renderDiscoveryRunStatus();
       return;
     }
@@ -5062,6 +5194,30 @@ function stopDiscoveryStatusPolling() {
     clearTimeout(discoveryRunTracker._pollTimer);
     discoveryRunTracker._pollTimer = null;
   }
+}
+
+/**
+ * On page load, resume polling for any persisted in-flight run so refreshes
+ * don't leave the UI stuck in a stale "Running" state.
+ */
+function resumeDiscoveryStatusPollingFromStoredState() {
+  const tracker = discoveryRunTracker;
+  const state = tracker.getState();
+  if (!tracker.isActive()) return;
+  if (!state.runId || !state.statusPath) {
+    tracker.clear();
+    return;
+  }
+  const webhookUrl = normalizeDiscoveryWebhookIdentity(
+    state.webhookUrl || getDiscoveryWebhookUrl(),
+  );
+  if (!webhookUrl) {
+    // Keep state for now; once the user reconfigures webhook URL we'll resume.
+    renderDiscoveryRunStatus();
+    return;
+  }
+  renderDiscoveryRunStatus();
+  void startDiscoveryStatusPolling(webhookUrl);
 }
 
 /**
@@ -6677,7 +6833,6 @@ let pipelineRawRows = []; // Keep raw rows for row index mapping
 let currentSort = "fit";
 let currentSearch = "";
 let favoritesOnly = false;
-let showDismissed = false;
 let dataLoadFailed = false;
 let dashboardDataHydrated = false;
 let initialSheetAccessResolved = false;
@@ -8245,7 +8400,7 @@ async function triggerDiscoveryRun() {
     const keywordsInclude = (profile && profile.keywordsInclude || "").trim();
     if (!targetRoles && !keywordsInclude) {
       showToast(
-        "Add target roles or keywords to include, or use the AI Suggest tab to generate them.",
+        "Complete Run filters first: add target roles or keywords to include.",
         "warning",
         true,
       );
@@ -8274,6 +8429,9 @@ async function triggerDiscoveryRun() {
           statusPath,
           pollAfterMs: Number.isFinite(result.pollAfterMs) ? result.pollAfterMs : 2000,
           webhookUrl,
+          trigger: "manual",
+          variationKey: payload.variationKey || "",
+          requestedAt: payload.requestedAt || "",
         });
         // Show initial pending feedback immediately
         renderDiscoveryRunStatus();
@@ -10553,6 +10711,10 @@ function renderRoleFactsHtml(job, variant = "card") {
 function groupByStage(data) {
   const byStage = new Map(STAGE_ORDER.map((s) => [s, []]));
   for (const job of data) {
+    if (job.dismissedAt) {
+      byStage.get("Passed").push(job);
+      continue;
+    }
     const raw = (job.status || "").trim();
     const key =
       STAGE_ORDER.find((s) => s.toLowerCase() === raw.toLowerCase()) || "New";
@@ -11297,7 +11459,6 @@ function attachBoardListeners() {
 function filterAndSortJobs(jobs, search, sort) {
   let data = [...jobs];
 
-  if (!showDismissed) data = data.filter((j) => !j.dismissedAt);
   if (favoritesOnly) data = data.filter((j) => j.favorite);
 
   if (search) {
@@ -13610,6 +13771,39 @@ function scheduleCandidateProfileMatchRefresh(shouldRender) {
   });
 }
 
+let postingLlmCredentialToastAt = 0;
+
+function isPostingLlmCredentialError(err) {
+  const message = String((err && err.message) || err || "").toLowerCase();
+  return (
+    message.includes("api key expired") ||
+    message.includes("renew the api key") ||
+    message.includes("invalid api key") ||
+    message.includes("permission_denied")
+  );
+}
+
+function formatPostingLlmError(err, fallback) {
+  if (isPostingLlmCredentialError(err)) {
+    return "AI insight unavailable: renew your API key in Settings > AI Providers.";
+  }
+  return (
+    String((err && err.message) || "").trim() ||
+    fallback ||
+    "AI insight failed"
+  );
+}
+
+function maybeShowPostingLlmCredentialToast() {
+  const now = Date.now();
+  if (now - postingLlmCredentialToastAt < 10_000) return;
+  postingLlmCredentialToastAt = now;
+  showToast(
+    "API key expired for posting insights. Update it in Settings > AI Providers.",
+    "error",
+  );
+}
+
 async function fetchJobPostingEnrichment(dataIndex) {
   const job = pipelineData[dataIndex];
   if (!job || !job.link) {
@@ -13689,8 +13883,12 @@ async function fetchJobPostingEnrichment(dataIndex) {
           extraKeywords: llm.extraKeywords,
         };
       } catch (e) {
-        console.warn("[JobBored] Posting LLM enrich:", e);
-        merged.llmError = e.message || "AI insight failed";
+        if (isPostingLlmCredentialError(e)) {
+          maybeShowPostingLlmCredentialToast();
+        } else {
+          console.warn("[JobBored] Posting LLM enrich:", e);
+        }
+        merged.llmError = formatPostingLlmError(e, "AI insight failed");
       }
     }
     job._postingEnrichment = merged;
@@ -13775,10 +13973,15 @@ async function fallbackEnrichmentFromSheetOnly(job, dataIndex, errMsg) {
         extraKeywords: llm.extraKeywords,
       };
     } catch (llmErr) {
-      console.warn("[JobBored] fallback LLM enrich:", llmErr);
-      merged.llmError =
-        (llmErr && llmErr.message) ||
-        "AI insight failed (source blocks scrapers).";
+      if (isPostingLlmCredentialError(llmErr)) {
+        maybeShowPostingLlmCredentialToast();
+      } else {
+        console.warn("[JobBored] fallback LLM enrich:", llmErr);
+      }
+      merged.llmError = formatPostingLlmError(
+        llmErr,
+        "AI insight failed (source blocks scrapers).",
+      );
     }
   }
   job._postingEnrichment = merged;
@@ -14779,6 +14982,8 @@ async function populateDiscoveryProfileIntoSettingsForm() {
   // Handle grounded_web checkbox
   const gwEl = document.getElementById("settingsDiscoveryGroundedWeb");
   if (gwEl) gwEl.checked = p.groundedWebEnabled !== false;
+  const preset = normalizeSourcePreset(p && p.sourcePreset ? p.sourcePreset : "");
+  syncSettingsSourcePresetUi(preset || "browser_plus_ats");
 }
 
 function populateCommandCenterSettingsForm() {
@@ -14819,6 +15024,14 @@ function populateCommandCenterSettingsForm() {
     err.textContent = "";
     err.style.display = "none";
   }
+  const settingsPresetEl = document.querySelector(
+    'input[name="settingsSourcePreset"]:checked',
+  );
+  syncSettingsSourcePresetUi(
+    settingsPresetEl
+      ? normalizeSourcePreset(settingsPresetEl.value)
+      : "browser_plus_ats",
+  );
   renderAppsScriptDeployUi();
 }
 
@@ -15038,6 +15251,12 @@ async function saveCommandCenterSettingsFromForm() {
       // Handle grounded_web checkbox
       const gwEl = document.getElementById("settingsDiscoveryGroundedWeb");
       const groundedWebEnabled = gwEl ? gwEl.checked : true;
+      const selectedPresetEl = document.querySelector(
+        'input[name="settingsSourcePreset"]:checked',
+      );
+      const sourcePreset = selectedPresetEl
+        ? normalizeSourcePreset(selectedPresetEl.value)
+        : "";
       await UC.saveDiscoveryProfile({
         targetRoles: val("settingsDiscoveryTargetRoles"),
         locations: val("settingsDiscoveryLocations"),
@@ -15047,6 +15266,7 @@ async function saveCommandCenterSettingsFromForm() {
         keywordsExclude: val("settingsDiscoveryKeywordsExclude"),
         maxLeadsPerRun: val("settingsDiscoveryMaxLeadsPerRun"),
         groundedWebEnabled,
+        sourcePreset,
       });
     } catch (e) {
       console.warn("[JobBored] save discovery profile:", e);
@@ -15155,6 +15375,27 @@ function initCommandCenterSettings() {
     .getElementById("settingsResumeProvider")
     ?.addEventListener("change", () => {
       updateSettingsProviderPanels();
+    });
+  document
+    .querySelectorAll('input[name="settingsSourcePreset"]')
+    .forEach((el) => {
+      el.addEventListener("change", () => {
+        const checked = document.querySelector(
+          'input[name="settingsSourcePreset"]:checked',
+        );
+        syncSettingsSourcePresetUi(
+          checked ? normalizeSourcePreset(checked.value) : "",
+        );
+      });
+    });
+  document
+    .getElementById("settingsSourcePresetUseBalancedBtn")
+    ?.addEventListener("click", () => {
+      const recommended = document.getElementById(
+        "settingsPresetBrowserPlusAts",
+      );
+      if (recommended) recommended.checked = true;
+      syncSettingsSourcePresetUi("browser_plus_ats");
     });
   document.getElementById("settingsSaveBtn")?.addEventListener("click", () => {
     void saveCommandCenterSettingsFromForm();
@@ -17169,7 +17410,7 @@ function init() {
     }, 200);
   });
 
-  // Pipeline filter chips — favorites-only + show-dismissed
+  // Pipeline filter chips — favorites-only
   const favChip = document.getElementById("favoritesOnlyChip");
   if (favChip) {
     favChip.addEventListener("click", () => {
@@ -17179,16 +17420,6 @@ function init() {
       renderPipeline();
     });
   }
-  const dismissedChip = document.getElementById("showDismissedChip");
-  if (dismissedChip) {
-    dismissedChip.addEventListener("click", () => {
-      showDismissed = !showDismissed;
-      dismissedChip.classList.toggle("active", showDismissed);
-      dismissedChip.setAttribute("aria-pressed", String(showDismissed));
-      renderPipeline();
-    });
-  }
-
   // Refresh
   document.getElementById("refreshBtn")?.addEventListener("click", () => {
     loadAllData();
@@ -17232,21 +17463,97 @@ function normalizeSourcePreset(raw) {
   return "";
 }
 
+const SOURCE_PRESET_GUIDANCE_COPY = Object.freeze({
+  browser_only: {
+    tradeoff:
+      "Browser-only maximizes net-new company discovery but can produce noisier leads. Best for widening your target universe quickly.",
+    recommendation:
+      "For most runs, Browser + ATS improves precision while still keeping broad coverage. Switch when you want stronger lead quality.",
+    showRecommendation: true,
+  },
+  ats_only: {
+    tradeoff:
+      "ATS-only favors structured, high-precision boards but may miss companies hiring outside major ATS ecosystems.",
+    recommendation: "",
+    showRecommendation: false,
+  },
+  browser_plus_ats: {
+    tradeoff:
+      "Browser + ATS balances breadth and precision. Expect wider coverage than ATS-only with fewer noisy leads than browser-only.",
+    recommendation: "",
+    showRecommendation: false,
+  },
+});
+
+function getSourcePresetGuidanceCopy(preset) {
+  const normalized = normalizeSourcePreset(preset) || "browser_plus_ats";
+  return (
+    SOURCE_PRESET_GUIDANCE_COPY[normalized] ||
+    SOURCE_PRESET_GUIDANCE_COPY.browser_plus_ats
+  );
+}
+
 /**
  * Sync the source preset radio-group UI in the discovery prefs modal to
  * reflect the given normalized preset value. Highlights the active option.
  * @param {"" | "browser_only" | "ats_only" | "browser_plus_ats"} preset
+ * @param {{
+ *   groupName?: string;
+ *   tradeoffId?: string;
+ *   recommendationId?: string;
+ *   recommendationTextId?: string;
+ * }} [opts]
  */
-function syncSourcePresetUi(preset) {
+function syncSourcePresetUi(preset, opts) {
   const VALID_PRESETS = ["browser_only", "ats_only", "browser_plus_ats"];
   const resolved = VALID_PRESETS.includes(preset) ? preset : "browser_plus_ats";
-  document.querySelectorAll('input[name="dpSourcePreset"]').forEach((el) => {
+  const groupName =
+    opts && typeof opts.groupName === "string" && opts.groupName.trim()
+      ? opts.groupName.trim()
+      : "dpSourcePreset";
+  const tradeoffId =
+    opts && typeof opts.tradeoffId === "string" && opts.tradeoffId.trim()
+      ? opts.tradeoffId.trim()
+      : "dpSourcePresetTradeoff";
+  const recommendationId =
+    opts &&
+    typeof opts.recommendationId === "string" &&
+    opts.recommendationId.trim()
+      ? opts.recommendationId.trim()
+      : "dpSourcePresetRecommendation";
+  const recommendationTextId =
+    opts &&
+    typeof opts.recommendationTextId === "string" &&
+    opts.recommendationTextId.trim()
+      ? opts.recommendationTextId.trim()
+      : "dpSourcePresetRecommendationText";
+  document.querySelectorAll(`input[name="${groupName}"]`).forEach((el) => {
     const isActive = el.value === resolved;
     el.checked = isActive;
     const option = el.closest(".dp-source-preset-option");
     if (option) {
       option.classList.toggle("dp-source-preset-option--active", isActive);
     }
+  });
+  const guidance = getSourcePresetGuidanceCopy(resolved);
+  const tradeoffEl = document.getElementById(tradeoffId);
+  if (tradeoffEl) tradeoffEl.textContent = guidance.tradeoff;
+  const recommendationEl = document.getElementById(recommendationId);
+  const recommendationTextEl = document.getElementById(recommendationTextId);
+  if (recommendationTextEl && guidance.recommendation) {
+    recommendationTextEl.textContent = guidance.recommendation;
+  }
+  if (recommendationEl) {
+    recommendationEl.hidden = !guidance.showRecommendation;
+  }
+}
+
+function syncSettingsSourcePresetUi(preset) {
+  syncSourcePresetUi(preset, {
+    groupName: "settingsSourcePreset",
+    tradeoffId: "settingsSourcePresetTradeoff",
+    recommendationId: "settingsSourcePresetRecommendation",
+    recommendationTextId: "settingsSourcePresetRecommendationText",
   });
 }
 
@@ -17324,6 +17631,9 @@ function openDiscoveryPrefsModal() {
     );
     syncSourcePresetUi(preset || "browser_plus_ats");
     modal.style.display = "flex";
+    if (typeof window.__JobBoredDiscoveryPrefsShowProfileCore === "function") {
+      window.__JobBoredDiscoveryPrefsShowProfileCore();
+    }
     const first = document.getElementById("dpTargetRoles");
     if (first) first.focus();
   });
@@ -17587,33 +17897,395 @@ function initDiscoveryPrefsModal() {
 
   /* ---- Tab switching ---- */
   const tabManual = document.getElementById("dpTabManual");
-  const tabAi = document.getElementById("dpTabAi");
+  const tabProfile = document.getElementById("dpTabProfile");
   const panelManual = document.getElementById("dpPanelManual");
   const panelAi = document.getElementById("dpPanelAi");
+  const panelProfile = document.getElementById("dpPanelProfile");
+  const aiAssistToggle = document.getElementById("dpAiAssistToggle");
+  const requirementManualStateEl = document.getElementById(
+    "dpRequirementManualState",
+  );
+  const requirementProfileStateEl = document.getElementById(
+    "dpRequirementProfileState",
+  );
+  const profileSummaryEl = document.getElementById("dpProfileSummary");
+  const profileResultsEl = document.getElementById("dpProfileResults");
+  const profileErrorEl = document.getElementById("dpProfileError");
+  const profileRefreshBtn = document.getElementById("dpProfileRefreshBtn");
+  const profileOpenSettingsBtn = document.getElementById(
+    "dpProfileOpenSettingsBtn",
+  );
+  let profileBusy = false;
+  let profileLoadedOnce = false;
+  let profileCompanies = [];
+  let latestProfileStatus = null;
+  let activeDiscoveryPrefsTab = "manual";
+
+  function getProfilePostEndpoint() {
+    const api = window.JobBoredSettingsProfileTab;
+    if (!api || typeof api !== "object") return null;
+    return typeof api.postProfileEndpoint === "function"
+      ? api.postProfileEndpoint.bind(api)
+      : null;
+  }
+
+  function manualIntentReady() {
+    const targetRoles = String(
+      (document.getElementById("dpTargetRoles") || {}).value || "",
+    ).trim();
+    const keywordsInclude = String(
+      (document.getElementById("dpKeywordsInclude") || {}).value || "",
+    ).trim();
+    return !!(targetRoles || keywordsInclude);
+  }
+
+  function profileTargetsReady() {
+    if (!latestProfileStatus || typeof latestProfileStatus !== "object") return false;
+    if (latestProfileStatus.hasStoredProfile !== true) return false;
+    const companyCount = Number(latestProfileStatus.companyCount);
+    return Number.isFinite(companyCount) && companyCount > 0;
+  }
+
+  function setRequirementState(el, state) {
+    if (!el) return;
+    const normalized = state === "complete" ? "complete" : "incomplete";
+    el.dataset.state = normalized;
+    el.textContent = normalized === "complete" ? "Complete" : "Incomplete";
+  }
+
+  function updateRequirementStates() {
+    setRequirementState(
+      requirementManualStateEl,
+      manualIntentReady() ? "complete" : "incomplete",
+    );
+    if (!latestProfileStatus) {
+      if (requirementProfileStateEl) {
+        requirementProfileStateEl.dataset.state = "incomplete";
+        requirementProfileStateEl.textContent = "Checking…";
+      }
+      return;
+    }
+    setRequirementState(
+      requirementProfileStateEl,
+      profileTargetsReady() ? "complete" : "incomplete",
+    );
+  }
+
+  function aiAssistEnabled() {
+    return !!(aiAssistToggle && aiAssistToggle.checked);
+  }
+
+  function syncAiPanelVisibility() {
+    const showAiPanel = activeDiscoveryPrefsTab === "manual" && aiAssistEnabled();
+    if (panelAi) {
+      panelAi.classList.toggle("dp-panel--active", showAiPanel);
+      panelAi.hidden = !showAiPanel;
+    }
+    if (showAiPanel) checkAiAvailability();
+  }
+
+  function setProfileError(message) {
+    if (!profileErrorEl) return;
+    if (!message) {
+      profileErrorEl.hidden = true;
+      profileErrorEl.textContent = "";
+      return;
+    }
+    profileErrorEl.hidden = false;
+    profileErrorEl.textContent = String(message || "");
+  }
+
+  function setProfileRefreshBusy(busy) {
+    profileBusy = !!busy;
+    if (!profileRefreshBtn) return;
+    profileRefreshBtn.disabled = profileBusy;
+    profileRefreshBtn.textContent = profileBusy
+      ? "Refreshing…"
+      : "Refresh companies";
+  }
+
+  function renderProfileSummary(status) {
+    if (!profileSummaryEl) return;
+    if (!status || typeof status !== "object") {
+      profileSummaryEl.innerHTML =
+        '<div class="dp-profile-summary__row"><span class="dp-profile-summary__label">Stored profile</span><span class="dp-profile-summary__value">Unavailable</span></div>';
+      return;
+    }
+    const stored = status.hasStoredProfile ? "Yes" : "No";
+    const companies = Number.isFinite(status.companyCount)
+      ? String(status.companyCount)
+      : "0";
+    const skipped = Number.isFinite(status.negativeCompanyCount)
+      ? String(status.negativeCompanyCount)
+      : "0";
+    const history = Number.isFinite(status.historyCompanyCount)
+      ? String(status.historyCompanyCount)
+      : "0";
+    const refreshed = status.lastRefreshAt
+      ? escapeHtml(String(status.lastRefreshAt))
+      : "Never";
+    profileSummaryEl.innerHTML =
+      '<div class="dp-profile-summary__row"><span class="dp-profile-summary__label">Stored profile</span><span class="dp-profile-summary__value">' +
+      escapeHtml(stored) +
+      "</span></div>" +
+      '<div class="dp-profile-summary__row"><span class="dp-profile-summary__label">Companies</span><span class="dp-profile-summary__value">' +
+      escapeHtml(companies) +
+      "</span></div>" +
+      '<div class="dp-profile-summary__row"><span class="dp-profile-summary__label">Skipped</span><span class="dp-profile-summary__value">' +
+      escapeHtml(skipped) +
+      "</span></div>" +
+      '<div class="dp-profile-summary__row"><span class="dp-profile-summary__label">History</span><span class="dp-profile-summary__value">' +
+      escapeHtml(history) +
+      "</span></div>" +
+      '<div class="dp-profile-summary__row"><span class="dp-profile-summary__label">Last refresh</span><span class="dp-profile-summary__value">' +
+      refreshed +
+      "</span></div>";
+  }
+
+  function renderProfileCompanies(companies) {
+    if (!profileResultsEl) return;
+    const list = Array.isArray(companies) ? companies : [];
+    profileCompanies = list.slice();
+    if (!list.length) {
+      profileResultsEl.hidden = false;
+      profileResultsEl.innerHTML =
+        '<p class="modal-field-hint">No companies loaded yet. Click "Refresh companies" to pull the current shortlist from your stored profile.</p>';
+      return;
+    }
+    profileResultsEl.hidden = false;
+    profileResultsEl.innerHTML =
+      '<ul class="dp-profile-company-list">' +
+      list
+        .map((company) => {
+          const name = String(company && company.name ? company.name : "").trim();
+          const companyKey = String(
+            (company && (company.companyKey || company.normalizedName)) || "",
+          ).trim();
+          const domains = Array.isArray(company && company.domains)
+            ? company.domains
+                .map((domain) => String(domain || "").trim())
+                .filter(Boolean)
+                .slice(0, 3)
+            : [];
+          return (
+            '<li class="dp-profile-company">' +
+            '<div class="dp-profile-company__meta">' +
+            '<span class="dp-profile-company__name">' +
+            escapeHtml(name || "Unnamed company") +
+            "</span>" +
+            (domains.length
+              ? '<span class="dp-profile-company__domains">' +
+                escapeHtml(domains.join(" · ")) +
+                "</span>"
+              : "") +
+            "</div>" +
+            '<button type="button" class="dp-profile-company__skip" data-company-key="' +
+            escapeHtml(companyKey) +
+            '"' +
+            (companyKey ? "" : " disabled") +
+            ">Remove</button>" +
+            "</li>"
+          );
+        })
+        .join("") +
+      "</ul>";
+  }
+
+  async function refreshProfileSummary() {
+    const post = getProfilePostEndpoint();
+    if (!post) {
+      latestProfileStatus = null;
+      renderProfileSummary(null);
+      setProfileError("Profile endpoint is not available. Reload and try again.");
+      updateRequirementStates();
+      return;
+    }
+    try {
+      const data = await post({ mode: "status" }, 10_000);
+      if (!data || data.ok !== true || !data.status) {
+        throw new Error(
+          (data && data.message) || "Could not load stored profile status.",
+        );
+      }
+      latestProfileStatus = data.status;
+      renderProfileSummary(data.status);
+      setProfileError("");
+      updateRequirementStates();
+      return data.status;
+    } catch (err) {
+      latestProfileStatus = null;
+      renderProfileSummary(null);
+      setProfileError(
+        "Couldn't load profile status: " +
+          (err && err.message ? err.message : String(err || "unknown error")),
+      );
+      updateRequirementStates();
+      return null;
+    }
+  }
+
+  async function refreshProfileCompanies() {
+    if (profileBusy) return;
+    const post = getProfilePostEndpoint();
+    if (!post) {
+      setProfileError("Profile endpoint is not available. Reload and try again.");
+      return;
+    }
+    setProfileRefreshBusy(true);
+    setProfileError("");
+    if (profileResultsEl) {
+      profileResultsEl.hidden = false;
+      profileResultsEl.innerHTML =
+        '<p class="modal-field-hint">Refreshing company shortlist…</p>';
+    }
+    try {
+      const data = await post({ mode: "refresh" }, 180_000);
+      if (!data || data.ok !== true) {
+        throw new Error(
+          (data && data.message) || "Could not refresh company shortlist.",
+        );
+      }
+      renderProfileCompanies(data.companies || []);
+      await refreshProfileSummary();
+      if (data.fallback && data.fallback.reason) {
+        const detail =
+          typeof data.fallback.message === "string" ? data.fallback.message : "";
+        const companyCount = Array.isArray(data.companies) ? data.companies.length : 0;
+        if (companyCount <= 0) {
+          setProfileError(
+            detail || `No companies available right now (${data.fallback.reason.replace(/_/g, " ")}).`,
+          );
+        } else {
+          setProfileError("");
+        }
+      }
+    } catch (err) {
+      if (profileResultsEl) {
+        profileResultsEl.hidden = true;
+        profileResultsEl.innerHTML = "";
+      }
+      setProfileError(
+        "Couldn't refresh companies: " +
+          (err && err.message ? err.message : String(err || "unknown error")),
+      );
+    } finally {
+      setProfileRefreshBusy(false);
+    }
+  }
+
+  async function handleProfileSkipCompany(companyKey, buttonEl) {
+    if (!companyKey) return;
+    if (buttonEl) buttonEl.disabled = true;
+    const post = getProfilePostEndpoint();
+    if (!post) {
+      setProfileError("Profile endpoint is not available. Reload and try again.");
+      if (buttonEl) buttonEl.disabled = false;
+      return;
+    }
+    setProfileError("");
+    try {
+      await post({ mode: "skip_company", skipCompanyKeys: [companyKey] }, 15_000);
+      profileCompanies = profileCompanies.filter((company) => {
+        const key = String(
+          (company && (company.companyKey || company.normalizedName)) || "",
+        ).trim();
+        return key !== companyKey;
+      });
+      renderProfileCompanies(profileCompanies);
+      await refreshProfileSummary();
+    } catch (err) {
+      setProfileError(
+        "Couldn't remove company: " +
+          (err && err.message ? err.message : String(err || "unknown error")),
+      );
+      if (buttonEl) buttonEl.disabled = false;
+    }
+  }
+
+  if (profileResultsEl) {
+    profileResultsEl.addEventListener("click", (event) => {
+      const button =
+        event && event.target && event.target.closest
+          ? event.target.closest(".dp-profile-company__skip")
+          : null;
+      if (!button) return;
+      const companyKey = String(button.getAttribute("data-company-key") || "").trim();
+      if (!companyKey) return;
+      void handleProfileSkipCompany(companyKey, button);
+    });
+  }
+
+  if (profileRefreshBtn) {
+    profileRefreshBtn.addEventListener("click", () => {
+      void refreshProfileCompanies();
+    });
+  }
+
+  if (profileOpenSettingsBtn) {
+    profileOpenSettingsBtn.addEventListener("click", () => {
+      closeModal();
+      void openCommandCenterSettingsModal({ tab: "profile" });
+    });
+  }
 
   function switchTab(tab) {
-    const isManual = tab === "manual";
+    activeDiscoveryPrefsTab = tab === "profile" ? "profile" : "manual";
+    const isManual = activeDiscoveryPrefsTab === "manual";
+    const isProfile = activeDiscoveryPrefsTab === "profile";
     if (tabManual) {
       tabManual.classList.toggle("dp-tab--active", isManual);
       tabManual.setAttribute("aria-selected", String(isManual));
     }
-    if (tabAi) {
-      tabAi.classList.toggle("dp-tab--active", !isManual);
-      tabAi.setAttribute("aria-selected", String(!isManual));
+    if (tabProfile) {
+      tabProfile.classList.toggle("dp-tab--active", isProfile);
+      tabProfile.setAttribute("aria-selected", String(isProfile));
     }
     if (panelManual) {
       panelManual.classList.toggle("dp-panel--active", isManual);
       panelManual.hidden = !isManual;
     }
-    if (panelAi) {
-      panelAi.classList.toggle("dp-panel--active", !isManual);
-      panelAi.hidden = isManual;
+    if (panelProfile) {
+      panelProfile.classList.toggle("dp-panel--active", isProfile);
+      panelProfile.hidden = !isProfile;
     }
-    if (!isManual) checkAiAvailability();
+    syncAiPanelVisibility();
+    if (isProfile && !profileLoadedOnce) {
+      profileLoadedOnce = true;
+      void refreshProfileSummary();
+    }
+    updateRequirementStates();
   }
 
   if (tabManual) tabManual.addEventListener("click", () => switchTab("manual"));
-  if (tabAi) tabAi.addEventListener("click", () => switchTab("ai"));
+  if (tabProfile) tabProfile.addEventListener("click", () => switchTab("profile"));
+  if (aiAssistToggle) {
+    aiAssistToggle.addEventListener("change", () => {
+      syncAiPanelVisibility();
+    });
+  }
+  ["dpTargetRoles", "dpKeywordsInclude"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("input", () => {
+      updateRequirementStates();
+    });
+  });
+  window.__JobBoredDiscoveryPrefsShowProfileCore = () => {
+    profileLoadedOnce = false;
+    profileCompanies = [];
+    latestProfileStatus = null;
+    activeDiscoveryPrefsTab = "manual";
+    if (aiAssistToggle) aiAssistToggle.checked = false;
+    setProfileError("");
+    renderProfileSummary(null);
+    updateRequirementStates();
+    if (profileResultsEl) {
+      profileResultsEl.hidden = true;
+      profileResultsEl.innerHTML = "";
+    }
+    switchTab("manual");
+    void refreshProfileSummary();
+  };
 
   /* ---- AI availability check ---- */
   function checkAiAvailability() {
@@ -17636,6 +18308,13 @@ function initDiscoveryPrefsModal() {
         );
         syncSourcePresetUi(checked ? normalizeSourcePreset(checked.value) : "");
       });
+    });
+  document
+    .getElementById("dpSourcePresetUseBalancedBtn")
+    ?.addEventListener("click", () => {
+      const recommended = document.getElementById("dpPresetBrowserPlusAts");
+      if (recommended) recommended.checked = true;
+      syncSourcePresetUi("browser_plus_ats");
     });
 
   /* ---- Scrape job listing ---- */
@@ -17748,6 +18427,7 @@ function initDiscoveryPrefsModal() {
       copy("dpSuggestedSeniority", "dpSeniority");
       copy("dpSuggestedInclude", "dpKeywordsInclude");
       copy("dpSuggestedExclude", "dpKeywordsExclude");
+      updateRequirementStates();
       switchTab("manual");
       showToast("Suggestions applied to manual fields", "success");
     });
@@ -17798,12 +18478,27 @@ function initDiscoveryPrefsModal() {
 
       if (!finalTargetRoles && !finalKeywordsInclude) {
         showToast(
-          "Add target roles or keywords to include, or use the AI Suggest tab to generate them.",
+          "Complete Run filters: add target roles or include keywords. AI assist is optional.",
           "warning",
           true,
         );
-        // Switch to AI Suggest tab so user can generate suggestions
-        switchTab("ai");
+        switchTab("manual");
+        return;
+      }
+
+      if (!profileTargetsReady()) {
+        await refreshProfileSummary();
+      }
+      if (!profileTargetsReady()) {
+        setProfileError(
+          "Complete Company targets: refresh companies and keep at least one target company.",
+        );
+        showToast(
+          "Complete Company targets: keep at least one company before running discovery.",
+          "warning",
+          true,
+        );
+        switchTab("profile");
         return;
       }
 
@@ -18578,4 +19273,5 @@ document.addEventListener("DOMContentLoaded", () => {
   initPipelineEmptyAndBriefActions();
   initIngestUrlFlow();
   init();
+  resumeDiscoveryStatusPollingFromStoredState();
 });

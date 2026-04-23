@@ -3,8 +3,9 @@
  *
  * Drives the discovery-profile UI: client-side resume extraction, form
  * capture, POST /discovery-profile, and rendering of the inferred profile +
- * company shortlist. Raw resume text stays in-memory; the textarea holds
- * the only copy and is never persisted to localStorage.
+ * company shortlist. Uploaded resume text is saved to the browser-local
+ * profile store so the rest of JobBored and this discovery form share one
+ * canonical resume. Raw resume text is never written to localStorage.
  */
 (function () {
   "use strict";
@@ -12,7 +13,13 @@
   var DISCOVERY_PROFILE_EVENT = "discovery.profile.request";
   var DISCOVERY_PROFILE_SCHEMA_VERSION = 1;
   var RUN_TIMEOUT_MS = 90_000;
+  var PROFILE_REFRESH_TIMEOUT_MS = 180_000;
+  var MIN_RESTORABLE_WORKER_RESUME_CHARS = 40;
   var AUTO_REFRESH_STORAGE_KEY = "settings_profile_auto_refresh";
+  var DISCOVERY_TRANSPORT_SETUP_KEY =
+    "command_center_discovery_transport_setup";
+  var DISCOVERY_LOCAL_BOOTSTRAP_STATE_PATH = "discovery-local-bootstrap.json";
+  var COMMAND_CENTER_CONFIG_OVERRIDE_KEY = "command_center_config_overrides";
   var AUTO_REFRESH_VALID_HOURS = [6, 12, 24];
   var SCHEDULE_LOCAL_STORAGE_KEY = "settings_profile_schedule_local";
   var SCHEDULE_CLOUD_STORAGE_KEY = "settings_profile_schedule_cloud";
@@ -153,6 +160,93 @@
     }
   }
 
+  function getUserContentStore() {
+    var UC = window.CommandCenterUserContent;
+    if (!UC || typeof UC !== "object") return null;
+    return UC;
+  }
+
+  function normalizeResumeText(value) {
+    return String(value == null ? "" : value).trim();
+  }
+
+  function resumeLabelFromFile(file) {
+    return (
+      (file && file.name ? String(file.name) : "Resume").replace(/\.[^/.]+$/, "") ||
+      "My resume"
+    );
+  }
+
+  async function saveResumeToUserProfile(text, file, ingest) {
+    var resumeText = normalizeResumeText(text);
+    if (!resumeText) return false;
+    var UC = getUserContentStore();
+    if (!UC || typeof UC.setPrimaryResume !== "function") return false;
+    if (typeof UC.openDb === "function") {
+      await UC.openDb();
+    }
+    await UC.setPrimaryResume({
+      source: file ? "file" : "paste",
+      rawMime:
+        file && ingest && typeof ingest.guessMime === "function"
+          ? ingest.guessMime(file)
+          : "text/plain",
+      label: file ? resumeLabelFromFile(file) : "My resume",
+      extractedText: resumeText,
+    });
+    return true;
+  }
+
+  async function loadSavedProfileResume() {
+    var UC = getUserContentStore();
+    if (!UC || typeof UC.getActiveResume !== "function") return null;
+    try {
+      if (typeof UC.openDb === "function") {
+        await UC.openDb();
+      }
+      var active = await UC.getActiveResume();
+      var text = active ? normalizeResumeText(active.extractedText) : "";
+      if (!text) return null;
+      return {
+        text: text,
+        label: active.label || "My resume",
+        updatedAt: active.createdAt || "",
+      };
+    } catch (err) {
+      try {
+        console.info(
+          "[settings-profile-tab] saved resume restore failed:",
+          err && err.message ? err.message : err,
+        );
+      } catch (_) {
+        // ignore
+      }
+      return null;
+    }
+  }
+
+  function chooseResumeRestoreSource(status, savedProfileResume) {
+    if (savedProfileResume && savedProfileResume.text) {
+      return {
+        text: savedProfileResume.text,
+        source: "profile",
+        label: savedProfileResume.label || "saved profile",
+      };
+    }
+    var workerText =
+      status && typeof status.resumeText === "string"
+        ? normalizeResumeText(status.resumeText)
+        : "";
+    if (workerText.length >= MIN_RESTORABLE_WORKER_RESUME_CHARS) {
+      return {
+        text: workerText,
+        source: "worker",
+        label: "stored worker profile",
+      };
+    }
+    return null;
+  }
+
   async function handleFileChange(event) {
     var file = event && event.target && event.target.files
       ? event.target.files[0]
@@ -168,9 +262,29 @@
       var text = await ingest.extractTextFromFile(file);
       if (els.textarea) els.textarea.value = text || "";
       var charCount = (text || "").length;
+      var saved = false;
+      if (charCount > 0) {
+        try {
+          saved = await saveResumeToUserProfile(text, file, ingest);
+          profileRestoredThisSession = true;
+        } catch (saveErr) {
+          try {
+            console.warn(
+              "[settings-profile-tab] resume profile save failed:",
+              saveErr && saveErr.message ? saveErr.message : saveErr,
+            );
+          } catch (_) {
+            // ignore
+          }
+        }
+      }
       setStatus(
         charCount > 0
-          ? "Extracted " + charCount.toLocaleString() + " characters from " + file.name + "."
+          ? "Extracted " +
+            charCount.toLocaleString() +
+            " characters from " +
+            file.name +
+            (saved ? " and saved it to your profile." : ".")
           : "No text found in " + file.name + ". Try pasting manually.",
         charCount > 0 ? "ok" : "warn",
       );
@@ -183,6 +297,7 @@
   function handleClearResume() {
     if (els.textarea) els.textarea.value = "";
     if (els.file) els.file.value = "";
+    profileRestoredThisSession = true;
     setStatus("Resume cleared.", "info");
   }
 
@@ -234,19 +349,29 @@
     try {
       var u = new URL(base);
       var path = (u.pathname || "").replace(/\/+$/, "");
-      // Replace only the trailing recognized segment so path-prefixed deployments
-      // (/api/webhook -> /api/discovery-profile) resolve to the sibling endpoint
-      // rather than a nested /api/webhook/discovery-profile 404.
-      var replaced = path.replace(
-        /\/(?:webhook|discovery|discovery-profile)$/i,
-        "/discovery-profile",
-      );
-      if (replaced !== path) {
-        u.pathname = replaced;
-      } else if (path === "") {
+      // Local browser-use workers only expose root /discovery-profile.
+      // If stale setup state leaves a Hermes-style /webhooks/<id> route on
+      // localhost:8644, force the browser-use path so profile refresh/status
+      // requests do not 404 from /webhooks/<id>/discovery-profile.
+      if (
+        isBrowserUseWorkerOrigin(u) &&
+        /^\/webhooks\/[^/]+(?:\/.*)?$/i.test(path)
+      ) {
         u.pathname = "/discovery-profile";
       } else {
-        u.pathname = path + "/discovery-profile";
+        // Replace only the trailing recognized segment so path-prefixed deployments
+        // (/api/webhook -> /api/discovery-profile) resolve to the sibling endpoint
+        // rather than a nested /api/webhook/discovery-profile 404.
+        if (/\/(?:webhook|discovery|discovery-profile)$/i.test(path)) {
+          u.pathname = path.replace(
+            /\/(?:webhook|discovery|discovery-profile)$/i,
+            "/discovery-profile",
+          );
+        } else if (path === "") {
+          u.pathname = "/discovery-profile";
+        } else {
+          u.pathname = path + "/discovery-profile";
+        }
       }
       u.search = "";
       u.hash = "";
@@ -256,31 +381,351 @@
     }
   }
 
+  function normalizedHost(rawHost) {
+    return String(rawHost || "")
+      .replace(/^\[|\]$/g, "")
+      .toLowerCase();
+  }
+
+  function isLoopbackHost(rawHost) {
+    var host = normalizedHost(rawHost);
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  }
+
+  function isBrowserUseWorkerOrigin(urlObj) {
+    if (!urlObj) return false;
+    if (!isLoopbackHost(urlObj.hostname)) return false;
+    var port = urlObj.port || (urlObj.protocol === "https:" ? "443" : "80");
+    return port === "8644";
+  }
+
+  function normalizeProfileUrl(raw) {
+    var s = String(raw || "").trim();
+    if (!s) return "";
+    try {
+      var u = new URL(s);
+      if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+      u.hash = "";
+      u.search = "";
+      return u.toString();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function isLocalDashboardOrigin() {
+    if (!window || !window.location) return false;
+    var host = normalizedHost(window.location.hostname || "");
+    return (
+      isLoopbackHost(host) ||
+      String(window.location.port || "") === "8080"
+    );
+  }
+
+  function isLocalWebhookUrl(raw) {
+    var normalized = normalizeProfileUrl(raw);
+    if (!normalized) return false;
+    try {
+      var u = new URL(normalized);
+      return isLoopbackHost(u.hostname || "");
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function readDiscoveryTransportSetupState() {
+    try {
+      var raw = localStorage.getItem(DISCOVERY_TRANSPORT_SETUP_KEY);
+      var parsed = raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function getReadinessLocalWebhookUrl() {
+    try {
+      var fn = window.getDiscoveryReadinessSnapshot;
+      var snapshot = typeof fn === "function" ? fn() : null;
+      return normalizeProfileUrl(
+        snapshot && snapshot.localWebhookReady ? snapshot.localWebhookUrl : "",
+      );
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function resolveLocalProfileEndpointCandidate(primaryEndpoint) {
+    if (!isLocalDashboardOrigin()) return "";
+    if (isLocalWebhookUrl(primaryEndpoint)) return "";
+    var transport = readDiscoveryTransportSetupState();
+    var candidates = [
+      getReadinessLocalWebhookUrl(),
+      transport.localWebhookUrl,
+      "http://127.0.0.1:8644/webhook",
+    ];
+    for (var i = 0; i < candidates.length; i += 1) {
+      var candidate = normalizeProfileUrl(candidates[i]);
+      if (!candidate || !isLocalWebhookUrl(candidate)) continue;
+      return resolveProfileEndpoint(candidate);
+    }
+    return "";
+  }
+
+  function profileHealthEndpoint(profileEndpoint) {
+    var normalized = normalizeProfileUrl(profileEndpoint);
+    if (!normalized) return "";
+    try {
+      var u = new URL(normalized);
+      u.pathname = "/health";
+      u.search = "";
+      u.hash = "";
+      return u.toString();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  async function isProfileFallbackReady(profileEndpoint) {
+    var healthEndpoint = profileHealthEndpoint(profileEndpoint);
+    if (!healthEndpoint) return false;
+    var controller =
+      typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timeoutId = controller
+      ? window.setTimeout(function () {
+          controller.abort();
+        }, 2500)
+      : null;
+    try {
+      var res = await fetch(healthEndpoint, {
+        method: "GET",
+        signal: controller ? controller.signal : undefined,
+      });
+      return !!res && (res.ok || res.status === 202 || res.status === 204);
+    } catch (_) {
+      return false;
+    } finally {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    }
+  }
+
+  function shouldRetryProfileEndpoint(error) {
+    if (!error) return false;
+    if (isAbortLikeError(error)) return false;
+    var status = Number(error.httpStatus || 0);
+    if (status === 502 || status === 503 || status === 504) return true;
+    return error.network === true;
+  }
+
+  function isAbortLikeError(error) {
+    if (!error) return false;
+    if (error.name === "AbortError") return true;
+    var message = String(error && error.message ? error.message : "").toLowerCase();
+    if (!message) return false;
+    return (
+      message.indexOf("signal is aborted") !== -1 ||
+      message.indexOf("operation was aborted") !== -1 ||
+      message.indexOf("the operation was aborted") !== -1 ||
+      message.indexOf("aborterror") !== -1
+    );
+  }
+
+  function buildProfileTimeoutError(timeoutMs, endpoint) {
+    var seconds = Math.max(1, Math.round(Number(timeoutMs || RUN_TIMEOUT_MS) / 1000));
+    var err = new Error(
+      "Profile request timed out after " + seconds + "s [endpoint=" + endpoint + "]",
+    );
+    err.name = "AbortError";
+    err.timeout = true;
+    err.endpoint = endpoint;
+    return err;
+  }
+
+  function shouldPreferLocalProfileEndpoint(primaryEndpoint, fallbackEndpoint) {
+    return (
+      isLocalDashboardOrigin() &&
+      !!fallbackEndpoint &&
+      fallbackEndpoint !== primaryEndpoint &&
+      !isLocalWebhookUrl(primaryEndpoint)
+    );
+  }
+
+  function localWorkerUnavailableError(fallbackEndpoint) {
+    var health = profileHealthEndpoint(fallbackEndpoint) || "http://127.0.0.1:8644/health";
+    var err = new Error(
+      "Local discovery worker is not running or is still starting. Start it with root `npm run dev`, wait for `[browser-use-discovery] listening on http://127.0.0.1:8644`, then try again. Health check: " +
+        health,
+    );
+    err.localWorkerUnavailable = true;
+    err.endpoint = fallbackEndpoint;
+    return err;
+  }
+
+  function profileEndpointPort(profileEndpoint) {
+    try {
+      var u = new URL(String(profileEndpoint || ""));
+      var port = u.port || (u.protocol === "https:" ? "443" : "80");
+      return /^\d+$/.test(port) ? port : "8644";
+    } catch (_) {
+      return "8644";
+    }
+  }
+
+  async function requestLocalWorkerStart(profileEndpoint) {
+    var origin =
+      window && window.location && window.location.origin
+        ? window.location.origin
+        : "http://localhost:8080";
+    var port = profileEndpointPort(profileEndpoint);
+    var url =
+      origin.replace(/\/+$/, "") +
+      "/__proxy/start-discovery-worker?port=" +
+      encodeURIComponent(port);
+    try {
+      var res = await fetch(url, { method: "POST" });
+      var text = await res.text().catch(function () {
+        return "";
+      });
+      var data = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch (_) {
+        data = null;
+      }
+      if (res.ok && data && data.ok === true) return data;
+      return {
+        ok: false,
+        status: res.status,
+        message:
+          (data && data.message) ||
+          "The local dev server could not start the discovery worker.",
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        message: err && err.message ? err.message : String(err || "error"),
+      };
+    }
+  }
+
+  async function ensureLocalProfileEndpointReady(fallbackEndpoint) {
+    if (await isProfileFallbackReady(fallbackEndpoint)) {
+      return { ok: true, started: false };
+    }
+    var startResult = await requestLocalWorkerStart(fallbackEndpoint);
+    if (startResult && startResult.ok === true) {
+      if (await isProfileFallbackReady(fallbackEndpoint)) {
+        return { ok: true, started: true, startResult: startResult };
+      }
+    }
+    return {
+      ok: false,
+      startResult: startResult,
+    };
+  }
+
   function readSettingValue(id) {
     var el = qs(id);
     return el && typeof el.value === "string" ? el.value.trim() : "";
   }
 
+  function readGlobalStringGetter(name) {
+    try {
+      if (!window || typeof window[name] !== "function") return "";
+      var value = window[name]();
+      return typeof value === "string" ? value.trim() : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
   function resolveWebhookConfig() {
     var url =
       readSettingValue("settingsDiscoveryWebhookUrl") ||
+      readGlobalStringGetter("getDiscoveryWebhookUrl") ||
       (window.COMMAND_CENTER_CONFIG &&
       typeof window.COMMAND_CENTER_CONFIG.discoveryWebhookUrl === "string"
         ? window.COMMAND_CENTER_CONFIG.discoveryWebhookUrl.trim()
         : "");
     var secret =
       readSettingValue("settingsDiscoveryWebhookSecret") ||
+      readGlobalStringGetter("getDiscoveryWebhookSecret") ||
       (window.COMMAND_CENTER_CONFIG &&
       typeof window.COMMAND_CENTER_CONFIG.discoveryWebhookSecret === "string"
         ? window.COMMAND_CENTER_CONFIG.discoveryWebhookSecret.trim()
         : "");
     var sheetId =
       readSettingValue("settingsSheetId") ||
+      readGlobalStringGetter("getSheetId") ||
       (window.COMMAND_CENTER_CONFIG &&
       typeof window.COMMAND_CENTER_CONFIG.sheetId === "string"
         ? window.COMMAND_CENTER_CONFIG.sheetId.trim()
         : "");
     return { url: url, secret: secret, sheetId: sheetId };
+  }
+
+  function updateDiscoverySecretCaches(secret) {
+    var value = String(secret || "").trim();
+    if (!value) return;
+    var current = resolveWebhookConfig();
+    if (current && current.secret) return;
+    try {
+      if (
+        !window.COMMAND_CENTER_CONFIG ||
+        typeof window.COMMAND_CENTER_CONFIG !== "object"
+      ) {
+        window.COMMAND_CENTER_CONFIG = {};
+      }
+      window.COMMAND_CENTER_CONFIG.discoveryWebhookSecret = value;
+    } catch (_) {
+      // ignore
+    }
+    try {
+      var raw = localStorage.getItem(COMMAND_CENTER_CONFIG_OVERRIDE_KEY);
+      var parsed = raw ? JSON.parse(raw) : {};
+      if (!parsed || typeof parsed !== "object") parsed = {};
+      if (
+        typeof parsed.discoveryWebhookSecret !== "string" ||
+        !parsed.discoveryWebhookSecret.trim()
+      ) {
+        parsed.discoveryWebhookSecret = value;
+        localStorage.setItem(
+          COMMAND_CENTER_CONFIG_OVERRIDE_KEY,
+          JSON.stringify(parsed),
+        );
+      }
+    } catch (_) {
+      // ignore
+    }
+    var secretField = qs("settingsDiscoveryWebhookSecret");
+    if (
+      secretField &&
+      typeof secretField.value === "string" &&
+      !secretField.value.trim()
+    ) {
+      secretField.value = value;
+    }
+  }
+
+  async function hydrateLocalWebhookSecretFromBootstrap() {
+    if (!isLocalDashboardOrigin()) return "";
+    try {
+      var res = await fetch(DISCOVERY_LOCAL_BOOTSTRAP_STATE_PATH, {
+        cache: "no-store",
+      });
+      if (!res || !res.ok) return "";
+      var data = await res.json().catch(function () {
+        return null;
+      });
+      if (!data || typeof data !== "object") return "";
+      var secret =
+        typeof data.webhookSecret === "string" ? data.webhookSecret.trim() : "";
+      if (!secret) return "";
+      updateDiscoverySecretCaches(secret);
+      return secret;
+    } catch (_) {
+      return "";
+    }
   }
 
   function escapeHtml(value) {
@@ -391,15 +836,37 @@
       );
     });
 
+    var fallback = payload.fallback && typeof payload.fallback === "object"
+      ? payload.fallback
+      : null;
+    var fallbackMessage =
+      fallback && typeof fallback.message === "string"
+        ? String(fallback.message).trim()
+        : "";
+    var hasCompanies = companies.length > 0;
     var persistBadge = persisted
       ? '<span class="settings-profile-badge settings-profile-badge--ok">Written to worker-config</span>'
-      : '<span class="settings-profile-badge">Preview only</span>';
+      : hasCompanies && fallbackMessage
+        ? '<span class="settings-profile-badge">Stored list retained</span>'
+        : '<span class="settings-profile-badge">Preview only</span>';
+    var fallbackHintClass =
+      hasCompanies && fallbackMessage
+        ? "settings-field-hint"
+        : "settings-field-hint settings-field-hint--warning";
+    var fallbackHtml = fallbackMessage
+      ? '<p class="' +
+        fallbackHintClass +
+        '">' +
+        escapeHtml(fallbackMessage) +
+        "</p>"
+      : "";
 
     els.results.innerHTML =
       '<div class="settings-profile-results-head">' +
       '<h5 class="settings-profile-block__title">Inferred profile</h5>' +
       persistBadge +
       "</div>" +
+      fallbackHtml +
       (profileRows.length
         ? '<div class="settings-profile-profile">' +
           profileRows.join("") +
@@ -429,24 +896,30 @@
       );
       return;
     }
-
-    var config = resolveWebhookConfig();
-    var endpoint = resolveProfileEndpoint(config.url);
-    if (!endpoint) {
-      setError(
-        "No discovery webhook URL configured. Set it in the Discovery tab first.",
-      );
-      return;
+    if (resumeText) {
+      try {
+        await saveResumeToUserProfile(
+          resumeText,
+          null,
+          window.CommandCenterResumeIngest,
+        );
+      } catch (saveErr) {
+        try {
+          console.warn(
+            "[settings-profile-tab] resume profile save before run failed:",
+            saveErr && saveErr.message ? saveErr.message : saveErr,
+          );
+        } catch (_) {
+          // ignore
+        }
+      }
     }
 
     var payload = {
-      event: DISCOVERY_PROFILE_EVENT,
-      schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
       persist: !!(els.persist && els.persist.checked),
     };
     if (resumeText) payload.resumeText = resumeText;
     if (hasAnyFormField(form)) payload.form = form;
-    if (config.sheetId) payload.sheetId = config.sheetId;
 
     setRunning(true);
     if (els.results) {
@@ -460,56 +933,8 @@
     dispatchDiscoveryRunEvent("jobbored:discovery-run-started", { trigger: "manual" });
 
     var runOk = false;
-    var controller =
-      typeof AbortController !== "undefined" ? new AbortController() : null;
-    var timeoutId = controller
-      ? window.setTimeout(function () {
-          controller.abort();
-        }, RUN_TIMEOUT_MS)
-      : null;
-
     try {
-      var headers = { "Content-Type": "application/json" };
-      if (config.secret) headers["x-discovery-secret"] = config.secret;
-
-      // Surface the resolved endpoint in the console so future misrouting bugs
-      // are one F12-open away from diagnosis.
-      try {
-        console.info("[settings-profile-tab] POST", endpoint);
-      } catch (_) {
-        // console may be unavailable in unusual embeddings
-      }
-
-      var res = await fetch(endpoint, {
-        method: "POST",
-        headers: headers,
-        body: JSON.stringify(payload),
-        signal: controller ? controller.signal : undefined,
-      });
-      var responseText = await res.text().catch(function () {
-        return "";
-      });
-      var data = null;
-      try {
-        data = responseText ? JSON.parse(responseText) : null;
-      } catch (_) {
-        data = null;
-      }
-
-      if (!res.ok) {
-        var serverMessage =
-          data && typeof data.message === "string"
-            ? data.message
-            : "Request failed with HTTP " + res.status + ".";
-        var detail =
-          data && typeof data.detail === "string" ? " — " + data.detail : "";
-        // Suffix the attempted endpoint so a resolver bug (request landed on
-        // the wrong path) is visible in the UI itself rather than requiring
-        // the user to open DevTools.
-        setError(serverMessage + detail + " [endpoint=" + endpoint + "]");
-        return;
-      }
-
+      var data = await postProfileEndpoint(payload);
       if (!data || data.ok !== true) {
         setError(
           data && typeof data.message === "string"
@@ -534,7 +959,6 @@
         setError("Request failed: " + message);
       }
     } finally {
-      if (timeoutId !== null) window.clearTimeout(timeoutId);
       setRunning(false);
       dispatchDiscoveryRunEvent("jobbored:discovery-run-finished", {
         trigger: "manual",
@@ -559,14 +983,12 @@
   // Returns parsed response or throws.
   async function postProfileEndpoint(payload, timeoutMs) {
     var config = resolveWebhookConfig();
-    var endpoint = resolveProfileEndpoint(config.url);
-    if (!endpoint) {
+    var primaryEndpoint = resolveProfileEndpoint(config.url);
+    if (!primaryEndpoint) {
       throw new Error(
         "No discovery webhook URL configured. Set it in the Discovery tab first.",
       );
     }
-    var headers = { "Content-Type": "application/json" };
-    if (config.secret) headers["x-discovery-secret"] = config.secret;
     var body = Object.assign(
       {
         event: DISCOVERY_PROFILE_EVENT,
@@ -576,44 +998,145 @@
     );
     if (config.sheetId && !body.sheetId) body.sheetId = config.sheetId;
 
-    var controller =
-      typeof AbortController !== "undefined" ? new AbortController() : null;
-    var timeoutId = controller
-      ? window.setTimeout(function () {
-          controller.abort();
-        }, timeoutMs || RUN_TIMEOUT_MS)
-      : null;
-
-    try {
-      console.info("[settings-profile-tab] POST", endpoint, "mode=" + (body.mode || "manual"));
-      var res = await fetch(endpoint, {
-        method: "POST",
-        headers: headers,
-        body: JSON.stringify(body),
-        signal: controller ? controller.signal : undefined,
-      });
-      var text = await res.text().catch(function () {
-        return "";
-      });
-      var data = null;
+    async function sendProfileRequest(endpoint, secretOverride, requestTimeoutMs) {
+      var controller =
+        typeof AbortController !== "undefined" ? new AbortController() : null;
+      var timeoutId = controller
+        ? window.setTimeout(function () {
+            controller.abort();
+          }, requestTimeoutMs || timeoutMs || RUN_TIMEOUT_MS)
+        : null;
       try {
-        data = text ? JSON.parse(text) : null;
-      } catch (_) {
-        data = null;
+        var headers = { "Content-Type": "application/json" };
+        var secret = String(secretOverride || "").trim();
+        if (secret) headers["x-discovery-secret"] = secret;
+        console.info("[settings-profile-tab] POST", endpoint, "mode=" + (body.mode || "manual"));
+        var res = await fetch(endpoint, {
+          method: "POST",
+          headers: headers,
+          body: JSON.stringify(body),
+          signal: controller ? controller.signal : undefined,
+        });
+        var text = await res.text().catch(function () {
+          return "";
+        });
+        var data = null;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch (_) {
+          data = null;
+        }
+        if (!res.ok) {
+          var message =
+            (data && typeof data.message === "string"
+              ? data.message
+              : "Request failed with HTTP " + res.status) +
+            (data && typeof data.detail === "string" ? " — " + data.detail : "") +
+            " [endpoint=" + endpoint + "]";
+          var httpError = new Error(message);
+          httpError.httpStatus = res.status;
+          httpError.endpoint = endpoint;
+          throw httpError;
+        }
+        return data;
+      } catch (err) {
+        if (err && err.httpStatus) throw err;
+        if (isAbortLikeError(err)) {
+          throw buildProfileTimeoutError(
+            requestTimeoutMs || timeoutMs || RUN_TIMEOUT_MS,
+            endpoint,
+          );
+        }
+        var networkError = err instanceof Error ? err : new Error(String(err || "Request failed"));
+        networkError.network = true;
+        networkError.endpoint = endpoint;
+        throw networkError;
+      } finally {
+        if (timeoutId !== null) window.clearTimeout(timeoutId);
       }
-      if (!res.ok) {
-        var message =
-          (data && typeof data.message === "string"
-            ? data.message
-            : "Request failed with HTTP " + res.status) +
-          (data && typeof data.detail === "string" ? " — " + data.detail : "") +
-          " [endpoint=" + endpoint + "]";
-        throw new Error(message);
-      }
-      return data;
-    } finally {
-      if (timeoutId !== null) window.clearTimeout(timeoutId);
     }
+
+    var fallbackEndpoint = resolveLocalProfileEndpointCandidate(primaryEndpoint);
+    var preferLocal = shouldPreferLocalProfileEndpoint(
+      primaryEndpoint,
+      fallbackEndpoint,
+    );
+    var hasLocalEndpoint =
+      isLocalWebhookUrl(primaryEndpoint) || isLocalWebhookUrl(fallbackEndpoint);
+    if (!config.secret && hasLocalEndpoint) {
+      config.secret = await hydrateLocalWebhookSecretFromBootstrap();
+    }
+    if (preferLocal) {
+      var localReady = await ensureLocalProfileEndpointReady(fallbackEndpoint);
+      if (localReady.ok) {
+        try {
+          console.info(
+            "[settings-profile-tab] using local discovery worker for profile request",
+            fallbackEndpoint,
+          );
+          return await sendProfileRequest(fallbackEndpoint, config.secret);
+        } catch (localErr) {
+          try {
+            console.info(
+              "[settings-profile-tab] local profile request failed:",
+              localErr && localErr.message ? localErr.message : localErr,
+            );
+          } catch (_) {
+            // ignore
+          }
+          throw localErr;
+        }
+      }
+      throw localWorkerUnavailableError(fallbackEndpoint);
+    }
+
+    var primaryError;
+    var isRefreshMode = String(body.mode || "") === "refresh";
+    try {
+      return await sendProfileRequest(primaryEndpoint, config.secret);
+    } catch (err) {
+      primaryError = err;
+    }
+
+    // Refresh can take materially longer under quota windows + deep retries.
+    // Retry once with an extended timeout before falling back.
+    if (isRefreshMode && isAbortLikeError(primaryError)) {
+      try {
+        return await sendProfileRequest(
+          primaryEndpoint,
+          config.secret,
+          Math.max(RUN_TIMEOUT_MS, 180000),
+        );
+      } catch (retryErr) {
+        primaryError = retryErr;
+      }
+    }
+
+    if (
+      fallbackEndpoint &&
+      fallbackEndpoint !== primaryEndpoint &&
+      shouldRetryProfileEndpoint(primaryError) &&
+      (await isProfileFallbackReady(fallbackEndpoint))
+    ) {
+      try {
+        console.info(
+          "[settings-profile-tab] retrying profile request against local worker",
+          fallbackEndpoint,
+        );
+        return await sendProfileRequest(fallbackEndpoint, config.secret);
+      } catch (fallbackErr) {
+        try {
+          console.info(
+            "[settings-profile-tab] local profile fallback failed:",
+            fallbackErr && fallbackErr.message ? fallbackErr.message : fallbackErr,
+          );
+        } catch (_) {
+          // ignore
+        }
+      }
+    }
+
+    throw primaryError;
   }
 
   async function handleRefresh() {
@@ -630,7 +1153,10 @@
     });
     var refreshOk = false;
     try {
-      var data = await postProfileEndpoint({ mode: "refresh" });
+      var data = await postProfileEndpoint(
+        { mode: "refresh" },
+        PROFILE_REFRESH_TIMEOUT_MS,
+      );
       if (!data || data.ok !== true) {
         setError(
           (data && data.message) ||
@@ -645,7 +1171,7 @@
       if (err && err.name === "AbortError") {
         setError(
           "Refresh timed out after " +
-            Math.round(RUN_TIMEOUT_MS / 1000) +
+            Math.round(PROFILE_REFRESH_TIMEOUT_MS / 1000) +
             "s. Worker may be cold-starting — try again.",
         );
       } else {
@@ -720,24 +1246,46 @@
     }
   }
 
-  function renderStatusPanel(status) {
+  function formatResumeCharCount(count) {
+    var safeCount = Math.max(0, Number(count) || 0);
+    return (
+      safeCount.toLocaleString() +
+      " " +
+      (safeCount === 1 ? "char resume" : "chars resume")
+    );
+  }
+
+  function formatSavedProfileValue(status, savedProfileResume) {
+    if (savedProfileResume && savedProfileResume.text) {
+      return escapeHtml(
+        formatResumeCharCount(savedProfileResume.text.length) +
+          " saved in this browser" +
+          (savedProfileResume.updatedAt
+            ? " · updated " + formatRelativeAbsolute(savedProfileResume.updatedAt)
+            : ""),
+      );
+    }
+    if (status && status.hasStoredProfile) {
+      return escapeHtml(
+        formatResumeCharCount(status.resumeTextLength) +
+          (status.profileUpdatedAt
+            ? " · updated " + formatRelativeAbsolute(status.profileUpdatedAt)
+            : ""),
+      );
+    }
+    return '<span class="settings-profile-status__value--muted">Not saved yet — run Discover below to store one</span>';
+  }
+
+  function renderStatusPanel(status, savedProfileResume) {
     if (!els.statusPanel) return;
-    if (!status) {
+    if (!status && !(savedProfileResume && savedProfileResume.text)) {
       els.statusPanel.hidden = true;
       els.statusPanel.innerHTML = "";
       return;
     }
     var auto = readAutoRefreshState();
-    var storedValue = status.hasStoredProfile
-      ? escapeHtml(
-          status.resumeTextLength.toLocaleString() +
-            " char resume" +
-            (status.profileUpdatedAt
-              ? " · updated " + formatRelativeAbsolute(status.profileUpdatedAt)
-              : ""),
-        )
-      : '<span class="settings-profile-status__value--muted">Not saved yet — run Discover below to store one</span>';
-    var lastRefreshValue = status.lastRefreshAt
+    var storedValue = formatSavedProfileValue(status, savedProfileResume);
+    var lastRefreshValue = status && status.lastRefreshAt
       ? escapeHtml(
           formatRelativeAbsolute(status.lastRefreshAt) +
             (status.lastRefreshSource
@@ -748,10 +1296,13 @@
     var autoValue = auto.enabled
       ? escapeHtml("Every " + auto.intervalHours + "h (this tab only)")
       : '<span class="settings-profile-status__value--muted">Off</span>';
-    var negativeValue = status.negativeCompanyCount
+    var negativeValue = status && status.negativeCompanyCount
       ? escapeHtml(status.negativeCompanyCount + " skipped")
       : '<span class="settings-profile-status__value--muted">None</span>';
-    var companyValue = escapeHtml(String(status.companyCount || 0));
+    var historyValue = status && Number.isFinite(status.historyCompanyCount)
+      ? escapeHtml(String(status.historyCompanyCount))
+      : '<span class="settings-profile-status__value--muted">0</span>';
+    var companyValue = escapeHtml(String((status && status.companyCount) || 0));
 
     els.statusPanel.innerHTML =
       '<div class="settings-profile-status__head">📅 Daily refresh</div>' +
@@ -764,6 +1315,8 @@
       '<span class="settings-profile-status__value">' + autoValue + "</span>" +
       '<span class="settings-profile-status__label">Skipped</span>' +
       '<span class="settings-profile-status__value">' + negativeValue + "</span>" +
+      '<span class="settings-profile-status__label">History</span>' +
+      '<span class="settings-profile-status__value">' + historyValue + "</span>" +
       '<span class="settings-profile-status__label">Last refresh</span>' +
       '<span class="settings-profile-status__value">' + lastRefreshValue + "</span>" +
       "</div>";
@@ -774,22 +1327,27 @@
   // session so we don't keep clobbering edits on every status poll.
   var profileRestoredThisSession = false;
 
-  function restorePersistedProfile(status) {
+  async function restorePersistedProfile(status) {
     if (profileRestoredThisSession) return;
-    if (!status || !status.hasStoredProfile) return;
+    var savedProfileResume = await loadSavedProfileResume();
+    var resumeSource = chooseResumeRestoreSource(status, savedProfileResume);
+    var hasWorkerProfile = !!(status && status.hasStoredProfile);
+    if (!resumeSource && !hasWorkerProfile) return;
     var didRestore = false;
-    // Resume textarea: only restore if empty AND worker has text.
+    // Resume textarea: prefer the browser-local profile resume. Fall back to
+    // worker text only when it is long enough to plausibly be a resume, so a
+    // stale bad value like "f" cannot clobber the real profile.
     if (
       els.textarea &&
       !String(els.textarea.value || "").trim() &&
-      typeof status.resumeText === "string" &&
-      status.resumeText.length > 0
+      resumeSource &&
+      resumeSource.text
     ) {
-      els.textarea.value = status.resumeText;
+      els.textarea.value = resumeSource.text;
       didRestore = true;
     }
     // Form fields: only restore each one when its input is empty.
-    var form = status.form || {};
+    var form = hasWorkerProfile && status.form ? status.form : {};
     var fieldMap = {
       targetRoles: els.targetRoles,
       skills: els.skills,
@@ -812,10 +1370,16 @@
     if (didRestore) {
       profileRestoredThisSession = true;
       var bits = [];
-      if (typeof status.resumeText === "string" && status.resumeText.length > 0) {
-        bits.push(status.resumeText.length.toLocaleString() + " chars resume");
+      if (resumeSource && resumeSource.text) {
+        bits.push(
+          resumeSource.text.length.toLocaleString() +
+            " chars resume from " +
+            (resumeSource.source === "profile"
+              ? "your saved profile"
+              : "the worker"),
+        );
       }
-      if (status.formFieldCount) {
+      if (status && status.formFieldCount) {
         bits.push(status.formFieldCount + " form field" + (status.formFieldCount === 1 ? "" : "s"));
       }
       if (bits.length) {
@@ -832,15 +1396,18 @@
     var config = resolveWebhookConfig();
     // Require both URL + sheetId; without sheetId the worker rejects status.
     if (!config.url || !config.sheetId) {
-      renderStatusPanel(null);
+      var savedProfileResumeWithoutConfig = await loadSavedProfileResume();
+      renderStatusPanel(null, savedProfileResumeWithoutConfig);
+      await restorePersistedProfile(null);
       return;
     }
     try {
       var data = await postProfileEndpoint({ mode: "status" }, 10000);
       if (data && data.ok === true && data.status) {
         lastStatus = data.status;
-        renderStatusPanel(lastStatus);
-        restorePersistedProfile(lastStatus);
+        var savedProfileResume = await loadSavedProfileResume();
+        renderStatusPanel(lastStatus, savedProfileResume);
+        await restorePersistedProfile(lastStatus);
       }
     } catch (err) {
       // Non-fatal — status panel is a convenience. Keep the UI clean.
@@ -1675,6 +2242,7 @@
   window.JobBoredSettingsProfileTab = {
     bind: bind,
     resolveProfileEndpoint: resolveProfileEndpoint,
+    postProfileEndpoint: postProfileEndpoint,
     refreshStatusPanel: refreshStatusPanel,
     autoRefresh: {
       readAutoRefreshState: readAutoRefreshState,
@@ -1703,6 +2271,20 @@
         cloud: SCHEDULE_CLOUD_STORAGE_KEY,
       },
       GITHUB_ACTIONS_TEMPLATE: GITHUB_ACTIONS_TEMPLATE,
+    },
+    __test: {
+      chooseResumeRestoreSource: chooseResumeRestoreSource,
+      formatSavedProfileValue: formatSavedProfileValue,
+      resolveLocalProfileEndpointCandidate: resolveLocalProfileEndpointCandidate,
+      shouldRetryProfileEndpoint: shouldRetryProfileEndpoint,
+      shouldPreferLocalProfileEndpoint: shouldPreferLocalProfileEndpoint,
+      localWorkerUnavailableError: localWorkerUnavailableError,
+      profileEndpointPort: profileEndpointPort,
+      requestLocalWorkerStart: requestLocalWorkerStart,
+      ensureLocalProfileEndpointReady: ensureLocalProfileEndpointReady,
+      postProfileEndpoint: postProfileEndpoint,
+      normalizeResumeText: normalizeResumeText,
+      MIN_RESTORABLE_WORKER_RESUME_CHARS: MIN_RESTORABLE_WORKER_RESUME_CHARS,
     },
   };
 })();

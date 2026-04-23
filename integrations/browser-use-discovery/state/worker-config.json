@@ -1,0 +1,1553 @@
+{
+  "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+  "mode": "local",
+  "timezone": "America/Chicago",
+  "companies": [
+    {
+      "name": "AlphaSense",
+      "companyKey": "alphasense",
+      "normalizedName": "alphasense",
+      "domains": [
+        "alpha-sense.com",
+        "tegus.com"
+      ]
+    },
+    {
+      "name": "Tavus",
+      "companyKey": "tavus",
+      "normalizedName": "tavus",
+      "domains": [
+        "tavus.io"
+      ]
+    },
+    {
+      "name": "Prolific",
+      "companyKey": "prolific",
+      "normalizedName": "prolific",
+      "domains": [
+        "prolific.com"
+      ]
+    },
+    {
+      "name": "Later",
+      "companyKey": "later",
+      "normalizedName": "later",
+      "domains": [
+        "talents.vaia.com"
+      ]
+    },
+    {
+      "name": "Hinge Health",
+      "companyKey": "hinge-health",
+      "normalizedName": "hinge-health",
+      "domains": [
+        "hingehealth.com"
+      ]
+    },
+    {
+      "name": "Allied Solutions",
+      "companyKey": "allied-solutions",
+      "normalizedName": "allied-solutions",
+      "domains": [
+        "tealhq.com"
+      ]
+    },
+    {
+      "name": "Cisive",
+      "companyKey": "cisive",
+      "normalizedName": "cisive",
+      "domains": [
+        "purpose.jobs"
+      ]
+    },
+    {
+      "name": "Your Home Improvement Company LLC",
+      "companyKey": "your-home-improvement-company-llc",
+      "normalizedName": "your-home-improvement-company-llc",
+      "domains": [
+        "aidoos.com"
+      ]
+    },
+    {
+      "name": "TP-Link Systems Inc.",
+      "companyKey": "tp-link-systems-inc",
+      "normalizedName": "tp-link-systems-inc",
+      "domains": [
+        "revopscareers.com"
+      ]
+    },
+    {
+      "name": "TalentPop",
+      "companyKey": "talentpop",
+      "normalizedName": "talentpop",
+      "domains": [
+        "career.com"
+      ]
+    },
+    {
+      "name": "Swimply",
+      "companyKey": "swimply",
+      "normalizedName": "swimply",
+      "domains": [
+        "recruiting.paylocity.com"
+      ]
+    },
+    {
+      "name": "Maltego",
+      "companyKey": "maltego",
+      "normalizedName": "maltego",
+      "domains": [
+        "dailyremote.com"
+      ]
+    },
+    {
+      "name": "JamLoop",
+      "companyKey": "jamloop",
+      "normalizedName": "jamloop",
+      "domains": [
+        "dailyremote.com"
+      ]
+    },
+    {
+      "name": "HireHawk",
+      "companyKey": "hirehawk",
+      "normalizedName": "hirehawk",
+      "domains": [
+        "tealhq.com"
+      ]
+    },
+    {
+      "name": "Go Fractional",
+      "companyKey": "go-fractional",
+      "normalizedName": "go-fractional",
+      "domains": [
+        "jobs.ashbyhq.com"
+      ]
+    },
+    {
+      "name": "EverCommerce",
+      "companyKey": "evercommerce",
+      "normalizedName": "evercommerce",
+      "domains": [
+        "talents.vaia.com"
+      ]
+    },
+    {
+      "name": "ESM INSITE",
+      "companyKey": "esm-insite",
+      "normalizedName": "esm-insite",
+      "domains": [
+        "talents.vaia.com"
+      ]
+    },
+    {
+      "name": "Directive Consulting",
+      "companyKey": "directive-consulting",
+      "normalizedName": "directive-consulting",
+      "domains": [
+        "talents.vaia.com"
+      ]
+    },
+    {
+      "name": "Blizzard Entertainment",
+      "companyKey": "blizzard-entertainment",
+      "normalizedName": "blizzard-entertainment",
+      "domains": [
+        "careers.blizzard.com"
+      ]
+    },
+    {
+      "name": "+ Lux Unfiltered, Inc.",
+      "companyKey": "lux-unfiltered-inc",
+      "normalizedName": "lux-unfiltered-inc",
+      "domains": [
+        "bebee.com"
+      ]
+    },
+    {
+      "name": "Workweek",
+      "companyKey": "workweek",
+      "normalizedName": "workweek",
+      "domains": [
+        "talents.vaia.com"
+      ]
+    },
+    {
+      "name": "AYTM",
+      "companyKey": "aytm",
+      "normalizedName": "aytm",
+      "domains": [
+        "startup.jobs"
+      ]
+    },
+    {
+      "name": "405 Cabinets & Stone",
+      "companyKey": "405-cabinets-stone",
+      "normalizedName": "405-cabinets-stone",
+      "domains": [
+        "jobs.digitalhire.com"
+      ]
+    }
+  ],
+  "atsCompanies": [],
+  "includeKeywords": [],
+  "excludeKeywords": [],
+  "targetRoles": [],
+  "locations": [],
+  "remotePolicy": "",
+  "seniority": "",
+  "maxLeadsPerRun": 25,
+  "enabledSources": [
+    "greenhouse",
+    "lever",
+    "ashby",
+    "smartrecruiters",
+    "workday",
+    "icims",
+    "jobvite",
+    "taleo",
+    "successfactors",
+    "workable",
+    "breezy",
+    "recruitee",
+    "teamtailor",
+    "personio",
+    "grounded_web",
+    "serpapi_google_jobs"
+  ],
+  "schedule": {
+    "enabled": true,
+    "hour": 8,
+    "minute": 15,
+    "mode": "local"
+  },
+  "candidateProfile": {
+    "resumeText": "Emilio Nunez-Garcia\n\n[501-366-2080]\n\n902 N. Cascade Avenue, Colorado Springs, CO 80903\n\ne_nunezgarcia@coloradocollege.edu\n\nEducation\n\nBA Mathematical Economics 2017Colorado CollegeColorado Springs, CO\n\nProfessionalExperience\n\nCofounder, Bucketz (2016 - 2017)\n\nFounded a start-up market research recruitment firm that provides automated focus group recruitment services for mid-sized market research firms.\n\nDeveloped innovative social and search engine marketing strategy that allows firms to obtain qualified respondents for a fraction of traditional recruitment costs.\n\nDeveloped and effectively performed fundraising pitch for prospective investors.\n\nDigital Marketing Strategist, Primary Residential Mortgage Inc. (2015 - 2016)\n\nCreated and optimized digital marketing campaigns in 8 states.\n\nWorked with local insurance and real estate businesses to enhance digital networking and create effective social media marketing and brand awareness campaigns.\n\nUsed WordPress to improve SERP rank and inform webpage visitors about mortgage loans, credit scores and underwriting procedures.\n\nUsed statistical software to measure performance and optimize budget allocation.\n\nFinancial Accounting Teaching Assistant, Colorado College (2014-2015)\n\nAssisted students with homework assignments and labs in daily after-class sessions.\n\nAssisted students in one-on-one Excel and QuickBooks tutoring sessions\n\nSkills \n\nAdvanced use of Microsoft Office Suite, Stata, QuickBooks & Tableau.\n\nBilingual in English & Spanish; Proficiency in French, Italian\n\nCreative problem-solving using data based analysis\n\nExcellence in written and oral communication\n\nCertifications\n\nGoogle AdWords Fundamentals, Search and Mobile Advertising\n\nGoogle Analytics \n\nReferences\n\nAvailable upon request.\n\nhttps://www.linkedin.com/in/emilio-nunez-garcia-1a6885110",
+    "derivedProfile": {
+      "targetRoles": [
+        "Growth Marketing Manager"
+      ],
+      "skills": [
+        "analytics",
+        "AI",
+        "Excel",
+        "Tableau",
+        "campaigns"
+      ],
+      "seniority": "mid",
+      "locations": []
+    },
+    "updatedAt": "2026-04-23T06:42:09.928Z"
+  },
+  "negativeCompanyKeys": [
+    "scale-ai",
+    "figma",
+    "notion"
+  ],
+  "seenCompanyKeys": [
+    "chobani",
+    "equinox",
+    "go-fractional",
+    "swimply",
+    "405-cabinets-stone",
+    "blizzard-entertainment",
+    "tp-link-systems-inc",
+    "esm-insite",
+    "lux-unfiltered-inc",
+    "talentpop",
+    "insightsoftware",
+    "google",
+    "headspace",
+    "apple",
+    "fedex",
+    "aytm",
+    "evercommerce",
+    "hirehawk",
+    "jamloop",
+    "your-home-improvement-company-llc",
+    "directive-consulting",
+    "workweek",
+    "maltego",
+    "shopback",
+    "steadily",
+    "solarwinds",
+    "tecla",
+    "rugiet-health",
+    "leaky-s-water-and-air",
+    "netvendor",
+    "cut-dry",
+    "agoda",
+    "workable",
+    "hirevector",
+    "cosmoquick",
+    "amberjack",
+    "zinnia",
+    "wispr-flow",
+    "ofinto-ag",
+    "sporty-group",
+    "huron",
+    "magic-edtech",
+    "equip-health",
+    "drip",
+    "stay-ai",
+    "vcluster-labs",
+    "sweep",
+    "later-group",
+    "tonic-ai",
+    "garner-health",
+    "s-p-global",
+    "superbolt",
+    "loft-labs",
+    "glossgenius",
+    "client-accelerators",
+    "vizient",
+    "arona-home-essentials",
+    "abrazo-group",
+    "greenhouse-software",
+    "create-wellness-inc",
+    "classet",
+    "fe-international",
+    "reflexai",
+    "rocket-money",
+    "xai",
+    "nash",
+    "suite-studios",
+    "atticus",
+    "cobalt",
+    "arlo-health",
+    "userpilot",
+    "adobe",
+    "spacex",
+    "intuitive",
+    "constant-contact",
+    "samsara",
+    "sofi",
+    "upstart",
+    "6minded",
+    "grant-street-group",
+    "kiefer-sage-inc",
+    "daily-harvest",
+    "fanduel",
+    "kammok",
+    "resident",
+    "mygroove",
+    "nbcuniversal",
+    "datex-inc",
+    "aspen-dental",
+    "abbvie",
+    "wespath-benefits-and-investments",
+    "itzy-ritzy",
+    "zebra-technologies",
+    "reef",
+    "recruiting-from-scratch",
+    "wsp",
+    "town-square-health",
+    "digital",
+    "walmart",
+    "acrisure-innovation",
+    "begin",
+    "aidoos",
+    "greenlight",
+    "affirm",
+    "rsa-security",
+    "farinas-marketing-services",
+    "nogood",
+    "midade",
+    "confidential",
+    "xplor",
+    "cheetah-clean",
+    "cardinal-health",
+    "indeed",
+    "fedex-dataworks",
+    "audiochuck",
+    "treats-unleashed",
+    "carmax",
+    "alliantgroup-lp",
+    "sherlocktalent",
+    "vail-resorts",
+    "catch-co",
+    "9-11-memorial-and-museum",
+    "right-side-up",
+    "mdalgorithms-inc",
+    "eyecare-pro",
+    "seven-ai",
+    "autodesk",
+    "faire",
+    "flexjobs",
+    "greenhouse",
+    "anders",
+    "concordia-publishing-house",
+    "nimble",
+    "aptean",
+    "genopalate-inc",
+    "rockstar",
+    "growthassistant",
+    "alphasense",
+    "tavus",
+    "prolific",
+    "later",
+    "hinge-health",
+    "allied-solutions",
+    "cisive"
+  ],
+  "companyHistory": [
+    {
+      "name": "Chobani",
+      "companyKey": "chobani",
+      "normalizedName": "chobani",
+      "domains": [
+        "careers.chobani.com"
+      ]
+    },
+    {
+      "name": "Equinox",
+      "companyKey": "equinox",
+      "normalizedName": "equinox",
+      "domains": [
+        "jobs.smartrecruiters.com"
+      ]
+    },
+    {
+      "name": "Go Fractional",
+      "companyKey": "go-fractional",
+      "normalizedName": "go-fractional",
+      "domains": [
+        "jobs.ashbyhq.com"
+      ]
+    },
+    {
+      "name": "Swimply",
+      "companyKey": "swimply",
+      "normalizedName": "swimply",
+      "domains": [
+        "recruiting.paylocity.com"
+      ]
+    },
+    {
+      "name": "405 Cabinets & Stone",
+      "companyKey": "405-cabinets-stone",
+      "normalizedName": "405-cabinets-stone",
+      "domains": [
+        "jobs.digitalhire.com"
+      ]
+    },
+    {
+      "name": "Blizzard Entertainment",
+      "companyKey": "blizzard-entertainment",
+      "normalizedName": "blizzard-entertainment",
+      "domains": [
+        "careers.blizzard.com"
+      ]
+    },
+    {
+      "name": "TP-Link Systems Inc.",
+      "companyKey": "tp-link-systems-inc",
+      "normalizedName": "tp-link-systems-inc",
+      "domains": [
+        "revopscareers.com"
+      ]
+    },
+    {
+      "name": "ESM INSITE",
+      "companyKey": "esm-insite",
+      "normalizedName": "esm-insite",
+      "domains": [
+        "talents.vaia.com"
+      ]
+    },
+    {
+      "name": "+ Lux Unfiltered, Inc.",
+      "companyKey": "lux-unfiltered-inc",
+      "normalizedName": "lux-unfiltered-inc",
+      "domains": [
+        "bebee.com"
+      ]
+    },
+    {
+      "name": "TalentPop",
+      "companyKey": "talentpop",
+      "normalizedName": "talentpop",
+      "domains": [
+        "career.com"
+      ]
+    },
+    {
+      "name": "insightsoftware",
+      "companyKey": "insightsoftware",
+      "normalizedName": "insightsoftware",
+      "domains": [
+        "insightsoftware.com"
+      ]
+    },
+    {
+      "name": "Google",
+      "companyKey": "google",
+      "normalizedName": "google",
+      "domains": [
+        "google.com"
+      ]
+    },
+    {
+      "name": "Headspace",
+      "companyKey": "headspace",
+      "normalizedName": "headspace",
+      "domains": [
+        "headspace.com"
+      ]
+    },
+    {
+      "name": "Apple",
+      "companyKey": "apple",
+      "normalizedName": "apple",
+      "domains": [
+        "apple.com"
+      ]
+    },
+    {
+      "name": "FedEx",
+      "companyKey": "fedex",
+      "normalizedName": "fedex",
+      "domains": [
+        "fedex.com"
+      ]
+    },
+    {
+      "name": "AYTM",
+      "companyKey": "aytm",
+      "normalizedName": "aytm",
+      "domains": [
+        "startup.jobs"
+      ]
+    },
+    {
+      "name": "EverCommerce",
+      "companyKey": "evercommerce",
+      "normalizedName": "evercommerce",
+      "domains": [
+        "talents.vaia.com"
+      ]
+    },
+    {
+      "name": "HireHawk",
+      "companyKey": "hirehawk",
+      "normalizedName": "hirehawk",
+      "domains": [
+        "tealhq.com"
+      ]
+    },
+    {
+      "name": "JamLoop",
+      "companyKey": "jamloop",
+      "normalizedName": "jamloop",
+      "domains": [
+        "dailyremote.com"
+      ]
+    },
+    {
+      "name": "Your Home Improvement Company LLC",
+      "companyKey": "your-home-improvement-company-llc",
+      "normalizedName": "your-home-improvement-company-llc",
+      "domains": [
+        "aidoos.com"
+      ]
+    },
+    {
+      "name": "Directive Consulting",
+      "companyKey": "directive-consulting",
+      "normalizedName": "directive-consulting",
+      "domains": [
+        "talents.vaia.com"
+      ]
+    },
+    {
+      "name": "Workweek",
+      "companyKey": "workweek",
+      "normalizedName": "workweek",
+      "domains": [
+        "talents.vaia.com"
+      ]
+    },
+    {
+      "name": "Maltego",
+      "companyKey": "maltego",
+      "normalizedName": "maltego",
+      "domains": [
+        "dailyremote.com"
+      ]
+    },
+    {
+      "name": "ShopBack",
+      "companyKey": "shopback",
+      "normalizedName": "shopback",
+      "domains": [
+        "bebee.com"
+      ]
+    },
+    {
+      "name": "Steadily",
+      "companyKey": "steadily",
+      "normalizedName": "steadily",
+      "domains": [
+        "jobs.ashbyhq.com"
+      ]
+    },
+    {
+      "name": "SolarWinds",
+      "companyKey": "solarwinds",
+      "normalizedName": "solarwinds",
+      "domains": [
+        "us.experteer.com"
+      ]
+    },
+    {
+      "name": "Tecla",
+      "companyKey": "tecla",
+      "normalizedName": "tecla",
+      "domains": [
+        "strivetasks.com"
+      ]
+    },
+    {
+      "name": "Rugiet Health",
+      "companyKey": "rugiet-health",
+      "normalizedName": "rugiet-health",
+      "domains": [
+        "rugiet-health.rippling-ats.com"
+      ]
+    },
+    {
+      "name": "Leaky's Water and Air",
+      "companyKey": "leaky-s-water-and-air",
+      "normalizedName": "leaky-s-water-and-air",
+      "domains": [
+        "tealhq.com"
+      ]
+    },
+    {
+      "name": "NetVendor",
+      "companyKey": "netvendor",
+      "normalizedName": "netvendor",
+      "domains": [
+        "talents.vaia.com"
+      ]
+    },
+    {
+      "name": "Cut+Dry",
+      "companyKey": "cut-dry",
+      "normalizedName": "cut-dry",
+      "domains": [
+        "growthtalent.org"
+      ]
+    },
+    {
+      "name": "Agoda",
+      "companyKey": "agoda",
+      "normalizedName": "agoda",
+      "domains": [
+        "jobright.ai"
+      ]
+    },
+    {
+      "name": "Workable",
+      "companyKey": "workable",
+      "normalizedName": "workable",
+      "domains": [
+        "apply.workable.com"
+      ]
+    },
+    {
+      "name": "Hirevector",
+      "companyKey": "hirevector",
+      "normalizedName": "hirevector",
+      "domains": [
+        "hirevector.liveblog365.com"
+      ]
+    },
+    {
+      "name": "Cosmoquick",
+      "companyKey": "cosmoquick",
+      "normalizedName": "cosmoquick",
+      "domains": [
+        "cosmoquick.com"
+      ]
+    },
+    {
+      "name": "Amberjack",
+      "companyKey": "amberjack",
+      "normalizedName": "amberjack",
+      "domains": [
+        "learn4good.com"
+      ]
+    },
+    {
+      "name": "Zinnia",
+      "companyKey": "zinnia",
+      "normalizedName": "zinnia",
+      "domains": [
+        "recruit.net"
+      ]
+    },
+    {
+      "name": "Wispr Flow",
+      "companyKey": "wispr-flow",
+      "normalizedName": "wispr-flow",
+      "domains": [
+        "jobs.ashbyhq.com"
+      ]
+    },
+    {
+      "name": "ofinto ag",
+      "companyKey": "ofinto-ag",
+      "normalizedName": "ofinto-ag",
+      "domains": [
+        "talents.vaia.com"
+      ]
+    },
+    {
+      "name": "Sporty Group",
+      "companyKey": "sporty-group",
+      "normalizedName": "sporty-group",
+      "domains": [
+        "jobera.com"
+      ]
+    },
+    {
+      "name": "Huron",
+      "companyKey": "huron",
+      "normalizedName": "huron",
+      "domains": [
+        "huron.com"
+      ]
+    },
+    {
+      "name": "Magic EdTech",
+      "companyKey": "magic-edtech",
+      "normalizedName": "magic-edtech",
+      "domains": [
+        "magicedtech.com"
+      ]
+    },
+    {
+      "name": "Equip Health",
+      "companyKey": "equip-health",
+      "normalizedName": "equip-health",
+      "domains": [
+        "equip.health"
+      ]
+    },
+    {
+      "name": "Drip",
+      "companyKey": "drip",
+      "normalizedName": "drip",
+      "domains": [
+        "drip.com"
+      ]
+    },
+    {
+      "name": "Stay AI",
+      "companyKey": "stay-ai",
+      "normalizedName": "stay-ai",
+      "domains": [
+        "stay.ai"
+      ]
+    },
+    {
+      "name": "vCluster Labs",
+      "companyKey": "vcluster-labs",
+      "normalizedName": "vcluster-labs",
+      "domains": [
+        "vcluster.com"
+      ]
+    },
+    {
+      "name": "Sweep",
+      "companyKey": "sweep",
+      "normalizedName": "sweep",
+      "domains": [
+        "sweep.io"
+      ]
+    },
+    {
+      "name": "Later Group",
+      "companyKey": "later-group",
+      "normalizedName": "later-group",
+      "domains": [
+        "later.com"
+      ]
+    },
+    {
+      "name": "Tonic.ai",
+      "companyKey": "tonic-ai",
+      "normalizedName": "tonic-ai",
+      "domains": [
+        "tonic.ai"
+      ]
+    },
+    {
+      "name": "Garner Health",
+      "companyKey": "garner-health",
+      "normalizedName": "garner-health",
+      "domains": [
+        "garnerhealth.com"
+      ]
+    },
+    {
+      "name": "S&P Global",
+      "companyKey": "s-p-global",
+      "normalizedName": "s-p-global",
+      "domains": [
+        "spglobal.com"
+      ]
+    },
+    {
+      "name": "Superbolt",
+      "companyKey": "superbolt",
+      "normalizedName": "superbolt",
+      "domains": [
+        "superbolt.agency"
+      ]
+    },
+    {
+      "name": "Loft Labs",
+      "companyKey": "loft-labs",
+      "normalizedName": "loft-labs",
+      "domains": [
+        "loft.sh"
+      ]
+    },
+    {
+      "name": "GlossGenius",
+      "companyKey": "glossgenius",
+      "normalizedName": "glossgenius",
+      "domains": [
+        "glossgenius.com"
+      ]
+    },
+    {
+      "name": "Client Accelerators",
+      "companyKey": "client-accelerators",
+      "normalizedName": "client-accelerators",
+      "domains": [
+        "clientaccelerators.com"
+      ]
+    },
+    {
+      "name": "Vizient",
+      "companyKey": "vizient",
+      "normalizedName": "vizient",
+      "domains": [
+        "jobs.6amcity.com"
+      ]
+    },
+    {
+      "name": "Arona Home Essentials",
+      "companyKey": "arona-home-essentials",
+      "normalizedName": "arona-home-essentials",
+      "domains": [
+        "arona-home-essentials.hiringthing.com"
+      ]
+    },
+    {
+      "name": "Abrazo Group",
+      "companyKey": "abrazo-group",
+      "normalizedName": "abrazo-group",
+      "domains": [
+        "talents.vaia.com"
+      ]
+    },
+    {
+      "name": "Greenhouse Software",
+      "companyKey": "greenhouse-software",
+      "normalizedName": "greenhouse-software",
+      "domains": [
+        "greenhouse.io"
+      ]
+    },
+    {
+      "name": "Create Wellness, Inc.",
+      "companyKey": "create-wellness-inc",
+      "normalizedName": "create-wellness-inc",
+      "domains": [
+        "createwellness.com",
+        "workable.com"
+      ]
+    },
+    {
+      "name": "Classet",
+      "companyKey": "classet",
+      "normalizedName": "classet",
+      "domains": [
+        "classet."
+      ]
+    },
+    {
+      "name": "FE International",
+      "companyKey": "fe-international",
+      "normalizedName": "fe-international",
+      "domains": [
+        "feinternational.com"
+      ]
+    },
+    {
+      "name": "ReflexAI",
+      "companyKey": "reflexai",
+      "normalizedName": "reflexai",
+      "domains": [
+        "reflexai.com"
+      ]
+    },
+    {
+      "name": "Rocket Money",
+      "companyKey": "rocket-money",
+      "normalizedName": "rocket-money",
+      "domains": [
+        "rocketmoney.com"
+      ]
+    },
+    {
+      "name": "xAI",
+      "companyKey": "xai",
+      "normalizedName": "xai",
+      "domains": [
+        "x.ai"
+      ]
+    },
+    {
+      "name": "Nash",
+      "companyKey": "nash",
+      "normalizedName": "nash",
+      "domains": [
+        "usenash.com"
+      ]
+    },
+    {
+      "name": "Suite Studios",
+      "companyKey": "suite-studios",
+      "normalizedName": "suite-studios",
+      "domains": [
+        "suitestudios.com"
+      ]
+    },
+    {
+      "name": "Atticus",
+      "companyKey": "atticus",
+      "normalizedName": "atticus",
+      "domains": [
+        "atticus.com"
+      ]
+    },
+    {
+      "name": "Cobalt",
+      "companyKey": "cobalt",
+      "normalizedName": "cobalt",
+      "domains": [
+        "cobalt.io"
+      ]
+    },
+    {
+      "name": "Arlo Health",
+      "companyKey": "arlo-health",
+      "normalizedName": "arlo-health",
+      "domains": [
+        "arlo.com"
+      ]
+    },
+    {
+      "name": "Userpilot",
+      "companyKey": "userpilot",
+      "normalizedName": "userpilot",
+      "domains": [
+        "userpilot.com"
+      ]
+    },
+    {
+      "name": "Adobe",
+      "companyKey": "adobe",
+      "normalizedName": "adobe",
+      "domains": [
+        "adobe.com"
+      ]
+    },
+    {
+      "name": "SpaceX",
+      "companyKey": "spacex",
+      "normalizedName": "spacex",
+      "domains": [
+        "spacex.com"
+      ]
+    },
+    {
+      "name": "Intuitive",
+      "companyKey": "intuitive",
+      "normalizedName": "intuitive",
+      "domains": [
+        "intuitive.com"
+      ]
+    },
+    {
+      "name": "Constant Contact",
+      "companyKey": "constant-contact",
+      "normalizedName": "constant-contact",
+      "domains": [
+        "constantcontact.com"
+      ]
+    },
+    {
+      "name": "Samsara",
+      "companyKey": "samsara",
+      "normalizedName": "samsara",
+      "domains": [
+        "samsara.com"
+      ]
+    },
+    {
+      "name": "SoFi",
+      "companyKey": "sofi",
+      "normalizedName": "sofi",
+      "domains": [
+        "sofi.com"
+      ]
+    },
+    {
+      "name": "Upstart",
+      "companyKey": "upstart",
+      "normalizedName": "upstart",
+      "domains": [
+        "upstart.com"
+      ]
+    },
+    {
+      "name": "6Minded",
+      "companyKey": "6minded",
+      "normalizedName": "6minded",
+      "domains": [
+        "6minded.com"
+      ]
+    },
+    {
+      "name": "Grant Street Group",
+      "companyKey": "grant-street-group",
+      "normalizedName": "grant-street-group",
+      "domains": [
+        "grantstreet.com"
+      ]
+    },
+    {
+      "name": "Kiefer Sage Inc.",
+      "companyKey": "kiefer-sage-inc",
+      "normalizedName": "kiefer-sage-inc",
+      "domains": [
+        "kiefersage.com"
+      ]
+    },
+    {
+      "name": "Daily Harvest",
+      "companyKey": "daily-harvest",
+      "normalizedName": "daily-harvest",
+      "domains": [
+        "daily-harvest.com"
+      ]
+    },
+    {
+      "name": "FanDuel",
+      "companyKey": "fanduel",
+      "normalizedName": "fanduel",
+      "domains": [
+        "fanduel.com"
+      ]
+    },
+    {
+      "name": "Kammok",
+      "companyKey": "kammok",
+      "normalizedName": "kammok",
+      "domains": [
+        "kammok.com"
+      ]
+    },
+    {
+      "name": "Resident",
+      "companyKey": "resident",
+      "normalizedName": "resident",
+      "domains": [
+        "resident.com"
+      ]
+    },
+    {
+      "name": "MyGroove",
+      "companyKey": "mygroove",
+      "normalizedName": "mygroove",
+      "domains": [
+        "mygroove.com"
+      ]
+    },
+    {
+      "name": "NBCUniversal",
+      "companyKey": "nbcuniversal",
+      "normalizedName": "nbcuniversal",
+      "domains": [
+        "nbcuniversal.com"
+      ]
+    },
+    {
+      "name": "Datex Inc.",
+      "companyKey": "datex-inc",
+      "normalizedName": "datex-inc",
+      "domains": [
+        "datexcorp.com"
+      ]
+    },
+    {
+      "name": "Aspen Dental",
+      "companyKey": "aspen-dental",
+      "normalizedName": "aspen-dental",
+      "domains": [
+        "gfj.aspendental.com"
+      ]
+    },
+    {
+      "name": "AbbVie",
+      "companyKey": "abbvie",
+      "normalizedName": "abbvie",
+      "domains": [
+        "jobs.smartrecruiters.com"
+      ]
+    },
+    {
+      "name": "Wespath Benefits and Investments",
+      "companyKey": "wespath-benefits-and-investments",
+      "normalizedName": "wespath-benefits-and-investments",
+      "domains": [
+        "bigshoesnetwork.com"
+      ]
+    },
+    {
+      "name": "Itzy Ritzy",
+      "companyKey": "itzy-ritzy",
+      "normalizedName": "itzy-ritzy",
+      "domains": [
+        "bebee.com"
+      ]
+    },
+    {
+      "name": "Zebra Technologies",
+      "companyKey": "zebra-technologies",
+      "normalizedName": "zebra-technologies",
+      "domains": [
+        "us.experteer.com"
+      ]
+    },
+    {
+      "name": "REEF",
+      "companyKey": "reef",
+      "normalizedName": "reef",
+      "domains": [
+        "jobs.digitalhire.com"
+      ]
+    },
+    {
+      "name": "Recruiting From Scratch",
+      "companyKey": "recruiting-from-scratch",
+      "normalizedName": "recruiting-from-scratch",
+      "domains": [
+        "recruiterflow.com"
+      ]
+    },
+    {
+      "name": "WSP",
+      "companyKey": "wsp",
+      "normalizedName": "wsp",
+      "domains": [
+        "emit.fa.ca3.oraclecloud.com"
+      ]
+    },
+    {
+      "name": "Town Square Health",
+      "companyKey": "town-square-health",
+      "normalizedName": "town-square-health",
+      "domains": [
+        "townsquarehealth.applytojob.com"
+      ]
+    },
+    {
+      "name": "Digital",
+      "companyKey": "digital",
+      "normalizedName": "digital",
+      "domains": [
+        "bebee.com"
+      ]
+    },
+    {
+      "name": "Walmart",
+      "companyKey": "walmart",
+      "normalizedName": "walmart",
+      "domains": [
+        "jobs.digitalhire.com"
+      ]
+    },
+    {
+      "name": "Acrisure Innovation",
+      "companyKey": "acrisure-innovation",
+      "normalizedName": "acrisure-innovation",
+      "domains": [
+        "tealhq.com"
+      ]
+    },
+    {
+      "name": "BEGiN",
+      "companyKey": "begin",
+      "normalizedName": "begin",
+      "domains": [
+        "dowjones.wd1.myworkdayjobs.com"
+      ]
+    },
+    {
+      "name": "AiDOOS",
+      "companyKey": "aidoos",
+      "normalizedName": "aidoos",
+      "domains": [
+        "aidoos.com"
+      ]
+    },
+    {
+      "name": "Greenlight",
+      "companyKey": "greenlight",
+      "normalizedName": "greenlight",
+      "domains": [
+        "remoterocketship.com"
+      ]
+    },
+    {
+      "name": "Affirm",
+      "companyKey": "affirm",
+      "normalizedName": "affirm",
+      "domains": [
+        "careervault.io"
+      ]
+    },
+    {
+      "name": "RSA Security",
+      "companyKey": "rsa-security",
+      "normalizedName": "rsa-security",
+      "domains": [
+        "bebee.com"
+      ]
+    },
+    {
+      "name": "Farinas Marketing Services",
+      "companyKey": "farinas-marketing-services",
+      "normalizedName": "farinas-marketing-services",
+      "domains": [
+        "wuzzuf.net"
+      ]
+    },
+    {
+      "name": "NoGood",
+      "companyKey": "nogood",
+      "normalizedName": "nogood",
+      "domains": [
+        "swooped.co"
+      ]
+    },
+    {
+      "name": "Midade",
+      "companyKey": "midade",
+      "normalizedName": "midade",
+      "domains": [
+        "egypt.tanqeeb.com"
+      ]
+    },
+    {
+      "name": "Confidential",
+      "companyKey": "confidential",
+      "normalizedName": "confidential",
+      "domains": [
+        "bebee.com"
+      ]
+    },
+    {
+      "name": "Xplor",
+      "companyKey": "xplor",
+      "normalizedName": "xplor",
+      "domains": [
+        "dailyremote.com"
+      ]
+    },
+    {
+      "name": "Cheetah Clean",
+      "companyKey": "cheetah-clean",
+      "normalizedName": "cheetah-clean",
+      "domains": [
+        "talents.vaia.com"
+      ]
+    },
+    {
+      "name": "Cardinal Health",
+      "companyKey": "cardinal-health",
+      "normalizedName": "cardinal-health",
+      "domains": [
+        "learn4good.com"
+      ]
+    },
+    {
+      "name": "Indeed",
+      "companyKey": "indeed",
+      "normalizedName": "indeed",
+      "domains": [
+        "kyjobs.usnlx.com"
+      ]
+    },
+    {
+      "name": "FedEx Dataworks",
+      "companyKey": "fedex-dataworks",
+      "normalizedName": "fedex-dataworks",
+      "domains": [
+        "my.recruitmilitary.com"
+      ]
+    },
+    {
+      "name": "Audiochuck",
+      "companyKey": "audiochuck",
+      "normalizedName": "audiochuck",
+      "domains": [
+        "entertainmentcareers.net"
+      ]
+    },
+    {
+      "name": "Treats Unleashed",
+      "companyKey": "treats-unleashed",
+      "normalizedName": "treats-unleashed",
+      "domains": [
+        "jobright.ai"
+      ]
+    },
+    {
+      "name": "CarMax",
+      "companyKey": "carmax",
+      "normalizedName": "carmax",
+      "domains": [
+        "careers.carmax.com"
+      ]
+    },
+    {
+      "name": "alliantgroup, LP",
+      "companyKey": "alliantgroup-lp",
+      "normalizedName": "alliantgroup-lp",
+      "domains": [
+        "jobs.digitalhire.com"
+      ]
+    },
+    {
+      "name": "SherlockTalent",
+      "companyKey": "sherlocktalent",
+      "normalizedName": "sherlocktalent",
+      "domains": [
+        "talents.vaia.com"
+      ]
+    },
+    {
+      "name": "Vail Resorts",
+      "companyKey": "vail-resorts",
+      "normalizedName": "vail-resorts",
+      "domains": [
+        "jobs.6amcity.com"
+      ]
+    },
+    {
+      "name": "Catch Co.",
+      "companyKey": "catch-co",
+      "normalizedName": "catch-co",
+      "domains": [
+        "catchco.applytojob.com"
+      ]
+    },
+    {
+      "name": "9/11 Memorial and Museum",
+      "companyKey": "9-11-memorial-and-museum",
+      "normalizedName": "9-11-memorial-and-museum",
+      "domains": [
+        "pngas.jobboardhq.com"
+      ]
+    },
+    {
+      "name": "Right Side Up",
+      "companyKey": "right-side-up",
+      "normalizedName": "right-side-up",
+      "domains": [
+        "jobright.ai"
+      ]
+    },
+    {
+      "name": "MDalgorithms Inc.",
+      "companyKey": "mdalgorithms-inc",
+      "normalizedName": "mdalgorithms-inc",
+      "domains": [
+        "ycombinator.com"
+      ]
+    },
+    {
+      "name": "Eyecare Pro",
+      "companyKey": "eyecare-pro",
+      "normalizedName": "eyecare-pro",
+      "domains": [
+        "tealhq.com"
+      ]
+    },
+    {
+      "name": "Seven AI",
+      "companyKey": "seven-ai",
+      "normalizedName": "seven-ai",
+      "domains": [
+        "seven.ai"
+      ]
+    },
+    {
+      "name": "Autodesk",
+      "companyKey": "autodesk",
+      "normalizedName": "autodesk",
+      "domains": [
+        "autodesk.com"
+      ]
+    },
+    {
+      "name": "Faire",
+      "companyKey": "faire",
+      "normalizedName": "faire",
+      "domains": [
+        "faire.com"
+      ]
+    },
+    {
+      "name": "Flexjobs",
+      "companyKey": "flexjobs",
+      "normalizedName": "flexjobs",
+      "domains": [
+        "flexjobs.zya.me"
+      ]
+    },
+    {
+      "name": "Greenhouse",
+      "companyKey": "greenhouse",
+      "normalizedName": "greenhouse",
+      "domains": [
+        "greenhouse.io"
+      ]
+    },
+    {
+      "name": "Anders",
+      "companyKey": "anders",
+      "normalizedName": "anders",
+      "domains": [
+        "salaryguide.com"
+      ]
+    },
+    {
+      "name": "Concordia Publishing House",
+      "companyKey": "concordia-publishing-house",
+      "normalizedName": "concordia-publishing-house",
+      "domains": [
+        "bebee.com"
+      ]
+    },
+    {
+      "name": "Nimble",
+      "companyKey": "nimble",
+      "normalizedName": "nimble",
+      "domains": [
+        "bebee.com"
+      ]
+    },
+    {
+      "name": "APTEAN",
+      "companyKey": "aptean",
+      "normalizedName": "aptean",
+      "domains": [
+        "jobs.womenforhire.com"
+      ]
+    },
+    {
+      "name": "GenoPalate Inc",
+      "companyKey": "genopalate-inc",
+      "normalizedName": "genopalate-inc",
+      "domains": [
+        "us.thebigjobsite.com"
+      ]
+    },
+    {
+      "name": "Rockstar",
+      "companyKey": "rockstar",
+      "normalizedName": "rockstar",
+      "domains": [
+        "apply.workable.com"
+      ]
+    },
+    {
+      "name": "GrowthAssistant",
+      "companyKey": "growthassistant",
+      "normalizedName": "growthassistant",
+      "domains": [
+        "ecommerce.jobs"
+      ]
+    },
+    {
+      "name": "AlphaSense",
+      "companyKey": "alphasense",
+      "normalizedName": "alphasense",
+      "domains": [
+        "alpha-sense.com",
+        "tegus.com"
+      ]
+    },
+    {
+      "name": "Tavus",
+      "companyKey": "tavus",
+      "normalizedName": "tavus",
+      "domains": [
+        "tavus.io"
+      ]
+    },
+    {
+      "name": "Prolific",
+      "companyKey": "prolific",
+      "normalizedName": "prolific",
+      "domains": [
+        "prolific.com"
+      ]
+    },
+    {
+      "name": "Later",
+      "companyKey": "later",
+      "normalizedName": "later",
+      "domains": [
+        "talents.vaia.com"
+      ]
+    },
+    {
+      "name": "Hinge Health",
+      "companyKey": "hinge-health",
+      "normalizedName": "hinge-health",
+      "domains": [
+        "hingehealth.com"
+      ]
+    },
+    {
+      "name": "Allied Solutions",
+      "companyKey": "allied-solutions",
+      "normalizedName": "allied-solutions",
+      "domains": [
+        "tealhq.com"
+      ]
+    },
+    {
+      "name": "Cisive",
+      "companyKey": "cisive",
+      "normalizedName": "cisive",
+      "domains": [
+        "purpose.jobs"
+      ]
+    }
+  ],
+  "lastRefreshAt": {
+    "at": "2026-04-23T06:42:09.928Z",
+    "source": "refresh"
+  }
+}
