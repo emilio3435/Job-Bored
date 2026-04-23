@@ -60,14 +60,14 @@ export type HandleWebhookDependencies = {
   ): RunDiscoveryDependencies["pipelineWriter"];
   /**
    * Maximum duration in milliseconds for an async run before it is forcibly
-   * terminalized. Defaults to 5 minutes (300000ms) if not specified.
+   * terminalized. Defaults to 12 minutes (720000ms) if not specified.
    * This guarantees that async runs cannot stall indefinitely in running state.
    */
   maxRunDurationMs?: number;
 };
 
-// Default maximum async run duration: 5 minutes
-const DEFAULT_MAX_RUN_DURATION_MS = 5 * 60 * 1000;
+// Default maximum async run duration: 12 minutes
+const DEFAULT_MAX_RUN_DURATION_MS = 12 * 60 * 1000;
 
 export async function handleDiscoveryWebhook(
   request: WebhookRequestLike,

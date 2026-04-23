@@ -177,7 +177,50 @@ describe("analyzeAtsScorecard provider parsing", () => {
     };
 
     try {
-      await assert.rejects(() => analyzeAtsScorecard(buildPayload()), /Rate limit/);
+      await assert.rejects(() => analyzeAtsScorecard(buildPayload()), (error) => {
+        assert.match(String(error?.message || ""), /Rate limit/);
+        assert.equal(error?.provider, "gemini");
+        assert.equal(error?.upstreamStatus, 429);
+        assert.equal(error?.classification, "rate_limit");
+        assert.equal(error?.retryable, true);
+        return true;
+      });
+      assert.equal(calls, 1);
+    } finally {
+      globalThis.fetch = originalFetch;
+      restoreEnv();
+    }
+  });
+
+  it("does not classify non-429 responses as rate limits from message substrings", async () => {
+    const restoreEnv = setTestProviderEnv();
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      return new Response(
+        JSON.stringify({
+          error: {
+            message:
+              "Upstream dependency mentioned HTTP 429 in diagnostics, but this request failed with timeout.",
+            status: "INTERNAL",
+          },
+        }),
+        {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    };
+
+    try {
+      await assert.rejects(() => analyzeAtsScorecard(buildPayload()), (error) => {
+        assert.equal(error?.provider, "gemini");
+        assert.equal(error?.upstreamStatus, 500);
+        assert.equal(error?.classification, "upstream");
+        assert.equal(error?.retryable, true);
+        return true;
+      });
       assert.equal(calls, 1);
     } finally {
       globalThis.fetch = originalFetch;
