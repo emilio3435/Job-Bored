@@ -17,6 +17,8 @@
  *   - renderCompanyList(container, companies, options)
  *   - filterCompanies(companies, query)
  *   - sortCompaniesByName(companies)
+ *   - pickRandomCompanies(list, n)
+ *   - buildCombinedLibrary({ active, history })
  */
 (function () {
   "use strict";
@@ -44,6 +46,49 @@
       return 0;
     });
     return copy;
+  }
+
+  // Fisher-Yates shuffle on a shallow copy, returning the first `n` entries.
+  // Returned entries are distinct references drawn from `list`; n<=0 or empty
+  // list yields []; n greater than list length yields the full list (shuffled).
+  function pickRandomCompanies(list, n) {
+    var arr = Array.isArray(list) ? list.slice() : [];
+    var count = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+    if (count === 0 || arr.length === 0) return [];
+    for (var i = arr.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = arr[i];
+      arr[i] = arr[j];
+      arr[j] = tmp;
+    }
+    return arr.slice(0, Math.min(count, arr.length));
+  }
+
+  // Merge `active` + `history` lists, tagging each entry with its origin and
+  // deduping by companyKey. Active wins on collision — history entries whose
+  // key already appeared in active are dropped. Entries without a companyKey
+  // are dropped (can't be identified downstream for the allowlist wire format).
+  function buildCombinedLibrary(input) {
+    var obj = input || {};
+    var active = Array.isArray(obj.active) ? obj.active : [];
+    var history = Array.isArray(obj.history) ? obj.history : [];
+    var seen = Object.create(null);
+    var out = [];
+    function push(entry, source) {
+      if (!entry || typeof entry !== "object") return;
+      var key = typeof entry.companyKey === "string" ? entry.companyKey : "";
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      var tagged = {};
+      for (var k in entry) {
+        if (Object.prototype.hasOwnProperty.call(entry, k)) tagged[k] = entry[k];
+      }
+      tagged.source = source;
+      out.push(tagged);
+    }
+    for (var i = 0; i < active.length; i++) push(active[i], "active");
+    for (var j = 0; j < history.length; j++) push(history[j], "history");
+    return out;
   }
 
   function filterCompanies(companies, query) {
@@ -472,6 +517,8 @@
     renderCompanyList: renderCompanyList,
     filterCompanies: filterCompanies,
     sortCompaniesByName: sortCompaniesByName,
+    pickRandomCompanies: pickRandomCompanies,
+    buildCombinedLibrary: buildCombinedLibrary,
     __test: {
       initCompaniesTab: initCompaniesTab,
       renderCompanyRow: renderCompanyRow,
