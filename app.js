@@ -2044,6 +2044,18 @@ async function refreshDiscoveryReadinessSnapshot(options = {}) {
   return next;
 }
 
+// Snapshot of the Run Discovery "Company targets" picker at the moment the
+// user clicks Run now. Consumed once by buildDiscoveryWebhookPayload so it
+// can't leak into unrelated runs (empty-state buttons, brief panel, etc.).
+// null = no per-run override; non-empty array = subset to send as
+// companyAllowlist. The modal binding in initDiscoveryPrefsModal sets this.
+let __discoveryPrefsPendingCompanyAllowlist = null;
+
+function setPendingDiscoveryCompanyAllowlist(allowlist) {
+  __discoveryPrefsPendingCompanyAllowlist =
+    Array.isArray(allowlist) && allowlist.length ? allowlist.slice() : null;
+}
+
 async function buildDiscoveryWebhookPayload(sheetIdOverride) {
   const resolvedSheetId =
     parseGoogleSheetId(String(sheetIdOverride || "")) || SHEET_ID || "";
@@ -2065,7 +2077,13 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride) {
   // We declare the key unconditionally so JSON.stringify drops it when
   // empty (keeps the contract scanner happy and the wire format unchanged).
   const dashboardGoogleAccessToken = getDiscoveryRequestGoogleAccessToken();
-  return {
+  // Consume the per-run picker snapshot (set by the Run Discovery modal). We
+  // read-and-clear so a later unrelated Run doesn't inherit it. Omit the
+  // field entirely when the user didn't touch the picker (selection matches
+  // the full active set) — contract says absent == today's behavior.
+  const pendingAllowlist = __discoveryPrefsPendingCompanyAllowlist;
+  __discoveryPrefsPendingCompanyAllowlist = null;
+  const payload = {
     event: "command-center.discovery",
     schemaVersion: 1,
     sheetId: resolvedSheetId,
@@ -2074,6 +2092,10 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride) {
     discoveryProfile,
     googleAccessToken: dashboardGoogleAccessToken || undefined,
   };
+  if (Array.isArray(pendingAllowlist) && pendingAllowlist.length) {
+    payload.companyAllowlist = pendingAllowlist.slice();
+  }
+  return payload;
 }
 
 /**
@@ -17883,6 +17905,7 @@ function initDiscoveryPrefsModal() {
 
   const closeModal = () => {
     modal.style.display = "none";
+    resetPickerState();
   };
 
   if (cancelBtn) cancelBtn.addEventListener("click", closeModal);
@@ -17909,15 +17932,32 @@ function initDiscoveryPrefsModal() {
     "dpRequirementProfileState",
   );
   const profileSummaryEl = document.getElementById("dpProfileSummary");
-  const profileResultsEl = document.getElementById("dpProfileResults");
   const profileErrorEl = document.getElementById("dpProfileError");
   const profileRefreshBtn = document.getElementById("dpProfileRefreshBtn");
   const profileOpenSettingsBtn = document.getElementById(
     "dpProfileOpenSettingsBtn",
   );
+  const pickerEl = document.getElementById("dpCompanyPicker");
+  const pickerListEl = document.getElementById("dpCompanyPickerList");
+  const pickerSummaryEl = document.getElementById("dpCompanyPickerSummary");
+  const pickerEmptyEl = document.getElementById("dpCompanyPickerEmpty");
+  const pickerSearchEl = document.getElementById("dpCompanySearch");
+  const pickerSelectAllEl = document.getElementById("dpCompanySelectAll");
+  const pickerClearEl = document.getElementById("dpCompanyClear");
+  const pickerRandomCountEl = document.getElementById("dpCompanyRandomCount");
+  const pickerRandomizeEl = document.getElementById("dpCompanyRandomize");
+  const pickerHistoryToggleEl = document.getElementById("dpCompanyShowHistory");
+  const pickerHistoryCountEl = document.getElementById("dpCompanyHistoryCount");
   let profileBusy = false;
   let profileLoadedOnce = false;
-  let profileCompanies = [];
+  let pickerLibraryLoaded = false;
+  let pickerLibraryLoading = false;
+  let pickerLibrary = [];
+  let pickerActiveKeys = [];
+  let pickerSelection = new Set();
+  let pickerSearch = "";
+  let pickerShowHistory = false;
+  let pickerSearchTimer = null;
   let latestProfileStatus = null;
   let activeDiscoveryPrefsTab = "manual";
 
@@ -18042,53 +18082,274 @@ function initDiscoveryPrefsModal() {
       "</span></div>";
   }
 
-  function renderProfileCompanies(companies) {
-    if (!profileResultsEl) return;
-    const list = Array.isArray(companies) ? companies : [];
-    profileCompanies = list.slice();
-    if (!list.length) {
-      profileResultsEl.hidden = false;
-      profileResultsEl.innerHTML =
-        '<p class="modal-field-hint">No companies loaded yet. Click "Refresh companies" to pull the current shortlist from your stored profile.</p>';
+  function getCompaniesTabApi() {
+    const api = window.JobBoredCompaniesTab;
+    return api && typeof api === "object" ? api : null;
+  }
+
+  function resetPickerState() {
+    pickerLibraryLoaded = false;
+    pickerLibraryLoading = false;
+    pickerLibrary = [];
+    pickerActiveKeys = [];
+    pickerSelection = new Set();
+    pickerSearch = "";
+    pickerShowHistory = false;
+    if (pickerSearchTimer) {
+      clearTimeout(pickerSearchTimer);
+      pickerSearchTimer = null;
+    }
+    if (pickerSearchEl) pickerSearchEl.value = "";
+    if (pickerHistoryToggleEl) {
+      pickerHistoryToggleEl.setAttribute("aria-expanded", "false");
+      pickerHistoryToggleEl.textContent = "";
+      pickerHistoryToggleEl.appendChild(document.createTextNode("Show history ("));
+      const countSpan = document.createElement("span");
+      countSpan.id = "dpCompanyHistoryCount";
+      countSpan.textContent = "0";
+      pickerHistoryToggleEl.appendChild(countSpan);
+      pickerHistoryToggleEl.appendChild(document.createTextNode(")"));
+    }
+    if (pickerEl) pickerEl.hidden = true;
+    if (pickerListEl) pickerListEl.innerHTML = "";
+    if (pickerSummaryEl) pickerSummaryEl.textContent = "";
+    if (pickerEmptyEl) {
+      pickerEmptyEl.hidden = true;
+      pickerEmptyEl.textContent = "";
+    }
+  }
+
+  function computeAllowlistSnapshot() {
+    // Return null when the selection matches "no override":
+    //   - library not loaded yet
+    //   - selection is empty (treat as "no intent" rather than "run nothing")
+    //   - selection equals the full active set
+    // Otherwise return the selected keys as an array, which the payload
+    // builder attaches as companyAllowlist.
+    if (!pickerLibraryLoaded) return null;
+    if (!pickerSelection || pickerSelection.size === 0) return null;
+    const active = pickerActiveKeys;
+    if (pickerSelection.size === active.length) {
+      let allMatch = true;
+      for (const key of active) {
+        if (!pickerSelection.has(key)) {
+          allMatch = false;
+          break;
+        }
+      }
+      if (allMatch) return null;
+    }
+    return Array.from(pickerSelection);
+  }
+
+  function updatePickerHistoryToggle() {
+    if (!pickerHistoryToggleEl) return;
+    const historyEntries = pickerLibrary.filter((c) => c.source === "history");
+    const count = historyEntries.length;
+    if (pickerHistoryCountEl) {
+      pickerHistoryCountEl.textContent = String(count);
+    } else {
+      const existing = pickerHistoryToggleEl.querySelector(
+        "#dpCompanyHistoryCount",
+      );
+      if (existing) existing.textContent = String(count);
+    }
+    pickerHistoryToggleEl.setAttribute(
+      "aria-expanded",
+      String(pickerShowHistory),
+    );
+    pickerHistoryToggleEl.disabled = count === 0 && !pickerShowHistory;
+  }
+
+  function renderPickerSummary() {
+    if (!pickerSummaryEl) return;
+    if (!pickerLibraryLoaded) {
+      pickerSummaryEl.textContent = "";
       return;
     }
-    profileResultsEl.hidden = false;
-    profileResultsEl.innerHTML =
-      '<ul class="dp-profile-company-list">' +
-      list
-        .map((company) => {
-          const name = String(company && company.name ? company.name : "").trim();
-          const companyKey = String(
-            (company && (company.companyKey || company.normalizedName)) || "",
-          ).trim();
-          const domains = Array.isArray(company && company.domains)
-            ? company.domains
-                .map((domain) => String(domain || "").trim())
-                .filter(Boolean)
-                .slice(0, 3)
-            : [];
-          return (
-            '<li class="dp-profile-company">' +
-            '<div class="dp-profile-company__meta">' +
-            '<span class="dp-profile-company__name">' +
-            escapeHtml(name || "Unnamed company") +
-            "</span>" +
-            (domains.length
-              ? '<span class="dp-profile-company__domains">' +
-                escapeHtml(domains.join(" · ")) +
-                "</span>"
-              : "") +
-            "</div>" +
-            '<button type="button" class="dp-profile-company__skip" data-company-key="' +
-            escapeHtml(companyKey) +
-            '"' +
-            (companyKey ? "" : " disabled") +
-            ">Remove</button>" +
-            "</li>"
+    const activeCount = pickerActiveKeys.length;
+    const selected = pickerSelection.size;
+    const historyTotal = pickerLibrary.filter((c) => c.source === "history").length;
+    const override = computeAllowlistSnapshot();
+    const base = `${selected} of ${activeCount} active selected`;
+    const historyPart = pickerShowHistory
+      ? ` · ${historyTotal} history shown`
+      : historyTotal
+        ? ` · ${historyTotal} in history`
+        : "";
+    const overridePart = override
+      ? " · per-run override active"
+      : " · using default active list";
+    pickerSummaryEl.textContent = base + historyPart + overridePart;
+  }
+
+  function renderPickerList() {
+    if (!pickerListEl) return;
+    const tab = getCompaniesTabApi();
+    const query = pickerSearch;
+    const base = pickerShowHistory
+      ? pickerLibrary
+      : pickerLibrary.filter((c) => c.source === "active");
+    const filtered =
+      tab && typeof tab.filterCompanies === "function"
+        ? tab.filterCompanies(base, query)
+        : base.filter((c) =>
+            String(c && c.name ? c.name : "")
+              .toLowerCase()
+              .includes(String(query || "").toLowerCase()),
           );
-        })
-        .join("") +
-      "</ul>";
+    const sorted =
+      tab && typeof tab.sortCompaniesByName === "function"
+        ? tab.sortCompaniesByName(filtered)
+        : filtered.slice();
+    if (!sorted.length) {
+      pickerListEl.innerHTML = "";
+      if (pickerEmptyEl) {
+        pickerEmptyEl.hidden = false;
+        if (!pickerLibrary.length) {
+          pickerEmptyEl.textContent =
+            "No companies loaded yet. Click Refresh companies to populate.";
+        } else if (query) {
+          pickerEmptyEl.textContent = "No companies match your search.";
+        } else if (!pickerShowHistory) {
+          pickerEmptyEl.textContent =
+            "No active companies — try Show history or refresh to rediscover.";
+        } else {
+          pickerEmptyEl.textContent = "No companies to show.";
+        }
+      }
+      return;
+    }
+    if (pickerEmptyEl) {
+      pickerEmptyEl.hidden = true;
+      pickerEmptyEl.textContent = "";
+    }
+    pickerListEl.innerHTML = sorted
+      .map((company) => {
+        const name = String((company && company.name) || "").trim();
+        const companyKey = String((company && company.companyKey) || "").trim();
+        const domains = Array.isArray(company && company.domains)
+          ? company.domains
+              .map((d) => String(d || "").trim())
+              .filter(Boolean)
+              .slice(0, 3)
+          : [];
+        const isChecked = companyKey && pickerSelection.has(companyKey);
+        const isHistory = company && company.source === "history";
+        const rowClass =
+          "dp-company-picker__row" +
+          (isHistory ? " dp-company-picker__row--history" : "");
+        const tagHtml = isHistory
+          ? '<span class="dp-company-picker__tag dp-company-picker__tag--history">History</span>'
+          : '<span class="dp-company-picker__tag">Active</span>';
+        const checkboxId = companyKey
+          ? `dpCompanyCheckbox-${escapeHtml(companyKey)}`
+          : "";
+        return (
+          `<li class="${rowClass}" data-company-key="${escapeHtml(companyKey)}">` +
+          `<input type="checkbox" class="dp-company-picker__checkbox" ` +
+          `id="${checkboxId}" ` +
+          `data-company-key="${escapeHtml(companyKey)}" ` +
+          (isChecked ? "checked " : "") +
+          (companyKey ? "" : "disabled ") +
+          "/>" +
+          `<label class="dp-company-picker__label"${
+            checkboxId ? ` for="${checkboxId}"` : ""
+          }>` +
+          `<span class="dp-company-picker__name">${escapeHtml(
+            name || "Unnamed company",
+          )}</span>` +
+          (domains.length
+            ? `<span class="dp-company-picker__domains">${escapeHtml(
+                domains.join(" · "),
+              )}</span>`
+            : "") +
+          "</label>" +
+          tagHtml +
+          "</li>"
+        );
+      })
+      .join("");
+  }
+
+  function renderPicker() {
+    updatePickerHistoryToggle();
+    renderPickerList();
+    renderPickerSummary();
+  }
+
+  async function loadPickerLibrary(options) {
+    const opts = options || {};
+    if (pickerLibraryLoading) return;
+    const post = getProfilePostEndpoint();
+    if (!post) {
+      setProfileError("Profile endpoint is not available. Reload and try again.");
+      return;
+    }
+    const tab = getCompaniesTabApi();
+    const sheetId = SHEET_ID || getSettingsSheetIdValue() || "";
+    if (!sheetId) {
+      setProfileError(
+        "Connect a sheet in Settings → Sheet before the company picker can load.",
+      );
+      return;
+    }
+    pickerLibraryLoading = true;
+    if (pickerEl) pickerEl.hidden = false;
+    if (!opts.silent && pickerSummaryEl) {
+      pickerSummaryEl.textContent = "Loading companies…";
+    }
+    try {
+      const data = await post(
+        { mode: "list_companies", sheetId: sheetId },
+        15_000,
+      );
+      if (!data || data.ok !== true) {
+        throw new Error(
+          (data && data.message) || "Could not load companies.",
+        );
+      }
+      const active = Array.isArray(data.active) ? data.active : [];
+      const history = Array.isArray(data.history) ? data.history : [];
+      const combined =
+        tab && typeof tab.buildCombinedLibrary === "function"
+          ? tab.buildCombinedLibrary({ active: active, history: history })
+          : active
+              .map((c) => Object.assign({}, c, { source: "active" }))
+              .concat(history.map((c) => Object.assign({}, c, { source: "history" })));
+      pickerLibrary = combined;
+      pickerActiveKeys = combined
+        .filter((c) => c.source === "active" && c.companyKey)
+        .map((c) => String(c.companyKey));
+      // Re-seed selection with active keys on fresh load. Preserves prior
+      // selection across a silent reload only if the caller asks; otherwise
+      // the user gets the "all active checked" default again.
+      if (!opts.preserveSelection) {
+        pickerSelection = new Set(pickerActiveKeys);
+      } else {
+        // Drop keys that no longer exist in the library after reload.
+        const validKeys = new Set(
+          combined.map((c) => String(c.companyKey || "")).filter(Boolean),
+        );
+        const next = new Set();
+        pickerSelection.forEach((key) => {
+          if (validKeys.has(key)) next.add(key);
+        });
+        pickerSelection = next;
+      }
+      pickerLibraryLoaded = true;
+      renderPicker();
+    } catch (err) {
+      setProfileError(
+        "Couldn't load companies: " +
+          (err && err.message ? err.message : String(err || "unknown error")),
+      );
+      if (pickerSummaryEl && !opts.silent) {
+        pickerSummaryEl.textContent = "";
+      }
+    } finally {
+      pickerLibraryLoading = false;
+    }
   }
 
   async function refreshProfileSummary() {
@@ -18125,6 +18386,9 @@ function initDiscoveryPrefsModal() {
   }
 
   async function refreshProfileCompanies() {
+    // "Refresh companies" still runs the heavyweight re-discovery on the
+    // backend (mode=refresh replays stored candidateProfile against Gemini).
+    // Then we reload the picker library so the user sees the updated set.
     if (profileBusy) return;
     const post = getProfilePostEndpoint();
     if (!post) {
@@ -18133,10 +18397,8 @@ function initDiscoveryPrefsModal() {
     }
     setProfileRefreshBusy(true);
     setProfileError("");
-    if (profileResultsEl) {
-      profileResultsEl.hidden = false;
-      profileResultsEl.innerHTML =
-        '<p class="modal-field-hint">Refreshing company shortlist…</p>';
+    if (pickerSummaryEl) {
+      pickerSummaryEl.textContent = "Refreshing company shortlist…";
     }
     try {
       const data = await post({ mode: "refresh" }, 180_000);
@@ -18145,25 +18407,27 @@ function initDiscoveryPrefsModal() {
           (data && data.message) || "Could not refresh company shortlist.",
         );
       }
-      renderProfileCompanies(data.companies || []);
       await refreshProfileSummary();
+      await loadPickerLibrary({ silent: true });
       if (data.fallback && data.fallback.reason) {
         const detail =
           typeof data.fallback.message === "string" ? data.fallback.message : "";
-        const companyCount = Array.isArray(data.companies) ? data.companies.length : 0;
+        const companyCount = Array.isArray(data.companies)
+          ? data.companies.length
+          : 0;
         if (companyCount <= 0) {
           setProfileError(
-            detail || `No companies available right now (${data.fallback.reason.replace(/_/g, " ")}).`,
+            detail ||
+              `No companies available right now (${data.fallback.reason.replace(
+                /_/g,
+                " ",
+              )}).`,
           );
         } else {
           setProfileError("");
         }
       }
     } catch (err) {
-      if (profileResultsEl) {
-        profileResultsEl.hidden = true;
-        profileResultsEl.innerHTML = "";
-      }
       setProfileError(
         "Couldn't refresh companies: " +
           (err && err.message ? err.message : String(err || "unknown error")),
@@ -18173,45 +18437,71 @@ function initDiscoveryPrefsModal() {
     }
   }
 
-  async function handleProfileSkipCompany(companyKey, buttonEl) {
-    if (!companyKey) return;
-    if (buttonEl) buttonEl.disabled = true;
-    const post = getProfilePostEndpoint();
-    if (!post) {
-      setProfileError("Profile endpoint is not available. Reload and try again.");
-      if (buttonEl) buttonEl.disabled = false;
-      return;
-    }
-    setProfileError("");
-    try {
-      await post({ mode: "skip_company", skipCompanyKeys: [companyKey] }, 15_000);
-      profileCompanies = profileCompanies.filter((company) => {
-        const key = String(
-          (company && (company.companyKey || company.normalizedName)) || "",
-        ).trim();
-        return key !== companyKey;
-      });
-      renderProfileCompanies(profileCompanies);
-      await refreshProfileSummary();
-    } catch (err) {
-      setProfileError(
-        "Couldn't remove company: " +
-          (err && err.message ? err.message : String(err || "unknown error")),
-      );
-      if (buttonEl) buttonEl.disabled = false;
-    }
+  if (pickerListEl) {
+    pickerListEl.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!target || !target.matches || !target.matches(".dp-company-picker__checkbox")) {
+        return;
+      }
+      const companyKey = String(
+        target.getAttribute("data-company-key") || "",
+      ).trim();
+      if (!companyKey) return;
+      if (target.checked) {
+        pickerSelection.add(companyKey);
+      } else {
+        pickerSelection.delete(companyKey);
+      }
+      renderPickerSummary();
+    });
   }
 
-  if (profileResultsEl) {
-    profileResultsEl.addEventListener("click", (event) => {
-      const button =
-        event && event.target && event.target.closest
-          ? event.target.closest(".dp-profile-company__skip")
-          : null;
-      if (!button) return;
-      const companyKey = String(button.getAttribute("data-company-key") || "").trim();
-      if (!companyKey) return;
-      void handleProfileSkipCompany(companyKey, button);
+  if (pickerSearchEl) {
+    pickerSearchEl.addEventListener("input", (event) => {
+      const value = event && event.target ? String(event.target.value || "") : "";
+      if (pickerSearchTimer) clearTimeout(pickerSearchTimer);
+      pickerSearchTimer = setTimeout(() => {
+        pickerSearch = value.trim();
+        renderPickerList();
+      }, 120);
+    });
+  }
+
+  if (pickerSelectAllEl) {
+    pickerSelectAllEl.addEventListener("click", () => {
+      pickerSelection = new Set(pickerActiveKeys);
+      renderPicker();
+    });
+  }
+
+  if (pickerClearEl) {
+    pickerClearEl.addEventListener("click", () => {
+      pickerSelection = new Set();
+      renderPicker();
+    });
+  }
+
+  if (pickerRandomizeEl) {
+    pickerRandomizeEl.addEventListener("click", () => {
+      const tab = getCompaniesTabApi();
+      if (!tab || typeof tab.pickRandomCompanies !== "function") return;
+      const raw = pickerRandomCountEl ? Number(pickerRandomCountEl.value) : 0;
+      const n = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+      if (n <= 0 || !pickerLibrary.length) return;
+      const picked = tab.pickRandomCompanies(pickerLibrary, n);
+      pickerSelection = new Set(
+        picked
+          .map((c) => String((c && c.companyKey) || ""))
+          .filter(Boolean),
+      );
+      renderPicker();
+    });
+  }
+
+  if (pickerHistoryToggleEl) {
+    pickerHistoryToggleEl.addEventListener("click", () => {
+      pickerShowHistory = !pickerShowHistory;
+      renderPicker();
     });
   }
 
@@ -18253,6 +18543,9 @@ function initDiscoveryPrefsModal() {
       profileLoadedOnce = true;
       void refreshProfileSummary();
     }
+    if (isProfile && !pickerLibraryLoaded && !pickerLibraryLoading) {
+      void loadPickerLibrary();
+    }
     updateRequirementStates();
   }
 
@@ -18272,17 +18565,13 @@ function initDiscoveryPrefsModal() {
   });
   window.__JobBoredDiscoveryPrefsShowProfileCore = () => {
     profileLoadedOnce = false;
-    profileCompanies = [];
     latestProfileStatus = null;
     activeDiscoveryPrefsTab = "manual";
     if (aiAssistToggle) aiAssistToggle.checked = false;
     setProfileError("");
     renderProfileSummary(null);
     updateRequirementStates();
-    if (profileResultsEl) {
-      profileResultsEl.hidden = true;
-      profileResultsEl.innerHTML = "";
-    }
+    resetPickerState();
     switchTab("manual");
     void refreshProfileSummary();
   };
@@ -18525,6 +18814,10 @@ function initDiscoveryPrefsModal() {
           sourcePreset,
         });
       }
+      // Capture the picker's current subset as the per-run allowlist BEFORE
+      // closeModal wipes the picker closure state. buildDiscoveryWebhookPayload
+      // consumes (read-and-clear) this snapshot on the next payload build.
+      setPendingDiscoveryCompanyAllowlist(computeAllowlistSnapshot());
       closeModal();
       const openBtn = document.getElementById("discoveryBtn");
       if (openBtn) {
