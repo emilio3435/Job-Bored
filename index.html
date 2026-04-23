@@ -6088,11 +6088,87 @@ https://your-static-site.example</pre
           ></p>
 
           <div
-            class="dp-profile-results"
-            id="dpProfileResults"
-            hidden
+            class="dp-company-picker"
+            id="dpCompanyPicker"
             aria-live="polite"
-          ></div>
+            hidden
+          >
+            <div class="dp-company-picker__toolbar" role="group" aria-label="Company picker tools">
+              <label class="dp-company-picker__search-label" for="dpCompanySearch">
+                <span class="field-label-visually-hidden">Search companies</span>
+                <input
+                  type="search"
+                  id="dpCompanySearch"
+                  class="modal-input dp-company-picker__search"
+                  placeholder="Search companies…"
+                  autocomplete="off"
+                />
+              </label>
+              <div class="dp-company-picker__actions">
+                <button
+                  type="button"
+                  class="btn-modal-secondary dp-company-picker__btn"
+                  id="dpCompanySelectAll"
+                >
+                  Select all active
+                </button>
+                <button
+                  type="button"
+                  class="btn-modal-secondary dp-company-picker__btn"
+                  id="dpCompanyClear"
+                >
+                  Clear
+                </button>
+                <label class="dp-company-picker__random">
+                  Pick
+                  <input
+                    type="number"
+                    id="dpCompanyRandomCount"
+                    class="modal-input dp-company-picker__random-count"
+                    min="1"
+                    step="1"
+                    value="10"
+                    inputmode="numeric"
+                    aria-label="Number of random companies to pick"
+                  />
+                  random
+                  <button
+                    type="button"
+                    class="btn-modal-secondary dp-company-picker__btn dp-company-picker__btn--random"
+                    id="dpCompanyRandomize"
+                    aria-label="Pick random companies"
+                    title="Pick random companies"
+                  >
+                    🎲
+                  </button>
+                </label>
+              </div>
+            </div>
+            <p
+              class="dp-company-picker__summary"
+              id="dpCompanyPickerSummary"
+              aria-live="polite"
+            ></p>
+            <ul
+              class="dp-company-picker__list"
+              id="dpCompanyPickerList"
+              role="list"
+            ></ul>
+            <p
+              class="dp-company-picker__empty"
+              id="dpCompanyPickerEmpty"
+              hidden
+            ></p>
+            <button
+              type="button"
+              class="dp-company-picker__history-toggle"
+              id="dpCompanyShowHistory"
+              aria-expanded="false"
+              aria-controls="dpCompanyPickerList"
+            >
+              Show history (<span id="dpCompanyHistoryCount">0</span>)
+            </button>
+          </div>
         </div>
 
         <div class="modal-actions modal-actions--split">
