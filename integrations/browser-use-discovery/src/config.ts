@@ -19,6 +19,11 @@ import {
   type SupportedSourceId,
   type UltraPlanTuning,
 } from "./contracts.ts";
+import {
+  buildCompanyKeySet,
+  companyFilterKey,
+  filterSkippedCompanies,
+} from "./discovery/company-keys.ts";
 
 export type WorkerRuntimeConfig = {
   stateDatabasePath: string;
@@ -588,14 +593,26 @@ export function mergeDiscoveryConfig(
     resolvedSourcePreset,
     profile.groundedSearchTuning,
   );
-  const companies = filterSkippedCompanies(
+  let companies = filterSkippedCompanies(
     stored.companies,
     stored.negativeCompanyKeys,
   );
-  const atsCompanies = filterSkippedCompanies(
+  let atsCompanies = filterSkippedCompanies(
     stored.atsCompanies || [],
     stored.negativeCompanyKeys,
   );
+  if (request.companyAllowlist?.length) {
+    const allow = buildCompanyKeySet(request.companyAllowlist);
+    const historyMinusSkipped = filterSkippedCompanies(
+      stored.companyHistory,
+      stored.negativeCompanyKeys,
+    );
+    const pool = dedupeByCompanyKey([...companies, ...historyMinusSkipped]);
+    companies = pool.filter((company) => allow.has(companyFilterKey(company)));
+    atsCompanies = atsCompanies.filter((company) =>
+      allow.has(companyFilterKey(company))
+    );
+  }
 
   return {
     ...stored,
@@ -643,22 +660,20 @@ export function mergeDiscoveryConfig(
   };
 }
 
-function filterSkippedCompanies(
-  companies: readonly CompanyTarget[],
-  negativeCompanyKeys: readonly string[] | undefined,
-): CompanyTarget[] {
-  const blocked = new Set(
-    (negativeCompanyKeys || [])
-      .map((key) => cleanString(key).toLowerCase())
-      .filter(Boolean),
-  );
-  if (blocked.size === 0) return cloneCompanies(companies);
-  return cloneCompanies(companies).filter((company) => {
-    const key = cleanString(
-      company.companyKey || company.normalizedName || company.name,
-    ).toLowerCase();
-    return key ? !blocked.has(key) : true;
-  });
+function dedupeByCompanyKey(companies: readonly CompanyTarget[]): CompanyTarget[] {
+  const seen = new Set<string>();
+  const out: CompanyTarget[] = [];
+  for (const company of companies) {
+    const key = companyFilterKey(company);
+    if (!key) {
+      out.push(company);
+      continue;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(company);
+  }
+  return out;
 }
 
 export function normalizeSourceIdList(

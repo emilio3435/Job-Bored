@@ -184,6 +184,13 @@ export type DiscoveryWebhookRequestV1 = {
   requestedAt: string;
   discoveryProfile?: DiscoveryProfile;
   /**
+   * Optional per-run override: restrict the run's company list to exactly
+   * these companyKey values, drawn from stored companies + companyHistory.
+   * Unknown keys are ignored. Empty or missing keeps current behavior.
+   * Never persisted.
+   */
+  companyAllowlist?: string[];
+  /**
    * Optional Google OAuth access token sent by the dashboard for *this run
    * only*. Lets a signed-in user trigger discovery without needing the worker
    * to hold a long-lived service account or OAuth refresh token. Takes

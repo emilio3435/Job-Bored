@@ -4,6 +4,7 @@ import {
   DISCOVERY_RUN_TRIGGERS,
   SOURCE_PRESET_VALUES,
 } from "../contracts.ts";
+import { buildCompanyKeySet } from "../discovery/company-keys.ts";
 import type {
   DiscoveryWebhookAck,
   DiscoveryRunStatusPayload,
@@ -501,6 +502,7 @@ function parseWebhookRequest(
   const requestedAt = stringValue(payload.requestedAt);
   const discoveryProfile = payload.discoveryProfile;
   const googleAccessToken = stringValue(payload.googleAccessToken);
+  const companyAllowlist = payload.companyAllowlist;
 
   if (event !== "command-center.discovery") {
     return { ok: false, message: "event must be command-center.discovery." };
@@ -688,6 +690,29 @@ function parseWebhookRequest(
       message: "googleAccessToken must be a string when present.",
     };
   }
+  let normalizedCompanyAllowlist: string[] | undefined;
+  if (companyAllowlist !== undefined) {
+    if (!Array.isArray(companyAllowlist)) {
+      return {
+        ok: false,
+        message:
+          "companyAllowlist must be an array of company key strings when present.",
+      };
+    }
+    if (companyAllowlist.length > 500) {
+      return {
+        ok: false,
+        message: "companyAllowlist may not contain more than 500 entries.",
+      };
+    }
+    if (companyAllowlist.some((entry) => typeof entry !== "string")) {
+      return {
+        ok: false,
+        message: "companyAllowlist entries must be strings.",
+      };
+    }
+    normalizedCompanyAllowlist = Array.from(buildCompanyKeySet(companyAllowlist));
+  }
 
   // Optional trigger field — see docs/INTERFACE-DISCOVERY-RUNS.md §2. Used by
   // runDiscovery to label the DiscoveryRuns sheet row (e.g. GitHub Actions
@@ -719,6 +744,9 @@ function parseWebhookRequest(
             discoveryProfile:
               normalizeDiscoveryProfile(discoveryProfile) as DiscoveryWebhookRequestV1["discoveryProfile"],
           }
+        : {}),
+      ...(normalizedCompanyAllowlist?.length
+        ? { companyAllowlist: normalizedCompanyAllowlist }
         : {}),
       ...(googleAccessToken ? { googleAccessToken } : {}),
       ...(trigger ? { trigger } : {}),
