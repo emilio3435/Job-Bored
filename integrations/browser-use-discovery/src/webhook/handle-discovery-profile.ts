@@ -40,6 +40,11 @@ import {
   extractCandidateProfile,
   discoverCompaniesForProfile,
 } from "../discovery/profile-to-companies.ts";
+import {
+  buildCompanyKeySet,
+  companyFilterKey,
+  filterSkippedCompanies,
+} from "../discovery/company-keys.ts";
 import type { DiscoveryRunsLogger } from "../sheets/discovery-runs-writer.ts";
 import {
   hasValidWebhookSecret,
@@ -885,19 +890,6 @@ function storedFallbackCompaniesAllSkipped(
   });
 }
 
-function buildCompanyKeySet(keys: unknown): Set<string> {
-  return new Set(
-    (Array.isArray(keys) ? keys : [])
-      .map((key) => String(key || "").trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
-
-function companyFilterKey(company: CompanyTarget): string {
-  const key = company.companyKey || company.normalizedName || company.name;
-  return String(key || "").trim().toLowerCase();
-}
-
 function collectCompanyKeys(companies: unknown): string[] {
   const source = Array.isArray(companies) ? companies : [];
   return source
@@ -946,19 +938,6 @@ function mergeCompanyHistory(
     }
   }
   return out;
-}
-
-function filterSkippedCompanies(
-  companies: CompanyTarget[] | undefined,
-  negativeCompanyKeys: unknown,
-): CompanyTarget[] {
-  const blocked =
-    negativeCompanyKeys instanceof Set
-      ? negativeCompanyKeys
-      : buildCompanyKeySet(negativeCompanyKeys);
-  const source = Array.isArray(companies) ? companies : [];
-  if (blocked.size === 0) return source;
-  return source.filter((company) => !blocked.has(companyFilterKey(company)));
 }
 
 function requireSheetId(
