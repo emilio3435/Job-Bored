@@ -279,6 +279,113 @@ test("mergeDiscoveryConfig excludes skipped companies from run targets", () => {
   );
 });
 
+test("mergeDiscoveryConfig applies companyAllowlist across active companies plus history", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig({
+      companies: [
+        { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+        { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+      ],
+      companyHistory: [
+        { name: "Figma", companyKey: "figma", normalizedName: "figma" },
+      ],
+    }) as any,
+    makeRequest({
+      companyAllowlist: ["notion", "figma"],
+    }),
+  );
+
+  assert.deepEqual(
+    result.companies.map((company) => company.companyKey),
+    ["notion", "figma"],
+  );
+});
+
+test("mergeDiscoveryConfig companyAllowlist does not override negativeCompanyKeys", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig({
+      companies: [
+        { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+        { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+      ],
+      companyHistory: [
+        { name: "Figma", companyKey: "figma", normalizedName: "figma" },
+      ],
+      negativeCompanyKeys: ["figma"],
+    }) as any,
+    makeRequest({
+      companyAllowlist: ["notion", "figma"],
+    }),
+  );
+
+  assert.deepEqual(
+    result.companies.map((company) => company.companyKey),
+    ["notion"],
+  );
+});
+
+test("mergeDiscoveryConfig drops unknown companyAllowlist keys silently", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig({
+      companies: [
+        { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+        { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+      ],
+      companyHistory: [
+        { name: "Figma", companyKey: "figma", normalizedName: "figma" },
+      ],
+    }) as any,
+    makeRequest({
+      companyAllowlist: ["notion", "unknown-company"],
+    }),
+  );
+
+  assert.deepEqual(
+    result.companies.map((company) => company.companyKey),
+    ["notion"],
+  );
+});
+
+test("mergeDiscoveryConfig treats empty companyAllowlist as a no-op", () => {
+  const stored = makeStoredConfig({
+    companies: [
+      { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+      { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+    ],
+    companyHistory: [
+      { name: "Figma", companyKey: "figma", normalizedName: "figma" },
+    ],
+  }) as any;
+  const baseline = mergeDiscoveryConfig(stored, makeRequest());
+  const withEmptyAllowlist = mergeDiscoveryConfig(
+    stored,
+    makeRequest({ companyAllowlist: [] }),
+  );
+
+  assert.deepEqual(withEmptyAllowlist.companies, baseline.companies);
+  assert.deepEqual(withEmptyAllowlist.atsCompanies, baseline.atsCompanies);
+});
+
+test("mergeDiscoveryConfig missing companyAllowlist preserves baseline behavior", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig({
+      companies: [
+        { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+        { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+      ],
+      companyHistory: [
+        { name: "Figma", companyKey: "figma", normalizedName: "figma" },
+      ],
+    }) as any,
+    makeRequest(),
+  );
+
+  assert.deepEqual(
+    result.companies.map((company) => company.companyKey),
+    ["notion", "ramp"],
+  );
+});
+
 // === resolveSourcePreset fallback truth table (VAL-API-006) ===
 
 test("resolveSourcePreset uses request-level preset when provided", () => {

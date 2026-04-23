@@ -47,6 +47,7 @@ function makeRow(overrides: Partial<DiscoveryRunLogRow> = {}): DiscoveryRunLogRo
     durationS: 47,
     companiesSeen: 12,
     leadsWritten: 3,
+    leadsUpdated: 2,
     source: "worker@test",
     variationKey: "var-1234",
     error: "",
@@ -107,10 +108,10 @@ test("appendDiscoveryRunRow appends when the tab already exists with the expecte
     {
       match: (c) =>
         c.method === "GET" &&
-        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:I1`)}`),
+        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`)}`),
       response: () =>
         okJson({
-          range: `${DISCOVERY_RUNS_SHEET_NAME}!A1:I1`,
+          range: `${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`,
           majorDimension: "ROWS",
           values: [
             [
@@ -119,7 +120,8 @@ test("appendDiscoveryRunRow appends when the tab already exists with the expecte
               "Status",
               "Duration (s)",
               "Companies Seen",
-              "Leads Written",
+              "Leads New",
+              "Leads Updated",
               "Source",
               "Variation Key",
               "Error",
@@ -152,6 +154,7 @@ test("appendDiscoveryRunRow appends when the tab already exists with the expecte
       "47",
       "12",
       "3",
+      "2",
       "worker@test",
       "var-1234",
       "",
@@ -166,12 +169,12 @@ test("appendDiscoveryRunRow creates the tab + header when the sheet has no Disco
     {
       match: (c) =>
         c.method === "GET" &&
-        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:I1`)}`),
+        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`)}`),
       response: () =>
         errorJson(400, {
           error: {
             code: 400,
-            message: "Unable to parse range: DiscoveryRuns!A1:I1",
+            message: "Unable to parse range: DiscoveryRuns!A1:J1",
           },
         }),
     },
@@ -182,8 +185,8 @@ test("appendDiscoveryRunRow creates the tab + header when the sheet has no Disco
     {
       match: (c) =>
         c.method === "PUT" &&
-        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:I1`)}`),
-      response: () => okJson({ updatedRange: "DiscoveryRuns!A1:I1" }),
+        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`)}`),
+      response: () => okJson({ updatedRange: "DiscoveryRuns!A1:J1" }),
     },
     {
       match: (c) => c.method === "POST" && c.url.includes(":append"),
@@ -207,7 +210,7 @@ test("appendDiscoveryRunRow returns ok:false when the append request fails (does
     {
       match: (c) =>
         c.method === "GET" &&
-        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:I1`)}`),
+        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`)}`),
       response: () =>
         okJson({
           values: [
@@ -217,7 +220,8 @@ test("appendDiscoveryRunRow returns ok:false when the append request fails (does
               "Status",
               "Duration (s)",
               "Companies Seen",
-              "Leads Written",
+              "Leads New",
+              "Leads Updated",
               "Source",
               "Variation Key",
               "Error",
@@ -249,7 +253,7 @@ test("appendDiscoveryRunRow truncates long error strings to <=200 chars", async 
     {
       match: (c) =>
         c.method === "GET" &&
-        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:I1`)}`),
+        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`)}`),
       response: () =>
         okJson({
           values: [
@@ -259,7 +263,8 @@ test("appendDiscoveryRunRow truncates long error strings to <=200 chars", async 
               "Status",
               "Duration (s)",
               "Companies Seen",
-              "Leads Written",
+              "Leads New",
+              "Leads Updated",
               "Source",
               "Variation Key",
               "Error",
@@ -286,7 +291,7 @@ test("appendDiscoveryRunRow truncates long error strings to <=200 chars", async 
   );
 
   const parsed = JSON.parse(capturedBody) as { values: string[][] };
-  const errorCell = parsed.values[0][8];
+  const errorCell = parsed.values[0][9];
   assert.ok(errorCell.length <= 200, `error cell exceeded 200 chars: ${errorCell.length}`);
 });
 
@@ -309,7 +314,7 @@ test("appendDiscoveryRunRow success case leaves error column blank even when row
     {
       match: (c) =>
         c.method === "GET" &&
-        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:I1`)}`),
+        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`)}`),
       response: () =>
         okJson({
           values: [
@@ -319,7 +324,8 @@ test("appendDiscoveryRunRow success case leaves error column blank even when row
               "Status",
               "Duration (s)",
               "Companies Seen",
-              "Leads Written",
+              "Leads New",
+              "Leads Updated",
               "Source",
               "Variation Key",
               "Error",
@@ -346,7 +352,7 @@ test("appendDiscoveryRunRow success case leaves error column blank even when row
   );
 
   const parsed = JSON.parse(capturedBody) as { values: string[][] };
-  assert.equal(parsed.values[0][8], "");
+  assert.equal(parsed.values[0][9], "");
 });
 
 test("createDiscoveryRunsLogger returns a bound append function that shares the dependencies", async () => {
@@ -354,7 +360,7 @@ test("createDiscoveryRunsLogger returns a bound append function that shares the 
     {
       match: (c) =>
         c.method === "GET" &&
-        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:I1`)}`),
+        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`)}`),
       response: () =>
         okJson({
           values: [
@@ -364,7 +370,8 @@ test("createDiscoveryRunsLogger returns a bound append function that shares the 
               "Status",
               "Duration (s)",
               "Companies Seen",
-              "Leads Written",
+              "Leads New",
+              "Leads Updated",
               "Source",
               "Variation Key",
               "Error",
