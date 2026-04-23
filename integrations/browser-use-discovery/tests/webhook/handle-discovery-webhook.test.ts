@@ -1460,6 +1460,126 @@ test("handleDiscoveryWebhook rejects non-string googleAccessToken", async () => 
   assert.match(body.message, /googleAccessToken/);
 });
 
+test("handleDiscoveryWebhook rejects non-array companyAllowlist", async () => {
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      throw new Error("runDiscovery should not be called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        companyAllowlist: 42,
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400);
+  const body = JSON.parse(response.body);
+  assert.equal(
+    body.message,
+    "companyAllowlist must be an array of company key strings when present.",
+  );
+});
+
+test("handleDiscoveryWebhook rejects companyAllowlist with non-string entries", async () => {
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      throw new Error("runDiscovery should not be called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        companyAllowlist: ["a", 42],
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400);
+  const body = JSON.parse(response.body);
+  assert.equal(body.message, "companyAllowlist entries must be strings.");
+});
+
+test("handleDiscoveryWebhook rejects companyAllowlist with more than 500 entries", async () => {
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      throw new Error("runDiscovery should not be called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        companyAllowlist: Array.from({ length: 501 }, (_, index) => `company-${index}`),
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400);
+  const body = JSON.parse(response.body);
+  assert.equal(
+    body.message,
+    "companyAllowlist may not contain more than 500 entries.",
+  );
+});
+
 test("handleDiscoveryWebhook still works without googleAccessToken (env credential path)", async () => {
   // Backwards-compat: when no per-request token, the existing env credential
   // path must still work and createPipelineWriterForRequest must NOT be called.
