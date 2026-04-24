@@ -139,6 +139,29 @@
   /* Transitions */
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --transition: 180ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ------------------------------------------------------------------
+     Newsprint tokens (added redesign-20260424T0742Z, fe-dashboard lane)
+     Applied to the dashboard shell: top bar, command strip, pipeline
+     header. The core palette above is unchanged (mint/amber/navy); these
+     extend it with zone paper/ink tokens + editorial type. Widget
+     internals keep the existing tokens for visual continuity.
+     ------------------------------------------------------------------ */
+  --jb-paper: #f7f1e8;           /* warm paper background          */
+  --jb-cream: #ece4d2;           /* newsprint cream (JobBored zone) */
+  --jb-ink: #003851;             /* newsprint navy ink             */
+  --jb-ink-soft: rgba(0, 56, 81, 0.12);
+  --jb-ink-hair: rgba(0, 56, 81, 0.18);
+  --jb-green: #59cb89;
+  --jb-orange: #ef8f26;
+  --jb-rule: 1px solid color-mix(in srgb, var(--jb-ink) 12%, transparent);
+
+  /* Editorial typography — Fraunces (display), Special Elite (typewriter,
+     reserved for JobBored zone), JetBrains Mono (eyebrows/labels). These
+     are loaded via the existing @import in index.html; we register them
+     here for the newsprint shell. */
+  --font-display: "Fraunces", "DM Sans", serif;
+  --font-typewriter: "Special Elite", "Courier New", monospace;
 }
 
 /* ============================================
@@ -1159,6 +1182,35 @@ textarea {
    TOP BAR
    ============================================ */
 
+/* Editorial masthead strip — a thin typewriter band that sits above the
+   sticky top bar. Acts as the "§ 00 · Index" slot for the newsprint
+   zone. Hidden from AT (role=presentation on the element); purely
+   decorative metadata. */
+.masthead-strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-5) 4px;
+  background: var(--jb-paper);
+  border-top: 3px solid var(--jb-ink);
+  color: var(--jb-ink);
+  font-family: var(--font-typewriter);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  flex-wrap: wrap;
+  min-height: 22px;
+}
+
+.masthead-strip__item {
+  white-space: nowrap;
+}
+
+.masthead-strip__sep {
+  color: color-mix(in srgb, var(--jb-ink) 45%, transparent);
+}
+
 .top-bar {
   position: sticky;
   top: 0;
@@ -1167,10 +1219,12 @@ textarea {
   align-items: center;
   justify-content: space-between;
   padding: var(--space-3) var(--space-5);
-  background: rgba(255, 255, 255, 0.88);
+  background: color-mix(in srgb, var(--jb-paper) 88%, transparent);
   backdrop-filter: blur(16px) saturate(1.15);
   -webkit-backdrop-filter: blur(16px) saturate(1.15);
-  border-bottom: 1px solid var(--border);
+  /* Double-rule bottom — evokes newsprint masthead. Use a solid 3px
+     navy rule plus a 1px hairline gap via box-shadow. */
+  border-bottom: 3px double var(--jb-ink);
 }
 
 .top-bar-left {
@@ -1491,13 +1545,78 @@ textarea {
    COMMAND STRIP (Daily Brief overview)
    ============================================ */
 
+/* Editorial eyebrow (shared primitive, used here and on the pipeline
+   section). Pattern: `§ 0N ———— KICKER` — mono monospace, hairline
+   rule, uppercase with 0.22em tracking. */
+.editorial-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: color-mix(in srgb, var(--jb-ink) 72%, transparent);
+  margin-bottom: 6px;
+}
+
+.editorial-eyebrow__num {
+  color: var(--jb-ink);
+}
+
+.editorial-eyebrow__rule {
+  flex: 0 0 32px;
+  height: 1px;
+  background: color-mix(in srgb, var(--jb-ink) 35%, transparent);
+}
+
+.editorial-eyebrow__kicker {
+  color: color-mix(in srgb, var(--jb-ink) 72%, transparent);
+}
+
+/* Editorial section title — Fraunces display with italic stance word.
+   Used by both Daily Brief and Pipeline headers. */
+.section-title--editorial {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(28px, 3.4vw, 44px);
+  line-height: 1;
+  letter-spacing: -0.025em;
+  color: var(--jb-ink);
+  margin: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.28em;
+}
+
+.section-title__lead {
+  font-weight: 500;
+}
+
+.section-title__italic {
+  font-style: italic;
+  font-weight: 500;
+  color: var(--jb-ink);
+}
+
 .command-strip {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  padding: var(--space-4) var(--space-5) var(--space-5);
-  background: var(--bg);
-  border-bottom: 1px solid var(--divider);
+  padding: var(--space-5) var(--space-5) var(--space-6);
+  /* Newsprint paper grain: repeating horizontal hairlines at 4% navy.
+     Subtle enough to read as texture, not pattern. */
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 3px,
+      rgba(0, 56, 81, 0.04) 3px,
+      rgba(0, 56, 81, 0.04) 4px
+    ),
+    var(--jb-cream);
+  border-bottom: 1px solid var(--jb-ink-hair);
 }
 
 /* --- Hero bar --- */
@@ -1512,27 +1631,33 @@ textarea {
 
 .brief-hero__left {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 
 .brief-hero__date {
-  font-size: var(--text-xs);
-  color: var(--text-faint);
-  font-family: var(--font-mono);
+  font-size: 11px;
+  color: color-mix(in srgb, var(--jb-ink) 60%, transparent);
+  font-family: var(--font-typewriter);
+  letter-spacing: 0.02em;
+  margin-top: 2px;
 }
 
 /* --- Headline sentence (daily signal prose) --- */
 
 .brief-headline {
-  font-size: var(--text-xl);
-  color: var(--text);
-  line-height: 1.65;
-  letter-spacing: -0.01em;
-  text-align: center;
-  max-width: 42em;
-  margin-inline: auto;
-  padding: var(--space-5) var(--space-4);
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: clamp(17px, 1.45vw, 22px);
+  color: color-mix(in srgb, var(--jb-ink) 85%, transparent);
+  line-height: 1.5;
+  letter-spacing: -0.005em;
+  text-align: left;
+  max-width: 52ch;
+  margin: var(--space-3) 0 0;
+  padding: 0;
 }
 
 .brief-headline:empty {
@@ -1575,7 +1700,7 @@ textarea {
   position: relative;
   padding: var(--space-4);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--jb-ink-soft);
   border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
@@ -1589,11 +1714,12 @@ textarea {
 }
 
 .stat-card__label {
-  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--jb-ink) 65%, transparent);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.22em;
 }
 
 .stat-card__row {
@@ -1603,12 +1729,12 @@ textarea {
 }
 
 .stat-card__value {
-  font-family: var(--font-mono);
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  color: var(--text);
+  font-family: var(--font-display);
+  font-size: clamp(28px, 2.4vw, 38px);
+  font-weight: 900;
+  color: var(--jb-ink);
   line-height: 1;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.035em;
 }
 
 .stat-card__delta {
@@ -2521,22 +2647,27 @@ button.feed-item {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--text-sm);
+  padding: 8px 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-weight: 600;
-  color: var(--accent);
-  background: var(--surface);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-md);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--jb-paper);
+  background: var(--jb-ink);
+  border: 1px solid var(--jb-ink);
+  border-radius: 999px;
   cursor: pointer;
   transition:
     background var(--transition),
-    color var(--transition);
+    color var(--transition),
+    transform var(--transition);
   white-space: nowrap;
 }
 
 .btn-discovery:hover {
-  background: rgba(89, 203, 137, 0.08);
+  background: color-mix(in srgb, var(--jb-ink) 85%, black);
+  transform: translateY(-1px);
 }
 
 .btn-discovery.loading {
@@ -3454,7 +3585,20 @@ button.feed-item {
 
 .main-content {
   display: block;
-  padding: var(--space-5) var(--space-5) var(--space-8);
+  padding: var(--space-6) var(--space-5) var(--space-8);
+  /* Newsprint paper texture, continuous with the command strip. The
+     repeating hairline pattern is subtle and doesn't interfere with card
+     content sitting on white surfaces. */
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 3px,
+      rgba(0, 56, 81, 0.035) 3px,
+      rgba(0, 56, 81, 0.035) 4px
+    ),
+    var(--jb-paper);
+  min-height: 60vh;
 }
 
 /* ============================================
@@ -3472,6 +3616,111 @@ button.feed-item {
   margin-bottom: var(--space-4);
 }
 
+/* Editorial variant — stacks eyebrow + headline on the left, pushes the
+   meta cluster (run-status pill + role count) to the right on a hairline
+   baseline. Collapses below 720px. */
+.section-header--editorial {
+  align-items: flex-end;
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: var(--jb-rule);
+}
+
+.section-header__intro {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.section-header__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+@media (max-width: 720px) {
+  .section-header--editorial {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .section-header__meta {
+    justify-content: flex-start;
+  }
+}
+
+/* Discovery run-status pill. Three states via `data-state`:
+     idle     — hairline pill, subdued label ("Last run — 14m ago")
+     running  — pulse-ring dot, filled green ("RUN IN PROGRESS")
+     done     — brief success flash ("RUN COMPLETE"), then reverts to idle
+   Subscribes to `jobbored:discovery-run-started` / `-finished` events
+   dispatched by runs-tab.js / settings-profile-tab.js. We do NOT
+   re-dispatch. */
+.run-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--jb-ink-hair);
+  color: color-mix(in srgb, var(--jb-ink) 75%, transparent);
+  transition: background var(--transition), color var(--transition),
+    border-color var(--transition);
+}
+
+.run-status-pill__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--jb-ink) 35%, transparent);
+}
+
+.run-status-pill[data-state="running"] {
+  background: rgba(89, 203, 137, 0.14);
+  border-color: rgba(89, 203, 137, 0.45);
+  color: #15803d;
+}
+
+.run-status-pill[data-state="running"] .run-status-pill__dot {
+  background: var(--jb-green);
+  box-shadow: 0 0 0 0 rgba(89, 203, 137, 0.6);
+  animation: run-status-pulse 1.6s ease-out infinite;
+}
+
+.run-status-pill[data-state="done"] {
+  background: rgba(89, 203, 137, 0.18);
+  border-color: rgba(89, 203, 137, 0.5);
+  color: #15803d;
+}
+
+.run-status-pill[data-state="done"] .run-status-pill__dot {
+  background: var(--jb-green);
+}
+
+@keyframes run-status-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(89, 203, 137, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgba(89, 203, 137, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-status-pill[data-state="running"] .run-status-pill__dot {
+    animation: none;
+  }
+}
+
 .section-title {
   font-size: var(--text-lg);
   font-weight: 600;
@@ -3482,57 +3731,73 @@ button.feed-item {
 }
 
 .role-count {
-  font-size: var(--text-xs);
-  color: var(--text-faint);
   font-family: var(--font-mono);
-  background: var(--surface-2);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--jb-ink) 65%, transparent);
+  background: transparent;
+  padding: 4px 10px;
+  border: 1px solid var(--jb-ink-hair);
+  border-radius: 999px;
 }
 
-/* Filter Bar */
+/* Filter Bar — unified single-row toolbar for the pipeline section.
+   Reads left-to-right: search (grows) | sort | filter chips. On narrow
+   screens it wraps but the chips stay grouped. */
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+  padding: var(--space-2) var(--space-3);
   align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--jb-ink-hair);
+  border-radius: 999px;
 }
 
 .filter-buttons {
   display: flex;
   gap: var(--space-1);
   flex-wrap: wrap;
+  margin-left: auto;
 }
 
 .filter-btn {
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  color: var(--text-muted);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 100px;
+  padding: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--jb-ink) 70%, transparent);
+  background: transparent;
+  border: 1px solid var(--jb-ink-hair);
+  border-radius: 999px;
   transition: all var(--transition);
   white-space: nowrap;
 }
 
 .filter-btn:hover {
-  color: var(--text);
-  border-color: var(--border-bright);
-  background: var(--surface-2);
+  color: var(--jb-ink);
+  border-color: var(--jb-ink);
+  background: transparent;
 }
 
 .filter-btn.active {
-  color: var(--accent);
-  background: var(--accent-dim);
-  border-color: rgba(89, 203, 137, 0.3);
+  color: var(--jb-paper);
+  background: var(--jb-ink);
+  border-color: var(--jb-ink);
 }
 
 .filter-controls {
   display: flex;
   gap: var(--space-2);
-  margin-left: auto;
+  margin-left: 0;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* ── URL paste hero card ──────────────────────────────────────────
@@ -3739,50 +4004,56 @@ button.feed-item {
   position: relative;
   display: flex;
   align-items: center;
+  flex: 1 1 280px;
+  min-width: 180px;
 }
 
 .search-icon {
   position: absolute;
   left: var(--space-2);
-  color: var(--text-faint);
+  color: color-mix(in srgb, var(--jb-ink) 45%, transparent);
   pointer-events: none;
 }
 
 .search-input {
-  padding: var(--space-1) var(--space-3) var(--space-1)
-    calc(var(--space-2) + 20px);
+  padding: 6px var(--space-3) 6px calc(var(--space-2) + 20px);
   font-size: var(--text-xs);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  width: 200px;
-  transition: all var(--transition);
+  color: var(--jb-ink);
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  width: 100%;
+  transition: box-shadow var(--transition);
 }
 
 .search-input::placeholder {
-  color: var(--text-faint);
+  color: color-mix(in srgb, var(--jb-ink) 45%, transparent);
 }
 
 .search-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(89, 203, 137, 0.1);
+  box-shadow: 0 0 0 2px rgba(0, 56, 81, 0.12);
   outline: none;
 }
 
 .sort-select {
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-xs);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  padding: 4px var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--jb-ink);
+  background: transparent;
+  border: 1px solid var(--jb-ink-hair);
+  border-radius: 999px;
   cursor: pointer;
   transition: all var(--transition);
   -webkit-appearance: none;
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23003851' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
-  padding-right: 28px;
+  padding-right: 26px;
 }
 
 .sort-select:hover {
