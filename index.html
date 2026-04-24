@@ -2754,6 +2754,41 @@
                     aria-hidden="true"
                   ></span>
                 </div>
+                <div
+                  class="dp-profile-progress settings-profile-refresh-progress"
+                  id="settingsProfileRefreshProgress"
+                  hidden
+                >
+                  <div class="dp-profile-progress__head">
+                    <span id="settingsProfileRefreshPhase">Refreshing companies</span>
+                    <span id="settingsProfileRefreshPct">0%</span>
+                  </div>
+                  <div
+                    class="dp-profile-progress__bar"
+                    id="settingsProfileRefreshBar"
+                    role="progressbar"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="0"
+                  >
+                    <span
+                      class="dp-profile-progress__fill"
+                      id="settingsProfileRefreshFill"
+                    ></span>
+                  </div>
+                  <p
+                    class="settings-field-hint settings-field-hint--compact dp-profile-progress__meta"
+                    id="settingsProfileRefreshMeta"
+                  >
+                    Waiting for worker progress…
+                  </p>
+                </div>
+                <p
+                  class="settings-field-hint settings-field-hint--compact settings-profile-refresh-notice"
+                  id="settingsProfileRefreshNotice"
+                  role="status"
+                  hidden
+                ></p>
                 <p
                   class="settings-form-error settings-profile-error"
                   id="settingsProfileError"
@@ -6079,6 +6114,37 @@ https://your-static-site.example</pre
               Open full profile settings
             </button>
           </div>
+
+          <div class="dp-profile-progress" id="dpProfileProgress" hidden>
+            <div class="dp-profile-progress__head">
+              <span id="dpProfileProgressPhase">Refreshing companies</span>
+              <span id="dpProfileProgressPct">0%</span>
+            </div>
+            <div
+              class="dp-profile-progress__bar"
+              id="dpProfileProgressBar"
+              role="progressbar"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+            >
+              <span
+                class="dp-profile-progress__fill"
+                id="dpProfileProgressFill"
+              ></span>
+            </div>
+            <p class="modal-field-hint dp-profile-progress__meta" id="dpProfileProgressMeta">
+              Waiting for worker progress…
+            </p>
+          </div>
+
+          <p
+            class="dp-profile-notice"
+            id="dpProfileNotice"
+            role="status"
+            aria-live="polite"
+            hidden
+          ></p>
 
           <p
             class="settings-form-error dp-profile-error"

@@ -13,7 +13,9 @@
   var DISCOVERY_PROFILE_EVENT = "discovery.profile.request";
   var DISCOVERY_PROFILE_SCHEMA_VERSION = 1;
   var RUN_TIMEOUT_MS = 90_000;
-  var PROFILE_REFRESH_TIMEOUT_MS = 180_000;
+  var PROFILE_REFRESH_TIMEOUT_MS = 300_000;
+  var PROFILE_REFRESH_RETRY_TIMEOUT_MS = 360_000;
+  var PROFILE_PROGRESS_POLL_INTERVAL_MS = 2_500;
   var MIN_RESTORABLE_WORKER_RESUME_CHARS = 40;
   var AUTO_REFRESH_STORAGE_KEY = "settings_profile_auto_refresh";
   var DISCOVERY_TRANSPORT_SETUP_KEY =
@@ -80,6 +82,11 @@
   var els = {};
   var bound = false;
   var runInFlight = false;
+  var refreshProgressTickTimerId = null;
+  var refreshProgressPollTimerId = null;
+  var refreshProgressPollInFlight = false;
+  var refreshProgressSnapshot = null;
+  var refreshProgressStartedAtMs = 0;
   var autoRefreshTimerId = null;
   var lastStatus = null;
 
@@ -104,6 +111,13 @@
       runBtn: qs("settingsProfileRunBtn"),
       refreshBtn: qs("settingsProfileRefreshBtn"),
       spinner: qs("settingsProfileSpinner"),
+      refreshNotice: qs("settingsProfileRefreshNotice"),
+      refreshProgress: qs("settingsProfileRefreshProgress"),
+      refreshProgressBar: qs("settingsProfileRefreshBar"),
+      refreshProgressFill: qs("settingsProfileRefreshFill"),
+      refreshProgressPhase: qs("settingsProfileRefreshPhase"),
+      refreshProgressPct: qs("settingsProfileRefreshPct"),
+      refreshProgressMeta: qs("settingsProfileRefreshMeta"),
       error: qs("settingsProfileError"),
       results: qs("settingsProfileResults"),
       statusPanel: qs("settingsProfileStatus"),
@@ -147,6 +161,19 @@
     els.error.style.display = "";
   }
 
+  function setRefreshNotice(message, tone) {
+    if (!els.refreshNotice) return;
+    if (!message) {
+      els.refreshNotice.textContent = "";
+      els.refreshNotice.hidden = true;
+      els.refreshNotice.dataset.tone = "";
+      return;
+    }
+    els.refreshNotice.textContent = String(message || "");
+    els.refreshNotice.hidden = false;
+    els.refreshNotice.dataset.tone = tone || "info";
+  }
+
   function setRunning(running) {
     runInFlight = !!running;
     if (els.runBtn) {
@@ -154,6 +181,9 @@
       els.runBtn.textContent = runInFlight
         ? "Discovering…"
         : "Discover companies";
+    }
+    if (els.refreshBtn) {
+      els.refreshBtn.disabled = runInFlight;
     }
     if (els.spinner) {
       els.spinner.hidden = !runInFlight;
@@ -737,6 +767,155 @@
       .replace(/'/g, "&#39;");
   }
 
+  function clampRefreshPercent(value) {
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(100, Math.round(value)));
+  }
+
+  function formatRefreshPhaseLabel(phase) {
+    var key = String(phase || "");
+    if (key === "loading_profile") return "Loading saved profile";
+    if (key === "extracting_profile") return "Extracting profile signal";
+    if (key === "discovering_companies") return "Discovering companies";
+    if (key === "deduping_companies") return "Filtering and deduping";
+    if (key === "persisting_profile") return "Saving refreshed shortlist";
+    return "Refreshing companies";
+  }
+
+  function formatRefreshElapsed(ms) {
+    var totalSeconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+    if (totalSeconds < 60) return totalSeconds + "s elapsed";
+    var minutes = Math.floor(totalSeconds / 60);
+    var seconds = totalSeconds % 60;
+    return minutes + "m " + seconds + "s elapsed";
+  }
+
+  function estimateRefreshProgress(elapsedMs) {
+    var elapsed = Math.max(0, Number(elapsedMs) || 0);
+    var ratio = Math.min(1, elapsed / PROFILE_REFRESH_TIMEOUT_MS);
+    var progressPct = clampRefreshPercent(6 + ratio * 86);
+    if (elapsed < 20000) {
+      return {
+        phase: "loading_profile",
+        progressPct: Math.max(progressPct, 8),
+        message: "Preparing your stored profile context.",
+      };
+    }
+    if (elapsed < 70000) {
+      return {
+        phase: "extracting_profile",
+        progressPct: Math.max(progressPct, 20),
+        message: "Extracting role and company intent.",
+      };
+    }
+    if (elapsed < 220000) {
+      return {
+        phase: "discovering_companies",
+        progressPct: Math.max(progressPct, 42),
+        message: "Searching for net-new company targets.",
+      };
+    }
+    if (elapsed < 280000) {
+      return {
+        phase: "deduping_companies",
+        progressPct: Math.max(progressPct, 74),
+        message: "Filtering skipped and previously-searched companies.",
+      };
+    }
+    return {
+      phase: "persisting_profile",
+      progressPct: Math.max(progressPct, 88),
+      message: "Saving refreshed shortlist.",
+    };
+  }
+
+  function renderRefreshProgress(progressLike, elapsedMs) {
+    if (!els.refreshProgress) return;
+    var progress = progressLike || estimateRefreshProgress(elapsedMs);
+    var pct = clampRefreshPercent(progress.progressPct);
+    els.refreshProgress.hidden = false;
+    if (els.refreshProgressPhase) {
+      els.refreshProgressPhase.textContent = formatRefreshPhaseLabel(progress.phase);
+    }
+    if (els.refreshProgressPct) {
+      els.refreshProgressPct.textContent = pct + "%";
+    }
+    if (els.refreshProgressFill) {
+      els.refreshProgressFill.style.width = pct + "%";
+    }
+    if (els.refreshProgressBar) {
+      els.refreshProgressBar.setAttribute("aria-valuenow", String(pct));
+    }
+    if (els.refreshProgressMeta) {
+      var progressMessage =
+        typeof progress.message === "string" && progress.message.trim()
+          ? progress.message.trim()
+          : "Refreshing company shortlist.";
+      els.refreshProgressMeta.textContent =
+        progressMessage + " · " + formatRefreshElapsed(elapsedMs);
+    }
+  }
+
+  function stopRefreshProgress() {
+    if (refreshProgressTickTimerId !== null) {
+      window.clearInterval(refreshProgressTickTimerId);
+      refreshProgressTickTimerId = null;
+    }
+    if (refreshProgressPollTimerId !== null) {
+      window.clearInterval(refreshProgressPollTimerId);
+      refreshProgressPollTimerId = null;
+    }
+    refreshProgressPollInFlight = false;
+    refreshProgressSnapshot = null;
+    refreshProgressStartedAtMs = 0;
+    if (els.refreshProgress) {
+      els.refreshProgress.hidden = true;
+    }
+  }
+
+  async function pollRefreshProgress() {
+    if (!runInFlight || refreshProgressPollInFlight) return;
+    refreshProgressPollInFlight = true;
+    try {
+      var data = await postProfileEndpoint({ mode: "status" }, 10000);
+      if (data && data.ok === true && data.status) {
+        var liveProgress = data.status.refreshProgress;
+        if (liveProgress && liveProgress.inFlight) {
+          refreshProgressSnapshot = liveProgress;
+        }
+      }
+    } catch (_) {
+      // Non-fatal: keep estimated progress moving locally when status polling fails.
+    } finally {
+      refreshProgressPollInFlight = false;
+    }
+  }
+
+  function startRefreshProgress() {
+    stopRefreshProgress();
+    refreshProgressStartedAtMs = Date.now();
+    renderRefreshProgress(
+      {
+        phase: "loading_profile",
+        progressPct: 6,
+        message: "Preparing refresh request.",
+      },
+      0,
+    );
+    refreshProgressTickTimerId = window.setInterval(function () {
+      var elapsedMs = Date.now() - refreshProgressStartedAtMs;
+      var progressLike =
+        refreshProgressSnapshot && refreshProgressSnapshot.inFlight
+          ? refreshProgressSnapshot
+          : estimateRefreshProgress(elapsedMs);
+      renderRefreshProgress(progressLike, elapsedMs);
+    }, 1000);
+    refreshProgressPollTimerId = window.setInterval(function () {
+      void pollRefreshProgress();
+    }, PROFILE_PROGRESS_POLL_INTERVAL_MS);
+    void pollRefreshProgress();
+  }
+
   function renderResults(payload) {
     if (!els.results) return;
     if (!payload || payload.ok !== true) {
@@ -887,6 +1066,8 @@
   async function handleRun() {
     if (runInFlight) return;
     setError("");
+    setRefreshNotice("");
+    stopRefreshProgress();
 
     var resumeText = els.textarea ? String(els.textarea.value || "").trim() : "";
     var form = readForm();
@@ -1105,7 +1286,7 @@
         return await sendProfileRequest(
           primaryEndpoint,
           config.secret,
-          Math.max(RUN_TIMEOUT_MS, 180000),
+          Math.max(RUN_TIMEOUT_MS, PROFILE_REFRESH_RETRY_TIMEOUT_MS),
         );
       } catch (retryErr) {
         primaryError = retryErr;
@@ -1142,7 +1323,10 @@
   async function handleRefresh() {
     if (runInFlight) return;
     setError("");
+    setRefreshNotice("");
+    if (els.refreshBtn) els.refreshBtn.textContent = "Refreshing…";
     setRunning(true);
+    startRefreshProgress();
     if (els.results) {
       els.results.hidden = true;
       els.results.innerHTML = "";
@@ -1162,11 +1346,40 @@
           (data && data.message) ||
             "Refresh failed — no response from the worker.",
         );
+        setRefreshNotice("");
         return;
       }
       refreshOk = true;
+      renderRefreshProgress(
+        {
+          phase: "persisting_profile",
+          progressPct: 100,
+          message: "Refresh complete.",
+        },
+        Date.now() - refreshProgressStartedAtMs,
+      );
       renderResults(data);
       refreshStatusPanel();
+      var companyCount = Array.isArray(data.companies) ? data.companies.length : 0;
+      if (data.fallback && data.fallback.reason) {
+        var detail =
+          data.fallback && typeof data.fallback.message === "string"
+            ? data.fallback.message.trim()
+            : "";
+        if (companyCount > 0) {
+          setRefreshNotice(
+            detail || "Refresh completed with fallback company list.",
+            "warn",
+          );
+        } else {
+          setRefreshNotice("");
+        }
+      } else {
+        setRefreshNotice(
+          "Refresh complete. Loaded " + companyCount + " target companies.",
+          "success",
+        );
+      }
     } catch (err) {
       if (err && err.name === "AbortError") {
         setError(
@@ -1177,8 +1390,11 @@
       } else {
         setError("Refresh failed: " + (err && err.message ? err.message : err));
       }
+      setRefreshNotice("");
     } finally {
+      stopRefreshProgress();
       setRunning(false);
+      if (els.refreshBtn) els.refreshBtn.textContent = "Refresh from stored profile";
       dispatchDiscoveryRunEvent("jobbored:discovery-run-finished", {
         trigger: "manual",
         mode: "refresh",

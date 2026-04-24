@@ -3445,6 +3445,75 @@ button.feed-item {
   margin-bottom: var(--space-2);
 }
 
+.dp-profile-notice {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.dp-profile-notice[data-tone="success"],
+.settings-profile-refresh-notice[data-tone="success"] {
+  color: var(--status-ok, #047857);
+}
+
+.dp-profile-notice[data-tone="info"],
+.settings-profile-refresh-notice[data-tone="info"] {
+  color: var(--text-muted);
+}
+
+.dp-profile-notice[data-tone="warn"],
+.settings-profile-refresh-notice[data-tone="warn"] {
+  color: var(--status-warn, #b45309);
+}
+
+.dp-profile-progress {
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.dp-profile-progress__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.dp-profile-progress__bar {
+  position: relative;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  border: 1px solid var(--divider);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.dp-profile-progress__fill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 220ms ease;
+}
+
+.dp-profile-progress__meta {
+  margin-top: var(--space-2);
+  margin-bottom: 0;
+}
+
+.settings-profile-refresh-progress {
+  margin-top: var(--space-2);
+}
+
+.settings-profile-refresh-notice {
+  margin: 0 0 var(--space-2);
+}
+
 .dp-profile-results {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -11382,6 +11451,13 @@ a.btn-materials {
   outline-offset: -2px;
 }
 
+.runs-table thead th:nth-child(4),
+.runs-table thead th:nth-child(5),
+.runs-table thead th:nth-child(6),
+.runs-table thead th:nth-child(7) {
+  text-align: right;
+}
+
 .runs-table tbody td {
   padding: var(--space-3);
   border-bottom: 1px solid var(--divider);
@@ -11408,8 +11484,8 @@ a.btn-materials {
 
 /* Column-scoped hierarchy:
    - col 1 Run At + col 3 Status are primary (full contrast).
-   - cols 4-6 are metrics (right-aligned, tabular figures).
-   - col 7 Source + col 8 Variation Key are secondary (muted, mono where relevant). */
+   - cols 4-7 are metrics (right-aligned, tabular figures).
+   - Source + Variation are secondary (muted, mono where relevant). */
 .runs-table tbody td:nth-child(1) {
   color: var(--text);
   font-weight: 500;
@@ -11422,20 +11498,36 @@ a.btn-materials {
 
 .runs-table tbody td:nth-child(4),
 .runs-table tbody td:nth-child(5),
-.runs-table tbody td:nth-child(6) {
+.runs-table tbody td:nth-child(6),
+.runs-table tbody td:nth-child(7) {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
   color: var(--text);
 }
 
-.runs-table tbody td:nth-child(7),
-.runs-table tbody td:nth-child(8) {
+.runs-source-cell,
+.runs-variation-cell {
   color: var(--text-muted);
   font-size: var(--text-xs);
 }
 
-.runs-table tbody td:nth-child(8) code {
+.runs-source-text {
+  display: inline-block;
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.runs-variation-code {
+  display: inline-block;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
   font-family: var(--font-mono);
   font-size: 0.95em;
   color: var(--text-muted);
@@ -11558,9 +11650,10 @@ a.btn-materials {
 .runs-row--skeleton td:nth-child(4) .runs-skeleton-bar { width: 50%; margin-left: auto; }
 .runs-row--skeleton td:nth-child(5) .runs-skeleton-bar { width: 40%; margin-left: auto; }
 .runs-row--skeleton td:nth-child(6) .runs-skeleton-bar { width: 40%; margin-left: auto; }
-.runs-row--skeleton td:nth-child(7) .runs-skeleton-bar { width: 60%; }
-.runs-row--skeleton td:nth-child(8) .runs-skeleton-bar { width: 65%; }
-.runs-row--skeleton td:nth-child(9) .runs-skeleton-bar { width: 30%; }
+.runs-row--skeleton td:nth-child(7) .runs-skeleton-bar { width: 40%; margin-left: auto; }
+.runs-row--skeleton td:nth-child(8) .runs-skeleton-bar { width: 60%; }
+.runs-row--skeleton td:nth-child(9) .runs-skeleton-bar { width: 65%; }
+.runs-row--skeleton td:nth-child(10) .runs-skeleton-bar { width: 30%; }
 
 /* Empty state — lives inside .runs-table-wrap (replaces the tbody when
    there are no rows) so the border + radius frame it cleanly. */

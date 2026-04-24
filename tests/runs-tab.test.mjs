@@ -325,6 +325,26 @@ describe("parseDiscoveryRunsValues", () => {
   });
 });
 
+describe("displayVariationKey", () => {
+  it("hides the sheetId fallback for worker@profile rows", async () => {
+    const mod = await loadRunsTab();
+    assert.equal(
+      mod.__test.displayVariationKey(
+        { source: "worker@profile", variationKey: "sheet-opt-b" },
+        "sheet-opt-b",
+      ),
+      "",
+    );
+    assert.equal(
+      mod.__test.displayVariationKey(
+        { source: "worker", variationKey: "sheet-opt-b" },
+        "sheet-opt-b",
+      ),
+      "sheet-opt-b",
+    );
+  });
+});
+
 describe("sortRuns", () => {
   it("sorts descending by runAt when direction='desc'", async () => {
     const mod = await loadRunsTab();
@@ -539,6 +559,36 @@ describe("renderGhostRowHtml (ghost row markup)", () => {
     assert.ok(match, "expected a title with the ISO timestamp");
     const ts = Date.parse(match[1]);
     assert.ok(ts >= before - 1000 && ts <= after + 1000);
+  });
+});
+
+describe("renderRunsTable", () => {
+  it("suppresses profile sheet ids in the variation column", async () => {
+    const mod = await loadRunsTab();
+    const tbody = { innerHTML: "" };
+    mod.__test.renderRunsTable(
+      tbody,
+      [
+        {
+          runAt: "2026-04-21T15:12:03Z",
+          trigger: "cli",
+          status: "success",
+          durationS: 47,
+          companiesSeen: 12,
+          leadsWritten: 0,
+          leadsUpdated: 0,
+          source: "worker@profile",
+          variationKey: "sheet-opt-b",
+          error: "",
+        },
+      ],
+      { sheetId: "sheet-opt-b" },
+    );
+    assert.match(tbody.innerHTML, /runs-source-cell/);
+    assert.match(tbody.innerHTML, /worker@profile/);
+    assert.match(tbody.innerHTML, /runs-variation-cell/);
+    assert.match(tbody.innerHTML, /runs-dash/);
+    assert.doesNotMatch(tbody.innerHTML, /sheet-opt-b/);
   });
 });
 

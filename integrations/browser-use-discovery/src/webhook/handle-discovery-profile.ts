@@ -59,6 +59,67 @@ type ScheduleInstalledBreadcrumb = {
   port: number;
 };
 
+type DiscoveryProfileRefreshPhase =
+  | "loading_profile"
+  | "extracting_profile"
+  | "discovering_companies"
+  | "deduping_companies"
+  | "persisting_profile";
+
+type DiscoveryProfileRefreshProgress = {
+  inFlight: true;
+  phase: DiscoveryProfileRefreshPhase;
+  progressPct: number;
+  message: string;
+  startedAt: string;
+  updatedAt: string;
+};
+
+const activeRefreshProgressBySheetId = new Map<
+  string,
+  DiscoveryProfileRefreshProgress
+>();
+
+function clampRefreshProgressPct(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(99, Math.round(value)));
+}
+
+function setRefreshProgress(
+  sheetId: string,
+  phase: DiscoveryProfileRefreshPhase,
+  progressPct: number,
+  message: string,
+): void {
+  const key = String(sheetId || "").trim();
+  if (!key) return;
+  const nowIso = new Date().toISOString();
+  const prior = activeRefreshProgressBySheetId.get(key);
+  activeRefreshProgressBySheetId.set(key, {
+    inFlight: true,
+    phase,
+    progressPct: clampRefreshProgressPct(progressPct),
+    message: String(message || ""),
+    startedAt: prior?.startedAt || nowIso,
+    updatedAt: nowIso,
+  });
+}
+
+function getRefreshProgress(
+  sheetId: string,
+): DiscoveryProfileRefreshProgress | null {
+  const key = String(sheetId || "").trim();
+  if (!key) return null;
+  const value = activeRefreshProgressBySheetId.get(key);
+  return value ? { ...value } : null;
+}
+
+function clearRefreshProgress(sheetId: string): void {
+  const key = String(sheetId || "").trim();
+  if (!key) return;
+  activeRefreshProgressBySheetId.delete(key);
+}
+
 export type HandleDiscoveryProfileDependencies = {
   runtimeConfig: WorkerRuntimeConfig;
   fetchImpl?: FetchImpl;
@@ -1358,6 +1419,7 @@ export async function handleDiscoveryProfileWebhook(
       const historyCompanies = Array.isArray(existing?.companyHistory)
         ? existing.companyHistory
         : [];
+      const refreshProgress = getRefreshProgress(String(targetSheetId));
       const status = {
         hasStoredProfile: !!storedProfile,
         resumeTextLength: storedResumeText.length,
@@ -1380,12 +1442,14 @@ export async function handleDiscoveryProfileWebhook(
         historyCompanyCount: historyCompanies.length,
         lastRefreshAt: existing?.lastRefreshAt?.at || null,
         lastRefreshSource: existing?.lastRefreshAt?.source || null,
+        refreshProgress,
       };
       dependencies.log?.("discovery.profile.status", {
         hasStoredProfile: status.hasStoredProfile,
         companyCount: status.companyCount,
         negativeCompanyCount: status.negativeCompanyCount,
         historyCompanyCount: status.historyCompanyCount,
+        refreshInFlight: !!(status.refreshProgress && status.refreshProgress.inFlight),
       });
       return jsonResponse(200, { ok: true, status });
     } catch (error) {
@@ -1652,6 +1716,22 @@ export async function handleDiscoveryProfileWebhook(
   let refreshSeenCompanyNames: string[] = [];
   let refreshBlockedCompanyKeys = new Set<string>();
   let refreshSeedProfile: CandidateProfile | null = null;
+  let refreshProgressSheetId: string | null = null;
+
+  function updateRefreshProgress(
+    phase: DiscoveryProfileRefreshPhase,
+    progressPct: number,
+    message: string,
+  ): void {
+    if (!refreshProgressSheetId) return;
+    setRefreshProgress(refreshProgressSheetId, phase, progressPct, message);
+    dependencies.log?.("discovery.profile.refresh_progress", {
+      sheetId: refreshProgressSheetId,
+      phase,
+      progressPct: clampRefreshProgressPct(progressPct),
+      message,
+    });
+  }
 
   if (parsedRequest.mode === "refresh") {
     const targetSheetId =
@@ -1715,6 +1795,7 @@ export async function handleDiscoveryProfileWebhook(
       ...refreshSeenCompanyKeys,
     ]);
     refreshStoredSheetId = String(targetSheetId);
+    refreshProgressSheetId = refreshStoredSheetId;
     dependencies.log?.("discovery.profile.refresh_loaded", {
       hasStoredResume: !!refreshResumeText,
       hasStoredForm: !!refreshForm,
@@ -1725,28 +1806,39 @@ export async function handleDiscoveryProfileWebhook(
         refreshSeedProfile && candidateProfileHasDiscoverySignal(refreshSeedProfile)
       ),
     });
+    updateRefreshProgress(
+      "loading_profile",
+      8,
+      "Loaded saved profile context.",
+    );
   }
 
-  let profile: CandidateProfile;
-  let fallback:
-    | {
-        reason: "profile_extraction_failed" | "company_discovery_failed";
-        message: string;
-      }
-    | undefined;
-  let companiesFromExtractFallback: CompanyTarget[] | null = null;
-  const profileInput = {
-    resumeText: refreshResumeText,
-    form: refreshForm,
-  };
-  const refreshDiscoverHints =
-    parsedRequest.mode === "refresh"
-      ? {
-          excludedCompanyKeys: refreshSeenCompanyKeys,
-          excludedCompanyNames: refreshSeenCompanyNames,
-        }
-      : {};
   try {
+    let profile: CandidateProfile;
+    let fallback:
+      | {
+          reason: "profile_extraction_failed" | "company_discovery_failed";
+          message: string;
+        }
+      | undefined;
+    let companiesFromExtractFallback: CompanyTarget[] | null = null;
+    const profileInput = {
+      resumeText: refreshResumeText,
+      form: refreshForm,
+    };
+    const refreshDiscoverHints =
+      parsedRequest.mode === "refresh"
+        ? {
+            excludedCompanyKeys: refreshSeenCompanyKeys,
+            excludedCompanyNames: refreshSeenCompanyNames,
+          }
+        : {};
+    updateRefreshProgress(
+      "extracting_profile",
+      20,
+      "Extracting profile signal from stored input.",
+    );
+    try {
     profile = await extractFn(
       profileInput,
       {
@@ -1890,7 +1982,21 @@ export async function handleDiscoveryProfileWebhook(
     }
   }
 
-  let companies: CompanyTarget[];
+    if (companiesFromExtractFallback) {
+      updateRefreshProgress(
+        "deduping_companies",
+        64,
+        "Validating fallback company shortlist.",
+      );
+    } else {
+      updateRefreshProgress(
+        "discovering_companies",
+        42,
+        "Discovering net-new company targets.",
+      );
+    }
+
+    let companies: CompanyTarget[];
   if (companiesFromExtractFallback) {
     companies = companiesFromExtractFallback;
   } else {
@@ -1947,6 +2053,12 @@ export async function handleDiscoveryProfileWebhook(
     }
   }
 
+  updateRefreshProgress(
+    "deduping_companies",
+    74,
+    "Filtering out skipped and previously-seen companies.",
+  );
+
   // Refresh mode: dedupe against explicit skips plus previously-seen company
   // keys so each refresh prefers net-new employers.
   if (parsedRequest.mode === "refresh" && refreshBlockedCompanyKeys.size > 0) {
@@ -1967,6 +2079,11 @@ export async function handleDiscoveryProfileWebhook(
   // upstream AI extraction is flaky/rate-limited.
   if (parsedRequest.mode === "refresh" && companies.length === 0) {
     const relaxedExcludedKeys = Array.from(buildCompanyKeySet(negativeCompanyKeys));
+    updateRefreshProgress(
+      "discovering_companies",
+      68,
+      "No net-new companies yet. Running a relaxed retry.",
+    );
     dependencies.log?.("discovery.profile.refresh_relaxed_retry_started", {
       excludedCompanyCount: relaxedExcludedKeys.length,
       strictSeenCompanyCount: refreshSeenCompanyKeys.length,
@@ -2038,6 +2155,12 @@ export async function handleDiscoveryProfileWebhook(
       companyCount: companies.length,
     });
   }
+
+  updateRefreshProgress(
+    "persisting_profile",
+    88,
+    "Saving refreshed company shortlist.",
+  );
 
   let persisted = false;
   let responseHistoryCompanies: CompanyTarget[] | undefined =
@@ -2185,15 +2308,21 @@ export async function handleDiscoveryProfileWebhook(
 
   await logRun("success", companies.length, "");
 
-  const response: DiscoveryProfileResponseV1 = {
-    ok: true,
-    profile,
-    companies,
-    persisted,
-    ...(Array.isArray(responseHistoryCompanies) && responseHistoryCompanies.length > 0
-      ? { historyCompanies: responseHistoryCompanies }
-      : {}),
-    ...(fallback ? { fallback } : {}),
-  };
-  return jsonResponse(200, response);
+    const response: DiscoveryProfileResponseV1 = {
+      ok: true,
+      profile,
+      companies,
+      persisted,
+      ...(Array.isArray(responseHistoryCompanies) &&
+      responseHistoryCompanies.length > 0
+        ? { historyCompanies: responseHistoryCompanies }
+        : {}),
+      ...(fallback ? { fallback } : {}),
+    };
+    return jsonResponse(200, response);
+  } finally {
+    if (refreshProgressSheetId) {
+      clearRefreshProgress(refreshProgressSheetId);
+    }
+  }
 }

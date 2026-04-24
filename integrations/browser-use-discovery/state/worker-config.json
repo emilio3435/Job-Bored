@@ -4,189 +4,194 @@
   "timezone": "America/Chicago",
   "companies": [
     {
-      "name": "AlphaSense",
-      "companyKey": "alphasense",
-      "normalizedName": "alphasense",
+      "name": "Acrisure Mortgage",
+      "companyKey": "acrisure-mortgage",
+      "normalizedName": "acrisure-mortgage",
       "domains": [
-        "alpha-sense.com",
-        "tegus.com"
+        "acrisuremortgage.com"
       ]
     },
     {
-      "name": "Tavus",
-      "companyKey": "tavus",
-      "normalizedName": "tavus",
+      "name": "The Cigna Group",
+      "companyKey": "the-cigna-group",
+      "normalizedName": "the-cigna-group",
       "domains": [
-        "tavus.io"
+        "thecignagroup.com",
+        "cigna.com"
       ]
     },
     {
-      "name": "Prolific",
-      "companyKey": "prolific",
-      "normalizedName": "prolific",
+      "name": "Mortgage Broker Marketing",
+      "companyKey": "mortgage-broker-marketing",
+      "normalizedName": "mortgage-broker-marketing",
       "domains": [
-        "prolific.com"
+        "mortgagebrokermarketing.com"
       ]
     },
     {
-      "name": "Later",
-      "companyKey": "later",
-      "normalizedName": "later",
+      "name": "Northwestern Mutual",
+      "companyKey": "northwestern-mutual",
+      "normalizedName": "northwestern-mutual",
       "domains": [
-        "talents.vaia.com"
+        "northwesternmutual.com"
       ]
     },
     {
-      "name": "Hinge Health",
-      "companyKey": "hinge-health",
-      "normalizedName": "hinge-health",
+      "name": "iCreatives",
+      "companyKey": "icreatives",
+      "normalizedName": "icreatives",
       "domains": [
-        "hingehealth.com"
+        "icreatives.com"
       ]
     },
     {
-      "name": "Allied Solutions",
-      "companyKey": "allied-solutions",
-      "normalizedName": "allied-solutions",
+      "name": "Aflac",
+      "companyKey": "aflac",
+      "normalizedName": "aflac",
       "domains": [
-        "tealhq.com"
+        "aflac.com"
       ]
     },
     {
-      "name": "Cisive",
-      "companyKey": "cisive",
-      "normalizedName": "cisive",
+      "name": "Progressive",
+      "companyKey": "progressive",
+      "normalizedName": "progressive",
       "domains": [
-        "purpose.jobs"
+        "progressive.com"
       ]
     },
     {
-      "name": "Your Home Improvement Company LLC",
-      "companyKey": "your-home-improvement-company-llc",
-      "normalizedName": "your-home-improvement-company-llc",
+      "name": "SambaSafety",
+      "companyKey": "sambasafety",
+      "normalizedName": "sambasafety",
       "domains": [
-        "aidoos.com"
+        "sambasafety.com"
       ]
     },
     {
-      "name": "TP-Link Systems Inc.",
-      "companyKey": "tp-link-systems-inc",
-      "normalizedName": "tp-link-systems-inc",
+      "name": "Spark Advisors",
+      "companyKey": "spark-advisors",
+      "normalizedName": "spark-advisors",
       "domains": [
-        "revopscareers.com"
+        "sparkadvisors.com"
       ]
     },
     {
-      "name": "TalentPop",
-      "companyKey": "talentpop",
-      "normalizedName": "talentpop",
+      "name": "GEICO",
+      "companyKey": "geico",
+      "normalizedName": "geico",
       "domains": [
-        "career.com"
+        "geico.com"
       ]
     },
     {
-      "name": "Swimply",
-      "companyKey": "swimply",
-      "normalizedName": "swimply",
+      "name": "State Farm",
+      "companyKey": "state-farm",
+      "normalizedName": "state-farm",
       "domains": [
-        "recruiting.paylocity.com"
+        "statefarm.com"
       ]
     },
     {
-      "name": "Maltego",
-      "companyKey": "maltego",
-      "normalizedName": "maltego",
+      "name": "Dexcom",
+      "companyKey": "dexcom",
+      "normalizedName": "dexcom",
       "domains": [
-        "dailyremote.com"
+        "dexcom.wd1.myworkdayjobs.com"
       ]
     },
     {
-      "name": "JamLoop",
-      "companyKey": "jamloop",
-      "normalizedName": "jamloop",
+      "name": "Nationwide",
+      "companyKey": "nationwide",
+      "normalizedName": "nationwide",
       "domains": [
-        "dailyremote.com"
+        "nationwide.com"
       ]
     },
     {
-      "name": "HireHawk",
-      "companyKey": "hirehawk",
-      "normalizedName": "hirehawk",
+      "name": "Agero",
+      "companyKey": "agero",
+      "normalizedName": "agero",
       "domains": [
-        "tealhq.com"
+        "agero.com"
       ]
     },
     {
-      "name": "Go Fractional",
-      "companyKey": "go-fractional",
-      "normalizedName": "go-fractional",
+      "name": "Kaleidico",
+      "companyKey": "kaleidico",
+      "normalizedName": "kaleidico",
       "domains": [
-        "jobs.ashbyhq.com"
+        "kaleidico.com"
       ]
     },
     {
-      "name": "EverCommerce",
-      "companyKey": "evercommerce",
-      "normalizedName": "evercommerce",
+      "name": "Mortgage Solutions Financial",
+      "companyKey": "mortgage-solutions-financial",
+      "normalizedName": "mortgage-solutions-financial",
       "domains": [
-        "talents.vaia.com"
+        "mortgagesolutions.net"
       ]
     },
     {
-      "name": "ESM INSITE",
-      "companyKey": "esm-insite",
-      "normalizedName": "esm-insite",
+      "name": "Bestow",
+      "companyKey": "bestow",
+      "normalizedName": "bestow",
       "domains": [
-        "talents.vaia.com"
+        "bestow.com"
       ]
     },
     {
-      "name": "Directive Consulting",
-      "companyKey": "directive-consulting",
-      "normalizedName": "directive-consulting",
+      "name": "Roar Solutions",
+      "companyKey": "roar-solutions",
+      "normalizedName": "roar-solutions",
       "domains": [
-        "talents.vaia.com"
+        "roarsolutions.com"
       ]
     },
     {
-      "name": "Blizzard Entertainment",
-      "companyKey": "blizzard-entertainment",
-      "normalizedName": "blizzard-entertainment",
+      "name": "New York Life Insurance",
+      "companyKey": "new-york-life-insurance",
+      "normalizedName": "new-york-life-insurance",
       "domains": [
-        "careers.blizzard.com"
+        "newyorklife.com"
       ]
     },
     {
-      "name": "+ Lux Unfiltered, Inc.",
-      "companyKey": "lux-unfiltered-inc",
-      "normalizedName": "lux-unfiltered-inc",
+      "name": "VideaHealth",
+      "companyKey": "videahealth",
+      "normalizedName": "videahealth",
       "domains": [
-        "bebee.com"
+        "videahealth.com"
       ]
     },
     {
-      "name": "Workweek",
-      "companyKey": "workweek",
-      "normalizedName": "workweek",
+      "name": "Huntington Bank",
+      "companyKey": "huntington-bank",
+      "normalizedName": "huntington-bank",
       "domains": [
-        "talents.vaia.com"
+        "huntington.com"
       ]
     },
     {
-      "name": "AYTM",
-      "companyKey": "aytm",
-      "normalizedName": "aytm",
+      "name": "Aceable",
+      "companyKey": "aceable",
+      "normalizedName": "aceable",
       "domains": [
-        "startup.jobs"
+        "aceable.com"
       ]
     },
     {
-      "name": "405 Cabinets & Stone",
-      "companyKey": "405-cabinets-stone",
-      "normalizedName": "405-cabinets-stone",
+      "name": "Applied Systems",
+      "companyKey": "applied-systems",
+      "normalizedName": "applied-systems",
       "domains": [
-        "jobs.digitalhire.com"
+        "appliedsystems.com"
       ]
+    },
+    {
+      "name": "Fannie Mae",
+      "companyKey": "fannie-mae",
+      "normalizedName": "fannie-mae"
     }
   ],
   "atsCompanies": [],
@@ -225,19 +230,52 @@
     "resumeText": "Emilio Nunez-Garcia\n\n[501-366-2080]\n\n902 N. Cascade Avenue, Colorado Springs, CO 80903\n\ne_nunezgarcia@coloradocollege.edu\n\nEducation\n\nBA Mathematical Economics 2017Colorado CollegeColorado Springs, CO\n\nProfessionalExperience\n\nCofounder, Bucketz (2016 - 2017)\n\nFounded a start-up market research recruitment firm that provides automated focus group recruitment services for mid-sized market research firms.\n\nDeveloped innovative social and search engine marketing strategy that allows firms to obtain qualified respondents for a fraction of traditional recruitment costs.\n\nDeveloped and effectively performed fundraising pitch for prospective investors.\n\nDigital Marketing Strategist, Primary Residential Mortgage Inc. (2015 - 2016)\n\nCreated and optimized digital marketing campaigns in 8 states.\n\nWorked with local insurance and real estate businesses to enhance digital networking and create effective social media marketing and brand awareness campaigns.\n\nUsed WordPress to improve SERP rank and inform webpage visitors about mortgage loans, credit scores and underwriting procedures.\n\nUsed statistical software to measure performance and optimize budget allocation.\n\nFinancial Accounting Teaching Assistant, Colorado College (2014-2015)\n\nAssisted students with homework assignments and labs in daily after-class sessions.\n\nAssisted students in one-on-one Excel and QuickBooks tutoring sessions\n\nSkills \n\nAdvanced use of Microsoft Office Suite, Stata, QuickBooks & Tableau.\n\nBilingual in English & Spanish; Proficiency in French, Italian\n\nCreative problem-solving using data based analysis\n\nExcellence in written and oral communication\n\nCertifications\n\nGoogle AdWords Fundamentals, Search and Mobile Advertising\n\nGoogle Analytics \n\nReferences\n\nAvailable upon request.\n\nhttps://www.linkedin.com/in/emilio-nunez-garcia-1a6885110",
     "derivedProfile": {
       "targetRoles": [
+        "Digital Marketing Strategist",
+        "Marketing Manager",
+        "Cofounder",
         "Growth Marketing Manager"
       ],
       "skills": [
+        "Microsoft Office Suite",
+        "Stata",
+        "QuickBooks",
+        "Tableau",
+        "Social Media Marketing",
+        "Search Engine Marketing",
+        "Fundraising",
+        "Digital Marketing",
+        "Brand Awareness",
+        "WordPress",
+        "SEO",
+        "Statistical Analysis",
+        "Budget Optimization",
+        "Excel",
+        "Data Analysis",
+        "Google AdWords",
+        "Google Analytics",
+        "English",
+        "Spanish",
+        "French",
+        "Italian",
         "analytics",
         "AI",
-        "Excel",
-        "Tableau",
         "campaigns"
       ],
-      "seniority": "mid",
-      "locations": []
+      "seniority": "entry",
+      "locations": [
+        "Colorado Springs",
+        "CO"
+      ],
+      "industries": [
+        "Market Research",
+        "Mortgage",
+        "Real Estate",
+        "Insurance",
+        "Education"
+      ],
+      "yearsOfExperience": 3
     },
-    "updatedAt": "2026-04-23T06:42:09.928Z"
+    "updatedAt": "2026-04-23T18:45:12.600Z"
   },
   "negativeCompanyKeys": [
     "scale-ai",
@@ -388,7 +426,102 @@
     "later",
     "hinge-health",
     "allied-solutions",
-    "cisive"
+    "cisive",
+    "yipitdata",
+    "state-of-colorado",
+    "the-gardens-at-viewpointe",
+    "mutual-of-omaha-mortgage",
+    "luxury-presence",
+    "serhant",
+    "freedom-mortgage",
+    "grace-hill",
+    "rentable",
+    "buxton",
+    "aramark",
+    "microchip-technology",
+    "built-technologies",
+    "lessen-llc",
+    "something-new",
+    "happyco",
+    "fello",
+    "digible",
+    "ground-signal",
+    "usa-mortgage-das-acquisition-company-llc",
+    "purple-mountain-home-buyers",
+    "nielsen",
+    "ecoharvest",
+    "fairway-independent-mortgage-corporation",
+    "luminate-bank",
+    "movement-mortgage",
+    "nory",
+    "rocket-mortgage",
+    "pennymac",
+    "commonwealth-central-credit-union",
+    "mortgage-connect",
+    "united-wholesale-mortgage-uwm",
+    "cmg-financial",
+    "lendingclub-bank-n-a",
+    "d-r-horton",
+    "amerisave-mortgage-corporation",
+    "motto-mortgage",
+    "new-american-funding",
+    "loandepot",
+    "newity-llc",
+    "pomelo",
+    "caliber-company",
+    "seattle-credit-union",
+    "east-harbor-financial",
+    "smartrent",
+    "sage-home-loans",
+    "colorado-realty-and-property-management-inc",
+    "andrew-wommack-ministries",
+    "qualtrics",
+    "gartner",
+    "ies-communications",
+    "mercury-insurance",
+    "ent-credit-union",
+    "cna-insurance",
+    "nielseniq",
+    "drive-research",
+    "iqvia",
+    "lakeshore-talent",
+    "millennial-money-man",
+    "analytic-partners",
+    "price-solutions",
+    "zeneth-technology-partners",
+    "usa-trathlon",
+    "tucanos-colorado-springs-6",
+    "whatjobs-direct",
+    "nextiny",
+    "the-exodus-road",
+    "usa-boxing",
+    "industrial-info-resources",
+    "integrity-mortgage-financial-inc",
+    "m3usa",
+    "acrisure-mortgage",
+    "the-cigna-group",
+    "mortgage-broker-marketing",
+    "northwestern-mutual",
+    "icreatives",
+    "aflac",
+    "progressive",
+    "sambasafety",
+    "spark-advisors",
+    "geico",
+    "state-farm",
+    "dexcom",
+    "nationwide",
+    "agero",
+    "kaleidico",
+    "mortgage-solutions-financial",
+    "bestow",
+    "roar-solutions",
+    "new-york-life-insurance",
+    "videahealth",
+    "huntington-bank",
+    "aceable",
+    "applied-systems",
+    "fannie-mae"
   ],
   "companyHistory": [
     {
@@ -1544,10 +1677,767 @@
       "domains": [
         "purpose.jobs"
       ]
+    },
+    {
+      "name": "YipitData",
+      "companyKey": "yipitdata",
+      "normalizedName": "yipitdata",
+      "domains": [
+        "yipitdata.com"
+      ]
+    },
+    {
+      "name": "State of Colorado",
+      "companyKey": "state-of-colorado",
+      "normalizedName": "state-of-colorado",
+      "domains": [
+        "bebee.com"
+      ]
+    },
+    {
+      "name": "The Gardens at Viewpointe",
+      "companyKey": "the-gardens-at-viewpointe",
+      "normalizedName": "the-gardens-at-viewpointe",
+      "domains": [
+        "tealhq.com"
+      ]
+    },
+    {
+      "name": "Mutual of Omaha Mortgage",
+      "companyKey": "mutual-of-omaha-mortgage",
+      "normalizedName": "mutual-of-omaha-mortgage",
+      "domains": [
+        "mutualofohamamortgage.com"
+      ]
+    },
+    {
+      "name": "Luxury Presence",
+      "companyKey": "luxury-presence",
+      "normalizedName": "luxury-presence",
+      "domains": [
+        "luxurypresence.com"
+      ]
+    },
+    {
+      "name": "SERHANT.",
+      "companyKey": "serhant",
+      "normalizedName": "serhant",
+      "domains": [
+        "serhant.com"
+      ]
+    },
+    {
+      "name": "Freedom Mortgage",
+      "companyKey": "freedom-mortgage",
+      "normalizedName": "freedom-mortgage",
+      "domains": [
+        "freedommortgage.com"
+      ]
+    },
+    {
+      "name": "Grace Hill",
+      "companyKey": "grace-hill",
+      "normalizedName": "grace-hill",
+      "domains": [
+        "gracehill.com"
+      ]
+    },
+    {
+      "name": "Rentable",
+      "companyKey": "rentable",
+      "normalizedName": "rentable",
+      "domains": [
+        "rentable.co"
+      ]
+    },
+    {
+      "name": "Buxton",
+      "companyKey": "buxton",
+      "normalizedName": "buxton",
+      "domains": [
+        "buxton.com"
+      ]
+    },
+    {
+      "name": "Aramark",
+      "companyKey": "aramark",
+      "normalizedName": "aramark",
+      "domains": [
+        "earnbetter.com"
+      ]
+    },
+    {
+      "name": "Microchip Technology",
+      "companyKey": "microchip-technology",
+      "normalizedName": "microchip-technology",
+      "domains": [
+        "tealhq.com"
+      ]
+    },
+    {
+      "name": "Built Technologies",
+      "companyKey": "built-technologies",
+      "normalizedName": "built-technologies",
+      "domains": [
+        "getbuilt.com"
+      ]
+    },
+    {
+      "name": "Lessen LLC",
+      "companyKey": "lessen-llc",
+      "normalizedName": "lessen-llc",
+      "domains": [
+        "lessen.com"
+      ]
+    },
+    {
+      "name": "Something New",
+      "companyKey": "something-new",
+      "normalizedName": "something-new",
+      "domains": [
+        "bebee.com"
+      ]
+    },
+    {
+      "name": "HappyCo",
+      "companyKey": "happyco",
+      "normalizedName": "happyco",
+      "domains": [
+        "happy.co"
+      ]
+    },
+    {
+      "name": "Fello",
+      "companyKey": "fello",
+      "normalizedName": "fello",
+      "domains": [
+        "fello.ai"
+      ]
+    },
+    {
+      "name": "Digible",
+      "companyKey": "digible",
+      "normalizedName": "digible",
+      "domains": [
+        "digible.com"
+      ]
+    },
+    {
+      "name": "Ground Signal",
+      "companyKey": "ground-signal",
+      "normalizedName": "ground-signal"
+    },
+    {
+      "name": "USA Mortgage (DAS Acquisition Company, LLC)",
+      "companyKey": "usa-mortgage-das-acquisition-company-llc",
+      "normalizedName": "usa-mortgage-das-acquisition-company-llc",
+      "domains": [
+        "usamortgage.com",
+        "dasacquisition.com"
+      ]
+    },
+    {
+      "name": "Purple Mountain Home Buyers",
+      "companyKey": "purple-mountain-home-buyers",
+      "normalizedName": "purple-mountain-home-buyers",
+      "domains": [
+        "purplemountainhomebuyers.com"
+      ]
+    },
+    {
+      "name": "Nielsen",
+      "companyKey": "nielsen",
+      "normalizedName": "nielsen",
+      "domains": [
+        "nielsen.com"
+      ]
+    },
+    {
+      "name": "Ecoharvest",
+      "companyKey": "ecoharvest",
+      "normalizedName": "ecoharvest",
+      "domains": [
+        "bebee.com"
+      ]
+    },
+    {
+      "name": "Fairway Independent Mortgage Corporation",
+      "companyKey": "fairway-independent-mortgage-corporation",
+      "normalizedName": "fairway-independent-mortgage-corporation",
+      "domains": [
+        "fairwaymc.com"
+      ]
+    },
+    {
+      "name": "Luminate Bank",
+      "companyKey": "luminate-bank",
+      "normalizedName": "luminate-bank",
+      "domains": [
+        "luminatebank.com"
+      ]
+    },
+    {
+      "name": "Movement Mortgage",
+      "companyKey": "movement-mortgage",
+      "normalizedName": "movement-mortgage",
+      "domains": [
+        "movement.com"
+      ]
+    },
+    {
+      "name": "NORY",
+      "companyKey": "nory",
+      "normalizedName": "nory",
+      "domains": [
+        "jobs.ashbyhq.com"
+      ]
+    },
+    {
+      "name": "Rocket Mortgage",
+      "companyKey": "rocket-mortgage",
+      "normalizedName": "rocket-mortgage",
+      "domains": [
+        "rocketmortgage.com",
+        "rocketcompanies.com"
+      ]
+    },
+    {
+      "name": "Pennymac",
+      "companyKey": "pennymac",
+      "normalizedName": "pennymac",
+      "domains": [
+        "pennymac.com"
+      ]
+    },
+    {
+      "name": "CommonWealth Central Credit Union",
+      "companyKey": "commonwealth-central-credit-union",
+      "normalizedName": "commonwealth-central-credit-union",
+      "domains": [
+        "commonwealthcu.org"
+      ]
+    },
+    {
+      "name": "Mortgage Connect",
+      "companyKey": "mortgage-connect",
+      "normalizedName": "mortgage-connect",
+      "domains": [
+        "mortgageconnectlp.com"
+      ]
+    },
+    {
+      "name": "United Wholesale Mortgage (UWM)",
+      "companyKey": "united-wholesale-mortgage-uwm",
+      "normalizedName": "united-wholesale-mortgage-uwm",
+      "domains": [
+        "uwm.com"
+      ]
+    },
+    {
+      "name": "CMG Financial",
+      "companyKey": "cmg-financial",
+      "normalizedName": "cmg-financial",
+      "domains": [
+        "cmgfi.com"
+      ]
+    },
+    {
+      "name": "LendingClub Bank, N.A.",
+      "companyKey": "lendingclub-bank-n-a",
+      "normalizedName": "lendingclub-bank-n-a",
+      "domains": [
+        "lendingclub.com"
+      ]
+    },
+    {
+      "name": "D.R. Horton",
+      "companyKey": "d-r-horton",
+      "normalizedName": "d-r-horton",
+      "domains": [
+        "drhorton.com"
+      ]
+    },
+    {
+      "name": "AmeriSave Mortgage Corporation",
+      "companyKey": "amerisave-mortgage-corporation",
+      "normalizedName": "amerisave-mortgage-corporation",
+      "domains": [
+        "amerisave.com"
+      ]
+    },
+    {
+      "name": "Motto Mortgage",
+      "companyKey": "motto-mortgage",
+      "normalizedName": "motto-mortgage",
+      "domains": [
+        "mottomortgage.com"
+      ]
+    },
+    {
+      "name": "New American Funding",
+      "companyKey": "new-american-funding",
+      "normalizedName": "new-american-funding",
+      "domains": [
+        "newamericanfunding.com"
+      ]
+    },
+    {
+      "name": "loanDepot",
+      "companyKey": "loandepot",
+      "normalizedName": "loandepot",
+      "domains": [
+        "loandepot.com"
+      ]
+    },
+    {
+      "name": "NEWITY LLC",
+      "companyKey": "newity-llc",
+      "normalizedName": "newity-llc",
+      "domains": [
+        "newity.com"
+      ]
+    },
+    {
+      "name": "Pomelo",
+      "companyKey": "pomelo",
+      "normalizedName": "pomelo",
+      "domains": [
+        "remoterocketship.com"
+      ]
+    },
+    {
+      "name": "Caliber Company",
+      "companyKey": "caliber-company",
+      "normalizedName": "caliber-company",
+      "domains": [
+        "caliberco.com"
+      ]
+    },
+    {
+      "name": "Seattle Credit Union",
+      "companyKey": "seattle-credit-union",
+      "normalizedName": "seattle-credit-union",
+      "domains": [
+        "seattlecu.com"
+      ]
+    },
+    {
+      "name": "East Harbor Financial",
+      "companyKey": "east-harbor-financial",
+      "normalizedName": "east-harbor-financial",
+      "domains": [
+        "eastharborfinancial.com"
+      ]
+    },
+    {
+      "name": "SmartRent",
+      "companyKey": "smartrent",
+      "normalizedName": "smartrent",
+      "domains": [
+        "smartrent.com"
+      ]
+    },
+    {
+      "name": "Sage Home Loans",
+      "companyKey": "sage-home-loans",
+      "normalizedName": "sage-home-loans",
+      "domains": [
+        "sagehomeloans.com"
+      ]
+    },
+    {
+      "name": "Colorado Realty and Property Management, Inc.",
+      "companyKey": "colorado-realty-and-property-management-inc",
+      "normalizedName": "colorado-realty-and-property-management-inc"
+    },
+    {
+      "name": "Andrew Wommack Ministries",
+      "companyKey": "andrew-wommack-ministries",
+      "normalizedName": "andrew-wommack-ministries",
+      "domains": [
+        "awmi.net",
+        "charisbiblecollege.org"
+      ]
+    },
+    {
+      "name": "Qualtrics",
+      "companyKey": "qualtrics",
+      "normalizedName": "qualtrics",
+      "domains": [
+        "qualtrics.com"
+      ]
+    },
+    {
+      "name": "Gartner",
+      "companyKey": "gartner",
+      "normalizedName": "gartner",
+      "domains": [
+        "gartner.com"
+      ]
+    },
+    {
+      "name": "IES Communications",
+      "companyKey": "ies-communications",
+      "normalizedName": "ies-communications",
+      "domains": [
+        "iescommunications.com"
+      ]
+    },
+    {
+      "name": "Mercury Insurance",
+      "companyKey": "mercury-insurance",
+      "normalizedName": "mercury-insurance",
+      "domains": [
+        "mercuryinsurance.com"
+      ]
+    },
+    {
+      "name": "Ent Credit Union",
+      "companyKey": "ent-credit-union",
+      "normalizedName": "ent-credit-union",
+      "domains": [
+        "ent.com"
+      ]
+    },
+    {
+      "name": "CNA Insurance",
+      "companyKey": "cna-insurance",
+      "normalizedName": "cna-insurance",
+      "domains": [
+        "cna.com"
+      ]
+    },
+    {
+      "name": "NielsenIQ",
+      "companyKey": "nielseniq",
+      "normalizedName": "nielseniq",
+      "domains": [
+        "nielseniq.com",
+        "nielsen.com"
+      ]
+    },
+    {
+      "name": "Drive Research",
+      "companyKey": "drive-research",
+      "normalizedName": "drive-research",
+      "domains": [
+        "driveresearch.com"
+      ]
+    },
+    {
+      "name": "IQVIA",
+      "companyKey": "iqvia",
+      "normalizedName": "iqvia",
+      "domains": [
+        "iqvia.com"
+      ]
+    },
+    {
+      "name": "Lakeshore Talent",
+      "companyKey": "lakeshore-talent",
+      "normalizedName": "lakeshore-talent",
+      "domains": [
+        "learn4good.com"
+      ]
+    },
+    {
+      "name": "Millennial Money Man",
+      "companyKey": "millennial-money-man",
+      "normalizedName": "millennial-money-man",
+      "domains": [
+        "millennialmoneyman.freshteam.com"
+      ]
+    },
+    {
+      "name": "Analytic Partners",
+      "companyKey": "analytic-partners",
+      "normalizedName": "analytic-partners",
+      "domains": [
+        "analyticpartners.com"
+      ]
+    },
+    {
+      "name": "Price Solutions",
+      "companyKey": "price-solutions",
+      "normalizedName": "price-solutions",
+      "domains": [
+        "advertising.thecreativeloft.com"
+      ]
+    },
+    {
+      "name": "Zeneth Technology Partners",
+      "companyKey": "zeneth-technology-partners",
+      "normalizedName": "zeneth-technology-partners",
+      "domains": [
+        "zenethpartners.com"
+      ]
+    },
+    {
+      "name": "USA Trathlon",
+      "companyKey": "usa-trathlon",
+      "normalizedName": "usa-trathlon",
+      "domains": [
+        "jobs.digitalhire.com"
+      ]
+    },
+    {
+      "name": "Tucanos Colorado Springs - 6",
+      "companyKey": "tucanos-colorado-springs-6",
+      "normalizedName": "tucanos-colorado-springs-6",
+      "domains": [
+        "talents.vaia.com",
+        "harri.com"
+      ]
+    },
+    {
+      "name": "WhatJobs Direct",
+      "companyKey": "whatjobs-direct",
+      "normalizedName": "whatjobs-direct",
+      "domains": [
+        "jobs.digitalhire.com"
+      ]
+    },
+    {
+      "name": "Nextiny",
+      "companyKey": "nextiny",
+      "normalizedName": "nextiny",
+      "domains": [
+        "nextiny.com"
+      ]
+    },
+    {
+      "name": "The Exodus Road",
+      "companyKey": "the-exodus-road",
+      "normalizedName": "the-exodus-road",
+      "domains": [
+        "andrewhudsonsjobslist.com"
+      ]
+    },
+    {
+      "name": "USA Boxing",
+      "companyKey": "usa-boxing",
+      "normalizedName": "usa-boxing",
+      "domains": [
+        "andrewhudsonsjobslist.com"
+      ]
+    },
+    {
+      "name": "Industrial Info Resources",
+      "companyKey": "industrial-info-resources",
+      "normalizedName": "industrial-info-resources",
+      "domains": [
+        "industrialinfo.com"
+      ]
+    },
+    {
+      "name": "Integrity Mortgage & Financial Inc.",
+      "companyKey": "integrity-mortgage-financial-inc",
+      "normalizedName": "integrity-mortgage-financial-inc",
+      "domains": [
+        "integritymtg.com"
+      ]
+    },
+    {
+      "name": "M3USA",
+      "companyKey": "m3usa",
+      "normalizedName": "m3usa",
+      "domains": [
+        "m3usa.com"
+      ]
+    },
+    {
+      "name": "Acrisure Mortgage",
+      "companyKey": "acrisure-mortgage",
+      "normalizedName": "acrisure-mortgage",
+      "domains": [
+        "acrisuremortgage.com"
+      ]
+    },
+    {
+      "name": "The Cigna Group",
+      "companyKey": "the-cigna-group",
+      "normalizedName": "the-cigna-group",
+      "domains": [
+        "thecignagroup.com",
+        "cigna.com"
+      ]
+    },
+    {
+      "name": "Mortgage Broker Marketing",
+      "companyKey": "mortgage-broker-marketing",
+      "normalizedName": "mortgage-broker-marketing",
+      "domains": [
+        "mortgagebrokermarketing.com"
+      ]
+    },
+    {
+      "name": "Northwestern Mutual",
+      "companyKey": "northwestern-mutual",
+      "normalizedName": "northwestern-mutual",
+      "domains": [
+        "northwesternmutual.com"
+      ]
+    },
+    {
+      "name": "iCreatives",
+      "companyKey": "icreatives",
+      "normalizedName": "icreatives",
+      "domains": [
+        "icreatives.com"
+      ]
+    },
+    {
+      "name": "Aflac",
+      "companyKey": "aflac",
+      "normalizedName": "aflac",
+      "domains": [
+        "aflac.com"
+      ]
+    },
+    {
+      "name": "Progressive",
+      "companyKey": "progressive",
+      "normalizedName": "progressive",
+      "domains": [
+        "progressive.com"
+      ]
+    },
+    {
+      "name": "SambaSafety",
+      "companyKey": "sambasafety",
+      "normalizedName": "sambasafety",
+      "domains": [
+        "sambasafety.com"
+      ]
+    },
+    {
+      "name": "Spark Advisors",
+      "companyKey": "spark-advisors",
+      "normalizedName": "spark-advisors",
+      "domains": [
+        "sparkadvisors.com"
+      ]
+    },
+    {
+      "name": "GEICO",
+      "companyKey": "geico",
+      "normalizedName": "geico",
+      "domains": [
+        "geico.com"
+      ]
+    },
+    {
+      "name": "State Farm",
+      "companyKey": "state-farm",
+      "normalizedName": "state-farm",
+      "domains": [
+        "statefarm.com"
+      ]
+    },
+    {
+      "name": "Dexcom",
+      "companyKey": "dexcom",
+      "normalizedName": "dexcom",
+      "domains": [
+        "dexcom.wd1.myworkdayjobs.com"
+      ]
+    },
+    {
+      "name": "Nationwide",
+      "companyKey": "nationwide",
+      "normalizedName": "nationwide",
+      "domains": [
+        "nationwide.com"
+      ]
+    },
+    {
+      "name": "Agero",
+      "companyKey": "agero",
+      "normalizedName": "agero",
+      "domains": [
+        "agero.com"
+      ]
+    },
+    {
+      "name": "Kaleidico",
+      "companyKey": "kaleidico",
+      "normalizedName": "kaleidico",
+      "domains": [
+        "kaleidico.com"
+      ]
+    },
+    {
+      "name": "Mortgage Solutions Financial",
+      "companyKey": "mortgage-solutions-financial",
+      "normalizedName": "mortgage-solutions-financial",
+      "domains": [
+        "mortgagesolutions.net"
+      ]
+    },
+    {
+      "name": "Bestow",
+      "companyKey": "bestow",
+      "normalizedName": "bestow",
+      "domains": [
+        "bestow.com"
+      ]
+    },
+    {
+      "name": "Roar Solutions",
+      "companyKey": "roar-solutions",
+      "normalizedName": "roar-solutions",
+      "domains": [
+        "roarsolutions.com"
+      ]
+    },
+    {
+      "name": "New York Life Insurance",
+      "companyKey": "new-york-life-insurance",
+      "normalizedName": "new-york-life-insurance",
+      "domains": [
+        "newyorklife.com"
+      ]
+    },
+    {
+      "name": "VideaHealth",
+      "companyKey": "videahealth",
+      "normalizedName": "videahealth",
+      "domains": [
+        "videahealth.com"
+      ]
+    },
+    {
+      "name": "Huntington Bank",
+      "companyKey": "huntington-bank",
+      "normalizedName": "huntington-bank",
+      "domains": [
+        "huntington.com"
+      ]
+    },
+    {
+      "name": "Aceable",
+      "companyKey": "aceable",
+      "normalizedName": "aceable",
+      "domains": [
+        "aceable.com"
+      ]
+    },
+    {
+      "name": "Applied Systems",
+      "companyKey": "applied-systems",
+      "normalizedName": "applied-systems",
+      "domains": [
+        "appliedsystems.com"
+      ]
+    },
+    {
+      "name": "Fannie Mae",
+      "companyKey": "fannie-mae",
+      "normalizedName": "fannie-mae"
     }
   ],
   "lastRefreshAt": {
-    "at": "2026-04-23T06:42:09.928Z",
+    "at": "2026-04-23T18:45:12.600Z",
     "source": "refresh"
   }
 }

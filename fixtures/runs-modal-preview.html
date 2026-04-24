@@ -127,7 +127,8 @@
                 <th data-runs-sort="status" scope="col">Status</th>
                 <th data-runs-sort="durationS" scope="col">Duration</th>
                 <th data-runs-sort="companiesSeen" scope="col">Companies</th>
-                <th data-runs-sort="leadsWritten" scope="col">Leads</th>
+                <th data-runs-sort="leadsWritten" scope="col">New</th>
+                <th data-runs-sort="leadsUpdated" scope="col">Updated</th>
                 <th data-runs-sort="source" scope="col">Source</th>
                 <th data-runs-sort="variationKey" scope="col">Variation</th>
                 <th scope="col">Error</th>
@@ -147,11 +148,11 @@
       };
 
       const MOCK_ROWS = [
-        ["2026-04-21T20:05:00Z", "manual", "success", 47, 12, 3, "worker@v0.4.1", "gh-1234-abcd", ""],
-        ["2026-04-21T18:00:00Z", "scheduled-local", "success", 62, 18, 5, "worker@v0.4.1", "local-7788", ""],
-        ["2026-04-21T14:30:00Z", "scheduled-github", "failure", 12, 1, 0, "worker@v0.4.1", "gh-5678", "timeout reaching acme.com/careers after 10s — fallback source unavailable"],
-        ["2026-04-21T09:15:00Z", "cli", "partial", 30, 8, 2, "worker@v0.4.1", "cli-abcd", "2 companies had zero scorable candidates; wrote best-effort leads"],
-        ["2026-04-20T22:00:00Z", "manual", "success", 41, 10, 4, "worker@v0.4.1", "gh-2222-beef", ""],
+        ["2026-04-21T20:05:00Z", "manual", "success", 47, 12, 3, 1, "worker@v0.4.1", "gh-1234-abcd", ""],
+        ["2026-04-21T18:00:00Z", "scheduled-local", "success", 62, 18, 5, 2, "worker@v0.4.1", "local-7788", ""],
+        ["2026-04-21T14:30:00Z", "scheduled-github", "failure", 12, 1, 0, 0, "worker@v0.4.1", "gh-5678", "timeout reaching acme.com/careers after 10s — fallback source unavailable"],
+        ["2026-04-21T09:15:00Z", "cli", "partial", 30, 8, 2, 4, "worker@v0.4.1", "cli-abcd", "2 companies had zero scorable candidates; wrote best-effort leads"],
+        ["2026-04-20T22:00:00Z", "manual", "success", 41, 10, 4, 0, "worker@v0.4.1", "gh-2222-beef", ""],
       ];
 
       // Override global fetch so runs-tab.js reads our fixture data.

@@ -222,6 +222,55 @@
     return trigger || "";
   }
 
+  function renderDash() {
+    return '<span class="runs-dash">—</span>';
+  }
+
+  function renderSourceValue(source) {
+    var text = String(source || "").trim();
+    if (!text) return renderDash();
+    return (
+      '<span class="runs-source-text" title="' +
+      escapeHtml(text) +
+      '">' +
+      escapeHtml(text) +
+      "</span>"
+    );
+  }
+
+  function isProfileSheetIdVariation(run, currentSheetId) {
+    if (!run) return false;
+    var source = String(run.source || "").trim().toLowerCase();
+    var variationKey = String(run.variationKey || "").trim();
+    var sheetId = String(currentSheetId || "").trim();
+    return (
+      !!variationKey &&
+      !!sheetId &&
+      variationKey === sheetId &&
+      source.indexOf("worker@profile") === 0
+    );
+  }
+
+  function displayVariationKey(run, currentSheetId) {
+    if (!run) return "";
+    var variationKey = String(run.variationKey || "").trim();
+    if (!variationKey) return "";
+    if (isProfileSheetIdVariation(run, currentSheetId)) return "";
+    return variationKey;
+  }
+
+  function renderVariationValue(variationKey) {
+    var text = String(variationKey || "").trim();
+    if (!text) return renderDash();
+    return (
+      '<code class="runs-variation-code" title="' +
+      escapeHtml(text) +
+      '">' +
+      escapeHtml(text) +
+      "</code>"
+    );
+  }
+
   // Short form for the Run At column so the first column doesn't blow
   // out into two wrapped lines and break the sticky-header grid.
   function formatRunAtShort(iso) {
@@ -334,6 +383,7 @@
       for (var i = 0; i < runs.length; i++) {
         var r = runs[i];
         var errorText = r.error ? String(r.error) : "";
+        var variationKey = displayVariationKey(r, opts.sheetId);
         parts.push(
           '<tr class="runs-row runs-row--' + escapeHtml(r.status) + '">' +
             '<td title="' + escapeHtml(formatRunAt(r.runAt)) + '">' +
@@ -345,8 +395,8 @@
             "<td>" + escapeHtml(String(r.companiesSeen)) + "</td>" +
             "<td>" + escapeHtml(String(r.leadsWritten)) + "</td>" +
             "<td>" + escapeHtml(String(r.leadsUpdated || 0)) + "</td>" +
-            "<td>" + escapeHtml(r.source) + "</td>" +
-            "<td><code>" + escapeHtml(r.variationKey) + "</code></td>" +
+            '<td class="runs-source-cell">' + renderSourceValue(r.source) + "</td>" +
+            '<td class="runs-variation-cell">' + renderVariationValue(variationKey) + "</td>" +
             '<td class="runs-error-cell"' +
               (errorText ? ' title="' + escapeHtml(errorText) + '"' : "") +
               ">" +
@@ -401,8 +451,10 @@
         "<td>" + escapeHtml(companiesSeen) + "</td>" +
         "<td>" + escapeHtml(leadsWritten) + "</td>" +
         "<td>" + escapeHtml(leadsUpdated) + "</td>" +
-        "<td>Job discovery</td>" +
-        "<td><code>" + escapeHtml((run && run.variationKey) || "") + "</code></td>" +
+        '<td class="runs-source-cell">' + renderSourceValue("Job discovery") + "</td>" +
+        '<td class="runs-variation-cell">' +
+          renderVariationValue((run && run.variationKey) || "") +
+        "</td>" +
         '<td class="runs-error-cell"' +
           (errorText ? ' title="' + escapeHtml(errorText) + '"' : "") +
           ">" +
@@ -486,6 +538,7 @@
       hasLoadedOnce: false,
       ghostRun: null,
       liveJobRun: readStoredJobDiscoveryRun(),
+      sheetId: "",
       isOpen: false,
     };
 
@@ -542,12 +595,13 @@
         renderRunsTable(tbody, sorted, {
           ghost: state.ghostRun,
           liveJobRun: state.liveJobRun,
+          sheetId: state.sheetId,
         });
       } else if (state.rawRuns.length > 0) {
         // Filter chips emptied the visible set, but we do have rows —
         // keep the table visible with no rows + a status hint.
         showTable();
-        renderRunsTable(tbody, [], { ghost: null });
+        renderRunsTable(tbody, [], { ghost: null, sheetId: state.sheetId });
       }
       if (state.rawRuns.length === 0 && !state.ghostRun && !state.liveJobRun) {
         if (!state.loading && state.hasLoadedOnce) {
@@ -584,6 +638,7 @@
       if (state.loading) return;
       state.loading = true;
       var sheetId = readSheetId();
+      state.sheetId = sheetId;
       var token = readAccessToken();
       if (!sheetId) {
         setStatus(
@@ -647,6 +702,7 @@
             renderRunsTable(tbody, [], {
               ghost: state.ghostRun,
               liveJobRun: state.liveJobRun,
+              sheetId: state.sheetId,
             });
             setStatus(statusEl, "info", "Discovery run in progress…");
           } else {
@@ -683,6 +739,7 @@
       modal.style.display = "flex";
       modal.setAttribute("aria-hidden", "false");
       state.isOpen = true;
+      state.sheetId = readSheetId();
       state.liveJobRun = readStoredJobDiscoveryRun();
       loadRuns();
       startAutoRefresh();
@@ -810,6 +867,7 @@
       normalizeJobDiscoveryRunState: normalizeJobDiscoveryRunState,
       readStoredJobDiscoveryRun: readStoredJobDiscoveryRun,
       renderLiveJobRunRowHtml: renderLiveJobRunRowHtml,
+      displayVariationKey: displayVariationKey,
       initRunsTab: initRunsTab,
       triggerLabel: triggerLabel,
     },

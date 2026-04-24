@@ -918,6 +918,7 @@ test("POST /discovery-profile mode:status returns snapshot from stored config", 
     historyCompanyCount: 0,
     lastRefreshAt: "2026-04-20T08:00:00.000Z",
     lastRefreshSource: "refresh",
+    refreshProgress: null,
   });
 });
 
@@ -966,6 +967,117 @@ test("POST /discovery-profile mode:status excludes skipped companies from compan
   assert.equal(body.status.historyCompanyCount, 0);
 });
 
+test("POST /discovery-profile mode:status surfaces in-flight refresh progress while refresh is running", async () => {
+  let releaseExtract: ((value: CandidateProfile) => void) | null = null;
+  const extractGate = new Promise<CandidateProfile>((resolve) => {
+    releaseExtract = resolve;
+  });
+  let markExtractCalled: (() => void) | null = null;
+  const extractCalled = new Promise<void>((resolve) => {
+    markExtractCalled = resolve;
+  });
+  const storedConfig = {
+    sheetId: "sheet_progress",
+    mode: "hosted" as const,
+    timezone: "UTC",
+    companies: [
+      { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+    ],
+    atsCompanies: [],
+    includeKeywords: [],
+    excludeKeywords: [],
+    targetRoles: [],
+    locations: [],
+    remotePolicy: "",
+    seniority: "",
+    maxLeadsPerRun: 25,
+    enabledSources: ["grounded_web"],
+    schedule: { enabled: false, cron: "" },
+    candidateProfile: {
+      resumeText: "Stored resume text for refresh replay.",
+      form: { targetRoles: "Product Marketing Manager" },
+      updatedAt: "2026-04-21T08:00:00.000Z",
+    },
+  } as StoredWorkerConfig;
+  const deps = {
+    runtimeConfig: makeRuntimeConfig(),
+    loadStoredWorkerConfig: async () => storedConfig,
+    extractCandidateProfile: async () => {
+      if (markExtractCalled) {
+        markExtractCalled();
+        markExtractCalled = null;
+      }
+      return extractGate;
+    },
+    discoverCompaniesForProfile: async () => [
+      {
+        name: "Datadog",
+        companyKey: "datadog",
+        normalizedName: "datadog",
+        domains: ["datadoghq.com"],
+      },
+    ],
+  };
+
+  const refreshPromise = handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        mode: "refresh",
+        sheetId: "sheet_progress",
+      }),
+    },
+    deps,
+  );
+  await extractCalled;
+
+  const statusDuringRefresh = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        mode: "status",
+        sheetId: "sheet_progress",
+      }),
+    },
+    deps,
+  );
+  assert.equal(statusDuringRefresh.status, 200);
+  const duringBody = JSON.parse(statusDuringRefresh.body);
+  assert.equal(duringBody.ok, true);
+  assert.equal(duringBody.status.refreshProgress.inFlight, true);
+  assert.equal(duringBody.status.refreshProgress.phase, "extracting_profile");
+  assert.ok(duringBody.status.refreshProgress.progressPct >= 20);
+
+  assert.ok(releaseExtract, "refresh test should control extraction release");
+  releaseExtract(CANNED_PROFILE);
+  const refreshResponse = await refreshPromise;
+  assert.equal(refreshResponse.status, 200);
+
+  const statusAfterRefresh = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        mode: "status",
+        sheetId: "sheet_progress",
+      }),
+    },
+    deps,
+  );
+  assert.equal(statusAfterRefresh.status, 200);
+  const afterBody = JSON.parse(statusAfterRefresh.body);
+  assert.equal(afterBody.ok, true);
+  assert.equal(afterBody.status.refreshProgress, null);
+});
+
 test("POST /discovery-profile mode:status returns empty snapshot when no stored profile", async () => {
   const response = await handleDiscoveryProfileWebhook(
     {
@@ -998,6 +1110,7 @@ test("POST /discovery-profile mode:status returns empty snapshot when no stored 
     historyCompanyCount: 0,
     lastRefreshAt: null,
     lastRefreshSource: null,
+    refreshProgress: null,
   });
 });
 

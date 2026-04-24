@@ -428,6 +428,19 @@ export type DiscoveryProfileStatusV1 = {
   historyCompanyCount: number;
   lastRefreshAt: string | null;
   lastRefreshSource: "manual" | "refresh" | null;
+  refreshProgress: {
+    inFlight: true;
+    phase:
+      | "loading_profile"
+      | "extracting_profile"
+      | "discovering_companies"
+      | "deduping_companies"
+      | "persisting_profile";
+    progressPct: number;
+    message: string;
+    startedAt: string;
+    updatedAt: string;
+  } | null;
 };
 
 export type DiscoveryProfileScheduleResponseV1 = {

@@ -17882,6 +17882,7 @@ function initDiscoveryPrefsModal() {
   if (!modal) return;
 
   const closeModal = () => {
+    stopProfileRefreshProgress();
     modal.style.display = "none";
   };
 
@@ -17910,16 +17911,30 @@ function initDiscoveryPrefsModal() {
   );
   const profileSummaryEl = document.getElementById("dpProfileSummary");
   const profileResultsEl = document.getElementById("dpProfileResults");
+  const profileNoticeEl = document.getElementById("dpProfileNotice");
   const profileErrorEl = document.getElementById("dpProfileError");
   const profileRefreshBtn = document.getElementById("dpProfileRefreshBtn");
   const profileOpenSettingsBtn = document.getElementById(
     "dpProfileOpenSettingsBtn",
   );
+  const profileProgressEl = document.getElementById("dpProfileProgress");
+  const profileProgressBarEl = document.getElementById("dpProfileProgressBar");
+  const profileProgressFillEl = document.getElementById("dpProfileProgressFill");
+  const profileProgressPhaseEl = document.getElementById("dpProfileProgressPhase");
+  const profileProgressPctEl = document.getElementById("dpProfileProgressPct");
+  const profileProgressMetaEl = document.getElementById("dpProfileProgressMeta");
+  const PROFILE_REFRESH_TIMEOUT_MS = 300_000;
+  const PROFILE_PROGRESS_POLL_INTERVAL_MS = 2_500;
   let profileBusy = false;
   let profileLoadedOnce = false;
   let profileCompanies = [];
   let latestProfileStatus = null;
   let activeDiscoveryPrefsTab = "manual";
+  let profileProgressStartedAt = 0;
+  let profileProgressTickTimer = null;
+  let profileProgressPollTimer = null;
+  let profileProgressPollInFlight = false;
+  let profileProgressSnapshot = null;
 
   function getProfilePostEndpoint() {
     const api = window.JobBoredSettingsProfileTab;
@@ -17995,6 +18010,19 @@ function initDiscoveryPrefsModal() {
     profileErrorEl.textContent = String(message || "");
   }
 
+  function setProfileNotice(message, tone) {
+    if (!profileNoticeEl) return;
+    if (!message) {
+      profileNoticeEl.hidden = true;
+      profileNoticeEl.textContent = "";
+      profileNoticeEl.dataset.tone = "";
+      return;
+    }
+    profileNoticeEl.hidden = false;
+    profileNoticeEl.textContent = String(message || "");
+    profileNoticeEl.dataset.tone = tone || "info";
+  }
+
   function setProfileRefreshBusy(busy) {
     profileBusy = !!busy;
     if (!profileRefreshBtn) return;
@@ -18002,6 +18030,164 @@ function initDiscoveryPrefsModal() {
     profileRefreshBtn.textContent = profileBusy
       ? "Refreshing…"
       : "Refresh companies";
+  }
+
+  function clampPercent(value) {
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(100, Math.round(value)));
+  }
+
+  function formatProgressPhase(phase) {
+    switch (String(phase || "")) {
+      case "loading_profile":
+        return "Loading saved profile";
+      case "extracting_profile":
+        return "Extracting profile signal";
+      case "discovering_companies":
+        return "Discovering companies";
+      case "deduping_companies":
+        return "Filtering and deduping";
+      case "persisting_profile":
+        return "Saving refreshed shortlist";
+      default:
+        return "Refreshing companies";
+    }
+  }
+
+  function formatElapsedShort(ms) {
+    const totalSeconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+    if (totalSeconds < 60) return `${totalSeconds}s elapsed`;
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}m ${seconds}s elapsed`;
+  }
+
+  function estimatedProgressFromElapsed(elapsedMs) {
+    const elapsed = Math.max(0, Number(elapsedMs) || 0);
+    const ratio = Math.min(1, elapsed / PROFILE_REFRESH_TIMEOUT_MS);
+    const progressPct = clampPercent(6 + ratio * 86);
+    if (elapsed < 20_000) {
+      return {
+        phase: "loading_profile",
+        progressPct: Math.max(progressPct, 8),
+        message: "Preparing your stored profile context.",
+      };
+    }
+    if (elapsed < 70_000) {
+      return {
+        phase: "extracting_profile",
+        progressPct: Math.max(progressPct, 20),
+        message: "Extracting role and company intent.",
+      };
+    }
+    if (elapsed < 220_000) {
+      return {
+        phase: "discovering_companies",
+        progressPct: Math.max(progressPct, 42),
+        message: "Searching for net-new company targets.",
+      };
+    }
+    if (elapsed < 280_000) {
+      return {
+        phase: "deduping_companies",
+        progressPct: Math.max(progressPct, 74),
+        message: "Filtering skipped and previously-searched companies.",
+      };
+    }
+    return {
+      phase: "persisting_profile",
+      progressPct: Math.max(progressPct, 88),
+      message: "Saving refreshed shortlist.",
+    };
+  }
+
+  function renderProfileRefreshProgress(progressLike, elapsedMs) {
+    if (!profileProgressEl) return;
+    const normalized = progressLike || estimatedProgressFromElapsed(elapsedMs);
+    const progressPct = clampPercent(normalized.progressPct);
+    profileProgressEl.hidden = false;
+    if (profileProgressPhaseEl) {
+      profileProgressPhaseEl.textContent = formatProgressPhase(normalized.phase);
+    }
+    if (profileProgressPctEl) {
+      profileProgressPctEl.textContent = `${progressPct}%`;
+    }
+    if (profileProgressFillEl) {
+      profileProgressFillEl.style.width = `${progressPct}%`;
+    }
+    if (profileProgressBarEl) {
+      profileProgressBarEl.setAttribute("aria-valuenow", String(progressPct));
+    }
+    if (profileProgressMetaEl) {
+      const message =
+        typeof normalized.message === "string" && normalized.message.trim()
+          ? normalized.message.trim()
+          : "Refreshing company shortlist.";
+      profileProgressMetaEl.textContent = `${message} · ${formatElapsedShort(
+        elapsedMs,
+      )}`;
+    }
+  }
+
+  function stopProfileRefreshProgress() {
+    if (profileProgressTickTimer !== null) {
+      window.clearInterval(profileProgressTickTimer);
+      profileProgressTickTimer = null;
+    }
+    if (profileProgressPollTimer !== null) {
+      window.clearInterval(profileProgressPollTimer);
+      profileProgressPollTimer = null;
+    }
+    profileProgressPollInFlight = false;
+    profileProgressSnapshot = null;
+    profileProgressStartedAt = 0;
+    if (profileProgressEl) profileProgressEl.hidden = true;
+  }
+
+  async function pollProfileRefreshProgress(post) {
+    if (!post || profileProgressPollInFlight || !profileBusy) return;
+    profileProgressPollInFlight = true;
+    try {
+      const data = await post({ mode: "status" }, 10_000);
+      if (!data || data.ok !== true || !data.status) return;
+      latestProfileStatus = data.status;
+      renderProfileSummary(data.status);
+      const workerProgress =
+        data.status && data.status.refreshProgress
+          ? data.status.refreshProgress
+          : null;
+      if (workerProgress && workerProgress.inFlight) {
+        profileProgressSnapshot = workerProgress;
+      }
+    } catch (_) {
+      // Non-fatal: keep rendering estimated progress when status polls fail.
+    } finally {
+      profileProgressPollInFlight = false;
+    }
+  }
+
+  function startProfileRefreshProgress(post) {
+    stopProfileRefreshProgress();
+    profileProgressStartedAt = Date.now();
+    renderProfileRefreshProgress(
+      {
+        phase: "loading_profile",
+        progressPct: 6,
+        message: "Preparing refresh request.",
+      },
+      0,
+    );
+    profileProgressTickTimer = window.setInterval(() => {
+      const elapsedMs = Date.now() - profileProgressStartedAt;
+      const progressLike = profileProgressSnapshot && profileProgressSnapshot.inFlight
+        ? profileProgressSnapshot
+        : estimatedProgressFromElapsed(elapsedMs);
+      renderProfileRefreshProgress(progressLike, elapsedMs);
+    }, 1000);
+    profileProgressPollTimer = window.setInterval(() => {
+      void pollProfileRefreshProgress(post);
+    }, PROFILE_PROGRESS_POLL_INTERVAL_MS);
+    void pollProfileRefreshProgress(post);
   }
 
   function renderProfileSummary(status) {
@@ -18133,18 +18319,27 @@ function initDiscoveryPrefsModal() {
     }
     setProfileRefreshBusy(true);
     setProfileError("");
+    setProfileNotice("");
     if (profileResultsEl) {
-      profileResultsEl.hidden = false;
-      profileResultsEl.innerHTML =
-        '<p class="modal-field-hint">Refreshing company shortlist…</p>';
+      profileResultsEl.hidden = true;
+      profileResultsEl.innerHTML = "";
     }
+    startProfileRefreshProgress(post);
     try {
-      const data = await post({ mode: "refresh" }, 180_000);
+      const data = await post({ mode: "refresh" }, PROFILE_REFRESH_TIMEOUT_MS);
       if (!data || data.ok !== true) {
         throw new Error(
           (data && data.message) || "Could not refresh company shortlist.",
         );
       }
+      renderProfileRefreshProgress(
+        {
+          phase: "persisting_profile",
+          progressPct: 100,
+          message: "Refresh complete.",
+        },
+        Date.now() - profileProgressStartedAt,
+      );
       renderProfileCompanies(data.companies || []);
       await refreshProfileSummary();
       if (data.fallback && data.fallback.reason) {
@@ -18155,9 +18350,21 @@ function initDiscoveryPrefsModal() {
           setProfileError(
             detail || `No companies available right now (${data.fallback.reason.replace(/_/g, " ")}).`,
           );
+          setProfileNotice("");
         } else {
           setProfileError("");
+          setProfileNotice(
+            detail ||
+              `Refresh completed with fallback list (${companyCount} companies).`,
+            "warn",
+          );
         }
+      } else {
+        const refreshedCount = Array.isArray(data.companies) ? data.companies.length : 0;
+        setProfileNotice(
+          `Refresh complete. Loaded ${refreshedCount} target companies.`,
+          "success",
+        );
       }
     } catch (err) {
       if (profileResultsEl) {
@@ -18168,7 +18375,9 @@ function initDiscoveryPrefsModal() {
         "Couldn't refresh companies: " +
           (err && err.message ? err.message : String(err || "unknown error")),
       );
+      setProfileNotice("");
     } finally {
+      stopProfileRefreshProgress();
       setProfileRefreshBusy(false);
     }
   }
@@ -18271,12 +18480,14 @@ function initDiscoveryPrefsModal() {
     });
   });
   window.__JobBoredDiscoveryPrefsShowProfileCore = () => {
+    stopProfileRefreshProgress();
     profileLoadedOnce = false;
     profileCompanies = [];
     latestProfileStatus = null;
     activeDiscoveryPrefsTab = "manual";
     if (aiAssistToggle) aiAssistToggle.checked = false;
     setProfileError("");
+    setProfileNotice("");
     renderProfileSummary(null);
     updateRequirementStates();
     if (profileResultsEl) {
