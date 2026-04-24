@@ -263,6 +263,163 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Pipeline row derivations — pure helpers for redesign FE lanes
+  // ---------------------------------------------------------------------------
+  //
+  // The Pipeline sheet contract (schemas/pipeline-row.v1.json) does **not**
+  // include a `statusChangedAt` or `lastUpdatedAt` column. Adding one would be
+  // a breaking change to an existing user-owned sheet. The redesign FE lanes
+  // (fe-kanban "days in current stage", fe-dashboard "follow-up state") must
+  // derive these signals from the columns that already exist, with a stable
+  // fallback chain documented here.
+  //
+  // Fallback chain for stage age (best → worst):
+  //   1. Applied / Phone Screen / Interviewing / Offer
+  //        → `appliedDate` (sheet col N). updateJobStatus side-effects set
+  //          this the first time the row enters the "applied" funnel.
+  //   2. Any other status (New / Researching / Rejected / Passed) or when
+  //      appliedDate is blank
+  //        → `dateFound` (sheet col A). This is the best approximation of
+  //          "when we first saw this role," which collapses to "days since
+  //          discovery" for stages before Applied.
+  //   3. If neither date is parseable → null (caller should render "—").
+  //
+  // This is an approximation: a role that sat as "Researching" for two weeks
+  // and was moved to "Applied" today will report `daysInStage === 0` (correct,
+  // because appliedDate === today). A role that skipped straight from "New"
+  // to "Interviewing" without "Applied" being set by hand will report days
+  // since `dateFound`, which overstates the stage age. Both failure modes are
+  // acceptable for an "at-a-glance" card signal.
+  //
+  // See docs/redesign/handoffs/be-data-deploy.md for the full answer table
+  // and docs/INTERFACE-DISCOVERY-RUNS.md for the runs-log read path.
+
+  const STAGE_AGE_APPLIED_STATUSES = [
+    "applied",
+    "phone screen",
+    "interviewing",
+    "offer",
+  ];
+
+  /**
+   * Parse a pipeline date string ("YYYY-MM-DD" or ISO) to a Date, or null.
+   * Intentionally lenient: the sheet historically accepted free-form dates
+   * and the dashboard must not throw on junk input.
+   */
+  function parsePipelineDate(raw) {
+    const s = asString(raw);
+    if (!s) return null;
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return null;
+    return d;
+  }
+
+  /**
+   * Derive "days in current stage" for a pipeline row.
+   *
+   * Returns an object:
+   *   { days: number|null, source: "appliedDate"|"dateFound"|null }
+   *
+   * `days` is a non-negative integer (calendar days) or null when no
+   * parseable timestamp is available. `source` identifies which field was
+   * used so the UI can annotate the value (e.g. "since applied" vs
+   * "since discovery").
+   *
+   * The `now` parameter is injectable for deterministic tests.
+   */
+  function deriveStageAge(job, now) {
+    if (!job || typeof job !== "object") {
+      return { days: null, source: null };
+    }
+    const nowDate = now instanceof Date ? now : new Date();
+    const status = asString(job.status).toLowerCase();
+    const useApplied = STAGE_AGE_APPLIED_STATUSES.includes(status);
+
+    if (useApplied) {
+      const d = parsePipelineDate(job.appliedDate);
+      if (d) {
+        return {
+          days: daysBetween(d, nowDate),
+          source: "appliedDate",
+        };
+      }
+    }
+
+    const fallback = parsePipelineDate(job.dateFound || job.dateFoundRaw);
+    if (fallback) {
+      return {
+        days: daysBetween(fallback, nowDate),
+        source: "dateFound",
+      };
+    }
+    return { days: null, source: null };
+  }
+
+  function daysBetween(earlier, later) {
+    const MS_PER_DAY = 24 * 3600 * 1000;
+    const a = new Date(earlier);
+    a.setHours(0, 0, 0, 0);
+    const b = new Date(later);
+    b.setHours(0, 0, 0, 0);
+    const delta = Math.floor((b.getTime() - a.getTime()) / MS_PER_DAY);
+    return delta < 0 ? 0 : delta;
+  }
+
+  /**
+   * Derive follow-up state for a pipeline row.
+   *
+   * Returns one of:
+   *   { state: "none" }                         — no follow-up date set
+   *   { state: "overdue",  daysOverdue: n }     — followUpDate < today
+   *   { state: "due-soon", hoursUntil: n }      — 0 ≤ now..followUpDate ≤ 48h
+   *   { state: "scheduled", daysUntil: n }      — followUpDate > 48h from now
+   *   { state: "invalid" }                      — cell is non-empty but unparseable
+   *
+   * Purely derived from `followUpDate` (schema col P). The Pipeline schema
+   * does not persist a "did I send the follow-up?" flag; that signal is
+   * indirect via the surrounding status transitions (updateJobStatus clears
+   * followUpDate on Offer / Rejected / Passed).
+   */
+  function deriveFollowUpState(job, now) {
+    if (!job || typeof job !== "object") return { state: "none" };
+    const raw = asString(job.followUpDate);
+    if (!raw) return { state: "none" };
+    const due = parsePipelineDate(raw);
+    if (!due) return { state: "invalid" };
+    const nowDate = now instanceof Date ? now : new Date();
+    const nowMidnight = new Date(nowDate);
+    nowMidnight.setHours(0, 0, 0, 0);
+    const dueMidnight = new Date(due);
+    dueMidnight.setHours(0, 0, 0, 0);
+
+    const MS_PER_DAY = 24 * 3600 * 1000;
+    const MS_PER_HOUR = 3600 * 1000;
+
+    if (dueMidnight.getTime() < nowMidnight.getTime()) {
+      return {
+        state: "overdue",
+        daysOverdue: Math.floor(
+          (nowMidnight.getTime() - dueMidnight.getTime()) / MS_PER_DAY,
+        ),
+      };
+    }
+
+    const hoursUntil = Math.max(
+      0,
+      Math.floor((due.getTime() - nowDate.getTime()) / MS_PER_HOUR),
+    );
+    if (hoursUntil <= 48) {
+      return { state: "due-soon", hoursUntil };
+    }
+    return {
+      state: "scheduled",
+      daysUntil: Math.floor(
+        (dueMidnight.getTime() - nowMidnight.getTime()) / MS_PER_DAY,
+      ),
+    };
+  }
+
+  // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
 
@@ -285,6 +442,10 @@
     // Utilities
     DEFAULT_LOCAL_PORT,
     inferPortFromUrl,
+    // Pipeline row derivations (redesign — FE lanes)
+    parsePipelineDate,
+    deriveStageAge,
+    deriveFollowUpState,
   });
 
   if (typeof window !== "undefined") {

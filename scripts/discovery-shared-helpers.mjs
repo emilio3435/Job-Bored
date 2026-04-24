@@ -144,6 +144,96 @@ function inferPortFromUrl(raw, fallback = DEFAULT_LOCAL_PORT) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Pipeline row derivations — pure helpers for redesign FE lanes.
+// Kept in sync with the browser copy in discovery-shared-helpers.js.
+// See docs/redesign/handoffs/be-data-deploy.md §Answers for the contract.
+// ---------------------------------------------------------------------------
+
+const STAGE_AGE_APPLIED_STATUSES = [
+  "applied",
+  "phone screen",
+  "interviewing",
+  "offer",
+];
+
+function parsePipelineDate(raw) {
+  const s = asString(raw);
+  if (!s) return null;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+function daysBetween(earlier, later) {
+  const MS_PER_DAY = 24 * 3600 * 1000;
+  const a = new Date(earlier);
+  a.setHours(0, 0, 0, 0);
+  const b = new Date(later);
+  b.setHours(0, 0, 0, 0);
+  const delta = Math.floor((b.getTime() - a.getTime()) / MS_PER_DAY);
+  return delta < 0 ? 0 : delta;
+}
+
+function deriveStageAge(job, now) {
+  if (!job || typeof job !== "object") {
+    return { days: null, source: null };
+  }
+  const nowDate = now instanceof Date ? now : new Date();
+  const status = asString(job.status).toLowerCase();
+  const useApplied = STAGE_AGE_APPLIED_STATUSES.includes(status);
+
+  if (useApplied) {
+    const d = parsePipelineDate(job.appliedDate);
+    if (d) {
+      return { days: daysBetween(d, nowDate), source: "appliedDate" };
+    }
+  }
+  const fallback = parsePipelineDate(job.dateFound || job.dateFoundRaw);
+  if (fallback) {
+    return { days: daysBetween(fallback, nowDate), source: "dateFound" };
+  }
+  return { days: null, source: null };
+}
+
+function deriveFollowUpState(job, now) {
+  if (!job || typeof job !== "object") return { state: "none" };
+  const raw = asString(job.followUpDate);
+  if (!raw) return { state: "none" };
+  const due = parsePipelineDate(raw);
+  if (!due) return { state: "invalid" };
+  const nowDate = now instanceof Date ? now : new Date();
+  const nowMidnight = new Date(nowDate);
+  nowMidnight.setHours(0, 0, 0, 0);
+  const dueMidnight = new Date(due);
+  dueMidnight.setHours(0, 0, 0, 0);
+
+  const MS_PER_DAY = 24 * 3600 * 1000;
+  const MS_PER_HOUR = 3600 * 1000;
+
+  if (dueMidnight.getTime() < nowMidnight.getTime()) {
+    return {
+      state: "overdue",
+      daysOverdue: Math.floor(
+        (nowMidnight.getTime() - dueMidnight.getTime()) / MS_PER_DAY,
+      ),
+    };
+  }
+  const hoursUntil = Math.max(
+    0,
+    Math.floor((due.getTime() - nowDate.getTime()) / MS_PER_HOUR),
+  );
+  if (hoursUntil <= 48) {
+    return { state: "due-soon", hoursUntil };
+  }
+  return {
+    state: "scheduled",
+    daysUntil: Math.floor(
+      (dueMidnight.getTime() - nowMidnight.getTime()) / MS_PER_DAY,
+    ),
+  };
+}
+
 export {
   DEFAULT_LOCAL_PORT,
   asString,
@@ -157,6 +247,9 @@ export {
   buildLocalHealthUrl,
   localHealthProxyUrl,
   inferPortFromUrl,
+  parsePipelineDate,
+  deriveStageAge,
+  deriveFollowUpState,
 };
 
 export default {
@@ -172,4 +265,7 @@ export default {
   buildLocalHealthUrl,
   localHealthProxyUrl,
   inferPortFromUrl,
+  parsePipelineDate,
+  deriveStageAge,
+  deriveFollowUpState,
 };
