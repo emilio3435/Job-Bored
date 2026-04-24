@@ -11347,10 +11347,123 @@ function filterAndSortJobs(jobs, search, sort) {
   return data;
 }
 
+// --------------------------------------------------------------------
+// Pipeline header — editorial shell helpers (redesign-20260424T0742Z).
+// These helpers are referenced ONLY by renderPipeline() and update the
+// newsprint masthead issue + the §02 run-status pill. They subscribe to
+// the `jobbored:discovery-run-started` / `-finished` CustomEvents
+// dispatched by settings-profile-tab.js and consumed by runs-tab.js; we
+// do NOT re-dispatch those events.
+// --------------------------------------------------------------------
+
+let pipelineRunStatusWired = false;
+let pipelineRunStatusDoneTimer = null;
+
+/**
+ * Write "Vol. NN · Mon DD, YYYY" into the static masthead strip. Purely
+ * decorative editorial chrome; no data contract.
+ */
+function updateMastheadIssue() {
+  const el = document.getElementById("mastheadIssue");
+  if (!el) return;
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 0);
+  const dayOfYear = Math.floor((now - start) / 86400000);
+  const vol = Math.max(1, Math.ceil(dayOfYear / 14));
+  const datePart = now.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  el.textContent = `Vol. ${vol} \u00b7 ${datePart}`;
+}
+
+/**
+ * Format a "time ago" string from a Date, short-form.
+ * @param {Date} d
+ * @returns {string}
+ */
+function pipelineStatusRelative(d) {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return "\u2014";
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/**
+ * Update the run-status pill in the pipeline section header. Shows
+ * running/done/idle states. Idle reads the most-recent `dateFound` from
+ * `pipelineData` as a "last activity" proxy.
+ * @param {"idle"|"running"|"done"=} forceState
+ */
+function updatePipelineRunStatus(forceState) {
+  const pill = document.getElementById("pipelineRunStatus");
+  if (!pill) return;
+  const labelEl = pill.querySelector(".run-status-pill__label");
+  if (!labelEl) return;
+
+  if (forceState === "running") {
+    pill.setAttribute("data-state", "running");
+    labelEl.textContent = "Run in progress";
+    return;
+  }
+  if (forceState === "done") {
+    pill.setAttribute("data-state", "done");
+    labelEl.textContent = "Run complete";
+    if (pipelineRunStatusDoneTimer) clearTimeout(pipelineRunStatusDoneTimer);
+    pipelineRunStatusDoneTimer = setTimeout(() => {
+      updatePipelineRunStatus("idle");
+    }, 4000);
+    return;
+  }
+
+  // idle (default): surface staleness from pipelineData
+  let latest = null;
+  for (const j of pipelineData) {
+    const d = j && j.dateFound;
+    if (d instanceof Date && !Number.isNaN(d.getTime())) {
+      if (!latest || d.getTime() > latest.getTime()) latest = d;
+    }
+  }
+  pill.setAttribute("data-state", "idle");
+  labelEl.textContent = latest
+    ? `Last activity \u00b7 ${pipelineStatusRelative(latest)}`
+    : "No runs yet";
+}
+
+/**
+ * One-time subscription to discovery run events. Idempotent; no-op on
+ * subsequent calls so renderPipeline() can call it freely on re-render.
+ */
+function ensurePipelineRunStatusWired() {
+  if (pipelineRunStatusWired) return;
+  if (typeof document === "undefined" || !document.addEventListener) return;
+  document.addEventListener("jobbored:discovery-run-started", () => {
+    updatePipelineRunStatus("running");
+  });
+  document.addEventListener("jobbored:discovery-run-finished", () => {
+    updatePipelineRunStatus("done");
+  });
+  pipelineRunStatusWired = true;
+}
+
 function renderPipeline() {
   const container = document.getElementById("jobCards");
   const emptyState = document.getElementById("emptyState");
   const roleCountEl = document.getElementById("roleCount");
+
+  // Editorial shell: refresh masthead + run-status pill on every render
+  // so they track the current pipelineData snapshot. The subscription
+  // wiring is one-shot; re-renders are cheap.
+  updateMastheadIssue();
+  ensurePipelineRunStatusWired();
+  updatePipelineRunStatus();
 
   // Board view: apply only search+sort, stages shown as collapsible lanes
   const data = filterAndSortJobs(pipelineData, currentSearch, currentSort);
