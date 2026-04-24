@@ -10728,13 +10728,9 @@ function renderDrawerContent(job, stableKey) {
   // ── Stage stepper ──
   const stepperHtml = isSignedIn() ? renderStageStepper(job, dataIndex) : "";
 
-  // ── Notes (inline inside § 03 Next action write-back column) ──
-  const notesHtml = isSignedIn()
-    ? `<div class="drawer-notes">
-    <label class="drawer-section__label" for="drawer-notes-${stableKey}">Notes</label>
-    <textarea id="drawer-notes-${stableKey}" class="drawer-notes__input notes-textarea" data-action="notes" data-index="${dataIndex}" placeholder="Interview prep, recruiter name, next steps&#8230;">${escapeHtml(job.notes || "")}</textarea>
-  </div>`
-    : "";
+  // ── Notes textarea is rendered by renderCardActions() inside § 03.
+  // Keeping the notes contract in one place; drawer-notes__input /
+  // notes-textarea class / data-action="notes" are emitted by renderCardActions.
 
   // ── AI / role content (reused from card logic) ──
   const sheetTags = job.tags
@@ -11011,7 +11007,7 @@ function renderDrawerContent(job, stableKey) {
   const nextActionSection = section(
     "03",
     "Next action",
-    `<div class="drawer-writeback">${actionsHtml}${notesHtml}</div>`,
+    `<div class="drawer-writeback">${actionsHtml}</div>`,
     { tone: "action" },
   );
 
@@ -11425,6 +11421,12 @@ function renderPipeline() {
   attachBoardListeners();
 }
 
+// -- Write-back card (renderCardActions) --
+// Emits every selector attachCardListeners() binds: .status-select,
+// .followup-input, .last-heard-input, .response-select, .notes-textarea,
+// plus data-action="status-select" / "followup" / "last-heard" /
+// "response-flag" / "notes" / "signin". Markup reshaped into MonoHeaderBar
+// card (white surface, navy border, mono header). Contracts unchanged.
 function renderCardActions(job, indexForNotesId) {
   const dataIndex = pipelineData.indexOf(job);
 
@@ -11466,61 +11468,63 @@ function renderCardActions(job, indexForNotesId) {
     })
     .join("");
 
-  const appliedDateHtml = job.appliedDate
-    ? `
-    <div class="action-meta">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-      <span>Applied ${escapeHtml(job.appliedDate)}</span>
-    </div>
-  `
-    : "";
-
   const followUpVal = job.followUpDate || "";
   const followUpIsOverdue = followUpVal && new Date(followUpVal) < new Date();
-  const followUpHtml = `
-    <div class="action-meta ${followUpIsOverdue ? "overdue" : ""}">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      <label class="followup-label" for="followup-${indexForNotesId}">Follow-up</label>
-      <input type="date" id="followup-${indexForNotesId}" class="followup-input" data-action="followup" data-index="${dataIndex}" value="${escapeHtml(followUpVal)}" />
-      ${followUpIsOverdue ? '<span class="overdue-badge">overdue</span>' : ""}
-    </div>
-  `;
-
   const respSel = selectedResponseSheetValue(job);
-  const contactStatusHtml = `
-    <div class="contact-status-row">
-      <div class="contact-status-field">
-        <label class="field-label" for="last-heard-${indexForNotesId}">Last contact</label>
-        <input type="text" id="last-heard-${indexForNotesId}" class="last-heard-input" data-action="last-heard" data-index="${dataIndex}" value="${escapeHtml(job.lastHeardFrom || "")}" placeholder="e.g. Jan 12 or &ldquo;recruiter emailed&rdquo;" autocomplete="off" />
-      </div>
-      <div class="contact-status-field">
-        <label class="field-label" for="response-${indexForNotesId}">Did they reply?</label>
-        <select id="response-${indexForNotesId}" class="response-select" data-action="response-flag" data-index="${dataIndex}">
-          <option value="">Not set</option>
-          <option value="Yes"${respSel === "Yes" ? " selected" : ""}>Yes</option>
-          <option value="No"${respSel === "No" ? " selected" : ""}>No</option>
-          <option value="Unknown"${respSel === "Unknown" ? " selected" : ""}>Not sure</option>
-        </select>
-      </div>
-    </div>
-  `;
+
+  // Applied date is a StatRow-style chip at the top of the card so it reads
+  // at a glance with the mono eyebrow.
+  const appliedChip = job.appliedDate
+    ? `<span class="writeback-chip writeback-chip--applied">
+        <span class="writeback-chip__label">Applied</span>
+        <span class="writeback-chip__val">${escapeHtml(job.appliedDate)}</span>
+      </span>`
+    : "";
+  const overdueChip = followUpIsOverdue
+    ? `<span class="writeback-chip writeback-chip--overdue">
+        <span class="writeback-chip__label">Follow-up</span>
+        <span class="writeback-chip__val">overdue</span>
+      </span>`
+    : "";
 
   return `
-    <div class="card-actions">
-      <div class="status-field">
-        <label class="field-label" for="status-${dataIndex}-${indexForNotesId}">Pipeline stage</label>
-        <select id="status-${dataIndex}-${indexForNotesId}" class="status-select" data-action="status-select" data-index="${dataIndex}">
-          ${options}
-        </select>
-      </div>
-      <div class="card-actions__tools">
-        ${appliedDateHtml}
-        ${followUpHtml}
-      </div>
-      ${contactStatusHtml}
-      <div class="notes-wrapper">
-        <label class="notes-label" for="notes-${dataIndex}-${indexForNotesId}">Notes</label>
-        <textarea id="notes-${dataIndex}-${indexForNotesId}" class="notes-textarea" data-action="notes" data-index="${dataIndex}" placeholder="Interview prep, recruiter name, next step…">${escapeHtml(job.notes || "")}</textarea>
+    <div class="card-actions card-actions--editorial">
+      <div class="writeback-card">
+        <div class="writeback-card__header">
+          <span class="writeback-card__eyebrow">Card actions · write-back</span>
+          <span class="writeback-card__chips">${appliedChip}${overdueChip}</span>
+        </div>
+        <div class="writeback-card__body">
+          <div class="writeback-grid">
+            <div class="writeback-field">
+              <label class="field-label" for="status-${dataIndex}-${indexForNotesId}">Pipeline stage</label>
+              <select id="status-${dataIndex}-${indexForNotesId}" class="status-select" data-action="status-select" data-index="${dataIndex}">
+                ${options}
+              </select>
+            </div>
+            <div class="writeback-field">
+              <label class="field-label" for="followup-${indexForNotesId}">Follow-up date</label>
+              <input type="date" id="followup-${indexForNotesId}" class="followup-input" data-action="followup" data-index="${dataIndex}" value="${escapeHtml(followUpVal)}" />
+            </div>
+            <div class="writeback-field">
+              <label class="field-label" for="last-heard-${indexForNotesId}">Last contact</label>
+              <input type="text" id="last-heard-${indexForNotesId}" class="last-heard-input" data-action="last-heard" data-index="${dataIndex}" value="${escapeHtml(job.lastHeardFrom || "")}" placeholder="e.g. Jan 12 or recruiter emailed" autocomplete="off" />
+            </div>
+            <div class="writeback-field">
+              <label class="field-label" for="response-${indexForNotesId}">Did they reply?</label>
+              <select id="response-${indexForNotesId}" class="response-select" data-action="response-flag" data-index="${dataIndex}">
+                <option value="">Not set</option>
+                <option value="Yes"${respSel === "Yes" ? " selected" : ""}>Yes</option>
+                <option value="No"${respSel === "No" ? " selected" : ""}>No</option>
+                <option value="Unknown"${respSel === "Unknown" ? " selected" : ""}>Not sure</option>
+              </select>
+            </div>
+          </div>
+          <div class="writeback-notes">
+            <label class="field-label" for="notes-${dataIndex}-${indexForNotesId}">Notes</label>
+            <textarea id="notes-${dataIndex}-${indexForNotesId}" class="notes-textarea" data-action="notes" data-index="${dataIndex}" placeholder="Interview prep, recruiter name, next step…">${escapeHtml(job.notes || "")}</textarea>
+          </div>
+        </div>
       </div>
     </div>
   `;
