@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fe-detail-drawer fixture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&family=Lora:ital,wght@0,400;0,600;1,400&family=Source+Sans+3:wght@400;500;600;700&family=Special+Elite&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../../style.css" />
+  <style>
+    /* Fixture-only: neutral backdrop so screenshots focus on drawer. */
+    body { margin: 0; background: #efe9dd; font-family: "DM Sans", sans-serif; }
+    .fixture-stage { min-height: 100vh; }
+    .detail-overlay { position: static; display: block; }
+    .detail-overlay__backdrop { display: none; }
+    body.detail-open { overflow: auto; }
+  </style>
+</head>
+<body class="detail-open">
+  <div class="fixture-stage">
+    <div class="detail-overlay" id="detailOverlay">
+      <aside class="detail-drawer detail-drawer--editorial" role="complementary" aria-label="Senior Product Designer">
+        <div class="detail-drawer__head">
+          <div class="detail-drawer__masthead" aria-hidden="true">
+            <span class="detail-drawer__masthead-item">Linear</span>
+            <span class="detail-drawer__masthead-sep">·</span>
+            <span class="detail-drawer__masthead-item">Senior Product Designer</span>
+            <span class="detail-drawer__masthead-sep">·</span>
+            <span class="detail-drawer__masthead-item">Applied</span>
+          </div>
+          <div class="detail-drawer__head-row">
+            <div class="co-logo co-logo--drawer" aria-hidden="true">
+              <span class="co-logo__fallback">L</span>
+            </div>
+            <div class="detail-drawer__head-main">
+              <h2 class="detail-drawer__head-title">Senior Product Designer</h2>
+              <p class="detail-drawer__head-company">Linear · Remote (US)</p>
+              <div class="role-facts">
+                <span class="role-fact"><span class="role-fact__label">Location</span><span class="role-fact__val">Remote · US</span></span>
+                <span class="role-fact"><span class="role-fact__label">Comp</span><span class="role-fact__val">$165k–$205k</span></span>
+                <span class="role-fact"><span class="role-fact__label">Found</span><span class="role-fact__val">Apr 22</span></span>
+              </div>
+            </div>
+            <button type="button" class="detail-drawer__close" aria-label="Close">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="detail-drawer__actions">
+          <button type="button" class="drawer-btn drawer-btn--solid drawer-btn--cover">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <span>Cover letter</span>
+          </button>
+          <button type="button" class="drawer-btn drawer-btn--ghost drawer-btn--tailor">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            <span>Tailor resume</span>
+          </button>
+          <a href="#" class="drawer-btn drawer-btn--ghost drawer-btn--view">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            <span>View posting</span>
+          </a>
+        </div>
+        <div class="detail-drawer__body">
+          <div class="drawer-content drawer-content--editorial">
+
+            <section class="drawer-section" data-section="01">
+              <header class="drawer-section-header">
+                <span class="drawer-section-header__num">§ 01</span>
+                <span class="drawer-section-header__rule" aria-hidden="true"></span>
+                <span class="drawer-section-header__kicker">Role</span>
+              </header>
+              <div class="drawer-section__body">
+                <div class="stage-stepper-wrap stage-stepper-wrap--editorial">
+                  <span class="stage-stepper__eyebrow" aria-hidden="true">Stage</span>
+                  <button type="button" class="stage-stepper__chevron stage-stepper__chevron--left" aria-label="Scroll left">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                  </button>
+                  <div class="stage-stepper" role="group" aria-label="Pipeline stage">
+                    <button type="button" class="stage-step stage-step--done"><span class="stage-step__dot" aria-hidden="true"></span><span class="stage-step__num" aria-hidden="true">01</span><span class="stage-step__label">New</span></button>
+                    <span class="stage-step__line stage-step__line--done" aria-hidden="true"></span><button type="button" class="stage-step stage-step--done"><span class="stage-step__dot" aria-hidden="true"></span><span class="stage-step__num" aria-hidden="true">02</span><span class="stage-step__label">Researching</span></button>
+                    <span class="stage-step__line stage-step__line--done" aria-hidden="true"></span><button type="button" class="stage-step stage-step--active"><span class="stage-step__dot" aria-hidden="true"></span><span class="stage-step__num" aria-hidden="true">03</span><span class="stage-step__label">Applied</span></button>
+                    <span class="stage-step__line" aria-hidden="true"></span><button type="button" class="stage-step"><span class="stage-step__dot" aria-hidden="true"></span><span class="stage-step__num" aria-hidden="true">04</span><span class="stage-step__label">Phone Screen</span></button>
+                    <span class="stage-step__line" aria-hidden="true"></span><button type="button" class="stage-step"><span class="stage-step__dot" aria-hidden="true"></span><span class="stage-step__num" aria-hidden="true">05</span><span class="stage-step__label">Interviewing</span></button>
+                    <span class="stage-step__line" aria-hidden="true"></span><button type="button" class="stage-step"><span class="stage-step__dot" aria-hidden="true"></span><span class="stage-step__num" aria-hidden="true">06</span><span class="stage-step__label">Offer</span></button>
+                    <span class="stage-step__line" aria-hidden="true"></span><button type="button" class="stage-step stage-step--terminal"><span class="stage-step__dot" aria-hidden="true"></span><span class="stage-step__num" aria-hidden="true">07</span><span class="stage-step__label">Rejected</span></button>
+                    <span class="stage-step__line" aria-hidden="true"></span><button type="button" class="stage-step stage-step--terminal"><span class="stage-step__dot" aria-hidden="true"></span><span class="stage-step__num" aria-hidden="true">08</span><span class="stage-step__label">Passed</span></button>
+                  </div>
+                  <button type="button" class="stage-stepper__chevron stage-stepper__chevron--right" aria-label="Scroll right">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                  </button>
+                </div>
+                <p class="drawer-hook">Design the end-to-end flows for Linear's next-gen cycles planning — high autonomy, tight PM/eng loop, ship-weekly cadence.</p>
+                <p class="drawer-context drawer-context--date">Found Apr 22, 2026</p>
+              </div>
+            </section>
+
+            <section class="drawer-section" data-section="02">
+              <header class="drawer-section-header">
+                <span class="drawer-section-header__num">§ 02</span>
+                <span class="drawer-section-header__rule" aria-hidden="true"></span>
+                <span class="drawer-section-header__kicker">Fit</span>
+              </header>
+              <div class="drawer-section__body">
+                <div class="drawer-ai-section">
+                  <span class="drawer-section__label">AI Summary</span>
+                  <p class="drawer-ai-text">Linear is hiring a Senior Product Designer to lead the redesign of cycles and project planning surfaces. You'll own the full design loop — research, prototyping, ship — with a small, senior cross-functional team. The role emphasizes systems thinking, craft, and fast iteration.</p>
+                </div>
+                <div class="drawer-ai-section">
+                  <span class="drawer-section__label">Fit</span>
+                  <p class="drawer-ai-text">Strong fit — your Command Center work shows exactly the density-+-craft sensibility Linear hires for, and your tool-building history maps to their cycles model. Cover-letter angle: "I design for the power user who ships daily."</p>
+                </div>
+                <div class="card-tags">
+                  <span class="skill-chip">Systems Design</span>
+                  <span class="skill-chip">Figma</span>
+                  <span class="skill-chip">Prototyping</span>
+                  <span class="skill-chip">Cross-functional</span>
+                  <span class="skill-chip">Research</span>
+                  <span class="skill-chip">Product Strategy</span>
+                </div>
+                <div class="talking-points">
+                  <span class="talking-points__label">Talking points</span>
+                  <ul class="talking-points-list">
+                    <li>Lean on Command Center → Linear's power-user DNA.</li>
+                    <li>Cite your prior ship-weekly cadence at $PREVIOUS.</li>
+                    <li>Ask about how research + design split across the org.</li>
+                  </ul>
+                </div>
+              </div>
+            </section>
+
+            <section class="drawer-section drawer-section--action" data-section="03">
+              <header class="drawer-section-header">
+                <span class="drawer-section-header__num">§ 03</span>
+                <span class="drawer-section-header__rule" aria-hidden="true"></span>
+                <span class="drawer-section-header__kicker">Next action</span>
+              </header>
+              <div class="drawer-section__body">
+                <div class="drawer-writeback">
+                  <div class="card-actions card-actions--editorial">
+                    <div class="writeback-row writeback-row--status">
+                      <label class="field-label">Status</label>
+                      <select class="status-select">
+                        <option>New</option>
+                        <option>Researching</option>
+                        <option selected>Applied</option>
+                        <option>Phone Screen</option>
+                      </select>
+                    </div>
+                    <div class="writeback-row writeback-row--grid">
+                      <div class="writeback-cell">
+                        <label class="field-label">Follow-up</label>
+                        <input type="date" class="followup-input" value="2026-04-29" />
+                      </div>
+                      <div class="writeback-cell">
+                        <label class="field-label">Last heard</label>
+                        <input type="text" class="last-heard-input" value="2026-04-22" />
+                      </div>
+                      <div class="writeback-cell">
+                        <label class="field-label">Reply</label>
+                        <select class="response-select">
+                          <option>—</option>
+                          <option selected>Awaiting</option>
+                          <option>Replied</option>
+                          <option>Ghosted</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="writeback-row writeback-row--notes">
+                      <label class="field-label">Notes</label>
+                      <textarea class="notes-textarea drawer-notes__input" rows="4">Recruiter reached out on LinkedIn — pointed to cycles work. Send tailored resume + portfolio link (Command Center case study).</textarea>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="drawer-section" data-section="04">
+              <header class="drawer-section-header">
+                <span class="drawer-section-header__num">§ 04</span>
+                <span class="drawer-section-header__rule" aria-hidden="true"></span>
+                <span class="drawer-section-header__kicker">Raw intel</span>
+              </header>
+              <div class="drawer-section__body">
+                <div class="posting-struct">
+                  <div class="posting-struct__section">
+                    <span class="drawer-section__label">Must-have</span>
+                    <ul class="posting-req-list">
+                      <li>7+ yrs product design, consumer or prosumer tools</li>
+                      <li>Systems thinking + design-system fluency</li>
+                      <li>Portfolio showing end-to-end shipped work</li>
+                    </ul>
+                  </div>
+                  <div class="posting-struct__section">
+                    <span class="drawer-section__label">Nice-to-have</span>
+                    <ul class="posting-req-list">
+                      <li>Experience with project-management / planning tools</li>
+                      <li>Prototyping in code (React / CSS)</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="drawer-section drawer-section--drafts" data-section="05">
+              <header class="drawer-section-header">
+                <span class="drawer-section-header__num">§ 05</span>
+                <span class="drawer-section-header__rule" aria-hidden="true"></span>
+                <span class="drawer-section-header__kicker">Drafts</span>
+              </header>
+              <div class="drawer-section__body">
+                <div class="draft-library-card">
+                  <div class="draft-library-card__header">
+                    <span class="draft-library-card__title">Resume drafts (3)</span>
+                    <span class="draft-library-card__meta">ATS 82 · Last gen 12m ago</span>
+                  </div>
+                  <ul class="draft-library-card__list">
+                    <li>resume-linear-v3.pdf</li>
+                    <li>cover-linear-v2.pdf</li>
+                    <li>resume-linear-v2.pdf</li>
+                  </ul>
+                </div>
+              </div>
+            </section>
+
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const target = (location.hash || "").replace("#", "");
+      if (!target) return;
+      const map = {
+        "resume-tools": '[data-section="05"]',
+        "talking-points": '[data-section="02"]',
+        "writeback": '[data-section="03"]',
+      };
+      const sel = map[target];
+      if (!sel) return;
+      const focused = document.querySelector(sel);
+      if (!focused) return;
+      // Hide sibling sections + the drawer head so the screenshot frames
+      // just the targeted zone (headless Chrome captures the full page).
+      const toHide = document.querySelectorAll('.drawer-section');
+      toHide.forEach((s) => { if (s !== focused) s.style.display = 'none'; });
+      const head = document.querySelector('.detail-drawer__head');
+      if (head && target !== 'resume-tools') head.style.display = 'none';
+      const acts = document.querySelector('.detail-drawer__actions');
+      if (acts && target !== 'resume-tools') acts.style.display = 'none';
+    })();
+  </script>
+</body>
+</html>

@@ -139,6 +139,29 @@
   /* Transitions */
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --transition: 180ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ------------------------------------------------------------------
+     Newsprint tokens (added redesign-20260424T0742Z, fe-dashboard lane)
+     Applied to the dashboard shell: top bar, command strip, pipeline
+     header. The core palette above is unchanged (mint/amber/navy); these
+     extend it with zone paper/ink tokens + editorial type. Widget
+     internals keep the existing tokens for visual continuity.
+     ------------------------------------------------------------------ */
+  --jb-paper: #f7f1e8;           /* warm paper background          */
+  --jb-cream: #ece4d2;           /* newsprint cream (JobBored zone) */
+  --jb-ink: #003851;             /* newsprint navy ink             */
+  --jb-ink-soft: rgba(0, 56, 81, 0.12);
+  --jb-ink-hair: rgba(0, 56, 81, 0.18);
+  --jb-green: #59cb89;
+  --jb-orange: #ef8f26;
+  --jb-rule: 1px solid color-mix(in srgb, var(--jb-ink) 12%, transparent);
+
+  /* Editorial typography — Fraunces (display), Special Elite (typewriter,
+     reserved for JobBored zone), JetBrains Mono (eyebrows/labels). These
+     are loaded via the existing @import in index.html; we register them
+     here for the newsprint shell. */
+  --font-display: "Fraunces", "DM Sans", serif;
+  --font-typewriter: "Special Elite", "Courier New", monospace;
 }
 
 /* ============================================
@@ -1159,6 +1182,35 @@ textarea {
    TOP BAR
    ============================================ */
 
+/* Editorial masthead strip — a thin typewriter band that sits above the
+   sticky top bar. Acts as the "§ 00 · Index" slot for the newsprint
+   zone. Hidden from AT (role=presentation on the element); purely
+   decorative metadata. */
+.masthead-strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-5) 4px;
+  background: var(--jb-paper);
+  border-top: 3px solid var(--jb-ink);
+  color: var(--jb-ink);
+  font-family: var(--font-typewriter);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  flex-wrap: wrap;
+  min-height: 22px;
+}
+
+.masthead-strip__item {
+  white-space: nowrap;
+}
+
+.masthead-strip__sep {
+  color: color-mix(in srgb, var(--jb-ink) 45%, transparent);
+}
+
 .top-bar {
   position: sticky;
   top: 0;
@@ -1167,10 +1219,12 @@ textarea {
   align-items: center;
   justify-content: space-between;
   padding: var(--space-3) var(--space-5);
-  background: rgba(255, 255, 255, 0.88);
+  background: color-mix(in srgb, var(--jb-paper) 88%, transparent);
   backdrop-filter: blur(16px) saturate(1.15);
   -webkit-backdrop-filter: blur(16px) saturate(1.15);
-  border-bottom: 1px solid var(--border);
+  /* Double-rule bottom — evokes newsprint masthead. Use a solid 3px
+     navy rule plus a 1px hairline gap via box-shadow. */
+  border-bottom: 3px double var(--jb-ink);
 }
 
 .top-bar-left {
@@ -1491,13 +1545,78 @@ textarea {
    COMMAND STRIP (Daily Brief overview)
    ============================================ */
 
+/* Editorial eyebrow (shared primitive, used here and on the pipeline
+   section). Pattern: `§ 0N ———— KICKER` — mono monospace, hairline
+   rule, uppercase with 0.22em tracking. */
+.editorial-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: color-mix(in srgb, var(--jb-ink) 72%, transparent);
+  margin-bottom: 6px;
+}
+
+.editorial-eyebrow__num {
+  color: var(--jb-ink);
+}
+
+.editorial-eyebrow__rule {
+  flex: 0 0 32px;
+  height: 1px;
+  background: color-mix(in srgb, var(--jb-ink) 35%, transparent);
+}
+
+.editorial-eyebrow__kicker {
+  color: color-mix(in srgb, var(--jb-ink) 72%, transparent);
+}
+
+/* Editorial section title — Fraunces display with italic stance word.
+   Used by both Daily Brief and Pipeline headers. */
+.section-title--editorial {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(28px, 3.4vw, 44px);
+  line-height: 1;
+  letter-spacing: -0.025em;
+  color: var(--jb-ink);
+  margin: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.28em;
+}
+
+.section-title__lead {
+  font-weight: 500;
+}
+
+.section-title__italic {
+  font-style: italic;
+  font-weight: 500;
+  color: var(--jb-ink);
+}
+
 .command-strip {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  padding: var(--space-4) var(--space-5) var(--space-5);
-  background: var(--bg);
-  border-bottom: 1px solid var(--divider);
+  padding: var(--space-5) var(--space-5) var(--space-6);
+  /* Newsprint paper grain: repeating horizontal hairlines at 4% navy.
+     Subtle enough to read as texture, not pattern. */
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 3px,
+      rgba(0, 56, 81, 0.04) 3px,
+      rgba(0, 56, 81, 0.04) 4px
+    ),
+    var(--jb-cream);
+  border-bottom: 1px solid var(--jb-ink-hair);
 }
 
 /* --- Hero bar --- */
@@ -1512,27 +1631,33 @@ textarea {
 
 .brief-hero__left {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 
 .brief-hero__date {
-  font-size: var(--text-xs);
-  color: var(--text-faint);
-  font-family: var(--font-mono);
+  font-size: 11px;
+  color: color-mix(in srgb, var(--jb-ink) 60%, transparent);
+  font-family: var(--font-typewriter);
+  letter-spacing: 0.02em;
+  margin-top: 2px;
 }
 
 /* --- Headline sentence (daily signal prose) --- */
 
 .brief-headline {
-  font-size: var(--text-xl);
-  color: var(--text);
-  line-height: 1.65;
-  letter-spacing: -0.01em;
-  text-align: center;
-  max-width: 42em;
-  margin-inline: auto;
-  padding: var(--space-5) var(--space-4);
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: clamp(17px, 1.45vw, 22px);
+  color: color-mix(in srgb, var(--jb-ink) 85%, transparent);
+  line-height: 1.5;
+  letter-spacing: -0.005em;
+  text-align: left;
+  max-width: 52ch;
+  margin: var(--space-3) 0 0;
+  padding: 0;
 }
 
 .brief-headline:empty {
@@ -1575,7 +1700,7 @@ textarea {
   position: relative;
   padding: var(--space-4);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--jb-ink-soft);
   border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
@@ -1589,11 +1714,12 @@ textarea {
 }
 
 .stat-card__label {
-  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--jb-ink) 65%, transparent);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.22em;
 }
 
 .stat-card__row {
@@ -1603,12 +1729,12 @@ textarea {
 }
 
 .stat-card__value {
-  font-family: var(--font-mono);
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  color: var(--text);
+  font-family: var(--font-display);
+  font-size: clamp(28px, 2.4vw, 38px);
+  font-weight: 900;
+  color: var(--jb-ink);
   line-height: 1;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.035em;
 }
 
 .stat-card__delta {
@@ -2521,22 +2647,27 @@ button.feed-item {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--text-sm);
+  padding: 8px 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-weight: 600;
-  color: var(--accent);
-  background: var(--surface);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-md);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--jb-paper);
+  background: var(--jb-ink);
+  border: 1px solid var(--jb-ink);
+  border-radius: 999px;
   cursor: pointer;
   transition:
     background var(--transition),
-    color var(--transition);
+    color var(--transition),
+    transform var(--transition);
   white-space: nowrap;
 }
 
 .btn-discovery:hover {
-  background: rgba(89, 203, 137, 0.08);
+  background: color-mix(in srgb, var(--jb-ink) 85%, black);
+  transform: translateY(-1px);
 }
 
 .btn-discovery.loading {
@@ -3454,7 +3585,20 @@ button.feed-item {
 
 .main-content {
   display: block;
-  padding: var(--space-5) var(--space-5) var(--space-8);
+  padding: var(--space-6) var(--space-5) var(--space-8);
+  /* Newsprint paper texture, continuous with the command strip. The
+     repeating hairline pattern is subtle and doesn't interfere with card
+     content sitting on white surfaces. */
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 3px,
+      rgba(0, 56, 81, 0.035) 3px,
+      rgba(0, 56, 81, 0.035) 4px
+    ),
+    var(--jb-paper);
+  min-height: 60vh;
 }
 
 /* ============================================
@@ -3472,6 +3616,111 @@ button.feed-item {
   margin-bottom: var(--space-4);
 }
 
+/* Editorial variant — stacks eyebrow + headline on the left, pushes the
+   meta cluster (run-status pill + role count) to the right on a hairline
+   baseline. Collapses below 720px. */
+.section-header--editorial {
+  align-items: flex-end;
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: var(--jb-rule);
+}
+
+.section-header__intro {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.section-header__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+@media (max-width: 720px) {
+  .section-header--editorial {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .section-header__meta {
+    justify-content: flex-start;
+  }
+}
+
+/* Discovery run-status pill. Three states via `data-state`:
+     idle     — hairline pill, subdued label ("Last run — 14m ago")
+     running  — pulse-ring dot, filled green ("RUN IN PROGRESS")
+     done     — brief success flash ("RUN COMPLETE"), then reverts to idle
+   Subscribes to `jobbored:discovery-run-started` / `-finished` events
+   dispatched by runs-tab.js / settings-profile-tab.js. We do NOT
+   re-dispatch. */
+.run-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--jb-ink-hair);
+  color: color-mix(in srgb, var(--jb-ink) 75%, transparent);
+  transition: background var(--transition), color var(--transition),
+    border-color var(--transition);
+}
+
+.run-status-pill__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--jb-ink) 35%, transparent);
+}
+
+.run-status-pill[data-state="running"] {
+  background: rgba(89, 203, 137, 0.14);
+  border-color: rgba(89, 203, 137, 0.45);
+  color: #15803d;
+}
+
+.run-status-pill[data-state="running"] .run-status-pill__dot {
+  background: var(--jb-green);
+  box-shadow: 0 0 0 0 rgba(89, 203, 137, 0.6);
+  animation: run-status-pulse 1.6s ease-out infinite;
+}
+
+.run-status-pill[data-state="done"] {
+  background: rgba(89, 203, 137, 0.18);
+  border-color: rgba(89, 203, 137, 0.5);
+  color: #15803d;
+}
+
+.run-status-pill[data-state="done"] .run-status-pill__dot {
+  background: var(--jb-green);
+}
+
+@keyframes run-status-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(89, 203, 137, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgba(89, 203, 137, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-status-pill[data-state="running"] .run-status-pill__dot {
+    animation: none;
+  }
+}
+
 .section-title {
   font-size: var(--text-lg);
   font-weight: 600;
@@ -3482,57 +3731,73 @@ button.feed-item {
 }
 
 .role-count {
-  font-size: var(--text-xs);
-  color: var(--text-faint);
   font-family: var(--font-mono);
-  background: var(--surface-2);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--jb-ink) 65%, transparent);
+  background: transparent;
+  padding: 4px 10px;
+  border: 1px solid var(--jb-ink-hair);
+  border-radius: 999px;
 }
 
-/* Filter Bar */
+/* Filter Bar — unified single-row toolbar for the pipeline section.
+   Reads left-to-right: search (grows) | sort | filter chips. On narrow
+   screens it wraps but the chips stay grouped. */
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+  padding: var(--space-2) var(--space-3);
   align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--jb-ink-hair);
+  border-radius: 999px;
 }
 
 .filter-buttons {
   display: flex;
   gap: var(--space-1);
   flex-wrap: wrap;
+  margin-left: auto;
 }
 
 .filter-btn {
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  color: var(--text-muted);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 100px;
+  padding: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--jb-ink) 70%, transparent);
+  background: transparent;
+  border: 1px solid var(--jb-ink-hair);
+  border-radius: 999px;
   transition: all var(--transition);
   white-space: nowrap;
 }
 
 .filter-btn:hover {
-  color: var(--text);
-  border-color: var(--border-bright);
-  background: var(--surface-2);
+  color: var(--jb-ink);
+  border-color: var(--jb-ink);
+  background: transparent;
 }
 
 .filter-btn.active {
-  color: var(--accent);
-  background: var(--accent-dim);
-  border-color: rgba(89, 203, 137, 0.3);
+  color: var(--jb-paper);
+  background: var(--jb-ink);
+  border-color: var(--jb-ink);
 }
 
 .filter-controls {
   display: flex;
   gap: var(--space-2);
-  margin-left: auto;
+  margin-left: 0;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* ── URL paste hero card ──────────────────────────────────────────
@@ -3739,50 +4004,56 @@ button.feed-item {
   position: relative;
   display: flex;
   align-items: center;
+  flex: 1 1 280px;
+  min-width: 180px;
 }
 
 .search-icon {
   position: absolute;
   left: var(--space-2);
-  color: var(--text-faint);
+  color: color-mix(in srgb, var(--jb-ink) 45%, transparent);
   pointer-events: none;
 }
 
 .search-input {
-  padding: var(--space-1) var(--space-3) var(--space-1)
-    calc(var(--space-2) + 20px);
+  padding: 6px var(--space-3) 6px calc(var(--space-2) + 20px);
   font-size: var(--text-xs);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  width: 200px;
-  transition: all var(--transition);
+  color: var(--jb-ink);
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  width: 100%;
+  transition: box-shadow var(--transition);
 }
 
 .search-input::placeholder {
-  color: var(--text-faint);
+  color: color-mix(in srgb, var(--jb-ink) 45%, transparent);
 }
 
 .search-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(89, 203, 137, 0.1);
+  box-shadow: 0 0 0 2px rgba(0, 56, 81, 0.12);
   outline: none;
 }
 
 .sort-select {
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-xs);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  padding: 4px var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--jb-ink);
+  background: transparent;
+  border: 1px solid var(--jb-ink-hair);
+  border-radius: 999px;
   cursor: pointer;
   transition: all var(--transition);
   -webkit-appearance: none;
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23003851' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
-  padding-right: 28px;
+  padding-right: 26px;
 }
 
 .sort-select:hover {
@@ -3815,81 +4086,132 @@ button.feed-item {
 
 /* ============================================
    PIPELINE BOARD — Stage lanes + Kanban cards
+   JobBored newsprint zone · digest-widget pattern
    ============================================ */
 
+/* Local tokens so this block stays self-contained until fe-dashboard
+   promotes them to :root. Everything here degrades to existing globals. */
 .pipeline-board {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  --kb-navy: var(--text, #003851);
+  --kb-cream: #ece4d2;
+  --kb-paper: #f7f1e8;
+  --kb-green: var(--accent, #59cb89);
+  --kb-orange: var(--hot-orange, #ef8f26);
+  --kb-hair: color-mix(in srgb, var(--kb-navy) 12%, transparent);
+  --kb-hair-strong: color-mix(in srgb, var(--kb-navy) 22%, transparent);
+  --kb-ink-soft: color-mix(in srgb, var(--kb-navy) 66%, transparent);
+  --kb-ink-faint: color-mix(in srgb, var(--kb-navy) 46%, transparent);
+  --kb-shadow-soft: 0 24px 60px -30px
+    color-mix(in srgb, var(--kb-navy) 30%, transparent);
+  --kb-shadow-lift: 0 34px 80px -32px
+    color-mix(in srgb, var(--kb-navy) 40%, transparent);
+  --kb-radius-card: 14px;
+  --kb-radius-lane: 18px;
+  --kb-font-display: var(--font-display, "Fraunces", "Lora", Georgia, serif);
+  --kb-font-type: var(
+    --font-typewriter,
+    "Special Elite",
+    "Courier Prime",
+    "Courier New",
+    ui-monospace,
+    monospace
+  );
+  --kb-font-mono: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
+
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-2);
+  background-color: var(--kb-paper);
+  /* Paper grain: 3px / 4px repeating hairlines in ~4% navy */
+  background-image: repeating-linear-gradient(
+    0deg,
+    color-mix(in srgb, var(--kb-navy) 4%, transparent) 0px,
+    color-mix(in srgb, var(--kb-navy) 4%, transparent) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+  border: 1px solid var(--kb-hair);
+  border-radius: var(--kb-radius-lane);
 }
 
-/* Stage lane */
+/* ── Stage lane (newspaper column) ────────────────────────────── */
 .stage-lane {
-  background: var(--glass-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
+  background: var(--kb-cream);
+  border: 1px solid var(--kb-hair);
+  border-radius: var(--kb-radius-lane);
   overflow: hidden;
+  min-width: 0;
+  box-shadow: var(--kb-shadow-soft);
   transition:
-    box-shadow 200ms var(--ease),
-    border-color 200ms var(--ease);
+    box-shadow 220ms var(--ease),
+    border-color 220ms var(--ease);
 }
 
 .stage-lane:hover {
-  border-color: var(--border-bright);
+  border-color: var(--kb-hair-strong);
 }
 
 .stage-lane--archive {
-  opacity: 0.72;
+  opacity: 0.78;
 }
 
-/* Stage header button */
+/* Masthead: 3px solid top + 3px double bottom, typewriter items between.
+   Doubles as the collapse/expand button. */
 .stage-lane__header {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
   align-items: center;
   gap: var(--space-2);
   width: 100%;
-  padding: var(--space-3) var(--space-4);
-  background: transparent;
+  padding: 10px var(--space-3) 12px;
+  background: #ffffff;
   border: none;
+  border-top: 3px solid var(--kb-navy);
+  border-bottom: 3px double var(--kb-navy);
   cursor: pointer;
   text-align: left;
   font: inherit;
-  color: var(--text);
-  transition: background 150ms var(--ease);
+  color: var(--kb-navy);
+  transition: background 160ms var(--ease);
   min-height: 3rem;
 }
 
 .stage-lane__header:hover {
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--kb-cream) 40%, #ffffff);
 }
 
 .stage-lane__name {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: -0.01em;
+  font-family: var(--kb-font-type);
+  font-size: 0.9375rem;
+  font-weight: 400;
+  color: var(--kb-navy);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.1;
 }
 
 .stage-lane--archive .stage-lane__name {
-  color: var(--text-faint);
+  color: var(--kb-ink-soft);
 }
 
 .stage-lane__count {
-  font-size: var(--text-xs);
+  font-family: var(--kb-font-mono);
+  font-size: 0.6875rem;
   font-weight: 600;
-  font-family: var(--font-mono);
-  color: var(--text-faint);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  color: var(--kb-ink-soft);
+  background: transparent;
+  border: 1px solid var(--kb-hair);
   border-radius: 999px;
   padding: 1px 8px;
-  min-width: 1.5rem;
+  min-width: 1.6rem;
   text-align: center;
+  letter-spacing: 0.06em;
 }
 
 .stage-lane__chevron {
-  margin-left: auto;
-  color: var(--text-faint);
+  color: var(--kb-ink-faint);
   transition: transform 220ms var(--ease);
   flex-shrink: 0;
 }
@@ -3898,12 +4220,13 @@ button.feed-item {
   transform: rotate(180deg);
 }
 
-/* Status dot */
+/* Status dot — stage color swatch in the masthead */
 .stage-dot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   flex-shrink: 0;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--kb-navy) 8%, transparent);
 }
 
 .stage-dot--new {
@@ -3913,204 +4236,191 @@ button.feed-item {
   background: var(--status-researching-text);
 }
 .stage-dot--applied {
-  background: var(--status-applied-text);
+  background: var(--kb-orange);
 }
 .stage-dot--phone-screen {
   background: var(--status-phone-text);
 }
 .stage-dot--interviewing {
-  background: var(--status-interviewing-text);
+  background: var(--kb-green);
 }
 .stage-dot--offer {
-  background: var(--status-offer-text);
+  background: var(--status-offer-text, var(--kb-green));
 }
 .stage-dot--rejected {
   background: var(--status-rejected-text, #b91c1c);
 }
 .stage-dot--passed {
-  background: var(--status-passed-text, #4b5563);
+  background: var(--status-passed-text, var(--kb-ink-soft));
 }
 
 /* Stage body (shown/hidden on expand) */
 .stage-lane__body {
   display: none;
-  border-top: 1px solid var(--divider);
-  padding: var(--space-3) 0 var(--space-3);
+  padding: var(--space-3) var(--space-2) var(--space-3);
 }
 
 .stage-lane--expanded .stage-lane__body {
   display: block;
-  animation: fadeIn 200ms var(--ease) both;
+  animation: fadeIn 220ms var(--ease) both;
 }
 
-/* Scroll area: nav buttons flank the track */
 .stage-lane__scroll-area {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 0 var(--space-3);
+  display: block;
+  padding: 0;
 }
 
-/* Scrollable card track */
+/* Track: vertical stack of digest-widget cards */
 .stage-lane__track {
-  flex: 1;
   display: flex;
-  flex-direction: row;
-  gap: var(--space-3);
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 2px;
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  padding: var(--space-1) 2px var(--space-2);
 }
 
 .stage-lane__track::-webkit-scrollbar {
   display: none;
 }
 
-/* Nav chevron buttons */
+.stage-lane__empty {
+  display: grid;
+  place-items: center;
+  min-height: 7.5rem;
+  border: 1px dashed var(--kb-hair-strong);
+  border-radius: var(--kb-radius-card);
+  color: var(--kb-ink-faint);
+  font-family: var(--kb-font-type);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: color-mix(in srgb, #ffffff 70%, var(--kb-cream));
+}
+
+/* Nav chevrons + indicator: replaced by vertical stack; keep selectors
+   present-but-hidden so existing listeners don't throw on missing DOM. */
 .stage-lane__nav {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--glass-bg);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition:
-    background var(--transition),
-    border-color var(--transition),
-    color var(--transition),
-    opacity var(--transition);
+  display: none;
 }
-
-.stage-lane__nav:hover:not(:disabled) {
-  background: var(--surface-2);
-  border-color: var(--border-bright);
-  color: var(--text);
-}
-
-.stage-lane__nav:disabled {
-  opacity: 0.28;
-  cursor: default;
-}
-
-/* Scroll position indicator bar */
 .stage-lane__indicator {
-  position: relative;
-  height: 3px;
-  background: var(--surface-2);
-  border-radius: 999px;
-  margin: 0 var(--space-3) var(--space-1);
-  overflow: visible;
+  display: none;
 }
-
 .stage-indicator-thumb {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  min-width: 16%;
-  background: var(--accent);
-  border-radius: 999px;
-  transition:
-    left 80ms linear,
-    width 80ms linear;
+  display: none;
 }
 
-/* Kanban card */
+/* ── Kanban card = newsprint digest-widget row ────────────────── */
 .kanban-card {
-  --card-stage-color: var(--accent);
   position: relative;
-  scroll-snap-align: start;
-  flex-shrink: 0;
-  width: 264px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: inset 3px 0 0 var(--card-stage-color);
-  padding: var(--space-4) var(--space-4) var(--space-4)
-    calc(var(--space-4) + 3px);
+  width: 100%;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 10px;
+  padding: 0;
+  background: #ffffff;
+  border: 1px solid var(--kb-hair);
+  border-radius: var(--kb-radius-card);
+  box-shadow: var(--kb-shadow-soft);
   cursor: pointer;
   outline: none;
+  overflow: hidden;
   transition:
-    box-shadow 160ms var(--ease),
-    border-color 160ms var(--ease),
-    transform 160ms var(--ease);
-  animation: slideIn 250ms var(--ease) both;
+    box-shadow 200ms var(--ease),
+    border-color 200ms var(--ease),
+    transform 200ms var(--ease);
+  animation: slideIn 260ms var(--ease) both;
 }
 
 .kanban-card:hover {
-  box-shadow:
-    inset 3px 0 0 var(--card-stage-color),
-    var(--shadow-hover);
-  border-color: var(--border-bright);
-  transform: translateY(-2px);
+  box-shadow: var(--kb-shadow-lift);
+  border-color: var(--kb-hair-strong);
+  transform: translateY(-1px);
 }
 
 .kanban-card:focus-visible {
   box-shadow:
-    inset 3px 0 0 var(--card-stage-color),
-    0 0 0 2px var(--accent);
-  border-color: var(--accent);
+    0 0 0 2px var(--kb-green),
+    var(--kb-shadow-lift);
+  border-color: var(--kb-green);
 }
 
-/* Viewed state — dot indicator remains; stage color still shows on the rail */
-.kanban-card--viewed {
-  --card-stage-color: var(--text-faint);
+/* MonoHeaderBar — navy masthead at top of each card.
+   Company (mono uppercase 0.22em) + stage label + optional live pulse dot. */
+.kanban-card__header-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 12px;
+  background: var(--kb-navy);
+  color: #ffffff;
+  font-family: var(--kb-font-mono);
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  line-height: 1;
+  min-height: 1.75rem;
 }
 
-/* Stage-specific left accent — placed after --viewed so stage color wins when both classes are present */
-.kanban-card--stage-new {
-  --card-stage-color: var(--stage-rail-new);
-}
-.kanban-card--stage-researching {
-  --card-stage-color: var(--stage-rail-researching);
-}
-.kanban-card--stage-applied {
-  --card-stage-color: var(--stage-rail-applied);
-}
-.kanban-card--stage-phone-screen {
-  --card-stage-color: var(--stage-rail-phone-screen);
-}
-.kanban-card--stage-interviewing {
-  --card-stage-color: var(--stage-rail-interviewing);
-}
-.kanban-card--stage-offer {
-  --card-stage-color: var(--stage-rail-offer);
-}
-.kanban-card--stage-rejected {
-  --card-stage-color: var(--stage-rail-rejected);
-}
-.kanban-card--stage-passed {
-  --card-stage-color: var(--stage-rail-passed);
+.kanban-card__header-company {
+  flex: 1;
+  min-width: 0;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Viewed dot — quiet indicator, top-right corner */
-.kanban-card__viewed-dot {
-  position: absolute;
-  top: 11px;
-  right: 11px;
+.kanban-card__header-stage {
+  color: color-mix(in srgb, #ffffff 72%, transparent);
+  white-space: nowrap;
+}
+
+.kanban-card__pulse {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--text-faint);
-  opacity: 0.55;
-  pointer-events: none;
+  background: var(--kb-green);
+  flex-shrink: 0;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--kb-green) 80%, transparent);
+  animation: kb-pulse-ring 1.8s ease-out infinite;
+}
+
+@keyframes kb-pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--kb-green) 75%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kanban-card__pulse {
+    animation: none;
+  }
+  .kanban-card {
+    animation: none;
+  }
+}
+
+/* Card body — white digest content */
+.kanban-card__body {
+  padding: 12px 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .kanban-card__identity {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
+  padding-right: 3.25rem; /* reserve space for actions */
 }
 
 .kanban-card__identity-text {
@@ -4121,30 +4431,147 @@ button.feed-item {
   flex: 1;
 }
 
-/* Role title — hero, 2-line clamp */
+/* Role title — Fraunces 500 display */
 .kanban-card__title {
-  font-size: clamp(1.05rem, 2.6vw, 1.25rem);
-  font-weight: 700;
-  color: var(--text);
-  line-height: 1.22;
-  letter-spacing: -0.03em;
+  font-family: var(--kb-font-display);
+  font-size: clamp(1.05rem, 1.8vw, 1.2rem);
+  font-weight: 500;
+  color: var(--kb-navy);
+  line-height: 1.18;
+  letter-spacing: -0.01em;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  margin: 0;
 }
 
-/* Company — clear but secondary to title */
-.kanban-card__company {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--text-muted);
-  white-space: nowrap;
+/* Italic "why it matters" subline — fit hook or context.
+   Fraunces italic carries the stance per DESIGN-SYSTEM. */
+.kanban-card__subline {
+  font-family: var(--kb-font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 0.9375rem;
+  color: var(--kb-ink-soft);
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  letter-spacing: -0.02em;
+  margin: 0;
 }
 
+/* Context facts row — location · salary · typewriter, dot-separated */
+.kanban-card__context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--kb-font-type);
+  font-size: 0.75rem;
+  color: var(--kb-ink-faint);
+  letter-spacing: 0.04em;
+}
+
+.kanban-card__context-sep {
+  color: color-mix(in srgb, var(--kb-navy) 28%, transparent);
+}
+
+/* ✓ MATCH / × BORING badges + stage pill + age chip */
+.kanban-card__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.kanban-card__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--kb-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.kanban-card__badge--match {
+  background: color-mix(in srgb, var(--kb-green) 14%, transparent);
+  color: color-mix(in srgb, var(--kb-green) 72%, var(--kb-navy));
+  border: 1px solid color-mix(in srgb, var(--kb-green) 38%, transparent);
+}
+
+.kanban-card__badge--boring {
+  background: color-mix(in srgb, var(--kb-orange) 14%, transparent);
+  color: color-mix(in srgb, var(--kb-orange) 72%, var(--kb-navy));
+  border: 1px solid color-mix(in srgb, var(--kb-orange) 36%, transparent);
+}
+
+.kanban-card__badge-mark {
+  font-size: 0.8125rem;
+  line-height: 1;
+}
+
+/* Stage pill (subtle — cards may be screenshotted out of lane context) */
+.kanban-card__stage-pill {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--kb-font-mono);
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--kb-navy) 8%, transparent);
+  color: var(--kb-ink-soft);
+  border: 1px solid var(--kb-hair);
+  line-height: 1;
+}
+
+.kanban-card__stage-pill--applied {
+  background: color-mix(in srgb, var(--kb-orange) 12%, transparent);
+  color: color-mix(in srgb, var(--kb-orange) 70%, var(--kb-navy));
+  border-color: color-mix(in srgb, var(--kb-orange) 30%, transparent);
+}
+
+.kanban-card__stage-pill--interviewing,
+.kanban-card__stage-pill--offer {
+  background: color-mix(in srgb, var(--kb-green) 12%, transparent);
+  color: color-mix(in srgb, var(--kb-green) 72%, var(--kb-navy));
+  border-color: color-mix(in srgb, var(--kb-green) 32%, transparent);
+}
+
+.kanban-card__stage-pill--rejected,
+.kanban-card__stage-pill--passed {
+  background: color-mix(in srgb, var(--kb-navy) 6%, transparent);
+  color: var(--kb-ink-faint);
+}
+
+/* Days-in-stage chip — typewriter, the JobBored signature touch */
+.kanban-card__age {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--kb-font-type);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--kb-ink-faint);
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--kb-cream) 60%, #ffffff);
+  border: 1px dashed var(--kb-hair);
+  line-height: 1;
+}
+
+/* Tag chips — muted, secondary */
 .kanban-card__tags {
   display: flex;
   flex-wrap: wrap;
@@ -4152,24 +4579,63 @@ button.feed-item {
 }
 
 .kanban-card__tag {
-  font-size: 10px;
+  font-family: var(--kb-font-mono);
+  font-size: 0.625rem;
   font-weight: 600;
-  font-family: var(--font-mono);
-  color: var(--accent-text);
-  background: var(--accent-dim);
-  border-radius: var(--radius-sm);
+  color: var(--kb-ink-soft);
+  background: color-mix(in srgb, var(--kb-navy) 5%, transparent);
+  border: 1px solid var(--kb-hair);
+  border-radius: 4px;
   padding: 2px 6px;
   white-space: nowrap;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
-/* Card action icons (favorite / dismiss / restore) — top-right corner,
-   fade in on hover so the resting card stays quiet. Favorite stays
-   visible when active so the filled star reads as state, not chrome. */
+/* Next-action affordance — ghost pill; opens drawer via card click */
+.kanban-card__next-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  gap: 6px;
+  margin-top: 2px;
+  padding: 6px 12px;
+  border: 1px solid var(--kb-navy);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--kb-navy);
+  font-family: var(--kb-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1;
+  transition:
+    background 160ms var(--ease),
+    color 160ms var(--ease);
+}
+
+.kanban-card__next-action::after {
+  content: "→";
+  letter-spacing: 0;
+  font-family: var(--kb-font-display);
+  font-style: italic;
+  font-weight: 400;
+}
+
+.kanban-card:hover .kanban-card__next-action,
+.kanban-card:focus-visible .kanban-card__next-action {
+  background: var(--kb-navy);
+  color: #ffffff;
+}
+
+/* ── Card actions (favorite / dismiss / restore) — top-right ─── */
+/* Absolute, over the white body (not the navy bar). */
 .kanban-card__actions {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: calc(1.75rem + 10px);
+  right: 10px;
   display: flex;
   gap: 2px;
   z-index: 2;
@@ -4192,9 +4658,9 @@ button.feed-item {
   height: 26px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-faint);
+  border-radius: 6px;
+  background: color-mix(in srgb, #ffffff 88%, transparent);
+  color: var(--kb-ink-faint);
   cursor: pointer;
   transition:
     color 140ms var(--ease),
@@ -4203,56 +4669,137 @@ button.feed-item {
 }
 
 .card-action-btn:hover {
-  background: var(--surface-2);
-  border-color: var(--border);
-  color: var(--text);
+  background: #ffffff;
+  border-color: var(--kb-hair);
+  color: var(--kb-navy);
 }
 
 .card-action-btn:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--kb-green);
   outline-offset: 1px;
 }
 
 .card-action-btn--fav.is-active {
-  color: var(--hot-orange);
-}
-.card-action-btn--fav.is-active:hover {
-  color: var(--hot-orange);
-  background: var(--hot-bg);
-  border-color: var(--hot-border);
+  color: var(--kb-orange);
+  background: color-mix(in srgb, var(--kb-orange) 12%, #ffffff);
+  border-color: color-mix(in srgb, var(--kb-orange) 30%, transparent);
 }
 
 .card-action-btn--dismiss:hover {
-  color: var(--toast-error);
-  background: var(--toast-error-bg);
-  border-color: #fecaca;
+  color: #b91c1c;
+  background: color-mix(in srgb, #b91c1c 10%, #ffffff);
+  border-color: color-mix(in srgb, #b91c1c 28%, transparent);
 }
 
 .card-action-btn--restore:hover {
-  color: var(--accent-text);
-  background: var(--accent-dim);
-  border-color: rgba(89, 203, 137, 0.3);
+  color: color-mix(in srgb, var(--kb-green) 70%, var(--kb-navy));
+  background: color-mix(in srgb, var(--kb-green) 14%, #ffffff);
+  border-color: color-mix(in srgb, var(--kb-green) 36%, transparent);
 }
 
-/* Dismissed-row treatment — muted + strikethrough on title.
-   Used when "Show dismissed" is toggled on. */
+/* Viewed dot — quiet indicator; fades further on hover */
+.kanban-card__viewed-dot {
+  position: absolute;
+  top: calc(1.75rem + 14px);
+  right: 14px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--kb-ink-faint);
+  opacity: 0.55;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.kanban-card:hover .kanban-card__viewed-dot,
+.kanban-card:focus-within .kanban-card__viewed-dot,
+.kanban-card--favorited .kanban-card__viewed-dot {
+  opacity: 0;
+}
+
+/* ── Card states ─────────────────────────────────────────────── */
+
+/* Viewed — slight warmth, no full fade (user may still act on it) */
+.kanban-card--viewed {
+  background: color-mix(in srgb, var(--kb-cream) 22%, #ffffff);
+}
+
+/* Priority — green tint on match row (per DESIGN-SYSTEM digest widget) */
+.kanban-card--priority {
+  background: color-mix(in srgb, var(--kb-green) 8%, #ffffff);
+  border-color: color-mix(in srgb, var(--kb-green) 34%, transparent);
+}
+
+.kanban-card--priority .kanban-card__header-bar {
+  background: linear-gradient(
+    180deg,
+    var(--kb-navy) 0%,
+    color-mix(in srgb, var(--kb-navy) 88%, var(--kb-green)) 100%
+  );
+}
+
+/* Dismissed — line-through title, reduced opacity (× BORING row) */
 .kanban-card--dismissed {
-  opacity: 0.6;
+  opacity: 0.62;
+  background: color-mix(in srgb, var(--kb-orange) 5%, #ffffff);
 }
+
 .kanban-card--dismissed:hover {
-  opacity: 0.85;
+  opacity: 0.88;
 }
-.kanban-card--dismissed .kanban-card__title {
+
+.kanban-card--dismissed .kanban-card__title,
+.kanban-card--dismissed .kanban-card__subline {
   text-decoration: line-through;
-  text-decoration-color: var(--text-faint);
-  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--kb-orange) 60%, transparent);
+  text-decoration-thickness: 1.5px;
+}
+
+/* Favorited — amber ring, preserved on top of other states */
+.kanban-card--favorited {
+  border-color: color-mix(in srgb, var(--kb-orange) 45%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--kb-orange) 28%, transparent),
+    var(--kb-shadow-soft);
+}
+
+/* Archive lanes (Rejected/Passed) quiet their cards further */
+.stage-lane--archive .kanban-card {
+  box-shadow: none;
+}
+
+/* Mobile: single column */
+@media (max-width: 640px) {
+  .pipeline-board {
+    grid-template-columns: 1fr;
+    padding: var(--space-1);
+  }
+  .kanban-card__title {
+    font-size: 1.05rem;
+  }
 }
 
 /* ============================================
-   DETAIL DRAWER
+   DETAIL DRAWER — editorial (JobBored zone)
+   Masthead rule · SectionHeader · StatRow · MonoHeaderBar · ProjectBtn.
+   Tokens consumed only (no :root edits). Fonts: Special Elite loaded via
+   index.html; JetBrains Mono already present.
    ============================================ */
 
+/* Fallback navy used where --text (navy) is already correct. Defined here as a
+   local alias so we can avoid hex sprinkling in this block. */
 .detail-overlay {
+  --dd-ink: var(--text);
+  --dd-paper: #f7f1e8;
+  --dd-cream: #ece4d2;
+  --dd-mono: var(--font-mono);
+  --dd-typewriter: "Special Elite", "Courier New", ui-monospace, monospace;
+  --dd-shadow-long:
+    0 24px 60px -30px color-mix(in srgb, var(--text) 30%, transparent),
+    0 2px 4px color-mix(in srgb, var(--text) 8%, transparent);
+  --dd-hairline: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+  --dd-hairline-soft: 1px solid color-mix(in srgb, var(--text) 6%, transparent);
+
   position: fixed;
   inset: 0;
   z-index: 800;
@@ -4263,7 +4810,7 @@ button.feed-item {
 .detail-overlay__backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(15, 23, 42, 0.32);
+  background: color-mix(in srgb, var(--text) 32%, transparent);
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
   border: none;
@@ -4279,14 +4826,21 @@ body.detail-open {
 .detail-drawer {
   position: relative;
   z-index: 1;
-  width: min(780px, 96vw);
+  width: min(820px, 96vw);
   height: 100%;
-  background: var(--bg);
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 3px,
+      color-mix(in srgb, var(--text) 4%, transparent) 3px 4px
+    ),
+    var(--dd-paper);
   overflow-y: auto;
-  box-shadow: -4px 0 32px rgba(15, 23, 42, 0.14);
+  box-shadow: var(--dd-shadow-long);
   animation: drawerSlideIn 240ms var(--ease) both;
   display: flex;
   flex-direction: column;
+  color: var(--text);
 }
 
 @keyframes drawerSlideIn {
@@ -4298,20 +4852,65 @@ body.detail-open {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .detail-drawer {
+    animation: none;
+  }
+}
+
+/* ── Masthead rule — 3px solid top + 3px double bottom in navy, three
+   typewriter items between (company · role · stage). ── */
 .detail-drawer__head {
   position: sticky;
   top: 0;
   z-index: 10;
+  background: color-mix(in srgb, var(--dd-paper) 92%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 3px double var(--text);
+  border-top: 3px solid var(--text);
+  padding: 0;
+}
+
+.detail-drawer__masthead {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-4);
+  border-bottom: var(--dd-hairline);
+  font-family: var(--dd-typewriter);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.detail-drawer__masthead-item {
+  display: inline-block;
+  max-width: 30ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-drawer__masthead-sep {
+  color: color-mix(in srgb, var(--text) 55%, transparent);
+  flex-shrink: 0;
+}
+
+.detail-drawer__head-row {
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
+  padding: var(--space-4);
   justify-content: space-between;
-  padding: var(--space-4) var(--space-4) var(--space-3);
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
-  min-height: auto;
+}
+
+.detail-drawer__head-row > .co-logo {
+  margin-top: 2px;
 }
 
 .detail-drawer__head-main {
@@ -4323,33 +4922,28 @@ body.detail-open {
 }
 
 .detail-drawer__head-title {
-  font-size: clamp(1.375rem, 4vw, 1.75rem);
-  font-weight: 700;
+  font-size: clamp(1.5rem, 4vw, 2rem);
+  font-weight: 600;
   color: var(--text);
-  letter-spacing: -0.035em;
-  line-height: 1.2;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
   margin: 0;
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
 .detail-drawer__head-company {
-  font-size: var(--text-lg);
+  font-size: var(--text-base);
   font-weight: 500;
   color: var(--text-muted);
   line-height: 1.35;
   margin: 0;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
-/* Logo in drawer header — center with title baseline */
-.detail-drawer__head > .co-logo {
-  margin-top: var(--space-1);
-}
-
-/* Location + salary — drawer header */
+/* Role-facts grid in the drawer head keeps existing component, tightened */
 .role-facts--drawer {
   margin-top: var(--space-1);
   width: 100%;
@@ -4360,11 +4954,11 @@ body.detail-open {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
+  width: 32px;
+  height: 32px;
+  border: var(--dd-hairline);
+  border-radius: 999px;
+  background: transparent;
   color: var(--text-muted);
   cursor: pointer;
   transition:
@@ -4374,20 +4968,27 @@ body.detail-open {
 }
 
 .detail-drawer__close:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-  border-color: var(--border-bright);
+  background: var(--text);
+  color: #fff;
+  border-color: var(--text);
 }
 
+/* ── Role tools bar (ProjectBtn pattern) ──
+   Under masthead, above § sections. Solid navy primary + ghost secondary,
+   mono 11px uppercase labels per DESIGN-SYSTEM §12 ProjectBtn. */
 .detail-drawer__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: transparent;
+  border-bottom: var(--dd-hairline);
   position: sticky;
-  top: 3.25rem; /* height of __head */
+  top: calc(3px + 2.1rem + 3px);
   z-index: 9;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--dd-paper) 88%, transparent);
 }
 
 .drawer-btn {
@@ -4395,66 +4996,64 @@ body.detail-open {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 9px var(--space-4);
-  font-size: var(--text-sm);
+  padding: 10px 18px;
+  font-family: var(--dd-mono);
+  font-size: 11px;
   font-weight: 600;
-  border-radius: var(--radius-md);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  border-radius: 999px;
   cursor: pointer;
   text-decoration: none;
   white-space: nowrap;
-  border: none;
+  border: 1px solid transparent;
   transition: all 150ms var(--ease);
   line-height: 1;
+  color: inherit;
 }
 
-/* Cover letter — bold primary CTA, solid accent fill */
-.drawer-btn--cover {
-  flex: 1;
-  background: var(--accent, #059669);
+.drawer-btn svg {
+  opacity: 0.85;
+}
+
+.drawer-btn--solid {
+  flex: 1 1 auto;
+  background: var(--text);
   color: #fff;
+  border-color: var(--text);
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.drawer-btn--solid:hover {
+  background: color-mix(in srgb, var(--text) 88%, #000);
+  color: #fff;
+  transform: translateY(-1px);
   box-shadow:
-    0 1px 3px rgba(5, 150, 105, 0.3),
-    0 1px 2px rgba(5, 150, 105, 0.2);
+    0 4px 12px -4px color-mix(in srgb, var(--text) 45%, transparent),
+    0 2px 0 0 color-mix(in srgb, var(--text) 18%, transparent);
 }
 
-.drawer-btn--cover:hover {
-  background: #047857;
+.drawer-btn--ghost {
+  flex: 1 1 auto;
+  background: transparent;
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.drawer-btn--ghost:hover {
+  background: var(--text);
   color: #fff;
-  box-shadow: 0 3px 8px rgba(5, 150, 105, 0.35);
   transform: translateY(-1px);
 }
 
-/* Tailor resume — bold secondary CTA, amber fill */
-.drawer-btn--tailor {
-  flex: 1;
-  background: #b45309;
-  color: #fff;
-  box-shadow:
-    0 1px 3px rgba(180, 83, 9, 0.28),
-    0 1px 2px rgba(180, 83, 9, 0.18);
-}
-
-.drawer-btn--tailor:hover {
-  background: #92400e;
-  color: #fff;
-  box-shadow: 0 3px 8px rgba(180, 83, 9, 0.32);
-  transform: translateY(-1px);
-}
-
-/* View posting — understated tertiary link */
 .drawer-btn--view {
-  background: var(--surface-2);
-  color: var(--text-muted);
-  border: 1px solid var(--border);
   flex: 0 0 auto;
 }
 
-.drawer-btn--view:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-  border-color: var(--border-bright);
-  text-decoration: none;
-  transform: translateY(-1px);
+@media (prefers-reduced-motion: reduce) {
+  .drawer-btn:hover {
+    transform: none;
+  }
 }
 
 .detail-drawer__body {
@@ -4462,19 +5061,111 @@ body.detail-open {
   flex: 1;
 }
 
-/* ── Stage stepper wrapper with chevron nav ── */
+/* ── SectionHeader primitive ──
+   Mono eyebrow number + rule + kicker. Editorial § NN pattern. */
+.drawer-content--editorial {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: var(--space-4);
+}
+
+.drawer-section {
+  padding: var(--space-4) 0 var(--space-5);
+  border-bottom: var(--dd-hairline);
+}
+
+.drawer-section:last-child {
+  border-bottom: none;
+}
+
+.drawer-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.drawer-section-header__num {
+  font-family: var(--dd-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.drawer-section-header__rule {
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+  align-self: center;
+}
+
+.drawer-section-header__kicker {
+  font-family: var(--dd-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.drawer-section__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.drawer-section__empty {
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+  font-style: italic;
+  margin: 0;
+}
+
+/* § 03 Next action – warmer background so the write-back card pops */
+.drawer-section--action > .drawer-section__body {
+  gap: var(--space-3);
+}
+
+.drawer-section--drafts > .drawer-section__body {
+  gap: var(--space-4);
+}
+
+/* ── Stage stepper (editorial) ── */
 .stage-stepper-wrap {
   display: flex;
   align-items: center;
   gap: 0;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  padding: 0;
+  background: #fff;
+  border: var(--dd-hairline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--dd-shadow-long);
   overflow: hidden;
+  margin-bottom: var(--space-3);
+}
+
+.stage-stepper__eyebrow {
+  font-family: var(--dd-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0 var(--space-3);
+  border-right: var(--dd-hairline);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
 }
 
 .stage-stepper__chevron {
   flex-shrink: 0;
-  width: 28px;
+  width: 26px;
   height: 40px;
   display: flex;
   align-items: center;
@@ -4486,12 +5177,11 @@ body.detail-open {
   transition:
     color var(--transition),
     background var(--transition);
-  z-index: 1;
 }
 
 .stage-stepper__chevron:hover {
   color: var(--text);
-  background: rgba(0, 0, 0, 0.04);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
 }
 
 .stage-stepper__chevron:disabled {
@@ -4499,17 +5189,17 @@ body.detail-open {
   cursor: default;
 }
 
-/* ── Stage stepper (Ashby-style) ── */
 .stage-stepper {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 0;
-  padding: var(--space-3) 0;
+  padding: var(--space-2) var(--space-2);
   flex: 1;
   overflow-x: auto;
   scrollbar-width: none;
 }
+
 .stage-stepper::-webkit-scrollbar {
   display: none;
 }
@@ -4518,458 +5208,184 @@ body.detail-open {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   padding: 4px 2px;
   background: none;
   border: none;
   cursor: pointer;
   flex-shrink: 0;
   position: relative;
+  min-width: 56px;
 }
 
 .stage-step__dot {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  border: 2px solid var(--text-faint);
+  border: 2px solid color-mix(in srgb, var(--text) 30%, transparent);
   background: transparent;
   transition: all 180ms var(--ease);
   flex-shrink: 0;
 }
 
+.stage-step__num {
+  font-family: var(--dd-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: color-mix(in srgb, var(--text) 45%, transparent);
+  margin-top: 2px;
+}
+
 .stage-step__label {
-  font-size: 9px;
+  font-family: var(--dd-mono);
+  font-size: 9.5px;
   font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   color: var(--text-faint);
   white-space: nowrap;
-  letter-spacing: 0.02em;
   transition: color 180ms var(--ease);
 }
 
 .stage-step__line {
-  flex: 0 0 20px;
-  height: 2px;
-  background: var(--border);
+  flex: 0 0 18px;
+  height: 1px;
+  background: color-mix(in srgb, var(--text) 18%, transparent);
   align-self: flex-start;
-  margin-top: 8px;
+  margin-top: 10px;
   transition: background 180ms var(--ease);
 }
+
 .stage-step__line--done {
   background: var(--accent);
 }
 
-/* Done steps */
 .stage-step--done .stage-step__dot {
   background: var(--accent);
   border-color: var(--accent);
 }
-.stage-step--done .stage-step__label {
+
+.stage-step--done .stage-step__label,
+.stage-step--done .stage-step__num {
   color: var(--text-muted);
 }
 
-/* Active step */
 .stage-step--active .stage-step__dot {
-  width: 12px;
-  height: 12px;
-  background: var(--accent);
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(89, 203, 137, 0.2);
+  width: 11px;
+  height: 11px;
+  background: var(--text);
+  border-color: var(--text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text) 15%, transparent);
 }
+
 .stage-step--active .stage-step__label {
   font-weight: 700;
   color: var(--text);
-  font-size: 10px;
 }
 
-/* Terminal states (Rejected / Passed) */
+.stage-step--active .stage-step__num {
+  color: var(--text);
+}
+
 .stage-step--terminal .stage-step__dot {
   border-color: var(--text-faint);
   border-style: dashed;
 }
+
 .stage-step--terminal.stage-step--active .stage-step__dot {
   border-style: solid;
 }
+
 .stage-step--terminal.stage-step--active[data-stage="Rejected"]
   .stage-step__dot {
   background: var(--status-rejected-text);
   border-color: var(--status-rejected-text);
   box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.15);
 }
-.stage-step--terminal.stage-step--active[data-stage="Passed"] .stage-step__dot {
+
+.stage-step--terminal.stage-step--active[data-stage="Passed"]
+  .stage-step__dot {
   background: var(--text-faint);
   border-color: var(--text-faint);
   box-shadow: 0 0 0 3px rgba(75, 85, 99, 0.12);
 }
 
 .stage-step:hover .stage-step__dot {
-  border-color: var(--accent);
-  transform: scale(1.2);
+  border-color: var(--text);
+  transform: scale(1.15);
 }
-.stage-step:hover .stage-step__label {
+
+.stage-step:hover .stage-step__label,
+.stage-step:hover .stage-step__num {
   color: var(--text);
 }
 
-/* ── Drawer two-column layout ── */
-.drawer-content {
-  display: flex;
-  flex-direction: column;
-}
-
-.drawer-columns {
-  display: grid;
-  grid-template-columns: 1fr 220px;
-  gap: 0;
-  min-height: 0;
-  align-items: start;
-}
-
-.drawer-col {
-  padding: var(--space-4);
-}
-
-.drawer-col--main {
-  padding-right: var(--space-3);
-  border-right: 1px solid var(--border);
-}
-
-.drawer-col--props {
-  padding-left: var(--space-3);
-  position: sticky;
-  top: 6.5rem;
-  align-self: start;
-  max-height: calc(100vh - 7.5rem);
-  overflow-y: auto;
-  scrollbar-width: thin;
-}
-
-@media (max-width: 640px) {
-  .drawer-columns {
-    grid-template-columns: 1fr;
-  }
-  .drawer-col--main {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-    padding-right: var(--space-4);
-  }
-  .drawer-col--props {
-    padding-left: var(--space-4);
-    position: static;
-    max-height: none;
-    overflow-y: visible;
+@media (prefers-reduced-motion: reduce) {
+  .stage-step:hover .stage-step__dot {
+    transform: none;
   }
 }
 
-/* ── Drawer notes (in right column, below properties) ── */
-.drawer-notes {
-  margin-top: var(--space-3);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border);
-}
-
-.drawer-notes__input {
-  width: 100%;
-  min-height: 96px;
-  padding: var(--space-3);
-  font-size: var(--text-sm);
-  line-height: 1.6;
-  background: rgba(255, 255, 255, 0.55);
-  border: 1px solid var(--glass-stroke);
-  border-radius: var(--radius-md);
-  resize: vertical;
-  transition: all var(--transition);
-  font-family: inherit;
-}
-
-.drawer-notes__input::placeholder {
-  color: var(--text-faint);
-}
-
-.drawer-notes__input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(89, 203, 137, 0.1);
-  background: var(--surface);
-}
-
-.drawer-notes__input.saving {
-  border-color: var(--border-bright);
-  background: var(--surface-2);
-}
-
-/* ── Section labels (drawer: AI Summary, talking points, posting snippets, Notes, …) ── */
+/* ── Section body primitives (AI Summary, Fit, Tags, Must-haves) ── */
 .drawer-section__label,
 .detail-drawer .posting-snippet-label {
-  font-size: var(--text-sm);
+  font-family: var(--dd-mono);
+  font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.045em;
+  letter-spacing: 0.22em;
   color: var(--text-muted);
   margin-bottom: var(--space-2);
-}
-
-.drawer-section__label {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
-.detail-drawer .drawer-col--main > .posting-struct {
-  margin-top: var(--space-4);
-  padding-top: var(--space-4);
-  border-top: 1px solid rgba(15, 23, 42, 0.08);
-}
-
-.detail-drawer .drawer-col--main > .posting-struct:first-child {
-  margin-top: 0;
-  padding-top: 0;
-  border-top: none;
-}
-
-.detail-drawer .posting-req {
-  margin-top: var(--space-4);
-  padding-top: var(--space-4);
-}
-
-/* ── Enrichment loading skeleton ── */
-@keyframes skeletonShimmer {
-  0% {
-    background-position: -600px 0;
-  }
-  100% {
-    background-position: 600px 0;
-  }
-}
-
-/* Base bone: shimmer sweep */
-.enr-skel-bone {
-  background: linear-gradient(
-    90deg,
-    var(--surface-2) 0px,
-    rgba(255, 255, 255, 0.88) 200px,
-    var(--surface-2) 400px
-  );
-  background-size: 600px 100%;
-  animation: skeletonShimmer 1.5s linear infinite;
-  border-radius: var(--radius-sm);
-}
-
-/* Outer wrapper */
-.drawer-enrichment-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-/* ── About this role card shell ── */
-.enr-skel-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-
-.enr-skel-card__head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
-}
-
-.enr-skel-card__arrow {
-  width: 8px;
-  height: 8px;
-  flex-shrink: 0;
-  border-radius: 2px;
-}
-
-.enr-skel-card__title {
-  height: 0.7rem;
-  width: 108px;
-  border-radius: 3px;
-}
-
-.enr-skel-card__body {
-  padding: var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-/* ── Generic section (label + lines) ── */
-.enr-skel-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.enr-skel-section__label {
-  height: 0.55rem;
-  width: 4.5rem;
-  border-radius: 3px;
-  opacity: 0.75;
-  margin-bottom: 2px;
-}
-
-.enr-skel-line {
-  height: 0.8125rem;
-  border-radius: 4px;
-}
-.enr-skel-line--w100 {
-  width: 100%;
-}
-.enr-skel-line--w92 {
-  width: 92%;
-}
-.enr-skel-line--w83 {
-  width: 83%;
-}
-.enr-skel-line--w74 {
-  width: 74%;
-}
-.enr-skel-line--w65 {
-  width: 65%;
-}
-.enr-skel-line--w56 {
-  width: 56%;
-}
-
-/* ── Tag chips ── */
-.enr-skel-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 2px;
-}
-
-.enr-skel-chip {
-  height: 1.375rem;
-  border-radius: 999px;
-}
-.enr-skel-chip--xs {
-  width: 3.25rem;
-}
-.enr-skel-chip--sm {
-  width: 4.75rem;
-}
-.enr-skel-chip--md {
-  width: 6rem;
-}
-.enr-skel-chip--lg {
-  width: 7.5rem;
-}
-
-/* ── Talking-points block ── */
-.enr-skel-tp {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.enr-skel-tp__label {
-  height: 0.65rem;
-  width: 8rem;
-  border-radius: 3px;
-  margin-bottom: var(--space-1);
-}
-
-/* Indented bullet-like lines */
-.enr-skel-tp__item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.enr-skel-tp__bullet {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.enr-skel-tp__text {
-  height: 0.8125rem;
-  border-radius: 4px;
-  flex: 1;
-}
-
-/* ── "About this role" collapsible ── */
-.drawer-about {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-4);
-  overflow: hidden;
-}
-
-.drawer-about__toggle {
-  display: flex;
-  align-items: center;
-  padding: var(--space-3) var(--space-3);
-  font-size: var(--text-sm);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.045em;
-  color: var(--text-muted);
-  cursor: pointer;
-  background: var(--surface-2);
-  list-style: none;
-  user-select: none;
-}
-
-.drawer-about__toggle::-webkit-details-marker {
-  display: none;
-}
-
-.drawer-about__toggle::before {
-  content: "▸";
-  margin-right: var(--space-2);
-  transition: transform 150ms var(--ease);
-  font-size: var(--text-xs);
-  color: var(--text-faint);
-  font-weight: 700;
-}
-
-.drawer-about[open] .drawer-about__toggle::before {
-  transform: rotate(90deg);
-}
-
-.drawer-about__body {
-  padding: var(--space-3) var(--space-3) var(--space-4);
-  border-top: 1px solid rgba(15, 23, 42, 0.06);
-}
-
-/* ── AI sections inside drawer ── */
 .drawer-ai-section {
-  margin-bottom: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: var(--dd-hairline-soft);
+}
+
+.drawer-ai-section:first-child {
+  border-top: none;
+  padding-top: 0;
 }
 
 .drawer-ai-text {
-  font-size: var(--text-sm);
-  line-height: 1.55;
+  font-size: var(--text-base);
+  line-height: 1.6;
   color: var(--text);
   margin: 0;
 }
 
 .drawer-hook {
-  font-size: var(--text-sm);
+  font-family: Lora, Georgia, serif;
+  font-size: clamp(1rem, 1.5vw, 1.125rem);
   font-style: italic;
-  color: var(--text-muted);
-  line-height: 1.4;
+  color: var(--text);
+  line-height: 1.35;
   margin: 0 0 var(--space-2);
+  max-width: 55ch;
 }
 
 .drawer-context {
-  font-size: var(--text-xs);
+  font-family: var(--dd-typewriter);
+  font-size: 11px;
   color: var(--text-muted);
   margin: 0 0 var(--space-2);
+  letter-spacing: 0.02em;
 }
 
 .drawer-context--date {
   color: var(--text-faint);
-  font-size: 0.6875rem;
+}
+
+/* Writeback wrapper (§ 03 body) */
+.drawer-writeback {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
 /* ── Company logo (shared) ── */
@@ -4982,7 +5398,7 @@ body.detail-open {
   object-fit: contain;
   border-radius: var(--radius-md);
   background: var(--surface-2);
-  border: 1px solid var(--border);
+  border: var(--dd-hairline-soft);
   flex-shrink: 0;
 }
 
@@ -5014,11 +5430,14 @@ body.detail-open {
   font-size: 1.125rem;
 }
 
-/* Shared: location + compensation facts */
+/* ── StatRow — role facts (location, comp) as hairline-divided columns ── */
 .role-facts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
-  gap: var(--space-2);
+  gap: 0;
+  border-top: var(--dd-hairline);
+  border-bottom: var(--dd-hairline);
+  padding: var(--space-2) 0;
 }
 
 .role-facts--card {
@@ -5029,139 +5448,251 @@ body.detail-open {
   margin-top: var(--space-2);
   grid-template-columns: 1fr;
   gap: var(--space-2);
+  border: none;
+  padding: 0;
 }
 
 .role-fact {
   padding: var(--space-2) var(--space-3);
-  background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  border-right: var(--dd-hairline);
+}
+
+.role-fact:last-child {
+  border-right: none;
+}
+
+.role-facts--kanban .role-fact {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  background: linear-gradient(
+    180deg,
+    var(--surface-2) 0%,
+    var(--surface) 100%
+  );
   box-shadow: var(--shadow-sm);
 }
 
 .role-fact__label {
   display: block;
-  font-size: 0.625rem;
+  font-family: var(--dd-mono);
+  font-size: 9.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.22em;
   color: var(--text-faint);
   margin-bottom: var(--space-1);
 }
 
 .role-fact__value {
   display: block;
-  font-size: var(--text-base);
+  font-family: Lora, Georgia, serif;
+  font-size: clamp(1.125rem, 2vw, 1.375rem);
   font-weight: 600;
   color: var(--text);
-  line-height: 1.35;
+  line-height: 1.15;
   letter-spacing: -0.02em;
 }
 
 .role-fact__value--salary {
-  color: var(--text-muted);
+  color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Compact property panel (right column) ── */
-.drawer-props {
+/* ── Enrichment loading skeleton (markup unchanged) ── */
+@keyframes skeletonShimmer {
+  0% {
+    background-position: -600px 0;
+  }
+  100% {
+    background-position: 600px 0;
+  }
+}
+
+.enr-skel-bone {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 0px,
+    rgba(255, 255, 255, 0.88) 200px,
+    var(--surface-2) 400px
+  );
+  background-size: 600px 100%;
+  animation: skeletonShimmer 1.5s linear infinite;
+  border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enr-skel-bone {
+    animation: none;
+  }
+}
+
+.drawer-enrichment-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.enr-skel-card {
+  border: var(--dd-hairline);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: #fff;
+}
+
+.enr-skel-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-2);
+  border-bottom: var(--dd-hairline-soft);
+}
+
+.enr-skel-card__arrow {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 2px;
+}
+
+.enr-skel-card__title {
+  height: 0.7rem;
+  width: 108px;
+  border-radius: 3px;
+}
+
+.enr-skel-card__body {
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.enr-skel-section {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
 
-.drawer-prop {
-  display: grid;
-  grid-template-columns: 14px auto 1fr;
-  gap: 6px;
-  align-items: center;
-  min-height: 28px;
+.enr-skel-section__label {
+  height: 0.55rem;
+  width: 4.5rem;
+  border-radius: 3px;
+  opacity: 0.75;
+  margin-bottom: 2px;
 }
 
-.drawer-prop__icon {
-  color: var(--text-faint);
+.enr-skel-line {
+  height: 0.8125rem;
+  border-radius: 4px;
+}
+.enr-skel-line--w100 { width: 100%; }
+.enr-skel-line--w92  { width: 92%; }
+.enr-skel-line--w83  { width: 83%; }
+.enr-skel-line--w74  { width: 74%; }
+.enr-skel-line--w65  { width: 65%; }
+.enr-skel-line--w56  { width: 56%; }
+
+.enr-skel-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.enr-skel-chip {
+  height: 1.375rem;
+  border-radius: 999px;
+}
+.enr-skel-chip--xs { width: 3.25rem; }
+.enr-skel-chip--sm { width: 4.75rem; }
+.enr-skel-chip--md { width: 6rem; }
+.enr-skel-chip--lg { width: 7.5rem; }
+
+.enr-skel-tp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--dd-hairline-soft);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
+.enr-skel-tp__label {
+  height: 0.65rem;
+  width: 8rem;
+  border-radius: 3px;
+  margin-bottom: var(--space-1);
+}
+
+.enr-skel-tp__item {
   display: flex;
   align-items: center;
+  gap: var(--space-2);
+}
+
+.enr-skel-tp__bullet {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
   flex-shrink: 0;
 }
 
-.drawer-prop__key {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-muted);
-  white-space: nowrap;
+.enr-skel-tp__text {
+  height: 0.8125rem;
+  border-radius: 4px;
+  flex: 1;
 }
 
-.drawer-prop__val {
-  font-size: var(--text-xs);
-  color: var(--text);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: 3px 6px;
-  transition: all var(--transition);
-  min-width: 0;
-}
-
-.drawer-prop__val:hover {
-  border-color: var(--border);
-  background: var(--surface);
-}
-
-.drawer-prop__val:focus {
-  outline: none;
-  border-color: var(--accent);
-  background: var(--surface);
-  box-shadow: 0 0 0 2px rgba(89, 203, 137, 0.1);
-}
-
-.drawer-prop__val--static {
-  border: none;
-  padding: 3px 0;
-  font-weight: 500;
-  color: var(--text-muted);
-}
-
-select.drawer-prop__val {
-  -webkit-appearance: none;
-  appearance: none;
-  cursor: pointer;
-  padding-right: 20px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 4px center;
-}
-
-/* Fetch bar inside props column */
-.drawer-fetch-bar {
-  margin-top: var(--space-3);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border);
-  flex-direction: column;
-}
-
-.drawer-fetch-bar .btn-fetch-posting {
-  width: 100%;
-  justify-content: center;
-  font-size: var(--text-xs);
-}
-
-.drawer-fetch-bar .posting-fetched-at {
-  text-align: center;
+/* Mobile: tighten section padding */
+@media (max-width: 640px) {
+  .drawer-content--editorial {
+    padding: var(--space-3);
+  }
+  .drawer-section {
+    padding: var(--space-3) 0 var(--space-4);
+  }
+  .detail-drawer__head-row {
+    padding: var(--space-3);
+  }
+  .detail-drawer__head-title {
+    font-size: clamp(1.25rem, 6vw, 1.5rem);
+  }
+  .detail-drawer__masthead {
+    font-size: 11px;
+    gap: 6px;
+  }
+  .detail-drawer__masthead-item {
+    max-width: 18ch;
+  }
+  .detail-drawer__actions {
+    top: auto;
+    position: static;
+    padding: var(--space-2) var(--space-3);
+  }
+  .drawer-btn {
+    padding: 9px 14px;
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+  }
 }
 
 
 /* ============================================
-   DRAWER CARD STYLES (retired list-card selectors pruned)
+   DRAWER CARD STYLES (tag chips, peek lists, meta chips)
    ============================================ */
-
 
 .card-peek__list {
   margin: 0;
   padding-left: 1.1rem;
   font-size: var(--text-sm);
   color: var(--text-muted);
-  line-height: 1.55;
+  line-height: 1.6;
 }
 
 .card-peek__list li {
@@ -5169,13 +5700,14 @@ select.drawer-prop__val {
 }
 
 .card-peek__source {
-  font-size: 0.6875rem;
+  font-family: var(--dd-typewriter);
+  font-size: 11px;
   font-weight: 500;
   color: var(--text-faint);
   margin: 0;
+  letter-spacing: 0.02em;
 }
 
-/* Tags inside peek */
 .card-tags {
   display: flex;
   flex-wrap: wrap;
@@ -5194,77 +5726,89 @@ select.drawer-prop__val {
 .skill-chip {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.48);
-  border: 1px solid var(--glass-stroke);
-  border-radius: 999px;
-  line-height: 1.35;
+  padding: 3px 10px;
+  font-family: var(--dd-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  border-radius: 4px;
+  line-height: 1.4;
   max-width: 100%;
 }
 
 .tag-more-btn {
-  font-size: var(--text-xs);
+  font-family: var(--dd-mono);
+  font-size: 10px;
   font-weight: 600;
-  color: var(--text-muted);
-  padding: 4px 8px;
-  border-radius: var(--radius-soft);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text);
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--text);
+  background: transparent;
   cursor: pointer;
   transition: all var(--transition);
 }
 
 .tag-more-btn:hover {
-  border-color: var(--border-bright);
-  color: var(--text);
-  background: var(--surface-hover);
+  background: var(--text);
+  color: #fff;
 }
 
+
 /* ============================================
-   TALKING POINTS (active drawer content)
+   TALKING POINTS + posting snippets (active drawer content)
    ============================================ */
 
 .talking-points-list {
   list-style: none;
   padding: 0;
   margin: 0;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  line-height: 1.6;
+  font-size: var(--text-base);
+  color: var(--text);
+  line-height: 1.65;
 }
 
 .talking-points-list li {
-  padding-left: var(--space-4);
+  padding: 4px 0 4px var(--space-4);
   position: relative;
-  margin-bottom: var(--space-2);
+  margin-bottom: 2px;
+  border-left: 2px solid color-mix(in srgb, var(--text) 12%, transparent);
+  padding-left: var(--space-3);
 }
 
 .talking-points-list li::before {
   content: "›";
   position: absolute;
-  left: var(--space-1);
-  color: var(--text-faint);
-  font-weight: 600;
+  left: 2px;
+  top: 2px;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 14px;
 }
 
-/* Posting content in expanded */
+/* Posting content in expanded section */
 .posting-snippet {
   padding: var(--space-3);
-  background: rgba(255, 255, 255, 0.42);
-  border: 1px solid rgba(15, 23, 42, 0.06);
-  border-radius: var(--radius-soft);
+  background: #fff;
+  border: var(--dd-hairline-soft);
+  border-radius: var(--radius-md);
   width: 100%;
   box-sizing: border-box;
 }
 
 .posting-snippet-label {
   display: block;
-  font-size: 0.625rem;
+  font-family: var(--dd-mono);
+  font-size: 9.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.22em;
   color: var(--text-faint);
   margin-bottom: var(--space-1);
 }
@@ -5272,7 +5816,7 @@ select.drawer-prop__val {
 .posting-snippet-text {
   font-size: var(--text-sm);
   color: var(--text);
-  line-height: 1.55;
+  line-height: 1.6;
   margin: 0;
   white-space: pre-line;
   word-break: break-word;
@@ -5284,15 +5828,15 @@ select.drawer-prop__val {
 .posting-req {
   margin-top: var(--space-3);
   padding-top: var(--space-3);
-  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  border-top: var(--dd-hairline-soft);
 }
 
 .posting-req-list {
   margin: 0;
   padding-left: 1.1rem;
   font-size: var(--text-sm);
-  color: var(--text-muted);
-  line-height: 1.55;
+  color: var(--text);
+  line-height: 1.6;
 }
 
 .posting-req-list li {
@@ -5313,6 +5857,13 @@ select.drawer-prop__val {
 
 .posting-struct {
   margin: 0;
+  padding: var(--space-3) 0;
+  border-top: var(--dd-hairline-soft);
+}
+
+.posting-struct:first-child {
+  border-top: none;
+  padding-top: 0;
 }
 
 .posting-struct--must .posting-snippet-label {
@@ -5320,9 +5871,12 @@ select.drawer-prop__val {
 }
 
 .posting-fetch-meta {
-  font-size: 0.625rem;
+  font-size: 10px;
   color: var(--text-faint);
   margin: var(--space-2) 0 0;
+  font-family: var(--dd-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .posting-scrape-notes {
@@ -5332,14 +5886,13 @@ select.drawer-prop__val {
   line-height: 1.4;
 }
 
-/* Fetch posting + AI insights button bar */
 .posting-fetch-bar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2);
-  padding: var(--space-3) 0 var(--space-3);
-  border-bottom: 1px solid var(--divider);
+  padding: var(--space-3) 0;
+  border-bottom: var(--dd-hairline-soft);
   margin-bottom: var(--space-3);
 }
 
@@ -5347,51 +5900,62 @@ select.drawer-prop__val {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: var(--text-xs);
+  font-family: var(--dd-mono);
+  font-size: 10.5px;
   font-weight: 600;
-  color: var(--accent-text);
-  background: var(--accent-dim);
-  border: 1px solid rgba(89, 203, 137, 0.28);
-  border-radius: var(--radius-soft);
-  padding: 4px 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--text);
+  border-radius: 4px;
+  padding: 5px 10px;
   cursor: pointer;
   transition: all var(--transition);
   white-space: nowrap;
 }
 
 .btn-fetch-posting:hover:not(:disabled) {
-  background: rgba(89, 203, 137, 0.18);
-  border-color: rgba(89, 203, 137, 0.45);
+  background: var(--text);
+  color: #fff;
 }
 
 .btn-fetch-posting:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: default;
 }
 
 .btn-fetch-posting--llm {
   color: var(--text-muted);
-  background: var(--surface-2);
-  border-color: var(--border);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--text) 35%, transparent);
 }
 
 .btn-fetch-posting--llm:hover:not(:disabled) {
-  background: var(--surface-hover);
-  border-color: var(--border-bright);
-  color: var(--text);
+  background: var(--text);
+  color: #fff;
+  border-color: var(--text);
 }
 
 .posting-fetched-at {
   margin-left: auto;
-  font-size: var(--text-xs);
+  font-family: var(--dd-typewriter);
+  font-size: 11px;
   color: var(--text-faint);
   font-style: italic;
 }
 
 .posting-llm-warn {
-  font-size: var(--text-xs);
+  font-family: var(--dd-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
   color: var(--toast-warn, #b45309);
   margin: var(--space-2) 0 0;
+  padding: 6px 10px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  display: inline-block;
 }
 
 .card-source-meta {
@@ -5411,7 +5975,7 @@ select.drawer-prop__val {
   margin-top: var(--space-2);
 }
 
-/* Meta chips (contact/reply/heard — Tier 3 only) */
+/* Meta chips (contact/reply/heard — Tier 3, still used on kanban cards) */
 .card-meta--chips {
   display: flex;
   flex-wrap: wrap;
@@ -5444,7 +6008,6 @@ select.drawer-prop__val {
   border-color: var(--border-bright);
 }
 
-/* Legacy: compat classes from old layout that other code may reference */
 .card-meta:not(.card-meta--chips) {
   display: flex;
   flex-wrap: wrap;
@@ -5455,8 +6018,10 @@ select.drawer-prop__val {
   color: var(--text-muted);
 }
 
+
 /* ============================================
-   CARD ACTIONS (Write-back)
+   CARD ACTIONS (Write-back) — MonoHeaderBar card
+   White surface · navy border · mono header · long soft navy shadow.
    ============================================ */
 
 .card-actions {
@@ -5469,129 +6034,212 @@ select.drawer-prop__val {
   margin-top: 0;
 }
 
-.card-actions-header {
+.writeback-card {
+  background: #fff;
+  border: 1px solid var(--text);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--dd-shadow-long);
+}
+
+.writeback-card__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  margin-bottom: var(--space-2);
+  padding: 6px var(--space-3);
+  background: var(--text);
+  color: #fff;
+  border-bottom: 1px solid var(--text);
+  flex-wrap: wrap;
 }
 
-.status-field {
-  width: 100%;
+.writeback-card__eyebrow {
+  font-family: var(--dd-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #fff;
+}
+
+.writeback-card__chips {
+  display: inline-flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.writeback-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 8px;
+  font-family: var(--dd-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.writeback-chip__label {
+  opacity: 0.7;
+}
+
+.writeback-chip--overdue {
+  background: var(--hot-orange);
+  color: var(--text);
+  border-color: var(--hot-orange);
+}
+
+.writeback-card__body {
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: #fff;
+}
+
+.writeback-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+@media (max-width: 560px) {
+  .writeback-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.writeback-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 
 .field-label {
   display: block;
-  font-size: 0.625rem;
+  font-family: var(--dd-mono);
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-faint);
-  margin-bottom: var(--space-1);
+  letter-spacing: 0.22em;
+  color: var(--text-muted);
 }
 
-.status-select {
+.status-select,
+.response-select,
+.followup-input,
+.last-heard-input {
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  padding: 8px 12px;
+  font-family: var(--font-body);
   font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text);
-  background: rgba(255, 255, 255, 0.65);
-  border: 1px solid var(--glass-stroke);
-  border-radius: var(--radius-soft);
-  cursor: pointer;
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
+  border-radius: var(--radius-sm);
   transition: all var(--transition);
+  line-height: 1.2;
+}
+
+.status-select,
+.response-select {
+  cursor: pointer;
   -webkit-appearance: none;
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23003851' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
   padding-right: 32px;
 }
 
-.status-select:hover {
-  border-color: var(--border-bright);
+.status-select:hover,
+.response-select:hover,
+.followup-input:hover,
+.last-heard-input:hover {
+  border-color: var(--text);
 }
 
-.status-select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(89, 203, 137, 0.1);
+.status-select:focus,
+.response-select:focus,
+.followup-input:focus,
+.last-heard-input:focus {
+  border-color: var(--text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text) 12%, transparent);
   outline: none;
 }
 
-.status-select:disabled {
-  opacity: 0.65;
+.status-select:disabled,
+.response-select:disabled {
+  opacity: 0.6;
   cursor: wait;
 }
 
-.card-actions__tools {
+.writeback-notes {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: center;
-  margin-top: var(--space-3);
+  flex-direction: column;
+  gap: 4px;
 }
 
-.followup-label {
-  font-size: var(--text-xs);
-  font-weight: 500;
-  color: var(--text-muted);
-  margin-right: var(--space-1);
+/* Drawer notes input (legacy class kept for upstream text-area contract) */
+.drawer-notes {
+  display: contents;
 }
 
-/* Quick actions */
-.quick-actions {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-  margin-top: var(--space-2);
-}
-
-/* Inline notes */
-.notes-wrapper {
-  margin-top: var(--space-2);
-  width: 100%;
-}
-
-.notes-label {
-  font-size: var(--text-xs);
-  color: var(--text-faint);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: var(--space-1);
-}
-
+.drawer-notes__input,
 .notes-textarea {
   width: 100%;
-  min-height: 48px;
-  max-height: 120px;
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--text-xs);
-  line-height: 1.5;
-  background: rgba(255, 255, 255, 0.55);
-  border: 1px solid var(--glass-stroke);
-  border-radius: var(--radius-soft);
+  min-height: 96px;
+  padding: var(--space-3);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
+  border-radius: var(--radius-sm);
   resize: vertical;
   transition: all var(--transition);
+  max-height: 240px;
 }
 
+.drawer-notes__input::placeholder,
 .notes-textarea::placeholder {
   color: var(--text-faint);
 }
 
+.drawer-notes__input:focus,
 .notes-textarea:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(89, 203, 137, 0.1);
-  background: var(--surface);
+  border-color: var(--text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text) 12%, transparent);
 }
 
+.drawer-notes__input.saving,
 .notes-textarea.saving {
-  border-color: var(--border-bright);
-  background: var(--surface-2);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, #fff);
 }
+
+/* Overdue pill (used by legacy kanban too) */
+.overdue-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-family: var(--dd-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--hot-orange);
+  border-radius: 2px;
+}
+
 
 /* ============================================
    TOAST NOTIFICATIONS

@@ -10647,36 +10647,207 @@ function groupByStage(data) {
   return byStage;
 }
 
+function getKanbanStage(job) {
+  const raw = (job.status || "").trim();
+  return STAGE_ORDER.find((s) => s.toLowerCase() === raw.toLowerCase()) || "New";
+}
+
+// Stage-age in days. Source priority:
+//   1. statusChangedAt  (ideal; not yet emitted by parsePipelineCSV —
+//      tracked in handoffs/fe-kanban-to-be-data-deploy.md)
+//   2. lastUpdatedAt
+//   3. addedAt / discoveredAt
+//   4. dateFound (fallback; will read as "row age", not "stage age")
+function getKanbanStageAgeDays(job) {
+  // Prefer the shared helper (be-data-deploy lane). It uses appliedDate when
+  // status ∈ {Applied, Phone Screen, Interviewing, Offer} so post-application
+  // funnel rows read true "days in current stage" instead of row-age.
+  const helpers =
+    typeof window !== "undefined" ? window.JobBoredDiscoveryHelpers : null;
+  if (helpers && typeof helpers.deriveStageAge === "function") {
+    const result = helpers.deriveStageAge(job);
+    if (result && Number.isFinite(result.days)) return result.days;
+  }
+  // Fallback chain when the helper script isn't loaded (tests, fixtures).
+  const source =
+    job.statusChangedAt ||
+    job.lastUpdatedAt ||
+    job.addedAt ||
+    job.discoveredAt ||
+    job.dateFound;
+  if (!source) return null;
+  const then = new Date(source);
+  if (Number.isNaN(then.getTime())) return null;
+  const today = new Date();
+  const start = new Date(then.getFullYear(), then.getMonth(), then.getDate());
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.max(0, Math.floor((end - start) / 86400000));
+}
+
+// Typewriter-styled label for the stage-age chip. Short and loud.
+function getKanbanStageAge(job) {
+  const days = getKanbanStageAgeDays(job);
+  if (days == null) return "Age unknown";
+  if (days === 0) return "Today";
+  if (days === 1) return "1 day";
+  if (days < 14) return `${days} days`;
+  if (days < 60) return `${Math.round(days / 7)} weeks`;
+  return `${Math.round(days / 30)} months`;
+}
+
+// Priority / fit → digest-widget badge:
+//   match  → green ✓ MATCH   (hot / high / fit ≥ 8)
+//   boring → orange × BORING (low / dismissed / fit ≤ 5)
+//   none   → no badge        (neutral — keeps the matrix clean)
+// Subline = italic Fraunces "why it matters" string.
+function getKanbanPrioritySignal(job) {
+  const priority = String(job.priority || "").trim();
+  const fit = Number.isFinite(job.fitScore) ? job.fitScore : null;
+  const fitText = fit != null ? `Fit ${fit}/10` : null;
+
+  let kind = "none"; // "match" | "boring" | "none"
+  let label = "";
+
+  if (priority === "\u{1F525}") {
+    // 🔥 hot
+    kind = "match";
+    label = "Hot";
+  } else if (priority === "\u26A1") {
+    // ⚡ high
+    kind = "match";
+    label = "Strong";
+  } else if (priority === "\u2193") {
+    // ↓ low
+    kind = "boring";
+    label = "Low";
+  } else if (fit != null && fit >= 8) {
+    kind = "match";
+    label = "High fit";
+  } else if (fit != null && fit <= 5) {
+    kind = "boring";
+    label = "Weak fit";
+  }
+
+  // Subline — italic "why it matters". Prefer AI-compressed fields, then fit.
+  const subline =
+    [
+      job.fitAngle,
+      job.roleInOneLine,
+      job.fitAssessment,
+      fitText && kind === "match" ? `${fitText} — worth a look.` : null,
+      fitText && kind === "boring" ? `${fitText} — probably skip.` : null,
+      fitText ? fitText : null,
+    ].find((s) => typeof s === "string" && s.trim().length) || "";
+
+  return {
+    kind,
+    label,
+    meta: fitText || "",
+    subline: subline.trim(),
+    level:
+      kind === "match" ? "match" : kind === "boring" ? "boring" : "neutral",
+  };
+}
+
+// Stage → single-word next-action verb (mono uppercase on the chip).
+function getKanbanNextAction(stage) {
+  switch (stage) {
+    case "Researching":
+      return "Research";
+    case "Applied":
+      return "Follow up";
+    case "Phone Screen":
+      return "Schedule";
+    case "Interviewing":
+      return "Prep";
+    case "Offer":
+      return "Review offer";
+    case "Rejected":
+      return "Archive";
+    case "Passed":
+      return "Revisit";
+    case "New":
+    default:
+      return "Apply";
+  }
+}
+
+// True if the stage changed recently enough to deserve the live-pulse dot.
+function hasKanbanLivePulse(job) {
+  const days = getKanbanStageAgeDays(job);
+  return days != null && days <= 2;
+}
+
 function renderKanbanCard(job, index) {
   const dataIndex = pipelineData.indexOf(job);
   const stableKey = dataIndex >= 0 ? dataIndex : index;
   const title = job.title || "Untitled Role";
   const company = job.company || "Unknown Company";
-  const roleFactsHtml = renderRoleFactsHtml(job, "kanban");
   const isViewed = viewedJobKeys.has(stableKey);
+  const stage = getKanbanStage(job);
+  const cssKey = stageToCssKey(stage);
+  const signal = getKanbanPrioritySignal(job);
+  const stageAge = getKanbanStageAge(job);
+  const nextAction = getKanbanNextAction(stage);
+  const isFavorite = !!job.favorite;
+  const isDismissed = !!job.dismissedAt;
+  const showPulse = hasKanbanLivePulse(job);
 
-  // First 3 tags from the sheet Tags column
+  // ── Card-level classes ──────────────────────────────────────
+  const isHighPriority = signal.kind === "match" && !isDismissed;
+  const cardModClasses = [
+    `kanban-card--stage-${cssKey}`,
+    isViewed ? "kanban-card--viewed" : "",
+    isFavorite ? "kanban-card--favorited" : "",
+    isDismissed ? "kanban-card--dismissed" : "",
+    isHighPriority ? "kanban-card--priority" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  // ── Context line: location · salary (typewriter, dot-separated) ──
+  const loc = job.location ? String(job.location).trim() : "";
+  const rawSalary = String(job.salary ?? "").trim();
+  const showSalary =
+    rawSalary &&
+    rawSalary.toLowerCase() !== "not listed" &&
+    !rawSalary.includes("<") &&
+    !rawSalary.includes("&lt;");
+  const contextParts = [];
+  if (loc) contextParts.push(escapeHtml(loc));
+  if (showSalary) contextParts.push(escapeHtml(rawSalary));
+  const contextHtml = contextParts.length
+    ? `<p class="kanban-card__context">${contextParts.join(
+        ' <span class="kanban-card__context-sep" aria-hidden="true">·</span> ',
+      )}</p>`
+    : "";
+
+  // ── First 2 tags from the sheet Tags column ───────────────────
   const tagChips = job.tags
     ? job.tags
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean)
-        .slice(0, 3)
+        .slice(0, 2)
         .map((t) => `<span class="kanban-card__tag">${escapeHtml(t)}</span>`)
         .join("")
     : "";
 
-  const stageClass = `kanban-card--stage-${stageToCssKey((job.status || "new").trim() || "new")}`;
-  const isFavorite = !!job.favorite;
-  const isDismissed = !!job.dismissedAt;
-  const cardModClasses = [
-    stageClass,
-    isViewed ? "kanban-card--viewed" : "",
-    isFavorite ? "kanban-card--favorited" : "",
-    isDismissed ? "kanban-card--dismissed" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  // ── MATCH / BORING badge (digest-widget pattern) ──────────────
+  let badgeHtml = "";
+  if (signal.kind === "match") {
+    badgeHtml = `<span class="kanban-card__badge kanban-card__badge--match" title="${escapeHtml(signal.meta || "Strong fit")}"><span class="kanban-card__badge-mark" aria-hidden="true">\u2713</span>MATCH</span>`;
+  } else if (signal.kind === "boring" || isDismissed) {
+    badgeHtml = `<span class="kanban-card__badge kanban-card__badge--boring" title="${escapeHtml(signal.meta || "Low priority")}"><span class="kanban-card__badge-mark" aria-hidden="true">\u00D7</span>BORING</span>`;
+  }
+
+  // ── Subline (italic Fraunces "why it matters") ────────────────
+  const sublineHtml = signal.subline
+    ? `<p class="kanban-card__subline">${escapeHtml(signal.subline)}</p>`
+    : "";
+
+  // ── Action buttons (favorite / dismiss / restore) ─────────────
+  // Contracts preserved: data-action + data-key, data-stable-key on <article>.
   const favBtnHtml = `<button type="button" class="card-action-btn card-action-btn--fav${isFavorite ? " is-active" : ""}" data-action="toggle-favorite" data-key="${stableKey}" aria-label="${isFavorite ? "Unfavorite" : "Favorite"}" aria-pressed="${isFavorite}" title="${isFavorite ? "Unfavorite" : "Favorite"}">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="${isFavorite ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
   </button>`;
@@ -10688,22 +10859,45 @@ function renderKanbanCard(job, index) {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
   </button>`;
 
+  // ── MonoHeaderBar (navy masthead) ─────────────────────────────
+  const pulseHtml = showPulse
+    ? `<span class="kanban-card__pulse" aria-label="Recently updated" title="Recently updated"></span>`
+    : "";
+  const headerBarHtml = `
+      <div class="kanban-card__header-bar" aria-hidden="false">
+        ${pulseHtml}
+        <span class="kanban-card__header-company" title="${escapeHtml(company)}">${escapeHtml(company)}</span>
+        <span class="kanban-card__header-stage">${escapeHtml(stage)}</span>
+      </div>`;
+
+  // ── Card ──────────────────────────────────────────────────────
+  // data-action="open-detail" on the <article> routes clicks to the drawer
+  // via existing attachCardListeners. Next-action pill inherits that click.
   return `
     <article class="kanban-card ${cardModClasses}" role="button" tabindex="0" data-action="open-detail" data-stable-key="${stableKey}" ${dataIndex >= 0 ? `data-index="${dataIndex}"` : ""} style="animation-delay:${index * 30}ms">
+      ${headerBarHtml}
       ${isViewed ? `<span class="kanban-card__viewed-dot" aria-label="Previously viewed" title="Previously viewed"></span>` : ""}
       <div class="kanban-card__actions" aria-label="Card actions">
         ${favBtnHtml}
         ${dismissBtnHtml}
       </div>
-      <div class="kanban-card__identity">
-        ${renderLogoHtml(job, "kanban")}
-        <div class="kanban-card__identity-text">
-          <span class="kanban-card__title">${escapeHtml(title)}</span>
-          <span class="kanban-card__company">${escapeHtml(company)}</span>
+      <div class="kanban-card__body">
+        <div class="kanban-card__identity">
+          ${renderLogoHtml(job, "kanban")}
+          <div class="kanban-card__identity-text">
+            <h3 class="kanban-card__title">${escapeHtml(title)}</h3>
+          </div>
         </div>
+        ${sublineHtml}
+        ${contextHtml}
+        <div class="kanban-card__meta" aria-label="Pipeline position">
+          ${badgeHtml}
+          <span class="kanban-card__stage-pill kanban-card__stage-pill--${cssKey}">${escapeHtml(stage)}</span>
+          <span class="kanban-card__age" title="Time in current stage">${escapeHtml(stageAge)}</span>
+        </div>
+        ${tagChips ? `<div class="kanban-card__tags">${tagChips}</div>` : ""}
+        <span class="kanban-card__next-action" aria-hidden="true">${escapeHtml(nextAction)}</span>
       </div>
-      ${roleFactsHtml}
-      ${tagChips ? `<div class="kanban-card__tags">${tagChips}</div>` : ""}
     </article>`;
 }
 
@@ -10711,28 +10905,34 @@ function renderStageLane(stage, jobs) {
   const isExpanded = expandedStages.has(stage);
   const isArchive = STAGE_ARCHIVE.has(stage);
   const cssKey = stageToCssKey(stage);
+  const headerStage = escapeHtml(stage);
+
+  // Newsprint masthead: stage-dot · stage name · count chip · chevron.
+  // Kept as a <button> so the existing toggle-stage listener keeps working.
+  // Vertical card stack inside — no horizontal scroll, so nav chevrons and
+  // indicator stay rendered-but-hidden (via CSS) to keep scroll-stage
+  // listeners safe; they no-op when the track has no overflow.
+  const trackContent = jobs.length
+    ? jobs.map((job, i) => renderKanbanCard(job, i)).join("")
+    : `<div class="stage-lane__empty" aria-live="polite">No roles here yet</div>`;
 
   return `
-    <section class="stage-lane${isArchive ? " stage-lane--archive" : ""}${isExpanded ? " stage-lane--expanded" : ""}" data-stage="${escapeHtml(stage)}">
-      <button type="button" class="stage-lane__header" data-action="toggle-stage" data-stage="${escapeHtml(stage)}">
+    <section class="stage-lane${isArchive ? " stage-lane--archive" : ""}${isExpanded ? " stage-lane--expanded" : ""}" data-stage="${headerStage}">
+      <button type="button" class="stage-lane__header" data-action="toggle-stage" data-stage="${headerStage}" aria-expanded="${isExpanded}">
         <span class="stage-dot stage-dot--${cssKey}" aria-hidden="true"></span>
-        <span class="stage-lane__name">${escapeHtml(stage)}</span>
-        <span class="stage-lane__count">${jobs.length}</span>
+        <span class="stage-lane__name">${headerStage}</span>
+        <span class="stage-lane__count" aria-label="${jobs.length} role${jobs.length === 1 ? "" : "s"}">${jobs.length}</span>
         <svg class="stage-lane__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="stage-lane__body">
         <div class="stage-lane__scroll-area">
-          <button type="button" class="stage-lane__nav stage-lane__nav--prev" data-action="scroll-stage" data-dir="prev" data-stage="${escapeHtml(stage)}" aria-label="Scroll left" disabled>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
-          </button>
+          <button type="button" class="stage-lane__nav stage-lane__nav--prev" data-action="scroll-stage" data-dir="prev" data-stage="${headerStage}" aria-label="Scroll up" aria-hidden="true" tabindex="-1" disabled></button>
           <div class="stage-lane__track" id="track-${cssKey}">
-            ${jobs.map((job, i) => renderKanbanCard(job, i)).join("")}
+            ${trackContent}
           </div>
-          <button type="button" class="stage-lane__nav stage-lane__nav--next" data-action="scroll-stage" data-dir="next" data-stage="${escapeHtml(stage)}" aria-label="Scroll right">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
-          </button>
+          <button type="button" class="stage-lane__nav stage-lane__nav--next" data-action="scroll-stage" data-dir="next" data-stage="${headerStage}" aria-label="Scroll down" aria-hidden="true" tabindex="-1"></button>
         </div>
-        <div class="stage-lane__indicator">
+        <div class="stage-lane__indicator" aria-hidden="true">
           <div class="stage-indicator-thumb" id="thumb-${cssKey}"></div>
         </div>
       </div>
@@ -10741,9 +10941,11 @@ function renderStageLane(stage, jobs) {
 
 function renderPipelineBoard(data) {
   const byStage = groupByStage(data);
-  const lanes = STAGE_ORDER.filter((stage) => byStage.get(stage).length > 0)
-    .map((stage) => renderStageLane(stage, byStage.get(stage)))
-    .join("");
+  // Render every stage — empty lanes show the dashed placeholder so the
+  // kanban column grid stays intact across filters.
+  const lanes = STAGE_ORDER.map((stage) =>
+    renderStageLane(stage, byStage.get(stage)),
+  ).join("");
   return lanes ? `<div class="pipeline-board">${lanes}</div>` : "";
 }
 
@@ -10753,6 +10955,9 @@ function handleDetailEscape(e) {
   if (e.key === "Escape") closeJobDetail();
 }
 
+// -- Stage stepper (drawer) --
+// Editorial restyle: dots become numbered tick marks; button/data-action
+// contract preserved verbatim (see fe-detail-drawer handoff / attachCardListeners).
 function renderStageStepper(job, dataIndex) {
   const stages = [
     "New",
@@ -10769,7 +10974,8 @@ function renderStageStepper(job, dataIndex) {
   const activeIdx = curIdx >= 0 ? curIdx : 0;
   const isTerminal = activeIdx >= 6; // Rejected or Passed
 
-  return `<div class="stage-stepper-wrap">
+  return `<div class="stage-stepper-wrap stage-stepper-wrap--editorial">
+    <span class="stage-stepper__eyebrow" aria-hidden="true">Stage</span>
     <button type="button" class="stage-stepper__chevron stage-stepper__chevron--left" data-action="scroll-stage" data-dir="-1" aria-label="Scroll left">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
     </button>
@@ -10783,9 +10989,10 @@ function renderStageStepper(job, dataIndex) {
         if (i >= 6) cls += " stage-step--terminal";
         const connector =
           i > 0
-            ? `<span class="stage-step__line${i <= activeIdx && !isTerminal ? " stage-step__line--done" : ""}"></span>`
+            ? `<span class="stage-step__line${i <= activeIdx && !isTerminal ? " stage-step__line--done" : ""}" aria-hidden="true"></span>`
             : "";
-        return `${connector}<button type="button" class="${cls}" data-action="stage-step" data-stage="${escapeHtml(s)}" data-index="${dataIndex}" title="Move to ${escapeHtml(s)}"><span class="stage-step__dot"></span><span class="stage-step__label">${escapeHtml(s)}</span></button>`;
+        const num = String(i + 1).padStart(2, "0");
+        return `${connector}<button type="button" class="${cls}" data-action="stage-step" data-stage="${escapeHtml(s)}" data-index="${dataIndex}" title="Move to ${escapeHtml(s)}"><span class="stage-step__dot" aria-hidden="true"></span><span class="stage-step__num" aria-hidden="true">${num}</span><span class="stage-step__label">${escapeHtml(s)}</span></button>`;
       })
       .join("")}</div>
     <button type="button" class="stage-stepper__chevron stage-stepper__chevron--right" data-action="scroll-stage" data-dir="1" aria-label="Scroll right">
@@ -10794,6 +11001,12 @@ function renderStageStepper(job, dataIndex) {
   </div>`;
 }
 
+// -- Drawer content (editorial §-sectioned layout) --
+// This function owns the entire drawer body. Data-action / data-index
+// attributes and writer-consumed classes (.status-select, .notes-textarea,
+// .followup-input, .last-heard-input, .response-select, .card-tags,
+// .talking-points-list, .posting-struct, .posting-req-list, .posting-llm-warn)
+// are preserved verbatim — attachCardListeners() binds on them.
 function renderDrawerContent(job, stableKey) {
   const dataIndex = pipelineData.indexOf(job);
   const enr = job._postingEnrichment;
@@ -10803,13 +11016,9 @@ function renderDrawerContent(job, stableKey) {
   // ── Stage stepper ──
   const stepperHtml = isSignedIn() ? renderStageStepper(job, dataIndex) : "";
 
-  // ── Notes (prominent, left column) ──
-  const notesHtml = isSignedIn()
-    ? `<div class="drawer-notes">
-    <label class="drawer-section__label" for="drawer-notes-${stableKey}">Notes</label>
-    <textarea id="drawer-notes-${stableKey}" class="drawer-notes__input" data-action="notes" data-index="${dataIndex}" placeholder="Interview prep, recruiter name, next steps&#8230;">${escapeHtml(job.notes || "")}</textarea>
-  </div>`
-    : "";
+  // ── Notes textarea is rendered by renderCardActions() inside § 03.
+  // Keeping the notes contract in one place; drawer-notes__input /
+  // notes-textarea class / data-action="notes" are emitted by renderCardActions.
 
   // ── AI / role content (reused from card logic) ──
   const sheetTags = job.tags
@@ -11039,80 +11248,69 @@ function renderDrawerContent(job, stableKey) {
       ? `<p class="posting-llm-warn">${escapeHtml(enr.llmError)}</p>`
       : "";
 
-  // ── Right column: compact property panel ──
-  const normalized = (job.status || "").trim().toLowerCase();
+  // ── Right column legacy property panel removed: § 03 Next action now owns
+  // status / followup / last-heard / reply / applied / notes via renderCardActions.
+  // The profile-match badge (separate helper) surfaces inside § 02.
 
-  const followUpVal = job.followUpDate || "";
-  const followUpIsOverdue = followUpVal && new Date(followUpVal) < new Date();
+  // Assemble editorial § sections. Write-back controls come from
+  // renderCardActions(); they live inside § 03 Next action so status /
+  // followup / reply / notes listeners continue to resolve via
+  // attachCardListeners() selectors (.status-select, .followup-input, etc.).
+  const actionsHtml = isSignedIn()
+    ? renderCardActions(job, `drawer-${stableKey}`)
+    : `<div class="card-actions card-actions--anon"><button type="button" class="btn-google-signin btn-google-signin--card" data-action="signin"><span>Sign in to edit pipeline</span></button></div>`;
 
-  const respSel = selectedResponseSheetValue(job);
+  const roleBodyHtml = `${hookHtml}${ctxHtml}`.trim();
+  const fitBodyHtml = `${aiHtml}${fitHtml}${tagsHtml}${mustHtml}${srcHtml}`;
+  const rawIntelHtml = `${structHtml}${llmWarn}`.trim();
 
-  const stageOptions = STAGE_ORDER.map((s) => {
-    const sel = s.toLowerCase() === normalized || (!normalized && s === "New");
-    return `<option value="${escapeHtml(s)}"${sel ? " selected" : ""}>${escapeHtml(s)}</option>`;
-  }).join("");
+  const section = (num, kicker, body, { tone = "" } = {}) => {
+    if (!body || !body.trim()) return "";
+    return `<section class="drawer-section ${tone ? `drawer-section--${tone}` : ""}" data-section="${num}">
+      <header class="drawer-section-header">
+        <span class="drawer-section-header__num">§ ${num}</span>
+        <span class="drawer-section-header__rule" aria-hidden="true"></span>
+        <span class="drawer-section-header__kicker">${escapeHtml(kicker)}</span>
+      </header>
+      <div class="drawer-section__body">${body}</div>
+    </section>`;
+  };
 
-  const propsHtml = isSignedIn()
-    ? `<div class="drawer-props">
-    <div class="drawer-prop">
-      <svg class="drawer-prop__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-      <span class="drawer-prop__key">Stage</span>
-      <select class="drawer-prop__val status-select" data-action="status-select" data-index="${dataIndex}">${stageOptions}</select>
-    </div>
-    <div class="drawer-prop">
-      <svg class="drawer-prop__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      <span class="drawer-prop__key">Follow-up</span>
-      <input type="date" class="drawer-prop__val followup-input" data-action="followup" data-index="${dataIndex}" value="${escapeHtml(followUpVal)}" />
-      ${followUpIsOverdue ? '<span class="overdue-badge">overdue</span>' : ""}
-    </div>
-    <div class="drawer-prop">
-      <svg class="drawer-prop__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-      <span class="drawer-prop__key">Last contact</span>
-      <input type="text" class="drawer-prop__val last-heard-input" data-action="last-heard" data-index="${dataIndex}" value="${escapeHtml(job.lastHeardFrom || "")}" placeholder="e.g. Jan 12" autocomplete="off" />
-    </div>
-    <div class="drawer-prop">
-      <svg class="drawer-prop__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-      <span class="drawer-prop__key">Reply</span>
-      <select class="drawer-prop__val response-select" data-action="response-flag" data-index="${dataIndex}">
-        <option value="">Not set</option>
-        <option value="Yes"${respSel === "Yes" ? " selected" : ""}>Yes</option>
-        <option value="No"${respSel === "No" ? " selected" : ""}>No</option>
-        <option value="Unknown"${respSel === "Unknown" ? " selected" : ""}>Not sure</option>
-      </select>
-    </div>
-    ${job.appliedDate ? `<div class="drawer-prop"><svg class="drawer-prop__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg><span class="drawer-prop__key">Applied</span><span class="drawer-prop__val drawer-prop__val--static">${escapeHtml(job.appliedDate)}</span></div>` : ""}
-  </div>`
+  const roleSection = section(
+    "01",
+    "Role",
+    `${stepperHtml}${roleBodyHtml || '<p class="drawer-section__empty">No role summary yet.</p>'}`,
+  );
+
+  const fitSection = (() => {
+    const loadingOnly = job._enrichmentLoading && !enr;
+    if (loadingOnly) {
+      return section("02", "Fit", enrichmentSkeleton);
+    }
+    const body = `${profileMatchBadgeHtml}${fitBodyHtml}${tpHtml}`.trim();
+    if (!body) return "";
+    return section("02", "Fit", body);
+  })();
+
+  const nextActionSection = section(
+    "03",
+    "Next action",
+    `<div class="drawer-writeback">${actionsHtml}</div>`,
+    { tone: "action" },
+  );
+
+  const rawIntelSection = section("04", "Raw intel", rawIntelHtml);
+
+  const draftsSection = draftLibraryHtml
+    ? section("05", "Drafts", draftLibraryHtml, { tone: "drafts" })
     : "";
 
-  // Assemble
-  const aboutHasContent = aiHtml || fitHtml || tagsHtml || mustHtml || srcHtml;
-  const aboutSection = aboutHasContent
-    ? `<details class="drawer-about" open><summary class="drawer-about__toggle">About this role</summary><div class="drawer-about__body">${hookHtml}${ctxHtml}${aiHtml}${fitHtml}${tagsHtml}${mustHtml}${srcHtml}</div></details>`
-    : `${hookHtml}${ctxHtml}`;
-
-  // While enrichment is in-flight and no cached data exists yet, show only the
-  // skeleton — suppress talking points and structured sections so nothing
-  // appears before LLM data is ready.
-  const mainColContent =
-    job._enrichmentLoading && !enr
-      ? enrichmentSkeleton
-      : `${aboutSection}${tpHtml}${structHtml}${llmWarn}`;
-
-  return `<div class="drawer-content">
-    ${stepperHtml}
-    ${profileMatchBadgeHtml}
-    <div class="drawer-columns">
-      <div class="drawer-col drawer-col--main">
-        ${mainColContent}
-      </div>
-      <div class="drawer-col drawer-col--props">
-        ${propsHtml}
-        <div class="drawer-inputs">
-          ${notesHtml}
-        </div>
-        ${draftLibraryHtml}
-      </div>
-    </div>
+  return `<div class="drawer-content drawer-content--editorial">
+    ${roleSection}
+    ${fitSection}
+    ${nextActionSection}
+    ${rawIntelSection}
+    ${draftsSection}
   </div>`;
 }
 
@@ -11127,47 +11325,66 @@ function openJobDetail(stableKey) {
   overlay.className = "detail-overlay";
   overlay.id = "detailOverlay";
   const drawerActionsHtml = (() => {
+    // ProjectBtn pattern: solid navy (primary) + ghost (secondary). Labels mono
+    // 11px uppercase via CSS (.drawer-btn). Data-action names are unchanged so
+    // resume-generate / cover-letter flows keep working.
     const coverBtn =
       stableKey >= 0
-        ? `<button type="button" class="drawer-btn drawer-btn--cover" data-action="resume-cover" data-index="${stableKey}">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          Cover letter
+        ? `<button type="button" class="drawer-btn drawer-btn--solid drawer-btn--cover" data-action="resume-cover" data-index="${stableKey}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          <span>Cover letter</span>
         </button>`
         : "";
     const tailorBtn =
       stableKey >= 0
-        ? `<button type="button" class="drawer-btn drawer-btn--tailor" data-action="resume-tailor" data-index="${stableKey}">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-          Tailor resume
+        ? `<button type="button" class="drawer-btn drawer-btn--ghost drawer-btn--tailor" data-action="resume-tailor" data-index="${stableKey}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          <span>Tailor resume</span>
         </button>`
         : "";
     const viewBtn = safeHref(job.link)
-      ? `<a href="${escapeHtml(safeHref(job.link))}" target="_blank" rel="noopener" class="drawer-btn drawer-btn--view">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-          View posting
+      ? `<a href="${escapeHtml(safeHref(job.link))}" target="_blank" rel="noopener" class="drawer-btn drawer-btn--ghost drawer-btn--view">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          <span>View posting</span>
         </a>`
       : "";
     if (!viewBtn && !coverBtn && !tailorBtn) return "";
     return `<div class="detail-drawer__actions">${coverBtn}${tailorBtn}${viewBtn}</div>`;
   })();
 
+  // Masthead rule — three typewriter items between 3px solid top + 3px double
+  // bottom in navy, per DESIGN-SYSTEM.md JobBored zone. Items: company · role · stage.
+  const mastheadStage = (job.status || "—").trim() || "—";
+  const mastheadCompany = (job.company || "—").trim() || "—";
+  const mastheadRole = (job.title || "Untitled role").trim();
+  const mastheadHtml = `<div class="detail-drawer__masthead" aria-hidden="true">
+    <span class="detail-drawer__masthead-item">${escapeHtml(mastheadCompany)}</span>
+    <span class="detail-drawer__masthead-sep">·</span>
+    <span class="detail-drawer__masthead-item">${escapeHtml(mastheadRole)}</span>
+    <span class="detail-drawer__masthead-sep">·</span>
+    <span class="detail-drawer__masthead-item">${escapeHtml(mastheadStage)}</span>
+  </div>`;
+
   overlay.innerHTML = `
     <button class="detail-overlay__backdrop" data-action="close-detail" aria-label="Close detail panel"></button>
-    <aside class="detail-drawer" role="complementary" aria-label="${escapeHtml(job.title || "Job detail")}">
+    <aside class="detail-drawer detail-drawer--editorial" role="complementary" aria-label="${escapeHtml(job.title || "Job detail")}">
       <div class="detail-drawer__head">
-        ${renderLogoHtml(job, "drawer")}
-        <div class="detail-drawer__head-main">
-          <h2 class="detail-drawer__head-title">${escapeHtml(job.title || "Job detail")}</h2>
-          ${
-            job.company
-              ? `<p class="detail-drawer__head-company">${escapeHtml(job.company)}</p>`
-              : ""
-          }
-          ${renderRoleFactsHtml(job, "drawer")}
+        ${mastheadHtml}
+        <div class="detail-drawer__head-row">
+          ${renderLogoHtml(job, "drawer")}
+          <div class="detail-drawer__head-main">
+            <h2 class="detail-drawer__head-title">${escapeHtml(job.title || "Job detail")}</h2>
+            ${
+              job.company
+                ? `<p class="detail-drawer__head-company">${escapeHtml(job.company)}</p>`
+                : ""
+            }
+            ${renderRoleFactsHtml(job, "drawer")}
+          </div>
+          <button type="button" class="detail-drawer__close" data-action="close-detail" aria-label="Close">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
         </div>
-        <button type="button" class="detail-drawer__close" data-action="close-detail" aria-label="Close">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
       </div>
       ${drawerActionsHtml}
       <div class="detail-drawer__body">
@@ -11433,10 +11650,123 @@ function filterAndSortJobs(jobs, search, sort) {
   return data;
 }
 
+// --------------------------------------------------------------------
+// Pipeline header — editorial shell helpers (redesign-20260424T0742Z).
+// These helpers are referenced ONLY by renderPipeline() and update the
+// newsprint masthead issue + the §02 run-status pill. They subscribe to
+// the `jobbored:discovery-run-started` / `-finished` CustomEvents
+// dispatched by settings-profile-tab.js and consumed by runs-tab.js; we
+// do NOT re-dispatch those events.
+// --------------------------------------------------------------------
+
+let pipelineRunStatusWired = false;
+let pipelineRunStatusDoneTimer = null;
+
+/**
+ * Write "Vol. NN · Mon DD, YYYY" into the static masthead strip. Purely
+ * decorative editorial chrome; no data contract.
+ */
+function updateMastheadIssue() {
+  const el = document.getElementById("mastheadIssue");
+  if (!el) return;
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 0);
+  const dayOfYear = Math.floor((now - start) / 86400000);
+  const vol = Math.max(1, Math.ceil(dayOfYear / 14));
+  const datePart = now.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  el.textContent = `Vol. ${vol} \u00b7 ${datePart}`;
+}
+
+/**
+ * Format a "time ago" string from a Date, short-form.
+ * @param {Date} d
+ * @returns {string}
+ */
+function pipelineStatusRelative(d) {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return "\u2014";
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/**
+ * Update the run-status pill in the pipeline section header. Shows
+ * running/done/idle states. Idle reads the most-recent `dateFound` from
+ * `pipelineData` as a "last activity" proxy.
+ * @param {"idle"|"running"|"done"=} forceState
+ */
+function updatePipelineRunStatus(forceState) {
+  const pill = document.getElementById("pipelineRunStatus");
+  if (!pill) return;
+  const labelEl = pill.querySelector(".run-status-pill__label");
+  if (!labelEl) return;
+
+  if (forceState === "running") {
+    pill.setAttribute("data-state", "running");
+    labelEl.textContent = "Run in progress";
+    return;
+  }
+  if (forceState === "done") {
+    pill.setAttribute("data-state", "done");
+    labelEl.textContent = "Run complete";
+    if (pipelineRunStatusDoneTimer) clearTimeout(pipelineRunStatusDoneTimer);
+    pipelineRunStatusDoneTimer = setTimeout(() => {
+      updatePipelineRunStatus("idle");
+    }, 4000);
+    return;
+  }
+
+  // idle (default): surface staleness from pipelineData
+  let latest = null;
+  for (const j of pipelineData) {
+    const d = j && j.dateFound;
+    if (d instanceof Date && !Number.isNaN(d.getTime())) {
+      if (!latest || d.getTime() > latest.getTime()) latest = d;
+    }
+  }
+  pill.setAttribute("data-state", "idle");
+  labelEl.textContent = latest
+    ? `Last activity \u00b7 ${pipelineStatusRelative(latest)}`
+    : "No runs yet";
+}
+
+/**
+ * One-time subscription to discovery run events. Idempotent; no-op on
+ * subsequent calls so renderPipeline() can call it freely on re-render.
+ */
+function ensurePipelineRunStatusWired() {
+  if (pipelineRunStatusWired) return;
+  if (typeof document === "undefined" || !document.addEventListener) return;
+  document.addEventListener("jobbored:discovery-run-started", () => {
+    updatePipelineRunStatus("running");
+  });
+  document.addEventListener("jobbored:discovery-run-finished", () => {
+    updatePipelineRunStatus("done");
+  });
+  pipelineRunStatusWired = true;
+}
+
 function renderPipeline() {
   const container = document.getElementById("jobCards");
   const emptyState = document.getElementById("emptyState");
   const roleCountEl = document.getElementById("roleCount");
+
+  // Editorial shell: refresh masthead + run-status pill on every render
+  // so they track the current pipelineData snapshot. The subscription
+  // wiring is one-shot; re-renders are cheap.
+  updateMastheadIssue();
+  ensurePipelineRunStatusWired();
+  updatePipelineRunStatus();
 
   // Board view: apply only search+sort, stages shown as collapsible lanes
   const data = filterAndSortJobs(pipelineData, currentSearch, currentSort);
@@ -11492,6 +11822,12 @@ function renderPipeline() {
   attachBoardListeners();
 }
 
+// -- Write-back card (renderCardActions) --
+// Emits every selector attachCardListeners() binds: .status-select,
+// .followup-input, .last-heard-input, .response-select, .notes-textarea,
+// plus data-action="status-select" / "followup" / "last-heard" /
+// "response-flag" / "notes" / "signin". Markup reshaped into MonoHeaderBar
+// card (white surface, navy border, mono header). Contracts unchanged.
 function renderCardActions(job, indexForNotesId) {
   const dataIndex = pipelineData.indexOf(job);
 
@@ -11533,61 +11869,63 @@ function renderCardActions(job, indexForNotesId) {
     })
     .join("");
 
-  const appliedDateHtml = job.appliedDate
-    ? `
-    <div class="action-meta">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-      <span>Applied ${escapeHtml(job.appliedDate)}</span>
-    </div>
-  `
-    : "";
-
   const followUpVal = job.followUpDate || "";
   const followUpIsOverdue = followUpVal && new Date(followUpVal) < new Date();
-  const followUpHtml = `
-    <div class="action-meta ${followUpIsOverdue ? "overdue" : ""}">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      <label class="followup-label" for="followup-${indexForNotesId}">Follow-up</label>
-      <input type="date" id="followup-${indexForNotesId}" class="followup-input" data-action="followup" data-index="${dataIndex}" value="${escapeHtml(followUpVal)}" />
-      ${followUpIsOverdue ? '<span class="overdue-badge">overdue</span>' : ""}
-    </div>
-  `;
-
   const respSel = selectedResponseSheetValue(job);
-  const contactStatusHtml = `
-    <div class="contact-status-row">
-      <div class="contact-status-field">
-        <label class="field-label" for="last-heard-${indexForNotesId}">Last contact</label>
-        <input type="text" id="last-heard-${indexForNotesId}" class="last-heard-input" data-action="last-heard" data-index="${dataIndex}" value="${escapeHtml(job.lastHeardFrom || "")}" placeholder="e.g. Jan 12 or &ldquo;recruiter emailed&rdquo;" autocomplete="off" />
-      </div>
-      <div class="contact-status-field">
-        <label class="field-label" for="response-${indexForNotesId}">Did they reply?</label>
-        <select id="response-${indexForNotesId}" class="response-select" data-action="response-flag" data-index="${dataIndex}">
-          <option value="">Not set</option>
-          <option value="Yes"${respSel === "Yes" ? " selected" : ""}>Yes</option>
-          <option value="No"${respSel === "No" ? " selected" : ""}>No</option>
-          <option value="Unknown"${respSel === "Unknown" ? " selected" : ""}>Not sure</option>
-        </select>
-      </div>
-    </div>
-  `;
+
+  // Applied date is a StatRow-style chip at the top of the card so it reads
+  // at a glance with the mono eyebrow.
+  const appliedChip = job.appliedDate
+    ? `<span class="writeback-chip writeback-chip--applied">
+        <span class="writeback-chip__label">Applied</span>
+        <span class="writeback-chip__val">${escapeHtml(job.appliedDate)}</span>
+      </span>`
+    : "";
+  const overdueChip = followUpIsOverdue
+    ? `<span class="writeback-chip writeback-chip--overdue">
+        <span class="writeback-chip__label">Follow-up</span>
+        <span class="writeback-chip__val">overdue</span>
+      </span>`
+    : "";
 
   return `
-    <div class="card-actions">
-      <div class="status-field">
-        <label class="field-label" for="status-${dataIndex}-${indexForNotesId}">Pipeline stage</label>
-        <select id="status-${dataIndex}-${indexForNotesId}" class="status-select" data-action="status-select" data-index="${dataIndex}">
-          ${options}
-        </select>
-      </div>
-      <div class="card-actions__tools">
-        ${appliedDateHtml}
-        ${followUpHtml}
-      </div>
-      ${contactStatusHtml}
-      <div class="notes-wrapper">
-        <label class="notes-label" for="notes-${dataIndex}-${indexForNotesId}">Notes</label>
-        <textarea id="notes-${dataIndex}-${indexForNotesId}" class="notes-textarea" data-action="notes" data-index="${dataIndex}" placeholder="Interview prep, recruiter name, next step…">${escapeHtml(job.notes || "")}</textarea>
+    <div class="card-actions card-actions--editorial">
+      <div class="writeback-card">
+        <div class="writeback-card__header">
+          <span class="writeback-card__eyebrow">Card actions · write-back</span>
+          <span class="writeback-card__chips">${appliedChip}${overdueChip}</span>
+        </div>
+        <div class="writeback-card__body">
+          <div class="writeback-grid">
+            <div class="writeback-field">
+              <label class="field-label" for="status-${dataIndex}-${indexForNotesId}">Pipeline stage</label>
+              <select id="status-${dataIndex}-${indexForNotesId}" class="status-select" data-action="status-select" data-index="${dataIndex}">
+                ${options}
+              </select>
+            </div>
+            <div class="writeback-field">
+              <label class="field-label" for="followup-${indexForNotesId}">Follow-up date</label>
+              <input type="date" id="followup-${indexForNotesId}" class="followup-input" data-action="followup" data-index="${dataIndex}" value="${escapeHtml(followUpVal)}" />
+            </div>
+            <div class="writeback-field">
+              <label class="field-label" for="last-heard-${indexForNotesId}">Last contact</label>
+              <input type="text" id="last-heard-${indexForNotesId}" class="last-heard-input" data-action="last-heard" data-index="${dataIndex}" value="${escapeHtml(job.lastHeardFrom || "")}" placeholder="e.g. Jan 12 or recruiter emailed" autocomplete="off" />
+            </div>
+            <div class="writeback-field">
+              <label class="field-label" for="response-${indexForNotesId}">Did they reply?</label>
+              <select id="response-${indexForNotesId}" class="response-select" data-action="response-flag" data-index="${dataIndex}">
+                <option value="">Not set</option>
+                <option value="Yes"${respSel === "Yes" ? " selected" : ""}>Yes</option>
+                <option value="No"${respSel === "No" ? " selected" : ""}>No</option>
+                <option value="Unknown"${respSel === "Unknown" ? " selected" : ""}>Not sure</option>
+              </select>
+            </div>
+          </div>
+          <div class="writeback-notes">
+            <label class="field-label" for="notes-${dataIndex}-${indexForNotesId}">Notes</label>
+            <textarea id="notes-${dataIndex}-${indexForNotesId}" class="notes-textarea" data-action="notes" data-index="${dataIndex}" placeholder="Interview prep, recruiter name, next step…">${escapeHtml(job.notes || "")}</textarea>
+          </div>
+        </div>
       </div>
     </div>
   `;
