@@ -10573,6 +10573,16 @@ function getKanbanStage(job) {
 //   3. addedAt / discoveredAt
 //   4. dateFound (fallback; will read as "row age", not "stage age")
 function getKanbanStageAgeDays(job) {
+  // Prefer the shared helper (be-data-deploy lane). It uses appliedDate when
+  // status ∈ {Applied, Phone Screen, Interviewing, Offer} so post-application
+  // funnel rows read true "days in current stage" instead of row-age.
+  const helpers =
+    typeof window !== "undefined" ? window.JobBoredDiscoveryHelpers : null;
+  if (helpers && typeof helpers.deriveStageAge === "function") {
+    const result = helpers.deriveStageAge(job);
+    if (result && Number.isFinite(result.days)) return result.days;
+  }
+  // Fallback chain when the helper script isn't loaded (tests, fixtures).
   const source =
     job.statusChangedAt ||
     job.lastUpdatedAt ||
