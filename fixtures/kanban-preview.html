@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kanban Lane — Design Preview</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&family=Lora:ital,wght@0,400;0,500;1,400;1,500&family=Special+Elite&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../style.css" />
+    <style>
+      /* Preview harness — not shipped. Mimics the dashboard body. */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg, #f8fafc);
+        color: var(--text, #003851);
+        font-family: var(--font-body);
+      }
+      .preview-shell {
+        padding: var(--space-6) var(--space-5);
+        max-width: 1440px;
+        margin: 0 auto;
+      }
+      .preview-title {
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        margin: 0 0 var(--space-4);
+        color: color-mix(in srgb, var(--text) 70%, transparent);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="preview-shell">
+      <p class="preview-title">§ fe-kanban · newsprint digest widget preview</p>
+      <div id="root"></div>
+    </div>
+    <script>
+      // Minimal sample data — exercises the full range of digest-widget states.
+      const JOBS = [
+        {
+          stage: "New",
+          title: "Senior Product Designer",
+          company: "Linear",
+          location: "Remote · US",
+          salary: "$180k – $220k",
+          priority: "match",
+          fit: "Fit 9/10",
+          subline: "Tools for high-agency teams — your lane exactly.",
+          age: "Today",
+          pulse: true,
+          next: "Apply",
+          tags: ["Remote", "B2B"],
+          viewed: false,
+          favorite: false,
+        },
+        {
+          stage: "New",
+          title: "Staff Design Engineer",
+          company: "Vercel",
+          location: "SF or Remote",
+          salary: "$220k – $260k",
+          priority: "none",
+          fit: "Fit 7/10",
+          subline: "Platform surface; solid fit, mixed signal on IC ladder.",
+          age: "1 day",
+          pulse: true,
+          next: "Apply",
+          tags: ["Remote", "Platform"],
+          viewed: true,
+          favorite: false,
+        },
+        {
+          stage: "Researching",
+          title: "Design Manager, Growth",
+          company: "Notion",
+          location: "NYC",
+          salary: "$240k – $280k",
+          priority: "match",
+          fit: "Fit 8/10",
+          subline: "Growth DM role — IC/lead blend, ships weekly.",
+          age: "3 days",
+          pulse: false,
+          next: "Research",
+          tags: ["Hybrid"],
+          viewed: false,
+          favorite: true,
+        },
+        {
+          stage: "Applied",
+          title: "Principal Designer, Platform",
+          company: "Stripe",
+          location: "NYC / SF",
+          salary: "$260k – $320k",
+          priority: "match",
+          fit: "Fit 9/10",
+          subline: "Platform IC principal — reports to VP, scope is full stack.",
+          age: "1 week",
+          pulse: false,
+          next: "Follow up",
+          tags: ["Hybrid"],
+          viewed: true,
+          favorite: true,
+        },
+        {
+          stage: "Applied",
+          title: "Senior Designer, Activation",
+          company: "PostHog",
+          location: "Remote",
+          salary: "Not listed",
+          priority: "none",
+          fit: "Fit 6/10",
+          subline: "Activation pod; interesting product, fit is only okay.",
+          age: "2 weeks",
+          pulse: false,
+          next: "Follow up",
+          tags: ["Remote"],
+          viewed: true,
+          favorite: false,
+        },
+        {
+          stage: "Phone Screen",
+          title: "Head of Product Design",
+          company: "Retool",
+          location: "SF",
+          salary: "$300k – $360k",
+          priority: "match",
+          fit: "Fit 9/10",
+          subline: "Head role; recruiter said scope is all of Retool.",
+          age: "4 days",
+          pulse: true,
+          next: "Schedule",
+          tags: ["Onsite"],
+          viewed: false,
+          favorite: true,
+        },
+        {
+          stage: "Interviewing",
+          title: "Design Lead, AI",
+          company: "Perplexity",
+          location: "SF / Remote",
+          salary: "$220k – $270k + equity",
+          priority: "match",
+          fit: "Fit 8/10",
+          subline: "AI answer surface; onsite loop scheduled for next week.",
+          age: "2 weeks",
+          pulse: false,
+          next: "Prep",
+          tags: ["Hybrid", "AI"],
+          viewed: true,
+          favorite: true,
+        },
+        {
+          stage: "Offer",
+          title: "Senior Design Engineer",
+          company: "Val Town",
+          location: "Remote",
+          salary: "$200k – $230k + 0.4%",
+          priority: "match",
+          fit: "Fit 8/10",
+          subline: "Verbal offer; comp package in review.",
+          age: "3 days",
+          pulse: true,
+          next: "Review offer",
+          tags: ["Remote"],
+          viewed: true,
+          favorite: true,
+        },
+        {
+          stage: "Rejected",
+          title: "Product Designer, Core",
+          company: "Figma",
+          location: "SF",
+          salary: "$210k – $250k",
+          priority: "boring",
+          fit: "Fit 4/10",
+          subline: "Rejected after portfolio review — no surprise.",
+          age: "3 weeks",
+          pulse: false,
+          next: "Archive",
+          tags: ["Onsite"],
+          viewed: true,
+          favorite: false,
+          dismissed: true,
+        },
+        {
+          stage: "Passed",
+          title: "UX Designer III",
+          company: "Oracle",
+          location: "Austin",
+          salary: "$150k – $180k",
+          priority: "boring",
+          fit: "Fit 3/10",
+          subline: "Wrong culture, wrong stage, wrong stack.",
+          age: "1 month",
+          pulse: false,
+          next: "Revisit",
+          tags: ["Onsite"],
+          viewed: true,
+          favorite: false,
+          dismissed: true,
+        },
+      ];
+
+      const STAGE_ORDER = [
+        "New",
+        "Researching",
+        "Applied",
+        "Phone Screen",
+        "Interviewing",
+        "Offer",
+        "Rejected",
+        "Passed",
+      ];
+      const STAGE_ARCHIVE = new Set(["Rejected", "Passed"]);
+
+      function cssKey(stage) {
+        return stage.toLowerCase().replace(/\s+/g, "-");
+      }
+      function esc(s) {
+        return String(s).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      }
+
+      function card(job, i) {
+        const kk = cssKey(job.stage);
+        const mods = [
+          `kanban-card--stage-${kk}`,
+          job.viewed ? "kanban-card--viewed" : "",
+          job.favorite ? "kanban-card--favorited" : "",
+          job.dismissed ? "kanban-card--dismissed" : "",
+          job.priority === "match" && !job.dismissed
+            ? "kanban-card--priority"
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+        const badge =
+          job.priority === "match"
+            ? `<span class="kanban-card__badge kanban-card__badge--match" title="${esc(job.fit)}"><span class="kanban-card__badge-mark" aria-hidden="true">\u2713</span>MATCH</span>`
+            : job.priority === "boring" || job.dismissed
+              ? `<span class="kanban-card__badge kanban-card__badge--boring" title="${esc(job.fit)}"><span class="kanban-card__badge-mark" aria-hidden="true">\u00D7</span>BORING</span>`
+              : "";
+
+        const pulse = job.pulse
+          ? `<span class="kanban-card__pulse" aria-label="Recently updated" title="Recently updated"></span>`
+          : "";
+
+        const tags = (job.tags || [])
+          .slice(0, 2)
+          .map(
+            (t) => `<span class="kanban-card__tag">${esc(t)}</span>`,
+          )
+          .join("");
+
+        const context = [];
+        if (job.location) context.push(esc(job.location));
+        if (
+          job.salary &&
+          job.salary.toLowerCase() !== "not listed" &&
+          !job.salary.includes("<")
+        )
+          context.push(esc(job.salary));
+        const contextHtml = context.length
+          ? `<p class="kanban-card__context">${context.join(' <span class="kanban-card__context-sep" aria-hidden="true">·</span> ')}</p>`
+          : "";
+
+        const favSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="${job.favorite ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+        const dismissSvg = job.dismissed
+          ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 7 3 12 8 12"/><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/></svg>`
+          : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+
+        return `
+      <article class="kanban-card ${mods}" role="button" tabindex="0" data-action="open-detail" data-stable-key="${i}" data-index="${i}" style="animation-delay:${i * 30}ms">
+        <div class="kanban-card__header-bar" aria-hidden="false">
+          ${pulse}
+          <span class="kanban-card__header-company" title="${esc(job.company)}">${esc(job.company)}</span>
+          <span class="kanban-card__header-stage">${esc(job.stage)}</span>
+        </div>
+        ${job.viewed ? `<span class="kanban-card__viewed-dot" aria-label="Previously viewed" title="Previously viewed"></span>` : ""}
+        <div class="kanban-card__actions" aria-label="Card actions">
+          <button type="button" class="card-action-btn card-action-btn--fav${job.favorite ? " is-active" : ""}" aria-label="Favorite">${favSvg}</button>
+          <button type="button" class="card-action-btn card-action-btn--${job.dismissed ? "restore" : "dismiss"}" aria-label="${job.dismissed ? "Restore" : "Dismiss"}">${dismissSvg}</button>
+        </div>
+        <div class="kanban-card__body">
+          <div class="kanban-card__identity">
+            <div class="card-logo card-logo--kanban card-logo--placeholder" aria-hidden="true"><span class="card-logo__mono">${esc(job.company[0] || "?")}</span></div>
+            <div class="kanban-card__identity-text">
+              <h3 class="kanban-card__title">${esc(job.title)}</h3>
+            </div>
+          </div>
+          ${job.subline ? `<p class="kanban-card__subline">${esc(job.subline)}</p>` : ""}
+          ${contextHtml}
+          <div class="kanban-card__meta" aria-label="Pipeline position">
+            ${badge}
+            <span class="kanban-card__stage-pill kanban-card__stage-pill--${kk}">${esc(job.stage)}</span>
+            <span class="kanban-card__age" title="Time in current stage">${esc(job.age)}</span>
+          </div>
+          ${tags ? `<div class="kanban-card__tags">${tags}</div>` : ""}
+          <span class="kanban-card__next-action" aria-hidden="true">${esc(job.next)}</span>
+        </div>
+      </article>`;
+      }
+
+      function lane(stage) {
+        const kk = cssKey(stage);
+        const jobs = JOBS.filter((j) => j.stage === stage);
+        const isArchive = STAGE_ARCHIVE.has(stage);
+        const track = jobs.length
+          ? jobs.map((j, i) => card(j, i)).join("")
+          : `<div class="stage-lane__empty" aria-live="polite">No roles here yet</div>`;
+        return `
+      <section class="stage-lane${isArchive ? " stage-lane--archive" : ""} stage-lane--expanded" data-stage="${stage}">
+        <button type="button" class="stage-lane__header" aria-expanded="true">
+          <span class="stage-dot stage-dot--${kk}" aria-hidden="true"></span>
+          <span class="stage-lane__name">${stage}</span>
+          <span class="stage-lane__count" aria-label="${jobs.length} role${jobs.length === 1 ? "" : "s"}">${jobs.length}</span>
+          <svg class="stage-lane__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="stage-lane__body">
+          <div class="stage-lane__scroll-area">
+            <button type="button" class="stage-lane__nav stage-lane__nav--prev" aria-hidden="true" tabindex="-1" disabled></button>
+            <div class="stage-lane__track" id="track-${kk}">${track}</div>
+            <button type="button" class="stage-lane__nav stage-lane__nav--next" aria-hidden="true" tabindex="-1"></button>
+          </div>
+          <div class="stage-lane__indicator" aria-hidden="true"><div class="stage-indicator-thumb"></div></div>
+        </div>
+      </section>`;
+      }
+
+      document.getElementById("root").innerHTML =
+        `<div class="pipeline-board">${STAGE_ORDER.map(lane).join("")}</div>`;
+
+      // Visual modifier toggle for the "hover" and "variants" captures.
+      const params = new URLSearchParams(location.search);
+      if (params.get("hover") === "1") {
+        const target = document.querySelector(
+          '.kanban-card--stage-applied.kanban-card--priority',
+        );
+        if (target) target.classList.add("is-hover-sim");
+      }
+    </script>
+    <style>
+      /* Simulate :hover styling for the hover screenshot without JS events. */
+      .kanban-card.is-hover-sim {
+        transform: translateY(-2px);
+        box-shadow:
+          0 8px 24px color-mix(in srgb, var(--text) 14%, transparent),
+          0 2px 6px color-mix(in srgb, var(--text) 8%, transparent);
+      }
+    </style>
+  </body>
+</html>

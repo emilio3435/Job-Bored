@@ -10561,36 +10561,197 @@ function groupByStage(data) {
   return byStage;
 }
 
+function getKanbanStage(job) {
+  const raw = (job.status || "").trim();
+  return STAGE_ORDER.find((s) => s.toLowerCase() === raw.toLowerCase()) || "New";
+}
+
+// Stage-age in days. Source priority:
+//   1. statusChangedAt  (ideal; not yet emitted by parsePipelineCSV —
+//      tracked in handoffs/fe-kanban-to-be-data-deploy.md)
+//   2. lastUpdatedAt
+//   3. addedAt / discoveredAt
+//   4. dateFound (fallback; will read as "row age", not "stage age")
+function getKanbanStageAgeDays(job) {
+  const source =
+    job.statusChangedAt ||
+    job.lastUpdatedAt ||
+    job.addedAt ||
+    job.discoveredAt ||
+    job.dateFound;
+  if (!source) return null;
+  const then = new Date(source);
+  if (Number.isNaN(then.getTime())) return null;
+  const today = new Date();
+  const start = new Date(then.getFullYear(), then.getMonth(), then.getDate());
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.max(0, Math.floor((end - start) / 86400000));
+}
+
+// Typewriter-styled label for the stage-age chip. Short and loud.
+function getKanbanStageAge(job) {
+  const days = getKanbanStageAgeDays(job);
+  if (days == null) return "Age unknown";
+  if (days === 0) return "Today";
+  if (days === 1) return "1 day";
+  if (days < 14) return `${days} days`;
+  if (days < 60) return `${Math.round(days / 7)} weeks`;
+  return `${Math.round(days / 30)} months`;
+}
+
+// Priority / fit → digest-widget badge:
+//   match  → green ✓ MATCH   (hot / high / fit ≥ 8)
+//   boring → orange × BORING (low / dismissed / fit ≤ 5)
+//   none   → no badge        (neutral — keeps the matrix clean)
+// Subline = italic Fraunces "why it matters" string.
+function getKanbanPrioritySignal(job) {
+  const priority = String(job.priority || "").trim();
+  const fit = Number.isFinite(job.fitScore) ? job.fitScore : null;
+  const fitText = fit != null ? `Fit ${fit}/10` : null;
+
+  let kind = "none"; // "match" | "boring" | "none"
+  let label = "";
+
+  if (priority === "\u{1F525}") {
+    // 🔥 hot
+    kind = "match";
+    label = "Hot";
+  } else if (priority === "\u26A1") {
+    // ⚡ high
+    kind = "match";
+    label = "Strong";
+  } else if (priority === "\u2193") {
+    // ↓ low
+    kind = "boring";
+    label = "Low";
+  } else if (fit != null && fit >= 8) {
+    kind = "match";
+    label = "High fit";
+  } else if (fit != null && fit <= 5) {
+    kind = "boring";
+    label = "Weak fit";
+  }
+
+  // Subline — italic "why it matters". Prefer AI-compressed fields, then fit.
+  const subline =
+    [
+      job.fitAngle,
+      job.roleInOneLine,
+      job.fitAssessment,
+      fitText && kind === "match" ? `${fitText} — worth a look.` : null,
+      fitText && kind === "boring" ? `${fitText} — probably skip.` : null,
+      fitText ? fitText : null,
+    ].find((s) => typeof s === "string" && s.trim().length) || "";
+
+  return {
+    kind,
+    label,
+    meta: fitText || "",
+    subline: subline.trim(),
+    level:
+      kind === "match" ? "match" : kind === "boring" ? "boring" : "neutral",
+  };
+}
+
+// Stage → single-word next-action verb (mono uppercase on the chip).
+function getKanbanNextAction(stage) {
+  switch (stage) {
+    case "Researching":
+      return "Research";
+    case "Applied":
+      return "Follow up";
+    case "Phone Screen":
+      return "Schedule";
+    case "Interviewing":
+      return "Prep";
+    case "Offer":
+      return "Review offer";
+    case "Rejected":
+      return "Archive";
+    case "Passed":
+      return "Revisit";
+    case "New":
+    default:
+      return "Apply";
+  }
+}
+
+// True if the stage changed recently enough to deserve the live-pulse dot.
+function hasKanbanLivePulse(job) {
+  const days = getKanbanStageAgeDays(job);
+  return days != null && days <= 2;
+}
+
 function renderKanbanCard(job, index) {
   const dataIndex = pipelineData.indexOf(job);
   const stableKey = dataIndex >= 0 ? dataIndex : index;
   const title = job.title || "Untitled Role";
   const company = job.company || "Unknown Company";
-  const roleFactsHtml = renderRoleFactsHtml(job, "kanban");
   const isViewed = viewedJobKeys.has(stableKey);
+  const stage = getKanbanStage(job);
+  const cssKey = stageToCssKey(stage);
+  const signal = getKanbanPrioritySignal(job);
+  const stageAge = getKanbanStageAge(job);
+  const nextAction = getKanbanNextAction(stage);
+  const isFavorite = !!job.favorite;
+  const isDismissed = !!job.dismissedAt;
+  const showPulse = hasKanbanLivePulse(job);
 
-  // First 3 tags from the sheet Tags column
+  // ── Card-level classes ──────────────────────────────────────
+  const isHighPriority = signal.kind === "match" && !isDismissed;
+  const cardModClasses = [
+    `kanban-card--stage-${cssKey}`,
+    isViewed ? "kanban-card--viewed" : "",
+    isFavorite ? "kanban-card--favorited" : "",
+    isDismissed ? "kanban-card--dismissed" : "",
+    isHighPriority ? "kanban-card--priority" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  // ── Context line: location · salary (typewriter, dot-separated) ──
+  const loc = job.location ? String(job.location).trim() : "";
+  const rawSalary = String(job.salary ?? "").trim();
+  const showSalary =
+    rawSalary &&
+    rawSalary.toLowerCase() !== "not listed" &&
+    !rawSalary.includes("<") &&
+    !rawSalary.includes("&lt;");
+  const contextParts = [];
+  if (loc) contextParts.push(escapeHtml(loc));
+  if (showSalary) contextParts.push(escapeHtml(rawSalary));
+  const contextHtml = contextParts.length
+    ? `<p class="kanban-card__context">${contextParts.join(
+        ' <span class="kanban-card__context-sep" aria-hidden="true">·</span> ',
+      )}</p>`
+    : "";
+
+  // ── First 2 tags from the sheet Tags column ───────────────────
   const tagChips = job.tags
     ? job.tags
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean)
-        .slice(0, 3)
+        .slice(0, 2)
         .map((t) => `<span class="kanban-card__tag">${escapeHtml(t)}</span>`)
         .join("")
     : "";
 
-  const stageClass = `kanban-card--stage-${stageToCssKey((job.status || "new").trim() || "new")}`;
-  const isFavorite = !!job.favorite;
-  const isDismissed = !!job.dismissedAt;
-  const cardModClasses = [
-    stageClass,
-    isViewed ? "kanban-card--viewed" : "",
-    isFavorite ? "kanban-card--favorited" : "",
-    isDismissed ? "kanban-card--dismissed" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  // ── MATCH / BORING badge (digest-widget pattern) ──────────────
+  let badgeHtml = "";
+  if (signal.kind === "match") {
+    badgeHtml = `<span class="kanban-card__badge kanban-card__badge--match" title="${escapeHtml(signal.meta || "Strong fit")}"><span class="kanban-card__badge-mark" aria-hidden="true">\u2713</span>MATCH</span>`;
+  } else if (signal.kind === "boring" || isDismissed) {
+    badgeHtml = `<span class="kanban-card__badge kanban-card__badge--boring" title="${escapeHtml(signal.meta || "Low priority")}"><span class="kanban-card__badge-mark" aria-hidden="true">\u00D7</span>BORING</span>`;
+  }
+
+  // ── Subline (italic Fraunces "why it matters") ────────────────
+  const sublineHtml = signal.subline
+    ? `<p class="kanban-card__subline">${escapeHtml(signal.subline)}</p>`
+    : "";
+
+  // ── Action buttons (favorite / dismiss / restore) ─────────────
+  // Contracts preserved: data-action + data-key, data-stable-key on <article>.
   const favBtnHtml = `<button type="button" class="card-action-btn card-action-btn--fav${isFavorite ? " is-active" : ""}" data-action="toggle-favorite" data-key="${stableKey}" aria-label="${isFavorite ? "Unfavorite" : "Favorite"}" aria-pressed="${isFavorite}" title="${isFavorite ? "Unfavorite" : "Favorite"}">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="${isFavorite ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
   </button>`;
@@ -10602,22 +10763,45 @@ function renderKanbanCard(job, index) {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
   </button>`;
 
+  // ── MonoHeaderBar (navy masthead) ─────────────────────────────
+  const pulseHtml = showPulse
+    ? `<span class="kanban-card__pulse" aria-label="Recently updated" title="Recently updated"></span>`
+    : "";
+  const headerBarHtml = `
+      <div class="kanban-card__header-bar" aria-hidden="false">
+        ${pulseHtml}
+        <span class="kanban-card__header-company" title="${escapeHtml(company)}">${escapeHtml(company)}</span>
+        <span class="kanban-card__header-stage">${escapeHtml(stage)}</span>
+      </div>`;
+
+  // ── Card ──────────────────────────────────────────────────────
+  // data-action="open-detail" on the <article> routes clicks to the drawer
+  // via existing attachCardListeners. Next-action pill inherits that click.
   return `
     <article class="kanban-card ${cardModClasses}" role="button" tabindex="0" data-action="open-detail" data-stable-key="${stableKey}" ${dataIndex >= 0 ? `data-index="${dataIndex}"` : ""} style="animation-delay:${index * 30}ms">
+      ${headerBarHtml}
       ${isViewed ? `<span class="kanban-card__viewed-dot" aria-label="Previously viewed" title="Previously viewed"></span>` : ""}
       <div class="kanban-card__actions" aria-label="Card actions">
         ${favBtnHtml}
         ${dismissBtnHtml}
       </div>
-      <div class="kanban-card__identity">
-        ${renderLogoHtml(job, "kanban")}
-        <div class="kanban-card__identity-text">
-          <span class="kanban-card__title">${escapeHtml(title)}</span>
-          <span class="kanban-card__company">${escapeHtml(company)}</span>
+      <div class="kanban-card__body">
+        <div class="kanban-card__identity">
+          ${renderLogoHtml(job, "kanban")}
+          <div class="kanban-card__identity-text">
+            <h3 class="kanban-card__title">${escapeHtml(title)}</h3>
+          </div>
         </div>
+        ${sublineHtml}
+        ${contextHtml}
+        <div class="kanban-card__meta" aria-label="Pipeline position">
+          ${badgeHtml}
+          <span class="kanban-card__stage-pill kanban-card__stage-pill--${cssKey}">${escapeHtml(stage)}</span>
+          <span class="kanban-card__age" title="Time in current stage">${escapeHtml(stageAge)}</span>
+        </div>
+        ${tagChips ? `<div class="kanban-card__tags">${tagChips}</div>` : ""}
+        <span class="kanban-card__next-action" aria-hidden="true">${escapeHtml(nextAction)}</span>
       </div>
-      ${roleFactsHtml}
-      ${tagChips ? `<div class="kanban-card__tags">${tagChips}</div>` : ""}
     </article>`;
 }
 
@@ -10625,28 +10809,34 @@ function renderStageLane(stage, jobs) {
   const isExpanded = expandedStages.has(stage);
   const isArchive = STAGE_ARCHIVE.has(stage);
   const cssKey = stageToCssKey(stage);
+  const headerStage = escapeHtml(stage);
+
+  // Newsprint masthead: stage-dot · stage name · count chip · chevron.
+  // Kept as a <button> so the existing toggle-stage listener keeps working.
+  // Vertical card stack inside — no horizontal scroll, so nav chevrons and
+  // indicator stay rendered-but-hidden (via CSS) to keep scroll-stage
+  // listeners safe; they no-op when the track has no overflow.
+  const trackContent = jobs.length
+    ? jobs.map((job, i) => renderKanbanCard(job, i)).join("")
+    : `<div class="stage-lane__empty" aria-live="polite">No roles here yet</div>`;
 
   return `
-    <section class="stage-lane${isArchive ? " stage-lane--archive" : ""}${isExpanded ? " stage-lane--expanded" : ""}" data-stage="${escapeHtml(stage)}">
-      <button type="button" class="stage-lane__header" data-action="toggle-stage" data-stage="${escapeHtml(stage)}">
+    <section class="stage-lane${isArchive ? " stage-lane--archive" : ""}${isExpanded ? " stage-lane--expanded" : ""}" data-stage="${headerStage}">
+      <button type="button" class="stage-lane__header" data-action="toggle-stage" data-stage="${headerStage}" aria-expanded="${isExpanded}">
         <span class="stage-dot stage-dot--${cssKey}" aria-hidden="true"></span>
-        <span class="stage-lane__name">${escapeHtml(stage)}</span>
-        <span class="stage-lane__count">${jobs.length}</span>
+        <span class="stage-lane__name">${headerStage}</span>
+        <span class="stage-lane__count" aria-label="${jobs.length} role${jobs.length === 1 ? "" : "s"}">${jobs.length}</span>
         <svg class="stage-lane__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="stage-lane__body">
         <div class="stage-lane__scroll-area">
-          <button type="button" class="stage-lane__nav stage-lane__nav--prev" data-action="scroll-stage" data-dir="prev" data-stage="${escapeHtml(stage)}" aria-label="Scroll left" disabled>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
-          </button>
+          <button type="button" class="stage-lane__nav stage-lane__nav--prev" data-action="scroll-stage" data-dir="prev" data-stage="${headerStage}" aria-label="Scroll up" aria-hidden="true" tabindex="-1" disabled></button>
           <div class="stage-lane__track" id="track-${cssKey}">
-            ${jobs.map((job, i) => renderKanbanCard(job, i)).join("")}
+            ${trackContent}
           </div>
-          <button type="button" class="stage-lane__nav stage-lane__nav--next" data-action="scroll-stage" data-dir="next" data-stage="${escapeHtml(stage)}" aria-label="Scroll right">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
-          </button>
+          <button type="button" class="stage-lane__nav stage-lane__nav--next" data-action="scroll-stage" data-dir="next" data-stage="${headerStage}" aria-label="Scroll down" aria-hidden="true" tabindex="-1"></button>
         </div>
-        <div class="stage-lane__indicator">
+        <div class="stage-lane__indicator" aria-hidden="true">
           <div class="stage-indicator-thumb" id="thumb-${cssKey}"></div>
         </div>
       </div>
@@ -10655,9 +10845,11 @@ function renderStageLane(stage, jobs) {
 
 function renderPipelineBoard(data) {
   const byStage = groupByStage(data);
-  const lanes = STAGE_ORDER.filter((stage) => byStage.get(stage).length > 0)
-    .map((stage) => renderStageLane(stage, byStage.get(stage)))
-    .join("");
+  // Render every stage — empty lanes show the dashed placeholder so the
+  // kanban column grid stays intact across filters.
+  const lanes = STAGE_ORDER.map((stage) =>
+    renderStageLane(stage, byStage.get(stage)),
+  ).join("");
   return lanes ? `<div class="pipeline-board">${lanes}</div>` : "";
 }
 
