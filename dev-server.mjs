@@ -260,7 +260,7 @@ function runScript(scriptPath, args) {
   });
 }
 
-async function handleFixSetup(req, res) {
+async function handleFixSetup(req, res, options = {}) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: false, phase: "auth_check", message: "Localhost only." }));
@@ -272,7 +272,9 @@ async function handleFixSetup(req, res) {
     "content-type": "application/json",
   };
 
-  const phases = [];
+  // Allow callers (e.g. handleFullBoot) to inject earlier phases so the
+  // dashboard sees one continuous timeline.
+  const phases = Array.isArray(options.extraPhases) ? [...options.extraPhases] : [];
   const emit = (phase, detail) => phases.push({ phase, ...detail });
 
   const previousBootstrap = readBootstrapJson();
@@ -431,6 +433,290 @@ async function handleFixSetup(req, res) {
   }));
 }
 
+/**
+ * Kill any stale processes squatting on the ports we need (worker 8644, ngrok
+ * 4040). Idempotent: if nothing is squatting, returns ok with empty list.
+ *
+ * Why this exists: greenfield users frequently have a previous Hermes/python
+ * gateway, a stranded ngrok, or a half-dead discovery worker from a prior
+ * crash holding 8644. Without this they get cryptic "EADDRINUSE" errors.
+ */
+async function handleKillStale(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, message: "Localhost only." }));
+    return;
+  }
+
+  const ports = [8644, 4040];
+  const killed = [];
+  for (const port of ports) {
+    try {
+      const lsof = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
+        encoding: "utf8",
+      });
+      const pids = String(lsof.stdout || "")
+        .split(/\s+/)
+        .filter((s) => /^\d+$/.test(s))
+        .map(Number);
+      for (const pid of pids) {
+        // Don't kill ourselves (the dev-server) — port 8080 is not in the list,
+        // but be defensive in case someone extends this list later.
+        if (pid === process.pid) continue;
+        try {
+          process.kill(pid, "SIGTERM");
+          killed.push({ port, pid });
+        } catch {
+          /* already dead — ignore */
+        }
+      }
+    } catch {
+      /* lsof unavailable on some systems — skip silently */
+    }
+  }
+
+  // Brief pause so OS releases the sockets before the caller starts new procs.
+  if (killed.length) await new Promise((r) => setTimeout(r, 600));
+
+  res.writeHead(200, corsHeaders);
+  res.end(JSON.stringify({ ok: true, killed }));
+}
+
+/**
+ * One-call greenfield boot: kill stale → start discovery worker → run
+ * fix-setup (which bootstraps ngrok + deploys/refreshes the relay). Returns
+ * a single summary so the dashboard can show "Discovery is ready" instead of
+ * walking the user through 8 wizard steps.
+ */
+async function handleFullBoot(req, res, discoveryWorkerStarter) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, message: "Localhost only." }));
+    return;
+  }
+
+  const phases = [];
+  const emit = (phase, detail) => phases.push({ phase, ...detail });
+
+  // 1. Kill any stale process holding 8644 / 4040.
+  try {
+    const ports = [8644, 4040];
+    let killed = 0;
+    for (const port of ports) {
+      const lsof = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
+        encoding: "utf8",
+      });
+      const pids = String(lsof.stdout || "")
+        .split(/\s+/)
+        .filter((s) => /^\d+$/.test(s))
+        .map(Number);
+      for (const pid of pids) {
+        if (pid === process.pid) continue;
+        try {
+          process.kill(pid, "SIGTERM");
+          killed += 1;
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    if (killed) await new Promise((r) => setTimeout(r, 600));
+    emit("kill_stale", { killed });
+  } catch (e) {
+    emit("kill_stale", { killed: 0, warning: e && e.message });
+  }
+
+  // 2. Start the discovery worker if not already running.
+  try {
+    const starter =
+      typeof discoveryWorkerStarter === "function"
+        ? discoveryWorkerStarter
+        : defaultDiscoveryWorkerStarter;
+    const startResult = await starter({ port: 8644 });
+    emit("start_worker", startResult || {});
+    if (!startResult || !startResult.ok) {
+      res.writeHead(502, corsHeaders);
+      res.end(
+        JSON.stringify({
+          ok: false,
+          phase: "start_worker",
+          message:
+            (startResult && startResult.message) ||
+            "Discovery worker failed to start.",
+          phases,
+        }),
+      );
+      return;
+    }
+  } catch (e) {
+    emit("start_worker", { ok: false, error: e && e.message });
+    res.writeHead(500, corsHeaders);
+    res.end(
+      JSON.stringify({
+        ok: false,
+        phase: "start_worker",
+        message: e && e.message ? e.message : String(e),
+        phases,
+      }),
+    );
+    return;
+  }
+
+  // 3. Hand off to the existing fix-setup flow which bootstraps ngrok and
+  //    deploys/refreshes the Cloudflare relay.
+  return handleFixSetup(req, res, { extraPhases: phases });
+}
+
+// ============================================================================
+// Greenfield-automation swarm — Phase 0 stubs (NOT_IMPLEMENTED)
+// ----------------------------------------------------------------------------
+// These return 501 until the swarm workers fill them in. Frontend must treat
+// 501 as "feature not yet available" and degrade to existing manual flow.
+//
+// Locked contracts (do not widen without orchestrator approval):
+//
+//   POST /__proxy/oauth-bootstrap
+//     Body:    { projectId?: string, applicationName?: string }
+//     Success: { ok:true, clientId:string, clientSecret?:string, source:"gcloud" }
+//     Failure: { ok:false, reason:"gcloud_missing"|"not_logged_in"
+//                       |"api_disabled"|"user_declined"|"internal_error",
+//                actionable:string }
+//
+//   POST /__proxy/install-doctor
+//     Body:    {}
+//     Success: { ok:boolean,
+//                tools:{
+//                  gcloud:{ installed:boolean, loggedIn:boolean, version?:string },
+//                  wrangler:{ installed:boolean, loggedIn:boolean, version?:string },
+//                  ngrok:{ installed:boolean, hasAuthToken:boolean, version?:string },
+//                  node:{ version:string, ok:boolean }
+//                },
+//                missing:string[] }
+//
+//   POST /__proxy/install-keep-alive
+//     Body:    { schedule?:"macos_launchd"|"linux_systemd_user"|"auto" }
+//     Success: { ok:true, installedAt:string, jobLabel:string, logPath:string }
+//     Failure: { ok:false, reason:string }
+//
+//   DELETE /__proxy/install-keep-alive
+//     Success: { ok:true, removed:boolean }
+//
+//   GET /__proxy/install-keep-alive/status
+//     Success: { installed:boolean, lastRunAt?:string,
+//                lastNgrokUrl?:string, jobLabel?:string }
+// ============================================================================
+
+// Owner: Backend Worker A
+async function handleOAuthBootstrap(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden", actionable: "Localhost only." }));
+    return;
+  }
+  res.writeHead(501, corsHeaders);
+  res.end(
+    JSON.stringify({
+      ok: false,
+      reason: "not_implemented",
+      actionable: "OAuth bootstrap not yet implemented (swarm Phase 1).",
+    }),
+  );
+}
+
+// Owner: Backend Worker A
+async function handleInstallDoctor(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  res.writeHead(501, corsHeaders);
+  res.end(
+    JSON.stringify({
+      ok: false,
+      reason: "not_implemented",
+      tools: {
+        gcloud: { installed: false, loggedIn: false },
+        wrangler: { installed: false, loggedIn: false },
+        ngrok: { installed: false, hasAuthToken: false },
+        node: { version: process.version, ok: true },
+      },
+      missing: ["Install-doctor not yet implemented (swarm Phase 1)."],
+    }),
+  );
+}
+
+// Owner: Backend Worker B
+async function handleInstallKeepAlive(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  res.writeHead(501, corsHeaders);
+  res.end(
+    JSON.stringify({
+      ok: false,
+      reason: "not_implemented",
+    }),
+  );
+}
+
+// Owner: Backend Worker B
+async function handleUninstallKeepAlive(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  res.writeHead(501, corsHeaders);
+  res.end(JSON.stringify({ ok: false, reason: "not_implemented" }));
+}
+
+// Owner: Backend Worker B
+async function handleKeepAliveStatus(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ installed: false, reason: "forbidden" }));
+    return;
+  }
+  res.writeHead(501, corsHeaders);
+  res.end(
+    JSON.stringify({
+      installed: false,
+      reason: "not_implemented",
+    }),
+  );
+}
+
 async function handleStartDiscoveryWorker(req, res, discoveryWorkerStarter) {
   const corsHeaders = {
     "access-control-allow-origin": "*",
@@ -578,6 +864,88 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       });
       return;
     }
+
+    if (req.method === "POST" && pathname === "/__proxy/kill-stale") {
+      handleKillStale(req, res).catch((err) => {
+        logError("  Kill-stale error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, message: "Internal error." }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/__proxy/full-boot") {
+      handleFullBoot(req, res, discoveryWorkerStarter).catch((err) => {
+        logError("  Full-boot error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, message: "Internal error." }));
+        }
+      });
+      return;
+    }
+
+    // === Greenfield-automation swarm seams (Phase 0 stubs) ===
+    // Worker A owns: handleOAuthBootstrap, handleInstallDoctor
+    // Worker B owns: handleInstallKeepAlive, handleUninstallKeepAlive,
+    //               handleKeepAliveStatus
+    if (req.method === "POST" && pathname === "/__proxy/oauth-bootstrap") {
+      handleOAuthBootstrap(req, res).catch((err) => {
+        logError("  OAuth-bootstrap error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/__proxy/install-doctor") {
+      handleInstallDoctor(req, res).catch((err) => {
+        logError("  Install-doctor error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/__proxy/install-keep-alive") {
+      handleInstallKeepAlive(req, res).catch((err) => {
+        logError("  Install-keep-alive error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "DELETE" && pathname === "/__proxy/install-keep-alive") {
+      handleUninstallKeepAlive(req, res).catch((err) => {
+        logError("  Uninstall-keep-alive error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "GET" && pathname === "/__proxy/install-keep-alive/status") {
+      handleKeepAliveStatus(req, res).catch((err) => {
+        logError("  Keep-alive-status error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+    // === end greenfield-automation seams ===
 
     const target = parseLocalProxyRoute(pathname, url.searchParams);
     if (target) {
