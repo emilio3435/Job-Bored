@@ -1,0 +1,11 @@
+{
+  "_owner": "Backend Worker B (swarm Phase 1) — fill this out",
+  "templateVersion": 1,
+  "workerName": "jobbored-discovery-relay",
+  "routes": ["/discovery", "/runs/:runId", "/health"],
+  "vars": {
+    "DISCOVERY_TARGET": "<set at deploy time>",
+    "SHARED_SECRET": "<optional>"
+  },
+  "bindings": []
+}
