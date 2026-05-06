@@ -16,22 +16,23 @@ const userContentStoreJs = readFileSync(
 // ============================================================
 
 describe("Clear settings boundary", () => {
-  it("performSettingsClearOverrides only clears localStorage, not IndexedDB", () => {
+  it("performSettingsClearOverrides clears localStorage and IndexedDB user content", () => {
+    // "Clear settings" is documented as a full greenfield reset: it wipes
+    // localStorage breadcrumbs AND the IndexedDB user-content DB so a
+    // returning user starts from a clean slate. Tests previously asserted
+    // the opposite; the boundary moved deliberately when greenfield reset
+    // semantics were locked in.
     const clearStart = appJs.indexOf("function performSettingsClearOverrides");
     const clearEnd = appJs.indexOf("function initCommandCenterSettings", clearStart);
     const clearBody = appJs.slice(clearStart, clearEnd);
 
-    // Should only use localStorage.removeItem, NOT indexedDB
     assert.ok(
       clearBody.includes("localStorage.removeItem"),
       "performSettingsClearOverrides should use localStorage.removeItem",
     );
     assert.ok(
-      !clearBody.includes("indexedDB") &&
-        !clearBody.includes("deleteDatabase") &&
-        !clearBody.includes("UC.") &&
-        !clearBody.includes("CommandCenterUserContent"),
-      "performSettingsClearOverrides should NOT touch IndexedDB or UC module",
+      clearBody.includes("deleteDatabase"),
+      "performSettingsClearOverrides should drop the IndexedDB user-content DB on greenfield reset",
     );
   });
 

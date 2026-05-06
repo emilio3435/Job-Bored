@@ -35,6 +35,10 @@ const DISCOVERY_TRANSPORT_SETUP_KEY =
   "command_center_discovery_transport_setup";
 const DISCOVERY_LOCAL_BOOTSTRAP_STATE_PATH = "discovery-local-bootstrap.json";
 const DISCOVERY_RUN_TRACKER_KEY = "command_center_discovery_run_state";
+// Set by performSettingsClearOverrides before reload so the next interactive
+// sign-in forces Google's consent screen instead of silently re-issuing a
+// token from the prior consent grant. One-shot: cleared after the next signIn.
+const FORCE_CONSENT_PROMPT_KEY = "command_center_force_consent_prompt";
 
 // ============================================
 // RUN STATUS TRACKER
@@ -510,6 +514,42 @@ function autofillDiscoveryWebhookSecretFromBootstrap(data) {
   }
 }
 
+// ====== [discovery-autodetect lane: relay URL auto-fill] ======
+// After scripts/deploy-cloudflare-relay.mjs deploys the Cloudflare Worker
+// it writes a `relay` block into discovery-local-bootstrap.json with the
+// deployed Worker URL. This sibling of the secret autofill copies that URL
+// into the discoveryWebhookUrl config setting so the dashboard's wizard
+// shows it pre-filled. Greenfield user goal: zero copy/paste of the
+// Worker URL anywhere, ever.
+//
+// Same conservative semantics as autofillDiscoveryWebhookSecretFromBootstrap:
+//   - never overwrite a manually-saved value
+//   - silently no-op if the field is missing or empty
+//   - never throws; logs and returns false on failure
+function autofillDiscoveryWebhookUrlFromBootstrap(data) {
+  if (!data || typeof data !== "object") return false;
+  const relay = data.relay;
+  const candidate =
+    relay && typeof relay === "object" && typeof relay.workerUrl === "string"
+      ? relay.workerUrl.trim()
+      : "";
+  if (!candidate) return false;
+  if (!/^https?:\/\//i.test(candidate)) return false;
+  const existing = getDiscoveryWebhookUrl();
+  if (existing) return false; // never overwrite a manually-saved value
+  try {
+    mergeStoredConfigOverridePatch({ discoveryWebhookUrl: candidate });
+    return true;
+  } catch (err) {
+    console.warn(
+      "[JobBored] could not autofill discoveryWebhookUrl from bootstrap:",
+      err,
+    );
+    return false;
+  }
+}
+// ====== [/discovery-autodetect lane] ======
+
 async function hydrateDiscoveryTransportSetupFromLocalBootstrap() {
   if (!isLocalDashboardOrigin()) return getDiscoveryTransportSetupState();
   try {
@@ -522,6 +562,7 @@ async function hydrateDiscoveryTransportSetupFromLocalBootstrap() {
       return getDiscoveryTransportSetupState();
     }
     autofillDiscoveryWebhookSecretFromBootstrap(data);
+    autofillDiscoveryWebhookUrlFromBootstrap(data);
     return writeDiscoveryTransportSetupState({
       localWebhookUrl: data.localWebhookUrl,
       tunnelPublicUrl: data.tunnelPublicUrl || data.ngrokPublicUrl,
@@ -2057,6 +2098,39 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride) {
   // We declare the key unconditionally so JSON.stringify drops it when
   // empty (keeps the contract scanner happy and the wire format unchanged).
   const dashboardGoogleAccessToken = getDiscoveryRequestGoogleAccessToken();
+  // ====== [discovery-autodetect lane: contract sanitization] ======
+  // Per .factory/library/source-preset-contract.md: "Omitted sourcePreset →
+  // passes validation; fallback resolved by config resolver." But sending
+  // `sourcePreset: ""` (empty string) is rejected by the worker because the
+  // field is *present* but not in the enum. A fresh greenfield user has an
+  // empty discovery profile object, so getDiscoveryProfile() returns {} and
+  // any code path that defaulted sourcePreset to "" would trip the
+  // validator. Strip empty/whitespace sourcePreset before sending.
+  //
+  // Symptom this fixes: Step 7 wizard "Run test" returning
+  //   "discoveryProfile.sourcePreset must be one of: browser_only, ats_only,
+  //    browser_plus_ats. Received: ''."
+  if (
+    discoveryProfile &&
+    typeof discoveryProfile === "object" &&
+    Object.prototype.hasOwnProperty.call(discoveryProfile, "sourcePreset")
+  ) {
+    const sp = discoveryProfile.sourcePreset;
+    const trimmed = typeof sp === "string" ? sp.trim() : sp;
+    if (
+      trimmed === "" ||
+      trimmed == null ||
+      typeof trimmed !== "string"
+    ) {
+      // Clone so we never mutate the stored profile in IndexedDB.
+      const sanitized = { ...discoveryProfile };
+      delete sanitized.sourcePreset;
+      discoveryProfile = sanitized;
+    } else if (trimmed !== sp) {
+      discoveryProfile = { ...discoveryProfile, sourcePreset: trimmed };
+    }
+  }
+  // ====== [/discovery-autodetect lane] ======
   return {
     event: "command-center.discovery",
     schemaVersion: 1,
@@ -2320,6 +2394,134 @@ function appendWizardCodeBlock(parent, text, copyLabel = "Copy") {
   return row;
 }
 
+/**
+ * Resolve the user's local repo root from bootstrap state. Returns "" if
+ * unknown — callers should fall back gracefully (e.g. omit the cd prefix).
+ */
+function getDiscoveryRepoRoot(runtime) {
+  const data =
+    runtime &&
+    runtime.localBootstrapState &&
+    runtime.localBootstrapState.data;
+  return (data && typeof data.repoRoot === "string" && data.repoRoot) || "";
+}
+
+/**
+ * Build a "cd <repo> && <cmd>" combined command so the user can paste it into
+ * any Terminal window — no need to navigate to the repo first. Quotes the
+ * path to handle spaces. Returns the bare command if repoRoot is unknown.
+ */
+function buildRunInRepoCommand(repoRoot, cmd) {
+  const c = String(cmd || "").trim();
+  if (!c) return "";
+  const root = String(repoRoot || "").trim();
+  if (!root) return c;
+  // Quote the path; escape any embedded double-quote (rare).
+  const safe = root.replace(/"/g, '\\"');
+  return `cd "${safe}" && ${c}`;
+}
+
+/**
+ * Trigger a download of a macOS .command script that opens Terminal in the
+ * repo and runs the given command. macOS-only delight: double-click and go.
+ * On other OSes the file just won't open (Terminal-specific extension).
+ */
+function downloadDiscoveryRunCommandFile(repoRoot, cmd, suggestedName) {
+  const c = String(cmd || "").trim();
+  if (!c) return;
+  const root = String(repoRoot || "").trim();
+  const lines = [
+    "#!/bin/bash",
+    "# Generated by JobBored discovery setup wizard.",
+    "# Double-click to run: opens Terminal here and executes the command.",
+    "set -e",
+  ];
+  if (root) {
+    const safe = root.replace(/"/g, '\\"');
+    lines.push(`cd "${safe}"`);
+  }
+  lines.push(c);
+  // Keep terminal open after the command exits so the user can read output.
+  lines.push("echo");
+  lines.push('echo "[JobBored] Done. You can close this window."');
+  const body = lines.join("\n") + "\n";
+  const blob = new Blob([body], { type: "text/x-shellscript" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = suggestedName || "jobbored-run.command";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  showToast(
+    "Downloaded. On macOS: right-click → Open the first time (Gatekeeper). After that, double-click to run.",
+    "info",
+    true,
+  );
+}
+
+/**
+ * Append a "run-in-terminal" block: combined cd+command with a Copy button
+ * AND (on capable browsers) a "Download .command" delight button that opens
+ * Terminal in the repo and runs the command on double-click. Includes an
+ * inline instruction so users know what to do — addresses the "copy buttons
+ * with no context" feedback.
+ */
+function appendWizardRunInTerminalBlock(parent, runtime, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const cmd = String(opts.command || "").trim();
+  if (!cmd) return null;
+  const repoRoot = getDiscoveryRepoRoot(runtime);
+  const combined = buildRunInRepoCommand(repoRoot, cmd);
+  const wrap = createWizardNode(
+    "div",
+    "discovery-wizard-runblock",
+  );
+  // Plain-English instruction line. No more "where do I run this?"
+  appendWizardParagraph(
+    wrap,
+    repoRoot
+      ? "Open Terminal anywhere on your computer, paste this one line, press Enter. It changes into your repo folder and runs the command."
+      : "Open Terminal in your JobBored repo folder, paste this, press Enter.",
+    "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold",
+  );
+  // Combined "cd repo && cmd" block.
+  appendWizardCodeBlock(wrap, combined, "Copy command");
+  // Optional macOS .command shortcut. Hidden if we don't know the repo path
+  // (the script would just be the bare command, which isn't worth a download).
+  if (repoRoot) {
+    const dlRow = createWizardNode(
+      "div",
+      "discovery-wizard-runblock__dlrow",
+    );
+    const dlHint = createWizardNode(
+      "span",
+      "settings-field-hint settings-field-hint--compact",
+      "macOS shortcut:",
+    );
+    const dlBtn = createWizardNode(
+      "button",
+      "btn-modal-secondary discovery-wizard-runblock__dlbtn",
+      "↓ Download run-in-terminal file",
+    );
+    dlBtn.type = "button";
+    dlBtn.title =
+      "Downloads a .command file. Double-click it to open Terminal in your repo and run the command (macOS only).";
+    dlBtn.addEventListener("click", () => {
+      downloadDiscoveryRunCommandFile(
+        repoRoot,
+        cmd,
+        opts.fileName || "jobbored-run.command",
+      );
+    });
+    dlRow.append(dlHint, dlBtn);
+    wrap.appendChild(dlRow);
+  }
+  parent.appendChild(wrap);
+  return wrap;
+}
+
 function appendWizardCallout(parent, text) {
   if (!text) return null;
   const card = createWizardNode("div", "discovery-setup-wizard__callout");
@@ -2413,13 +2615,224 @@ function appendWizardResultCard(parent, result, titleOverride) {
     }
   }
   if (result.suggestedUrl) {
-    appendWizardCodeBlock(card, result.suggestedUrl, "Copy URL");
+    appendWizardSuggestedUrlBlock(card, result);
   }
   if (result.suggestedCommand) {
-    appendWizardCodeBlock(card, result.suggestedCommand, "Copy command");
+    appendWizardSuggestedCommandBlock(card, result);
   }
   parent.appendChild(card);
   return card;
+}
+
+/**
+ * Heuristic: classify a suggested URL so we can render a context-rich action
+ * instead of a bare "Copy URL". We look at the result.kind first (set by the
+ * worker code paths that create these results), then fall back to URL shape.
+ */
+function classifyDiscoverySuggestedUrl(result) {
+  const kind = String(result && result.kind ? result.kind : "").toLowerCase();
+  const url = String(result && result.suggestedUrl ? result.suggestedUrl : "");
+  if (
+    kind.includes("worker") ||
+    /workers\.dev/i.test(url) ||
+    /\bworker[-.]/i.test(url)
+  ) {
+    return {
+      kind: "worker",
+      label: "Use this Worker URL",
+      caption:
+        "This is the public Cloudflare Worker URL the dashboard should POST to.",
+      applyHint:
+        "Saved to Settings → Discovery webhook URL when you click Use it.",
+      settingsField: "settingsDiscoveryWebhookUrl",
+    };
+  }
+  if (kind.includes("tunnel") || /ngrok/i.test(url) || /\.ngrok-free/.test(url)) {
+    return {
+      kind: "tunnel",
+      label: "Use this tunnel URL",
+      caption:
+        "This is the public ngrok URL forwarding to your local server.",
+      applyHint:
+        "Saved to your discovery transport config when you click Use it.",
+      settingsField: null, // no direct settings field — kept in transport state
+    };
+  }
+  if (kind.includes("webhook") || /\/webhook\b/i.test(url)) {
+    return {
+      kind: "webhook",
+      label: "Use this webhook URL",
+      caption: "This is your discovery webhook endpoint.",
+      applyHint:
+        "Saved to Settings → Discovery webhook URL when you click Use it.",
+      settingsField: "settingsDiscoveryWebhookUrl",
+    };
+  }
+  return {
+    kind: "generic",
+    label: "Copy URL",
+    caption: "",
+    applyHint: "",
+    settingsField: null,
+  };
+}
+
+function appendWizardSuggestedUrlBlock(card, result) {
+  const url = String(result.suggestedUrl || "").trim();
+  if (!url) return;
+  const meta = classifyDiscoverySuggestedUrl(result);
+  if (meta.caption) {
+    appendWizardParagraph(
+      card,
+      meta.caption,
+      "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold",
+    );
+  }
+  const row = createWizardNode("div", "scraper-setup-copyrow");
+  const code = createWizardNode("pre", "scraper-setup-code", url);
+  // Primary "Use this URL" action — applies it where it belongs (settings
+  // field today; transport state callers handle their own apply-on-detect
+  // path elsewhere). Falls back to clipboard so users always have an out.
+  const primary = createWizardNode(
+    "button",
+    "btn-copy-scraper btn-copy-scraper--primary",
+    meta.label,
+  );
+  primary.type = "button";
+  primary.addEventListener("click", () => {
+    let applied = false;
+    if (meta.settingsField) {
+      const el = document.getElementById(meta.settingsField);
+      if (el) {
+        el.value = url;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        applied = true;
+      }
+    }
+    copyTextToClipboard(url);
+    showToast(
+      applied
+        ? `Saved to ${meta.kind === "worker" ? "Discovery webhook URL" : "settings"} and copied to clipboard.`
+        : "Copied to clipboard.",
+      applied ? "success" : "info",
+    );
+  });
+  // Secondary "just copy" so users who don't want auto-apply still have it.
+  const copy = createWizardNode("button", "btn-copy-scraper", "Copy only");
+  copy.type = "button";
+  copy.addEventListener("click", () => {
+    copyTextToClipboard(url);
+    showToast("Copied to clipboard.", "info");
+  });
+  row.append(code, primary);
+  if (meta.kind !== "generic") row.append(copy);
+  card.appendChild(row);
+  if (meta.applyHint) {
+    appendWizardParagraph(
+      card,
+      meta.applyHint,
+      "settings-field-hint settings-field-hint--compact",
+    );
+  }
+}
+
+function appendWizardSuggestedCommandBlock(card, result) {
+  const cmd = String(result.suggestedCommand || "").trim();
+  if (!cmd) return;
+  // Use the run-in-terminal helper so users see the same combined cd+command
+  // and macOS .command download as the per-step renderers. Repo-aware via
+  // the active wizard runtime.
+  const runtime = getDiscoveryWizardRuntime();
+  appendWizardParagraph(
+    card,
+    "Run this command:",
+    "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold",
+  );
+  appendWizardRunInTerminalBlock(card, runtime, {
+    command: cmd,
+    fileName: "jobbored-suggested.command",
+  });
+}
+
+/**
+ * Render a recovery cluster after a failed step action: Try again + Copy AI
+ * prompt + Skip. Only appended when the latest result for this step failed.
+ * Skip writes the wizard state to "skipped" for the step and advances.
+ */
+function appendWizardFailureRecoveryCluster(parent, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const result = opts.result;
+  if (!result || result.ok) return null;
+  const wrap = createWizardNode("div", "discovery-wizard-recovery");
+  appendWizardParagraph(
+    wrap,
+    "Stuck? Try one of these:",
+    "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold",
+  );
+  const row = createWizardNode("div", "discovery-wizard-recovery__row");
+
+  // 1) Try again — re-runs the same step action.
+  const retryBtn = createWizardNode(
+    "button",
+    "btn-modal-primary discovery-wizard-recovery__btn",
+    "↻ Try again",
+  );
+  retryBtn.type = "button";
+  retryBtn.addEventListener("click", () => {
+    void handleDiscoveryWizardAction(opts.retryActionId);
+  });
+  row.appendChild(retryBtn);
+
+  // 2) Copy AI prompt — copies the diagnose prompt to clipboard.
+  if (opts.aiPrompt) {
+    const aiBtn = createWizardNode(
+      "button",
+      "btn-modal-secondary discovery-wizard-recovery__btn",
+      "📋 Copy AI assistant prompt",
+    );
+    aiBtn.type = "button";
+    aiBtn.title =
+      "Copies a diagnose-and-fix prompt to your clipboard. Paste it into your AI coding assistant (Claude, ChatGPT, Cursor, Factory) and it will walk you through the fix.";
+    aiBtn.addEventListener("click", () => {
+      copyTextToClipboard(opts.aiPrompt);
+      showToast(
+        "AI prompt copied. Paste it into your coding assistant for a guided fix.",
+        "success",
+      );
+    });
+    row.appendChild(aiBtn);
+  }
+
+  // 3) Skip for now — advances the wizard so advanced users with custom
+  // routes aren't blocked by a probe that can't see their setup.
+  if (opts.skipToStepId) {
+    const skipBtn = createWizardNode(
+      "button",
+      "btn-modal-secondary discovery-wizard-recovery__btn discovery-wizard-recovery__btn--ghost",
+      "Skip for now →",
+    );
+    skipBtn.type = "button";
+    skipBtn.title =
+      "Advances past this check. Use this if you have a custom setup the wizard can't auto-detect.";
+    skipBtn.addEventListener("click", () => {
+      const runtime = getDiscoveryWizardRuntime();
+      const snapshot = getDiscoveryReadinessSnapshot();
+      void moveDiscoveryWizardToStep(opts.skipToStepId, {
+        snapshot,
+        state: { ...(runtime.state || {}), [`${opts.skipKey || "skipped"}`]: true },
+      });
+      showToast(
+        "Skipped. You can come back to this step from the rail any time.",
+        "info",
+      );
+    });
+    row.appendChild(skipBtn);
+  }
+
+  wrap.appendChild(row);
+  parent.appendChild(wrap);
+  return wrap;
 }
 
 function buildDiscoveryWizardMessageCard(runtime) {
@@ -2969,16 +3382,15 @@ function buildDiscoveryBootstrapBody(runtime) {
       {
         id: "manual",
         label: "Terminal",
-        summary: "Run this in your project root.",
+        summary: "Paste one line into Terminal — no need to find your repo.",
         render(content) {
-          appendWizardCodeBlock(
-            content,
-            "npm run discovery:bootstrap-local",
-            "Copy command",
-          );
+          appendWizardRunInTerminalBlock(content, runtime, {
+            command: "npm run discovery:bootstrap-local",
+            fileName: "jobbored-bootstrap.command",
+          });
           appendWizardParagraph(
             content,
-            "Then press Load config above.",
+            "When the command finishes, press Load config above.",
             "settings-field-hint settings-field-hint--compact",
           );
         },
@@ -3032,16 +3444,17 @@ function buildDiscoveryLocalHealthBody(runtime) {
           label: "Terminal",
           summary:
             getDiscoveryLocalEngineKind(snapshot) === "hermes"
-              ? "Run the advanced Hermes path if that is intentional."
-              : "Run the recommended local browser-use worker.",
+              ? "Paste one line — no need to find your repo first."
+              : "Paste one line — no need to find your repo first.",
           render(content) {
-            appendWizardCodeBlock(
-              content,
+            const cmd =
               getDiscoveryLocalEngineKind(snapshot) === "hermes"
                 ? "hermes gateway run --replace"
-                : "npm run discovery:worker:start-local",
-              "Copy command",
-            );
+                : "npm run discovery:worker:start-local";
+            appendWizardRunInTerminalBlock(content, runtime, {
+              command: cmd,
+              fileName: "jobbored-start-worker.command",
+            });
             if (getDiscoveryLocalEngineKind(snapshot) !== "hermes") {
               appendWizardParagraph(
                 content,
@@ -3051,7 +3464,7 @@ function buildDiscoveryLocalHealthBody(runtime) {
             }
             appendWizardParagraph(
               content,
-              "Then press Check health above.",
+              "Leave this terminal running, then press Check health above.",
               "settings-field-hint settings-field-hint--compact",
             );
           },
@@ -3060,6 +3473,16 @@ function buildDiscoveryLocalHealthBody(runtime) {
     });
   }
   appendWizardResultCard(container, runtime.lastLocalResult, "Result");
+  // Failure recovery: surface Try again + Copy AI prompt + Skip when the
+  // last health probe failed. Lets users unstick themselves without hunting
+  // through the rail or scrolling.
+  appendWizardFailureRecoveryCluster(container, {
+    result: runtime.lastLocalResult,
+    retryActionId: "local_health_check",
+    aiPrompt: buildDiscoveryLocalHealthAgentPrompt(snapshot),
+    skipToStepId: "tunnel",
+    skipKey: "skippedLocalHealth",
+  });
   return container;
 }
 
@@ -3114,16 +3537,18 @@ function buildDiscoveryTunnelBody(runtime) {
       {
         id: "manual",
         label: "Terminal",
-        summary: "Run this in a separate terminal window.",
+        summary: "Run ngrok in a separate Terminal window — keep it open.",
         render(content) {
-          appendWizardCodeBlock(
-            content,
-            `ngrok http ${localPort}`,
-            "Copy command",
-          );
+          // ngrok doesn't need to be in the repo, but we still offer the
+          // .command shortcut so Mac users get one-click. The combined cd
+          // is harmless even when not strictly needed.
+          appendWizardRunInTerminalBlock(content, runtime, {
+            command: `ngrok http ${localPort}`,
+            fileName: "jobbored-ngrok.command",
+          });
           appendWizardParagraph(
             content,
-            "Then press Detect tunnel above.",
+            "Leave the ngrok terminal open. Then press Detect tunnel above.",
             "settings-field-hint settings-field-hint--compact",
           );
         },
@@ -3131,6 +3556,14 @@ function buildDiscoveryTunnelBody(runtime) {
     ],
   });
   appendWizardResultCard(container, runtime.lastLocalResult, "Result");
+  // Same recovery cluster as local_health. Skip target is the relay step.
+  appendWizardFailureRecoveryCluster(container, {
+    result: runtime.lastLocalResult,
+    retryActionId: "local_tunnel_detect",
+    aiPrompt: buildDiscoveryTunnelAgentPrompt(snapshot),
+    skipToStepId: "relay_deploy",
+    skipKey: "skippedTunnel",
+  });
   return container;
 }
 
@@ -3363,6 +3796,15 @@ function buildDiscoveryVerifyBody(runtime) {
       "discovery-setup-wizard__copy diag-summary",
     );
 
+    // Detect localhost so we can advertise the one-click auto-heal.
+    const isLocalhostHost =
+      typeof window !== "undefined" &&
+      window.location &&
+      (window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.hostname === "[::1]" ||
+        window.location.hostname === "::1");
+
     if (diagnosis.redeployCommand) {
       appendWizardParagraph(
         diagCard,
@@ -3371,7 +3813,9 @@ function buildDiscoveryVerifyBody(runtime) {
       );
       appendWizardParagraph(
         diagCard,
-        "Copy this command, paste it into a terminal opened in the Job-Bored repo, press Enter, then come back here and click Test again. It keeps the same Worker name and updates TARGET_URL to the live ngrok URL.",
+        isLocalhostHost
+          ? "One-click fix: click \u201cAuto-fix\u201d below to redeploy the relay against the live ngrok URL \u2014 no terminal needed. (Backup: copy the command if Cloudflare auth is missing.)"
+          : "Copy this command, paste it into a terminal opened in the Job-Bored repo, press Enter, then come back here and click Test again. It keeps the same Worker name and updates TARGET_URL to the live ngrok URL.",
         "discovery-setup-wizard__copy diag-redeploy-copy",
       );
       appendWizardCodeBlock(
@@ -3923,6 +4367,49 @@ async function renderDiscoverySetupWizard() {
 }
 
 async function openDiscoverySetupWizard(options = {}) {
+  // ====== [discovery-autodetect lane: silent recover] ======
+  // Probe the local discovery stack BEFORE rendering the wizard. If
+  // everything is healthy, skip the wizard entirely. If the only problem
+  // is fixable (worker down, ngrok rotated, etc.), the autodetect module
+  // runs /__proxy/full-boot silently and re-probes. Only when human input
+  // is genuinely needed do we fall through to the wizard below.
+  //
+  // Module owns no UI. Endpoint contract locked in dev-server.mjs
+  // handleDiscoveryState header. Pass options.skipAutodetect to bypass.
+  if (
+    !options.skipAutodetect &&
+    typeof window !== "undefined" &&
+    window.JobBoredDiscoveryAutodetect &&
+    typeof window.JobBoredDiscoveryAutodetect.recoverIfPossible === "function"
+  ) {
+    try {
+      const verdict =
+        await window.JobBoredDiscoveryAutodetect.recoverIfPossible();
+      if (verdict && verdict.ready) {
+        // Belt-and-suspenders: greenfield users who land on a healthy
+        // discovery stack still need keep-alive installed so the next ngrok
+        // rotation doesn't break them. installKeepAliveOnce is idempotent
+        // (localStorage-gated), so running it here is safe even if the
+        // explicit "Fix tunnel" path also called it earlier.
+        if (typeof installKeepAliveOnce === "function") {
+          try {
+            installKeepAliveOnce();
+          } catch (_) {
+            /* never block the user on keep-alive bookkeeping */
+          }
+        }
+        if (typeof showToast === "function") {
+          showToast("Discovery is already set up.", "info");
+        }
+        return;
+      }
+    } catch (err) {
+      // Autodetect failure is never fatal — fall through to the wizard.
+      console.warn("[JobBored] discovery autodetect skipped:", err);
+    }
+  }
+  // ====== [/discovery-autodetect lane] ======
+
   // Remember if onboarding was showing so we can restore it after wizard closes
   const onboardingWasVisible = isOnboardingWizardVisible();
   if (onboardingWasVisible) {
@@ -4203,11 +4690,21 @@ async function diagnoseDownstreamChain(snapshot) {
     }
     diagnosis.summary = `ngrok URL changed \u2014 relay needs redeployment.\nOld: ${oldDisplay}\nLive: ${liveNorm}`;
     diagnosis.liveNgrokUrl = liveNorm;
+    const onLocalhost =
+      typeof window !== "undefined" &&
+      window.location &&
+      (window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.hostname === "[::1]" ||
+        window.location.hostname === "::1");
     diagnosis.primaryFix = {
       id: "diag_fix_update_tunnel_and_relay",
-      label: "Update tunnel & save ngrok, then redeploy",
-      detail:
-        "Click to save the Live ngrok URL, then run the deploy command shown below from your Job-Bored repo (same Worker name = update in place).",
+      label: onLocalhost
+        ? "Auto-fix: redeploy relay & re-test"
+        : "Update tunnel & save ngrok, then redeploy",
+      detail: onLocalhost
+        ? "One click. Calls the local helper to redeploy the relay against the live ngrok URL, then re-runs the test."
+        : "Click to save the Live ngrok URL, then run the deploy command shown below from your Job-Bored repo (same Worker name = update in place).",
     };
 
     if (liveNorm && liveNorm !== "unknown") {
@@ -4681,32 +5178,15 @@ async function handleDiscoveryWizardAction(actionId) {
     );
     let nextStep = result.nextStepId || runtime.activeStepId;
     let statePatch = result.wizardStatePatch || {};
-    const stayOnStepAfterSuccess =
-      result.ok &&
-      (actionId === "local_health_check" || actionId === "local_tunnel_detect");
-    if (stayOnStepAfterSuccess) {
-      nextStep = runtime.activeStepId;
-      if (
-        result.wizardStatePatch &&
-        typeof result.wizardStatePatch === "object"
-      ) {
-        statePatch = {
-          ...result.wizardStatePatch,
-          currentStep: runtime.activeStepId,
-        };
-      }
-    }
+    // Per UX consultation: auto-advance on success for the gate steps
+    // (local_health_check + local_tunnel_detect). The previous design held
+    // the user on the step which felt like "stuck" — most users missed the
+    // step rail and didn't realize they could continue.
     const detailOneLine =
       result.detail && typeof result.detail === "string"
         ? result.detail.replace(/\s+/g, " ").trim().slice(0, 220)
         : "";
-    const toastText = [
-      result.message || "",
-      detailOneLine,
-      stayOnStepAfterSuccess
-        ? "Use the step rail above when you are ready for the next step."
-        : "",
-    ]
+    const toastText = [result.message || "", detailOneLine]
       .filter(Boolean)
       .join(" ")
       .trim();
@@ -4853,8 +5333,75 @@ async function handleDiscoveryWizardAction(actionId) {
     const liveUrl = diagnosis && diagnosis.liveNgrokUrl;
     if (liveUrl && liveUrl !== "unknown") {
       writeDiscoveryTransportSetupState({ tunnelPublicUrl: liveUrl });
-      const deployCommand =
-        diagnosis && diagnosis.redeployCommand ? diagnosis.redeployCommand : "";
+    }
+
+    // Auto-heal path: when running on localhost, the dev-server exposes
+    // /__proxy/fix-setup which redeploys the relay against the live ngrok
+    // URL in place. No copy-paste, no second terminal.
+    const isLocal =
+      typeof window !== "undefined" &&
+      window.location &&
+      (window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.hostname === "[::1]" ||
+        window.location.hostname === "::1");
+
+    if (isLocal) {
+      setDiscoveryWizardMessage(
+        "Auto-healing tunnel & relay… (no terminal needed)",
+        "info",
+      );
+      try {
+        const resp = await fetch("/__proxy/fix-setup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        const body = await resp.json().catch(() => ({}));
+        if (resp.ok && body && body.ok) {
+          showToast(
+            body.relayRedeployed
+              ? "Relay redeployed against live ngrok URL — re-testing…"
+              : "Local setup restored — re-testing…",
+            "success",
+          );
+          // Re-snapshot, clear stale diagnosis, then re-run verification.
+          await refreshDiscoveryReadinessSnapshot({
+            force: true,
+            rerender: false,
+          });
+          updateDiscoveryWizardRuntime({ lastDownstreamDiagnosis: null });
+          const endpointUrl = normalizeDiscoveryWebhookIdentity(
+            getDiscoveryWebhookUrl() ||
+              runtime.drafts.workerUrl ||
+              runtime.drafts.endpointUrl ||
+              runtime.snapshot.savedWebhookUrl ||
+              "",
+          );
+          return handleDiscoveryWizardVerification(
+            endpointUrl,
+            "test_webhook",
+          );
+        }
+        if (body && body.needsAuth) {
+          showToast(
+            "Cloudflare auth needed. Run `npx wrangler login` in a terminal, then click Re-check.",
+            "warning",
+            true,
+          );
+          return renderDiscoverySetupWizard();
+        }
+        // fall through to copy-command UX
+      } catch (e) {
+        console.warn("[JobBored] fix-setup proxy unavailable:", e);
+      }
+    }
+
+    // Fallback: hosted dashboard or proxy unavailable — show the copy command
+    // (preserves the original UX so we never regress non-local users).
+    const deployCommand =
+      diagnosis && diagnosis.redeployCommand ? diagnosis.redeployCommand : "";
+    if (liveUrl && liveUrl !== "unknown") {
       showToast(
         "Live ngrok URL saved. Copy the command, paste it into a terminal in the Job-Bored repo, press Enter, then Test again.",
         "warning",
@@ -7298,6 +7845,52 @@ function showToast(message, type = "success", persistent = false, action) {
 // AUTH — Google Identity Services
 // ============================================
 
+/**
+ * Apply a freshly saved OAuth client ID without forcing a full page reload.
+ * Tries to rebuild the GIS tokenClient in place; falls back to reload if that
+ * fails (e.g. GIS not loaded yet, or tokenClient threw). Removes the most
+ * jarring UX moment in the greenfield setup path.
+ */
+function applyOAuthClientChange(clientId) {
+  const cid = String(clientId || "").trim();
+  if (!cid) return false;
+  // We only safely re-init when GIS is already loaded.
+  if (
+    typeof google === "undefined" ||
+    !google.accounts ||
+    !google.accounts.oauth2 ||
+    !gisLoaded
+  ) {
+    return false;
+  }
+  try {
+    // Drop any cached session bound to a different client id.
+    clearPersistedOAuthSession();
+    accessToken = null;
+    tokenExpiresAt = 0;
+    grantedOauthScopes = [];
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: cid,
+      scope: GOOGLE_SIGNIN_SCOPES,
+      include_granted_scopes: true,
+      callback: handleTokenResponse,
+      error_callback: (err) => {
+        console.error("[JobBored] GIS error_callback (re-init):", err);
+        recordSheetAccessError(err);
+      },
+    });
+    setupAuthUI();
+    renderSetupStarterSheetUi();
+    renderAppsScriptDeployUi();
+    maybeSyncSettingsModalModeAfterAuth();
+    showSheetAccessGate(getOAuthClientId() ? "signin" : "loading");
+    return true;
+  } catch (e) {
+    console.warn("[JobBored] in-place OAuth re-init failed, will reload:", e);
+    return false;
+  }
+}
+
 function initAuth() {
   const clientId = getOAuthClientId();
   if (!clientId) {
@@ -7521,10 +8114,22 @@ function signIn(options = {}) {
   }
   oauthPendingOp = { kind: "interactive" };
   const request = {};
-  const prompt =
+  let prompt =
     options && typeof options === "object" && options.prompt != null
       ? String(options.prompt)
       : "";
+  // One-shot consent override: if the user just ran "Clear settings", force
+  // the consent screen on the very next interactive sign-in so they cannot
+  // be silently re-authed from a lingering Google consent grant. Consume the
+  // flag here so it only applies once.
+  try {
+    if (canUseLocalStorage() && localStorage.getItem(FORCE_CONSENT_PROMPT_KEY)) {
+      prompt = "consent";
+      localStorage.removeItem(FORCE_CONSENT_PROMPT_KEY);
+    }
+  } catch (_) {
+    /* ignore */
+  }
   if (prompt) request.prompt = prompt;
   tokenClient.requestAccessToken(request);
 }
@@ -7628,6 +8233,169 @@ function initAuthUserMenu() {
     },
     true,
   );
+
+  // "Resume onboarding": always-available re-entry into the wizard,
+  // regardless of whether onboarding was previously marked complete.
+  const resumeBtn = document.getElementById("resumeOnboardingBtn");
+  if (resumeBtn) {
+    resumeBtn.addEventListener("click", () => {
+      closeAuthUserMenu();
+      try {
+        showOnboardingWizard();
+      } catch (e) {
+        console.warn("[JobBored] resume onboarding:", e);
+      }
+    });
+  }
+
+  // "Run setup doctor": run a full diagnose+autoHeal pass on demand.
+  const doctorBtn = document.getElementById("setupDoctorBtn");
+  if (doctorBtn) {
+    doctorBtn.addEventListener("click", async () => {
+      closeAuthUserMenu();
+      if (!window.SetupDoctor) {
+        showToast("Setup doctor unavailable in this build.", "warning");
+        return;
+      }
+      showToast("Running setup doctor…", "info");
+      const ctx = { lastError: lastSheetAccessError || "" };
+      const report = await window.SetupDoctor.diagnose(ctx);
+      if (!report.issues.length) {
+        showToast("Setup looks healthy.", "success");
+        return;
+      }
+      // Render into the login gate panel slot so the user has a
+      // consistent place to act on findings, even if they're already
+      // signed in.
+      showSheetAccessGate("error");
+    });
+  }
+
+  const healthBtn = document.getElementById("setupHealthBtn");
+  if (healthBtn) {
+    healthBtn.addEventListener("click", async () => {
+      closeAuthUserMenu();
+      const result = await installDoctor();
+      if (!result || result.notImplemented) {
+        showToast("Install doctor isn't available in this build.", "info");
+        return;
+      }
+      const missing = (result && result.missing) || [];
+      if (missing.length) {
+        showToast(missing[0], "warning", true);
+      } else {
+        showToast("All install tools look healthy.", "success");
+      }
+      refreshKeepAlivePill();
+    });
+  }
+
+  const authToggle = document.getElementById("authMenuToggle");
+  if (authToggle) {
+    authToggle.addEventListener("click", () => {
+      refreshKeepAlivePill();
+    });
+  }
+}
+
+async function installDoctor() {
+  try {
+    const resp = await fetch("/__proxy/install-doctor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    if (resp.status === 501) {
+      return { ok: false, notImplemented: true };
+    }
+    const body = await resp.json().catch(() => ({}));
+    if (typeof window !== "undefined") {
+      window.installDoctorState = body;
+      try {
+        window.dispatchEvent(
+          new CustomEvent("jobbored:install-doctor:update", { detail: body }),
+        );
+      } catch (_) {}
+    }
+    return body;
+  } catch (e) {
+    return { ok: false, error: e && e.message };
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.installDoctor = installDoctor;
+}
+
+const KEEP_ALIVE_INSTALLED_KEY = "jb:install-keep-alive:installedAt";
+
+async function installKeepAliveOnce() {
+  try {
+    if (
+      typeof localStorage !== "undefined" &&
+      localStorage.getItem(KEEP_ALIVE_INSTALLED_KEY)
+    ) {
+      return;
+    }
+    const resp = await fetch("/__proxy/install-keep-alive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ schedule: "auto" }),
+    });
+    if (resp.status === 501) return;
+    const body = await resp.json().catch(() => ({}));
+    if (body && body.ok) {
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem(
+            KEEP_ALIVE_INSTALLED_KEY,
+            body.installedAt || new Date().toISOString(),
+          );
+        }
+      } catch (_) {}
+      if (typeof window !== "undefined") {
+        window.keepAliveStatusState = {
+          installed: true,
+          lastRunAt: body.installedAt,
+          jobLabel: body.jobLabel,
+        };
+      }
+    }
+  } catch (_) {
+    /* silent — never block the user */
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.installKeepAliveOnce = installKeepAliveOnce;
+}
+
+async function refreshKeepAlivePill() {
+  const pill = document.getElementById("keepAlivePill");
+  if (!pill) return;
+  try {
+    const resp = await fetch("/__proxy/install-keep-alive/status");
+    if (resp.status === 501) {
+      pill.hidden = true;
+      return;
+    }
+    const body = await resp.json().catch(() => ({}));
+    if (typeof window !== "undefined") {
+      window.keepAliveStatusState = body;
+    }
+    pill.hidden = false;
+    if (body && body.installed) {
+      pill.textContent = "Auto-healing on";
+      pill.classList.add("doctor-keep-alive-pill--on");
+      pill.classList.remove("doctor-keep-alive-pill--off");
+    } else {
+      pill.textContent = "Not installed — install";
+      pill.classList.add("doctor-keep-alive-pill--off");
+      pill.classList.remove("doctor-keep-alive-pill--on");
+    }
+  } catch (_) {
+    pill.hidden = true;
+  }
 }
 
 function setAuthAvatarDisplay() {
@@ -7800,38 +8568,118 @@ function resetLoginGateOAuthWizardToChoice() {
 }
 
 function initLoginGateOAuthUi() {
-  const openSettingsPrimary = document.getElementById(
-    "sheetAccessGateBtnOpenSettings",
-  );
   const createOAuth = document.getElementById("sheetAccessGateBtnCreateOAuth");
   const back = document.getElementById("sheetAccessGateOAuthWizardBack");
-  const copyOrigin = document.getElementById("sheetAccessGateCopyOriginBtn");
   const save = document.getElementById("sheetAccessGateOAuthSaveBtn");
+  const openConsole = document.getElementById(
+    "sheetAccessGateOAuthOpenConsoleBtn",
+  );
+  const inputs = [
+    document.getElementById("sheetAccessGateOAuthClientIdInput"),
+    document.getElementById("sheetAccessGateOAuthClientIdInputAlt"),
+  ].filter(Boolean);
 
-  if (openSettingsPrimary) {
-    openSettingsPrimary.addEventListener("click", () => {
-      const input = document.getElementById(
-        "sheetAccessGateOAuthClientIdInput",
-      );
-      const raw = input && input.value ? String(input.value).trim() : "";
-      if (
-        raw &&
-        /\.apps\.googleusercontent\.com$/i.test(raw) &&
-        raw !== "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com"
-      ) {
-        mergeStoredConfigOverridePatch({ oauthClientId: raw });
-      }
-      void openCommandCenterSettingsModal();
-    });
+  /** Accept any pasted Client ID (raw, full URL, or surrounding whitespace). */
+  function extractClientIdFromInput(raw) {
+    const t = String(raw || "").trim();
+    if (!t) return "";
+    const m = t.match(/[\w-]+\.apps\.googleusercontent\.com/i);
+    return m ? m[0] : "";
   }
+
+  function trySaveAndContinue(raw) {
+    const id = extractClientIdFromInput(raw);
+    if (!id || id === "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com") {
+      return false;
+    }
+    mergeStoredConfigOverridePatch({ oauthClientId: id });
+    if (applyOAuthClientChange(id)) {
+      showToast("Signed-in setup saved.", "success");
+    } else {
+      showToast("Saved — reloading…", "success");
+      setTimeout(() => window.location.reload(), 400);
+    }
+    return true;
+  }
+
+  // Auto-save on paste — no separate "Save" click required.
+  inputs.forEach((input) => {
+    input.addEventListener("input", () => {
+      trySaveAndContinue(input.value);
+    });
+  });
+
   if (createOAuth) {
-    createOAuth.addEventListener("click", () => {
+    createOAuth.addEventListener("click", async () => {
       const choice = document.getElementById("sheetAccessGateOAuthChoice");
       const wizard = document.getElementById("sheetAccessGateOAuthWizard");
       syncLoginGateOAuthOriginDisplay();
+      // Pre-copy the origin so the user just pastes when Google asks.
+      try {
+        await navigator.clipboard.writeText(window.location.origin);
+      } catch (_) {
+        /* clipboard may be blocked — non-fatal, the origin is still visible */
+      }
       if (choice) choice.hidden = true;
       if (wizard) wizard.hidden = false;
-      document.getElementById("sheetAccessGateOAuthClientIdInput")?.focus();
+      document
+        .getElementById("sheetAccessGateOAuthClientIdInputAlt")
+        ?.focus();
+      maybeRevealOAuthGcloudButton();
+    });
+  }
+
+  const gcloudBtn = document.getElementById("sheetAccessGateOAuthGcloudBtn");
+  if (gcloudBtn) {
+    gcloudBtn.addEventListener("click", async () => {
+      gcloudBtn.disabled = true;
+      const original = gcloudBtn.textContent;
+      gcloudBtn.textContent = "Creating with gcloud…";
+      try {
+        const resp = await fetch("/__proxy/oauth-bootstrap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        if (resp.status === 501) {
+          gcloudBtn.hidden = true;
+          return;
+        }
+        const body = await resp.json().catch(() => ({}));
+        if (body && body.ok && body.clientId) {
+          const altInput = document.getElementById(
+            "sheetAccessGateOAuthClientIdInputAlt",
+          );
+          if (altInput) altInput.value = body.clientId;
+          if (trySaveAndContinue(body.clientId)) {
+            showToast("Client ID created with gcloud.", "success");
+            return;
+          }
+        }
+        const message =
+          (body && body.actionable) ||
+          "gcloud couldn’t create a Client ID. Try the manual steps.";
+        showToast(message, "warning", true);
+      } catch (e) {
+        console.warn("[JobBored] oauth-bootstrap:", e);
+        showToast(
+          "gcloud auto-create unavailable. Try manual steps.",
+          "warning",
+        );
+      } finally {
+        gcloudBtn.disabled = false;
+        gcloudBtn.textContent = original;
+      }
+    });
+  }
+  if (openConsole) {
+    openConsole.addEventListener("click", () => {
+      // Deep-link straight to the OAuth client creation page.
+      window.open(
+        "https://console.cloud.google.com/apis/credentials/oauthclient",
+        "_blank",
+        "noopener",
+      );
     });
   }
   if (back) {
@@ -7839,42 +8687,31 @@ function initLoginGateOAuthUi() {
       resetLoginGateOAuthWizardToChoice();
     });
   }
-  if (copyOrigin) {
-    copyOrigin.addEventListener("click", async () => {
-      const o = window.location.origin;
-      try {
-        await navigator.clipboard.writeText(o);
-        showToast("Origin copied", "success");
-      } catch (e) {
-        showToast(
-          "Could not copy — select the origin and copy manually",
-          "error",
-        );
-      }
-    });
-  }
   if (save) {
     save.addEventListener("click", () => {
       const input = document.getElementById(
         "sheetAccessGateOAuthClientIdInput",
       );
-      const raw = input && input.value ? String(input.value).trim() : "";
-      if (
-        !raw ||
-        !/\.apps\.googleusercontent\.com$/i.test(raw) ||
-        raw === "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com"
-      ) {
-        showToast(
-          "Paste a valid Client ID ending in .apps.googleusercontent.com",
-          "error",
-          true,
-        );
-        return;
+      if (!trySaveAndContinue(input ? input.value : "")) {
+        showToast("Paste a valid Google Client ID.", "error", true);
       }
-      mergeStoredConfigOverridePatch({ oauthClientId: raw });
-      showToast("OAuth client saved — reloading…", "success");
-      setTimeout(() => window.location.reload(), 400);
     });
+  }
+}
+
+async function maybeRevealOAuthGcloudButton() {
+  const btn = document.getElementById("sheetAccessGateOAuthGcloudBtn");
+  if (!btn) return;
+  btn.hidden = true;
+  try {
+    const result = await installDoctor();
+    if (!result || result.notImplemented) return;
+    const gcloud = result.tools && result.tools.gcloud;
+    if (gcloud && gcloud.installed && gcloud.loggedIn) {
+      btn.hidden = false;
+    }
+  } catch (_) {
+    /* leave hidden */
   }
 }
 
@@ -7996,6 +8833,40 @@ function showSheetAccessGate(mode) {
   if (setup) setup.style.display = "none";
   dashboard.style.display = "none";
   screen.style.display = "flex";
+
+  // Run the SetupDoctor in error mode so the user sees concrete fix actions
+  // instead of a generic "Couldn't load this sheet" message.
+  const doctorHost = document.getElementById("sheetAccessGateDoctorPanel");
+  if (
+    doctorHost &&
+    typeof window !== "undefined" &&
+    window.SetupDoctor &&
+    typeof window.SetupDoctor.diagnose === "function"
+  ) {
+    if (mode === "error") {
+      doctorHost.hidden = false;
+      const ctx = { lastError: lastSheetAccessError || "" };
+      window.SetupDoctor.diagnose(ctx)
+        .then((report) => {
+          report._ctx = ctx;
+          if (report.issues.length === 0) return;
+          window.SetupDoctor.renderInline(doctorHost, report);
+        })
+        .catch(() => {
+          /* doctor is best-effort; ignore */
+        });
+    } else {
+      doctorHost.hidden = true;
+      while (doctorHost.firstChild) doctorHost.removeChild(doctorHost.firstChild);
+    }
+  }
+}
+
+/** Last raw error string the sheet/auth pipeline saw — fed into SetupDoctor. */
+let lastSheetAccessError = "";
+function recordSheetAccessError(err) {
+  if (!err) return;
+  lastSheetAccessError = err && err.message ? String(err.message) : String(err);
 }
 
 function hideSheetAccessGate() {
@@ -10110,6 +10981,12 @@ async function fetchSheetViaSheetsAPI(sheetName, isRetry) {
       resp.status,
       err.error || err,
     );
+    // Record the raw Google API error for SetupDoctor to classify
+    // (insufficient_scope, origin_mismatch, sheet 403/404, etc.).
+    const msg =
+      (err.error && err.error.message) ||
+      `Sheets API ${resp.status} on ${name}`;
+    recordSheetAccessError({ message: msg, status: resp.status });
     return null;
   }
   const data = await resp.json();
@@ -12877,7 +13754,11 @@ let onboardingResumeDraft = null;
 /** How user supplied resume: "upload" | "paste" (for Back navigation from tone step). */
 let onboardingResumePath = null;
 
-const ONBOARDING_TOTAL_STEPS = 9;
+// 4 steps: 1=resume, 2=role chips (Gemini-suggested), 3=AI context, 4=tone.
+// Step 2 is the "delight + don't pigeonhole" stage — it asks Gemini for
+// adjacent + lateral career suggestions so users with one-track resumes
+// don't accidentally narrow the discovery algorithm to that single track.
+const ONBOARDING_TOTAL_STEPS = 4;
 let lastResumeGenerationSession = null;
 let pendingDraftNotesRequest = null;
 let candidateProfileMatchCache = {
@@ -12915,6 +13796,34 @@ function getResumeGenerate() {
 
 function getResumeIngest() {
   return window.CommandCenterResumeIngest;
+}
+
+/**
+ * Async variant of getResumeIngest that waits up to ~3s for the resume-ingest
+ * module + its CDN-loaded dependencies (pdf.js, mammoth) to be ready.
+ *
+ * Why this exists: pdf.js and mammoth are pulled from CDNs in <script> tags
+ * without async/defer. On most loads they're synchronously ready before
+ * DOMContentLoaded, but on cold caches or slow links they can finish a few
+ * hundred ms later. The onboarding file-input change handler used to call
+ * the sync getter directly and fail with "Resume reader didn't load" on the
+ * first pick — which the user reported as "I have to refresh the page in
+ * order for the file selector to successfully put the file visibly into the
+ * UX". Waiting briefly fixes that without a refresh.
+ *
+ * Retries every 100ms (~30 polls) before giving up; immediate-resolve when
+ * ready so the common fast path adds zero latency.
+ */
+async function getResumeIngestReady(maxWaitMs) {
+  const limitMs = typeof maxWaitMs === "number" ? maxWaitMs : 3000;
+  const stepMs = 100;
+  const start = Date.now();
+  let ingest = window.CommandCenterResumeIngest;
+  while (!ingest && Date.now() - start < limitMs) {
+    await new Promise((resolve) => setTimeout(resolve, stepMs));
+    ingest = window.CommandCenterResumeIngest;
+  }
+  return ingest || null;
 }
 
 function getJobOpportunityKey(job) {
@@ -14280,8 +15189,23 @@ function showOnboardingWizard() {
   if (statusUp) {
     statusUp.textContent = "";
     statusUp.classList.remove("onboarding-status--error");
+    statusUp.classList.remove("onboarding-status--ok");
   }
   if (fileIn) fileIn.value = "";
+  // Reset the Gemini-suggested careers panel so re-entry starts clean.
+  // (Avoids stale chips/loading state if the user reopens the wizard.)
+  try {
+    onboardingResetSuggestState();
+    onboardingSuggestRenderChips();
+    onboardingSuggestSetStatus("", null);
+    const addInput = document.getElementById("onboardingSuggestAddInput");
+    if (addInput) addInput.value = "";
+    const keyInput = document.getElementById("onboardingSuggestKeyInput");
+    if (keyInput) keyInput.value = "";
+    onboardingSuggestShowKeyGate(false);
+  } catch (_) {
+    /* defensive — function is defined below */
+  }
   if (toneHidden) toneHidden.value = "warm";
   if (mw) mw.value = "350";
   if (voice) voice.value = "";
@@ -14294,10 +15218,18 @@ function showOnboardingWizard() {
     samplesStatus.classList.remove("onboarding-status--error");
   }
   if (aiCtx) aiCtx.value = "";
+  // onboardingAiTarget was removed in the Step 3 consolidation — Step 2
+  // chips own role targeting now. Only the strength + avoid fields remain.
+  ["onboardingAiStrength", "onboardingAiAvoid"].forEach(
+    (id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = "";
+    },
+  );
   syncOnboardingToneCards("warm");
   setOnboardingStep(1);
   w.style.display = "flex";
-  document.getElementById("onboardingNext1")?.focus();
+  document.getElementById("onboardingFileInput")?.focus();
 }
 
 function updateOnboardingProgressUI(step) {
@@ -14356,38 +15288,33 @@ function renderOnboardingSummary() {
 }
 
 function setOnboardingStep(step) {
+  // Four-panel wizard: 1 = resume, 2 = role suggestions, 3 = AI context, 4 = tone.
   for (let i = 1; i <= ONBOARDING_TOTAL_STEPS; i++) {
     const p = document.getElementById(`onboardingPanel${i}`);
     if (p) p.style.display = i === step ? "block" : "none";
   }
   const title = document.getElementById("onboardingWizardTitle");
   const titles = {
-    1: "Welcome",
-    2: "Upload resume",
-    3: "Paste resume",
+    1: "Resume",
+    2: "Roles to explore",
+    3: "About your search",
     4: "Tone",
-    5: "Length",
-    6: "Voice",
-    7: "Writing samples",
-    8: "AI context",
-    9: "Ready",
   };
-  if (title) title.textContent = titles[step] || "Welcome";
+  if (title) title.textContent = titles[step] || "Setup";
   updateOnboardingProgressUI(step);
-  if (step === 2) updateOnboardingContinue2Enabled();
-  if (step === 3) updateOnboardingNext3Enabled();
-  if (step === 9) renderOnboardingSummary();
+  if (step === 1) updateOnboardingContinue2Enabled();
+  if (step === 2) {
+    // Lazy-load suggestions the first time we land on this step. Gemini-only
+    // by design (per onboarding consultation) — if it's not configured we
+    // surface a clear message and let the user free-add their own roles.
+    void onboardingSuggestEnsureLoaded();
+  }
 
   const focusMap = {
-    1: "onboardingNext1",
-    2: "onboardingPasteInstead",
-    3: "onboardingPasteText",
-    4: "onboardingNext4",
-    5: "wizardPrefMaxWords",
-    6: "wizardPrefVoice",
-    7: "onboardingSamplesFileInput",
-    8: "onboardingAiContextText",
-    9: "onboardingFinish",
+    1: "onboardingFileInput",
+    2: "onboardingSuggestAddInput",
+    3: "onboardingAiStrength",
+    4: "wizardPrefVoice",
   };
   const fid = focusMap[step];
   if (fid) {
@@ -14464,114 +15391,682 @@ function ensureResumeDraftFromPasteStep() {
   return true;
 }
 
+// ============================================
+// Onboarding step 2: Suggested careers (Gemini-backed)
+// ============================================
+
+// Per-session state for the suggestions panel. Lives in module scope (not
+// localStorage) — suggestions are cheap to regenerate and we don't want stale
+// chips surviving a wizard re-entry.
+let onboardingSuggestState = {
+  loaded: false, // true after first successful Gemini call
+  loading: false, // in-flight guard (prevents double Show me more clicks)
+  error: null, // last error string, surfaced in status line
+  generation: 0, // monotonic counter so re-rolls can dedupe vs prior batch
+  // Map<lowercase label, { label, selected, source: "gemini"|"custom" }>.
+  // Map preserves insertion order so chips don't reshuffle on selection toggle.
+  byKey: new Map(),
+};
+
+function onboardingResetSuggestState() {
+  onboardingSuggestState = {
+    loaded: false,
+    loading: false,
+    error: null,
+    generation: 0,
+    byKey: new Map(),
+  };
+}
+
+function onboardingGetSelectedRoles() {
+  const out = [];
+  for (const v of onboardingSuggestState.byKey.values()) {
+    if (v.selected && v.label) out.push(v.label);
+  }
+  return out;
+}
+
+function onboardingSuggestNormalizeLabel(raw) {
+  return String(raw || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function onboardingSuggestKey(label) {
+  return onboardingSuggestNormalizeLabel(label).toLowerCase();
+}
+
+/**
+ * Render the chip row from current state. Idempotent — safe to call after any
+ * state mutation. Each chip is a button so it's keyboard-accessible.
+ */
+function onboardingSuggestRenderChips() {
+  const row = document.getElementById("onboardingSuggestChipRow");
+  const foot = document.getElementById("onboardingSuggestFoot");
+  if (!row) return;
+  row.innerHTML = "";
+  const entries = Array.from(onboardingSuggestState.byKey.values());
+  if (!entries.length && onboardingSuggestState.loaded) {
+    foot && (foot.textContent = "");
+    return;
+  }
+  for (const entry of entries) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "onboarding-suggest-chip";
+    btn.setAttribute("role", "listitem");
+    btn.setAttribute("aria-pressed", entry.selected ? "true" : "false");
+    if (entry.selected) btn.classList.add("onboarding-suggest-chip--selected");
+    if (entry.source === "custom") {
+      btn.classList.add("onboarding-suggest-chip--custom");
+    }
+    btn.dataset.suggestKey = onboardingSuggestKey(entry.label);
+    btn.textContent = entry.label;
+    btn.addEventListener("click", () => {
+      entry.selected = !entry.selected;
+      btn.setAttribute("aria-pressed", entry.selected ? "true" : "false");
+      btn.classList.toggle(
+        "onboarding-suggest-chip--selected",
+        entry.selected,
+      );
+      onboardingSuggestRenderFoot();
+    });
+    row.appendChild(btn);
+  }
+  onboardingSuggestRenderFoot();
+}
+
+function onboardingSuggestRenderFoot() {
+  const foot = document.getElementById("onboardingSuggestFoot");
+  if (!foot) return;
+  const total = onboardingSuggestState.byKey.size;
+  const picked = onboardingGetSelectedRoles().length;
+  if (!total) {
+    foot.textContent = "";
+    return;
+  }
+  foot.textContent = picked
+    ? `${picked} selected · ${total} options shown — pick as many as feel right.`
+    : `${total} options — pick at least one or skip with Continue.`;
+}
+
+function onboardingSuggestSetStatus(message, kind) {
+  const el = document.getElementById("onboardingSuggestStatus");
+  if (!el) return;
+  el.textContent = message || "";
+  el.classList.remove(
+    "onboarding-status--error",
+    "onboarding-status--ok",
+    "onboarding-status--loading",
+  );
+  if (!message) return;
+  if (kind === "error") el.classList.add("onboarding-status--error");
+  else if (kind === "loading") el.classList.add("onboarding-status--loading");
+  else if (kind === "ok") el.classList.add("onboarding-status--ok");
+}
+
+function onboardingSuggestSetLoading(loading) {
+  onboardingSuggestState.loading = loading;
+  const reroll = document.getElementById("onboardingSuggestReroll");
+  if (reroll) reroll.disabled = loading;
+  if (loading) {
+    onboardingSuggestSetStatus(
+      "Asking Gemini for adjacent + lateral roles…",
+      "loading",
+    );
+  }
+}
+
+/**
+ * One-shot loader on first navigation to step 2. Skips if already loaded so
+ * Back/Next doesn't burn API calls. Re-roll explicitly resets and reloads.
+ */
+async function onboardingSuggestEnsureLoaded() {
+  if (onboardingSuggestState.loaded || onboardingSuggestState.loading) return;
+  await onboardingSuggestLoad({ append: false });
+}
+
+/**
+ * Re-roll: generate a fresh batch, but keep currently-selected chips so the
+ * user doesn't lose their choices when they ask for more variety. New batch
+ * is appended (deduped) so the chip set grows rather than churning entirely.
+ */
+async function onboardingSuggestLoad({ append }) {
+  if (onboardingSuggestState.loading) return;
+  onboardingSuggestState.error = null;
+
+  const draft = onboardingResumeDraft;
+  const resumeText = String(draft && draft.extractedText ? draft.extractedText : "")
+    .trim();
+  if (!resumeText) {
+    onboardingSuggestSetStatus(
+      "Upload or paste a resume on the previous step first.",
+      "error",
+    );
+    return;
+  }
+
+  // Pull provider config the same way the rest of the AI surfaces do.
+  // Model name comes from the central resolver — never inline a model
+  // string here, or the next deprecation will silently break onboarding
+  // again. (See resolveGeminiModel for the resolution order.)
+  const cfg = window.COMMAND_CENTER_CONFIG || {};
+  const overrides = readStoredConfigOverrides();
+  const apiKey =
+    overrides.resumeGeminiApiKey || cfg.resumeGeminiApiKey || "";
+  const model = resolveGeminiModel();
+
+  if (!apiKey) {
+    // Reveal the inline "get a free key" panel above the chips. Friendlier
+    // than a red error toast and doesn't punt the user into Settings.
+    onboardingSuggestShowKeyGate(true);
+    onboardingSuggestSetStatus(
+      "Add a free Gemini key above to see role suggestions — or type your own roles below.",
+      null,
+    );
+    onboardingSuggestState.loaded = true; // unblock the panel; user can free-add
+    onboardingSuggestRenderChips();
+    return;
+  }
+  // Key exists: make sure the gate is hidden (covers the case where the
+  // user just saved a key and we re-entered the load path).
+  onboardingSuggestShowKeyGate(false);
+
+  if (!append) {
+    // Initial load: clear gemini-sourced chips but preserve any custom ones.
+    const customs = Array.from(onboardingSuggestState.byKey.values()).filter(
+      (v) => v.source === "custom",
+    );
+    onboardingSuggestState.byKey = new Map(
+      customs.map((v) => [onboardingSuggestKey(v.label), v]),
+    );
+  }
+
+  onboardingSuggestSetLoading(true);
+  onboardingSuggestState.generation += 1;
+  const gen = onboardingSuggestState.generation;
+  // Already-shown labels: tell Gemini to avoid these on re-roll.
+  const alreadyShown = Array.from(onboardingSuggestState.byKey.values()).map(
+    (v) => v.label,
+  );
+
+  // Truncate resume to keep the prompt cheap. 12k chars is plenty for role
+  // inference and well under any sensible token budget.
+  const resumeForPrompt = resumeText.slice(0, 12_000);
+
+  const systemPrompt = [
+    "You are a career exploration assistant.",
+    "Given a resume, you suggest a BROAD set of role titles the candidate",
+    "could realistically pursue — including adjacent specialties AND lateral",
+    "pivots one step away from their obvious track.",
+    "Goal: prevent the user from pigeonholing themselves before job search.",
+    "Cover at least three distinct categories: (a) direct fits, (b) adjacent",
+    "specialties (different stack/scope, same craft), (c) lateral pivots",
+    "(different craft, transferable skills).",
+    "Never repeat titles. Use canonical industry titles (no clickbait).",
+    "Avoid seniority prefixes like Senior/Staff/Lead unless the resume strongly",
+    "indicates that band — keep titles broad so search isn't over-filtered.",
+    "Return STRICT JSON only.",
+  ].join(" ");
+
+  const userPayload = {
+    instruction:
+      "Suggest 15 to 20 distinct role titles the candidate could explore. Mix direct fits, adjacent specialties, and lateral pivots.",
+    avoidExactTitles: alreadyShown,
+    resume: resumeForPrompt,
+    schema: {
+      roles: [
+        {
+          title: "string — concise role title",
+          category: "direct | adjacent | lateral",
+        },
+      ],
+    },
+  };
+
+  const userPrompt =
+    `${JSON.stringify(userPayload, null, 2)}\n\nReturn JSON: { "roles": [ { "title": "...", "category": "..." } ] }`;
+
+  let raw;
+  try {
+    // json:true → tells the resolver to set responseMimeType=application/json
+    // AND raise the output-token cap for 2.5-family thinking models. Without
+    // these two flags the model silently truncates with finishReason=MAX_TOKENS
+    // before any roles are emitted, which surfaces as "no suggestions".
+    raw = await callDiscoveryAiGemini(systemPrompt, userPrompt, apiKey, model, {
+      json: true,
+    });
+  } catch (err) {
+    if (gen !== onboardingSuggestState.generation) return; // superseded
+    onboardingSuggestSetLoading(false);
+    onboardingSuggestState.loaded = true;
+    onboardingSuggestState.error =
+      (err && err.message) || "Could not reach Gemini.";
+    onboardingSuggestSetStatus(
+      `Suggestions failed: ${onboardingSuggestState.error}. Type a role below to add it manually.`,
+      "error",
+    );
+    onboardingSuggestRenderChips();
+    return;
+  }
+
+  if (gen !== onboardingSuggestState.generation) return; // user re-rolled mid-flight
+
+  const parsed = parseJsonSafeForSuggestions(raw);
+  const roles = Array.isArray(parsed && parsed.roles) ? parsed.roles : [];
+  // Diagnostic — when the model returns text but no roles[] (bad shape,
+  // empty array, or off-spec output) we want the failure visible in the
+  // console instead of just a vague status string. This is the only path
+  // that lets us debug a "Gemini returned no suggestions" report from a
+  // user without asking them to open devtools and screenshot.
+  if (!roles.length) {
+    console.warn("[onboarding/suggest] Gemini parsed payload had no roles", {
+      rawLength: String(raw || "").length,
+      rawPreview: String(raw || "").slice(0, 400),
+      parsedKeys: parsed && typeof parsed === "object" ? Object.keys(parsed) : null,
+    });
+  }
+  let added = 0;
+  for (const r of roles) {
+    const label = onboardingSuggestNormalizeLabel(r && r.title);
+    if (!label) continue;
+    const key = onboardingSuggestKey(label);
+    if (onboardingSuggestState.byKey.has(key)) continue;
+    onboardingSuggestState.byKey.set(key, {
+      label,
+      selected: false,
+      source: "gemini",
+    });
+    added += 1;
+  }
+
+  onboardingSuggestState.loaded = true;
+  onboardingSuggestSetLoading(false);
+  onboardingSuggestRenderChips();
+  if (added === 0 && !onboardingSuggestState.byKey.size) {
+    // Distinguish "we got bytes back but they were unparseable" from "the
+    // model returned a clean but empty array". Both are useful signals
+    // for the user — and far less infuriating than a flat "no suggestions".
+    const hadRawBytes = !!String(raw || "").trim();
+    const parsedHadStructure = parsed && typeof parsed === "object";
+    const message = !hadRawBytes
+      ? "Gemini returned an empty response — try Show me more, or paste a longer resume so the model has more to work with."
+      : !parsedHadStructure
+        ? "Gemini replied but the response wasn't valid JSON. Try Show me more — if it keeps failing, switch models in Settings."
+        : "Gemini returned an empty role list — try Show me more, or type a role below to add it manually.";
+    onboardingSuggestSetStatus(message, "error");
+  } else if (added === 0) {
+    onboardingSuggestSetStatus(
+      "No new roles this round — try Show me more for a different angle.",
+      "ok",
+    );
+  } else {
+    onboardingSuggestSetStatus(
+      append
+        ? `Added ${added} more — pick whatever fits.`
+        : `Tap any chip to add it to your search.`,
+      "ok",
+    );
+  }
+}
+
+/**
+ * Step 3 "Want our take?" — read the user's resume text + chip-selected
+ * roles, ask Gemini for 2–3 distinctive edges (specific accomplishments,
+ * unusual skill combos, things that aren't generic resume filler), then
+ * insert the result into the superpower textarea so the user can edit on
+ * top of it.
+ *
+ * Prompt is intentionally specific about what NOT to return: no generic
+ * skill bullets ("strong communicator"), no career-summary prose, no
+ * keyword stuffing. We want the 2–3 things that would survive being
+ * shrunk to a single tweet.
+ *
+ * Uses the same central resolveGeminiModel + responseMimeType=JSON path
+ * as the chip suggestions so a model swap stays one-line. Failures
+ * surface inline in #onboardingEdgeTakeStatus rather than a toast — the
+ * user is mid-flow and shouldn't have their attention pulled to a
+ * floating popup.
+ */
+async function onboardingFillEdgeFromGemini() {
+  const btn = document.getElementById("onboardingEdgeTakeBtn");
+  const status = document.getElementById("onboardingEdgeTakeStatus");
+  const strengthEl = document.getElementById("onboardingAiStrength");
+
+  const setStatus = (text, kind) => {
+    if (!status) return;
+    status.textContent = text || "";
+    status.classList.remove(
+      "onboarding-status--ok",
+      "onboarding-status--error",
+      "onboarding-status--loading",
+    );
+    if (kind) status.classList.add(`onboarding-status--${kind}`);
+  };
+
+  if (!strengthEl) return;
+
+  const cfg = window.COMMAND_CENTER_CONFIG || {};
+  const overrides =
+    typeof readStoredConfigOverrides === "function"
+      ? readStoredConfigOverrides()
+      : {};
+  const apiKey =
+    overrides.resumeGeminiApiKey || cfg.resumeGeminiApiKey || "";
+  if (!apiKey) {
+    setStatus(
+      "Add a free Gemini key on Step 2 first — we use it to read your resume.",
+      "error",
+    );
+    return;
+  }
+
+  const resumeText = String(
+    (onboardingResumeDraft && onboardingResumeDraft.extractedText) || "",
+  ).trim();
+  if (!resumeText) {
+    setStatus(
+      "We don't have your resume text. Go back to Step 1 and upload or paste it first.",
+      "error",
+    );
+    return;
+  }
+
+  // Chips give Gemini context for which direction to tailor the edges in.
+  // (e.g. if the user picked Forward Deployed Engineer roles, frame edges
+  // for that audience rather than a generic "what makes them special".)
+  const chipRoles = onboardingGetSelectedRoles().slice(0, 12);
+
+  if (btn) {
+    btn.disabled = true;
+    btn.dataset.label = btn.dataset.label || btn.textContent;
+    btn.textContent = "Thinking…";
+  }
+  setStatus("Reading your resume…", "loading");
+
+  // Trim resume to a reasonable budget — enough for Gemini to find
+  // distinctive details without burning tokens on long appendices.
+  const resumeForPrompt =
+    resumeText.length > 5000
+      ? `${resumeText.slice(0, 5000)}\n\n[...truncated...]`
+      : resumeText;
+
+  const systemPrompt = [
+    "You read resumes and find the 2–3 things that genuinely set this candidate apart.",
+    "Output rules:",
+    "- Return SHORT bullet-style phrases (one sentence each, max ~18 words).",
+    "- Each must be specific, concrete, and reference real signal from the resume — accomplishments, unusual skill combos, scope, results.",
+    "- Skip generic resume filler: no 'strong communicator', no 'team player', no 'detail-oriented'.",
+    "- Skip career-summary prose and any sentences that start with 'I am'.",
+    "- Frame for the target roles when they meaningfully change emphasis.",
+    "- Plain text inside the JSON values — no markdown, no asterisks, no bullet characters.",
+    'Return JSON: { "edges": ["...", "...", "..."] }',
+  ].join("\n");
+
+  const userPayload = {
+    resume: resumeForPrompt,
+    targetRoles: chipRoles,
+  };
+  const userPrompt = `${JSON.stringify(userPayload, null, 2)}\n\nReturn 2–3 edges as JSON.`;
+
+  let raw;
+  try {
+    raw = await callDiscoveryAiGemini(systemPrompt, userPrompt, apiKey, null, {
+      json: true,
+    });
+  } catch (err) {
+    setStatus(
+      `Gemini failed: ${(err && err.message) || "unknown error"}. Type your edges by hand below.`,
+      "error",
+    );
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = btn.dataset.label || "Want our take?";
+    }
+    return;
+  }
+
+  const parsed = parseJsonSafeForSuggestions(raw);
+  const edges = Array.isArray(parsed && parsed.edges)
+    ? parsed.edges
+        .map((e) => String(e || "").trim())
+        .filter((e) => e.length > 0)
+    : [];
+
+  if (!edges.length) {
+    console.warn("[onboarding/edge] Gemini returned no edges", {
+      rawLength: String(raw || "").length,
+      rawPreview: String(raw || "").slice(0, 400),
+    });
+    setStatus(
+      "Gemini didn't return anything usable — try again, or type your edges by hand.",
+      "error",
+    );
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = btn.dataset.label || "Want our take?";
+    }
+    return;
+  }
+
+  // Insert the edges, separated by newlines, into the textarea. If the
+  // user already typed something we APPEND with a blank line so we never
+  // wipe their input. This is the "iteration > replacement" intent.
+  const formatted = edges.map((e) => `• ${e}`).join("\n");
+  const existing = String(strengthEl.value || "").trim();
+  strengthEl.value = existing
+    ? `${existing}\n\n${formatted}`
+    : formatted;
+  // Trigger any input listeners (e.g. autosave hooks if they exist later).
+  strengthEl.dispatchEvent(new Event("input", { bubbles: true }));
+
+  setStatus(
+    `Added ${edges.length} edge${edges.length === 1 ? "" : "s"} — keep, edit, or delete.`,
+    "ok",
+  );
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = btn.dataset.label || "Want our take?";
+  }
+}
+
+function onboardingSuggestAddCustom(rawLabel) {
+  const label = onboardingSuggestNormalizeLabel(rawLabel);
+  if (!label) return false;
+  const key = onboardingSuggestKey(label);
+  if (onboardingSuggestState.byKey.has(key)) {
+    // Already present — just select it so the user gets feedback.
+    const existing = onboardingSuggestState.byKey.get(key);
+    existing.selected = true;
+    onboardingSuggestRenderChips();
+    onboardingSuggestSetStatus(`“${label}” is already in the list.`, "ok");
+    return true;
+  }
+  onboardingSuggestState.byKey.set(key, {
+    label,
+    selected: true,
+    source: "custom",
+  });
+  onboardingSuggestRenderChips();
+  onboardingSuggestSetStatus(`Added “${label}”.`, "ok");
+  return true;
+}
+
+/**
+ * Show or hide the inline "Get a free Gemini key" panel that lives at the
+ * top of Step 2. Called by the suggest loader when no key is configured,
+ * and again (with false) once a key gets saved.
+ */
+function onboardingSuggestShowKeyGate(show) {
+  const gate = document.getElementById("onboardingSuggestKeyGate");
+  if (!gate) return;
+  gate.hidden = !show;
+  if (show) {
+    // Disable Show me more while the gate is up — it can't do anything
+    // useful without a key.
+    const reroll = document.getElementById("onboardingSuggestReroll");
+    if (reroll) reroll.disabled = true;
+    // Focus the input so the user can paste immediately.
+    requestAnimationFrame(() => {
+      document.getElementById("onboardingSuggestKeyInput")?.focus();
+    });
+  }
+}
+
+/**
+ * Validate, persist, and use a pasted Gemini API key. Same shape as the
+ * existing Settings flow — writes to localStorage overrides via
+ * mergeStoredConfigOverridePatch so the key survives reloads, and pokes the
+ * runtime config so the very next API call uses it without a page refresh.
+ */
+async function onboardingSuggestSaveKey(rawKey) {
+  const key = String(rawKey || "").trim();
+  // Cheap shape check — Google AI Studio keys start with "AIza" and are
+  // ~39 chars. Reject obviously bad pastes so the user gets immediate
+  // feedback instead of a confusing 400 from the API.
+  if (!key) return { ok: false, reason: "empty" };
+  if (!/^AIza[0-9A-Za-z\-_]{20,}$/.test(key)) {
+    return { ok: false, reason: "shape" };
+  }
+  try {
+    mergeStoredConfigOverridePatch({ resumeGeminiApiKey: key });
+  } catch (err) {
+    console.warn("[JobBored] save Gemini key failed:", err);
+    return { ok: false, reason: "storage" };
+  }
+  // Apply to the live config object so the next call sees it without reload.
+  if (window.COMMAND_CENTER_CONFIG) {
+    window.COMMAND_CENTER_CONFIG.resumeGeminiApiKey = key;
+  }
+  return { ok: true };
+}
+
+function initOnboardingSuggestPanel() {
+  const reroll = document.getElementById("onboardingSuggestReroll");
+  const addInput = document.getElementById("onboardingSuggestAddInput");
+  const addBtn = document.getElementById("onboardingSuggestAddBtn");
+  const keyInput = document.getElementById("onboardingSuggestKeyInput");
+  const keySaveBtn = document.getElementById("onboardingSuggestKeySaveBtn");
+
+  if (reroll) {
+    reroll.addEventListener("click", () => {
+      void onboardingSuggestLoad({ append: true });
+    });
+  }
+  if (addBtn && addInput) {
+    const submit = () => {
+      const ok = onboardingSuggestAddCustom(addInput.value);
+      if (ok) {
+        addInput.value = "";
+        addInput.focus();
+      }
+    };
+    addBtn.addEventListener("click", submit);
+    addInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submit();
+      }
+    });
+  }
+
+  if (keyInput && keySaveBtn) {
+    const submitKey = async () => {
+      const result = await onboardingSuggestSaveKey(keyInput.value);
+      if (!result.ok) {
+        if (result.reason === "shape") {
+          showToast(
+            "That doesn't look like a Gemini key — they start with “AIza”. Double-check from AI Studio.",
+            "error",
+          );
+        } else if (result.reason === "storage") {
+          showToast(
+            "Couldn't save key to local storage. Disable private mode or quota-clear and retry.",
+            "error",
+          );
+        }
+        return;
+      }
+      // Success — hide the gate, clear the input, and (re)load suggestions.
+      keyInput.value = "";
+      onboardingSuggestShowKeyGate(false);
+      showToast("Gemini key saved. Loading role suggestions…", "success");
+      // Reset state so the load is treated as fresh, not a re-roll.
+      onboardingResetSuggestState();
+      void onboardingSuggestLoad({ append: false });
+    };
+    keySaveBtn.addEventListener("click", () => void submitKey());
+    keyInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void submitKey();
+      }
+    });
+  }
+}
+
 function initOnboardingWizard() {
   const fileIn = document.getElementById("onboardingFileInput");
   const pasteEl = document.getElementById("onboardingPasteText");
 
-  document.getElementById("onboardingNext1")?.addEventListener("click", () => {
-    setOnboardingStep(2);
-  });
-
-  document
-    .getElementById("onboardingPasteInstead")
-    ?.addEventListener("click", () => {
-      onboardingResumePath = "paste";
-      onboardingResumeDraft = null;
-      const statusUp = document.getElementById("onboardingResumeStatusUpload");
-      const fin = document.getElementById("onboardingFileInput");
-      if (statusUp) {
-        statusUp.textContent = "";
-        statusUp.classList.remove("onboarding-status--error");
-      }
-      if (fin) fin.value = "";
-      updateOnboardingContinue2Enabled();
-      setOnboardingStep(3);
-    });
-
-  document.getElementById("onboardingBack2")?.addEventListener("click", () => {
-    setOnboardingStep(1);
-  });
-
+  // Panel 1 -> Panel 2 (resume drop or paste fallback)
   document
     .getElementById("onboardingContinue2")
     ?.addEventListener("click", () => {
+      // Allow either an uploaded resume OR pasted text from the disclosure.
       if (
         !onboardingResumeDraft ||
         !String(onboardingResumeDraft.extractedText || "").trim()
       ) {
-        return;
+        if (!ensureResumeDraftFromPasteStep()) return;
+        onboardingResumePath = "paste";
+      } else {
+        onboardingResumePath = onboardingResumePath || "upload";
       }
-      onboardingResumePath = "upload";
-      setOnboardingStep(4);
+      setOnboardingStep(2);
     });
 
-  document.getElementById("onboardingBack3")?.addEventListener("click", () => {
+  // Panel 2 (suggested careers) navigation
+  initOnboardingSuggestPanel();
+  document
+    .getElementById("onboardingSuggestBack")
+    ?.addEventListener("click", () => {
+      setOnboardingStep(1);
+    });
+  document
+    .getElementById("onboardingSuggestNext")
+    ?.addEventListener("click", () => {
+      // IMPORTANT: do NOT mirror chip selections into Step 3's target-roles
+      // textarea. The chips are the source of truth for "roles to explore"
+      // and feed the discovery profile via finalizeOnboarding. Mirroring
+      // duplicated the choices in two places, so users saw their selected
+      // chips pasted into the Step 3 free-text field — confusing and asked
+      // them to act on the same data twice.
+      setOnboardingStep(3);
+    });
+
+  // Panel 3 (AI context) navigation — buttons keep their legacy ids.
+  document.getElementById("onboardingBack4")?.addEventListener("click", () => {
     setOnboardingStep(2);
   });
-
-  document.getElementById("onboardingNext3")?.addEventListener("click", () => {
-    if (!ensureResumeDraftFromPasteStep()) return;
-    onboardingResumePath = "paste";
-    setOnboardingStep(4);
-  });
-
-  document.getElementById("onboardingBack4")?.addEventListener("click", () => {
-    if (onboardingResumePath === "upload") setOnboardingStep(2);
-    else setOnboardingStep(3);
-  });
-
   document.getElementById("onboardingNext4")?.addEventListener("click", () => {
-    setOnboardingStep(5);
-  });
-
-  document.getElementById("onboardingBack5")?.addEventListener("click", () => {
     setOnboardingStep(4);
   });
 
-  document.getElementById("onboardingNext5")?.addEventListener("click", () => {
-    setOnboardingStep(6);
-  });
+  // "Want our take?" — Step 3 superpower assist. Reads the user's resume
+  // text + chip selections and asks Gemini for 2–3 distinctive edges. The
+  // result is INSERTED into the textarea (not replacing user-typed text)
+  // so the user can iterate on top of it. See onboardingFillEdgeFromGemini
+  // for the prompt + response handling.
+  document
+    .getElementById("onboardingEdgeTakeBtn")
+    ?.addEventListener("click", () => {
+      void onboardingFillEdgeFromGemini();
+    });
 
-  document.getElementById("onboardingBack6")?.addEventListener("click", () => {
-    setOnboardingStep(5);
-  });
-
-  document.getElementById("onboardingSkip6")?.addEventListener("click", () => {
-    const vo = document.getElementById("wizardPrefVoice");
-    if (vo) vo.value = "";
-    setOnboardingStep(7);
-  });
-
-  document.getElementById("onboardingNext6")?.addEventListener("click", () => {
-    setOnboardingStep(7);
-  });
-
-  document.getElementById("onboardingBack7")?.addEventListener("click", () => {
-    setOnboardingStep(6);
-  });
-
-  document.getElementById("onboardingSkip7")?.addEventListener("click", () => {
-    setOnboardingStep(8);
-  });
-
-  document.getElementById("onboardingNext7")?.addEventListener("click", () => {
-    setOnboardingStep(8);
-  });
-
-  document.getElementById("onboardingBack8")?.addEventListener("click", () => {
-    setOnboardingStep(7);
-  });
-
-  document.getElementById("onboardingSkip8")?.addEventListener("click", () => {
-    setOnboardingStep(9);
-  });
-
-  document.getElementById("onboardingNext8")?.addEventListener("click", () => {
-    setOnboardingStep(9);
-  });
-
+  // Panel 4 (tone & finish) back arrow
   document.getElementById("onboardingBack9")?.addEventListener("click", () => {
-    setOnboardingStep(8);
+    setOnboardingStep(3);
   });
 
   document.querySelectorAll(".onboarding-tone-card").forEach((btn) => {
@@ -14583,17 +16078,48 @@ function initOnboardingWizard() {
 
   if (fileIn) {
     fileIn.addEventListener("change", async (e) => {
-      const ingest = getResumeIngest();
       const status = document.getElementById("onboardingResumeStatusUpload");
       const file = e.target.files && e.target.files[0];
       e.target.value = "";
-      if (!file || !ingest) return;
+      if (!file) return;
+      // Immediate "we received your file" feedback so the user is never left
+      // staring at a blank screen during PDF/Word extraction. This must
+      // happen BEFORE the await for the ingest module so it shows up even
+      // when pdf.js + mammoth are still finishing their cold-cache load.
+      if (status) {
+        status.innerHTML = "";
+        status.classList.remove(
+          "onboarding-status--ok",
+          "onboarding-status--error",
+        );
+        status.classList.add("onboarding-status--loading");
+        status.textContent = `Reading “${file.name || "your file"}”…`;
+      }
+      // Wait for the resume-ingest module to be ready instead of bailing
+      // immediately. Cold-cache loads of pdf.js + mammoth occasionally
+      // finish a few hundred ms after DOMContentLoaded; the previous
+      // fail-fast branch is what made users say "I have to refresh first".
+      const ingest = await getResumeIngestReady(3000);
+      if (!ingest) {
+        if (status) {
+          status.classList.remove("onboarding-status--loading");
+          status.classList.add("onboarding-status--error");
+          status.textContent =
+            "Resume reader still loading after 3s. Check your connection and try again, or paste the text below.";
+        }
+        return;
+      }
       try {
         const text = await ingest.extractTextFromFile(file);
         if (!text.trim()) {
           if (status) {
-            status.textContent = "No text could be extracted from that file.";
+            status.classList.remove(
+              "onboarding-status--ok",
+              "onboarding-status--loading",
+            );
             status.classList.add("onboarding-status--error");
+            status.textContent =
+              "We received the file but couldn't read any text from it. If it's a scanned PDF, paste the text below instead.";
           }
           return;
         }
@@ -14605,15 +16131,48 @@ function initOnboardingWizard() {
           label,
           extractedText: text,
         };
+        onboardingResumePath = "upload";
         if (status) {
-          status.textContent = `Loaded “${label}” (${text.length.toLocaleString()} characters).`;
-          status.classList.remove("onboarding-status--error");
+          // Visible confirmation: filename with extension, file-type label,
+          // size, and extracted-character count. Replaces the old text-only
+          // hint that users could miss before clicking Continue.
+          const fullName = String(file.name || `${label}`);
+          const extMatch = fullName.match(/\.([a-z0-9]+)$/i);
+          const ext = extMatch ? extMatch[1].toUpperCase() : "FILE";
+          const sizeKb = Math.max(1, Math.round((file.size || 0) / 1024));
+          status.innerHTML = "";
+          const ok = document.createElement("span");
+          ok.className = "onboarding-status__check";
+          ok.setAttribute("aria-hidden", "true");
+          ok.textContent = "\u2713";
+          const name = document.createElement("strong");
+          name.className = "onboarding-status__filename";
+          name.textContent = fullName;
+          const meta = document.createElement("span");
+          meta.className = "onboarding-status__meta";
+          meta.textContent = ` · ${ext} · ${sizeKb.toLocaleString()} KB · ${text.length.toLocaleString()} characters extracted`;
+          status.appendChild(ok);
+          status.appendChild(document.createTextNode(" "));
+          status.appendChild(name);
+          status.appendChild(meta);
+          status.classList.remove(
+            "onboarding-status--error",
+            "onboarding-status--loading",
+          );
+          status.classList.add("onboarding-status--ok");
         }
         updateOnboardingContinue2Enabled();
       } catch (err) {
         console.error(err);
         if (status) {
-          status.textContent = err.message || "Could not read file.";
+          status.innerHTML = "";
+          status.textContent =
+            (err && err.message) ||
+            "Could not read that file. Try a different format, or paste the text below.";
+          status.classList.remove(
+            "onboarding-status--ok",
+            "onboarding-status--loading",
+          );
           status.classList.add("onboarding-status--error");
         }
       }
@@ -14622,11 +16181,41 @@ function initOnboardingWizard() {
 
   if (pasteEl) {
     pasteEl.addEventListener("input", () => {
-      updateOnboardingNext3Enabled();
+      // Step 1's button is onboardingContinue2 — both paths (file or paste)
+      // must enable it. Bug fix: previously this called the Step 2 helper,
+      // so paste-only users were stuck at "Step 1 of 3".
+      updateOnboardingContinue2Enabled();
+      const ingest = getResumeIngest();
+      const raw = pasteEl.value || "";
+      const text = ingest ? ingest.normalizeExtractedText(raw) : raw.trim();
       const status = document.getElementById("onboardingResumeStatus");
-      if (status && status.classList.contains("onboarding-status--error")) {
-        status.textContent = "";
-        status.classList.remove("onboarding-status--error");
+      if (text) {
+        // Mirror the file-upload behavior: stage the draft so Continue uses it.
+        onboardingResumeDraft = {
+          source: "paste",
+          rawMime: "text/plain",
+          label: "Pasted resume",
+          extractedText: text,
+        };
+        onboardingResumePath = "paste";
+        if (status) {
+          status.textContent = `Pasted resume captured (${text.length.toLocaleString()} characters).`;
+          status.classList.remove("onboarding-status--error");
+        }
+        updateOnboardingContinue2Enabled();
+      } else {
+        // Empty textarea: drop any prior paste draft (but don't wipe a file
+        // upload that may have been staged before the user opened the paste
+        // disclosure).
+        if (onboardingResumeDraft && onboardingResumeDraft.source === "paste") {
+          onboardingResumeDraft = null;
+          onboardingResumePath = null;
+          updateOnboardingContinue2Enabled();
+        }
+        if (status) {
+          status.textContent = "";
+          status.classList.remove("onboarding-status--error");
+        }
       }
     });
   }
@@ -14666,19 +16255,56 @@ function initOnboardingWizard() {
       if (finish) finish.disabled = true;
       try {
         await UC.setPrimaryResume(onboardingResumeDraft);
-        const samplesInput = document.getElementById(
-          "onboardingSamplesFileInput",
-        );
-        if (samplesInput && samplesInput.files && samplesInput.files.length) {
-          await profileApplySampleFiles(samplesInput.files, UC);
+        // Merge Step 3's two remaining guided fields + optional pasted
+        // career summary into a single AI context blob. Chip selections
+        // from Step 2 are handled separately below (they go into the
+        // discovery profile, not the AI context blob — keeps the two
+        // surfaces decoupled).
+        //
+        // The previous "target role" textarea was consolidated out of
+        // Step 3 — it duplicated the chip flow on Step 2 and forced users
+        // to re-type what they had just clicked. Chips are the source of
+        // truth; the discovery save below pulls from there.
+        const strengthEl = document.getElementById("onboardingAiStrength");
+        const avoidEl = document.getElementById("onboardingAiAvoid");
+        const pastedEl = document.getElementById("onboardingAiContextText");
+        const guidedParts = [];
+        if (strengthEl && strengthEl.value.trim()) {
+          guidedParts.push(`Superpower: ${strengthEl.value.trim()}`);
         }
-        const aiEl = document.getElementById("onboardingAiContextText");
-        const aiNorm = normalizeProfileTextInput((aiEl && aiEl.value) || "");
+        if (avoidEl && avoidEl.value.trim()) {
+          guidedParts.push(`Avoid: ${avoidEl.value.trim()}`);
+        }
+        if (pastedEl && pastedEl.value.trim()) {
+          guidedParts.push(pastedEl.value.trim());
+        }
+        const aiNorm = normalizeProfileTextInput(guidedParts.join("\n\n"));
         if (aiNorm && typeof UC.saveAdditionalContext === "function") {
           await UC.saveAdditionalContext({
             text: aiNorm,
             updatedAt: new Date().toISOString(),
           });
+        }
+        // Persist chip selections from Step 2 into the discovery profile.
+        // Step 3 used to also have a free-text "target roles" textarea
+        // that got merged here, but that surface was consolidated out —
+        // chips are the only role-targeting input now.
+        try {
+          const chipRoles = onboardingGetSelectedRoles();
+          const targetRoles = chipRoles
+            .map((s) => String(s || "").trim())
+            .filter(Boolean)
+            .join(", ");
+          if (targetRoles && typeof UC.saveDiscoveryProfile === "function") {
+            await UC.saveDiscoveryProfile({ targetRoles });
+          }
+        } catch (chipErr) {
+          // Non-fatal: discovery profile save failing shouldn't block
+          // finishing onboarding. The user can edit it later in Settings.
+          console.warn(
+            "[JobBored] saveDiscoveryProfile from chips failed:",
+            chipErr,
+          );
         }
         await UC.savePreferences({
           tone: (toneEl && toneEl.value) || "warm",
@@ -15038,8 +16664,13 @@ async function saveCommandCenterSettingsFromForm() {
       return;
     }
     syncDiscoveryButtonState();
-    showToast("OAuth client saved — reloading…", "success");
-    setTimeout(() => window.location.reload(), 400);
+    if (applyOAuthClientChange(oauthClientIdInput)) {
+      showToast("OAuth client saved — sign in to continue.", "success");
+      closeCommandCenterSettingsModal();
+    } else {
+      showToast("OAuth client saved — reloading…", "success");
+      setTimeout(() => window.location.reload(), 400);
+    }
     return;
   }
   const sheetEl = document.getElementById("settingsSheetId");
@@ -15070,8 +16701,13 @@ async function saveCommandCenterSettingsFromForm() {
         return;
       }
       syncDiscoveryButtonState();
-      showToast("OAuth client saved — reloading…", "success");
-      setTimeout(() => window.location.reload(), 400);
+      if (applyOAuthClientChange(oauthClientIdInput)) {
+        showToast("OAuth client saved — sign in to continue.", "success");
+        closeCommandCenterSettingsModal();
+      } else {
+        showToast("OAuth client saved — reloading…", "success");
+        setTimeout(() => window.location.reload(), 400);
+      }
       return;
     }
     if (err) {
@@ -15109,7 +16745,7 @@ async function saveCommandCenterSettingsFromForm() {
     atsScoringWebhookUrl: val("settingsAtsScoringWebhookUrl"),
     resumeProvider: provider,
     resumeGeminiApiKey: val("settingsResumeGeminiApiKey"),
-    resumeGeminiModel: val("settingsResumeGeminiModel") || "gemini-2.5-flash",
+    resumeGeminiModel: val("settingsResumeGeminiModel") || resolveGeminiModel(),
     resumeOpenAIApiKey: val("settingsResumeOpenAIApiKey"),
     resumeOpenAIModel: val("settingsResumeOpenAIModel") || "gpt-4o-mini",
     resumeAnthropicApiKey: val("settingsResumeAnthropicApiKey"),
@@ -15185,8 +16821,16 @@ async function saveCommandCenterSettingsFromForm() {
   setTimeout(() => window.location.reload(), 400);
 }
 
-/** Clears localStorage overrides and reloads (no native dialog — avoids focus fights with the settings overlay). */
-function performSettingsClearOverrides() {
+/**
+ * Nuclear "Clear settings": wipes config, OAuth localStorage, IndexedDB user
+ * content, revokes the Google access token, and sets a one-shot flag so the
+ * next interactive sign-in forces the consent screen. After reload the user
+ * is in a true greenfield state (no auto sign-in, no stale resume/profile).
+ *
+ * Order matters: revoke uses the in-memory token, so we must revoke BEFORE
+ * clearing in-memory auth state.
+ */
+async function performSettingsClearOverrides() {
   if (!canUseLocalStorage()) {
     showToast(
       "This browser blocked local storage — nothing was cleared.",
@@ -15195,12 +16839,98 @@ function performSettingsClearOverrides() {
     );
     return;
   }
+
+  // 1) Revoke Google access token so silent re-auth via prompt:"none" cannot
+  //    re-issue from the prior consent grant. Best-effort — network/blocker
+  //    failures are non-fatal because we still wipe local state below.
+  try {
+    if (
+      accessToken &&
+      window.google &&
+      google.accounts &&
+      google.accounts.oauth2 &&
+      typeof google.accounts.oauth2.revoke === "function"
+    ) {
+      await new Promise((resolve) => {
+        try {
+          google.accounts.oauth2.revoke(accessToken, () => resolve());
+        } catch (_) {
+          resolve();
+        }
+        // Hard timeout in case Google never invokes the callback.
+        setTimeout(resolve, 1500);
+      });
+    }
+  } catch (_) {
+    /* best-effort revoke */
+  }
+
+  // 2) Drop in-memory auth + clear OAuth localStorage (both keys).
+  try {
+    clearSessionAuthState();
+  } catch (_) {
+    /* clearSessionAuthState already calls clearPersisted*; defensive */
+  }
+  try {
+    clearPersistedOAuthSession();
+  } catch (_) {}
+  try {
+    clearPersistedRuntimeOAuthSession();
+  } catch (_) {}
+
+  // 3) Clear stored config overrides (sheet ID, OAuth client ID, webhook URL,
+  //    discovery profile, etc.).
   try {
     localStorage.removeItem(COMMAND_CENTER_CONFIG_OVERRIDE_KEY);
   } catch (_) {
     showToast("Could not clear saved settings (storage error).", "error", true);
     return;
   }
+
+  // 4) Clear other JobBored localStorage breadcrumbs that would otherwise
+  //    leak across a "greenfield" reset.
+  try {
+    localStorage.removeItem(DISCOVERY_TRANSPORT_SETUP_KEY);
+  } catch (_) {}
+  try {
+    localStorage.removeItem(DISCOVERY_RUN_TRACKER_KEY);
+  } catch (_) {}
+
+  // 5) Wipe IndexedDB user content (resume, samples, drafts, AI context).
+  //    Uses deleteDatabase which fully drops the DB — next openDb call will
+  //    re-create the schema empty.
+  try {
+    if (window.indexedDB && typeof indexedDB.deleteDatabase === "function") {
+      await new Promise((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          resolve();
+        };
+        try {
+          const req = indexedDB.deleteDatabase("command-center-user-content");
+          req.onsuccess = finish;
+          req.onerror = finish;
+          req.onblocked = finish;
+        } catch (_) {
+          finish();
+        }
+        // Hard timeout: blocked deletes can hang if another tab holds a connection.
+        setTimeout(finish, 1500);
+      });
+    }
+  } catch (_) {
+    /* best-effort wipe */
+  }
+
+  // 6) Arm the one-shot consent flag so the next signIn() forces Google's
+  //    consent screen instead of silently re-issuing a token. This is what
+  //    makes "Clear settings" feel like a true greenfield reset for testing.
+  try {
+    localStorage.setItem(FORCE_CONSENT_PROMPT_KEY, "1");
+  } catch (_) {}
+
   hideSettingsClearConfirmBar();
   window.location.reload();
 }
@@ -17195,6 +18925,22 @@ function init() {
   postAccessBootstrapPromise = Promise.resolve();
   initAuthUserMenu();
 
+  // Wire the onboarding wizard + resume materials handlers UNCONDITIONALLY,
+  // BEFORE the no-SHEET_ID early return below.
+  //
+  // Why: greenfield first-time users land here with no SHEET_ID, see the
+  // onboarding modal, drop a resume — but until this call ran, the
+  // file-input change listener wasn't bound, so the upload silently did
+  // nothing. The user experienced this as "I have to refresh the page in
+  // order for the file selector to put the file visibly into the UX" —
+  // because by the time they refreshed, sign-in had set SHEET_ID and the
+  // listener finally got bound on the second pass.
+  //
+  // initResumeMaterialsFeature is internally idempotent and has no sheet
+  // dependency: it opens IndexedDB and wires modal/file listeners. Safe
+  // to run pre-SHEET_ID.
+  initResumeMaterialsFeature();
+
   if (!SHEET_ID) {
     // Login gate first; onboarding (blank sheet steps) appears after Google sign-in.
     document.getElementById("dashboard").style.display = "none";
@@ -17295,7 +19041,10 @@ function init() {
   // Init auth
   initAuth();
 
-  initResumeMaterialsFeature();
+  // initResumeMaterialsFeature was hoisted above the no-SHEET_ID early
+  // return so greenfield users can actually use the onboarding wizard's
+  // file upload. Calling it again here would double-bind every listener
+  // (addEventListener doesn't dedupe), so don't.
 
   loadAllData();
 
@@ -17568,12 +19317,61 @@ function parseJsonSafeForSuggestions(raw) {
   }
 }
 
-async function callDiscoveryAiGemini(system, user, apiKey, model) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model || "gemini-2.0-flash")}:generateContent?key=${encodeURIComponent(apiKey)}`;
+/**
+ * Single source of truth for which Gemini model the app uses.
+ *
+ * Resolution order (high → low):
+ *   1. Explicit caller arg (when a feature wants to pin a model — rare)
+ *   2. localStorage override (Settings → Resume → Gemini model field)
+ *   3. config.js → window.COMMAND_CENTER_CONFIG.resumeGeminiModel
+ *   4. Hardcoded fallback (only hit if both config files are missing)
+ *
+ * If a Gemini model gets retired, this is the ONLY place to update the
+ * default. Every Gemini call site must route through here — do not embed
+ * model name strings or "gemini-…" fallbacks elsewhere in app.js.
+ */
+function resolveGeminiModel(explicit) {
+  if (explicit && typeof explicit === "string" && explicit.trim()) {
+    return explicit.trim();
+  }
+  try {
+    const overrides =
+      typeof readStoredConfigOverrides === "function"
+        ? readStoredConfigOverrides()
+        : {};
+    if (overrides && typeof overrides.resumeGeminiModel === "string" && overrides.resumeGeminiModel.trim()) {
+      return overrides.resumeGeminiModel.trim();
+    }
+  } catch (_) {
+    /* localStorage may be unavailable in private/embedded contexts. */
+  }
+  const cfg = (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+  if (typeof cfg.resumeGeminiModel === "string" && cfg.resumeGeminiModel.trim()) {
+    return cfg.resumeGeminiModel.trim();
+  }
+  return "gemini-2.5-flash";
+}
+
+async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
+  const resolvedModel = resolveGeminiModel(model);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  // Detect 2.5+ family — those models burn "thinking tokens" against the
+  // output budget, so a 2048-cap on a long-system-prompt JSON response can
+  // silently produce zero visible characters with finishReason=MAX_TOKENS.
+  // Also pin response MIME to JSON whenever the caller marks the request
+  // as JSON-only — this dramatically improves reliability vs. free-form
+  // prose responses that have to be regex-extracted later.
+  const wantJson = !!(opts && opts.json);
+  const isThinkingModel = /^gemini-2\.[5-9]/.test(resolvedModel);
+  const generationConfig = {
+    maxOutputTokens: isThinkingModel ? 8192 : 2048,
+    temperature: 0.5,
+  };
+  if (wantJson) generationConfig.responseMimeType = "application/json";
   const body = {
     systemInstruction: { parts: [{ text: system }] },
     contents: [{ role: "user", parts: [{ text: user }] }],
-    generationConfig: { maxOutputTokens: 2048, temperature: 0.5 },
+    generationConfig,
   };
   const resp = await fetch(url, {
     method: "POST",
@@ -17581,12 +19379,31 @@ async function callDiscoveryAiGemini(system, user, apiKey, model) {
     body: JSON.stringify(body),
   });
   const data = await resp.json().catch(() => ({}));
-  if (!resp.ok)
+  if (!resp.ok) {
     throw new Error(data.error?.message || `Gemini HTTP ${resp.status}`);
+  }
+  const candidate = data.candidates?.[0];
   const text =
-    data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") ||
-    "";
-  if (!text.trim()) throw new Error("Empty response from Gemini");
+    candidate?.content?.parts?.map((p) => p.text || "").join("") || "";
+  if (!text.trim()) {
+    // Surface the real reason instead of a generic "Empty response".
+    // Common cases: MAX_TOKENS (thinking eats the budget), SAFETY,
+    // RECITATION, or upstream finish reasons that need the user to retry
+    // with different input rather than silently fail.
+    const reason = candidate?.finishReason || data.promptFeedback?.blockReason;
+    if (reason === "MAX_TOKENS") {
+      throw new Error(
+        "Gemini hit the output token cap before producing visible text. Try Show me more, or shorten your resume.",
+      );
+    }
+    if (reason === "SAFETY" || reason === "RECITATION") {
+      throw new Error(
+        `Gemini blocked the response (${reason}). Try Show me more, or remove sensitive content from your resume.`,
+      );
+    }
+    if (reason) throw new Error(`Gemini returned no text (${reason}).`);
+    throw new Error("Empty response from Gemini");
+  }
   return text.trim();
 }
 
@@ -17951,17 +19768,70 @@ function initDiscoveryButton() {
   }
 
   openBtn.addEventListener("click", async () => {
-    if (
-      !getDiscoverySettingsView(getDiscoveryReadinessSnapshot())
-        .runDiscoveryEnabled
-    ) {
-      await requestDiscoverySetup({
-        entryPoint: "header",
-        allowWhileOnboarding: true,
-      });
+    const view = getDiscoverySettingsView(getDiscoveryReadinessSnapshot());
+    const hasWebhook = !!getDiscoveryWebhookUrl();
+    const isLocal =
+      typeof window !== "undefined" &&
+      window.location &&
+      (window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1");
+
+    // Greenfield silent path: on localhost, when no webhook is configured,
+    // run the full backend boot in one click instead of opening the wizard.
+    if (!hasWebhook && isLocal) {
+      const originalText = openBtn.textContent;
+      openBtn.disabled = true;
+      openBtn.classList.add("loading");
+      try {
+        openBtn.title = "Setting up discovery…";
+        showToast("Setting up discovery — this only happens once.", "info");
+        const resp = await fetch("/__proxy/full-boot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        const body = await resp.json().catch(() => ({}));
+        if (resp.ok && body && body.ok) {
+          // Refresh snapshot so the saved webhook URL is picked up.
+          await refreshDiscoveryReadinessSnapshot({ force: true });
+          installKeepAliveOnce();
+          showToast("Discovery is ready.", "success");
+          if (getDiscoveryWebhookUrl()) {
+            openDiscoveryPrefsModal();
+            return;
+          }
+        }
+        // If full-boot reported a specific blocking issue (Cloudflare auth,
+        // etc.), fall back to the wizard at the failed step.
+        if (body && body.needsAuth) {
+          showToast(
+            "Cloudflare needs to be signed in once. Run `npx wrangler login` and click again.",
+            "warning",
+            true,
+          );
+          return;
+        }
+        // Final fallback: open the wizard so a human can finish setup.
+        await requestDiscoverySetup({
+          entryPoint: "header_full_boot_fallback",
+          allowWhileOnboarding: true,
+        });
+      } catch (e) {
+        console.warn("[JobBored] full-boot:", e);
+        await requestDiscoverySetup({
+          entryPoint: "header",
+          allowWhileOnboarding: true,
+        });
+      } finally {
+        openBtn.disabled = false;
+        openBtn.classList.remove("loading");
+        openBtn.textContent = originalText;
+        syncDiscoveryButtonState();
+      }
       return;
     }
-    if (!getDiscoveryWebhookUrl()) {
+
+    if (!view.runDiscoveryEnabled || !hasWebhook) {
       await requestDiscoverySetup({
         entryPoint: "header",
         allowWhileOnboarding: true,
