@@ -1,11 +1,47 @@
 {
-  "_owner": "Backend Worker B (swarm Phase 1) — fill this out",
   "templateVersion": 1,
+  "name": "JobBored Cloudflare discovery relay",
   "workerName": "jobbored-discovery-relay",
+  "entrypoint": "src/worker.js",
+  "compatibilityDate": "2026-05-01",
   "routes": ["/discovery", "/runs/:runId", "/health"],
-  "vars": {
-    "DISCOVERY_TARGET": "<set at deploy time>",
-    "SHARED_SECRET": "<optional>"
+  "deployCommand": "wrangler deploy --var DISCOVERY_TARGET:https://your-ngrok-url.ngrok-free.app",
+  "vars": [
+    {
+      "name": "DISCOVERY_TARGET",
+      "required": true,
+      "source": "wrangler --var at deploy time",
+      "description": "Base HTTPS URL for the user's current local discovery tunnel."
+    },
+    {
+      "name": "SHARED_SECRET",
+      "required": false,
+      "source": "wrangler --var at deploy time",
+      "description": "Optional bearer token required from browser clients."
+    }
+  ],
+  "upstreamRoutes": [
+    {
+      "method": "POST",
+      "path": "/discovery",
+      "forwardsTo": "${DISCOVERY_TARGET}/discovery"
+    },
+    {
+      "method": "GET",
+      "path": "/runs/:runId",
+      "forwardsTo": "${DISCOVERY_TARGET}/runs/:runId"
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "forwardsTo": "local relay health response"
+    }
+  ],
+  "auth": {
+    "type": "optional_bearer",
+    "envVar": "SHARED_SECRET"
   },
-  "bindings": []
+  "privacy": {
+    "requestBodiesLogged": false
+  }
 }
