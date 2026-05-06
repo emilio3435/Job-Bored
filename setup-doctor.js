@@ -573,6 +573,158 @@
   });
 
   // --------------------------------------------------------------
+  // issue: gcloud can create the OAuth client for the user
+  // --------------------------------------------------------------
+
+  registerIssue({
+    id: "gcloud_can_create_oauth",
+    severity: "warn",
+    title: "gcloud can create your OAuth Client ID",
+    detail:
+      "Google Cloud CLI is installed and signed in. We can mint a Web Client ID without leaving the app.",
+    autoFixable: true,
+    detect() {
+      const w = getWin();
+      if (!w) return false;
+      const cid =
+        typeof w.getOAuthClientId === "function" ? w.getOAuthClientId() : "";
+      if (cid) return false;
+      const state = w.installDoctorState;
+      if (!state || !state.tools || !state.tools.gcloud) return false;
+      return !!(state.tools.gcloud.installed && state.tools.gcloud.loggedIn);
+    },
+    async fix() {
+      if (!isLocalhost()) return { ok: false, needsUserClick: true };
+      try {
+        const resp = await doFetch("/__proxy/oauth-bootstrap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        if (resp.status === 501) return { ok: false };
+        const body = await resp.json().catch(() => ({}));
+        if (!body || !body.ok || !body.clientId) {
+          return {
+            ok: false,
+            error: (body && body.actionable) || "oauth-bootstrap failed",
+          };
+        }
+        const w = getWin();
+        if (w && typeof w.applyOAuthClientChange === "function") {
+          try {
+            w.applyOAuthClientChange(body.clientId);
+          } catch (_) {
+            /* fall through */
+          }
+        }
+        return { ok: true, body };
+      } catch (e) {
+        return { ok: false, error: e && e.message };
+      }
+    },
+  });
+
+  // --------------------------------------------------------------
+  // issue: keep-alive job not installed
+  // --------------------------------------------------------------
+
+  const KEEP_ALIVE_STALE_AFTER_MS = 60 * 60 * 1000;
+
+  registerIssue({
+    id: "keep_alive_not_installed",
+    severity: "warn",
+    title: "Auto-healing isn’t installed",
+    detail:
+      "Install the keep-alive job so JobBored repairs your tunnel and relay automatically when ngrok rotates.",
+    autoFixable: true,
+    detect() {
+      const w = getWin();
+      if (!w) return false;
+      const state = w.keepAliveStatusState;
+      if (!state || typeof state !== "object") return false;
+      return state.installed === false;
+    },
+    async fix() {
+      if (!isLocalhost()) return { ok: false, needsUserClick: true };
+      try {
+        const resp = await doFetch("/__proxy/install-keep-alive", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ schedule: "auto" }),
+        });
+        if (resp.status === 501) return { ok: false };
+        const body = await resp.json().catch(() => ({}));
+        if (!body || !body.ok) {
+          return { ok: false, error: (body && body.reason) || "install failed" };
+        }
+        const w = getWin();
+        if (w) {
+          w.keepAliveStatusState = {
+            installed: true,
+            lastRunAt: body.installedAt,
+            jobLabel: body.jobLabel,
+          };
+        }
+        return { ok: true, body };
+      } catch (e) {
+        return { ok: false, error: e && e.message };
+      }
+    },
+  });
+
+  // --------------------------------------------------------------
+  // issue: keep-alive job installed but stale (last run too old)
+  // --------------------------------------------------------------
+
+  registerIssue({
+    id: "keep_alive_stale",
+    severity: "warn",
+    title: "Auto-healing job hasn’t run recently",
+    detail:
+      "The keep-alive job is installed but hasn’t checked in for a while. Restart it to pick up changes.",
+    autoFixable: true,
+    detect() {
+      const w = getWin();
+      if (!w) return false;
+      const state = w.keepAliveStatusState;
+      if (!state || state.installed !== true) return false;
+      const last = state.lastRunAt ? Date.parse(state.lastRunAt) : NaN;
+      if (!Number.isFinite(last)) return false;
+      return Date.now() - last >= KEEP_ALIVE_STALE_AFTER_MS;
+    },
+    async fix() {
+      if (!isLocalhost()) return { ok: false, needsUserClick: true };
+      try {
+        const delResp = await doFetch("/__proxy/install-keep-alive", {
+          method: "DELETE",
+        });
+        if (delResp.status === 501) return { ok: false };
+        const postResp = await doFetch("/__proxy/install-keep-alive", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ schedule: "auto" }),
+        });
+        if (postResp.status === 501) return { ok: false };
+        const body = await postResp.json().catch(() => ({}));
+        if (!body || !body.ok) {
+          return { ok: false, error: (body && body.reason) || "restart failed" };
+        }
+        const w = getWin();
+        if (w) {
+          w.keepAliveStatusState = {
+            installed: true,
+            lastRunAt: body.installedAt,
+            jobLabel: body.jobLabel,
+          };
+        }
+        return { ok: true, body };
+      } catch (e) {
+        return { ok: false, error: e && e.message };
+      }
+    },
+  });
+
+  // --------------------------------------------------------------
   // diagnose / autoHeal
   // --------------------------------------------------------------
 

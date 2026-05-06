@@ -7815,6 +7815,132 @@ function initAuthUserMenu() {
       showSheetAccessGate("error");
     });
   }
+
+  const healthBtn = document.getElementById("setupHealthBtn");
+  if (healthBtn) {
+    healthBtn.addEventListener("click", async () => {
+      closeAuthUserMenu();
+      const result = await installDoctor();
+      if (!result || result.notImplemented) {
+        showToast("Install doctor isn't available in this build.", "info");
+        return;
+      }
+      const missing = (result && result.missing) || [];
+      if (missing.length) {
+        showToast(missing[0], "warning", true);
+      } else {
+        showToast("All install tools look healthy.", "success");
+      }
+      refreshKeepAlivePill();
+    });
+  }
+
+  const authToggle = document.getElementById("authMenuToggle");
+  if (authToggle) {
+    authToggle.addEventListener("click", () => {
+      refreshKeepAlivePill();
+    });
+  }
+}
+
+async function installDoctor() {
+  try {
+    const resp = await fetch("/__proxy/install-doctor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    if (resp.status === 501) {
+      return { ok: false, notImplemented: true };
+    }
+    const body = await resp.json().catch(() => ({}));
+    if (typeof window !== "undefined") {
+      window.installDoctorState = body;
+      try {
+        window.dispatchEvent(
+          new CustomEvent("jobbored:install-doctor:update", { detail: body }),
+        );
+      } catch (_) {}
+    }
+    return body;
+  } catch (e) {
+    return { ok: false, error: e && e.message };
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.installDoctor = installDoctor;
+}
+
+const KEEP_ALIVE_INSTALLED_KEY = "jb:install-keep-alive:installedAt";
+
+async function installKeepAliveOnce() {
+  try {
+    if (
+      typeof localStorage !== "undefined" &&
+      localStorage.getItem(KEEP_ALIVE_INSTALLED_KEY)
+    ) {
+      return;
+    }
+    const resp = await fetch("/__proxy/install-keep-alive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ schedule: "auto" }),
+    });
+    if (resp.status === 501) return;
+    const body = await resp.json().catch(() => ({}));
+    if (body && body.ok) {
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem(
+            KEEP_ALIVE_INSTALLED_KEY,
+            body.installedAt || new Date().toISOString(),
+          );
+        }
+      } catch (_) {}
+      if (typeof window !== "undefined") {
+        window.keepAliveStatusState = {
+          installed: true,
+          lastRunAt: body.installedAt,
+          jobLabel: body.jobLabel,
+        };
+      }
+    }
+  } catch (_) {
+    /* silent — never block the user */
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.installKeepAliveOnce = installKeepAliveOnce;
+}
+
+async function refreshKeepAlivePill() {
+  const pill = document.getElementById("keepAlivePill");
+  if (!pill) return;
+  try {
+    const resp = await fetch("/__proxy/install-keep-alive/status");
+    if (resp.status === 501) {
+      pill.hidden = true;
+      return;
+    }
+    const body = await resp.json().catch(() => ({}));
+    if (typeof window !== "undefined") {
+      window.keepAliveStatusState = body;
+    }
+    pill.hidden = false;
+    if (body && body.installed) {
+      pill.textContent = "Auto-healing on";
+      pill.classList.add("doctor-keep-alive-pill--on");
+      pill.classList.remove("doctor-keep-alive-pill--off");
+    } else {
+      pill.textContent = "Not installed — install";
+      pill.classList.add("doctor-keep-alive-pill--off");
+      pill.classList.remove("doctor-keep-alive-pill--on");
+    }
+  } catch (_) {
+    pill.hidden = true;
+  }
 }
 
 function setAuthAvatarDisplay() {
@@ -8044,6 +8170,51 @@ function initLoginGateOAuthUi() {
       document
         .getElementById("sheetAccessGateOAuthClientIdInputAlt")
         ?.focus();
+      maybeRevealOAuthGcloudButton();
+    });
+  }
+
+  const gcloudBtn = document.getElementById("sheetAccessGateOAuthGcloudBtn");
+  if (gcloudBtn) {
+    gcloudBtn.addEventListener("click", async () => {
+      gcloudBtn.disabled = true;
+      const original = gcloudBtn.textContent;
+      gcloudBtn.textContent = "Creating with gcloud…";
+      try {
+        const resp = await fetch("/__proxy/oauth-bootstrap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        if (resp.status === 501) {
+          gcloudBtn.hidden = true;
+          return;
+        }
+        const body = await resp.json().catch(() => ({}));
+        if (body && body.ok && body.clientId) {
+          const altInput = document.getElementById(
+            "sheetAccessGateOAuthClientIdInputAlt",
+          );
+          if (altInput) altInput.value = body.clientId;
+          if (trySaveAndContinue(body.clientId)) {
+            showToast("Client ID created with gcloud.", "success");
+            return;
+          }
+        }
+        const message =
+          (body && body.actionable) ||
+          "gcloud couldn’t create a Client ID. Try the manual steps.";
+        showToast(message, "warning", true);
+      } catch (e) {
+        console.warn("[JobBored] oauth-bootstrap:", e);
+        showToast(
+          "gcloud auto-create unavailable. Try manual steps.",
+          "warning",
+        );
+      } finally {
+        gcloudBtn.disabled = false;
+        gcloudBtn.textContent = original;
+      }
     });
   }
   if (openConsole) {
@@ -8070,6 +8241,22 @@ function initLoginGateOAuthUi() {
         showToast("Paste a valid Google Client ID.", "error", true);
       }
     });
+  }
+}
+
+async function maybeRevealOAuthGcloudButton() {
+  const btn = document.getElementById("sheetAccessGateOAuthGcloudBtn");
+  if (!btn) return;
+  btn.hidden = true;
+  try {
+    const result = await installDoctor();
+    if (!result || result.notImplemented) return;
+    const gcloud = result.tools && result.tools.gcloud;
+    if (gcloud && gcloud.installed && gcloud.loggedIn) {
+      btn.hidden = false;
+    }
+  } catch (_) {
+    /* leave hidden */
   }
 }
 
@@ -18300,6 +18487,7 @@ function initDiscoveryButton() {
         if (resp.ok && body && body.ok) {
           // Refresh snapshot so the saved webhook URL is picked up.
           await refreshDiscoveryReadinessSnapshot({ force: true });
+          installKeepAliveOnce();
           showToast("Discovery is ready.", "success");
           if (getDiscoveryWebhookUrl()) {
             openDiscoveryPrefsModal();
