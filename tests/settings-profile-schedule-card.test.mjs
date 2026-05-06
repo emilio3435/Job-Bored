@@ -47,7 +47,7 @@ async function loadScheduleModule(overrides = {}) {
     },
   };
 
-  const document = {
+  const document = overrides.document || {
     readyState: "loading",
     addEventListener() {
       /* no-op — we never fire DOMContentLoaded so bind() stays dormant */
@@ -583,6 +583,35 @@ describe("Profile tab — resume restore source selection", () => {
       "http://127.0.0.1:8644/health",
       "http://127.0.0.1:8644/discovery-profile",
     ]);
+  });
+});
+
+describe("Profile tab — canonical search profile form", () => {
+  it("includes deal-breakers in the profile form payload", async () => {
+    const makeEl = (value = "") => ({
+      value,
+    });
+    const { module } = await loadScheduleModule();
+
+    assert.deepEqual(asPlain(module.__test.readFormFromElements({
+      targetRoles: makeEl("Product Manager"),
+      skills: makeEl("SQL, lifecycle"),
+      seniority: makeEl("senior"),
+      years: makeEl("8"),
+      locations: makeEl("Denver, remote"),
+      remotePolicy: makeEl("remote"),
+      keywordsExclude: makeEl("sales, crypto"),
+      industries: makeEl("AI, healthtech"),
+    })), {
+      targetRoles: "Product Manager",
+      skills: "SQL, lifecycle",
+      seniority: "senior",
+      yearsOfExperience: 8,
+      locations: "Denver, remote",
+      remotePolicy: "remote",
+      keywordsExclude: "sales, crypto",
+      industries: "AI, healthtech",
+    });
   });
 });
 

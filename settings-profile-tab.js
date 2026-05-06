@@ -99,6 +99,7 @@
       years: qs("settingsProfileFormYears"),
       locations: qs("settingsProfileFormLocations"),
       remotePolicy: qs("settingsProfileFormRemotePolicy"),
+      keywordsExclude: qs("settingsProfileFormKeywordsExclude"),
       industries: qs("settingsProfileFormIndustries"),
       persist: qs("settingsProfilePersist"),
       runBtn: qs("settingsProfileRunBtn"),
@@ -313,6 +314,7 @@
     take("seniority", els.seniority);
     take("locations", els.locations);
     take("remotePolicy", els.remotePolicy);
+    take("keywordsExclude", els.keywordsExclude);
     take("industries", els.industries);
 
     if (els.years) {
@@ -335,6 +337,16 @@
       }
     }
     return false;
+  }
+
+  function readFormFromElements(testEls) {
+    var previousEls = els;
+    els = Object.assign({}, els, testEls || {});
+    try {
+      return readForm();
+    } finally {
+      els = previousEls;
+    }
   }
 
   /**
@@ -771,6 +783,7 @@
     }
     row("Locations", profile.locations);
     row("Remote policy", profile.remotePolicy);
+    row("Deal-breakers", profile.keywordsExclude);
     row("Industries", profile.industries);
 
     var companyCards = companies.map(function (c) {
@@ -1355,6 +1368,7 @@
       years: els.years,
       locations: els.locations,
       remotePolicy: els.remotePolicy,
+      keywordsExclude: els.keywordsExclude,
       industries: els.industries,
     };
     Object.keys(fieldMap).forEach(function (key) {
@@ -2274,6 +2288,8 @@
     },
     __test: {
       chooseResumeRestoreSource: chooseResumeRestoreSource,
+      readForm: readForm,
+      readFormFromElements: readFormFromElements,
       formatSavedProfileValue: formatSavedProfileValue,
       resolveLocalProfileEndpointCandidate: resolveLocalProfileEndpointCandidate,
       shouldRetryProfileEndpoint: shouldRetryProfileEndpoint,
