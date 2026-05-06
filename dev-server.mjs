@@ -625,14 +625,41 @@ async function handleOAuthBootstrap(req, res) {
     res.end(JSON.stringify({ ok: false, reason: "forbidden", actionable: "Localhost only." }));
     return;
   }
-  res.writeHead(501, corsHeaders);
-  res.end(
-    JSON.stringify({
-      ok: false,
-      reason: "not_implemented",
-      actionable: "OAuth bootstrap not yet implemented (swarm Phase 1).",
-    }),
-  );
+  try {
+    const rawBody = await new Promise((resolve) => {
+      let body = "";
+      req.setEncoding("utf8");
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => resolve(body));
+      req.on("error", () => resolve(""));
+    });
+    let payload = {};
+    try {
+      const parsed = rawBody ? JSON.parse(rawBody) : {};
+      payload = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      payload = {};
+    }
+    const { runOAuthBootstrap } = await import("./scripts/oauth-bootstrap.mjs");
+    const result = runOAuthBootstrap({
+      projectId: typeof payload.projectId === "string" ? payload.projectId : "",
+      applicationName:
+        typeof payload.applicationName === "string" ? payload.applicationName : "",
+    });
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify(result));
+  } catch {
+    res.writeHead(500, corsHeaders);
+    res.end(
+      JSON.stringify({
+        ok: false,
+        reason: "internal_error",
+        actionable: "OAuth bootstrap failed. Check the terminal and try again.",
+      }),
+    );
+  }
 }
 
 // Owner: Backend Worker A
@@ -646,20 +673,26 @@ async function handleInstallDoctor(req, res) {
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
     return;
   }
-  res.writeHead(501, corsHeaders);
-  res.end(
-    JSON.stringify({
-      ok: false,
-      reason: "not_implemented",
-      tools: {
-        gcloud: { installed: false, loggedIn: false },
-        wrangler: { installed: false, loggedIn: false },
-        ngrok: { installed: false, hasAuthToken: false },
-        node: { version: process.version, ok: true },
-      },
-      missing: ["Install-doctor not yet implemented (swarm Phase 1)."],
-    }),
-  );
+  try {
+    const { runInstallDoctor } = await import("./scripts/install-doctor.mjs");
+    const result = runInstallDoctor();
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify(result));
+  } catch {
+    res.writeHead(500, corsHeaders);
+    res.end(
+      JSON.stringify({
+        ok: false,
+        tools: {
+          gcloud: { installed: false, loggedIn: false },
+          wrangler: { installed: false, loggedIn: false },
+          ngrok: { installed: false, hasAuthToken: false },
+          node: { version: process.version, ok: true },
+        },
+        missing: ["Install doctor failed. Check the terminal and try again."],
+      }),
+    );
+  }
 }
 
 // Owner: Backend Worker B
