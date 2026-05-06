@@ -341,3 +341,13 @@ PRs welcome. Keep it simple — no build tools, no frameworks, minimal CDN use (
 ## License
 
 MIT
+
+## One-line setup
+
+Placeholder until the greenfield automation command is wired:
+
+```bash
+npm run setup:auto
+```
+
+Expected behavior: run the install doctor, start or verify the local worker and ngrok tunnel, deploy or refresh the Cloudflare relay, and install the keep-alive job using only your own free Google, Cloudflare, and ngrok accounts.
