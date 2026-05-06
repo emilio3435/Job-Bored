@@ -16627,6 +16627,11 @@ async function populateDiscoveryProfileIntoSettingsForm() {
   set("settingsDiscoveryKeywordsInclude", p.keywordsInclude);
   set("settingsDiscoveryKeywordsExclude", p.keywordsExclude);
   set("settingsDiscoveryMaxLeadsPerRun", p.maxLeadsPerRun);
+  set("settingsProfileFormTargetRoles", p.targetRoles);
+  set("settingsProfileFormLocations", p.locations);
+  set("settingsProfileFormRemotePolicy", p.remotePolicy);
+  set("settingsProfileFormSeniority", p.seniority);
+  set("settingsProfileFormKeywordsExclude", p.keywordsExclude);
   // Handle grounded_web checkbox
   const gwEl = document.getElementById("settingsDiscoveryGroundedWeb");
   if (gwEl) gwEl.checked = p.groundedWebEnabled !== false;
@@ -16873,6 +16878,8 @@ async function saveCommandCenterSettingsFromForm() {
     const el = document.getElementById(id);
     return el ? el.value.trim() : "";
   };
+  const profileOrLegacyVal = (profileId, legacyId) =>
+    val(profileId) || val(legacyId);
   const provEl = document.getElementById("settingsResumeProvider");
   const provider =
     provEl &&
@@ -16916,12 +16923,27 @@ async function saveCommandCenterSettingsFromForm() {
         ? normalizeSourcePreset(selectedPresetEl.value)
         : "";
       await UC.saveDiscoveryProfile({
-        targetRoles: val("settingsDiscoveryTargetRoles"),
-        locations: val("settingsDiscoveryLocations"),
-        remotePolicy: val("settingsDiscoveryRemotePolicy"),
-        seniority: val("settingsDiscoverySeniority"),
+        targetRoles: profileOrLegacyVal(
+          "settingsProfileFormTargetRoles",
+          "settingsDiscoveryTargetRoles",
+        ),
+        locations: profileOrLegacyVal(
+          "settingsProfileFormLocations",
+          "settingsDiscoveryLocations",
+        ),
+        remotePolicy: profileOrLegacyVal(
+          "settingsProfileFormRemotePolicy",
+          "settingsDiscoveryRemotePolicy",
+        ),
+        seniority: profileOrLegacyVal(
+          "settingsProfileFormSeniority",
+          "settingsDiscoverySeniority",
+        ),
         keywordsInclude: val("settingsDiscoveryKeywordsInclude"),
-        keywordsExclude: val("settingsDiscoveryKeywordsExclude"),
+        keywordsExclude: profileOrLegacyVal(
+          "settingsProfileFormKeywordsExclude",
+          "settingsDiscoveryKeywordsExclude",
+        ),
         maxLeadsPerRun: val("settingsDiscoveryMaxLeadsPerRun"),
         groundedWebEnabled,
         sourcePreset,

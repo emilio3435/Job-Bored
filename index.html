@@ -2254,52 +2254,14 @@
 
               <details class="settings-details">
                 <summary class="settings-details__summary">
-                  Discovery preferences (roles, location, keywords)
+                  Run limits and source options
                 </summary>
                 <div class="settings-details__body">
                   <p class="materials-hint materials-hint--tight">
-                    Sent with each discovery run; stored only on this device.
+                    Role, location, remote, and deal-breaker preferences live in
+                    Profile so discovery and company refresh share one search
+                    profile.
                   </p>
-                  <label class="field-label" for="settingsDiscoveryTargetRoles"
-                    >Target roles</label
-                  >
-                  <textarea
-                    id="settingsDiscoveryTargetRoles"
-                    class="modal-input modal-textarea"
-                    rows="2"
-                    placeholder="e.g. Staff engineer, platform, ML infra"
-                    spellcheck="true"
-                  ></textarea>
-                  <label class="field-label" for="settingsDiscoveryLocations"
-                    >Locations</label
-                  >
-                  <input
-                    type="text"
-                    id="settingsDiscoveryLocations"
-                    class="modal-input"
-                    placeholder="Cities, regions, countries"
-                    autocomplete="off"
-                  />
-                  <label class="field-label" for="settingsDiscoveryRemotePolicy"
-                    >Remote / work style</label
-                  >
-                  <input
-                    type="text"
-                    id="settingsDiscoveryRemotePolicy"
-                    class="modal-input"
-                    placeholder="e.g. remote-first, hybrid, on-site"
-                    autocomplete="off"
-                  />
-                  <label class="field-label" for="settingsDiscoverySeniority"
-                    >Seniority</label
-                  >
-                  <input
-                    type="text"
-                    id="settingsDiscoverySeniority"
-                    class="modal-input"
-                    placeholder="e.g. mid, senior, staff"
-                    autocomplete="off"
-                  />
                   <label
                     class="field-label"
                     for="settingsDiscoveryKeywordsInclude"
@@ -2310,18 +2272,6 @@
                     id="settingsDiscoveryKeywordsInclude"
                     class="modal-input"
                     placeholder="Comma-separated or free text"
-                    autocomplete="off"
-                  />
-                  <label
-                    class="field-label"
-                    for="settingsDiscoveryKeywordsExclude"
-                    >Keywords to exclude</label
-                  >
-                  <input
-                    type="text"
-                    id="settingsDiscoveryKeywordsExclude"
-                    class="modal-input"
-                    placeholder="Things to avoid"
                     autocomplete="off"
                   />
                   <label
@@ -2572,7 +2522,7 @@
                 />
 
                 <label class="field-label" for="settingsProfileFormRemotePolicy"
-                  >Remote policy</label
+                  >Remote / work style</label
                 >
                 <select
                   id="settingsProfileFormRemotePolicy"
@@ -2583,6 +2533,19 @@
                   <option value="hybrid">Hybrid</option>
                   <option value="onsite">On-site</option>
                 </select>
+
+                <label
+                  class="field-label"
+                  for="settingsProfileFormKeywordsExclude"
+                  >Deal-breakers</label
+                >
+                <input
+                  type="text"
+                  id="settingsProfileFormKeywordsExclude"
+                  class="modal-input"
+                  placeholder="Things to avoid in matches"
+                  autocomplete="off"
+                />
 
                 <label class="field-label" for="settingsProfileFormIndustries"
                   >Industries</label
