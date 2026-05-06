@@ -141,6 +141,35 @@ Expected:
   - `invalid_endpoint`
 - The old modal maze is not the primary discovery entry path anymore.
 
+## Auto-heal regression checks (Setup Doctor)
+
+The Setup Doctor (`setup-doctor.js`) collapses common greenfield quagmires into
+one-click fixes. Verify each path still works end to end:
+
+- **ngrok rotation (Step 7 / Test the connection):**
+  - When the diagnosis card shows "ngrok URL changed — relay needs redeployment",
+    the primary action is labelled **"Auto-fix: redeploy relay & re-test"** on
+    localhost. Clicking it must not require copying any terminal command.
+  - The wizard calls `POST /__proxy/fix-setup` (provided by `dev-server.mjs`),
+    waits for the relay redeploy, then automatically re-runs the verifier.
+  - When `wrangler` auth is missing the user sees a single targeted toast
+    ("Cloudflare auth needed — run `npx wrangler login`…").
+  - On a hosted dashboard (non-localhost), the legacy copy-command card is
+    still shown so users can recover manually.
+- **Login gate / sheet read failure:** when the sheet read fails (403/404,
+  insufficient scopes, origin_mismatch), the login gate's error mode renders
+  a "Setup health" panel listing the diagnosed issue with a **Fix it for me**
+  button. Clicking the button runs the matching auto-fix.
+- **Pipeline tab missing or wrong headers:** the doctor detects this and offers
+  a one-click repair that adds the `Pipeline` tab with the canonical header row.
+- **Resume onboarding / Run setup doctor:** the user menu now exposes both
+  entry points so users can re-enter onboarding or trigger a full diagnosis at
+  any time.
+- **Post-OAuth-save reload:** saving a new OAuth client now re-initialises
+  Google Identity Services in place when possible, instead of forcing a full
+  page reload. Reload remains the documented fallback if GIS has not yet
+  loaded.
+
 ## Related docs
 
 - [SETUP.md](../SETUP.md)

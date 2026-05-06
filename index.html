@@ -1031,20 +1031,20 @@
           id="onboardingPanel2"
           style="display: none"
         >
-          <h3 class="onboarding-step-title">Roles you might explore</h3>
-          <p class="onboarding-hint">
-            Pick anything that looks interesting — you’re not committing to a
-            track. The more you select, the wider your discovery net.
+          <p class="onboarding-hint onboarding-hint--lede">
+            Pick anything that looks interesting — you’re not committing to
+            a track. The more you select, the wider your discovery net.
           </p>
 
           <!-- Inline "needs Gemini key" panel. Hidden by default; the
-               suggest module reveals it when no key is configured. The free
-               tier note is up front so users don't bounce on "API". -->
+               suggest module reveals it when no key is configured.
+               Top-down flow: badge → what & why → link → guide → paste. -->
           <div
             class="onboarding-keygate"
             id="onboardingSuggestKeyGate"
             hidden
           >
+            <!-- 1. What this is + why it's free -->
             <div class="onboarding-keygate__head">
               <span class="onboarding-keygate__badge">Free</span>
               <p class="onboarding-keygate__title">
@@ -1052,16 +1052,81 @@
               </p>
             </div>
             <p class="onboarding-keygate__body">
-              JobBored is bring-your-own-keys, so nothing runs on a server we
-              own. Google’s Gemini API has a generous free tier — no credit
-              card required for personal use.
+              JobBored is bring-your-own-keys, so nothing runs on a server
+              we own. Google’s Gemini API has a generous free tier — no
+              credit card required for personal use.
             </p>
+
+            <!-- 2. Where to get the key (link first — instruction before action) -->
+            <ol class="onboarding-keygate__steps">
+              <li>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noopener"
+                  class="onboarding-keygate__cta"
+                >
+                  Open Google AI Studio →
+                </a>
+                <span class="onboarding-keygate__step-hint">
+                  Sign in, click <strong>Create API key</strong>, copy the
+                  key that starts with <code>AIza</code>.
+                </span>
+              </li>
+              <li>
+                Paste it below and press Enter — we save it locally.
+              </li>
+            </ol>
+
+            <!-- 3. Optional deeper guide for first-timers -->
+            <details class="onboarding-keygate__guide">
+              <summary class="onboarding-keygate__guide-summary">
+                Need more detail? Show the full step-by-step
+              </summary>
+              <ol class="onboarding-keygate__guide-list">
+                <li>
+                  Click <strong>Open Google AI Studio</strong> above. Sign
+                  in with the same Google account you use here if asked.
+                </li>
+                <li>
+                  Click <strong>Create API key</strong> (top right of the
+                  page).
+                </li>
+                <li>
+                  Pick <strong>Create API key in new project</strong> if
+                  you don’t already have a Google Cloud project — AI
+                  Studio sets it up for you. No billing setup, no credit
+                  card.
+                </li>
+                <li>
+                  Copy the key (it starts with <code>AIza</code>).
+                </li>
+                <li>
+                  Come back here, paste it into the box below, press
+                  Enter. We auto-save it locally — never sent to a
+                  JobBored server.
+                </li>
+              </ol>
+              <p class="onboarding-keygate__guide-foot">
+                Free tier limits are per-minute and reset fast — plenty
+                for everyday role exploration. You can rotate or delete
+                the key anytime in AI Studio.
+              </p>
+            </details>
+
+            <!-- 4. Now the action — input + button last, after instructions -->
+            <label
+              class="onboarding-keygate__label"
+              for="onboardingSuggestKeyInput"
+            >
+              Paste your Gemini API key
+            </label>
             <div class="onboarding-keygate__row">
               <input
                 type="password"
                 id="onboardingSuggestKeyInput"
                 class="onboarding-keygate__input"
-                placeholder="Paste Gemini API key — auto-saves on Enter"
+                placeholder="AIza…"
                 autocomplete="off"
                 spellcheck="false"
               />
@@ -1073,49 +1138,10 @@
                 Save &amp; load suggestions
               </button>
             </div>
-            <a
-              href="https://aistudio.google.com/app/apikey"
-              target="_blank"
-              rel="noopener"
-              class="onboarding-keygate__cta"
-            >
-              Open Google AI Studio →
-            </a>
-            <details class="onboarding-keygate__guide">
-              <summary class="onboarding-keygate__guide-summary">
-                Step-by-step (open if it’s your first time)
-              </summary>
-              <ol class="onboarding-keygate__guide-list">
-                <li>
-                  Click <strong>Open Google AI Studio</strong> above. Sign in
-                  with the same Google account you use here if asked.
-                </li>
-                <li>
-                  Click <strong>Create API key</strong> (top right of the
-                  page).
-                </li>
-                <li>
-                  Pick <strong>Create API key in new project</strong> if you
-                  don’t already have a Google Cloud project — AI Studio sets
-                  it up for you. No billing setup, no credit card.
-                </li>
-                <li>
-                  Copy the key (it starts with <code>AIza</code>).
-                </li>
-                <li>
-                  Come back here, paste it into the box above, press Enter.
-                  We auto-save it locally — never sent to a JobBored server.
-                </li>
-              </ol>
-              <p class="onboarding-keygate__guide-foot">
-                Free tier limits are per-minute and reset fast — plenty for
-                everyday role exploration. You can rotate or delete the key
-                anytime in AI Studio.
-              </p>
-            </details>
+
             <p class="onboarding-keygate__skip">
-              Don’t want a key? Skip this step — you can still type roles
-              by hand below.
+              Don’t want a key? Skip — you can still type roles by hand
+              below.
             </p>
           </div>
 
@@ -1128,31 +1154,46 @@
 
           <p class="onboarding-status" id="onboardingSuggestStatus" aria-live="polite"></p>
 
+          <!-- Action row: "Show me more" gets its own row above the
+               free-add input so neither feels cramped. The free-add row
+               reads as "Have a role in mind? Add it" — instruction above
+               the input, instruction-then-action like the rest of the
+               wizard. -->
           <div class="onboarding-suggest-actions">
-            <button
-              type="button"
-              class="btn-modal-secondary onboarding-suggest-reroll"
-              id="onboardingSuggestReroll"
-              disabled
-            >
-              <span aria-hidden="true">↻</span> Show me more
-            </button>
-            <div class="onboarding-suggest-add">
-              <input
-                type="text"
-                id="onboardingSuggestAddInput"
-                class="onboarding-suggest-add-input"
-                placeholder="Add your own (e.g. Forward Deployed Engineer)"
-                autocomplete="off"
-                spellcheck="false"
-              />
+            <div class="onboarding-suggest-actions__reroll">
               <button
                 type="button"
-                class="btn-modal-secondary onboarding-suggest-add-btn"
-                id="onboardingSuggestAddBtn"
+                class="btn-modal-secondary onboarding-suggest-reroll"
+                id="onboardingSuggestReroll"
+                disabled
               >
-                Add
+                <span aria-hidden="true">↻</span> Show me more
               </button>
+            </div>
+            <div class="onboarding-suggest-add">
+              <label
+                class="onboarding-suggest-add__label"
+                for="onboardingSuggestAddInput"
+              >
+                Have a role in mind? Add it.
+              </label>
+              <div class="onboarding-suggest-add__row">
+                <input
+                  type="text"
+                  id="onboardingSuggestAddInput"
+                  class="onboarding-suggest-add-input"
+                  placeholder="e.g. Forward Deployed Engineer"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <button
+                  type="button"
+                  class="btn-modal-secondary onboarding-suggest-add-btn"
+                  id="onboardingSuggestAddBtn"
+                >
+                  Add
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1176,38 +1217,48 @@
           </div>
         </div>
 
-        <!-- Step 3: AI context (guided 3-question prompt + optional summary) -->
+        <!-- Step 3: Your edge — what makes the candidate stand out, what to
+             avoid in drafts. The "Want our take?" button reads the resume +
+             selected chips and pre-fills the superpower field with 2–3
+             distinctive, non-generic edges.
+
+             Removed in this consolidation: the "What kind of role are you
+             targeting?" textarea — Step 2's chips already own that and
+             feed the discovery profile via finalizeOnboarding. -->
         <div
           class="onboarding-panel"
           id="onboardingPanel3"
           style="display: none"
         >
-          <h3 class="onboarding-step-title">Tell us about your search</h3>
-          <p class="onboarding-hint">
-            Helps the AI write tailored cover letters. All optional.
+          <h3 class="onboarding-step-title">Your edge</h3>
+          <p class="onboarding-hint onboarding-hint--lede">
+            What makes you stand out — and anything you’d rather drafts
+            avoid. Short bullets, your words. Both optional.
           </p>
-          <label class="field-label" for="onboardingAiTarget"
-            >What kind of role are you targeting?</label
-          >
-          <textarea
-            id="onboardingAiTarget"
-            class="notes-textarea"
-            rows="2"
-            placeholder="e.g. Senior product manager at a B2B SaaS company"
-          ></textarea>
 
-          <label class="field-label" for="onboardingAiStrength"
-            >What's your superpower?</label
-          >
+          <div class="onboarding-edge-row">
+            <label class="field-label" for="onboardingAiStrength"
+              >What’s your superpower?</label
+            >
+            <button
+              type="button"
+              class="btn-modal-secondary onboarding-edge-take-btn"
+              id="onboardingEdgeTakeBtn"
+              title="Read your resume and suggest your most distinctive edges"
+            >
+              <span aria-hidden="true">✨</span> Want our take?
+            </button>
+          </div>
           <textarea
             id="onboardingAiStrength"
             class="notes-textarea"
-            rows="2"
+            rows="3"
             placeholder="e.g. Translating ambiguous problems into shipped products"
           ></textarea>
+          <p class="onboarding-status onboarding-status--inline" id="onboardingEdgeTakeStatus" aria-live="polite"></p>
 
           <label class="field-label" for="onboardingAiAvoid"
-            >Anything you want to avoid?</label
+            >Anything to avoid?</label
           >
           <textarea
             id="onboardingAiAvoid"

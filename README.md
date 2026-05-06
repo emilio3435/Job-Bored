@@ -194,6 +194,8 @@ That's it. The dashboard's **Settings → Discovery** tab has a live status indi
 
 **Fast local real-discovery path:** if your agent runs on your own machine, use **local webhook → ngrok → Cloudflare Worker**. Start with `npm run discovery:bootstrap-local`, then use **Settings → Hermes + ngrok** to review the autofilled route/tunnel info and **Cloudflare relay** to generate the Worker deploy command and final browser URL.
 
+**Keep the relay alive across ngrok rotations:** free ngrok plans hand out a new public URL on every restart, which silently breaks the deployed Cloudflare Worker (its `TARGET_URL` secret still points at the dead tunnel). Run `npm run discovery:keep-alive` once after bootstrap+deploy to start a watchdog: it polls the local ngrok API every 30s and, when the URL rotates, runs a single `wrangler secret put TARGET_URL` on the existing Worker — no full redeploy. One-shot mode (`npm run discovery:keep-alive -- --once`) is also useful as a pre-flight check or launchd job. If you upgrade ngrok to a reserved domain, pass `--reserved-domain mytunnel.ngrok.app` and the watchdog launches ngrok with `--domain=...` so rotations stop happening at all.
+
 1. Point **Run discovery** at your HTTPS endpoint (see Settings and `discoveryWebhookUrl`), _or_ use **scheduled** automation only ([paths doc](docs/DISCOVERY-PATHS.md)).
 2. Schedule your agent or cron so rows append to **Pipeline** on a cadence you want.
 3. The dashboard auto-refreshes on a timer — new data appears automatically.
