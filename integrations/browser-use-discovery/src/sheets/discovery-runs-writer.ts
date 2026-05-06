@@ -148,6 +148,7 @@ function rowToCells(row: DiscoveryRunLogRow): string[] {
     Number.isFinite(row.durationS) ? String(Math.max(0, Math.round(row.durationS))) : "0",
     Number.isFinite(row.companiesSeen) ? String(Math.max(0, Math.round(row.companiesSeen))) : "0",
     Number.isFinite(row.leadsWritten) ? String(Math.max(0, Math.round(row.leadsWritten))) : "0",
+    Number.isFinite(row.leadsUpdated) ? String(Math.max(0, Math.round(row.leadsUpdated))) : "0",
     String(row.source || ""),
     String(row.variationKey || ""),
     row.status === "success" ? "" : error,

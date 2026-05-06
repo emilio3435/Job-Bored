@@ -131,6 +131,108 @@ async function withMalformedJsonRetry(label, run) {
   throw lastError;
 }
 
+const RATE_LIMIT_PROVIDER_CODES = new Set([
+  "resource_exhausted",
+  "rate_limit",
+  "rate_limit_exceeded",
+  "too_many_requests",
+]);
+
+const RETRYABLE_PROVIDER_CODES = new Set([
+  ...RATE_LIMIT_PROVIDER_CODES,
+  "deadline_exceeded",
+  "internal",
+  "overloaded",
+  "service_unavailable",
+  "temporarily_unavailable",
+  "timeout",
+  "unavailable",
+]);
+
+function isPlainRecord(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeProviderCode(value) {
+  if (value == null) return "";
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function isRetryableProviderStatus(status) {
+  return (
+    Number.isInteger(status) &&
+    (status === 408 ||
+      status === 409 ||
+      status === 425 ||
+      status === 429 ||
+      status >= 500)
+  );
+}
+
+function extractProviderErrorDetails(payload) {
+  if (!isPlainRecord(payload)) return { message: "", code: "" };
+  const root = isPlainRecord(payload.error) ? payload.error : payload;
+  const message =
+    typeof root.message === "string"
+      ? root.message.trim()
+      : typeof payload.message === "string"
+        ? payload.message.trim()
+        : "";
+  const code = normalizeProviderCode(root.status || root.code || root.type || "");
+  return { message, code };
+}
+
+function providerDisplayName(provider) {
+  if (provider === "openai") return "OpenAI";
+  if (provider === "anthropic") return "Anthropic";
+  return "Gemini";
+}
+
+function classifyProviderError(upstreamStatus, providerCode) {
+  if (upstreamStatus === 429) return "rate_limit";
+  if (providerCode && RATE_LIMIT_PROVIDER_CODES.has(providerCode)) {
+    return "rate_limit";
+  }
+  return "upstream";
+}
+
+function buildProviderHttpError({
+  provider,
+  upstreamStatus,
+  payload,
+  fallbackMessage,
+}) {
+  const details = extractProviderErrorDetails(payload);
+  const message = details.message || fallbackMessage || `${providerDisplayName(provider)} request failed`;
+  const error = new Error(message);
+  error.name = "ProviderApiError";
+  error.provider = provider;
+  error.upstreamStatus = Number.isInteger(upstreamStatus) ? upstreamStatus : undefined;
+  error.providerCode = details.code || undefined;
+  error.classification = classifyProviderError(error.upstreamStatus, details.code);
+  error.retryable =
+    isRetryableProviderStatus(error.upstreamStatus) ||
+    (details.code ? RETRYABLE_PROVIDER_CODES.has(details.code) : false);
+  return error;
+}
+
+function buildProviderRequestError(provider, cause) {
+  const detail =
+    cause && cause.message ? String(cause.message).trim() : String(cause || "network failure");
+  const error = new Error(`${providerDisplayName(provider)} request failed: ${detail}`);
+  error.name = "ProviderApiError";
+  error.provider = provider;
+  error.providerCode = "network_error";
+  error.classification = "upstream";
+  error.retryable = true;
+  error.cause = cause;
+  return error;
+}
+
 function toGeminiSchema(schema) {
   const UNSUPPORTED = new Set([
     "additionalProperties",
@@ -320,14 +422,24 @@ async function callGeminiJson(userPrompt, apiKey, model) {
         responseSchema: toGeminiSchema(ATS_RESPONSE_SCHEMA),
       },
     };
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    let resp;
+    try {
+      resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      throw buildProviderRequestError("gemini", error);
+    }
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-      throw new Error(data.error?.message || `Gemini HTTP ${resp.status}`);
+      throw buildProviderHttpError({
+        provider: "gemini",
+        upstreamStatus: resp.status,
+        payload: data,
+        fallbackMessage: `Gemini HTTP ${resp.status}`,
+      });
     }
     const raw =
       data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
@@ -361,17 +473,27 @@ async function callOpenAIJson(userPrompt, apiKey, model) {
     [limitKey]: 3500,
   };
   return withMalformedJsonRetry("OpenAI", async () => {
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
+    let resp;
+    try {
+      resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      throw buildProviderRequestError("openai", error);
+    }
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-      throw new Error(data.error?.message || `OpenAI HTTP ${resp.status}`);
+      throw buildProviderHttpError({
+        provider: "openai",
+        upstreamStatus: resp.status,
+        payload: data,
+        fallbackMessage: `OpenAI HTTP ${resp.status}`,
+      });
     }
     const raw = data.choices?.[0]?.message?.content || "";
     if (!raw.trim()) throw new Error("OpenAI returned empty content");
@@ -393,20 +515,28 @@ async function callAnthropicJson(userPrompt, apiKey, model) {
     },
   };
   return withMalformedJsonRetry("Anthropic", async () => {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(body),
-    });
+    let resp;
+    try {
+      resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      throw buildProviderRequestError("anthropic", error);
+    }
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-      throw new Error(
-        data.error?.message || data.error?.type || `Anthropic HTTP ${resp.status}`,
-      );
+      throw buildProviderHttpError({
+        provider: "anthropic",
+        upstreamStatus: resp.status,
+        payload: data,
+        fallbackMessage: `Anthropic HTTP ${resp.status}`,
+      });
     }
     const raw = Array.isArray(data.content)
       ? data.content

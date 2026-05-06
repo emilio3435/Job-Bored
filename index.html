@@ -448,6 +448,32 @@
             </button>
             <button
               type="button"
+              class="btn-materials btn-materials--icon btn-companies"
+              id="companiesBtn"
+              title="Scoped companies"
+              aria-label="Open companies panel"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M3 21h18" />
+                <path d="M5 21V7l8-4v18" />
+                <path d="M19 21V11l-6-4" />
+                <path d="M9 9h0" />
+                <path d="M9 13h0" />
+                <path d="M9 17h0" />
+              </svg>
+            </button>
+            <button
+              type="button"
               class="btn-materials btn-materials--icon btn-runs-log"
               id="runsBtn"
               title="Discovery run history"
@@ -819,15 +845,6 @@
                 title="Show only favorited roles"
               >
                 <span aria-hidden="true">⭐</span> Favorites only
-              </button>
-              <button
-                type="button"
-                class="filter-btn"
-                id="showDismissedChip"
-                aria-pressed="false"
-                title="Include dismissed roles in the board"
-              >
-                Show dismissed
               </button>
             </div>
           </div>
@@ -1470,7 +1487,8 @@
                 <th data-runs-sort="status" scope="col">Status</th>
                 <th data-runs-sort="durationS" scope="col">Duration</th>
                 <th data-runs-sort="companiesSeen" scope="col">Companies</th>
-                <th data-runs-sort="leadsWritten" scope="col">Leads</th>
+                <th data-runs-sort="leadsWritten" scope="col">New</th>
+                <th data-runs-sort="leadsUpdated" scope="col">Updated</th>
                 <th data-runs-sort="source" scope="col">Source</th>
                 <th data-runs-sort="variationKey" scope="col">Variation</th>
                 <th scope="col">Error</th>
@@ -1478,6 +1496,138 @@
             </thead>
             <tbody id="runsTableBody"></tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Companies panel: list, eliminate, and restore scoped companies -->
+    <div
+      class="modal-overlay"
+      id="companiesModal"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="companiesModalTitle"
+    >
+      <div class="modal-card modal-card--wide companies-modal">
+        <div class="settings-modal-head">
+          <h3 id="companiesModalTitle">Companies</h3>
+          <button
+            type="button"
+            class="settings-modal-close"
+            id="companiesModalClose"
+            aria-label="Close"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <p class="modal-lede settings-modal-lede">
+          The companies your discovery runs are currently targeting. Eliminate
+          any you don't want in your search, or restore ones you previously
+          removed. Changes persist to your worker's stored profile and affect
+          future refresh runs.
+        </p>
+        <div class="companies-toolbar">
+          <div
+            class="companies-tabs"
+            role="tablist"
+            aria-label="Companies view"
+            data-companies-tabs
+          >
+            <button
+              type="button"
+              class="companies-tab is-active"
+              data-companies-tab="active"
+              role="tab"
+              aria-selected="true"
+            >
+              Active
+              <span class="companies-tab__count" id="companiesCountActive">0</span>
+            </button>
+            <button
+              type="button"
+              class="companies-tab"
+              data-companies-tab="skipped"
+              role="tab"
+              aria-selected="false"
+            >
+              Eliminated
+              <span class="companies-tab__count" id="companiesCountSkipped">0</span>
+            </button>
+            <button
+              type="button"
+              class="companies-tab"
+              data-companies-tab="history"
+              role="tab"
+              aria-selected="false"
+            >
+              History
+              <span class="companies-tab__count" id="companiesCountHistory">0</span>
+            </button>
+          </div>
+          <div class="companies-toolbar__actions">
+            <input
+              type="search"
+              id="companiesSearch"
+              class="companies-search"
+              placeholder="Search companies…"
+              aria-label="Search companies"
+            />
+            <button
+              type="button"
+              class="runs-refresh-btn"
+              id="companiesRefreshBtn"
+              title="Reload now"
+              aria-label="Reload companies"
+            >Reload</button>
+            <button
+              type="button"
+              class="runs-refresh-btn companies-rediscover-btn"
+              id="companiesRediscoverBtn"
+              title="Re-run company discovery with Gemini"
+            >Re-run discovery…</button>
+          </div>
+        </div>
+        <div
+          class="companies-status"
+          id="companiesStatus"
+          role="status"
+          aria-live="polite"
+        ></div>
+        <div class="companies-panes">
+          <div
+            class="companies-pane companies-pane--active"
+            id="companiesPaneActive"
+            role="tabpanel"
+          >
+            <div class="companies-list-wrap" id="companiesActiveList"></div>
+          </div>
+          <div
+            class="companies-pane"
+            id="companiesPaneSkipped"
+            role="tabpanel"
+            hidden
+          >
+            <div class="companies-list-wrap" id="companiesSkippedList"></div>
+          </div>
+          <div
+            class="companies-pane"
+            id="companiesPaneHistory"
+            role="tabpanel"
+            hidden
+          >
+            <div class="companies-list-wrap" id="companiesHistoryList"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -2199,6 +2349,93 @@
                     When enabled, the automation will also search the web for
                     jobs beyond ATS listings.
                   </p>
+                  <fieldset
+                    class="dp-source-preset dp-source-preset--settings"
+                    id="settingsSourcePresetGroup"
+                  >
+                    <legend class="field-label">Source preset</legend>
+                    <div class="dp-source-preset-options">
+                      <label
+                        class="dp-source-preset-option"
+                        data-preset="browser_only"
+                      >
+                        <input
+                          type="radio"
+                          name="settingsSourcePreset"
+                          value="browser_only"
+                          id="settingsPresetBrowserOnly"
+                        />
+                        <span class="dp-preset-label">Browser only</span>
+                        <span class="dp-preset-hint"
+                          >Wider web breadth, lower precision</span
+                        >
+                      </label>
+                      <label
+                        class="dp-source-preset-option"
+                        data-preset="ats_only"
+                      >
+                        <input
+                          type="radio"
+                          name="settingsSourcePreset"
+                          value="ats_only"
+                          id="settingsPresetAtsOnly"
+                        />
+                        <span class="dp-preset-label">ATS only</span>
+                        <span class="dp-preset-hint"
+                          >Higher precision, narrower breadth</span
+                        >
+                      </label>
+                      <label
+                        class="dp-source-preset-option dp-source-preset-option--active"
+                        data-preset="browser_plus_ats"
+                      >
+                        <input
+                          type="radio"
+                          name="settingsSourcePreset"
+                          value="browser_plus_ats"
+                          id="settingsPresetBrowserPlusAts"
+                          checked
+                        />
+                        <span class="dp-preset-label">Browser + ATS</span>
+                        <span class="dp-preset-hint"
+                          >Balanced breadth + precision</span
+                        >
+                      </label>
+                    </div>
+                  </fieldset>
+                  <p
+                    class="settings-field-hint dp-source-preset-tradeoff"
+                    id="settingsSourcePresetTradeoff"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    Browser + ATS balances breadth and precision. Expect wider
+                    coverage than ATS-only with fewer noisy leads than
+                    browser-only.
+                  </p>
+                  <div
+                    class="dp-source-preset-recommendation dp-source-preset-recommendation--settings"
+                    id="settingsSourcePresetRecommendation"
+                    role="status"
+                    aria-live="polite"
+                    hidden
+                  >
+                    <p
+                      class="dp-source-preset-recommendation__text"
+                      id="settingsSourcePresetRecommendationText"
+                    >
+                      Browser only is best for broad sweeps, but most runs do
+                      better with Browser + ATS for stronger precision and less
+                      manual filtering.
+                    </p>
+                    <button
+                      type="button"
+                      class="btn-modal-secondary dp-source-preset-recommendation__button"
+                      id="settingsSourcePresetUseBalancedBtn"
+                    >
+                      Switch to Browser + ATS
+                    </button>
+                  </div>
                 </div>
               </details>
             </div>
@@ -5348,18 +5585,33 @@ https://your-static-site.example</pre
             id="dpTabManual"
             data-dp-tab="manual"
           >
-            Manual
+            Run filters (required)
           </button>
           <button
             type="button"
             class="dp-tab"
             role="tab"
             aria-selected="false"
-            id="dpTabAi"
-            data-dp-tab="ai"
+            id="dpTabProfile"
+            data-dp-tab="profile"
           >
-            AI Suggest
+            Company targets (required)
           </button>
+        </div>
+
+        <div class="dp-requirements" id="dpRequirements" role="status" aria-live="polite">
+          <div class="dp-requirement-row">
+            <span class="dp-requirement-pill" id="dpRequirementManualState">Incomplete</span>
+            <span class="dp-requirement-text"
+              >Run filters: add target roles or include keywords.</span
+            >
+          </div>
+          <div class="dp-requirement-row">
+            <span class="dp-requirement-pill" id="dpRequirementProfileState">Checking…</span>
+            <span class="dp-requirement-text"
+              >Company targets: refresh profile companies and keep at least one.</span
+            >
+          </div>
         </div>
 
         <!-- Manual tab panel -->
@@ -5369,9 +5621,19 @@ https://your-static-site.example</pre
           role="tabpanel"
         >
           <p class="modal-lede modal-lede--compact">
-            Adjust these before each run. Values are saved locally and sent with
-            the request so your automation can vary the search.
+            Step 1 (required): set search intent here. Step 2 (required): confirm
+            company targets in the Company targets tab before running.
           </p>
+
+          <div class="dp-ai-toggle">
+            <label class="field-label field-label--checkbox" for="dpAiAssistToggle">
+              <input type="checkbox" id="dpAiAssistToggle" />
+              Enable AI assist (optional)
+            </label>
+            <p class="modal-field-hint">
+              Optional helper only. You can run discovery without this.
+            </p>
+          </div>
 
           <label class="field-label" for="dpTargetRoles">Target roles</label>
           <textarea
@@ -5450,56 +5712,95 @@ https://your-static-site.example</pre
             autocomplete="off"
           />
 
-          <label class="field-label field-label--checkbox">
-            <input type="checkbox" id="dpGroundedWeb" checked />
-            Enable grounded web search
-          </label>
-          <p class="modal-field-hint">
-            When enabled, the automation will also search the web for jobs
-            beyond ATS listings.
-          </p>
+              <label class="field-label field-label--checkbox">
+                <input type="checkbox" id="dpGroundedWeb" checked />
+                Enable grounded web search
+              </label>
+              <p class="modal-field-hint">
+                When enabled, the automation will also search the web for jobs
+                beyond ATS listings.
+              </p>
 
-          <!-- Source preset selector -->
-          <fieldset class="dp-source-preset" id="dpSourcePresetGroup">
-            <legend class="field-label">Source preset</legend>
-            <div class="dp-source-preset-options">
-              <label class="dp-source-preset-option" data-preset="browser_only">
-                <input
-                  type="radio"
-                  name="dpSourcePreset"
-                  value="browser_only"
-                  id="dpPresetBrowserOnly"
-                />
-                <span class="dp-preset-label">Browser only</span>
-                <span class="dp-preset-hint">Web search only</span>
-              </label>
-              <label class="dp-source-preset-option" data-preset="ats_only">
-                <input
-                  type="radio"
-                  name="dpSourcePreset"
-                  value="ats_only"
-                  id="dpPresetAtsOnly"
-                />
-                <span class="dp-preset-label">ATS only</span>
-                <span class="dp-preset-hint">Greenhouse, Lever, Ashby</span>
-              </label>
-              <label class="dp-source-preset-option dp-source-preset-option--active" data-preset="browser_plus_ats">
-                <input
-                  type="radio"
-                  name="dpSourcePreset"
-                  value="browser_plus_ats"
-                  id="dpPresetBrowserPlusAts"
-                  checked
-                />
-                <span class="dp-preset-label">Browser + ATS</span>
-                <span class="dp-preset-hint">Both sources</span>
-              </label>
+              <!-- Source preset selector -->
+              <fieldset class="dp-source-preset" id="dpSourcePresetGroup">
+                <legend class="field-label">Source preset</legend>
+                <div class="dp-source-preset-options">
+                  <label class="dp-source-preset-option" data-preset="browser_only">
+                    <input
+                      type="radio"
+                      name="dpSourcePreset"
+                      value="browser_only"
+                      id="dpPresetBrowserOnly"
+                    />
+                    <span class="dp-preset-label">Browser only</span>
+                    <span class="dp-preset-hint"
+                      >Wider web breadth, lower precision</span
+                    >
+                  </label>
+                  <label class="dp-source-preset-option" data-preset="ats_only">
+                    <input
+                      type="radio"
+                      name="dpSourcePreset"
+                      value="ats_only"
+                      id="dpPresetAtsOnly"
+                    />
+                    <span class="dp-preset-label">ATS only</span>
+                    <span class="dp-preset-hint"
+                      >Higher precision, narrower breadth</span
+                    >
+                  </label>
+                  <label class="dp-source-preset-option dp-source-preset-option--active" data-preset="browser_plus_ats">
+                    <input
+                      type="radio"
+                      name="dpSourcePreset"
+                      value="browser_plus_ats"
+                      id="dpPresetBrowserPlusAts"
+                      checked
+                    />
+                    <span class="dp-preset-label">Browser + ATS</span>
+                    <span class="dp-preset-hint"
+                      >Balanced breadth + precision</span
+                    >
+                  </label>
+                </div>
+              </fieldset>
+              <p
+                class="modal-field-hint dp-source-preset-tradeoff"
+                id="dpSourcePresetTradeoff"
+                role="status"
+                aria-live="polite"
+              >
+                Browser + ATS balances breadth and precision. Expect wider
+                coverage than ATS-only with fewer noisy leads than
+                browser-only.
+              </p>
+              <div
+                class="dp-source-preset-recommendation"
+                id="dpSourcePresetRecommendation"
+                role="status"
+                aria-live="polite"
+                hidden
+              >
+                <p
+                  class="dp-source-preset-recommendation__text"
+                  id="dpSourcePresetRecommendationText"
+                >
+                  Browser only is best for broad sweeps, but most runs do
+                  better with Browser + ATS for stronger precision and less
+                  manual filtering.
+                </p>
+                <button
+                  type="button"
+                  class="btn-modal-secondary dp-source-preset-recommendation__button"
+                  id="dpSourcePresetUseBalancedBtn"
+                >
+                  Switch to Browser + ATS
+                </button>
+              </div>
             </div>
-          </fieldset>
-        </div>
 
-        <!-- AI Suggest tab panel -->
-        <div class="dp-panel" id="dpPanelAi" role="tabpanel" hidden>
+        <!-- Optional AI assist panel (toggle from Run filters) -->
+        <div class="dp-panel dp-ai-assist-panel" id="dpPanelAi" hidden>
           <p class="modal-lede modal-lede--compact">
             Paste a job listing URL (optional) or let AI analyze your resume,
             LinkedIn, and AI context to suggest target roles, locations, and
@@ -5618,6 +5919,128 @@ https://your-static-site.example</pre
             Configure a resume AI provider (Gemini, OpenAI, or Anthropic) in
             Settings to enable AI suggestions.
           </p>
+        </div>
+
+        <!-- Profile tab panel -->
+        <div class="dp-panel" id="dpPanelProfile" role="tabpanel" hidden>
+          <p class="modal-lede modal-lede--compact">
+            Required before running: keep at least one target company here. Use
+            Settings → Profile for the full resume, form, and schedule workflow.
+          </p>
+
+          <div class="dp-profile-summary" id="dpProfileSummary" aria-live="polite">
+            <div class="dp-profile-summary__row">
+              <span class="dp-profile-summary__label">Stored profile</span>
+              <span class="dp-profile-summary__value">Checking…</span>
+            </div>
+          </div>
+
+          <div class="dp-profile-actions">
+            <button
+              type="button"
+              class="btn-modal-primary"
+              id="dpProfileRefreshBtn"
+            >
+              Refresh companies
+            </button>
+            <button
+              type="button"
+              class="btn-modal-secondary"
+              id="dpProfileOpenSettingsBtn"
+            >
+              Open full profile settings
+            </button>
+          </div>
+
+          <p
+            class="settings-form-error dp-profile-error"
+            id="dpProfileError"
+            role="alert"
+            hidden
+          ></p>
+
+          <div
+            class="dp-company-picker"
+            id="dpCompanyPicker"
+            aria-live="polite"
+            hidden
+          >
+            <div class="dp-company-picker__toolbar" role="group" aria-label="Company picker tools">
+              <label class="dp-company-picker__search-label" for="dpCompanySearch">
+                <span class="field-label-visually-hidden">Search companies</span>
+                <input
+                  type="search"
+                  id="dpCompanySearch"
+                  class="modal-input dp-company-picker__search"
+                  placeholder="Search companies…"
+                  autocomplete="off"
+                />
+              </label>
+              <div class="dp-company-picker__actions">
+                <button
+                  type="button"
+                  class="btn-modal-secondary dp-company-picker__btn"
+                  id="dpCompanySelectAll"
+                >
+                  Select all active
+                </button>
+                <button
+                  type="button"
+                  class="btn-modal-secondary dp-company-picker__btn"
+                  id="dpCompanyClear"
+                >
+                  Clear
+                </button>
+                <label class="dp-company-picker__random">
+                  Pick
+                  <input
+                    type="number"
+                    id="dpCompanyRandomCount"
+                    class="modal-input dp-company-picker__random-count"
+                    min="1"
+                    step="1"
+                    value="10"
+                    inputmode="numeric"
+                    aria-label="Number of random companies to pick"
+                  />
+                  random
+                  <button
+                    type="button"
+                    class="btn-modal-secondary dp-company-picker__btn dp-company-picker__btn--random"
+                    id="dpCompanyRandomize"
+                    aria-label="Pick random companies"
+                    title="Pick random companies"
+                  >
+                    🎲
+                  </button>
+                </label>
+              </div>
+            </div>
+            <p
+              class="dp-company-picker__summary"
+              id="dpCompanyPickerSummary"
+              aria-live="polite"
+            ></p>
+            <ul
+              class="dp-company-picker__list"
+              id="dpCompanyPickerList"
+              role="list"
+            ></ul>
+            <p
+              class="dp-company-picker__empty"
+              id="dpCompanyPickerEmpty"
+              hidden
+            ></p>
+            <button
+              type="button"
+              class="dp-company-picker__history-toggle"
+              id="dpCompanyShowHistory"
+              aria-expanded="false"
+              aria-controls="dpCompanyPickerList"
+            >
+              Show history (<span id="dpCompanyHistoryCount">0</span>)
+            </button>
+          </div>
         </div>
 
         <div class="modal-actions modal-actions--split">
@@ -5800,6 +6223,7 @@ https://your-static-site.example</pre
     <script src="settings-profile-tab.js?v=4"></script>
     <script src="runs-tab.js"></script>
     <script src="setup-doctor.js"></script>
+    <script src="companies-tab.js"></script>
     <script src="app.js?v=14"></script>
   </body>
 </html>
