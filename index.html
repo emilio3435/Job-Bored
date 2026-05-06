@@ -1020,10 +1020,166 @@
           </div>
         </div>
 
-        <!-- Step 2: AI context (guided 3-question prompt + optional summary) -->
+        <!-- Step 2: Suggested careers (chips, free-add, re-roll). Powered by
+             the user's Gemini key. Surfaces broad adjacent + lateral roles so
+             the discovery algorithm doesn't get pigeonholed by whatever the
+             user typed first. Chip selections persist into the discovery
+             profile via finalizeOnboarding (NOT into Step 3's textarea —
+             chips are the source of truth for "roles to explore"). -->
         <div
           class="onboarding-panel"
           id="onboardingPanel2"
+          style="display: none"
+        >
+          <h3 class="onboarding-step-title">Roles you might explore</h3>
+          <p class="onboarding-hint">
+            Pick anything that looks interesting — you’re not committing to a
+            track. The more you select, the wider your discovery net.
+          </p>
+
+          <!-- Inline "needs Gemini key" panel. Hidden by default; the
+               suggest module reveals it when no key is configured. The free
+               tier note is up front so users don't bounce on "API". -->
+          <div
+            class="onboarding-keygate"
+            id="onboardingSuggestKeyGate"
+            hidden
+          >
+            <div class="onboarding-keygate__head">
+              <span class="onboarding-keygate__badge">Free</span>
+              <p class="onboarding-keygate__title">
+                Add a free Gemini key to see role suggestions
+              </p>
+            </div>
+            <p class="onboarding-keygate__body">
+              JobBored is bring-your-own-keys, so nothing runs on a server we
+              own. Google’s Gemini API has a generous free tier — no credit
+              card required for personal use.
+            </p>
+            <div class="onboarding-keygate__row">
+              <input
+                type="password"
+                id="onboardingSuggestKeyInput"
+                class="onboarding-keygate__input"
+                placeholder="Paste Gemini API key — auto-saves on Enter"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button
+                type="button"
+                class="btn-modal-primary onboarding-keygate__save"
+                id="onboardingSuggestKeySaveBtn"
+              >
+                Save &amp; load suggestions
+              </button>
+            </div>
+            <a
+              href="https://aistudio.google.com/app/apikey"
+              target="_blank"
+              rel="noopener"
+              class="onboarding-keygate__cta"
+            >
+              Open Google AI Studio →
+            </a>
+            <details class="onboarding-keygate__guide">
+              <summary class="onboarding-keygate__guide-summary">
+                Step-by-step (open if it’s your first time)
+              </summary>
+              <ol class="onboarding-keygate__guide-list">
+                <li>
+                  Click <strong>Open Google AI Studio</strong> above. Sign in
+                  with the same Google account you use here if asked.
+                </li>
+                <li>
+                  Click <strong>Create API key</strong> (top right of the
+                  page).
+                </li>
+                <li>
+                  Pick <strong>Create API key in new project</strong> if you
+                  don’t already have a Google Cloud project — AI Studio sets
+                  it up for you. No billing setup, no credit card.
+                </li>
+                <li>
+                  Copy the key (it starts with <code>AIza</code>).
+                </li>
+                <li>
+                  Come back here, paste it into the box above, press Enter.
+                  We auto-save it locally — never sent to a JobBored server.
+                </li>
+              </ol>
+              <p class="onboarding-keygate__guide-foot">
+                Free tier limits are per-minute and reset fast — plenty for
+                everyday role exploration. You can rotate or delete the key
+                anytime in AI Studio.
+              </p>
+            </details>
+            <p class="onboarding-keygate__skip">
+              Don’t want a key? Skip this step — you can still type roles
+              by hand below.
+            </p>
+          </div>
+
+          <div
+            class="onboarding-suggest-chip-row"
+            id="onboardingSuggestChipRow"
+            role="list"
+            aria-label="Suggested careers"
+          ></div>
+
+          <p class="onboarding-status" id="onboardingSuggestStatus" aria-live="polite"></p>
+
+          <div class="onboarding-suggest-actions">
+            <button
+              type="button"
+              class="btn-modal-secondary onboarding-suggest-reroll"
+              id="onboardingSuggestReroll"
+              disabled
+            >
+              <span aria-hidden="true">↻</span> Show me more
+            </button>
+            <div class="onboarding-suggest-add">
+              <input
+                type="text"
+                id="onboardingSuggestAddInput"
+                class="onboarding-suggest-add-input"
+                placeholder="Add your own (e.g. Forward Deployed Engineer)"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button
+                type="button"
+                class="btn-modal-secondary onboarding-suggest-add-btn"
+                id="onboardingSuggestAddBtn"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
+          <p class="onboarding-suggest-foot" id="onboardingSuggestFoot"></p>
+
+          <div class="onboarding-actions onboarding-actions--split">
+            <button
+              type="button"
+              class="btn-modal-secondary"
+              id="onboardingSuggestBack"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              class="btn-modal-primary onboarding-btn-primary"
+              id="onboardingSuggestNext"
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 3: AI context (guided 3-question prompt + optional summary) -->
+        <div
+          class="onboarding-panel"
+          id="onboardingPanel3"
           style="display: none"
         >
           <h3 class="onboarding-step-title">Tell us about your search</h3>
@@ -1088,10 +1244,10 @@
           </div>
         </div>
 
-        <!-- Step 3: Tone + voice (merged) — last step, finishes onboarding -->
+        <!-- Step 4: Tone + voice (merged) — last step, finishes onboarding -->
         <div
           class="onboarding-panel"
-          id="onboardingPanel3"
+          id="onboardingPanel4"
           style="display: none"
         >
           <h3 class="onboarding-step-title">How should drafts sound?</h3>
