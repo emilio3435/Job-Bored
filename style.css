@@ -8335,6 +8335,63 @@ a.btn-materials {
   max-width: 12rem;
 }
 
+/* Step 3 "Your edge" — label + "Want our take?" button on one row so the
+   AI assist sits visually next to the field it fills, not as a floating
+   action somewhere disconnected from the input. */
+.onboarding-edge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  margin-bottom: 6px;
+}
+
+.onboarding-edge-row .field-label {
+  margin-bottom: 0;
+}
+
+.onboarding-edge-take-btn {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  color: var(--accent);
+  font-weight: 600;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.05s ease;
+}
+
+.onboarding-edge-take-btn:hover:not([disabled]) {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.onboarding-edge-take-btn:active:not([disabled]) {
+  transform: translateY(1px);
+}
+
+.onboarding-edge-take-btn[disabled] {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+/* Inline variant of onboarding-status for slot-into-field placement
+   (vs. the standalone block below the textarea that needs more breathing
+   room). Used by #onboardingEdgeTakeStatus. */
+.onboarding-status--inline {
+  margin-top: 4px;
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  min-height: 1.25em;
+}
+
 .onboarding-tone-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -8444,6 +8501,15 @@ a.btn-materials {
 .onboarding-hint {
   font-size: var(--text-xs);
   color: var(--text-muted);
+  margin-bottom: var(--space-4);
+}
+
+/* Lede variant — used when the panel has no <h3> of its own (the wizard
+   chrome already shows the step title) and the hint is now the lead copy. */
+.onboarding-hint--lede {
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  margin-top: 0;
   margin-bottom: var(--space-4);
 }
 
@@ -8563,12 +8629,18 @@ a.btn-materials {
   opacity: 1;
 }
 
+/* Stacked actions: Show me more on its own line, then a labelled
+   free-add row beneath it. Avoids the cramped one-row layout where the
+   input got truncated and the label sat orphaned. */
 .onboarding-suggest-actions {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
+  flex-direction: column;
+  gap: var(--space-3);
   margin-top: var(--space-3);
+}
+
+.onboarding-suggest-actions__reroll {
+  display: flex;
 }
 
 .onboarding-suggest-reroll {
@@ -8582,9 +8654,21 @@ a.btn-materials {
 
 .onboarding-suggest-add {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.onboarding-suggest-add__label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+}
+
+.onboarding-suggest-add__row {
+  display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex: 1 1 240px;
   min-width: 0;
 }
 
@@ -8784,6 +8868,35 @@ a.btn-materials {
   font-size: var(--text-xs);
   color: var(--text-muted);
   line-height: 1.5;
+}
+
+/* Numbered "where to get the key" steps, shown above the paste field so
+   the instructions naturally precede the action. */
+.onboarding-keygate__steps {
+  margin: 0 0 var(--space-3);
+  padding-left: 1.5rem;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.onboarding-keygate__steps li {
+  margin-bottom: var(--space-2);
+}
+
+.onboarding-keygate__step-hint {
+  display: inline;
+  margin-left: var(--space-1);
+  color: var(--text-muted);
+}
+
+.onboarding-keygate__label {
+  display: block;
+  margin: var(--space-3) 0 6px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
 }
 
 .onboarding-keygate__skip {

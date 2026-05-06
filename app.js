@@ -514,6 +514,42 @@ function autofillDiscoveryWebhookSecretFromBootstrap(data) {
   }
 }
 
+// ====== [discovery-autodetect lane: relay URL auto-fill] ======
+// After scripts/deploy-cloudflare-relay.mjs deploys the Cloudflare Worker
+// it writes a `relay` block into discovery-local-bootstrap.json with the
+// deployed Worker URL. This sibling of the secret autofill copies that URL
+// into the discoveryWebhookUrl config setting so the dashboard's wizard
+// shows it pre-filled. Greenfield user goal: zero copy/paste of the
+// Worker URL anywhere, ever.
+//
+// Same conservative semantics as autofillDiscoveryWebhookSecretFromBootstrap:
+//   - never overwrite a manually-saved value
+//   - silently no-op if the field is missing or empty
+//   - never throws; logs and returns false on failure
+function autofillDiscoveryWebhookUrlFromBootstrap(data) {
+  if (!data || typeof data !== "object") return false;
+  const relay = data.relay;
+  const candidate =
+    relay && typeof relay === "object" && typeof relay.workerUrl === "string"
+      ? relay.workerUrl.trim()
+      : "";
+  if (!candidate) return false;
+  if (!/^https?:\/\//i.test(candidate)) return false;
+  const existing = getDiscoveryWebhookUrl();
+  if (existing) return false; // never overwrite a manually-saved value
+  try {
+    mergeStoredConfigOverridePatch({ discoveryWebhookUrl: candidate });
+    return true;
+  } catch (err) {
+    console.warn(
+      "[JobBored] could not autofill discoveryWebhookUrl from bootstrap:",
+      err,
+    );
+    return false;
+  }
+}
+// ====== [/discovery-autodetect lane] ======
+
 async function hydrateDiscoveryTransportSetupFromLocalBootstrap() {
   if (!isLocalDashboardOrigin()) return getDiscoveryTransportSetupState();
   try {
@@ -526,6 +562,7 @@ async function hydrateDiscoveryTransportSetupFromLocalBootstrap() {
       return getDiscoveryTransportSetupState();
     }
     autofillDiscoveryWebhookSecretFromBootstrap(data);
+    autofillDiscoveryWebhookUrlFromBootstrap(data);
     return writeDiscoveryTransportSetupState({
       localWebhookUrl: data.localWebhookUrl,
       tunnelPublicUrl: data.tunnelPublicUrl || data.ngrokPublicUrl,
@@ -2061,6 +2098,39 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride) {
   // We declare the key unconditionally so JSON.stringify drops it when
   // empty (keeps the contract scanner happy and the wire format unchanged).
   const dashboardGoogleAccessToken = getDiscoveryRequestGoogleAccessToken();
+  // ====== [discovery-autodetect lane: contract sanitization] ======
+  // Per .factory/library/source-preset-contract.md: "Omitted sourcePreset →
+  // passes validation; fallback resolved by config resolver." But sending
+  // `sourcePreset: ""` (empty string) is rejected by the worker because the
+  // field is *present* but not in the enum. A fresh greenfield user has an
+  // empty discovery profile object, so getDiscoveryProfile() returns {} and
+  // any code path that defaulted sourcePreset to "" would trip the
+  // validator. Strip empty/whitespace sourcePreset before sending.
+  //
+  // Symptom this fixes: Step 7 wizard "Run test" returning
+  //   "discoveryProfile.sourcePreset must be one of: browser_only, ats_only,
+  //    browser_plus_ats. Received: ''."
+  if (
+    discoveryProfile &&
+    typeof discoveryProfile === "object" &&
+    Object.prototype.hasOwnProperty.call(discoveryProfile, "sourcePreset")
+  ) {
+    const sp = discoveryProfile.sourcePreset;
+    const trimmed = typeof sp === "string" ? sp.trim() : sp;
+    if (
+      trimmed === "" ||
+      trimmed == null ||
+      typeof trimmed !== "string"
+    ) {
+      // Clone so we never mutate the stored profile in IndexedDB.
+      const sanitized = { ...discoveryProfile };
+      delete sanitized.sourcePreset;
+      discoveryProfile = sanitized;
+    } else if (trimmed !== sp) {
+      discoveryProfile = { ...discoveryProfile, sourcePreset: trimmed };
+    }
+  }
+  // ====== [/discovery-autodetect lane] ======
   return {
     event: "command-center.discovery",
     schemaVersion: 1,
@@ -13685,6 +13755,34 @@ function getResumeIngest() {
   return window.CommandCenterResumeIngest;
 }
 
+/**
+ * Async variant of getResumeIngest that waits up to ~3s for the resume-ingest
+ * module + its CDN-loaded dependencies (pdf.js, mammoth) to be ready.
+ *
+ * Why this exists: pdf.js and mammoth are pulled from CDNs in <script> tags
+ * without async/defer. On most loads they're synchronously ready before
+ * DOMContentLoaded, but on cold caches or slow links they can finish a few
+ * hundred ms later. The onboarding file-input change handler used to call
+ * the sync getter directly and fail with "Resume reader didn't load" on the
+ * first pick — which the user reported as "I have to refresh the page in
+ * order for the file selector to successfully put the file visibly into the
+ * UX". Waiting briefly fixes that without a refresh.
+ *
+ * Retries every 100ms (~30 polls) before giving up; immediate-resolve when
+ * ready so the common fast path adds zero latency.
+ */
+async function getResumeIngestReady(maxWaitMs) {
+  const limitMs = typeof maxWaitMs === "number" ? maxWaitMs : 3000;
+  const stepMs = 100;
+  const start = Date.now();
+  let ingest = window.CommandCenterResumeIngest;
+  while (!ingest && Date.now() - start < limitMs) {
+    await new Promise((resolve) => setTimeout(resolve, stepMs));
+    ingest = window.CommandCenterResumeIngest;
+  }
+  return ingest || null;
+}
+
 function getJobOpportunityKey(job) {
   const UC = getUserContent();
   if (UC && typeof UC.makeJobOpportunityKey === "function") {
@@ -15077,7 +15175,9 @@ function showOnboardingWizard() {
     samplesStatus.classList.remove("onboarding-status--error");
   }
   if (aiCtx) aiCtx.value = "";
-  ["onboardingAiTarget", "onboardingAiStrength", "onboardingAiAvoid"].forEach(
+  // onboardingAiTarget was removed in the Step 3 consolidation — Step 2
+  // chips own role targeting now. Only the strength + avoid fields remain.
+  ["onboardingAiStrength", "onboardingAiAvoid"].forEach(
     (id) => {
       const el = document.getElementById(id);
       if (el) el.value = "";
@@ -15170,7 +15270,7 @@ function setOnboardingStep(step) {
   const focusMap = {
     1: "onboardingFileInput",
     2: "onboardingSuggestAddInput",
-    3: "onboardingAiTarget",
+    3: "onboardingAiStrength",
     4: "wizardPrefVoice",
   };
   const fid = focusMap[step];
@@ -15404,14 +15504,14 @@ async function onboardingSuggestLoad({ append }) {
   }
 
   // Pull provider config the same way the rest of the AI surfaces do.
+  // Model name comes from the central resolver — never inline a model
+  // string here, or the next deprecation will silently break onboarding
+  // again. (See resolveGeminiModel for the resolution order.)
   const cfg = window.COMMAND_CENTER_CONFIG || {};
   const overrides = readStoredConfigOverrides();
   const apiKey =
     overrides.resumeGeminiApiKey || cfg.resumeGeminiApiKey || "";
-  const model =
-    overrides.resumeGeminiModel ||
-    cfg.resumeGeminiModel ||
-    "gemini-2.5-flash";
+  const model = resolveGeminiModel();
 
   if (!apiKey) {
     // Reveal the inline "get a free key" panel above the chips. Friendlier
@@ -15486,7 +15586,13 @@ async function onboardingSuggestLoad({ append }) {
 
   let raw;
   try {
-    raw = await callDiscoveryAiGemini(systemPrompt, userPrompt, apiKey, model);
+    // json:true → tells the resolver to set responseMimeType=application/json
+    // AND raise the output-token cap for 2.5-family thinking models. Without
+    // these two flags the model silently truncates with finishReason=MAX_TOKENS
+    // before any roles are emitted, which surfaces as "no suggestions".
+    raw = await callDiscoveryAiGemini(systemPrompt, userPrompt, apiKey, model, {
+      json: true,
+    });
   } catch (err) {
     if (gen !== onboardingSuggestState.generation) return; // superseded
     onboardingSuggestSetLoading(false);
@@ -15505,6 +15611,18 @@ async function onboardingSuggestLoad({ append }) {
 
   const parsed = parseJsonSafeForSuggestions(raw);
   const roles = Array.isArray(parsed && parsed.roles) ? parsed.roles : [];
+  // Diagnostic — when the model returns text but no roles[] (bad shape,
+  // empty array, or off-spec output) we want the failure visible in the
+  // console instead of just a vague status string. This is the only path
+  // that lets us debug a "Gemini returned no suggestions" report from a
+  // user without asking them to open devtools and screenshot.
+  if (!roles.length) {
+    console.warn("[onboarding/suggest] Gemini parsed payload had no roles", {
+      rawLength: String(raw || "").length,
+      rawPreview: String(raw || "").slice(0, 400),
+      parsedKeys: parsed && typeof parsed === "object" ? Object.keys(parsed) : null,
+    });
+  }
   let added = 0;
   for (const r of roles) {
     const label = onboardingSuggestNormalizeLabel(r && r.title);
@@ -15523,10 +15641,17 @@ async function onboardingSuggestLoad({ append }) {
   onboardingSuggestSetLoading(false);
   onboardingSuggestRenderChips();
   if (added === 0 && !onboardingSuggestState.byKey.size) {
-    onboardingSuggestSetStatus(
-      "Gemini returned no suggestions — try Show me more or type one below.",
-      "error",
-    );
+    // Distinguish "we got bytes back but they were unparseable" from "the
+    // model returned a clean but empty array". Both are useful signals
+    // for the user — and far less infuriating than a flat "no suggestions".
+    const hadRawBytes = !!String(raw || "").trim();
+    const parsedHadStructure = parsed && typeof parsed === "object";
+    const message = !hadRawBytes
+      ? "Gemini returned an empty response — try Show me more, or paste a longer resume so the model has more to work with."
+      : !parsedHadStructure
+        ? "Gemini replied but the response wasn't valid JSON. Try Show me more — if it keeps failing, switch models in Settings."
+        : "Gemini returned an empty role list — try Show me more, or type a role below to add it manually.";
+    onboardingSuggestSetStatus(message, "error");
   } else if (added === 0) {
     onboardingSuggestSetStatus(
       "No new roles this round — try Show me more for a different angle.",
@@ -15539,6 +15664,166 @@ async function onboardingSuggestLoad({ append }) {
         : `Tap any chip to add it to your search.`,
       "ok",
     );
+  }
+}
+
+/**
+ * Step 3 "Want our take?" — read the user's resume text + chip-selected
+ * roles, ask Gemini for 2–3 distinctive edges (specific accomplishments,
+ * unusual skill combos, things that aren't generic resume filler), then
+ * insert the result into the superpower textarea so the user can edit on
+ * top of it.
+ *
+ * Prompt is intentionally specific about what NOT to return: no generic
+ * skill bullets ("strong communicator"), no career-summary prose, no
+ * keyword stuffing. We want the 2–3 things that would survive being
+ * shrunk to a single tweet.
+ *
+ * Uses the same central resolveGeminiModel + responseMimeType=JSON path
+ * as the chip suggestions so a model swap stays one-line. Failures
+ * surface inline in #onboardingEdgeTakeStatus rather than a toast — the
+ * user is mid-flow and shouldn't have their attention pulled to a
+ * floating popup.
+ */
+async function onboardingFillEdgeFromGemini() {
+  const btn = document.getElementById("onboardingEdgeTakeBtn");
+  const status = document.getElementById("onboardingEdgeTakeStatus");
+  const strengthEl = document.getElementById("onboardingAiStrength");
+
+  const setStatus = (text, kind) => {
+    if (!status) return;
+    status.textContent = text || "";
+    status.classList.remove(
+      "onboarding-status--ok",
+      "onboarding-status--error",
+      "onboarding-status--loading",
+    );
+    if (kind) status.classList.add(`onboarding-status--${kind}`);
+  };
+
+  if (!strengthEl) return;
+
+  const cfg = window.COMMAND_CENTER_CONFIG || {};
+  const overrides =
+    typeof readStoredConfigOverrides === "function"
+      ? readStoredConfigOverrides()
+      : {};
+  const apiKey =
+    overrides.resumeGeminiApiKey || cfg.resumeGeminiApiKey || "";
+  if (!apiKey) {
+    setStatus(
+      "Add a free Gemini key on Step 2 first — we use it to read your resume.",
+      "error",
+    );
+    return;
+  }
+
+  const resumeText = String(
+    (onboardingResumeDraft && onboardingResumeDraft.extractedText) || "",
+  ).trim();
+  if (!resumeText) {
+    setStatus(
+      "We don't have your resume text. Go back to Step 1 and upload or paste it first.",
+      "error",
+    );
+    return;
+  }
+
+  // Chips give Gemini context for which direction to tailor the edges in.
+  // (e.g. if the user picked Forward Deployed Engineer roles, frame edges
+  // for that audience rather than a generic "what makes them special".)
+  const chipRoles = onboardingGetSelectedRoles().slice(0, 12);
+
+  if (btn) {
+    btn.disabled = true;
+    btn.dataset.label = btn.dataset.label || btn.textContent;
+    btn.textContent = "Thinking…";
+  }
+  setStatus("Reading your resume…", "loading");
+
+  // Trim resume to a reasonable budget — enough for Gemini to find
+  // distinctive details without burning tokens on long appendices.
+  const resumeForPrompt =
+    resumeText.length > 5000
+      ? `${resumeText.slice(0, 5000)}\n\n[...truncated...]`
+      : resumeText;
+
+  const systemPrompt = [
+    "You read resumes and find the 2–3 things that genuinely set this candidate apart.",
+    "Output rules:",
+    "- Return SHORT bullet-style phrases (one sentence each, max ~18 words).",
+    "- Each must be specific, concrete, and reference real signal from the resume — accomplishments, unusual skill combos, scope, results.",
+    "- Skip generic resume filler: no 'strong communicator', no 'team player', no 'detail-oriented'.",
+    "- Skip career-summary prose and any sentences that start with 'I am'.",
+    "- Frame for the target roles when they meaningfully change emphasis.",
+    "- Plain text inside the JSON values — no markdown, no asterisks, no bullet characters.",
+    'Return JSON: { "edges": ["...", "...", "..."] }',
+  ].join("\n");
+
+  const userPayload = {
+    resume: resumeForPrompt,
+    targetRoles: chipRoles,
+  };
+  const userPrompt = `${JSON.stringify(userPayload, null, 2)}\n\nReturn 2–3 edges as JSON.`;
+
+  let raw;
+  try {
+    raw = await callDiscoveryAiGemini(systemPrompt, userPrompt, apiKey, null, {
+      json: true,
+    });
+  } catch (err) {
+    setStatus(
+      `Gemini failed: ${(err && err.message) || "unknown error"}. Type your edges by hand below.`,
+      "error",
+    );
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = btn.dataset.label || "Want our take?";
+    }
+    return;
+  }
+
+  const parsed = parseJsonSafeForSuggestions(raw);
+  const edges = Array.isArray(parsed && parsed.edges)
+    ? parsed.edges
+        .map((e) => String(e || "").trim())
+        .filter((e) => e.length > 0)
+    : [];
+
+  if (!edges.length) {
+    console.warn("[onboarding/edge] Gemini returned no edges", {
+      rawLength: String(raw || "").length,
+      rawPreview: String(raw || "").slice(0, 400),
+    });
+    setStatus(
+      "Gemini didn't return anything usable — try again, or type your edges by hand.",
+      "error",
+    );
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = btn.dataset.label || "Want our take?";
+    }
+    return;
+  }
+
+  // Insert the edges, separated by newlines, into the textarea. If the
+  // user already typed something we APPEND with a blank line so we never
+  // wipe their input. This is the "iteration > replacement" intent.
+  const formatted = edges.map((e) => `• ${e}`).join("\n");
+  const existing = String(strengthEl.value || "").trim();
+  strengthEl.value = existing
+    ? `${existing}\n\n${formatted}`
+    : formatted;
+  // Trigger any input listeners (e.g. autosave hooks if they exist later).
+  strengthEl.dispatchEvent(new Event("input", { bubbles: true }));
+
+  setStatus(
+    `Added ${edges.length} edge${edges.length === 1 ? "" : "s"} — keep, edit, or delete.`,
+    "ok",
+  );
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = btn.dataset.label || "Want our take?";
   }
 }
 
@@ -15725,6 +16010,17 @@ function initOnboardingWizard() {
     setOnboardingStep(4);
   });
 
+  // "Want our take?" — Step 3 superpower assist. Reads the user's resume
+  // text + chip selections and asks Gemini for 2–3 distinctive edges. The
+  // result is INSERTED into the textarea (not replacing user-typed text)
+  // so the user can iterate on top of it. See onboardingFillEdgeFromGemini
+  // for the prompt + response handling.
+  document
+    .getElementById("onboardingEdgeTakeBtn")
+    ?.addEventListener("click", () => {
+      void onboardingFillEdgeFromGemini();
+    });
+
   // Panel 4 (tone & finish) back arrow
   document.getElementById("onboardingBack9")?.addEventListener("click", () => {
     setOnboardingStep(3);
@@ -15739,15 +16035,14 @@ function initOnboardingWizard() {
 
   if (fileIn) {
     fileIn.addEventListener("change", async (e) => {
-      const ingest = getResumeIngest();
       const status = document.getElementById("onboardingResumeStatusUpload");
       const file = e.target.files && e.target.files[0];
       e.target.value = "";
       if (!file) return;
       // Immediate "we received your file" feedback so the user is never left
-      // staring at a blank screen during PDF/Word extraction. This was the
-      // "stuck on resume repair screen" symptom — extraction can take a few
-      // seconds for large PDFs and the chip only painted on success.
+      // staring at a blank screen during PDF/Word extraction. This must
+      // happen BEFORE the await for the ingest module so it shows up even
+      // when pdf.js + mammoth are still finishing their cold-cache load.
       if (status) {
         status.innerHTML = "";
         status.classList.remove(
@@ -15757,12 +16052,17 @@ function initOnboardingWizard() {
         status.classList.add("onboarding-status--loading");
         status.textContent = `Reading “${file.name || "your file"}”…`;
       }
+      // Wait for the resume-ingest module to be ready instead of bailing
+      // immediately. Cold-cache loads of pdf.js + mammoth occasionally
+      // finish a few hundred ms after DOMContentLoaded; the previous
+      // fail-fast branch is what made users say "I have to refresh first".
+      const ingest = await getResumeIngestReady(3000);
       if (!ingest) {
         if (status) {
           status.classList.remove("onboarding-status--loading");
           status.classList.add("onboarding-status--error");
           status.textContent =
-            "Resume reader didn't load. Hard-refresh the page (Cmd+Shift+R) and try again, or use the paste box below.";
+            "Resume reader still loading after 3s. Check your connection and try again, or paste the text below.";
         }
         return;
       }
@@ -15912,18 +16212,20 @@ function initOnboardingWizard() {
       if (finish) finish.disabled = true;
       try {
         await UC.setPrimaryResume(onboardingResumeDraft);
-        // Merge the three guided AI context fields + optional pasted summary
-        // into a single profile context blob. Chip selections are handled
-        // separately below (they go into the discovery profile, not the
-        // free-text AI context blob — keeps the two surfaces decoupled).
-        const targetEl = document.getElementById("onboardingAiTarget");
+        // Merge Step 3's two remaining guided fields + optional pasted
+        // career summary into a single AI context blob. Chip selections
+        // from Step 2 are handled separately below (they go into the
+        // discovery profile, not the AI context blob — keeps the two
+        // surfaces decoupled).
+        //
+        // The previous "target role" textarea was consolidated out of
+        // Step 3 — it duplicated the chip flow on Step 2 and forced users
+        // to re-type what they had just clicked. Chips are the source of
+        // truth; the discovery save below pulls from there.
         const strengthEl = document.getElementById("onboardingAiStrength");
         const avoidEl = document.getElementById("onboardingAiAvoid");
         const pastedEl = document.getElementById("onboardingAiContextText");
         const guidedParts = [];
-        if (targetEl && targetEl.value.trim()) {
-          guidedParts.push(`Target role: ${targetEl.value.trim()}`);
-        }
         if (strengthEl && strengthEl.value.trim()) {
           guidedParts.push(`Superpower: ${strengthEl.value.trim()}`);
         }
@@ -15940,23 +16242,16 @@ function initOnboardingWizard() {
             updatedAt: new Date().toISOString(),
           });
         }
-        // Persist chip selections from Step 2 into the discovery profile so
-        // the discovery webhook gets a broad set of target roles. Merges
-        // with anything the user typed in Step 3's textarea (rare — most
-        // users will only use one or the other).
+        // Persist chip selections from Step 2 into the discovery profile.
+        // Step 3 used to also have a free-text "target roles" textarea
+        // that got merged here, but that surface was consolidated out —
+        // chips are the only role-targeting input now.
         try {
           const chipRoles = onboardingGetSelectedRoles();
-          const typedTarget =
-            (targetEl && targetEl.value.trim()) || "";
-          const allRoleTokens = new Set();
-          [typedTarget, chipRoles.join(", ")]
+          const targetRoles = chipRoles
+            .map((s) => String(s || "").trim())
             .filter(Boolean)
-            .join(", ")
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .forEach((s) => allRoleTokens.add(s));
-          const targetRoles = Array.from(allRoleTokens).join(", ");
+            .join(", ");
           if (targetRoles && typeof UC.saveDiscoveryProfile === "function") {
             await UC.saveDiscoveryProfile({ targetRoles });
           }
@@ -16407,7 +16702,7 @@ async function saveCommandCenterSettingsFromForm() {
     atsScoringWebhookUrl: val("settingsAtsScoringWebhookUrl"),
     resumeProvider: provider,
     resumeGeminiApiKey: val("settingsResumeGeminiApiKey"),
-    resumeGeminiModel: val("settingsResumeGeminiModel") || "gemini-2.5-flash",
+    resumeGeminiModel: val("settingsResumeGeminiModel") || resolveGeminiModel(),
     resumeOpenAIApiKey: val("settingsResumeOpenAIApiKey"),
     resumeOpenAIModel: val("settingsResumeOpenAIModel") || "gpt-4o-mini",
     resumeAnthropicApiKey: val("settingsResumeAnthropicApiKey"),
@@ -18587,6 +18882,22 @@ function init() {
   postAccessBootstrapPromise = Promise.resolve();
   initAuthUserMenu();
 
+  // Wire the onboarding wizard + resume materials handlers UNCONDITIONALLY,
+  // BEFORE the no-SHEET_ID early return below.
+  //
+  // Why: greenfield first-time users land here with no SHEET_ID, see the
+  // onboarding modal, drop a resume — but until this call ran, the
+  // file-input change listener wasn't bound, so the upload silently did
+  // nothing. The user experienced this as "I have to refresh the page in
+  // order for the file selector to put the file visibly into the UX" —
+  // because by the time they refreshed, sign-in had set SHEET_ID and the
+  // listener finally got bound on the second pass.
+  //
+  // initResumeMaterialsFeature is internally idempotent and has no sheet
+  // dependency: it opens IndexedDB and wires modal/file listeners. Safe
+  // to run pre-SHEET_ID.
+  initResumeMaterialsFeature();
+
   if (!SHEET_ID) {
     // Login gate first; onboarding (blank sheet steps) appears after Google sign-in.
     document.getElementById("dashboard").style.display = "none";
@@ -18687,7 +18998,10 @@ function init() {
   // Init auth
   initAuth();
 
-  initResumeMaterialsFeature();
+  // initResumeMaterialsFeature was hoisted above the no-SHEET_ID early
+  // return so greenfield users can actually use the onboarding wizard's
+  // file upload. Calling it again here would double-bind every listener
+  // (addEventListener doesn't dedupe), so don't.
 
   loadAllData();
 
@@ -18960,12 +19274,61 @@ function parseJsonSafeForSuggestions(raw) {
   }
 }
 
-async function callDiscoveryAiGemini(system, user, apiKey, model) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model || "gemini-2.0-flash")}:generateContent?key=${encodeURIComponent(apiKey)}`;
+/**
+ * Single source of truth for which Gemini model the app uses.
+ *
+ * Resolution order (high → low):
+ *   1. Explicit caller arg (when a feature wants to pin a model — rare)
+ *   2. localStorage override (Settings → Resume → Gemini model field)
+ *   3. config.js → window.COMMAND_CENTER_CONFIG.resumeGeminiModel
+ *   4. Hardcoded fallback (only hit if both config files are missing)
+ *
+ * If a Gemini model gets retired, this is the ONLY place to update the
+ * default. Every Gemini call site must route through here — do not embed
+ * model name strings or "gemini-…" fallbacks elsewhere in app.js.
+ */
+function resolveGeminiModel(explicit) {
+  if (explicit && typeof explicit === "string" && explicit.trim()) {
+    return explicit.trim();
+  }
+  try {
+    const overrides =
+      typeof readStoredConfigOverrides === "function"
+        ? readStoredConfigOverrides()
+        : {};
+    if (overrides && typeof overrides.resumeGeminiModel === "string" && overrides.resumeGeminiModel.trim()) {
+      return overrides.resumeGeminiModel.trim();
+    }
+  } catch (_) {
+    /* localStorage may be unavailable in private/embedded contexts. */
+  }
+  const cfg = (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+  if (typeof cfg.resumeGeminiModel === "string" && cfg.resumeGeminiModel.trim()) {
+    return cfg.resumeGeminiModel.trim();
+  }
+  return "gemini-2.5-flash";
+}
+
+async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
+  const resolvedModel = resolveGeminiModel(model);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  // Detect 2.5+ family — those models burn "thinking tokens" against the
+  // output budget, so a 2048-cap on a long-system-prompt JSON response can
+  // silently produce zero visible characters with finishReason=MAX_TOKENS.
+  // Also pin response MIME to JSON whenever the caller marks the request
+  // as JSON-only — this dramatically improves reliability vs. free-form
+  // prose responses that have to be regex-extracted later.
+  const wantJson = !!(opts && opts.json);
+  const isThinkingModel = /^gemini-2\.[5-9]/.test(resolvedModel);
+  const generationConfig = {
+    maxOutputTokens: isThinkingModel ? 8192 : 2048,
+    temperature: 0.5,
+  };
+  if (wantJson) generationConfig.responseMimeType = "application/json";
   const body = {
     systemInstruction: { parts: [{ text: system }] },
     contents: [{ role: "user", parts: [{ text: user }] }],
-    generationConfig: { maxOutputTokens: 2048, temperature: 0.5 },
+    generationConfig,
   };
   const resp = await fetch(url, {
     method: "POST",
@@ -18973,12 +19336,31 @@ async function callDiscoveryAiGemini(system, user, apiKey, model) {
     body: JSON.stringify(body),
   });
   const data = await resp.json().catch(() => ({}));
-  if (!resp.ok)
+  if (!resp.ok) {
     throw new Error(data.error?.message || `Gemini HTTP ${resp.status}`);
+  }
+  const candidate = data.candidates?.[0];
   const text =
-    data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") ||
-    "";
-  if (!text.trim()) throw new Error("Empty response from Gemini");
+    candidate?.content?.parts?.map((p) => p.text || "").join("") || "";
+  if (!text.trim()) {
+    // Surface the real reason instead of a generic "Empty response".
+    // Common cases: MAX_TOKENS (thinking eats the budget), SAFETY,
+    // RECITATION, or upstream finish reasons that need the user to retry
+    // with different input rather than silently fail.
+    const reason = candidate?.finishReason || data.promptFeedback?.blockReason;
+    if (reason === "MAX_TOKENS") {
+      throw new Error(
+        "Gemini hit the output token cap before producing visible text. Try Show me more, or shorten your resume.",
+      );
+    }
+    if (reason === "SAFETY" || reason === "RECITATION") {
+      throw new Error(
+        `Gemini blocked the response (${reason}). Try Show me more, or remove sensitive content from your resume.`,
+      );
+    }
+    if (reason) throw new Error(`Gemini returned no text (${reason}).`);
+    throw new Error("Empty response from Gemini");
+  }
   return text.trim();
 }
 
