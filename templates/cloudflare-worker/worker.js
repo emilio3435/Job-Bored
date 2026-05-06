@@ -6,11 +6,23 @@ function cors(env) {
   const o = env.CORS_ORIGIN || "*";
   return {
     "Access-Control-Allow-Origin": o,
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers":
       "Content-Type, Authorization, X-Forward-Secret, X-Discovery-Secret",
     "Access-Control-Max-Age": "86400",
   };
+}
+
+/**
+ * Read-only paths the relay forwards as GET to the upstream worker. Today
+ * this is just async run-status polling: the dashboard receives an
+ * `accepted_async` response with `statusPath: "/runs/<id>"` and polls it
+ * against the Worker URL. POST stays the only method allowed for everything
+ * else — the relay must not become a generic open proxy.
+ */
+function isRelayReadOnlyPath(pathname) {
+  if (typeof pathname !== "string") return false;
+  return pathname === "/runs" || pathname.startsWith("/runs/");
 }
 
 function json(obj, status, env) {
@@ -65,11 +77,15 @@ export default {
       useTargetPath = true;
     }
 
-    if (request.method !== "POST") {
+    // GET is allowed only for the read-only run-status path. Every other
+    // GET is rejected. POST is allowed everywhere it was before.
+    const isReadOnlyGet =
+      request.method === "GET" && isRelayReadOnlyPath(url.pathname);
+    if (request.method !== "POST" && !isReadOnlyGet) {
       return new Response("Method Not Allowed", { status: 405, headers: h });
     }
 
-    const body = await request.text();
+    const body = isReadOnlyGet ? undefined : await request.text();
 
     // Resolve the final upstream URL. Preserve the incoming path+search
     // against TARGET_URL's origin unless we're in legacy fall-back mode.
@@ -103,7 +119,7 @@ export default {
     }
 
     const upstream = await fetch(upstream_url, {
-      method: "POST",
+      method: isReadOnlyGet ? "GET" : "POST",
       headers: upstreamHeaders,
       body,
     });
