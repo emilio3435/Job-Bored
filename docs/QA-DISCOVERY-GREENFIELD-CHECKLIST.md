@@ -148,3 +148,10 @@ Expected:
 - [DISCOVERY-SETUP-WIZARD-SPEC.md](./DISCOVERY-SETUP-WIZARD-SPEC.md)
 - [DISCOVERY-SETUP-WIZARD-IMPLEMENTATION-PLAN.md](./DISCOVERY-SETUP-WIZARD-IMPLEMENTATION-PLAN.md)
 - [templates/cloudflare-worker/README.md](../templates/cloudflare-worker/README.md)
+
+## Greenfield automation flows
+
+- [ ] OAuth auto-create happy path: with `gcloud` installed and logged in, trigger OAuth bootstrap and confirm the dashboard receives an OAuth client ID from the user's own Google project.
+- [ ] OAuth fallback when `gcloud` is missing: remove `gcloud` from PATH, rerun OAuth bootstrap, and confirm the UI shows a concrete install/login next step instead of blocking silently.
+- [ ] Install-doctor all-missing then all-present: run setup health with `gcloud`, `wrangler`, and `ngrok` unavailable, then rerun with all three installed/logged in and confirm the missing list clears.
+- [ ] Keep-alive install and uninstall: on macOS, install the launchd keep-alive job with mocked or real `launchctl`, then uninstall twice and confirm the second uninstall is still a clean success.
