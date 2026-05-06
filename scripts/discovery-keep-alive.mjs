@@ -1,551 +1,299 @@
 #!/usr/bin/env node
-/**
- * Keep the JobBored discovery relay healthy when the local ngrok tunnel
- * rotates. Free ngrok plans hand out a new public URL on every restart, which
- * silently breaks the deployed Cloudflare Worker (its TARGET_URL secret still
- * points at the old, dead tunnel).
- *
- * This watchdog:
- *   1. Polls http://127.0.0.1:4040/api/tunnels for the live ngrok URL.
- *   2. If no tunnel is up, optionally restarts ngrok.
- *   3. If the live URL differs from discovery-local-bootstrap.json, updates
- *      ONLY the Worker's TARGET_URL secret (one `wrangler secret put`) and
- *      rewrites the bootstrap state file. No full redeploy.
- *
- * Usage:
- *   npm run discovery:keep-alive               # watch loop (default 30s)
- *   npm run discovery:keep-alive -- --once     # detect + heal once, exit
- *   npm run discovery:keep-alive -- --interval 15
- *   npm run discovery:keep-alive -- --no-start-ngrok
- *   npm run discovery:keep-alive -- --reserved-domain mytunnel.ngrok.app
- *
- * Exits cleanly on SIGINT/SIGTERM so it's safe to run under launchd, pm2, or
- * `concurrently` alongside `npm run start`.
- */
+import { spawnSync } from "node:child_process";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { spawn, spawnSync } from "child_process";
-import { existsSync, readFileSync, writeFileSync } from "fs";
-import { dirname, join, resolve } from "path";
-import { fileURLToPath } from "url";
+export const KEEP_ALIVE_LABEL = "ai.jobbored.discovery.keepalive";
+export const DEFAULT_POLL_INTERVAL_MS = 30_000;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const repoRoot = join(__dirname, "..");
-const defaultStateFile = join(repoRoot, "discovery-local-bootstrap.json");
-const NGROK_API = "http://127.0.0.1:4040/api/tunnels";
+const repoRoot = resolve(__dirname, "..");
+const defaultBootstrapStatePath = join(repoRoot, "discovery-local-bootstrap.json");
+const relayTemplateDir = join(repoRoot, "integrations", "cloudflare-relay-template");
 
-function printUsage(code = 0) {
-  const out = code === 0 ? console.log : console.error;
-  out(`discovery-keep-alive
-
-Usage:
-  npm run discovery:keep-alive
-  npm run discovery:keep-alive -- --once
-  npm run discovery:keep-alive -- --interval 15
-  npm run discovery:keep-alive -- --reserved-domain mytunnel.ngrok.app
-  npm run discovery:keep-alive -- --state-file ./discovery-local-bootstrap.json
-
-Options:
-  --once               Detect + heal once, then exit. Useful as a pre-flight
-                       hook in npm start or a launchd ad-hoc check.
-  --interval N         Poll interval in seconds (default 30).
-  --port P             Local webhook port (default read from state file, then 8644).
-  --no-start-ngrok     Do not auto-start ngrok if no tunnel is running.
-  --reserved-domain    Use this stable ngrok domain instead of free rotating URLs.
-                       When set, ngrok is launched with --domain=<value> and the
-                       watchdog never has to refresh TARGET_URL after the first
-                       deploy.
-  --state-file         Path to the bootstrap state file. Default:
-                       ${defaultStateFile}
-  --dry-run            Detect rotations but do NOT update the Worker secret or
-                       state file. Logs what it would do.
-  --json               Print machine-readable JSON for each tick (for --once
-                       this is the single-shot result).
-  --help               Show this message.
-
-Behavior:
-  - The Worker is found via the workerName already saved in the state file
-    (e.g. jobbored-discovery-relay-6d6dab). Without that, this watchdog cannot
-    update the right Worker — run \`npm run discovery:bootstrap-local\` and
-    \`npm run cloudflare-relay:deploy\` once first.
-  - Updating TARGET_URL is one \`wrangler secret put\`. It does NOT redeploy
-    the Worker code or change CORS/cron/secret settings. If you need those,
-    run the full \`npm run cloudflare-relay:deploy\`.
-  - Cloudflare auth is whatever \`npx wrangler\` is already configured for
-    (\`wrangler login\` session OR CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID).
-    The watchdog does NOT trigger interactive login — if auth is missing, the
-    secret update fails and the watchdog logs the error and waits for the
-    next tick.
-`);
-  process.exit(code);
-}
-
-function fail(message, code = 1) {
-  console.error(`discovery:keep-alive: ${message}`);
-  process.exit(code);
-}
-
-function parseArgs(argv) {
-  const out = {
-    once: false,
-    intervalSec: 30,
-    port: "",
-    autoStartNgrok: true,
-    reservedDomain: "",
-    stateFile: defaultStateFile,
-    dryRun: false,
-    json: false,
+export function keepAlivePaths({ homeDir = homedir() } = {}) {
+  const root = join(homeDir, ".jobbored");
+  return {
+    root,
+    logDir: join(root, "logs"),
+    logPath:
+      process.env.JOBBORED_KEEP_ALIVE_LOG_PATH ||
+      join(root, "logs", "keep-alive.log"),
+    statePath:
+      process.env.JOBBORED_KEEP_ALIVE_STATE_PATH ||
+      join(root, "keep-alive-state.json"),
   };
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg === "--help" || arg === "-h") printUsage(0);
-    if (arg === "--once") {
-      out.once = true;
-      continue;
-    }
-    if (arg === "--no-start-ngrok") {
-      out.autoStartNgrok = false;
-      continue;
-    }
-    if (arg === "--dry-run") {
-      out.dryRun = true;
-      continue;
-    }
-    if (arg === "--json") {
-      out.json = true;
-      continue;
-    }
-    const next = argv[i + 1];
-    if (
-      arg === "--interval" ||
-      arg === "--port" ||
-      arg === "--reserved-domain" ||
-      arg === "--state-file"
-    ) {
-      if (!next || next.startsWith("--")) {
-        fail(`missing value for ${arg}`);
-      }
-      if (arg === "--interval") {
-        const n = Number.parseInt(String(next).trim(), 10);
-        if (!Number.isFinite(n) || n < 5) {
-          fail("--interval must be an integer >= 5");
-        }
-        out.intervalSec = n;
-      } else if (arg === "--port") out.port = String(next).trim();
-      else if (arg === "--reserved-domain") {
-        out.reservedDomain = String(next).trim();
-      } else if (arg === "--state-file") {
-        out.stateFile = resolve(String(next).trim());
-      }
-      i += 1;
-      continue;
-    }
-    fail(`unknown argument: ${arg}`);
-  }
-  return out;
 }
 
-function readStateFile(path) {
-  if (!existsSync(path)) return null;
+function readJsonFile(filePath) {
+  if (!existsSync(filePath)) return null;
   try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch (err) {
-    fail(`could not parse ${path}: ${err && err.message ? err.message : err}`);
+    return JSON.parse(readFileSync(filePath, "utf8"));
+  } catch (_) {
     return null;
   }
 }
 
-function writeStateFile(path, payload) {
-  writeFileSync(path, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+function writeJsonFile(filePath, data) {
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 }
 
-function normalizeUrl(raw) {
+export function appendJsonLog(event, data = {}, options = {}) {
+  const paths = keepAlivePaths(options);
+  mkdirSync(dirname(paths.logPath), { recursive: true });
+  appendFileSync(
+    paths.logPath,
+    `${JSON.stringify({
+      ts: new Date().toISOString(),
+      jobLabel: KEEP_ALIVE_LABEL,
+      event,
+      ...data,
+    })}\n`,
+    "utf8",
+  );
+}
+
+function normalizeNgrokPublicUrl(raw) {
   const value = String(raw || "").trim();
   if (!value) return "";
+  let url;
   try {
-    const url = new URL(value);
-    url.hash = "";
-    url.search = "";
-    return url.toString();
+    url = new URL(value);
   } catch (_) {
     return "";
   }
+  if (url.protocol !== "https:") return "";
+  url.pathname = "";
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/+$/g, "");
+}
+
+function resolveLocalPort(bootstrap) {
+  const explicit = Number(bootstrap && bootstrap.localPort);
+  if (Number.isInteger(explicit) && explicit > 0 && explicit < 65_536) {
+    return explicit;
+  }
+  try {
+    const parsed = new URL(String(bootstrap && bootstrap.localWebhookUrl));
+    const port = Number(parsed.port);
+    if (Number.isInteger(port) && port > 0 && port < 65_536) {
+      return port;
+    }
+  } catch (_) {
+    // Fall through to the bundled worker default.
+  }
+  return 8644;
 }
 
 function tunnelMatchesPort(tunnel, port) {
-  const configAddr = String(
-    tunnel && tunnel.config && tunnel.config.addr ? tunnel.config.addr : "",
-  ).trim();
-  const p = String(port).trim();
+  const addr = String(tunnel && tunnel.config && tunnel.config.addr ? tunnel.config.addr : "");
   return (
-    configAddr === p ||
-    configAddr.endsWith(`:${p}`) ||
-    configAddr.includes(`localhost:${p}`) ||
-    configAddr.includes(`127.0.0.1:${p}`)
+    addr === String(port) ||
+    addr.endsWith(`:${port}`) ||
+    addr.includes(`localhost:${port}`) ||
+    addr.includes(`127.0.0.1:${port}`)
   );
 }
 
-async function fetchNgrokTunnels() {
-  try {
-    const res = await fetch(NGROK_API);
-    if (!res.ok) return { ok: false, tunnels: [], reason: `http_${res.status}` };
-    const data = await res.json().catch(() => ({}));
-    return { ok: true, tunnels: Array.isArray(data.tunnels) ? data.tunnels : [] };
-  } catch (err) {
-    return { ok: false, tunnels: [], reason: "no_api" };
-  }
-}
-
-function pickPublicUrl(tunnels, port) {
-  if (!Array.isArray(tunnels) || tunnels.length === 0) return "";
-  const httpsForPort = tunnels.find(
-    (t) =>
-      String(t && t.public_url ? t.public_url : "").startsWith("https://") &&
-      tunnelMatchesPort(t, port),
-  );
-  if (httpsForPort && httpsForPort.public_url) {
-    return normalizeUrl(httpsForPort.public_url);
-  }
-  const anyHttps = tunnels.find((t) =>
-    String(t && t.public_url ? t.public_url : "").startsWith("https://"),
-  );
-  return anyHttps && anyHttps.public_url ? normalizeUrl(anyHttps.public_url) : "";
-}
-
-function startDetached(command, args) {
-  const child = spawn(command, args, {
-    cwd: repoRoot,
-    detached: true,
-    stdio: "ignore",
-    env: process.env,
+function pickNgrokPublicUrl(tunnels, port) {
+  const matching = tunnels.find((tunnel) => {
+    const publicUrl = String(tunnel && tunnel.public_url ? tunnel.public_url : "");
+    return publicUrl.startsWith("https://") && tunnelMatchesPort(tunnel, port);
   });
-  child.unref();
-  return child.pid || 0;
+  if (matching) return normalizeNgrokPublicUrl(matching.public_url);
+
+  const fallback = tunnels.find((tunnel) =>
+    String(tunnel && tunnel.public_url ? tunnel.public_url : "").startsWith("https://"),
+  );
+  return fallback ? normalizeNgrokPublicUrl(fallback.public_url) : "";
 }
 
-async function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-/**
- * Combine the live tunnel public origin with the local webhook path so the
- * Worker's TARGET_URL points at the actual /webhooks/<route> on the worker
- * (not at the bare ngrok host).
- */
-function buildPublicTargetUrl(tunnelPublicUrl, localWebhookUrl) {
+async function getCurrentNgrokUrl({ fetchImpl = globalThis.fetch, port }) {
+  if (typeof fetchImpl !== "function") return "";
   try {
-    const tunnel = new URL(tunnelPublicUrl);
-    const local = new URL(localWebhookUrl);
-    tunnel.pathname = local.pathname || "/";
-    tunnel.search = "";
-    tunnel.hash = "";
-    return tunnel.toString();
+    const res = await fetchImpl("http://127.0.0.1:4040/api/tunnels");
+    if (!res || !res.ok) return "";
+    const data = await res.json().catch(() => ({}));
+    const tunnels = Array.isArray(data.tunnels) ? data.tunnels : [];
+    return pickNgrokPublicUrl(tunnels, port);
   } catch (_) {
     return "";
   }
 }
 
-/**
- * One-shot: read state, probe tunnel, optionally rotate Worker secret. Returns
- * a structured result the caller can log or print as JSON.
- */
-async function tick({ args, state }) {
-  const port = String(args.port || state.localPort || "8644").trim();
-  const localWebhookUrl =
-    state.localWebhookUrl ||
-    `http://127.0.0.1:${port}/webhooks/${state.routeName || "command-center-discovery"}`;
-  const storedTunnel = normalizeUrl(state.tunnelPublicUrl || state.ngrokPublicUrl);
-  const storedTarget = normalizeUrl(state.publicTargetUrl);
+function buildWranglerDeployArgs({ workerName, targetUrl }) {
+  const args = ["deploy"];
+  if (workerName) {
+    args.push("--name", workerName);
+  }
+  args.push("--var", `DISCOVERY_TARGET:${targetUrl}`);
+  return args;
+}
 
-  const ngrokProbe = await fetchNgrokTunnels();
-  let liveTunnel = pickPublicUrl(ngrokProbe.tunnels, port);
+function runWranglerDeploy({ spawnSyncImpl, workerName, targetUrl }) {
+  const args = buildWranglerDeployArgs({ workerName, targetUrl });
+  return spawnSyncImpl("wrangler", args, {
+    cwd: relayTemplateDir,
+    encoding: "utf8",
+    env: process.env,
+  });
+}
 
-  let startedNgrok = false;
-  if (!liveTunnel && args.autoStartNgrok && !args.dryRun) {
-    const ngrokArgs = ["http"];
-    if (args.reservedDomain) ngrokArgs.push(`--domain=${args.reservedDomain}`);
-    ngrokArgs.push(String(port));
-    startDetached("ngrok", ngrokArgs);
-    startedNgrok = true;
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      await sleep(1000);
-      const retry = await fetchNgrokTunnels();
-      const candidate = pickPublicUrl(retry.tunnels, port);
-      if (candidate) {
-        liveTunnel = candidate;
-        break;
-      }
-    }
+export async function runKeepAliveCheck(options = {}) {
+  const homeDir = options.homeDir || homedir();
+  const nowIso = options.nowIso || new Date().toISOString();
+  const paths = keepAlivePaths({ homeDir });
+  const bootstrapStatePath =
+    options.bootstrapStatePath || process.env.JOBBORED_DISCOVERY_BOOTSTRAP_STATE || defaultBootstrapStatePath;
+  const spawnSyncImpl = options.spawnSyncImpl || spawnSync;
+  const logOptions = { homeDir };
+
+  appendJsonLog("check_start", { bootstrapStatePath }, logOptions);
+
+  const bootstrap = readJsonFile(bootstrapStatePath);
+  if (!bootstrap) {
+    appendJsonLog("bootstrap_state_missing", { bootstrapStatePath }, logOptions);
+    return { ok: false, reason: "bootstrap_state_missing" };
   }
 
-  if (!liveTunnel) {
-    return {
-      ok: false,
-      action: "ngrok_down",
-      port,
-      storedTunnel,
-      liveTunnel: "",
-      startedNgrok,
-      reason: ngrokProbe.reason || "no_https_tunnel",
-      message: args.autoStartNgrok
-        ? "ngrok api unreachable and auto-start did not surface a tunnel; will retry next tick."
-        : "ngrok api unreachable; pass without --no-start-ngrok to auto-start it.",
-    };
+  const port = resolveLocalPort(bootstrap);
+  const ngrokUrl =
+    normalizeNgrokPublicUrl(options.ngrokPublicUrl) ||
+    (await getCurrentNgrokUrl({ fetchImpl: options.fetchImpl, port }));
+  if (!ngrokUrl) {
+    appendJsonLog("ngrok_url_missing", { port }, logOptions);
+    return { ok: false, reason: "ngrok_url_missing" };
   }
 
-  const livePublicTarget = buildPublicTargetUrl(liveTunnel, localWebhookUrl);
-  if (!livePublicTarget) {
-    return {
-      ok: false,
-      action: "build_target_failed",
-      port,
-      liveTunnel,
-      reason: "could_not_join_tunnel_with_local_path",
-    };
+  const previous = readJsonFile(paths.statePath) || {};
+  if (previous.lastNgrokUrl === ngrokUrl && previous.lastRedeployAt) {
+    writeJsonFile(paths.statePath, {
+      ...previous,
+      schemaVersion: 1,
+      jobLabel: KEEP_ALIVE_LABEL,
+      lastRunAt: nowIso,
+      lastNgrokUrl: ngrokUrl,
+    });
+    appendJsonLog("ngrok_url_unchanged", { ngrokUrl }, logOptions);
+    return { ok: true, redeployed: false, lastNgrokUrl: ngrokUrl };
   }
 
-  const rotated =
-    !!storedTarget && storedTarget !== livePublicTarget;
-  const firstTime = !storedTarget && !!liveTunnel;
+  const workerName = String(bootstrap.workerName || "").trim();
+  appendJsonLog("redeploy_start", { ngrokUrl, workerName }, logOptions);
+  const deploy = runWranglerDeploy({
+    spawnSyncImpl,
+    workerName,
+    targetUrl: ngrokUrl,
+  });
 
-  if (!rotated && !firstTime) {
-    return {
-      ok: true,
-      action: "no_change",
-      port,
-      liveTunnel,
-      publicTargetUrl: livePublicTarget,
-      startedNgrok,
-    };
+  if (deploy.error || deploy.status !== 0) {
+    appendJsonLog("redeploy_failed", {
+      ngrokUrl,
+      status: deploy.status,
+      error: deploy.error ? deploy.error.message || String(deploy.error) : "",
+      stderr: String(deploy.stderr || "").slice(0, 500),
+    }, logOptions);
+    return { ok: false, reason: "wrangler_failed" };
   }
 
-  const workerName = String(state.workerName || "").trim();
-  if (!workerName) {
-    return {
-      ok: false,
-      action: "missing_worker_name",
-      port,
-      liveTunnel,
-      publicTargetUrl: livePublicTarget,
-      reason:
-        "state file has no workerName; run `npm run discovery:bootstrap-local` and `npm run cloudflare-relay:deploy` first.",
-    };
-  }
-
-  if (args.dryRun) {
-    return {
-      ok: true,
-      action: "would_rotate",
-      port,
-      liveTunnel,
-      from: storedTarget,
-      to: livePublicTarget,
-      workerName,
-      startedNgrok,
-    };
-  }
-
-  const updateResult = updateWorkerTargetSecret(workerName, livePublicTarget);
-  if (!updateResult.ok) {
-    return {
-      ok: false,
-      action: "wrangler_secret_failed",
-      port,
-      liveTunnel,
-      from: storedTarget,
-      to: livePublicTarget,
-      workerName,
-      reason: updateResult.reason,
-      stderr: updateResult.stderr,
-    };
-  }
-
-  // Persist the new tunnel + target URL so the dashboard's bootstrap reader
-  // shows the right values on next reload.
-  const nextState = {
-    ...state,
-    tunnelPublicUrl: liveTunnel,
-    ngrokPublicUrl: liveTunnel,
-    publicTargetUrl: livePublicTarget,
-    diagnostics: {
-      ...(state.diagnostics || {}),
-      ngrokRunning: true,
-      ngrokDetected: true,
-    },
-    keepAlive: {
-      lastRotatedAt: new Date().toISOString(),
-      lastFrom: storedTarget,
-      lastTo: livePublicTarget,
-      workerName,
-    },
-  };
-  writeStateFile(args.stateFile, nextState);
-
+  writeJsonFile(paths.statePath, {
+    schemaVersion: 1,
+    jobLabel: KEEP_ALIVE_LABEL,
+    lastRunAt: nowIso,
+    lastNgrokUrl: ngrokUrl,
+    lastRedeployAt: nowIso,
+    workerName,
+  });
+  appendJsonLog("redeploy_success", { ngrokUrl, workerName }, logOptions);
   return {
     ok: true,
-    action: rotated ? "rotated" : "first_install",
-    port,
-    liveTunnel,
-    from: storedTarget,
-    to: livePublicTarget,
-    workerName,
-    startedNgrok,
+    redeployed: true,
+    lastNgrokUrl: ngrokUrl,
+    lastRedeployAt: nowIso,
   };
 }
 
-/**
- * Update only the TARGET_URL secret on the existing Cloudflare Worker. This
- * is materially cheaper than `cloudflare-relay:deploy`: no temp dir, no code
- * upload, no CORS/cron rewrite, no auth flow change.
- */
-function updateWorkerTargetSecret(workerName, targetUrl) {
-  const result = spawnSync(
-    "npx",
-    [
-      "--yes",
-      "wrangler",
-      "secret",
-      "put",
-      "TARGET_URL",
-      "--name",
-      workerName,
-    ],
-    {
-      cwd: repoRoot,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        FORCE_COLOR: "0",
-        WRANGLER_SEND_METRICS: "false",
-      },
-      input: `${targetUrl}\n`,
-      stdio: ["pipe", "pipe", "pipe"],
-    },
-  );
-  if (typeof result.status === "number" && result.status === 0) {
-    return { ok: true };
-  }
-  const stderr = String(result.stderr || result.stdout || "").trim();
-  return {
-    ok: false,
-    reason:
-      stderr.toLowerCase().includes("auth") ||
-      stderr.toLowerCase().includes("login")
-        ? "wrangler_auth_missing"
-        : "wrangler_failed",
-    stderr,
+function parseArgs(argv) {
+  const args = {
+    once: false,
+    intervalMs: DEFAULT_POLL_INTERVAL_MS,
   };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--once") {
+      args.once = true;
+      continue;
+    }
+    if (arg === "--interval-ms") {
+      const next = argv[i + 1];
+      const value = Number(next);
+      if (!Number.isInteger(value) || value < 1000) {
+        throw new Error("--interval-ms must be an integer >= 1000");
+      }
+      args.intervalMs = value;
+      i += 1;
+      continue;
+    }
+    if (arg === "--help" || arg === "-h") {
+      console.log(`discovery-keep-alive
+
+Usage:
+  node scripts/discovery-keep-alive.mjs --once
+  node scripts/discovery-keep-alive.mjs --interval-ms 30000
+`);
+      process.exit(0);
+    }
+    throw new Error(`unknown argument: ${arg}`);
+  }
+  return args;
 }
 
-function logResult(result, json) {
-  const stamp = new Date().toISOString();
-  if (json) {
-    process.stdout.write(`${JSON.stringify({ at: stamp, ...result })}\n`);
-    return;
-  }
-  switch (result.action) {
-    case "no_change":
-      console.log(
-        `[${stamp}] ok: tunnel unchanged (${result.liveTunnel})`,
-      );
-      return;
-    case "rotated":
-      console.log(
-        `[${stamp}] ROTATED: ${result.from || "(none)"} -> ${result.to}\n  worker: ${result.workerName}`,
-      );
-      return;
-    case "first_install":
-      console.log(
-        `[${stamp}] first install: TARGET_URL set to ${result.to} on ${result.workerName}`,
-      );
-      return;
-    case "would_rotate":
-      console.log(
-        `[${stamp}] dry-run: would rotate ${result.from || "(none)"} -> ${result.to} on ${result.workerName}`,
-      );
-      return;
-    case "ngrok_down":
-      console.warn(
-        `[${stamp}] ngrok down (${result.reason}): ${result.message}`,
-      );
-      return;
-    case "missing_worker_name":
-      console.error(
-        `[${stamp}] cannot heal: ${result.reason}`,
-      );
-      return;
-    case "wrangler_secret_failed":
-      console.error(
-        `[${stamp}] wrangler secret put failed (${result.reason}). stderr:\n${result.stderr}`,
-      );
-      return;
-    case "build_target_failed":
-      console.error(
-        `[${stamp}] could not build TARGET_URL from tunnel ${result.liveTunnel}`,
-      );
-      return;
-    default:
-      console.log(`[${stamp}] ${JSON.stringify(result)}`);
-  }
+async function sleep(ms) {
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const state = readStateFile(args.stateFile);
-  if (!state) {
-    fail(
-      `no bootstrap state file at ${args.stateFile}. Run \`npm run discovery:bootstrap-local\` first.`,
-    );
-  }
-
   let stopping = false;
-  process.on("SIGINT", () => {
+  const stop = () => {
     stopping = true;
-  });
-  process.on("SIGTERM", () => {
-    stopping = true;
-  });
+    appendJsonLog("shutdown");
+  };
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
 
   if (args.once) {
-    const result = await tick({ args, state });
-    logResult(result, args.json);
-    process.exit(result.ok ? 0 : 2);
+    const result = await runKeepAliveCheck();
+    if (!result.ok) process.exitCode = 1;
+    return;
   }
 
-  if (!args.json) {
-    console.log(
-      `discovery:keep-alive: watching ngrok every ${args.intervalSec}s (state: ${args.stateFile})`,
-    );
-    if (args.reservedDomain) {
-      console.log(
-        `discovery:keep-alive: reserved domain mode -- ngrok will be launched with --domain=${args.reservedDomain}`,
-      );
-    }
-  }
-
-  // Run forever. Re-read state each tick so external bootstrap runs are
-  // picked up without restarting the watchdog.
+  appendJsonLog("daemon_start", { intervalMs: args.intervalMs });
   while (!stopping) {
-    const fresh = readStateFile(args.stateFile) || state;
-    const result = await tick({ args, state: fresh });
-    logResult(result, args.json);
-    // Sleep in 1s slices so SIGINT exits within ~1s.
-    for (let i = 0; i < args.intervalSec && !stopping; i += 1) {
-      await sleep(1000);
+    await runKeepAliveCheck();
+    if (!stopping) {
+      await sleep(args.intervalMs);
     }
-  }
-
-  if (!args.json) {
-    console.log("discovery:keep-alive: stopping");
   }
 }
 
-const __invokedAsCli =
-  process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-
-if (__invokedAsCli) {
-  main().catch((err) => {
-    fail(err && err.message ? err.message : String(err));
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    appendJsonLog("fatal", {
+      message: error && error.message ? error.message : String(error),
+    });
+    process.exitCode = 1;
   });
 }
-
-export { tick, pickPublicUrl, buildPublicTargetUrl };

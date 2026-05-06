@@ -1,7 +1,9 @@
-# Owner: Backend Worker B — fill this out in swarm Phase 1.
-# This template must deploy with `wrangler deploy` and zero hand-edits.
-# DISCOVERY_TARGET is supplied via `--var` at deploy time, NOT hard-coded here.
-
 name = "jobbored-discovery-relay"
 main = "src/worker.js"
 compatibility_date = "2026-05-01"
+
+# DISCOVERY_TARGET is supplied at deploy time:
+#   wrangler deploy --var DISCOVERY_TARGET:https://your-ngrok-url.ngrok-free.app
+#
+# Optional bearer auth:
+#   wrangler deploy --var DISCOVERY_TARGET:https://... --var SHARED_SECRET:...

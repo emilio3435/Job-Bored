@@ -1,25 +1,45 @@
-# Cloudflare Relay Template (jobbored-discovery-relay)
+# JobBored Cloudflare Discovery Relay
 
-> Owner: Backend Worker B — fill this out in swarm Phase 1.
+This template deploys a user-owned Cloudflare Worker that forwards JobBored
+discovery traffic to the user's current local discovery tunnel. It is designed
+for the free Cloudflare Workers tier and requires no maintainer-hosted service.
 
-Zero-config Cloudflare Worker that proxies dashboard discovery webhook calls
-to a private local discovery worker exposed via ngrok.
+## What It Proxies
 
-User-owned, free Cloudflare Workers tier. Maintainer pays nothing.
+| Browser request | Upstream request |
+| --- | --- |
+| `POST /discovery` | `${DISCOVERY_TARGET}/discovery` |
+| `GET /runs/:runId` | `${DISCOVERY_TARGET}/runs/:runId` |
+| `GET /health` | local 200 OK relay health response |
 
-## Required vars
-
-| Var | Required | Purpose |
-|-----|----------|---------|
-| `DISCOVERY_TARGET` | yes | Live ngrok HTTPS URL of the user's local worker |
-| `SHARED_SECRET` | optional | Bearer token validated on every relayed request |
+`DISCOVERY_TARGET` should be the base HTTPS tunnel URL, for example
+`https://abc123.ngrok-free.app`. Do not include `/discovery` or `/runs` in the
+target.
 
 ## Deploy
 
 ```sh
 cd integrations/cloudflare-relay-template
-wrangler deploy --var DISCOVERY_TARGET:https://<user>.ngrok.app
+wrangler deploy --var DISCOVERY_TARGET:https://abc123.ngrok-free.app
 ```
 
-Worker B should make this command produce a working relay with **zero** edits
-to `wrangler.toml`.
+No hand edits to `wrangler.toml` are required.
+
+## Optional Shared Secret
+
+To require browser callers to send `Authorization: Bearer <secret>` on relayed
+requests:
+
+```sh
+wrangler deploy \
+  --var DISCOVERY_TARGET:https://abc123.ngrok-free.app \
+  --var SHARED_SECRET:replace-with-a-long-random-value
+```
+
+`GET /health` stays open so JobBored can detect that the relay itself is up.
+
+## Privacy
+
+The Worker does not log request bodies. It forwards the body to the user's
+configured `DISCOVERY_TARGET` and returns the upstream response status and
+content type to the browser.
