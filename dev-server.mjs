@@ -786,6 +786,170 @@ async function handleKeepAliveStatus(req, res) {
   }
 }
 
+// ============================================================================
+// Discovery auto-detect & silent-recover lane
+// ----------------------------------------------------------------------------
+// GET /__proxy/discovery-state
+//
+// Aggregates the current health of the local discovery stack so the browser
+// can skip the wizard when everything is fine and silently auto-recover when
+// it isn't.
+//
+// Response (locked):
+//   {
+//     ok: true,
+//     worker:  { up: boolean, port: number, lastSeenAt?: string },
+//     ngrok:   { up: boolean, url?: string },
+//     relay:   { configuredUrl?: string, reachable: boolean },
+//     recommendation: "ready" | "auto_recoverable" | "needs_human",
+//     recoverableHint?: string
+//   }
+//
+// Recommendation rules:
+//   ready              — worker up + ngrok up + relay reachable (or relay not
+//                        configured but webhook URL is locally usable)
+//   auto_recoverable   — worker down OR ngrok down OR ngrok rotated; the
+//                        existing /__proxy/full-boot can fix all of these
+//   needs_human        — anything else (e.g. unknown state, missing CLI auth)
+// ============================================================================
+async function handleDiscoveryState(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+
+  const workerPort = 8644;
+
+  // Probe in parallel — every probe is best-effort and short-timeout.
+  const [workerUp, ngrokInfo, keepAliveStatus] = await Promise.all([
+    probeHttpAlive(`http://127.0.0.1:${workerPort}/health`, 1500),
+    probeNgrokTunnel(1500),
+    safeKeepAliveStatus(),
+  ]);
+
+  const lastNgrokUrl =
+    (keepAliveStatus && keepAliveStatus.lastNgrokUrl) || undefined;
+  const ngrokUp = !!(ngrokInfo && ngrokInfo.up);
+  const liveNgrokUrl = ngrokInfo && ngrokInfo.url;
+
+  const ngrokRotated =
+    !!(lastNgrokUrl && liveNgrokUrl && lastNgrokUrl !== liveNgrokUrl);
+
+  // Check the relay (if its target URL is the live ngrok URL). We don't
+  // know the relay URL from the dev-server side, so we only mark relay
+  // reachable if ngrok is up — the keep-alive job is responsible for
+  // pointing the relay at the live URL.
+  const relayInfo = {
+    configuredUrl: lastNgrokUrl,
+    reachable: ngrokUp && !ngrokRotated,
+  };
+
+  let recommendation;
+  let recoverableHint;
+  if (workerUp && ngrokUp && !ngrokRotated) {
+    recommendation = "ready";
+  } else if (!workerUp || !ngrokUp || ngrokRotated) {
+    recommendation = "auto_recoverable";
+    if (!workerUp) recoverableHint = "worker_down";
+    else if (!ngrokUp) recoverableHint = "ngrok_down";
+    else if (ngrokRotated) recoverableHint = "ngrok_rotated";
+  } else {
+    recommendation = "needs_human";
+  }
+
+  const body = {
+    ok: true,
+    worker: {
+      up: workerUp,
+      port: workerPort,
+    },
+    ngrok: {
+      up: ngrokUp,
+      ...(liveNgrokUrl ? { url: liveNgrokUrl } : {}),
+    },
+    relay: relayInfo,
+    recommendation,
+    ...(recoverableHint ? { recoverableHint } : {}),
+  };
+
+  res.writeHead(200, corsHeaders);
+  res.end(JSON.stringify(body));
+}
+
+/**
+ * Best-effort HTTP HEAD/GET probe with a hard timeout. Returns true if any
+ * 2xx/3xx/4xx response comes back (the service is alive even if the path
+ * 404s), false on network error or timeout.
+ */
+async function probeHttpAlive(url, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => {
+    try {
+      ctrl.abort();
+    } catch (_) {}
+  }, timeoutMs);
+  try {
+    const resp = await fetch(url, { method: "GET", signal: ctrl.signal });
+    return resp.status > 0 && resp.status < 600;
+  } catch (_) {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Hit the local ngrok inspector API and return { up, url? } for the first
+ * https tunnel. Tolerates ngrok being down entirely.
+ */
+async function probeNgrokTunnel(timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => {
+    try {
+      ctrl.abort();
+    } catch (_) {}
+  }, timeoutMs);
+  try {
+    const resp = await fetch("http://127.0.0.1:4040/api/tunnels", {
+      method: "GET",
+      signal: ctrl.signal,
+    });
+    if (!resp.ok) return { up: false };
+    const json = await resp.json().catch(() => null);
+    const tunnels = (json && Array.isArray(json.tunnels) && json.tunnels) || [];
+    const httpsTunnel = tunnels.find(
+      (t) => t && typeof t.public_url === "string" && t.public_url.startsWith("https://"),
+    );
+    if (httpsTunnel) {
+      return { up: true, url: httpsTunnel.public_url };
+    }
+    return { up: false };
+  } catch (_) {
+    return { up: false };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Read the keep-alive status without throwing if the script/state file
+ * doesn't exist yet. Mirrors the same import pattern used in
+ * handleKeepAliveStatus.
+ */
+async function safeKeepAliveStatus() {
+  try {
+    const { getKeepAliveStatus } = await import("./scripts/install-keep-alive.mjs");
+    return getKeepAliveStatus();
+  } catch (_) {
+    return null;
+  }
+}
+
 async function handleStartDiscoveryWorker(req, res, discoveryWorkerStarter) {
   const corsHeaders = {
     "access-control-allow-origin": "*",
@@ -1015,6 +1179,19 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       return;
     }
     // === end greenfield-automation seams ===
+
+    // === discovery auto-detect lane ===
+    if (req.method === "GET" && pathname === "/__proxy/discovery-state") {
+      handleDiscoveryState(req, res).catch((err) => {
+        logError("  Discovery-state error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+    // === end discovery auto-detect lane ===
 
     const target = parseLocalProxyRoute(pathname, url.searchParams);
     if (target) {
