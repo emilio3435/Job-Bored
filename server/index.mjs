@@ -28,6 +28,36 @@ const ALLOWED_BROWSER_ORIGINS = normalizeAllowedBrowserOrigins(
 );
 const app = express();
 
+function getAtsProviderErrorMetadata(error) {
+  if (!error || typeof error !== "object") return null;
+  const provider = typeof error.provider === "string" ? error.provider : "";
+  const upstreamStatus = Number.isInteger(error.upstreamStatus)
+    ? error.upstreamStatus
+    : null;
+  const retryable =
+    typeof error.retryable === "boolean" ? error.retryable : null;
+  const classification =
+    typeof error.classification === "string" ? error.classification : "";
+  const providerCode =
+    typeof error.providerCode === "string" ? error.providerCode : "";
+  if (
+    !provider &&
+    upstreamStatus == null &&
+    retryable == null &&
+    !classification &&
+    !providerCode
+  ) {
+    return null;
+  }
+  return {
+    provider: provider || null,
+    upstreamStatus,
+    retryable,
+    classification: classification || null,
+    providerCode: providerCode || null,
+  };
+}
+
 app.use((req, res, next) => {
   const requestOrigin = String(req.get("origin") || "").trim();
   const requestHost = String(
@@ -112,7 +142,25 @@ app.post("/api/ats-scorecard", async (req, res) => {
   } catch (e) {
     const msg = e && e.message ? String(e.message) : "ATS scorecard failed";
     const status = /required|invalid|must be/i.test(msg) ? 400 : 502;
-    res.status(status).json({ error: msg, requestId });
+    const metadata = getAtsProviderErrorMetadata(e);
+    const responseBody = {
+      error: msg,
+      requestId,
+      ...(metadata && metadata.provider ? { provider: metadata.provider } : {}),
+      ...(metadata && metadata.upstreamStatus != null
+        ? { upstreamStatus: metadata.upstreamStatus }
+        : {}),
+      ...(metadata && metadata.retryable != null
+        ? { retryable: metadata.retryable }
+        : {}),
+      ...(metadata && metadata.classification
+        ? { errorClass: metadata.classification }
+        : {}),
+      ...(metadata && metadata.providerCode
+        ? { providerCode: metadata.providerCode }
+        : {}),
+    };
+    res.status(status).json(responseBody);
     console.warn(`[ats-scorecard] requestId=${requestId} status=${status} error=${msg}`);
   }
 });

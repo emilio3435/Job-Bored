@@ -165,7 +165,7 @@ function makeLoggingDeps(
   };
 }
 
-test("POST /discovery-profile manual success logs a DiscoveryRuns row with leadsWritten:0", async () => {
+test("POST /discovery-profile manual success logs DiscoveryRuns row with zero lead writes/updates", async () => {
   const logSink: Array<[string, Record<string, unknown>]> = [];
   const loggerCalls: LoggerCall[] = [];
 
@@ -191,6 +191,7 @@ test("POST /discovery-profile manual success logs a DiscoveryRuns row with leads
   assert.equal(row.trigger, "manual");
   assert.equal(row.status, "success");
   assert.equal(row.leadsWritten, 0);
+  assert.equal(row.leadsUpdated, 0);
   assert.equal(row.companiesSeen, CANNED_COMPANIES.length);
   assert.equal(row.source, "worker@profile-test");
   assert.equal(row.variationKey, "sheet-opt-b");
