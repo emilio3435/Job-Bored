@@ -420,7 +420,9 @@ textarea {
 
 .setup-form-btn {
   margin-top: var(--space-2);
-  display: inline-flex;
+  margin-left: auto;
+  margin-right: auto;
+  display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--space-2) var(--space-4);
@@ -460,6 +462,7 @@ textarea {
   margin-top: var(--space-2);
   font-size: var(--text-xs);
   color: var(--text-muted);
+  text-align: center;
 }
 
 .setup-footer {
@@ -781,6 +784,70 @@ textarea {
   font-size: var(--text-sm);
   line-height: 1.5;
   color: var(--text-muted);
+}
+
+.login-gate__oauth-guide {
+  margin: var(--space-3) 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.login-gate__oauth-guide[open] {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.login-gate__oauth-guide-summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--text);
+  list-style: none;
+}
+
+.login-gate__oauth-guide-summary::-webkit-details-marker {
+  display: none;
+}
+
+.login-gate__oauth-guide-summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: var(--space-2);
+  color: var(--accent);
+  transition: transform var(--transition);
+}
+
+.login-gate__oauth-guide[open] .login-gate__oauth-guide-summary::before {
+  transform: rotate(90deg);
+}
+
+.login-gate__oauth-guide-list {
+  margin: var(--space-3) 0 var(--space-2);
+  padding-left: 1.5rem;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.login-gate__oauth-guide-list li {
+  margin-bottom: var(--space-2);
+}
+
+.login-gate__oauth-guide-list code,
+.login-gate__oauth-guide-foot code {
+  font-size: 0.85em;
+  padding: 1px 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.login-gate__oauth-guide-foot {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.5;
 }
 
 .login-gate__oauth-step-list {
@@ -3097,6 +3164,61 @@ button.feed-item {
   border-color: var(--accent);
 }
 
+/* Primary "Use this URL" — the auto-apply variant. Visually distinct from
+   the legacy copy-only buttons. */
+.btn-copy-scraper--primary {
+  color: var(--text-inverse);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.btn-copy-scraper--primary:hover {
+  background: color-mix(in srgb, var(--accent) 90%, black);
+  border-color: color-mix(in srgb, var(--accent) 90%, black);
+}
+
+/* Run-in-terminal block: combined cd+command + macOS .command download. */
+.discovery-wizard-runblock {
+  margin: var(--space-3) 0;
+}
+
+.discovery-wizard-runblock__dlrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.discovery-wizard-runblock__dlbtn {
+  font-size: var(--text-xs);
+  padding: 6px 10px;
+}
+
+/* Failure recovery cluster: Try again + Copy AI prompt + Skip. */
+.discovery-wizard-recovery {
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: color-mix(in srgb, var(--toast-error) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--toast-error) 25%, var(--border));
+  border-radius: var(--radius-md);
+}
+
+.discovery-wizard-recovery__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.discovery-wizard-recovery__btn {
+  flex-shrink: 0;
+}
+
+.discovery-wizard-recovery__btn--ghost {
+  background: transparent;
+}
+
 .scraper-setup-hint {
   margin-top: var(--space-2);
 }
@@ -4030,6 +4152,7 @@ button.feed-item {
   scroll-snap-align: start;
   flex-shrink: 0;
   width: 264px;
+  min-height: 220px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -4094,7 +4217,9 @@ button.feed-item {
   --card-stage-color: var(--stage-rail-passed);
 }
 
-/* Viewed dot — quiet indicator, top-right corner */
+/* Viewed dot — quiet indicator, top-right corner.
+   Hidden whenever the action buttons are visible so the X/★ never stack
+   on top of the dot. */
 .kanban-card__viewed-dot {
   position: absolute;
   top: 11px;
@@ -4105,6 +4230,13 @@ button.feed-item {
   background: var(--text-faint);
   opacity: 0.55;
   pointer-events: none;
+  transition: opacity 120ms var(--ease);
+}
+.kanban-card:hover .kanban-card__viewed-dot,
+.kanban-card:focus-within .kanban-card__viewed-dot,
+.kanban-card--dismissed .kanban-card__viewed-dot,
+.kanban-card--favorited .kanban-card__viewed-dot {
+  opacity: 0;
 }
 
 .kanban-card__identity {
@@ -4119,6 +4251,10 @@ button.feed-item {
   gap: 2px;
   min-width: 0;
   flex: 1;
+  /* Reserve room in the top-right corner so the title + company never run
+     under the absolutely-positioned action buttons (★ / ✕ / ↺). Two 26px
+     icon buttons + 2px gap + 6px offset = ~60px. */
+  padding-right: 60px;
 }
 
 /* Role title — hero, 2-line clamp */
@@ -8199,6 +8335,63 @@ a.btn-materials {
   max-width: 12rem;
 }
 
+/* Step 3 "Your edge" — label + "Want our take?" button on one row so the
+   AI assist sits visually next to the field it fills, not as a floating
+   action somewhere disconnected from the input. */
+.onboarding-edge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  margin-bottom: 6px;
+}
+
+.onboarding-edge-row .field-label {
+  margin-bottom: 0;
+}
+
+.onboarding-edge-take-btn {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  color: var(--accent);
+  font-weight: 600;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.05s ease;
+}
+
+.onboarding-edge-take-btn:hover:not([disabled]) {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.onboarding-edge-take-btn:active:not([disabled]) {
+  transform: translateY(1px);
+}
+
+.onboarding-edge-take-btn[disabled] {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+/* Inline variant of onboarding-status for slot-into-field placement
+   (vs. the standalone block below the textarea that needs more breathing
+   room). Used by #onboardingEdgeTakeStatus. */
+.onboarding-status--inline {
+  margin-top: 4px;
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  min-height: 1.25em;
+}
+
 .onboarding-tone-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -8311,6 +8504,15 @@ a.btn-materials {
   margin-bottom: var(--space-4);
 }
 
+/* Lede variant — used when the panel has no <h3> of its own (the wizard
+   chrome already shows the step title) and the hint is now the lead copy. */
+.onboarding-hint--lede {
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  margin-top: 0;
+  margin-bottom: var(--space-4);
+}
+
 .onboarding-status {
   font-size: var(--text-sm);
   color: var(--accent-text);
@@ -8320,6 +8522,388 @@ a.btn-materials {
 
 .onboarding-status--error {
   color: var(--toast-error);
+}
+
+.onboarding-status--ok {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  text-align: left;
+}
+
+.onboarding-status__check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--text-inverse);
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.onboarding-status__filename {
+  color: var(--text);
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.onboarding-status__meta {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+/* ============================================
+   Onboarding step 2: Suggested career chips
+   ============================================ */
+
+.onboarding-suggest-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 var(--space-2);
+  min-height: 44px;
+}
+
+.onboarding-suggest-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    border-color var(--transition),
+    color var(--transition),
+    transform 80ms var(--ease);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.onboarding-suggest-chip:hover {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.onboarding-suggest-chip:active {
+  transform: scale(0.97);
+}
+
+.onboarding-suggest-chip--selected,
+.onboarding-suggest-chip[aria-pressed="true"] {
+  color: var(--text-inverse);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.onboarding-suggest-chip--selected:hover {
+  background: color-mix(in srgb, var(--accent) 92%, black);
+}
+
+.onboarding-suggest-chip--custom::before {
+  content: "+";
+  display: inline-block;
+  margin-right: 6px;
+  font-weight: 700;
+  color: inherit;
+  opacity: 0.65;
+}
+
+.onboarding-suggest-chip--custom.onboarding-suggest-chip--selected::before {
+  opacity: 1;
+}
+
+/* Stacked actions: Show me more on its own line, then a labelled
+   free-add row beneath it. Avoids the cramped one-row layout where the
+   input got truncated and the label sat orphaned. */
+.onboarding-suggest-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.onboarding-suggest-actions__reroll {
+  display: flex;
+}
+
+.onboarding-suggest-reroll {
+  flex-shrink: 0;
+}
+
+.onboarding-suggest-reroll[disabled] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.onboarding-suggest-add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.onboarding-suggest-add__label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+}
+
+.onboarding-suggest-add__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.onboarding-suggest-add-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 12px;
+  font-size: var(--text-sm);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.onboarding-suggest-add-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.onboarding-suggest-foot {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  min-height: 1.25em;
+}
+
+.onboarding-status--loading {
+  color: var(--text-muted);
+  font-style: italic;
+  position: relative;
+  padding-left: 22px;
+}
+
+.onboarding-status--loading::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-top-color: var(--accent);
+  animation: onboarding-suggest-spin 700ms linear infinite;
+}
+
+@keyframes onboarding-suggest-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================
+   Onboarding step 2: Inline Gemini keygate
+   ============================================ */
+
+.onboarding-keygate {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: var(--radius-md);
+}
+
+.onboarding-keygate__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.onboarding-keygate__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-inverse);
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.onboarding-keygate__title {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.onboarding-keygate__body {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.onboarding-keygate__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.onboarding-keygate__input {
+  flex: 1 1 240px;
+  min-width: 0;
+  padding: 8px 12px;
+  font-size: var(--text-sm);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.onboarding-keygate__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.onboarding-keygate__save {
+  flex-shrink: 0;
+}
+
+.onboarding-keygate__cta {
+  display: inline-block;
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.onboarding-keygate__cta:hover {
+  text-decoration: underline;
+}
+
+.onboarding-keygate__guide {
+  margin: var(--space-2) 0;
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.onboarding-keygate__guide-summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--text);
+  list-style: none;
+}
+
+.onboarding-keygate__guide-summary::-webkit-details-marker {
+  display: none;
+}
+
+.onboarding-keygate__guide-summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: var(--space-2);
+  color: var(--accent);
+  transition: transform var(--transition);
+}
+
+.onboarding-keygate__guide[open] .onboarding-keygate__guide-summary::before {
+  transform: rotate(90deg);
+}
+
+.onboarding-keygate__guide-list {
+  margin: var(--space-3) 0 var(--space-2);
+  padding-left: 1.5rem;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.onboarding-keygate__guide-list li {
+  margin-bottom: var(--space-2);
+}
+
+.onboarding-keygate__guide-list code,
+.onboarding-keygate__guide-foot code {
+  font-size: 0.85em;
+  padding: 1px 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.onboarding-keygate__guide-foot {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* Numbered "where to get the key" steps, shown above the paste field so
+   the instructions naturally precede the action. */
+.onboarding-keygate__steps {
+  margin: 0 0 var(--space-3);
+  padding-left: 1.5rem;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.onboarding-keygate__steps li {
+  margin-bottom: var(--space-2);
+}
+
+.onboarding-keygate__step-hint {
+  display: inline;
+  margin-left: var(--space-1);
+  color: var(--text-muted);
+}
+
+.onboarding-keygate__label {
+  display: block;
+  margin: var(--space-3) 0 6px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+}
+
+.onboarding-keygate__skip {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 .onboarding-actions {
@@ -11416,4 +12000,105 @@ a.btn-materials {
   .runs-error-cell {
     max-width: 12rem;
   }
+}
+
+/* ============================================
+   Setup Doctor — auto-heal panel
+   ============================================ */
+.doctor-panel {
+  margin: var(--space-3) 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface, #fff);
+  text-align: left;
+}
+.doctor-panel__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary, #111);
+}
+.doctor-panel__ok {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary, #555);
+}
+.doctor-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.doctor-issue {
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--border);
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: var(--radius-sm);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+}
+.doctor-issue--error { border-left-color: #c0392b; }
+.doctor-issue--warn  { border-left-color: #d69e2e; }
+.doctor-issue--fixed { border-left-color: #2f855a; opacity: 0.85; }
+.doctor-issue--needs-action { border-left-color: #d69e2e; }
+.doctor-issue--failed { border-left-color: #c0392b; }
+.doctor-issue__title {
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+.doctor-issue__detail {
+  grid-column: 1 / -1;
+  font-size: var(--text-xs);
+  color: var(--text-secondary, #555);
+  line-height: 1.4;
+}
+.doctor-issue__fix {
+  white-space: nowrap;
+}
+.doctor-panel__fixall {
+  margin-top: var(--space-3);
+  width: 100%;
+}
+
+.doctor-gcloud-btn {
+  margin-top: var(--space-2);
+  background: var(--accent-dim);
+  color: var(--accent-text);
+  border: 1px solid var(--accent);
+}
+.doctor-gcloud-btn:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.doctor-gcloud-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.doctor-keep-alive-pill {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 2px 8px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1.4;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+.doctor-keep-alive-pill--on {
+  border-color: var(--status-ok-border);
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
+}
+.doctor-keep-alive-pill--off {
+  border-color: var(--border-bright);
+  background: var(--surface-2);
+  color: var(--text-muted);
 }

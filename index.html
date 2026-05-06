@@ -21,99 +21,29 @@
   <body>
     <!-- Setup Screen (shown when config is missing/invalid) -->
     <div class="setup-screen" id="setupScreen" style="display: none">
-      <div class="setup-card">
+      <div class="setup-card setup-card--minimal">
         <div class="setup-logo">
           <img
             class="setup-logo__img"
             src="jobbored.svg"
-            width="200"
-            height="200"
+            width="160"
+            height="160"
             alt="JobBored"
             decoding="async"
           />
+          <h1 class="setup-headline">One more step.</h1>
           <p class="setup-subtitle">
-            Streamline the search, powered by Google Sheets
+            We’ll create your Pipeline sheet in your Google Drive.
           </p>
         </div>
-        <div class="setup-steps">
-          <div class="setup-step">
-            <div class="step-number">1</div>
-            <div class="step-content">
-              <h3>Create your Pipeline sheet</h3>
-              <p>
-                Click the button below to create a fresh Google Sheet in your
-                Drive with only the required <strong>Pipeline</strong> headers.
-                OAuth is handled on the sign-in screen first—if the button is
-                not ready yet, complete that flow and reload this page.
-              </p>
-              <button
-                type="button"
-                class="setup-form-btn"
-                id="setupCreateStarterSheetBtn"
-              >
-                Create blank starter sheet
-              </button>
-              <p class="setup-status" id="setupCreateStarterSheetStatus">
-                Complete OAuth setup on the sign-in screen, then reload this
-                page.
-              </p>
-            </div>
-          </div>
-          <div class="setup-step">
-            <div class="step-number">2</div>
-            <div class="step-content">
-              <h3>Finish guided setup</h3>
-              <p>
-                After your sheet is created, JobBored opens the setup wizard so
-                you can choose the right path without filling out the full
-                Settings form first.
-              </p>
-              <button
-                type="button"
-                class="setup-form-btn"
-                id="setupOpenSettingsBtn"
-              >
-                Open setup wizard
-              </button>
-            </div>
-          </div>
-          <div class="setup-step">
-            <div class="step-number">3</div>
-            <div class="step-content">
-              <h3>Settings later (optional)</h3>
-              <p>
-                Use Settings later if you want to edit advanced discovery, AI,
-                or integration options after the guided setup is done.
-              </p>
-              <button
-                type="button"
-                class="setup-form-btn"
-                id="setupOpenSettingsLaterBtn"
-              >
-                Open settings form
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  aria-hidden="true"
-                >
-                  <polyline points="23 4 23 10 17 10" />
-                  <polyline points="1 20 1 14 7 14" />
-                  <path
-                    d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
-                  />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-        <p class="setup-footer">
-          See <a href="SETUP.md" target="_blank" rel="noopener">SETUP.md</a> for
-          detailed instructions.
-        </p>
+        <button
+          type="button"
+          class="setup-form-btn setup-form-btn--primary"
+          id="setupCreateStarterSheetBtn"
+        >
+          Create my Pipeline sheet
+        </button>
+        <p class="setup-status" id="setupCreateStarterSheetStatus"></p>
       </div>
     </div>
 
@@ -170,6 +100,7 @@
                 Opening your workspace
               </h1>
               <p class="login-gate__lede" id="sheetAccessGateDetail"></p>
+              <div id="sheetAccessGateDoctorPanel" hidden></div>
               <div class="login-gate__callout" id="sheetAccessGateStatusBlock">
                 <p
                   class="login-gate__callout-kicker"
@@ -224,185 +155,125 @@
                 class="login-gate__oauth-choice"
               >
                 <h1 class="login-gate__oauth-title">Connect Google</h1>
-                <p class="login-gate__oauth-lede" id="sheetAccessGateOAuthLede">
-                  JobBored uses Google sign-in. Add an OAuth web client ID
-                  first—either open Settings to paste one, or follow the guide
-                  to create it in Google Cloud.
-                </p>
-                <div class="login-gate__oauth-split">
-                  <button
-                    type="button"
-                    class="login-gate__btn-oauth-secondary"
-                    id="sheetAccessGateBtnOpenSettings"
-                  >
-                    Open Settings
-                  </button>
-                  <button
-                    type="button"
-                    class="login-gate__btn-oauth-primary"
-                    id="sheetAccessGateBtnCreateOAuth"
-                  >
-                    Create OAuth client
-                  </button>
-                </div>
+                <input
+                  type="text"
+                  class="login-gate__oauth-paste-input"
+                  id="sheetAccessGateOAuthClientIdInput"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="Paste Google Client ID — auto-saves on paste"
+                />
+                <button
+                  type="button"
+                  class="login-gate__btn-google login-gate__btn-google--save-oauth"
+                  id="sheetAccessGateOAuthSaveBtn"
+                >
+                  Continue with Google
+                </button>
+                <button
+                  type="button"
+                  class="login-gate__text-btn login-gate__oauth-helper-btn"
+                  id="sheetAccessGateBtnCreateOAuth"
+                >
+                  I don’t have a Client ID yet
+                </button>
               </div>
               <div
                 id="sheetAccessGateOAuthWizard"
                 class="login-gate__oauth-wizard"
                 hidden
               >
+                <h2 class="login-gate__oauth-wizard-heading">Get a Client ID</h2>
+                <p class="login-gate__oauth-wizard-intro">
+                  Free, ~3 minutes. JobBored is BYO keys — your Client ID
+                  stays in your browser. We’ve copied this site’s origin to
+                  your clipboard so you can paste it when Google asks.
+                </p>
+                <code
+                  class="login-gate__oauth-origin"
+                  id="sheetAccessGateOAuthOriginDisplay"
+                ></code>
                 <button
                   type="button"
-                  class="login-gate__oauth-back"
+                  class="login-gate__btn-google"
+                  id="sheetAccessGateOAuthOpenConsoleBtn"
+                >
+                  Open Google Cloud Console
+                </button>
+                <button
+                  type="button"
+                  class="login-gate__btn-google doctor-gcloud-btn"
+                  id="sheetAccessGateOAuthGcloudBtn"
+                  hidden
+                >
+                  Create one for me with gcloud
+                </button>
+
+                <details class="login-gate__oauth-guide">
+                  <summary class="login-gate__oauth-guide-summary">
+                    Step-by-step guide (open if it’s your first time)
+                  </summary>
+                  <ol class="login-gate__oauth-guide-list">
+                    <li>
+                      In Google Cloud Console, create or pick a project (top
+                      bar → project picker → <strong>New project</strong>).
+                    </li>
+                    <li>
+                      Configure the <strong>OAuth consent screen</strong>
+                      (left nav → APIs &amp; Services → OAuth consent
+                      screen). Pick <strong>External</strong>, fill in the
+                      app name + your email, save. You can add yourself as a
+                      test user under Audience to skip “unverified app”
+                      warnings.
+                    </li>
+                    <li>
+                      Enable the <strong>Google Sheets API</strong> and
+                      <strong>Google Drive API</strong> for the project (APIs
+                      &amp; Services → Library → search → Enable).
+                    </li>
+                    <li>
+                      Open <strong>Credentials</strong> → <strong>Create
+                      credentials</strong> → <strong>OAuth client ID</strong>
+                      → application type
+                      <strong>Web application</strong>.
+                    </li>
+                    <li>
+                      Under <strong>Authorized JavaScript origins</strong>,
+                      click <em>Add URI</em> and paste the origin shown
+                      above (already on your clipboard). Leave redirect URIs
+                      empty — JobBored doesn’t use them.
+                    </li>
+                    <li>
+                      Click <strong>Create</strong>. Google shows a popup
+                      with your Client ID — copy it and paste below.
+                    </li>
+                  </ol>
+                  <p class="login-gate__oauth-guide-foot">
+                    Stuck? The Client ID always ends in
+                    <code>.apps.googleusercontent.com</code>. If you see a
+                    “redirect_uri_mismatch” later, you picked the wrong app
+                    type — recreate as <strong>Web application</strong>.
+                  </p>
+                </details>
+
+                <p class="login-gate__oauth-wizard-intro">
+                  When Google gives you a Client ID, paste it below.
+                </p>
+                <input
+                  type="text"
+                  class="login-gate__oauth-paste-input"
+                  id="sheetAccessGateOAuthClientIdInputAlt"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="xxxx.apps.googleusercontent.com"
+                />
+                <button
+                  type="button"
+                  class="login-gate__text-btn"
                   id="sheetAccessGateOAuthWizardBack"
                 >
                   ← Back
                 </button>
-                <h2 class="login-gate__oauth-wizard-heading">
-                  Create a Web client ID
-                </h2>
-                <p class="login-gate__oauth-wizard-intro">
-                  Use the <strong>same Google Cloud project</strong> for APIs
-                  and the OAuth client. Enable the APIs <strong>before</strong>
-                  you rely on the dashboard—otherwise sheet access or deploy can
-                  fail with “API not enabled”. Your Client ID is saved in this
-                  browser and autofills Settings.
-                </p>
-                <ol class="login-gate__oauth-step-list">
-                  <li>
-                    <strong>Project.</strong>
-                    Open
-                    <a
-                      href="https://console.cloud.google.com/projectcreate"
-                      target="_blank"
-                      rel="noopener"
-                      >Google Cloud Console</a
-                    >
-                    and create a project or select an existing one (use the
-                    project picker in the top bar).
-                  </li>
-                  <li>
-                    <strong>OAuth consent screen.</strong>
-                    <a
-                      href="https://console.cloud.google.com/apis/credentials/consent"
-                      target="_blank"
-                      rel="noopener"
-                      >Configure the consent screen</a
-                    >
-                    (External is typical for testing). Add yourself as a test
-                    user if the app stays in Testing mode.
-                  </li>
-                  <li>
-                    <strong>Enable APIs for JobBored.</strong>
-                    In
-                    <a
-                      href="https://console.cloud.google.com/apis/library"
-                      target="_blank"
-                      rel="noopener"
-                      >APIs &amp; Services → Library</a
-                    >, select your project, then open each link below and click
-                    <strong>Enable</strong>:
-                    <ul class="login-gate__oauth-api-sublist">
-                      <li>
-                        <strong>Google Sheets API</strong>
-                        <span class="login-gate__oauth-tag">Required</span> —
-                        Read/write your Pipeline sheet, create a blank starter
-                        sheet, and use private sheets without “Publish to web.”
-                        <a
-                          href="https://console.cloud.google.com/apis/library/sheets.googleapis.com"
-                          target="_blank"
-                          rel="noopener"
-                          >Enable Google Sheets API</a
-                        >
-                      </li>
-                      <li>
-                        <strong>Google Apps Script API</strong>
-                        <span class="login-gate__oauth-tag"
-                          >Enable for deploy</span
-                        >
-                        — Needed for <strong>Deploy Apps Script</strong> in
-                        Settings (discovery webhook / managed script). If you
-                        skip this, sign-in and sheets still work; deploy will
-                        error until you enable it.
-                        <a
-                          href="https://console.cloud.google.com/apis/library/script.googleapis.com"
-                          target="_blank"
-                          rel="noopener"
-                          >Enable Google Apps Script API</a
-                        >
-                      </li>
-                      <li>
-                        <strong>Google Drive API</strong>
-                        <span class="login-gate__oauth-tag">Not required</span>
-                        — Sign-in uses
-                        <strong>Sheets</strong> + basic profile scopes only.
-                        Creating the starter sheet and editing your Pipeline go
-                        through the <strong>Sheets API</strong>; you do not need
-                        to enable Drive API for this app.
-                      </li>
-                    </ul>
-                  </li>
-                  <li>
-                    <strong>Credentials.</strong>
-                    Go to
-                    <a
-                      href="https://console.cloud.google.com/apis/credentials"
-                      target="_blank"
-                      rel="noopener"
-                      >APIs &amp; Services → Credentials</a
-                    >, <strong>Create credentials</strong> →
-                    <strong>OAuth client ID</strong>. If asked, finish the
-                    consent screen first.
-                  </li>
-                  <li>
-                    <strong>Application type:</strong> Web application. Name it
-                    (e.g. JobBored).
-                  </li>
-                  <li>
-                    <strong>Authorized JavaScript origins:</strong> add your
-                    site origin exactly (no path, no trailing slash):
-                    <div class="login-gate__oauth-origin-row">
-                      <code
-                        class="login-gate__oauth-origin"
-                        id="sheetAccessGateOAuthOriginDisplay"
-                      ></code>
-                      <button
-                        type="button"
-                        class="login-gate__btn-copy-origin"
-                        id="sheetAccessGateCopyOriginBtn"
-                      >
-                        Copy
-                      </button>
-                    </div>
-                  </li>
-                  <li>
-                    Click <strong>Create</strong>, then copy the
-                    <strong>Client ID</strong> (it ends in
-                    <code>.apps.googleusercontent.com</code>).
-                  </li>
-                </ol>
-                <div class="login-gate__oauth-paste">
-                  <label
-                    class="login-gate__oauth-paste-label"
-                    for="sheetAccessGateOAuthClientIdInput"
-                    >Paste Client ID</label
-                  >
-                  <input
-                    type="text"
-                    class="login-gate__oauth-paste-input"
-                    id="sheetAccessGateOAuthClientIdInput"
-                    autocomplete="off"
-                    spellcheck="false"
-                    placeholder="xxxx.apps.googleusercontent.com"
-                  />
-                  <button
-                    type="button"
-                    class="login-gate__btn-google login-gate__btn-google--save-oauth"
-                    id="sheetAccessGateOAuthSaveBtn"
-                  >
-                    Save &amp; continue
-                  </button>
-                </div>
               </div>
             </div>
             <div class="login-gate__secondary" id="sheetAccessGateSecondaryRow">
@@ -693,6 +564,35 @@
                     <p class="auth-user-menu__lede">
                       Writing preferences live in the Portfolio panel.
                     </p>
+                    <button
+                      class="auth-user-menu__signout"
+                      id="resumeOnboardingBtn"
+                      type="button"
+                      style="margin-bottom: 8px;"
+                    >
+                      Resume onboarding
+                    </button>
+                    <button
+                      class="auth-user-menu__signout"
+                      id="setupDoctorBtn"
+                      type="button"
+                      style="margin-bottom: 8px;"
+                    >
+                      Run setup doctor
+                    </button>
+                    <button
+                      class="auth-user-menu__signout"
+                      id="setupHealthBtn"
+                      type="button"
+                      style="margin-bottom: 8px;"
+                    >
+                      <span>Setup health</span>
+                      <span
+                        class="doctor-keep-alive-pill"
+                        id="keepAlivePill"
+                        hidden
+                      ></span>
+                    </button>
                     <button
                       class="auth-user-menu__signout"
                       id="signOutBtn"
@@ -1063,65 +963,29 @@
             class="onboarding-progress-bar"
             role="progressbar"
             aria-valuemin="1"
-            aria-valuemax="9"
+            aria-valuemax="3"
             aria-valuenow="1"
             id="onboardingProgressBar"
           >
             <div
               class="onboarding-progress-bar__fill"
               id="onboardingProgressBarFill"
-              style="width: 11.1111%"
+              style="width: 33.3333%"
             ></div>
           </div>
         </div>
 
         <input type="hidden" id="wizardPrefTone" value="warm" />
+        <input type="hidden" id="wizardPrefMaxWords" value="350" />
 
+        <!-- Step 1: Resume drop (combined upload + paste fallback) -->
         <div
           class="onboarding-panel onboarding-panel--enter"
           id="onboardingPanel1"
         >
-          <p class="onboarding-lede">
-            We&rsquo;ll help you draft cover letters and tailored resumes using
-            <strong>your</strong> resume. Your materials stay in this browser
-            only. If you add an API key in
-            <code class="onboarding-code">config.js</code>, text is sent only to
-            that provider.
-          </p>
-          <div class="onboarding-actions onboarding-actions--full">
-            <button
-              type="button"
-              class="btn-modal-primary onboarding-btn-primary onboarding-btn-primary--block"
-              id="onboardingNext1"
-            >
-              Get started
-            </button>
-          </div>
-        </div>
-
-        <div
-          class="onboarding-panel"
-          id="onboardingPanel2"
-          style="display: none"
-        >
-          <div class="onboarding-upload-hero" aria-hidden="true">
-            <svg
-              width="48"
-              height="48"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              class="onboarding-hero-icon"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-          </div>
-          <h3 class="onboarding-step-title">Upload your resume</h3>
+          <h3 class="onboarding-step-title">Drop your resume</h3>
           <p class="onboarding-hint">
-            PDF or Word works best. Plain text files are OK too.
+            PDF, Word, or plain text. Stays in your browser.
           </p>
           <div class="onboarding-upload-cta">
             <label class="btn-materials-upload onboarding-upload-btn">
@@ -1134,26 +998,20 @@
             </label>
           </div>
           <p class="onboarding-status" id="onboardingResumeStatusUpload"></p>
-          <p class="onboarding-alt">
+          <details class="onboarding-paste-fallback">
+            <summary class="onboarding-link">or paste text instead</summary>
+            <textarea
+              id="onboardingPasteText"
+              class="notes-textarea materials-paste-textarea"
+              placeholder="Paste full resume text…"
+              rows="6"
+            ></textarea>
+            <p class="onboarding-status" id="onboardingResumeStatus"></p>
+          </details>
+          <div class="onboarding-actions onboarding-actions--full">
             <button
               type="button"
-              class="onboarding-link"
-              id="onboardingPasteInstead"
-            >
-              No file? Paste text instead
-            </button>
-          </p>
-          <div class="onboarding-actions onboarding-actions--split">
-            <button
-              type="button"
-              class="btn-modal-secondary"
-              id="onboardingBack2"
-            >
-              Back
-            </button>
-            <button
-              type="button"
-              class="btn-modal-primary onboarding-btn-primary"
+              class="btn-modal-primary onboarding-btn-primary onboarding-btn-primary--block"
               id="onboardingContinue2"
               disabled
             >
@@ -1162,71 +1020,288 @@
           </div>
         </div>
 
+        <!-- Step 2: Suggested careers (chips, free-add, re-roll). Powered by
+             the user's Gemini key. Surfaces broad adjacent + lateral roles so
+             the discovery algorithm doesn't get pigeonholed by whatever the
+             user typed first. Chip selections persist into the discovery
+             profile via finalizeOnboarding (NOT into Step 3's textarea —
+             chips are the source of truth for "roles to explore"). -->
         <div
           class="onboarding-panel"
-          id="onboardingPanel3"
+          id="onboardingPanel2"
           style="display: none"
         >
-          <div class="onboarding-upload-hero" aria-hidden="true">
-            <svg
-              width="48"
-              height="48"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              class="onboarding-hero-icon"
-            >
-              <path
-                d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
-              />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="16" y1="13" x2="8" y2="13" />
-              <line x1="16" y1="17" x2="8" y2="17" />
-            </svg>
-          </div>
-          <h3 class="onboarding-step-title">Paste your resume</h3>
-          <p class="onboarding-hint">
-            Copy your full resume into the box below.
+          <p class="onboarding-hint onboarding-hint--lede">
+            Pick anything that looks interesting — you’re not committing to
+            a track. The more you select, the wider your discovery net.
           </p>
-          <label class="field-label sr-only" for="onboardingPasteText"
-            >Resume text</label
+
+          <!-- Inline "needs Gemini key" panel. Hidden by default; the
+               suggest module reveals it when no key is configured.
+               Top-down flow: badge → what & why → link → guide → paste. -->
+          <div
+            class="onboarding-keygate"
+            id="onboardingSuggestKeyGate"
+            hidden
           >
-          <textarea
-            id="onboardingPasteText"
-            class="notes-textarea materials-paste-textarea onboarding-paste-focus"
-            placeholder="Paste full resume text…"
-            rows="8"
-          ></textarea>
-          <p class="onboarding-status" id="onboardingResumeStatus"></p>
+            <!-- 1. What this is + why it's free -->
+            <div class="onboarding-keygate__head">
+              <span class="onboarding-keygate__badge">Free</span>
+              <p class="onboarding-keygate__title">
+                Add a free Gemini key to see role suggestions
+              </p>
+            </div>
+            <p class="onboarding-keygate__body">
+              JobBored is bring-your-own-keys, so nothing runs on a server
+              we own. Google’s Gemini API has a generous free tier — no
+              credit card required for personal use.
+            </p>
+
+            <!-- 2. Where to get the key (link first — instruction before action) -->
+            <ol class="onboarding-keygate__steps">
+              <li>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noopener"
+                  class="onboarding-keygate__cta"
+                >
+                  Open Google AI Studio →
+                </a>
+                <span class="onboarding-keygate__step-hint">
+                  Sign in, click <strong>Create API key</strong>, copy the
+                  key that starts with <code>AIza</code>.
+                </span>
+              </li>
+              <li>
+                Paste it below and press Enter — we save it locally.
+              </li>
+            </ol>
+
+            <!-- 3. Optional deeper guide for first-timers -->
+            <details class="onboarding-keygate__guide">
+              <summary class="onboarding-keygate__guide-summary">
+                Need more detail? Show the full step-by-step
+              </summary>
+              <ol class="onboarding-keygate__guide-list">
+                <li>
+                  Click <strong>Open Google AI Studio</strong> above. Sign
+                  in with the same Google account you use here if asked.
+                </li>
+                <li>
+                  Click <strong>Create API key</strong> (top right of the
+                  page).
+                </li>
+                <li>
+                  Pick <strong>Create API key in new project</strong> if
+                  you don’t already have a Google Cloud project — AI
+                  Studio sets it up for you. No billing setup, no credit
+                  card.
+                </li>
+                <li>
+                  Copy the key (it starts with <code>AIza</code>).
+                </li>
+                <li>
+                  Come back here, paste it into the box below, press
+                  Enter. We auto-save it locally — never sent to a
+                  JobBored server.
+                </li>
+              </ol>
+              <p class="onboarding-keygate__guide-foot">
+                Free tier limits are per-minute and reset fast — plenty
+                for everyday role exploration. You can rotate or delete
+                the key anytime in AI Studio.
+              </p>
+            </details>
+
+            <!-- 4. Now the action — input + button last, after instructions -->
+            <label
+              class="onboarding-keygate__label"
+              for="onboardingSuggestKeyInput"
+            >
+              Paste your Gemini API key
+            </label>
+            <div class="onboarding-keygate__row">
+              <input
+                type="password"
+                id="onboardingSuggestKeyInput"
+                class="onboarding-keygate__input"
+                placeholder="AIza…"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button
+                type="button"
+                class="btn-modal-primary onboarding-keygate__save"
+                id="onboardingSuggestKeySaveBtn"
+              >
+                Save &amp; load suggestions
+              </button>
+            </div>
+
+            <p class="onboarding-keygate__skip">
+              Don’t want a key? Skip — you can still type roles by hand
+              below.
+            </p>
+          </div>
+
+          <div
+            class="onboarding-suggest-chip-row"
+            id="onboardingSuggestChipRow"
+            role="list"
+            aria-label="Suggested careers"
+          ></div>
+
+          <p class="onboarding-status" id="onboardingSuggestStatus" aria-live="polite"></p>
+
+          <!-- Action row: "Show me more" gets its own row above the
+               free-add input so neither feels cramped. The free-add row
+               reads as "Have a role in mind? Add it" — instruction above
+               the input, instruction-then-action like the rest of the
+               wizard. -->
+          <div class="onboarding-suggest-actions">
+            <div class="onboarding-suggest-actions__reroll">
+              <button
+                type="button"
+                class="btn-modal-secondary onboarding-suggest-reroll"
+                id="onboardingSuggestReroll"
+                disabled
+              >
+                <span aria-hidden="true">↻</span> Show me more
+              </button>
+            </div>
+            <div class="onboarding-suggest-add">
+              <label
+                class="onboarding-suggest-add__label"
+                for="onboardingSuggestAddInput"
+              >
+                Have a role in mind? Add it.
+              </label>
+              <div class="onboarding-suggest-add__row">
+                <input
+                  type="text"
+                  id="onboardingSuggestAddInput"
+                  class="onboarding-suggest-add-input"
+                  placeholder="e.g. Forward Deployed Engineer"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <button
+                  type="button"
+                  class="btn-modal-secondary onboarding-suggest-add-btn"
+                  id="onboardingSuggestAddBtn"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <p class="onboarding-suggest-foot" id="onboardingSuggestFoot"></p>
+
           <div class="onboarding-actions onboarding-actions--split">
             <button
               type="button"
               class="btn-modal-secondary"
-              id="onboardingBack3"
+              id="onboardingSuggestBack"
             >
               Back
             </button>
             <button
               type="button"
               class="btn-modal-primary onboarding-btn-primary"
-              id="onboardingNext3"
-              disabled
+              id="onboardingSuggestNext"
             >
               Continue
             </button>
           </div>
         </div>
 
+        <!-- Step 3: Your edge — what makes the candidate stand out, what to
+             avoid in drafts. The "Want our take?" button reads the resume +
+             selected chips and pre-fills the superpower field with 2–3
+             distinctive, non-generic edges.
+
+             Removed in this consolidation: the "What kind of role are you
+             targeting?" textarea — Step 2's chips already own that and
+             feed the discovery profile via finalizeOnboarding. -->
+        <div
+          class="onboarding-panel"
+          id="onboardingPanel3"
+          style="display: none"
+        >
+          <h3 class="onboarding-step-title">Your edge</h3>
+          <p class="onboarding-hint onboarding-hint--lede">
+            What makes you stand out — and anything you’d rather drafts
+            avoid. Short bullets, your words. Both optional.
+          </p>
+
+          <div class="onboarding-edge-row">
+            <label class="field-label" for="onboardingAiStrength"
+              >What’s your superpower?</label
+            >
+            <button
+              type="button"
+              class="btn-modal-secondary onboarding-edge-take-btn"
+              id="onboardingEdgeTakeBtn"
+              title="Read your resume and suggest your most distinctive edges"
+            >
+              <span aria-hidden="true">✨</span> Want our take?
+            </button>
+          </div>
+          <textarea
+            id="onboardingAiStrength"
+            class="notes-textarea"
+            rows="3"
+            placeholder="e.g. Translating ambiguous problems into shipped products"
+          ></textarea>
+          <p class="onboarding-status onboarding-status--inline" id="onboardingEdgeTakeStatus" aria-live="polite"></p>
+
+          <label class="field-label" for="onboardingAiAvoid"
+            >Anything to avoid?</label
+          >
+          <textarea
+            id="onboardingAiAvoid"
+            class="notes-textarea"
+            rows="2"
+            placeholder="e.g. Avoid startup jargon, don't mention salary"
+          ></textarea>
+
+          <details class="onboarding-paste-fallback">
+            <summary class="onboarding-link">Already have a career summary? Paste it</summary>
+            <textarea
+              id="onboardingAiContextText"
+              class="notes-textarea"
+              rows="5"
+              placeholder="Paste career summary, strengths, or notes…"
+            ></textarea>
+          </details>
+
+          <div class="onboarding-actions onboarding-actions--split">
+            <button
+              type="button"
+              class="btn-modal-secondary"
+              id="onboardingBack4"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              class="btn-modal-primary onboarding-btn-primary"
+              id="onboardingNext4"
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 4: Tone + voice (merged) — last step, finishes onboarding -->
         <div
           class="onboarding-panel"
           id="onboardingPanel4"
           style="display: none"
         >
           <h3 class="onboarding-step-title">How should drafts sound?</h3>
-          <p class="onboarding-hint">
-            Pick a default tone. You can change it anytime in Profile.
-          </p>
           <div class="onboarding-tone-grid" role="group" aria-label="Tone">
             <button
               type="button"
@@ -1260,222 +1335,19 @@
               >
             </button>
           </div>
-          <div class="onboarding-actions onboarding-actions--split">
-            <button
-              type="button"
-              class="btn-modal-secondary"
-              id="onboardingBack4"
-            >
-              Back
-            </button>
-            <button
-              type="button"
-              class="btn-modal-primary onboarding-btn-primary"
-              id="onboardingNext4"
-            >
-              Continue
-            </button>
-          </div>
-        </div>
-
-        <div
-          class="onboarding-panel"
-          id="onboardingPanel5"
-          style="display: none"
-        >
-          <h3 class="onboarding-step-title">Rough length for drafts</h3>
-          <p class="onboarding-hint">
-            Default max words for cover letters. Adjust anytime in Profile.
-          </p>
-          <label class="field-label" for="wizardPrefMaxWords">Max words</label>
+          <label class="field-label" for="wizardPrefVoice"
+            >Voice in one sentence (optional)</label
+          >
           <input
-            type="number"
-            id="wizardPrefMaxWords"
-            class="modal-input onboarding-input-lg"
-            min="100"
-            max="2000"
-            step="50"
-            value="350"
-          />
-          <div class="onboarding-actions onboarding-actions--split">
-            <button
-              type="button"
-              class="btn-modal-secondary"
-              id="onboardingBack5"
-            >
-              Back
-            </button>
-            <button
-              type="button"
-              class="btn-modal-primary onboarding-btn-primary"
-              id="onboardingNext5"
-            >
-              Continue
-            </button>
-          </div>
-        </div>
-
-        <div
-          class="onboarding-panel"
-          id="onboardingPanel6"
-          style="display: none"
-        >
-          <h3 class="onboarding-step-title">Anything else we should know?</h3>
-          <p class="onboarding-hint">
-            Optional notes on how you want to sound (e.g. &ldquo;avoid startup
-            jargon&rdquo;).
-          </p>
-          <label class="field-label" for="wizardPrefVoice">Voice notes</label>
-          <textarea
+            type="text"
             id="wizardPrefVoice"
-            class="notes-textarea"
-            placeholder="Optional — skip if you&rsquo;re not sure yet"
-            rows="4"
-          ></textarea>
-          <div
-            class="onboarding-actions onboarding-actions--split onboarding-actions--triple"
-          >
-            <button
-              type="button"
-              class="btn-modal-secondary"
-              id="onboardingBack6"
-            >
-              Back
-            </button>
-            <button
-              type="button"
-              class="btn-modal-secondary"
-              id="onboardingSkip6"
-            >
-              Skip
-            </button>
-            <button
-              type="button"
-              class="btn-modal-primary onboarding-btn-primary"
-              id="onboardingNext6"
-            >
-              Continue
-            </button>
-          </div>
-        </div>
-
-        <div
-          class="onboarding-panel"
-          id="onboardingPanel7"
-          style="display: none"
-        >
-          <h3 class="onboarding-step-title">Writing samples (optional)</h3>
-          <p class="onboarding-hint">
-            Add drafts or cover letters so generated text can match your voice.
-            Same formats as Profile — you can add more later.
-          </p>
-          <label class="field-label" for="onboardingSamplesFileInput"
-            >Choose files</label
-          >
-          <input
-            type="file"
-            id="onboardingSamplesFileInput"
             class="modal-input"
-            multiple
-            accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+            placeholder="e.g. Confident but never salesy"
           />
-          <p class="onboarding-status" id="onboardingSamplesStatus"></p>
-          <div
-            class="onboarding-actions onboarding-actions--split onboarding-actions--triple"
-          >
-            <button
-              type="button"
-              class="btn-modal-secondary"
-              id="onboardingBack7"
-            >
-              Back
-            </button>
-            <button
-              type="button"
-              class="btn-modal-secondary"
-              id="onboardingSkip7"
-            >
-              Skip
-            </button>
-            <button
-              type="button"
-              class="btn-modal-primary onboarding-btn-primary"
-              id="onboardingNext7"
-            >
-              Continue
-            </button>
-          </div>
-        </div>
-
-        <div
-          class="onboarding-panel"
-          id="onboardingPanel8"
-          style="display: none"
-        >
-          <h3 class="onboarding-step-title">AI career context (optional)</h3>
-          <p class="onboarding-hint">
-            Paste a chatbot career summary or extra keywords. Refined anytime
-            under Profile &rarr; AI context.
-          </p>
-          <label class="field-label" for="onboardingAiContextText"
-            >Context</label
-          >
-          <textarea
-            id="onboardingAiContextText"
-            class="notes-textarea"
-            placeholder="Optional — paste career summary, strengths, or notes…"
-            rows="8"
-          ></textarea>
-          <div
-            class="onboarding-actions onboarding-actions--split onboarding-actions--triple"
-          >
-            <button
-              type="button"
-              class="btn-modal-secondary"
-              id="onboardingBack8"
-            >
-              Back
-            </button>
-            <button
-              type="button"
-              class="btn-modal-secondary"
-              id="onboardingSkip8"
-            >
-              Skip
-            </button>
-            <button
-              type="button"
-              class="btn-modal-primary onboarding-btn-primary"
-              id="onboardingNext8"
-            >
-              Continue
-            </button>
-          </div>
-        </div>
-
-        <div
-          class="onboarding-panel"
-          id="onboardingPanel9"
-          style="display: none"
-        >
-          <div class="onboarding-ready-icon" aria-hidden="true">
-            <svg
-              width="56"
-              height="56"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-            >
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-              <polyline points="22 4 12 14.01 9 11.01" />
-            </svg>
-          </div>
-          <h3 class="onboarding-step-title">You&rsquo;re ready</h3>
-          <p class="onboarding-hint">
-            Here&rsquo;s what we&rsquo;ll use for AI drafts:
-          </p>
-          <ul class="onboarding-summary" id="onboardingSummary"></ul>
+          <ul class="onboarding-summary" id="onboardingSummary" hidden></ul>
+          <!-- hidden inputs preserved so finish-handler stays compatible -->
+          <input type="file" id="onboardingSamplesFileInput" multiple hidden />
+          <p hidden id="onboardingSamplesStatus"></p>
           <div class="onboarding-actions onboarding-actions--split">
             <button
               type="button"
@@ -5910,6 +5782,7 @@ https://your-static-site.example</pre
     <script src="document-templates.js"></script>
     <script src="visual-themes.js"></script>
     <script src="user-content-store.js"></script>
+    <script src="discovery-autodetect.js"></script>
     <script src="discovery-shared-helpers.js"></script>
     <script src="discovery-wizard-shell.js"></script>
     <script src="discovery-wizard-probes.js"></script>
@@ -5926,6 +5799,7 @@ https://your-static-site.example</pre
     <script src="settings-discovery-adapters.js"></script>
     <script src="settings-profile-tab.js?v=4"></script>
     <script src="runs-tab.js"></script>
+    <script src="setup-doctor.js"></script>
     <script src="app.js?v=14"></script>
   </body>
 </html>

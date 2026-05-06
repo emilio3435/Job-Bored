@@ -260,7 +260,7 @@ function runScript(scriptPath, args) {
   });
 }
 
-async function handleFixSetup(req, res) {
+async function handleFixSetup(req, res, options = {}) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: false, phase: "auth_check", message: "Localhost only." }));
@@ -272,7 +272,9 @@ async function handleFixSetup(req, res) {
     "content-type": "application/json",
   };
 
-  const phases = [];
+  // Allow callers (e.g. handleFullBoot) to inject earlier phases so the
+  // dashboard sees one continuous timeline.
+  const phases = Array.isArray(options.extraPhases) ? [...options.extraPhases] : [];
   const emit = (phase, detail) => phases.push({ phase, ...detail });
 
   const previousBootstrap = readBootstrapJson();
@@ -431,6 +433,523 @@ async function handleFixSetup(req, res) {
   }));
 }
 
+/**
+ * Kill any stale processes squatting on the ports we need (worker 8644, ngrok
+ * 4040). Idempotent: if nothing is squatting, returns ok with empty list.
+ *
+ * Why this exists: greenfield users frequently have a previous Hermes/python
+ * gateway, a stranded ngrok, or a half-dead discovery worker from a prior
+ * crash holding 8644. Without this they get cryptic "EADDRINUSE" errors.
+ */
+async function handleKillStale(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, message: "Localhost only." }));
+    return;
+  }
+
+  const ports = [8644, 4040];
+  const killed = [];
+  for (const port of ports) {
+    try {
+      const lsof = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
+        encoding: "utf8",
+      });
+      const pids = String(lsof.stdout || "")
+        .split(/\s+/)
+        .filter((s) => /^\d+$/.test(s))
+        .map(Number);
+      for (const pid of pids) {
+        // Don't kill ourselves (the dev-server) — port 8080 is not in the list,
+        // but be defensive in case someone extends this list later.
+        if (pid === process.pid) continue;
+        try {
+          process.kill(pid, "SIGTERM");
+          killed.push({ port, pid });
+        } catch {
+          /* already dead — ignore */
+        }
+      }
+    } catch {
+      /* lsof unavailable on some systems — skip silently */
+    }
+  }
+
+  // Brief pause so OS releases the sockets before the caller starts new procs.
+  if (killed.length) await new Promise((r) => setTimeout(r, 600));
+
+  res.writeHead(200, corsHeaders);
+  res.end(JSON.stringify({ ok: true, killed }));
+}
+
+/**
+ * One-call greenfield boot: kill stale → start discovery worker → run
+ * fix-setup (which bootstraps ngrok + deploys/refreshes the relay). Returns
+ * a single summary so the dashboard can show "Discovery is ready" instead of
+ * walking the user through 8 wizard steps.
+ */
+async function handleFullBoot(req, res, discoveryWorkerStarter) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, message: "Localhost only." }));
+    return;
+  }
+
+  const phases = [];
+  const emit = (phase, detail) => phases.push({ phase, ...detail });
+
+  // 1. Kill any stale process holding 8644 / 4040.
+  try {
+    const ports = [8644, 4040];
+    let killed = 0;
+    for (const port of ports) {
+      const lsof = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
+        encoding: "utf8",
+      });
+      const pids = String(lsof.stdout || "")
+        .split(/\s+/)
+        .filter((s) => /^\d+$/.test(s))
+        .map(Number);
+      for (const pid of pids) {
+        if (pid === process.pid) continue;
+        try {
+          process.kill(pid, "SIGTERM");
+          killed += 1;
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    if (killed) await new Promise((r) => setTimeout(r, 600));
+    emit("kill_stale", { killed });
+  } catch (e) {
+    emit("kill_stale", { killed: 0, warning: e && e.message });
+  }
+
+  // 2. Start the discovery worker if not already running.
+  try {
+    const starter =
+      typeof discoveryWorkerStarter === "function"
+        ? discoveryWorkerStarter
+        : defaultDiscoveryWorkerStarter;
+    const startResult = await starter({ port: 8644 });
+    emit("start_worker", startResult || {});
+    if (!startResult || !startResult.ok) {
+      res.writeHead(502, corsHeaders);
+      res.end(
+        JSON.stringify({
+          ok: false,
+          phase: "start_worker",
+          message:
+            (startResult && startResult.message) ||
+            "Discovery worker failed to start.",
+          phases,
+        }),
+      );
+      return;
+    }
+  } catch (e) {
+    emit("start_worker", { ok: false, error: e && e.message });
+    res.writeHead(500, corsHeaders);
+    res.end(
+      JSON.stringify({
+        ok: false,
+        phase: "start_worker",
+        message: e && e.message ? e.message : String(e),
+        phases,
+      }),
+    );
+    return;
+  }
+
+  // 3. Hand off to the existing fix-setup flow which bootstraps ngrok and
+  //    deploys/refreshes the Cloudflare relay.
+  return handleFixSetup(req, res, { extraPhases: phases });
+}
+
+// ============================================================================
+// Greenfield-automation swarm — Phase 0 stubs (NOT_IMPLEMENTED)
+// ----------------------------------------------------------------------------
+// These return 501 until the swarm workers fill them in. Frontend must treat
+// 501 as "feature not yet available" and degrade to existing manual flow.
+//
+// Locked contracts (do not widen without orchestrator approval):
+//
+//   POST /__proxy/oauth-bootstrap
+//     Body:    { projectId?: string, applicationName?: string }
+//     Success: { ok:true, clientId:string, clientSecret?:string, source:"gcloud" }
+//     Failure: { ok:false, reason:"gcloud_missing"|"not_logged_in"
+//                       |"api_disabled"|"user_declined"|"internal_error",
+//                actionable:string }
+//
+//   POST /__proxy/install-doctor
+//     Body:    {}
+//     Success: { ok:boolean,
+//                tools:{
+//                  gcloud:{ installed:boolean, loggedIn:boolean, version?:string },
+//                  wrangler:{ installed:boolean, loggedIn:boolean, version?:string },
+//                  ngrok:{ installed:boolean, hasAuthToken:boolean, version?:string },
+//                  node:{ version:string, ok:boolean }
+//                },
+//                missing:string[] }
+//
+//   POST /__proxy/install-keep-alive
+//     Body:    { schedule?:"macos_launchd"|"linux_systemd_user"|"auto" }
+//     Success: { ok:true, installedAt:string, jobLabel:string, logPath:string }
+//     Failure: { ok:false, reason:string }
+//
+//   DELETE /__proxy/install-keep-alive
+//     Success: { ok:true, removed:boolean }
+//
+//   GET /__proxy/install-keep-alive/status
+//     Success: { installed:boolean, lastRunAt?:string,
+//                lastNgrokUrl?:string, jobLabel?:string }
+// ============================================================================
+
+// Owner: Backend Worker A
+async function handleOAuthBootstrap(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden", actionable: "Localhost only." }));
+    return;
+  }
+  try {
+    const rawBody = await new Promise((resolve) => {
+      let body = "";
+      req.setEncoding("utf8");
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => resolve(body));
+      req.on("error", () => resolve(""));
+    });
+    let payload = {};
+    try {
+      const parsed = rawBody ? JSON.parse(rawBody) : {};
+      payload = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      payload = {};
+    }
+    const { runOAuthBootstrap } = await import("./scripts/oauth-bootstrap.mjs");
+    const result = runOAuthBootstrap({
+      projectId: typeof payload.projectId === "string" ? payload.projectId : "",
+      applicationName:
+        typeof payload.applicationName === "string" ? payload.applicationName : "",
+    });
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify(result));
+  } catch {
+    res.writeHead(500, corsHeaders);
+    res.end(
+      JSON.stringify({
+        ok: false,
+        reason: "internal_error",
+        actionable: "OAuth bootstrap failed. Check the terminal and try again.",
+      }),
+    );
+  }
+}
+
+// Owner: Backend Worker A
+async function handleInstallDoctor(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  try {
+    const { runInstallDoctor } = await import("./scripts/install-doctor.mjs");
+    const result = runInstallDoctor();
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify(result));
+  } catch {
+    res.writeHead(500, corsHeaders);
+    res.end(
+      JSON.stringify({
+        ok: false,
+        tools: {
+          gcloud: { installed: false, loggedIn: false },
+          wrangler: { installed: false, loggedIn: false },
+          ngrok: { installed: false, hasAuthToken: false },
+          node: { version: process.version, ok: true },
+        },
+        missing: ["Install doctor failed. Check the terminal and try again."],
+      }),
+    );
+  }
+}
+
+// Owner: Backend Worker B
+async function handleInstallKeepAlive(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  let body = {};
+  try {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    body = raw ? JSON.parse(raw) : {};
+  } catch (_) {
+    body = {};
+  }
+  try {
+    const { installKeepAlive } = await import("./scripts/install-keep-alive.mjs");
+    const result = installKeepAlive({
+      schedule: body && typeof body.schedule === "string" ? body.schedule : "auto",
+    });
+    res.writeHead(200, corsHeaders);
+    if (result.ok) {
+      res.end(
+        JSON.stringify({
+          ok: true,
+          installedAt: result.installedAt,
+          jobLabel: result.jobLabel,
+          logPath: result.logPath,
+        }),
+      );
+    } else {
+      res.end(JSON.stringify({ ok: false, reason: result.reason || "internal_error" }));
+    }
+  } catch (_) {
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+  }
+}
+
+// Owner: Backend Worker B
+async function handleUninstallKeepAlive(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  try {
+    const { uninstallKeepAlive } = await import("./scripts/uninstall-keep-alive.mjs");
+    const result = uninstallKeepAlive();
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ ok: true, removed: !!result.removed }));
+  } catch (_) {
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+  }
+}
+
+// Owner: Backend Worker B
+async function handleKeepAliveStatus(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ installed: false, reason: "forbidden" }));
+    return;
+  }
+  try {
+    const { getKeepAliveStatus } = await import("./scripts/install-keep-alive.mjs");
+    const status = getKeepAliveStatus();
+    const response = { installed: !!status.installed };
+    if (status.lastRunAt) response.lastRunAt = status.lastRunAt;
+    if (status.lastNgrokUrl) response.lastNgrokUrl = status.lastNgrokUrl;
+    if (status.jobLabel) response.jobLabel = status.jobLabel;
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify(response));
+  } catch (_) {
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ installed: false }));
+  }
+}
+
+// ============================================================================
+// Discovery auto-detect & silent-recover lane
+// ----------------------------------------------------------------------------
+// GET /__proxy/discovery-state
+//
+// Aggregates the current health of the local discovery stack so the browser
+// can skip the wizard when everything is fine and silently auto-recover when
+// it isn't.
+//
+// Response (locked):
+//   {
+//     ok: true,
+//     worker:  { up: boolean, port: number, lastSeenAt?: string },
+//     ngrok:   { up: boolean, url?: string },
+//     relay:   { configuredUrl?: string, reachable: boolean },
+//     recommendation: "ready" | "auto_recoverable" | "needs_human",
+//     recoverableHint?: string
+//   }
+//
+// Recommendation rules:
+//   ready              — worker up + ngrok up + relay reachable (or relay not
+//                        configured but webhook URL is locally usable)
+//   auto_recoverable   — worker down OR ngrok down OR ngrok rotated; the
+//                        existing /__proxy/full-boot can fix all of these
+//   needs_human        — anything else (e.g. unknown state, missing CLI auth)
+// ============================================================================
+async function handleDiscoveryState(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+
+  const workerPort = 8644;
+
+  // Probe in parallel — every probe is best-effort and short-timeout.
+  const [workerUp, ngrokInfo, keepAliveStatus] = await Promise.all([
+    probeHttpAlive(`http://127.0.0.1:${workerPort}/health`, 1500),
+    probeNgrokTunnel(1500),
+    safeKeepAliveStatus(),
+  ]);
+
+  const lastNgrokUrl =
+    (keepAliveStatus && keepAliveStatus.lastNgrokUrl) || undefined;
+  const ngrokUp = !!(ngrokInfo && ngrokInfo.up);
+  const liveNgrokUrl = ngrokInfo && ngrokInfo.url;
+
+  const ngrokRotated =
+    !!(lastNgrokUrl && liveNgrokUrl && lastNgrokUrl !== liveNgrokUrl);
+
+  // Check the relay (if its target URL is the live ngrok URL). We don't
+  // know the relay URL from the dev-server side, so we only mark relay
+  // reachable if ngrok is up — the keep-alive job is responsible for
+  // pointing the relay at the live URL.
+  const relayInfo = {
+    configuredUrl: lastNgrokUrl,
+    reachable: ngrokUp && !ngrokRotated,
+  };
+
+  let recommendation;
+  let recoverableHint;
+  if (workerUp && ngrokUp && !ngrokRotated) {
+    recommendation = "ready";
+  } else if (!workerUp || !ngrokUp || ngrokRotated) {
+    recommendation = "auto_recoverable";
+    if (!workerUp) recoverableHint = "worker_down";
+    else if (!ngrokUp) recoverableHint = "ngrok_down";
+    else if (ngrokRotated) recoverableHint = "ngrok_rotated";
+  } else {
+    recommendation = "needs_human";
+  }
+
+  const body = {
+    ok: true,
+    worker: {
+      up: workerUp,
+      port: workerPort,
+    },
+    ngrok: {
+      up: ngrokUp,
+      ...(liveNgrokUrl ? { url: liveNgrokUrl } : {}),
+    },
+    relay: relayInfo,
+    recommendation,
+    ...(recoverableHint ? { recoverableHint } : {}),
+  };
+
+  res.writeHead(200, corsHeaders);
+  res.end(JSON.stringify(body));
+}
+
+/**
+ * Best-effort HTTP HEAD/GET probe with a hard timeout. Returns true if any
+ * 2xx/3xx/4xx response comes back (the service is alive even if the path
+ * 404s), false on network error or timeout.
+ */
+async function probeHttpAlive(url, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => {
+    try {
+      ctrl.abort();
+    } catch (_) {}
+  }, timeoutMs);
+  try {
+    const resp = await fetch(url, { method: "GET", signal: ctrl.signal });
+    return resp.status > 0 && resp.status < 600;
+  } catch (_) {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Hit the local ngrok inspector API and return { up, url? } for the first
+ * https tunnel. Tolerates ngrok being down entirely.
+ */
+async function probeNgrokTunnel(timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => {
+    try {
+      ctrl.abort();
+    } catch (_) {}
+  }, timeoutMs);
+  try {
+    const resp = await fetch("http://127.0.0.1:4040/api/tunnels", {
+      method: "GET",
+      signal: ctrl.signal,
+    });
+    if (!resp.ok) return { up: false };
+    const json = await resp.json().catch(() => null);
+    const tunnels = (json && Array.isArray(json.tunnels) && json.tunnels) || [];
+    const httpsTunnel = tunnels.find(
+      (t) => t && typeof t.public_url === "string" && t.public_url.startsWith("https://"),
+    );
+    if (httpsTunnel) {
+      return { up: true, url: httpsTunnel.public_url };
+    }
+    return { up: false };
+  } catch (_) {
+    return { up: false };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Read the keep-alive status without throwing if the script/state file
+ * doesn't exist yet. Mirrors the same import pattern used in
+ * handleKeepAliveStatus.
+ */
+async function safeKeepAliveStatus() {
+  try {
+    const { getKeepAliveStatus } = await import("./scripts/install-keep-alive.mjs");
+    return getKeepAliveStatus();
+  } catch (_) {
+    return null;
+  }
+}
+
 async function handleStartDiscoveryWorker(req, res, discoveryWorkerStarter) {
   const corsHeaders = {
     "access-control-allow-origin": "*",
@@ -578,6 +1097,101 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       });
       return;
     }
+
+    if (req.method === "POST" && pathname === "/__proxy/kill-stale") {
+      handleKillStale(req, res).catch((err) => {
+        logError("  Kill-stale error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, message: "Internal error." }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/__proxy/full-boot") {
+      handleFullBoot(req, res, discoveryWorkerStarter).catch((err) => {
+        logError("  Full-boot error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, message: "Internal error." }));
+        }
+      });
+      return;
+    }
+
+    // === Greenfield-automation swarm seams (Phase 0 stubs) ===
+    // Worker A owns: handleOAuthBootstrap, handleInstallDoctor
+    // Worker B owns: handleInstallKeepAlive, handleUninstallKeepAlive,
+    //               handleKeepAliveStatus
+    if (req.method === "POST" && pathname === "/__proxy/oauth-bootstrap") {
+      handleOAuthBootstrap(req, res).catch((err) => {
+        logError("  OAuth-bootstrap error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/__proxy/install-doctor") {
+      handleInstallDoctor(req, res).catch((err) => {
+        logError("  Install-doctor error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/__proxy/install-keep-alive") {
+      handleInstallKeepAlive(req, res).catch((err) => {
+        logError("  Install-keep-alive error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "DELETE" && pathname === "/__proxy/install-keep-alive") {
+      handleUninstallKeepAlive(req, res).catch((err) => {
+        logError("  Uninstall-keep-alive error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "GET" && pathname === "/__proxy/install-keep-alive/status") {
+      handleKeepAliveStatus(req, res).catch((err) => {
+        logError("  Keep-alive-status error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+    // === end greenfield-automation seams ===
+
+    // === discovery auto-detect lane ===
+    if (req.method === "GET" && pathname === "/__proxy/discovery-state") {
+      handleDiscoveryState(req, res).catch((err) => {
+        logError("  Discovery-state error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+    // === end discovery auto-detect lane ===
 
     const target = parseLocalProxyRoute(pathname, url.searchParams);
     if (target) {
