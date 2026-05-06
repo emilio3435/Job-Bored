@@ -11599,3 +11599,41 @@ a.btn-materials {
   margin-top: var(--space-3);
   width: 100%;
 }
+
+.doctor-gcloud-btn {
+  margin-top: var(--space-2);
+  background: var(--accent-dim);
+  color: var(--accent-text);
+  border: 1px solid var(--accent);
+}
+.doctor-gcloud-btn:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.doctor-gcloud-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.doctor-keep-alive-pill {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 2px 8px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1.4;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+.doctor-keep-alive-pill--on {
+  border-color: var(--status-ok-border);
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
+}
+.doctor-keep-alive-pill--off {
+  border-color: var(--border-bright);
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
