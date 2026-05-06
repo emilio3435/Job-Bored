@@ -514,6 +514,42 @@ function autofillDiscoveryWebhookSecretFromBootstrap(data) {
   }
 }
 
+// ====== [discovery-autodetect lane: relay URL auto-fill] ======
+// After scripts/deploy-cloudflare-relay.mjs deploys the Cloudflare Worker
+// it writes a `relay` block into discovery-local-bootstrap.json with the
+// deployed Worker URL. This sibling of the secret autofill copies that URL
+// into the discoveryWebhookUrl config setting so the dashboard's wizard
+// shows it pre-filled. Greenfield user goal: zero copy/paste of the
+// Worker URL anywhere, ever.
+//
+// Same conservative semantics as autofillDiscoveryWebhookSecretFromBootstrap:
+//   - never overwrite a manually-saved value
+//   - silently no-op if the field is missing or empty
+//   - never throws; logs and returns false on failure
+function autofillDiscoveryWebhookUrlFromBootstrap(data) {
+  if (!data || typeof data !== "object") return false;
+  const relay = data.relay;
+  const candidate =
+    relay && typeof relay === "object" && typeof relay.workerUrl === "string"
+      ? relay.workerUrl.trim()
+      : "";
+  if (!candidate) return false;
+  if (!/^https?:\/\//i.test(candidate)) return false;
+  const existing = getDiscoveryWebhookUrl();
+  if (existing) return false; // never overwrite a manually-saved value
+  try {
+    mergeStoredConfigOverridePatch({ discoveryWebhookUrl: candidate });
+    return true;
+  } catch (err) {
+    console.warn(
+      "[JobBored] could not autofill discoveryWebhookUrl from bootstrap:",
+      err,
+    );
+    return false;
+  }
+}
+// ====== [/discovery-autodetect lane] ======
+
 async function hydrateDiscoveryTransportSetupFromLocalBootstrap() {
   if (!isLocalDashboardOrigin()) return getDiscoveryTransportSetupState();
   try {
@@ -526,6 +562,7 @@ async function hydrateDiscoveryTransportSetupFromLocalBootstrap() {
       return getDiscoveryTransportSetupState();
     }
     autofillDiscoveryWebhookSecretFromBootstrap(data);
+    autofillDiscoveryWebhookUrlFromBootstrap(data);
     return writeDiscoveryTransportSetupState({
       localWebhookUrl: data.localWebhookUrl,
       tunnelPublicUrl: data.tunnelPublicUrl || data.ngrokPublicUrl,
@@ -4349,6 +4386,18 @@ async function openDiscoverySetupWizard(options = {}) {
       const verdict =
         await window.JobBoredDiscoveryAutodetect.recoverIfPossible();
       if (verdict && verdict.ready) {
+        // Belt-and-suspenders: greenfield users who land on a healthy
+        // discovery stack still need keep-alive installed so the next ngrok
+        // rotation doesn't break them. installKeepAliveOnce is idempotent
+        // (localStorage-gated), so running it here is safe even if the
+        // explicit "Fix tunnel" path also called it earlier.
+        if (typeof installKeepAliveOnce === "function") {
+          try {
+            installKeepAliveOnce();
+          } catch (_) {
+            /* never block the user on keep-alive bookkeeping */
+          }
+        }
         if (typeof showToast === "function") {
           showToast("Discovery is already set up.", "info");
         }

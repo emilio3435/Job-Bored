@@ -888,6 +888,51 @@ async function main() {
       }
     }
 
+    // ====== [discovery-autodetect lane: persist relay info for dashboard auto-fill] ======
+    // The dashboard polls discovery-local-bootstrap.json on every load and
+    // already auto-fills localWebhookUrl, tunnelPublicUrl, and the webhook
+    // secret. Until now it had no way to know the deployed Cloudflare
+    // Worker URL — the user had to copy it out of this terminal output and
+    // paste it into Settings by hand. That's the worst step in onboarding.
+    //
+    // Now: after a successful deploy, merge a `relay` block into the
+    // bootstrap file. The dashboard reads `data.relay.workerUrl` and writes
+    // it into the discovery webhook URL setting on next poll. No copy-paste.
+    //
+    // Failure here MUST NOT fail the deploy — the user still has the URL on
+    // stdout, and the next poll cycle is a no-op for them.
+    try {
+      const bootstrapPath = join(repoRoot, "discovery-local-bootstrap.json");
+      let existing = {};
+      if (existsSync(bootstrapPath)) {
+        try {
+          existing = JSON.parse(readFileSync(bootstrapPath, "utf8")) || {};
+          if (typeof existing !== "object") existing = {};
+        } catch (_) {
+          existing = {};
+        }
+      }
+      const merged = {
+        ...existing,
+        relay: {
+          workerName,
+          workerUrl,
+          targetUrl,
+          corsOrigin: corsOrigin || "*",
+          deployedAt: new Date().toISOString(),
+        },
+      };
+      writeFileSync(bootstrapPath, JSON.stringify(merged, null, 2) + "\n");
+      console.log(
+        `cloudflare-relay: wrote relay info to ${bootstrapPath} so the dashboard auto-fills the Worker URL.`,
+      );
+    } catch (err) {
+      console.warn(
+        `cloudflare-relay: could not persist relay info (${err && err.message ? err.message : String(err)}). The Worker URL is still printed above.`,
+      );
+    }
+    // ====== [/discovery-autodetect lane] ======
+
     if (args.json) {
       console.log(JSON.stringify(payload, null, 2));
     } else {
