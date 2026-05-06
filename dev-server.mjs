@@ -673,13 +673,36 @@ async function handleInstallKeepAlive(req, res) {
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
     return;
   }
-  res.writeHead(501, corsHeaders);
-  res.end(
-    JSON.stringify({
-      ok: false,
-      reason: "not_implemented",
-    }),
-  );
+  let body = {};
+  try {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    body = raw ? JSON.parse(raw) : {};
+  } catch (_) {
+    body = {};
+  }
+  try {
+    const { installKeepAlive } = await import("./scripts/install-keep-alive.mjs");
+    const result = installKeepAlive({
+      schedule: body && typeof body.schedule === "string" ? body.schedule : "auto",
+    });
+    res.writeHead(200, corsHeaders);
+    if (result.ok) {
+      res.end(
+        JSON.stringify({
+          ok: true,
+          installedAt: result.installedAt,
+          jobLabel: result.jobLabel,
+          logPath: result.logPath,
+        }),
+      );
+    } else {
+      res.end(JSON.stringify({ ok: false, reason: result.reason || "internal_error" }));
+    }
+  } catch (_) {
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+  }
 }
 
 // Owner: Backend Worker B
@@ -693,8 +716,15 @@ async function handleUninstallKeepAlive(req, res) {
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
     return;
   }
-  res.writeHead(501, corsHeaders);
-  res.end(JSON.stringify({ ok: false, reason: "not_implemented" }));
+  try {
+    const { uninstallKeepAlive } = await import("./scripts/uninstall-keep-alive.mjs");
+    const result = uninstallKeepAlive();
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ ok: true, removed: !!result.removed }));
+  } catch (_) {
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+  }
 }
 
 // Owner: Backend Worker B
@@ -708,13 +738,19 @@ async function handleKeepAliveStatus(req, res) {
     res.end(JSON.stringify({ installed: false, reason: "forbidden" }));
     return;
   }
-  res.writeHead(501, corsHeaders);
-  res.end(
-    JSON.stringify({
-      installed: false,
-      reason: "not_implemented",
-    }),
-  );
+  try {
+    const { getKeepAliveStatus } = await import("./scripts/install-keep-alive.mjs");
+    const status = getKeepAliveStatus();
+    const response = { installed: !!status.installed };
+    if (status.lastRunAt) response.lastRunAt = status.lastRunAt;
+    if (status.lastNgrokUrl) response.lastNgrokUrl = status.lastNgrokUrl;
+    if (status.jobLabel) response.jobLabel = status.jobLabel;
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify(response));
+  } catch (_) {
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ installed: false }));
+  }
 }
 
 async function handleStartDiscoveryWorker(req, res, discoveryWorkerStarter) {
