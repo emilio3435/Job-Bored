@@ -2061,6 +2061,39 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride) {
   // We declare the key unconditionally so JSON.stringify drops it when
   // empty (keeps the contract scanner happy and the wire format unchanged).
   const dashboardGoogleAccessToken = getDiscoveryRequestGoogleAccessToken();
+  // ====== [discovery-autodetect lane: contract sanitization] ======
+  // Per .factory/library/source-preset-contract.md: "Omitted sourcePreset →
+  // passes validation; fallback resolved by config resolver." But sending
+  // `sourcePreset: ""` (empty string) is rejected by the worker because the
+  // field is *present* but not in the enum. A fresh greenfield user has an
+  // empty discovery profile object, so getDiscoveryProfile() returns {} and
+  // any code path that defaulted sourcePreset to "" would trip the
+  // validator. Strip empty/whitespace sourcePreset before sending.
+  //
+  // Symptom this fixes: Step 7 wizard "Run test" returning
+  //   "discoveryProfile.sourcePreset must be one of: browser_only, ats_only,
+  //    browser_plus_ats. Received: ''."
+  if (
+    discoveryProfile &&
+    typeof discoveryProfile === "object" &&
+    Object.prototype.hasOwnProperty.call(discoveryProfile, "sourcePreset")
+  ) {
+    const sp = discoveryProfile.sourcePreset;
+    const trimmed = typeof sp === "string" ? sp.trim() : sp;
+    if (
+      trimmed === "" ||
+      trimmed == null ||
+      typeof trimmed !== "string"
+    ) {
+      // Clone so we never mutate the stored profile in IndexedDB.
+      const sanitized = { ...discoveryProfile };
+      delete sanitized.sourcePreset;
+      discoveryProfile = sanitized;
+    } else if (trimmed !== sp) {
+      discoveryProfile = { ...discoveryProfile, sourcePreset: trimmed };
+    }
+  }
+  // ====== [/discovery-autodetect lane] ======
   return {
     event: "command-center.discovery",
     schemaVersion: 1,
