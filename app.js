@@ -35,6 +35,10 @@ const DISCOVERY_TRANSPORT_SETUP_KEY =
   "command_center_discovery_transport_setup";
 const DISCOVERY_LOCAL_BOOTSTRAP_STATE_PATH = "discovery-local-bootstrap.json";
 const DISCOVERY_RUN_TRACKER_KEY = "command_center_discovery_run_state";
+// Set by performSettingsClearOverrides before reload so the next interactive
+// sign-in forces Google's consent screen instead of silently re-issuing a
+// token from the prior consent grant. One-shot: cleared after the next signIn.
+const FORCE_CONSENT_PROMPT_KEY = "command_center_force_consent_prompt";
 
 // ============================================
 // RUN STATUS TRACKER
@@ -3363,6 +3367,15 @@ function buildDiscoveryVerifyBody(runtime) {
       "discovery-setup-wizard__copy diag-summary",
     );
 
+    // Detect localhost so we can advertise the one-click auto-heal.
+    const isLocalhostHost =
+      typeof window !== "undefined" &&
+      window.location &&
+      (window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.hostname === "[::1]" ||
+        window.location.hostname === "::1");
+
     if (diagnosis.redeployCommand) {
       appendWizardParagraph(
         diagCard,
@@ -3371,7 +3384,9 @@ function buildDiscoveryVerifyBody(runtime) {
       );
       appendWizardParagraph(
         diagCard,
-        "Copy this command, paste it into a terminal opened in the Job-Bored repo, press Enter, then come back here and click Test again. It keeps the same Worker name and updates TARGET_URL to the live ngrok URL.",
+        isLocalhostHost
+          ? "One-click fix: click \u201cAuto-fix\u201d below to redeploy the relay against the live ngrok URL \u2014 no terminal needed. (Backup: copy the command if Cloudflare auth is missing.)"
+          : "Copy this command, paste it into a terminal opened in the Job-Bored repo, press Enter, then come back here and click Test again. It keeps the same Worker name and updates TARGET_URL to the live ngrok URL.",
         "discovery-setup-wizard__copy diag-redeploy-copy",
       );
       appendWizardCodeBlock(
@@ -4203,11 +4218,21 @@ async function diagnoseDownstreamChain(snapshot) {
     }
     diagnosis.summary = `ngrok URL changed \u2014 relay needs redeployment.\nOld: ${oldDisplay}\nLive: ${liveNorm}`;
     diagnosis.liveNgrokUrl = liveNorm;
+    const onLocalhost =
+      typeof window !== "undefined" &&
+      window.location &&
+      (window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.hostname === "[::1]" ||
+        window.location.hostname === "::1");
     diagnosis.primaryFix = {
       id: "diag_fix_update_tunnel_and_relay",
-      label: "Update tunnel & save ngrok, then redeploy",
-      detail:
-        "Click to save the Live ngrok URL, then run the deploy command shown below from your Job-Bored repo (same Worker name = update in place).",
+      label: onLocalhost
+        ? "Auto-fix: redeploy relay & re-test"
+        : "Update tunnel & save ngrok, then redeploy",
+      detail: onLocalhost
+        ? "One click. Calls the local helper to redeploy the relay against the live ngrok URL, then re-runs the test."
+        : "Click to save the Live ngrok URL, then run the deploy command shown below from your Job-Bored repo (same Worker name = update in place).",
     };
 
     if (liveNorm && liveNorm !== "unknown") {
@@ -4853,8 +4878,75 @@ async function handleDiscoveryWizardAction(actionId) {
     const liveUrl = diagnosis && diagnosis.liveNgrokUrl;
     if (liveUrl && liveUrl !== "unknown") {
       writeDiscoveryTransportSetupState({ tunnelPublicUrl: liveUrl });
-      const deployCommand =
-        diagnosis && diagnosis.redeployCommand ? diagnosis.redeployCommand : "";
+    }
+
+    // Auto-heal path: when running on localhost, the dev-server exposes
+    // /__proxy/fix-setup which redeploys the relay against the live ngrok
+    // URL in place. No copy-paste, no second terminal.
+    const isLocal =
+      typeof window !== "undefined" &&
+      window.location &&
+      (window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.hostname === "[::1]" ||
+        window.location.hostname === "::1");
+
+    if (isLocal) {
+      setDiscoveryWizardMessage(
+        "Auto-healing tunnel & relay… (no terminal needed)",
+        "info",
+      );
+      try {
+        const resp = await fetch("/__proxy/fix-setup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        const body = await resp.json().catch(() => ({}));
+        if (resp.ok && body && body.ok) {
+          showToast(
+            body.relayRedeployed
+              ? "Relay redeployed against live ngrok URL — re-testing…"
+              : "Local setup restored — re-testing…",
+            "success",
+          );
+          // Re-snapshot, clear stale diagnosis, then re-run verification.
+          await refreshDiscoveryReadinessSnapshot({
+            force: true,
+            rerender: false,
+          });
+          updateDiscoveryWizardRuntime({ lastDownstreamDiagnosis: null });
+          const endpointUrl = normalizeDiscoveryWebhookIdentity(
+            getDiscoveryWebhookUrl() ||
+              runtime.drafts.workerUrl ||
+              runtime.drafts.endpointUrl ||
+              runtime.snapshot.savedWebhookUrl ||
+              "",
+          );
+          return handleDiscoveryWizardVerification(
+            endpointUrl,
+            "test_webhook",
+          );
+        }
+        if (body && body.needsAuth) {
+          showToast(
+            "Cloudflare auth needed. Run `npx wrangler login` in a terminal, then click Re-check.",
+            "warning",
+            true,
+          );
+          return renderDiscoverySetupWizard();
+        }
+        // fall through to copy-command UX
+      } catch (e) {
+        console.warn("[JobBored] fix-setup proxy unavailable:", e);
+      }
+    }
+
+    // Fallback: hosted dashboard or proxy unavailable — show the copy command
+    // (preserves the original UX so we never regress non-local users).
+    const deployCommand =
+      diagnosis && diagnosis.redeployCommand ? diagnosis.redeployCommand : "";
+    if (liveUrl && liveUrl !== "unknown") {
       showToast(
         "Live ngrok URL saved. Copy the command, paste it into a terminal in the Job-Bored repo, press Enter, then Test again.",
         "warning",
@@ -7298,6 +7390,52 @@ function showToast(message, type = "success", persistent = false, action) {
 // AUTH — Google Identity Services
 // ============================================
 
+/**
+ * Apply a freshly saved OAuth client ID without forcing a full page reload.
+ * Tries to rebuild the GIS tokenClient in place; falls back to reload if that
+ * fails (e.g. GIS not loaded yet, or tokenClient threw). Removes the most
+ * jarring UX moment in the greenfield setup path.
+ */
+function applyOAuthClientChange(clientId) {
+  const cid = String(clientId || "").trim();
+  if (!cid) return false;
+  // We only safely re-init when GIS is already loaded.
+  if (
+    typeof google === "undefined" ||
+    !google.accounts ||
+    !google.accounts.oauth2 ||
+    !gisLoaded
+  ) {
+    return false;
+  }
+  try {
+    // Drop any cached session bound to a different client id.
+    clearPersistedOAuthSession();
+    accessToken = null;
+    tokenExpiresAt = 0;
+    grantedOauthScopes = [];
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: cid,
+      scope: GOOGLE_SIGNIN_SCOPES,
+      include_granted_scopes: true,
+      callback: handleTokenResponse,
+      error_callback: (err) => {
+        console.error("[JobBored] GIS error_callback (re-init):", err);
+        recordSheetAccessError(err);
+      },
+    });
+    setupAuthUI();
+    renderSetupStarterSheetUi();
+    renderAppsScriptDeployUi();
+    maybeSyncSettingsModalModeAfterAuth();
+    showSheetAccessGate(getOAuthClientId() ? "signin" : "loading");
+    return true;
+  } catch (e) {
+    console.warn("[JobBored] in-place OAuth re-init failed, will reload:", e);
+    return false;
+  }
+}
+
 function initAuth() {
   const clientId = getOAuthClientId();
   if (!clientId) {
@@ -7521,10 +7659,22 @@ function signIn(options = {}) {
   }
   oauthPendingOp = { kind: "interactive" };
   const request = {};
-  const prompt =
+  let prompt =
     options && typeof options === "object" && options.prompt != null
       ? String(options.prompt)
       : "";
+  // One-shot consent override: if the user just ran "Clear settings", force
+  // the consent screen on the very next interactive sign-in so they cannot
+  // be silently re-authed from a lingering Google consent grant. Consume the
+  // flag here so it only applies once.
+  try {
+    if (canUseLocalStorage() && localStorage.getItem(FORCE_CONSENT_PROMPT_KEY)) {
+      prompt = "consent";
+      localStorage.removeItem(FORCE_CONSENT_PROMPT_KEY);
+    }
+  } catch (_) {
+    /* ignore */
+  }
   if (prompt) request.prompt = prompt;
   tokenClient.requestAccessToken(request);
 }
@@ -7628,6 +7778,43 @@ function initAuthUserMenu() {
     },
     true,
   );
+
+  // "Resume onboarding": always-available re-entry into the wizard,
+  // regardless of whether onboarding was previously marked complete.
+  const resumeBtn = document.getElementById("resumeOnboardingBtn");
+  if (resumeBtn) {
+    resumeBtn.addEventListener("click", () => {
+      closeAuthUserMenu();
+      try {
+        showOnboardingWizard();
+      } catch (e) {
+        console.warn("[JobBored] resume onboarding:", e);
+      }
+    });
+  }
+
+  // "Run setup doctor": run a full diagnose+autoHeal pass on demand.
+  const doctorBtn = document.getElementById("setupDoctorBtn");
+  if (doctorBtn) {
+    doctorBtn.addEventListener("click", async () => {
+      closeAuthUserMenu();
+      if (!window.SetupDoctor) {
+        showToast("Setup doctor unavailable in this build.", "warning");
+        return;
+      }
+      showToast("Running setup doctor…", "info");
+      const ctx = { lastError: lastSheetAccessError || "" };
+      const report = await window.SetupDoctor.diagnose(ctx);
+      if (!report.issues.length) {
+        showToast("Setup looks healthy.", "success");
+        return;
+      }
+      // Render into the login gate panel slot so the user has a
+      // consistent place to act on findings, even if they're already
+      // signed in.
+      showSheetAccessGate("error");
+    });
+  }
 }
 
 function setAuthAvatarDisplay() {
@@ -7800,38 +7987,73 @@ function resetLoginGateOAuthWizardToChoice() {
 }
 
 function initLoginGateOAuthUi() {
-  const openSettingsPrimary = document.getElementById(
-    "sheetAccessGateBtnOpenSettings",
-  );
   const createOAuth = document.getElementById("sheetAccessGateBtnCreateOAuth");
   const back = document.getElementById("sheetAccessGateOAuthWizardBack");
-  const copyOrigin = document.getElementById("sheetAccessGateCopyOriginBtn");
   const save = document.getElementById("sheetAccessGateOAuthSaveBtn");
+  const openConsole = document.getElementById(
+    "sheetAccessGateOAuthOpenConsoleBtn",
+  );
+  const inputs = [
+    document.getElementById("sheetAccessGateOAuthClientIdInput"),
+    document.getElementById("sheetAccessGateOAuthClientIdInputAlt"),
+  ].filter(Boolean);
 
-  if (openSettingsPrimary) {
-    openSettingsPrimary.addEventListener("click", () => {
-      const input = document.getElementById(
-        "sheetAccessGateOAuthClientIdInput",
-      );
-      const raw = input && input.value ? String(input.value).trim() : "";
-      if (
-        raw &&
-        /\.apps\.googleusercontent\.com$/i.test(raw) &&
-        raw !== "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com"
-      ) {
-        mergeStoredConfigOverridePatch({ oauthClientId: raw });
-      }
-      void openCommandCenterSettingsModal();
-    });
+  /** Accept any pasted Client ID (raw, full URL, or surrounding whitespace). */
+  function extractClientIdFromInput(raw) {
+    const t = String(raw || "").trim();
+    if (!t) return "";
+    const m = t.match(/[\w-]+\.apps\.googleusercontent\.com/i);
+    return m ? m[0] : "";
   }
+
+  function trySaveAndContinue(raw) {
+    const id = extractClientIdFromInput(raw);
+    if (!id || id === "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com") {
+      return false;
+    }
+    mergeStoredConfigOverridePatch({ oauthClientId: id });
+    if (applyOAuthClientChange(id)) {
+      showToast("Signed-in setup saved.", "success");
+    } else {
+      showToast("Saved — reloading…", "success");
+      setTimeout(() => window.location.reload(), 400);
+    }
+    return true;
+  }
+
+  // Auto-save on paste — no separate "Save" click required.
+  inputs.forEach((input) => {
+    input.addEventListener("input", () => {
+      trySaveAndContinue(input.value);
+    });
+  });
+
   if (createOAuth) {
-    createOAuth.addEventListener("click", () => {
+    createOAuth.addEventListener("click", async () => {
       const choice = document.getElementById("sheetAccessGateOAuthChoice");
       const wizard = document.getElementById("sheetAccessGateOAuthWizard");
       syncLoginGateOAuthOriginDisplay();
+      // Pre-copy the origin so the user just pastes when Google asks.
+      try {
+        await navigator.clipboard.writeText(window.location.origin);
+      } catch (_) {
+        /* clipboard may be blocked — non-fatal, the origin is still visible */
+      }
       if (choice) choice.hidden = true;
       if (wizard) wizard.hidden = false;
-      document.getElementById("sheetAccessGateOAuthClientIdInput")?.focus();
+      document
+        .getElementById("sheetAccessGateOAuthClientIdInputAlt")
+        ?.focus();
+    });
+  }
+  if (openConsole) {
+    openConsole.addEventListener("click", () => {
+      // Deep-link straight to the OAuth client creation page.
+      window.open(
+        "https://console.cloud.google.com/apis/credentials/oauthclient",
+        "_blank",
+        "noopener",
+      );
     });
   }
   if (back) {
@@ -7839,41 +8061,14 @@ function initLoginGateOAuthUi() {
       resetLoginGateOAuthWizardToChoice();
     });
   }
-  if (copyOrigin) {
-    copyOrigin.addEventListener("click", async () => {
-      const o = window.location.origin;
-      try {
-        await navigator.clipboard.writeText(o);
-        showToast("Origin copied", "success");
-      } catch (e) {
-        showToast(
-          "Could not copy — select the origin and copy manually",
-          "error",
-        );
-      }
-    });
-  }
   if (save) {
     save.addEventListener("click", () => {
       const input = document.getElementById(
         "sheetAccessGateOAuthClientIdInput",
       );
-      const raw = input && input.value ? String(input.value).trim() : "";
-      if (
-        !raw ||
-        !/\.apps\.googleusercontent\.com$/i.test(raw) ||
-        raw === "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com"
-      ) {
-        showToast(
-          "Paste a valid Client ID ending in .apps.googleusercontent.com",
-          "error",
-          true,
-        );
-        return;
+      if (!trySaveAndContinue(input ? input.value : "")) {
+        showToast("Paste a valid Google Client ID.", "error", true);
       }
-      mergeStoredConfigOverridePatch({ oauthClientId: raw });
-      showToast("OAuth client saved — reloading…", "success");
-      setTimeout(() => window.location.reload(), 400);
     });
   }
 }
@@ -7996,6 +8191,40 @@ function showSheetAccessGate(mode) {
   if (setup) setup.style.display = "none";
   dashboard.style.display = "none";
   screen.style.display = "flex";
+
+  // Run the SetupDoctor in error mode so the user sees concrete fix actions
+  // instead of a generic "Couldn't load this sheet" message.
+  const doctorHost = document.getElementById("sheetAccessGateDoctorPanel");
+  if (
+    doctorHost &&
+    typeof window !== "undefined" &&
+    window.SetupDoctor &&
+    typeof window.SetupDoctor.diagnose === "function"
+  ) {
+    if (mode === "error") {
+      doctorHost.hidden = false;
+      const ctx = { lastError: lastSheetAccessError || "" };
+      window.SetupDoctor.diagnose(ctx)
+        .then((report) => {
+          report._ctx = ctx;
+          if (report.issues.length === 0) return;
+          window.SetupDoctor.renderInline(doctorHost, report);
+        })
+        .catch(() => {
+          /* doctor is best-effort; ignore */
+        });
+    } else {
+      doctorHost.hidden = true;
+      while (doctorHost.firstChild) doctorHost.removeChild(doctorHost.firstChild);
+    }
+  }
+}
+
+/** Last raw error string the sheet/auth pipeline saw — fed into SetupDoctor. */
+let lastSheetAccessError = "";
+function recordSheetAccessError(err) {
+  if (!err) return;
+  lastSheetAccessError = err && err.message ? String(err.message) : String(err);
 }
 
 function hideSheetAccessGate() {
@@ -10110,6 +10339,12 @@ async function fetchSheetViaSheetsAPI(sheetName, isRetry) {
       resp.status,
       err.error || err,
     );
+    // Record the raw Google API error for SetupDoctor to classify
+    // (insufficient_scope, origin_mismatch, sheet 403/404, etc.).
+    const msg =
+      (err.error && err.error.message) ||
+      `Sheets API ${resp.status} on ${name}`;
+    recordSheetAccessError({ message: msg, status: resp.status });
     return null;
   }
   const data = await resp.json();
@@ -12877,7 +13112,7 @@ let onboardingResumeDraft = null;
 /** How user supplied resume: "upload" | "paste" (for Back navigation from tone step). */
 let onboardingResumePath = null;
 
-const ONBOARDING_TOTAL_STEPS = 9;
+const ONBOARDING_TOTAL_STEPS = 3;
 let lastResumeGenerationSession = null;
 let pendingDraftNotesRequest = null;
 let candidateProfileMatchCache = {
@@ -14294,10 +14529,16 @@ function showOnboardingWizard() {
     samplesStatus.classList.remove("onboarding-status--error");
   }
   if (aiCtx) aiCtx.value = "";
+  ["onboardingAiTarget", "onboardingAiStrength", "onboardingAiAvoid"].forEach(
+    (id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = "";
+    },
+  );
   syncOnboardingToneCards("warm");
   setOnboardingStep(1);
   w.style.display = "flex";
-  document.getElementById("onboardingNext1")?.focus();
+  document.getElementById("onboardingFileInput")?.focus();
 }
 
 function updateOnboardingProgressUI(step) {
@@ -14356,38 +14597,25 @@ function renderOnboardingSummary() {
 }
 
 function setOnboardingStep(step) {
+  // Three-panel wizard: 1 = resume, 2 = AI context, 3 = tone & finish.
   for (let i = 1; i <= ONBOARDING_TOTAL_STEPS; i++) {
     const p = document.getElementById(`onboardingPanel${i}`);
     if (p) p.style.display = i === step ? "block" : "none";
   }
   const title = document.getElementById("onboardingWizardTitle");
   const titles = {
-    1: "Welcome",
-    2: "Upload resume",
-    3: "Paste resume",
-    4: "Tone",
-    5: "Length",
-    6: "Voice",
-    7: "Writing samples",
-    8: "AI context",
-    9: "Ready",
+    1: "Resume",
+    2: "About your search",
+    3: "Tone",
   };
-  if (title) title.textContent = titles[step] || "Welcome";
+  if (title) title.textContent = titles[step] || "Setup";
   updateOnboardingProgressUI(step);
-  if (step === 2) updateOnboardingContinue2Enabled();
-  if (step === 3) updateOnboardingNext3Enabled();
-  if (step === 9) renderOnboardingSummary();
+  if (step === 1) updateOnboardingContinue2Enabled();
 
   const focusMap = {
-    1: "onboardingNext1",
-    2: "onboardingPasteInstead",
-    3: "onboardingPasteText",
-    4: "onboardingNext4",
-    5: "wizardPrefMaxWords",
-    6: "wizardPrefVoice",
-    7: "onboardingSamplesFileInput",
-    8: "onboardingAiContextText",
-    9: "onboardingFinish",
+    1: "onboardingFileInput",
+    2: "onboardingAiTarget",
+    3: "wizardPrefVoice",
   };
   const fid = focusMap[step];
   if (fid) {
@@ -14468,110 +14696,34 @@ function initOnboardingWizard() {
   const fileIn = document.getElementById("onboardingFileInput");
   const pasteEl = document.getElementById("onboardingPasteText");
 
-  document.getElementById("onboardingNext1")?.addEventListener("click", () => {
-    setOnboardingStep(2);
-  });
-
-  document
-    .getElementById("onboardingPasteInstead")
-    ?.addEventListener("click", () => {
-      onboardingResumePath = "paste";
-      onboardingResumeDraft = null;
-      const statusUp = document.getElementById("onboardingResumeStatusUpload");
-      const fin = document.getElementById("onboardingFileInput");
-      if (statusUp) {
-        statusUp.textContent = "";
-        statusUp.classList.remove("onboarding-status--error");
-      }
-      if (fin) fin.value = "";
-      updateOnboardingContinue2Enabled();
-      setOnboardingStep(3);
-    });
-
-  document.getElementById("onboardingBack2")?.addEventListener("click", () => {
-    setOnboardingStep(1);
-  });
-
+  // Panel 1 -> Panel 2 (resume drop or paste fallback)
   document
     .getElementById("onboardingContinue2")
     ?.addEventListener("click", () => {
+      // Allow either an uploaded resume OR pasted text from the disclosure.
       if (
         !onboardingResumeDraft ||
         !String(onboardingResumeDraft.extractedText || "").trim()
       ) {
-        return;
+        if (!ensureResumeDraftFromPasteStep()) return;
+        onboardingResumePath = "paste";
+      } else {
+        onboardingResumePath = onboardingResumePath || "upload";
       }
-      onboardingResumePath = "upload";
-      setOnboardingStep(4);
+      setOnboardingStep(2);
     });
 
-  document.getElementById("onboardingBack3")?.addEventListener("click", () => {
-    setOnboardingStep(2);
-  });
-
-  document.getElementById("onboardingNext3")?.addEventListener("click", () => {
-    if (!ensureResumeDraftFromPasteStep()) return;
-    onboardingResumePath = "paste";
-    setOnboardingStep(4);
-  });
-
+  // Panel 2 (AI context) navigation
   document.getElementById("onboardingBack4")?.addEventListener("click", () => {
-    if (onboardingResumePath === "upload") setOnboardingStep(2);
-    else setOnboardingStep(3);
+    setOnboardingStep(1);
   });
-
   document.getElementById("onboardingNext4")?.addEventListener("click", () => {
-    setOnboardingStep(5);
+    setOnboardingStep(3);
   });
 
-  document.getElementById("onboardingBack5")?.addEventListener("click", () => {
-    setOnboardingStep(4);
-  });
-
-  document.getElementById("onboardingNext5")?.addEventListener("click", () => {
-    setOnboardingStep(6);
-  });
-
-  document.getElementById("onboardingBack6")?.addEventListener("click", () => {
-    setOnboardingStep(5);
-  });
-
-  document.getElementById("onboardingSkip6")?.addEventListener("click", () => {
-    const vo = document.getElementById("wizardPrefVoice");
-    if (vo) vo.value = "";
-    setOnboardingStep(7);
-  });
-
-  document.getElementById("onboardingNext6")?.addEventListener("click", () => {
-    setOnboardingStep(7);
-  });
-
-  document.getElementById("onboardingBack7")?.addEventListener("click", () => {
-    setOnboardingStep(6);
-  });
-
-  document.getElementById("onboardingSkip7")?.addEventListener("click", () => {
-    setOnboardingStep(8);
-  });
-
-  document.getElementById("onboardingNext7")?.addEventListener("click", () => {
-    setOnboardingStep(8);
-  });
-
-  document.getElementById("onboardingBack8")?.addEventListener("click", () => {
-    setOnboardingStep(7);
-  });
-
-  document.getElementById("onboardingSkip8")?.addEventListener("click", () => {
-    setOnboardingStep(9);
-  });
-
-  document.getElementById("onboardingNext8")?.addEventListener("click", () => {
-    setOnboardingStep(9);
-  });
-
+  // Panel 3 (tone & finish) back arrow
   document.getElementById("onboardingBack9")?.addEventListener("click", () => {
-    setOnboardingStep(8);
+    setOnboardingStep(2);
   });
 
   document.querySelectorAll(".onboarding-tone-card").forEach((btn) => {
@@ -14593,6 +14745,7 @@ function initOnboardingWizard() {
         if (!text.trim()) {
           if (status) {
             status.textContent = "No text could be extracted from that file.";
+            status.classList.remove("onboarding-status--ok");
             status.classList.add("onboarding-status--error");
           }
           return;
@@ -14605,15 +14758,39 @@ function initOnboardingWizard() {
           label,
           extractedText: text,
         };
+        onboardingResumePath = "upload";
         if (status) {
-          status.textContent = `Loaded “${label}” (${text.length.toLocaleString()} characters).`;
+          // Visible confirmation: filename with extension, file-type label,
+          // size, and extracted-character count. Replaces the old text-only
+          // hint that users could miss before clicking Continue.
+          const fullName = String(file.name || `${label}`);
+          const extMatch = fullName.match(/\.([a-z0-9]+)$/i);
+          const ext = extMatch ? extMatch[1].toUpperCase() : "FILE";
+          const sizeKb = Math.max(1, Math.round((file.size || 0) / 1024));
+          status.innerHTML = "";
+          const ok = document.createElement("span");
+          ok.className = "onboarding-status__check";
+          ok.setAttribute("aria-hidden", "true");
+          ok.textContent = "\u2713";
+          const name = document.createElement("strong");
+          name.className = "onboarding-status__filename";
+          name.textContent = fullName;
+          const meta = document.createElement("span");
+          meta.className = "onboarding-status__meta";
+          meta.textContent = ` · ${ext} · ${sizeKb.toLocaleString()} KB · ${text.length.toLocaleString()} characters extracted`;
+          status.appendChild(ok);
+          status.appendChild(document.createTextNode(" "));
+          status.appendChild(name);
+          status.appendChild(meta);
           status.classList.remove("onboarding-status--error");
+          status.classList.add("onboarding-status--ok");
         }
         updateOnboardingContinue2Enabled();
       } catch (err) {
         console.error(err);
         if (status) {
           status.textContent = err.message || "Could not read file.";
+          status.classList.remove("onboarding-status--ok");
           status.classList.add("onboarding-status--error");
         }
       }
@@ -14622,11 +14799,41 @@ function initOnboardingWizard() {
 
   if (pasteEl) {
     pasteEl.addEventListener("input", () => {
-      updateOnboardingNext3Enabled();
+      // Step 1's button is onboardingContinue2 — both paths (file or paste)
+      // must enable it. Bug fix: previously this called the Step 2 helper,
+      // so paste-only users were stuck at "Step 1 of 3".
+      updateOnboardingContinue2Enabled();
+      const ingest = getResumeIngest();
+      const raw = pasteEl.value || "";
+      const text = ingest ? ingest.normalizeExtractedText(raw) : raw.trim();
       const status = document.getElementById("onboardingResumeStatus");
-      if (status && status.classList.contains("onboarding-status--error")) {
-        status.textContent = "";
-        status.classList.remove("onboarding-status--error");
+      if (text) {
+        // Mirror the file-upload behavior: stage the draft so Continue uses it.
+        onboardingResumeDraft = {
+          source: "paste",
+          rawMime: "text/plain",
+          label: "Pasted resume",
+          extractedText: text,
+        };
+        onboardingResumePath = "paste";
+        if (status) {
+          status.textContent = `Pasted resume captured (${text.length.toLocaleString()} characters).`;
+          status.classList.remove("onboarding-status--error");
+        }
+        updateOnboardingContinue2Enabled();
+      } else {
+        // Empty textarea: drop any prior paste draft (but don't wipe a file
+        // upload that may have been staged before the user opened the paste
+        // disclosure).
+        if (onboardingResumeDraft && onboardingResumeDraft.source === "paste") {
+          onboardingResumeDraft = null;
+          onboardingResumePath = null;
+          updateOnboardingContinue2Enabled();
+        }
+        if (status) {
+          status.textContent = "";
+          status.classList.remove("onboarding-status--error");
+        }
       }
     });
   }
@@ -14666,14 +14873,26 @@ function initOnboardingWizard() {
       if (finish) finish.disabled = true;
       try {
         await UC.setPrimaryResume(onboardingResumeDraft);
-        const samplesInput = document.getElementById(
-          "onboardingSamplesFileInput",
-        );
-        if (samplesInput && samplesInput.files && samplesInput.files.length) {
-          await profileApplySampleFiles(samplesInput.files, UC);
+        // Merge the three guided AI context fields + optional pasted summary
+        // into a single profile context blob.
+        const targetEl = document.getElementById("onboardingAiTarget");
+        const strengthEl = document.getElementById("onboardingAiStrength");
+        const avoidEl = document.getElementById("onboardingAiAvoid");
+        const pastedEl = document.getElementById("onboardingAiContextText");
+        const guidedParts = [];
+        if (targetEl && targetEl.value.trim()) {
+          guidedParts.push(`Target role: ${targetEl.value.trim()}`);
         }
-        const aiEl = document.getElementById("onboardingAiContextText");
-        const aiNorm = normalizeProfileTextInput((aiEl && aiEl.value) || "");
+        if (strengthEl && strengthEl.value.trim()) {
+          guidedParts.push(`Superpower: ${strengthEl.value.trim()}`);
+        }
+        if (avoidEl && avoidEl.value.trim()) {
+          guidedParts.push(`Avoid: ${avoidEl.value.trim()}`);
+        }
+        if (pastedEl && pastedEl.value.trim()) {
+          guidedParts.push(pastedEl.value.trim());
+        }
+        const aiNorm = normalizeProfileTextInput(guidedParts.join("\n\n"));
         if (aiNorm && typeof UC.saveAdditionalContext === "function") {
           await UC.saveAdditionalContext({
             text: aiNorm,
@@ -15038,8 +15257,13 @@ async function saveCommandCenterSettingsFromForm() {
       return;
     }
     syncDiscoveryButtonState();
-    showToast("OAuth client saved — reloading…", "success");
-    setTimeout(() => window.location.reload(), 400);
+    if (applyOAuthClientChange(oauthClientIdInput)) {
+      showToast("OAuth client saved — sign in to continue.", "success");
+      closeCommandCenterSettingsModal();
+    } else {
+      showToast("OAuth client saved — reloading…", "success");
+      setTimeout(() => window.location.reload(), 400);
+    }
     return;
   }
   const sheetEl = document.getElementById("settingsSheetId");
@@ -15070,8 +15294,13 @@ async function saveCommandCenterSettingsFromForm() {
         return;
       }
       syncDiscoveryButtonState();
-      showToast("OAuth client saved — reloading…", "success");
-      setTimeout(() => window.location.reload(), 400);
+      if (applyOAuthClientChange(oauthClientIdInput)) {
+        showToast("OAuth client saved — sign in to continue.", "success");
+        closeCommandCenterSettingsModal();
+      } else {
+        showToast("OAuth client saved — reloading…", "success");
+        setTimeout(() => window.location.reload(), 400);
+      }
       return;
     }
     if (err) {
@@ -15185,8 +15414,16 @@ async function saveCommandCenterSettingsFromForm() {
   setTimeout(() => window.location.reload(), 400);
 }
 
-/** Clears localStorage overrides and reloads (no native dialog — avoids focus fights with the settings overlay). */
-function performSettingsClearOverrides() {
+/**
+ * Nuclear "Clear settings": wipes config, OAuth localStorage, IndexedDB user
+ * content, revokes the Google access token, and sets a one-shot flag so the
+ * next interactive sign-in forces the consent screen. After reload the user
+ * is in a true greenfield state (no auto sign-in, no stale resume/profile).
+ *
+ * Order matters: revoke uses the in-memory token, so we must revoke BEFORE
+ * clearing in-memory auth state.
+ */
+async function performSettingsClearOverrides() {
   if (!canUseLocalStorage()) {
     showToast(
       "This browser blocked local storage — nothing was cleared.",
@@ -15195,12 +15432,98 @@ function performSettingsClearOverrides() {
     );
     return;
   }
+
+  // 1) Revoke Google access token so silent re-auth via prompt:"none" cannot
+  //    re-issue from the prior consent grant. Best-effort — network/blocker
+  //    failures are non-fatal because we still wipe local state below.
+  try {
+    if (
+      accessToken &&
+      window.google &&
+      google.accounts &&
+      google.accounts.oauth2 &&
+      typeof google.accounts.oauth2.revoke === "function"
+    ) {
+      await new Promise((resolve) => {
+        try {
+          google.accounts.oauth2.revoke(accessToken, () => resolve());
+        } catch (_) {
+          resolve();
+        }
+        // Hard timeout in case Google never invokes the callback.
+        setTimeout(resolve, 1500);
+      });
+    }
+  } catch (_) {
+    /* best-effort revoke */
+  }
+
+  // 2) Drop in-memory auth + clear OAuth localStorage (both keys).
+  try {
+    clearSessionAuthState();
+  } catch (_) {
+    /* clearSessionAuthState already calls clearPersisted*; defensive */
+  }
+  try {
+    clearPersistedOAuthSession();
+  } catch (_) {}
+  try {
+    clearPersistedRuntimeOAuthSession();
+  } catch (_) {}
+
+  // 3) Clear stored config overrides (sheet ID, OAuth client ID, webhook URL,
+  //    discovery profile, etc.).
   try {
     localStorage.removeItem(COMMAND_CENTER_CONFIG_OVERRIDE_KEY);
   } catch (_) {
     showToast("Could not clear saved settings (storage error).", "error", true);
     return;
   }
+
+  // 4) Clear other JobBored localStorage breadcrumbs that would otherwise
+  //    leak across a "greenfield" reset.
+  try {
+    localStorage.removeItem(DISCOVERY_TRANSPORT_SETUP_KEY);
+  } catch (_) {}
+  try {
+    localStorage.removeItem(DISCOVERY_RUN_TRACKER_KEY);
+  } catch (_) {}
+
+  // 5) Wipe IndexedDB user content (resume, samples, drafts, AI context).
+  //    Uses deleteDatabase which fully drops the DB — next openDb call will
+  //    re-create the schema empty.
+  try {
+    if (window.indexedDB && typeof indexedDB.deleteDatabase === "function") {
+      await new Promise((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          resolve();
+        };
+        try {
+          const req = indexedDB.deleteDatabase("command-center-user-content");
+          req.onsuccess = finish;
+          req.onerror = finish;
+          req.onblocked = finish;
+        } catch (_) {
+          finish();
+        }
+        // Hard timeout: blocked deletes can hang if another tab holds a connection.
+        setTimeout(finish, 1500);
+      });
+    }
+  } catch (_) {
+    /* best-effort wipe */
+  }
+
+  // 6) Arm the one-shot consent flag so the next signIn() forces Google's
+  //    consent screen instead of silently re-issuing a token. This is what
+  //    makes "Clear settings" feel like a true greenfield reset for testing.
+  try {
+    localStorage.setItem(FORCE_CONSENT_PROMPT_KEY, "1");
+  } catch (_) {}
+
   hideSettingsClearConfirmBar();
   window.location.reload();
 }
@@ -17951,17 +18274,69 @@ function initDiscoveryButton() {
   }
 
   openBtn.addEventListener("click", async () => {
-    if (
-      !getDiscoverySettingsView(getDiscoveryReadinessSnapshot())
-        .runDiscoveryEnabled
-    ) {
-      await requestDiscoverySetup({
-        entryPoint: "header",
-        allowWhileOnboarding: true,
-      });
+    const view = getDiscoverySettingsView(getDiscoveryReadinessSnapshot());
+    const hasWebhook = !!getDiscoveryWebhookUrl();
+    const isLocal =
+      typeof window !== "undefined" &&
+      window.location &&
+      (window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1");
+
+    // Greenfield silent path: on localhost, when no webhook is configured,
+    // run the full backend boot in one click instead of opening the wizard.
+    if (!hasWebhook && isLocal) {
+      const originalText = openBtn.textContent;
+      openBtn.disabled = true;
+      openBtn.classList.add("loading");
+      try {
+        openBtn.title = "Setting up discovery…";
+        showToast("Setting up discovery — this only happens once.", "info");
+        const resp = await fetch("/__proxy/full-boot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        const body = await resp.json().catch(() => ({}));
+        if (resp.ok && body && body.ok) {
+          // Refresh snapshot so the saved webhook URL is picked up.
+          await refreshDiscoveryReadinessSnapshot({ force: true });
+          showToast("Discovery is ready.", "success");
+          if (getDiscoveryWebhookUrl()) {
+            openDiscoveryPrefsModal();
+            return;
+          }
+        }
+        // If full-boot reported a specific blocking issue (Cloudflare auth,
+        // etc.), fall back to the wizard at the failed step.
+        if (body && body.needsAuth) {
+          showToast(
+            "Cloudflare needs to be signed in once. Run `npx wrangler login` and click again.",
+            "warning",
+            true,
+          );
+          return;
+        }
+        // Final fallback: open the wizard so a human can finish setup.
+        await requestDiscoverySetup({
+          entryPoint: "header_full_boot_fallback",
+          allowWhileOnboarding: true,
+        });
+      } catch (e) {
+        console.warn("[JobBored] full-boot:", e);
+        await requestDiscoverySetup({
+          entryPoint: "header",
+          allowWhileOnboarding: true,
+        });
+      } finally {
+        openBtn.disabled = false;
+        openBtn.classList.remove("loading");
+        openBtn.textContent = originalText;
+        syncDiscoveryButtonState();
+      }
       return;
     }
-    if (!getDiscoveryWebhookUrl()) {
+
+    if (!view.runDiscoveryEnabled || !hasWebhook) {
       await requestDiscoverySetup({
         entryPoint: "header",
         allowWhileOnboarding: true,

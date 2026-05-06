@@ -420,7 +420,9 @@ textarea {
 
 .setup-form-btn {
   margin-top: var(--space-2);
-  display: inline-flex;
+  margin-left: auto;
+  margin-right: auto;
+  display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--space-2) var(--space-4);
@@ -460,6 +462,7 @@ textarea {
   margin-top: var(--space-2);
   font-size: var(--text-xs);
   color: var(--text-muted);
+  text-align: center;
 }
 
 .setup-footer {
@@ -781,6 +784,70 @@ textarea {
   font-size: var(--text-sm);
   line-height: 1.5;
   color: var(--text-muted);
+}
+
+.login-gate__oauth-guide {
+  margin: var(--space-3) 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.login-gate__oauth-guide[open] {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.login-gate__oauth-guide-summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--text);
+  list-style: none;
+}
+
+.login-gate__oauth-guide-summary::-webkit-details-marker {
+  display: none;
+}
+
+.login-gate__oauth-guide-summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: var(--space-2);
+  color: var(--accent);
+  transition: transform var(--transition);
+}
+
+.login-gate__oauth-guide[open] .login-gate__oauth-guide-summary::before {
+  transform: rotate(90deg);
+}
+
+.login-gate__oauth-guide-list {
+  margin: var(--space-3) 0 var(--space-2);
+  padding-left: 1.5rem;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.login-gate__oauth-guide-list li {
+  margin-bottom: var(--space-2);
+}
+
+.login-gate__oauth-guide-list code,
+.login-gate__oauth-guide-foot code {
+  font-size: 0.85em;
+  padding: 1px 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.login-gate__oauth-guide-foot {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.5;
 }
 
 .login-gate__oauth-step-list {
@@ -4030,6 +4097,7 @@ button.feed-item {
   scroll-snap-align: start;
   flex-shrink: 0;
   width: 264px;
+  min-height: 220px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -4094,7 +4162,9 @@ button.feed-item {
   --card-stage-color: var(--stage-rail-passed);
 }
 
-/* Viewed dot — quiet indicator, top-right corner */
+/* Viewed dot — quiet indicator, top-right corner.
+   Hidden whenever the action buttons are visible so the X/★ never stack
+   on top of the dot. */
 .kanban-card__viewed-dot {
   position: absolute;
   top: 11px;
@@ -4105,6 +4175,13 @@ button.feed-item {
   background: var(--text-faint);
   opacity: 0.55;
   pointer-events: none;
+  transition: opacity 120ms var(--ease);
+}
+.kanban-card:hover .kanban-card__viewed-dot,
+.kanban-card:focus-within .kanban-card__viewed-dot,
+.kanban-card--dismissed .kanban-card__viewed-dot,
+.kanban-card--favorited .kanban-card__viewed-dot {
+  opacity: 0;
 }
 
 .kanban-card__identity {
@@ -4119,6 +4196,10 @@ button.feed-item {
   gap: 2px;
   min-width: 0;
   flex: 1;
+  /* Reserve room in the top-right corner so the title + company never run
+     under the absolutely-positioned action buttons (★ / ✕ / ↺). Two 26px
+     icon buttons + 2px gap + 6px offset = ~60px. */
+  padding-right: 60px;
 }
 
 /* Role title — hero, 2-line clamp */
@@ -8322,6 +8403,44 @@ a.btn-materials {
   color: var(--toast-error);
 }
 
+.onboarding-status--ok {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  text-align: left;
+}
+
+.onboarding-status__check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--text-inverse);
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.onboarding-status__filename {
+  color: var(--text);
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.onboarding-status__meta {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
 .onboarding-actions {
   display: flex;
   justify-content: flex-end;
@@ -11416,4 +11535,67 @@ a.btn-materials {
   .runs-error-cell {
     max-width: 12rem;
   }
+}
+
+/* ============================================
+   Setup Doctor — auto-heal panel
+   ============================================ */
+.doctor-panel {
+  margin: var(--space-3) 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface, #fff);
+  text-align: left;
+}
+.doctor-panel__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary, #111);
+}
+.doctor-panel__ok {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary, #555);
+}
+.doctor-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.doctor-issue {
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--border);
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: var(--radius-sm);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+}
+.doctor-issue--error { border-left-color: #c0392b; }
+.doctor-issue--warn  { border-left-color: #d69e2e; }
+.doctor-issue--fixed { border-left-color: #2f855a; opacity: 0.85; }
+.doctor-issue--needs-action { border-left-color: #d69e2e; }
+.doctor-issue--failed { border-left-color: #c0392b; }
+.doctor-issue__title {
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+.doctor-issue__detail {
+  grid-column: 1 / -1;
+  font-size: var(--text-xs);
+  color: var(--text-secondary, #555);
+  line-height: 1.4;
+}
+.doctor-issue__fix {
+  white-space: nowrap;
+}
+.doctor-panel__fixall {
+  margin-top: var(--space-3);
+  width: 100%;
 }
