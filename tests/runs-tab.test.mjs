@@ -279,8 +279,32 @@ describe("parseDiscoveryRunsValues", () => {
     assert.equal(runs[0].durationS, 47);
     assert.equal(runs[0].companiesSeen, 12);
     assert.equal(runs[0].leadsWritten, 3);
+    assert.equal(runs[0].leadsUpdated, 0);
     assert.equal(runs[1].status, "failure");
     assert.equal(runs[1].error, "timeout on acme.com");
+  });
+
+  it("parses the extended 10-column shape with leadsUpdated", async () => {
+    const mod = await loadRunsTab();
+    const rows = [
+      [
+        "2026-04-21T15:12:03Z",
+        "manual",
+        "success",
+        47,
+        12,
+        3,
+        9,
+        "worker@v0.4.1",
+        "gh-1234-abcd",
+        "",
+      ],
+    ];
+    const runs = mod.parseDiscoveryRunsValues(rows);
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].leadsWritten, 3);
+    assert.equal(runs[0].leadsUpdated, 9);
+    assert.equal(runs[0].source, "worker@v0.4.1");
   });
 
   it("skips rows missing Run At / Trigger / Status", async () => {
@@ -305,9 +329,9 @@ describe("sortRuns", () => {
   it("sorts descending by runAt when direction='desc'", async () => {
     const mod = await loadRunsTab();
     const runs = [
-      { runAt: "2026-04-21T10:00:00Z", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
-      { runAt: "2026-04-21T16:00:00Z", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
-      { runAt: "2026-04-21T12:00:00Z", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
+      { runAt: "2026-04-21T10:00:00Z", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "" },
+      { runAt: "2026-04-21T16:00:00Z", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "" },
+      { runAt: "2026-04-21T12:00:00Z", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "" },
     ];
     const sorted = mod.sortRuns(runs, "runAt", "desc");
     assert.equal(sorted[0].runAt, "2026-04-21T16:00:00Z");
@@ -317,9 +341,9 @@ describe("sortRuns", () => {
   it("sorts numerically on leadsWritten", async () => {
     const mod = await loadRunsTab();
     const runs = [
-      { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 2, source: "", variationKey: "", error: "" },
-      { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 10, source: "", variationKey: "", error: "" },
-      { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
+      { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 2, leadsUpdated: 0, source: "", variationKey: "", error: "" },
+      { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 10, leadsUpdated: 0, source: "", variationKey: "", error: "" },
+      { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "" },
     ];
     const sorted = mod.sortRuns(runs, "leadsWritten", "asc");
     assert.deepEqual(sorted.map((r) => r.leadsWritten), [0, 2, 10]);
@@ -328,10 +352,10 @@ describe("sortRuns", () => {
 
 describe("filterRuns", () => {
   const sample = [
-    { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
-    { runAt: "t", trigger: "scheduled-local", status: "failure", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "x" },
-    { runAt: "t", trigger: "scheduled-github", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
-    { runAt: "t", trigger: "cli", status: "partial", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
+    { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "" },
+    { runAt: "t", trigger: "scheduled-local", status: "failure", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "x" },
+    { runAt: "t", trigger: "scheduled-github", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "" },
+    { runAt: "t", trigger: "cli", status: "partial", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "" },
   ];
 
   it("all/all returns every row", async () => {
@@ -398,7 +422,7 @@ describe("fetchDiscoveryRuns", () => {
         makeResponse(
           400,
           null,
-          '{"error":{"code":400,"message":"Unable to parse range: DiscoveryRuns!A2:I"}}',
+          '{"error":{"code":400,"message":"Unable to parse range: DiscoveryRuns!A2:J"}}',
         ),
     });
     assert.equal(result.ok, true);
@@ -473,7 +497,7 @@ describe("fetchDiscoveryRuns", () => {
     assert.equal(result.reason, "unauthorized");
   });
 
-  it("sends Bearer token and hits the DiscoveryRuns!A2:I range with UNFORMATTED_VALUE", async () => {
+  it("sends Bearer token and hits the DiscoveryRuns!A2:J range with UNFORMATTED_VALUE", async () => {
     const mod = await loadRunsTab();
     let seen = null;
     await mod.fetchDiscoveryRuns("sheet-abc", "tok-xyz", {
@@ -485,8 +509,8 @@ describe("fetchDiscoveryRuns", () => {
     assert.ok(seen);
     assert.match(seen.url, /\/spreadsheets\/sheet-abc\/values\//);
     // `!` is an unreserved char per encodeURIComponent, so the range stays as
-    // "DiscoveryRuns!A2%3AI" (colon is percent-encoded, bang is not).
-    assert.match(seen.url, /DiscoveryRuns!A2%3AI/);
+    // "DiscoveryRuns!A2%3AJ" (colon is percent-encoded, bang is not).
+    assert.match(seen.url, /DiscoveryRuns!A2%3AJ/);
     assert.match(seen.url, /valueRenderOption=UNFORMATTED_VALUE/);
     assert.equal(seen.headers.Authorization, "Bearer tok-xyz");
   });
@@ -604,6 +628,46 @@ describe("live job-discovery run row", () => {
       "terminal job-run event should refresh the sheet-backed run log",
     );
   });
+
+  it("suppresses stale live rows when the sheet already has a matching terminal run", async () => {
+    const { dom } = await bootInitRunsTab({
+      storedJobRunState: {
+        status: "running",
+        runId: "run_stale_1",
+        initiatedAt: "2026-04-22T11:04:20.000Z",
+        trigger: "manual",
+        variationKey: "83c18c8789eb1b30",
+      },
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            values: [
+              [
+                "2026-04-22T11:08:47.000Z",
+                "manual",
+                "partial",
+                267,
+                25,
+                0,
+                "worker",
+                "83c18c8789eb1b30",
+                "",
+              ],
+            ],
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    });
+
+    assert.equal(
+      /data-runs-live="job-discovery"/.test(dom.tbody.innerHTML),
+      false,
+    );
+    assert.match(dom.tbody.innerHTML, /runs-row--partial/);
+  });
 });
 
 describe("renderSkeletonRows", () => {
@@ -614,9 +678,9 @@ describe("renderSkeletonRows", () => {
     const matches = tbody.innerHTML.match(/runs-row--skeleton/g);
     assert.ok(matches, "skeleton rows should be present");
     assert.equal(matches.length, 4);
-    // Each row has 9 skeleton bars (one per column).
+    // Each row has 10 skeleton bars (one per column).
     const bars = tbody.innerHTML.match(/runs-skeleton-bar/g);
-    assert.ok(bars && bars.length === 4 * 9);
+    assert.ok(bars && bars.length === 4 * 10);
   });
 });
 

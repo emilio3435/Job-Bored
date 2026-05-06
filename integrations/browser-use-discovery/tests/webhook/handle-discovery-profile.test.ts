@@ -480,10 +480,65 @@ test("POST /discovery-profile falls back to stored companies when profile extrac
   const body = JSON.parse(response.body);
   assert.equal(body.ok, true);
   assert.equal(body.fallback.reason, "profile_extraction_failed");
+  assert.match(body.fallback.message, /stored target company list/i);
+  assert.doesNotMatch(body.fallback.message, /not persisted/i);
   assert.equal(body.companies.length, CANNED_COMPANIES.length);
   assert.ok(body.profile.targetRoles.includes("Senior Product Manager"));
   assert.ok(body.profile.targetRoles.includes("AI Product Manager"));
-  assert.equal(discoverCalled, false);
+  assert.equal(discoverCalled, true);
+});
+
+test("POST /discovery-profile recovers from profile extraction failure via company discovery", async () => {
+  const recoveredCompanies: CompanyTarget[] = [
+    {
+      name: "Figma",
+      companyKey: "figma",
+      normalizedName: "figma",
+      domains: ["figma.com"],
+      roleTags: ["product"],
+      geoTags: ["remote"],
+    },
+    {
+      name: "Notion",
+      companyKey: "notion",
+      normalizedName: "notion",
+      domains: ["notion.so"],
+      roleTags: ["product"],
+      geoTags: ["remote"],
+    },
+  ];
+
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        resumeText:
+          "Senior product manager with SQL analytics and AI operations experience.",
+        form: {
+          targetRoles: "Senior Product Manager, AI Product Manager",
+          skills: "SQL, analytics, roadmap",
+          locations: "Denver, Remote US",
+          remotePolicy: "remote",
+        },
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      extractCandidateProfile: async () => {
+        throw new Error("Gemini HTTP 429: quota exceeded");
+      },
+      discoverCompaniesForProfile: async () => recoveredCompanies,
+    },
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.fallback, undefined);
+  assert.deepEqual(body.companies, recoveredCompanies);
 });
 
 test("POST /discovery-profile does not persist fallback companies when profile extraction is quota-limited", async () => {
@@ -539,6 +594,89 @@ test("POST /discovery-profile does not persist fallback companies when profile e
   assert.equal(body.fallback.reason, "profile_extraction_failed");
   assert.equal(body.companies.length, CANNED_COMPANIES.length);
   assert.equal(upsertCalled, false);
+});
+
+test("POST /discovery-profile fallback drops stored job-board-only companies", async () => {
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        resumeText:
+          "Senior product manager with SQL analytics and AI operations experience.",
+        form: {
+          targetRoles: "Senior Product Manager, AI Product Manager",
+          skills: "SQL, analytics, roadmap",
+          locations: "Denver, Remote US",
+          remotePolicy: "remote",
+        },
+        sheetId: "sheet_abc123",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      extractCandidateProfile: async () => {
+        throw new Error("Gemini HTTP 429: quota exceeded");
+      },
+      discoverCompaniesForProfile: async () => {
+        throw new Error("should not run after extraction fallback");
+      },
+      loadStoredWorkerConfig: async () =>
+        ({
+          sheetId: "sheet_abc123",
+          mode: "hosted",
+          timezone: "UTC",
+          companies: [
+            {
+              name: "Apple",
+              companyKey: "apple",
+              normalizedName: "apple",
+              domains: ["jobleads.com"],
+            },
+            {
+              name: "Figma",
+              companyKey: "figma",
+              normalizedName: "figma",
+              domains: ["figma.com"],
+            },
+            {
+              name: "Google",
+              companyKey: "google",
+              normalizedName: "google",
+              domains: ["jobget.com", "ihiremarketing.com"],
+            },
+            {
+              name: "Scale AI",
+              companyKey: "scale-ai",
+              normalizedName: "scale-ai",
+              domains: ["scale.com"],
+            },
+          ],
+          atsCompanies: [],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+        }) as StoredWorkerConfig,
+    },
+  );
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.fallback.reason, "profile_extraction_failed");
+  assert.deepEqual(
+    body.companies
+      .map((company: { name: string }) => company.name)
+      .sort((a: string, b: string) => a.localeCompare(b)),
+    ["Figma", "Scale AI"],
+  );
 });
 
 test("POST /discovery-profile filters skipped companies from extraction fallback", async () => {
@@ -662,6 +800,8 @@ test("POST /discovery-profile falls back to stored companies when company discov
   const body = JSON.parse(response.body);
   assert.equal(body.ok, true);
   assert.equal(body.fallback.reason, "company_discovery_failed");
+  assert.match(body.fallback.message, /stored target company list/i);
+  assert.doesNotMatch(body.fallback.message, /not persisted/i);
   assert.equal(body.companies.length, CANNED_COMPANIES.length);
   assert.deepEqual(body.profile, CANNED_PROFILE);
 });
@@ -775,6 +915,7 @@ test("POST /discovery-profile mode:status returns snapshot from stored config", 
     profileUpdatedAt: "2026-04-15T10:00:00.000Z",
     companyCount: 2,
     negativeCompanyCount: 3,
+    historyCompanyCount: 0,
     lastRefreshAt: "2026-04-20T08:00:00.000Z",
     lastRefreshSource: "refresh",
   });
@@ -822,6 +963,7 @@ test("POST /discovery-profile mode:status excludes skipped companies from compan
   const body = JSON.parse(response.body);
   assert.equal(body.status.companyCount, 1);
   assert.equal(body.status.negativeCompanyCount, 1);
+  assert.equal(body.status.historyCompanyCount, 0);
 });
 
 test("POST /discovery-profile mode:status returns empty snapshot when no stored profile", async () => {
@@ -853,9 +995,489 @@ test("POST /discovery-profile mode:status returns empty snapshot when no stored 
     profileUpdatedAt: null,
     companyCount: 0,
     negativeCompanyCount: 0,
+    historyCompanyCount: 0,
     lastRefreshAt: null,
     lastRefreshSource: null,
   });
+});
+
+test("POST /discovery-profile mode:refresh excludes previously seen companies and persists history", async () => {
+  let capturedMutations: Partial<StoredWorkerConfig> | null = null;
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        mode: "refresh",
+        sheetId: "sheet_abc123",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      loadStoredWorkerConfig: async () =>
+        ({
+          sheetId: "sheet_abc123",
+          mode: "hosted",
+          timezone: "UTC",
+          companies: [
+            { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+            { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+          ],
+          atsCompanies: [],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+          candidateProfile: {
+            resumeText: "Senior growth marketer.",
+          },
+          seenCompanyKeys: ["notion", "ramp"],
+          companyHistory: [
+            { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+            { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+          ],
+        }) as StoredWorkerConfig,
+      extractCandidateProfile: async () => CANNED_PROFILE,
+      discoverCompaniesForProfile: async () => [
+        { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+        { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+        { name: "Figma", companyKey: "figma", normalizedName: "figma" },
+      ],
+      upsertStoredWorkerConfig: async (_runtimeConfig, input) => {
+        capturedMutations = input.mutations;
+        return {
+          sheetId: input.sheetId,
+          mode: "hosted",
+          timezone: "UTC",
+          companies: input.mutations.companies || [],
+          atsCompanies: [],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+          candidateProfile: { resumeText: "Senior growth marketer." },
+          seenCompanyKeys: input.mutations.seenCompanyKeys || [],
+          companyHistory: input.mutations.companyHistory || [],
+        } as StoredWorkerConfig;
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.persisted, true);
+  assert.deepEqual(
+    body.companies.map((company: CompanyTarget) => company.companyKey),
+    ["figma"],
+  );
+  assert.deepEqual(
+    (capturedMutations?.companies || []).map((company) => company.companyKey),
+    ["figma"],
+  );
+  assert.ok(
+    Array.isArray(capturedMutations?.seenCompanyKeys) &&
+      capturedMutations!.seenCompanyKeys!.includes("notion") &&
+      capturedMutations!.seenCompanyKeys!.includes("ramp") &&
+      capturedMutations!.seenCompanyKeys!.includes("figma"),
+  );
+  assert.ok(
+    Array.isArray(capturedMutations?.companyHistory) &&
+      capturedMutations!.companyHistory!.some(
+        (company) => company.companyKey === "notion",
+      ) &&
+      capturedMutations!.companyHistory!.some(
+        (company) => company.companyKey === "ramp",
+      ) &&
+      capturedMutations!.companyHistory!.some(
+        (company) => company.companyKey === "figma",
+      ),
+  );
+});
+
+test("POST /discovery-profile mode:refresh treats atsCompanies as seen for strict dedupe", async () => {
+  let capturedMutations: Partial<StoredWorkerConfig> | null = null;
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        mode: "refresh",
+        sheetId: "sheet_abc123",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      loadStoredWorkerConfig: async () =>
+        ({
+          sheetId: "sheet_abc123",
+          mode: "hosted",
+          timezone: "UTC",
+          companies: [
+            { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+          ],
+          atsCompanies: [
+            {
+              name: "Acme ATS",
+              companyKey: "acme-ats",
+              normalizedName: "acme-ats",
+            },
+          ],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+          candidateProfile: {
+            resumeText: "Senior growth marketer.",
+          },
+        }) as StoredWorkerConfig,
+      extractCandidateProfile: async () => CANNED_PROFILE,
+      discoverCompaniesForProfile: async () => [
+        {
+          name: "Acme ATS",
+          companyKey: "acme-ats",
+          normalizedName: "acme-ats",
+        },
+        { name: "Figma", companyKey: "figma", normalizedName: "figma" },
+      ],
+      upsertStoredWorkerConfig: async (_runtimeConfig, input) => {
+        capturedMutations = input.mutations;
+        return {
+          sheetId: input.sheetId,
+          mode: "hosted",
+          timezone: "UTC",
+          companies: input.mutations.companies || [],
+          atsCompanies: [],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+        } as StoredWorkerConfig;
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.persisted, true);
+  assert.deepEqual(
+    body.companies.map((company: CompanyTarget) => company.companyKey),
+    ["figma"],
+  );
+  assert.deepEqual(
+    (capturedMutations?.companies || []).map((company) => company.companyKey),
+    ["figma"],
+  );
+});
+
+test("POST /discovery-profile mode:refresh uses stored derived profile seed when extraction fails", async () => {
+  let capturedMutations: Partial<StoredWorkerConfig> | null = null;
+  let discoveredProfile: CandidateProfile | null = null;
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        mode: "refresh",
+        sheetId: "sheet_abc123",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      loadStoredWorkerConfig: async () =>
+        ({
+          sheetId: "sheet_abc123",
+          mode: "hosted",
+          timezone: "UTC",
+          companies: [
+            { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+            { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+          ],
+          atsCompanies: [],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+          candidateProfile: {
+            resumeText: "Experienced operator and builder.",
+            derivedProfile: CANNED_PROFILE,
+          },
+          seenCompanyKeys: ["notion", "ramp"],
+          companyHistory: [
+            { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+            { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+          ],
+        }) as StoredWorkerConfig,
+      extractCandidateProfile: async () => {
+        throw new Error("Gemini HTTP 429: quota exceeded");
+      },
+      discoverCompaniesForProfile: async (profile) => {
+        discoveredProfile = profile;
+        return [
+          { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+          { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+          { name: "Figma", companyKey: "figma", normalizedName: "figma" },
+        ];
+      },
+      upsertStoredWorkerConfig: async (_runtimeConfig, input) => {
+        capturedMutations = input.mutations;
+        return {
+          sheetId: input.sheetId,
+          mode: "hosted",
+          timezone: "UTC",
+          companies: input.mutations.companies || [],
+          atsCompanies: [],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+          candidateProfile:
+            (input.mutations.candidateProfile as StoredWorkerConfig["candidateProfile"]) ||
+            undefined,
+          seenCompanyKeys: input.mutations.seenCompanyKeys || [],
+          companyHistory: input.mutations.companyHistory || [],
+        } as StoredWorkerConfig;
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.persisted, true);
+  assert.equal(body.fallback, undefined);
+  assert.deepEqual(
+    body.companies.map((company: CompanyTarget) => company.companyKey),
+    ["figma"],
+  );
+  assert.ok(discoveredProfile);
+  assert.ok(discoveredProfile!.targetRoles.includes("Growth Marketing Manager"));
+  assert.ok(discoveredProfile!.skills.includes("AI automation"));
+  assert.ok(
+    capturedMutations &&
+      capturedMutations.candidateProfile &&
+      (capturedMutations.candidateProfile as StoredWorkerConfig["candidateProfile"])
+        ?.derivedProfile,
+  );
+});
+
+test("POST /discovery-profile mode:refresh runs relaxed retry when strict seen-dedupe yields zero", async () => {
+  let discoverCallCount = 0;
+  let capturedMutations: Partial<StoredWorkerConfig> | null = null;
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        mode: "refresh",
+        sheetId: "sheet_abc123",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      loadStoredWorkerConfig: async () =>
+        ({
+          sheetId: "sheet_abc123",
+          mode: "hosted",
+          timezone: "UTC",
+          companies: [
+            { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+            { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+          ],
+          atsCompanies: [],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+          candidateProfile: {
+            resumeText: "Senior growth marketer.",
+            derivedProfile: CANNED_PROFILE,
+          },
+          seenCompanyKeys: ["notion", "ramp"],
+          companyHistory: [
+            { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+            { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+          ],
+        }) as StoredWorkerConfig,
+      extractCandidateProfile: async () => CANNED_PROFILE,
+      discoverCompaniesForProfile: async (_profile, deps) => {
+        discoverCallCount += 1;
+        const excludedKeys = new Set(
+          Array.isArray(deps.excludedCompanyKeys)
+            ? deps.excludedCompanyKeys.map((k) => String(k || "").toLowerCase())
+            : [],
+        );
+        if (excludedKeys.has("notion") && excludedKeys.has("ramp")) {
+          // strict pass still returns previously seen employers, which will be
+          // drained by refresh dedupe and trigger relaxed retry.
+          return [
+            { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+            { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+          ];
+        }
+        // relaxed retry (negative-only exclusion) yields a broader list.
+        return [
+          { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+          { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+          { name: "Figma", companyKey: "figma", normalizedName: "figma" },
+        ];
+      },
+      upsertStoredWorkerConfig: async (_runtimeConfig, input) => {
+        capturedMutations = input.mutations;
+        return {
+          sheetId: input.sheetId,
+          mode: "hosted",
+          timezone: "UTC",
+          companies: input.mutations.companies || [],
+          atsCompanies: [],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+          candidateProfile: { resumeText: "Senior growth marketer." },
+          seenCompanyKeys: input.mutations.seenCompanyKeys || [],
+          companyHistory: input.mutations.companyHistory || [],
+        } as StoredWorkerConfig;
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.persisted, true);
+  assert.equal(body.fallback, undefined);
+  assert.equal(discoverCallCount, 2);
+  assert.deepEqual(
+    body.companies.map((company: CompanyTarget) => company.companyKey),
+    ["notion", "ramp", "figma"],
+  );
+  assert.ok(capturedMutations);
+});
+
+test("POST /discovery-profile mode:refresh keeps stored companies visible when no net-new companies are available", async () => {
+  let upsertCalled = false;
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        mode: "refresh",
+        sheetId: "sheet_abc123",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      loadStoredWorkerConfig: async () =>
+        ({
+          sheetId: "sheet_abc123",
+          mode: "hosted",
+          timezone: "UTC",
+          companies: [
+            {
+              name: "Chobani",
+              companyKey: "chobani",
+              normalizedName: "chobani",
+            },
+            {
+              name: "Equinox",
+              companyKey: "equinox",
+              normalizedName: "equinox",
+            },
+          ],
+          atsCompanies: [],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+          candidateProfile: {
+            resumeText: "Senior growth marketer.",
+          },
+          negativeCompanyKeys: ["notion"],
+          seenCompanyKeys: ["chobani", "equinox"],
+          companyHistory: [
+            { name: "Chobani", companyKey: "chobani", normalizedName: "chobani" },
+            { name: "Equinox", companyKey: "equinox", normalizedName: "equinox" },
+          ],
+        }) as StoredWorkerConfig,
+      extractCandidateProfile: async () => {
+        throw new Error("Gemini HTTP 429: quota exceeded");
+      },
+      discoverCompaniesForProfile: async () => [],
+      upsertStoredWorkerConfig: async () => {
+        upsertCalled = true;
+        throw new Error("fallback refresh should not persist");
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.persisted, false);
+  assert.equal(body.fallback.reason, "profile_extraction_failed");
+  assert.match(body.fallback.message, /No net-new companies were found/i);
+  assert.deepEqual(
+    body.companies.map((company: CompanyTarget) => company.companyKey),
+    ["chobani", "equinox"],
+  );
+  assert.equal(upsertCalled, false);
 });
 
 test("POST /discovery-profile mode:status requires sheetId", async () => {
@@ -930,4 +1552,205 @@ test("POST /discovery-profile mode:skip_company removes skipped companies from s
     ["ramp"],
   );
   assert.deepEqual(mutations?.atsCompanies, []);
+});
+
+test("POST /discovery-profile mode:list_companies splits stored state into active/skipped/history", async () => {
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        mode: "list_companies",
+        sheetId: "sheet_abc123",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      loadStoredWorkerConfig: async () =>
+        ({
+          sheetId: "sheet_abc123",
+          mode: "hosted",
+          timezone: "UTC",
+          companies: [
+            {
+              name: "Ramp",
+              companyKey: "ramp",
+              normalizedName: "ramp",
+              domains: ["ramp.com"],
+            },
+            {
+              name: "Linear",
+              companyKey: "linear",
+              normalizedName: "linear",
+              domains: ["linear.app"],
+            },
+          ],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+          negativeCompanyKeys: ["notion", "figma"],
+          companyHistory: [
+            {
+              name: "Notion",
+              companyKey: "notion",
+              normalizedName: "notion",
+              domains: ["notion.so"],
+            },
+            {
+              name: "Figma",
+              companyKey: "figma",
+              normalizedName: "figma",
+              domains: ["figma.com"],
+            },
+            {
+              name: "Airtable",
+              companyKey: "airtable",
+              normalizedName: "airtable",
+              domains: ["airtable.com"],
+            },
+            // Ramp is in history AND still active — should only show in active.
+            {
+              name: "Ramp",
+              companyKey: "ramp",
+              normalizedName: "ramp",
+              domains: ["ramp.com"],
+            },
+          ],
+        }) as StoredWorkerConfig,
+    },
+  );
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body) as {
+    ok: boolean;
+    active: CompanyTarget[];
+    skipped: CompanyTarget[];
+    history: CompanyTarget[];
+  };
+  assert.equal(body.ok, true);
+  assert.deepEqual(
+    body.active.map((c) => c.companyKey),
+    ["ramp", "linear"],
+  );
+  assert.deepEqual(
+    body.skipped.map((c) => c.companyKey).sort(),
+    ["figma", "notion"],
+  );
+  assert.deepEqual(
+    body.history.map((c) => c.companyKey),
+    ["airtable"],
+  );
+});
+
+test("POST /discovery-profile mode:list_companies requires sheetId", async () => {
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        mode: "list_companies",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      loadStoredWorkerConfig: async () => null,
+    },
+  );
+  assert.equal(response.status, 400);
+  assert.match(response.body, /sheetId is required/);
+});
+
+test("POST /discovery-profile mode:unskip_company drops keys from negative list and restores history entries", async () => {
+  let mutations: Partial<StoredWorkerConfig> | null = null;
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        mode: "unskip_company",
+        unskipCompanyKeys: ["notion", "figma"],
+        sheetId: "sheet_abc123",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      loadStoredWorkerConfig: async () =>
+        ({
+          sheetId: "sheet_abc123",
+          mode: "hosted",
+          timezone: "UTC",
+          companies: [
+            { name: "Ramp", companyKey: "ramp", normalizedName: "ramp" },
+          ],
+          includeKeywords: [],
+          excludeKeywords: [],
+          targetRoles: [],
+          locations: [],
+          remotePolicy: "",
+          seniority: "",
+          maxLeadsPerRun: 25,
+          enabledSources: ["grounded_web"],
+          schedule: { enabled: false, cron: "" },
+          negativeCompanyKeys: ["acme", "notion", "figma"],
+          companyHistory: [
+            { name: "Notion", companyKey: "notion", normalizedName: "notion" },
+            { name: "Figma", companyKey: "figma", normalizedName: "figma" },
+          ],
+        }) as StoredWorkerConfig,
+      upsertStoredWorkerConfig: async (_runtimeConfig, input) => {
+        mutations = input.mutations;
+        return {} as StoredWorkerConfig;
+      },
+    },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(mutations?.negativeCompanyKeys, ["acme"]);
+  assert.deepEqual(
+    mutations?.companies?.map((company) => company.companyKey),
+    ["ramp", "notion", "figma"],
+  );
+  const body = JSON.parse(response.body) as {
+    ok: boolean;
+    restored: Array<{ companyKey: string }>;
+    negativeCompanyCount: number;
+  };
+  assert.equal(body.ok, true);
+  assert.deepEqual(
+    body.restored.map((c) => c.companyKey),
+    ["notion", "figma"],
+  );
+  assert.equal(body.negativeCompanyCount, 1);
+});
+
+test("POST /discovery-profile mode:unskip_company rejects empty key array", async () => {
+  const response = await handleDiscoveryProfileWebhook(
+    {
+      method: "POST",
+      headers: { "x-discovery-secret": "secret-xyz" },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_PROFILE_EVENT,
+        schemaVersion: DISCOVERY_PROFILE_SCHEMA_VERSION,
+        mode: "unskip_company",
+        unskipCompanyKeys: [],
+        sheetId: "sheet_abc123",
+      }),
+    },
+    {
+      runtimeConfig: makeRuntimeConfig(),
+      loadStoredWorkerConfig: async () => null,
+    },
+  );
+  assert.equal(response.status, 400);
+  assert.match(response.body, /unskipCompanyKeys must be a non-empty array/);
 });

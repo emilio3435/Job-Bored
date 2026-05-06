@@ -1196,9 +1196,9 @@ const server = createServer(async (request, response) => {
             path: requestPath,
             ...details,
           }),
-        // Default max duration for async runs is 5 minutes
+        // Default max duration for async runs is 12 minutes
         // This guarantees terminalization even if the run stalls
-        maxRunDurationMs: 5 * 60 * 1000,
+        maxRunDurationMs: 12 * 60 * 1000,
       },
     );
     logEvent("http.request.completed", {

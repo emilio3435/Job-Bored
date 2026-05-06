@@ -49,6 +49,8 @@ export type SerpApiCollectorInput = {
    */
   profile: {
     targetRoles: string[];
+    includeKeywords?: string[];
+    seniority?: string;
     locations: string[];
     remotePolicy: string;
   };
@@ -61,6 +63,8 @@ export type SerpApiCollectorInput = {
   queryTimeoutMs?: number;
   /** Results requested per query (SerpApi `num`). Defaults to 20. */
   resultsPerQuery?: number;
+  /** Optional deterministic seed (variation key) to rotate query subsets. */
+  querySeed?: string;
 };
 
 export type SerpApiListing = {
@@ -111,6 +115,7 @@ export async function collectSerpApiGoogleJobsListings(
 
   const queries = buildQueries(input.profile, {
     maxQueriesPerRun: input.maxQueriesPerRun ?? DEFAULT_MAX_QUERIES_PER_RUN,
+    querySeed: input.querySeed,
   });
   if (queries.length === 0) {
     input.log?.("discovery.run.serpapi_google_jobs_skipped", {
@@ -189,17 +194,93 @@ export async function collectSerpApiGoogleJobsListings(
 
 function buildQueries(
   profile: SerpApiCollectorInput["profile"],
-  options: { maxQueriesPerRun: number },
+  options: { maxQueriesPerRun: number; querySeed?: string },
 ): string[] {
+  const maxQueries = Math.max(1, options.maxQueriesPerRun || DEFAULT_MAX_QUERIES_PER_RUN);
   const locationSuffix = buildLocationSuffix(profile);
-  const roles = (profile.targetRoles || [])
-    .map((role) => String(role || "").trim())
-    .filter(Boolean)
-    .slice(0, Math.max(0, options.maxQueriesPerRun));
+  const includeKeywords = normalizeQueryKeywords(profile.includeKeywords || []);
+  let roles = expandRoleCandidates(profile.targetRoles || []);
+  if (roles.length === 0 && includeKeywords.length > 0) {
+    roles = deriveRolesFromKeywords(includeKeywords);
+  }
   if (roles.length === 0) return [];
-  return roles.map((role) =>
-    locationSuffix ? `${role} ${locationSuffix}` : role,
-  );
+  const queries: string[] = [];
+  const pushQuery = (value: string) => {
+    const query = String(value || "").trim();
+    if (!query) return;
+    const key = query.toLowerCase();
+    if (queries.some((existing) => existing.toLowerCase() === key)) return;
+    queries.push(query);
+  };
+
+  for (const role of roles) {
+    const broadenedRole = broadenRoleQuery(role);
+    const keywordFocus = includeKeywords.slice(0, 2);
+    const seniority = normalizeSeniority(profile.seniority || "");
+    if (locationSuffix) {
+      pushQuery(`${role} ${locationSuffix}`);
+      if (broadenedRole && broadenedRole.toLowerCase() !== role.toLowerCase()) {
+        pushQuery(`${broadenedRole} ${locationSuffix}`);
+      }
+      for (const keyword of keywordFocus) {
+        pushQuery(`${role} ${keyword} ${locationSuffix}`);
+      }
+      if (!locationLooksRemote(locationSuffix)) {
+        pushQuery(`${role} remote`);
+      }
+      if (seniority && !role.toLowerCase().includes(seniority)) {
+        pushQuery(`${seniority} ${role} ${locationSuffix}`);
+      }
+    } else {
+      // No explicit geo intent often leads to sparse Google Jobs responses for
+      // specific titles (for example, "Growth Marketing Manager"). Add a small
+      // bounded broadening ladder so SerpApi can still return candidates when
+      // Gemini is unavailable and this lane is the only discovery source.
+      pushQuery(`${role} remote`);
+      pushQuery(role);
+      if (broadenedRole && broadenedRole.toLowerCase() !== role.toLowerCase()) {
+        pushQuery(`${broadenedRole} remote`);
+        pushQuery(broadenedRole);
+      }
+      pushQuery(`${role} United States`);
+      for (const keyword of keywordFocus) {
+        pushQuery(`${role} ${keyword} remote`);
+        pushQuery(`${role} ${keyword}`);
+      }
+      if (seniority && !role.toLowerCase().includes(seniority)) {
+        pushQuery(`${seniority} ${role} remote`);
+      }
+    }
+    if (queries.length >= Math.max(maxQueries * 2, maxQueries)) break;
+  }
+
+  const ordered = applySeededQueryOrder(queries, options.querySeed);
+  return ordered.slice(0, maxQueries);
+}
+
+function broadenRoleQuery(role: string): string {
+  const raw = String(role || "").trim();
+  if (!raw) return "";
+  const normalized = raw.toLowerCase();
+  if (normalized.includes("growth marketing")) return "Marketing Manager";
+  if (normalized.includes("performance marketing")) return "Marketing Manager";
+  if (normalized.includes("product marketing")) return "Marketing Manager";
+  if (normalized.includes("lifecycle marketing")) return "Marketing Manager";
+  if (normalized.includes("digital marketing")) return "Marketing Manager";
+  if (normalized.includes("product manager")) return "Product Manager";
+  if (normalized.includes("program manager")) return "Program Manager";
+  if (normalized.includes("customer success")) return "Customer Success Manager";
+  if (normalized.includes("software engineer")) return "Software Engineer";
+  if (normalized.includes("data scientist")) return "Data Scientist";
+  if (normalized.includes("data analyst")) return "Data Analyst";
+  const stripped = raw
+    .replace(
+      /\b(senior|sr\.?|staff|principal|lead|junior|jr\.?|associate|global|strategic)\b/gi,
+      " ",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+  return stripped || raw;
 }
 
 function buildLocationSuffix(
@@ -213,6 +294,146 @@ function buildLocationSuffix(
   if (locations.length === 0) return "";
   if (locations.length === 1) return locations[0];
   return locations.join(" OR ");
+}
+
+function expandRoleCandidates(inputRoles: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (value: string) => {
+    const next = String(value || "").trim();
+    if (!next) return;
+    const key = next.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(next);
+  };
+  for (const value of inputRoles) {
+    const role = String(value || "").trim();
+    if (!role) continue;
+    push(role);
+    const normalized = role.toLowerCase();
+    if (normalized.includes("growth marketing")) {
+      push("Performance Marketing Manager");
+      push("Demand Generation Manager");
+      push("Lifecycle Marketing Manager");
+    } else if (normalized.includes("performance marketing")) {
+      push("Growth Marketing Manager");
+      push("Demand Generation Manager");
+    } else if (normalized.includes("product marketing")) {
+      push("Growth Marketing Manager");
+    } else if (normalized.includes("product manager")) {
+      push("Technical Product Manager");
+      push("Group Product Manager");
+    } else if (normalized.includes("software engineer")) {
+      push("Backend Engineer");
+      push("Platform Engineer");
+    } else if (normalized.includes("data scientist")) {
+      push("Machine Learning Engineer");
+      push("Data Engineer");
+    }
+  }
+  return out;
+}
+
+function deriveRolesFromKeywords(keywords: string[]): string[] {
+  const lower = keywords.map((value) => value.toLowerCase());
+  const out: string[] = [];
+  const push = (value: string) => {
+    if (!value) return;
+    if (out.some((entry) => entry.toLowerCase() === value.toLowerCase())) return;
+    out.push(value);
+  };
+  if (lower.some((value) => value.includes("marketing"))) {
+    push("Marketing Manager");
+  }
+  if (lower.some((value) => value.includes("product"))) {
+    push("Product Manager");
+  }
+  if (lower.some((value) => value.includes("engineer") || value.includes("platform"))) {
+    push("Software Engineer");
+  }
+  if (lower.some((value) => value.includes("data"))) {
+    push("Data Analyst");
+  }
+  if (lower.some((value) => value.includes("sales"))) {
+    push("Sales Manager");
+  }
+  if (lower.some((value) => value.includes("design"))) {
+    push("Product Designer");
+  }
+  return out;
+}
+
+function normalizeQueryKeywords(values: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of values || []) {
+    const segments = String(raw || "")
+      .split(/[,\n;]+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    for (const segment of segments) {
+      const key = segment.toLowerCase();
+      if (
+        key.length < 3 &&
+        !["ai", "ml", "ui", "ux"].includes(key)
+      ) {
+        continue;
+      }
+      if (isStopwordKeyword(key)) continue;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(segment);
+      if (out.length >= 8) return out;
+    }
+  }
+  return out;
+}
+
+function isStopwordKeyword(keyword: string): boolean {
+  return [
+    "the",
+    "and",
+    "for",
+    "with",
+    "from",
+    "team",
+    "role",
+    "jobs",
+    "job",
+    "manager",
+    "senior",
+    "staff",
+  ].includes(keyword);
+}
+
+function normalizeSeniority(input: string): string {
+  const value = String(input || "").trim().toLowerCase();
+  if (!value) return "";
+  if (value.includes("principal")) return "Principal";
+  if (value.includes("staff")) return "Staff";
+  if (value.includes("senior") || value === "sr") return "Senior";
+  if (value.includes("director")) return "Director";
+  if (value.includes("lead")) return "Lead";
+  if (value.includes("junior") || value.includes("entry")) return "Junior";
+  return "";
+}
+
+function locationLooksRemote(locationSuffix: string): boolean {
+  return /\bremote\b/i.test(String(locationSuffix || ""));
+}
+
+function applySeededQueryOrder(queries: string[], seed?: string): string[] {
+  if (!seed || queries.length <= 1) return queries.slice();
+  const value = String(seed || "").trim();
+  if (!value) return queries.slice();
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  const offset = hash % queries.length;
+  if (offset === 0) return queries.slice();
+  return [...queries.slice(offset), ...queries.slice(0, offset)];
 }
 
 type SerpApiJobsResult = {

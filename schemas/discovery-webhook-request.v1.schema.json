@@ -39,6 +39,12 @@
         "maxLeadsPerRun": { "type": "string" }
       }
     },
+    "companyAllowlist": {
+      "type": "array",
+      "maxItems": 500,
+      "description": "Optional. Per-run companyKey allowlist selected from the dashboard Companies picker. When present and non-empty, the worker restricts this run to matching stored companies/history entries after negative-list filtering. Empty or omitted preserves default behavior. Never persisted.",
+      "items": { "type": "string" }
+    },
     "googleAccessToken": {
       "type": "string",
       "description": "Optional. Google OAuth access token sent by the dashboard for this run only. When present, the worker uses it to call Google Sheets and skips its own service-account/OAuth-token configuration. Stripped from any persisted run record."

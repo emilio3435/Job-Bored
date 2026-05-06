@@ -100,6 +100,9 @@ class DiscoveryRunTracker {
         leadsWritten: Number.isFinite(parsed.leadsWritten)
           ? parsed.leadsWritten
           : 0,
+        leadsUpdated: Number.isFinite(parsed.leadsUpdated)
+          ? parsed.leadsUpdated
+          : 0,
       };
     } catch (_) {
       return this._idle();
@@ -136,6 +139,7 @@ class DiscoveryRunTracker {
       completedAt: "",
       companiesSeen: 0,
       leadsWritten: 0,
+      leadsUpdated: 0,
     };
   }
 
@@ -181,6 +185,7 @@ class DiscoveryRunTracker {
       completedAt: "",
       companiesSeen: 0,
       leadsWritten: 0,
+      leadsUpdated: 0,
     };
     this._persist(this._state);
     return this;
@@ -229,6 +234,9 @@ class DiscoveryRunTracker {
     }
     if (Number.isFinite(writeResult.appended)) {
       this._state.leadsWritten = writeResult.appended;
+    }
+    if (Number.isFinite(writeResult.updated)) {
+      this._state.leadsUpdated = writeResult.updated;
     }
     if (isTerminal) {
       this._state.status = runStatus; // completed | empty | partial | failed
@@ -647,10 +655,10 @@ function getOAuthClientId() {
 
 /** Optional POST target for &ldquo;Run discovery&rdquo; (browser-use worker / Hermes / n8n / Apps Script). */
 function getDiscoveryWebhookUrl() {
-  const cfg = getConfig();
-  const u = cfg && cfg.discoveryWebhookUrl;
-  if (!u || typeof u !== "string") return "";
-  const t = u.trim();
+  const cfg = window.COMMAND_CENTER_CONFIG || {};
+  const value = cfg.discoveryWebhookUrl;
+  if (!value || typeof value !== "string") return "";
+  const t = value.trim();
   return t.length > 0 ? t : "";
 }
 
@@ -660,10 +668,10 @@ function getDiscoveryWebhookUrl() {
  * on empty secrets (e.g. the browser-use worker) accept the request.
  */
 function getDiscoveryWebhookSecret() {
-  const cfg = getConfig();
-  const s = cfg && cfg.discoveryWebhookSecret;
-  if (!s || typeof s !== "string") return "";
-  const t = s.trim();
+  const cfg = window.COMMAND_CENTER_CONFIG || {};
+  const value = cfg.discoveryWebhookSecret;
+  if (!value || typeof value !== "string") return "";
+  const t = value.trim();
   return t.length > 0 ? t : "";
 }
 
@@ -2077,6 +2085,18 @@ async function refreshDiscoveryReadinessSnapshot(options = {}) {
   return next;
 }
 
+// Snapshot of the Run Discovery "Company targets" picker at the moment the
+// user clicks Run now. Consumed once by buildDiscoveryWebhookPayload so it
+// can't leak into unrelated runs (empty-state buttons, brief panel, etc.).
+// null = no per-run override; non-empty array = subset to send as
+// companyAllowlist. The modal binding in initDiscoveryPrefsModal sets this.
+let __discoveryPrefsPendingCompanyAllowlist = null;
+
+function setPendingDiscoveryCompanyAllowlist(allowlist) {
+  __discoveryPrefsPendingCompanyAllowlist =
+    Array.isArray(allowlist) && allowlist.length ? allowlist.slice() : null;
+}
+
 async function buildDiscoveryWebhookPayload(sheetIdOverride) {
   const resolvedSheetId =
     parseGoogleSheetId(String(sheetIdOverride || "")) || SHEET_ID || "";
@@ -2131,6 +2151,12 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride) {
     }
   }
   // ====== [/discovery-autodetect lane] ======
+  // Consume the per-run picker snapshot (set by the Run Discovery modal). We
+  // read-and-clear so a later unrelated Run doesn't inherit it. Keep the key
+  // on this object so the contract scanner sees the full v1 request shape;
+  // JSON.stringify drops undefined when the user didn't touch the picker.
+  const pendingAllowlist = __discoveryPrefsPendingCompanyAllowlist;
+  __discoveryPrefsPendingCompanyAllowlist = null;
   return {
     event: "command-center.discovery",
     schemaVersion: 1,
@@ -2138,6 +2164,10 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride) {
     variationKey: generateDiscoveryVariationKey(),
     requestedAt: new Date().toISOString(),
     discoveryProfile,
+    companyAllowlist:
+      Array.isArray(pendingAllowlist) && pendingAllowlist.length
+        ? pendingAllowlist.slice()
+        : undefined,
     googleAccessToken: dashboardGoogleAccessToken || undefined,
   };
 }
@@ -5557,12 +5587,53 @@ const STATUS_POLL_DEBOUNCE_MS = 500;
 function buildRunStatusUrl(statusPath, webhookUrl) {
   const path = String(statusPath || "").trim();
   if (!path) return "";
+  const hook = normalizeDiscoveryWebhookIdentity(webhookUrl);
+  const localRunStatusOrigin = (() => {
+    if (!hook || !isLikelyCloudflareWorkerUrl(hook)) return "";
+    let statusRoute = path;
+    if (path.startsWith("http://") || path.startsWith("https://")) {
+      try {
+        const absolute = new URL(path);
+        statusRoute = `${absolute.pathname}${absolute.search || ""}`;
+      } catch (_) {
+        statusRoute = path;
+      }
+    }
+    if (!/^\/runs\/[^/?#]+/i.test(statusRoute)) return "";
+
+    const snapshot = getDiscoveryReadinessSnapshot();
+    const localFromSnapshot = normalizeDiscoveryLocalWebhookUrl(
+      snapshot && snapshot.localWebhookUrl ? snapshot.localWebhookUrl : "",
+    );
+    const transport = getDiscoveryTransportSetupState();
+    const localFromTransport = normalizeDiscoveryLocalWebhookUrl(
+      transport && transport.localWebhookUrl ? transport.localWebhookUrl : "",
+    );
+    const localWebhook = localFromSnapshot || localFromTransport;
+    if (!localWebhook) return "";
+    try {
+      return new URL(localWebhook).origin;
+    } catch (_) {
+      return "";
+    }
+  })();
+
   try {
     if (path.startsWith("http://") || path.startsWith("https://")) {
-      return path;
+      const absolute = new URL(path);
+      if (localRunStatusOrigin && /^\/runs\/[^/?#]+/i.test(absolute.pathname)) {
+        return new URL(
+          `${absolute.pathname}${absolute.search || ""}`,
+          localRunStatusOrigin,
+        ).toString();
+      }
+      return absolute.toString();
     }
     const base = new URL(String(webhookUrl || ""));
     if (path.startsWith("/")) {
+      if (localRunStatusOrigin) {
+        return new URL(path, localRunStatusOrigin).toString();
+      }
       return new URL(path, base.origin).toString();
     }
     const baseDir = base.href.endsWith("/")
@@ -5665,7 +5736,7 @@ async function startDiscoveryStatusPolling(webhookUrl) {
       return;
     }
 
-    if (updated.isTerminal()) {
+    if (tracker.isTerminal()) {
       renderDiscoveryRunStatus();
       return;
     }
@@ -5692,6 +5763,30 @@ function stopDiscoveryStatusPolling() {
     clearTimeout(discoveryRunTracker._pollTimer);
     discoveryRunTracker._pollTimer = null;
   }
+}
+
+/**
+ * On page load, resume polling for any persisted in-flight run so refreshes
+ * don't leave the UI stuck in a stale "Running" state.
+ */
+function resumeDiscoveryStatusPollingFromStoredState() {
+  const tracker = discoveryRunTracker;
+  const state = tracker.getState();
+  if (!tracker.isActive()) return;
+  if (!state.runId || !state.statusPath) {
+    tracker.clear();
+    return;
+  }
+  const webhookUrl = normalizeDiscoveryWebhookIdentity(
+    state.webhookUrl || getDiscoveryWebhookUrl(),
+  );
+  if (!webhookUrl) {
+    // Keep state for now; once the user reconfigures webhook URL we'll resume.
+    renderDiscoveryRunStatus();
+    return;
+  }
+  renderDiscoveryRunStatus();
+  void startDiscoveryStatusPolling(webhookUrl);
 }
 
 /**
@@ -7307,7 +7402,6 @@ let pipelineRawRows = []; // Keep raw rows for row index mapping
 let currentSort = "fit";
 let currentSearch = "";
 let favoritesOnly = false;
-let showDismissed = false;
 let dataLoadFailed = false;
 let dashboardDataHydrated = false;
 let initialSheetAccessResolved = false;
@@ -9199,7 +9293,7 @@ async function triggerDiscoveryRun() {
     const keywordsInclude = (profile && profile.keywordsInclude || "").trim();
     if (!targetRoles && !keywordsInclude) {
       showToast(
-        "Add target roles or keywords to include, or use the AI Suggest tab to generate them.",
+        "Complete Run filters first: add target roles or keywords to include.",
         "warning",
         true,
       );
@@ -11516,6 +11610,10 @@ function renderRoleFactsHtml(job, variant = "card") {
 function groupByStage(data) {
   const byStage = new Map(STAGE_ORDER.map((s) => [s, []]));
   for (const job of data) {
+    if (job.dismissedAt) {
+      byStage.get("Passed").push(job);
+      continue;
+    }
     const raw = (job.status || "").trim();
     const key =
       STAGE_ORDER.find((s) => s.toLowerCase() === raw.toLowerCase()) || "New";
@@ -12260,7 +12358,6 @@ function attachBoardListeners() {
 function filterAndSortJobs(jobs, search, sort) {
   let data = [...jobs];
 
-  if (!showDismissed) data = data.filter((j) => !j.dismissedAt);
   if (favoritesOnly) data = data.filter((j) => j.favorite);
 
   if (search) {
@@ -14605,6 +14702,39 @@ function scheduleCandidateProfileMatchRefresh(shouldRender) {
   });
 }
 
+let postingLlmCredentialToastAt = 0;
+
+function isPostingLlmCredentialError(err) {
+  const message = String((err && err.message) || err || "").toLowerCase();
+  return (
+    message.includes("api key expired") ||
+    message.includes("renew the api key") ||
+    message.includes("invalid api key") ||
+    message.includes("permission_denied")
+  );
+}
+
+function formatPostingLlmError(err, fallback) {
+  if (isPostingLlmCredentialError(err)) {
+    return "AI insight unavailable: renew your API key in Settings > AI Providers.";
+  }
+  return (
+    String((err && err.message) || "").trim() ||
+    fallback ||
+    "AI insight failed"
+  );
+}
+
+function maybeShowPostingLlmCredentialToast() {
+  const now = Date.now();
+  if (now - postingLlmCredentialToastAt < 10_000) return;
+  postingLlmCredentialToastAt = now;
+  showToast(
+    "API key expired for posting insights. Update it in Settings > AI Providers.",
+    "error",
+  );
+}
+
 async function fetchJobPostingEnrichment(dataIndex) {
   const job = pipelineData[dataIndex];
   if (!job || !job.link) {
@@ -14684,8 +14814,12 @@ async function fetchJobPostingEnrichment(dataIndex) {
           extraKeywords: llm.extraKeywords,
         };
       } catch (e) {
-        console.warn("[JobBored] Posting LLM enrich:", e);
-        merged.llmError = e.message || "AI insight failed";
+        if (isPostingLlmCredentialError(e)) {
+          maybeShowPostingLlmCredentialToast();
+        } else {
+          console.warn("[JobBored] Posting LLM enrich:", e);
+        }
+        merged.llmError = formatPostingLlmError(e, "AI insight failed");
       }
     }
     job._postingEnrichment = merged;
@@ -14770,10 +14904,15 @@ async function fallbackEnrichmentFromSheetOnly(job, dataIndex, errMsg) {
         extraKeywords: llm.extraKeywords,
       };
     } catch (llmErr) {
-      console.warn("[JobBored] fallback LLM enrich:", llmErr);
-      merged.llmError =
-        (llmErr && llmErr.message) ||
-        "AI insight failed (source blocks scrapers).";
+      if (isPostingLlmCredentialError(llmErr)) {
+        maybeShowPostingLlmCredentialToast();
+      } else {
+        console.warn("[JobBored] fallback LLM enrich:", llmErr);
+      }
+      merged.llmError = formatPostingLlmError(
+        llmErr,
+        "AI insight failed (source blocks scrapers).",
+      );
     }
   }
   job._postingEnrichment = merged;
@@ -16491,6 +16630,8 @@ async function populateDiscoveryProfileIntoSettingsForm() {
   // Handle grounded_web checkbox
   const gwEl = document.getElementById("settingsDiscoveryGroundedWeb");
   if (gwEl) gwEl.checked = p.groundedWebEnabled !== false;
+  const preset = normalizeSourcePreset(p && p.sourcePreset ? p.sourcePreset : "");
+  syncSettingsSourcePresetUi(preset || "browser_plus_ats");
 }
 
 function populateCommandCenterSettingsForm() {
@@ -16531,6 +16672,14 @@ function populateCommandCenterSettingsForm() {
     err.textContent = "";
     err.style.display = "none";
   }
+  const settingsPresetEl = document.querySelector(
+    'input[name="settingsSourcePreset"]:checked',
+  );
+  syncSettingsSourcePresetUi(
+    settingsPresetEl
+      ? normalizeSourcePreset(settingsPresetEl.value)
+      : "browser_plus_ats",
+  );
   renderAppsScriptDeployUi();
 }
 
@@ -16760,6 +16909,12 @@ async function saveCommandCenterSettingsFromForm() {
       // Handle grounded_web checkbox
       const gwEl = document.getElementById("settingsDiscoveryGroundedWeb");
       const groundedWebEnabled = gwEl ? gwEl.checked : true;
+      const selectedPresetEl = document.querySelector(
+        'input[name="settingsSourcePreset"]:checked',
+      );
+      const sourcePreset = selectedPresetEl
+        ? normalizeSourcePreset(selectedPresetEl.value)
+        : "";
       await UC.saveDiscoveryProfile({
         targetRoles: val("settingsDiscoveryTargetRoles"),
         locations: val("settingsDiscoveryLocations"),
@@ -16769,6 +16924,7 @@ async function saveCommandCenterSettingsFromForm() {
         keywordsExclude: val("settingsDiscoveryKeywordsExclude"),
         maxLeadsPerRun: val("settingsDiscoveryMaxLeadsPerRun"),
         groundedWebEnabled,
+        sourcePreset,
       });
     } catch (e) {
       console.warn("[JobBored] save discovery profile:", e);
@@ -16971,6 +17127,27 @@ function initCommandCenterSettings() {
     .getElementById("settingsResumeProvider")
     ?.addEventListener("change", () => {
       updateSettingsProviderPanels();
+    });
+  document
+    .querySelectorAll('input[name="settingsSourcePreset"]')
+    .forEach((el) => {
+      el.addEventListener("change", () => {
+        const checked = document.querySelector(
+          'input[name="settingsSourcePreset"]:checked',
+        );
+        syncSettingsSourcePresetUi(
+          checked ? normalizeSourcePreset(checked.value) : "",
+        );
+      });
+    });
+  document
+    .getElementById("settingsSourcePresetUseBalancedBtn")
+    ?.addEventListener("click", () => {
+      const recommended = document.getElementById(
+        "settingsPresetBrowserPlusAts",
+      );
+      if (recommended) recommended.checked = true;
+      syncSettingsSourcePresetUi("browser_plus_ats");
     });
   document.getElementById("settingsSaveBtn")?.addEventListener("click", () => {
     void saveCommandCenterSettingsFromForm();
@@ -19001,7 +19178,7 @@ function init() {
     }, 200);
   });
 
-  // Pipeline filter chips — favorites-only + show-dismissed
+  // Pipeline filter chips — favorites-only
   const favChip = document.getElementById("favoritesOnlyChip");
   if (favChip) {
     favChip.addEventListener("click", () => {
@@ -19011,16 +19188,6 @@ function init() {
       renderPipeline();
     });
   }
-  const dismissedChip = document.getElementById("showDismissedChip");
-  if (dismissedChip) {
-    dismissedChip.addEventListener("click", () => {
-      showDismissed = !showDismissed;
-      dismissedChip.classList.toggle("active", showDismissed);
-      dismissedChip.setAttribute("aria-pressed", String(showDismissed));
-      renderPipeline();
-    });
-  }
-
   // Refresh
   document.getElementById("refreshBtn")?.addEventListener("click", () => {
     loadAllData();
@@ -19067,21 +19234,97 @@ function normalizeSourcePreset(raw) {
   return "";
 }
 
+const SOURCE_PRESET_GUIDANCE_COPY = Object.freeze({
+  browser_only: {
+    tradeoff:
+      "Browser-only maximizes net-new company discovery but can produce noisier leads. Best for widening your target universe quickly.",
+    recommendation:
+      "For most runs, Browser + ATS improves precision while still keeping broad coverage. Switch when you want stronger lead quality.",
+    showRecommendation: true,
+  },
+  ats_only: {
+    tradeoff:
+      "ATS-only favors structured, high-precision boards but may miss companies hiring outside major ATS ecosystems.",
+    recommendation: "",
+    showRecommendation: false,
+  },
+  browser_plus_ats: {
+    tradeoff:
+      "Browser + ATS balances breadth and precision. Expect wider coverage than ATS-only with fewer noisy leads than browser-only.",
+    recommendation: "",
+    showRecommendation: false,
+  },
+});
+
+function getSourcePresetGuidanceCopy(preset) {
+  const normalized = normalizeSourcePreset(preset) || "browser_plus_ats";
+  return (
+    SOURCE_PRESET_GUIDANCE_COPY[normalized] ||
+    SOURCE_PRESET_GUIDANCE_COPY.browser_plus_ats
+  );
+}
+
 /**
  * Sync the source preset radio-group UI in the discovery prefs modal to
  * reflect the given normalized preset value. Highlights the active option.
  * @param {"" | "browser_only" | "ats_only" | "browser_plus_ats"} preset
+ * @param {{
+ *   groupName?: string;
+ *   tradeoffId?: string;
+ *   recommendationId?: string;
+ *   recommendationTextId?: string;
+ * }} [opts]
  */
-function syncSourcePresetUi(preset) {
+function syncSourcePresetUi(preset, opts) {
   const VALID_PRESETS = ["browser_only", "ats_only", "browser_plus_ats"];
   const resolved = VALID_PRESETS.includes(preset) ? preset : "browser_plus_ats";
-  document.querySelectorAll('input[name="dpSourcePreset"]').forEach((el) => {
+  const groupName =
+    opts && typeof opts.groupName === "string" && opts.groupName.trim()
+      ? opts.groupName.trim()
+      : "dpSourcePreset";
+  const tradeoffId =
+    opts && typeof opts.tradeoffId === "string" && opts.tradeoffId.trim()
+      ? opts.tradeoffId.trim()
+      : "dpSourcePresetTradeoff";
+  const recommendationId =
+    opts &&
+    typeof opts.recommendationId === "string" &&
+    opts.recommendationId.trim()
+      ? opts.recommendationId.trim()
+      : "dpSourcePresetRecommendation";
+  const recommendationTextId =
+    opts &&
+    typeof opts.recommendationTextId === "string" &&
+    opts.recommendationTextId.trim()
+      ? opts.recommendationTextId.trim()
+      : "dpSourcePresetRecommendationText";
+  document.querySelectorAll(`input[name="${groupName}"]`).forEach((el) => {
     const isActive = el.value === resolved;
     el.checked = isActive;
     const option = el.closest(".dp-source-preset-option");
     if (option) {
       option.classList.toggle("dp-source-preset-option--active", isActive);
     }
+  });
+  const guidance = getSourcePresetGuidanceCopy(resolved);
+  const tradeoffEl = document.getElementById(tradeoffId);
+  if (tradeoffEl) tradeoffEl.textContent = guidance.tradeoff;
+  const recommendationEl = document.getElementById(recommendationId);
+  const recommendationTextEl = document.getElementById(recommendationTextId);
+  if (recommendationTextEl && guidance.recommendation) {
+    recommendationTextEl.textContent = guidance.recommendation;
+  }
+  if (recommendationEl) {
+    recommendationEl.hidden = !guidance.showRecommendation;
+  }
+}
+
+function syncSettingsSourcePresetUi(preset) {
+  syncSourcePresetUi(preset, {
+    groupName: "settingsSourcePreset",
+    tradeoffId: "settingsSourcePresetTradeoff",
+    recommendationId: "settingsSourcePresetRecommendation",
+    recommendationTextId: "settingsSourcePresetRecommendationText",
   });
 }
 
@@ -19159,6 +19402,9 @@ function openDiscoveryPrefsModal() {
     );
     syncSourcePresetUi(preset || "browser_plus_ats");
     modal.style.display = "flex";
+    if (typeof window.__JobBoredDiscoveryPrefsShowProfileCore === "function") {
+      window.__JobBoredDiscoveryPrefsShowProfileCore();
+    }
     const first = document.getElementById("dpTargetRoles");
     if (first) first.focus();
   });
@@ -19476,6 +19722,7 @@ function initDiscoveryPrefsModal() {
 
   const closeModal = () => {
     modal.style.display = "none";
+    resetPickerState();
   };
 
   if (cancelBtn) cancelBtn.addEventListener("click", closeModal);
@@ -19490,33 +19737,661 @@ function initDiscoveryPrefsModal() {
 
   /* ---- Tab switching ---- */
   const tabManual = document.getElementById("dpTabManual");
-  const tabAi = document.getElementById("dpTabAi");
+  const tabProfile = document.getElementById("dpTabProfile");
   const panelManual = document.getElementById("dpPanelManual");
   const panelAi = document.getElementById("dpPanelAi");
+  const panelProfile = document.getElementById("dpPanelProfile");
+  const aiAssistToggle = document.getElementById("dpAiAssistToggle");
+  const requirementManualStateEl = document.getElementById(
+    "dpRequirementManualState",
+  );
+  const requirementProfileStateEl = document.getElementById(
+    "dpRequirementProfileState",
+  );
+  const profileSummaryEl = document.getElementById("dpProfileSummary");
+  const profileErrorEl = document.getElementById("dpProfileError");
+  const profileRefreshBtn = document.getElementById("dpProfileRefreshBtn");
+  const profileOpenSettingsBtn = document.getElementById(
+    "dpProfileOpenSettingsBtn",
+  );
+  const pickerEl = document.getElementById("dpCompanyPicker");
+  const pickerListEl = document.getElementById("dpCompanyPickerList");
+  const pickerSummaryEl = document.getElementById("dpCompanyPickerSummary");
+  const pickerEmptyEl = document.getElementById("dpCompanyPickerEmpty");
+  const pickerSearchEl = document.getElementById("dpCompanySearch");
+  const pickerSelectAllEl = document.getElementById("dpCompanySelectAll");
+  const pickerClearEl = document.getElementById("dpCompanyClear");
+  const pickerRandomCountEl = document.getElementById("dpCompanyRandomCount");
+  const pickerRandomizeEl = document.getElementById("dpCompanyRandomize");
+  const pickerHistoryToggleEl = document.getElementById("dpCompanyShowHistory");
+  const pickerHistoryCountEl = document.getElementById("dpCompanyHistoryCount");
+  let profileBusy = false;
+  let profileLoadedOnce = false;
+  let pickerLibraryLoaded = false;
+  let pickerLibraryLoading = false;
+  let pickerLibrary = [];
+  let pickerActiveKeys = [];
+  let pickerSelection = new Set();
+  let pickerSearch = "";
+  let pickerShowHistory = false;
+  let pickerSearchTimer = null;
+  let latestProfileStatus = null;
+  let activeDiscoveryPrefsTab = "manual";
+
+  function getProfilePostEndpoint() {
+    const api = window.JobBoredSettingsProfileTab;
+    if (!api || typeof api !== "object") return null;
+    return typeof api.postProfileEndpoint === "function"
+      ? api.postProfileEndpoint.bind(api)
+      : null;
+  }
+
+  function manualIntentReady() {
+    const targetRoles = String(
+      (document.getElementById("dpTargetRoles") || {}).value || "",
+    ).trim();
+    const keywordsInclude = String(
+      (document.getElementById("dpKeywordsInclude") || {}).value || "",
+    ).trim();
+    return !!(targetRoles || keywordsInclude);
+  }
+
+  function profileTargetsReady() {
+    if (!latestProfileStatus || typeof latestProfileStatus !== "object") return false;
+    if (latestProfileStatus.hasStoredProfile !== true) return false;
+    const companyCount = Number(latestProfileStatus.companyCount);
+    return Number.isFinite(companyCount) && companyCount > 0;
+  }
+
+  function setRequirementState(el, state) {
+    if (!el) return;
+    const normalized = state === "complete" ? "complete" : "incomplete";
+    el.dataset.state = normalized;
+    el.textContent = normalized === "complete" ? "Complete" : "Incomplete";
+  }
+
+  function updateRequirementStates() {
+    setRequirementState(
+      requirementManualStateEl,
+      manualIntentReady() ? "complete" : "incomplete",
+    );
+    if (!latestProfileStatus) {
+      if (requirementProfileStateEl) {
+        requirementProfileStateEl.dataset.state = "incomplete";
+        requirementProfileStateEl.textContent = "Checking…";
+      }
+      return;
+    }
+    setRequirementState(
+      requirementProfileStateEl,
+      profileTargetsReady() ? "complete" : "incomplete",
+    );
+  }
+
+  function aiAssistEnabled() {
+    return !!(aiAssistToggle && aiAssistToggle.checked);
+  }
+
+  function syncAiPanelVisibility() {
+    const showAiPanel = activeDiscoveryPrefsTab === "manual" && aiAssistEnabled();
+    if (panelAi) {
+      panelAi.classList.toggle("dp-panel--active", showAiPanel);
+      panelAi.hidden = !showAiPanel;
+    }
+    if (showAiPanel) checkAiAvailability();
+  }
+
+  function setProfileError(message) {
+    if (!profileErrorEl) return;
+    if (!message) {
+      profileErrorEl.hidden = true;
+      profileErrorEl.textContent = "";
+      return;
+    }
+    profileErrorEl.hidden = false;
+    profileErrorEl.textContent = String(message || "");
+  }
+
+  function setProfileRefreshBusy(busy) {
+    profileBusy = !!busy;
+    if (!profileRefreshBtn) return;
+    profileRefreshBtn.disabled = profileBusy;
+    profileRefreshBtn.textContent = profileBusy
+      ? "Refreshing…"
+      : "Refresh companies";
+  }
+
+  function renderProfileSummary(status) {
+    if (!profileSummaryEl) return;
+    if (!status || typeof status !== "object") {
+      profileSummaryEl.innerHTML =
+        '<div class="dp-profile-summary__row"><span class="dp-profile-summary__label">Stored profile</span><span class="dp-profile-summary__value">Unavailable</span></div>';
+      return;
+    }
+    const stored = status.hasStoredProfile ? "Yes" : "No";
+    const companies = Number.isFinite(status.companyCount)
+      ? String(status.companyCount)
+      : "0";
+    const skipped = Number.isFinite(status.negativeCompanyCount)
+      ? String(status.negativeCompanyCount)
+      : "0";
+    const history = Number.isFinite(status.historyCompanyCount)
+      ? String(status.historyCompanyCount)
+      : "0";
+    const refreshed = status.lastRefreshAt
+      ? escapeHtml(String(status.lastRefreshAt))
+      : "Never";
+    profileSummaryEl.innerHTML =
+      '<div class="dp-profile-summary__row"><span class="dp-profile-summary__label">Stored profile</span><span class="dp-profile-summary__value">' +
+      escapeHtml(stored) +
+      "</span></div>" +
+      '<div class="dp-profile-summary__row"><span class="dp-profile-summary__label">Companies</span><span class="dp-profile-summary__value">' +
+      escapeHtml(companies) +
+      "</span></div>" +
+      '<div class="dp-profile-summary__row"><span class="dp-profile-summary__label">Skipped</span><span class="dp-profile-summary__value">' +
+      escapeHtml(skipped) +
+      "</span></div>" +
+      '<div class="dp-profile-summary__row"><span class="dp-profile-summary__label">History</span><span class="dp-profile-summary__value">' +
+      escapeHtml(history) +
+      "</span></div>" +
+      '<div class="dp-profile-summary__row"><span class="dp-profile-summary__label">Last refresh</span><span class="dp-profile-summary__value">' +
+      refreshed +
+      "</span></div>";
+  }
+
+  function getCompaniesTabApi() {
+    const api = window.JobBoredCompaniesTab;
+    return api && typeof api === "object" ? api : null;
+  }
+
+  function resetPickerState() {
+    pickerLibraryLoaded = false;
+    pickerLibraryLoading = false;
+    pickerLibrary = [];
+    pickerActiveKeys = [];
+    pickerSelection = new Set();
+    pickerSearch = "";
+    pickerShowHistory = false;
+    if (pickerSearchTimer) {
+      clearTimeout(pickerSearchTimer);
+      pickerSearchTimer = null;
+    }
+    if (pickerSearchEl) pickerSearchEl.value = "";
+    if (pickerHistoryToggleEl) {
+      pickerHistoryToggleEl.setAttribute("aria-expanded", "false");
+      pickerHistoryToggleEl.textContent = "";
+      pickerHistoryToggleEl.appendChild(document.createTextNode("Show history ("));
+      const countSpan = document.createElement("span");
+      countSpan.id = "dpCompanyHistoryCount";
+      countSpan.textContent = "0";
+      pickerHistoryToggleEl.appendChild(countSpan);
+      pickerHistoryToggleEl.appendChild(document.createTextNode(")"));
+    }
+    if (pickerEl) pickerEl.hidden = true;
+    if (pickerListEl) pickerListEl.innerHTML = "";
+    if (pickerSummaryEl) pickerSummaryEl.textContent = "";
+    if (pickerEmptyEl) {
+      pickerEmptyEl.hidden = true;
+      pickerEmptyEl.textContent = "";
+    }
+  }
+
+  function computeAllowlistSnapshot() {
+    // Return null when the selection matches "no override":
+    //   - library not loaded yet
+    //   - selection is empty (treat as "no intent" rather than "run nothing")
+    //   - selection equals the full active set
+    // Otherwise return the selected keys as an array, which the payload
+    // builder attaches as companyAllowlist.
+    if (!pickerLibraryLoaded) return null;
+    if (!pickerSelection || pickerSelection.size === 0) return null;
+    const active = pickerActiveKeys;
+    if (pickerSelection.size === active.length) {
+      let allMatch = true;
+      for (const key of active) {
+        if (!pickerSelection.has(key)) {
+          allMatch = false;
+          break;
+        }
+      }
+      if (allMatch) return null;
+    }
+    return Array.from(pickerSelection);
+  }
+
+  function updatePickerHistoryToggle() {
+    if (!pickerHistoryToggleEl) return;
+    const historyEntries = pickerLibrary.filter((c) => c.source === "history");
+    const count = historyEntries.length;
+    if (pickerHistoryCountEl) {
+      pickerHistoryCountEl.textContent = String(count);
+    } else {
+      const existing = pickerHistoryToggleEl.querySelector(
+        "#dpCompanyHistoryCount",
+      );
+      if (existing) existing.textContent = String(count);
+    }
+    pickerHistoryToggleEl.setAttribute(
+      "aria-expanded",
+      String(pickerShowHistory),
+    );
+    pickerHistoryToggleEl.disabled = count === 0 && !pickerShowHistory;
+  }
+
+  function renderPickerSummary() {
+    if (!pickerSummaryEl) return;
+    if (!pickerLibraryLoaded) {
+      pickerSummaryEl.textContent = "";
+      return;
+    }
+    const activeCount = pickerActiveKeys.length;
+    const selected = pickerSelection.size;
+    const historyTotal = pickerLibrary.filter((c) => c.source === "history").length;
+    const override = computeAllowlistSnapshot();
+    const base = `${selected} of ${activeCount} active selected`;
+    const historyPart = pickerShowHistory
+      ? ` · ${historyTotal} history shown`
+      : historyTotal
+        ? ` · ${historyTotal} in history`
+        : "";
+    const overridePart = override
+      ? " · per-run override active"
+      : " · using default active list";
+    pickerSummaryEl.textContent = base + historyPart + overridePart;
+  }
+
+  function renderPickerList() {
+    if (!pickerListEl) return;
+    const tab = getCompaniesTabApi();
+    const query = pickerSearch;
+    const base = pickerShowHistory
+      ? pickerLibrary
+      : pickerLibrary.filter((c) => c.source === "active");
+    const filtered =
+      tab && typeof tab.filterCompanies === "function"
+        ? tab.filterCompanies(base, query)
+        : base.filter((c) =>
+            String(c && c.name ? c.name : "")
+              .toLowerCase()
+              .includes(String(query || "").toLowerCase()),
+          );
+    const sorted =
+      tab && typeof tab.sortCompaniesByName === "function"
+        ? tab.sortCompaniesByName(filtered)
+        : filtered.slice();
+    if (!sorted.length) {
+      pickerListEl.innerHTML = "";
+      if (pickerEmptyEl) {
+        pickerEmptyEl.hidden = false;
+        if (!pickerLibrary.length) {
+          pickerEmptyEl.textContent =
+            "No companies loaded yet. Click Refresh companies to populate.";
+        } else if (query) {
+          pickerEmptyEl.textContent = "No companies match your search.";
+        } else if (!pickerShowHistory) {
+          pickerEmptyEl.textContent =
+            "No active companies — try Show history or refresh to rediscover.";
+        } else {
+          pickerEmptyEl.textContent = "No companies to show.";
+        }
+      }
+      return;
+    }
+    if (pickerEmptyEl) {
+      pickerEmptyEl.hidden = true;
+      pickerEmptyEl.textContent = "";
+    }
+    pickerListEl.innerHTML = sorted
+      .map((company) => {
+        const name = String((company && company.name) || "").trim();
+        const companyKey = String((company && company.companyKey) || "").trim();
+        const domains = Array.isArray(company && company.domains)
+          ? company.domains
+              .map((d) => String(d || "").trim())
+              .filter(Boolean)
+              .slice(0, 3)
+          : [];
+        const isChecked = companyKey && pickerSelection.has(companyKey);
+        const isHistory = company && company.source === "history";
+        const rowClass =
+          "dp-company-picker__row" +
+          (isHistory ? " dp-company-picker__row--history" : "");
+        const tagHtml = isHistory
+          ? '<span class="dp-company-picker__tag dp-company-picker__tag--history">History</span>'
+          : '<span class="dp-company-picker__tag">Active</span>';
+        const checkboxId = companyKey
+          ? `dpCompanyCheckbox-${escapeHtml(companyKey)}`
+          : "";
+        return (
+          `<li class="${rowClass}" data-company-key="${escapeHtml(companyKey)}">` +
+          `<input type="checkbox" class="dp-company-picker__checkbox" ` +
+          `id="${checkboxId}" ` +
+          `data-company-key="${escapeHtml(companyKey)}" ` +
+          (isChecked ? "checked " : "") +
+          (companyKey ? "" : "disabled ") +
+          "/>" +
+          `<label class="dp-company-picker__label"${
+            checkboxId ? ` for="${checkboxId}"` : ""
+          }>` +
+          `<span class="dp-company-picker__name">${escapeHtml(
+            name || "Unnamed company",
+          )}</span>` +
+          (domains.length
+            ? `<span class="dp-company-picker__domains">${escapeHtml(
+                domains.join(" · "),
+              )}</span>`
+            : "") +
+          "</label>" +
+          tagHtml +
+          "</li>"
+        );
+      })
+      .join("");
+  }
+
+  function renderPicker() {
+    updatePickerHistoryToggle();
+    renderPickerList();
+    renderPickerSummary();
+  }
+
+  async function loadPickerLibrary(options) {
+    const opts = options || {};
+    if (pickerLibraryLoading) return;
+    const post = getProfilePostEndpoint();
+    if (!post) {
+      setProfileError("Profile endpoint is not available. Reload and try again.");
+      return;
+    }
+    const tab = getCompaniesTabApi();
+    const sheetId = SHEET_ID || getSettingsSheetIdValue() || "";
+    if (!sheetId) {
+      setProfileError(
+        "Connect a sheet in Settings → Sheet before the company picker can load.",
+      );
+      return;
+    }
+    pickerLibraryLoading = true;
+    if (pickerEl) pickerEl.hidden = false;
+    if (!opts.silent && pickerSummaryEl) {
+      pickerSummaryEl.textContent = "Loading companies…";
+    }
+    try {
+      const data = await post(
+        { mode: "list_companies", sheetId: sheetId },
+        15_000,
+      );
+      if (!data || data.ok !== true) {
+        throw new Error(
+          (data && data.message) || "Could not load companies.",
+        );
+      }
+      const active = Array.isArray(data.active) ? data.active : [];
+      const history = Array.isArray(data.history) ? data.history : [];
+      const combined =
+        tab && typeof tab.buildCombinedLibrary === "function"
+          ? tab.buildCombinedLibrary({ active: active, history: history })
+          : active
+              .map((c) => Object.assign({}, c, { source: "active" }))
+              .concat(history.map((c) => Object.assign({}, c, { source: "history" })));
+      pickerLibrary = combined;
+      pickerActiveKeys = combined
+        .filter((c) => c.source === "active" && c.companyKey)
+        .map((c) => String(c.companyKey));
+      // Re-seed selection with active keys on fresh load. Preserves prior
+      // selection across a silent reload only if the caller asks; otherwise
+      // the user gets the "all active checked" default again.
+      if (!opts.preserveSelection) {
+        pickerSelection = new Set(pickerActiveKeys);
+      } else {
+        // Drop keys that no longer exist in the library after reload.
+        const validKeys = new Set(
+          combined.map((c) => String(c.companyKey || "")).filter(Boolean),
+        );
+        const next = new Set();
+        pickerSelection.forEach((key) => {
+          if (validKeys.has(key)) next.add(key);
+        });
+        pickerSelection = next;
+      }
+      pickerLibraryLoaded = true;
+      renderPicker();
+    } catch (err) {
+      setProfileError(
+        "Couldn't load companies: " +
+          (err && err.message ? err.message : String(err || "unknown error")),
+      );
+      if (pickerSummaryEl && !opts.silent) {
+        pickerSummaryEl.textContent = "";
+      }
+    } finally {
+      pickerLibraryLoading = false;
+    }
+  }
+
+  async function refreshProfileSummary() {
+    const post = getProfilePostEndpoint();
+    if (!post) {
+      latestProfileStatus = null;
+      renderProfileSummary(null);
+      setProfileError("Profile endpoint is not available. Reload and try again.");
+      updateRequirementStates();
+      return;
+    }
+    try {
+      const data = await post({ mode: "status" }, 10_000);
+      if (!data || data.ok !== true || !data.status) {
+        throw new Error(
+          (data && data.message) || "Could not load stored profile status.",
+        );
+      }
+      latestProfileStatus = data.status;
+      renderProfileSummary(data.status);
+      setProfileError("");
+      updateRequirementStates();
+      return data.status;
+    } catch (err) {
+      latestProfileStatus = null;
+      renderProfileSummary(null);
+      setProfileError(
+        "Couldn't load profile status: " +
+          (err && err.message ? err.message : String(err || "unknown error")),
+      );
+      updateRequirementStates();
+      return null;
+    }
+  }
+
+  async function refreshProfileCompanies() {
+    // "Refresh companies" still runs the heavyweight re-discovery on the
+    // backend (mode=refresh replays stored candidateProfile against Gemini).
+    // Then we reload the picker library so the user sees the updated set.
+    if (profileBusy) return;
+    const post = getProfilePostEndpoint();
+    if (!post) {
+      setProfileError("Profile endpoint is not available. Reload and try again.");
+      return;
+    }
+    setProfileRefreshBusy(true);
+    setProfileError("");
+    if (pickerSummaryEl) {
+      pickerSummaryEl.textContent = "Refreshing company shortlist…";
+    }
+    try {
+      const data = await post({ mode: "refresh" }, 180_000);
+      if (!data || data.ok !== true) {
+        throw new Error(
+          (data && data.message) || "Could not refresh company shortlist.",
+        );
+      }
+      await refreshProfileSummary();
+      await loadPickerLibrary({ silent: true });
+      if (data.fallback && data.fallback.reason) {
+        const detail =
+          typeof data.fallback.message === "string" ? data.fallback.message : "";
+        const companyCount = Array.isArray(data.companies)
+          ? data.companies.length
+          : 0;
+        if (companyCount <= 0) {
+          setProfileError(
+            detail ||
+              `No companies available right now (${data.fallback.reason.replace(
+                /_/g,
+                " ",
+              )}).`,
+          );
+        } else {
+          setProfileError("");
+        }
+      }
+    } catch (err) {
+      setProfileError(
+        "Couldn't refresh companies: " +
+          (err && err.message ? err.message : String(err || "unknown error")),
+      );
+    } finally {
+      setProfileRefreshBusy(false);
+    }
+  }
+
+  if (pickerListEl) {
+    pickerListEl.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!target || !target.matches || !target.matches(".dp-company-picker__checkbox")) {
+        return;
+      }
+      const companyKey = String(
+        target.getAttribute("data-company-key") || "",
+      ).trim();
+      if (!companyKey) return;
+      if (target.checked) {
+        pickerSelection.add(companyKey);
+      } else {
+        pickerSelection.delete(companyKey);
+      }
+      renderPickerSummary();
+    });
+  }
+
+  if (pickerSearchEl) {
+    pickerSearchEl.addEventListener("input", (event) => {
+      const value = event && event.target ? String(event.target.value || "") : "";
+      if (pickerSearchTimer) clearTimeout(pickerSearchTimer);
+      pickerSearchTimer = setTimeout(() => {
+        pickerSearch = value.trim();
+        renderPickerList();
+      }, 120);
+    });
+  }
+
+  if (pickerSelectAllEl) {
+    pickerSelectAllEl.addEventListener("click", () => {
+      pickerSelection = new Set(pickerActiveKeys);
+      renderPicker();
+    });
+  }
+
+  if (pickerClearEl) {
+    pickerClearEl.addEventListener("click", () => {
+      pickerSelection = new Set();
+      renderPicker();
+    });
+  }
+
+  if (pickerRandomizeEl) {
+    pickerRandomizeEl.addEventListener("click", () => {
+      const tab = getCompaniesTabApi();
+      if (!tab || typeof tab.pickRandomCompanies !== "function") return;
+      const raw = pickerRandomCountEl ? Number(pickerRandomCountEl.value) : 0;
+      const n = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+      if (n <= 0 || !pickerLibrary.length) return;
+      const picked = tab.pickRandomCompanies(pickerLibrary, n);
+      pickerSelection = new Set(
+        picked
+          .map((c) => String((c && c.companyKey) || ""))
+          .filter(Boolean),
+      );
+      renderPicker();
+    });
+  }
+
+  if (pickerHistoryToggleEl) {
+    pickerHistoryToggleEl.addEventListener("click", () => {
+      pickerShowHistory = !pickerShowHistory;
+      renderPicker();
+    });
+  }
+
+  if (profileRefreshBtn) {
+    profileRefreshBtn.addEventListener("click", () => {
+      void refreshProfileCompanies();
+    });
+  }
+
+  if (profileOpenSettingsBtn) {
+    profileOpenSettingsBtn.addEventListener("click", () => {
+      closeModal();
+      void openCommandCenterSettingsModal({ tab: "profile" });
+    });
+  }
 
   function switchTab(tab) {
-    const isManual = tab === "manual";
+    activeDiscoveryPrefsTab = tab === "profile" ? "profile" : "manual";
+    const isManual = activeDiscoveryPrefsTab === "manual";
+    const isProfile = activeDiscoveryPrefsTab === "profile";
     if (tabManual) {
       tabManual.classList.toggle("dp-tab--active", isManual);
       tabManual.setAttribute("aria-selected", String(isManual));
     }
-    if (tabAi) {
-      tabAi.classList.toggle("dp-tab--active", !isManual);
-      tabAi.setAttribute("aria-selected", String(!isManual));
+    if (tabProfile) {
+      tabProfile.classList.toggle("dp-tab--active", isProfile);
+      tabProfile.setAttribute("aria-selected", String(isProfile));
     }
     if (panelManual) {
       panelManual.classList.toggle("dp-panel--active", isManual);
       panelManual.hidden = !isManual;
     }
-    if (panelAi) {
-      panelAi.classList.toggle("dp-panel--active", !isManual);
-      panelAi.hidden = isManual;
+    if (panelProfile) {
+      panelProfile.classList.toggle("dp-panel--active", isProfile);
+      panelProfile.hidden = !isProfile;
     }
-    if (!isManual) checkAiAvailability();
+    syncAiPanelVisibility();
+    if (isProfile && !profileLoadedOnce) {
+      profileLoadedOnce = true;
+      void refreshProfileSummary();
+    }
+    if (isProfile && !pickerLibraryLoaded && !pickerLibraryLoading) {
+      void loadPickerLibrary();
+    }
+    updateRequirementStates();
   }
 
   if (tabManual) tabManual.addEventListener("click", () => switchTab("manual"));
-  if (tabAi) tabAi.addEventListener("click", () => switchTab("ai"));
+  if (tabProfile) tabProfile.addEventListener("click", () => switchTab("profile"));
+  if (aiAssistToggle) {
+    aiAssistToggle.addEventListener("change", () => {
+      syncAiPanelVisibility();
+    });
+  }
+  ["dpTargetRoles", "dpKeywordsInclude"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("input", () => {
+      updateRequirementStates();
+    });
+  });
+  window.__JobBoredDiscoveryPrefsShowProfileCore = () => {
+    profileLoadedOnce = false;
+    latestProfileStatus = null;
+    activeDiscoveryPrefsTab = "manual";
+    if (aiAssistToggle) aiAssistToggle.checked = false;
+    setProfileError("");
+    renderProfileSummary(null);
+    updateRequirementStates();
+    resetPickerState();
+    switchTab("manual");
+    void refreshProfileSummary();
+  };
 
   /* ---- AI availability check ---- */
   function checkAiAvailability() {
@@ -19539,6 +20414,13 @@ function initDiscoveryPrefsModal() {
         );
         syncSourcePresetUi(checked ? normalizeSourcePreset(checked.value) : "");
       });
+    });
+  document
+    .getElementById("dpSourcePresetUseBalancedBtn")
+    ?.addEventListener("click", () => {
+      const recommended = document.getElementById("dpPresetBrowserPlusAts");
+      if (recommended) recommended.checked = true;
+      syncSourcePresetUi("browser_plus_ats");
     });
 
   /* ---- Scrape job listing ---- */
@@ -19651,6 +20533,7 @@ function initDiscoveryPrefsModal() {
       copy("dpSuggestedSeniority", "dpSeniority");
       copy("dpSuggestedInclude", "dpKeywordsInclude");
       copy("dpSuggestedExclude", "dpKeywordsExclude");
+      updateRequirementStates();
       switchTab("manual");
       showToast("Suggestions applied to manual fields", "success");
     });
@@ -19701,12 +20584,27 @@ function initDiscoveryPrefsModal() {
 
       if (!finalTargetRoles && !finalKeywordsInclude) {
         showToast(
-          "Add target roles or keywords to include, or use the AI Suggest tab to generate them.",
+          "Complete Run filters: add target roles or include keywords. AI assist is optional.",
           "warning",
           true,
         );
-        // Switch to AI Suggest tab so user can generate suggestions
-        switchTab("ai");
+        switchTab("manual");
+        return;
+      }
+
+      if (!profileTargetsReady()) {
+        await refreshProfileSummary();
+      }
+      if (!profileTargetsReady()) {
+        setProfileError(
+          "Complete Company targets: refresh companies and keep at least one target company.",
+        );
+        showToast(
+          "Complete Company targets: keep at least one company before running discovery.",
+          "warning",
+          true,
+        );
+        switchTab("profile");
         return;
       }
 
@@ -19733,6 +20631,10 @@ function initDiscoveryPrefsModal() {
           sourcePreset,
         });
       }
+      // Capture the picker's current subset as the per-run allowlist BEFORE
+      // closeModal wipes the picker closure state. buildDiscoveryWebhookPayload
+      // consumes (read-and-clear) this snapshot on the next payload build.
+      setPendingDiscoveryCompanyAllowlist(computeAllowlistSnapshot());
       closeModal();
       const openBtn = document.getElementById("discoveryBtn");
       if (openBtn) {
@@ -20534,4 +21436,5 @@ document.addEventListener("DOMContentLoaded", () => {
   initPipelineEmptyAndBriefActions();
   initIngestUrlFlow();
   init();
+  resumeDiscoveryStatusPollingFromStoredState();
 });

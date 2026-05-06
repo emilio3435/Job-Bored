@@ -19,10 +19,11 @@
 | C | `Status` | `success` | Enum: `success` / `partial` / `failure`. |
 | D | `Duration (s)` | `47` | Integer seconds. |
 | E | `Companies Seen` | `12` | Integer. |
-| F | `Leads Written` | `3` | Integer — distinct new rows appended to Pipeline this run. |
-| G | `Source` | `worker@v0.4.1` | Free-form; worker sets. |
-| H | `Variation Key` | `gh-1234-abcd` | Existing concept from `DiscoveryWebhookRequestV1.variationKey`. |
-| I | `Error` | `timeout on acme.com` | Blank when `status=success`. Short (< 200 chars). |
+| F | `Leads New` | `3` | Integer — distinct new rows appended to Pipeline this run. |
+| G | `Leads Updated` | `10` | Integer — existing Pipeline rows updated this run. |
+| H | `Source` | `worker@v0.4.1` | Free-form; worker sets. |
+| I | `Variation Key` | `gh-1234-abcd` | Existing concept from `DiscoveryWebhookRequestV1.variationKey`. |
+| J | `Error` | `timeout on acme.com` | Blank when `status=success`. Short (< 200 chars). |
 
 Add a `PIPELINE_DEDUPE_HEADER`-style constant to `contracts.ts`:
 
@@ -34,7 +35,8 @@ export const DISCOVERY_RUNS_HEADER_ROW = [
   "Status",
   "Duration (s)",
   "Companies Seen",
-  "Leads Written",
+  "Leads New",
+  "Leads Updated",
   "Source",
   "Variation Key",
   "Error",
@@ -72,9 +74,9 @@ The three OS installer scripts (`templates/launchd/*.plist`, `scripts/windows/re
 
 **Where:** one row per completed discovery run, at each of these completion points:
 
-1. **`runDiscovery()`** (reference: `integrations/browser-use-discovery/src/run/run-discovery.ts`) — the primary Pipeline-writing path hit by POST `/discovery-webhook` (dashboard "Run discovery" button + GitHub Actions scheduled dispatch). `Leads Written` reflects `writeResult.appended`.
+1. **`runDiscovery()`** (reference: `integrations/browser-use-discovery/src/run/run-discovery.ts`) — the primary Pipeline-writing path hit by POST `/discovery-webhook` (dashboard "Run discovery" button + GitHub Actions scheduled dispatch). `Leads New` reflects `writeResult.appended`; `Leads Updated` reflects `writeResult.updated`.
 
-2. **`handleDiscoveryProfileWebhook()`** (reference: `integrations/browser-use-discovery/src/webhook/handle-discovery-profile.ts`) for `mode:"manual"` and `mode:"refresh"` completions — these are the enrichment paths hit by the UI's initial discovery setup and by local OS schedulers (launchd / systemd / Windows Task Scheduler). These paths extract a profile + refresh the stored company list via Gemini; they do **not** write Pipeline rows. Log them with `Leads Written: 0` so scheduled-local fires are still visible to the user.
+2. **`handleDiscoveryProfileWebhook()`** (reference: `integrations/browser-use-discovery/src/webhook/handle-discovery-profile.ts`) for `mode:"manual"` and `mode:"refresh"` completions — these are the enrichment paths hit by the UI's initial discovery setup and by local OS schedulers (launchd / systemd / Windows Task Scheduler). These paths extract a profile + refresh the stored company list via Gemini; they do **not** write Pipeline rows. Log them with `Leads New: 0` and `Leads Updated: 0` so scheduled-local fires are still visible to the user.
 
 The row is constructed via the shared `appendDiscoveryRunRow(sheetId, row)` helper that appends via the existing Sheets client (reusing the Pipeline writer's `resolveAccessToken`).
 
@@ -90,7 +92,8 @@ The row is constructed via the shared `appendDiscoveryRunRow(sheetId, row)` help
 
 | Column | `runDiscovery` path | `/discovery-profile` path |
 | --- | --- | --- |
-| `Leads Written` | `writeResult.appended` (real Pipeline count) | Always `0` — this endpoint enriches companies, it doesn't write leads. |
+| `Leads New` | `writeResult.appended` (real Pipeline count) | Always `0` — this endpoint enriches companies, it doesn't write leads. |
+| `Leads Updated` | `writeResult.updated` (real Pipeline row updates) | Always `0` — this endpoint enriches companies, it doesn't write leads. |
 | `Companies Seen` | `config.companies.length` | `companies.length` returned by `discoverCompaniesForProfile()`. |
 | `Source` | `discoveryRunsSource` (defaults to `worker`) | `worker@profile` (override via `discoveryRunsSource`). |
 | `Variation Key` | `request.variationKey` | `sheetId` as fallback (the endpoint has no variationKey concept). |
@@ -105,8 +108,8 @@ The row is constructed via the shared `appendDiscoveryRunRow(sheetId, row)` help
 
 ```js
 async function fetchDiscoveryRuns(sheetId) {
-  // GET ...values/DiscoveryRuns!A2:I?valueRenderOption=UNFORMATTED_VALUE
-  // Parse each row into { runAt, trigger, status, durationS, companiesSeen, leadsWritten, source, variationKey, error }.
+  // GET ...values/DiscoveryRuns!A2:J?valueRenderOption=UNFORMATTED_VALUE
+  // Parse each row into { runAt, trigger, status, durationS, companiesSeen, leadsWritten, leadsUpdated, source, variationKey, error }.
   // Return newest-first (sort descending by runAt).
 }
 ```
@@ -125,7 +128,7 @@ b. **Section inside Settings → Profile → Schedule**, below the three-tier la
 **Default recommendation:** (a) — the log is a primary user surface, not a setting.
 
 **Render:**
-- Sortable table, 9 columns matching the schema.
+- Sortable table, 10 columns matching the schema.
 - Default sort: newest first.
 - Client-side filter chips: trigger (All / Manual / Scheduled) + status (All / Success / Failure).
 - Empty state when tab is missing or row-less.

@@ -70,8 +70,8 @@ import {
   type ExploitSelectionResult,
 } from "./frontier-scorer.ts";
 
-// Default maximum run duration: 5 minutes
-const DEFAULT_MAX_RUN_DURATION_MS = 5 * 60 * 1000;
+// Default maximum run duration: 12 minutes
+const DEFAULT_MAX_RUN_DURATION_MS = 12 * 60 * 1000;
 // Default per-source (adapter) timeout: 60 seconds
 const DEFAULT_SOURCE_TIMEOUT_MS = 60 * 1000;
 // Default per-matcher timeout: 30 seconds
@@ -734,11 +734,14 @@ export async function runDiscovery(
       const serpResult = await collectSerpApiGoogleJobsListings({
         profile: {
           targetRoles: [...config.targetRoles],
+          includeKeywords: [...config.includeKeywords],
+          seniority: config.seniority,
           locations: [...config.locations],
           remotePolicy: config.remotePolicy,
         },
         runtimeConfig: dependencies.runtimeConfig,
         log: dependencies.log,
+        querySeed: request.variationKey || runId,
       });
       extractionResult.warnings.push(...serpResult.warnings);
       extractionResult.stats.leadsSeen = serpResult.rawListings.length;
@@ -1139,6 +1142,7 @@ export async function runDiscovery(
         durationS,
         companiesSeen: config.companies.length,
         leadsWritten: writeResult.appended,
+        leadsUpdated: writeResult.updated,
         source: dependencies.discoveryRunsSource || "worker",
         variationKey: request.variationKey || "",
         error: writeResult.writeError

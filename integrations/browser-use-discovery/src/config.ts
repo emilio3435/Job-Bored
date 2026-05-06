@@ -9,6 +9,7 @@ import {
   DISCOVERY_WEBHOOK_SCHEMA_VERSION,
   SOURCE_PRESET_VALUES,
   SUPPORTED_SOURCE_IDS,
+  type CandidateProfile,
   type CompanyTarget,
   type DiscoveryWebhookRequestV1,
   type EffectiveDiscoveryConfig,
@@ -18,6 +19,11 @@ import {
   type SupportedSourceId,
   type UltraPlanTuning,
 } from "./contracts.ts";
+import {
+  buildCompanyKeySet,
+  companyFilterKey,
+  filterSkippedCompanies,
+} from "./discovery/company-keys.ts";
 
 export type WorkerRuntimeConfig = {
   stateDatabasePath: string;
@@ -587,14 +593,26 @@ export function mergeDiscoveryConfig(
     resolvedSourcePreset,
     profile.groundedSearchTuning,
   );
-  const companies = filterSkippedCompanies(
+  let companies = filterSkippedCompanies(
     stored.companies,
     stored.negativeCompanyKeys,
   );
-  const atsCompanies = filterSkippedCompanies(
+  let atsCompanies = filterSkippedCompanies(
     stored.atsCompanies || [],
     stored.negativeCompanyKeys,
   );
+  if (request.companyAllowlist?.length) {
+    const allow = buildCompanyKeySet(request.companyAllowlist);
+    const historyMinusSkipped = filterSkippedCompanies(
+      stored.companyHistory,
+      stored.negativeCompanyKeys,
+    );
+    const pool = dedupeByCompanyKey([...companies, ...historyMinusSkipped]);
+    companies = pool.filter((company) => allow.has(companyFilterKey(company)));
+    atsCompanies = atsCompanies.filter((company) =>
+      allow.has(companyFilterKey(company))
+    );
+  }
 
   return {
     ...stored,
@@ -642,22 +660,20 @@ export function mergeDiscoveryConfig(
   };
 }
 
-function filterSkippedCompanies(
-  companies: readonly CompanyTarget[],
-  negativeCompanyKeys: readonly string[] | undefined,
-): CompanyTarget[] {
-  const blocked = new Set(
-    (negativeCompanyKeys || [])
-      .map((key) => cleanString(key).toLowerCase())
-      .filter(Boolean),
-  );
-  if (blocked.size === 0) return cloneCompanies(companies);
-  return cloneCompanies(companies).filter((company) => {
-    const key = cleanString(
-      company.companyKey || company.normalizedName || company.name,
-    ).toLowerCase();
-    return key ? !blocked.has(key) : true;
-  });
+function dedupeByCompanyKey(companies: readonly CompanyTarget[]): CompanyTarget[] {
+  const seen = new Set<string>();
+  const out: CompanyTarget[] = [];
+  for (const company of companies) {
+    const key = companyFilterKey(company);
+    if (!key) {
+      out.push(company);
+      continue;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(company);
+  }
+  return out;
 }
 
 export function normalizeSourceIdList(
@@ -815,6 +831,10 @@ function normalizeStoredWorkerConfig(
     : cleanString(raw.sourcePreset);
   const candidateProfile = normalizeCandidateProfile(raw.candidateProfile);
   const negativeCompanyKeys = normalizeStringList(raw.negativeCompanyKeys);
+  const seenCompanyKeys = dedupeStrings(
+    normalizeStringList(raw.seenCompanyKeys).map((key) => key.toLowerCase()),
+  );
+  const companyHistory = normalizeCompanies(raw.companyHistory);
   const lastRefreshAt = normalizeLastRefreshAt(raw.lastRefreshAt);
   return {
     sheetId: cleanString(raw.sheetId) || cleanString(sheetId),
@@ -841,6 +861,8 @@ function normalizeStoredWorkerConfig(
       : {}),
     ...(candidateProfile ? { candidateProfile } : {}),
     ...(negativeCompanyKeys.length > 0 ? { negativeCompanyKeys } : {}),
+    ...(seenCompanyKeys.length > 0 ? { seenCompanyKeys } : {}),
+    ...(companyHistory.length > 0 ? { companyHistory } : {}),
     ...(lastRefreshAt ? { lastRefreshAt } : {}),
   };
 }
@@ -889,9 +911,12 @@ function normalizeCandidateProfile(
   const rawForm = isPlainRecord(input.form)
     ? (input.form as AnyRecord)
     : undefined;
+  const derivedProfile = normalizeDerivedCandidateProfile(
+    (input as AnyRecord).derivedProfile,
+  );
   const updatedAt =
     typeof input.updatedAt === "string" ? input.updatedAt : undefined;
-  if (!resumeText && !rawForm && !updatedAt) return undefined;
+  if (!resumeText && !rawForm && !derivedProfile && !updatedAt) return undefined;
 
   let form: StoredWorkerConfig["candidateProfile"] extends { form?: infer F } ? F : never;
   form = undefined as typeof form;
@@ -923,8 +948,52 @@ function normalizeCandidateProfile(
   return {
     ...(resumeText ? { resumeText } : {}),
     ...(form ? { form } : {}),
+    ...(derivedProfile ? { derivedProfile } : {}),
     ...(updatedAt ? { updatedAt } : {}),
   };
+}
+
+function normalizeDerivedCandidateProfile(
+  input: unknown,
+): CandidateProfile | undefined {
+  if (!isPlainRecord(input)) return undefined;
+  const out: CandidateProfile = {
+    targetRoles: normalizeStringList(input.targetRoles),
+    skills: normalizeStringList(input.skills),
+    seniority: cleanString(input.seniority),
+    locations: normalizeStringList(input.locations),
+  };
+  const remotePolicy = cleanString(input.remotePolicy).toLowerCase();
+  if (remotePolicy === "remote" || remotePolicy === "hybrid" || remotePolicy === "onsite") {
+    out.remotePolicy = remotePolicy;
+  }
+  const industries = normalizeStringList(input.industries);
+  if (industries.length > 0) out.industries = industries;
+  const yearsOfExperience = parseOptionalNumber(input.yearsOfExperience);
+  if (typeof yearsOfExperience === "number") {
+    out.yearsOfExperience = yearsOfExperience;
+  }
+  if (
+    out.targetRoles.length === 0 &&
+    out.skills.length === 0 &&
+    (out.industries?.length ?? 0) === 0 &&
+    out.locations.length === 0 &&
+    !out.remotePolicy &&
+    !out.seniority &&
+    out.yearsOfExperience === undefined
+  ) {
+    return undefined;
+  }
+  return out;
+}
+
+function parseOptionalNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const n = Number.parseFloat(value.trim());
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
 }
 
 function normalizeLastRefreshAt(

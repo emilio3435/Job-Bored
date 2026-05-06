@@ -11,7 +11,7 @@ A beautiful, open-source job search dashboard powered by Google Sheets. Track ap
 - **Daily Brief** — two-column layout with at-a-glance counts, follow-ups, who you’re waiting on, and stuck applications ([details](SETUP.md#daily-brief-computed-in-the-dashboard))
 - **KPI bar** — total roles, hot leads, applied count, interview count, avg fit score
 - **Pipeline filters** — **Inbox** (New / Researching / unassigned) by default; stage pills for Applied, Interviewing, Negotiating
-- **Run discovery** — optional webhook in `config.js` so your agent (Hermes, n8n, etc.) runs another pass; POST includes `schemaVersion` and optional `discoveryProfile` from Settings ([AGENT_CONTRACT.md](AGENT_CONTRACT.md))
+- **Run discovery** — optional webhook in `config.js` so your agent (Hermes, n8n, etc.) runs another pass; POST includes `schemaVersion`, optional `discoveryProfile` from Settings, and optional per-run `companyAllowlist` from the company picker ([AGENT_CONTRACT.md](AGENT_CONTRACT.md))
 - **ATS LLM scorecard** — generated drafts now include structured ATS analysis (score, strengths, gaps, rewrite suggestions) via local server endpoint or webhook
 - **Last contact & reply** — optional columns R–S editable on each card when signed in
 - **Filter & search** — stage filters plus priority, sort by fit score/date/company, free-text search

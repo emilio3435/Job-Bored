@@ -104,7 +104,8 @@ test("collectSerpApiGoogleJobsListings happy path returns 3 listings with mapped
   assert.equal(result.listings.length, 3);
   assert.equal(result.rawListings.length, 3);
   assert.equal(result.warnings.length, 0);
-  assert.equal(result.stats.queryCount, 1);
+  assert.ok(result.stats.queryCount >= 1);
+  assert.ok(result.stats.queryCount <= 5);
   assert.equal(result.stats.httpFailureCount, 0);
   assert.equal(result.stats.listingCount, 3);
 
@@ -176,9 +177,10 @@ test("collectSerpApiGoogleJobsListings surfaces HTTP failures as warnings withou
     log: (event, details) => logSink.push([event, details]),
   });
   assert.deepEqual(result.listings, []);
-  assert.equal(result.stats.queryCount, 1);
-  assert.equal(result.stats.httpFailureCount, 1);
-  assert.deepEqual(result.warnings, ["http_429"]);
+  assert.ok(result.stats.queryCount >= 1);
+  assert.equal(result.stats.httpFailureCount, result.stats.queryCount);
+  assert.equal(result.warnings.length, result.stats.queryCount);
+  assert.ok(result.warnings.every((warning) => warning === "http_429"));
   assert.ok(
     logSink.some(([event]) => event === "discovery.run.serpapi_google_jobs_query_failed"),
     "query_failed event emitted",
@@ -199,6 +201,111 @@ test("collectSerpApiGoogleJobsListings handles empty jobs_results with no warnin
   assert.deepEqual(result.warnings, []);
   assert.equal(result.stats.queryCount, 1);
   assert.equal(result.stats.httpFailureCount, 0);
+});
+
+test("collectSerpApiGoogleJobsListings broadens no-location role queries to avoid zero-result dead ends", async () => {
+  const observedQueries: string[] = [];
+  const result = await collectSerpApiGoogleJobsListings({
+    profile: {
+      targetRoles: ["Growth Marketing Manager"],
+      locations: [],
+      remotePolicy: "",
+    },
+    runtimeConfig: makeRuntimeConfig(),
+    maxQueriesPerRun: 3,
+    fetchImpl: async (url: string | URL) => {
+      const value = typeof url === "string" ? url : url.toString();
+      const q = new URL(value).searchParams.get("q");
+      if (q) observedQueries.push(q);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ jobs_results: [] }),
+      } as Response;
+    },
+  });
+  assert.equal(result.stats.queryCount, 3);
+  assert.deepEqual(observedQueries, [
+    "Growth Marketing Manager remote",
+    "Growth Marketing Manager",
+    "Marketing Manager remote",
+  ]);
+});
+
+test("collectSerpApiGoogleJobsListings adds keyword-focused variants when includeKeywords are present", async () => {
+  const observedQueries: string[] = [];
+  const result = await collectSerpApiGoogleJobsListings({
+    profile: {
+      targetRoles: ["Growth Marketing Manager"],
+      includeKeywords: ["lifecycle", "paid media"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+    },
+    runtimeConfig: makeRuntimeConfig(),
+    maxQueriesPerRun: 3,
+    fetchImpl: async (url: string | URL) => {
+      const value = typeof url === "string" ? url : url.toString();
+      const q = new URL(value).searchParams.get("q");
+      if (q) observedQueries.push(q);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ jobs_results: [] }),
+      } as Response;
+    },
+  });
+  assert.equal(result.stats.queryCount, 3);
+  assert.deepEqual(observedQueries, [
+    "Growth Marketing Manager remote",
+    "Marketing Manager remote",
+    "Growth Marketing Manager lifecycle remote",
+  ]);
+});
+
+test("collectSerpApiGoogleJobsListings rotates query subset deterministically from querySeed", async () => {
+  const observedA: string[] = [];
+  const observedB: string[] = [];
+  const profile = {
+    targetRoles: ["Growth Marketing Manager"],
+    includeKeywords: ["lifecycle", "paid media"],
+    locations: ["Remote"],
+    remotePolicy: "remote",
+  } as const;
+  await collectSerpApiGoogleJobsListings({
+    profile,
+    runtimeConfig: makeRuntimeConfig(),
+    maxQueriesPerRun: 3,
+    querySeed: "a",
+    fetchImpl: async (url: string | URL) => {
+      const value = typeof url === "string" ? url : url.toString();
+      const q = new URL(value).searchParams.get("q");
+      if (q) observedA.push(q);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ jobs_results: [] }),
+      } as Response;
+    },
+  });
+  await collectSerpApiGoogleJobsListings({
+    profile,
+    runtimeConfig: makeRuntimeConfig(),
+    maxQueriesPerRun: 3,
+    querySeed: "b",
+    fetchImpl: async (url: string | URL) => {
+      const value = typeof url === "string" ? url : url.toString();
+      const q = new URL(value).searchParams.get("q");
+      if (q) observedB.push(q);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ jobs_results: [] }),
+      } as Response;
+    },
+  });
+  assert.equal(observedA.length, 3);
+  assert.equal(observedB.length, 3);
+  assert.notDeepEqual(observedA, observedB);
 });
 
 test("collectSerpApiGoogleJobsListings dedupes identical URLs across queries", async () => {
@@ -225,7 +332,8 @@ test("collectSerpApiGoogleJobsListings dedupes identical URLs across queries", a
     runtimeConfig: makeRuntimeConfig(),
     fetchImpl: fetchReturning(duplicatedJob),
   });
-  assert.equal(result.stats.queryCount, 2);
+  assert.ok(result.stats.queryCount >= 2);
+  assert.ok(result.stats.queryCount <= 5);
   assert.equal(result.listings.length, 1);
   assert.equal(result.rawListings.length, 1);
 });

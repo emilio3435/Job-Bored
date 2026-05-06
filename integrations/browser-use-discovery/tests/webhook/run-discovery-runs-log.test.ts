@@ -145,6 +145,7 @@ test("runDiscovery calls discoveryRunsLogger.append with a row matching the run 
   assert.equal(logged.row.durationS, 47);
   // No adapters produced leads → pipelineWriter is not called → appended=0.
   assert.equal(logged.row.leadsWritten, 0);
+  assert.equal(logged.row.leadsUpdated, 0);
   // No writer error, but the run emits warnings (because there were no
   // adapters), so the lifecycle resolves to "partial".
   assert.ok(

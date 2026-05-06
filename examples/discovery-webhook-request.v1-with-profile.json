@@ -13,5 +13,6 @@
     "keywordsExclude": "PHP, WordPress",
     "maxLeadsPerRun": "25",
     "groundedWebEnabled": true
-  }
+  },
+  "companyAllowlist": ["figma", "notion", "scale-ai"]
 }
