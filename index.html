@@ -200,6 +200,14 @@
                 >
                   Open Google Cloud Console
                 </button>
+                <button
+                  type="button"
+                  class="login-gate__btn-google doctor-gcloud-btn"
+                  id="sheetAccessGateOAuthGcloudBtn"
+                  hidden
+                >
+                  Create one for me with gcloud
+                </button>
 
                 <details class="login-gate__oauth-guide">
                   <summary class="login-gate__oauth-guide-summary">
@@ -571,6 +579,19 @@
                       style="margin-bottom: 8px;"
                     >
                       Run setup doctor
+                    </button>
+                    <button
+                      class="auth-user-menu__signout"
+                      id="setupHealthBtn"
+                      type="button"
+                      style="margin-bottom: 8px;"
+                    >
+                      <span>Setup health</span>
+                      <span
+                        class="doctor-keep-alive-pill"
+                        id="keepAlivePill"
+                        hidden
+                      ></span>
                     </button>
                     <button
                       class="auth-user-menu__signout"
