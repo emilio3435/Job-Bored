@@ -118,6 +118,19 @@ if (args[0] === "services" && args[1] === "list") {
   ]));
   process.exit(0);
 }
+// Worker A uses "gcloud iam oauth-clients create" (Workforce Identity
+// Federation OAuth client API). The legacy "iap oauth-clients" path is
+// kept here for backwards-compat with older swarms.
+if (args[0] === "iam" && args[1] === "oauth-clients" && args[2] === "create") {
+  // Resource id is positional arg [3] in Worker A's invocation.
+  const resourceId = args[3] || "qa-oauth-client";
+  console.log(JSON.stringify({
+    clientId: resourceId + ".apps.googleusercontent.com",
+    clientSecret: "qa-client-secret",
+    name: "projects/qa-project/locations/global/oauthClients/" + resourceId
+  }));
+  process.exit(0);
+}
 if (args[0] === "iap" && args[1] === "oauth-clients" && args[2] === "create") {
   console.log(JSON.stringify({
     clientId: "qa-oauth-client.apps.googleusercontent.com",
