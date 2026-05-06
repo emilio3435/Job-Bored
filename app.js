@@ -4367,6 +4367,49 @@ async function renderDiscoverySetupWizard() {
 }
 
 async function openDiscoverySetupWizard(options = {}) {
+  // ====== [discovery-autodetect lane: silent recover] ======
+  // Probe the local discovery stack BEFORE rendering the wizard. If
+  // everything is healthy, skip the wizard entirely. If the only problem
+  // is fixable (worker down, ngrok rotated, etc.), the autodetect module
+  // runs /__proxy/full-boot silently and re-probes. Only when human input
+  // is genuinely needed do we fall through to the wizard below.
+  //
+  // Module owns no UI. Endpoint contract locked in dev-server.mjs
+  // handleDiscoveryState header. Pass options.skipAutodetect to bypass.
+  if (
+    !options.skipAutodetect &&
+    typeof window !== "undefined" &&
+    window.JobBoredDiscoveryAutodetect &&
+    typeof window.JobBoredDiscoveryAutodetect.recoverIfPossible === "function"
+  ) {
+    try {
+      const verdict =
+        await window.JobBoredDiscoveryAutodetect.recoverIfPossible();
+      if (verdict && verdict.ready) {
+        // Belt-and-suspenders: greenfield users who land on a healthy
+        // discovery stack still need keep-alive installed so the next ngrok
+        // rotation doesn't break them. installKeepAliveOnce is idempotent
+        // (localStorage-gated), so running it here is safe even if the
+        // explicit "Fix tunnel" path also called it earlier.
+        if (typeof installKeepAliveOnce === "function") {
+          try {
+            installKeepAliveOnce();
+          } catch (_) {
+            /* never block the user on keep-alive bookkeeping */
+          }
+        }
+        if (typeof showToast === "function") {
+          showToast("Discovery is already set up.", "info");
+        }
+        return;
+      }
+    } catch (err) {
+      // Autodetect failure is never fatal — fall through to the wizard.
+      console.warn("[JobBored] discovery autodetect skipped:", err);
+    }
+  }
+  // ====== [/discovery-autodetect lane] ======
+
   // Remember if onboarding was showing so we can restore it after wizard closes
   const onboardingWasVisible = isOnboardingWizardVisible();
   if (onboardingWasVisible) {
