@@ -11622,6 +11622,66 @@ function groupByStage(data) {
   return byStage;
 }
 
+function getKanbanStage(job) {
+  const raw = (job.status || "").trim();
+  return STAGE_ORDER.find((s) => s.toLowerCase() === raw.toLowerCase()) || "New";
+}
+
+function getKanbanStageAge(job) {
+  const source =
+    job.statusChangedAt ||
+    job.lastUpdatedAt ||
+    job.addedAt ||
+    job.discoveredAt ||
+    job.dateFound;
+  if (!source) return "Age unknown";
+  const then = new Date(source);
+  if (Number.isNaN(then.getTime())) return "Age unknown";
+  const today = new Date();
+  const start = new Date(then.getFullYear(), then.getMonth(), then.getDate());
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const days = Math.max(0, Math.floor((end - start) / 86400000));
+  if (days === 0) return "Today";
+  if (days === 1) return "1 day";
+  return `${days} days`;
+}
+
+function getKanbanPrioritySignal(job) {
+  const priority = String(job.priority || "").trim();
+  const fitScore = Number.isFinite(job.fitScore) ? job.fitScore : null;
+  const fitText = fitScore != null ? `Fit ${fitScore}/10` : "Fit signal";
+  if (priority === "🔥") return { label: "Hot lead", meta: fitText, level: "hot" };
+  if (priority === "⚡") return { label: "Strong fit", meta: fitText, level: "high" };
+  if (priority === "↓") return { label: "Low priority", meta: fitText, level: "low" };
+  if (fitScore != null && fitScore >= 8)
+    return { label: "High fit", meta: fitText, level: "high" };
+  if (fitScore != null && fitScore <= 5)
+    return { label: "Needs review", meta: fitText, level: "low" };
+  return { label: "Qualified", meta: fitText, level: "mid" };
+}
+
+function getKanbanNextAction(stage) {
+  switch (stage) {
+    case "Researching":
+      return "Finish research";
+    case "Applied":
+      return "Follow up";
+    case "Phone Screen":
+      return "Schedule screen";
+    case "Interviewing":
+      return "Prep interview";
+    case "Offer":
+      return "Review offer";
+    case "Rejected":
+      return "Archive notes";
+    case "Passed":
+      return "Review decision";
+    case "New":
+    default:
+      return "Apply";
+  }
+}
+
 function renderKanbanCard(job, index) {
   const dataIndex = pipelineData.indexOf(job);
   const stableKey = dataIndex >= 0 ? dataIndex : index;
@@ -11629,6 +11689,11 @@ function renderKanbanCard(job, index) {
   const company = job.company || "Unknown Company";
   const roleFactsHtml = renderRoleFactsHtml(job, "kanban");
   const isViewed = viewedJobKeys.has(stableKey);
+  const stage = getKanbanStage(job);
+  const cssKey = stageToCssKey(stage);
+  const prioritySignal = getKanbanPrioritySignal(job);
+  const stageAge = getKanbanStageAge(job);
+  const nextAction = getKanbanNextAction(stage);
 
   // First 3 tags from the sheet Tags column
   const tagChips = job.tags
@@ -11636,19 +11701,21 @@ function renderKanbanCard(job, index) {
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean)
-        .slice(0, 3)
+        .slice(0, 2)
         .map((t) => `<span class="kanban-card__tag">${escapeHtml(t)}</span>`)
         .join("")
     : "";
 
-  const stageClass = `kanban-card--stage-${stageToCssKey((job.status || "new").trim() || "new")}`;
+  const stageClass = `kanban-card--stage-${cssKey}`;
   const isFavorite = !!job.favorite;
   const isDismissed = !!job.dismissedAt;
+  const isHighPriority = prioritySignal.level === "hot" || prioritySignal.level === "high";
   const cardModClasses = [
     stageClass,
     isViewed ? "kanban-card--viewed" : "",
     isFavorite ? "kanban-card--favorited" : "",
     isDismissed ? "kanban-card--dismissed" : "",
+    isHighPriority ? "kanban-card--priority" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -11677,8 +11744,17 @@ function renderKanbanCard(job, index) {
           <span class="kanban-card__company">${escapeHtml(company)}</span>
         </div>
       </div>
+      <div class="kanban-card__signal kanban-card__signal--${prioritySignal.level}">
+        <span class="kanban-card__signal-label">${escapeHtml(prioritySignal.label)}</span>
+        <span class="kanban-card__signal-meta">${escapeHtml(prioritySignal.meta)}</span>
+      </div>
       ${roleFactsHtml}
+      <div class="kanban-card__meta" aria-label="Pipeline position">
+        <span class="kanban-card__stage-pill kanban-card__stage-pill--${cssKey}">${escapeHtml(stage)}</span>
+        <span class="kanban-card__age">${escapeHtml(stageAge)}</span>
+      </div>
       ${tagChips ? `<div class="kanban-card__tags">${tagChips}</div>` : ""}
+      <span class="kanban-card__next-action">${escapeHtml(nextAction)}</span>
     </article>`;
 }
 
@@ -11701,7 +11777,7 @@ function renderStageLane(stage, jobs) {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
           <div class="stage-lane__track" id="track-${cssKey}">
-            ${jobs.map((job, i) => renderKanbanCard(job, i)).join("")}
+            ${jobs.length ? jobs.map((job, i) => renderKanbanCard(job, i)).join("") : `<div class="stage-lane__empty">No roles here yet</div>`}
           </div>
           <button type="button" class="stage-lane__nav stage-lane__nav--next" data-action="scroll-stage" data-dir="next" data-stage="${escapeHtml(stage)}" aria-label="Scroll right">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
@@ -11716,8 +11792,7 @@ function renderStageLane(stage, jobs) {
 
 function renderPipelineBoard(data) {
   const byStage = groupByStage(data);
-  const lanes = STAGE_ORDER.filter((stage) => byStage.get(stage).length > 0)
-    .map((stage) => renderStageLane(stage, byStage.get(stage)))
+  const lanes = STAGE_ORDER.map((stage) => renderStageLane(stage, byStage.get(stage)))
     .join("");
   return lanes ? `<div class="pipeline-board">${lanes}</div>` : "";
 }
@@ -12407,10 +12482,123 @@ function filterAndSortJobs(jobs, search, sort) {
   return data;
 }
 
+// --------------------------------------------------------------------
+// Pipeline header — editorial shell helpers (redesign-20260424T0742Z).
+// These helpers are referenced ONLY by renderPipeline() and update the
+// newsprint masthead issue + the §02 run-status pill. They subscribe to
+// the `jobbored:discovery-run-started` / `-finished` CustomEvents
+// dispatched by settings-profile-tab.js and consumed by runs-tab.js; we
+// do NOT re-dispatch those events.
+// --------------------------------------------------------------------
+
+let pipelineRunStatusWired = false;
+let pipelineRunStatusDoneTimer = null;
+
+/**
+ * Write "Vol. NN · Mon DD, YYYY" into the static masthead strip. Purely
+ * decorative editorial chrome; no data contract.
+ */
+function updateMastheadIssue() {
+  const el = document.getElementById("mastheadIssue");
+  if (!el) return;
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 0);
+  const dayOfYear = Math.floor((now - start) / 86400000);
+  const vol = Math.max(1, Math.ceil(dayOfYear / 14));
+  const datePart = now.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  el.textContent = `Vol. ${vol} \u00b7 ${datePart}`;
+}
+
+/**
+ * Format a "time ago" string from a Date, short-form.
+ * @param {Date} d
+ * @returns {string}
+ */
+function pipelineStatusRelative(d) {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return "\u2014";
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/**
+ * Update the run-status pill in the pipeline section header. Shows
+ * running/done/idle states. Idle reads the most-recent `dateFound` from
+ * `pipelineData` as a "last activity" proxy.
+ * @param {"idle"|"running"|"done"=} forceState
+ */
+function updatePipelineRunStatus(forceState) {
+  const pill = document.getElementById("pipelineRunStatus");
+  if (!pill) return;
+  const labelEl = pill.querySelector(".run-status-pill__label");
+  if (!labelEl) return;
+
+  if (forceState === "running") {
+    pill.setAttribute("data-state", "running");
+    labelEl.textContent = "Run in progress";
+    return;
+  }
+  if (forceState === "done") {
+    pill.setAttribute("data-state", "done");
+    labelEl.textContent = "Run complete";
+    if (pipelineRunStatusDoneTimer) clearTimeout(pipelineRunStatusDoneTimer);
+    pipelineRunStatusDoneTimer = setTimeout(() => {
+      updatePipelineRunStatus("idle");
+    }, 4000);
+    return;
+  }
+
+  // idle (default): surface staleness from pipelineData
+  let latest = null;
+  for (const j of pipelineData) {
+    const d = j && j.dateFound;
+    if (d instanceof Date && !Number.isNaN(d.getTime())) {
+      if (!latest || d.getTime() > latest.getTime()) latest = d;
+    }
+  }
+  pill.setAttribute("data-state", "idle");
+  labelEl.textContent = latest
+    ? `Last activity \u00b7 ${pipelineStatusRelative(latest)}`
+    : "No runs yet";
+}
+
+/**
+ * One-time subscription to discovery run events. Idempotent; no-op on
+ * subsequent calls so renderPipeline() can call it freely on re-render.
+ */
+function ensurePipelineRunStatusWired() {
+  if (pipelineRunStatusWired) return;
+  if (typeof document === "undefined" || !document.addEventListener) return;
+  document.addEventListener("jobbored:discovery-run-started", () => {
+    updatePipelineRunStatus("running");
+  });
+  document.addEventListener("jobbored:discovery-run-finished", () => {
+    updatePipelineRunStatus("done");
+  });
+  pipelineRunStatusWired = true;
+}
+
 function renderPipeline() {
   const container = document.getElementById("jobCards");
   const emptyState = document.getElementById("emptyState");
   const roleCountEl = document.getElementById("roleCount");
+
+  // Editorial shell: refresh masthead + run-status pill on every render
+  // so they track the current pipelineData snapshot. The subscription
+  // wiring is one-shot; re-renders are cheap.
+  updateMastheadIssue();
+  ensurePipelineRunStatusWired();
+  updatePipelineRunStatus();
 
   // Board view: apply only search+sort, stages shown as collapsible lanes
   const data = filterAndSortJobs(pipelineData, currentSearch, currentSort);
