@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&family=Lora:ital,wght@0,400;0,600;1,400&family=Source+Sans+3:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;0,9..144,900;1,9..144,400;1,9..144,500;1,9..144,900&family=JetBrains+Mono:wght@400;500;600&family=Lora:ital,wght@0,400;0,600;1,400&family=Source+Sans+3:wght@400;500;600;700&family=Special+Elite&display=swap"
       rel="stylesheet"
     />
     <script src="https://accounts.google.com/gsi/client" async></script>
@@ -302,6 +302,17 @@
 
     <!-- Dashboard (shown when config is valid) -->
     <div class="dashboard" id="dashboard" style="display: none">
+      <!-- Editorial masthead strip (JobBored newsprint zone).
+           Typewriter items are static branding; `#mastheadIssue` is set by
+           renderPipeline() from the current date so the vol/issue reads like
+           a daily paper without introducing new data. -->
+      <div class="masthead-strip" role="presentation" aria-hidden="true">
+        <span class="masthead-strip__item">&sect; 00 &middot; Index</span>
+        <span class="masthead-strip__sep" aria-hidden="true">&middot;</span>
+        <span class="masthead-strip__item">JobBored command center</span>
+        <span class="masthead-strip__sep" aria-hidden="true">&middot;</span>
+        <span class="masthead-strip__item" id="mastheadIssue">Vol. 26</span>
+      </div>
       <!-- Top Bar -->
       <header class="top-bar">
         <div class="top-bar-left">
@@ -651,19 +662,14 @@
       <section class="command-strip daily-brief-panel" aria-label="Overview">
         <div class="brief-hero">
           <div class="brief-hero__left">
-            <h2 class="section-title" id="heading-daily-brief">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--accent)"
-                stroke-width="2"
-                aria-hidden="true"
-              >
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-              </svg>
-              Daily Brief
+            <span class="editorial-eyebrow" aria-hidden="true">
+              <span class="editorial-eyebrow__num">&sect; 01</span>
+              <span class="editorial-eyebrow__rule"></span>
+              <span class="editorial-eyebrow__kicker">Today's plan</span>
+            </span>
+            <h2 class="section-title section-title--editorial" id="heading-daily-brief">
+              <span class="section-title__lead">Daily</span>
+              <span class="section-title__italic">brief.</span>
             </h2>
             <span class="brief-hero__date" id="briefDate"></span>
           </div>
@@ -748,9 +754,33 @@
           id="pipelineSection"
           aria-labelledby="heading-pipeline"
         >
-          <div class="section-header">
-            <h2 class="section-title" id="heading-pipeline">Pipeline</h2>
-            <span class="role-count" id="roleCount"></span>
+          <div class="section-header section-header--editorial">
+            <div class="section-header__intro">
+              <span class="editorial-eyebrow" aria-hidden="true">
+                <span class="editorial-eyebrow__num">&sect; 02</span>
+                <span class="editorial-eyebrow__rule"></span>
+                <span class="editorial-eyebrow__kicker">Board health</span>
+              </span>
+              <h2 class="section-title section-title--editorial" id="heading-pipeline">
+                <span class="section-title__lead">Your</span>
+                <span class="section-title__italic">pipeline.</span>
+              </h2>
+            </div>
+            <div class="section-header__meta">
+              <!-- Discovery run status pill. Subscribes to
+                   jobbored:discovery-run-started / -finished from runs-tab.js
+                   (no re-dispatch). State set by renderPipeline(). -->
+              <span
+                class="run-status-pill"
+                id="pipelineRunStatus"
+                data-state="idle"
+                aria-live="polite"
+              >
+                <span class="run-status-pill__dot" aria-hidden="true"></span>
+                <span class="run-status-pill__label">Last run &mdash;</span>
+              </span>
+              <span class="role-count" id="roleCount"></span>
+            </div>
           </div>
 
           <!-- URL paste hero: primary action to add a single known job -->
