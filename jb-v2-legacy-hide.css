@@ -1,0 +1,130 @@
+/* ============================================================
+   jb-v2-legacy-hide.css — JobBored v2 redesign (Phase 4)
+   ------------------------------------------------------------
+   Owner:    Conductor (Phase 4 close-out)
+   Purpose:  Hide the legacy in-app chrome when body.jb-v2 is
+             set, so the four v2 region hosts (Dawn / Lattice /
+             Scribe / Welcome) own the viewport.
+
+   Scope:    All rules are scoped under `body.jb-v2`. With the
+             flag OFF this file is a no-op and the legacy UI
+             renders byte-for-byte unchanged.
+
+   Intentional non-targets (left visible at all times):
+     - #setupScreen      — pre-app config gate
+     - #sheetAccessGate* — pre-app login / OAuth gate
+     - .settings-modal*  — settings modal owns its own chrome
+                           (the v2 toggle lives inside it)
+     - .toast-stack      — global toasts apply to both surfaces
+     - .modal-overlay    — generic modal overlays apply to both
+
+   What hides:
+     - .command-strip.daily-brief-panel — Dawn replaces it.
+     - main.main-content — Lattice + Scribe replace it.
+
+   What stays:
+     - #dashboard itself (its inline display: flex stays in
+       force so the page is mounted).
+     - #dashboard > .top-bar — keeps the settings gear, auth
+       avatar, and toolbar reachable. Without this the user
+       cannot get back to the toggle.
+   ============================================================ */
+
+body.jb-v2 #dashboard > .command-strip.daily-brief-panel,
+body.jb-v2 #dashboard > main.main-content {
+  display: none !important;
+}
+
+/* Welcome host is empty when not in onboarding/empty mode —
+   collapse it so it doesn't take page real estate. */
+body.jb-v2 [data-region="welcome"]:not([data-mode]) {
+  display: none;
+}
+
+/* ────────────────────────────────────────────────────────────
+   Gate v2 regions on auth.
+   The four region hosts sit at the top of <body>, ABOVE the
+   pre-app gates (#setupScreen, #sheetAccessGateScreen) and
+   #dashboard. If we let them render before sign-in, empty-state
+   Dawn / Lattice cover the gates and the user can't reach the
+   top-bar / settings gear to flip the toggle.
+   Solution: only show v2 regions when #dashboard is visible
+   (i.e. app.js has run the post-auth path that sets
+   #dashboard.style.display to "block" / "flex").
+   Default: hide all four regions.
+   ──────────────────────────────────────────────────────────── */
+body.jb-v2 [data-region="dawn"],
+body.jb-v2 [data-region="lattice"],
+body.jb-v2 [data-region="scribe"],
+body.jb-v2 [data-region="welcome"] {
+  display: none !important;
+}
+
+/* Only when the legacy #dashboard is mounted (post-auth) do
+   the v2 regions take over. Each region's own CSS owns its
+   layout once revealed. :has() is supported in all modern
+   browsers (2023+). */
+body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="dawn"],
+body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="lattice"],
+body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="scribe"] {
+  display: block !important;
+}
+
+/* Welcome only renders for genuine first-run ONBOARDING.
+   The "empty pipeline" state is owned by Dawn (inline headline
+   in the Daily Brief). Showing Welcome's full-bleed overlay for
+   every empty-pipeline session would cover Dawn + the top-bar
+   and trap the user. */
+body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="welcome"][data-mode="onboarding"] {
+  display: flex !important;
+}
+
+/* ────────────────────────────────────────────────────────────
+   Phase 2.E — Flowing-layout extras (Droid 2.E)
+   ------------------------------------------------------------
+   When body.jb-v2 is set, additionally hide the legacy
+   pipeline kanban surface and the legacy modal cover-letter
+   authoring UI so the flowing-page sections own the screen.
+
+   Belt-and-suspenders against the pre-existing
+   `body.jb-v2 #dashboard > main.main-content` rule above:
+   the kanban is rendered by app.js as `.pipeline-board`
+   inside `#pipelineSection` inside `main.main-content`, so the
+   parent rule already hides it. We hide the inner containers
+   explicitly as well in case future markup hoists them out
+   of `.main-content` (e.g. a portal/teleport refactor) and to
+   make intent obvious to readers.
+
+   The legacy cover-letter authoring surface is the
+   `#resumeGenerateModal` overlay (`.modal-overlay.doc-output-modal`).
+   Scribe (region:scribe) replaces it. Hidden whenever
+   body.jb-v2 is set — the legacy modal must never co-exist with
+   Scribe, since both bind to the same #resumeGenerate* ids.
+
+   Intentional non-targets (still visible under body.jb-v2):
+     - .top-bar — settings gear / auth must stay reachable
+       (already preserved by the upstream rule).
+     - #setupScreen, #sheetAccessGate* — pre-app gates.
+     - .modal-overlay (generic) — other modals (settings,
+       discovery setup, profile, etc.) keep working.
+   ──────────────────────────────────────────────────────────── */
+body.jb-v2 #pipelineSection,
+body.jb-v2 .pipeline-board,
+body.jb-v2 #resumeGenerateModal {
+  display: none !important;
+}
+
+/* ────────────────────────────────────────────────────────────
+   Flowing-page activation gate
+   ------------------------------------------------------------
+   The flowing-page sections (page chrome, Brief / Pipeline /
+   Letter wrappers shipped by the other Phase 2 droids) only
+   render when BOTH `body.jb-v2` and `body.flowing` are set.
+   Off-flag = legacy untouched. v2-on without flowing keeps
+   today's region behavior (Dawn / Lattice / Scribe / Welcome)
+   exactly as Phase 3 shipped it.
+
+   This file does not own the flowing-page styling itself —
+   that lives in flowing-chrome.css and the per-section CSS the
+   other 2.x droids ship. We only document the contract here.
+   ──────────────────────────────────────────────────────────── */
