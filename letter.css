@@ -1,0 +1,429 @@
+/* ============================================================
+   letter.css — JobBored v2 Letter editor + ATS scorecard
+   ------------------------------------------------------------
+   Scope:    body.jb-v2 [data-region="letter"]
+   Tokens:   --jb-* only.
+   ============================================================ */
+
+/* Region only renders when v2 flag is on. */
+body:not(.jb-v2) [data-region="letter"] { display: none; }
+
+body.jb-v2 [data-region="letter"] {
+  display: block;
+  margin-block: var(--space-6, 24px);
+  padding-inline: var(--space-4, 16px);
+  font-family: var(--jb-font-body);
+  color: var(--jb-ink);
+}
+
+/* --- Empty state --------------------------------------------- */
+body.jb-v2 [data-region="letter"] .jb-letter-empty {
+  display: grid;
+  gap: var(--space-2, 8px);
+  padding: var(--space-6, 24px);
+  background: var(--jb-paper);
+  border: 1px dashed var(--jb-line-soft);
+  border-radius: var(--jb-radius-lg);
+  max-width: 64ch;
+  margin: 0 auto;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-empty__eyebrow {
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3);
+  margin: 0;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-empty__headline {
+  font-family: var(--jb-font-display);
+  font-size: var(--jb-text-2xl);
+  color: var(--jb-navy);
+  margin: 0;
+  text-wrap: pretty;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-empty__caption {
+  color: var(--jb-ink-2);
+  margin: 0;
+  font-size: var(--jb-text-sm);
+}
+
+/* --- Header strip -------------------------------------------- */
+body.jb-v2 [data-region="letter"] .jb-letter-head {
+  display: grid;
+  gap: var(--space-1, 4px);
+  margin-block-end: var(--space-4, 16px);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-eyebrow {
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3);
+  margin: 0;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-headline {
+  font-family: var(--jb-font-display);
+  font-size: var(--jb-text-3xl);
+  line-height: 1.05;
+  color: var(--jb-navy);
+  margin: 0;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-headline__co {
+  color: var(--jb-mint-deep);
+  font-style: normal;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  margin: 0;
+  color: var(--jb-ink-3);
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.06em;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-meta__sep { opacity: 0.6; }
+
+/* Save dot */
+body.jb-v2 [data-region="letter"] .jb-letter-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-save__dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--jb-mint);
+  box-shadow: 0 0 0 0 rgba(95, 203, 142, 0.7);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-save[data-save-state="dirty"]  .jb-letter-save__dot { background: var(--jb-amber); }
+body.jb-v2 [data-region="letter"] .jb-letter-save[data-save-state="saving"] .jb-letter-save__dot {
+  background: var(--jb-amber);
+  animation: jb-letter-pulse 1.1s infinite;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-save[data-save-state="saved"]  .jb-letter-save__dot {
+  background: var(--jb-mint);
+  animation: jb-letter-pulse 1.6s ease-out 1;
+}
+@keyframes jb-letter-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(95, 203, 142, 0.6); }
+  70%  { box-shadow: 0 0 0 8px rgba(95, 203, 142, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(95, 203, 142, 0); }
+}
+
+/* --- Two-pane grid ------------------------------------------- */
+body.jb-v2 [data-region="letter"] .jb-letter-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr);
+  gap: var(--space-5, 20px);
+  align-items: start;
+}
+@media (max-width: 1024px) {
+  body.jb-v2 [data-region="letter"] .jb-letter-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Editor pane --------------------------------------------- */
+body.jb-v2 [data-region="letter"] .jb-letter-editor-pane {
+  display: block;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-editor-frame {
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-lg);
+  box-shadow: var(--jb-shadow-card);
+  padding: var(--space-5, 20px) var(--space-6, 24px);
+  min-height: 540px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-editor {
+  outline: none;
+  min-height: 480px;
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-base);
+  line-height: 1.7;
+  color: var(--jb-ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-editor:focus-visible {
+  box-shadow: var(--jb-shadow-focus);
+  border-radius: var(--jb-radius-sm);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-editor p:first-child,
+body.jb-v2 [data-region="letter"] .jb-letter-editor:first-line {
+  /* Caveat for the salutation feel — applied to first line only. */
+}
+body.jb-v2 [data-region="letter"] .jb-letter-editor p:first-child {
+  font-family: var(--jb-font-display);
+  font-size: var(--jb-text-2xl);
+  color: var(--jb-navy);
+  margin: 0 0 var(--space-3, 12px) 0;
+  line-height: 1.1;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-editor p {
+  margin: 0 0 var(--space-3, 12px) 0;
+}
+
+/* --- Scorecard pane ------------------------------------------ */
+body.jb-v2 [data-region="letter"] .jb-letter-scorecard {
+  display: grid;
+  gap: var(--space-4, 16px);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3, 12px);
+}
+@media (max-width: 720px) {
+  body.jb-v2 [data-region="letter"] .jb-letter-score-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+body.jb-v2 [data-region="letter"] .jb-letter-score {
+  display: grid;
+  gap: 4px;
+  padding: var(--space-3, 12px);
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-md);
+  box-shadow: var(--jb-shadow-sticker);
+  min-height: 96px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score__label {
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score__value {
+  font-family: var(--jb-font-display);
+  font-size: var(--jb-text-2xl);
+  color: var(--jb-navy);
+  line-height: 1;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score__bar {
+  position: relative;
+  height: 6px;
+  background: var(--jb-paper-2);
+  border-radius: var(--jb-radius-pill);
+  overflow: hidden;
+  margin-block: 4px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score__bar-fill {
+  position: absolute; inset: 0 auto 0 0;
+  background: var(--jb-mint);
+  border-radius: var(--jb-radius-pill);
+  transition: width 220ms ease;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score__bar-target {
+  position: absolute; top: 0; bottom: 0;
+  background: rgba(47, 138, 90, 0.18);
+  border-left: 1px dashed rgba(47, 138, 90, 0.55);
+  border-right: 1px dashed rgba(47, 138, 90, 0.55);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score__bar--length {
+  overflow: visible;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score__bar-marker {
+  position: absolute;
+  top: -3px;
+  width: 2px; height: 12px;
+  background: var(--jb-navy);
+  border-radius: 1px;
+  transform: translateX(-1px);
+  transition: left 220ms ease;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score__sub {
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  color: var(--jb-ink-3);
+  letter-spacing: 0.04em;
+}
+
+/* --- Block sections (hits / misses / tools) ------------------ */
+body.jb-v2 [data-region="letter"] .jb-letter-block {
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-md);
+  padding: var(--space-3, 12px) var(--space-4, 16px);
+  display: grid;
+  gap: var(--space-2, 8px);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-block__title {
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--jb-ink-2);
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-block__count {
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  background: var(--jb-paper-2);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-pill);
+  padding: 1px 8px;
+  color: var(--jb-ink-3);
+}
+
+/* --- Hit chips ----------------------------------------------- */
+body.jb-v2 [data-region="letter"] .jb-letter-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--jb-radius-pill);
+  background: var(--jb-mint-soft);
+  color: var(--jb-mint-deep);
+  border: 1px solid rgba(47, 138, 90, 0.30);
+  font-size: var(--jb-text-xs);
+  font-family: var(--jb-font-mono);
+  letter-spacing: 0.04em;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-chips__empty {
+  color: var(--jb-ink-3);
+  font-size: var(--jb-text-xs);
+  font-style: italic;
+}
+
+/* --- Miss rows ----------------------------------------------- */
+body.jb-v2 [data-region="letter"] .jb-letter-misses {
+  list-style: none;
+  margin: 0; padding: 0;
+  display: grid;
+  gap: 4px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-miss {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  padding: 6px 8px;
+  border-radius: var(--jb-radius-sm);
+  background: transparent;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-miss:hover {
+  background: var(--jb-paper-2);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-miss__term {
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-sm);
+  color: var(--jb-navy);
+  letter-spacing: 0.02em;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-miss__weight {
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  color: var(--jb-ink-3);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-miss__btn {
+  appearance: none;
+  border: 1px solid var(--jb-line);
+  background: var(--jb-paper);
+  color: var(--jb-navy);
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: var(--jb-radius-pill);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-miss__btn:hover {
+  background: var(--jb-mint);
+  color: var(--jb-ink-inverse);
+  border-color: var(--jb-mint-deep);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-miss__btn:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-misses__empty {
+  list-style: none;
+  color: var(--jb-ink-3);
+  font-size: var(--jb-text-xs);
+  font-style: italic;
+}
+
+/* --- Reading-level pill -------------------------------------- */
+body.jb-v2 [data-region="letter"] .jb-letter-block--reading {
+  padding: var(--space-3, 12px);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: var(--jb-radius-pill);
+  border: 1px solid var(--jb-line);
+  background: var(--jb-paper-2);
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  width: fit-content;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-pill__label {
+  color: var(--jb-navy);
+  font-weight: 600;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-pill__sub {
+  color: var(--jb-ink-3);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-pill[data-flavor="accessible"] { background: var(--jb-mint-soft); border-color: rgba(47, 138, 90, 0.30); }
+body.jb-v2 [data-region="letter"] .jb-letter-pill[data-flavor="balanced"]   { background: var(--jb-paper-2); }
+body.jb-v2 [data-region="letter"] .jb-letter-pill[data-flavor="dense"]      { background: var(--jb-amber-soft); border-color: rgba(239, 143, 38, 0.45); }
+
+/* --- Tools row ----------------------------------------------- */
+body.jb-v2 [data-region="letter"] .jb-letter-tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2, 8px);
+}
+@media (min-width: 1280px) {
+  body.jb-v2 [data-region="letter"] .jb-letter-tools {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+body.jb-v2 [data-region="letter"] .jb-letter-tool {
+  appearance: none;
+  border: 1px solid var(--jb-line-soft);
+  background: var(--jb-paper);
+  border-radius: var(--jb-radius-md);
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  text-align: left;
+  display: grid;
+  gap: 2px;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  box-shadow: var(--jb-shadow-sticker);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-tool:hover {
+  transform: translateY(-1px);
+  border-color: var(--jb-mint-deep);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-tool:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-tool__label {
+  font-family: var(--jb-font-display);
+  font-size: var(--jb-text-lg);
+  color: var(--jb-navy);
+  line-height: 1.05;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-tool__hint {
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-xs);
+  color: var(--jb-ink-3);
+}
