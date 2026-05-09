@@ -6,19 +6,125 @@
     <title>JobBored — Streamline the Search</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="https://fonts.gstatic.com/s/geist/v4/gyByhwUxId8gMEwcGFWNOITd.woff2" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="https://fonts.gstatic.com/s/caveat/v23/Wnz6HAc5bAfYB2Q7ZjYYiAzcPA.woff2" />
     <link
       href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&family=Lora:ital,wght@0,400;0,600;1,400&family=Source+Sans+3:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600;700&family=Geist:wght@300;400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <script src="https://accounts.google.com/gsi/client" async></script>
     <link rel="stylesheet" href="style.css" />
     <link rel="stylesheet" href="settings-tabs.css" />
+    <link rel="stylesheet" href="tokens-v2.css" />
+    <link rel="stylesheet" href="jb-v2.css" />
+    <link rel="stylesheet" href="jb-type.css" />
+    <link rel="stylesheet" href="jb-deco.css" />
+    <link rel="stylesheet" href="jb-ui.css" />
+    <link rel="stylesheet" href="lattice.css" />
+    <link rel="stylesheet" href="dawn.css" />
+    <link rel="stylesheet" href="flowing-chrome.css" />
+    <link rel="stylesheet" href="pipeline.css" />
+    <link rel="stylesheet" href="letter.css" />
+    <link rel="stylesheet" href="scribe.css" />
+    <link rel="stylesheet" href="welcome.css" />
+    <link rel="stylesheet" href="jb-v2-legacy-hide.css" />
+    <script src="jb-ui.js" defer></script>
+    <script src="welcome.js" defer></script>
+    <script src="lattice.js" defer></script>
+    <script src="dawn-data.js" defer></script>
+    <script src="dawn.js" defer></script>
+    <script src="flowing-chrome.js" defer></script>
+    <script src="pipeline.js" defer></script>
+    <script src="letter.js" defer></script>
+    <script src="flowing-writes.js" defer></script>
+    <script src="scribe.js" defer></script>
+    <script>
+      // JB-V2 flag plumbing (Atlas). Sets body.jb-v2 from URL ?jb-v2=1
+      // or localStorage 'jb-v2-flag'. URL param wins and persists.
+      // Off by default → legacy UI renders unchanged.
+      (function () {
+        try {
+          var KEY = 'jb-v2-flag';
+          var p = new URLSearchParams(window.location.search).get('jb-v2');
+          if (p === '1' || p === 'true') localStorage.setItem(KEY, '1');
+          else if (p === '0' || p === 'false') localStorage.removeItem(KEY);
+          var on = localStorage.getItem(KEY) === '1';
+          window.JB_V2 = { on: on, enable: function () { localStorage.setItem(KEY, '1'); document.body && document.body.classList.add('jb-v2'); }, disable: function () { localStorage.removeItem(KEY); document.body && document.body.classList.remove('jb-v2'); } };
+          if (on) {
+            if (document.body) document.body.classList.add('jb-v2');
+            else document.addEventListener('DOMContentLoaded', function () { document.body.classList.add('jb-v2'); });
+          }
+        } catch (e) { /* noop: flag stays off */ }
+      })();
+    </script>
     <link
       rel="icon"
       href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2359CB89'/><g transform='translate(-17.2,-20.8) scale(0.32)'><path d='m85.88 89.82c0.58-4.91-2.31-6.95-5.73-7.25-4.14-0.36-7.46 2.49-7.72 6.96-0.26 4.21 2.76 7.42 7 7.42 3.58 0 5.99-3.11 6.45-7.13z' fill='%23FEFFFE' stroke='%23003851' stroke-width='1.4'/><path d='m82.65 94.21c3.04-0.62 4.75-3.94 3.86-6.49-1.2-3.46-4.22-2.79-5.22-2.53-3.18 0.88-4.21 3.63-3.38 5.9 0.87 2.52 2.86 3.58 4.74 3.12z' fill='%23003851'/><path d='m106.7 90.06c0-4.21-2.83-6.48-6.3-6.48-4.19 0-6.51 3.26-6.51 6.67 0 3.96 2.93 6.48 6.25 6.48 4.04 0 6.56-2.8 6.56-6.67z' fill='%23FEFFFE' stroke='%23003851' stroke-width='1.4'/><path d='m102.1 94.31c2.67-0.65 3.7-3.5 3.03-5.77-0.93-3.11-3.4-2.53-4.18-2.28-2.59 0.88-3.47 3.3-2.75 5.47 0.73 2.18 2.12 3.06 3.9 2.58z' fill='%23003851'/><path d='m86.03 100c1.75 2.12 5.69 2.67 8.26-0.38' stroke='%23003851' stroke-linecap='round' stroke-width='1.4'/></g></svg>"
     />
   </head>
   <body>
+    <!-- ============================================================ -->
+    <!-- JB-V2 REGIONS — DO NOT remove or rename. Owned by Phase 3 agents. -->
+    <!-- Each region renders only when body.jb-v2 is set. Legacy markup -->
+    <!-- remains in place outside these blocks for the off-flag fallback. -->
+    <!-- ============================================================ -->
+
+    <!-- region:dawn:start -->
+    <!-- DAWN owns this block: Daily Brief / overview dashboard.       -->
+    <!-- Renders only when body.jb-v2 is set (see dawn.js / dawn.css).  -->
+    <!-- Legacy <section class="daily-brief-panel"> outside this region -->
+    <!-- is the off-flag fallback and is unchanged. dawn-data.js reads   -->
+    <!-- the legacy DOM read-only; no new fetches, no schema changes.   -->
+    <section data-region="dawn" aria-label="Daily Brief (v2)"></section>
+    <!-- region:dawn:end -->
+
+    <!-- region:pipeline:start -->
+    <section data-region="pipeline" aria-label="Pipeline (v2)"></section>
+    <!-- region:pipeline:end -->
+
+    <!-- region:letter:start -->
+    <section data-region="letter" aria-label="Letter & Scorecard (v2)"></section>
+    <!-- region:letter:end -->
+
+    <!-- region:lattice:start -->
+    <!-- LATTICE owns this block: Pipeline kanban (replacement). -->
+    <!-- Renders only when body.jb-v2 is set (see lattice.js).      -->
+    <!-- Legacy stacked list outside this region is the off-flag    -->
+    <!-- fallback and is unchanged.                                 -->
+    <section data-region="lattice" aria-label="Pipeline kanban (v2)"></section>
+    <!-- region:lattice:end -->
+
+    <!-- region:scribe:start -->
+    <!-- SCRIBE owns this block: ATS scorecard + cover letter draft modal. -->
+    <!--
+      Phase 3 · Scribe — split-pane workspace (editor | scorecard) with a
+      docked refine strip. Renders only when body.jb-v2 is set; otherwise
+      the legacy modal (further down in this file, ids resumeGenerate*)
+      remains the sole authoring surface. scribe.js mirrors edits into
+      #resumeGenerateOutput so the existing ATS pipeline keeps owning the
+      real scorecard numbers, and reuses the legacy buttons by id so no
+      data-action attribute names change.
+    -->
+    <section
+      data-region="scribe"
+      class="jb-scribe-region"
+      aria-label="Cover letter and ATS workspace"
+    ></section>
+    <!-- region:scribe:end -->
+
+    <!-- region:welcome:start -->
+    <!-- WELCOME owns this block: Onboarding step + first-run empty state. -->
+    <!-- Region body is mounted by welcome.js into the host below. The host
+         element carries data-region="welcome" so welcome.css selectors
+         (`body.jb-v2 [data-region="welcome"] ...`) reach it. Without
+         body.jb-v2, the host is empty and dormant. -->
+    <div data-region="welcome"></div>
+    <!-- region:welcome:end -->
+
     <!-- Setup Screen (shown when config is missing/invalid) -->
     <div class="setup-screen" id="setupScreen" style="display: none">
       <div class="setup-card setup-card--minimal">
@@ -79,10 +185,10 @@
           <div class="login-gate__panel-inner" id="sheetAccessGatePanelInner">
             <div class="login-gate__logo-wrap">
               <img
-                class="login-gate__logo"
-                src="jobbored.svg"
-                width="200"
-                height="200"
+                class="login-gate__logo login-gate__logo--mascot"
+                src="assets/jobbored-mascot-core/exports/jobbored-thinking-thought-bubble-canvas.png"
+                width="280"
+                height="180"
                 alt="JobBored"
                 decoding="async"
                 fetchpriority="high"
@@ -394,36 +500,6 @@
                 />
               </svg>
             </a>
-            <button
-              type="button"
-              class="btn-materials btn-materials--icon"
-              id="onboardingWizardBtn"
-              title="Discovery setup — connect Run discovery"
-              aria-label="Open discovery setup wizard"
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path
-                  d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72Z"
-                />
-                <path d="m14 7 3 3" />
-                <path d="M5 6v4" />
-                <path d="M19 14v4" />
-                <path d="M10 2v2" />
-                <path d="M7 8H3" />
-                <path d="M21 16h-4" />
-                <path d="M11 3H9" />
-              </svg>
-            </button>
             <button
               type="button"
               class="btn-materials btn-materials--icon"
@@ -943,10 +1019,10 @@
       <div class="onboarding-wizard__inner">
         <div class="onboarding-wizard__brand">
           <img
-            class="onboarding-wizard__logo"
-            src="jobbored.svg"
-            width="120"
-            height="120"
+            class="onboarding-wizard__logo onboarding-wizard__logo--mascot"
+            src="assets/jobbored-mascot-core/exports/jobbored-thinking-thought-bubble-canvas.png"
+            width="160"
+            height="100"
             alt=""
             decoding="async"
             aria-hidden="true"
@@ -1688,6 +1764,34 @@
                   >
                     Run the welcome flow again. Your saved resume and profile
                     stay until you finish.
+                  </p>
+                </div>
+              </div>
+
+              <div class="settings-setup-block">
+                <p class="settings-setup-block__title">v2 redesign (preview)</p>
+                <div class="jb-v2-toggle-row" role="group" aria-labelledby="settingsJbV2ToggleLabel">
+                  <label class="jb-v2-switch" for="settingsJbV2Toggle">
+                    <input
+                      type="checkbox"
+                      id="settingsJbV2Toggle"
+                      class="jb-v2-switch__input"
+                      role="switch"
+                      aria-checked="false"
+                    />
+                    <span class="jb-v2-switch__track" aria-hidden="true">
+                      <span class="jb-v2-switch__thumb"></span>
+                    </span>
+                    <span class="jb-v2-switch__label" id="settingsJbV2ToggleLabel">
+                      Enable v2 redesign
+                    </span>
+                  </label>
+                  <p
+                    class="settings-field-hint settings-field-hint--compact"
+                    id="settingsJbV2ToggleHint"
+                  >
+                    Switches Daily Brief, Pipeline, Scorecard, and Onboarding to
+                    the new visual language. Off by default; toggle anytime.
                   </p>
                 </div>
               </div>
@@ -5316,61 +5420,55 @@ https://your-static-site.example</pre
       </div>
     </div>
 
-    <!-- Pre-run discovery preferences modal -->
+    <!-- Pre-run discovery search drawer (right-side overlay, mirrors detail drawer) -->
     <div
-      class="modal-overlay"
-      id="discoveryPrefsModal"
+      class="detail-overlay detail-overlay--discovery"
+      id="discoveryDrawer"
       style="display: none"
       role="dialog"
       aria-modal="true"
       aria-labelledby="discoveryPrefsTitle"
+      hidden
     >
-      <div class="modal-card modal-card--discovery-prefs">
-        <div class="settings-modal-head">
-          <h3 id="discoveryPrefsTitle">Run discovery</h3>
+      <button
+        type="button"
+        class="detail-overlay__backdrop"
+        data-action="close-discovery-drawer"
+        aria-label="Close discovery search panel"
+      ></button>
+      <aside
+        class="detail-drawer detail-drawer--discovery"
+        role="complementary"
+        aria-label="Discovery search"
+      >
+        <div class="discovery-drawer__inner">
+        <header class="discovery-drawer__head">
+          <div class="discovery-drawer__head-main">
+            <h2 id="discoveryPrefsTitle" class="discovery-drawer__title">
+              Discovery search
+            </h2>
+            <p class="discovery-drawer__subtitle" id="discoveryDrawerStatus">
+              <span class="discovery-drawer__chip" id="discoveryDrawerReadiness" data-state="unknown">Checking setup…</span>
+              <span class="discovery-drawer__last-run" id="discoveryDrawerLastRun" hidden></span>
+            </p>
+          </div>
           <button
             type="button"
-            class="settings-modal-close"
+            class="detail-drawer__close"
             id="discoveryPrefsClose"
+            data-action="close-discovery-drawer"
             aria-label="Close"
           >
-            &times;
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
-        </div>
+        </header>
 
-        <!-- Tab bar -->
-        <div class="dp-tabs" role="tablist">
-          <button
-            type="button"
-            class="dp-tab dp-tab--active"
-            role="tab"
-            aria-selected="true"
-            id="dpTabManual"
-            data-dp-tab="manual"
-          >
-            Manual
-          </button>
-          <button
-            type="button"
-            class="dp-tab"
-            role="tab"
-            aria-selected="false"
-            id="dpTabAi"
-            data-dp-tab="ai"
-          >
-            AI Suggest
-          </button>
-        </div>
-
-        <!-- Manual tab panel -->
-        <div
-          class="dp-panel dp-panel--active"
-          id="dpPanelManual"
-          role="tabpanel"
-        >
-          <p class="modal-lede modal-lede--compact">
-            Adjust these before each run. Values are saved locally and sent with
-            the request so your automation can vary the search.
+        <div class="discovery-drawer__body">
+          <p class="discovery-drawer__lede">
+            Shape and remix your discovery search. Values are saved locally and sent with the run.
           </p>
 
           <label class="field-label" for="dpTargetRoles">Target roles</label>
@@ -5470,8 +5568,8 @@ https://your-static-site.example</pre
                   value="browser_only"
                   id="dpPresetBrowserOnly"
                 />
-                <span class="dp-preset-label">Browser only</span>
-                <span class="dp-preset-hint">Web search only</span>
+                <span class="dp-preset-label">Web only</span>
+                <span class="dp-preset-hint">Grounded web search</span>
               </label>
               <label class="dp-source-preset-option" data-preset="ats_only">
                 <input
@@ -5496,150 +5594,147 @@ https://your-static-site.example</pre
               </label>
             </div>
           </fieldset>
-        </div>
 
-        <!-- AI Suggest tab panel -->
-        <div class="dp-panel" id="dpPanelAi" role="tabpanel" hidden>
-          <p class="modal-lede modal-lede--compact">
-            Paste a job listing URL (optional) or let AI analyze your resume,
-            LinkedIn, and AI context to suggest target roles, locations, and
-            keywords that match your experience.
-          </p>
+          <!-- Company targeting (optional, but visible) -->
+          <section class="discovery-drawer__section" aria-labelledby="dpCompanyTargetingLegend">
+            <h3 id="dpCompanyTargetingLegend" class="discovery-drawer__section-title">
+              Company targeting
+              <span class="discovery-drawer__section-hint">Optional — leave empty for broad search</span>
+            </h3>
+            <div class="dp-chip-list" id="dpCompanyAllowlistChips" data-list="allow" aria-label="Included companies">
+              <p class="dp-chip-empty" id="dpCompanyAllowlistEmpty">No companies added yet. AI suggestions will auto-include companies.</p>
+            </div>
+            <div class="dp-chip-controls">
+              <input
+                type="text"
+                id="dpCompanyAllowlistInput"
+                class="modal-input"
+                placeholder="Add company (press Enter)"
+                autocomplete="off"
+              />
+              <button type="button" class="btn-modal-secondary" id="dpCompanyAllowlistAddBtn">Add</button>
+            </div>
+            <details class="dp-blocklist-details">
+              <summary class="dp-blocklist-summary">Excluded companies</summary>
+              <div class="dp-chip-list" id="dpCompanyBlocklistChips" data-list="block" aria-label="Excluded companies">
+                <p class="dp-chip-empty" id="dpCompanyBlocklistEmpty">No companies excluded.</p>
+              </div>
+              <div class="dp-chip-controls">
+                <input
+                  type="text"
+                  id="dpCompanyBlocklistInput"
+                  class="modal-input"
+                  placeholder="Exclude company (press Enter)"
+                  autocomplete="off"
+                />
+                <button type="button" class="btn-modal-secondary" id="dpCompanyBlocklistAddBtn">Exclude</button>
+              </div>
+            </details>
+          </section>
 
-          <label class="field-label" for="dpJobUrl"
-            >Job listing URL (optional)</label
-          >
-          <div class="dp-url-row">
-            <input
-              type="url"
-              id="dpJobUrl"
-              class="modal-input"
-              placeholder="https://boards.greenhouse.io/... or any job posting"
-              autocomplete="off"
-              spellcheck="false"
-            />
+          <!-- AI ideation section (in body, not tabs) -->
+          <section class="discovery-drawer__section discovery-drawer__section--ai" aria-labelledby="dpAiIdeationLegend">
+            <h3 id="dpAiIdeationLegend" class="discovery-drawer__section-title">
+              AI ideas
+              <span class="discovery-drawer__section-hint">Generate three search variants from your profile</span>
+            </h3>
+            <p class="dp-ai-hint" id="dpAiHint" hidden>
+              Configure a resume AI provider (Gemini, OpenAI, or Anthropic) in
+              Settings to enable AI suggestions.
+            </p>
+            <div class="dp-url-row">
+              <input
+                type="url"
+                id="dpJobUrl"
+                class="modal-input"
+                placeholder="Optional job listing URL to anchor suggestions"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button
+                type="button"
+                class="btn-modal-secondary btn-dp-scrape"
+                id="dpScrapeBtn"
+                title="Scrape the job listing and use it to refine suggestions"
+              >
+                Scrape
+              </button>
+            </div>
+            <p class="dp-scrape-status" id="dpScrapeStatus" hidden></p>
             <button
               type="button"
-              class="btn-modal-primary btn-dp-scrape"
-              id="dpScrapeBtn"
-              title="Scrape the job listing and use it to refine suggestions"
+              class="btn-modal-primary btn-dp-suggest"
+              id="dpSuggestBtn"
             >
-              Scrape
+              Generate ideas
             </button>
-          </div>
-          <p class="dp-scrape-status" id="dpScrapeStatus" hidden></p>
+            <p class="dp-suggest-status" id="dpSuggestStatus" hidden></p>
+            <div class="dp-strata-grid" id="dpStrataGrid" hidden>
+              <article class="dp-stratum-card" data-stratum="safe" id="dpStratumSafe">
+                <header class="dp-stratum-card__head">
+                  <span class="dp-stratum-card__badge">Safe</span>
+                  <h4 class="dp-stratum-card__title">Close to your current target</h4>
+                </header>
+                <p class="dp-stratum-card__rationale" data-field="rationale"></p>
+                <dl class="dp-stratum-card__details">
+                  <dt>Roles</dt><dd data-field="targetRoles"></dd>
+                  <dt>Locations</dt><dd data-field="locations"></dd>
+                  <dt>Keywords</dt><dd data-field="keywordsInclude"></dd>
+                  <dt>Companies</dt><dd data-field="companies"></dd>
+                </dl>
+                <button type="button" class="btn-modal-secondary dp-stratum-card__apply" data-action="apply-stratum">Apply</button>
+              </article>
+              <article class="dp-stratum-card" data-stratum="adjacent" id="dpStratumAdjacent">
+                <header class="dp-stratum-card__head">
+                  <span class="dp-stratum-card__badge">Adjacent</span>
+                  <h4 class="dp-stratum-card__title">Nearby role families</h4>
+                </header>
+                <p class="dp-stratum-card__rationale" data-field="rationale"></p>
+                <dl class="dp-stratum-card__details">
+                  <dt>Roles</dt><dd data-field="targetRoles"></dd>
+                  <dt>Locations</dt><dd data-field="locations"></dd>
+                  <dt>Keywords</dt><dd data-field="keywordsInclude"></dd>
+                  <dt>Companies</dt><dd data-field="companies"></dd>
+                </dl>
+                <button type="button" class="btn-modal-secondary dp-stratum-card__apply" data-action="apply-stratum">Apply</button>
+              </article>
+              <article class="dp-stratum-card" data-stratum="stretch" id="dpStratumStretch">
+                <header class="dp-stratum-card__head">
+                  <span class="dp-stratum-card__badge">Stretch</span>
+                  <h4 class="dp-stratum-card__title">Ambitious or non-obvious paths</h4>
+                </header>
+                <p class="dp-stratum-card__rationale" data-field="rationale"></p>
+                <dl class="dp-stratum-card__details">
+                  <dt>Roles</dt><dd data-field="targetRoles"></dd>
+                  <dt>Locations</dt><dd data-field="locations"></dd>
+                  <dt>Keywords</dt><dd data-field="keywordsInclude"></dd>
+                  <dt>Companies</dt><dd data-field="companies"></dd>
+                </dl>
+                <button type="button" class="btn-modal-secondary dp-stratum-card__apply" data-action="apply-stratum">Apply</button>
+              </article>
+            </div>
+          </section>
+        </div>
 
+        <footer class="discovery-drawer__footer">
           <button
             type="button"
-            class="btn-modal-primary btn-dp-suggest"
-            id="dpSuggestBtn"
+            class="btn-modal-secondary"
+            id="discoveryPrefsCancel"
+            data-action="close-discovery-drawer"
           >
-            Generate suggestions
+            Close
           </button>
-
-          <div class="dp-suggest-output" id="dpSuggestOutput" hidden>
-            <label class="field-label" for="dpSuggestedRoles"
-              >Suggested roles</label
-            >
-            <textarea
-              id="dpSuggestedRoles"
-              class="modal-input modal-textarea"
-              rows="2"
-              readonly
-            ></textarea>
-
-            <label class="field-label" for="dpSuggestedLocations"
-              >Suggested locations</label
-            >
-            <input
-              type="text"
-              id="dpSuggestedLocations"
-              class="modal-input"
-              readonly
-            />
-
-            <div class="discovery-prefs-row discovery-prefs-row--2col">
-              <div>
-                <label class="field-label" for="dpSuggestedRemote"
-                  >Work style</label
-                >
-                <input
-                  type="text"
-                  id="dpSuggestedRemote"
-                  class="modal-input"
-                  readonly
-                />
-              </div>
-              <div>
-                <label class="field-label" for="dpSuggestedSeniority"
-                  >Seniority</label
-                >
-                <input
-                  type="text"
-                  id="dpSuggestedSeniority"
-                  class="modal-input"
-                  readonly
-                />
-              </div>
-            </div>
-
-            <label class="field-label" for="dpSuggestedInclude"
-              >Keywords to include</label
-            >
-            <input
-              type="text"
-              id="dpSuggestedInclude"
-              class="modal-input"
-              readonly
-            />
-
-            <label class="field-label" for="dpSuggestedExclude"
-              >Keywords to exclude</label
-            >
-            <input
-              type="text"
-              id="dpSuggestedExclude"
-              class="modal-input"
-              readonly
-            />
-
-            <button
-              type="button"
-              class="btn-modal-secondary btn-dp-apply-suggestions"
-              id="dpApplySuggestionsBtn"
-            >
-              Apply to manual fields
-            </button>
-
-            <p class="dp-suggest-reasoning" id="dpSuggestReasoning"></p>
-          </div>
-
-          <p class="dp-ai-hint" id="dpAiHint" hidden>
-            Configure a resume AI provider (Gemini, OpenAI, or Anthropic) in
-            Settings to enable AI suggestions.
-          </p>
+          <button
+            type="button"
+            class="btn-modal-primary"
+            id="discoveryPrefsRun"
+          >
+            Run discovery
+          </button>
+        </footer>
         </div>
-
-        <div class="modal-actions modal-actions--split">
-          <span></span>
-          <span class="discovery-prefs-actions-right">
-            <button
-              type="button"
-              class="btn-modal-secondary"
-              id="discoveryPrefsCancel"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              class="btn-modal-primary"
-              id="discoveryPrefsRun"
-            >
-              Run now
-            </button>
-          </span>
-        </div>
-      </div>
+      </aside>
     </div>
 
     <div
@@ -5796,6 +5891,7 @@ https://your-static-site.example</pre
     <script src="config.js"></script>
     <script src="settings-tab-schema.js"></script>
     <script src="settings-tabs.js"></script>
+    <script src="settings-jb-v2-tab.js"></script>
     <script src="settings-discovery-adapters.js"></script>
     <script src="settings-profile-tab.js?v=4"></script>
     <script src="runs-tab.js"></script>
