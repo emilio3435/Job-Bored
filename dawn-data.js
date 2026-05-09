@@ -514,6 +514,136 @@
     return str.slice(0, Math.max(0, n - 1)).replace(/\s+\S*$/, "") + "…";
   }
 
+  var ATS_TARGET_LEN = [200, 320];
+  var ATS_STOP_SET = {};
+  (
+    "a,an,the,and,or,but,if,then,else,for,to,of,in,on,at,by,with,as,is,are," +
+    "was,were,be,been,being,this,that,these,those,it,its,you,your,we,our," +
+    "us,i,me,my,they,them,their,he,she,his,her,from,into,about,over,under," +
+    "than,so,not,no,yes,do,does,did,have,has,had,will,would,can,could," +
+    "should,may,might,must,shall,via,per,within,across,using"
+  ).split(",").forEach(function (term) { ATS_STOP_SET[term] = 1; });
+  var ATS_TONE_SET = {};
+  [
+    "led","built","shipped","launched","designed","architected","drove",
+    "owned","reduced","increased","improved","scaled","migrated","mentored",
+    "delivered","automated","optimized","unblocked","grew","saved","cut",
+    "accelerated","measured","decided","resolved","worked",
+  ].forEach(function (term) { ATS_TONE_SET[term] = 1; });
+
+  function _atsTokens(s) {
+    return String(s || "").toLowerCase()
+      .replace(/[^a-z0-9\s\-\+\.#]/g, " ")
+      .split(/\s+/)
+      .map(function (term) { return term.replace(/^[\-\.]+|[\-\.]+$/g, ""); })
+      .filter(function (term) { return term.length >= 2 && !ATS_STOP_SET[term]; });
+  }
+
+  function _atsTopTerms(jd) {
+    var freq = {};
+    _atsTokens(jd).forEach(function (term) { freq[term] = (freq[term] || 0) + 1; });
+    return Object.keys(freq).map(function (term) {
+      return { term: term, weight: freq[term] };
+    }).sort(function (a, b) {
+      if (b.weight !== a.weight) return b.weight - a.weight;
+      return a.term < b.term ? -1 : a.term > b.term ? 1 : 0;
+    }).slice(0, 12);
+  }
+
+  function _atsSyllables(word) {
+    var w = String(word || "").toLowerCase().replace(/[^a-z]/g, "");
+    if (!w) return 0;
+    if (w.length <= 3) return 1;
+    w = w.replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, "").replace(/^y/, "");
+    var groups = w.match(/[aeiouy]{1,2}/g);
+    return groups ? groups.length : 1;
+  }
+
+  function _atsReadingGrade(text) {
+    var sentences = String(text || "").split(/[.!?]+/).filter(function (s) { return s.trim(); }).length || 1;
+    var words = String(text || "").trim().match(/\S+/g) || [];
+    var wc = words.length || 1;
+    var syllables = 0;
+    words.forEach(function (word) { syllables += _atsSyllables(word); });
+    var grade = 0.39 * (wc / sentences) + 11.8 * (syllables / wc) - 15.59;
+    if (!Number.isFinite(grade)) grade = 0;
+    return Math.max(0, Math.min(20, Math.round(grade)));
+  }
+
+  function _atsLengthScore(words) {
+    if (words === 0) return 0;
+    if (words >= ATS_TARGET_LEN[0] && words <= ATS_TARGET_LEN[1]) return 100;
+    var dist = words < ATS_TARGET_LEN[0] ? ATS_TARGET_LEN[0] - words : words - ATS_TARGET_LEN[1];
+    return Math.max(0, Math.round(100 - dist * 0.6));
+  }
+
+  function _atsFirstPersonScore(text) {
+    var words = String(text || "").toLowerCase().match(/\b[\w']+\b/g) || [];
+    if (!words.length) return 0;
+    var hits = 0;
+    words.forEach(function (word) {
+      if (/^(i|me|my|mine|we|our|ours|us)$/.test(word)) hits++;
+    });
+    var ratio = hits / words.length;
+    if (ratio === 0) return 85;
+    if (ratio <= 0.06) return 100;
+    return Math.max(0, Math.round(100 - ((ratio - 0.06) * 1200)));
+  }
+
+  function _atsToneScore(tokens, draft) {
+    if (!tokens.length) return 0;
+    var hits = 0;
+    tokens.forEach(function (term) { if (ATS_TONE_SET[term]) hits++; });
+    var actionPct = Math.min(100, (hits / Math.max(1, tokens.length / 50)) * 100);
+    return Math.round(actionPct * 0.7 + _atsFirstPersonScore(draft) * 0.3);
+  }
+
+  function _fallbackAtsAnalyze(input) {
+    var jd = (input && input.jd) || "";
+    var draft = (input && input.draft) || "";
+    var draftTokens = _atsTokens(draft);
+    var draftSet = {};
+    draftTokens.forEach(function (term) { draftSet[term] = 1; });
+    var hits = [];
+    var misses = [];
+    var totalWeight = 0;
+    var hitWeight = 0;
+    _atsTopTerms(jd).forEach(function (entry) {
+      totalWeight += entry.weight;
+      if (draftSet[entry.term]) {
+        hits.push(entry);
+        hitWeight += entry.weight;
+      } else {
+        misses.push(entry);
+      }
+    });
+    var keywordCoverage = totalWeight ? Math.round((hitWeight / totalWeight) * 100) : 0;
+    var words = _countWordsForAts(draft);
+    var toneMatch = _atsToneScore(draftTokens, draft);
+    // Weighted sum: keyword overlap 60%, tone match 25%, length-band fit 15%.
+    var score = Math.round(keywordCoverage * 0.60 + toneMatch * 0.25 + _atsLengthScore(words) * 0.15);
+    return {
+      score: Math.max(0, Math.min(100, score)),
+      keywordCoverage: keywordCoverage,
+      toneMatch: toneMatch,
+      length: { words: words, target: [ATS_TARGET_LEN[0], ATS_TARGET_LEN[1]] },
+      hits: hits,
+      misses: misses,
+      readingLevel: "Grade " + _atsReadingGrade(draft),
+    };
+  }
+
+  function _ensureAtsGlobal() {
+    root.JobBoredAts = root.JobBoredAts || {};
+    if (typeof root.JobBoredAts.analyze !== "function") root.JobBoredAts.analyze = _fallbackAtsAnalyze;
+    if (typeof root.JobBoredAts.scoreDetails !== "function") root.JobBoredAts.scoreDetails = root.JobBoredAts.analyze;
+    if (typeof root.JobBoredAts.score !== "function") {
+      root.JobBoredAts.score = function (input) {
+        return root.JobBoredAts.analyze(input).score;
+      };
+    }
+  }
+
   function _countWordsForAts(s) {
     var m = String(s || "").trim().match(/\S+/g);
     return m ? m.length : 0;
@@ -662,6 +792,8 @@
   }
 
   /* ----- expose ----- */
+  _ensureAtsGlobal();
+
   var api = {
     getDawnViewModel: getDawnViewModel,
     getPipelineViewModel: getPipelineViewModel,
@@ -822,12 +954,15 @@
       var emptyDoc = document.implementation.createHTMLDocument("empty");
       var pipeEmpty = getPipelineViewModel({ doc: emptyDoc });
       var emptyOk = pipeEmpty && pipeEmpty.empty === true && pipeEmpty.stages.length === 5 && pipeEmpty.untriaged.length === 0;
+      var atsA = root.JobBoredAts && root.JobBoredAts.score({ jd: "python aws", draft: "I worked with python and aws" });
+      var atsB = root.JobBoredAts && root.JobBoredAts.score({ jd: "python aws", draft: "I worked with python and aws" });
+      var atsOk = typeof atsA === "number" && atsA === atsB && atsA >= 0 && atsA <= 100;
 
       if (typeof console !== "undefined") {
-        if (pipeOk && letterOk && missOk && emptyOk && console.log) {
+        if (pipeOk && letterOk && missOk && emptyOk && atsOk && console.log) {
           console.log("[dawn-data:p1] self-test pass");
         } else if (console.warn) {
-          console.warn("[dawn-data:p1] self-test fail", { pipeOk: pipeOk, letterOk: letterOk, missOk: missOk, emptyOk: emptyOk, pipe: pipe, letter: letter });
+          console.warn("[dawn-data:p1] self-test fail", { pipeOk: pipeOk, letterOk: letterOk, missOk: missOk, emptyOk: emptyOk, atsOk: atsOk, pipe: pipe, letter: letter });
         }
       }
     } catch (e) {
