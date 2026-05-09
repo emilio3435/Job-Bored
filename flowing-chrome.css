@@ -1,0 +1,262 @@
+/* ============================================================
+   flowing-chrome.css — JobBored v2 page chrome (Phase 2.A)
+   ------------------------------------------------------------
+   Owner:    FE droid 2.A (page chrome + scroll-spy)
+   Purpose:  Sticky top nav, three section pills (Brief /
+             Pipeline / Letter), dashed-rule section dividers,
+             and the flowing-page section wrapper.
+
+   Visual reference: ./JobBored.html (the design spec). Caveat
+   for headlines, Geist for body, JetBrains Mono for numerals;
+   mint italic accent on key words.
+
+   Additivity guarantee:
+             Every rule is scoped under `body.jb-v2`. Off-flag
+             behavior (no `body.jb-v2` class) is byte-for-byte
+             unchanged. This file consumes only --jb-* tokens
+             from tokens-v2.css.
+   ============================================================ */
+
+/* ---- Page top: sticky header with logo + section nav ----- */
+body.jb-v2 .page-top {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px 32px;
+  background: color-mix(in srgb, var(--jb-paper) 88%, transparent);
+  backdrop-filter: saturate(140%) blur(10px);
+  -webkit-backdrop-filter: saturate(140%) blur(10px);
+  border-bottom: 1px solid var(--jb-line-soft);
+  font-family: var(--jb-font-body);
+}
+
+body.jb-v2 .page-top__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--jb-font-display);
+  font-size: 28px;
+  line-height: 1;
+  color: var(--jb-navy);
+  text-decoration: none;
+  letter-spacing: 0;
+}
+
+body.jb-v2 .page-top__brand-em {
+  font-style: italic;
+  color: var(--jb-mint-deep);
+}
+
+body.jb-v2 .page-top__brand-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--jb-mint);
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+/* ---- Three section pills (Brief / Pipeline / Letter) ----- */
+body.jb-v2 .page-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--jb-paper-2) 96%, transparent);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-pill);
+}
+
+body.jb-v2 .page-nav__pill {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 8px 16px;
+  border-radius: var(--jb-radius-pill);
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--jb-navy) 65%, transparent);
+  transition: color var(--jb-transition-fast),
+    background var(--jb-transition-fast),
+    box-shadow var(--jb-transition-fast);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+body.jb-v2 .page-nav__pill:hover {
+  color: var(--jb-navy);
+  background: color-mix(in srgb, var(--jb-paper) 80%, transparent);
+}
+
+body.jb-v2 .page-nav__pill:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+body.jb-v2 .page-nav__pill.is-active {
+  background: var(--jb-navy);
+  color: var(--jb-ink-inverse);
+}
+
+body.jb-v2 .page-nav__pill .page-nav__pill-num {
+  font-size: 10px;
+  opacity: 0.65;
+}
+
+/* ---- Hamburger (mobile) -------------------------------- */
+body.jb-v2 .page-top__menu-btn {
+  display: none;
+  appearance: none;
+  border: 1px solid var(--jb-line-soft);
+  background: var(--jb-paper);
+  border-radius: var(--jb-radius-sm);
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--jb-navy);
+}
+
+body.jb-v2 .page-top__menu-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+body.jb-v2 .page-top__menu-btn-bars,
+body.jb-v2 .page-top__menu-btn-bars::before,
+body.jb-v2 .page-top__menu-btn-bars::after {
+  content: "";
+  display: block;
+  width: 18px;
+  height: 1.5px;
+  background: currentColor;
+  border-radius: 2px;
+  position: relative;
+}
+
+body.jb-v2 .page-top__menu-btn-bars::before {
+  position: absolute;
+  top: -6px;
+  left: 0;
+}
+
+body.jb-v2 .page-top__menu-btn-bars::after {
+  position: absolute;
+  top: 6px;
+  left: 0;
+}
+
+/* ---- Section dividers (dashed rule + optional eyebrow) -- */
+body.jb-v2 .section-divider {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0 32px;
+  padding: 24px 0;
+  color: color-mix(in srgb, var(--jb-navy) 55%, transparent);
+}
+
+body.jb-v2 .section-divider::before,
+body.jb-v2 .section-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px dashed color-mix(in srgb, var(--jb-navy) 28%, transparent);
+}
+
+body.jb-v2 .section-divider__eyebrow {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+body.jb-v2 .section-divider--plain::before,
+body.jb-v2 .section-divider--plain::after {
+  flex: 1;
+}
+
+body.jb-v2 .section-divider--plain {
+  gap: 0;
+}
+
+/* ---- Section wrapper ------------------------------------ */
+body.jb-v2 .flow-section {
+  position: relative;
+  padding: 64px 32px;
+  scroll-margin-top: 88px; /* keep sticky chrome from covering the heading */
+}
+
+body.jb-v2 .flow-section + .flow-section {
+  border-top: 0;
+}
+
+body.jb-v2 .flow-section__inner {
+  max-width: 1220px;
+  margin: 0 auto;
+}
+
+/* ---- Mobile collapse ≤768px ----------------------------- */
+@media (max-width: 768px) {
+  body.jb-v2 .page-top {
+    padding: 12px 18px;
+    gap: 12px;
+  }
+
+  body.jb-v2 .page-top__menu-btn {
+    display: inline-flex;
+  }
+
+  body.jb-v2 .page-nav {
+    position: absolute;
+    top: 100%;
+    right: 18px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    padding: 8px;
+    background: var(--jb-paper);
+    border: 1px solid var(--jb-line-soft);
+    border-radius: var(--jb-radius-md);
+    box-shadow: var(--jb-shadow-card);
+    display: none;
+    min-width: 180px;
+  }
+
+  body.jb-v2 .page-top.is-menu-open .page-nav {
+    display: flex;
+  }
+
+  body.jb-v2 .page-nav__pill {
+    justify-content: flex-start;
+    width: 100%;
+    border-radius: var(--jb-radius-sm);
+    padding: 10px 14px;
+  }
+
+  body.jb-v2 .flow-section {
+    padding: 40px 18px;
+    scroll-margin-top: 76px;
+  }
+
+  body.jb-v2 .section-divider {
+    margin: 0 18px;
+    padding: 16px 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 .page-nav__pill {
+    transition-duration: 0.01ms;
+  }
+}
