@@ -514,6 +514,62 @@
     return str.slice(0, Math.max(0, n - 1)).replace(/\s+\S*$/, "") + "…";
   }
 
+  function _countWordsForAts(s) {
+    var m = String(s || "").trim().match(/\S+/g);
+    return m ? m.length : 0;
+  }
+
+  function _pct(n, fallback) {
+    var v = Number(n);
+    if (!Number.isFinite(v)) v = fallback == null ? 0 : fallback;
+    return Math.max(0, Math.min(100, Math.round(v)));
+  }
+
+  function _terms(list) {
+    if (!Array.isArray(list)) return [];
+    return list.map(function (x) {
+      return {
+        term: String((x && x.term) || ""),
+        weight: Number.isFinite(Number(x && x.weight)) ? Number(x.weight) : 1,
+      };
+    }).filter(function (x) { return x.term; });
+  }
+
+  function _normalizeAts(raw, draft) {
+    var obj = raw && typeof raw === "object" ? raw : {};
+    var scalar = typeof raw === "number" ? raw : obj.score;
+    var len = obj.length && typeof obj.length === "object" ? obj.length : {};
+    var target = Array.isArray(len.target) && len.target.length === 2 ? len.target : [200, 320];
+    return {
+      score: _pct(scalar, 0),
+      keywordCoverage: _pct(obj.keywordCoverage, 0),
+      toneMatch: _pct(obj.toneMatch, 0),
+      length: {
+        words: Number.isFinite(Number(len.words)) ? Number(len.words) : _countWordsForAts(draft),
+        target: [Number(target[0]) || 200, Number(target[1]) || 320],
+      },
+      hits: _terms(obj.hits),
+      misses: _terms(obj.misses),
+      readingLevel: typeof obj.readingLevel === "string" ? obj.readingLevel : "Grade 0",
+    };
+  }
+
+  function _scoreAts(jd, draft) {
+    var svc = root.JobBoredAts || {};
+    if (typeof svc.analyze === "function") return _normalizeAts(svc.analyze({ jd: jd, draft: draft }), draft);
+    if (typeof svc.scoreDetails === "function") return _normalizeAts(svc.scoreDetails({ jd: jd, draft: draft }), draft);
+    if (typeof svc.score === "function") return _normalizeAts(svc.score({ jd: jd, draft: draft }), draft);
+    return _normalizeAts(null, draft);
+  }
+
+  function _findCardByStableKey(doc, key) {
+    var cards = doc.querySelectorAll(".kanban-card[data-stable-key]");
+    for (var i = 0; i < cards.length; i++) {
+      if (_attr(cards[i], "data-stable-key") === key) return cards[i];
+    }
+    return null;
+  }
+
   function _suggestionsFor(ats) {
     var out = [];
     if (!ats) return out;
@@ -566,17 +622,7 @@
   function getLetterViewModel(jobKey, opts) {
     var doc = (opts && opts.doc) || (typeof document !== "undefined" ? document : null);
     var key = String(jobKey == null ? "" : jobKey);
-    var ats = (root.JobBoredAts && typeof root.JobBoredAts.score === "function")
-      ? root.JobBoredAts.score
-      : null;
-
-    var emptyAts = ats
-      ? ats({ jd: "", draft: "" })
-      : {
-          score: 0, keywordCoverage: 0, toneMatch: 0,
-          length: { words: 0, target: [200, 320] },
-          hits: [], misses: [], readingLevel: "Grade 0",
-        };
+    var emptyAts = _scoreAts("", "");
 
     if (!doc) {
       return {
@@ -587,7 +633,7 @@
       };
     }
 
-    var card = doc.querySelector('.kanban-card[data-stable-key="' + key.replace(/"/g, '\\"') + '"]');
+    var card = _findCardByStableKey(doc, key);
     if (!card) {
       return {
         job: { jobKey: key, role: "", company: "", jdSnippet: "", salary: null },
@@ -599,7 +645,7 @@
     var rec = _readCard(card);
     var draft = rec.draft || "";
     var jd = rec.jdSnippet || "";
-    var atsResult = ats ? ats({ jd: jd, draft: draft }) : emptyAts;
+    var atsResult = _scoreAts(jd, draft);
 
     return {
       job: {
@@ -777,8 +823,12 @@
       var pipeEmpty = getPipelineViewModel({ doc: emptyDoc });
       var emptyOk = pipeEmpty && pipeEmpty.empty === true && pipeEmpty.stages.length === 5 && pipeEmpty.untriaged.length === 0;
 
-      if ((!pipeOk || !letterOk || !missOk || !emptyOk) && typeof console !== "undefined" && console.warn) {
-        console.warn("[dawn-data:p1] self-test failed", { pipeOk: pipeOk, letterOk: letterOk, missOk: missOk, emptyOk: emptyOk, pipe: pipe, letter: letter });
+      if (typeof console !== "undefined") {
+        if (pipeOk && letterOk && missOk && emptyOk && console.log) {
+          console.log("[dawn-data:p1] self-test pass");
+        } else if (console.warn) {
+          console.warn("[dawn-data:p1] self-test fail", { pipeOk: pipeOk, letterOk: letterOk, missOk: missOk, emptyOk: emptyOk, pipe: pipe, letter: letter });
+        }
       }
     } catch (e) {
       // never throw on load
