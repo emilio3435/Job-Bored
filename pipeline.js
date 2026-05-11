@@ -515,7 +515,9 @@
       if (e.button !== 0) return;
       var card = e.target.closest(".pipe-sticker[data-stable-key]");
       if (!card) return;
-      // Begin tracking; commit to drag on movement threshold.
+      // Begin tracking; commit to drag (and capture pointer) only after
+      // movement crosses the threshold. Capturing on every pointerdown
+      // breaks the synthesized click on a simple tap.
       var rect = card.getBoundingClientRect();
       drag = {
         card: card,
@@ -530,8 +532,8 @@
         width: rect.width,
         height: rect.height,
         moved: false,
+        captured: false,
       };
-      try { card.setPointerCapture(e.pointerId); } catch (_) { /* noop */ }
     });
 
     region.addEventListener("pointermove", function (e) {
@@ -540,6 +542,8 @@
       var dy = e.clientY - drag.startY;
       if (!drag.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
         drag.moved = true;
+        // Capture the pointer once we know this is a drag, not a click.
+        try { drag.card.setPointerCapture(e.pointerId); drag.captured = true; } catch (_) { /* noop */ }
         startGhost(region, drag);
       }
       if (drag.moved && drag.ghost) {
@@ -550,7 +554,9 @@
 
     region.addEventListener("pointerup", function (e) {
       if (!drag || e.pointerId !== drag.pointerId) return;
-      try { drag.card.releasePointerCapture(e.pointerId); } catch (_) { /* noop */ }
+      if (drag.captured) {
+        try { drag.card.releasePointerCapture(e.pointerId); } catch (_) { /* noop */ }
+      }
       if (drag.moved) {
         var col = colUnderPoint(region, e.clientX, e.clientY);
         endGhost(region, drag);
@@ -566,12 +572,16 @@
         var theCard = drag.card;
         setTimeout(function () { theCard.__pipeJustDragged = false; }, 150);
       }
+      // If !drag.moved, this was a tap — do nothing; the click event will
+      // fire naturally and the delegated click handler will navigate.
       drag = null;
     });
 
     region.addEventListener("pointercancel", function (e) {
       if (!drag || e.pointerId !== drag.pointerId) return;
-      try { drag.card.releasePointerCapture(e.pointerId); } catch (_) { /* noop */ }
+      if (drag.captured) {
+        try { drag.card.releasePointerCapture(e.pointerId); } catch (_) { /* noop */ }
+      }
       endGhost(region, drag);
       drag = null;
     });
