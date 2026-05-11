@@ -266,6 +266,208 @@
     }
   }
 
+  /* ============================================================
+     Phase-2 (newspaper-brief) editorial extensions.
+     Used by the v2 Brief layout (newspaper masthead, lead story,
+     by-the-numbers, 30-day funnel, "also today" stories).
+     Read-only; no schema additions to legacy DOM.
+     ============================================================ */
+
+  /** Mockup-style edition line: "TUE · MAY 6, 2026 · LOCAL EDITION". */
+  function buildEdition(now) {
+    try {
+      var d = now instanceof Date ? now : new Date();
+      var weekday = d.toLocaleDateString(undefined, { weekday: "long" }).toUpperCase();
+      var month = d.toLocaleDateString(undefined, { month: "long" }).toUpperCase();
+      var day = d.getDate();
+      var year = d.getFullYear();
+      return "THE DAILY BRIEF · " + weekday + ", " + month + " " + day + ", " + year + " · LOCAL EDITION";
+    } catch (e) {
+      return "THE DAILY BRIEF · LOCAL EDITION";
+    }
+  }
+
+  /** Short read-time string for the masthead. Pipeline-scaled, capped. */
+  function buildReadTime(total) {
+    var n = Math.max(1, Math.min(8, Math.round((total || 0) / 5) || 2));
+    return n + " min read";
+  }
+
+  /** Short italic deck/subtitle. Pulls from real counts. */
+  function buildDeck(hero, funnel) {
+    var offers = (funnel.find(function (s) { return s.stage === "offer"; }) || {}).count || 0;
+    var inLoop = hero.inLoop || 0;
+    var found = hero.found || 0;
+    var parts = [];
+    if (found > 0) parts.push(found + " fresh roles");
+    if (inLoop > 0) parts.push(inLoop + " interview" + (inLoop === 1 ? "" : "s") + " in play");
+    if (offers > 0) parts.push(offers + " offer" + (offers === 1 ? "" : "s") + " live");
+    if (parts.length === 0) return "One big thing, three small things, and the numbers behind them.";
+    return parts.join(", ") + ".";
+  }
+
+  /** Highest-fit job in the pipeline (skips "new" — those are untriaged). */
+  function pickLeadJob(jobs) {
+    if (!jobs || !jobs.length) return null;
+    // Prefer offer > interviewing > phone-screen > applied; tie-break by data-index DESC.
+    var stagePriority = { "offer": 6, "interviewing": 5, "phone-screen": 4, "applied": 3, "researching": 2, "new": 1 };
+    var copy = jobs.slice().sort(function (a, b) {
+      var pa = stagePriority[a.stage] || 0;
+      var pb = stagePriority[b.stage] || 0;
+      if (pa !== pb) return pb - pa;
+      return (b.index || 0) - (a.index || 0);
+    });
+    return copy[0];
+  }
+
+  /** Build the LEAD STORY slot — eyebrow + headline + facts + body + actions. */
+  function buildLead(hero, funnel, jobs) {
+    var offers = (funnel.find(function (s) { return s.stage === "offer"; }) || {}).count || 0;
+    var inLoop = hero.inLoop || 0;
+    var lead = pickLeadJob(jobs);
+
+    // Eyebrow + headline tone derived from the dominant signal.
+    var eyebrow = "LEAD STORY · TODAY";
+    var headlineHtml = "Today is a good day to <span class=\"underline\">decide</span>.";
+    var body = "A quiet pipeline. Reach out to one person you respect — that's the highest-leverage move on a slow day.";
+    var actions = [{ label: "Open pipeline", kind: "primary", event: "dawn:scroll-to-stage", payload: "applied" }];
+
+    if (offers > 0 && lead && lead.stage === "offer") {
+      eyebrow = "LEAD STORY · OFFER LIVE";
+      headlineHtml = (escapeHtmlSafe(lead.company || "An offer") +
+        " says <span class=\"underline\">yes</span>.<br>Decide before momentum slips.");
+      body = "An offer is on the table. Stack it against your live loops, then either accept, counter, or close the conversation cleanly.";
+      actions = [
+        { label: "Open " + (lead.company || "offer"), kind: "primary", event: "dawn:open-job", payload: lead.key || "" },
+        { label: "Compare loops", kind: "ghost", event: "dawn:scroll-to-stage", payload: "interviewing" },
+      ];
+    } else if (inLoop > 0 && lead && (lead.stage === "interviewing" || lead.stage === "phone-screen")) {
+      eyebrow = "LEAD STORY · INTERVIEW PREP";
+      headlineHtml = (escapeHtmlSafe(lead.company || "Your next loop") +
+        " is up <span class=\"underline\">next</span>.<br>Sharpen the one thing that moves the call.");
+      body = "Block 45 minutes today on the highest-weight skill for this loop. Notes-doc opened wins more loops than over-preparation.";
+      actions = [
+        { label: "Open " + (lead.company || "loop"), kind: "primary", event: "dawn:open-job", payload: lead.key || "" },
+        { label: "See all loops", kind: "ghost", event: "dawn:scroll-to-stage", payload: "interviewing" },
+      ];
+    } else if (lead && lead.stage === "applied") {
+      eyebrow = "LEAD STORY · STILL OUT THERE";
+      headlineHtml = (escapeHtmlSafe(lead.company || "Your last application") +
+        " hasn't <span class=\"underline\">replied</span> yet.<br>Decide: nudge, network, or move on.");
+      body = "Applications past their median reply window rarely warm back up on their own. A warm intro doubles the rate.";
+      actions = [
+        { label: "Open " + (lead.company || "role"), kind: "primary", event: "dawn:open-job", payload: lead.key || "" },
+        { label: "Find a warm intro", kind: "ghost", event: "dawn:scroll-to-stage", payload: "applied" },
+      ];
+    } else if (hero.found > 0) {
+      eyebrow = "LEAD STORY · FRESH FINDS";
+      headlineHtml = (String(hero.found) +
+        " new roles <span class=\"underline\">surfaced</span>.<br>Triage now, apply faster than yesterday.");
+      body = "Speed matters more than polish on first-touch. Skim the JD, pick two, draft cover letters before the day owns you.";
+      actions = [
+        { label: "Triage new", kind: "primary", event: "dawn:scroll-to-stage", payload: "new" },
+      ];
+    }
+
+    // Facts: a small set of real, useful numbers derived from current pipeline.
+    var facts = [
+      { label: "PIPELINE", value: String(jobs.length), tone: null },
+      { label: "APPLIED",  value: String(hero.applied || 0), tone: hero.applied > 0 ? "amber" : null },
+      { label: "IN LOOP",  value: String(inLoop), tone: inLoop > 0 ? "mint" : null },
+      { label: "OFFERS",   value: String(offers), tone: offers > 0 ? "mint" : null },
+    ];
+
+    return {
+      eyebrow: eyebrow,
+      headlineHtml: headlineHtml,
+      facts: facts,
+      body: body,
+      actions: actions,
+      stickerLabel: "read me first",
+    };
+  }
+
+  /** "By the numbers" 2×2 stats card — values, labels, deltas, tones. */
+  function buildByTheNumbers(hero, funnel) {
+    var offers = (funnel.find(function (s) { return s.stage === "offer"; }) || {}).count || 0;
+    var inLoop = hero.inLoop || 0;
+    return [
+      { value: hero.found || 0,   label: "roles surfaced",   delta: hero.foundSub   || "vs last week", tone: "mint" },
+      { value: hero.applied || 0, label: "applications",      delta: hero.appliedSub || "this week",     tone: "amber" },
+      { value: inLoop,            label: "interviews this wk", delta: hero.inLoopSub  || "screens + loops", tone: null },
+      { value: offers,            label: "offer" + (offers === 1 ? "" : "s") + " live", delta: hero.offersSub || "in pipeline", tone: offers > 0 ? "amber" : null },
+    ];
+  }
+
+  /** 6-row 30-day funnel for the brief — uses kanban-card counts. */
+  function buildFunnel30d(jobs) {
+    var byStage = { "new": 0, "researching": 0, "applied": 0, "phone-screen": 0, "interviewing": 0, "offer": 0 };
+    jobs.forEach(function (j) {
+      // Treat any non-terminal stage as part of its kind.
+      if (Object.prototype.hasOwnProperty.call(byStage, j.stage)) byStage[j.stage] += 1;
+    });
+    return [
+      { kind: "discovered",   label: "Discovered",   count: byStage["new"]           },
+      { kind: "researched",   label: "Researched",   count: byStage["researching"]   },
+      { kind: "applied",      label: "Applied",      count: byStage["applied"]       },
+      { kind: "phone_screen", label: "Phone screen", count: byStage["phone-screen"]  },
+      { kind: "interview",    label: "Interview",    count: byStage["interviewing"]  },
+      { kind: "offer",        label: "Offer",        count: byStage["offer"]         },
+    ];
+  }
+
+  /** Up to 3 editorial "Also today" stories — stale / prep / fresh. */
+  function buildStories(hero, funnel, jobs) {
+    var stories = [];
+    var staleApplied = jobs.filter(function (j) { return j.stage === "applied"; });
+    if (staleApplied.length) {
+      var pick = staleApplied[0];
+      stories.push({
+        kind: "stale",
+        title: (pick.company ? pick.company + " " : "Older applications ") + "haven't replied.",
+        body: "Median reply at companies your size falls off fast after a week. Two warm-intro routes usually exist if you ask.",
+        cta: { label: "Find a warm intro →", event: "dawn:open-job", payload: pick.key || "" },
+      });
+    }
+    var loops = jobs.filter(function (j) { return j.stage === "phone-screen" || j.stage === "interviewing"; });
+    if (loops.length) {
+      var loop = loops[0];
+      stories.push({
+        kind: "prep",
+        title: (loop.company ? loop.company + " loop coming up" : "Loops on the calendar") + ".",
+        body: "Block 45 minutes on the highest-weight session. Open the prep doc today — not the morning of.",
+        cta: { label: "Open prep doc →", event: "dawn:open-job", payload: loop.key || "" },
+      });
+    }
+    var fresh = jobs.filter(function (j) { return j.stage === "new"; });
+    if (fresh.length) {
+      stories.push({
+        kind: "fresh",
+        title: fresh.length + " surfaced. " + Math.min(fresh.length, Math.max(2, Math.round(fresh.length / 3))) + " worth a real look.",
+        body: "Skim, score, shortlist. The longer they sit untriaged, the colder the pipeline gets.",
+        cta: { label: "Triage " + fresh.length + " →", event: "dawn:scroll-to-stage", payload: "new" },
+      });
+    }
+    if (stories.length === 0) {
+      stories.push({
+        kind: "fresh",
+        title: "Slow day in the pipeline.",
+        body: "Use the gap. Reach out to one person, sharpen the resume, or draft a thank-you you've been putting off.",
+        cta: { label: "Open pipeline →", event: "dawn:scroll-to-stage", payload: "applied" },
+      });
+    }
+    return stories.slice(0, 3);
+  }
+
+  function escapeHtmlSafe(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   /** Public API. */
   function getDawnViewModel(opts) {
     var doc = (opts && opts.doc) || (typeof document !== "undefined" ? document : null);
@@ -279,6 +481,14 @@
     var isEmpty = jobs.length === 0;
     var noticings = buildNoticings(hero, funnel);
     var headline = buildHeadline(hero, funnel, isEmpty);
+
+    // Phase-2 editorial extensions (newspaper-brief layout). Derived data
+    // only — no schema additions to legacy DOM.
+    var nowDate = (opts && opts.now instanceof Date) ? opts.now : new Date();
+    var lead = buildLead(hero, funnel, jobs);
+    var byTheNumbers = buildByTheNumbers(hero, funnel);
+    var funnel30d = buildFunnel30d(jobs);
+    var stories = buildStories(hero, funnel, jobs);
 
     return {
       date: readDate(doc),
@@ -294,6 +504,16 @@
       headline: headline,
       isEmpty: isEmpty,
       total: jobs.length,
+
+      // ---- Phase-2 newspaper-brief slots (additive; legacy fields untouched) ----
+      edition: buildEdition(nowDate),
+      readTime: buildReadTime(jobs.length),
+      title: "The Daily Brief",
+      deckCopy: buildDeck(hero, funnel),
+      lead: lead,
+      byTheNumbers: byTheNumbers,
+      funnel30d: funnel30d,
+      stories: stories,
     };
   }
 
@@ -323,6 +543,39 @@
       headline: "Your pipeline is empty. Run discovery, or add a role to start the day.",
       isEmpty: true,
       total: 0,
+      // Phase-2 newspaper-brief slots — present but empty so the renderer is safe.
+      edition: "THE DAILY BRIEF · LOCAL EDITION",
+      readTime: "1 min read",
+      title: "The Daily Brief",
+      deckCopy: "An empty pipeline today. Start a discovery run, or add a role to start the day.",
+      lead: {
+        eyebrow: "LEAD STORY · GETTING STARTED",
+        headlineHtml: "Your pipeline is <span class=\"underline\">empty</span>.<br>That's a clean place to start.",
+        facts: [
+          { label: "PIPELINE", value: "0", tone: null },
+          { label: "APPLIED",  value: "0", tone: null },
+          { label: "IN LOOP",  value: "0", tone: null },
+          { label: "OFFERS",   value: "0", tone: null },
+        ],
+        body: "Run discovery to surface roles, or add a job manually. Once a few are in, this brief will sharpen itself.",
+        actions: [{ label: "Add a role", kind: "primary", event: "dawn:scroll-to-stage", payload: "new" }],
+        stickerLabel: "start here",
+      },
+      byTheNumbers: [
+        { value: 0, label: "roles surfaced",  delta: "no runs yet",   tone: null },
+        { value: 0, label: "applications",    delta: "—",              tone: null },
+        { value: 0, label: "interviews",      delta: "—",              tone: null },
+        { value: 0, label: "offers live",     delta: "—",              tone: null },
+      ],
+      funnel30d: [
+        { kind: "discovered",   label: "Discovered",   count: 0 },
+        { kind: "researched",   label: "Researched",   count: 0 },
+        { kind: "applied",      label: "Applied",      count: 0 },
+        { kind: "phone_screen", label: "Phone screen", count: 0 },
+        { kind: "interview",    label: "Interview",    count: 0 },
+        { kind: "offer",        label: "Offer",        count: 0 },
+      ],
+      stories: [],
     };
   }
 

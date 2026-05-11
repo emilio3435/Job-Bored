@@ -1,0 +1,150 @@
+/* ============================================================
+   tokens-v2.css — JobBored visual refactor (Atlas / Phase 1)
+   ------------------------------------------------------------
+   Owner:    Atlas (foundation agent)
+   Purpose:  Additive design-token layer for the v2 redesign.
+             Every token is prefixed --jb-. Loaded alongside the
+             legacy style.css; takes EFFECT only when
+             <body class="jb-v2"> is present (jb-v2.css consumes
+             these). Without that class, this file is a no-op:
+             the legacy UI renders pixel-identically.
+   Consumed by: Forge, Quill, Dawn, Lattice, Scribe, Welcome.
+   DO NOT EDIT directly during a swarm run — Atlas owns this.
+   ============================================================ */
+
+:root {
+  /* --------------------------------------------------------
+     Surfaces — warm-paper newsprint foundation.
+     There is no separate "white surface" in v2: paper is the
+     surface. Raised paper is the cream tint.
+     -------------------------------------------------------- */
+  --jb-paper:          #FFFEF9;                       /* was: --bg-raised — warm paper replaces white */
+  --jb-paper-2:        #FBF7EE;                       /* was: --surface-2 */
+  --jb-surface:        #FFFEF9;                       /* was: --surface */
+  --jb-surface-raised: #FBF7EE;                       /* was: --bg-raised */
+
+  /* --------------------------------------------------------
+     Lines — hairlines, dividers, dashed rules.
+     -------------------------------------------------------- */
+  --jb-line:        #C9C2B0;                          /* was: --border-bright — hard line per wireframe */
+  --jb-line-soft:   #E5DFCC;                          /* was: --border — default border */
+  --jb-line-strong: rgba(14, 58, 78, 0.12);           /* was: --divider — navy-tinted strong rule */
+
+  /* --------------------------------------------------------
+     Ink (text) — body / muted / faint / inverse.
+     -------------------------------------------------------- */
+  --jb-ink:         #1B2B33;                          /* was: --text */
+  --jb-ink-2:       #3A5566;                          /* was: --text-muted */
+  --jb-ink-3:       #6B8493;                          /* was: --text-faint */
+  --jb-ink-inverse: #FFFEF9;                          /* was: --text-inverse — paper, on dark navy */
+
+  /* --------------------------------------------------------
+     Brand — navy / mint / amber / violet / rose / yellow-tape.
+     -------------------------------------------------------- */
+  --jb-navy:        #0E3A4E;                          /* was: --accent-text — deeper navy than legacy --text */
+  --jb-navy-soft:   #355467;
+  --jb-mint:        #5FCB8E;                          /* was: --accent */            /* warmer than legacy */
+  --jb-mint-deep:   #2F8A5A;                          /* was: --accent-hover */      /* warmer than legacy */
+  --jb-mint-soft:   #DCF1E2;                          /* was: --accent-dim */
+  --jb-amber:       #EF8F26;                          /* was: --hot-orange */
+  --jb-amber-soft:  #FAE2C2;                          /* was: --hot-bg / --hot-border */
+  --jb-violet:      #7C3AED;                          /* was: --status-researching-text */
+  --jb-violet-soft: #E8DEF7;                          /* was: --status-researching-bg */
+  --jb-rose:        #C0392B;                          /* was: --toast-error / --status-rejected-text */
+  --jb-yellow-tape: #FCEFA8;                          /* was: --high-bg / --high-border — washi tape */
+  --jb-yellow:      #FCEFA8;                          /* alias of --jb-yellow-tape — used by sticker callouts */
+
+  /* --------------------------------------------------------
+     Newspaper-brief funnel accents (Phase-2 / Dawn brief refit).
+     These two hues do not appear elsewhere in the palette and
+     map directly to the funnel rows in brief-mockup.html.
+     -------------------------------------------------------- */
+  --jb-cyan:        #5BB5C9;                          /* funnel "Phone screen" tick */
+  --jb-green:       #1FA463;                          /* funnel "Offer" tick */
+
+  /* --------------------------------------------------------
+     Stage rails — pipeline kanban left-border tokens.
+     1:1 mapping from legacy --stage-rail-* so Lattice can swap
+     names without changing meaning.
+     -------------------------------------------------------- */
+  --jb-stage-new:           #6B8493;                  /* was: --stage-rail-new */
+  --jb-stage-researching:   #7C3AED;                  /* was: --stage-rail-researching */
+  --jb-stage-applied:       #EF8F26;                  /* was: --stage-rail-applied */
+  --jb-stage-phone:         #0891B2;                  /* was: --stage-rail-phone-screen */
+  --jb-stage-interviewing:  #5FCB8E;                  /* was: --stage-rail-interviewing */ /* warmer than legacy */
+  --jb-stage-offer:         #2F8A5A;                  /* was: --stage-rail-offer */
+  --jb-stage-rejected:      #C0392B;                  /* was: --stage-rail-rejected */
+  --jb-stage-passed:        #64748B;                  /* was: --stage-rail-passed */
+
+  /* --------------------------------------------------------
+     Status — generic ok / warn / err / info, AA-safe on paper.
+     Backgrounds are tinted overlays; text passes contrast on
+     warm paper backgrounds.
+     -------------------------------------------------------- */
+  --jb-ok:      #15803D;                              /* was: --status-ok / --toast-success */
+  --jb-ok-bg:   rgba(47, 138, 90, 0.12);              /* was: --status-ok-bg */
+  --jb-warn:    #A16207;                              /* was: --status-warn / --high-yellow */
+  --jb-warn-bg: rgba(239, 143, 38, 0.14);             /* was: --status-warn-bg */
+  --jb-err:     #C0392B;                              /* was: --status-err / --toast-error */
+  --jb-err-bg:  rgba(192, 57, 43, 0.12);              /* was: --status-err-bg */
+  --jb-info:    #0E3A4E;                              /* was: --status-info / --toast-info */
+  --jb-info-bg: rgba(14, 58, 78, 0.08);               /* was: --status-info-bg */
+
+  /* --------------------------------------------------------
+     Fit — role-fit ring tokens (high / mid / low).
+     -------------------------------------------------------- */
+  --jb-fit-high: #2F8A5A;                             /* was: --fit-high */
+  --jb-fit-mid:  #A16207;                             /* was: --fit-mid */
+  --jb-fit-low:  #6B8493;                             /* was: --fit-low */
+
+  /* --------------------------------------------------------
+     Type stack
+     Caveat: reserved for h1/h2 + .jb-handwritten only.
+     Geist:  body / UI face.
+     JetBrains Mono: code / labels / numerics.
+     -------------------------------------------------------- */
+  --jb-font-display: "Caveat", "Bradley Hand", cursive;
+  --jb-font-body:    "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --jb-font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* --------------------------------------------------------
+     Type scale — fluid clamps, anchored ~14–15px base.
+     -------------------------------------------------------- */
+  --jb-text-xs:   clamp(0.75rem,  0.70rem + 0.20vw, 0.8125rem);
+  --jb-text-sm:   clamp(0.8125rem, 0.78rem + 0.20vw, 0.875rem);
+  --jb-text-base: clamp(0.875rem, 0.84rem + 0.25vw, 0.9375rem);
+  --jb-text-lg:   clamp(1rem,     0.95rem + 0.25vw, 1.0625rem);
+  --jb-text-xl:   clamp(1.125rem, 1.05rem + 0.40vw, 1.375rem);
+  --jb-text-2xl:  clamp(1.5rem,   1.20rem + 1.40vw, 2.25rem);
+  --jb-text-3xl:  clamp(2rem,     1.60rem + 2.00vw, 3rem);
+
+  /* --------------------------------------------------------
+     Radius
+     -------------------------------------------------------- */
+  --jb-radius-xs:   4px;
+  --jb-radius-sm:   8px;
+  --jb-radius-md:   12px;
+  --jb-radius-lg:   14px;
+  --jb-radius-xl:   22px;
+  --jb-radius-pill: 999px;
+
+  /* --------------------------------------------------------
+     Shadow
+     pencil  — soft 6px offset, hand-drawn paper feel
+     sticker — hard 3/4px offset, polaroid / washi-tape pop
+     card    — long, soft, navy-tinted base shadow
+     focus   — AA focus ring, mint at 35% alpha
+     -------------------------------------------------------- */
+  --jb-shadow-pencil:  0 1px 0 #C9C2B0, 0 6px 0 -3px rgba(14, 58, 78, 0.08);
+  --jb-shadow-sticker: 3px 4px 0 rgba(14, 58, 78, 0.12);
+  --jb-shadow-card:    2px 3px 0 rgba(14, 58, 78, 0.08), 0 0 0 1px rgba(14, 58, 78, 0.10);
+  --jb-shadow-focus:   0 0 0 3px rgba(89, 203, 137, 0.35);
+
+  /* --------------------------------------------------------
+     Motion
+     -------------------------------------------------------- */
+  --jb-ease:            cubic-bezier(0.16, 1, 0.3, 1);
+  --jb-transition-fast: 120ms var(--jb-ease);
+  --jb-transition-base: 180ms var(--jb-ease);
+  --jb-transition-slow: 320ms var(--jb-ease);
+}

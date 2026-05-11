@@ -1,0 +1,440 @@
+/* ============================================================
+   dawn.css — JobBored v2 Daily Brief screen (Dawn / Phase 2 refit)
+   ------------------------------------------------------------
+   Owner:    Dawn (Daily Brief screen agent)
+   Scope:    body.jb-v2 [data-region="dawn"]
+   Tokens:   --jb-* only (lints clean against tools/lint-tokens.mjs).
+   Design:   brief-mockup.html (newspaper-brief literal spec).
+
+   Off-flag (`body:not(.jb-v2)`) renders nothing — the legacy
+   .daily-brief-panel is unaffected.
+   ============================================================ */
+
+/* Region only renders when v2 flag is on. */
+body:not(.jb-v2) [data-region="dawn"] { display: none; }
+
+body.jb-v2 [data-region="dawn"] {
+  display: block;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: var(--space-2, 8px) var(--space-8, 32px) var(--space-14, 56px);
+  font-family: var(--jb-font-body);
+  color: var(--jb-ink);
+  background: var(--jb-paper-2);
+}
+
+/* --- 1. Masthead row: edition + read time -------------------- */
+body.jb-v2 [data-region="dawn"] .brief-masthead-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-block-end: var(--space-1, 4px);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-edition,
+body.jb-v2 [data-region="dawn"] .brief-read-time {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  color: var(--jb-ink-3);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+/* --- 2. Masthead title + deck ------------------------------- */
+body.jb-v2 [data-region="dawn"] .brief-masthead {
+  border-block-end: 2px solid var(--jb-navy);
+  padding-block-end: var(--space-3, 12px);
+  margin-block-end: var(--space-6, 22px);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-title {
+  font-family: var(--jb-font-display);
+  font-size: 64px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--jb-navy);
+  margin: 0;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-deck {
+  margin-block-start: var(--space-2, 8px);
+  color: var(--jb-ink-3);
+  font-size: 14px;
+  font-style: italic;
+}
+
+/* --- 3. Hero block — lead (1.4fr) + stats column (1fr) ------ */
+body.jb-v2 [data-region="dawn"] .brief-hero {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: var(--space-7, 28px);
+  margin-block-end: var(--space-7, 28px);
+}
+
+/* Shared card primitive — paper + soft shadow. */
+body.jb-v2 [data-region="dawn"] .brief-card {
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-lg);
+  box-shadow: var(--jb-shadow-card);
+}
+
+/* 3a. LEAD STORY ------------------------------------------- */
+body.jb-v2 [data-region="dawn"] .brief-lead {
+  position: relative;
+  overflow: hidden;
+  padding: 28px 30px;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__sticker {
+  position: absolute;
+  top: 22px;
+  inset-inline-end: 24px;
+  transform: rotate(8deg);
+  padding: 6px 14px;
+  background: var(--jb-yellow);
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-xs);
+  font-family: var(--jb-font-display);
+  color: var(--jb-navy);
+  font-size: 18px;
+  box-shadow: var(--jb-shadow-sticker);
+  pointer-events: none;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__eyebrow {
+  font-family: var(--jb-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  font-weight: 700;
+  color: var(--jb-amber);
+  margin-block-end: 6px;
+  text-transform: uppercase;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__headline {
+  font-family: var(--jb-font-display);
+  font-size: 44px;
+  line-height: 1.05;
+  color: var(--jb-navy);
+  margin: 0 0 10px 0;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  max-width: 22ch;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__headline .underline {
+  position: relative;
+  display: inline-block;
+  z-index: 0;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__headline .underline::after {
+  content: "";
+  position: absolute;
+  inset-inline: -2px;
+  bottom: -4px;
+  height: 6px;
+  background: var(--jb-mint);
+  border-radius: 4px;
+  transform: rotate(-0.6deg);
+  opacity: 0.55;
+  z-index: -1;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__facts {
+  display: flex;
+  gap: var(--space-5, 18px);
+  margin: var(--space-4, 16px) 0;
+  flex-wrap: wrap;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__fact-label {
+  font-family: var(--jb-font-mono);
+  font-size: 10px;
+  color: var(--jb-ink-3);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__fact-value {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--jb-navy);
+  font-family: var(--jb-font-body);
+  line-height: 1.1;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__fact-value--mint  { color: var(--jb-mint-deep); }
+body.jb-v2 [data-region="dawn"] .brief-lead__fact-value--amber { color: var(--jb-amber); }
+
+body.jb-v2 [data-region="dawn"] .brief-lead__body {
+  color: var(--jb-ink-2);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0 0 var(--space-3, 12px) 0;
+  max-width: 60ch;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__actions {
+  display: flex;
+  gap: var(--space-2, 8px);
+  flex-wrap: wrap;
+}
+
+/* 3b. STATS COLUMN ---------------------------------------- */
+body.jb-v2 [data-region="dawn"] .brief-stats-col {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: var(--space-5, 18px);
+  min-width: 0;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-stats-card {
+  padding: var(--space-6, 22px);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-stats-card__eyebrow,
+body.jb-v2 [data-region="dawn"] .brief-funnel-card__title {
+  font-family: var(--jb-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--jb-ink-3);
+  text-transform: uppercase;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4, 14px);
+  margin-block-start: var(--space-3, 12px);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-stat__n {
+  font-family: var(--jb-font-display);
+  font-size: 44px;
+  line-height: 1;
+  color: var(--jb-navy);
+  font-weight: 600;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-stat__n--mint  { color: var(--jb-mint-deep); }
+body.jb-v2 [data-region="dawn"] .brief-stat__n--amber { color: var(--jb-amber); }
+
+body.jb-v2 [data-region="dawn"] .brief-stat__label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--jb-navy);
+  margin-block-start: 2px;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-stat__delta {
+  color: var(--jb-ink-3);
+  font-size: 10.5px;
+  margin-block-start: 2px;
+}
+
+/* Funnel card ---------------------------------------------- */
+body.jb-v2 [data-region="dawn"] .brief-funnel-card {
+  padding: var(--space-5, 18px);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-funnel-card__title {
+  margin-block-end: var(--space-3, 10px);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-funnel__row {
+  display: grid;
+  grid-template-columns: 92px 1fr 28px;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  padding-block: 4px;
+  background: transparent;
+  border: 0;
+  text-align: start;
+  cursor: pointer;
+  width: 100%;
+  border-radius: var(--jb-radius-xs);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-funnel__row:hover,
+body.jb-v2 [data-region="dawn"] .brief-funnel__row:focus-visible {
+  background: var(--jb-paper-2);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-funnel__row:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-funnel__label {
+  font-family: var(--jb-font-mono);
+  font-size: 10.5px;
+  color: var(--jb-navy-soft);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-funnel__bar {
+  display: flex;
+  gap: 2px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-funnel__tick {
+  flex: 0 0 auto;
+  width: 4px;
+  height: 12px;
+  background: var(--jb-navy);
+  border-radius: 1px;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-funnel__tick--violet { background: var(--jb-violet); }
+body.jb-v2 [data-region="dawn"] .brief-funnel__tick--amber  { background: var(--jb-amber); }
+body.jb-v2 [data-region="dawn"] .brief-funnel__tick--cyan   { background: var(--jb-cyan); }
+body.jb-v2 [data-region="dawn"] .brief-funnel__tick--mint   { background: var(--jb-mint); }
+body.jb-v2 [data-region="dawn"] .brief-funnel__tick--green  { background: var(--jb-green); }
+
+body.jb-v2 [data-region="dawn"] .brief-funnel__count {
+  font-family: var(--jb-font-mono);
+  font-size: 10.5px;
+  color: var(--jb-navy);
+  text-align: end;
+}
+
+/* --- 4. "Also today" three-card row -------------------------- */
+body.jb-v2 [data-region="dawn"] .brief-also-eyebrow {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--jb-ink-3);
+  margin-block-end: var(--space-3, 12px);
+  text-transform: uppercase;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-also-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-6, 22px);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-story {
+  padding: var(--space-6, 22px);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-story__tag {
+  font-family: var(--jb-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  margin-block-end: 6px;
+  text-transform: uppercase;
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-story__tag.brief-story__tag--stale { color: var(--jb-amber); }
+body.jb-v2 [data-region="dawn"] .brief-story__tag.brief-story__tag--prep  { color: var(--jb-mint-deep); }
+body.jb-v2 [data-region="dawn"] .brief-story__tag.brief-story__tag--fresh { color: var(--jb-violet); }
+
+body.jb-v2 [data-region="dawn"] .brief-story__title {
+  font-family: var(--jb-font-display);
+  font-size: 26px;
+  line-height: 1.1;
+  color: var(--jb-navy);
+  margin: 0 0 var(--space-2, 8px) 0;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-story__body {
+  color: var(--jb-ink-2);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0 0 var(--space-4, 14px) 0;
+}
+
+/* --- Shared button primitive (scoped under the brief region) - */
+body.jb-v2 [data-region="dawn"] .brief-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: var(--jb-radius-pill);
+  border: 1px solid var(--jb-navy);
+  background: var(--jb-paper);
+  color: var(--jb-navy);
+  font-family: var(--jb-font-body);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-btn:hover,
+body.jb-v2 [data-region="dawn"] .brief-btn:focus-visible {
+  background: var(--jb-paper-2);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-btn--primary {
+  background: var(--jb-mint);
+  border-color: var(--jb-navy);
+  color: var(--jb-navy);
+  box-shadow: var(--jb-shadow-sticker);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-btn--primary:hover,
+body.jb-v2 [data-region="dawn"] .brief-btn--primary:focus-visible {
+  background: var(--jb-mint-soft);
+}
+
+/* --- Responsive ------------------------------------------- */
+@media (max-width: 1100px) {
+  body.jb-v2 [data-region="dawn"] .brief-hero {
+    grid-template-columns: 1fr;
+  }
+  body.jb-v2 [data-region="dawn"] .brief-title {
+    font-size: 48px;
+  }
+}
+
+@media (max-width: 760px) {
+  body.jb-v2 [data-region="dawn"] {
+    padding-inline: var(--space-4, 16px);
+  }
+  body.jb-v2 [data-region="dawn"] .brief-lead {
+    padding: var(--space-5, 20px);
+  }
+  body.jb-v2 [data-region="dawn"] .brief-lead__sticker {
+    top: 12px;
+    inset-inline-end: 12px;
+    font-size: 14px;
+    padding: 4px 10px;
+  }
+  body.jb-v2 [data-region="dawn"] .brief-lead__headline {
+    font-size: 32px;
+  }
+  body.jb-v2 [data-region="dawn"] .brief-also-grid {
+    grid-template-columns: 1fr;
+  }
+  body.jb-v2 [data-region="dawn"] .brief-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  body.jb-v2 [data-region="dawn"] .brief-funnel__row {
+    grid-template-columns: 80px 1fr 24px;
+  }
+  body.jb-v2 [data-region="dawn"] .brief-title {
+    font-size: 38px;
+  }
+}
+
+/* --- Reduced motion --------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 [data-region="dawn"] .brief-btn--primary,
+  body.jb-v2 [data-region="dawn"] .brief-lead__sticker {
+    box-shadow: none;
+  }
+}
