@@ -47,6 +47,9 @@
 
   var STATUS_COLUMN = "M"; // schemas/pipeline-row.v1.json -> status
   var NOTES_COLUMN = "O";  // schemas/pipeline-row.v1.json -> notes
+  var FOLLOWUP_COLUMN = "P"; // schemas/pipeline-row.v1.json -> followUpDate
+  var LAST_CONTACT_COLUMN = "R"; // schemas/pipeline-row.v1.json -> lastHeardFrom
+  var RESPONSE_COLUMN = "S"; // schemas/pipeline-row.v1.json -> responseFlag
   var LINK_COLUMN = "E";   // schemas/pipeline-row.v1.json -> link
 
   var SHEETS_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
@@ -302,6 +305,75 @@
   }
 
   /**
+   * Write one Pipeline cell for write-back chips that map directly to a Sheet
+   * column in schemas/pipeline-row.v1.json.
+   * @param {any} jobKey
+   * @param {string} column
+   * @param {any} value
+   * @param {string} kind
+   * @param {string} label
+   */
+  async function writeColumn(jobKey, column, value, kind, label) {
+    try {
+      var row = await resolveSheetRow(jobKey);
+      var range = "Pipeline!" + column + row;
+      await sheetsValuesUpdate(range, [[value]]);
+      emitResult("succeeded", { jobKey: jobKey, kind: kind });
+    } catch (err) {
+      var msg = (err && err.message) || String(err);
+      emitResult("failed", { jobKey: jobKey, kind: kind, error: msg });
+      safeToast("Couldn't save " + label + ": " + msg, "error");
+    }
+  }
+
+  /**
+   * Write a status (column M) from the role write-back event.
+   * @param {any} jobKey
+   * @param {string} value
+   */
+  function writeStage(jobKey, value) {
+    return moveStage({ jobKey: jobKey, toStage: value });
+  }
+
+  /**
+   * Write last-contact date (column R).
+   * @param {any} jobKey
+   * @param {string} value
+   */
+  function writeHeardBack(jobKey, value) {
+    return writeColumn(jobKey, LAST_CONTACT_COLUMN, value || "", "heardBack", "last contact");
+  }
+
+  /**
+   * Mark the response flag (column S) using the same enum as the drawer select.
+   * @param {any} jobKey
+   */
+  function writeReply(jobKey) {
+    return writeColumn(jobKey, RESPONSE_COLUMN, "Yes", "reply", "reply status");
+  }
+
+  /**
+   * Write follow-up date (column P).
+   * @param {any} jobKey
+   * @param {string} value
+   */
+  function writeFollowup(jobKey, value) {
+    return writeColumn(jobKey, FOLLOWUP_COLUMN, value || "", "followupAt", "follow-up date");
+  }
+
+  /**
+   * Mark the role as Passed by writing the existing Status enum (column M).
+   * The workshop emits `true`; `false` is intentionally a no-op because there
+   * is no contract-safe previous stage to restore.
+   * @param {any} jobKey
+   * @param {boolean} value
+   */
+  function writePassed(jobKey, value) {
+    if (value !== true) return Promise.resolve();
+    return writeColumn(jobKey, STATUS_COLUMN, "Passed", "passed", "passed status");
+  }
+
+  /**
    * Write a letter draft into the Notes (column O) cell for the given jobKey.
    * @param {{jobKey:any, draft:string}} payload
    */
@@ -336,10 +408,30 @@
     saveLetter(payload);
   }
 
+  function onRoleWritebackEvent(e) {
+    var detail = (e && e.detail) || {};
+    var jobKey = detail.jobKey;
+    var field = detail.field;
+    var value = detail.value;
+    if (!jobKey || !field) return;
+    switch (field) {
+      case "stage": return writeStage(jobKey, value);
+      case "heardBack": return writeHeardBack(jobKey, value);
+      case "reply": return writeReply(jobKey, value);
+      case "followupAt": return writeFollowup(jobKey, value);
+      case "passed": return writePassed(jobKey, value);
+      default:
+        try { console.warn("[writeback-bridge] unknown field", field); } catch (_) {}
+    }
+  }
+
   function install() {
     if (typeof document === "undefined" || !document.addEventListener) return;
     document.addEventListener("jb:pipeline:move", onMoveEvent);
     document.addEventListener("jb:letter:save", onLetterEvent);
+    if (window && typeof window.addEventListener === "function") {
+      window.addEventListener("jb:role:writeback", onRoleWritebackEvent);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -351,6 +443,11 @@
     /** Manual entry points for tests / programmatic callers. */
     moveStage: moveStage,
     saveLetter: saveLetter,
+    writeStage: writeStage,
+    writeHeardBack: writeHeardBack,
+    writeReply: writeReply,
+    writeFollowup: writeFollowup,
+    writePassed: writePassed,
     /** Internals exposed for the self-test below. */
     _internal: {
       stageLabel: stageLabel,
@@ -364,6 +461,9 @@
       _columns: {
         STATUS_COLUMN: STATUS_COLUMN,
         NOTES_COLUMN: NOTES_COLUMN,
+        FOLLOWUP_COLUMN: FOLLOWUP_COLUMN,
+        LAST_CONTACT_COLUMN: LAST_CONTACT_COLUMN,
+        RESPONSE_COLUMN: RESPONSE_COLUMN,
         LINK_COLUMN: LINK_COLUMN,
       },
       _stageLabels: STAGE_LABELS,
@@ -388,6 +488,9 @@
     eq(normalizeUrl("  HTTPS://Foo/Bar  "), "https://foo/bar", "normalizeUrl");
     eq(STATUS_COLUMN, "M", "STATUS_COLUMN");
     eq(NOTES_COLUMN, "O", "NOTES_COLUMN");
+    eq(FOLLOWUP_COLUMN, "P", "FOLLOWUP_COLUMN");
+    eq(LAST_CONTACT_COLUMN, "R", "LAST_CONTACT_COLUMN");
+    eq(RESPONSE_COLUMN, "S", "RESPONSE_COLUMN");
     if (failures.length) {
       try { console.error("[JobBoredFlowing.writes] self-test failures", failures); } catch (_) {}
       return { ok: false, failures: failures };
