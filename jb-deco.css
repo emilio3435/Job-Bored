@@ -1,0 +1,136 @@
+/* ============================================================
+   jb-deco.css — JobBored v2 decoration utilities (Quill / Phase 2)
+   ------------------------------------------------------------
+   Hand-drawn touches: squiggle / flat highlighters, washi tape,
+   inline highlight mark, dashed stamps, dashed dividers, shadow
+   shorthands. All scoped under body.jb-v2. Token-only.
+   Squiggle SVGs use stroke='currentColor' so the pseudo's `color`
+   token drives the hue (no raw hex inside the data URI).
+   ============================================================ */
+
+/* --- Squiggle underline ---------------------------------- */
+body.jb-v2 .jb-underline-squiggle {
+  position: relative;
+  display: inline-block;
+}
+
+body.jb-v2 .jb-underline-squiggle::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -4px;
+  width: 100%;
+  height: 6px;
+  pointer-events: none;
+  color: var(--jb-mint);
+  opacity: 0.55;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 6' preserveAspectRatio='none'><path d='M0 3 Q 10 0.4 20 3 T 40 3 T 60 3 T 80 3' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: repeat-x;
+  background-size: 80px 6px;
+  background-position: 0 50%;
+  animation: jb-squiggle-breathe 4s var(--jb-ease) infinite alternate;
+}
+
+/* Variant A — looser, loopier */
+body.jb-v2 .jb-underline-squiggle--alt-a::after {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 6' preserveAspectRatio='none'><path d='M0 3 Q 20 -1 40 3 T 80 3' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+}
+
+/* Variant B — tighter zigzag */
+body.jb-v2 .jb-underline-squiggle--alt-b::after {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 6' preserveAspectRatio='none'><path d='M0 3 Q 5 1.5 10 3 T 20 3 T 30 3 T 40 3 T 50 3 T 60 3 T 70 3 T 80 3' fill='none' stroke='currentColor' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-size: 60px 6px;
+}
+
+@keyframes jb-squiggle-breathe {
+  from { opacity: 0.40; }
+  to   { opacity: 0.65; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 .jb-underline-squiggle::after {
+    animation: none;
+    opacity: 0.55;
+  }
+}
+
+/* --- Flat highlighter underline -------------------------- */
+body.jb-v2 .jb-underline-flat {
+  position: relative;
+  display: inline-block;
+}
+
+body.jb-v2 .jb-underline-flat::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -2px;
+  width: 100%;
+  height: 8px;
+  background: var(--jb-yellow-tape);
+  opacity: 0.9;
+  transform: skewX(-1deg);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* --- Washi tape ------------------------------------------ */
+body.jb-v2 .jb-tape {
+  position: absolute;
+  width: 56px;
+  height: 14px;
+  background: var(--jb-yellow-tape);
+  border: 1px dashed var(--jb-line);
+  box-shadow: var(--jb-shadow-pencil);
+  transform: rotate(var(--jb-tape-rotate, -3deg));
+  pointer-events: none;
+}
+
+body.jb-v2 .jb-tape[data-tape="long"],
+body.jb-v2 .jb-tape--long { width: 88px; }
+
+/* --- Inline mark ----------------------------------------- */
+body.jb-v2 .jb-mark {
+  display: inline;
+  background: var(--jb-mint-soft);
+  padding: 0 4px;
+  border-radius: var(--jb-radius-xs);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--jb-mint) 30%, transparent);
+}
+
+/* --- Stamp ----------------------------------------------- */
+body.jb-v2 .jb-stamp {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1.5px dashed var(--jb-line);
+  border-radius: var(--jb-radius-xs);
+  background: transparent;
+  color: var(--jb-ink-2);
+  font-family: var(--jb-font-mono);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  transform: rotate(var(--jb-stamp-rotate, -4deg));
+}
+
+body.jb-v2 .jb-stamp--urgent { border-color: var(--jb-amber); color: var(--jb-amber); }
+body.jb-v2 .jb-stamp--ok { border-color: var(--jb-mint-deep); color: var(--jb-mint-deep); }
+
+/* --- Dashed divider -------------------------------------- */
+body.jb-v2 .jb-divider-dashed {
+  width: 100%;
+  height: 1px;
+  margin-block: 16px;
+  border: 0;
+  background: repeating-linear-gradient(
+    to right,
+    var(--jb-line) 0 6px,
+    transparent 6px 10px
+  );
+}
+
+/* --- Shadow shorthands ----------------------------------- */
+body.jb-v2 .jb-shadow-pencil  { box-shadow: var(--jb-shadow-pencil); }
+body.jb-v2 .jb-shadow-sticker { box-shadow: var(--jb-shadow-sticker); }

@@ -1,0 +1,135 @@
+/* ============================================================
+   jb-type.css — JobBored v2 type ramp (Quill / Phase 2)
+   ------------------------------------------------------------
+   Owner:    Quill (typography agent)
+   Purpose:  Sizes, line-heights, weights, letter-spacing for the
+             v2 type system. Body/h1/h2/h3-h6 base font-families
+             are set in jb-v2.css (Atlas); this file adds the
+             ramp on top. All selectors scoped under body.jb-v2.
+             Token-only (no raw hex).
+
+   Computed sizes (math from tokens-v2.css clamp expressions, 1rem = 16px):
+     320px  viewport: h1=32.00px  h2=24.00px  h3=18.00px  body=14.24px  small=13.12px
+     768px  viewport: h1=40.96px  h2=29.95px  h3=19.87px  body=15.00px  small=14.00px
+     1280px viewport: h1=48.00px  h2=36.00px  h3=21.92px  body=15.00px  small=14.00px
+     1920px viewport: h1=48.00px  h2=36.00px  h3=22.00px  body=15.00px  small=14.00px
+
+   Notes:
+     - h1 caps at the 3rem ceiling by ~1280px; below 320px floors at 32px.
+     - h2 caps at 2.25rem by ~1280px; below 320px floors at 24px.
+     - Body anchors ~14.25px on small phones, reaches 15px ceiling by ~768px.
+     - Caveat is reserved for h1, h2, .jb-handwritten only.
+   ============================================================ */
+
+body.jb-v2 {
+  font-variation-settings: "opsz" auto;
+}
+
+body.jb-v2 h1 {
+  font-weight: 700;
+  font-size: var(--jb-text-3xl);
+  line-height: 1.0;
+  letter-spacing: 0;
+  text-wrap: pretty;
+}
+
+body.jb-v2 h2 {
+  font-weight: 700;
+  font-size: var(--jb-text-2xl);
+  line-height: 1.05;
+  letter-spacing: 0;
+  text-wrap: pretty;
+}
+
+body.jb-v2 h3 {
+  font-weight: 600;
+  font-size: var(--jb-text-xl);
+  line-height: 1.2;
+  text-wrap: pretty;
+}
+
+body.jb-v2 h4 {
+  font-weight: 600;
+  font-size: var(--jb-text-lg);
+  line-height: 1.3;
+}
+
+body.jb-v2 h5,
+body.jb-v2 h6 {
+  font-family: var(--jb-font-mono);
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3);
+  line-height: 1.3;
+}
+
+body.jb-v2 h5 { font-size: var(--jb-text-sm); }
+body.jb-v2 h6 { font-size: var(--jb-text-xs); }
+
+body.jb-v2 p {
+  font-family: var(--jb-font-body);
+  font-weight: 400;
+  font-size: var(--jb-text-base);
+  line-height: 1.55;
+  text-wrap: pretty;
+  hyphens: auto;
+}
+
+body.jb-v2 small,
+body.jb-v2 .jb-caption {
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 .jb-data {
+  font-family: var(--jb-font-mono);
+  font-weight: 500;
+  color: var(--jb-navy);
+  font-feature-settings: "tnum", "ss01";
+}
+
+body.jb-v2 .jb-handwritten {
+  font-family: var(--jb-font-display);
+  color: var(--jb-mint-deep);
+  line-height: 1.05;
+}
+
+body.jb-v2 blockquote {
+  font-style: italic;
+  padding-inline-start: 14px;
+  border-inline-start: 3px solid var(--jb-paper-2);
+  color: var(--jb-ink-2);
+  font-size: var(--jb-text-base);
+}
+
+body.jb-v2 kbd {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  background: var(--jb-paper-2);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-xs);
+}
+
+body.jb-v2 code,
+body.jb-v2 pre {
+  font-family: var(--jb-font-mono);
+}
+
+body.jb-v2 pre {
+  background: var(--jb-paper-2);
+  padding: 12px;
+  border-radius: var(--jb-radius-md);
+}
+
+body.jb-v2 ul,
+body.jb-v2 ol {
+  font-family: var(--jb-font-body);
+  padding-inline-start: 22px;
+  line-height: 1.55;
+}
+
+body.jb-v2 ul li::marker {
+  color: var(--jb-ink-3);
+}

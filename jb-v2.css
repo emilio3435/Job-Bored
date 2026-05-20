@@ -1,0 +1,86 @@
+/* ============================================================
+   jb-v2.css — JobBored visual refactor (Atlas / Phase 1)
+   ------------------------------------------------------------
+   Owner:    Atlas (foundation agent)
+   Purpose:  Body-scoped base typography and document-level
+             styles for the v2 design system. Consumes tokens
+             defined in tokens-v2.css.
+   Additivity guarantee:
+             Every rule is scoped under `body.jb-v2`. This file
+             is purely additive and has ZERO effect on the
+             legacy UI when the `jb-v2` class is absent from
+             <body>. No component styles live here — Forge
+             owns components in Phase 2.
+   ============================================================ */
+
+/* Fonts loaded via <link> in index.html (see docs/redesign/jb-fonts-perf.md). */
+
+body.jb-v2 {
+  background: var(--jb-paper);
+  color: var(--jb-ink);
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-base);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body.jb-v2 h1,
+body.jb-v2 h2 {
+  font-family: var(--jb-font-display);
+  line-height: 1.05;
+  letter-spacing: 0;
+  font-weight: 600;
+  color: var(--jb-ink);
+}
+
+body.jb-v2 h3,
+body.jb-v2 h4,
+body.jb-v2 h5,
+body.jb-v2 h6 {
+  font-family: var(--jb-font-body);
+  font-weight: 600;
+  color: var(--jb-ink);
+  line-height: 1.25;
+}
+
+body.jb-v2 a {
+  color: var(--jb-mint-deep);
+  text-decoration: none;
+  transition: color var(--jb-transition-fast);
+}
+
+body.jb-v2 a:hover {
+  text-decoration: underline;
+  color: var(--jb-mint-deep);
+}
+
+body.jb-v2 ::selection {
+  background: rgba(95, 203, 142, 0.15);
+  color: var(--jb-ink);
+}
+
+body.jb-v2 :focus-visible {
+  outline: 2px solid var(--jb-mint);
+  outline-offset: 2px;
+  border-radius: var(--jb-radius-sm);
+}
+
+body.jb-v2 .jb-handwritten {
+  font-family: var(--jb-font-display);
+  line-height: 1.05;
+}
+
+body.jb-v2 .jb-mono {
+  font-family: var(--jb-font-mono);
+  font-feature-settings: "ss01", "cv11";
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 *,
+  body.jb-v2 *::before,
+  body.jb-v2 *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
