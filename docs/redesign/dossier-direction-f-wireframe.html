@@ -1,0 +1,1179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dossier — Direction F wireframe</title>
+<style>
+  /* ─────────────────────────────────────────────────────────
+     Tokens (approximations of style.css :root)
+     ───────────────────────────────────────────────────────── */
+  :root {
+    --navy: #1B2A4E;
+    --navy-soft: #2A3A60;
+    --ink: #1A1A1A;
+    --ink-soft: #4A4A4A;
+    --mute: #7A7468;
+    --parchment: #FBF7EC;
+    --parchment-deep: #F5EFDC;
+    --surface: #FFFEF9;
+    --workshop-bg: #EDEDE4;       /* cool greige for the workshop */
+    --workshop-card: #F8F7F1;
+    --border: #E5DFCC;
+    --border-strong: #C9C2A8;
+    --mint: #B5D4C2;
+    --mint-deep: #6E9F87;
+    --amber: #E7B549;
+    --crimson: #B23A48;
+    --radius-lg: 16px;
+    --radius-md: 10px;
+    --shadow-soft: 0 1px 2px rgba(27,42,78,.06), 0 8px 24px rgba(27,42,78,.08);
+    --shadow-strong: 0 2px 4px rgba(27,42,78,.10), 0 18px 40px rgba(27,42,78,.14);
+    --serif: "Lora", "Source Serif Pro", Georgia, serif;
+    --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", "Special Elite", ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: #E8E4D6;
+    font-family: var(--sans);
+    color: var(--ink);
+    padding: 48px 24px 96px;
+  }
+
+  /* ─────────────────────────────────────────────────────────
+     Page-level Part 03 divider (existing, unchanged)
+     ───────────────────────────────────────────────────────── */
+  .part-divider {
+    max-width: 1180px;
+    margin: 0 auto 28px;
+    padding: 0 8px;
+  }
+  .part-divider__rule {
+    border-top: 1px solid var(--border-strong);
+    margin-bottom: 18px;
+  }
+  .part-divider__inner {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 32px;
+  }
+  .part-divider__num {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--mute);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .part-divider__title {
+    font-family: var(--serif);
+    font-size: 56px;
+    line-height: 1;
+    color: var(--navy);
+    margin: 0;
+    font-weight: 500;
+  }
+  .part-divider__title em {
+    font-style: italic;
+    color: var(--crimson);
+  }
+  .part-divider__sub {
+    font-family: var(--serif);
+    font-style: italic;
+    color: var(--ink-soft);
+    font-size: 15px;
+    max-width: 360px;
+    text-align: right;
+  }
+  .part-divider__close {
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    color: var(--navy);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    padding: 8px 14px;
+    cursor: pointer;
+  }
+
+  /* ─────────────────────────────────────────────────────────
+     Dossier shell — two distinct cards
+     ───────────────────────────────────────────────────────── */
+  .dossier {
+    max-width: 1180px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  /* ════════════════════════════════════════════════════════
+     CARD 1 · THE BRIEF — parchment, editorial
+     ════════════════════════════════════════════════════════ */
+  .brief {
+    background: var(--parchment);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft);
+    overflow: hidden;
+  }
+  .brief__masthead {
+    padding: 36px 56px 24px;
+    border-bottom: 1px solid var(--border);
+    background:
+      linear-gradient(180deg, var(--parchment-deep) 0%, var(--parchment) 100%);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 24px;
+    align-items: start;
+  }
+  .brief__eyebrow {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    color: var(--mute);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .brief__title {
+    font-family: var(--serif);
+    font-size: 36px;
+    line-height: 1.1;
+    color: var(--navy);
+    margin: 0 0 6px;
+    font-weight: 500;
+  }
+  .brief__company {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 18px;
+    color: var(--ink-soft);
+    margin: 0 0 14px;
+  }
+  .brief__facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+  }
+  .brief__facts span { display: inline-flex; align-items: center; gap: 6px; }
+  .brief__facts .dot { color: var(--border-strong); }
+
+  /* Masthead-right rail: compact stage chip (loose split = stage in Brief) */
+  .brief__stage-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    padding: 8px 14px 8px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--navy);
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow: var(--shadow-soft);
+  }
+  .brief__stage-chip::before {
+    content: "";
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--mint-deep);
+  }
+  .brief__stage-chip .caret { color: var(--mute); }
+
+  /* Brief body — two-column editorial spread
+     LEFT  (wider) = the posting lane:  hook · AI summary · at-a-glance · raw JD
+     RIGHT (narrower) = the workspace lane: talking points · marginalia notes
+  */
+  .brief__body {
+    padding: 40px 56px 48px;
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    gap: 48px;
+    align-items: start;
+    position: relative;
+  }
+  /* a thin vertical rule between columns — newspaper-spread feel */
+  .brief__body::before {
+    content: "";
+    position: absolute;
+    top: 56px;
+    bottom: 56px;
+    left: calc(60.78%); /* roughly between the two cols, given 1.55:1 + 48px gap */
+    width: 1px;
+    background: linear-gradient(180deg,
+      transparent 0%,
+      var(--border-strong) 12%,
+      var(--border-strong) 88%,
+      transparent 100%);
+    pointer-events: none;
+  }
+  .brief__col {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+  /* main = the big posting lane on the left */
+  .brief__col--main { padding-right: 12px; }
+  /* side = the narrower workspace lane on the right */
+  .brief__col--side { padding-left: 12px; }
+  /* the right column sticks while the long posting scrolls past it */
+  @media (min-width: 1081px) {
+    .brief__col--side {
+      position: sticky;
+      top: 24px;
+    }
+  }
+
+  /* Pull-quote hook — big editorial moment */
+  .brief__hook {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 26px;
+    line-height: 1.35;
+    color: var(--navy);
+    margin: 0;
+    position: relative;
+    padding: 8px 0 8px 28px;
+  }
+  .brief__hook::before {
+    content: "“";
+    position: absolute;
+    left: -8px;
+    top: -18px;
+    font-family: var(--serif);
+    font-style: normal;
+    font-size: 96px;
+    line-height: 1;
+    color: var(--amber);
+    opacity: 0.55;
+  }
+  .brief__hook::after {
+    content: "";
+    display: block;
+    width: 56px;
+    height: 2px;
+    background: var(--crimson);
+    margin-top: 18px;
+    opacity: 0.7;
+  }
+
+  /* AI summary — drop-cap lede */
+  .brief__lede {
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.65;
+    color: var(--ink);
+    margin: 0;
+  }
+  .brief__lede::first-letter {
+    font-family: var(--serif);
+    font-weight: 600;
+    float: left;
+    font-size: 56px;
+    line-height: 0.9;
+    padding: 6px 10px 0 0;
+    color: var(--crimson);
+  }
+
+  /* AI provenance tag under lede */
+  .brief__lede-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 14px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--mute);
+  }
+  .brief__lede-tag::before {
+    content: "";
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--mint-deep);
+    box-shadow: 0 0 0 3px rgba(110,159,135,0.18);
+  }
+
+  /* Skim-strip — vertical "facts panel" on the right column */
+  .skim {
+    list-style: none;
+    margin: 0;
+    padding: 18px 20px;
+    background:
+      linear-gradient(180deg, var(--surface) 0%, var(--parchment) 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    box-shadow: var(--shadow-soft);
+    position: relative;
+  }
+  .skim::before {
+    content: "AT A GLANCE";
+    position: absolute;
+    top: -9px;
+    left: 16px;
+    background: var(--parchment);
+    padding: 0 8px;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.24em;
+    color: var(--crimson);
+  }
+  .skim li {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 10px 0;
+    border-bottom: 1px dotted var(--border-strong);
+    gap: 16px;
+  }
+  .skim li:last-child { border-bottom: none; }
+  .skim .key {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mute);
+    white-space: nowrap;
+  }
+  .skim .val {
+    font-family: var(--serif);
+    font-size: 15px;
+    color: var(--navy);
+    font-weight: 500;
+    text-align: right;
+  }
+  .skim .val--score {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--crimson);
+    letter-spacing: -0.01em;
+  }
+
+  /* Section label — typewriter, JobBored zone */
+  .section-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--navy);
+    margin: 0 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-label::before {
+    content: "§";
+    color: var(--crimson);
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 18px;
+    line-height: 1;
+  }
+  .section-label::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border-strong);
+    opacity: 0.6;
+  }
+
+  /* Talking points — dingbat bullets, editorial */
+  .points {
+    background:
+      radial-gradient(circle at top left, rgba(231,181,73,0.08) 0%, transparent 40%),
+      var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 20px 24px 22px;
+    box-shadow: var(--shadow-soft);
+    position: relative;
+  }
+  .points::before {
+    content: "FOR THE CONVERSATION";
+    position: absolute;
+    top: -9px;
+    left: 18px;
+    background: var(--parchment);
+    padding: 0 8px;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.24em;
+    color: var(--crimson);
+  }
+  .points ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .points li {
+    font-family: var(--serif);
+    font-size: 16px;
+    line-height: 1.55;
+    color: var(--ink);
+    padding: 12px 0 12px 32px;
+    border-bottom: 1px dotted var(--border-strong);
+    position: relative;
+  }
+  .points li:last-child { border-bottom: none; padding-bottom: 0; }
+  .points li:first-child { padding-top: 6px; }
+  .points li::before {
+    content: "✦";
+    position: absolute;
+    left: 4px;
+    top: 11px;
+    font-size: 14px;
+    color: var(--crimson);
+    line-height: 1;
+  }
+  /* alternate ornament every third point — gentle rhythm */
+  .points li:nth-child(3n)::before { content: "§"; font-family: var(--serif); font-style: italic; }
+  .points li:nth-child(3n+2)::before { content: "❧"; }
+
+  /* JD sections — collapsed, ledger-style on the reference column */
+  .jd {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    position: relative;
+  }
+  .jd::before {
+    content: "FROM THE POSTING";
+    position: absolute;
+    top: -18px;
+    left: 0;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.24em;
+    color: var(--mute);
+  }
+  .jd details {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border-strong);
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    background: var(--surface);
+    padding: 0;
+    transition: border-left-color 160ms ease;
+  }
+  .jd details[open] { border-left-color: var(--crimson); }
+  .jd details:hover { border-left-color: var(--amber); }
+  .jd summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 14px 18px;
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--navy);
+    text-transform: uppercase;
+  }
+  .jd summary::-webkit-details-marker { display: none; }
+  .jd summary .roman {
+    font-family: var(--serif);
+    font-style: italic;
+    color: var(--crimson);
+    font-size: 14px;
+    letter-spacing: 0;
+    min-width: 28px;
+  }
+  .jd summary .toggle {
+    font-family: var(--serif);
+    font-size: 22px;
+    line-height: 1;
+    color: var(--mute);
+    width: 18px;
+    text-align: center;
+    transition: transform 160ms ease, color 160ms ease;
+  }
+  .jd details[open] summary .toggle {
+    transform: rotate(45deg);
+    color: var(--crimson);
+  }
+  .jd .count {
+    font-family: var(--mono);
+    font-size: 10px;
+    background: var(--parchment-deep);
+    border: 1px solid var(--border);
+    padding: 3px 9px;
+    border-radius: 999px;
+    color: var(--ink-soft);
+    letter-spacing: 0.08em;
+  }
+  .jd .body {
+    padding: 4px 22px 18px 22px;
+    font-family: var(--serif);
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+    animation: jdFadeIn 220ms ease;
+  }
+  @keyframes jdFadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .jd ul { margin: 8px 0 0; padding-left: 22px; }
+  .jd li { margin-bottom: 6px; }
+  .jd li::marker { color: var(--crimson); }
+
+  /* Inline notes — sits at the foot of the left reading column */
+  .brief-notes {
+    margin-top: 8px;
+    padding: 18px 20px 20px;
+    background: var(--parchment-deep);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    position: relative;
+  }
+  .brief-notes::before {
+    content: "MARGINALIA";
+    position: absolute;
+    top: -9px;
+    left: 16px;
+    background: var(--parchment);
+    padding: 0 8px;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.24em;
+    color: var(--crimson);
+  }
+  .brief-notes textarea {
+    width: 100%;
+    min-height: 96px;
+    border: none;
+    border-bottom: 1px dashed var(--border-strong);
+    background: transparent;
+    padding: 8px 4px;
+    font-family: "Special Elite", var(--mono);
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--ink);
+    resize: vertical;
+    outline: none;
+  }
+  .brief-notes textarea::placeholder {
+    color: var(--mute);
+    font-style: italic;
+  }
+  .brief-notes textarea:focus {
+    border-bottom-color: var(--crimson);
+  }
+
+  /* ════════════════════════════════════════════════════════
+     DIVIDER between Brief and Workshop
+     ════════════════════════════════════════════════════════ */
+  .mode-divider {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 4px 8px;
+  }
+  .mode-divider__rule {
+    flex: 1;
+    border-top: 1px solid var(--border-strong);
+  }
+  .mode-divider__label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--navy);
+  }
+  .mode-divider__label em {
+    color: var(--crimson);
+    font-style: italic;
+    font-family: var(--serif);
+    font-size: 14px;
+    letter-spacing: 0;
+  }
+
+  /* ════════════════════════════════════════════════════════
+     CARD 2 · THE WORKSHOP — distinct, bordered, cool background
+     ════════════════════════════════════════════════════════ */
+  .workshop {
+    background: var(--workshop-bg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-strong);
+    overflow: hidden;
+  }
+  .workshop__bar {
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border-strong);
+    background: var(--navy);
+    color: #F6F1DF;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+  }
+  .workshop__eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #F6F1DF;
+    opacity: 0.85;
+  }
+  .workshop__primary {
+    display: flex; gap: 10px;
+  }
+  .btn-primary {
+    background: var(--amber);
+    color: var(--navy);
+    border: 1px solid var(--amber);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 9px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    box-shadow: 0 2px 0 rgba(0,0,0,.18);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: #F6F1DF;
+    border: 1px solid rgba(246,241,223,0.5);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 9px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .workshop__grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border-strong);
+  }
+  .workshop__col {
+    background: var(--workshop-bg);
+    padding: 28px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  /* Workshop section card */
+  .ws-card {
+    background: var(--workshop-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px 18px;
+  }
+  .ws-card h4 {
+    margin: 0 0 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--navy);
+  }
+
+  /* Stage stepper */
+  .stepper {
+    display: flex;
+    gap: 4px;
+  }
+  .stepper__step {
+    flex: 1;
+    text-align: center;
+    padding: 10px 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    cursor: pointer;
+    position: relative;
+  }
+  .stepper__step--done {
+    background: var(--mint);
+    color: var(--navy);
+    border-color: var(--mint-deep);
+  }
+  .stepper__step--current {
+    background: var(--navy);
+    color: #F6F1DF;
+    border-color: var(--navy);
+    font-weight: 600;
+  }
+  .stepper__step:first-child { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
+  .stepper__step:last-child  { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
+
+  /* Timeline */
+  .timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-family: var(--serif);
+    font-size: 15px;
+    color: var(--ink);
+  }
+  .timeline__row {
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px dotted var(--border-strong);
+    padding-bottom: 6px;
+  }
+  .timeline__row:last-child { border-bottom: none; }
+  .timeline__key {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--mute);
+    align-self: flex-end;
+  }
+  .timeline__val { font-family: var(--serif); font-size: 14px; color: var(--ink); }
+  .timeline__val--urgent { color: var(--crimson); font-style: italic; }
+
+  /* ATS summary card */
+  .ats-card {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 18px;
+    align-items: center;
+  }
+  .ats-card__number {
+    font-family: var(--serif);
+    font-size: 56px;
+    line-height: 1;
+    color: var(--navy);
+    font-weight: 500;
+  }
+  .ats-card__number sup {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--mute);
+    margin-left: 4px;
+    vertical-align: top;
+  }
+  .ats-card__lines {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-family: var(--serif);
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--ink-soft);
+  }
+  .ats-card__lines strong { color: var(--navy); }
+  .ats-card__action {
+    grid-column: 1 / -1;
+    margin-top: 8px;
+  }
+  .ats-card__action button {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    color: var(--navy);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 10px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  /* Write-back chips */
+  .writeback {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .chip {
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--navy);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .chip:hover { background: var(--parchment-deep); }
+  .chip .pulse {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--mint-deep);
+  }
+  .chip--danger { color: var(--crimson); }
+  .chip--danger .pulse { background: var(--crimson); }
+
+  /* ─────────────────────────────────────────────────────────
+     Responsive
+     ───────────────────────────────────────────────────────── */
+  @media (max-width: 1080px) {
+    .brief__body {
+      grid-template-columns: 1fr;
+      gap: 36px;
+      padding: 36px 40px 40px;
+    }
+    .brief__body::before { display: none; }
+    .brief__col--main { padding-right: 0; }
+    .brief__col--side {
+      padding-left: 0;
+      position: static;   /* unstick on narrow viewports */
+    }
+  }
+  @media (max-width: 960px) {
+    .workshop__grid { grid-template-columns: 1fr; }
+    .brief__masthead { padding: 28px 24px 18px; grid-template-columns: 1fr; }
+    .brief__body { padding: 24px 24px 32px; }
+    .brief__stage-chip { justify-self: start; }
+  }
+  @media (max-width: 720px) {
+    .part-divider__title { font-size: 40px; }
+    .part-divider__inner { flex-direction: column; align-items: flex-start; gap: 8px; }
+    .part-divider__sub { text-align: left; }
+    .brief__hook { font-size: 20px; }
+    .brief__hook::before { font-size: 64px; top: -10px; }
+    .brief__lede::first-letter { font-size: 44px; }
+    .ats-card { grid-template-columns: 1fr; text-align: center; }
+  }
+
+  /* ─────────────────────────────────────────────────────────
+     Annotations overlay (toggleable)
+     ───────────────────────────────────────────────────────── */
+  .anno {
+    position: relative;
+  }
+  .anno::after {
+    content: attr(data-anno);
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: var(--crimson);
+    color: #FFF;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    pointer-events: none;
+    opacity: 0.85;
+    display: none;
+  }
+  body.show-anno .anno::after { display: inline-block; }
+
+  .anno-toggle {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    background: var(--navy);
+    color: #F6F1DF;
+    border: none;
+    padding: 10px 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 4px;
+    z-index: 100;
+    box-shadow: var(--shadow-strong);
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════════ Part 03 divider (existing) ════════════ -->
+<div class="part-divider">
+  <div class="part-divider__rule"></div>
+  <div class="part-divider__inner">
+    <div>
+      <div class="part-divider__num">PART 03 · NOW READING</div>
+      <h2 class="part-divider__title">The <em>dossier</em></h2>
+    </div>
+    <div class="part-divider__sub">
+      Everything you know about this role, on one page. The kanban is for sorting — this is for thinking.
+    </div>
+    <button class="part-divider__close">CLOSE ✕</button>
+  </div>
+</div>
+
+<div class="dossier">
+
+  <!-- ════════════ CARD 1 · THE BRIEF ════════════ -->
+  <article class="brief anno" data-anno="THE BRIEF · parchment">
+    <header class="brief__masthead">
+      <div>
+        <div class="brief__eyebrow">Senior · Remote · Full-time</div>
+        <h1 class="brief__title">Senior Product Designer, Growth</h1>
+        <p class="brief__company">Linear</p>
+        <div class="brief__facts">
+          <span>San Francisco / Remote</span>
+          <span class="dot">·</span>
+          <span>$165k – $210k</span>
+          <span class="dot">·</span>
+          <span>via Linear Careers</span>
+        </div>
+      </div>
+      <button class="brief__stage-chip anno" data-anno="loose split: stage in Brief">
+        Researching
+        <span class="caret">▾</span>
+      </button>
+    </header>
+
+    <div class="brief__body">
+
+      <!-- LEFT · the posting lane (hook, AI summary, at-a-glance, raw JD) -->
+      <div class="brief__col brief__col--main anno" data-anno="posting lane · hook, AI summary, at-a-glance, raw JD">
+
+        <p class="brief__hook">
+          We build a tool for software teams that's fast, focused, and feels like it was made for them.
+        </p>
+
+        <div>
+          <p class="brief__lede">
+            Linear is looking for a senior product designer to own growth surfaces — onboarding, activation flows, and the marketing site — across web and desktop. The role reports to the head of design and works closely with the growth engineering pod. You'll ship weekly, run small experiments, and own a measurable activation metric.
+          </p>
+          <div class="brief__lede-tag">Compressed by JobBored AI · from 1,240 words</div>
+        </div>
+
+        <section class="jd anno" data-anno="raw posting · collapsed by default">
+          <h3 class="section-label">Raw posting</h3>
+
+          <details open>
+            <summary>
+              <span class="roman">i.</span>
+              <span>What you'll do</span>
+              <span class="count">8 bullets</span>
+              <span class="toggle">+</span>
+            </summary>
+            <div class="body">
+              <ul>
+                <li>Design and ship growth surfaces across web, desktop, and the marketing site.</li>
+                <li>Partner with growth engineering on experimentation infrastructure.</li>
+                <li>Own activation as a measurable IC outcome.</li>
+                <li>Contribute to the Linear design system where growth surfaces diverge.</li>
+                <li>Write design rationale that engineers can ship from.</li>
+                <li>Run user research lightweight, often, in-house.</li>
+                <li>Collaborate with marketing on the .com site.</li>
+                <li>Mentor 1–2 junior designers on growth craft.</li>
+              </ul>
+            </div>
+          </details>
+
+          <details>
+            <summary>
+              <span class="roman">ii.</span>
+              <span>What we're looking for</span>
+              <span class="count">12 bullets</span>
+              <span class="toggle">+</span>
+            </summary>
+            <div class="body">
+              <ul>
+                <li>5+ years shipping growth or activation work at a product-led SaaS.</li>
+                <li>Portfolio with measurable outcomes, not just visuals.</li>
+                <li>Strong systems thinking; you've contributed to a design system before.</li>
+                <li>You write well — design rationale, PRDs, sometimes the marketing copy too.</li>
+              </ul>
+            </div>
+          </details>
+
+          <details>
+            <summary>
+              <span class="roman">iii.</span>
+              <span>About Linear</span>
+              <span class="count">3 bullets</span>
+              <span class="toggle">+</span>
+            </summary>
+            <div class="body">
+              <ul>
+                <li>Fully remote, distributed team across NA + EU timezones.</li>
+                <li>~80 people, Series B, profitable.</li>
+                <li>“Fast, focused, made-for-them” is the brand promise — every surface must defend it.</li>
+              </ul>
+            </div>
+          </details>
+
+          <details>
+            <summary>
+              <span class="roman">iv.</span>
+              <span>Benefits &amp; logistics</span>
+              <span class="count">6 bullets</span>
+              <span class="toggle">+</span>
+            </summary>
+            <div class="body">
+              <ul>
+                <li>Comprehensive health, dental, vision.</li>
+                <li>Equipment stipend, home-office setup.</li>
+                <li>4 weeks PTO + winter break.</li>
+                <li>Conference + learning budget.</li>
+              </ul>
+            </div>
+          </details>
+        </section>
+
+      </div>
+
+      <!-- RIGHT · the workspace lane (at-a-glance + talking points + marginalia notes) -->
+      <div class="brief__col brief__col--side anno" data-anno="workspace lane · at-a-glance, talking points, notes (sticky)">
+
+        <ul class="skim anno" data-anno="at-a-glance · top of the workspace lane">
+          <li><span class="key">Stack</span><span class="val">Figma · React</span></li>
+          <li><span class="key">Comp</span><span class="val">$165–210k + equity</span></li>
+          <li><span class="key">Seniority</span><span class="val">Senior IC</span></li>
+          <li><span class="key">Team</span><span class="val">Growth pod, 6</span></li>
+          <li><span class="key">Location</span><span class="val">Remote · SF</span></li>
+          <li><span class="key">ATS fit</span><span class="val val--score">78<sup style="font-size:0.55em;color:var(--mute);font-family:var(--mono);">/100</sup></span></li>
+        </ul>
+
+        <section class="points anno" data-anno="talking points · dingbat bullets">
+          <h3 class="section-label">Talking points</h3>
+          <ul>
+            <li>Shipped 0→1 onboarding for two B2B SaaS products in the last 3 years — direct activation experience.</li>
+            <li>Comfortable owning a single metric end-to-end (Linear emphasizes IC ownership, not handoff).</li>
+            <li>Strong opinions about craft + speed; pair with their “fast, focused” brand voice.</li>
+            <li>Ask about the relationship between growth design and brand design — likely a tension worth probing.</li>
+          </ul>
+        </section>
+
+        <div class="brief-notes anno" data-anno="marginalia notes">
+          <h3 class="section-label">Marginalia</h3>
+          <textarea placeholder="Interview prep, recruiter name, links you've gathered, next steps…">Recruiter: Maya, intro call Thu 2pm.
+Already followed Karri on Twitter — mention the onboarding tear-down post.
+Possible portfolio angle: the 2023 activation rebuild at Stack.</textarea>
+        </div>
+
+      </div>
+
+    </div>
+  </article>
+
+  <!-- ════════════ DIVIDER ════════════ -->
+  <div class="mode-divider">
+    <div class="mode-divider__rule"></div>
+    <div class="mode-divider__label">THE <em>workshop</em> · YOUR MOVES</div>
+    <div class="mode-divider__rule"></div>
+  </div>
+
+  <!-- ════════════ CARD 2 · THE WORKSHOP ════════════ -->
+  <aside class="workshop anno" data-anno="THE WORKSHOP · distinct card">
+    <header class="workshop__bar">
+      <div class="workshop__eyebrow">Your work · this role</div>
+      <div class="workshop__primary">
+        <button class="btn-primary">Tailor resume</button>
+        <button class="btn-primary">Cover letter</button>
+        <button class="btn-ghost">View posting ↗</button>
+      </div>
+    </header>
+
+    <div class="workshop__grid">
+
+      <!-- ── LEFT COLUMN · TRACK ── -->
+      <div class="workshop__col">
+
+        <div class="ws-card anno" data-anno="visual stepper, not select">
+          <h4>Stage</h4>
+          <div class="stepper">
+            <div class="stepper__step stepper__step--done">Researching</div>
+            <div class="stepper__step stepper__step--current">Applied</div>
+            <div class="stepper__step">Phone screen</div>
+            <div class="stepper__step">Interviewing</div>
+            <div class="stepper__step">Offer</div>
+          </div>
+        </div>
+
+        <div class="ws-card">
+          <h4>Timeline</h4>
+          <div class="timeline">
+            <div class="timeline__row">
+              <span class="timeline__val">Applied <strong>6d ago</strong></span>
+              <span class="timeline__key">2026-05-13</span>
+            </div>
+            <div class="timeline__row">
+              <span class="timeline__val">Heard back <strong>2d ago</strong></span>
+              <span class="timeline__key">2026-05-17</span>
+            </div>
+            <div class="timeline__row">
+              <span class="timeline__val timeline__val--urgent">Reply due <strong>in 4d</strong></span>
+              <span class="timeline__key">2026-05-23</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ── RIGHT COLUMN · SCORE & WRITE-BACK ── -->
+      <div class="workshop__col">
+
+        <div class="ws-card anno" data-anno="ATS summary only · modal for full">
+          <h4>ATS scorecard</h4>
+          <div class="ats-card">
+            <div class="ats-card__number">78<sup>/100</sup></div>
+            <div class="ats-card__lines">
+              <div><strong>Strong:</strong> growth, activation, systems thinking</div>
+              <div><strong>Weak:</strong> no measurable .com / marketing site outcome on resume</div>
+            </div>
+            <div class="ats-card__action">
+              <button>See full scorecard →</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ws-card anno" data-anno="write-back chips · emit jb:role:writeback">
+          <h4>Mark progress</h4>
+          <div class="writeback">
+            <button class="chip"><span class="pulse"></span>Heard back</button>
+            <button class="chip"><span class="pulse"></span>Got reply</button>
+            <button class="chip"><span class="pulse"></span>Followup nudge</button>
+            <button class="chip chip--danger"><span class="pulse"></span>Mark passed</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<!-- annotation toggle -->
+<button class="anno-toggle" id="annoToggle">Show annotations</button>
+<script>
+  const btn = document.getElementById('annoToggle');
+  btn.addEventListener('click', () => {
+    document.body.classList.toggle('show-anno');
+    btn.textContent = document.body.classList.contains('show-anno')
+      ? 'Hide annotations'
+      : 'Show annotations';
+  });
+</script>
+
+</body>
+</html>

@@ -11,3 +11,9 @@ server/.env
 discovery-local-bootstrap.json
 integrations/browser-use-discovery/state/*
 !integrations/browser-use-discovery/state/worker-config.json
+# Local-only runtime artifacts (added during dossier-df bootstrap)
+integrations/browser-use-discovery/worker.log
+integrations/browser-use-discovery/.env
+.claude/
+brief-mockup.html
+uploads/

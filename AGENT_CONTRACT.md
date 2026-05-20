@@ -83,6 +83,8 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 | `variationKey`     | string | Random hex string; use as a seed for query variation.                                                         |
 | `requestedAt`      | string | ISO 8601 timestamp.                                                                                           |
 | `discoveryProfile` | object | Optional. User preferences from the dashboard (see below). Omitted keys or empty values mean “no preference”. |
+| `companyAllowlist` | array  | Optional. Non-empty array of trimmed company names/domains/keys to restrict discovery to. Empty/missing means no company restriction. Capped at 50 unique entries. |
+| `companyBlocklist` | array  | Optional. Non-empty array of trimmed company names/domains/keys to suppress from results. Capped at 50 unique entries. |
 
 **`discoveryProfile` fields (all optional):**
 
@@ -106,6 +108,41 @@ Older automations that ignore `schemaVersion` and `discoveryProfile` keep workin
 
 ---
 
+## v2 kanban-card data-attributes (Dossier wiring)
+
+Each `.kanban-card[data-stable-key="<n>"]` rendered by `app.js`'s
+`renderKanbanCard` MAY carry the following read-only `data-*` attributes.
+The v2 dossier view-model in `dawn-data.js`
+(`getRoleViewModel`, `getPipelineViewModel`, `getLetterViewModel`) reads
+them. Empty/null source values MUST be omitted entirely (do not emit
+`data-foo=""`).
+
+| Attribute            | Source field on `job`                                   | Notes                              |
+| -------------------- | ------------------------------------------------------- | ---------------------------------- |
+| data-jd-snippet      | job._postingEnrichment.description ?? job.fitAssessment | Truncate to 4000 chars             |
+| data-notes           | job.notes                                               |                                    |
+| data-location        | job.location                                            |                                    |
+| data-salary          | job.salary                                              |                                    |
+| data-job-url         | job.link                                                |                                    |
+| data-source          | job.source                                              |                                    |
+| data-applied-at      | job.appliedDate                                         | drives daysInStage + applied label |
+| data-follow-up       | job.followUpDate                                        | drives the orange Deadline callout |
+| data-tags            | job.tags (CSV)                                          |                                    |
+| data-fit             | job.fitScore                                            | numeric, clamped 1–10 by VM        |
+| data-replied         | `"yes"` iff job.responseFlag in {yes,replied,y}         | drives pipeline `reply` flag       |
+| data-talking-points  | job.talkingPoints                                       | fallback JD section if no snippet  |
+| data-contacts        | `[{name: job.contact}]` JSON                            | single-row contact for now         |
+| data-company-tagline | job._postingEnrichment.aboutCompany                     |                                    |
+| data-employment      | job._postingEnrichment.employmentType                   |                                    |
+
+These attributes are emitted by the legacy renderer regardless of the
+`body.jb-v2` flag. They are invisible to the legacy UI and add no
+behavior to the off-flag path.
+
+Tests: [`tests/dossier-card-attrs.test.mjs`](tests/dossier-card-attrs.test.mjs) enforces the round trip.
+
+---
+
 ## Product health: empty states (copy matrix)
 
 The dashboard and **resume onboarding** are separate: `onboardingComplete` in IndexedDB only reflects the resume/cover-letter wizard. **Agent setup** (sheet + webhook + cron) is independent; users may finish one without the other.
@@ -120,6 +157,37 @@ The dashboard and **resume onboarding** are separate: `onboardingComplete` in In
 
 ---
 
+## Dossier event family (Direction F build — internal contract)
+
+These events are **internal** to the dashboard (browser-only). They are not part
+of the agent integration surface; they exist to keep the dossier's Brief, Workshop,
+ATS bus, and write-back bridge decoupled. Workers building Direction F must not
+rename or reshape these payloads without orchestrator approval.
+
+| Event                  | Emitter                | Listeners                  | Payload                                                                |
+| ---------------------- | ---------------------- | -------------------------- | ---------------------------------------------------------------------- |
+| `jb:ats:state`         | `app.js` (state bus)   | dossier Workshop, Letter   | `{ jobKey, status, result?, error? }`                                  |
+| `jb:ats:state:request` | dossier Workshop       | `app.js` (state bus)       | `{ jobKey }`                                                           |
+| `jb:ats:modal:open`    | dossier Workshop       | `app.js` (state bus)       | `{ jobKey }`                                                           |
+| `jb:role:writeback`    | dossier Workshop       | `flowing-writes.js`        | `{ jobKey, field, value }` — see field enum below                      |
+
+`field` enum for `jb:role:writeback`:
+`"stage" | "heardBack" | "reply" | "followupAt" | "passed"`.
+
+Preserved adjacent contracts (not changed by Direction F):
+
+| Event               | Emitter           | Payload                                              |
+| ------------------- | ----------------- | ---------------------------------------------------- |
+| `jb:role:opened`    | flowing-chrome    | `{ jobKey }`                                         |
+| `jb:role:closed`    | flowing-chrome    | (no payload)                                         |
+| `jb:role:action`    | dossier Workshop  | `{ action: "resume-tailor" \| "resume-cover", jobKey }` |
+| `jb:role:note`      | dossier Brief     | `{ jobKey, body }`                                   |
+| `jb:pipeline:move`  | dossier Workshop  | `{ jobKey, fromStage?, toStage }`                    |
+
+All events dispatch on both `window` and `document` to match existing bridge conventions.
+
+---
+
 ## Related docs
 
 - [SETUP.md](SETUP.md) — OAuth, Hermes, webhooks, Daily Brief
@@ -130,3 +198,4 @@ The dashboard and **resume onboarding** are separate: `onboardingComplete` in In
 - [docs/CONTRACT-HARDENING-PLAN.md](docs/CONTRACT-HARDENING-PLAN.md) — Roadmap: fixtures, CI, pipeline schema, webhook evolution
 - [docs/CONTRACT-CHANGELOG.md](docs/CONTRACT-CHANGELOG.md) — Dated contract / schema / example changes
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Checklist when changing discovery payload or Pipeline columns
+- [docs/redesign/handoffs/dossier-df-*.md](docs/redesign/handoffs/) — Dossier Direction F lane briefs
