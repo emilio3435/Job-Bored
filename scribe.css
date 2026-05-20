@@ -1,0 +1,652 @@
+/* ============================================================
+   scribe.css — JobBored v2 ATS + Cover Letter Workspace (Phase 3)
+   ------------------------------------------------------------
+   Owner:    Scribe (cover letter + scorecard agent)
+   Scope:    body.jb-v2 [data-region="scribe"] (region-only).
+             Outside this region OR off the v2 flag, this file
+             produces no rules — legacy modal renders unchanged.
+   Tokens:   tokens-v2.css only (no raw hex). Forge primitives
+             (jb-fit-ring, jb-spark, jb-stage-dot, jb-ai-chip,
+             .jb-sticker) and Quill utilities (.jb-tape, .jb-mark,
+             .jb-stamp, .jb-divider-dashed) only — no new
+             components are introduced here.
+   ============================================================ */
+
+/* Off-state: legacy UI / non-region uses keep nothing. */
+body:not(.jb-v2) [data-region="scribe"] { display: none; }
+
+/* ============================================================
+   Workspace shell
+   ============================================================ */
+body.jb-v2 [data-region="scribe"] {
+  display: block;
+  position: relative;
+  background: var(--jb-paper);
+  color: var(--jb-ink);
+  font-family: var(--jb-font-body);
+  padding: 16px clamp(16px, 3vw, 28px) 0;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-workspace {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 14px;
+  min-height: 100vh;
+}
+
+/* ============================================================
+   Top bar — tabs + appearance + actions
+   ============================================================ */
+body.jb-v2 [data-region="scribe"] .scribe-topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-lg);
+  box-shadow: var(--jb-shadow-pencil);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-topbar__role {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-topbar__role-name {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-topbar__role-target {
+  font-family: var(--jb-font-body);
+  font-weight: 600;
+  font-size: var(--jb-text-base);
+  color: var(--jb-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-tabs {
+  display: inline-flex;
+  background: var(--jb-paper-2);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-pill);
+  padding: 3px;
+  gap: 2px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 6px 14px;
+  border-radius: var(--jb-radius-pill);
+  font-family: var(--jb-font-body);
+  font-weight: 500;
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink-2);
+  cursor: pointer;
+  transition: background var(--jb-transition-fast), color var(--jb-transition-fast);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-tab[aria-selected="true"] {
+  background: var(--jb-paper);
+  color: var(--jb-navy);
+  box-shadow: var(--jb-shadow-pencil);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-topbar__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-appearance {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-appearance select {
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink);
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-sm);
+  padding: 4px 8px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--jb-radius-sm);
+  border: 1px solid var(--jb-line);
+  background: var(--jb-paper);
+  color: var(--jb-ink);
+  font-family: var(--jb-font-body);
+  font-weight: 500;
+  font-size: var(--jb-text-sm);
+  cursor: pointer;
+  transition: background var(--jb-transition-fast), box-shadow var(--jb-transition-fast),
+    transform var(--jb-transition-fast);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-btn:hover {
+  background: var(--jb-paper-2);
+  box-shadow: var(--jb-shadow-pencil);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-btn--primary {
+  background: var(--jb-mint);
+  color: var(--jb-ink-inverse);
+  border-color: var(--jb-mint-deep);
+}
+body.jb-v2 [data-region="scribe"] .scribe-btn--primary:hover {
+  background: var(--jb-mint-deep);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-btn[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+/* ============================================================
+   Split-pane body
+   ============================================================ */
+body.jb-v2 [data-region="scribe"] .scribe-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 16px;
+  min-height: 0;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-pane--editor,
+body.jb-v2 [data-region="scribe"] .scribe-pane--scorecard {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Editor sticker */
+body.jb-v2 [data-region="scribe"] .scribe-editor {
+  --sticker-padding: clamp(20px, 3.2vw, 40px) clamp(22px, 4vw, 56px);
+  background: var(--jb-paper-2);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 540px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-editor__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px dashed var(--jb-line-soft);
+  padding-bottom: 8px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-editor__kicker {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-editor__counter {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-editor__doc {
+  flex: 1 1 auto;
+  font-family: "Geist", var(--jb-font-body);
+  font-weight: 400;
+  font-size: 17px;
+  line-height: 28px;
+  color: var(--jb-ink);
+  outline: none;
+  min-height: 360px;
+  caret-color: var(--jb-mint-deep);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-editor__doc[aria-busy="true"] {
+  opacity: 0.65;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-editor__doc:focus-visible {
+  border-radius: var(--jb-radius-sm);
+  box-shadow: var(--jb-shadow-focus);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-editor__doc p,
+body.jb-v2 [data-region="scribe"] .scribe-editor__doc h3 {
+  margin: 0 0 14px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-editor__doc p:last-child {
+  margin-bottom: 0;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-editor__doc[data-empty="true"]::before {
+  content: attr(data-placeholder);
+  color: var(--jb-ink-3);
+  font-style: italic;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-editor__doc .jb-mark {
+  transition: background var(--jb-transition-base);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-anchor-flash {
+  background: var(--jb-yellow-tape);
+  box-shadow: 0 1px 0 var(--jb-amber);
+  transition: background var(--jb-transition-slow);
+}
+
+/* Scorecard sticker */
+body.jb-v2 [data-region="scribe"] .scribe-scorecard {
+  --sticker-padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-scorecard__stamp {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  --jb-stamp-rotate: 6deg;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-scorecard__head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-scorecard__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-scorecard__kicker {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-scorecard__title {
+  font-family: var(--jb-font-body);
+  font-weight: 600;
+  font-size: var(--jb-text-lg);
+  line-height: 1.2;
+  margin: 0;
+  color: var(--jb-ink);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-axes {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-axis {
+  display: grid;
+  grid-template-columns: minmax(80px, 100px) 1fr 36px;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-axis__label {
+  font-family: var(--jb-font-body);
+  font-weight: 500;
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink-2);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-axis__bar {
+  position: relative;
+  height: 6px;
+  background: var(--jb-line-soft);
+  border-radius: var(--jb-radius-pill);
+  overflow: hidden;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-axis__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--scribe-axis-pct, 0%);
+  background: var(--scribe-axis-color, var(--jb-fit-low));
+  border-radius: var(--jb-radius-pill);
+  transition: width var(--jb-transition-base);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-axis[data-tier="high"] {
+  --scribe-axis-color: var(--jb-fit-high);
+}
+body.jb-v2 [data-region="scribe"] .scribe-axis[data-tier="mid"] {
+  --scribe-axis-color: var(--jb-fit-mid);
+}
+body.jb-v2 [data-region="scribe"] .scribe-axis[data-tier="low"] {
+  --scribe-axis-color: var(--jb-fit-low);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-axis__value {
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-sm);
+  color: var(--jb-navy);
+  text-align: right;
+  font-feature-settings: "tnum";
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-scorecard__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--jb-line-soft);
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-scorecard__foot a {
+  color: var(--jb-navy);
+  text-decoration: underline dashed;
+  text-underline-offset: 2px;
+}
+
+/* Gap callouts */
+body.jb-v2 [data-region="scribe"] .scribe-gaps {
+  --sticker-padding: 14px 16px;
+  background: var(--jb-paper);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-gaps__title {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--jb-ink-3);
+  margin: 0;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-gaps__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-gap {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: start;
+  padding: 6px 8px;
+  border: 1px dashed var(--jb-line-soft);
+  border-radius: var(--jb-radius-sm);
+  background: var(--jb-paper-2);
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font-family: var(--jb-font-body);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-gap:hover {
+  border-color: var(--jb-line);
+  background: var(--jb-paper);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-gap:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-gap__axis {
+  font-family: var(--jb-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--jb-ink-3);
+  padding-top: 2px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-talking {
+  --sticker-padding: 14px 16px;
+  background: var(--jb-paper);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-talking__title {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--jb-ink-3);
+  margin: 0;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-talking__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-talking__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-talking__bullet {
+  color: var(--jb-mint-deep);
+  font-weight: 700;
+}
+
+/* ============================================================
+   Bottom strip — refine
+   ============================================================ */
+body.jb-v2 [data-region="scribe"] .scribe-strip {
+  background: var(--jb-paper-2);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-lg);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  box-shadow: var(--jb-shadow-pencil);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-strip__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-strip__label {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-strip__chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-chip {
+  appearance: none;
+  border: 1px solid var(--jb-line-soft);
+  background: var(--jb-paper);
+  color: var(--jb-ink-2);
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-sm);
+  padding: 4px 10px;
+  border-radius: var(--jb-radius-pill);
+  cursor: pointer;
+  transition: background var(--jb-transition-fast),
+    border-color var(--jb-transition-fast),
+    color var(--jb-transition-fast);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-chip:hover {
+  background: var(--jb-mint-soft);
+  border-color: var(--jb-mint-deep);
+  color: var(--jb-mint-deep);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-strip__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: stretch;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-strip__textarea {
+  resize: vertical;
+  min-height: 56px;
+  width: 100%;
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-base);
+  color: var(--jb-ink);
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-sm);
+  padding: 8px 10px;
+  line-height: 1.45;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-strip__textarea:focus {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+  border-color: var(--jb-mint-deep);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-strip hr.jb-divider-dashed {
+  margin: 0 0 4px;
+}
+
+/* ============================================================
+   Toast for re-evaluating / refine status
+   ============================================================ */
+body.jb-v2 [data-region="scribe"] .scribe-status {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  color: var(--jb-ink-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-status[data-state="busy"] {
+  color: var(--jb-warn);
+}
+body.jb-v2 [data-region="scribe"] .scribe-status[data-state="ok"] {
+  color: var(--jb-mint-deep);
+}
+
+/* ============================================================
+   Stack at narrow viewports (<900px)
+   ============================================================ */
+@media (max-width: 900px) {
+  body.jb-v2 [data-region="scribe"] .scribe-split {
+    grid-template-columns: 1fr;
+  }
+  body.jb-v2 [data-region="scribe"] .scribe-pane--scorecard {
+    order: 2;
+  }
+  body.jb-v2 [data-region="scribe"] .scribe-pane--editor {
+    order: 1;
+  }
+  body.jb-v2 [data-region="scribe"] .scribe-topbar__actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+  }
+  body.jb-v2 [data-region="scribe"] .scribe-axis {
+    grid-template-columns: 92px 1fr 36px;
+  }
+  body.jb-v2 [data-region="scribe"] .scribe-strip {
+    position: static;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 [data-region="scribe"] .scribe-axis__fill,
+  body.jb-v2 [data-region="scribe"] .scribe-anchor-flash,
+  body.jb-v2 [data-region="scribe"] .scribe-editor__doc .jb-mark {
+    transition: none;
+  }
+}
