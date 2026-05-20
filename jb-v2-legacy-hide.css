@@ -54,6 +54,9 @@ body.jb-v2 [data-region="welcome"]:not([data-mode]) {
    Default: hide all four regions.
    ──────────────────────────────────────────────────────────── */
 body.jb-v2 [data-region="dawn"],
+body.jb-v2 [data-region="pipeline"],
+body.jb-v2 [data-region="role"],
+body.jb-v2 [data-region="letter"],
 body.jb-v2 [data-region="lattice"],
 body.jb-v2 [data-region="scribe"],
 body.jb-v2 [data-region="welcome"] {
@@ -65,6 +68,9 @@ body.jb-v2 [data-region="welcome"] {
    layout once revealed. :has() is supported in all modern
    browsers (2023+). */
 body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="dawn"],
+body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="pipeline"],
+body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="role"],
+body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="letter"],
 body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="lattice"],
 body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="scribe"] {
   display: block !important;

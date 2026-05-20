@@ -43,18 +43,26 @@
   }
 
   function readJobKeyFromHash() {
+    // Prefer flowing-store; fall back to hash parsing for `#role=` then `#letter=`.
+    var openRole = root.JobBoredFlowing && root.JobBoredFlowing.openRole;
+    if (openRole && typeof openRole.get === "function") {
+      var k = openRole.get();
+      if (k) return k;
+    }
     var hash = String((root.location && root.location.hash) || "");
     if (!hash) return "";
     // Strip leading "#"
     var raw = hash.charAt(0) === "#" ? hash.slice(1) : hash;
     var parts = raw.split("&");
+    var byKey = {};
     for (var i = 0; i < parts.length; i++) {
       var kv = parts[i].split("=");
-      if (kv[0] === "letter" && kv[1] != null) {
-        try { return decodeURIComponent(kv[1]); } catch (e) { return kv[1]; }
+      if (kv[0] && kv[1] != null) {
+        try { byKey[kv[0]] = decodeURIComponent(kv[1]); }
+        catch (e) { byKey[kv[0]] = kv[1]; }
       }
     }
-    return "";
+    return byKey.role || byKey.letter || "";
   }
 
   function readingLevelFlavor(grade) {
@@ -153,6 +161,16 @@
     var jobKey = job.jobKey || "";
 
     return [
+      '<div class="jb-role-divider">',
+      '  <div class="jb-role-divider__rule"></div>',
+      '  <div class="jb-role-divider__inner">',
+      '    <div>',
+      '      <div class="jb-role-divider__num">PART 04 · NOW WRITING</div>',
+      '      <div class="jb-role-divider__title">The <em>letter</em></div>',
+      '    </div>',
+      '    <div class="jb-role-divider__sub">A draft, scored against the JD in real time. Edit on the left; the right side updates as you type.</div>',
+      '  </div>',
+      '</div>',
       '<header class="jb-letter-head">',
       '  <p class="jb-letter-eyebrow">LETTER · DRAFT</p>',
       '  <h1 class="jb-letter-headline">', escapeHtml(role), ' <span class="jb-letter-headline__co">at ', escapeHtml(company), '</span></h1>',
@@ -395,12 +413,13 @@
     var jobKey = readJobKeyFromHash();
 
     if (!jobKey) {
+      // Role region owns the empty-state shelf for both PART 03 and 04.
+      // Letter region renders nothing when no role is open.
       clearTimers(region.__letterCtx);
       region.__letterCtx = null;
-      var emptyHtml = noJobHtml();
-      if (region.__letterHtml !== emptyHtml) {
-        region.innerHTML = emptyHtml;
-        region.__letterHtml = emptyHtml;
+      if (region.__letterHtml !== "") {
+        region.innerHTML = "";
+        region.__letterHtml = "";
       }
       return;
     }
@@ -477,6 +496,8 @@
     if (root.__jbLetterHashBound) return;
     root.__jbLetterHashBound = true;
     root.addEventListener("hashchange", function () { render(); });
+    root.addEventListener("jb:role:opened", function () { render(); });
+    root.addEventListener("jb:role:closed", function () { render(); });
   }
 
   function observeBodyClass() {

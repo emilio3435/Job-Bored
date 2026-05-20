@@ -112,6 +112,18 @@ export async function handleDiscoveryWebhook(
     });
   }
 
+  if (isAuthProbeRequest(request.headers)) {
+    dependencies.log?.("discovery.auth_probe.accepted", {
+      sheetId: parsed.request.sheetId,
+      variationKey: parsed.request.variationKey,
+    });
+    return jsonResponse(200, {
+      ok: true,
+      message: "Discovery webhook auth accepted.",
+      probe: "auth",
+    });
+  }
+
   const runId =
     dependencies.runDependencies.runId ||
     createRunId(dependencies.runDependencies.randomId);
@@ -689,6 +701,22 @@ function parseWebhookRequest(
     };
   }
 
+  // Optional companyAllowlist / companyBlocklist top-level arrays.
+  // Strict rules: when present, must be an array of trimmed non-empty strings,
+  // capped at 50 unique entries. Empty/missing => no restriction.
+  const companyAllowlistResult = parseCompanyList(
+    payload.companyAllowlist,
+    "companyAllowlist",
+  );
+  if (!companyAllowlistResult.ok) return companyAllowlistResult;
+  const companyBlocklistResult = parseCompanyList(
+    payload.companyBlocklist,
+    "companyBlocklist",
+  );
+  if (!companyBlocklistResult.ok) return companyBlocklistResult;
+  const companyAllowlist = companyAllowlistResult.value;
+  const companyBlocklist = companyBlocklistResult.value;
+
   // Optional trigger field — see docs/INTERFACE-DISCOVERY-RUNS.md §2. Used by
   // runDiscovery to label the DiscoveryRuns sheet row (e.g. GitHub Actions
   // workflow sends trigger:"scheduled-github").
@@ -722,8 +750,63 @@ function parseWebhookRequest(
         : {}),
       ...(googleAccessToken ? { googleAccessToken } : {}),
       ...(trigger ? { trigger } : {}),
+      ...(companyAllowlist.length ? { companyAllowlist } : {}),
+      ...(companyBlocklist.length ? { companyBlocklist } : {}),
     },
   };
+}
+
+/**
+ * Validate and normalize a company allowlist/blocklist. Rules:
+ *  - undefined/null => allowed (returns empty array)
+ *  - must be an array of strings
+ *  - each string trimmed; empty strings rejected
+ *  - duplicates (case-insensitive) collapsed
+ *  - hard cap of 50 entries — anything beyond fails closed so a misconfigured
+ *    client doesn't silently send an oversized payload
+ */
+function parseCompanyList(
+  raw: unknown,
+  fieldName: string,
+):
+  | { ok: true; value: string[] }
+  | { ok: false; message: string; detail?: string; remediation?: string } {
+  if (raw == null) return { ok: true, value: [] };
+  if (!Array.isArray(raw)) {
+    return {
+      ok: false,
+      message: `${fieldName} must be an array of strings when present.`,
+    };
+  }
+  if (raw.length > 50) {
+    return {
+      ok: false,
+      message: `${fieldName} must contain at most 50 entries. Received: ${raw.length}.`,
+    };
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    const item = raw[i];
+    if (typeof item !== "string") {
+      return {
+        ok: false,
+        message: `${fieldName}[${i}] must be a string. Received: ${typeof item}.`,
+      };
+    }
+    const trimmed = item.trim();
+    if (!trimmed) {
+      return {
+        ok: false,
+        message: `${fieldName}[${i}] must be a non-empty string.`,
+      };
+    }
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return { ok: true, value: out };
 }
 
 function jsonResponse(
@@ -892,4 +975,11 @@ function readHeader(
     return stringValue(headerValue);
   }
   return "";
+}
+
+function isAuthProbeRequest(
+  headers: Record<string, string | string[] | undefined>,
+): boolean {
+  const value = readHeader(headers, "x-discovery-auth-probe").toLowerCase();
+  return value === "1" || value === "true";
 }

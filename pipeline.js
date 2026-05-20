@@ -410,30 +410,79 @@
   }
 
   function bindRegion(region, state) {
-    // Card click → navigate to letter via hash (delegated, but drag handler suppresses click on drag).
+    // Idempotent guard. If the region was re-bound (e.g. re-mount after
+    // body.jb-v2 flicker, or after clearRegion()), we replace the
+    // previous handlers rather than stacking them.
+    if (region.__pipeBound) return;
+    region.__pipeBound = true;
+
+    function openRoleAndScroll(key) {
+      if (!key) return;
+      var openRole = root.JobBoredFlowing && root.JobBoredFlowing.openRole;
+      if (openRole && typeof openRole.set === "function") {
+        openRole.set(key);
+      } else {
+        // graceful fallback
+        location.hash = "#role=" + encodeURIComponent(key);
+      }
+      var roleRegion = document.querySelector('[data-region="role"]');
+      if (roleRegion) {
+        var prefersReduced = root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        try {
+          roleRegion.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth", block: "start" });
+        } catch (e) { roleRegion.scrollIntoView(); }
+      }
+    }
+    region.__pipeOpenRole = openRoleAndScroll;
+
+    // Card click → open role dossier (delegated, but drag handler suppresses click on drag).
     region.addEventListener("click", function (e) {
       var sticker = e.target.closest(".pipe-sticker[data-stable-key]");
       if (sticker && !sticker.__pipeJustDragged) {
         var key = sticker.getAttribute("data-stable-key");
-        if (key) {
-          location.hash = "#letter=" + encodeURIComponent(key);
-        }
+        if (key) openRoleAndScroll(key);
+        return;
       }
       var untriItem = e.target.closest(".pipe-untri__item[data-stable-key]");
       if (untriItem) {
         var ukey = untriItem.getAttribute("data-stable-key");
-        if (ukey) location.hash = "#letter=" + encodeURIComponent(ukey);
+        if (ukey) openRoleAndScroll(ukey);
       }
     });
 
-    // Keyboard: Enter / Space on a sticker = open letter.
+    // Belt-and-suspenders: some environments (Safari touch, nested scroll
+    // containers, browser extensions that swallow click) eat the synthetic
+    // click that should follow pointerup. Fire on pointerup explicitly when
+    // we know it was a tap (no drag movement, no pointer capture taken).
+    region.addEventListener("pointerup", function (e) {
+      if (e.button !== 0) return;
+      var sticker = e.target.closest(".pipe-sticker[data-stable-key]");
+      if (!sticker || sticker.__pipeJustDragged) return;
+      // Defer one tick so the natural `click` event (if it comes) still wins
+      // and we don't double-fire. If click landed, __pipeTapHandled flips.
+      var key = sticker.getAttribute("data-stable-key");
+      if (!key) return;
+      sticker.__pipeTapPending = true;
+      setTimeout(function () {
+        if (sticker.__pipeTapPending) {
+          sticker.__pipeTapPending = false;
+          openRoleAndScroll(key);
+        }
+      }, 60);
+    });
+    region.addEventListener("click", function (e) {
+      var sticker = e.target.closest(".pipe-sticker[data-stable-key]");
+      if (sticker) sticker.__pipeTapPending = false;
+    });
+
+    // Keyboard: Enter / Space on a sticker = open role.
     region.addEventListener("keydown", function (e) {
       if (e.key !== "Enter" && e.key !== " ") return;
       var sticker = e.target.closest && e.target.closest(".pipe-sticker[data-stable-key]");
       if (!sticker) return;
       e.preventDefault();
       var key = sticker.getAttribute("data-stable-key");
-      if (key) location.hash = "#letter=" + encodeURIComponent(key);
+      if (key) openRoleAndScroll(key);
     });
 
     // Drag and drop via pointer events.
@@ -683,6 +732,7 @@
     if (!region) return;
     region.innerHTML = "";
     region.__pipeMounted = false;
+    region.__pipeBound = false;
     region.__pipeHtml = "";
     region.__pipePending = [];
   }

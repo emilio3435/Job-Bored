@@ -646,7 +646,10 @@
     var fitAttr = _attr(card, "data-fit");
     var fitScore = fitAttr ? _firstNumber(fitAttr) : null;
     if (fitScore != null) {
-      // clamp to 1–10 contract band; reject obvious garbage
+      // clamp to 1–10 contract band; reject obvious garbage.
+      // Note: if a sheet stores fit as a percentage (e.g. 83), this maps to 10.
+      // That is intentional — the role VM contract is a 1–10 band; upstream
+      // normalization is responsible for converting percentages before write.
       if (!Number.isFinite(fitScore)) fitScore = null;
       else fitScore = Math.max(1, Math.min(10, Math.round(fitScore)));
     }
@@ -1002,6 +1005,241 @@
     return out.slice(0, 4);
   }
 
+  /** Best-effort one-paragraph block from a longer JD blob. */
+  function _splitJdSections(jd) {
+    var raw = String(jd || "").trim();
+    if (!raw) return [];
+    // Split on blank lines or "Heading:" patterns. Keep simple.
+    var blocks = raw.split(/\n{2,}/).map(function (b) { return b.trim(); }).filter(Boolean);
+    return blocks.map(function (b) {
+      var lines = b.split(/\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+      var heading = "";
+      var first = lines[0] || "";
+      // If first line looks like a heading (ends with ":" or is short upper-ish), use it.
+      if (/^[A-Z][^.?!]{0,60}:$/.test(first) || (first.length < 60 && lines.length > 1 && !/[.?!]$/.test(first))) {
+        heading = first.replace(/:$/, "");
+        lines = lines.slice(1);
+      }
+      var bullets = [];
+      var bodyLines = [];
+      lines.forEach(function (l) {
+        if (/^[-*•·]\s+/.test(l)) bullets.push(l.replace(/^[-*•·]\s+/, ""));
+        else bodyLines.push(l);
+      });
+      return {
+        heading: heading,
+        body: bodyLines.join(" "),
+        bullets: bullets,
+      };
+    });
+  }
+
+  function _daysBetween(aMs, bMs) {
+    if (!Number.isFinite(aMs) || !Number.isFinite(bMs)) return null;
+    return Math.round((aMs - bMs) / (24 * 60 * 60 * 1000));
+  }
+
+  function _stageEntryMs(rec, nowMs) {
+    // Best-effort: applied stage uses appliedAt, interview stages use interviewAt-7d as a stand-in.
+    if (rec.stage === "applied" && Number.isFinite(rec.appliedAtMs)) return rec.appliedAtMs;
+    if ((rec.stage === "phone-screen" || rec.stage === "interviewing") && Number.isFinite(rec.interviewAtMs)) {
+      return rec.interviewAtMs - 7 * 24 * 60 * 60 * 1000;
+    }
+    return null;
+  }
+
+  function _parseTagsFromCard(card) {
+    if (!card) return [];
+    var tagsAttr = _attr(card, "data-tags");
+    if (tagsAttr) {
+      return tagsAttr.split(/[,;|]+/).map(function (t) { return t.trim(); }).filter(Boolean);
+    }
+    var chips = card.querySelectorAll(".skill-chip");
+    var out = [];
+    chips.forEach(function (c) {
+      var t = (c.textContent || "").trim();
+      if (t) out.push(t);
+    });
+    return out;
+  }
+
+  function _parseLinksFromCard(card) {
+    if (!card) return [];
+    var out = [];
+    var jobUrl = _attr(card, "data-job-url") || _attr(card, "data-url");
+    if (jobUrl) out.push({ label: "Posting", href: jobUrl });
+    // try anchors within card
+    var anchors = card.querySelectorAll("a[href]");
+    var seen = Object.create(null);
+    out.forEach(function (l) { seen[l.href] = 1; });
+    anchors.forEach(function (a) {
+      var href = a.getAttribute("href") || "";
+      if (!href || seen[href]) return;
+      if (href.charAt(0) === "#") return;
+      var label = (a.textContent || href).trim();
+      if (label.length > 40) label = label.slice(0, 38) + "…";
+      out.push({ label: label, href: href });
+      seen[href] = 1;
+    });
+    return out.slice(0, 8);
+  }
+
+  function _parseContactsFromCard(card) {
+    if (!card) return [];
+    var contactsAttr = _attr(card, "data-contacts");
+    if (!contactsAttr) return [];
+    try {
+      var parsed = JSON.parse(contactsAttr);
+      if (Array.isArray(parsed)) {
+        return parsed.map(function (c) {
+          return {
+            name: String((c && c.name) || ""),
+            role: String((c && c.role) || ""),
+            note: String((c && c.note) || ""),
+            when: String((c && c.when) || ""),
+          };
+        }).filter(function (c) { return c.name; });
+      }
+    } catch (e) { /* */ }
+    return [];
+  }
+
+  function _parseDeadlineFromCard(card, nowMs) {
+    if (!card) return null;
+    var dueAttr = _attr(card, "data-deadline") || _attr(card, "data-follow-up");
+    if (!dueAttr) return null;
+    var ms = _parseDateMaybe(dueAttr);
+    if (!Number.isFinite(ms)) return null;
+    var daysUntil = _daysBetween(ms, nowMs);
+    var label = _attr(card, "data-deadline-label") || "DEADLINE";
+    return { label: label, dueDate: dueAttr, daysUntil: daysUntil };
+  }
+
+  function _parseNotesFromCard(card) {
+    if (!card) return null;
+    var ta = card.querySelector(".drawer-notes__input");
+    var body = "";
+    if (ta) body = String(ta.value || ta.textContent || "").trim();
+    if (!body) {
+      var attr = _attr(card, "data-notes");
+      if (attr) body = String(attr).trim();
+    }
+    if (!body) return null;
+    // editedAt is optional — the v2 card does not emit data-notes-edited-at,
+    // so leave it as an empty string. Trim defensively to avoid double-spaces
+    // when consumers render "EDITED <editedAt> · ONLY VISIBLE TO YOU".
+    var editedAt = String(_attr(card, "data-notes-edited-at") || "").trim();
+    return { body: body, editedAt: editedAt };
+  }
+
+  function _parseTalkingPointsFromCard(card) {
+    if (!card) return [];
+    var raw = _attr(card, "data-talking-points");
+    if (!raw) return [];
+    return String(raw)
+      .split(/\n|·|;/)
+      .map(function (s) { return s.trim().replace(/^[-*•]\s+/, ""); })
+      .filter(Boolean);
+  }
+
+  function _parseEmploymentFromCard(card) {
+    if (!card) return "";
+    var emp = _attr(card, "data-employment");
+    if (emp) return emp;
+    var typeEl = card.querySelector(".role-fact__value--type");
+    return typeEl ? (typeEl.textContent || "").trim() : "";
+  }
+
+  function _parseLocationFromCard(card) {
+    if (!card) return "";
+    var loc = _attr(card, "data-location");
+    if (loc) return loc;
+    var locEl = card.querySelector(".role-fact__value--location");
+    return locEl ? (locEl.textContent || "").trim() : "";
+  }
+
+  function _parseSourceFromCard(card) {
+    if (!card) return "";
+    var src = _attr(card, "data-source") || _attr(card, "data-found-via");
+    return src || "";
+  }
+
+  function _parseAppliedAtFromCard(card) {
+    if (!card) return "";
+    var raw = _attr(card, "data-applied-at") || "";
+    return raw;
+  }
+
+  function _parseTaglineFromCard(card) {
+    if (!card) return "";
+    var t = _attr(card, "data-company-tagline") || _attr(card, "data-tagline");
+    return t || "";
+  }
+
+  function getRoleViewModel(jobKey, opts) {
+    var doc = (opts && opts.doc) || (typeof document !== "undefined" ? document : null);
+    var nowMs = (opts && Number.isFinite(opts.nowMs)) ? opts.nowMs : Date.now();
+    var key = String(jobKey == null ? "" : jobKey);
+
+    var EMPTY_JOB = {
+      jobKey: key, role: "", company: "", companyTagline: "",
+      location: "", employment: "",
+      stage: "", daysInStage: null, appliedAt: "", source: "",
+      fitScore: null, salary: null, tags: [],
+      jdSnippet: "", jdSections: [],
+      deadline: null, notes: null,
+      contacts: [], links: [],
+    };
+
+    if (!doc) return { job: EMPTY_JOB };
+
+    var card = _findCardByStableKey(doc, key);
+    if (!card) return { job: EMPTY_JOB };
+
+    var rec = _readCard(card);
+    var jd = rec.jdSnippet || "";
+
+    var stageEntry = _stageEntryMs(rec, nowMs);
+    var daysInStage = stageEntry != null ? Math.max(0, _daysBetween(nowMs, stageEntry) || 0) : null;
+
+    var jdSections = _splitJdSections(jd);
+    if (!jdSections.length && jd) {
+      jdSections = [{ heading: "", body: jd, bullets: [] }];
+    }
+    // Talking points fallback: if no JD snippet was provided but the card
+    // carries data-talking-points, surface them as a synthetic section.
+    if (!jd) {
+      var tp = _parseTalkingPointsFromCard(card);
+      if (tp.length) {
+        jdSections = [{ heading: "Why you", body: "", bullets: tp }];
+      }
+    }
+
+    return {
+      job: {
+        jobKey: rec.jobKey,
+        role: rec.role,
+        company: rec.company,
+        companyTagline: _parseTaglineFromCard(card),
+        location: _parseLocationFromCard(card),
+        employment: _parseEmploymentFromCard(card),
+        stage: rec.stage,
+        daysInStage: daysInStage,
+        appliedAt: _parseAppliedAtFromCard(card),
+        source: _parseSourceFromCard(card),
+        fitScore: rec.fitScore,
+        salary: rec.salary,
+        tags: _parseTagsFromCard(card),
+        jdSnippet: _truncate(jd, 160),
+        jdSections: jdSections,
+        deadline: _parseDeadlineFromCard(card, nowMs),
+        notes: _parseNotesFromCard(card),
+        contacts: _parseContactsFromCard(card),
+        links: _parseLinksFromCard(card),
+      },
+    };
+  }
+
   function getLetterViewModel(jobKey, opts) {
     var doc = (opts && opts.doc) || (typeof document !== "undefined" ? document : null);
     var key = String(jobKey == null ? "" : jobKey);
@@ -1050,6 +1288,7 @@
   var api = {
     getDawnViewModel: getDawnViewModel,
     getPipelineViewModel: getPipelineViewModel,
+    getRoleViewModel: getRoleViewModel,
     getLetterViewModel: getLetterViewModel,
     STAGE_ORDER: STAGE_ORDER,
     PIPELINE_STAGES: PIPELINE_STAGES,
@@ -1188,6 +1427,16 @@
         // note forwarded as null when absent, present when set
         stages.interviewing.cards[0].note === "Strong team";
 
+      var role = getRoleViewModel("L1", { doc: d, nowMs: now });
+      var roleOk =
+        role && role.job && role.job.jobKey === "L1" &&
+        role.job.role === "Senior BE" && role.job.company === "Cyberdyne" &&
+        Array.isArray(role.job.jdSections) && role.job.jdSections.length >= 1 &&
+        Array.isArray(role.job.tags) && Array.isArray(role.job.contacts) &&
+        Array.isArray(role.job.links);
+      var roleMiss = getRoleViewModel("does-not-exist", { doc: d });
+      var roleMissOk = roleMiss && roleMiss.job && roleMiss.job.jobKey === "does-not-exist" && roleMiss.job.role === "";
+
       var letter = getLetterViewModel("L1", { doc: d });
       var letterOk =
         letter && letter.job && letter.job.jobKey === "L1" &&
@@ -1212,10 +1461,96 @@
       var atsOk = typeof atsA === "number" && atsA === atsB && atsA >= 0 && atsA <= 100;
 
       if (typeof console !== "undefined") {
-        if (pipeOk && letterOk && missOk && emptyOk && atsOk && console.log) {
+        if (pipeOk && letterOk && roleOk && roleMissOk && missOk && emptyOk && atsOk && console.log) {
           console.log("[dawn-data:p1] self-test pass");
         } else if (console.warn) {
-          console.warn("[dawn-data:p1] self-test fail", { pipeOk: pipeOk, letterOk: letterOk, missOk: missOk, emptyOk: emptyOk, atsOk: atsOk, pipe: pipe, letter: letter });
+          console.warn("[dawn-data:p1] self-test fail", { pipeOk: pipeOk, letterOk: letterOk, roleOk: roleOk, roleMissOk: roleMissOk, missOk: missOk, emptyOk: emptyOk, atsOk: atsOk, pipe: pipe, letter: letter, role: role });
+        }
+      }
+
+      /* --------- P2: role VM with full v2 data-* attribute set --------- */
+      try {
+        var d2 = document.implementation.createHTMLDocument("dawn-data-p2-test");
+        var appliedAt = new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString();
+        var followUp = new Date(now + 5 * 24 * 60 * 60 * 1000).toISOString();
+        var contacts = JSON.stringify([
+          { name: "Ada Lovelace", role: "Eng Manager", note: "warm intro", when: "2026-05-03" }
+        ]);
+        d2.body.innerHTML = [
+          '<article class="kanban-card kanban-card--stage-applied"',
+          ' data-stable-key="FULL" data-index="0"',
+          ' data-jd-snippet="Senior backend role.\n\nRequirements:\n- Go\n- Postgres"',
+          ' data-notes="  spoke with recruiter  "',
+          ' data-location="Remote (US)"',
+          ' data-salary="$180k–$210k"',
+          ' data-job-url="https://example.com/jobs/42"',
+          ' data-source="ATS — Greenhouse"',
+          ' data-applied-at="' + appliedAt + '"',
+          ' data-follow-up="' + followUp + '"',
+          ' data-tags="Go,Postgres,Kubernetes"',
+          ' data-fit="8"',
+          ' data-replied="yes"',
+          ' data-talking-points="Shipped distributed systems · Led Postgres migration · Mentored four engineers"',
+          " data-contacts='" + contacts + "'",
+          ' data-company-tagline="Distributed systems for builders"',
+          ' data-employment="Full-time"',
+          '>',
+          '  <span class="kanban-card__title">Senior Backend</span>',
+          '  <span class="kanban-card__company">Cyberdyne</span>',
+          '</article>',
+        ].join("\n");
+
+        var fullRole = getRoleViewModel("FULL", { doc: d2, nowMs: now });
+        var j = fullRole && fullRole.job;
+        var fullOk =
+          !!j &&
+          j.jobKey === "FULL" &&
+          j.role === "Senior Backend" &&
+          j.company === "Cyberdyne" &&
+          j.companyTagline === "Distributed systems for builders" &&
+          j.location === "Remote (US)" &&
+          j.employment === "Full-time" &&
+          j.stage === "applied" &&
+          j.daysInStage === 10 &&
+          j.appliedAt === appliedAt &&
+          j.source === "ATS — Greenhouse" &&
+          j.fitScore === 8 &&
+          j.salary === "$180k–$210k" &&
+          Array.isArray(j.tags) && j.tags.length === 3 && j.tags[0] === "Go" &&
+          typeof j.jdSnippet === "string" && j.jdSnippet.length > 0 &&
+          Array.isArray(j.jdSections) && j.jdSections.length >= 1 &&
+          j.deadline && j.deadline.dueDate === followUp &&
+          j.notes && j.notes.body === "spoke with recruiter" && j.notes.editedAt === "" &&
+          Array.isArray(j.contacts) && j.contacts.length === 1 && j.contacts[0].name === "Ada Lovelace" &&
+          Array.isArray(j.links) && j.links.length >= 1 && j.links[0].href === "https://example.com/jobs/42";
+
+        // Talking-points fallback: same card without data-jd-snippet should produce a "Why you" section.
+        var d3 = document.implementation.createHTMLDocument("dawn-data-p2-tp");
+        d3.body.innerHTML = [
+          '<article class="kanban-card kanban-card--stage-applied"',
+          ' data-stable-key="TP" data-index="0"',
+          ' data-talking-points="Point one\nPoint two · Point three"',
+          '>',
+          '  <span class="kanban-card__title">Role</span>',
+          '  <span class="kanban-card__company">Co</span>',
+          '</article>',
+        ].join("\n");
+        var tpRole = getRoleViewModel("TP", { doc: d3, nowMs: now });
+        var tpOk = tpRole && tpRole.job && Array.isArray(tpRole.job.jdSections) &&
+          tpRole.job.jdSections.length === 1 &&
+          tpRole.job.jdSections[0].heading === "Why you" &&
+          tpRole.job.jdSections[0].bullets.length === 3;
+
+        if (typeof console !== "undefined") {
+          if (fullOk && tpOk && console.log) {
+            console.log("[dawn-data:p2] role-shape ok");
+          } else if (console.warn) {
+            console.warn("[dawn-data:p2] role-shape fail", { fullOk: fullOk, tpOk: tpOk, fullRole: fullRole, tpRole: tpRole });
+          }
+        }
+      } catch (eP2) {
+        if (typeof console !== "undefined" && console.warn) {
+          console.warn("[dawn-data:p2] role-shape fail (threw)", eP2 && eP2.message);
         }
       }
     } catch (e) {

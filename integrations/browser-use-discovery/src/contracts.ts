@@ -197,6 +197,17 @@ export type DiscoveryWebhookRequestV1 = {
    * See docs/INTERFACE-DISCOVERY-RUNS.md §2.
    */
   trigger?: DiscoveryRunTrigger;
+  /**
+   * Optional allowlist of company names/domains/keys to restrict discovery to.
+   * Empty or missing means no company restriction (broad discovery).
+   * Strings are trimmed by the worker; entries cap at 50.
+   */
+  companyAllowlist?: string[];
+  /**
+   * Optional blocklist of company names/domains/keys to suppress from results.
+   * Empty or missing means no blocklist. Entries cap at 50.
+   */
+  companyBlocklist?: string[];
 };
 
 /**

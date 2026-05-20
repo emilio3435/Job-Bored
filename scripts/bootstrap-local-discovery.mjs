@@ -577,6 +577,7 @@ async function probeWorkerAcceptsSecret(port, secret) {
       headers: {
         "Content-Type": "application/json",
         "x-discovery-secret": secret,
+        "x-discovery-auth-probe": "1",
       },
       body: JSON.stringify({
         event: "command-center.discovery",
@@ -587,9 +588,14 @@ async function probeWorkerAcceptsSecret(port, secret) {
       }),
     });
     if (res.status === 401) return { ok: false, reason: "wrong_secret", status: 401 };
-    // 200 (sync), 202 (async), 409 (preflight failed — companies missing) all
-    // mean auth passed, which is the only thing we care about here.
-    if (res.status === 200 || res.status === 202 || res.status === 409) {
+    // 200 (auth probe), 202 (older async), 400/409 (older preflight failures)
+    // all mean auth passed, which is the only thing we care about here.
+    if (
+      res.status === 200 ||
+      res.status === 202 ||
+      res.status === 400 ||
+      res.status === 409
+    ) {
       return { ok: true, status: res.status };
     }
     return { ok: false, reason: "unexpected_status", status: res.status };

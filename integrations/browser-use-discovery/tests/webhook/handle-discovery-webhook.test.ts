@@ -1100,6 +1100,51 @@ test("handleDiscoveryWebhook accepts requests with a correctly provided webhook 
   assert.equal(body.ok, true);
 });
 
+test("handleDiscoveryWebhook accepts auth probe without running discovery preflight", async () => {
+  let loadStoredWorkerConfigCalled = false;
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      throw new Error("runDiscovery should not be called");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: "test-webhook-secret",
+      },
+      loadStoredWorkerConfig: async () => {
+        loadStoredWorkerConfigCalled = true;
+        throw new Error("preflight should not run for auth probes");
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": "test-webhook-secret",
+        "x-discovery-auth-probe": "1",
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "bootstrap-probe",
+        variationKey: "bootstrap-probe-test",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.probe, "auth");
+  assert.equal(loadStoredWorkerConfigCalled, false);
+});
+
 test("handleDiscoveryWebhook rejects requests with an incorrect webhook secret", async () => {
   // When a secret is configured, requests with the wrong header value are rejected.
   const dependencies = makeDependencies({
@@ -2513,4 +2558,314 @@ test("VAL-API-004: rejects unknown groundedSearchTuning field with 400", async (
   assert.equal(body.ok, false);
   assert.match(body.message, /groundedSearchTuning.*unknown field/i);
   assert.ok(!body.runId, "Must not create runId for malformed control-plane payload");
+});
+
+// ============================================================================
+// companyAllowlist / companyBlocklist contract validation
+// ============================================================================
+
+test("companyAllowlist: accepts a valid array of trimmed company strings", async () => {
+  let received: any = null;
+  const dependencies = makeDependencies({
+    runDiscovery: async (req) => {
+      received = req;
+      return makeDependencies().runDiscovery({} as any, "manual" as any, {} as any);
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: { targetRoles: "Senior Engineer" },
+        companyAllowlist: ["Stripe", "  Linear  ", "Stripe", "Vercel"],
+      }),
+    },
+    dependencies,
+  );
+
+  assert.ok(
+    [200, 202].includes(response.status),
+    `Expected 200/202 for valid companyAllowlist, got ${response.status}: ${response.body}`,
+  );
+  // Trimmed and case-insensitively deduped.
+  if (received) {
+    assert.deepEqual(received.companyAllowlist, ["Stripe", "Linear", "Vercel"]);
+  }
+});
+
+test("companyAllowlist: missing array is allowed (broad discovery)", async () => {
+  const dependencies = makeDependencies({
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: { targetRoles: "Senior Engineer" },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.ok([200, 202].includes(response.status));
+});
+
+test("companyAllowlist: rejects non-array value with 400", async () => {
+  const dependencies = makeDependencies({
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: { targetRoles: "Senior Engineer" },
+        companyAllowlist: "Stripe,Linear",
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+  assert.match(body.message, /companyAllowlist/);
+  assert.match(body.message, /array/i);
+});
+
+test("companyAllowlist: rejects non-string entry with 400", async () => {
+  const dependencies = makeDependencies({
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: { targetRoles: "Senior Engineer" },
+        companyAllowlist: ["Stripe", 42, "Linear"],
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+  assert.match(body.message, /companyAllowlist\[1\]/);
+  assert.match(body.message, /string/i);
+});
+
+test("companyAllowlist: rejects empty/whitespace string entry with 400", async () => {
+  const dependencies = makeDependencies({
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: { targetRoles: "Senior Engineer" },
+        companyAllowlist: ["Stripe", "   "],
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+  assert.match(body.message, /companyAllowlist\[1\]/);
+  assert.match(body.message, /non-empty/i);
+});
+
+test("companyAllowlist: rejects oversized list (>50) with 400", async () => {
+  const dependencies = makeDependencies({
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const big: string[] = [];
+  for (let i = 0; i < 51; i += 1) big.push(`Company-${i}`);
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: { targetRoles: "Senior Engineer" },
+        companyAllowlist: big,
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+  assert.match(body.message, /companyAllowlist/);
+  assert.match(body.message, /50/);
+});
+
+test("companyBlocklist: accepts a valid array; missing is allowed", async () => {
+  const dependencies = makeDependencies({
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: { targetRoles: "Senior Engineer" },
+        companyBlocklist: ["Acme Holdings"],
+      }),
+    },
+    dependencies,
+  );
+
+  assert.ok([200, 202].includes(response.status));
+});
+
+test("companyBlocklist: rejects non-array value with 400", async () => {
+  const dependencies = makeDependencies({
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: { targetRoles: "Senior Engineer" },
+        companyBlocklist: { foo: "bar" },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+  assert.match(body.message, /companyBlocklist/);
+  assert.match(body.message, /array/i);
 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { startDevServer } from "../dev-server.mjs";
+import { killFullBootStalePorts, startDevServer } from "../dev-server.mjs";
 
 const SILENT_LOGGER = {
   log() {},
@@ -84,5 +84,45 @@ describe("/__proxy/start-discovery-worker endpoint", () => {
     } finally {
       await closeServer(server);
     }
+  });
+});
+
+describe("full-boot stale port cleanup", () => {
+  it("skips the managed discovery worker when it is already healthy on 8644", async () => {
+    const killedPids = [];
+    const result = await killFullBootStalePorts({
+      ports: [8644, 4040],
+      healthyDiscoveryWorkerPort: 8644,
+      currentPid: 100,
+      waitAfterKillMs: 0,
+      findPids: (port) => (port === 8644 ? [200] : []),
+      killPid: (pid) => {
+        killedPids.push(pid);
+      },
+    });
+
+    assert.deepEqual(result, { killed: 0, skippedHealthyWorker: true });
+    assert.deepEqual(killedPids, []);
+  });
+
+  it("still kills stale listeners when the discovery worker is not healthy", async () => {
+    const killedPids = [];
+    const result = await killFullBootStalePorts({
+      ports: [8644, 4040],
+      healthyDiscoveryWorkerPort: null,
+      currentPid: 100,
+      waitAfterKillMs: 0,
+      findPids: (port) => {
+        if (port === 8644) return [200];
+        if (port === 4040) return [300];
+        return [];
+      },
+      killPid: (pid) => {
+        killedPids.push(pid);
+      },
+    });
+
+    assert.deepEqual(result, { killed: 2, skippedHealthyWorker: false });
+    assert.deepEqual(killedPids, [200, 300]);
   });
 });
