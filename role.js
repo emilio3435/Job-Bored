@@ -385,12 +385,20 @@
       '</div>' +
       '<div class="dossier">' +
         '<article class="brief" data-mount="brief"></article>' +
+        '<div class="mode-divider">' +
+          '<div class="mode-divider__rule"></div>' +
+          '<div class="mode-divider__label">THE <em>workshop</em> · YOUR MOVES</div>' +
+          '<div class="mode-divider__rule"></div>' +
+        '</div>' +
+        '<aside class="workshop" data-mount="workshop"></aside>' +
       '</div>';
 
     var briefMount = region.querySelector('[data-mount="brief"]');
+    var workshopMount = region.querySelector('[data-mount="workshop"]');
     if (briefMount && root.JobBoredDossierBrief && typeof root.JobBoredDossierBrief.renderBrief === "function") {
       root.JobBoredDossierBrief.renderBrief(briefMount, vm);
     }
+    if (workshopMount && root.JobBoredDossierWorkshop && typeof root.JobBoredDossierWorkshop.renderWorkshop === "function") root.JobBoredDossierWorkshop.renderWorkshop(workshopMount, vm);
 
     wireDossier(region, job);
   }
