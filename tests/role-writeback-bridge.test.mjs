@@ -92,7 +92,9 @@ describe("role writeback bridge", () => {
       value: "phone-screen",
       expectedRange: "Pipeline!M7",
       expectedValue: "Phone Screen",
-      expectedKind: "stage",
+      // Stage writes emit the legacy pipeline:move kind for symmetry with
+      // the kanban drag-and-drop write path.
+      expectedKind: "pipeline:move",
     },
     {
       field: "heardBack",
