@@ -1,0 +1,51 @@
+{
+  "lane": "brief",
+  "branch": "dossier-df/brief",
+  "status": "completed",
+  "files_changed": [
+    "role-brief.js",
+    "role.js",
+    "index.html"
+  ],
+  "tests_run": [
+    {
+      "command": "node --check role-brief.js role.js",
+      "result": "passed",
+      "notes": "Syntax check on the new file and the modified shell."
+    },
+    {
+      "command": "npm test -- tests/dossier-card-attrs.test.mjs",
+      "result": "skipped",
+      "notes": "Test file does not yet exist on this branch — it is owned by the dossier-df/qa lane (tests-screens). The brief is wired with [data-action=\"close-role\"] on the divider close button and [data-action=\"notes\"] on the marginalia textarea so the qa lane's selectors will match."
+    },
+    {
+      "command": "node --test tests/role-writeback-bridge.test.mjs tests/ats-state-bus.test.mjs tests/drawer-crm-sync.test.mjs",
+      "result": "passed",
+      "notes": "25/25 tests passed; the writeback bridge and ats-state-bus contracts are unaffected by the brief lane."
+    },
+    {
+      "command": "npm run typecheck:repo",
+      "result": "passed",
+      "notes": "node --check on every JS in the typecheck list."
+    },
+    {
+      "command": "npm run lint:repo",
+      "result": "passed",
+      "notes": "lint:skills wrapper passed."
+    },
+    {
+      "command": "in-process render smoke test (vm.runInContext) of role.js + role-brief.js",
+      "result": "passed",
+      "notes": "renderForKey on a fixture VM produces the .dossier wrapper, .brief mount, populated brief markup (1892 chars), [data-action=\"notes\"] textarea wired by wireDossier's blur handler, and [data-action=\"close-role\"] close button. renderBrief on a missing-fields fixture produces no eyebrow, no facts, no stage chip, no hook, no skim, and an empty marginalia textarea — matching the 'render nothing for that block' fallback rule."
+    }
+  ],
+  "screenshots": [],
+  "events_emitted_or_listened": [
+    "jb:role:note"
+  ],
+  "contract_concerns": "None. Brief lane preserves jb:role:note (emitted by the existing wireDossier blur handler in role.js, which the new marginalia textarea exposes via [data-action=\"notes\"]). Sheet write-back, resume/cover/ATS generation, the discovery webhook, schemas/pipeline-row.v1.json, and the four AGENT_CONTRACT.md events (jb:ats:state, jb:ats:state:request, jb:ats:modal:open, jb:role:writeback) are not touched.",
+  "notes": "role-brief.js exposes window.JobBoredDossierBrief.renderBrief(region, vm) and is loaded immediately after role.js in index.html. role.js's renderDossier was reshaped to render the new shell (PART 03 divider unchanged + new <div class=\"dossier\"><article class=\"brief\" data-mount=\"brief\"></article></div>) and to call window.JobBoredDossierBrief.renderBrief(briefMount, vm); the workshop mount is intentionally not added here so the workshop lane can append <aside class=\"workshop\" data-mount=\"workshop\"></aside> + the .mode-divider per its own brief, with the integration lane resolving the merge per docs/redesign/handoffs/dossier-df-integration.md. wireDossier in role.js is left untouched; it still wires [data-action=\"close-role\"] (on the divider) and [data-action=\"notes\"] (on the marginalia textarea now rendered by role-brief.js), preserving jb:role:note. The dead detail-drawer renderer helpers in role.js (renderDrawerHead, renderDrawerActions, renderAboutSection, renderStructuredFromJd, renderTalkingPoints, renderProps, renderNotesBlock) were left in place per the 'do not touch any other line of role.js' guidance — they are unreachable now and can be cleaned up by a follow-up lane. The masthead eyebrow only renders job.employment because the role VM does not surface seniority or work-mode as discrete fields; the wireframe's three-part 'Senior · Remote · Full-time' eyebrow is reduced to whatever single field exists. The skim panel renders rows only for fields present on the VM (Stack from job.tags top-3, Comp from salary, Location from location, ATS fit from fitScore × 10 to map the 1–10 VM band to /100 — never invents a number). The provenance tag's 'from N words' is computed from the sum of words across job.jdSections bodies + bullets; if no sections exist, only 'Compressed by JobBored AI' renders. The masthead stage chip is display-only — clicking it scrolls smoothly to .workshop (or .workshop .stepper if present), respecting prefers-reduced-motion; it does not advance the stage (decision locked: 'Workshop only — masthead stage chip is display-only'). The first JD section's body feeds the AI-summary lede (or the hook fallback when companyTagline is missing); subsequent JD sections feed the raw-posting accordion (first <details open>; toggle '+' rotates 45° via the existing role.css transition). Roman numerals are computed up to xxxix; beyond that the count chip falls back to the numeric form. role-brief.js calls JobBoredFlowing.role.renderForKey on script load if a role is already open, to recover from the case where role.js's defer-time init runs before this file registers JobBoredDossierBrief. body.jb-v2 gating is preserved via shouldRun().",
+  "commit_sha": "f516293",
+  "started_at": "2026-05-20T03:30:00Z",
+  "ended_at": "2026-05-20T04:53:00Z"
+}

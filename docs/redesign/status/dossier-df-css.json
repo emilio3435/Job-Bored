@@ -1,0 +1,37 @@
+{
+  "lane": "css",
+  "branch": "dossier-df/css",
+  "status": "completed",
+  "files_changed": [
+    "role.css",
+    "style.css"
+  ],
+  "tests_run": [
+    {
+      "command": "npm run typecheck:repo",
+      "result": "passed",
+      "notes": "node --check on every JS file in the typecheck list; no CSS changes affect JS syntax."
+    },
+    {
+      "command": "npm run lint:repo",
+      "result": "passed",
+      "notes": "Wraps lint:skills; integrations/openclaw-command-center/SKILL.md OK."
+    },
+    {
+      "command": "PORT=8085 npm run web-only",
+      "result": "passed",
+      "notes": "Dev server starts and serves role.css, style.css, index.html, and the wireframe with HTTP 200. No load-time errors."
+    },
+    {
+      "command": "node CSS brace-balance check on role.css + style.css",
+      "result": "passed",
+      "notes": "Brace depth returns to 0 in both files; no unbalanced { or }."
+    }
+  ],
+  "screenshots": [],
+  "events_emitted_or_listened": [],
+  "contract_concerns": "None. CSS lane does not touch any data contract (Sheet write-back, ATS generation, discovery webhook, schemas/pipeline-row.v1.json, or the four jb:ats:* / jb:role:writeback events). role.css deliberately stops overriding .detail-drawer.* selectors so the legacy detail overlay keeps using its existing style.css rules.",
+  "notes": "role.css authored against docs/redesign/dossier-direction-f-wireframe.html as the visual source of truth. Preserved the existing .jb-role-divider, .jb-shelf*, .jb-recents*, and .jb-recent-chip rules verbatim from the in-flight role.css in the main worktree; removed the .detail-drawer override block per the brief; added the Direction F namespaces (.dossier, .brief*, .skim, .points, .jd, .brief-notes, .mode-divider*, .workshop*, .btn-primary, .btn-ghost, .ws-card, .stepper*, .timeline*, .ats-card*, .writeback, .chip*). New :root tokens added to style.css are additions only (no existing token values changed): --navy, --navy-soft, --ink, --ink-soft, --mute, --parchment, --parchment-deep, --workshop-bg, --workshop-card, --border-strong, --mint, --mint-deep, --amber, --crimson, --shadow-soft, --shadow-strong, --serif, --sans, --mono. For tokens whose names already exist in style.css with different legacy values (--surface, --border, --radius-md, --radius-lg), the dossier-specific values are scoped inside .dossier {} and .workshop {} so legacy CSS that consumes those names is unaffected. --sans uses DM Sans as the primary font instead of the wireframe's Inter because Inter is not loaded in index.html; the fallback chain still yields a clean system sans. Animations are gated under prefers-reduced-motion: reduce so JD accordion fade and toggle rotation are disabled when the user requests reduced motion.",
+  "started_at": "2026-05-20T02:30:00Z",
+  "ended_at": "2026-05-20T03:06:06Z"
+}
