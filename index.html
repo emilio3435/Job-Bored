@@ -48,22 +48,28 @@
     <script src="flowing-writes.js" defer></script>
     <script src="scribe.js" defer></script>
     <script>
-      // JB-V2 flag plumbing (Atlas). Sets body.jb-v2 from URL ?jb-v2=1
+      // JB-V2 flag plumbing (Atlas). Sets body.jb-v2 from URL ?jb-v2=1|0
       // or localStorage 'jb-v2-flag'. URL param wins and persists.
-      // Off by default → legacy UI renders unchanged.
+      // On by default → flowing-page (v2) UI renders unless the user has
+      // explicitly opted out (URL ?jb-v2=0 or settings toggle off).
       (function () {
         try {
-          var KEY = 'jb-v2-flag';
+          var KEY = '**********';
           var p = new URLSearchParams(window.location.search).get('jb-v2');
           if (p === '1' || p === 'true') localStorage.setItem(KEY, '1');
-          else if (p === '0' || p === 'false') localStorage.removeItem(KEY);
-          var on = localStorage.getItem(KEY) === '1';
-          window.JB_V2 = { on: on, enable: function () { localStorage.setItem(KEY, '1'); document.body && document.body.classList.add('jb-v2'); }, disable: function () { localStorage.removeItem(KEY); document.body && document.body.classList.remove('jb-v2'); } };
+          else if (p === '0' || p === 'false') localStorage.setItem(KEY, '0');
+          var stored = localStorage.getItem(KEY);
+          var on = stored !== '0'; // default on; only '0' opts out
+          window.JB_V2 = { on: on, enable: function () { localStorage.setItem(KEY, '1'); document.body && document.body.classList.add('jb-v2'); }, disable: function () { localStorage.setItem(KEY, '0'); document.body && document.body.classList.remove('jb-v2'); } };
           if (on) {
             if (document.body) document.body.classList.add('jb-v2');
             else document.addEventListener('DOMContentLoaded', function () { document.body.classList.add('jb-v2'); });
           }
-        } catch (e) { /* noop: flag stays off */ }
+        } catch (e) {
+          // If storage blew up, default to v2 anyway.
+          if (document.body) document.body.classList.add('jb-v2');
+          else document.addEventListener('DOMContentLoaded', function () { document.body.classList.add('jb-v2'); });
+        }
       })();
     </script>
     <link
@@ -2680,13 +2686,13 @@
                     class="field-label"
                     for="settingsProfileScheduleCloudTime"
                   >
-                    UTC time (GitHub cron is always UTC)
+                    America/Chicago time
                   </label>
                   <input
                     type="time"
                     id="settingsProfileScheduleCloudTime"
                     class="modal-input settings-profile-schedule__time"
-                    value="14:00"
+                    value="06:00"
                     step="60"
                   />
                   <p
@@ -2709,7 +2715,9 @@
                     <li>
                       Add the repo secrets
                       <code>COMMAND_CENTER_DISCOVERY_WEBHOOK_URL</code> and
-                      <code>COMMAND_CENTER_SHEET_ID</code> —
+                      <code>COMMAND_CENTER_SHEET_ID</code>. Add
+                      <code>COMMAND_CENTER_DISCOVERY_WEBHOOK_SECRET</code> only
+                      if your endpoint enforces <code>x-discovery-secret</code> —
                       <a
                         href="https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions"
                         target="_blank"

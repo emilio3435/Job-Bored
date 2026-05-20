@@ -269,6 +269,21 @@ class DiscoveryRunTracker {
     return this;
   }
 
+  /** Retry a terminal failure that was caused by status polling, not the run. */
+  resumeFromStatusPollingFailure() {
+    if (this._state.status !== "failed") return this;
+    if (!/status polling failed/i.test(String(this._state.errorMessage || ""))) {
+      return this;
+    }
+    this._state.status = this._state.runId ? "running" : "idle";
+    this._state.terminalAt = "";
+    this._state.terminalKind = "";
+    this._state.errorMessage = "";
+    this._state.pollErrorCount = 0;
+    this._persist(this._state);
+    return this;
+  }
+
   /** Mark the run as failed with an explicit error message (non-poll-error path). */
   markFailed(errorMessage = "") {
     this._state.status = "failed";
@@ -5620,6 +5635,56 @@ function buildRunStatusUrl(statusPath, webhookUrl) {
   }
 }
 
+function isLikelyNgrokUrl(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return false;
+  try {
+    const url = new URL(s);
+    return /(^|\.)ngrok(?:-free)?\.app$/i.test(url.hostname);
+  } catch (_) {
+    return /ngrok(?:-free)?\.app/i.test(s);
+  }
+}
+
+function getDiscoveryStatusPollingWebhookUrl(webhookUrl) {
+  const fallback = normalizeDiscoveryWebhookIdentity(webhookUrl);
+  if (!isLocalDashboardOrigin()) return fallback;
+
+  const transport = getDiscoveryTransportSetupState();
+  const localWebhookUrl = normalizeDiscoveryLocalWebhookUrl(
+    transport.localWebhookUrl,
+  );
+  if (!localWebhookUrl) return fallback;
+
+  const localEngineKind = getDiscoveryLocalEngineKind({
+    localWebhookUrl,
+  });
+  if (localEngineKind !== "browser_use_worker") return fallback;
+
+  const publicTunnelTarget = normalizeDiscoveryWebhookIdentity(
+    buildDiscoveryTunnelTargetUrl(localWebhookUrl, transport.tunnelPublicUrl),
+  );
+  if (
+    publicTunnelTarget &&
+    fallback &&
+    fallback !== publicTunnelTarget &&
+    !isLikelyCloudflareWorkerUrl(fallback)
+  ) {
+    return fallback;
+  }
+
+  return localWebhookUrl;
+}
+
+function buildDiscoveryStatusPollHeaders(statusUrl) {
+  return {
+    Accept: "application/json",
+    ...(isLikelyNgrokUrl(statusUrl)
+      ? { "ngrok-skip-browser-warning": "true" }
+      : {}),
+  };
+}
+
 /**
  * Fetch and process a single status poll for the active run.
  * Returns the parsed status body or null on error.
@@ -5639,7 +5704,7 @@ async function pollRunStatus(webhookUrl) {
     response = await fetch(statusUrl, {
       method: "GET",
       mode: "cors",
-      headers: { Accept: "application/json" },
+      headers: buildDiscoveryStatusPollHeaders(statusUrl),
     });
   } catch (err) {
     tracker.markPollError(
@@ -5674,6 +5739,7 @@ async function pollRunStatus(webhookUrl) {
  */
 async function startDiscoveryStatusPolling(webhookUrl) {
   const tracker = discoveryRunTracker;
+  const pollingWebhookUrl = getDiscoveryStatusPollingWebhookUrl(webhookUrl);
 
   // Cancel any in-flight polling session before starting fresh
   if (tracker._pollTimer) {
@@ -5689,7 +5755,7 @@ async function startDiscoveryStatusPolling(webhookUrl) {
       return;
     }
 
-    const statusData = await pollRunStatus(webhookUrl);
+    const statusData = await pollRunStatus(pollingWebhookUrl);
     if (statusData) {
       tracker.updateFromStatusResponse(statusData);
     }
@@ -5711,7 +5777,7 @@ async function startDiscoveryStatusPolling(webhookUrl) {
       return;
     }
 
-    if (updated.isTerminal()) {
+    if (tracker.isTerminal()) {
       renderDiscoveryRunStatus();
       return;
     }
@@ -5738,6 +5804,18 @@ function stopDiscoveryStatusPolling() {
     clearTimeout(discoveryRunTracker._pollTimer);
     discoveryRunTracker._pollTimer = null;
   }
+}
+
+function resumeDiscoveryStatusPollingIfNeeded() {
+  const state = discoveryRunTracker.getState();
+  if (!state.runId || !state.statusPath) return;
+  if (state.status === "failed") {
+    discoveryRunTracker.resumeFromStatusPollingFailure();
+  }
+  const next = discoveryRunTracker.getState();
+  if (!discoveryRunTracker.isActive()) return;
+  renderDiscoveryRunStatus();
+  void startDiscoveryStatusPolling(next.webhookUrl || getDiscoveryWebhookUrl());
 }
 
 /**
@@ -7448,8 +7526,9 @@ const STAGE_ORDER = [
   "Offer",
   "Rejected",
   "Passed",
+  "Expired",
 ];
-const STAGE_ARCHIVE = new Set(["Rejected", "Passed"]);
+const STAGE_ARCHIVE = new Set(["Rejected", "Passed", "Expired"]);
 /** Which stage lanes are expanded; defaults to active (non-archive) stages */
 const expandedStages = new Set(
   STAGE_ORDER.filter((s) => !STAGE_ARCHIVE.has(s)),
@@ -7472,6 +7551,11 @@ if (typeof window !== "undefined") {
   };
   window.JobBored.getSheetId = function () {
     return typeof SHEET_ID === "string" ? SHEET_ID : "";
+  };
+  window.JobBored.getPipelineSheetRow = function (dataIndex) {
+    const idx = Number(dataIndex);
+    if (!Number.isInteger(idx) || idx < 0) return null;
+    return getSheetRow(idx);
   };
 }
 /** Profile photo URL from Google userinfo (optional). */
@@ -9227,13 +9311,59 @@ function generateDiscoveryVariationKey() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
+function getDiscoveryRunWebhookUrlCandidates(snapshot) {
+  const state = snapshot && typeof snapshot === "object" ? snapshot : {};
+  const transport = getDiscoveryTransportSetupState();
+  const relayInfo = getCloudflareRelayTargetInfo();
+  const localTunnelTargetUrl = buildDiscoveryTunnelTargetUrl(
+    transport.localWebhookUrl,
+    transport.tunnelPublicUrl,
+  );
+  const allowDirectLocal =
+    isLocalDashboardOrigin() &&
+    (state.savedWebhookKind === "local_http" ||
+      state.localWebhookReady === true);
+  return [
+    getDiscoveryWebhookUrl(),
+    state.savedWebhookUrl,
+    state.relayTargetUrl,
+    relayInfo && relayInfo.url,
+    localTunnelTargetUrl,
+    allowDirectLocal ? state.localWebhookUrl : "",
+    allowDirectLocal ? transport.localWebhookUrl : "",
+  ];
+}
+
+async function resolveDiscoveryRunWebhookUrl() {
+  const configured = normalizeDiscoveryWebhookIdentity(getDiscoveryWebhookUrl());
+  if (configured) return configured;
+
+  await hydrateDiscoveryTransportSetupFromLocalBootstrap();
+  let snapshot = getDiscoveryReadinessSnapshot();
+  try {
+    snapshot = await refreshDiscoveryReadinessSnapshot({
+      force: true,
+      rerender: false,
+    });
+  } catch (err) {
+    console.warn("[JobBored] discovery run readiness:", err);
+  }
+
+  for (const candidate of getDiscoveryRunWebhookUrlCandidates(snapshot)) {
+    const normalized = normalizeDiscoveryWebhookIdentity(candidate);
+    if (normalized) return normalized;
+  }
+  return "";
+}
+
 /** Notify automation (Hermes, n8n, etc.) to run another discovery pass (varied query). */
 async function triggerDiscoveryRun() {
-  const hook = normalizeDiscoveryWebhookIdentity(getDiscoveryWebhookUrl());
+  const hook = await resolveDiscoveryRunWebhookUrl();
   if (!hook) {
     void requestDiscoverySetup({
       entryPoint: "run_discovery",
       allowWhileOnboarding: true,
+      skipAutodetect: true,
     });
     return { ok: false, reason: "no_url" };
   }
@@ -10735,6 +10865,12 @@ function getStatusSideEffects(newStatus, job, sheetRow) {
       localUpdates.followUpDate = null;
       break;
 
+    case "Expired":
+      // Clear Follow-up Date
+      updates.push({ range: `Pipeline!P${sheetRow}`, value: "" });
+      localUpdates.followUpDate = null;
+      break;
+
     case "New":
       // Reverting — clear Applied Date and Follow-up Date
       updates.push({ range: `Pipeline!N${sheetRow}`, value: "" });
@@ -11711,11 +11847,12 @@ function renderStageStepper(job, dataIndex) {
     "Offer",
     "Rejected",
     "Passed",
+    "Expired",
   ];
   const normalized = (job.status || "").trim().toLowerCase();
   const curIdx = stages.findIndex((s) => s.toLowerCase() === normalized);
   const activeIdx = curIdx >= 0 ? curIdx : 0;
-  const isTerminal = activeIdx >= 6; // Rejected or Passed
+  const isTerminal = activeIdx >= 6; // Rejected, Passed, or Expired
 
   return `<div class="stage-stepper-wrap">
     <button type="button" class="stage-stepper__chevron stage-stepper__chevron--left" data-action="scroll-stage" data-dir="-1" aria-label="Scroll left">
@@ -12459,6 +12596,7 @@ function renderCardActions(job, indexForNotesId) {
     "Offer",
     "Rejected",
     "Passed",
+    "Expired",
   ];
   const normalized = (job.status || "").trim().toLowerCase();
   const hasStatusMatch = statuses.some((s) => s.toLowerCase() === normalized);
@@ -13362,6 +13500,9 @@ function renderEmptyDonutScaffold() {
     { label: "Phone Screen", color: "var(--stage-rail-phone-screen)" },
     { label: "Interviewing", color: "var(--stage-rail-interviewing)" },
     { label: "Offer", color: "var(--stage-rail-offer)" },
+    { label: "Rejected", color: "var(--stage-rail-rejected)" },
+    { label: "Passed", color: "var(--stage-rail-passed)" },
+    { label: "Expired", color: "var(--stage-rail-expired)" },
   ];
   let h =
     '<h4 class="brief-widget__title">Pipeline</h4><div class="donut-layout donut-layout--empty">';
@@ -13726,6 +13867,7 @@ function renderBrief() {
     stn(j.status).includes("rejected"),
   ).length;
   const passed = pipelineData.filter((j) => stn(j.status) === "passed").length;
+  const expired = pipelineData.filter((j) => stn(j.status) === "expired").length;
 
   const inboxCount = pipelineData.filter((j) => {
     const s = stn(j.status);
@@ -13804,6 +13946,7 @@ function renderBrief() {
     { label: "Offer", count: offers, color: "var(--stage-rail-offer)" },
     { label: "Rejected", count: rejected, color: "var(--stage-rail-rejected)" },
     { label: "Passed", count: passed, color: "var(--stage-rail-passed)" },
+    { label: "Expired", count: expired, color: "var(--stage-rail-expired)" },
   ];
 
   if (pipelineEl) pipelineEl.innerHTML = renderDonutWidget(stages);
@@ -18065,6 +18208,153 @@ function openDraftNotesModal(dataIndex, feature) {
   input?.focus();
 }
 
+async function reviseLetterDraftForJob(dataIndex, options) {
+  const UC = getUserContent();
+  const Bundle = getResumeBundle();
+  const Gen = getResumeGenerate();
+  if (!UC || !Bundle || !Gen) {
+    throw new Error("Resume modules failed to load");
+  }
+  const idx = Number(dataIndex);
+  if (!Number.isInteger(idx) || idx < 0) {
+    throw new Error("Job not found");
+  }
+  const job = pipelineData[idx];
+  if (!job) {
+    throw new Error("Job not found");
+  }
+  if (
+    typeof Gen.isResumeGenerationConfigured === "function" &&
+    !Gen.isResumeGenerationConfigured()
+  ) {
+    throw new Error(
+      'Set resumeGeminiApiKey in config.js for Gemini, or switch resumeProvider to "openai", "anthropic", or "webhook" (see SETUP.md).',
+    );
+  }
+
+  const previousDraft = String((options && options.previousDraft) || "").trim();
+  const refinementFeedback = String(
+    (options && options.refinementFeedback) || "",
+  ).trim();
+  if (!previousDraft) {
+    throw new Error("Add a draft before revising");
+  }
+  if (!refinementFeedback) {
+    throw new Error("Add revision instructions first");
+  }
+
+  await UC.openDb();
+  const active = await UC.getActiveResume();
+  const linkedIn =
+    typeof UC.getLinkedInProfile === "function"
+      ? await UC.getLinkedInProfile()
+      : { text: "" };
+  const additional =
+    typeof UC.getAdditionalContext === "function"
+      ? await UC.getAdditionalContext()
+      : { text: "" };
+  const hasResume = !!(active && String(active.extractedText || "").trim());
+  const hasLinkedIn = !!String(
+    linkedIn && linkedIn.text ? linkedIn.text : "",
+  ).trim();
+  const hasAdditional = !!String(
+    additional && additional.text ? additional.text : "",
+  ).trim();
+  if (!hasResume && !hasLinkedIn && !hasAdditional) {
+    throw new Error(
+      "Add resume, LinkedIn, or AI context in Profile first (best results use all three).",
+    );
+  }
+
+  const profile = await Bundle.assembleProfile(UC);
+  const contextUsed = buildGenerationContextUsed(profile);
+  const userNotes = String((options && options.userNotes) || "").trim();
+  const bundle = Bundle.buildResumeContextBundle(
+    "cover_letter",
+    job,
+    profile,
+    {
+      maxWords: profile.preferences.defaultMaxWords,
+      userNotes,
+      refinementFeedback,
+      previousDraft,
+    },
+    { sheetId: SHEET_ID },
+  );
+  const text = await Gen.generateFromBundle(bundle);
+  let savedDraft = null;
+  let saveError = "";
+  if (typeof UC.saveGeneratedDraft === "function") {
+    try {
+      savedDraft = await UC.saveGeneratedDraft({
+        feature: "cover_letter",
+        mode: "refine",
+        text,
+        job,
+        parentDraftId:
+          options && options.parentDraftId ? options.parentDraftId : null,
+        userNotes,
+        refinementFeedback,
+      });
+      await refreshGeneratedDraftLibraryCache();
+      renderPipeline();
+      if (activeDetailKey >= 0) refreshDrawerIfOpen(activeDetailKey);
+      try {
+        document.dispatchEvent(new CustomEvent("jb:draft:saved", {
+          detail: {
+            jobKey: String(idx),
+            feature: "cover_letter",
+            draftId: savedDraft ? savedDraft.id : null,
+            mode: "refine",
+          },
+        }));
+      } catch (_e) { /* event dispatch is best-effort */ }
+    } catch (draftErr) {
+      console.warn("[JobBored] save letter revision draft:", draftErr);
+      saveError =
+        draftErr && draftErr.message
+          ? String(draftErr.message)
+          : "Could not save revised draft";
+    }
+  }
+  lastResumeGenerationSession = {
+    title: "Cover letter draft",
+    feature: "cover_letter",
+    bundle,
+    contextUsed,
+    job,
+    dataIndex: idx,
+    savedDraftId: savedDraft ? savedDraft.id : null,
+    text,
+  };
+  return {
+    text,
+    draftId: savedDraft ? savedDraft.id : null,
+    feature: "cover_letter",
+    mode: "refine",
+    saved: !!savedDraft,
+    saveError,
+  };
+}
+
+// Exposed for the v2 dossier (role.js) so its Cover letter / Tailor resume
+// buttons can reuse the same draft-notes → AI generation flow as the legacy
+// drawer. The dossier's jobKey IS the pipelineData stable index.
+if (typeof window !== "undefined") {
+  window.openDraftNotesModal = openDraftNotesModal;
+  window.reviseLetterDraftForJob = reviseLetterDraftForJob;
+  // Surface a tiny read-only API for the v2 letter region (letter.js) so it
+  // can render the draft folder strip and load saved drafts into its editor.
+  // Read-only: no mutation paths — the legacy drawer still owns writes.
+  window.getDraftsForJob = getDraftsForJob;
+  window.openSavedDraftVersion = openSavedDraftVersion;
+  window.getPipelineJobByIndex = function (idx) {
+    var n = Number(idx);
+    if (!Number.isFinite(n)) return null;
+    return pipelineData[n] || null;
+  };
+}
+
 function closeDraftNotesModal() {
   const modal = document.getElementById("draftNotesModal");
   if (modal) modal.style.display = "none";
@@ -18282,6 +18572,7 @@ async function runResumeGeneration(dataIndex, feature, options) {
       bundle,
       contextUsed,
       job,
+      dataIndex,
       savedDraftId: null,
       text: "",
     };
@@ -18300,6 +18591,16 @@ async function runResumeGeneration(dataIndex, feature, options) {
         await refreshGeneratedDraftLibraryCache();
         renderPipeline();
         if (activeDetailKey >= 0) refreshDrawerIfOpen(activeDetailKey);
+        try {
+          document.dispatchEvent(new CustomEvent("jb:draft:saved", {
+            detail: {
+              jobKey: String(dataIndex),
+              feature,
+              draftId: savedDraft ? savedDraft.id : null,
+              mode: "initial",
+            },
+          }));
+        } catch (_e) { /* event dispatch is best-effort */ }
       } catch (draftErr) {
         console.warn("[JobBored] save generated draft:", draftErr);
       }
@@ -18401,6 +18702,18 @@ async function refineLastResumeGeneration() {
         await refreshGeneratedDraftLibraryCache();
         renderPipeline();
         if (activeDetailKey >= 0) refreshDrawerIfOpen(activeDetailKey);
+        try {
+          document.dispatchEvent(new CustomEvent("jb:draft:saved", {
+            detail: {
+              jobKey: session && Number.isFinite(session.dataIndex)
+                ? String(session.dataIndex)
+                : null,
+              feature: session.feature,
+              draftId: savedDraft ? savedDraft.id : null,
+              mode: "refine",
+            },
+          }));
+        } catch (_e) { /* event dispatch is best-effort */ }
       } catch (draftErr) {
         console.warn("[JobBored] save refined draft:", draftErr);
       }
@@ -19147,6 +19460,8 @@ function init() {
   // dependency: it opens IndexedDB and wires modal/file listeners. Safe
   // to run pre-SHEET_ID.
   initResumeMaterialsFeature();
+  initDiscoveryDrawer();
+  initDiscoveryButton();
 
   if (!SHEET_ID) {
     // Login gate first; onboarding (blank sheet steps) appears after Google sign-in.
@@ -19188,9 +19503,8 @@ function init() {
   // Set sheet links
   setDashboardSheetLinks();
 
-  initDiscoveryDrawer();
-  initDiscoveryButton();
   void preloadDiscoveryUiState();
+  resumeDiscoveryStatusPollingIfNeeded();
 
   // Sort
   document.getElementById("sortSelect").addEventListener("change", (e) => {
@@ -19321,10 +19635,10 @@ function syncDiscoveryButtonState() {
         ? "Ask your automation to run another search pass"
         : "POST to your configured endpoint. Make sure it writes Pipeline rows.";
   } else if (stubOnlyDetected) {
-    openBtn.disabled = true;
-    openBtn.setAttribute("aria-disabled", "true");
+    openBtn.disabled = false;
+    openBtn.removeAttribute("aria-disabled");
     openBtn.title =
-      "Stub webhook only — use Settings → Discovery to connect a real engine, or click Run discovery to open setup.";
+      "Stub webhook only — click to tailor discovery, then connect a real engine before running.";
   } else {
     // No endpoint configured — keep button enabled so clicking opens the setup wizard.
     openBtn.disabled = false;
@@ -19471,7 +19785,10 @@ function openDiscoveryDrawer() {
   };
   const prefilled =
     UC && typeof UC.getDiscoveryProfile === "function"
-      ? UC.getDiscoveryProfile()
+      ? Promise.resolve(UC.getDiscoveryProfile()).catch((err) => {
+          console.warn("[JobBored] discovery profile preload:", err);
+          return {};
+        })
       : Promise.resolve({});
   prefilled.then((p) => {
     Object.entries(fieldMap).forEach(([key, id]) => {
@@ -20180,70 +20497,10 @@ function initDiscoveryButton() {
   }
 
   openBtn.addEventListener("click", async () => {
-    const view = getDiscoverySettingsView(getDiscoveryReadinessSnapshot());
-    const hasWebhook = !!getDiscoveryWebhookUrl();
-    const isLocal =
-      typeof window !== "undefined" &&
-      window.location &&
-      (window.location.hostname === "localhost" ||
-        window.location.hostname === "127.0.0.1");
-
-    // Greenfield silent path: on localhost, when no webhook is configured,
-    // run the full backend boot in one click instead of opening the wizard.
-    if (!hasWebhook && isLocal) {
-      const originalText = openBtn.textContent;
-      openBtn.disabled = true;
-      openBtn.classList.add("loading");
-      try {
-        openBtn.title = "Setting up discovery…";
-        showToast("Setting up discovery — this only happens once.", "info");
-        const resp = await fetch("/__proxy/full-boot", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: "{}",
-        });
-        const body = await resp.json().catch(() => ({}));
-        if (resp.ok && body && body.ok) {
-          // Refresh snapshot so the saved webhook URL is picked up.
-          await refreshDiscoveryReadinessSnapshot({ force: true });
-          installKeepAliveOnce();
-          showToast("Discovery is ready.", "success");
-          if (getDiscoveryWebhookUrl()) {
-            openDiscoveryDrawer();
-            return;
-          }
-        }
-        // If full-boot reported a specific blocking issue (Cloudflare auth,
-        // etc.), fall back to the wizard at the failed step.
-        if (body && body.needsAuth) {
-          showToast(
-            "Cloudflare needs to be signed in once. Run `npx wrangler login` and click again.",
-            "warning",
-            true,
-          );
-          return;
-        }
-        // Final fallback: open the wizard so a human can finish setup.
-        await requestDiscoverySetup({
-          entryPoint: "header_full_boot_fallback",
-          allowWhileOnboarding: true,
-        });
-      } catch (e) {
-        console.warn("[JobBored] full-boot:", e);
-        await requestDiscoverySetup({
-          entryPoint: "header",
-          allowWhileOnboarding: true,
-        });
-      } finally {
-        openBtn.disabled = false;
-        openBtn.classList.remove("loading");
-        openBtn.textContent = originalText;
-        syncDiscoveryButtonState();
-      }
-      return;
-    }
-
-    if (!view.runDiscoveryEnabled || !hasWebhook) {
+    const snapshot = getDiscoveryReadinessSnapshot();
+    const needsRecovery =
+      snapshot.localRecoveryState && snapshot.localRecoveryState !== "ok";
+    if (needsRecovery) {
       await requestDiscoverySetup({
         entryPoint: "header",
         allowWhileOnboarding: true,

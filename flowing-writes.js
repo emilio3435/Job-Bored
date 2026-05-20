@@ -38,11 +38,13 @@
 
   /** Stage slug -> Sheet status label (column M enum). */
   var STAGE_LABELS = Object.freeze({
+    "new": "New",
     "researching": "Researching",
     "applied": "Applied",
     "phone-screen": "Phone Screen",
     "interviewing": "Interviewing",
     "offer": "Offer",
+    "expired": "Expired",
   });
 
   var STATUS_COLUMN = "M"; // schemas/pipeline-row.v1.json -> status
@@ -86,6 +88,17 @@
   function normalizeUrl(u) {
     if (!u || typeof u !== "string") return "";
     return u.trim().toLowerCase();
+  }
+
+  function toSheetRowNumber(value) {
+    if (typeof value === "number" && Number.isFinite(value) && value >= 2) {
+      return Math.floor(value);
+    }
+    if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+      var n = parseInt(value, 10);
+      if (n >= 2) return n;
+    }
+    return null;
   }
 
   /**
@@ -200,24 +213,60 @@
     return map;
   }
 
+  function findCardsForJobKey(jobKey) {
+    if (!jobKey || typeof document === "undefined" || !document.querySelector) return [];
+    var sel = "[data-stable-key=\"" + String(jobKey).replace(/"/g, "\\\"") + "\"]";
+    try {
+      if (document.querySelectorAll) return document.querySelectorAll(sel) || [];
+      var single = document.querySelector(sel);
+      return single ? [single] : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function readSheetRowFromDom(jobKey) {
+    var cards = findCardsForJobKey(jobKey);
+    for (var i = 0; i < cards.length; i++) {
+      var card = cards[i];
+      if (!card || !card.getAttribute) continue;
+      var row = toSheetRowNumber(card.getAttribute("data-sheet-row"));
+      if (row) return row;
+    }
+    return null;
+  }
+
   /**
-   * Try to find the rendered card in DOM and pull a link out of it. The card
-   * may carry it on `data-link`/`data-href`, or as the first anchor href.
+   * Try to find rendered cards in DOM and pull a link out of them. V2 cards may
+   * render before the hidden legacy `.kanban-card`, so scan all key matches.
    * Returns "" when not found.
    * @param {string} jobKey
    */
   function readJobLinkFromDom(jobKey) {
-    if (!jobKey || typeof document === "undefined" || !document.querySelector) return "";
-    var sel = "[data-stable-key=\"" + String(jobKey).replace(/"/g, "\\\"") + "\"]";
-    var card = null;
-    try { card = document.querySelector(sel); } catch (_) { return ""; }
-    if (!card) return "";
-    var direct = card.getAttribute("data-link")
-      || card.getAttribute("data-href")
-      || card.getAttribute("data-url");
-    if (direct) return direct;
-    var a = card.querySelector && card.querySelector("a[href]");
-    return (a && a.getAttribute("href")) || "";
+    var cards = findCardsForJobKey(jobKey);
+    for (var i = 0; i < cards.length; i++) {
+      var card = cards[i];
+      if (!card || !card.getAttribute) continue;
+      var direct = card.getAttribute("data-job-url")
+        || card.getAttribute("data-link")
+        || card.getAttribute("data-href")
+        || card.getAttribute("data-url");
+      if (direct) return direct;
+      var a = card.querySelector && card.querySelector("a[href]");
+      var href = (a && a.getAttribute("href")) || "";
+      if (href) return href;
+    }
+    return "";
+  }
+
+  function readSheetRowFromApp(jobKey) {
+    var jb = window.JobBored;
+    if (!jb || typeof jb.getPipelineSheetRow !== "function") return null;
+    try {
+      return toSheetRowNumber(jb.getPipelineSheetRow(jobKey));
+    } catch (_) {
+      return null;
+    }
   }
 
   /**
@@ -234,20 +283,7 @@
     if (jobKey == null || jobKey === "") {
       throw new Error("Missing jobKey");
     }
-    // 1) Direct numeric row.
-    if (typeof jobKey === "number" && Number.isFinite(jobKey) && jobKey >= 2) {
-      return Math.floor(jobKey);
-    }
-    if (typeof jobKey === "string" && /^\d+$/.test(jobKey)) {
-      var n = parseInt(jobKey, 10);
-      if (n >= 2) {
-        // Also try treating the digit-string as a URL (column-E literal "12345").
-        // Numeric-only links are unlikely; prefer row mapping when the digit is
-        // a plausible row number.
-        return n;
-      }
-    }
-    // 2) URL match against column E.
+    // 1) URL match against column E.
     var asKey = normalizeUrl(String(jobKey));
     if (asKey && /^https?:\/\//.test(asKey)) {
       var map = await getUrlToRowMap(false);
@@ -255,6 +291,11 @@
       var fresh = await getUrlToRowMap(true);
       if (fresh[asKey]) return fresh[asKey];
     }
+    // 2) The current FE sends numeric `jobKey` values as pipelineData indexes.
+    var appRow = readSheetRowFromApp(jobKey);
+    if (appRow) return appRow;
+    var domRow = readSheetRowFromDom(jobKey);
+    if (domRow) return domRow;
     // 3) DOM indirection -> URL match.
     var domLink = readJobLinkFromDom(jobKey);
     var domKey = normalizeUrl(domLink);
@@ -264,6 +305,9 @@
       var fresh2 = await getUrlToRowMap(true);
       if (fresh2[domKey]) return fresh2[domKey];
     }
+    // 4) Programmatic fallback for callers that pass a literal sheet row.
+    var directRow = toSheetRowNumber(jobKey);
+    if (directRow) return directRow;
     throw new Error("Could not resolve jobKey to a Pipeline row: " + String(jobKey));
   }
 
@@ -296,10 +340,10 @@
       var row = await resolveSheetRow(jobKey);
       var range = "Pipeline!" + STATUS_COLUMN + row;
       await sheetsValuesUpdate(range, [[label]]);
-      emitResult("succeeded", { jobKey: jobKey, kind: "stage" });
+      emitResult("succeeded", { jobKey: jobKey, kind: "pipeline:move" });
     } catch (err) {
       var msg = (err && err.message) || String(err);
-      emitResult("failed", { jobKey: jobKey, kind: "stage", error: msg });
+      emitResult("failed", { jobKey: jobKey, kind: "pipeline:move", error: msg });
       safeToast("Couldn't save stage change: " + msg, "error");
     }
   }
@@ -452,11 +496,13 @@
     _internal: {
       stageLabel: stageLabel,
       normalizeUrl: normalizeUrl,
+      toSheetRowNumber: toSheetRowNumber,
       resolveSheetRow: resolveSheetRow,
       getUrlToRowMap: getUrlToRowMap,
       sheetsValuesUpdate: sheetsValuesUpdate,
       sheetsValuesGet: sheetsValuesGet,
       readJobLinkFromDom: readJobLinkFromDom,
+      readSheetRowFromDom: readSheetRowFromDom,
       _resetCache: function () { rowIndexCache = null; rowIndexCacheAt = 0; },
       _columns: {
         STATUS_COLUMN: STATUS_COLUMN,
@@ -482,6 +528,7 @@
       if (a !== b) failures.push(label + ": expected " + JSON.stringify(b) + ", got " + JSON.stringify(a));
     }
     eq(stageLabel("applied"), "Applied", "stageLabel(applied)");
+    eq(stageLabel("new"), "New", "stageLabel(new)");
     eq(stageLabel("Phone-Screen"), "Phone Screen", "stageLabel(Phone-Screen)");
     eq(stageLabel("offer"), "Offer", "stageLabel(offer)");
     eq(stageLabel("nope"), null, "stageLabel(nope)");

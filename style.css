@@ -44,6 +44,7 @@
   --stage-rail-offer: #16a34a; /* green — winning */
   --stage-rail-rejected: #b91c1c; /* red — closed out */
   --stage-rail-passed: #64748b; /* slate — neutral exit */
+  --stage-rail-expired: #78716c; /* stone — posting closed */
 
   /* Status colors */
   --status-new-bg: rgba(0, 100, 130, 0.1);
@@ -62,6 +63,8 @@
   --status-rejected-text: #b91c1c;
   --status-passed-bg: #f1f5f9;
   --status-passed-text: #4b5563;
+  --status-expired-bg: #f5f5f4;
+  --status-expired-text: #57534e;
 
   /* Fit score colors */
   --fit-high: #15803d;
@@ -4112,6 +4115,9 @@ button.feed-item {
 .stage-dot--passed {
   background: var(--status-passed-text, #4b5563);
 }
+.stage-dot--expired {
+  background: var(--status-expired-text, #57534e);
+}
 
 /* Stage body (shown/hidden on expand) */
 .stage-lane__body {
@@ -4275,6 +4281,9 @@ button.feed-item {
 }
 .kanban-card--stage-passed {
   --card-stage-color: var(--stage-rail-passed);
+}
+.kanban-card--stage-expired {
+  --card-stage-color: var(--stage-rail-expired);
 }
 
 /* Viewed dot — quiet indicator, top-right corner.
@@ -4795,6 +4804,11 @@ body.detail-open {
   background: var(--text-faint);
   border-color: var(--text-faint);
   box-shadow: 0 0 0 3px rgba(75, 85, 99, 0.12);
+}
+.stage-step--terminal.stage-step--active[data-stage="Expired"] .stage-step__dot {
+  background: var(--status-expired-text);
+  border-color: var(--status-expired-text);
+  box-shadow: 0 0 0 3px rgba(87, 83, 78, 0.12);
 }
 
 .stage-step:hover .stage-step__dot {

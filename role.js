@@ -416,11 +416,10 @@
         var action = t.getAttribute && t.getAttribute("data-action");
         if (action === "close-role") { closeRole(); return; }
         if (action === "resume-cover" || action === "resume-tailor") {
-          var letter = document.querySelector(LETTER_REGION_SELECTOR);
-          if (letter) {
-            var pref = root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches;
-            try { letter.scrollIntoView({ behavior: pref ? "auto" : "smooth", block: "start" }); }
-            catch (e2) { letter.scrollIntoView(); }
+          var feature = action === "resume-cover" ? "cover_letter" : "resume_update";
+          var idx = parseInt(jobKey, 10);
+          if (Number.isFinite(idx) && typeof root.openDraftNotesModal === "function") {
+            root.openDraftNotesModal(idx, feature);
           }
           dispatch("jb:role:action", { action: action, jobKey: jobKey });
           return;
