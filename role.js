@@ -371,14 +371,6 @@
   function renderDossier(region, vm) {
     var job = (vm && vm.job) || {};
 
-    var aboutHtml      = renderAboutSection(job);
-    var talkingHtml    = renderTalkingPoints(job);
-    var structuredHtml = renderStructuredFromJd(job);
-    var jdFallback = (!aboutHtml && !talkingHtml && !structuredHtml && job.jdSnippet)
-      ? '<p class="drawer-ai-text">' + escapeHtml(job.jdSnippet) + '</p>'
-      : "";
-    var mainContent = aboutHtml + talkingHtml + structuredHtml + jdFallback;
-
     region.innerHTML = '' +
       '<div class="jb-role-divider">' +
         '<div class="jb-role-divider__rule"></div>' +
@@ -391,21 +383,14 @@
           '<button type="button" class="jb-role-divider__close" data-action="close-role">CLOSE ✕</button>' +
         '</div>' +
       '</div>' +
-      '<section class="jb-dossier detail-drawer" role="complementary" aria-label="' + escapeHtml(job.role || "Job detail") + '">' +
-        renderDrawerHead(job) +
-        renderDrawerActions(job) +
-        '<div class="detail-drawer__body">' +
-          '<div class="drawer-content">' +
-            '<div class="drawer-columns">' +
-              '<div class="drawer-col drawer-col--main">' + mainContent + '</div>' +
-              '<div class="drawer-col drawer-col--props">' +
-                renderProps(job) +
-                '<div class="drawer-inputs">' + renderNotesBlock(job) + '</div>' +
-              '</div>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
-      '</section>';
+      '<div class="dossier">' +
+        '<article class="brief" data-mount="brief"></article>' +
+      '</div>';
+
+    var briefMount = region.querySelector('[data-mount="brief"]');
+    if (briefMount && root.JobBoredDossierBrief && typeof root.JobBoredDossierBrief.renderBrief === "function") {
+      root.JobBoredDossierBrief.renderBrief(briefMount, vm);
+    }
 
     wireDossier(region, job);
   }
