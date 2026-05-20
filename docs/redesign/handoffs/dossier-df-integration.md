@@ -12,13 +12,15 @@ Merge the five phase-1 lane branches in the right order, resolve conflicts deter
 
 ## Merge order (strict)
 
-1. `dossier-df/ats-state-bus` — contract producer, lands first
-2. `dossier-df/writeback-bridge` — contract producer, lands second
-3. `dossier-df/css` — visual scaffolding, lands before JS that depends on selectors
-4. `dossier-df/brief` — consumer of CSS, no event emit dependency
-5. `dossier-df/workshop` — consumer of CSS + state-bus + writeback
+**Orchestrator pre-merge note (read first):** The first three lanes (`ats-state-bus`, `writeback-bridge`, `css`) have already been merged into the branch `dossier-df/base-phase1`, and your branch `dossier-df/integration` was branched off `base-phase1`. Your current HEAD already contains those three lanes' work. You only need to merge brief + workshop (steps 4 and 5).
 
-After all five merge, hand off to `dossier-df/qa` (tests-screens lane).
+1. ~~`dossier-df/ats-state-bus`~~ — already merged into base-phase1 as `211ceb0`
+2. ~~`dossier-df/writeback-bridge`~~ — already merged into base-phase1 as `c4dc1ba`
+3. ~~`dossier-df/css`~~ — already merged into base-phase1 as `1708d46`
+4. `dossier-df/brief` — consumer of CSS, no event emit dependency (MERGE THIS)
+5. `dossier-df/workshop` — consumer of CSS + state-bus + writeback (MERGE THIS)
+
+After brief and workshop merge, hand off to `dossier-df/qa` (tests-screens lane).
 
 ## Conflict resolution playbook
 
@@ -100,10 +102,27 @@ Write to `docs/redesign/status/dossier-df-integration.json`:
 
 ## Completion report (fill in at the end)
 
-- **Final integration commit SHA:**
+- **Final integration commit SHA:** _blocked — no final integration commit was created. `git add` failed because the sandbox cannot write `/Users/emilionunezgarcia/Job-Bored/.git/worktrees/Job-Bored-wt-dossier-df-integration/index.lock`._
 - **Per-lane merge SHAs:**
+  - `ats-state-bus`: `211ceb0`
+  - `writeback-bridge`: `c4dc1ba`
+  - `css`: `1708d46`
+  - `brief`: `8edadfb` (`merge(dossier-df): brief lane into integration`)
+  - `workshop`: _blocked before merge commit; conflicts resolved in the working tree but not stageable under current sandbox permissions._
 - **Conflicts encountered:**
+  - `index.html`: resolved to the required script order `role.js`, `role-brief.js`, `role-workshop.js`.
+  - `role.js`: resolved `renderDossier(region, vm)` to the Direction F playbook shell: divider, `.dossier`, brief mount, mode divider, workshop aside mount; `renderBrief` then `renderWorkshop`; existing `wireDossier` below.
+  - `role-workshop.js`: adjusted `renderWorkshop` so the playbook-owned `<aside class="workshop" data-mount="workshop">` receives the Workshop internals without duplicating the mode divider. The fallback plain-mount path still renders divider + aside for lane-level smoke compatibility.
 - **Test results:**
-- **Manual smoke results:**
-- **Handoff to tests-screens:** ready / blocked
+  - `node --check role.js role-brief.js role-workshop.js app.js flowing-writes.js` → passed.
+  - `npm test -- tests/dossier-card-attrs.test.mjs tests/ats-state-bus.test.mjs tests/role-writeback-bridge.test.mjs` → partial: command exited 0, but `tests/dossier-card-attrs.test.mjs` is missing; 8 ATS/writeback tests ran and passed.
+  - `node --test tests/dossier-card-attrs.test.mjs` → failed: file not found.
+  - `npm run typecheck:repo` → passed.
+  - `npm run lint:repo` → passed.
+  - `npm run test:repo` → failed before repo tests: `ERR_MODULE_NOT_FOUND` for package `ajv`; `node_modules` is missing in this worktree.
+- **Manual smoke results:** Not run. The brief says to stop and write status after a verification failure; `npm run test:repo` failed before the manual smoke step. `npm start` would also require dependencies that are not installed in this worktree.
+- **Handoff to tests-screens:** blocked
 - **Known risks:**
+  - Git still reports `index.html` and `role.js` as unmerged because staging is blocked by sandbox permissions, even though conflict markers are removed and `git diff --check` passes.
+  - The required `tests/dossier-card-attrs.test.mjs` gate is absent from this branch, so that selector contract still needs the tests-screens lane or a source-owner follow-up before this can be called complete.
+  - Full repo test verification requires installing dependencies (`ajv` at minimum) before `npm run test:repo` can proceed.

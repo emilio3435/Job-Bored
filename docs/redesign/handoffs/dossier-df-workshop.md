@@ -107,7 +107,7 @@ Write to `docs/redesign/status/dossier-df-workshop.json` matching the schema in 
 
 ## Completion report
 
-- **Commit SHA(s):** filled in by the commit step on `dossier-df/workshop` (single focused commit `feat(dossier-df/workshop): direction F workshop card, mode divider, ATS bus consumer, write-back chips`).
+- **Commit SHA(s):** `d759ea7` on `dossier-df/workshop` (single focused commit `feat(dossier-df/workshop): direction F workshop card, mode divider, ATS bus consumer, write-back chips`).
 - **Files changed:**
   - `role-workshop.js` (new, ~430 lines IIFE under `window.JobBoredDossierWorkshop`)
   - `role.js` (additive only inside `renderDossier`: a single `<div data-mount="workshop"></div>` appended after the legacy `<section class="jb-dossier detail-drawer">`, and a single `if (workshopMount && root.JobBoredDossierWorkshop && typeof root.JobBoredDossierWorkshop.renderWorkshop === "function") root.JobBoredDossierWorkshop.renderWorkshop(workshopMount, vm);` line after `wireDossier(region, job)`. No other lines of `role.js` were touched.)

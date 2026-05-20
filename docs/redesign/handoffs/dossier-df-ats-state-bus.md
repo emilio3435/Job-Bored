@@ -86,10 +86,10 @@ Write to `docs/redesign/status/dossier-df-ats-state-bus.json` matching the schem
 
 ## Completion report (fill in at the end)
 
-- **Commit SHA(s):**
-- **Files changed:** (expected: `app.js`, `tests/ats-state-bus.test.mjs`)
-- **Exact line ranges edited in app.js:**
-- **Helper function names introduced:**
-- **Modal close paths verified (Escape / outside / button):**
-- **Tests run + results:**
-- **Known risks:**
+- **Commit SHA(s):** `7a5268f`
+- **Files changed:** `app.js`, `tests/ats-state-bus.test.mjs`
+- **Exact line ranges edited in app.js:** `13886-13905`, `17725-17844`, `18141-18147`
+- **Helper function names introduced:** `setAtsScorecardState`, `dispatchAtsState`, `renderDossierAtsModalBodyHtml`, `getDossierAtsModal`, `openDossierAtsModal`, `closeDossierAtsModal`
+- **Modal close paths verified (Escape / outside / button):** Verified by `tests/ats-state-bus.test.mjs`; Escape key, overlay click, and close button all hide the modal.
+- **Tests run + results:** `node --check app.js` passed; `npm test -- tests/ats-state-bus.test.mjs` passed (3 tests); `git diff --check -- app.js tests/ats-state-bus.test.mjs` passed; `npm start` failed because `concurrently` is not installed; fallback `npm run start:web` failed because the sandbox rejected binding `0.0.0.0:8080` with `EPERM`.
+- **Known risks:** Manual browser smoke was not completed due environment startup blockers. The modal opens only when the requested `jobKey` matches the cached ATS state key to avoid showing stale scorecards.
