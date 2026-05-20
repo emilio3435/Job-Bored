@@ -75,6 +75,7 @@
   --jb-stage-offer:         #2F8A5A;                  /* was: --stage-rail-offer */
   --jb-stage-rejected:      #C0392B;                  /* was: --stage-rail-rejected */
   --jb-stage-passed:        #64748B;                  /* was: --stage-rail-passed */
+  --jb-stage-expired:       #57534E;                  /* was: --stage-rail-expired */
 
   /* --------------------------------------------------------
      Status — generic ok / warn / err / info, AA-safe on paper.

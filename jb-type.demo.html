@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>jb-type demo — Quill / Phase 2</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600;700&family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    />
+    <link rel="stylesheet" href="tokens-v2.css" />
+    <link rel="stylesheet" href="jb-v2.css" />
+    <link rel="stylesheet" href="jb-type.css" />
+    <link rel="stylesheet" href="jb-deco.css" />
+    <style>
+      body { margin: 0; padding: 32px; max-width: 880px; }
+      section { margin-block: 40px; }
+    </style>
+  </head>
+  <body class="jb-v2">
+    <header>
+      <h1>The full type ramp</h1>
+      <p class="jb-caption">
+        Quill / Phase 2 — exercises every size, every weight, every utility.
+      </p>
+    </header>
+
+    <section aria-labelledby="ramp">
+      <h2 id="ramp">Six sizes that earn their keep</h2>
+      <h3>The third tier — body-font display</h3>
+      <h4>The fourth tier — section heads</h4>
+      <h5>Eyebrow at h5</h5>
+      <h6>Eyebrow at h6</h6>
+
+      <p>
+        Body copy lives at <span class="jb-data">15px</span> on desktop and
+        <span class="jb-data">14.25px</span> on small phones, anchored by the
+        clamp() expressions Atlas shipped in <code>tokens-v2.css</code>.
+        text-wrap: pretty rebalances ragged endings, hyphens: auto rescues
+        narrow card columns where compound role titles would otherwise
+        overflow.
+      </p>
+
+      <small>
+        Captions and meta — small, faint, and out of the way. Ink-3 token,
+        same scale as <code>--jb-text-sm</code>.
+      </small>
+
+      <blockquote>
+        “Tell me a little about your background. What drew you to async
+        systems?” — every recruiter, every Tuesday morning at 9:30am.
+      </blockquote>
+
+      <p>Inline keys: press <kbd>Cmd</kbd>+<kbd>K</kbd> to open the palette.</p>
+    </section>
+
+    <section aria-labelledby="deco">
+      <h2 id="deco">Hand-drawn details</h2>
+
+      <h3>
+        <span class="jb-underline-squiggle">Senior Backend Engineer</span>
+        at Acme Robotics
+      </h3>
+      <p class="jb-data" style="color: var(--jb-ink-3);">
+        applied 3 days ago · remote · $180k–$220k
+      </p>
+
+      <p>
+        The recruiter mentioned
+        <span class="jb-underline-flat">a fast-track loop</span> and asked if
+        we could chat <span class="jb-underline-squiggle">this week</span>.
+        They want someone who has shipped
+        <span class="jb-mark">distributed job queues</span> in production and
+        is comfortable owning on-call rotations end to end.
+      </p>
+
+      <details>
+        <summary>Rejected squiggle variants</summary>
+        <p style="margin-top: 8px;">
+          Variant A — looser, loopier:
+          <span class="jb-underline-squiggle jb-underline-squiggle--alt-a">
+            Acme Robotics
+          </span>
+        </p>
+        <p>
+          Variant B — tighter zigzag:
+          <span class="jb-underline-squiggle jb-underline-squiggle--alt-b">
+            fast-track loop
+          </span>
+        </p>
+      </details>
+
+      <div
+        style="
+          position: relative;
+          padding: 20px;
+          background: var(--jb-paper-2);
+          border-radius: var(--jb-radius-md);
+          margin: 20px 0;
+        "
+      >
+        <span class="jb-tape" style="top: -7px; left: 24px;"></span>
+        <p style="margin: 0;">
+          Notes from the phone screen — the hiring manager wants someone who
+          can <span class="jb-mark">ramp on Kafka in two weeks</span> and stand
+          up an RFC process from scratch.
+        </p>
+      </div>
+
+      <p>
+        Status:
+        <span class="jb-stamp">draft</span>
+        <span class="jb-stamp jb-stamp--urgent">urgent</span>
+        <span class="jb-stamp jb-stamp--ok">ready to send</span>
+      </p>
+
+      <p>The recruiter loop is moving faster than usual.</p>
+      <hr class="jb-divider-dashed" />
+      <p>I should reply tonight before the queue stalls.</p>
+
+      <article
+        class="jb-shadow-sticker"
+        style="
+          position: relative;
+          padding: 24px;
+          background: var(--jb-paper);
+          border: 1px solid var(--jb-line-soft);
+          border-radius: var(--jb-radius-lg);
+          margin-top: 24px;
+        "
+      >
+        <span
+          class="jb-tape jb-tape--long"
+          style="top: -8px; right: 28px; --jb-tape-rotate: 4deg;"
+        ></span>
+        <h3>
+          <span class="jb-underline-squiggle">
+            Cover letter draft — Acme Robotics
+          </span>
+        </h3>
+        <p style="margin-bottom: 0;">
+          Opening hook references their
+          <span class="jb-mark">distributed scheduler post-mortem</span> from
+          last quarter. Closes with a concrete two-week ramp plan.
+        </p>
+      </article>
+    </section>
+
+    <section aria-labelledby="hand">
+      <h2 id="hand">Handwritten accent — <span class="jb-handwritten">go for it</span></h2>
+      <p>
+        The <code>.jb-handwritten</code> utility opens up Caveat for one-off
+        mint-deep accents. Use sparingly — a single phrase per page beats a
+        full paragraph in handwriting.
+      </p>
+    </section>
+  </body>
+</html>

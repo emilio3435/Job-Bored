@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>jb-ui demo — Forge / Phase 2</title>
+    <link rel="stylesheet" href="tokens-v2.css" />
+    <link rel="stylesheet" href="jb-v2.css" />
+    <link rel="stylesheet" href="jb-ui.css" />
+    <style>
+      /* Demo-only layout. Token-only (no raw hex). */
+      body { margin: 0; padding: 32px; }
+      .jb-demo { margin-block: 32px; max-width: 960px; }
+      .jb-demo__row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 16px;
+        padding: 12px 0;
+      }
+      .jb-demo__grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 16px;
+      }
+    </style>
+  </head>
+  <body class="jb-v2">
+    <header>
+      <h1>jb-ui demo</h1>
+      <p>
+        Visual regression surface for Forge components. Toggle
+        <code>body.jb-v2</code> off to confirm every custom element collapses
+        to <code>display: none</code>.
+      </p>
+    </header>
+
+    <!-- ============================================================
+         Section: jb-fit-ring + jb-spark (Forge-2a)
+         ============================================================ -->
+    <section class="jb-demo jb-demo--ring-spark" aria-labelledby="h-ring">
+      <h2 id="h-ring" class="jb-handwritten">Ring &amp; Spark</h2>
+
+      <h3>jb-fit-ring — percent ladder (default size: md)</h3>
+      <div class="jb-demo__row">
+        <jb-fit-ring percent="0"></jb-fit-ring>
+        <jb-fit-ring percent="15"></jb-fit-ring>
+        <jb-fit-ring percent="45"></jb-fit-ring>
+        <jb-fit-ring percent="60"></jb-fit-ring>
+        <jb-fit-ring percent="85"></jb-fit-ring>
+        <jb-fit-ring percent="99"></jb-fit-ring>
+        <jb-fit-ring percent="100"></jb-fit-ring>
+      </div>
+
+      <h3>jb-fit-ring — size variants</h3>
+      <div class="jb-demo__row">
+        <jb-fit-ring percent="72" size="sm"></jb-fit-ring>
+        <jb-fit-ring percent="72" size="md"></jb-fit-ring>
+        <jb-fit-ring percent="72" size="lg"></jb-fit-ring>
+      </div>
+
+      <h3>jb-fit-ring — custom label</h3>
+      <div class="jb-demo__row">
+        <jb-fit-ring percent="88" size="lg" label="A+"></jb-fit-ring>
+      </div>
+
+      <h3>jb-spark — series shapes</h3>
+      <div class="jb-demo__row">
+        <jb-spark data="1,2,1,5,3,7,8" color="mint" label="Rising activity"></jb-spark>
+        <jb-spark data="9,2,4,1,3,1,1" color="amber"></jb-spark>
+        <jb-spark data="0,0,0,0,0,0" color="ink-3"></jb-spark>
+        <jb-spark data="5" color="navy"></jb-spark>
+      </div>
+
+      <h3>jb-spark — sizing &amp; fill toggle</h3>
+      <div class="jb-demo__row">
+        <jb-spark data="[3,5,4,6,7,9,8,10]" width="120" height="28" color="mint"></jb-spark>
+        <jb-spark data="[3,5,4,6,7,9,8,10]" width="120" height="28" color="mint" fill="false"></jb-spark>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Section: jb-stage-dot, jb-ai-chip, jb-kbd (Forge-2b)
+         ============================================================ -->
+    <section class="jb-demo jb-demo--chips" aria-labelledby="h-chips">
+      <h2 id="h-chips" class="jb-handwritten">Chips — stage / ai / kbd</h2>
+
+      <h3>jb-stage-dot — every stage with label</h3>
+      <div class="jb-demo__row" aria-label="Stage dots with labels">
+        <jb-stage-dot stage="new" label="New"></jb-stage-dot>
+        <jb-stage-dot stage="researching" label="Researching"></jb-stage-dot>
+        <jb-stage-dot stage="applied" label="Applied"></jb-stage-dot>
+        <jb-stage-dot stage="phone" label="Phone screen"></jb-stage-dot>
+        <jb-stage-dot stage="interviewing" label="Interviewing"></jb-stage-dot>
+        <jb-stage-dot stage="offer" label="Offer"></jb-stage-dot>
+        <jb-stage-dot stage="rejected" label="Rejected"></jb-stage-dot>
+        <jb-stage-dot stage="passed" label="Passed"></jb-stage-dot>
+      </div>
+
+      <h3>jb-stage-dot — dot only</h3>
+      <div class="jb-demo__row" aria-label="Stage dots without labels">
+        <jb-stage-dot stage="new"></jb-stage-dot>
+        <jb-stage-dot stage="researching"></jb-stage-dot>
+        <jb-stage-dot stage="applied"></jb-stage-dot>
+        <jb-stage-dot stage="phone"></jb-stage-dot>
+        <jb-stage-dot stage="interviewing"></jb-stage-dot>
+        <jb-stage-dot stage="offer"></jb-stage-dot>
+        <jb-stage-dot stage="rejected"></jb-stage-dot>
+        <jb-stage-dot stage="passed"></jb-stage-dot>
+      </div>
+
+      <h3>jb-ai-chip — all four variants</h3>
+      <div class="jb-demo__row" aria-label="AI chip variants">
+        <jb-ai-chip variant="default">Strong fit on backend systems</jb-ai-chip>
+        <jb-ai-chip variant="summary">Summary: Series B fintech, remote-friendly, hiring senior IC</jb-ai-chip>
+        <jb-ai-chip variant="tip">Tip: tailor your resume to ICs</jb-ai-chip>
+        <jb-ai-chip variant="warn">Warn: posting older than 30 days</jb-ai-chip>
+      </div>
+
+      <h3>jb-kbd — common shortcuts</h3>
+      <div class="jb-demo__row" aria-label="Keyboard chips">
+        <jb-kbd keys="cmd+k"></jb-kbd>
+        <jb-kbd keys="cmd+shift+p"></jb-kbd>
+        <jb-kbd keys="?"></jb-kbd>
+        <jb-kbd keys="esc"></jb-kbd>
+        <jb-kbd keys="ctrl+enter"></jb-kbd>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Section: .jb-sticker (Forge-2c)
+         ============================================================ -->
+    <section class="jb-demo jb-demo--sticker" aria-labelledby="h-sticker">
+      <h2 id="h-sticker" class="jb-handwritten">Sticker primitive</h2>
+
+      <div class="jb-demo__grid">
+        <article class="jb-sticker">
+          <header class="jb-sticker__head">
+            <h3>Senior Product Engineer</h3>
+            <span class="jb-mono">Acme Corp</span>
+          </header>
+          <div class="jb-sticker__body">
+            <p>Default sticker, no tape. Hard 3/4px shadow gives the polaroid pop.</p>
+          </div>
+          <footer class="jb-sticker__foot">
+            <span>Remote · US</span>
+            <span>$180k–$220k</span>
+          </footer>
+        </article>
+
+        <article class="jb-sticker" data-tape>
+          <header class="jb-sticker__head">
+            <h3>Staff Designer</h3>
+            <span class="jb-mono">Paperline</span>
+          </header>
+          <div class="jb-sticker__body">
+            <p>data-tape adds a 56×14 washi-tape strip, rotated -3deg at top-left.</p>
+          </div>
+          <footer class="jb-sticker__foot">
+            <span>Hybrid · NYC</span>
+          </footer>
+        </article>
+
+        <article class="jb-sticker" data-tape="long">
+          <header class="jb-sticker__head">
+            <h3>Head of Platform</h3>
+            <span class="jb-mono">Foundry Labs</span>
+          </header>
+          <div class="jb-sticker__body">
+            <p>data-tape="long" widens the strip to 88×14 for stickier emphasis.</p>
+          </div>
+          <footer class="jb-sticker__foot">
+            <span>Onsite · SF</span>
+          </footer>
+        </article>
+
+        <article class="jb-sticker">
+          <header class="jb-sticker__head">
+            <h3>Hover preview</h3>
+          </header>
+          <div class="jb-sticker__body">
+            <p>Hover any sticker → softer 6px pencil shadow + 1px lift translate.</p>
+          </div>
+          <footer class="jb-sticker__foot">
+            <span>transition: box-shadow, transform — var(--jb-transition-base)</span>
+          </footer>
+        </article>
+
+        <article class="jb-sticker jb-sticker--selected">
+          <header class="jb-sticker__head">
+            <h3>Selected card</h3>
+            <span class="jb-mono">priority</span>
+          </header>
+          <div class="jb-sticker__body">
+            <p>2px navy outline floats 4px off the paper — no layout shift, pencil shadow promoted.</p>
+          </div>
+          <footer class="jb-sticker__foot">
+            <span>Use for the active pipeline card.</span>
+          </footer>
+        </article>
+
+        <article class="jb-sticker jb-sticker--muted">
+          <header class="jb-sticker__head">
+            <h3>Muted card</h3>
+            <span class="jb-mono">archived</span>
+          </header>
+          <div class="jb-sticker__body">
+            <p>Opacity 0.7, no shadow, no lift on hover. For passed / archived rows.</p>
+          </div>
+          <footer class="jb-sticker__foot">
+            <span>Closed 2 weeks ago</span>
+          </footer>
+        </article>
+
+        <article class="jb-sticker" aria-busy="true">
+          <header class="jb-sticker__head"><h3>Loading…</h3></header>
+          <div class="jb-sticker__body"><p>Shimmer skeleton placeholder.</p></div>
+          <footer class="jb-sticker__foot"><span>—</span></footer>
+        </article>
+
+        <article class="jb-sticker" data-tape>
+          <header class="jb-sticker__head">
+            <h3>Senior Backend Engineer</h3>
+            <span class="jb-mono">Quill &amp; Ink</span>
+            <jb-fit-ring percent="78" size="md" style="margin-left:auto;"></jb-fit-ring>
+          </header>
+          <div class="jb-sticker__body">
+            <p>Composition with the fit-ring custom element registered by Forge-2a.</p>
+            <jb-ai-chip variant="default">Strong fit on async systems</jb-ai-chip>
+            <jb-stage-dot stage="applied" label="Applied"></jb-stage-dot>
+          </div>
+          <footer class="jb-sticker__foot">
+            <span>Remote · EU</span>
+            <span>€110k–€140k</span>
+          </footer>
+        </article>
+      </div>
+    </section>
+
+    <script type="module" src="jb-ui.js"></script>
+  </body>
+</html>
