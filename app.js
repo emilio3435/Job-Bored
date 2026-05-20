@@ -13883,6 +13883,27 @@ let atsScorecardState = {
 };
 let resumeGenerateAtsRefreshTimer = null;
 
+function setAtsScorecardState(next) {
+  atsScorecardState = next;
+  dispatchAtsState();
+}
+
+function dispatchAtsState() {
+  const detail = {
+    jobKey: atsScorecardState.cacheKey || null,
+    status: atsScorecardState.status,
+    result: atsScorecardState.result || null,
+    error: atsScorecardState.error || null,
+  };
+  window.dispatchEvent(new CustomEvent("jb:ats:state", { detail }));
+  document.dispatchEvent(new CustomEvent("jb:ats:state", { detail }));
+}
+
+window.addEventListener("jb:ats:state:request", (e) => {
+  const wantKey = e?.detail?.jobKey;
+  if (!wantKey || wantKey === atsScorecardState.cacheKey) dispatchAtsState();
+});
+
 function getUserContent() {
   return window.CommandCenterUserContent;
 }
@@ -17701,34 +17722,119 @@ function formatAtsDimensionSummary(scorecard) {
   ].join(" · ");
 }
 
+let dossierAtsModalKeydownHandler = null;
+
+function renderDossierAtsModalBodyHtml() {
+  if (atsScorecardState.status === "loading") {
+    return `<section class="doc-insight-card"><div class="doc-insight-card__head"><div><p class="doc-insight-card__kicker">ATS match</p><h4 class="doc-insight-card__title">Full scorecard</h4></div><strong class="doc-insight-card__score">...</strong></div><p class="doc-insight-card__summary">Analyzing this draft against the role with structured LLM scoring...</p><p class="doc-insight-card__hint">Scoring the latest text in the editor after generate or refine finishes.</p><div class="doc-insight-card__groups"></div></section>`;
+  }
+  if (atsScorecardState.status === "error") {
+    return `<section class="doc-insight-card"><div class="doc-insight-card__head"><div><p class="doc-insight-card__kicker">ATS match</p><h4 class="doc-insight-card__title">Full scorecard</h4></div><strong class="doc-insight-card__score">--</strong></div><p class="doc-insight-card__summary">Could not analyze this draft with ATS scorecard right now.</p><p class="doc-insight-card__hint">${escapeHtml(atsScorecardState.error || "Unknown error")}</p><div class="doc-insight-card__groups"></div></section>`;
+  }
+  if (atsScorecardState.status === "success" && atsScorecardState.result) {
+    const scorecard = atsScorecardState.result;
+    const conf = Math.round(Number(scorecard.confidence || 0) * 100);
+    const topGap = scorecard.criticalGaps && scorecard.criticalGaps[0];
+    const hint = topGap
+      ? `Priority fix: ${sanitizeAtsText(topGap.gap)}`
+      : "No critical gaps identified for this draft.";
+    return `<section class="doc-insight-card"><div class="doc-insight-card__head"><div><p class="doc-insight-card__kicker">ATS match</p><h4 class="doc-insight-card__title">Full scorecard</h4></div><strong class="doc-insight-card__score">${escapeHtml(String(scorecard.overallScore || 0))}%</strong></div><p class="doc-insight-card__summary">${escapeHtml(formatAtsDimensionSummary(scorecard))} · confidence ${conf}% · model ${escapeHtml(String(scorecard.model || ""))}</p><p class="doc-insight-card__hint">${escapeHtml(hint)}</p><div class="doc-insight-card__groups">${renderAtsScorecardGroupsHtml(scorecard)}</div></section>`;
+  }
+  return `<section class="doc-insight-card"><div class="doc-insight-card__head"><div><p class="doc-insight-card__kicker">ATS match</p><h4 class="doc-insight-card__title">Full scorecard</h4></div><strong class="doc-insight-card__score">--</strong></div><p class="doc-insight-card__summary">No ATS scorecard is cached for this role yet.</p><p class="doc-insight-card__hint">Generate or refine a resume or cover letter first.</p><div class="doc-insight-card__groups"></div></section>`;
+}
+
+function getDossierAtsModal() {
+  let modal = document.getElementById("dossierAtsScorecardModal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "dossierAtsScorecardModal";
+  modal.className = "modal-overlay dossier-ats-modal";
+  modal.hidden = true;
+  modal.style.display = "none";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-labelledby", "dossierAtsScorecardTitle");
+  modal.innerHTML = `
+    <div class="modal-card modal-card--doc doc-output-card dossier-ats-modal__card">
+      <div class="settings-modal-head">
+        <div>
+          <p class="doc-insight-card__kicker">ATS match</p>
+          <h3 id="dossierAtsScorecardTitle">Full ATS scorecard</h3>
+        </div>
+        <button type="button" class="settings-modal-close" data-action="close-dossier-ats-modal" aria-label="Close">&times;</button>
+      </div>
+      <div class="dossier-ats-modal__body" data-dossier-ats-modal-body></div>
+    </div>`;
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeDossierAtsModal();
+  });
+  const closeBtn = modal.querySelector('[data-action="close-dossier-ats-modal"]');
+  if (closeBtn) closeBtn.addEventListener("click", closeDossierAtsModal);
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function openDossierAtsModal(jobKey) {
+  const wantKey = jobKey ? String(jobKey) : "";
+  if (wantKey && wantKey !== atsScorecardState.cacheKey) return;
+  const modal = getDossierAtsModal();
+  const body = modal.querySelector("[data-dossier-ats-modal-body]");
+  if (body) body.innerHTML = renderDossierAtsModalBodyHtml();
+  modal.dataset.jobKey = atsScorecardState.cacheKey || "";
+  modal.hidden = false;
+  modal.style.display = "flex";
+  if (!dossierAtsModalKeydownHandler) {
+    dossierAtsModalKeydownHandler = (e) => {
+      if (e.key === "Escape") closeDossierAtsModal();
+    };
+    document.addEventListener("keydown", dossierAtsModalKeydownHandler);
+  }
+}
+
+function closeDossierAtsModal() {
+  const modal = document.getElementById("dossierAtsScorecardModal");
+  if (modal) {
+    modal.style.display = "none";
+    modal.hidden = true;
+  }
+  if (dossierAtsModalKeydownHandler) {
+    document.removeEventListener("keydown", dossierAtsModalKeydownHandler);
+    dossierAtsModalKeydownHandler = null;
+  }
+}
+
+window.addEventListener("jb:ats:modal:open", (e) => {
+  openDossierAtsModal(e?.detail?.jobKey);
+});
+
 function startAtsScorecardAnalysis(cacheKey, payload) {
-  atsScorecardState = {
+  setAtsScorecardState({
     ...atsScorecardState,
     cacheKey,
     status: "loading",
     result: null,
     error: "",
     payload,
-  };
+  });
   void (async () => {
     try {
       const result = await fetchAtsScorecard(payload);
       if (atsScorecardState.cacheKey !== cacheKey) return;
-      atsScorecardState = {
+      setAtsScorecardState({
         ...atsScorecardState,
         status: "success",
         result,
         error: "",
-      };
+      });
     } catch (err) {
       if (atsScorecardState.cacheKey !== cacheKey) return;
-      atsScorecardState = {
+      setAtsScorecardState({
         ...atsScorecardState,
         status: "error",
         result: null,
         error:
           err && err.message ? String(err.message) : "ATS scorecard failed",
-      };
+      });
     }
     renderResumeGenerateInsights(
       payload.docText,
@@ -18032,13 +18138,13 @@ async function openResumeGenerateModal(
   modal.dataset.docKind = kind;
 
   if (isLoading) {
-    atsScorecardState = {
+    setAtsScorecardState({
       cacheKey: "",
       status: "idle",
       result: null,
       error: "",
       payload: null,
-    };
+    });
     if (resumeGenerateAtsRefreshTimer) {
       clearTimeout(resumeGenerateAtsRefreshTimer);
       resumeGenerateAtsRefreshTimer = null;
