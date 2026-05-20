@@ -31,7 +31,8 @@ export function buildCorsHeaders(
         }
       : {}),
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Access-Control-Allow-Headers": "content-type,x-discovery-secret",
+    "Access-Control-Allow-Headers":
+      "content-type,x-discovery-secret,ngrok-skip-browser-warning",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };

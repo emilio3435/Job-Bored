@@ -127,7 +127,8 @@
         "Interviewing",
         "Offer",
         "Rejected",
-        "Passed"
+        "Passed",
+        "Expired"
       ],
       "emptyAllowed": true
     },
