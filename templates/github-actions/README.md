@@ -10,14 +10,17 @@ Use this when the dashboard **cannot** POST to your webhook from the browser (co
 
 2. In the repo: **Settings → Secrets and variables → Actions → New repository secret**:
 
-   | Secret                                 | Value                                         |
-   | -------------------------------------- | --------------------------------------------- |
-   | `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL` | Full HTTPS URL (e.g. Apps Script `/exec` URL) |
-   | `COMMAND_CENTER_SHEET_ID`              | Same Sheet ID as in the dashboard config      |
+   | Secret                                      | Value                                                                                 |
+   | ------------------------------------------- | ------------------------------------------------------------------------------------- |
+   | `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL`      | Full HTTPS URL (e.g. Apps Script `/exec` URL, Cloudflare Worker relay, or worker URL) |
+   | `COMMAND_CENTER_SHEET_ID`                   | Same Sheet ID as in the dashboard config                                              |
+   | `COMMAND_CENTER_DISCOVERY_WEBHOOK_SECRET`   | Optional; set only when posting directly to an endpoint that requires `x-discovery-secret` |
 
 3. **Actions** tab → enable workflows if prompted.
 
-4. **Run workflow** manually (**workflow_dispatch**) or wait for the **schedule** (default: daily 14:00 UTC — edit the `cron` in the YAML).
+4. **Run workflow** manually (**workflow_dispatch**) or wait for the **schedule**. The default schedule is daily **6:00am America/Chicago**. GitHub cron runs in UTC, so the workflow fires at both `11:00 UTC` and `12:00 UTC`; a shell guard exits unless Chicago local time is exactly `06:00`.
+
+If you use the Cloudflare Worker relay, prefer keeping the worker-facing secret in Cloudflare as `DISCOVERY_SECRET`. Then GitHub only needs the public Worker URL and Sheet ID.
 
 ## What it sends
 
@@ -28,6 +31,7 @@ A minimal JSON body matching [AGENT_CONTRACT.md](../../AGENT_CONTRACT.md) v1:
 - `sheetId`: from secret
 - `variationKey`: `gh-<run_id>-<timestamp>`
 - `requestedAt`: ISO time
+- `trigger`: `scheduled-github`
 - `discoveryProfile`: `{}` (extend the workflow if you want static prefs)
 
 ## Patterns

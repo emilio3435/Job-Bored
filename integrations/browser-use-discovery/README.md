@@ -18,6 +18,7 @@ The runtime is Node-based, uses native `fetch`, can persist state locally, and k
 - `src/grounding/grounded-search.ts`: Gemini Google Search grounding plus Browser Use extraction for broader web discovery
 - `src/normalize/lead-normalizer.ts`: URL canonicalization, keyword-aware filtering, fit scoring, stable Pipeline defaults
 - `src/sheets/pipeline-writer.ts`: direct Google Sheets writer with Link-based dedupe and conservative row updates
+- `src/cleanup/expired-job-cleanup.ts`: dry-run-first expired posting checker that moves confirmed closed rows to `Status = Expired` and appends a Notes audit line
 
 ### Blacklist tab
 
@@ -41,6 +42,21 @@ Behavior:
 - missing `Blacklist` tab is treated as empty (no error)
 - the worker does not auto-create the `Blacklist` tab; the dashboard creates it
   on first dismiss action
+
+### Expired job cleanup
+
+Run from the repo root:
+
+```bash
+npm run cleanup:expired-jobs -- --sheet-id="$SHEET_ID"
+```
+
+The default is a dry run. Add `--write` to update the sheet. The cleanup checks
+existing `Pipeline` rows by column E `Link`, writes only column M `Status` and
+column O `Notes`, and only expires blank/New/Researching rows. Applied, Phone
+Screen, Interviewing, Offer, Rejected, Passed, and already Expired rows are
+protected. HTTP 403, captchas, timeouts, network failures, and ambiguous pages
+are reported as needs-review.
 
 ## Runtime Inputs
 

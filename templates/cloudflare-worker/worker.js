@@ -8,7 +8,7 @@ function cors(env) {
     "Access-Control-Allow-Origin": o,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, X-Forward-Secret, X-Discovery-Secret",
+      "Content-Type, Authorization, X-Forward-Secret, X-Discovery-Secret, Ngrok-Skip-Browser-Warning",
     "Access-Control-Max-Age": "86400",
   };
 }
