@@ -2131,6 +2131,50 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride) {
     }
   }
   // ====== [/discovery-autodetect lane] ======
+
+  // Company targeting: hoist allow/block-lists to top-level fields so
+  // the worker can apply them as a routing constraint without unpacking
+  // discoveryProfile. Empty/missing => no company restriction. Always
+  // strip the duplicates from discoveryProfile so the wire payload has
+  // exactly one source of truth for these arrays.
+  const sanitizeCompanies = (raw) => {
+    if (!Array.isArray(raw)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const v of raw) {
+      if (typeof v !== "string") continue;
+      const t = v.trim();
+      if (!t) continue;
+      const key = t.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(t);
+      if (out.length >= 50) break;
+    }
+    return out;
+  };
+  const companyAllowlist = sanitizeCompanies(
+    discoveryProfile && Array.isArray(discoveryProfile.companyAllowlist)
+      ? discoveryProfile.companyAllowlist
+      : [],
+  );
+  const companyBlocklist = sanitizeCompanies(
+    discoveryProfile && Array.isArray(discoveryProfile.companyBlocklist)
+      ? discoveryProfile.companyBlocklist
+      : [],
+  );
+  if (
+    discoveryProfile &&
+    typeof discoveryProfile === "object" &&
+    (Object.prototype.hasOwnProperty.call(discoveryProfile, "companyAllowlist") ||
+      Object.prototype.hasOwnProperty.call(discoveryProfile, "companyBlocklist"))
+  ) {
+    const stripped = { ...discoveryProfile };
+    delete stripped.companyAllowlist;
+    delete stripped.companyBlocklist;
+    discoveryProfile = stripped;
+  }
+
   return {
     event: "command-center.discovery",
     schemaVersion: 1,
@@ -2139,6 +2183,8 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride) {
     requestedAt: new Date().toISOString(),
     discoveryProfile,
     googleAccessToken: dashboardGoogleAccessToken || undefined,
+    companyAllowlist: companyAllowlist.length ? companyAllowlist : undefined,
+    companyBlocklist: companyBlocklist.length ? companyBlocklist : undefined,
   };
 }
 
@@ -11565,8 +11611,33 @@ function renderKanbanCard(job, index) {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
   </button>`;
 
+  const _attrEsc = (v) => `"${escapeHtml(String(v))}"`;
+  const _pair = (k, v) => (v == null || v === "" ? "" : `${k}=${_attrEsc(v)}`);
+  const jdRaw = (job._postingEnrichment && job._postingEnrichment.description) || job.fitAssessment || "";
+  const repliedFlag = /^(yes|replied|y)$/i.test(String(job.responseFlag || "")) ? "yes" : "";
+  const contactsJson = job.contact && String(job.contact).trim()
+    ? JSON.stringify([{ name: String(job.contact).trim() }])
+    : "";
+  const v2Attrs = [
+    _pair("data-jd-snippet", jdRaw ? String(jdRaw).slice(0, 4000) : ""),
+    _pair("data-notes", job.notes || ""),
+    _pair("data-location", job.location || ""),
+    _pair("data-salary", job.salary || ""),
+    _pair("data-job-url", job.link || ""),
+    _pair("data-source", job.source || ""),
+    _pair("data-applied-at", job.appliedDate || ""),
+    _pair("data-follow-up", job.followUpDate || ""),
+    _pair("data-tags", job.tags || ""),
+    _pair("data-fit", Number.isFinite(job.fitScore) ? String(job.fitScore) : ""),
+    _pair("data-replied", repliedFlag),
+    _pair("data-talking-points", job.talkingPoints || ""),
+    _pair("data-contacts", contactsJson),
+    _pair("data-company-tagline", (job._postingEnrichment && job._postingEnrichment.aboutCompany) || ""),
+    _pair("data-employment", (job._postingEnrichment && job._postingEnrichment.employmentType) || ""),
+  ].filter(Boolean).join(" ");
+
   return `
-    <article class="kanban-card ${cardModClasses}" role="button" tabindex="0" data-action="open-detail" data-stable-key="${stableKey}" ${dataIndex >= 0 ? `data-index="${dataIndex}"` : ""} style="animation-delay:${index * 30}ms">
+    <article class="kanban-card ${cardModClasses}" role="button" tabindex="0" data-action="open-detail" data-stable-key="${stableKey}" ${dataIndex >= 0 ? `data-index="${dataIndex}"` : ""} ${v2Attrs} style="animation-delay:${index * 30}ms">
       ${isViewed ? `<span class="kanban-card__viewed-dot" aria-label="Previously viewed" title="Previously viewed"></span>` : ""}
       <div class="kanban-card__actions" aria-label="Card actions">
         ${favBtnHtml}
@@ -12332,22 +12403,13 @@ function renderPipeline() {
     const emptyActions = document.getElementById("emptyStateActions");
     if (emptyTitle && emptyP) {
       if (pipelineData.length === 0) {
-        const discoveryView = getDiscoveryEmptyStateView(
-          getDiscoveryReadinessSnapshot(),
-        );
-        emptyTitle.textContent = discoveryView.title || "No roles yet";
+        emptyTitle.textContent = "Your pipeline is empty";
         emptyP.textContent =
-          discoveryView.body || "Open discovery setup to connect automation.";
+          "Paste a job URL above, or click Add manually, and your roles will land here.";
         if (emptyActions) {
-          if (discoveryView.ctaLabel && discoveryView.ctaAction) {
-            emptyActions.innerHTML = `<button type="button" class="btn-empty-cta" data-empty-action="${escapeHtml(discoveryView.ctaAction)}">${escapeHtml(discoveryView.ctaLabel)}</button>`;
-            emptyActions.style.display = "flex";
-            emptyActions.setAttribute("aria-hidden", "false");
-          } else {
-            emptyActions.innerHTML = "";
-            emptyActions.style.display = "none";
-            emptyActions.setAttribute("aria-hidden", "true");
-          }
+          emptyActions.innerHTML = "";
+          emptyActions.style.display = "none";
+          emptyActions.setAttribute("aria-hidden", "true");
         }
       } else {
         emptyTitle.textContent = "No roles match";
@@ -13292,6 +13354,42 @@ function renderSourceWidget(sources, suggestions) {
   return h;
 }
 
+function renderEmptyDonutScaffold() {
+  const stages = [
+    { label: "New", color: "var(--stage-rail-new)" },
+    { label: "Researching", color: "var(--stage-rail-researching)" },
+    { label: "Applied", color: "var(--stage-rail-applied)" },
+    { label: "Phone Screen", color: "var(--stage-rail-phone-screen)" },
+    { label: "Interviewing", color: "var(--stage-rail-interviewing)" },
+    { label: "Offer", color: "var(--stage-rail-offer)" },
+  ];
+  let h =
+    '<h4 class="brief-widget__title">Pipeline</h4><div class="donut-layout donut-layout--empty">';
+  h += '<div class="donut-wrap"><div class="donut donut--empty"></div>';
+  h +=
+    '<div class="donut-center"><span class="donut-center__val">0</span><span class="donut-center__lbl">total</span></div></div>';
+  h += '<div class="donut-legend">';
+  for (const s of stages) {
+    h += `<div class="donut-legend__item donut-legend__item--empty"><span class="donut-legend__dot" style="background:${s.color}"></span><span class="donut-legend__label">${escapeHtml(s.label)}</span><span class="donut-legend__val">0</span></div>`;
+  }
+  h += "</div></div>";
+  return h;
+}
+
+function renderEmptyInsightsScaffold() {
+  return `<h4 class="brief-widget__title">7-day activity</h4>
+    <div class="brief-scaffold-empty">
+      <p class="brief-scaffold-empty__text">Your discovery and apply trend will plot here once jobs land in the pipeline.</p>
+    </div>`;
+}
+
+function renderEmptySourcesScaffold() {
+  return `<h4 class="brief-widget__title">Top sources</h4>
+    <div class="brief-scaffold-empty">
+      <p class="brief-scaffold-empty__text">The job boards you use most will rank here.</p>
+    </div>`;
+}
+
 function _UNUSED_renderBriefCharts(ctx) {
   /* removed — replaced by renderDonutWidget, renderAreaWidget, renderSourceWidget */
   const { stages, dailyBreakdown, sources, suggestions } = ctx;
@@ -13563,28 +13661,31 @@ function renderBrief() {
   if (!pipelineData.length) {
     if (headlineEl) headlineEl.innerHTML = "";
     if (actionEl) actionEl.innerHTML = "";
-    if (statsEl) statsEl.innerHTML = "";
-    if (pipelineEl) pipelineEl.innerHTML = "";
-    if (sourcesEl) sourcesEl.innerHTML = "";
-    if (followPanel) followPanel.hidden = true;
-    if (mainGrid) mainGrid.classList.add("brief-dashboard--empty");
-    const discoveryView = getDiscoveryEmptyStateView(
-      getDiscoveryReadinessSnapshot(),
-    );
-    const actionHtml =
-      discoveryView.ctaLabel && discoveryView.ctaAction
-        ? `<p class="brief-empty-actions"><button type="button" class="btn-empty-cta" data-brief-action="${escapeHtml(discoveryView.ctaAction)}">${escapeHtml(discoveryView.ctaLabel)}</button></p>`
-        : "";
-    const bodyHtml = `<p>${escapeHtml(discoveryView.body || "No roles yet.")}</p>${actionHtml}`;
-    if (insightsEl)
-      insightsEl.innerHTML = `<div class="brief-empty">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-        ${bodyHtml}
-      </div>`;
+    if (followPanel) {
+      followPanel.hidden = true;
+      followPanel.style.display = "none";
+    }
+    if (mainGrid) mainGrid.classList.remove("brief-dashboard--empty");
+    if (statsEl)
+      statsEl.innerHTML = renderBriefStats({
+        discRecent: 0,
+        discPrior: 0,
+        appRecent: 0,
+        appPrior: 0,
+        inLoop: 0,
+        offers: 0,
+        medianDays: null,
+      });
+    if (pipelineEl) pipelineEl.innerHTML = renderEmptyDonutScaffold();
+    if (insightsEl) insightsEl.innerHTML = renderEmptyInsightsScaffold();
+    if (sourcesEl) sourcesEl.innerHTML = renderEmptySourcesScaffold();
     return;
   }
 
-  if (followPanel) followPanel.hidden = false;
+  if (followPanel) {
+    followPanel.hidden = false;
+    followPanel.style.display = "";
+  }
   if (mainGrid) mainGrid.classList.remove("brief-dashboard--empty");
 
   const todayJobs = jobsFoundToday(pipelineData);
@@ -18981,7 +19082,7 @@ function init() {
   // Set sheet links
   setDashboardSheetLinks();
 
-  initDiscoveryPrefsModal();
+  initDiscoveryDrawer();
   initDiscoveryButton();
   void preloadDiscoveryUiState();
 
@@ -19128,9 +19229,130 @@ function syncDiscoveryButtonState() {
   }
 }
 
-function openDiscoveryPrefsModal() {
-  const modal = document.getElementById("discoveryPrefsModal");
-  if (!modal) return;
+/**
+ * In-memory state for the company targeting chips (allow/block).
+ * Persisted into IndexedDB as part of the discoveryProfile on Run/Save.
+ */
+const discoveryDrawerState = {
+  allow: [],
+  block: [],
+  /** Cached AI strata results so re-applying doesn't re-call the LLM. */
+  strata: null,
+};
+
+function discoveryDrawerEl() {
+  return document.getElementById("discoveryDrawer");
+}
+
+function isDiscoveryDrawerOpen() {
+  const d = discoveryDrawerEl();
+  return !!d && d.style.display === "flex";
+}
+
+function sanitizeCompanyEntries(arr) {
+  if (!Array.isArray(arr)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const v of arr) {
+    if (typeof v !== "string") continue;
+    const t = v.trim();
+    if (!t) continue;
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+
+function renderCompanyChips(listKind) {
+  const containerId =
+    listKind === "block" ? "dpCompanyBlocklistChips" : "dpCompanyAllowlistChips";
+  const emptyId =
+    listKind === "block" ? "dpCompanyBlocklistEmpty" : "dpCompanyAllowlistEmpty";
+  const container = document.getElementById(containerId);
+  const empty = document.getElementById(emptyId);
+  if (!container) return;
+  const items = discoveryDrawerState[listKind] || [];
+  // Remove all chips except the empty placeholder
+  Array.from(container.querySelectorAll(".dp-chip")).forEach((el) =>
+    el.remove(),
+  );
+  if (items.length === 0) {
+    if (empty) empty.hidden = false;
+    return;
+  }
+  if (empty) empty.hidden = true;
+  for (const name of items) {
+    const chip = document.createElement("span");
+    chip.className = "dp-chip";
+    chip.dataset.list = listKind;
+    const label = document.createElement("span");
+    label.className = "dp-chip__label";
+    label.textContent = name;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "dp-chip__remove";
+    remove.setAttribute("aria-label", `Remove ${name}`);
+    remove.dataset.action = "remove-chip";
+    remove.dataset.list = listKind;
+    remove.dataset.value = name;
+    remove.textContent = "×";
+    chip.appendChild(label);
+    chip.appendChild(remove);
+    container.appendChild(chip);
+  }
+}
+
+function addCompanyChip(listKind, value) {
+  const t = String(value || "").trim();
+  if (!t) return;
+  const list = discoveryDrawerState[listKind];
+  if (!Array.isArray(list)) return;
+  const key = t.toLowerCase();
+  if (list.some((x) => x.toLowerCase() === key)) return;
+  list.push(t);
+  if (list.length > 50) list.length = 50;
+  renderCompanyChips(listKind);
+}
+
+function removeCompanyChip(listKind, value) {
+  const t = String(value || "").trim().toLowerCase();
+  const list = discoveryDrawerState[listKind];
+  if (!Array.isArray(list)) return;
+  const idx = list.findIndex((x) => x.toLowerCase() === t);
+  if (idx >= 0) list.splice(idx, 1);
+  renderCompanyChips(listKind);
+}
+
+function setDiscoveryReadinessChip(state, label) {
+  const chip = document.getElementById("discoveryDrawerReadiness");
+  if (!chip) return;
+  chip.dataset.state = state || "unknown";
+  chip.textContent = label || "";
+}
+
+function refreshDiscoveryDrawerStatusChip() {
+  try {
+    const snap = getDiscoveryReadinessSnapshot();
+    const view = getDiscoverySettingsView(snap);
+    const hasWebhook = !!getDiscoveryWebhookUrl();
+    if (view && view.runDiscoveryEnabled && hasWebhook) {
+      setDiscoveryReadinessChip("ready", "Discovery ready");
+    } else if (hasWebhook) {
+      setDiscoveryReadinessChip("partial", "Setup partially configured");
+    } else {
+      setDiscoveryReadinessChip("unconfigured", "Discovery not configured");
+    }
+  } catch (_) {
+    setDiscoveryReadinessChip("unknown", "Checking setup…");
+  }
+}
+
+function openDiscoveryDrawer() {
+  const drawer = discoveryDrawerEl();
+  if (!drawer) return;
   const UC = window.CommandCenterUserContent;
   const fieldMap = {
     targetRoles: "dpTargetRoles",
@@ -19150,25 +19372,57 @@ function openDiscoveryPrefsModal() {
       const el = document.getElementById(id);
       if (el) el.value = (p && p[key]) || "";
     });
-    // Handle grounded_web checkbox
     const gwEl = document.getElementById("dpGroundedWeb");
     if (gwEl) gwEl.checked = !p || p.groundedWebEnabled !== false;
-    // Handle source preset — mutual-exclusivity radio group
     const preset = normalizeSourcePreset(
       p && p.sourcePreset ? p.sourcePreset : "",
     );
     syncSourcePresetUi(preset || "browser_plus_ats");
-    modal.style.display = "flex";
+    discoveryDrawerState.allow = sanitizeCompanyEntries(
+      p && Array.isArray(p.companyAllowlist) ? p.companyAllowlist : [],
+    );
+    discoveryDrawerState.block = sanitizeCompanyEntries(
+      p && Array.isArray(p.companyBlocklist) ? p.companyBlocklist : [],
+    );
+    renderCompanyChips("allow");
+    renderCompanyChips("block");
+    refreshDiscoveryDrawerStatusChip();
+    drawer.hidden = false;
+    drawer.style.display = "flex";
+    document.body.classList.add("detail-open");
+    // Surface AI provider availability when opening the drawer.
+    checkDiscoveryAiAvailability();
     const first = document.getElementById("dpTargetRoles");
     if (first) first.focus();
   });
 }
 
-function closeDiscoveryPrefsModal() {
-  const modal = document.getElementById("discoveryPrefsModal");
-  if (modal) modal.style.display = "none";
+function closeDiscoveryDrawer() {
+  const drawer = discoveryDrawerEl();
+  if (!drawer) return;
+  drawer.style.display = "none";
+  drawer.hidden = true;
+  document.body.classList.remove("detail-open");
 }
 
+function checkDiscoveryAiAvailability() {
+  const hint = document.getElementById("dpAiHint");
+  const suggestBtn = document.getElementById("dpSuggestBtn");
+  const Insights = window.CommandCenterJobPostingInsights;
+  const canUse =
+    Insights && Insights.canEnrichWithLLM && Insights.canEnrichWithLLM();
+  if (hint) hint.hidden = !!canUse;
+  if (suggestBtn) suggestBtn.disabled = !canUse;
+}
+
+/**
+ * Generate Safe / Adjacent / Stretch search variants from the candidate profile.
+ * Returns { safe, adjacent, stretch } where each entry is a search-intent
+ * shape: { targetRoles, locations, remotePolicy, seniority, keywordsInclude,
+ *   keywordsExclude, sourcePreset, companyAllowlist, rationale }.
+ *
+ * scrapedJob is optional context only — it does not gate generation.
+ */
 async function generateDiscoverySuggestions(scrapedJob) {
   const RG = window.CommandCenterResumeGenerate;
   if (!RG || typeof RG.getResumeGenerationConfig !== "function") {
@@ -19222,18 +19476,20 @@ async function generateDiscoverySuggestions(scrapedJob) {
     .join("\n");
 
   const systemPrompt =
-    "You are an expert career advisor. Analyze the candidate's profile (resume, LinkedIn, AI context) " +
-    "and optionally a scraped job listing, then suggest the best discovery search parameters. " +
-    "Return ONLY valid JSON with these keys: " +
-    "targetRoles (string, comma-separated role titles), " +
-    "locations (string, comma-separated cities/regions), " +
-    "remotePolicy (string, e.g. 'remote-first, hybrid'), " +
-    "seniority (string, e.g. 'senior, staff'), " +
-    "keywordsInclude (string, comma-separated positive keywords for search), " +
-    "keywordsExclude (string, comma-separated negative keywords to filter out), " +
-    "reasoning (string, 1-2 sentences explaining why these parameters fit the candidate). " +
-    "Base suggestions on the candidate's actual experience, skills, and career trajectory. " +
-    "If a job listing is provided, tune the suggestions to find similar roles.";
+    "You are an expert career advisor. Generate THREE distinct discovery search variants " +
+    "(safe, adjacent, stretch) from the candidate's profile and optional job context. " +
+    "Return ONLY valid JSON of shape: " +
+    "{ \"safe\": Variant, \"adjacent\": Variant, \"stretch\": Variant } where Variant is " +
+    "{ targetRoles: string (comma-separated role titles), " +
+    "locations: string (comma-separated cities/regions), " +
+    "remotePolicy: string, seniority: string, " +
+    "keywordsInclude: string (comma-separated), keywordsExclude: string (comma-separated), " +
+    "sourcePreset: one of 'browser_only' | 'ats_only' | 'browser_plus_ats', " +
+    "companyAllowlist: string[] (5-15 real, currently-hiring companies that match this stratum; never invent), " +
+    "rationale: string (1-2 sentences) }. " +
+    "Definitions: safe = closest to the candidate's current target. adjacent = nearby role families " +
+    "and industries. stretch = ambitious or non-obvious paths the candidate could realistically reach. " +
+    "Always populate companyAllowlist with at least 5 plausible companies per stratum.";
 
   const userParts = [
     "CANDIDATE PROFILE:",
@@ -19247,7 +19503,7 @@ async function generateDiscoverySuggestions(scrapedJob) {
     userParts.push(jobContext, "");
   }
   userParts.push(
-    "Suggest discovery search parameters that would find roles this candidate is well-suited for.",
+    "Generate three distinct search variants (safe, adjacent, stretch) for this candidate.",
     "Return JSON only.",
   );
 
@@ -19262,6 +19518,7 @@ async function generateDiscoverySuggestions(scrapedJob) {
       userPrompt,
       g.resumeGeminiApiKey,
       g.resumeGeminiModel,
+      { json: true },
     );
   } else if (provider === "openai") {
     if (!g.resumeOpenAIApiKey)
@@ -19289,13 +19546,38 @@ async function generateDiscoverySuggestions(scrapedJob) {
 
   const parsed = parseJsonSafeForSuggestions(text);
   return {
-    targetRoles: parsed.targetRoles || "",
-    locations: parsed.locations || "",
-    remotePolicy: parsed.remotePolicy || "",
-    seniority: parsed.seniority || "",
-    keywordsInclude: parsed.keywordsInclude || "",
-    keywordsExclude: parsed.keywordsExclude || "",
-    reasoning: parsed.reasoning || "",
+    safe: normalizeStratum(parsed && parsed.safe),
+    adjacent: normalizeStratum(parsed && parsed.adjacent),
+    stretch: normalizeStratum(parsed && parsed.stretch),
+  };
+}
+
+/**
+ * Coerce a raw stratum payload from the LLM into a safe shape that the
+ * drawer can consume without throwing on missing/wrong-typed fields.
+ */
+function normalizeStratum(raw) {
+  const o = raw && typeof raw === "object" ? raw : {};
+  const str = (k) => (typeof o[k] === "string" ? o[k].trim() : "");
+  const allowedPresets = new Set([
+    "browser_only",
+    "ats_only",
+    "browser_plus_ats",
+  ]);
+  const presetRaw = typeof o.sourcePreset === "string" ? o.sourcePreset.trim() : "";
+  const sourcePreset = allowedPresets.has(presetRaw) ? presetRaw : "";
+  return {
+    targetRoles: str("targetRoles"),
+    locations: str("locations"),
+    remotePolicy: str("remotePolicy"),
+    seniority: str("seniority"),
+    keywordsInclude: str("keywordsInclude"),
+    keywordsExclude: str("keywordsExclude"),
+    sourcePreset,
+    companyAllowlist: sanitizeCompanyEntries(
+      Array.isArray(o.companyAllowlist) ? o.companyAllowlist : [],
+    ),
+    rationale: str("rationale"),
   };
 }
 
@@ -19467,67 +19749,26 @@ async function callDiscoveryAiAnthropic(system, user, apiKey, model) {
   return text.trim();
 }
 
-function initDiscoveryPrefsModal() {
-  const modal = document.getElementById("discoveryPrefsModal");
+function initDiscoveryDrawer() {
+  const drawer = discoveryDrawerEl();
   const runBtn = document.getElementById("discoveryPrefsRun");
-  const cancelBtn = document.getElementById("discoveryPrefsCancel");
-  const closeBtn = document.getElementById("discoveryPrefsClose");
-  if (!modal) return;
+  if (!drawer) return;
 
-  const closeModal = () => {
-    modal.style.display = "none";
-  };
-
-  if (cancelBtn) cancelBtn.addEventListener("click", closeModal);
-  if (closeBtn) closeBtn.addEventListener("click", closeModal);
-  modal.addEventListener("click", (e) => {
-    if (e.target === modal) closeModal();
+  // Close on backdrop, close button, cancel button, or any data-action="close-discovery-drawer"
+  drawer.addEventListener("click", (e) => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    if (target.dataset && target.dataset.action === "close-discovery-drawer") {
+      closeDiscoveryDrawer();
+      return;
+    }
+    const close = target.closest('[data-action="close-discovery-drawer"]');
+    if (close) closeDiscoveryDrawer();
   });
 
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && modal.style.display === "flex") closeModal();
+    if (e.key === "Escape" && isDiscoveryDrawerOpen()) closeDiscoveryDrawer();
   });
-
-  /* ---- Tab switching ---- */
-  const tabManual = document.getElementById("dpTabManual");
-  const tabAi = document.getElementById("dpTabAi");
-  const panelManual = document.getElementById("dpPanelManual");
-  const panelAi = document.getElementById("dpPanelAi");
-
-  function switchTab(tab) {
-    const isManual = tab === "manual";
-    if (tabManual) {
-      tabManual.classList.toggle("dp-tab--active", isManual);
-      tabManual.setAttribute("aria-selected", String(isManual));
-    }
-    if (tabAi) {
-      tabAi.classList.toggle("dp-tab--active", !isManual);
-      tabAi.setAttribute("aria-selected", String(!isManual));
-    }
-    if (panelManual) {
-      panelManual.classList.toggle("dp-panel--active", isManual);
-      panelManual.hidden = !isManual;
-    }
-    if (panelAi) {
-      panelAi.classList.toggle("dp-panel--active", !isManual);
-      panelAi.hidden = isManual;
-    }
-    if (!isManual) checkAiAvailability();
-  }
-
-  if (tabManual) tabManual.addEventListener("click", () => switchTab("manual"));
-  if (tabAi) tabAi.addEventListener("click", () => switchTab("ai"));
-
-  /* ---- AI availability check ---- */
-  function checkAiAvailability() {
-    const hint = document.getElementById("dpAiHint");
-    const suggestBtn = document.getElementById("dpSuggestBtn");
-    const Insights = window.CommandCenterJobPostingInsights;
-    const canUse =
-      Insights && Insights.canEnrichWithLLM && Insights.canEnrichWithLLM();
-    if (hint) hint.hidden = canUse;
-    if (suggestBtn) suggestBtn.disabled = !canUse;
-  }
 
   /* ---- Source preset mutual-exclusivity ---- */
   document
@@ -19541,7 +19782,44 @@ function initDiscoveryPrefsModal() {
       });
     });
 
-  /* ---- Scrape job listing ---- */
+  /* ---- Company chip controls (allow + block) ---- */
+  function bindChipInput(inputId, addBtnId, listKind) {
+    const input = document.getElementById(inputId);
+    const addBtn = document.getElementById(addBtnId);
+    function commit() {
+      if (!input) return;
+      const v = input.value;
+      if (v && v.trim()) {
+        addCompanyChip(listKind, v);
+        input.value = "";
+      }
+    }
+    if (input) {
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        }
+      });
+    }
+    if (addBtn) addBtn.addEventListener("click", commit);
+  }
+  bindChipInput("dpCompanyAllowlistInput", "dpCompanyAllowlistAddBtn", "allow");
+  bindChipInput("dpCompanyBlocklistInput", "dpCompanyBlocklistAddBtn", "block");
+
+  // Chip remove handler — delegated for both lists.
+  drawer.addEventListener("click", (e) => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    const btn = target.closest('[data-action="remove-chip"]');
+    if (!btn) return;
+    const list = btn.getAttribute("data-list");
+    const value = btn.getAttribute("data-value");
+    if (!list || !value) return;
+    if (list === "allow" || list === "block") removeCompanyChip(list, value);
+  });
+
+  /* ---- Scrape job listing (optional context for AI ideas) ---- */
   const scrapeBtn = document.getElementById("dpScrapeBtn");
   let scrapedJobData = null;
 
@@ -19604,59 +19882,54 @@ function initDiscoveryPrefsModal() {
     });
   }
 
-  /* ---- AI Suggest ---- */
+  /* ---- AI ideation: generate Safe / Adjacent / Stretch strata ---- */
   const suggestBtn = document.getElementById("dpSuggestBtn");
-
   if (suggestBtn) {
     suggestBtn.addEventListener("click", async () => {
       suggestBtn.disabled = true;
+      const originalLabel = suggestBtn.textContent;
       suggestBtn.textContent = "Analyzing...";
-      const outputEl = document.getElementById("dpSuggestOutput");
-      const reasoningEl = document.getElementById("dpSuggestReasoning");
+      const grid = document.getElementById("dpStrataGrid");
+      const status = document.getElementById("dpSuggestStatus");
+      if (status) {
+        status.textContent = "Generating ideas…";
+        status.hidden = false;
+      }
       try {
-        const result = await generateDiscoverySuggestions(scrapedJobData);
-        const setField = (id, val) => {
-          const el = document.getElementById(id);
-          if (el) el.value = val || "";
-        };
-        setField("dpSuggestedRoles", result.targetRoles);
-        setField("dpSuggestedLocations", result.locations);
-        setField("dpSuggestedRemote", result.remotePolicy);
-        setField("dpSuggestedSeniority", result.seniority);
-        setField("dpSuggestedInclude", result.keywordsInclude);
-        setField("dpSuggestedExclude", result.keywordsExclude);
-        if (reasoningEl) reasoningEl.textContent = result.reasoning || "";
-        if (outputEl) outputEl.hidden = false;
+        const strata = await generateDiscoverySuggestions(scrapedJobData);
+        discoveryDrawerState.strata = strata;
+        renderStrataCards(strata);
+        if (grid) grid.hidden = false;
+        if (status) status.hidden = true;
       } catch (err) {
-        showToast(`AI suggest failed: ${err.message || err}`, "error");
+        if (status) {
+          status.textContent = `AI ideas failed: ${err.message || err}`;
+          status.hidden = false;
+        }
+        showToast(`AI ideas failed: ${err.message || err}`, "error");
       } finally {
         suggestBtn.disabled = false;
-        suggestBtn.textContent = "Generate suggestions";
+        suggestBtn.textContent = originalLabel;
       }
     });
   }
 
-  /* ---- Apply suggestions to manual fields ---- */
-  const applyBtn = document.getElementById("dpApplySuggestionsBtn");
-  if (applyBtn) {
-    applyBtn.addEventListener("click", () => {
-      const copy = (srcId, destId) => {
-        const src = document.getElementById(srcId);
-        const dest = document.getElementById(destId);
-        if (src && dest && src.value) dest.value = src.value;
-      };
-      copy("dpSuggestedRoles", "dpTargetRoles");
-      copy("dpSuggestedLocations", "dpLocations");
-      copy("dpSuggestedRemote", "dpRemotePolicy");
-      copy("dpSuggestedSeniority", "dpSeniority");
-      copy("dpSuggestedInclude", "dpKeywordsInclude");
-      copy("dpSuggestedExclude", "dpKeywordsExclude");
-      switchTab("manual");
-      showToast("Suggestions applied to manual fields", "success");
-    });
-  }
+  /* ---- Apply a stratum to the drawer fields ---- */
+  drawer.addEventListener("click", (e) => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    const applyBtn = target.closest('[data-action="apply-stratum"]');
+    if (!applyBtn) return;
+    const card = applyBtn.closest("[data-stratum]");
+    if (!card) return;
+    const key = card.getAttribute("data-stratum");
+    const strata = discoveryDrawerState.strata;
+    if (!strata || !strata[key]) return;
+    applyStratumToDrawer(strata[key]);
+    showToast(`Applied "${key}" search variant`, "success");
+  });
 
-  /* ---- Run now (saves from manual fields) ---- */
+  /* ---- Run discovery (saves drawer fields, dispatches webhook) ---- */
   if (runBtn) {
     runBtn.addEventListener("click", async () => {
       const UC = window.CommandCenterUserContent;
@@ -19664,62 +19937,40 @@ function initDiscoveryPrefsModal() {
         const el = document.getElementById(id);
         return el ? el.value : "";
       };
-      const targetRoles = val("dpTargetRoles").trim();
-      const keywordsInclude = val("dpKeywordsInclude").trim();
 
-      // AI Suggest Intent Bridge:
-      // If manual intent is blank but AI suggestions are non-blank, auto-promote
-      // suggested values into manual fields so Run can proceed without requiring
-      // the user to manually click "Apply suggestions" first.
-      // This persists resolved intent into canonical discoveryProfile fields before
-      // webhook dispatch (VAL-API-009).
-      const suggestedRoles = val("dpSuggestedRoles").trim();
-      const suggestedKeywords = val("dpSuggestedInclude").trim();
-      const hasSuggestedIntent = !!(suggestedRoles || suggestedKeywords);
-
-      if (!targetRoles && !keywordsInclude && hasSuggestedIntent) {
-        // Auto-promote AI suggestions into manual fields
-        const autoCopy = (srcId, destId) => {
-          const src = document.getElementById(srcId);
-          const dest = document.getElementById(destId);
-          if (src && dest && src.value) dest.value = src.value;
-        };
-        autoCopy("dpSuggestedRoles", "dpTargetRoles");
-        autoCopy("dpSuggestedLocations", "dpLocations");
-        autoCopy("dpSuggestedRemote", "dpRemotePolicy");
-        autoCopy("dpSuggestedSeniority", "dpSeniority");
-        autoCopy("dpSuggestedInclude", "dpKeywordsInclude");
-        autoCopy("dpSuggestedExclude", "dpKeywordsExclude");
-        // Re-read after auto-promotion so the saved profile has resolved values
-        void targetRoles; // avoid accidental reuse — fall through to re-read below
-      }
-
-      // Intent guardrail: block run only if BOTH manual AND AI-suggested intent are blank.
-      // If AI suggestions were just auto-promoted above, this guardrail will not block.
       const finalTargetRoles = val("dpTargetRoles").trim();
       const finalKeywordsInclude = val("dpKeywordsInclude").trim();
 
       if (!finalTargetRoles && !finalKeywordsInclude) {
         showToast(
-          "Add target roles or keywords to include, or use the AI Suggest tab to generate them.",
+          "Add target roles or keywords, or pick an AI idea above.",
           "warning",
           true,
         );
-        // Switch to AI Suggest tab so user can generate suggestions
-        switchTab("ai");
+        const grid = document.getElementById("dpStrataGrid");
+        if (grid && grid.hidden) {
+          // Auto-trigger AI generation when intent is blank.
+          const sb = document.getElementById("dpSuggestBtn");
+          if (sb && !sb.disabled) sb.click();
+        }
         return;
       }
 
-      // Handle grounded_web checkbox
       const gwEl = document.getElementById("dpGroundedWeb");
       const groundedWebEnabled = gwEl ? gwEl.checked : true;
-      // Capture selected source preset at submit time (last-selection-wins)
       const selectedPresetEl = document.querySelector(
         'input[name="dpSourcePreset"]:checked',
       );
       const sourcePreset = selectedPresetEl
         ? normalizeSourcePreset(selectedPresetEl.value)
         : "";
+      const companyAllowlist = sanitizeCompanyEntries(
+        discoveryDrawerState.allow,
+      );
+      const companyBlocklist = sanitizeCompanyEntries(
+        discoveryDrawerState.block,
+      );
+
       if (UC && typeof UC.saveDiscoveryProfile === "function") {
         await UC.saveDiscoveryProfile({
           targetRoles: finalTargetRoles,
@@ -19731,9 +19982,11 @@ function initDiscoveryPrefsModal() {
           maxLeadsPerRun: val("dpMaxLeads"),
           groundedWebEnabled,
           sourcePreset,
+          companyAllowlist,
+          companyBlocklist,
         });
       }
-      closeModal();
+      closeDiscoveryDrawer();
       const openBtn = document.getElementById("discoveryBtn");
       if (openBtn) {
         openBtn.disabled = true;
@@ -19746,6 +19999,59 @@ function initDiscoveryPrefsModal() {
       syncDiscoveryButtonState();
     });
   }
+}
+
+/**
+ * Paint the three AI strata cards from a normalized strata payload.
+ */
+function renderStrataCards(strata) {
+  const keys = ["safe", "adjacent", "stretch"];
+  for (const key of keys) {
+    const card = document.querySelector(
+      `.dp-stratum-card[data-stratum="${key}"]`,
+    );
+    if (!card) continue;
+    const v = (strata && strata[key]) || normalizeStratum({});
+    const set = (field, value) => {
+      const el = card.querySelector(`[data-field="${field}"]`);
+      if (el) el.textContent = value || "—";
+    };
+    set("rationale", v.rationale);
+    set("targetRoles", v.targetRoles);
+    set("locations", v.locations);
+    set("keywordsInclude", v.keywordsInclude);
+    set(
+      "companies",
+      Array.isArray(v.companyAllowlist) && v.companyAllowlist.length
+        ? v.companyAllowlist.slice(0, 8).join(", ")
+        : "—",
+    );
+  }
+}
+
+/**
+ * Replace the drawer intent fields and company chips with the selected stratum.
+ * The user can still edit before running.
+ */
+function applyStratumToDrawer(stratum) {
+  const setVal = (id, v) => {
+    const el = document.getElementById(id);
+    if (el) el.value = v || "";
+  };
+  setVal("dpTargetRoles", stratum.targetRoles);
+  setVal("dpLocations", stratum.locations);
+  setVal("dpRemotePolicy", stratum.remotePolicy);
+  setVal("dpSeniority", stratum.seniority);
+  setVal("dpKeywordsInclude", stratum.keywordsInclude);
+  setVal("dpKeywordsExclude", stratum.keywordsExclude);
+  if (stratum.sourcePreset) {
+    syncSourcePresetUi(normalizeSourcePreset(stratum.sourcePreset));
+  }
+  // Auto-include companies (replace allowlist with the stratum's selection).
+  discoveryDrawerState.allow = sanitizeCompanyEntries(
+    Array.isArray(stratum.companyAllowlist) ? stratum.companyAllowlist : [],
+  );
+  renderCompanyChips("allow");
 }
 
 function initDiscoveryButton() {
@@ -19797,7 +20103,7 @@ function initDiscoveryButton() {
           installKeepAliveOnce();
           showToast("Discovery is ready.", "success");
           if (getDiscoveryWebhookUrl()) {
-            openDiscoveryPrefsModal();
+            openDiscoveryDrawer();
             return;
           }
         }
@@ -19838,7 +20144,7 @@ function initDiscoveryButton() {
       });
       return;
     }
-    openDiscoveryPrefsModal();
+    openDiscoveryDrawer();
   });
 
   if (closeBtn) closeBtn.addEventListener("click", () => closeHelp());

@@ -486,6 +486,48 @@ async function handleKillStale(req, res) {
   res.end(JSON.stringify({ ok: true, killed }));
 }
 
+function listListeningPids(port) {
+  const lsof = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
+    encoding: "utf8",
+  });
+  return String(lsof.stdout || "")
+    .split(/\s+/)
+    .filter((s) => /^\d+$/.test(s))
+    .map(Number);
+}
+
+export async function killFullBootStalePorts({
+  ports = [8644, 4040],
+  healthyDiscoveryWorkerPort = null,
+  currentPid = process.pid,
+  findPids = listListeningPids,
+  killPid = (pid) => process.kill(pid, "SIGTERM"),
+  waitAfterKillMs = 600,
+} = {}) {
+  let killed = 0;
+  let skippedHealthyWorker = false;
+  for (const port of ports) {
+    if (port === healthyDiscoveryWorkerPort) {
+      skippedHealthyWorker = true;
+      continue;
+    }
+    const pids = findPids(port);
+    for (const pid of pids) {
+      if (pid === currentPid) continue;
+      try {
+        killPid(pid);
+        killed += 1;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  if (killed && waitAfterKillMs > 0) {
+    await new Promise((r) => setTimeout(r, waitAfterKillMs));
+  }
+  return { killed, skippedHealthyWorker };
+}
+
 /**
  * One-call greenfield boot: kill stale → start discovery worker → run
  * fix-setup (which bootstraps ngrok + deploys/refreshes the relay). Returns
@@ -508,28 +550,16 @@ async function handleFullBoot(req, res, discoveryWorkerStarter) {
 
   // 1. Kill any stale process holding 8644 / 4040.
   try {
-    const ports = [8644, 4040];
-    let killed = 0;
-    for (const port of ports) {
-      const lsof = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
-        encoding: "utf8",
-      });
-      const pids = String(lsof.stdout || "")
-        .split(/\s+/)
-        .filter((s) => /^\d+$/.test(s))
-        .map(Number);
-      for (const pid of pids) {
-        if (pid === process.pid) continue;
-        try {
-          process.kill(pid, "SIGTERM");
-          killed += 1;
-        } catch {
-          /* ignore */
-        }
+    let healthyDiscoveryWorkerPort = null;
+    try {
+      const health = await probeDiscoveryWorkerHealth(8644);
+      if (health && health.ok) {
+        healthyDiscoveryWorkerPort = 8644;
       }
+    } catch {
+      healthyDiscoveryWorkerPort = null;
     }
-    if (killed) await new Promise((r) => setTimeout(r, 600));
-    emit("kill_stale", { killed });
+    emit("kill_stale", await killFullBootStalePorts({ healthyDiscoveryWorkerPort }));
   } catch (e) {
     emit("kill_stale", { killed: 0, warning: e && e.message });
   }

@@ -29,9 +29,10 @@
   var BODY_FLAG = "jb-v2";
   var TOP_CLASS = "page-top";
   var PILLS = [
-    { id: "dawn", label: "Brief", num: "01" },
+    { id: "dawn",     label: "Brief",    num: "01" },
     { id: "pipeline", label: "Pipeline", num: "02" },
-    { id: "letter", label: "Letter", num: "03" },
+    { id: "role",     label: "Dossier",  num: "03" },
+    { id: "letter",   label: "Letter",   num: "04" },
   ];
 
   var state = {

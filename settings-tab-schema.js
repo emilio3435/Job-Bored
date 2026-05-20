@@ -80,6 +80,9 @@
     settingsClearBtn: SETTINGS_TAB_IDS.SETUP,
     settingsClearConfirmCancel: SETTINGS_TAB_IDS.SETUP,
     settingsClearConfirmYes: SETTINGS_TAB_IDS.SETUP,
+    settingsJbV2Toggle: SETTINGS_TAB_IDS.SETUP,
+    settingsJbV2ToggleLabel: SETTINGS_TAB_IDS.SETUP,
+    settingsJbV2ToggleHint: SETTINGS_TAB_IDS.SETUP,
 
     // Sheet
     settingsSheetId: SETTINGS_TAB_IDS.SHEET,

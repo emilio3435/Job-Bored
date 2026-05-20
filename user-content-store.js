@@ -257,7 +257,33 @@
       groundedWebEnabled:
         o.groundedWebEnabled === true || o.groundedWebEnabled === "true",
       sourcePreset: normalizeSourcePreset(o.sourcePreset),
+      companyAllowlist: normalizeCompanyList(o.companyAllowlist),
+      companyBlocklist: normalizeCompanyList(o.companyBlocklist),
     };
+  }
+
+  /**
+   * Trim, dedupe (case-insensitive), and cap a company name list. Returns an
+   * array of plain strings. Non-string entries and empty values are dropped.
+   */
+  function normalizeCompanyList(raw) {
+    if (!Array.isArray(raw)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const v of raw) {
+      if (typeof v !== "string") continue;
+      let s = v.trim();
+      if (!s) continue;
+      if (s.length > MAX_DISCOVERY_FIELD_LEN) {
+        s = s.slice(0, MAX_DISCOVERY_FIELD_LEN);
+      }
+      const key = s.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(s);
+      if (out.length >= 50) break;
+    }
+    return out;
   }
 
   /**

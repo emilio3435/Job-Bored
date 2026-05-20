@@ -143,6 +143,75 @@
   margin-top: var(--space-3);
 }
 
+/* ── jb-v2 toggle switch (Setup tab, Phase 4) ────────────────────────
+   Token-only: uses --jb-* tokens from tokens-v2.css.
+   The switch renders inside the legacy settings panel; tokens-v2 is
+   loaded globally so --jb-* are resolvable here regardless of body.jb-v2.
+   Visible state mirrors window.JB_V2.on; controller is in
+   settings-jb-v2-tab.js. ─────────────────────────────────────────────── */
+.jb-v2-toggle-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.jb-v2-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  cursor: pointer;
+  user-select: none;
+}
+
+.jb-v2-switch__input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.jb-v2-switch__track {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+  background: var(--jb-line-soft);
+  border-radius: var(--jb-radius-pill);
+  transition: background var(--jb-transition-base);
+}
+
+.jb-v2-switch__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: var(--jb-paper);
+  border-radius: var(--jb-radius-pill);
+  box-shadow: var(--jb-shadow-sticker);
+  transition: transform var(--jb-transition-base);
+}
+
+.jb-v2-switch__input:checked + .jb-v2-switch__track {
+  background: var(--jb-mint);
+}
+
+.jb-v2-switch__input:checked + .jb-v2-switch__track .jb-v2-switch__thumb {
+  transform: translateX(16px);
+}
+
+.jb-v2-switch__input:focus-visible + .jb-v2-switch__track {
+  box-shadow: var(--jb-shadow-focus);
+}
+
+.jb-v2-switch__label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
 /* ── Mobile: horizontal scroll tab strip ────────────────────────────── */
 @media (max-width: 600px) {
   .settings-tabs-layout {
