@@ -67,17 +67,22 @@ To uninstall: click **"Copy uninstall command"** and run `npm run schedule:unins
 This tier uses **GitHub Actions** — free for public repos, no CORS issues, runs regardless of your machine state. The Settings wizard generates a personalized workflow file for you.
 
 1. In the Schedule card, find **"Runs in the cloud on a schedule."**
-2. Pick a time (UTC — the card shows your local-time equivalent).
+2. Pick a time in **America/Chicago**. The default is **06:00**, which is 11:00 UTC during daylight time and 12:00 UTC during standard time.
 3. Click **"Download workflow file"** → saves `command-center-discovery.yml`.
 4. Follow the numbered steps in the card:
    - Fork this repo (or use an existing fork).
    - Add repo secrets `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL` + `COMMAND_CENTER_SHEET_ID`.
+   - Add `COMMAND_CENTER_DISCOVERY_WEBHOOK_SECRET` only if you post directly to the browser-use worker, or to another endpoint that enforces `x-discovery-secret`.
    - Upload the downloaded file to `.github/workflows/` in your fork.
 5. The **"Advisory"** badge stays on this tier — the worker cannot verify GitHub remotely, so check your fork's Actions tab to confirm the workflow is running.
 
 **Works on:** any OS (schedule runs on GitHub's servers).
 **Requires:** the webhook URL in the secrets must be **publicly reachable** (ngrok tunnel for local workers, a Cloudflare Worker relay, or an Apps Script URL). See `templates/cloudflare-worker/README.md` for the relay pattern.
 **Downside:** your worker endpoint must be internet-accessible — not just localhost.
+
+The workflow is DST-safe for America/Chicago: its cron line fires at both possible UTC offsets, `0 11,12 * * *` for the default 06:00 run, and the job exits unless `TZ=America/Chicago date +"%H:%M"` matches the selected local time. Manual **Run workflow** dispatches are not blocked by that guard.
+
+If you use the Cloudflare Worker relay, prefer storing the worker-facing secret as Cloudflare `DISCOVERY_SECRET`; GitHub can then keep only the public Worker URL and Sheet ID.
 
 ---
 

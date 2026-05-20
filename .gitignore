@@ -17,3 +17,5 @@ integrations/browser-use-discovery/.env
 .claude/
 brief-mockup.html
 uploads/
+# Old swarm run logs — local only; may contain transcripted secrets
+docs/redesign/logs/

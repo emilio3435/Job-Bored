@@ -18,6 +18,7 @@
     "apps-script:login": "node scripts/clasp-helper.mjs login",
     "discovery:bootstrap-local": "node scripts/bootstrap-local-discovery.mjs",
     "discovery:worker:start-local": "npm run start:discovery-worker",
+    "cleanup:expired-jobs": "node --experimental-strip-types integrations/browser-use-discovery/src/cleanup/expired-job-cleanup.ts",
     "cloudflare-relay:deploy": "node scripts/deploy-cloudflare-relay.mjs",
     "schedule:install": "node scripts/install-schedule.mjs",
     "schedule:uninstall": "node scripts/uninstall-schedule.mjs",
