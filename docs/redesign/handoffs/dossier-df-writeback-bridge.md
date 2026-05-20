@@ -85,15 +85,17 @@ Write to `docs/redesign/status/dossier-df-writeback-bridge.json` matching the sc
 
 ## Completion report (fill in at the end)
 
-- **Commit SHA(s):**
-- **Files changed:** (expected: `flowing-writes.js`, optionally `app.js`, `tests/role-writeback-bridge.test.mjs`)
+- **Commit SHA(s):** `fa7bba53116db3fe7ffa03a98f07d9e7e2748c71`
+- **Files changed:** `flowing-writes.js`, `tests/role-writeback-bridge.test.mjs`
 - **Field → column mapping confirmed:**
-  - stage → (column)
-  - heardBack → (column)
-  - reply → (column)
-  - followupAt → (column)
-  - passed → (column)
-- **Existing helpers reused vs new ones written:**
+  - stage → Status, column M (`Pipeline!M{row}`)
+  - heardBack → Last contact, column R (`Pipeline!R{row}`)
+  - reply → Did they reply?, column S (`Pipeline!S{row}`, writes existing enum value `Yes`)
+  - followupAt → Follow-up Date, column P (`Pipeline!P{row}`)
+  - passed → Status, column M (`Pipeline!M{row}`, writes existing enum value `Passed`)
+- **Existing helpers reused vs new ones written:** Reused `flowing-writes.js` row resolution, Sheets PUT path, `moveStage`, and write success/failure events. Added minimal `writeColumn` plus field-specific wrappers and one `window` listener for `jb:role:writeback`. No `app.js` extraction needed.
 - **Tests run + results:**
-- **Schema impact (if any):** (must update `schemas/pipeline-row.v1.json` if columns change — flag this, don't just do it)
-- **Known risks:**
+  - `node --check flowing-writes.js app.js` — passed
+  - `npm test -- tests/role-writeback-bridge.test.mjs` — passed (5 tests)
+- **Schema impact (if any):** None. All write-back fields map to existing `schemas/pipeline-row.v1.json` columns; no schema update needed.
+- **Known risks:** Manual browser smoke is deferred until the Workshop lane is merged. `reply` preserves the column S enum by writing `Yes`; the ISO event value is not persisted separately. `passed=false` is a no-op because there is no contract-safe prior stage to restore.
