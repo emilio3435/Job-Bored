@@ -48,6 +48,13 @@ body.jb-v2 [data-region="lattice"] .jb-lat__count {
 
 body.jb-v2 [data-region="lattice"] .jb-lat__spacer { flex: 1 1 auto; }
 
+body.jb-v2 [data-region="lattice"] .jb-lat__filters {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 body.jb-v2 [data-region="lattice"] .jb-lat__search {
   flex: 0 1 240px;
   font-family: var(--jb-font-body);
@@ -103,6 +110,19 @@ body.jb-v2 [data-region="lattice"] .jb-lat__pill[aria-pressed="true"] {
   background: var(--jb-mint-soft);
   border-color: var(--jb-mint-deep);
   color: var(--jb-mint-deep);
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__filters .jb-lat__pill[aria-pressed="true"] {
+  background: var(--jb-amber-soft);
+  border-color: var(--jb-amber);
+  color: var(--jb-ink);
+}
+
+@media (max-width: 760px) {
+  body.jb-v2 [data-region="lattice"] .jb-lat__search,
+  body.jb-v2 [data-region="lattice"] .jb-lat__filters {
+    flex: 1 1 100%;
+  }
 }
 
 /* Board — horizontal scroller with snap. */

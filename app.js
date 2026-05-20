@@ -7536,6 +7536,77 @@ const expandedStages = new Set(
 /** Stable key of the job currently shown in the detail drawer, or -1 */
 let activeDetailKey = -1;
 
+function getPipelineViewFilters() {
+  return {
+    favoritesOnly,
+    showDismissed,
+  };
+}
+
+function syncPipelineFilterControls() {
+  if (typeof document === "undefined") return;
+  const favChip = document.getElementById("favoritesOnlyChip");
+  if (favChip) {
+    favChip.classList.toggle("active", favoritesOnly);
+    favChip.setAttribute("aria-pressed", String(favoritesOnly));
+  }
+  const dismissedChip = document.getElementById("showDismissedChip");
+  if (dismissedChip) {
+    dismissedChip.classList.toggle("active", showDismissed);
+    dismissedChip.setAttribute("aria-pressed", String(showDismissed));
+  }
+}
+
+function notifyPipelineFiltersChanged() {
+  try {
+    if (typeof document === "undefined" || typeof CustomEvent !== "function") {
+      return;
+    }
+    document.dispatchEvent(
+      new CustomEvent("jb:pipeline:filters-changed", {
+        detail: getPipelineViewFilters(),
+      }),
+    );
+  } catch (_) {
+    /* Filter notifications are best-effort for optional v2 surfaces. */
+  }
+}
+
+function notifyPipelineRendered() {
+  try {
+    if (typeof document === "undefined" || typeof CustomEvent !== "function") {
+      return;
+    }
+    document.dispatchEvent(new CustomEvent("jb:pipeline:rendered"));
+  } catch (_) {
+    /* Render notifications are best-effort for optional v2 surfaces. */
+  }
+}
+
+function setPipelineViewFilters(nextFilters = {}) {
+  let changed = false;
+  if (Object.prototype.hasOwnProperty.call(nextFilters, "favoritesOnly")) {
+    const next = !!nextFilters.favoritesOnly;
+    if (favoritesOnly !== next) {
+      favoritesOnly = next;
+      changed = true;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(nextFilters, "showDismissed")) {
+    const next = !!nextFilters.showDismissed;
+    if (showDismissed !== next) {
+      showDismissed = next;
+      changed = true;
+    }
+  }
+  syncPipelineFilterControls();
+  if (changed) {
+    renderPipeline();
+    notifyPipelineFiltersChanged();
+  }
+  return getPipelineViewFilters();
+}
+
 // Auth state — access token stays in memory; localStorage only keeps a restore marker
 let accessToken = null;
 let userEmail = null;
@@ -7557,6 +7628,11 @@ if (typeof window !== "undefined") {
     if (!Number.isInteger(idx) || idx < 0) return null;
     return getSheetRow(idx);
   };
+  window.JobBored.getPipelineJobs = function () {
+    return pipelineData;
+  };
+  window.JobBored.getPipelineViewFilters = getPipelineViewFilters;
+  window.JobBored.setPipelineViewFilters = setPipelineViewFilters;
 }
 /** Profile photo URL from Google userinfo (optional). */
 let userPictureUrl = null;
@@ -12566,6 +12642,7 @@ function renderPipeline() {
 
   container.innerHTML = renderPipelineBoard(data);
   attachBoardListeners();
+  notifyPipelineRendered();
 }
 
 function renderCardActions(job, indexForNotesId) {
@@ -19526,21 +19603,16 @@ function init() {
   const favChip = document.getElementById("favoritesOnlyChip");
   if (favChip) {
     favChip.addEventListener("click", () => {
-      favoritesOnly = !favoritesOnly;
-      favChip.classList.toggle("active", favoritesOnly);
-      favChip.setAttribute("aria-pressed", String(favoritesOnly));
-      renderPipeline();
+      setPipelineViewFilters({ favoritesOnly: !favoritesOnly });
     });
   }
   const dismissedChip = document.getElementById("showDismissedChip");
   if (dismissedChip) {
     dismissedChip.addEventListener("click", () => {
-      showDismissed = !showDismissed;
-      dismissedChip.classList.toggle("active", showDismissed);
-      dismissedChip.setAttribute("aria-pressed", String(showDismissed));
-      renderPipeline();
+      setPipelineViewFilters({ showDismissed: !showDismissed });
     });
   }
+  syncPipelineFilterControls();
 
   // Refresh
   document.getElementById("refreshBtn")?.addEventListener("click", () => {

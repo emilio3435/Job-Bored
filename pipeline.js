@@ -172,12 +172,59 @@
   }
 
   function initialState() {
-    return { sort: SORT_DEFAULT, collapsed: loadCollapsedState() };
+    return { sort: SORT_DEFAULT, collapsed: loadCollapsedState(), filters: readPipelineFilters() };
   }
 
   function ensureStateShape(state) {
     if (!state.collapsed) state.collapsed = loadCollapsedState();
+    state.filters = readPipelineFilters(state.filters);
     return state;
+  }
+
+  function normalizePipelineFilters(raw) {
+    raw = raw || {};
+    return {
+      favoritesOnly: !!raw.favoritesOnly,
+      showDismissed: !!raw.showDismissed,
+    };
+  }
+
+  function readPipelineFilters(fallback) {
+    var api = root.JobBored;
+    if (api && typeof api.getPipelineViewFilters === "function") {
+      try {
+        return normalizePipelineFilters(api.getPipelineViewFilters());
+      } catch (_) {
+        /* Fall through to the local fallback. */
+      }
+    }
+    return normalizePipelineFilters(fallback);
+  }
+
+  function writePipelineFilter(state, filterName, value) {
+    var next = {};
+    next[filterName] = !!value;
+    var api = root.JobBored;
+    if (api && typeof api.setPipelineViewFilters === "function") {
+      try {
+        state.filters = normalizePipelineFilters(api.setPipelineViewFilters(next));
+        return true;
+      } catch (_) {
+        /* Fall through to local state so the control remains responsive. */
+      }
+    }
+    state.filters = normalizePipelineFilters(state.filters);
+    state.filters[filterName] = !!value;
+    return false;
+  }
+
+  function setFilterChipState(region, state) {
+    var filters = readPipelineFilters(state && state.filters);
+    if (state) state.filters = filters;
+    var fav = region.querySelector('.pipe-tool__chip[data-filter="favorites"]');
+    if (fav) fav.setAttribute("aria-pressed", filters.favoritesOnly ? "true" : "false");
+    var dismissed = region.querySelector('.pipe-tool__chip[data-filter="dismissed"]');
+    if (dismissed) dismissed.setAttribute("aria-pressed", filters.showDismissed ? "true" : "false");
   }
 
   function isCollapsed(state, stageKey) {
@@ -290,11 +337,25 @@
       var pressed = state.sort === mode ? "true" : "false";
       return '<button type="button" class="pipe-tool__chip" data-sort="' + mode + '" aria-pressed="' + pressed + '">' + label + '</button>';
     }).join("");
+    var filters = readPipelineFilters(state.filters);
+    state.filters = filters;
+    var filterChips = [
+      { key: "favorites", label: "★ Favorites", pressed: filters.favoritesOnly },
+      { key: "dismissed", label: "Dismissed", pressed: filters.showDismissed },
+    ].map(function (filter) {
+      return '<button type="button" class="pipe-tool__chip pipe-tool__chip--filter" data-filter="' + filter.key + '" aria-pressed="' + (filter.pressed ? "true" : "false") + '">' + filter.label + '</button>';
+    }).join("");
     return [
       '<div class="pipe-toolbar" role="toolbar" aria-label="Pipeline tools">',
-      '  <div class="pipe-tool__chips" role="group" aria-label="Sort">',
-      '    <span class="pipe-tool__label">Sort</span>',
-            sortChips,
+      '  <div class="pipe-tool__groups">',
+      '    <div class="pipe-tool__chips" role="group" aria-label="Sort">',
+      '      <span class="pipe-tool__label">Sort</span>',
+              sortChips,
+      '    </div>',
+      '    <div class="pipe-tool__chips pipe-tool__chips--filters" role="group" aria-label="Pipeline filters">',
+      '      <span class="pipe-tool__label">Filters</span>',
+              filterChips,
+      '    </div>',
       '  </div>',
       '  <div class="pipe-tool__actions">',
       '    <button type="button" class="pipe-tool__btn" data-action="add-role">+ Add role</button>',
@@ -385,6 +446,7 @@
     region.__pipeMounted = true;
     region.innerHTML = buildShell(state);
     applyCollapsedState(region, state);
+    setFilterChipState(region, state);
     bindToolbar(region, state);
     bindRegion(region, state);
   }
@@ -420,6 +482,22 @@
           chips.forEach(function (c) {
             c.setAttribute("aria-pressed", c.getAttribute("data-sort") === mode ? "true" : "false");
           });
+          rerender(region, state);
+        }
+        return;
+      }
+      var filterChip = e.target.closest(".pipe-tool__chip[data-filter]");
+      if (filterChip) {
+        e.preventDefault();
+        var filter = filterChip.getAttribute("data-filter");
+        var filterName =
+          filter === "favorites" ? "favoritesOnly" :
+          filter === "dismissed" ? "showDismissed" :
+          "";
+        if (filterName) {
+          var filters = readPipelineFilters(state.filters);
+          writePipelineFilter(state, filterName, !filters[filterName]);
+          setFilterChipState(region, state);
           rerender(region, state);
         }
         return;
@@ -472,6 +550,12 @@
       }
     }
     region.__pipeOpenRole = openRoleAndScroll;
+
+    document.addEventListener("jb:pipeline:filters-changed", function (e) {
+      state.filters = normalizePipelineFilters(e && e.detail);
+      setFilterChipState(region, state);
+      scheduleRender();
+    });
 
     // Card click → open role dossier (delegated, but drag handler suppresses click on drag).
     region.addEventListener("click", function (e) {
