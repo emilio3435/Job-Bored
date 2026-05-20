@@ -32,13 +32,17 @@ These keep the UI and filters predictable. Other text usually still **displays**
 
 | Column              | Letter | Suggested values                                                                                                               |
 | ------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| **Status**          | M      | `New`, `Researching`, `Applied`, `Phone Screen`, `Interviewing`, `Offer`, `Rejected`, `Passed` (case-insensitive for matching) |
+| **Status**          | M      | `New`, `Researching`, `Applied`, `Phone Screen`, `Interviewing`, `Offer`, `Rejected`, `Passed`, `Expired` (case-insensitive for matching) |
 | **Priority**        | I      | `🔥` (hot), `⚡` (high), `—` or empty (normal), `↓` (low) — see template / README                                              |
 | **Fit Score**       | H      | Number **1–10** or empty                                                                                                       |
 | **Did they reply?** | S      | `Yes`, `No`, or `Unknown` (optional column)                                                                                    |
 | **Logo URL**        | T      | Company logo image URL (optional; discovery agents auto-populate, dashboard derives fallback from job Link domain when empty)  |
 
 Hermes, n8n, or your agent **writes** these cells; the dashboard **reads** them and supports **manual write-back** (status, notes, etc.) when the user signs in with Google.
+
+### Expired job cleanup agents
+
+Expired cleanup is a safe move, not deletion: write `Expired` to column M only when the posting is confirmed closed, and append an audit line to Notes with timestamp, previous status, checked URL, evidence, confidence, and source. Column E remains the row identity. Cleanup agents should default to blank/New/Researching rows; Applied, Phone Screen, Interviewing, Offer, Rejected, Passed, and already Expired rows are protected unless a human deliberately handles them. HTTP 403, captchas, timeouts, network failures, and ambiguous pages must be reported as needs-review/unknown, not auto-expired.
 
 ---
 

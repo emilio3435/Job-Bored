@@ -36,8 +36,8 @@
     "on:",
     "  workflow_dispatch:",
     "  schedule:",
-    "    # Daily 14:00 UTC — change to your timezone preference",
-    "    - cron: \"0 14 * * *\"",
+    "    # Daily 06:00 America/Chicago — 11:00 UTC during CDT, 12:00 UTC during CST.",
+    "    - cron: \"0 11,12 * * *\"",
     "",
     "jobs:",
     "  discovery:",
@@ -47,11 +47,18 @@
     "        env:",
     "          WEBHOOK_URL: ${{ secrets.COMMAND_CENTER_DISCOVERY_WEBHOOK_URL }}",
     "          SHEET_ID: ${{ secrets.COMMAND_CENTER_SHEET_ID }}",
+    "          WEBHOOK_SECRET: ${{ secrets.COMMAND_CENTER_DISCOVERY_WEBHOOK_SECRET }}",
     "        run: |",
     "          set -euo pipefail",
     "          if [ -z \"${WEBHOOK_URL:-}\" ] || [ -z \"${SHEET_ID:-}\" ]; then",
     "            echo \"Set secrets COMMAND_CENTER_DISCOVERY_WEBHOOK_URL and COMMAND_CENTER_SHEET_ID\"",
     "            exit 1",
+    "          fi",
+    "          LOCAL_TARGET=\"06:00\"",
+    "          LOCAL_TIME=\"$(TZ=America/Chicago date +\"%H:%M\")\"",
+    "          if [ \"${{ github.event_name }}\" = \"schedule\" ] && [ \"$LOCAL_TIME\" != \"$LOCAL_TARGET\" ]; then",
+    "            echo \"Skipping discovery: America/Chicago local time is $LOCAL_TIME, not $LOCAL_TARGET.\"",
+    "            exit 0",
     "          fi",
     "          VAR_KEY=\"gh-${{ github.run_id }}-${{ github.run_attempt }}-$(date +%s)\"",
     "          REQ_AT=\"$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")\"",
@@ -65,10 +72,16 @@
     "              sheetId: $s,",
     "              variationKey: $v,",
     "              requestedAt: $t,",
+    "              trigger: \"scheduled-github\",",
     "              discoveryProfile: {}",
     "            }')",
+    "          SECRET_HEADER=()",
+    "          if [ -n \"${WEBHOOK_SECRET:-}\" ]; then",
+    "            SECRET_HEADER=(-H \"x-discovery-secret: ${WEBHOOK_SECRET}\")",
+    "          fi",
     "          curl -sS -X POST \"$WEBHOOK_URL\" \\",
     "            -H \"Content-Type: application/json\" \\",
+    "            \"${SECRET_HEADER[@]}\" \\",
     "            -d \"$BODY\" \\",
     "            -w \"\\nHTTP %{http_code}\\n\"",
     "",
@@ -1467,9 +1480,23 @@
   }
 
   function formatCronLine(hour, minute) {
-    var h = clampHour(hour, 14);
+    var h = clampHour(hour, 6);
     var m = clampMinute(minute, 0);
-    return String(m) + " " + String(h) + " * * *";
+    var hours = [(h + 5) % 24, (h + 6) % 24].sort(function (a, b) {
+      return a - b;
+    });
+    return String(m) + " " + hours.join(",") + " * * *";
+  }
+
+  function formatChicagoUtcScheduleSummary(hour, minute) {
+    var h = clampHour(hour, 6);
+    var m = clampMinute(minute, 0);
+    return (
+      formatTimeString((h + 5) % 24, m) +
+      " UTC during CDT and " +
+      formatTimeString((h + 6) % 24, m) +
+      " UTC during CST"
+    );
   }
 
   function buildGithubActionsYaml(hour, minute, template) {
@@ -1477,22 +1504,23 @@
       typeof template === "string" && template
         ? template
         : GITHUB_ACTIONS_TEMPLATE;
-    var h = clampHour(hour, 14);
+    var h = clampHour(hour, 6);
     var m = clampMinute(minute, 0);
     var cron = formatCronLine(h, m);
-    var hh = String(h).padStart(2, "0");
-    var mm = String(m).padStart(2, "0");
+    var localTime = formatTimeString(h, m);
     var out = source.replace(
       /- cron: "[^"]*"/,
       '- cron: "' + cron + '"',
     );
     out = out.replace(
-      /# Daily [0-9]{1,2}:[0-9]{2} UTC[^\n]*/,
+      /# Daily [^\n]*America\/Chicago[^\n]*/,
       "# Daily " +
-        hh +
-        ":" +
-        mm +
-        " UTC — matches the time picked in Settings → Profile → Schedule",
+        localTime +
+        " America/Chicago — fires at both UTC offsets; shell guard skips the non-matching run.",
+    );
+    out = out.replace(
+      /LOCAL_TARGET="[0-9]{2}:[0-9]{2}"/,
+      'LOCAL_TARGET="' + localTime + '"',
     );
     return out;
   }
@@ -1563,12 +1591,12 @@
   }
 
   function readCloudScheduleState() {
-    return readScheduleState(SCHEDULE_CLOUD_STORAGE_KEY, { hour: 14, minute: 0 });
+    return readScheduleState(SCHEDULE_CLOUD_STORAGE_KEY, { hour: 6, minute: 0 });
   }
 
   function writeCloudScheduleState(patch) {
     return writeScheduleState(SCHEDULE_CLOUD_STORAGE_KEY, patch, {
-      hour: 14,
+      hour: 6,
       minute: 0,
     });
   }
@@ -1650,12 +1678,11 @@
       els.scheduleCloudTime.value = formatTimeString(state.hour, state.minute);
     }
     if (els.scheduleCloudLocalPreview) {
-      var local = formatLocalTimeFromUtc(state.hour, state.minute);
       els.scheduleCloudLocalPreview.textContent =
         formatTimeString(state.hour, state.minute) +
-        " UTC is about " +
-        local +
-        " in your local time today.";
+        " America/Chicago runs at " +
+        formatChicagoUtcScheduleSummary(state.hour, state.minute) +
+        ". The workflow fires at both UTC hours and skips the non-matching run.";
     }
     renderCloudBadge(state.enabled);
   }
@@ -2083,6 +2110,7 @@
       buildUninstallCommand: buildUninstallCommand,
       describeOsArtifact: describeOsArtifact,
       formatCronLine: formatCronLine,
+      formatChicagoUtcScheduleSummary: formatChicagoUtcScheduleSummary,
       buildGithubActionsYaml: buildGithubActionsYaml,
       formatLocalTimeFromUtc: formatLocalTimeFromUtc,
       parseTimeString: parseTimeString,

@@ -142,10 +142,10 @@ describe("Schedule card — Tier 2 (local) localStorage round-trip", () => {
     assert.equal(state.minute, 0);
   });
 
-  it("Tier 3 cloud state has its own storage key and default 14:00", async () => {
+  it("Tier 3 cloud state has its own storage key and default 06:00 America/Chicago", async () => {
     const { schedule } = await loadScheduleModule();
     const cloud = schedule.readCloudScheduleState();
-    assert.deepEqual(asPlain(cloud), { enabled: false, hour: 14, minute: 0 });
+    assert.deepEqual(asPlain(cloud), { enabled: false, hour: 6, minute: 0 });
     schedule.writeCloudScheduleState({ hour: 7, minute: 45, enabled: true });
     const afterCloud = schedule.readCloudScheduleState();
     assert.deepEqual(asPlain(afterCloud), { enabled: true, hour: 7, minute: 45 });
@@ -527,17 +527,16 @@ describe("Schedule card — OS detection emits correct install command", () => {
 });
 
 describe("Schedule card — Tier 3 YAML download", () => {
-  it("emits a cron matching the picked hour and minute", async () => {
+  it("emits a DST-safe cron matching the picked America/Chicago time", async () => {
     const { schedule } = await loadScheduleModule();
     const yaml = schedule.buildGithubActionsYaml(9, 30);
     assert.ok(
-      yaml.includes('- cron: "30 9 * * *"'),
-      `expected cron line '- cron: "30 9 * * *"' in generated YAML, got:\n${yaml}`,
+      yaml.includes('- cron: "30 14,15 * * *"'),
+      `expected cron line '- cron: "30 14,15 * * *"' in generated YAML, got:\n${yaml}`,
     );
-    // The defaulted time from the template must have been replaced.
     assert.ok(
-      !yaml.includes('- cron: "0 14 * * *"'),
-      "original template cron should not leak through when a new time is picked",
+      yaml.includes('LOCAL_TARGET="09:30"'),
+      `expected guard target LOCAL_TARGET="09:30" in generated YAML, got:\n${yaml}`,
     );
   });
 
@@ -545,14 +544,14 @@ describe("Schedule card — Tier 3 YAML download", () => {
     const { schedule } = await loadScheduleModule();
     const yaml = schedule.buildGithubActionsYaml(6, 5);
     assert.ok(
-      /# Daily 06:05 UTC/.test(yaml),
-      `expected '# Daily 06:05 UTC' comment, got:\n${yaml}`,
+      /# Daily 06:05 America\/Chicago/.test(yaml),
+      `expected '# Daily 06:05 America/Chicago' comment, got:\n${yaml}`,
     );
   });
 
-  it("preserves the rest of the workflow template (name, env, curl step)", async () => {
+  it("preserves the rest of the workflow template (name, env, secret, curl step)", async () => {
     const { schedule } = await loadScheduleModule();
-    const yaml = schedule.buildGithubActionsYaml(14, 0);
+    const yaml = schedule.buildGithubActionsYaml(6, 0);
     assert.ok(
       yaml.includes("name: Command Center discovery ping"),
       "workflow name line should remain untouched",
@@ -560,6 +559,14 @@ describe("Schedule card — Tier 3 YAML download", () => {
     assert.ok(
       yaml.includes("COMMAND_CENTER_DISCOVERY_WEBHOOK_URL"),
       "secret reference should remain untouched",
+    );
+    assert.ok(
+      yaml.includes("COMMAND_CENTER_DISCOVERY_WEBHOOK_SECRET"),
+      "optional webhook secret reference should be present",
+    );
+    assert.ok(
+      yaml.includes('trigger: "scheduled-github"'),
+      "scheduled GitHub trigger should be sent in the webhook payload",
     );
     assert.ok(
       yaml.includes("curl -sS -X POST"),
@@ -573,11 +580,18 @@ describe("Schedule card — Tier 3 YAML download", () => {
     assert.ok(schedule.buildGithubActionsYaml(0, 0).startsWith("# Command Center"));
   });
 
-  it("cron helper zero-pads correctly", async () => {
+  it("cron helper emits both Chicago UTC offsets", async () => {
     const { schedule } = await loadScheduleModule();
-    // Standard cron does not require zero-pad; assert plain numeric output.
-    assert.equal(schedule.formatCronLine(0, 0), "0 0 * * *");
-    assert.equal(schedule.formatCronLine(23, 59), "59 23 * * *");
+    assert.equal(schedule.formatCronLine(0, 0), "0 5,6 * * *");
+    assert.equal(schedule.formatCronLine(23, 59), "59 4,5 * * *");
+  });
+
+  it("UTC summary names both daylight and standard offsets", async () => {
+    const { schedule } = await loadScheduleModule();
+    assert.equal(
+      schedule.formatChicagoUtcScheduleSummary(6, 0),
+      "11:00 UTC during CDT and 12:00 UTC during CST",
+    );
   });
 });
 

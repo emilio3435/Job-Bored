@@ -10,7 +10,7 @@ A beautiful, open-source job search dashboard powered by Google Sheets. Track ap
 - **Write-back to Sheets** — update status, mark applied, add notes directly from the dashboard
 - **Daily Brief** — two-column layout with at-a-glance counts, follow-ups, who you’re waiting on, and stuck applications ([details](SETUP.md#daily-brief-computed-in-the-dashboard))
 - **KPI bar** — total roles, hot leads, applied count, interview count, avg fit score
-- **Pipeline filters** — **Inbox** (New / Researching / unassigned) by default; stage pills for Applied, Interviewing, Negotiating
+- **Pipeline filters** — scan active stages, archive Rejected / Passed / Expired roles, and keep dismissed roles out of view unless requested
 - **Run discovery** — optional webhook in `config.js` so your agent (Hermes, n8n, etc.) runs another pass; POST includes `schemaVersion` and optional `discoveryProfile` from Settings ([AGENT_CONTRACT.md](AGENT_CONTRACT.md))
 - **ATS LLM scorecard** — generated drafts now include structured ATS analysis (score, strengths, gaps, rewrite suggestions) via local server endpoint or webhook
 - **Last contact & reply** — optional columns R–S editable on each card when signed in
@@ -153,7 +153,7 @@ The dashboard reads the **Pipeline** tab (and ignores other tabs).
 | J: Tags            | Matched keywords                                                                      | Auto                             |
 | K: Fit Assessment  | Why it matches your profile                                                           | Auto                             |
 | L: Contact         | Recruiter/HM name if found                                                            | Auto                             |
-| M: Status          | New / Researching / Applied / Phone Screen / Interviewing / Offer / Rejected / Passed | **You** (via dashboard or Sheet) |
+| M: Status          | New / Researching / Applied / Phone Screen / Interviewing / Offer / Rejected / Passed / Expired | **You** (via dashboard or Sheet) |
 | N: Applied Date    | When you applied                                                                      | **You**                          |
 | O: Notes           | Personal notes                                                                        | **You**                          |
 | P: Follow-up Date  | When to follow up                                                                     | **You**                          |
@@ -165,6 +165,10 @@ The dashboard reads the **Pipeline** tab (and ignores other tabs).
 ## Agentic discovery (optional)
 
 Automation (e.g. [Hermes Agent](https://github.com/NousResearch/hermes-agent), n8n, Apps Script) fills your **Pipeline** sheet; this dashboard displays and edits those rows. The integration contract (webhook JSON, columns, dedupe by job URL) is documented in **[AGENT_CONTRACT.md](AGENT_CONTRACT.md)**.
+
+### Expired job cleanup
+
+Use `npm run cleanup:expired-jobs -- --sheet-id=<your-sheet-id>` for a dry-run scan of existing Pipeline links. Add `--write` only when the report looks right. The runner never deletes rows; it moves only confirmed closed New/Researching rows to `Status = Expired` and appends an audit entry to Notes. Applied, Phone Screen, Interviewing, Offer, Rejected, Passed, and already Expired rows are skipped by default. Network failures, 403s, captchas, timeouts, and ambiguous pages stay in the report as needs-review instead of being marked Expired.
 
 **You do not need a webhook** to use the dashboard — only for the **Run discovery** button or automation that speaks the webhook contract. See **[docs/DISCOVERY-PATHS.md](docs/DISCOVERY-PATHS.md)** (diagrams: manual rows, scheduled jobs, GitHub Actions, vs browser POST).
 
