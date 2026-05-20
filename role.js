@@ -405,9 +405,13 @@
             '</div>' +
           '</div>' +
         '</div>' +
-      '</section>';
+      '</section>' +
+      '<div data-mount="workshop"></div>';
 
     wireDossier(region, job);
+
+    var workshopMount = region.querySelector('[data-mount="workshop"]');
+    if (workshopMount && root.JobBoredDossierWorkshop && typeof root.JobBoredDossierWorkshop.renderWorkshop === "function") root.JobBoredDossierWorkshop.renderWorkshop(workshopMount, vm);
   }
 
   function wireDossier(region, job) {
