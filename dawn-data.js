@@ -39,6 +39,7 @@
     { key: "offer", label: "Offer", token: "--jb-stage-offer" },
     { key: "rejected", label: "Rejected", token: "--jb-stage-rejected" },
     { key: "passed", label: "Passed", token: "--jb-stage-passed" },
+    { key: "expired", label: "Expired", token: "--jb-stage-expired" },
   ];
 
   /** stage CSS key -> <jb-stage-dot stage="..."> attribute name. */
@@ -51,6 +52,7 @@
     "offer": "offer",
     "rejected": "rejected",
     "passed": "passed",
+    "expired": "expired",
   };
 
   function _toInt(s) {
@@ -387,21 +389,27 @@
     };
   }
 
-  /** "By the numbers" 2×2 stats card — values, labels, deltas, tones. */
-  function buildByTheNumbers(hero, funnel) {
-    var offers = (funnel.find(function (s) { return s.stage === "offer"; }) || {}).count || 0;
-    var inLoop = hero.inLoop || 0;
+  function _funnelCount(rows, kind) {
+    return ((rows || []).find(function (s) { return s.kind === kind; }) || {}).count || 0;
+  }
+
+  /** "By the numbers" 2×2 stats card — same 30-day stage counts as the funnel. */
+  function buildByTheNumbers(funnel30d) {
+    var discovered = _funnelCount(funnel30d, "discovered");
+    var applied = _funnelCount(funnel30d, "applied");
+    var inLoop = _funnelCount(funnel30d, "phone_screen") + _funnelCount(funnel30d, "interview");
+    var offers = _funnelCount(funnel30d, "offer");
     return [
-      { value: hero.found || 0,   label: "roles surfaced",   delta: hero.foundSub   || "vs last week", tone: "mint" },
-      { value: hero.applied || 0, label: "applications",      delta: hero.appliedSub || "this week",     tone: "amber" },
-      { value: inLoop,            label: "interviews this wk", delta: hero.inLoopSub  || "screens + loops", tone: null },
-      { value: offers,            label: "offer" + (offers === 1 ? "" : "s") + " live", delta: hero.offersSub || "in pipeline", tone: offers > 0 ? "amber" : null },
+      { value: discovered, label: "roles surfaced", delta: "last 30 days", tone: discovered > 0 ? "mint" : null },
+      { value: applied,    label: "applications",   delta: "last 30 days", tone: applied > 0 ? "amber" : null },
+      { value: inLoop,     label: "interviews",     delta: "phone screens + loops", tone: inLoop > 0 ? "mint" : null },
+      { value: offers,     label: "offer" + (offers === 1 ? "" : "s") + " live", delta: "last 30 days", tone: offers > 0 ? "amber" : null },
     ];
   }
 
   /** 6-row 30-day funnel for the brief — uses kanban-card counts. */
   function buildFunnel30d(jobs) {
-    var byStage = { "new": 0, "researching": 0, "applied": 0, "phone-screen": 0, "interviewing": 0, "offer": 0 };
+    var byStage = { "new": 0, "researching": 0, "applied": 0, "phone-screen": 0, "interviewing": 0, "offer": 0, "expired": 0 };
     jobs.forEach(function (j) {
       // Treat any non-terminal stage as part of its kind.
       if (Object.prototype.hasOwnProperty.call(byStage, j.stage)) byStage[j.stage] += 1;
@@ -413,6 +421,7 @@
       { kind: "phone_screen", label: "Phone screen", count: byStage["phone-screen"]  },
       { kind: "interview",    label: "Interview",    count: byStage["interviewing"]  },
       { kind: "offer",        label: "Offer",        count: byStage["offer"]         },
+      { kind: "expired",      label: "Expired",      count: byStage["expired"]       },
     ];
   }
 
@@ -485,9 +494,9 @@
     // Phase-2 editorial extensions (newspaper-brief layout). Derived data
     // only — no schema additions to legacy DOM.
     var nowDate = (opts && opts.now instanceof Date) ? opts.now : new Date();
-    var lead = buildLead(hero, funnel, jobs);
-    var byTheNumbers = buildByTheNumbers(hero, funnel);
     var funnel30d = buildFunnel30d(jobs);
+    var lead = buildLead(hero, funnel, jobs);
+    var byTheNumbers = buildByTheNumbers(funnel30d);
     var stories = buildStories(hero, funnel, jobs);
 
     return {
@@ -562,10 +571,10 @@
         stickerLabel: "start here",
       },
       byTheNumbers: [
-        { value: 0, label: "roles surfaced",  delta: "no runs yet",   tone: null },
-        { value: 0, label: "applications",    delta: "—",              tone: null },
-        { value: 0, label: "interviews",      delta: "—",              tone: null },
-        { value: 0, label: "offers live",     delta: "—",              tone: null },
+        { value: 0, label: "roles surfaced", delta: "last 30 days", tone: null },
+        { value: 0, label: "applications",   delta: "last 30 days", tone: null },
+        { value: 0, label: "interviews",     delta: "phone screens + loops", tone: null },
+        { value: 0, label: "offers live",    delta: "last 30 days", tone: null },
       ],
       funnel30d: [
         { kind: "discovered",   label: "Discovered",   count: 0 },
@@ -574,6 +583,7 @@
         { kind: "phone_screen", label: "Phone screen", count: 0 },
         { kind: "interview",    label: "Interview",    count: 0 },
         { kind: "offer",        label: "Offer",        count: 0 },
+        { kind: "expired",      label: "Expired",      count: 0 },
       ],
       stories: [],
     };
@@ -595,6 +605,7 @@
     "offer": "offer",
     "rejected": "rejected",
     "passed": "passed",
+    "expired": "expired",
   };
   var PIPELINE_STAGES = [
     { key: "researching",  label: "Researching" },
@@ -602,6 +613,7 @@
     { key: "phone-screen", label: "Phone screen" },
     { key: "interviewing", label: "Interviewing" },
     { key: "offer",        label: "Offer" },
+    { key: "expired",      label: "Expired" },
   ];
 
   function _attr(el, name) {
@@ -1408,9 +1420,9 @@
       };
 
       var pipeOk =
-        pipe && Array.isArray(pipe.stages) && pipe.stages.length === 5 &&
+        pipe && Array.isArray(pipe.stages) && pipe.stages.length === 6 &&
         pipe.stages[0].key === "researching" &&
-        pipe.stages[4].key === "offer" &&
+        pipe.stages[5].key === "expired" &&
         pipe.empty === false &&
         flag("applied", "A1") === "stale" &&
         flag("applied", "A2") === null &&
@@ -1455,7 +1467,7 @@
       // empty-doc path
       var emptyDoc = document.implementation.createHTMLDocument("empty");
       var pipeEmpty = getPipelineViewModel({ doc: emptyDoc });
-      var emptyOk = pipeEmpty && pipeEmpty.empty === true && pipeEmpty.stages.length === 5 && pipeEmpty.untriaged.length === 0;
+      var emptyOk = pipeEmpty && pipeEmpty.empty === true && pipeEmpty.stages.length === 6 && pipeEmpty.untriaged.length === 0;
       var atsA = root.JobBoredAts && root.JobBoredAts.score({ jd: "python aws", draft: "I worked with python and aws" });
       var atsB = root.JobBoredAts && root.JobBoredAts.score({ jd: "python aws", draft: "I worked with python and aws" });
       var atsOk = typeof atsA === "number" && atsA === atsB && atsA >= 0 && atsA <= 100;

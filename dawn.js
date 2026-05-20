@@ -176,7 +176,7 @@
       // 3b. Stats column: by-the-numbers 2x2 grid + 6-row funnel card.
       '  <div class="brief-stats-col">',
       '    <div class="brief-card brief-stats-card">',
-      '      <div class="brief-stats-card__eyebrow">BY THE NUMBERS · 7 DAYS</div>',
+      '      <div class="brief-stats-card__eyebrow">BY THE NUMBERS · LAST 30 DAYS</div>',
       '      <div class="brief-stats-grid">',
       stats.map(statHtml).join(""),
       '      </div>',
