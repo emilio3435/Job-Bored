@@ -29,6 +29,7 @@
     "Offer",
     "Rejected",
     "Passed",
+    "Expired",
   ];
   var CLOSED = { Rejected: true, Passed: true };
   var STAGE_DOT_KEY = {
@@ -40,6 +41,7 @@
     Offer: "offer",
     Rejected: "rejected",
     Passed: "passed",
+    Expired: "expired",
   };
 
   // ---- helpers ----------------------------------------------------------
@@ -149,7 +151,56 @@
   }
 
   function getJobs() {
+    if (
+      window.JobBored &&
+      typeof window.JobBored.getPipelineJobs === "function"
+    ) {
+      try {
+        return window.JobBored.getPipelineJobs() || [];
+      } catch (_) {
+        /* Fall through to the legacy global. */
+      }
+    }
     return Array.isArray(window.pipelineData) ? window.pipelineData : [];
+  }
+
+  function normalizePipelineFilters(raw) {
+    raw = raw || {};
+    return {
+      favoritesOnly: !!raw.favoritesOnly,
+      showDismissed: !!raw.showDismissed,
+    };
+  }
+
+  function readPipelineFilters() {
+    if (
+      window.JobBored &&
+      typeof window.JobBored.getPipelineViewFilters === "function"
+    ) {
+      try {
+        return normalizePipelineFilters(window.JobBored.getPipelineViewFilters());
+      } catch (_) {
+        /* Fall through to local state. */
+      }
+    }
+    return normalizePipelineFilters(state);
+  }
+
+  function writePipelineFilter(filterName, value) {
+    var next = {};
+    next[filterName] = !!value;
+    if (
+      window.JobBored &&
+      typeof window.JobBored.setPipelineViewFilters === "function"
+    ) {
+      try {
+        return normalizePipelineFilters(window.JobBored.setPipelineViewFilters(next));
+      } catch (_) {
+        /* Fall through to local state. */
+      }
+    }
+    state[filterName] = !!value;
+    return normalizePipelineFilters(state);
   }
 
   function getRoot() {
@@ -161,6 +212,8 @@
   var state = {
     search: "",
     showClosed: false,
+    favoritesOnly: false,
+    showDismissed: false,
     selectedKey: null,
     drag: null, // { dataIndex, fromStage }
   };
@@ -261,13 +314,17 @@
 
   function buildBoard() {
     var jobs = getJobs();
+    var filters = readPipelineFilters();
+    state.favoritesOnly = filters.favoritesOnly;
+    state.showDismissed = filters.showDismissed;
     var byStage = {};
     for (var i = 0; i < STAGES.length; i++) byStage[STAGES[i]] = [];
 
     for (var idx = 0; idx < jobs.length; idx++) {
       var j = jobs[idx];
       if (!j) continue;
-      if (j.dismissedAt) continue; // honor legacy dismiss
+      if (!filters.showDismissed && j.dismissedAt) continue; // honor legacy dismiss by default
+      if (filters.favoritesOnly && !j.favorite) continue;
       if (!passesSearch(j, state.search)) continue;
       var stage = normalizeStage(j.status);
       byStage[stage].push({ job: j, dataIndex: idx });
@@ -293,7 +350,41 @@
   }
 
   function buildToolbar(total, shown) {
-    var pill = el("button", {
+    var filters = readPipelineFilters();
+    state.favoritesOnly = filters.favoritesOnly;
+    state.showDismissed = filters.showDismissed;
+
+    function filterPill(label, pressed, title, onClick) {
+      return el("button", {
+        type: "button",
+        class: "jb-lat__pill",
+        "aria-pressed": pressed ? "true" : "false",
+        title: title,
+        onclick: onClick,
+      }, label);
+    }
+
+    var favoritesPill = filterPill(
+      "★ Favorites",
+      filters.favoritesOnly,
+      "Show only favorited roles",
+      function () {
+        writePipelineFilter("favoritesOnly", !readPipelineFilters().favoritesOnly);
+        render();
+      }
+    );
+
+    var dismissedPill = filterPill(
+      "Dismissed",
+      filters.showDismissed,
+      "Include dismissed roles in the board",
+      function () {
+        writePipelineFilter("showDismissed", !readPipelineFilters().showDismissed);
+        render();
+      }
+    );
+
+    var closedPill = el("button", {
       type: "button",
       class: "jb-lat__pill",
       "aria-pressed": state.showClosed ? "true" : "false",
@@ -327,7 +418,11 @@
       el("span", { class: "jb-lat__count", text: shown + " of " + total }),
       el("span", { class: "jb-lat__spacer" }),
       search,
-      pill,
+      el("div", { class: "jb-lat__filters", role: "group", "aria-label": "Pipeline filters" }, [
+        favoritesPill,
+        dismissedPill,
+        closedPill,
+      ]),
     ]);
   }
 
@@ -392,11 +487,15 @@
     root.innerHTML = "";
 
     var jobs = getJobs();
+    var filters = readPipelineFilters();
+    state.favoritesOnly = filters.favoritesOnly;
+    state.showDismissed = filters.showDismissed;
     var total = 0;
     var shown = 0;
     for (var i = 0; i < jobs.length; i++) {
       if (!jobs[i]) continue;
-      if (jobs[i].dismissedAt) continue;
+      if (!filters.showDismissed && jobs[i].dismissedAt) continue;
+      if (filters.favoritesOnly && !jobs[i].favorite) continue;
       total++;
       if (passesSearch(jobs[i], state.search)) shown++;
     }
@@ -614,6 +713,7 @@
     // Custom event escape hatch for explicit re-renders if app.js
     // ever dispatches one in future.
     document.addEventListener("jb:pipeline:rendered", function () { render(); });
+    document.addEventListener("jb:pipeline:filters-changed", function () { render(); });
 
     // Run self-test if URL contains ?jb-v2-test=lattice
     if (location.search.indexOf("jb-v2-test=lattice") >= 0) selfTest();
