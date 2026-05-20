@@ -427,3 +427,256 @@ body.jb-v2 [data-region="letter"] .jb-letter-tool__hint {
   font-size: var(--jb-text-xs);
   color: var(--jb-ink-3);
 }
+body.jb-v2 [data-region="letter"] .jb-letter-tool:disabled,
+body.jb-v2 [data-region="letter"] .jb-letter-miss__btn:disabled,
+body.jb-v2 [data-region="letter"] .jb-letter-revision__button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+  transform: none;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-tool[data-busy="true"],
+body.jb-v2 [data-region="letter"] .jb-letter-revision__button[data-busy="true"] {
+  border-color: var(--jb-mint-deep);
+  box-shadow: var(--jb-shadow-focus);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-revision {
+  display: grid;
+  gap: var(--space-2, 8px);
+  padding-top: var(--space-2, 8px);
+  border-top: 1px dashed var(--jb-line-soft);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-revision__label {
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--jb-ink-2);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-revision__input {
+  width: 100%;
+  min-height: 5.25rem;
+  resize: vertical;
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-sm);
+  background: var(--jb-paper-2);
+  color: var(--jb-ink);
+  font: inherit;
+  font-size: var(--jb-text-sm);
+  line-height: 1.45;
+  padding: var(--space-2, 8px);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-revision__input:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-revision__button {
+  justify-self: start;
+  appearance: none;
+  border: 1px solid var(--jb-navy);
+  background: var(--jb-navy);
+  color: var(--jb-ink-inverse);
+  border-radius: var(--jb-radius-pill);
+  padding: 0.45rem 0.9rem;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-revision__button:hover {
+  border-color: var(--jb-mint-deep);
+  background: var(--jb-mint-deep);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-revision__button:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-revision__status {
+  min-height: 1.2em;
+  margin: 0;
+  color: var(--jb-ink-3);
+  font-size: var(--jb-text-xs);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-revision__status[data-tone="busy"] {
+  color: var(--jb-ink-2);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-revision__status[data-tone="success"] {
+  color: var(--jb-mint-deep);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-revision__status[data-tone="error"] {
+  color: var(--jb-err);
+}
+
+/* ============================================================
+   Draft folder strip — Part 04 paper-cards
+   ------------------------------------------------------------
+   Sits between the .jb-letter-head and the editor/scorecard grid.
+   Surfaces every saved cover letter / résumé draft for the open role
+   so the user never has to hunt through the modal to find their work.
+   ============================================================ */
+body.jb-v2 [data-region="letter"] .jb-letter-folder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  margin: var(--space-3, 12px) 0 var(--space-5, 20px);
+  padding-bottom: var(--space-4, 16px);
+  border-bottom: 1px dashed var(--jb-line-soft);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4, 16px);
+  flex-wrap: wrap;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__eyebrow {
+  margin: 0;
+  font-family: var(--jb-font-mono, var(--jb-font-body));
+  font-size: var(--jb-text-xs, 0.75rem);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__cta-row {
+  display: flex;
+  gap: var(--space-2, 8px);
+  flex-wrap: wrap;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__cta {
+  appearance: none;
+  background: var(--jb-mint-soft);
+  color: var(--jb-ink);
+  border: 1px solid var(--jb-line);
+  border-radius: 2px;
+  padding: 0.4rem 0.75rem;
+  font-family: var(--jb-font-display, inherit);
+  font-size: var(--jb-text-sm, 0.85rem);
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__cta:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--jb-shadow-pencil);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__cta--ghost {
+  background: transparent;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__cta:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__lanes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4, 16px);
+  align-items: start;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__lane + .jb-letter-folder__lane {
+  border-left: 1px dashed var(--jb-line-soft);
+  padding-left: var(--space-4, 16px);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__lane-label {
+  display: block;
+  margin-bottom: var(--space-2, 8px);
+  font-family: var(--jb-font-display, inherit);
+  font-size: var(--jb-text-sm, 0.85rem);
+  color: var(--jb-ink-2);
+  letter-spacing: 0.02em;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__strip {
+  display: flex;
+  gap: var(--space-3, 12px);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 0.25rem 0.25rem 0.75rem;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__card {
+  position: relative;
+  flex: 0 0 14rem;
+  min-height: 7.5rem;
+  padding: 0.7rem 0.85rem 0.6rem;
+  text-align: left;
+  background: var(--jb-paper);
+  color: var(--jb-ink);
+  border: 1px solid var(--jb-line);
+  border-radius: 2px;
+  box-shadow: var(--jb-shadow-pencil);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font: inherit;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__card:hover {
+  transform: translateY(-2px) rotate(-0.25deg);
+  box-shadow: var(--jb-shadow-sticker);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__card:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus), var(--jb-shadow-pencil);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__card.is-active {
+  border-color: var(--jb-amber);
+  background: var(--jb-paper-2);
+  box-shadow: 0 0 0 2px var(--jb-amber-soft), var(--jb-shadow-sticker);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__card-meta {
+  font-family: var(--jb-font-mono, var(--jb-font-body));
+  font-size: var(--jb-text-xs, 0.72rem);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--jb-ink-2);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__card-date {
+  font-family: var(--jb-font-mono, var(--jb-font-body));
+  font-size: var(--jb-text-xs, 0.72rem);
+  color: var(--jb-ink-3);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__card-excerpt {
+  margin: 0;
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-sm, 0.85rem);
+  line-height: 1.35;
+  color: var(--jb-ink);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__card-open {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.4rem;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.15rem 0.3rem;
+  color: var(--jb-ink-3);
+  border-radius: 2px;
+  user-select: none;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder__card-open:hover {
+  color: var(--jb-ink);
+  background: var(--jb-paper-2);
+}
+
+/* --- Empty state: single ghost card row of CTAs -------------- */
+body.jb-v2 [data-region="letter"] .jb-letter-folder--empty {
+  align-items: flex-start;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-folder--empty .jb-letter-folder__eyebrow {
+  margin-bottom: var(--space-2, 8px);
+}
+
+/* --- Mobile: collapse lanes -------------------------------- */
+@media (max-width: 720px) {
+  body.jb-v2 [data-region="letter"] .jb-letter-folder__lanes {
+    grid-template-columns: 1fr;
+  }
+  body.jb-v2 [data-region="letter"] .jb-letter-folder__lane + .jb-letter-folder__lane {
+    border-left: 0;
+    padding-left: 0;
+    border-top: 1px dashed var(--jb-line-soft);
+    padding-top: var(--space-3, 12px);
+  }
+}
