@@ -109,11 +109,35 @@ Write to `docs/redesign/status/dossier-df-brief.json`:
 }
 ```
 
-## Completion report (fill in at the end)
+## Completion report
 
-- **Commit SHA(s):**
+- **Commit SHA(s):** _pending — committed on the `dossier-df/brief` worktree just after this report was filled; `git log --oneline -1` will show the brief lane commit. Not pushed (per orchestrator instructions)._
+
 - **Files changed:**
+  - `role-brief.js` (new) — Brief renderer + chip→workshop scroll wiring
+  - `role.js` (modified — only inside `renderDossier`) — replaced the legacy detail-drawer markup with the Direction F shell (`.dossier > article.brief[data-mount="brief"]`) and added a single mount-and-render line that calls `window.JobBoredDossierBrief.renderBrief(briefMount, vm)`. `wireDossier` and every other function in the file were left untouched so the existing `[data-action="close-role"]` and `[data-action="notes"]` blur handlers continue to fire.
+  - `index.html` (modified) — added `<script src="role-brief.js" defer></script>` immediately after `role.js`; no other change.
+
 - **Tests run + results:**
+  - `node --check role-brief.js role.js` → ok
+  - `node --test tests/role-writeback-bridge.test.mjs tests/ats-state-bus.test.mjs tests/drawer-crm-sync.test.mjs` → 25 / 25 passed (verifies the Brief lane does not regress the writeback bridge, ATS state bus, or CRM-sync paths)
+  - `npm run typecheck:repo` → passed
+  - `npm run lint:repo` → passed
+  - `npm test -- tests/dossier-card-attrs.test.mjs` → file does not yet exist on this branch (owned by the `dossier-df/qa` lane). Selectors required by the qa brief (`[data-action="close-role"]`, `[data-action="notes"]`, `.brief__masthead`, `.brief__col--main`, `.brief__col--side`) are emitted by this lane.
+  - In-process smoke test (`vm.runInContext` against role.js + role-brief.js with a fixture VM) → masthead, hook, drop-cap lede with provenance tag, raw-posting accordion (first `<details open>`), skim panel, talking points, and marginalia textarea all render; `[data-action="notes"]` is wired by `wireDossier`'s blur listener; missing-field fixture renders no placeholder text per the graceful-fallback rule.
+
 - **Wireframe deviations + why:**
+  - **Eyebrow** — Wireframe shows `Senior · Remote · Full-time`. The role VM only surfaces `employment`; `seniority` and `work-mode` are not discrete fields. The eyebrow renders `job.employment` when present, otherwise nothing. Adding ad-hoc string parsing of the role title would have been brittle; we preferred the documented "render nothing for that block" rule.
+  - **Stage chip popover** — Wireframe shows the chip with a caret. The brief allows the popover markup to be a "thin teaser that scrolls the user to the Workshop's stepper." Clicking the chip now smooth-scrolls to `.workshop .stepper` (with a fallback to `.workshop`); no separate popover panel is rendered. The decision-lock that the chip is display-only is preserved — the chip never emits a writeback.
+  - **ATS fit row** — Wireframe shows `78/100`. The role VM's `fitScore` is a 1–10 band (per `dawn-data.js`'s contract). The skim row renders `fitScore × 10` so the displayed `/100` matches the wireframe; the underlying VM data is unchanged. Never invents a number — if `fitScore` is `null`, the row is omitted.
+  - **Provenance tag word count** — Wireframe shows `from 1,240 words`. Real word count is summed from `job.jdSections[*].body` and `job.jdSections[*].bullets`; if zero, the "from N words" half is omitted (the brief is explicit that we never fake the number).
+
 - **Open questions for integration:**
+  - The Workshop lane will land its own `<aside class="workshop" data-mount="workshop"></aside>` plus the `.mode-divider` markup inside `renderDossier`. The integration lane's playbook (`docs/redesign/handoffs/dossier-df-integration.md`) already shows the merged shell — the Brief lane intentionally only writes the brief mount so the merge is a clean per-lane addition.
+  - `role.js` retains dead helpers (`renderDrawerHead`, `renderDrawerActions`, `renderAboutSection`, `renderStructuredFromJd`, `renderTalkingPoints`, `renderProps`, `renderNotesBlock`) because the brief instructed "do not touch any other line of `role.js`." A future cleanup lane can delete them safely.
+  - `flowing-store.js` is referenced from `index.html` but does not exist as a checked-in file on any branch I inspected. `JobBoredFlowing.openRole` is consumed by `role.js`, `letter.js`, `pipeline.js`, and the new `role-brief.js`'s defer-time recovery hook. This is a pre-existing gap unrelated to the Brief lane, but the integration lane should confirm `JobBoredFlowing.openRole` is actually defined at runtime before relying on the recovery hook.
+
 - **Known risks:**
+  - Defer-time race: when a role is already open at page load (URL hash), `role.js`'s `init()` may run synchronously before `role-brief.js` has registered `JobBoredDossierBrief`. The brief mount stays empty for one tick. `role-brief.js` mitigates this by re-calling `JobBoredFlowing.role.renderForKey(openKey)` at the end of its IIFE; if `JobBoredFlowing.openRole.get` is unavailable the recovery is a no-op and the next `jb:role:opened` event paints the brief.
+  - `renderBrief` writes `briefMount.innerHTML` and re-wires the chip click on every render. If a future lane adds long-lived listeners on the brief subtree, they should attach inside `renderBrief` (or via event delegation on `[data-region="role"]`), because the subtree is replaced wholesale on each role open.
+  - The masthead does not include a close button — the PART 03 divider's `[data-action="close-role"]` button still drives `wireDossier`'s closeRole path. If a future design adds a close affordance to the brief masthead, keep `data-action="close-role"` on it (per the brief's explicit selector preservation rule).
