@@ -1,0 +1,494 @@
+/* ============================================================
+   welcome.css — JobBored v2 Welcome / onboarding (Phase 3)
+   ------------------------------------------------------------
+   Owner:    Welcome (Phase 3 onboarding + empty-state agent)
+   Purpose:  Token-only styles for the 9-step onboarding shell
+             and the first-run empty state. Scoped under
+             body.jb-v2 [data-region="welcome"]; without that
+             scope this file is a no-op for the legacy UI.
+   Consumes: tokens-v2.css, jb-type.css, jb-deco.css.
+   ============================================================ */
+
+/* --- Region root: full-page paper canvas ------------------ */
+body.jb-v2 [data-region="welcome"] {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  background: var(--jb-paper);
+  color: var(--jb-ink);
+  font-family: var(--jb-font-body);
+  overflow: auto;
+  padding: clamp(16px, 4vw, 48px) 16px;
+}
+
+body.jb-v2 [data-region="welcome"][data-mode="onboarding"],
+body.jb-v2 [data-region="welcome"][data-mode="empty"] {
+  display: flex;
+}
+
+/* --- Card shell ------------------------------------------ */
+body.jb-v2 [data-region="welcome"] .jbw-card {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  margin-block: auto;
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-lg);
+  padding: clamp(20px, 4vw, 32px);
+  box-shadow: var(--jb-shadow-pencil);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-card .jb-tape {
+  top: -7px;
+  left: 24px;
+  --jb-tape-rotate: -4deg;
+}
+
+/* --- Progress strip (9 segments) -------------------------- */
+body.jb-v2 [data-region="welcome"] .jbw-progress {
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  gap: 4px;
+  margin-bottom: 20px;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-progress__seg {
+  height: 6px;
+  border-radius: var(--jb-radius-pill);
+  background: var(--jb-ink-3);
+  opacity: 0.35;
+  transition: background var(--jb-transition-base),
+              opacity var(--jb-transition-base);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-progress__seg[data-state="done"] {
+  background: var(--jb-mint-deep);
+  opacity: 1;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-progress__seg[data-state="current"] {
+  background: var(--jb-amber);
+  opacity: 1;
+  animation: jbw-pulse 1.6s var(--jb-ease) infinite alternate;
+}
+
+@keyframes jbw-pulse {
+  from { opacity: 0.7; }
+  to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 [data-region="welcome"] .jbw-progress__seg[data-state="current"] {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* --- Mascot --------------------------------------------- */
+body.jb-v2 [data-region="welcome"] .jbw-mascot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 12px;
+  width: clamp(96px, 24vw, 144px);
+  height: clamp(96px, 24vw, 144px);
+  transform-origin: 50% 70%;
+  transition: transform var(--jb-transition-slow),
+              filter var(--jb-transition-slow);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-mascot img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* Per-step mascot transforms — safe transforms only.
+   No SVG edits; rotate / mirror / scale only. */
+body.jb-v2 [data-region="welcome"][data-step="1"] .jbw-mascot { transform: rotate(0deg) translateY(0); }
+body.jb-v2 [data-region="welcome"][data-step="2"] .jbw-mascot { transform: rotate(-4deg) translateY(-2px); }
+body.jb-v2 [data-region="welcome"][data-step="3"] .jbw-mascot { transform: rotate(3deg)  translateY(-1px); }
+body.jb-v2 [data-region="welcome"][data-step="4"] .jbw-mascot { transform: rotate(-2deg) translateY(0); }
+body.jb-v2 [data-region="welcome"][data-step="5"] .jbw-mascot { transform: rotate(4deg)  translateY(-3px); }
+body.jb-v2 [data-region="welcome"][data-step="6"] .jbw-mascot { transform: rotate(-3deg) translateY(0); }
+body.jb-v2 [data-region="welcome"][data-step="7"] .jbw-mascot { transform: rotate(2deg)  translateY(-1px); }
+body.jb-v2 [data-region="welcome"][data-step="8"] .jbw-mascot { transform: scaleX(-1) rotate(-2deg); }
+body.jb-v2 [data-region="welcome"][data-step="9"] .jbw-mascot { transform: rotate(5deg) translateY(-4px); filter: drop-shadow(0 4px 0 var(--jb-amber-soft)); }
+
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 [data-region="welcome"] .jbw-mascot {
+    transition: none;
+  }
+}
+
+/* --- Step content panel + transitions -------------------- */
+body.jb-v2 [data-region="welcome"] .jbw-step {
+  opacity: 0;
+  transform: translateX(8px);
+  transition: opacity 280ms var(--jb-ease),
+              transform 280ms var(--jb-ease);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-step[data-active="true"] {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-step[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 [data-region="welcome"] .jbw-step {
+    transition: none;
+    transform: none;
+  }
+}
+
+/* --- Mascot say bubble (handwritten copy) ---------------- */
+body.jb-v2 [data-region="welcome"] .jbw-say {
+  font-family: var(--jb-font-display);
+  color: var(--jb-mint-deep);
+  font-size: var(--jb-text-xl);
+  line-height: 1.15;
+  text-align: center;
+  margin: 4px 0 8px;
+  text-wrap: pretty;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-step__title {
+  font-family: var(--jb-font-body);
+  font-weight: 600;
+  font-size: var(--jb-text-lg);
+  color: var(--jb-ink);
+  margin: 0 0 12px;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-step__hint {
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink-2);
+  margin: -4px 0 12px;
+  text-align: center;
+}
+
+/* --- Form fields ---------------------------------------- */
+body.jb-v2 [data-region="welcome"] .jbw-input,
+body.jb-v2 [data-region="welcome"] .jbw-textarea {
+  width: 100%;
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-base);
+  color: var(--jb-ink);
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-sm);
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color var(--jb-transition-fast),
+              box-shadow var(--jb-transition-fast);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-input:focus,
+body.jb-v2 [data-region="welcome"] .jbw-textarea:focus {
+  border-color: var(--jb-mint-deep);
+  box-shadow: var(--jb-shadow-focus);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+/* --- Radio / chip groups -------------------------------- */
+body.jb-v2 [data-region="welcome"] .jbw-options {
+  display: grid;
+  gap: 8px;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-options--row {
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-opt {
+  appearance: none;
+  -webkit-appearance: none;
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-sm);
+  font-weight: 500;
+  color: var(--jb-ink);
+  background: var(--jb-paper);
+  border: 1px dashed var(--jb-line);
+  border-radius: var(--jb-radius-sm);
+  padding: 10px 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--jb-transition-fast),
+              background var(--jb-transition-fast);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-opt small {
+  display: block;
+  margin-top: 2px;
+  color: var(--jb-ink-3);
+  font-size: var(--jb-text-xs);
+  font-weight: 400;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-opt:hover {
+  border-color: var(--jb-mint-deep);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-opt[aria-pressed="true"],
+body.jb-v2 [data-region="welcome"] .jbw-opt[aria-checked="true"] {
+  background: var(--jb-mint-soft);
+  border-style: solid;
+  border-color: var(--jb-mint-deep);
+  color: var(--jb-navy);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-opt:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+/* --- Slider (comp range) -------------------------------- */
+body.jb-v2 [data-region="welcome"] .jbw-slider {
+  width: 100%;
+  accent-color: var(--jb-mint-deep);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-slider-row {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink-2);
+  margin-top: 6px;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-slider-row b {
+  color: var(--jb-ink);
+  font-weight: 600;
+}
+
+/* --- Action row ----------------------------------------- */
+body.jb-v2 [data-region="welcome"] .jbw-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-base);
+  font-weight: 600;
+  border-radius: var(--jb-radius-sm);
+  padding: 12px 20px;
+  cursor: pointer;
+  border: 1px solid var(--jb-line);
+  background: var(--jb-paper);
+  color: var(--jb-ink-2);
+  transition: background var(--jb-transition-fast),
+              border-color var(--jb-transition-fast),
+              color var(--jb-transition-fast),
+              box-shadow var(--jb-transition-fast);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-btn:hover {
+  border-color: var(--jb-ink-2);
+  color: var(--jb-ink);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-btn--primary {
+  background: var(--jb-mint);
+  color: var(--jb-navy);
+  border-color: var(--jb-mint-deep);
+  box-shadow: var(--jb-shadow-sticker);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-btn--primary:hover {
+  background: var(--jb-mint-deep);
+  color: var(--jb-ink-inverse);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  box-shadow: none;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-actions__spacer {
+  flex: 1;
+}
+
+/* --- Field error ---------------------------------------- */
+body.jb-v2 [data-region="welcome"] .jbw-error {
+  color: var(--jb-err);
+  font-size: var(--jb-text-xs);
+  margin-top: 6px;
+  min-height: 1em;
+}
+
+/* --- Esc / footer hints --------------------------------- */
+body.jb-v2 [data-region="welcome"] .jbw-foot {
+  margin-top: 14px;
+  font-size: var(--jb-text-xs);
+  color: var(--jb-ink-3);
+  text-align: center;
+  font-family: var(--jb-font-mono);
+}
+
+/* --- Confirm dialog (Esc mid-flow) ---------------------- */
+body.jb-v2 [data-region="welcome"] .jbw-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--jb-navy) 40%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 90;
+  padding: 16px;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-dialog {
+  width: 100%;
+  max-width: 360px;
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-md);
+  padding: 20px;
+  box-shadow: var(--jb-shadow-card);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-dialog__title {
+  font-weight: 600;
+  font-size: var(--jb-text-lg);
+  margin: 0 0 8px;
+  color: var(--jb-ink);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-dialog__body {
+  color: var(--jb-ink-2);
+  font-size: var(--jb-text-sm);
+  margin: 0 0 16px;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-dialog__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* ============================================================
+   Empty state (first-run) — pipeline has 0 entries
+   ============================================================ */
+
+body.jb-v2 [data-region="welcome"] .jbw-empty {
+  width: 100%;
+  max-width: 640px;
+  margin: auto;
+  text-align: center;
+  padding: clamp(24px, 4vw, 40px);
+  position: relative;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-empty .jbw-mascot {
+  width: clamp(120px, 28vw, 168px);
+  height: clamp(120px, 28vw, 168px);
+  margin-bottom: 8px;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-empty__headline {
+  font-family: var(--jb-font-display);
+  color: var(--jb-mint-deep);
+  font-size: var(--jb-text-2xl);
+  line-height: 1.05;
+  margin: 8px 0 4px;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-empty__sub {
+  color: var(--jb-ink-2);
+  font-size: var(--jb-text-base);
+  margin: 0 0 20px;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-empty__samples {
+  display: grid;
+  gap: 10px;
+  text-align: left;
+  margin-top: 16px;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-sample {
+  border: 1px dashed var(--jb-line);
+  border-radius: var(--jb-radius-sm);
+  padding: 10px 12px;
+  background: var(--jb-paper-2);
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  color: var(--jb-ink-2);
+  word-break: break-all;
+  cursor: pointer;
+  transition: border-color var(--jb-transition-fast),
+              background var(--jb-transition-fast);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-sample:hover {
+  border-color: var(--jb-mint-deep);
+  background: var(--jb-mint-soft);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-sample:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-sample__label {
+  display: block;
+  font-family: var(--jb-font-body);
+  color: var(--jb-ink-3);
+  font-size: var(--jb-text-xs);
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* --- Sheet step inline OAuth proxy ---------------------- */
+body.jb-v2 [data-region="welcome"] .jbw-sheet-actions {
+  display: grid;
+  gap: 8px;
+}
+
+body.jb-v2 [data-region="welcome"] .jbw-sheet-actions .jbw-btn {
+  width: 100%;
+  text-align: center;
+}
