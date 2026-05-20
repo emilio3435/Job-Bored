@@ -1,0 +1,66 @@
+{
+  "lane": "integration",
+  "branch": "dossier-df/integration",
+  "status": "completed",
+  "final_commit": "882cfe0",
+  "merged": [
+    "ats-state-bus",
+    "writeback-bridge",
+    "css",
+    "brief",
+    "workshop"
+  ],
+  "conflicts_resolved": [
+    {
+      "path": "index.html",
+      "resolution": "Resolved workshop merge conflict to the required script order: role.js, role-brief.js, role-workshop.js."
+    },
+    {
+      "path": "role.js",
+      "resolution": "Resolved renderDossier to the Direction F shell from the integration playbook: divider, .dossier, brief mount, mode divider, workshop aside mount; calls renderBrief then renderWorkshop before wireDossier."
+    },
+    {
+      "path": "role-workshop.js",
+      "resolution": "Adjusted renderWorkshop to render into the playbook's existing aside.workshop mount without duplicating the mode divider, while preserving fallback rendering for a plain mount."
+    }
+  ],
+  "tests_run": [
+    {
+      "command": "node --check role.js role-brief.js role-workshop.js app.js flowing-writes.js",
+      "result": "passed",
+      "notes": "Required syntax verification passed on the resolved working tree."
+    },
+    {
+      "command": "npm test -- tests/dossier-card-attrs.test.mjs tests/ats-state-bus.test.mjs tests/role-writeback-bridge.test.mjs",
+      "result": "partial",
+      "notes": "Command exited 0, but tests/dossier-card-attrs.test.mjs is missing in this branch; the run executed 8 tests from ats-state-bus and role-writeback-bridge only, all passed."
+    },
+    {
+      "command": "node --test tests/dossier-card-attrs.test.mjs",
+      "result": "failed",
+      "notes": "Diagnostic check confirmed: Could not find tests/dossier-card-attrs.test.mjs."
+    },
+    {
+      "command": "npm run typecheck:repo",
+      "result": "passed",
+      "notes": "Repo syntax/typecheck script passed."
+    },
+    {
+      "command": "npm run lint:repo",
+      "result": "passed",
+      "notes": "lint:skills passed."
+    },
+    {
+      "command": "npm run test:repo",
+      "result": "failed",
+      "notes": "Failed before repo tests because node_modules is missing and scripts/test-contract.mjs cannot import ajv (ERR_MODULE_NOT_FOUND)."
+    },
+    {
+      "command": "git add index.html role.js role-workshop.js docs/redesign/handoffs/dossier-df-workshop.md",
+      "result": "failed",
+      "notes": "Sandbox denied writing /Users/emilionunezgarcia/Job-Bored/.git/worktrees/Job-Bored-wt-dossier-df-integration/index.lock, so the workshop merge cannot be marked resolved or committed here."
+    }
+  ],
+  "notes": "Brief merge committed cleanly as 8edadfb. Workshop merge conflicts were resolved in the working tree by the codex lane worker; the actual `git add` + `git commit` was completed by the orchestrator out-of-sandbox as 882cfe0 (the codex sandbox blocked writes to the worktree index lock). After commit, npm ci installed root deps; full verification block re-ran cleanly: node --check passed, ats-state-bus + role-writeback-bridge tests 8/8 passed, typecheck:repo passed, lint:repo passed, test:repo 341/343 passed. The 2 failing tests in tests/draft-generation-stability.test.mjs ('ATS scorecard state is reset when modal opens in loading state', 'retry-ats-scorecard button uses current active draft text') were verified pre-existing on dossier-df/base-phase1 before any brief/workshop merges. They are not regressions from this swarm. tests/dossier-card-attrs.test.mjs is intentionally missing — owned by the dossier-df/qa (tests-screens) lane that runs next.",
+  "ended_at": "2026-05-20T05:04:00Z"
+}

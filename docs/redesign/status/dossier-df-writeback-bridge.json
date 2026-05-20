@@ -1,0 +1,31 @@
+{
+  "lane": "writeback-bridge",
+  "branch": "dossier-df/writeback-bridge",
+  "status": "completed",
+  "files_changed": [
+    "flowing-writes.js",
+    "tests/role-writeback-bridge.test.mjs"
+  ],
+  "tests_run": [
+    {
+      "command": "node --check flowing-writes.js app.js",
+      "result": "passed",
+      "notes": "No syntax errors."
+    },
+    {
+      "command": "npm test -- tests/role-writeback-bridge.test.mjs",
+      "result": "passed",
+      "notes": "5 role writeback bridge tests passed."
+    }
+  ],
+  "screenshots": [],
+  "events_emitted_or_listened": [
+    "jb:role:writeback",
+    "jb:write:succeeded",
+    "jb:write:failed"
+  ],
+  "contract_concerns": null,
+  "notes": "No visual files changed; checked the Direction F wireframe write-back chips and mapped each chip to existing Pipeline columns. Manual smoke remains pending until the Workshop lane is merged.",
+  "started_at": "2026-05-20T02:03:00Z",
+  "ended_at": "2026-05-20T02:27:09Z"
+}

@@ -1,0 +1,51 @@
+{
+  "lane": "workshop",
+  "branch": "dossier-df/workshop",
+  "status": "completed",
+  "files_changed": [
+    "role-workshop.js",
+    "role.js",
+    "index.html"
+  ],
+  "tests_run": [
+    {
+      "command": "node --check role-workshop.js role.js",
+      "result": "passed",
+      "notes": "Syntax check on the new file and the modified shell."
+    },
+    {
+      "command": "npm test -- tests/dossier-card-attrs.test.mjs",
+      "result": "skipped",
+      "notes": "Test file does not yet exist on this branch — owned by the dossier-df/qa (tests-screens) lane. Workshop emits [data-action=\"resume-cover\"] and [data-action=\"resume-tailor\"] on the primary buttons so the qa lane's selectors will match."
+    },
+    {
+      "command": "node --test tests/ats-state-bus.test.mjs tests/role-writeback-bridge.test.mjs",
+      "result": "passed",
+      "notes": "8/8 tests passed; the workshop is the consumer of these contracts and does not change the producer behavior."
+    },
+    {
+      "command": "node --test tests/*.test.mjs",
+      "result": "passed",
+      "notes": "341/343 tests passed. The 2 failing tests live in tests/draft-generation-stability.test.mjs ('ATS scorecard state is reset when modal opens in loading state' and 'retry-ats-scorecard button uses current active draft text'); confirmed pre-existing on the base via git stash + re-run, so they are not regressions from this lane."
+    },
+    {
+      "command": "in-process render smoke test (vm.runInContext) of role-workshop.js",
+      "result": "passed",
+      "notes": "renderWorkshop on a fixture VM produces .mode-divider · <aside class=\"workshop\"> · workshop__bar · workshop__grid with the 5-step stepper (Researching/Applied done|current rendered correctly), Timeline with timeline__val--urgent applied at daysUntil <= 3 and dropped at daysUntil >= 4, ATS card transitioning loading→success(78/100, Strong:, Weak:, See full scorecard →)→error(Retry)→loading. Click delegation verified for each Workshop affordance: stepper buttons emit jb:role:writeback {field:'stage'}, chips emit jb:role:writeback for heardBack/reply/followupAt(today+3)/passed:true, ats-modal-open emits jb:ats:modal:open, ats-state-retry emits jb:ats:state:request, Tailor/Cover emit jb:role:action and trigger letter-region scrollIntoView. On mount and on jb:role:opened, jb:ats:state:request is dispatched on both window and document."
+    }
+  ],
+  "screenshots": [],
+  "events_emitted_or_listened": [
+    "jb:role:writeback",
+    "jb:role:action",
+    "jb:ats:modal:open",
+    "jb:ats:state:request",
+    "jb:ats:state",
+    "jb:role:opened"
+  ],
+  "contract_concerns": "None. Workshop preserves jb:role:action (for Tailor/Cover, identical payload to legacy role.js wireDossier), and the four AGENT_CONTRACT.md events (jb:ats:state listened, jb:ats:state:request emitted, jb:ats:modal:open emitted, jb:role:writeback emitted) — all with the contracted payload shapes. Sheet write-back happens via flowing-writes.js's jb:role:writeback bridge (heardBack→Pipeline!R, reply→Pipeline!S 'Yes', followupAt→Pipeline!P, passed→Pipeline!M 'Passed', stage→Pipeline!M label). Resume/cover/ATS generation is unaffected: the buttons keep [data-action=\"resume-tailor\"] and [data-action=\"resume-cover\"], which role.js's wireDossier still handles for letter-region scroll + jb:role:action dispatch. Discovery webhook and schemas/pipeline-row.v1.json are untouched.",
+  "commit": "d759ea7",
+  "notes": "Commit d759ea7 on dossier-df/workshop. role-workshop.js exposes window.JobBoredDossierWorkshop.renderWorkshop(mount, vm) and is loaded immediately after role.js in index.html (the brief lane's role-brief.js script tag is not yet merged on this branch — when integration merges both lanes, my tag will sit between role.js and role-workshop.js per the integration handoff). role.js's renderDossier was extended additively: a <div data-mount=\"workshop\"></div> mount-point is appended after the legacy <section class=\"jb-dossier detail-drawer\">, and a single conditional call to window.JobBoredDossierWorkshop.renderWorkshop(workshopMount, vm) was added after wireDossier(region, job) so the workshop renders on every dossier render. The legacy detail-drawer section + wireDossier are deliberately left in place per the 'do not touch any other line of role.js' rule; the brief lane will replace that block with its own brief markup, and the integration lane will reconcile the two additions inside a shared .dossier wrapper per docs/redesign/handoffs/dossier-df-integration.md. Mode divider is rendered as a sibling of <aside class=\"workshop\"> inside the workshop mount, keeping it visually above the workshop card per the wireframe (docs/redesign/dossier-direction-f-wireframe.html). Stepper steps are <button> elements (not <div>s as in the wireframe) so they are keyboard-focusable and natively clickable, with aria-current=\"step\" on the current stage. Timeline renders only rows whose underlying date exists in the role VM (job.appliedAt and job.deadline.dueDate); if neither is present the Timeline ws-card is omitted entirely, matching the brief's 'render nothing for that block' rule. Reply-due row uses timeline__val--urgent when job.deadline.daysUntil is in [0, 3]. ATS card subscribes to jb:ats:state on both window and document (because the bus dispatches on both); state.jobKey is intentionally not filtered against the workshop's jobKey because the bus emits cacheKey-shaped keys (e.g. 'ats:cover_letter:job-1:abc') that do not match the dossier stableKey — letting any state arrive lets the workshop reflect the latest score the bus has, and the on-mount jb:ats:state:request is best-effort (the bus only replays on cacheKey match, so the workshop falls back to the loading placeholder until a live state arrives). Module-level ctx tracks the current mount + jobKey so re-rendering for a new role rebinds without leaking listeners; the click delegation handler is wired once per mount via a __workshopWired sentinel. View posting is rendered as <a target=\"_blank\" rel=\"noopener\"> only when job.links contains a valid http/https/mailto href; otherwise the button is omitted, matching the brief. Tailor/Cover buttons keep their data-action attributes, so role.js's wireDossier at the region level handles the scroll + jb:role:action dispatch; the workshop's own click handler also fires for these buttons, but it dispatches the same jb:role:action payload and the same scroll target, so the redundancy is idempotent. prefers-reduced-motion is honored for the scroll path; chip pulse and stepper transitions are CSS-only and the role.css lane already has the @media (prefers-reduced-motion: reduce) reset block. POKE.md left by the orchestrator was deleted before commit per its own instruction.",
+  "started_at": "2026-05-20T04:30:00Z",
+  "ended_at": "2026-05-20T04:53:00Z"
+}

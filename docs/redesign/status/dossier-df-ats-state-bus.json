@@ -1,0 +1,41 @@
+{
+  "lane": "ats-state-bus",
+  "branch": "dossier-df/ats-state-bus",
+  "status": "completed",
+  "files_changed": ["app.js", "tests/ats-state-bus.test.mjs"],
+  "tests_run": [
+    {
+      "command": "node --check app.js",
+      "result": "passed"
+    },
+    {
+      "command": "npm test -- tests/ats-state-bus.test.mjs",
+      "result": "passed",
+      "notes": "3 ATS state bus tests passed."
+    },
+    {
+      "command": "git diff --check -- app.js tests/ats-state-bus.test.mjs",
+      "result": "passed"
+    },
+    {
+      "command": "npm start",
+      "result": "failed",
+      "notes": "Manual smoke blocked before server start: sh: concurrently: command not found."
+    },
+    {
+      "command": "npm run start:web",
+      "result": "failed",
+      "notes": "Fallback web-only smoke blocked by sandbox bind failure: listen EPERM 0.0.0.0:8080."
+    }
+  ],
+  "screenshots": [],
+  "events_emitted_or_listened": [
+    "jb:ats:state",
+    "jb:ats:state:request",
+    "jb:ats:modal:open"
+  ],
+  "contract_concerns": null,
+  "notes": "Commit 7a5268f. Added producer-side ATS state bus emissions, request replay, and the full-scorecard modal. Compared the modal-for-full cue against docs/redesign/dossier-direction-f-wireframe.html:1136. Browser smoke could not run in this sandbox; automated event and close-path tests passed.",
+  "started_at": "2026-05-20T02:18:00Z",
+  "ended_at": "2026-05-20T02:28:37Z"
+}
