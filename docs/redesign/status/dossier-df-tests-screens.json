@@ -1,0 +1,61 @@
+{
+  "lane": "tests-screens",
+  "branch": "dossier-df/tests-screens",
+  "status": "completed",
+  "files_changed": [
+    "tests/dossier-card-attrs.test.mjs",
+    "tests/dossier-brief-structure.test.mjs",
+    "tests/dossier-workshop-events.test.mjs",
+    "docs/redesign/screenshots/dossier-df-1440.png",
+    "docs/redesign/screenshots/dossier-df-1024.png",
+    "docs/redesign/screenshots/dossier-df-720.png",
+    "docs/redesign/screenshots/dossier-df-390.png",
+    "docs/redesign/screenshots/dossier-df-workshop-ats-loading.png",
+    "docs/redesign/screenshots/dossier-df-workshop-ats-success.png",
+    "docs/redesign/screenshots/dossier-df-workshop-ats-error.png",
+    "docs/redesign/screenshots/dossier-df-ats-modal.png",
+    "docs/redesign/screenshots/dossier-df-writeback-chip-fired.png",
+    "docs/redesign/status/dossier-df-tests-screens.json",
+    "docs/redesign/handoffs/dossier-df-tests-screens.md"
+  ],
+  "tests_run": [
+    {
+      "command": "node --test tests/dossier-card-attrs.test.mjs tests/dossier-brief-structure.test.mjs tests/dossier-workshop-events.test.mjs tests/ats-state-bus.test.mjs tests/role-writeback-bridge.test.mjs",
+      "result": "passed",
+      "notes": "27 tests, 27 passing across the five required dossier-df QA targets (3 new + 2 phase-1)."
+    },
+    {
+      "command": "npm run lint:repo",
+      "result": "passed",
+      "notes": "lint:skills clean; OK integrations/openclaw-command-center/SKILL.md."
+    },
+    {
+      "command": "node --test tests/*.test.mjs",
+      "result": "failed",
+      "notes": "Full repo: 360/362 passing. The 2 failures live in tests/draft-generation-stability.test.mjs and were inherited from the dossier-df/ats-state-bus merge (commit 7a5268f). They are brittle string-pattern assertions, not functional regressions in the new dossier. See contract_concerns and the completion-report defects section for details. No fix attempted (QA-only lane)."
+    }
+  ],
+  "screenshots": [
+    "docs/redesign/screenshots/dossier-df-1440.png",
+    "docs/redesign/screenshots/dossier-df-1024.png",
+    "docs/redesign/screenshots/dossier-df-720.png",
+    "docs/redesign/screenshots/dossier-df-390.png",
+    "docs/redesign/screenshots/dossier-df-workshop-ats-loading.png",
+    "docs/redesign/screenshots/dossier-df-workshop-ats-success.png",
+    "docs/redesign/screenshots/dossier-df-workshop-ats-error.png",
+    "docs/redesign/screenshots/dossier-df-ats-modal.png",
+    "docs/redesign/screenshots/dossier-df-writeback-chip-fired.png"
+  ],
+  "events_emitted_or_listened": [
+    "jb:ats:state",
+    "jb:ats:state:request",
+    "jb:ats:modal:open",
+    "jb:role:writeback",
+    "jb:role:action",
+    "jb:role:note"
+  ],
+  "contract_concerns": "Two pre-existing tests in tests/draft-generation-stability.test.mjs fail against the merged integration tip. (1) `ATS scorecard state is reset when modal opens in loading state` greps for the literal `atsScorecardState = {` direct assignment inside `openResumeGenerateModal`; the ats-state-bus lane refactored that to `setAtsScorecardState({ cacheKey: \"\", status: \"idle\", ... })`, so the assertion no longer matches even though the reset behavior is preserved. (2) `retry-ats-scorecard button uses current active draft text` slices `app.js` from the first occurrence of `data-action=\"retry-ats-scorecard\"`, but with the new dossier card that first occurrence is now the HTML template button declaration rather than the click handler, so it grabs the wrong region and never sees `session.job` / `getResumeGenerateDraftTextForInsights`. Both are test brittleness exposed by the merge, not functional regressions in the dossier-df behavior, but the orchestrator should decide whether to (a) patch the tests to target the new patterns or (b) treat as out-of-scope follow-ups.",
+  "notes": "QA-only lane. New tests run renderers in isolated `vm` contexts with a minimal mock DOM (no jsdom dependency added) — same pattern as the existing tests/ats-state-bus.test.mjs and tests/role-writeback-bridge.test.mjs. Screenshots were captured with headless Chrome 148 against a copy of `docs/redesign/dossier-direction-f-wireframe.html` driven by a hash-based variant router so ATS loading/success/error/modal/toast states could be rendered without modifying any product source. PNGs are force-added because `*.png` is repo-gitignored (matching the `28bc96c docs(redesign): integration screenshots` precedent). No source files in `role.js`, `role-brief.js`, `role-workshop.js`, `role.css`, `app.js`, or `flowing-writes.js` were touched.",
+  "started_at": "2026-05-20T00:05:00Z",
+  "ended_at": "2026-05-20T05:30:44Z"
+}
