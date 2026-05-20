@@ -22,24 +22,30 @@
 
   var REGION_SELECTOR = '[data-region="pipeline"]';
 
-  // Stage list mirrors PIPELINE_STAGES in dawn-data.js.
+  // Stage list mirrors PIPELINE_STAGES in dawn-data.js, with "new" surfaced as
+  // the user-facing Discovered column.
   var STAGES = [
+    { key: "new",          label: "Discovered" },
     { key: "researching",  label: "Researching" },
     { key: "applied",      label: "Applied" },
     { key: "phone-screen", label: "Phone screen" },
     { key: "interviewing", label: "Interviewing" },
     { key: "offer",        label: "Offer" },
+    { key: "expired",      label: "Expired" },
   ];
 
   var EMPTY_COPY = {
+    "new":          "Newly discovered roles land here.",
     "researching":  "Drop a role here to start a thread.",
     "applied":      "Submitted apps land here.",
     "phone-screen": "Recruiter call? Park it here.",
     "interviewing": "Loops in flight live here.",
     "offer":        "Negotiate from here.",
+    "expired":      "Closed postings move here for reference.",
   };
 
   var SORT_DEFAULT = "urgency";
+  var COLLAPSED_STORAGE_KEY = "jb_pipelineCollapsedColumns";
 
   var ric =
     typeof root.requestIdleCallback === "function"
@@ -129,6 +135,96 @@
     return copy;
   }
 
+  function stageLabel(stageKey) {
+    for (var i = 0; i < STAGES.length; i++) {
+      if (STAGES[i].key === stageKey) return STAGES[i].label;
+    }
+    return "column";
+  }
+
+  function columnVarName(stageKey) {
+    return "--pipe-col-" + stageKey;
+  }
+
+  function loadCollapsedState() {
+    try {
+      if (!root.localStorage) return {};
+      var raw = root.localStorage.getItem(COLLAPSED_STORAGE_KEY);
+      if (!raw) return {};
+      var parsed = JSON.parse(raw);
+      var next = {};
+      STAGES.forEach(function (s) {
+        if (parsed && parsed[s.key] === true) next[s.key] = true;
+      });
+      return next;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function saveCollapsedState(state) {
+    try {
+      if (!root.localStorage) return;
+      root.localStorage.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify(state.collapsed || {}));
+    } catch (_) {
+      /* Collapse state is a browser preference; ignore storage failures. */
+    }
+  }
+
+  function initialState() {
+    return { sort: SORT_DEFAULT, collapsed: loadCollapsedState() };
+  }
+
+  function ensureStateShape(state) {
+    if (!state.collapsed) state.collapsed = loadCollapsedState();
+    return state;
+  }
+
+  function isCollapsed(state, stageKey) {
+    return !!(state && state.collapsed && state.collapsed[stageKey]);
+  }
+
+  function applyColumnTrack(region, state, stageKey) {
+    var board = region.querySelector(".pipe-board");
+    if (!board) return;
+    board.style.setProperty(
+      columnVarName(stageKey),
+      isCollapsed(state, stageKey) ? "var(--pipe-col-collapsed)" : "var(--pipe-col-open)",
+    );
+  }
+
+  function applyColumnCollapsed(region, state, stageKey) {
+    var col = region.querySelector('.pipe-col[data-stage="' + cssEscape(stageKey) + '"]');
+    if (!col) return;
+    var collapsed = isCollapsed(state, stageKey);
+    var label = stageLabel(stageKey);
+    var body = col.querySelector('[data-stage-body="' + cssEscape(stageKey) + '"]');
+    var btn = col.querySelector('.pipe-col__toggle[data-stage-toggle="' + cssEscape(stageKey) + '"]');
+    col.setAttribute("data-collapsed", collapsed ? "true" : "false");
+    if (body) {
+      if (collapsed) body.setAttribute("aria-hidden", "true");
+      else body.removeAttribute("aria-hidden");
+    }
+    if (btn) {
+      btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      btn.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + label);
+      btn.setAttribute("title", (collapsed ? "Expand " : "Collapse ") + label);
+    }
+    applyColumnTrack(region, state, stageKey);
+  }
+
+  function setColumnCollapsed(region, state, stageKey, collapsed) {
+    state.collapsed = state.collapsed || {};
+    if (collapsed) state.collapsed[stageKey] = true;
+    else delete state.collapsed[stageKey];
+    saveCollapsedState(state);
+    applyColumnCollapsed(region, state, stageKey);
+  }
+
+  function applyCollapsedState(region, state) {
+    STAGES.forEach(function (s) { applyColumnCollapsed(region, state, s.key); });
+  }
+
   /* ----------------------------- DOM builders -------------------------- */
 
   /** Build a single sticker card element for a stage column. */
@@ -184,27 +280,6 @@
     return el;
   }
 
-  /** Build the untriaged sticker (compact, no fit ring chrome). */
-  function UntriagedItem(card) {
-    var el = document.createElement("button");
-    el.type = "button";
-    el.className = "pipe-untri__item";
-    el.setAttribute("data-stable-key", String(card.jobKey || ""));
-    var fit = card.fitScore;
-    var fitColor = fitColorVar(fit);
-    el.innerHTML = [
-      '<span class="pipe-untri__avatar" aria-hidden="true">' + escapeHtml(initialFromCompany(card.company)) + '</span>',
-      '<span class="pipe-untri__id">',
-      '  <span class="pipe-untri__role">' + escapeHtml(card.role || "Untitled role") + '</span>',
-      '  <span class="pipe-untri__co">' + escapeHtml(card.company || "—") + '</span>',
-      '</span>',
-      '<span class="pipe-untri__fit" style="color:' + fitColor + '">',
-      (fit == null ? "—" : escapeHtml(String(fit))),
-      '</span>',
-    ].join("");
-    return el;
-  }
-
   function emptyPlaceholderHtml(stageKey) {
     return '<p class="pipe-col__empty">' + escapeHtml(EMPTY_COPY[stageKey] || "Drop a role here.") + '</p>';
   }
@@ -231,14 +306,20 @@
 
   function buildBoardSkeleton() {
     var cols = STAGES.map(function (s) {
+      var bodyId = "pipe-col-body-" + s.key;
       return [
         '<section class="pipe-col" data-stage="' + s.key + '" aria-label="' + escapeHtml(s.label) + ' column">',
         '  <header class="pipe-col__head">',
         '    <span class="pipe-col__dot" aria-hidden="true"></span>',
         '    <span class="pipe-col__title">' + escapeHtml(s.label) + '</span>',
         '    <span class="pipe-col__count" data-count="0">0</span>',
+        '    <button type="button" class="pipe-col__toggle" data-stage-toggle="' + s.key + '"',
+        '            aria-controls="' + bodyId + '" aria-expanded="true"',
+        '            aria-label="Collapse ' + escapeHtml(s.label) + '" title="Collapse ' + escapeHtml(s.label) + '">',
+        '      <span class="pipe-col__toggle-mark" aria-hidden="true"></span>',
+        '    </button>',
         '  </header>',
-        '  <div class="pipe-col__body" data-stage-body="' + s.key + '"></div>',
+        '  <div class="pipe-col__body" id="' + bodyId + '" data-stage-body="' + s.key + '"></div>',
         '</section>',
       ].join("");
     }).join("");
@@ -247,14 +328,6 @@
       '<div class="pipe-board" role="list">',
       cols,
       '</div>',
-      '<aside class="pipe-untri" data-collapsed="true" aria-label="Untriaged">',
-      '  <header class="pipe-untri__head">',
-      '    <span class="pipe-untri__title">Untriaged</span>',
-      '    <span class="pipe-untri__count" data-count="0">0</span>',
-      '    <button type="button" class="pipe-untri__toggle" aria-expanded="false">Expand</button>',
-      '  </header>',
-      '  <div class="pipe-untri__body" data-untri-body></div>',
-      '</aside>',
     ].join("");
   }
 
@@ -278,7 +351,7 @@
       var col = region.querySelector('.pipe-col[data-stage="' + s.key + '"]');
       if (!body || !col) return;
       body.innerHTML = "";
-      var cards = stageMap[s.key] || [];
+      var cards = s.key === "new" ? (vm.untriaged || []) : (stageMap[s.key] || []);
       var ordered = sortCards(cards, state.sort);
       if (ordered.length === 0) {
         body.innerHTML = emptyPlaceholderHtml(s.key);
@@ -292,44 +365,8 @@
         countEl.textContent = String(ordered.length);
         countEl.setAttribute("data-count", String(ordered.length));
       }
+      applyColumnCollapsed(region, state, s.key);
     });
-
-    // Untriaged
-    var untri = region.querySelector(".pipe-untri");
-    var untriBody = region.querySelector("[data-untri-body]");
-    var untriCountEl = region.querySelector(".pipe-untri__count");
-    var toggleBtn = region.querySelector(".pipe-untri__toggle");
-    if (untri && untriBody) {
-      var list = (vm.untriaged || []).slice();
-      // VM already sorts untriaged by fit DESC; still defensive sort.
-      list.sort(function (a, b) {
-        var av = a.fitScore == null ? -Infinity : a.fitScore;
-        var bv = b.fitScore == null ? -Infinity : b.fitScore;
-        if (av !== bv) return bv - av;
-        return 0;
-      });
-      var collapsed = state.untriagedExpanded ? false : true;
-      untri.setAttribute("data-collapsed", collapsed ? "true" : "false");
-      var visible = collapsed ? list.slice(0, 3) : list;
-      untriBody.innerHTML = "";
-      if (list.length === 0) {
-        untriBody.innerHTML = '<p class="pipe-untri__empty">No new roles waiting.</p>';
-      } else {
-        var f2 = document.createDocumentFragment();
-        visible.forEach(function (c) { f2.appendChild(UntriagedItem(c)); });
-        untriBody.appendChild(f2);
-      }
-      if (untriCountEl) {
-        untriCountEl.textContent = String(list.length);
-        untriCountEl.setAttribute("data-count", String(list.length));
-      }
-      if (toggleBtn) {
-        var hasMoreThanThree = list.length > 3;
-        toggleBtn.hidden = !hasMoreThanThree;
-        toggleBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
-        toggleBtn.textContent = collapsed ? "Expand" : "Collapse";
-      }
-    }
 
     // Animate fit rings on this render pass.
     var rings = region.querySelectorAll(".pipe-sticker__fit-fill");
@@ -347,6 +384,7 @@
     if (region.__pipeMounted) return;
     region.__pipeMounted = true;
     region.innerHTML = buildShell(state);
+    applyCollapsedState(region, state);
     bindToolbar(region, state);
     bindRegion(region, state);
   }
@@ -366,6 +404,13 @@
 
   function bindToolbar(region, state) {
     region.addEventListener("click", function (e) {
+      var toggle = e.target.closest('.pipe-col__toggle[data-stage-toggle]');
+      if (toggle) {
+        e.preventDefault();
+        var stageKey = toggle.getAttribute("data-stage-toggle");
+        if (stageKey) setColumnCollapsed(region, state, stageKey, !isCollapsed(state, stageKey));
+        return;
+      }
       var chip = e.target.closest(".pipe-tool__chip[data-sort]");
       if (chip) {
         var mode = chip.getAttribute("data-sort");
@@ -397,13 +442,6 @@
         } else if (typeof console !== "undefined" && console.info) {
           console.info("[pipeline] TODO: wire Paste URL to legacy paste-url flow");
         }
-        return;
-      }
-      var toggle = e.target.closest(".pipe-untri__toggle");
-      if (toggle) {
-        e.preventDefault();
-        state.untriagedExpanded = !state.untriagedExpanded;
-        rerender(region, state);
         return;
       }
     });
@@ -442,11 +480,6 @@
         var key = sticker.getAttribute("data-stable-key");
         if (key) openRoleAndScroll(key);
         return;
-      }
-      var untriItem = e.target.closest(".pipe-untri__item[data-stable-key]");
-      if (untriItem) {
-        var ukey = untriItem.getAttribute("data-stable-key");
-        if (ukey) openRoleAndScroll(ukey);
       }
     });
 
@@ -683,6 +716,8 @@
     var fromBody = region.querySelector('[data-stage-body="' + drag.fromStage + '"]');
     var toBody = region.querySelector('[data-stage-body="' + toStage + '"]');
     if (!toBody) return;
+    var state = region.__pipeState;
+    if (state && isCollapsed(state, toStage)) setColumnCollapsed(region, state, toStage, false);
     // Strip placeholder if present.
     var emptyEl = toBody.querySelector(".pipe-col__empty");
     if (emptyEl) emptyEl.remove();
@@ -718,7 +753,7 @@
       region.__pipeRenderPending = false;
       try {
         if (!shouldRun()) return;
-        var state = region.__pipeState || (region.__pipeState = { sort: SORT_DEFAULT, untriagedExpanded: false });
+        var state = ensureStateShape(region.__pipeState || (region.__pipeState = initialState()));
         ensureShell(region, state);
         rerender(region, state);
       } catch (e) {

@@ -34,16 +34,26 @@
     { id: "role",     label: "Dossier",  num: "03" },
     { id: "letter",   label: "Letter",   num: "04" },
   ];
+  var ACTIONS = [
+    { id: "discoveryBtn", label: "Run discovery", mode: "primary" },
+    { id: "sheetLink", label: "Open Google Sheet", mode: "icon" },
+    { id: "materialsBtn", label: "Portfolio", mode: "icon" },
+    { id: "runsBtn", label: "Discovery run history", mode: "icon" },
+    { id: "settingsBtn", label: "Settings and setup", mode: "icon" },
+    { id: "authSection", label: "Account", mode: "auth" },
+  ];
 
   var state = {
     mounted: false,
     top: null,
     pillById: Object.create(null),
+    adoptedActions: [],
     observer: null,
     visibility: Object.create(null),
     activeId: null,
     onResize: null,
     onDocClick: null,
+    classObserver: null,
   };
 
   function isFlagOn() {
@@ -143,12 +153,102 @@
     return btn;
   }
 
+  function buildActionsShell() {
+    return el("div", {
+      class: "page-top__actions",
+      "aria-label": "Dashboard actions",
+    });
+  }
+
   function buildTop() {
     var brand = buildBrand();
     var nav = buildNav();
+    var actions = buildActionsShell();
     var menuBtn = buildMenuBtn();
-    var top = el("header", { class: TOP_CLASS, role: "banner" }, [brand, nav, menuBtn]);
+    var top = el("header", { class: TOP_CLASS, role: "banner" }, [brand, nav, actions, menuBtn]);
     return top;
+  }
+
+  function ensureActionsShell() {
+    if (!state.top) return null;
+    var shell = state.top.querySelector(".page-top__actions");
+    if (shell) return shell;
+    shell = buildActionsShell();
+    var menuBtn = state.top.querySelector(".page-top__menu-btn");
+    state.top.insertBefore(shell, menuBtn || null);
+    return shell;
+  }
+
+  function findAdopted(node) {
+    for (var i = 0; i < state.adoptedActions.length; i++) {
+      if (state.adoptedActions[i].node === node) return state.adoptedActions[i];
+    }
+    return null;
+  }
+
+  function rememberAction(node, action) {
+    var saved = findAdopted(node);
+    if (saved) return saved;
+    saved = {
+      node: node,
+      parent: node.parentNode,
+      nextSibling: node.nextSibling,
+      mode: action.mode,
+      addedAriaLabel: false,
+      ariaLabel: action.label,
+      actionClass: "page-top__action--" + action.mode,
+    };
+    state.adoptedActions.push(saved);
+    return saved;
+  }
+
+  function adoptActions() {
+    var shell = ensureActionsShell();
+    if (!shell) return;
+    ACTIONS.forEach(function (action) {
+      var node = document.getElementById(action.id);
+      if (!node) return;
+      var saved = rememberAction(node, action);
+      if (action.mode === "auth") {
+        node.classList.add("page-top__auth");
+      } else {
+        node.classList.add("page-top__action");
+      }
+      node.classList.add(saved.actionClass);
+      if (!node.getAttribute("aria-label")) {
+        node.setAttribute("aria-label", action.label);
+        saved.addedAriaLabel = true;
+      }
+      if (action.id === "discoveryBtn") {
+        node.setAttribute("data-v2-action", "run-discovery");
+      }
+      shell.appendChild(node);
+    });
+  }
+
+  function restoreActions() {
+    for (var i = state.adoptedActions.length - 1; i >= 0; i--) {
+      var saved = state.adoptedActions[i];
+      var node = saved.node;
+      if (!node) continue;
+      node.classList.remove("page-top__action");
+      node.classList.remove("page-top__auth");
+      node.classList.remove(saved.actionClass);
+      if (node.getAttribute("data-v2-action") === "run-discovery") {
+        node.removeAttribute("data-v2-action");
+      }
+      if (saved.addedAriaLabel && node.getAttribute("aria-label") === saved.ariaLabel) {
+        node.removeAttribute("aria-label");
+      }
+      if (saved.parent && saved.parent.isConnected) {
+        if (saved.nextSibling && saved.nextSibling.parentNode === saved.parent) {
+          saved.parent.insertBefore(node, saved.nextSibling);
+        } else {
+          saved.parent.appendChild(node);
+        }
+      }
+    }
+    state.adoptedActions = [];
   }
 
   function setActive(id) {
@@ -275,6 +375,7 @@
         if (id) state.pillById[id] = n;
       }
     }
+    adoptActions();
     startObserver();
     state.onDocClick = handleDocClick;
     state.onResize = handleResize;
@@ -290,6 +391,7 @@
     if (state.onResize) root.removeEventListener("resize", state.onResize);
     state.onDocClick = null;
     state.onResize = null;
+    restoreActions();
     if (state.top && state.top.parentNode) {
       state.top.parentNode.removeChild(state.top);
     }
@@ -303,19 +405,21 @@
     return state.mounted;
   }
 
+  function startClassObserver() {
+    if (state.classObserver || typeof root.MutationObserver !== "function") return;
+    state.classObserver = new root.MutationObserver(function () {
+      if (isFlagOn() && !state.mounted) mount();
+      else if (!isFlagOn() && state.mounted) unmount();
+    });
+    state.classObserver.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  }
+
   function init() {
     if (isFlagOn()) {
       mount();
-    } else {
-      // Watch for flag flip during the session (settings toggle).
-      if (typeof root.MutationObserver === "function") {
-        var mo = new root.MutationObserver(function () {
-          if (isFlagOn() && !state.mounted) mount();
-          else if (!isFlagOn() && state.mounted) unmount();
-        });
-        mo.observe(document.body, { attributes: true, attributeFilter: ["class"] });
-      }
     }
+    // Watch for flag flips during the session (settings toggle).
+    startClassObserver();
   }
 
   if (document.readyState === "loading") {
