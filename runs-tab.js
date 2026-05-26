@@ -638,7 +638,7 @@
               hint:
                 result.reason === "missing_tab"
                   ? "The DiscoveryRuns tab will appear on the first completed run. Trigger a discovery to get started."
-                  : "Trigger a discovery from Settings → Profile → Run discovery to populate this list.",
+                  : "Trigger a discovery from the Discovery drawer to populate this list.",
             });
             setStatus(statusEl, "info", "");
           }

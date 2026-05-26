@@ -1,6 +1,6 @@
 # Discovery: paths, webhooks, and alternatives
 
-> **🆕 For newby-friendly scheduling, start here:** **[docs/SETTINGS-SCHEDULE.md](SETTINGS-SCHEDULE.md)** — a three-tier ladder (browser tab / local OS / GitHub Actions) all configurable from **Settings → Profile → Schedule** in the dashboard. The rest of this doc is the underlying reference material for custom setups and edge cases.
+> **🆕 For newby-friendly scheduling, start here:** **[docs/SETTINGS-SCHEDULE.md](SETTINGS-SCHEDULE.md)** — a three-tier ladder (browser tab / local OS / GitHub Actions) all configurable from **Discovery drawer → Automation → Schedule** in the dashboard. The rest of this doc is the underlying reference material for custom setups and edge cases.
 
 Command Center can **show and edit** jobs that already live in your **Pipeline** sheet. **Discovery** is the optional step of _finding_ new roles and adding rows. This doc maps **every common path** — with webhooks, without webhooks, and hybrid — so you can pick what matches your comfort level.
 
@@ -64,7 +64,7 @@ You want the button to **POST JSON** to an URL you control (contract: [AGENT_CON
 | Step                             | Resource                                                                                                          |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Deploy receiver (stub / wiring)  | **[Google Apps Script walkthrough](../integrations/apps-script/WALKTHROUGH.md)** (step-by-step, clasp + browser). |
-| Local receiver on your machine   | `npm run discovery:bootstrap-local`, then **Settings → Hermes + ngrok**, plus [integrations/openclaw-command-center/README.md](../integrations/openclaw-command-center/README.md). |
+| Local receiver on your machine   | `npm run discovery:bootstrap-local`, then **Discovery drawer → Connection → Hermes + ngrok**, plus [integrations/openclaw-command-center/README.md](../integrations/openclaw-command-center/README.md). |
 | Validate the URL                 | `npm run test:discovery-webhook` (see [examples/README.md](../examples/README.md)).                               |
 | Browser POST blocked (CORS)      | [templates/cloudflare-worker/](../templates/cloudflare-worker/) (CORS relay) or Path B (server-side POST only).   |
 

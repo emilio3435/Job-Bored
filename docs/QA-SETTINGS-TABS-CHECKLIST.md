@@ -1,10 +1,10 @@
-# QA checklist — Settings tabs refactor
+# QA checklist — Settings tabs and Discovery drawer
 
-Manual regression tests after the anchor-nav → real-tabs migration.
+Manual regression tests for the Settings modal after Discovery moved into the drawer.
 
 ## Tab structure
 
-- [ ] Settings modal shows exactly 6 tabs: Setup, Sheet, Discovery, Scraping, ATS Scoring, AI Providers
+- [ ] Settings modal shows exactly 5 tabs: Setup, Sheet, Scraping, ATS Scoring, AI Providers
 - [ ] Only one tab panel is visible at a time
 - [ ] Default tab on open is Setup
 - [ ] Clicking each tab button shows the correct panel and hides the others
@@ -26,14 +26,13 @@ Manual regression tests after the anchor-nav → real-tabs migration.
 - [ ] Spreadsheet URL / Sheet ID field
 - [ ] Dashboard title field
 
-### Discovery
+### Discovery drawer
 
-- [ ] Discovery webhook URL field
-- [ ] Discovery callout ("Pipeline works without a webhook")
-- [ ] Setup guide / Hermes + ngrok / Cloudflare relay / Test webhook buttons
-- [ ] Discovery engine status card
-- [ ] Apps Script deploy accordion
-- [ ] Discovery preferences accordion (roles, location, keywords)
+- [ ] **Search** contains roles, location, keywords, and company allow/block controls
+- [ ] **Sources** contains source toggles and the SerpApi configured badge
+- [ ] **Automation** contains the browser/local/cloud schedule cards
+- [ ] **Connection** contains the discovery webhook URL, setup guide, Hermes + ngrok, Cloudflare relay, Test webhook, engine status, and Apps Script deploy accordion
+- [ ] **History** links to run history and diagnostics
 
 ### Scraping
 
@@ -74,9 +73,9 @@ Manual regression tests after the anchor-nav → real-tabs migration.
 
 ## Discovery flow integration
 
-- [ ] `focusDiscoveryWebhookFieldInSettings()` switches to Discovery tab and focuses the webhook URL
-- [ ] Apps Script remediation UI (from CORS failure) activates Discovery tab
-- [ ] Cloudflare relay "Apply" fills webhook URL and activates Discovery tab
+- [ ] `focusDiscoveryWebhookFieldInSettings()` opens **Discovery drawer → Connection** and focuses the webhook URL
+- [ ] Apps Script remediation UI (from CORS failure) opens **Discovery drawer → Connection**
+- [ ] Cloudflare relay "Apply" fills webhook URL and opens **Discovery drawer → Connection**
 - [ ] Discovery test button preconditions still work
 
 ## Entry points
@@ -84,14 +83,14 @@ Manual regression tests after the anchor-nav → real-tabs migration.
 - [ ] Open settings from main settings button (header gear)
 - [ ] Open settings from sheet-access gate "Open settings" button
 - [ ] Open settings from setup flow
-- [ ] Relay / Apps Script remediation paths open settings then focus discovery controls
+- [ ] Relay / Apps Script remediation paths open **Discovery drawer → Connection** and focus discovery controls
 - [ ] `?setup=discovery` deep link still works
 
 ## Regression checks
 
 - [ ] OAuth-only mode (`settings-modal--oauth-only`) hides the tab layout
 - [ ] Provider panel switching (Gemini ↔ OpenAI ↔ Anthropic ↔ Webhook) still works
-- [ ] Apps Script deploy flow works from Discovery tab
+- [ ] Apps Script deploy flow works from **Discovery drawer → Connection**
 - [ ] Discovery engine status updates live as webhook URL changes
 - [ ] Sheet field blur normalizes the Sheet ID
 - [ ] OAuth client ID input triggers Apps Script deploy UI refresh
@@ -100,7 +99,7 @@ Manual regression tests after the anchor-nav → real-tabs migration.
 ## Highest-risk regressions (smoke test first)
 
 1. **Save & reload** — all fields across all tabs collected and persisted
-2. **Discovery webhook focus** — tab switch + field focus from outside the modal
+2. **Discovery webhook focus** — drawer open + Connection field focus from outside the drawer
 3. **Provider panel switching** — display toggling inside AI Providers tab
 4. **OAuth-only mode** — tab layout hidden, OAuth field still editable
-5. **Apps Script deploy** — accordion open + deploy button inside Discovery tab
+5. **Apps Script deploy** — accordion open + deploy button inside **Discovery drawer → Connection**

@@ -11,7 +11,7 @@ A beautiful, open-source job search dashboard powered by Google Sheets. Track ap
 - **Daily Brief** — two-column layout with at-a-glance counts, follow-ups, who you’re waiting on, and stuck applications ([details](SETUP.md#daily-brief-computed-in-the-dashboard))
 - **KPI bar** — total roles, hot leads, applied count, interview count, avg fit score
 - **Pipeline filters** — scan active stages, archive Rejected / Passed / Expired roles, and keep dismissed roles out of view unless requested
-- **Run discovery** — optional webhook in `config.js` so your agent (Hermes, n8n, etc.) runs another pass; POST includes `schemaVersion` and optional `discoveryProfile` from Settings ([AGENT_CONTRACT.md](AGENT_CONTRACT.md))
+- **Run discovery** — optional webhook in `config.js` so your agent (Hermes, n8n, etc.) runs another pass; POST includes `schemaVersion` and optional `discoveryProfile` from **Discovery drawer → Search** ([AGENT_CONTRACT.md](AGENT_CONTRACT.md))
 - **ATS LLM scorecard** — generated drafts now include structured ATS analysis (score, strengths, gaps, rewrite suggestions) via local server endpoint or webhook
 - **Last contact & reply** — optional columns R–S editable on each card when signed in
 - **Filter & search** — stage filters plus priority, sort by fit score/date/company, free-text search
@@ -220,17 +220,17 @@ When the worker accepts an async run, it may return `statusPath` for `/runs/:run
    ```
 4. Restart the local worker (`npm run discovery:worker:start-local`) so the env var loads.
 
-That's it. The dashboard's **Settings → Discovery** tab has a live status indicator showing whether the key is picked up, and a green "✓ Configured" badge appears once it's working. If SerpApi is unset, the lane skips gracefully — no errors, just fewer matches.
+That's it. The dashboard's **Discovery drawer → Sources** sub-tab has a live status indicator showing whether the key is picked up, and a green "✓ Configured" badge appears once it's working. If SerpApi is unset, the lane skips gracefully — no errors, just fewer matches.
 
 **UltraPlan (agentic-primary lane):** `browser_only` now defaults to higher grounded-search limits (`maxResultsPerCompany=12`, `maxPagesPerCompany=8`, `maxRuntimeMs=300000`, `maxTokensPerQuery=4096`), with independent feature flags for multi-query fan-out, retry broadening, and bounded parallel company processing. Run status responses expose resolved `ultraPlanTuning` and `groundedSearchTuning` at `/runs/{runId}` for observability and rollback-safe tuning.
 
 **OpenClaw / agent skills (BYO):** use **[`integrations/openclaw-command-center/`](integrations/openclaw-command-center/)** as the agent-skill alternative to the built-in worker path. It teaches user-owned agents how to append rows and handle **Run discovery**; runs in **your** environment, not the maintainer’s.
 
-**Fast local real-discovery path:** if your agent runs on your own machine, use **local webhook → ngrok → Cloudflare Worker**. Start with `npm run discovery:bootstrap-local`, then use **Settings → Hermes + ngrok** to review the autofilled route/tunnel info and **Cloudflare relay** to generate the Worker deploy command and final browser URL.
+**Fast local real-discovery path:** if your agent runs on your own machine, use **local webhook → ngrok → Cloudflare Worker**. Start with `npm run discovery:bootstrap-local`, then use **Discovery drawer → Connection → Hermes + ngrok** to review the autofilled route/tunnel info and **Cloudflare relay** to generate the Worker deploy command and final browser URL.
 
 **Keep the relay alive across ngrok rotations:** free ngrok plans hand out a new public URL on restart. After `npm run discovery:bootstrap-local` and Cloudflare relay deploy, run `npm run discovery:keep-alive` in a long-running terminal to poll the local ngrok API every 30s and update the existing Worker's `TARGET_URL` secret. One-shot mode (`npm run discovery:keep-alive -- --once`) is useful as a pre-flight check or scheduler job.
 
-1. Point **Run discovery** at your HTTPS endpoint (see Settings and `discoveryWebhookUrl`), _or_ use **scheduled** automation only ([paths doc](docs/DISCOVERY-PATHS.md)).
+1. Point **Run discovery** at your HTTPS endpoint (see **Discovery drawer → Connection** and `discoveryWebhookUrl`), _or_ use **scheduled** automation only ([paths doc](docs/DISCOVERY-PATHS.md)).
 2. Schedule your agent or cron so rows append to **Pipeline** on a cadence you want.
 3. The dashboard auto-refreshes on a timer — new data appears automatically.
 
@@ -238,7 +238,7 @@ See [SETUP.md](SETUP.md) for detailed setup. Use **Agent setup** in the header f
 
 ### Free automation without maintainer hosting
 
-This project is **static and free to host** (e.g. GitHub Pages). There is **no central discovery service** run by the authors — that would be ongoing cost and ops. Instead, **each user** runs automation **on their side** (or on a **free tier they control**). The dashboard only needs a **discovery webhook URL** you paste in Settings; something on the internet must **accept HTTPS POST** and update your Sheet.
+This project is **static and free to host** (e.g. GitHub Pages). There is **no central discovery service** run by the authors — that would be ongoing cost and ops. Instead, **each user** runs automation **on their side** (or on a **free tier they control**). The dashboard only needs a **discovery webhook URL** you paste in **Discovery drawer → Connection**; something on the internet must **accept HTTPS POST** and update your Sheet.
 
 | Option                                                                                                                       | Who pays                                                                                                                                                  | Good for                                                                           |
 | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -253,7 +253,7 @@ All template paths in one place: **[SETUP.md — BYO automation templates](SETUP
 
 ### Daily refresh: pick one cadence path
 
-Once you've saved a resume on the **Profile & Companies** tab and run
+Once you've saved a resume in the **Materials/Profile** modal and run
 **Discover companies** at least once (with _Persist_ checked so the worker
 stores the inferred profile), pick one of three ways to keep the company
 shortlist and Pipeline discovery fresh. The local scheduler builds a
@@ -261,8 +261,8 @@ shortlist and Pipeline discovery fresh. The local scheduler builds a
 stored profile/search context and deterministic daily rotation. The worker
 must be running for local scheduled discovery to land.
 
-**A — Browser tab only (zero infra).** In **Settings → Profile &
-Companies**, enable **Auto-refresh while this tab is open** and pick
+**A — Browser tab only (zero infra).** In **Discovery drawer → Automation**,
+enable **Auto-refresh while this tab is open** and pick
 6h / 12h / 24h. State is stored in `localStorage`, so returning to the
 tab resumes the schedule at the right offset. Closing the tab pauses
 the schedule. No Cloudflare account, no cron, nothing to install.
@@ -351,7 +351,7 @@ into Command Center is unchanged — only the upstream secret gets rotated.
 | Parameter         | Description                                                                                                                                                                               | Example            |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
 | `sheet`           | Override Sheet ID (raw ID or full spreadsheet URL)                                                                                                                                        | `?sheet=…`         |
-| `setup=discovery` | Opens **Settings** with the **Discovery webhook URL** field focused (after onboarding if the resume wizard is showing, the URL is stripped and Settings opens when you finish onboarding) | `?setup=discovery` |
+| `setup=discovery` | Opens **Discovery drawer → Connection** with the **Discovery webhook URL** field focused (after onboarding if the resume wizard is showing, the URL is stripped and the drawer opens when you finish onboarding) | `?setup=discovery` |
 
 ## Security
 

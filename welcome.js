@@ -487,7 +487,7 @@
     var greeting = name ? ("Nice work, " + name + ".") : "Nice work.";
     return [
       el("p", { class: "jbw-step__hint" }, greeting + " Your daily brief opens next."),
-      el("p", { class: "jbw-step__hint" }, "We saved your preferences locally — you can edit anything from Settings → Profile."),
+      el("p", { class: "jbw-step__hint" }, "We saved your preferences locally — you can edit profile details from the Materials button."),
     ];
   }
 

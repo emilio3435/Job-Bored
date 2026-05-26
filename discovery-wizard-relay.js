@@ -484,7 +484,7 @@
     const deployCommand = buildCloudflareRelayDeployCommand(state, opts);
     const verifyLine = sheetId
       ? "5. If the command includes `--sheet-id`, let the helper run webhook verification after deploy."
-      : "5. After deploy, paste the Worker URL into Settings -> Discovery webhook URL and run Test webhook.";
+      : "5. After deploy, paste the Worker URL into Discovery drawer -> Connection -> Discovery webhook URL and run Test webhook.";
 
     if (!targetUrl) {
       return [

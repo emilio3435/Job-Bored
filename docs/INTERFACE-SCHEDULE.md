@@ -1,4 +1,4 @@
-# Interface contract — Settings → Schedule
+# Interface contract — Discovery drawer → Automation → Schedule
 
 **Status:** authoritative contract for the `feat/schedule-backend` and `feat/schedule-ui` workspaces. Both implementations must conform to this document; do not diverge without updating the doc first and notifying the orchestrator.
 
@@ -31,7 +31,7 @@ schedule: {
   /** Local minute of hour (0-59). */
   minute?: number;
   /**
-   * Which tier the user picked in Settings → Schedule:
+   * Which tier the user picked in Discovery drawer → Automation → Schedule:
    *   - "browser": Tier 1, auto-refresh while tab is open.
    *   - "local":   Tier 2, OS scheduler on this machine (launchd/systemd/schtasks).
    *   - "github":  Tier 3, GitHub Actions cron.

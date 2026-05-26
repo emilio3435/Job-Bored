@@ -14,7 +14,7 @@ that can be merged independently.
 
 Success means:
 - Lane A "settings-profile-removal-verify" is green: no DOM, JS, or doc
-  reference to settings-panel-profile / settings-tab-profile anywhere in the
+  reference to the legacy Profile panel/button IDs anywhere in the
   repo; `npm run typecheck:repo` clean; `npm test -- tests/discovery-drawer-payload.test.mjs`
   green; a headless-Chrome smoke at `npm run web-only` confirms (1) the drawer
   still opens with five sub-tabs, (2) Settings modal shows exactly five tabs
@@ -82,7 +82,7 @@ Constraints:
 Lane split (parallel cmux):
   Lane A "settings-profile-removal-verify":
     Files: docs/SETTINGS-SCHEDULE.md, SETUP.md, README.md, AGENT_CONTRACT.md
-    (search/replace any "Settings → Profile" or "Settings → Discovery" text);
+    (search/replace any old Settings-tab location text);
     plus a verification sweep over *.js and *.test.mjs for stale ID strings.
     Tests: `npm test -- tests/discovery-drawer-payload.test.mjs`;
     `npm run typecheck:repo`; headless smoke at
