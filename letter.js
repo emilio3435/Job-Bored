@@ -537,6 +537,69 @@
     });
   }
 
+  function setRefineBusy(region, busy) {
+    var btn = region && region.querySelector('[data-action="refine-draft"]');
+    var input = region && region.querySelector('[data-refine-input]');
+    var labelEl = region && region.querySelector('[data-refine-label]');
+    if (btn) {
+      btn.disabled = !!busy;
+      btn.setAttribute("aria-disabled", busy ? "true" : "false");
+      if (busy) btn.setAttribute("data-busy", "true");
+      else btn.removeAttribute("data-busy");
+    }
+    if (input) input.disabled = !!busy;
+    if (labelEl) labelEl.textContent = busy ? "Refining…" : "Refine with AI";
+  }
+
+  function setRefineStatus(region, message, tone) {
+    var el = region && region.querySelector('[data-refine-status]');
+    if (!el) return;
+    el.textContent = message || "";
+    if (tone) el.setAttribute("data-tone", tone);
+    else el.removeAttribute("data-tone");
+  }
+
+  async function handleRefineDraft(region, ctx) {
+    if (!region || !ctx) return;
+    if (typeof root.reviseLetterDraftForJob !== "function") {
+      setRefineStatus(region, "AI revision is unavailable in this build.", "error");
+      return;
+    }
+    var editor = region.querySelector("[data-letter-editor]");
+    var previousDraft = (editor && (editor.innerText || editor.textContent) || "").trim();
+    if (!previousDraft) {
+      setRefineStatus(region, "Load or generate a draft before refining.", "error");
+      return;
+    }
+    var input = region.querySelector('[data-refine-input]');
+    var feedback = input && input.value != null ? String(input.value).trim() : "";
+    if (!feedback) {
+      setRefineStatus(region, "Type what you want changed in this version.", "error");
+      return;
+    }
+    setRefineBusy(region, true);
+    setRefineStatus(region, "Refining with AI…", "busy");
+    setSaveState(region, "saving");
+    try {
+      var result = await root.reviseLetterDraftForJob(ctx.jobKey, {
+        previousDraft: previousDraft,
+        refinementFeedback: feedback,
+        parentDraftId: ctx.activeDraftId || null,
+      });
+      if (result && result.draftId) {
+        ctx.pendingActiveDraftId = result.draftId;
+      }
+      setRefineStatus(region, "Refined and saved as a new version.", "success");
+      if (input) input.value = "";
+    } catch (err) {
+      var msg = err && err.message ? String(err.message) : "Refinement failed";
+      setSaveState(region, "dirty");
+      setRefineStatus(region, msg, "error");
+    } finally {
+      setRefineBusy(region, false);
+    }
+  }
+
   async function handleComposeGenerate(region, ctx) {
     if (!region || !ctx) return;
     if (typeof root.runResumeGeneration !== "function") {
@@ -718,6 +781,19 @@
       '      <div class="jb-letter-versions">',
       '        <h3 class="jb-letter-versions__title">Versions</h3>',
       '<!--folder-slot-->',
+      /* "Refine this version" — wraps the existing
+         reviseLetterDraftForJob bridge in a single textarea +
+         button. Lives in the Versions sub-block so the action
+         (refine an existing version) sits next to the artifacts
+         it acts on. */
+      '        <div class="jb-letter-refine" data-letter-refine>',
+      '          <label class="jb-letter-refine__label" for="jbLetterRefineInput">Refine this version</label>',
+      '          <textarea id="jbLetterRefineInput" class="jb-letter-refine__input" data-refine-input rows="2" placeholder="e.g. Shorten by ~80 words, drop the mentoring paragraph, keep the platform-reliability lead."></textarea>',
+      '          <div class="jb-letter-refine__actions">',
+      '            <button type="button" class="jb-letter-refine__button" data-action="refine-draft"><span data-refine-label>Refine with AI</span></button>',
+      '            <p class="jb-letter-refine__status" data-refine-status aria-live="polite"></p>',
+      '          </div>',
+      '        </div>',
       '      </div>',
       '    </section>',
 
@@ -909,6 +985,12 @@
             prefillNotes: composeState.notes,
           });
         }
+        return;
+      }
+
+      /* --- refine current draft (rail Versions block) ----------- */
+      if (action === "refine-draft") {
+        void handleRefineDraft(region, ctx);
         return;
       }
 

@@ -425,3 +425,63 @@ describe("Letter region — CSS surface (letter.css)", () => {
     assert.ok(folderBlock.includes("--jb-shadow-pencil"), "cards must use --jb-shadow-pencil for the paper look");
   });
 });
+
+describe("Letter region — Refine current version (Versions sub-block)", () => {
+  it("renders a textarea + Refine with AI button inside the Versions block", () => {
+    /* The Versions sub-block (inside the Scorecard rail) is the home
+       for AI revision re-entry. It must own a single textarea +
+       button that triggers data-action="refine-draft". */
+    assert.match(
+      letterJs,
+      /<div class="jb-letter-versions">[\s\S]*data-action="refine-draft"[\s\S]*<\/div>/,
+      "refine-draft button must live inside .jb-letter-versions",
+    );
+    assert.match(
+      letterJs,
+      /data-refine-input/,
+      "letter.js must render a textarea with data-refine-input",
+    );
+    assert.match(
+      letterJs,
+      /data-refine-status/,
+      "letter.js must render a status pill with data-refine-status",
+    );
+  });
+
+  it("the refine click handler calls root.reviseLetterDraftForJob with the current draft", () => {
+    /* The handler must read the editor text as previousDraft, read
+       the textarea as refinementFeedback, and pass the current
+       ctx.activeDraftId as parentDraftId so revisions thread as a
+       new version of the same chain. */
+    assert.match(
+      letterJs,
+      /async function handleRefineDraft\(/,
+      "letter.js must define handleRefineDraft()",
+    );
+    assert.ok(
+      letterJs.includes("root.reviseLetterDraftForJob(ctx.jobKey"),
+      "handleRefineDraft must call root.reviseLetterDraftForJob",
+    );
+    assert.ok(
+      letterJs.includes("refinementFeedback: feedback"),
+      "handleRefineDraft must pass refinementFeedback",
+    );
+    assert.ok(
+      letterJs.includes("parentDraftId: ctx.activeDraftId"),
+      "handleRefineDraft must thread parentDraftId so versions chain",
+    );
+  });
+
+  it("CSS scopes .jb-letter-refine under body.jb-v2 [data-region='letter']", () => {
+    assert.match(
+      letterCss,
+      /body\.jb-v2 \[data-region="letter"\] \.jb-letter-refine\b/,
+      "letter.css must define .jb-letter-refine scoped to the letter region",
+    );
+    assert.match(
+      letterCss,
+      /body\.jb-v2 \[data-region="letter"\] \.jb-letter-refine__button\b/,
+      "letter.css must style the Refine with AI button",
+    );
+  });
+});
