@@ -94,28 +94,64 @@
     ].join("");
   }
 
+  /** Underline the trailing keyword of the role title so the mint
+   *  underline-swipe sits behind something readable. Picks the last
+   *  word that's at least 4 chars; falls back to the whole string. */
+  function headlineWithUnderlineHtml(title) {
+    var raw = String(title || "Untitled role");
+    var safe = escapeHtml(raw);
+    var m = raw.match(/^(.*?)(\S{4,})\s*$/);
+    if (!m) return safe;
+    return escapeHtml(m[1]) + '<span class="underline">' + escapeHtml(m[2]) + '</span>';
+  }
+
   function leadCardHtml(lead) {
     var fit = Number.isFinite(lead.fitScore) ? lead.fitScore : null;
-    var fitChip = fit != null
-      ? '<span class="brief-lead__fit-chip">FIT ' + fit + '/10</span>'
-      : "";
+    /* Sticker (top-right of the lead card) replaces the old flat
+       FIT pill — the score is now stamped onto the yellow paper
+       sticker per the brief-mockup.html spec. */
+    var sticker = fit != null
+      ? '<div class="brief-lead__sticker" aria-hidden="true"><span class="brief-lead__sticker-num">' + fit + '</span><span class="brief-lead__sticker-suffix">/10</span></div>'
+      : '';
     return [
       '<article class="brief-card brief-lead" data-lead-key="', escapeHtml(lead.key || ""), '">',
+      sticker,
       '  <div class="brief-lead__head">',
       '    <div class="brief-lead__eyebrow">', escapeHtml(lead.company || ""), '</div>',
-      '    ', fitChip,
       '  </div>',
-      '  <h2 class="brief-lead__headline">', escapeHtml(lead.title || "Untitled role"), '</h2>',
+      '  <h2 class="brief-lead__headline">', headlineWithUnderlineHtml(lead.title || "Untitled role"), '</h2>',
       '  <div class="brief-lead__facts">', leadFactsHtml(lead.facts), '</div>',
       '  <div class="brief-lead__actions">', leadCardActionsHtml(lead), '</div>',
       '</article>',
     ].join("");
   }
 
+  /** A one-line "next-up" teaser for a lead — used in the queue
+   *  list under the active card so the lead column has body and
+   *  the user can see what's coming. Clicking a queue row advances
+   *  the stepper to that index. */
+  function leadQueueRowHtml(lead, idx) {
+    var fit = Number.isFinite(lead.fitScore) ? lead.fitScore : null;
+    var fitBadge = fit != null
+      ? '<span class="brief-leads-queue__fit">' + fit + '/10</span>'
+      : '<span class="brief-leads-queue__fit brief-leads-queue__fit--empty">—</span>';
+    return [
+      '<button type="button" class="brief-leads-queue__row" data-leads-jump="', idx, '">',
+      '  <span class="brief-leads-queue__ord">', String(idx + 1).padStart(2, "0"), '</span>',
+      '  <span class="brief-leads-queue__title">',
+      '    <span class="brief-leads-queue__company">', escapeHtml(lead.company || "Unknown company"), '</span>',
+      '    <span class="brief-leads-queue__role">', escapeHtml(lead.title || "Untitled role"), '</span>',
+      '  </span>',
+      '  ', fitBadge,
+      '</button>',
+    ].join("");
+  }
+
   /** Single-card stepper. All ranked leads are rendered; only the active
    *  one is visible (display rule in CSS via `[data-stepper-active]`).
-   *  Chevron buttons advance/rewind the index; ArrowLeft / ArrowRight
-   *  on the stepper wrapper do the same for keyboard users. */
+   *  A unified nav pill (‹ · "N of M" · ›) groups the chevrons + counter.
+   *  Below the active card, an "Up next" queue lists the remaining ranked
+   *  leads so the left column has body and users can jump directly. */
   function leadsStepperHtml(leads) {
     if (!leads.length) {
       return [
@@ -127,25 +163,36 @@
     var counterLabel = '1 of ' + leads.length;
     var cards = leads.map(function (lead, idx) {
       var card = leadCardHtml(lead);
-      // Inject a stepper-active attribute on each rendered card.
       return card.replace(
         '<article class="brief-card brief-lead"',
         '<article class="brief-card brief-lead" data-stepper-active="' + (idx === 0 ? 'true' : 'false') + '" data-stepper-index="' + idx + '"',
       );
     }).join("");
+
+    // Show all leads in the queue (active row dims via CSS).
+    var queueRows = leads.map(leadQueueRowHtml).join("");
+
     return [
       '<section class="brief-leads-section" data-leads-stepper aria-roledescription="carousel" aria-label="Daily Brief leads" tabindex="0">',
       '  <div class="brief-leads-head">',
-      '    <h2 class="brief-leads-title">Lead with these — ranked by fit</h2>',
+      '    <h2 class="brief-leads-title">Lead with these <span class="brief-leads-title__after">— ranked by fit</span></h2>',
       '    <div class="brief-leads-nav" role="group" aria-label="Step through leads">',
-      '      <button type="button" class="brief-leads-nav__btn" data-leads-step="prev" aria-label="Previous lead">‹</button>',
+      '      <button type="button" class="brief-leads-nav__btn brief-leads-nav__btn--prev" data-leads-step="prev" aria-label="Previous lead">‹</button>',
       '      <span class="brief-leads-nav__counter" data-leads-counter aria-live="polite">', counterLabel, '</span>',
-      '      <button type="button" class="brief-leads-nav__btn" data-leads-step="next" aria-label="Next lead">›</button>',
+      '      <button type="button" class="brief-leads-nav__btn brief-leads-nav__btn--next" data-leads-step="next" aria-label="Next lead">›</button>',
       '    </div>',
       '  </div>',
       '  <div class="brief-leads-stage" data-leads-stage>',
       cards,
       '  </div>',
+      leads.length > 1
+        ? [
+            '<div class="brief-leads-queue" data-leads-queue>',
+            '  <div class="brief-leads-queue__eyebrow">Up next · ranked queue</div>',
+            queueRows,
+            '</div>',
+          ].join("")
+        : "",
       '</section>',
     ].join("");
   }
@@ -271,8 +318,9 @@
     catch (_) { roleRegion.scrollIntoView(); }
   }
 
-  /** Show only the card matching `nextIdx` and update the counter pill.
-   *  Wraps around either end so the chevrons never dead-end. */
+  /** Show only the card matching `nextIdx`, update the counter pill, and
+   *  mirror the active state onto the queue row. Wraps around either
+   *  end so the chevrons never dead-end. */
   function setStepperIndex(region, nextIdx) {
     var stepper = region.querySelector('[data-leads-stepper]');
     if (!stepper) return;
@@ -286,6 +334,10 @@
     });
     var counter = stepper.querySelector('[data-leads-counter]');
     if (counter) counter.textContent = (idx + 1) + ' of ' + total;
+    stepper.querySelectorAll('[data-leads-jump]').forEach(function (row) {
+      var rowIdx = parseInt(row.getAttribute('data-leads-jump'), 10);
+      row.setAttribute('aria-current', rowIdx === idx ? 'true' : 'false');
+    });
   }
 
   function activeStepperIndex(region) {
@@ -307,6 +359,15 @@
         e.preventDefault();
         var dir = stepBtn.getAttribute('data-leads-step');
         setStepperIndex(region, activeStepperIndex(region) + (dir === "prev" ? -1 : 1));
+        return;
+      }
+
+      // Jump-to-lead from the queue list under the active card.
+      var jumpRow = e.target.closest('[data-leads-jump]');
+      if (jumpRow) {
+        e.preventDefault();
+        var jumpIdx = parseInt(jumpRow.getAttribute('data-leads-jump'), 10);
+        if (Number.isFinite(jumpIdx)) setStepperIndex(region, jumpIdx);
         return;
       }
 
@@ -369,6 +430,10 @@
         }
         root.JobBoredDawn._lastVM = vm;
         bindRegionEvents(region);
+        // Sync aria-current on the queue rows to the initial active card.
+        if (region.querySelector('[data-leads-stepper]')) {
+          setStepperIndex(region, activeStepperIndex(region));
+        }
       } catch (e) {
         if (typeof console !== "undefined" && console.warn) console.warn("[dawn] render failed", e);
       }
