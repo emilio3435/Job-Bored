@@ -196,7 +196,9 @@ npm run cleanup:expired-jobs:schedule:uninstall
 
 This schedule uses separate artifacts from discovery refresh, including the macOS label `com.jobbored.expired-cleanup`.
 
-The dashboard also has one top-bar review icon when active New/Researching postings need an availability check. It opens a single review modal listing every Pipeline row that the cleanup pass could not confidently classify (HTTP 403, captcha, timeouts, ambiguous pages, plus aging active rows), each with a direct link to the job posting. Indicators stay off individual cards.
+The dashboard also has one top-bar review icon when active New/Researching postings need an availability check. The review modal **auto-opens once per session** when at least one row needs a manual check. Each row shows the plain-English reason from Notes (e.g. *"the site blocked us before we could read the page (HTTP 403)"*) along with four direct actions — **Open posting**, **Mark Expired**, **Dismiss**, **Set Researching** — plus a per-row checkbox and bulk-action bar for batch decisions. A **Run cleanup now** button inside the modal triggers the worker's `POST /cleanup-expired` endpoint and refreshes the list in place. Indicators stay off individual cards.
+
+When the daily schedule runs in `--write` mode it auto-flips Status to `Expired` only for rows with high-confidence closed evidence (404/410, "this job has expired" / "position filled" / "no longer accepting"). Everything else (403, captcha, timeout, ambiguous page) stays in the review modal with a one-sentence Notes audit line, e.g. `[JobBored 2026-05-26] Marked Expired because the job page is gone (HTTP 404). Was: Researching.`
 
 **You do not need a webhook** to use the dashboard — only for the **Run discovery** button or automation that speaks the webhook contract. See **[docs/DISCOVERY-PATHS.md](docs/DISCOVERY-PATHS.md)** (diagrams: manual rows, scheduled jobs, GitHub Actions, vs browser POST).
 
