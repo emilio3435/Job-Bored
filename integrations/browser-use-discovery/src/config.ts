@@ -22,6 +22,7 @@ import {
 import {
   buildCompanyKeySet,
   companyFilterKey,
+  effectiveAtsCompanySeeds,
   filterSkippedCompanies,
 } from "./discovery/company-keys.ts";
 
@@ -597,9 +598,9 @@ export function mergeDiscoveryConfig(
     stored.companies,
     stored.negativeCompanyKeys,
   );
-  let atsCompanies = filterSkippedCompanies(
-    stored.atsCompanies || [],
-    stored.negativeCompanyKeys,
+  let atsCompanies = effectiveAtsCompanySeeds(
+    filterSkippedCompanies(stored.atsCompanies || [], stored.negativeCompanyKeys),
+    companies,
   );
   if (request.companyAllowlist?.length) {
     const allow = buildCompanyKeySet(request.companyAllowlist);
@@ -1038,7 +1039,11 @@ function pickConfigPayload(raw: unknown, sheetId: string): unknown {
   for (const key of ["sheets", "workers", "workspaces", "bySheetId", "configs"]) {
     const group = raw[key];
     if (!isPlainRecord(group)) continue;
-    if (sheetId && isPlainRecord(group[sheetId])) return group[sheetId];
+    if (sheetId) {
+      if (isPlainRecord(group[sheetId])) return group[sheetId];
+      // Requested sheet is missing — do not load another sheet's config.
+      return null;
+    }
     const first = Object.values(group).find((value) => isPlainRecord(value));
     if (first) return first;
   }
@@ -1069,7 +1074,9 @@ function resolveAtsCompanies(
   companies: CompanyTarget[],
 ): CompanyTarget[] {
   if (Object.prototype.hasOwnProperty.call(raw, "atsCompanies")) {
-    return normalizeCompanies(raw.atsCompanies);
+    return cloneCompanies(
+      effectiveAtsCompanySeeds(normalizeCompanies(raw.atsCompanies), companies),
+    );
   }
   if (companies.length) {
     return cloneCompanies(companies);

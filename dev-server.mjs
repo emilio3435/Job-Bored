@@ -1255,7 +1255,7 @@ export function startDevServer({
       discoveryWorkerStarter,
     });
     server.once("error", reject);
-    server.listen(requestedPort, () => {
+    server.listen(requestedPort, "127.0.0.1", () => {
       const address = server.address();
       const actualPort =
         address && typeof address === "object" ? address.port : requestedPort;

@@ -173,6 +173,46 @@ test("getKeepAliveStatus reports installed and not-installed states", () => {
   }
 });
 
+test("runKeepAliveCheck fails closed when no ngrok tunnel matches discovery port", async () => {
+  const homeDir = tempHome();
+  const workDir = mkdtempSync(join(tmpdir(), "jobbored-bootstrap-test-"));
+  try {
+    const bootstrapStatePath = join(workDir, "discovery-local-bootstrap.json");
+    writeFileSync(
+      bootstrapStatePath,
+      JSON.stringify({ localPort: 8644, workerName: "jobbored-discovery-relay-local" }),
+      "utf8",
+    );
+    const recorder = spawnRecorder();
+    const fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          tunnels: [
+            {
+              public_url: "https://wrong-service.ngrok-free.app",
+              config: { addr: "http://127.0.0.1:3000" },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+
+    const result = await runKeepAliveCheck({
+      homeDir,
+      bootstrapStatePath,
+      fetchImpl,
+      spawnSyncImpl: recorder.spawnSyncImpl,
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "ngrok_url_missing");
+    assert.equal(recorder.calls.length, 0);
+  } finally {
+    cleanup(homeDir);
+    cleanup(workDir);
+  }
+});
+
 test("runKeepAliveCheck redeploys through wrangler when ngrok URL changes", async () => {
   const homeDir = tempHome();
   const workDir = mkdtempSync(join(tmpdir(), "jobbored-bootstrap-test-"));

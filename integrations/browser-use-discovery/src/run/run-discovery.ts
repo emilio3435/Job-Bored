@@ -28,6 +28,7 @@ import type {
 } from "../contracts.ts";
 import type { DiscoveryRunsLogger } from "../sheets/discovery-runs-writer.ts";
 import type { ResolvedRunSettings, WorkerRuntimeConfig } from "../config.ts";
+import { effectiveAtsCompanySeeds } from "../discovery/company-keys.ts";
 import type { BrowserUseSessionManager } from "../browser/session.ts";
 import type { DiscoveryMemoryStore } from "../contracts.ts";
 import type { SourceAdapterRegistry } from "../browser/source-adapters.ts";
@@ -302,8 +303,11 @@ export async function runDiscovery(
 
   // VAL-LOOP-ATS-002: Build ATS company list from configured + memory channels
   // Seed sufficiency is met when we have at least one company to search.
-  // atsCompanies takes precedence over companies for ATS-specific seed channels.
-  const configuredAtsCompanies = (config.atsCompanies ?? config.companies) || [];
+  // Explicit atsCompanies win; empty atsCompanies inherits broad company seeds.
+  const configuredAtsCompanies = effectiveAtsCompanySeeds(
+    config.atsCompanies || [],
+    config.companies || [],
+  );
   
   // Convert memory company registry records to CompanyTarget format for ATS detection
   const memoryAtsCompanies: CompanyTarget[] = [];

@@ -112,10 +112,7 @@ function pickNgrokPublicUrl(tunnels, port) {
   });
   if (matching) return normalizeNgrokPublicUrl(matching.public_url);
 
-  const fallback = tunnels.find((tunnel) =>
-    String(tunnel && tunnel.public_url ? tunnel.public_url : "").startsWith("https://"),
-  );
-  return fallback ? normalizeNgrokPublicUrl(fallback.public_url) : "";
+  return "";
 }
 
 async function getCurrentNgrokUrl({ fetchImpl = globalThis.fetch, port }) {

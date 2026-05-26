@@ -44,6 +44,7 @@ import {
   buildCompanyKeySet,
   companyFilterKey,
   filterSkippedCompanies,
+  reconcileAtsCompaniesWithActivePool,
 } from "../discovery/company-keys.ts";
 import type { DiscoveryRunsLogger } from "../sheets/discovery-runs-writer.ts";
 import {
@@ -1501,11 +1502,16 @@ export async function handleDiscoveryProfileWebhook(
         existingActiveKeys.add(key);
       }
       const nextCompanies = priorCompanies.concat(restored);
+      const atsCompanies = reconcileAtsCompaniesWithActivePool(
+        existing?.atsCompanies,
+        nextCompanies,
+      );
       await dependencies.upsertStoredWorkerConfig(dependencies.runtimeConfig, {
         sheetId: String(targetSheetId),
         mutations: {
           negativeCompanyKeys: mergedNegative,
           companies: nextCompanies,
+          atsCompanies,
         },
       });
       dependencies.log?.("discovery.profile.unskip_recorded", {
@@ -2115,11 +2121,16 @@ export async function handleDiscoveryProfileWebhook(
         at: new Date().toISOString(),
         source: refreshSource,
       };
+      const reconciledAtsCompanies = reconcileAtsCompaniesWithActivePool(
+        storedBeforePersist?.atsCompanies,
+        persistedCompanies,
+      );
       try {
         await dependencies.upsertStoredWorkerConfig(dependencies.runtimeConfig, {
           sheetId: String(targetSheetId),
           mutations: {
             companies: persistedCompanies,
+            atsCompanies: reconciledAtsCompanies,
             companyHistory: nextHistoryCompanies,
             seenCompanyKeys: nextSeenCompanyKeys,
             lastRefreshAt,

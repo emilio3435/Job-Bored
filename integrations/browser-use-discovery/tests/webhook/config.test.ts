@@ -252,6 +252,72 @@ test("mergeDiscoveryConfig preserves ATS companies separately from broad company
   );
 });
 
+test("mergeDiscoveryConfig inherits broad companies when atsCompanies is explicitly empty", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig({
+      companies: [{ name: "Ramp", companyKey: "ramp" }],
+      atsCompanies: [],
+    }) as any,
+    makeRequest(),
+  );
+
+  assert.deepEqual(
+    (result.atsCompanies || []).map((company) => company.companyKey),
+    ["ramp"],
+  );
+});
+
+test("loadStoredWorkerConfig does not load another sheet when sheetId is missing from grouped config", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "discovery-config-"));
+  const configPath = join(tempDir, "worker-config.json");
+  try {
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        bySheetId: {
+          sheet_other: {
+            companies: [{ name: "Wrong Sheet Co" }],
+            atsCompanies: [{ name: "Wrong Sheet Co" }],
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const result = await loadStoredWorkerConfig(
+      {
+        stateDatabasePath: join(tempDir, "state.sqlite"),
+        workerConfigPath: configPath,
+        browserUseCommand: "browser-use",
+        geminiApiKey: "",
+        geminiModel: "gemini-2.5-flash",
+        groundedSearchMaxResultsPerCompany: 6,
+        groundedSearchMaxPagesPerCompany: 4,
+        googleServiceAccountJson: "",
+        googleServiceAccountFile: "",
+        googleAccessToken: "",
+        googleOAuthTokenJson: "",
+        googleOAuthTokenFile: "",
+        webhookSecret: "",
+        allowedOrigins: ["http://localhost:8080"],
+        port: 8644,
+        host: "127.0.0.1",
+        runMode: "local",
+        asyncAckByDefault: true,
+      },
+      "sheet_requested",
+    );
+
+    assert.deepEqual(result.companies, []);
+    assert.notEqual(
+      (result.atsCompanies || []).map((company) => company.name),
+      ["Wrong Sheet Co"],
+    );
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("mergeDiscoveryConfig excludes skipped companies from run targets", () => {
   const result = mergeDiscoveryConfig(
     makeStoredConfig({
