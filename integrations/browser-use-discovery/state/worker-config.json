@@ -1,15 +1,71 @@
 {
-  "sheetId": "",
+  "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
   "mode": "local",
   "timezone": "America/Chicago",
   "companies": [],
+  "atsCompanies": [
+    {
+      "name": "Scale AI",
+      "companyKey": "scale-ai",
+      "normalizedName": "scale-ai",
+      "domains": [
+        "scale.com"
+      ],
+      "roleTags": [
+        "ai strategy",
+        "ai automation",
+        "operations",
+        "product manager"
+      ],
+      "boardHints": {
+        "greenhouse": "scaleai",
+        "ashby": "scale-ai"
+      }
+    },
+    {
+      "name": "Figma",
+      "companyKey": "figma",
+      "normalizedName": "figma",
+      "domains": [
+        "figma.com"
+      ],
+      "roleTags": [
+        "growth marketing",
+        "product manager",
+        "community",
+        "marketing operations"
+      ],
+      "boardHints": {
+        "greenhouse": "figma",
+        "ashby": "figma"
+      }
+    },
+    {
+      "name": "Notion",
+      "companyKey": "notion",
+      "normalizedName": "notion",
+      "domains": [
+        "notion.so"
+      ],
+      "roleTags": [
+        "growth marketing",
+        "product manager",
+        "community",
+        "marketing operations"
+      ],
+      "boardHints": {
+        "greenhouse": "notion",
+        "ashby": "notion"
+      }
+    }
+  ],
   "includeKeywords": [],
   "excludeKeywords": [],
   "targetRoles": [],
   "locations": [],
   "remotePolicy": "",
   "seniority": "",
-  "maxLeadsPerRun": 25,
+  "maxLeadsPerRun": 15,
   "enabledSources": [
     "greenhouse",
     "lever",
@@ -29,6 +85,9 @@
     "serpapi_google_jobs"
   ],
   "schedule": {
-    "enabled": false
+    "enabled": true,
+    "hour": 8,
+    "minute": 15,
+    "mode": "local"
   }
 }

@@ -4,6 +4,7 @@
   "sheetId": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2up",
   "variationKey": "f00dcafebabe4242",
   "requestedAt": "2026-04-08T12:00:00.000Z",
+  "trigger": "manual",
   "discoveryProfile": {
     "targetRoles": "Staff / Principal backend engineer",
     "locations": "US West, UK remote",
@@ -11,8 +12,46 @@
     "seniority": "Senior, Staff",
     "keywordsInclude": "Go, distributed systems, Postgres",
     "keywordsExclude": "PHP, WordPress",
-    "maxLeadsPerRun": "25",
-    "groundedWebEnabled": true
+    "maxLeadsPerRun": "15",
+    "groundedWebEnabled": true,
+    "profileSnapshot": {
+      "snapshotVersion": 1,
+      "profileHash": "example-profile-hash",
+      "targetRoles": ["Staff", "Principal backend engineer"],
+      "locations": ["US West", "UK remote"],
+      "resumeTextLength": 48210,
+      "preferences": {
+        "industriesToEmphasize": ["Developer tools"],
+        "wordsToAvoid": ["rockstar"],
+        "voiceNotesLength": 280
+      },
+      "schedule": {
+        "local": { "enabled": true, "hour": 8, "minute": 0 },
+        "github": { "enabled": true, "hour": 6, "minute": 0 }
+      }
+    },
+    "searchPlan": {
+      "planVersion": 1,
+      "generatedAt": "2026-04-08T12:00:00.000Z",
+      "seed": "example-seed",
+      "rotationKey": "2026-04-08",
+      "selected": {
+        "role": "Staff",
+        "adjacentTitle": "Platform Engineer",
+        "skill": "Postgres",
+        "industry": "Developer tools",
+        "location": "US West",
+        "sourceLane": "serpapi_google_jobs"
+      },
+      "query": {
+        "targetRoles": "Staff, Platform Engineer",
+        "locations": "US West",
+        "remotePolicy": "Remote-first; hybrid OK in SF",
+        "seniority": "Senior",
+        "keywordsInclude": "Postgres, Developer tools",
+        "keywordsExclude": "PHP, WordPress"
+      }
+    }
   },
   "companyAllowlist": ["Stripe", "Linear", "Vercel"],
   "companyBlocklist": ["Acme Holdings"]
