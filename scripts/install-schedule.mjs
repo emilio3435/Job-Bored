@@ -22,13 +22,14 @@ Installs a daily local JobBored discovery refresh for this OS.
 
 Usage:
   npm run schedule:install -- --hour 8 --minute 0
-  npm run schedule:install -- --hour 7 --minute 30 --force
+  npm run schedule:install -- --hour 7 --minute 30 --sheet-id YOUR_SHEET_ID --force
   npm run schedule:status
 
 Options:
   --hour N      Hour of day to fire (0-23, local time). Default: 8.
   --minute N    Minute of hour to fire (0-59). Default: 0.
   --port N      Worker port. Default: BROWSER_USE_DISCOVERY_PORT in .env or 8644.
+  --sheet-id ID Sheet ID to pin into the scheduled refresh request.
   --force       Overwrite an existing artifact without prompting.
   --status      Print installed status and exit 0.
   --help, -h    Show this message.
@@ -41,6 +42,7 @@ function parseArgs(argv) {
     hour: 8,
     minute: 0,
     port: null,
+    sheetId: "",
     force: false,
     status: false,
   };
@@ -56,9 +58,14 @@ function parseArgs(argv) {
       continue;
     }
     const next = argv[i + 1];
-    if (arg === "--hour" || arg === "--minute" || arg === "--port") {
+    if (arg === "--hour" || arg === "--minute" || arg === "--port" || arg === "--sheet-id") {
       if (next === undefined || next.startsWith("--")) {
         fail(`missing value for ${arg}`);
+      }
+      if (arg === "--sheet-id") {
+        out.sheetId = String(next).trim();
+        i += 1;
+        continue;
       }
       const n = Number(next);
       if (!Number.isInteger(n)) fail(`${arg} must be an integer`);
@@ -92,6 +99,7 @@ function printStatus() {
   console.log(`hour: ${String(breadcrumb.hour ?? "")}`);
   console.log(`minute: ${String(breadcrumb.minute ?? "")}`);
   console.log(`port: ${String(breadcrumb.port ?? "")}`);
+  console.log(`sheetId: ${String(breadcrumb.sheetId ?? "")}`);
   console.log(`installedAt: ${String(breadcrumb.installedAt || "")}`);
 }
 
@@ -112,6 +120,7 @@ function toChildArgs(args) {
     String(args.minute),
   ];
   if (args.port !== null) out.push("--port", String(args.port));
+  if (args.sheetId) out.push("--sheet-id", args.sheetId);
   if (args.force) out.push("--force");
   return out;
 }

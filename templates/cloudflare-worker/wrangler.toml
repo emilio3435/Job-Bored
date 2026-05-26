@@ -16,13 +16,12 @@ compatibility_date = "2024-01-01"
 #     → optional; if set, only POST https://<worker>/forward works and requires Bearer token
 #   wrangler secret put DISCOVERY_SECRET
 #     → worker's x-discovery-secret; injected on both /webhook and /discovery-profile
-#       forwards AND on scheduled-cron refresh POSTs
+#       forwards AND on scheduled-cron discovery POSTs
 #   wrangler secret put REFRESH_SHEET_ID
-#     → (optional) explicit sheetId used by the scheduled refresh; falls back
-#       to the worker's configured default sheet when omitted
+#     → explicit sheetId used by scheduled Cloudflare discovery
 
-# Daily cron trigger — replays the stored candidateProfile against Gemini so
-# the worker-config company list refreshes without any dashboard interaction.
+# Daily cron trigger — posts command-center.discovery to the downstream
+# worker's /webhook endpoint without any dashboard interaction.
 # Default: 08:00 UTC every day. Adjust for your timezone; edit to "0 14 * * *"
 # for 14:00 UTC (= 07:00 Mountain Time), etc.
 [triggers]

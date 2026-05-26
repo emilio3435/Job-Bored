@@ -1,3 +1,17 @@
+/* ============================================================
+   dossier-workshop-events.test.mjs
+   ------------------------------------------------------------
+   role-workshop.js used to render a standalone Workshop block
+   into the Dossier. Post-refactor (2026-05-20), the Workshop
+   is the renamed PART 04 region (data-region="letter"); the
+   module now exposes pure HTML renderers and a single
+   wireWorkshop(region, jobKey) delegate that emits the same
+   events as before:
+       jb:role:writeback  (stage, heardBack, reply, followupAt, passed)
+       jb:role:action     (resume-tailor, resume-cover)
+   These tests pin that event contract.
+   ============================================================ */
+
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -27,10 +41,7 @@ function makeBus() {
     },
     removeEventListener(type, handler) {
       const list = listeners.get(type) || [];
-      listeners.set(
-        type,
-        list.filter((h) => h !== handler),
-      );
+      listeners.set(type, list.filter((h) => h !== handler));
     },
     dispatchEvent(event) {
       if (!event.target) event.target = this;
@@ -42,26 +53,11 @@ function makeBus() {
   };
 }
 
-function makeClassList(initial) {
-  const set = new Set(initial || []);
-  return {
-    add(c) { set.add(c); },
-    remove(c) { set.delete(c); },
-    contains(c) { return set.has(c); },
-    toggle(c) { if (set.has(c)) set.delete(c); else set.add(c); },
-  };
-}
-
-function makeMount({ isWorkshop = true } = {}) {
+/* A minimal "region" for the workshop delegate. */
+function makeRegion() {
   const listeners = new Map();
   const attributes = {};
-  const atsContainer = {
-    _innerHTML: "",
-    get innerHTML() { return this._innerHTML; },
-    set innerHTML(v) { this._innerHTML = String(v == null ? "" : v); },
-  };
-  const mount = {
-    classList: makeClassList(isWorkshop ? ["workshop"] : []),
+  const region = {
     addEventListener(type, handler) {
       const list = listeners.get(type) || [];
       list.push(handler);
@@ -73,60 +69,16 @@ function makeMount({ isWorkshop = true } = {}) {
     },
     setAttribute(name, value) { attributes[name] = String(value); },
     getAttribute(name) { return attributes[name] || null; },
-    _innerHTML: "",
-    get innerHTML() { return this._innerHTML; },
-    set innerHTML(v) { this._innerHTML = String(v == null ? "" : v); },
-    querySelector(selector) {
-      if (selector === "[data-ats-container]") return atsContainer;
-      return null;
-    },
     _listeners: listeners,
-    _atsContainer: atsContainer,
   };
-  return mount;
-}
-
-function makeFixture(overrides) {
-  const job = Object.assign({
-    jobKey: "job-1",
-    role: "Senior Product Designer, Growth",
-    company: "Linear",
-    stage: "applied",
-    appliedAt: "2026-05-13T00:00:00Z",
-    fitScore: 8,
-    salary: "$165–210k",
-    location: "Remote · SF",
-    employment: "Full-time",
-    source: "Linear Careers",
-    tags: ["Figma", "React"],
-    jdSnippet: "We build a tool for software teams.",
-    jdSections: [
-      {
-        heading: "What you'll do",
-        body: "Linear is looking for a senior product designer.",
-        bullets: ["Design growth surfaces", "Partner with growth engineering"],
-      },
-    ],
-    deadline: null,
-    notes: null,
-    contacts: [],
-    links: [{ label: "Posting", href: "https://example.com/jobs/42" }],
-  }, (overrides && overrides.job) || {});
-  return { job };
+  return region;
 }
 
 function loadWorkshop() {
   const windowEl = makeBus();
   const documentEl = makeBus();
   windowEl.CustomEvent = TestCustomEvent;
-  const letterRegion = {
-    _scrolledIntoViewWith: null,
-    scrollIntoView(opts) { this._scrolledIntoViewWith = opts || true; },
-  };
-  documentEl.querySelector = (selector) => {
-    if (selector === '[data-region="letter"]') return letterRegion;
-    return null;
-  };
+  documentEl.querySelector = () => null;
   windowEl.matchMedia = () => ({ matches: false });
 
   const context = vm.createContext({
@@ -145,19 +97,19 @@ function loadWorkshop() {
     clearTimeout,
   });
   vm.runInContext(workshopSource, context, { filename: "role-workshop.js" });
-  return { context, windowEl, documentEl, letterRegion };
+  return { context, windowEl, documentEl };
 }
 
-function clickWith(mount, attrs) {
+function clickWith(region, attrs) {
   const target = {
     getAttribute(name) {
       return Object.prototype.hasOwnProperty.call(attrs, name) ? attrs[name] : null;
     },
-    parentNode: mount,
+    parentNode: region,
   };
-  const handlers = mount._listeners.get("click") || [];
+  const handlers = region._listeners.get("click") || [];
   for (const fn of handlers) {
-    fn.call(mount, { type: "click", target });
+    fn.call(region, { type: "click", target });
   }
 }
 
@@ -176,29 +128,60 @@ function captureEvents(busList, eventType) {
 }
 
 describe("dossier workshop events", () => {
-  it("renderWorkshop emits jb:ats:state:request on mount with the job key", () => {
-    const { context, windowEl, documentEl } = loadWorkshop();
-    const requests = captureEvents([windowEl, documentEl], "jb:ats:state:request");
-
-    const mount = makeMount();
-    context.window.JobBoredDossierWorkshop.renderWorkshop(mount, makeFixture());
-
-    const onWindow = requests.filter((e) => e.bus === windowEl);
-    const onDocument = requests.filter((e) => e.bus === documentEl);
-    assert.equal(onWindow.length, 1, "expected one jb:ats:state:request on window");
-    assert.equal(onDocument.length, 1, "expected one jb:ats:state:request on document");
-    assert.deepEqual(onWindow[0].detail, { jobKey: "job-1" });
-    assert.deepEqual(onDocument[0].detail, { jobKey: "job-1" });
+  it("exposes the expected renderer surface and helpers", () => {
+    const { context } = loadWorkshop();
+    const api = context.window.JobBoredDossierWorkshop;
+    assert.ok(api, "JobBoredDossierWorkshop is exposed");
+    assert.equal(typeof api.renderHeroCtas, "function");
+    assert.equal(typeof api.renderStageStepper, "function");
+    assert.equal(typeof api.renderProgressChips, "function");
+    assert.equal(typeof api.wireWorkshop, "function");
+    assert.equal(typeof api.todayIso, "function");
+    assert.equal(typeof api.plusDaysIso, "function");
   });
 
-  it("clicking a stepper step emits jb:role:writeback with field='stage'", () => {
+  it("renderHeroCtas returns empty (Dossier owns the canonical CTAs; Workshop must not duplicate them)", () => {
+    /* Workshop is the doing surface (editor, scorecard, missing
+       keywords, tools, progress). Entry-point CTAs live in the
+       Dossier hero — see brief-structure tests. renderHeroCtas is
+       preserved as an empty stub so letter.js can keep splicing it
+       without conditionals. */
+    const { context } = loadWorkshop();
+    const html = context.window.JobBoredDossierWorkshop.renderHeroCtas({ jobKey: "job-1" });
+    assert.equal(html, "", "renderHeroCtas must return empty string");
+  });
+
+  it("renderStageStepper highlights the current stage", () => {
+    const { context } = loadWorkshop();
+    const html = context.window.JobBoredDossierWorkshop.renderStageStepper({ stage: "applied" });
+    assert.match(html, /class="jb-letter-block jb-letter-block--stage"/);
+    assert.match(html, /class="stepper"/);
+    assert.match(
+      html,
+      /class="stepper__step stepper__step--current"\s+data-stage-value="applied"/,
+      "the current stage is marked",
+    );
+  });
+
+  it("renderProgressChips emits four progress writeback chips", () => {
+    const { context } = loadWorkshop();
+    const html = context.window.JobBoredDossierWorkshop.renderProgressChips();
+    assert.match(html, /class="jb-letter-block jb-letter-block--progress"/);
+    assert.match(html, /class="writeback"/);
+    assert.match(html, /data-writeback="heardBack"/);
+    assert.match(html, /data-writeback="reply"/);
+    assert.match(html, /data-writeback="followupAt"/);
+    assert.match(html, /data-writeback="passed"/);
+  });
+
+  it("wireWorkshop -> clicking a stepper step emits jb:role:writeback with field='stage'", () => {
     const { context, windowEl, documentEl } = loadWorkshop();
     const writebacks = captureEvents([windowEl, documentEl], "jb:role:writeback");
 
-    const mount = makeMount();
-    context.window.JobBoredDossierWorkshop.renderWorkshop(mount, makeFixture());
+    const region = makeRegion();
+    context.window.JobBoredDossierWorkshop.wireWorkshop(region, "job-1");
 
-    clickWith(mount, { "data-stage-value": "phone-screen" });
+    clickWith(region, { "data-stage-value": "phone-screen" });
 
     const onWindow = writebacks.filter((e) => e.bus === windowEl);
     assert.equal(onWindow.length, 1);
@@ -209,7 +192,7 @@ describe("dossier workshop events", () => {
     });
   });
 
-  it("each chip emits the matching jb:role:writeback field/value pair", () => {
+  it("wireWorkshop -> each chip emits the matching jb:role:writeback field/value pair", () => {
     const cases = [
       { writeback: "heardBack", field: "heardBack", valueIsToday: true },
       { writeback: "reply", field: "reply", valueIsToday: true },
@@ -220,10 +203,10 @@ describe("dossier workshop events", () => {
       const { context, windowEl, documentEl } = loadWorkshop();
       const writebacks = captureEvents([windowEl, documentEl], "jb:role:writeback");
 
-      const mount = makeMount();
-      context.window.JobBoredDossierWorkshop.renderWorkshop(mount, makeFixture());
+      const region = makeRegion();
+      context.window.JobBoredDossierWorkshop.wireWorkshop(region, "job-1");
 
-      clickWith(mount, { "data-writeback": c.writeback });
+      clickWith(region, { "data-writeback": c.writeback });
 
       const onWindow = writebacks.filter((e) => e.bus === windowEl);
       assert.equal(onWindow.length, 1, `chip ${c.writeback}: expected one writeback on window`);
@@ -259,56 +242,35 @@ describe("dossier workshop events", () => {
     }
   });
 
-  it("clicking 'See full scorecard' emits jb:ats:modal:open", () => {
-    const { context, windowEl, documentEl } = loadWorkshop();
-    const opens = captureEvents([windowEl, documentEl], "jb:ats:modal:open");
-
-    const mount = makeMount();
-    context.window.JobBoredDossierWorkshop.renderWorkshop(mount, makeFixture());
-
-    clickWith(mount, { "data-action": "ats-modal-open" });
-
-    const onWindow = opens.filter((e) => e.bus === windowEl);
-    const onDocument = opens.filter((e) => e.bus === documentEl);
-    assert.equal(onWindow.length, 1, "expected one jb:ats:modal:open on window");
-    assert.equal(onDocument.length, 1, "expected one jb:ats:modal:open on document");
-    assert.deepEqual(onWindow[0].detail, { jobKey: "job-1" });
-    assert.deepEqual(onDocument[0].detail, { jobKey: "job-1" });
-  });
-
-  it("'Tailor resume' and 'Cover letter' emit jb:role:action and scroll to letter region", () => {
+  it("wireWorkshop -> Tailor + Cover hero CTAs emit jb:role:action", () => {
     for (const action of ["resume-tailor", "resume-cover"]) {
-      const { context, windowEl, documentEl, letterRegion } = loadWorkshop();
+      const { context, windowEl, documentEl } = loadWorkshop();
       const actions = captureEvents([windowEl, documentEl], "jb:role:action");
 
-      const mount = makeMount();
-      context.window.JobBoredDossierWorkshop.renderWorkshop(mount, makeFixture());
+      const region = makeRegion();
+      context.window.JobBoredDossierWorkshop.wireWorkshop(region, "job-1");
 
-      letterRegion._scrolledIntoViewWith = null;
-      clickWith(mount, { "data-action": action });
+      clickWith(region, { "data-action": action });
 
       const onWindow = actions.filter((e) => e.bus === windowEl);
       assert.equal(onWindow.length, 1, `${action}: expected one jb:role:action on window`);
       assert.deepEqual(onWindow[0].detail, { action, jobKey: "job-1" });
-      assert.notEqual(
-        letterRegion._scrolledIntoViewWith,
-        null,
-        `${action}: expected smoothScrollTo to run on the letter region`,
-      );
     }
   });
 
-  it("clicking 'Retry' on the ATS card emits jb:ats:state:request", () => {
+  it("wireWorkshop is idempotent — calling twice updates jobKey without double-binding", () => {
     const { context, windowEl, documentEl } = loadWorkshop();
-    // Drain the on-mount jb:ats:state:request before clicking retry.
-    const mount = makeMount();
-    context.window.JobBoredDossierWorkshop.renderWorkshop(mount, makeFixture());
+    const writebacks = captureEvents([windowEl, documentEl], "jb:role:writeback");
 
-    const requests = captureEvents([windowEl, documentEl], "jb:ats:state:request");
-    clickWith(mount, { "data-action": "ats-state-retry" });
+    const region = makeRegion();
+    const api = context.window.JobBoredDossierWorkshop;
+    api.wireWorkshop(region, "job-1");
+    api.wireWorkshop(region, "job-2");
 
-    const onWindow = requests.filter((e) => e.bus === windowEl);
-    assert.equal(onWindow.length, 1);
-    assert.deepEqual(onWindow[0].detail, { jobKey: "job-1" });
+    clickWith(region, { "data-stage-value": "offer" });
+
+    const onWindow = writebacks.filter((e) => e.bus === windowEl);
+    assert.equal(onWindow.length, 1, "click should fire exactly once after re-wire");
+    assert.equal(onWindow[0].detail.jobKey, "job-2");
   });
 });

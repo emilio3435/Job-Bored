@@ -47,12 +47,12 @@ Options:
   --worker-name    Optional. Cloudflare Worker name. Defaults to a stable JobBored relay name.
   --account-id     Optional. Cloudflare account id. Otherwise uses CLOUDFLARE_ACCOUNT_ID or wrangler whoami.
   --workers-subdomain Optional. Override the account-level workers.dev subdomain to create when using API-token auth.
-  --sheet-id       Optional. When provided, ALSO uploaded as the Worker's REFRESH_SHEET_ID secret so the
-                   daily cron knows which sheet's worker-config to refresh. Included in the final
-                   printed verify command either way.
-  --cron           Optional. Cron expression for the daily refresh trigger. Defaults to "0 8 * * *"
-                   (08:00 UTC daily). The Worker's scheduled() handler POSTs {mode:"refresh"} to
-                   <TARGET_URL origin>/discovery-profile at each fire.
+  --sheet-id       Optional for relay-only use, required for Cloudflare Cron. Uploaded as the Worker's
+                   REFRESH_SHEET_ID secret so the scheduled Cloudflare Cron can discover into that sheet.
+                   Included in the final printed verify command either way.
+  --cron           Optional. Cron expression for the daily discovery trigger. Defaults to "0 8 * * *"
+                   (08:00 UTC daily). The Worker's scheduled() handler POSTs command-center.discovery
+                   to <TARGET_URL origin>/webhook at each fire.
   --discovery-secret Optional. Uploaded as the Worker's DISCOVERY_SECRET. The relay
                    then injects it as x-discovery-secret on the upstream POST.
                    Falls back to DISCOVERY_WEBHOOK_SECRET / BROWSER_USE_DISCOVERY_WEBHOOK_SECRET env.
@@ -785,8 +785,8 @@ async function main() {
           compatibility_date: getCompatibilityDate(),
           account_id: accountId,
           workers_dev: true,
-          // Daily refresh cron — fires the worker's scheduled() handler
-          // which POSTs {mode:"refresh"} to <TARGET_URL origin>/discovery-profile.
+          // Daily discovery cron — fires the worker's scheduled() handler
+          // which POSTs command-center.discovery to <TARGET_URL origin>/webhook.
           // Default 08:00 UTC. Override with --cron.
           triggers: { crons: [args.cron] },
           ...(corsOrigin ? { vars: { CORS_ORIGIN: corsOrigin } } : {}),
@@ -943,12 +943,12 @@ async function main() {
       console.log(`Target URL: ${targetUrl}`);
       console.log(`Target classification: ${targetClassification.kind}`);
       console.log(`CORS origin: ${corsOrigin || "*"}`);
-      console.log(`Daily refresh cron: ${args.cron}`);
+      console.log(`Daily discovery cron: ${args.cron}`);
       if (args.sheetId) {
         console.log(`REFRESH_SHEET_ID secret: uploaded (${args.sheetId})`);
       } else {
         console.log(
-          "REFRESH_SHEET_ID secret: not set — cron will fall back to the worker's default sheetId. Re-run with --sheet-id to pin it.",
+          "REFRESH_SHEET_ID secret: not set — relay forwarding will work, but Cloudflare Cron will skip discovery until you re-run with --sheet-id.",
         );
       }
       console.log(authGuidance.detail);

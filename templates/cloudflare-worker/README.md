@@ -86,6 +86,9 @@ open Worker URL or the browser test path will fail.
 
 - `OPTIONS` returns CORS preflight handling.
 - `POST` forwards the body and `Content-Type` to `TARGET_URL`.
+- `scheduled()` posts a `command-center.discovery` payload to
+  `<TARGET_URL origin>/webhook` with `trigger:"scheduled-cloudflare"` when
+  `REFRESH_SHEET_ID` is set.
 - The response status and body come back from the downstream webhook.
 
 ## Environment
@@ -94,6 +97,7 @@ open Worker URL or the browser test path will fail.
 | ------------------ | ------ | -------------------------------------------------------------------------- |
 | `TARGET_URL`       | Secret | HTTPS downstream webhook. Required.                                        |
 | `DISCOVERY_SECRET` | Secret | Optional. When set, injected as `x-discovery-secret` on the upstream POST. |
+| `REFRESH_SHEET_ID` | Secret | Required for Cloudflare Cron discovery. Used as the webhook `sheetId`.     |
 | `FORWARD_SECRET`   | Secret | Optional lock for `POST /forward` on private/manual tests.                 |
 | `CORS_ORIGIN`      | Var    | Optional browser origin. Defaults to `*` when omitted.                     |
 

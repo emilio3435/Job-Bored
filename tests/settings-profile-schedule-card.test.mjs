@@ -439,6 +439,18 @@ describe("Schedule card — Tier 1 (auto-refresh) default", () => {
     assert.equal(state.enabled, true);
     assert.equal(state.intervalHours, 12);
   });
+
+  it("routes the browser-tab cadence through the shared discovery webhook trigger", async () => {
+    const source = await readFile(
+      join(repoRoot, "settings-profile-tab.js"),
+      "utf8",
+    );
+    assert.match(source, /function handleAutoDiscoveryRefresh\(\)/);
+    assert.match(source, /JobBoredDiscovery/);
+    assert.match(source, /triggerScheduledRun/);
+    assert.match(source, /trigger:\s*"scheduled-browser"/);
+    assert.match(source, /await handleAutoDiscoveryRefresh\(\)/);
+  });
 });
 
 describe("Schedule card — OS detection emits correct install command", () => {
@@ -520,6 +532,14 @@ describe("Schedule card — OS detection emits correct install command", () => {
     );
   });
 
+  it("install command pins the Sheet ID when one is available", async () => {
+    const { schedule } = await loadScheduleModule();
+    assert.equal(
+      schedule.buildInstallCommand("darwin", 9, 30, "sheet_abc123"),
+      "npm run schedule:install -- --hour 9 --minute 30 --sheet-id 'sheet_abc123'",
+    );
+  });
+
   it("uninstall command is a constant one-liner", async () => {
     const { schedule } = await loadScheduleModule();
     assert.equal(schedule.buildUninstallCommand(), "npm run schedule:uninstall");
@@ -549,7 +569,7 @@ describe("Schedule card — Tier 3 YAML download", () => {
     );
   });
 
-  it("preserves the rest of the workflow template (name, env, secret, curl step)", async () => {
+  it("preserves the rest of the workflow template (name, env, secret, shared builder step)", async () => {
     const { schedule } = await loadScheduleModule();
     const yaml = schedule.buildGithubActionsYaml(6, 0);
     assert.ok(
@@ -565,8 +585,16 @@ describe("Schedule card — Tier 3 YAML download", () => {
       "optional webhook secret reference should be present",
     );
     assert.ok(
-      yaml.includes('trigger: "scheduled-github"'),
-      "scheduled GitHub trigger should be sent in the webhook payload",
+      yaml.includes("--trigger scheduled-github"),
+      "scheduled GitHub trigger should be passed to the payload builder",
+    );
+    assert.ok(
+      yaml.includes("actions/checkout@v4"),
+      "workflow should check out the repo before running the shared payload builder",
+    );
+    assert.ok(
+      yaml.includes("node scripts/run-scheduled-discovery.mjs"),
+      "workflow should build the scheduled payload through the shared script",
     );
     assert.ok(
       yaml.includes("curl -sS -X POST"),

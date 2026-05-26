@@ -15,11 +15,15 @@ jobs:
   discovery:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: POST discovery webhook
         env:
           WEBHOOK_URL: ${{ secrets.COMMAND_CENTER_DISCOVERY_WEBHOOK_URL }}
           SHEET_ID: ${{ secrets.COMMAND_CENTER_SHEET_ID }}
           WEBHOOK_SECRET: ${{ secrets.COMMAND_CENTER_DISCOVERY_WEBHOOK_SECRET }}
+          COMMAND_CENTER_DISCOVERY_PROFILE_JSON: ${{ secrets.COMMAND_CENTER_DISCOVERY_PROFILE_JSON }}
+          COMMAND_CENTER_DISCOVERY_PREFERENCES_JSON: ${{ secrets.COMMAND_CENTER_DISCOVERY_PREFERENCES_JSON }}
         run: |
           set -euo pipefail
           if [ -z "${WEBHOOK_URL:-}" ] || [ -z "${SHEET_ID:-}" ]; then
@@ -32,21 +36,10 @@ jobs:
             echo "Skipping discovery: America/Chicago local time is $LOCAL_TIME, not $LOCAL_TARGET."
             exit 0
           fi
-          VAR_KEY="gh-${{ github.run_id }}-${{ github.run_attempt }}-$(date +%s)"
-          REQ_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-          BODY=$(jq -n \
-            --arg v "$VAR_KEY" \
-            --arg s "$SHEET_ID" \
-            --arg t "$REQ_AT" \
-            '{
-              event: "command-center.discovery",
-              schemaVersion: 1,
-              sheetId: $s,
-              variationKey: $v,
-              requestedAt: $t,
-              trigger: "scheduled-github",
-              discoveryProfile: {}
-            }')
+          BODY="$(node scripts/run-scheduled-discovery.mjs \
+            --trigger scheduled-github \
+            --sheet-id "$SHEET_ID" \
+            --dry-run)"
           SECRET_HEADER=()
           if [ -n "${WEBHOOK_SECRET:-}" ]; then
             SECRET_HEADER=(-H "x-discovery-secret: ${WEBHOOK_SECRET}")

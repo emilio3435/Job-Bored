@@ -15,7 +15,7 @@ You can implement **A only** (cron job that appends rows) and never touch **B**.
 
 **Machine-readable Pipeline row (Interface A):** [schemas/pipeline-row.v1.json](schemas/pipeline-row.v1.json) — column letters, header labels for row 1, and enums where the UI constrains values (Status, Priority, “Did they reply?”). CI asserts this file matches [README.md](README.md) Sheet Structure and the status/priority lists in [`app.js`](app.js).
 
-**Machine-readable webhook shape:** [schemas/discovery-webhook-request.v1.schema.json](schemas/discovery-webhook-request.v1.schema.json) (JSON Schema for `schemaVersion` **1**). Example bodies: [examples/discovery-webhook-request.v1.json](examples/discovery-webhook-request.v1.json) (minimal, matches `app.js` empty profile) and [examples/discovery-webhook-request.v1-with-profile.json](examples/discovery-webhook-request.v1-with-profile.json) (all `discoveryProfile` fields filled).
+**Machine-readable webhook shape:** [schemas/discovery-webhook-request.v1.schema.json](schemas/discovery-webhook-request.v1.schema.json) (JSON Schema for `schemaVersion` **1**). Example bodies: [examples/discovery-webhook-request.v1.json](examples/discovery-webhook-request.v1.json) (minimal, lets the worker use stored profile state) and [examples/discovery-webhook-request.v1-with-profile.json](examples/discovery-webhook-request.v1-with-profile.json) (profile, snapshot, and search plan filled).
 
 ---
 
@@ -44,6 +44,10 @@ Hermes, n8n, or your agent **writes** these cells; the dashboard **reads** them 
 
 Expired cleanup is a safe move, not deletion: write `Expired` to column M only when the posting is confirmed closed, and append an audit line to Notes with timestamp, previous status, checked URL, evidence, confidence, and source. Column E remains the row identity. Cleanup agents should default to blank/New/Researching rows; Applied, Phone Screen, Interviewing, Offer, Rejected, Passed, and already Expired rows are protected unless a human deliberately handles them. HTTP 403, captchas, timeouts, network failures, and ambiguous pages must be reported as needs-review/unknown, not auto-expired.
 
+Scheduled expired cleanup is separate from scheduled discovery refresh. Its default mode is dry-run and its logs/report counts must make checked, open, needs-review, skipped, and would-expire outcomes clear. Automatic writes require explicit `--write`.
+
+The dashboard surfaces review work through one top-bar review control and a single modal. Do not add per-card expired-review badges; the modal lists the active postings to check and links directly to each job listing.
+
 ---
 
 ## Manual “Run discovery” (browser → your webhook)
@@ -66,6 +70,7 @@ Use this when wiring **any** HTTPS handler (Apps Script, Cloudflare Worker, n8n 
 - [ ] **CORS** for browser-originated requests: respond with a permissive **`Access-Control-Allow-Origin`** for your dashboard (reflect the request `Origin` header, or set your deployed site URL). Without this, the dashboard shows a network/CORS error.
 - [ ] **OPTIONS** (preflight): if your stack does not auto-handle it, respond to **`OPTIONS`** on the same path with **`204`** (or **200**) and the same CORS headers as **`POST`** (`Access-Control-Allow-Methods`, `Access-Control-Allow-Headers: content-type`, etc.). Many platforms handle this for you.
 - [ ] **2xx** on success: return **HTTP 200–299** when the job is **accepted** (queued or started). Non-2xx surfaces an error toast in the dashboard.
+- [ ] **Async status polling:** if your response includes `statusPath`, browser clients must preserve that returned path exactly, including query parameters. Hosted Browser Use workers may return `/runs/<runId>?statusToken=...`; stripping or rebuilding the path will break authorized `/runs/:runId` polling.
 
 Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CONTRACT-CHANGELOG.md)**.
 
@@ -76,6 +81,9 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 ### Minimum response
 
 - Your endpoint should return **HTTP 2xx** if the discovery job was **accepted** (queued or started). Non-2xx shows an error toast in the dashboard.
+- Async receivers may return `{ "ok": true, "kind": "accepted_async", "runId": "...", "statusPath": "/runs/...", "pollAfterMs": 2000 }`.
+- Treat `statusPath` as an opaque browser polling path. Preserve it exactly when storing, relaying, or polling; do not reconstruct it from `runId` unless the receiver omitted `statusPath` and the client is talking to a known compatible worker.
+- In hosted Browser Use worker mode, `GET /runs/:runId` is authorized by either the `statusToken` embedded in the returned `statusPath`, an `x-run-status-token` header, or the full webhook secret. The status token is a bearer credential for that run's status only; do not log it raw.
 
 ### Request body (v1)
 
@@ -87,6 +95,7 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 | `variationKey`     | string | Random hex string; use as a seed for query variation.                                                         |
 | `requestedAt`      | string | ISO 8601 timestamp.                                                                                           |
 | `discoveryProfile` | object | Optional. User preferences from the dashboard (see below). Omitted keys or empty values mean “no preference”. |
+| `trigger`          | string | Optional origin label: `manual`, `scheduled-browser`, `scheduled-local`, `scheduled-github`, `scheduled-cloudflare`, `scheduled-appsscript`, or `cli`. |
 | `companyAllowlist` | array  | Optional. Non-empty array of trimmed company names/domains/keys to restrict discovery to. Empty/missing means no company restriction. Capped at 50 unique entries. |
 | `companyBlocklist` | array  | Optional. Non-empty array of trimmed company names/domains/keys to suppress from results. Capped at 50 unique entries. |
 
@@ -100,7 +109,9 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 | `seniority`       | string | e.g. mid, senior, staff.                       |
 | `keywordsInclude` | string | Comma-separated or free text to bias toward.   |
 | `keywordsExclude` | string | Terms to avoid.                                |
-| `maxLeadsPerRun`  | string | Suggested cap as decimal string (e.g. `"25"`). |
+| `maxLeadsPerRun`  | string | Suggested cap as decimal string (e.g. `"15"`). |
+| `profileSnapshot` | object | Optional non-secret metadata proving the current profile/resume/preferences/schedule snapshot used for the run. Raw resume text is not included. |
+| `searchPlan`      | object | Optional deterministic daily query/facet bundle. When `searchPlan.query` is present, the worker uses those query fields for this run while preserving the broader profile for observability. |
 
 Older automations that ignore `schemaVersion` and `discoveryProfile` keep working if they only read `event`, `sheetId`, `variationKey`, and `requestedAt`.
 

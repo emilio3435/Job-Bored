@@ -38,6 +38,9 @@ export type WorkerRuntimeConfig = {
   host: string;
   runMode: "local" | "hosted";
   asyncAckByDefault: boolean;
+  // Async discovery watchdog. This is intentionally long because discovery
+  // work runs in the background; per-source timeouts still bound stuck lanes.
+  maxRunDurationMs?: number;
   // Feature A / Layer 4: when true (default), grounded-search runs a second
   // Gemini call with responseSchema to extract structured candidates, bypassing
   // the regex URL fallback. Disable to roll back to Call-1-only behavior.
@@ -83,9 +86,15 @@ const defaultHermesGoogleTokenPath = join(
 );
 const defaultTimezone =
   Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Chicago";
-const defaultAllowedOrigins = ["http://localhost:8080", "http://127.0.0.1:8080"];
+const defaultAllowedOrigins = [
+  "http://localhost:8080",
+  "http://127.0.0.1:8080",
+  "http://localhost:8081",
+  "http://127.0.0.1:8081",
+];
 const defaultScheduleCron = "0 7 * * 1-5";
-const defaultMaxLeadsPerRun = 25;
+const defaultMaxLeadsPerRun = 15;
+const defaultMaxRunDurationMs = 60 * 60 * 1000;
 const supportedSourceSet = new Set(SUPPORTED_SOURCE_IDS);
 const defaultAtsCompanies: CompanyTarget[] = [
   {
@@ -365,6 +374,14 @@ export function loadRuntimeConfig(
       ]),
       true,
     ),
+    maxRunDurationMs: parsePositiveInt(
+      readFirst(runtimeEnv, [
+        "BROWSER_USE_DISCOVERY_MAX_RUN_DURATION_MS",
+        "DISCOVERY_MAX_RUN_DURATION_MS",
+        "MAX_RUN_DURATION_MS",
+      ]),
+      defaultMaxRunDurationMs,
+    ),
     useStructuredExtraction: parseBoolean(
       readFirst(runtimeEnv, [
         "BROWSER_USE_DISCOVERY_USE_STRUCTURED_EXTRACTION",
@@ -553,25 +570,43 @@ export function mergeDiscoveryConfig(
     );
   }
   const profile = request.discoveryProfile || {};
+  const searchPlan = isPlainRecord(profile.searchPlan) ? profile.searchPlan : {};
+  const searchPlanQuery = isPlainRecord(searchPlan.query)
+    ? searchPlan.query
+    : {};
   const stored = normalizeStoredWorkerConfig(
     storedConfig as AnyRecord,
     storedConfig.sheetId,
     storedConfig.mode,
   );
-  const requestTargetRoles = normalizeStringList(profile.targetRoles);
-  const requestLocations = normalizeStringList(profile.locations);
-  const requestIncludeKeywords = normalizeStringList(profile.keywordsInclude);
-  const requestExcludeKeywords = normalizeStringList(profile.keywordsExclude);
-  const requestRemotePolicy = cleanString(profile.remotePolicy);
-  const requestSeniority = cleanString(profile.seniority);
+  const requestTargetRoles = normalizeStringList(
+    searchPlanQuery.targetRoles || profile.targetRoles,
+  );
+  const requestLocations = normalizeStringList(
+    searchPlanQuery.locations || profile.locations,
+  );
+  const requestIncludeKeywords = normalizeStringList(
+    searchPlanQuery.keywordsInclude || profile.keywordsInclude,
+  );
+  const requestExcludeKeywords = normalizeStringList(
+    searchPlanQuery.keywordsExclude || profile.keywordsExclude,
+  );
+  const requestRemotePolicy =
+    cleanString(searchPlanQuery.remotePolicy) || cleanString(profile.remotePolicy);
+  const requestSeniority =
+    cleanString(searchPlanQuery.seniority) || cleanString(profile.seniority);
   const requestMaxLeads = parsePositiveInt(
     profile.maxLeadsPerRun,
     stored.maxLeadsPerRun,
   );
+  const planSourcePreset = cleanString(searchPlanQuery.sourcePreset);
   const requestSourcePreset =
-    profile.sourcePreset &&
-    (SOURCE_PRESET_VALUES as readonly string[]).includes(profile.sourcePreset)
-      ? (profile.sourcePreset as SourcePreset)
+    planSourcePreset &&
+    (SOURCE_PRESET_VALUES as readonly string[]).includes(planSourcePreset)
+      ? (planSourcePreset as SourcePreset)
+      : profile.sourcePreset &&
+          (SOURCE_PRESET_VALUES as readonly string[]).includes(profile.sourcePreset)
+        ? (profile.sourcePreset as SourcePreset)
       : undefined;
   const resolvedSourcePreset = resolveSourcePreset(
     requestSourcePreset,
@@ -639,6 +674,8 @@ export function mergeDiscoveryConfig(
     effectiveSources: computeEffectiveSources(resolvedSourcePreset, stored.enabledSources),
     ultraPlanTuning: resolvedUltraPlanTuning,
     groundedSearchTuning: resolvedGroundedSearchTuning,
+    ...(profile.profileSnapshot ? { profileSnapshot: profile.profileSnapshot } : {}),
+    ...(profile.searchPlan ? { searchPlan: profile.searchPlan } : {}),
   };
 }
 

@@ -6,7 +6,7 @@
  *   1. In PowerShell, set integrations\browser-use-discovery\.env with
  *      BROWSER_USE_DISCOVERY_WEBHOOK_SECRET and optionally
  *      BROWSER_USE_DISCOVERY_PORT.
- *   2. Run: npm run schedule:install -- --hour 8 --minute 0 --force
+ *   2. Run: npm run schedule:install -- --hour 8 --minute 0 --sheet-id YOUR_SHEET_ID --force
  *   3. Verify: schtasks /Query /TN JobBoredRefresh
  *   4. Fire manually: schtasks /Run /TN JobBoredRefresh
  *   5. Remove: npm run schedule:uninstall
@@ -40,12 +40,13 @@ Writes a Windows Task Scheduler daily task.
 
 Usage:
   node scripts/install-taskscheduler-refresh.mjs
-  node scripts/install-taskscheduler-refresh.mjs --hour 7 --minute 30
+  node scripts/install-taskscheduler-refresh.mjs --hour 7 --minute 30 --sheet-id YOUR_SHEET_ID
 
 Options:
   --hour N      Hour of day to fire (0-23, local time). Default: 8.
   --minute N    Minute of hour to fire (0-59). Default: 0.
   --port N      Worker port for breadcrumb/status. The task helper reads .env at runtime.
+  --sheet-id ID Sheet ID to pin into the scheduled refresh request.
   --force       Overwrite an existing task.
   --help        Show this message.
 `);
@@ -57,6 +58,7 @@ export function parseArgs(argv) {
     hour: 8,
     minute: 0,
     port: null,
+    sheetId: "",
     force: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -67,9 +69,14 @@ export function parseArgs(argv) {
       continue;
     }
     const next = argv[i + 1];
-    if (arg === "--hour" || arg === "--minute" || arg === "--port") {
+    if (arg === "--hour" || arg === "--minute" || arg === "--port" || arg === "--sheet-id") {
       if (next === undefined || next.startsWith("--")) {
         fail(`missing value for ${arg}`);
+      }
+      if (arg === "--sheet-id") {
+        out.sheetId = String(next).trim();
+        i += 1;
+        continue;
       }
       const n = Number(next);
       if (!Number.isInteger(n)) fail(`${arg} must be an integer`);
@@ -111,8 +118,14 @@ function resolveEnv(args) {
   return { port };
 }
 
-export function buildSchtasksArgs({ hour, minute, force }) {
-  const taskRun = `powershell -NoProfile -ExecutionPolicy Bypass -File "${refreshScriptPath}"`;
+function quotePowerShellSingleQuoted(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+export function buildSchtasksArgs({ hour, minute, force, sheetId = "" }) {
+  const taskRun =
+    `powershell -NoProfile -ExecutionPolicy Bypass -File "${refreshScriptPath}"` +
+    (sheetId ? ` -SheetId ${quotePowerShellSingleQuoted(sheetId)}` : "");
   const args = [
     "/Create",
     "/SC",
@@ -156,6 +169,7 @@ function main() {
     hour: args.hour,
     minute: args.minute,
     port: env.port,
+    sheetId: args.sheetId,
   });
   console.log(`${FAIL_PREFIX}: OK`);
   console.log(`  Task:       ${TASK_NAME}`);

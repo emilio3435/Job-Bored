@@ -1188,6 +1188,58 @@
     return t || "";
   }
 
+  function _parseJsonArrayAttr(card, name) {
+    if (!card) return [];
+    var raw = _attr(card, name);
+    if (!raw) return [];
+    try {
+      var parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map(function (s) { return String(s == null ? "" : s).trim(); })
+          .filter(Boolean);
+      }
+    } catch (e) { /* fall through */ }
+    return [];
+  }
+
+  /* Read the drawer-parity AI enrichment payload that app.js renders onto
+     the kanban card. All fields are optional; when none are present, the
+     enrichment block stays empty and the Brief falls back to whatever
+     plain data-jd-snippet provides. */
+  function _parseEnrichmentFromCard(card) {
+    if (!card) {
+      return {
+        roleInOneLine: "", postingSummary: "", fitAngle: "", fitAssessment: "",
+        mustHaves: [], niceToHaves: [], responsibilities: [],
+        toolsAndStack: [], extraKeywords: [], talkingPoints: [],
+        atsFitScore: null, atsFitRationale: "",
+        status: "",
+      };
+    }
+    var atsFitScore = _firstNumber(_attr(card, "data-ats-fit-score"));
+    if (atsFitScore != null) {
+      atsFitScore = Number.isFinite(atsFitScore)
+        ? Math.max(0, Math.min(100, Math.round(atsFitScore)))
+        : null;
+    }
+    return {
+      roleInOneLine: String(_attr(card, "data-role-in-one-line") || "").trim(),
+      postingSummary: String(_attr(card, "data-posting-summary") || "").trim(),
+      fitAngle: String(_attr(card, "data-fit-angle") || "").trim(),
+      fitAssessment: String(_attr(card, "data-fit-assessment") || "").trim(),
+      mustHaves: _parseJsonArrayAttr(card, "data-must-haves"),
+      niceToHaves: _parseJsonArrayAttr(card, "data-nice-to-haves"),
+      responsibilities: _parseJsonArrayAttr(card, "data-responsibilities"),
+      toolsAndStack: _parseJsonArrayAttr(card, "data-tools-and-stack"),
+      extraKeywords: _parseJsonArrayAttr(card, "data-extra-keywords"),
+      talkingPoints: _parseJsonArrayAttr(card, "data-ai-talking-points"),
+      atsFitScore: atsFitScore,
+      atsFitRationale: String(_attr(card, "data-ats-fit-rationale") || "").trim(),
+      status: String(_attr(card, "data-enrichment-status") || "").trim(),
+    };
+  }
+
   function getRoleViewModel(jobKey, opts) {
     var doc = (opts && opts.doc) || (typeof document !== "undefined" ? document : null);
     var nowMs = (opts && Number.isFinite(opts.nowMs)) ? opts.nowMs : Date.now();
@@ -1201,6 +1253,7 @@
       jdSnippet: "", jdSections: [],
       deadline: null, notes: null,
       contacts: [], links: [],
+      enrichment: _parseEnrichmentFromCard(null),
     };
 
     if (!doc) return { job: EMPTY_JOB };
@@ -1227,6 +1280,28 @@
       }
     }
 
+    var enrichment = _parseEnrichmentFromCard(card);
+
+    /* Merge sheet tags with the AI-derived extraKeywords, dedup'd
+       case-insensitively. The drawer composes the same union, so the
+       Dossier surfaces the same tag set. */
+    var baseTags = _parseTagsFromCard(card);
+    var mergedTags = (function () {
+      var seen = Object.create(null);
+      var out = [];
+      var push = function (t) {
+        var s = String(t || "").trim();
+        if (!s) return;
+        var k = s.toLowerCase();
+        if (seen[k]) return;
+        seen[k] = 1;
+        out.push(s);
+      };
+      baseTags.forEach(push);
+      enrichment.extraKeywords.forEach(push);
+      return out;
+    })();
+
     return {
       job: {
         jobKey: rec.jobKey,
@@ -1241,13 +1316,17 @@
         source: _parseSourceFromCard(card),
         fitScore: rec.fitScore,
         salary: rec.salary,
-        tags: _parseTagsFromCard(card),
+        tags: mergedTags,
         jdSnippet: _truncate(jd, 160),
         jdSections: jdSections,
         deadline: _parseDeadlineFromCard(card, nowMs),
         notes: _parseNotesFromCard(card),
         contacts: _parseContactsFromCard(card),
         links: _parseLinksFromCard(card),
+        /* AI enrichment from the Cheerio scrape + Gemini call.
+           Optional; empty strings / arrays when the role hasn't been
+           enriched yet (status="" or "loading"). */
+        enrichment: enrichment,
       },
     };
   }

@@ -70,7 +70,25 @@ test("loadRuntimeConfig defaults local workers to localhost browser origins", ()
   assert.deepEqual(result.allowedOrigins, [
     "http://localhost:8080",
     "http://127.0.0.1:8080",
+    "http://localhost:8081",
+    "http://127.0.0.1:8081",
   ]);
+});
+
+test("loadRuntimeConfig defaults async run watchdog to 60 minutes", () => {
+  const result = loadRuntimeConfig({
+    BROWSER_USE_DISCOVERY_RUN_MODE: "local",
+  });
+
+  assert.equal(result.maxRunDurationMs, 60 * 60 * 1000);
+});
+
+test("loadRuntimeConfig accepts explicit async run watchdog override", () => {
+  const result = loadRuntimeConfig({
+    BROWSER_USE_DISCOVERY_MAX_RUN_DURATION_MS: "7200000",
+  });
+
+  assert.equal(result.maxRunDurationMs, 7200000);
 });
 
 test("loadRuntimeConfig fails closed for hosted workers without explicit browser origins", () => {
@@ -184,6 +202,7 @@ test("loadStoredWorkerConfig falls back to defaults with grounded_web enabled", 
   );
 
   assert.deepEqual(result.enabledSources, DEFAULT_ENABLED_SOURCE_IDS);
+  assert.equal(result.maxLeadsPerRun, 15);
   assert.deepEqual(
     (result.atsCompanies || []).map((company) => company.name),
     ["Scale AI", "Figma", "Notion"],
@@ -393,6 +412,53 @@ test("mergeDiscoveryConfig request preset overrides stored preset", () => {
     }),
   );
   assert.equal(result.sourcePreset, "browser_only");
+});
+
+test("mergeDiscoveryConfig applies rotated searchPlan query and carries snapshot", () => {
+  const profileSnapshot = {
+    snapshotVersion: 1,
+    profileHash: "profile_abc",
+    targetRoles: ["Stored should not win"],
+  };
+  const searchPlan = {
+    planVersion: 1,
+    profileHash: "profile_abc",
+    query: {
+      targetRoles: "Platform Engineer, Product Lead",
+      locations: "Chicago, Remote",
+      keywordsInclude: "typescript, healthcare",
+      keywordsExclude: "contract",
+      remotePolicy: "hybrid",
+      seniority: "staff",
+      sourcePreset: "browser_only",
+    },
+  };
+
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig({
+      targetRoles: ["Growth Marketing"],
+      includeKeywords: ["AI"],
+      discoveryProfile: { sourcePreset: "ats_only" },
+    }) as any,
+    makeRequest({
+      discoveryProfile: {
+        targetRoles: "",
+        keywordsInclude: "",
+        profileSnapshot,
+        searchPlan,
+      },
+    }),
+  );
+
+  assert.deepEqual(result.targetRoles, ["Platform Engineer", "Product Lead"]);
+  assert.deepEqual(result.locations, ["Chicago", "Remote"]);
+  assert.deepEqual(result.includeKeywords, ["typescript", "healthcare"]);
+  assert.deepEqual(result.excludeKeywords, ["contract"]);
+  assert.equal(result.remotePolicy, "hybrid");
+  assert.equal(result.seniority, "staff");
+  assert.equal(result.sourcePreset, "browser_only");
+  assert.deepEqual(result.profileSnapshot, profileSnapshot);
+  assert.deepEqual(result.searchPlan, searchPlan);
 });
 
 // === VAL-API-001: browser_only applies elevated agentic defaults when tuning fields are omitted ===

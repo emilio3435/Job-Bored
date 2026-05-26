@@ -282,6 +282,8 @@ describe("v2 kanban-card data-* attributes → dossier view-model", () => {
         "data-contacts": JSON.stringify([{ name: "Dana Ng" }]),
         "data-company-tagline": "We build cybernetic systems.",
         "data-employment": "Full-time",
+        "data-ats-fit-score": "84",
+        "data-ats-fit-rationale": "Strong backend platform match; leadership evidence is thin.",
       },
     });
 
@@ -361,6 +363,16 @@ describe("v2 kanban-card data-* attributes → dossier view-model", () => {
     assert.equal(
       job.employment, "Full-time",
       "VM.job.employment mismatch — data-employment not propagated",
+    );
+    assert.equal(
+      job.enrichment.atsFitScore,
+      84,
+      "VM.job.enrichment.atsFitScore mismatch — data-ats-fit-score not propagated",
+    );
+    assert.equal(
+      job.enrichment.atsFitRationale,
+      "Strong backend platform match; leadership evidence is thin.",
+      "VM.job.enrichment.atsFitRationale mismatch — data-ats-fit-rationale not propagated",
     );
   });
 

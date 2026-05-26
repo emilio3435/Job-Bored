@@ -172,12 +172,22 @@
   }
 
   function initialState() {
-    return { sort: SORT_DEFAULT, collapsed: loadCollapsedState(), filters: readPipelineFilters() };
+    return {
+      sort: SORT_DEFAULT,
+      collapsed: loadCollapsedState(),
+      filters: readPipelineFilters(),
+      focusedStage: "",
+      selectedJobKey: "",
+      search: "",
+    };
   }
 
   function ensureStateShape(state) {
     if (!state.collapsed) state.collapsed = loadCollapsedState();
     state.filters = readPipelineFilters(state.filters);
+    state.focusedStage = state.focusedStage || "";
+    state.selectedJobKey = state.selectedJobKey || "";
+    state.search = state.search || "";
     return state;
   }
 
@@ -218,6 +228,62 @@
     return false;
   }
 
+  function getPipelineJobByKey(jobKey) {
+    var api = root.JobBored;
+    if (!api || typeof api.getPipelineJobs !== "function") return null;
+    var idx = Number(jobKey);
+    if (!Number.isInteger(idx) || idx < 0) return null;
+    try {
+      var jobs = api.getPipelineJobs() || [];
+      return jobs[idx] || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function togglePipelineFavorite(jobKey) {
+    var api = root.JobBored;
+    if (api && typeof api.toggleFavorite === "function") {
+      try {
+        return api.toggleFavorite(jobKey);
+      } catch (_) {
+        return null;
+      }
+    }
+    if (typeof root.toggleFavorite === "function") {
+      try {
+        return root.toggleFavorite(jobKey);
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  function setCardFavoriteState(region, jobKey, favorite) {
+    var key = String(jobKey);
+    var cardSelector = '.pipe-sticker[data-stable-key="' + cssEscape(key) + '"]';
+    var btnSelector = '[data-card-action="toggle-favorite"][data-key="' + cssEscape(key) + '"]';
+    var label = favorite ? "Unfavorite" : "Favorite";
+    var cards = region.querySelectorAll(cardSelector);
+    cards.forEach(function (card) {
+      card.classList.toggle("pipe-sticker--favorited", !!favorite);
+      card.setAttribute("data-favorite", favorite ? "true" : "false");
+    });
+    var buttons = region.querySelectorAll(btnSelector);
+    buttons.forEach(function (btn) {
+      btn.setAttribute("aria-pressed", favorite ? "true" : "false");
+      btn.setAttribute("aria-label", label);
+      btn.setAttribute("title", label);
+      var mark = btn.querySelector(".pipe-sticker__favorite-mark");
+      if (mark) mark.textContent = favorite ? "★" : "☆";
+    });
+  }
+
+  function isInteractiveTarget(target) {
+    return !!(target && target.closest && target.closest("button, a, input, select, textarea, [data-card-action]"));
+  }
+
   function setFilterChipState(region, state) {
     var filters = readPipelineFilters(state && state.filters);
     if (state) state.filters = filters;
@@ -227,6 +293,11 @@
     if (dismissed) dismissed.setAttribute("aria-pressed", filters.showDismissed ? "true" : "false");
   }
 
+  function setSearchInputState(region, state) {
+    var input = region.querySelector("[data-pipeline-search]");
+    if (input && input.value !== (state.search || "")) input.value = state.search || "";
+  }
+
   function isCollapsed(state, stageKey) {
     return !!(state && state.collapsed && state.collapsed[stageKey]);
   }
@@ -234,20 +305,28 @@
   function applyColumnTrack(region, state, stageKey) {
     var board = region.querySelector(".pipe-board");
     if (!board) return;
+    var focused = state && state.focusedStage === stageKey && !isCollapsed(state, stageKey);
     board.style.setProperty(
       columnVarName(stageKey),
-      isCollapsed(state, stageKey) ? "var(--pipe-col-collapsed)" : "var(--pipe-col-open)",
+      isCollapsed(state, stageKey)
+        ? "var(--pipe-col-collapsed)"
+        : focused
+          ? "var(--pipe-col-focused)"
+          : "var(--pipe-col-open)",
     );
   }
 
   function applyColumnCollapsed(region, state, stageKey) {
+    applyBoardFocus(region, state);
     var col = region.querySelector('.pipe-col[data-stage="' + cssEscape(stageKey) + '"]');
     if (!col) return;
     var collapsed = isCollapsed(state, stageKey);
+    var focused = !!(state && state.focusedStage === stageKey && !collapsed);
     var label = stageLabel(stageKey);
     var body = col.querySelector('[data-stage-body="' + cssEscape(stageKey) + '"]');
     var btn = col.querySelector('.pipe-col__toggle[data-stage-toggle="' + cssEscape(stageKey) + '"]');
     col.setAttribute("data-collapsed", collapsed ? "true" : "false");
+    col.setAttribute("data-focused", focused ? "true" : "false");
     if (body) {
       if (collapsed) body.setAttribute("aria-hidden", "true");
       else body.removeAttribute("aria-hidden");
@@ -260,16 +339,275 @@
     applyColumnTrack(region, state, stageKey);
   }
 
-  function setColumnCollapsed(region, state, stageKey, collapsed) {
+  function setColumnCollapsed(region, state, stageKey, collapsed, opts) {
+    opts = opts || {};
     state.collapsed = state.collapsed || {};
+    if (!opts.keepFocus) {
+      state.focusedStage = "";
+      state.selectedJobKey = "";
+    }
     if (collapsed) state.collapsed[stageKey] = true;
     else delete state.collapsed[stageKey];
     saveCollapsedState(state);
+    applyBoardFocus(region, state);
     applyColumnCollapsed(region, state, stageKey);
+    applySelectedCardState(region, state);
+  }
+
+  function expandColumnExclusive(region, state, stageKey) {
+    if (!stageKey) return;
+    state.collapsed = state.collapsed || {};
+    state.focusedStage = stageKey;
+    state.selectedJobKey = "";
+    STAGES.forEach(function (s) {
+      if (s.key === stageKey) delete state.collapsed[s.key];
+      else state.collapsed[s.key] = true;
+    });
+    saveCollapsedState(state);
+    rerender(region, state);
   }
 
   function applyCollapsedState(region, state) {
+    applyBoardFocus(region, state);
     STAGES.forEach(function (s) { applyColumnCollapsed(region, state, s.key); });
+  }
+
+  function applyBoardFocus(region, state) {
+    var board = region.querySelector(".pipe-board");
+    if (!board) return;
+    if (state && state.focusedStage) board.setAttribute("data-focus-stage", state.focusedStage);
+    else board.removeAttribute("data-focus-stage");
+  }
+
+  function focusColumnForCard(region, state, stageKey, jobKey) {
+    if (!stageKey || jobKey == null || String(jobKey) === "") return;
+    state.collapsed = state.collapsed || {};
+    state.focusedStage = stageKey;
+    state.selectedJobKey = String(jobKey);
+    STAGES.forEach(function (s) {
+      if (s.key === stageKey) delete state.collapsed[s.key];
+      else state.collapsed[s.key] = true;
+    });
+    saveCollapsedState(state);
+    rerender(region, state);
+  }
+
+  function applySelectedCardState(region, state) {
+    var selectedKey = state && state.selectedJobKey ? String(state.selectedJobKey) : "";
+    var cards = region.querySelectorAll(".pipe-sticker[data-stable-key]");
+    cards.forEach(function (card) {
+      var isSelected = selectedKey && card.getAttribute("data-stable-key") === selectedKey;
+      card.setAttribute("data-selected", isSelected ? "true" : "false");
+      card.setAttribute("data-expanded", isSelected ? "true" : "false");
+      if (isSelected) card.setAttribute("aria-current", "true");
+      else card.removeAttribute("aria-current");
+    });
+  }
+
+  function cardSearchText(card) {
+    var job = getPipelineJobByKey(card.jobKey) || {};
+    return [
+      card.role,
+      card.company,
+      card.note,
+      card.salary,
+      job.title,
+      job.company,
+      job.location,
+      job.tags,
+      job.notes,
+      job.source,
+      job.status,
+      job.link,
+    ].map(function (part) {
+      return part == null ? "" : String(part);
+    }).join(" ").toLowerCase();
+  }
+
+  function filterCardsBySearch(cards, state) {
+    var q = String((state && state.search) || "").trim().toLowerCase();
+    if (!q) return cards;
+    var terms = q.split(/\s+/).filter(Boolean);
+    if (!terms.length) return cards;
+    return cards.filter(function (card) {
+      var haystack = cardSearchText(card);
+      return terms.every(function (term) { return haystack.indexOf(term) >= 0; });
+    });
+  }
+
+  function hasActiveSearch(state) {
+    return !!String((state && state.search) || "").trim();
+  }
+
+  function isHttpUrl(value) {
+    var api = root.JobBored;
+    if (api && typeof api.isParseableJobUrl === "function") {
+      try {
+        return !!api.isParseableJobUrl(value);
+      } catch (_) {
+        /* Fall through to local validation. */
+      }
+    }
+    try {
+      var parsed = new root.URL(String(value || "").trim());
+      return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function getUrlModalEls(region) {
+    var modal = region.querySelector("[data-pipeline-url-modal]");
+    return {
+      modal: modal,
+      form: region.querySelector("[data-pipeline-url-form]"),
+      input: region.querySelector("[data-pipeline-url-input]"),
+      error: region.querySelector("[data-pipeline-url-error]"),
+      progress: region.querySelector("[data-pipeline-url-progress]"),
+      progressBar: region.querySelector("[data-pipeline-url-progress-bar]"),
+      progressLabel: region.querySelector("[data-pipeline-url-progress-label]"),
+      submit: region.querySelector("[data-pipeline-url-submit]"),
+      submitLabel: region.querySelector("[data-pipeline-url-submit-label]"),
+      cancel: region.querySelector("[data-pipeline-url-cancel]"),
+      close: region.querySelector("[data-pipeline-url-close]"),
+    };
+  }
+
+  function setUrlModalError(region, message) {
+    var els = getUrlModalEls(region);
+    if (!els.error) return;
+    if (!message) {
+      els.error.hidden = true;
+      els.error.textContent = "";
+      return;
+    }
+    els.error.hidden = false;
+    els.error.textContent = message;
+  }
+
+  function setUrlModalProgress(region, update) {
+    var els = getUrlModalEls(region);
+    if (!els.progress) return;
+    var pct = Math.max(0, Math.min(100, Number(update && update.progress) || 0));
+    var label = String((update && update.label) || "Working...");
+    els.progress.hidden = false;
+    if (els.progressBar) els.progressBar.style.width = pct + "%";
+    if (els.progressLabel) els.progressLabel.textContent = label;
+    if (els.modal && update && update.step) els.modal.setAttribute("data-progress-step", update.step);
+  }
+
+  function setUrlModalBusy(region, busy) {
+    var els = getUrlModalEls(region);
+    if (!els.modal) return;
+    els.modal.setAttribute("data-busy", busy ? "true" : "false");
+    if (els.form) els.form.setAttribute("aria-busy", busy ? "true" : "false");
+    if (els.input) els.input.disabled = !!busy;
+    if (els.submit) els.submit.disabled = !!busy;
+    if (els.cancel) els.cancel.disabled = !!busy;
+    if (els.close) els.close.disabled = !!busy;
+    if (els.submitLabel) els.submitLabel.textContent = busy ? "Adding..." : "Add to Pipeline";
+  }
+
+  function resetUrlModal(region, prefill) {
+    var els = getUrlModalEls(region);
+    if (!els.modal) return;
+    setUrlModalBusy(region, false);
+    setUrlModalError(region, "");
+    if (els.input) els.input.value = prefill || "";
+    if (els.progress) els.progress.hidden = true;
+    if (els.progressBar) els.progressBar.style.width = "0%";
+    if (els.progressLabel) els.progressLabel.textContent = "Ready";
+    els.modal.setAttribute("data-progress-step", "idle");
+  }
+
+  function openJobUrlModal(region, prefill) {
+    var els = getUrlModalEls(region);
+    if (!els.modal) return;
+    resetUrlModal(region, prefill);
+    els.modal.hidden = false;
+    document.body.classList.add("pipe-url-modal-open");
+    setTimeout(function () {
+      if (els.input) els.input.focus();
+    }, 0);
+  }
+
+  function closeJobUrlModal(region) {
+    var els = getUrlModalEls(region);
+    if (!els.modal || els.modal.getAttribute("data-busy") === "true") return;
+    els.modal.hidden = true;
+    document.body.classList.remove("pipe-url-modal-open");
+    setUrlModalError(region, "");
+  }
+
+  function ingestErrorMessage(err) {
+    if (err && err.discoveryVerificationResult) {
+      var result = err.discoveryVerificationResult;
+      var detail = result.detail && result.detail !== result.message ? " " + result.detail : "";
+      return (result.message || "Could not reach the ingest worker.") + detail;
+    }
+    var message = String((err && err.message) || "");
+    if (message === "invalid_url") return "Paste a valid http(s) job posting URL.";
+    if (message === "missing_discovery_webhook") return "No ingest worker is connected. Use the manual form, or connect a discovery worker.";
+    if (message === "invalid_endpoint") return "The discovery webhook URL is not valid. Check Settings and try again.";
+    if (message === "timeout") return "The worker took too long. Try again in a minute.";
+    if (/network|fetch|failed/i.test(message)) return "Could not reach the ingest worker. Check your discovery setup and try again.";
+    return message || "Could not add this URL. Try again.";
+  }
+
+  async function submitJobUrlModal(region) {
+    var els = getUrlModalEls(region);
+    var input = els.input;
+    var api = root.JobBored;
+    if (!input) return;
+    var url = String(input.value || "").trim();
+    setUrlModalError(region, "");
+    if (!url) {
+      setUrlModalError(region, "Paste the job posting URL first.");
+      input.focus();
+      return;
+    }
+    if (!isHttpUrl(url)) {
+      setUrlModalError(region, "Paste a valid http(s) job posting URL.");
+      input.focus();
+      if (typeof input.select === "function") input.select();
+      return;
+    }
+    if (!api || typeof api.ingestJobUrl !== "function") {
+      setUrlModalError(region, "URL ingest is not ready. Refresh the page and try again.");
+      return;
+    }
+
+    setUrlModalBusy(region, true);
+    setUrlModalProgress(region, { progress: 6, label: "Preparing the URL", step: "worker" });
+    try {
+      var data = await api.ingestJobUrl(url, {
+        onProgress: function (update) {
+          setUrlModalProgress(region, update || {});
+        },
+      });
+      if (data && data.ok === false && data.reason !== "duplicate") {
+        if (data.reason === "blocked_aggregator" || data.reason === "scrape_failed") {
+          setUrlModalProgress(region, { progress: 100, label: "Manual detail form opened", step: "done" });
+          setUrlModalBusy(region, false);
+          closeJobUrlModal(region);
+          return;
+        }
+        setUrlModalBusy(region, false);
+        setUrlModalError(region, data.message || "The worker could not add this URL.");
+        return;
+      }
+      setUrlModalProgress(region, { progress: 100, label: "Added to Pipeline", step: "done" });
+      setTimeout(function () {
+        setUrlModalBusy(region, false);
+        closeJobUrlModal(region);
+        if (root.JobBoredPipeline && typeof root.JobBoredPipeline.scheduleRender === "function") {
+          root.JobBoredPipeline.scheduleRender();
+        }
+      }, 650);
+    } catch (err) {
+      setUrlModalBusy(region, false);
+      setUrlModalError(region, ingestErrorMessage(err));
+    }
   }
 
   /* ----------------------------- DOM builders -------------------------- */
@@ -278,19 +616,30 @@
   function StickerCard(card, opts) {
     opts = opts || {};
     var stageKey = opts.stage || "researching";
+    var selected = !!opts.selected;
+    var cardKey = card.jobKey == null ? "" : String(card.jobKey);
     var fit = card.fitScore;
     var fitNum = (fit == null) ? null : Number(fit);
     var fitPct = (fitNum == null) ? 0 : Math.max(0, Math.min(100, Math.round(fitNum * 10)));
     var fitColor = fitColorVar(fitNum);
+    var job = getPipelineJobByKey(card.jobKey);
+    var isFavorite = !!(job && job.favorite);
     var initial = initialFromCompany(card.company);
-    var note = card.note ? String(card.note) : "";
-    var salary = card.salary ? String(card.salary) : "";
+    var note = card.note ? String(card.note) : (job && job.notes ? String(job.notes) : "");
+    var salary = card.salary ? String(card.salary) : (job && job.salary ? String(job.salary) : "");
+    var location = job && job.location ? String(job.location) : "";
+    var source = job && job.source ? String(job.source) : "";
+    var tags = job && job.tags ? String(job.tags).split(/[,;|]/).map(function (t) { return t.trim(); }).filter(Boolean).slice(0, 3) : [];
     var flag = card.flag || "";
 
     var el = document.createElement("article");
-    el.className = "pipe-sticker";
-    el.setAttribute("data-stable-key", String(card.jobKey || ""));
+    el.className = "pipe-sticker" + (isFavorite ? " pipe-sticker--favorited" : "");
+    el.setAttribute("data-stable-key", cardKey);
     el.setAttribute("data-stage", stageKey);
+    el.setAttribute("data-favorite", isFavorite ? "true" : "false");
+    el.setAttribute("data-selected", selected ? "true" : "false");
+    el.setAttribute("data-expanded", selected ? "true" : "false");
+    if (selected) el.setAttribute("aria-current", "true");
     if (flag) el.setAttribute("data-flag", flag);
     el.setAttribute("tabindex", "0");
     el.setAttribute("role", "button");
@@ -309,11 +658,18 @@
       '    <span class="pipe-sticker__role">' + escapeHtml(card.role || "Untitled role") + '</span>',
       '    <span class="pipe-sticker__co">' + escapeHtml(card.company || "—") + '</span>',
       '  </span>',
+      '  <button type="button" class="pipe-sticker__favorite" data-card-action="toggle-favorite"',
+      '          data-key="' + escapeHtml(cardKey) + '"',
+      '          aria-label="' + (isFavorite ? "Unfavorite" : "Favorite") + '"',
+      '          aria-pressed="' + (isFavorite ? "true" : "false") + '"',
+      '          title="' + (isFavorite ? "Unfavorite" : "Favorite") + '">',
+      '    <span class="pipe-sticker__favorite-mark" aria-hidden="true">' + (isFavorite ? "★" : "☆") + '</span>',
+      '  </button>',
       '  <span class="pipe-sticker__fit" aria-label="Fit ' + (fitNum == null ? "unknown" : fitNum + " of 10") + '">',
       '    <svg viewBox="0 0 36 36" width="36" height="36" focusable="false" aria-hidden="true">',
       '      <circle class="pipe-sticker__fit-track" cx="18" cy="18" r="15.5" pathLength="100"></circle>',
       '      <circle class="pipe-sticker__fit-fill" cx="18" cy="18" r="15.5" pathLength="100"',
-      '              style="stroke:' + fitColor + '; --pipe-fit-target:' + fitPct + ';"></circle>',
+      '              style="stroke:' + fitColor + '; stroke-dasharray:' + fitPct + ' 100;"></circle>',
       '    </svg>',
       '    <span class="pipe-sticker__fit-num">' + (fitNum == null ? "—" : escapeHtml(String(fitNum))) + '</span>',
       '  </span>',
@@ -322,6 +678,13 @@
         (salary ? '<span class="pipe-sticker__salary jb-data">' + escapeHtml(salary) + '</span>' : '') +
         (note ? '<span class="pipe-sticker__note">' + escapeHtml(note) + '</span>' : '') +
         '</footer>' : '',
+      selected && (location || source || tags.length)
+        ? '<div class="pipe-sticker__detail">' +
+            (location ? '<span>' + escapeHtml(location) + '</span>' : '') +
+            (source ? '<span>' + escapeHtml(source) + '</span>' : '') +
+            tags.map(function (tag) { return '<span>' + escapeHtml(tag) + '</span>'; }).join("") +
+          '</div>'
+        : '',
     ].join("");
 
     return el;
@@ -348,6 +711,13 @@
     return [
       '<div class="pipe-toolbar" role="toolbar" aria-label="Pipeline tools">',
       '  <div class="pipe-tool__groups">',
+      '    <label class="pipe-tool__search">',
+      '      <span class="pipe-tool__label">Search</span>',
+      '      <input type="search" class="pipe-tool__search-input" data-pipeline-search',
+      '             value="' + escapeHtml(state.search || "") + '"',
+      '             placeholder="Search roles, companies, tags..."',
+      '             autocomplete="off" spellcheck="false" aria-label="Search kanban roles">',
+      '    </label>',
       '    <div class="pipe-tool__chips" role="group" aria-label="Sort">',
       '      <span class="pipe-tool__label">Sort</span>',
               sortChips,
@@ -358,8 +728,58 @@
       '    </div>',
       '  </div>',
       '  <div class="pipe-tool__actions">',
-      '    <button type="button" class="pipe-tool__btn" data-action="add-role">+ Add role</button>',
-      '    <button type="button" class="pipe-tool__btn pipe-tool__btn--ghost" data-action="paste-url">Paste URL</button>',
+      '    <button type="button" class="pipe-tool__btn pipe-tool__btn--url" data-action="add-job-url"',
+      '            aria-label="Add a job opportunity by pasting its posting URL">',
+      '      + Add job from URL',
+      '    </button>',
+      '  </div>',
+      '</div>',
+    ].join("");
+  }
+
+  function buildJobUrlModal() {
+    return [
+      '<div class="pipe-url-modal" data-pipeline-url-modal hidden role="dialog" aria-modal="true"',
+      '     aria-labelledby="pipeUrlModalTitle" aria-describedby="pipeUrlModalCopy" data-busy="false" data-progress-step="idle">',
+      '  <div class="pipe-url-modal__panel">',
+      '    <header class="pipe-url-modal__head">',
+      '      <span class="pipe-url-modal__eyebrow">Manual add</span>',
+      '      <h3 class="pipe-url-modal__title" id="pipeUrlModalTitle">Paste a job posting URL</h3>',
+      '      <button type="button" class="pipe-url-modal__close" data-pipeline-url-close aria-label="Close add job modal">',
+      '        <span aria-hidden="true">&times;</span>',
+      '      </button>',
+      '    </header>',
+      '    <p class="pipe-url-modal__copy" id="pipeUrlModalCopy">',
+      '      Paste the posting you found online. JobBored will add it to Pipeline, scrape the page when reachable, and ask Gemini to fill the role details.',
+      '    </p>',
+      '    <form class="pipe-url-modal__form" data-pipeline-url-form autocomplete="off" novalidate>',
+      '      <label class="pipe-url-modal__label" for="pipeUrlModalInput">Job URL</label>',
+      '      <input id="pipeUrlModalInput" class="pipe-url-modal__input" data-pipeline-url-input type="url"',
+      '             placeholder="https://boards.greenhouse.io/company/jobs/123"',
+      '             inputmode="url" spellcheck="false" autocomplete="off">',
+      '      <p class="pipe-url-modal__error" data-pipeline-url-error role="alert" hidden></p>',
+      '      <div class="pipe-url-modal__progress" data-pipeline-url-progress hidden aria-live="polite">',
+      '        <div class="pipe-url-modal__progress-row">',
+      '          <span data-pipeline-url-progress-label>Ready</span>',
+      '          <span class="pipe-url-modal__spinner" aria-hidden="true"></span>',
+      '        </div>',
+      '        <div class="pipe-url-modal__track" aria-hidden="true">',
+      '          <span class="pipe-url-modal__bar" data-pipeline-url-progress-bar></span>',
+      '        </div>',
+      '        <div class="pipe-url-modal__steps" aria-hidden="true">',
+      '          <span>Worker</span>',
+      '          <span>Scrape</span>',
+      '          <span>Gemini</span>',
+      '          <span>Pipeline</span>',
+      '        </div>',
+      '      </div>',
+      '      <footer class="pipe-url-modal__actions">',
+      '        <button type="button" class="pipe-url-modal__secondary" data-pipeline-url-cancel>Cancel</button>',
+      '        <button type="submit" class="pipe-url-modal__primary" data-pipeline-url-submit>',
+      '          <span data-pipeline-url-submit-label>Add to Pipeline</span>',
+      '        </button>',
+      '      </footer>',
+      '    </form>',
       '  </div>',
       '</div>',
     ].join("");
@@ -374,6 +794,7 @@
         '    <span class="pipe-col__dot" aria-hidden="true"></span>',
         '    <span class="pipe-col__title">' + escapeHtml(s.label) + '</span>',
         '    <span class="pipe-col__count" data-count="0">0</span>',
+        '    <span class="pipe-col__search-hit" aria-hidden="true"></span>',
         '    <button type="button" class="pipe-col__toggle" data-stage-toggle="' + s.key + '"',
         '            aria-controls="' + bodyId + '" aria-expanded="true"',
         '            aria-label="Collapse ' + escapeHtml(s.label) + '" title="Collapse ' + escapeHtml(s.label) + '">',
@@ -398,6 +819,7 @@
       '<div class="pipe-shell">',
         buildBoardSkeleton(),
       '</div>',
+      buildJobUrlModal(),
     ].join("");
   }
 
@@ -413,32 +835,40 @@
       if (!body || !col) return;
       body.innerHTML = "";
       var cards = s.key === "new" ? (vm.untriaged || []) : (stageMap[s.key] || []);
-      var ordered = sortCards(cards, state.sort);
+      var searchActive = hasActiveSearch(state);
+      var ordered = sortCards(filterCardsBySearch(cards, state), state.sort);
+      var searchMatch = searchActive && ordered.length > 0;
       if (ordered.length === 0) {
         body.innerHTML = emptyPlaceholderHtml(s.key);
       } else {
         var frag = document.createDocumentFragment();
-        ordered.forEach(function (c) { frag.appendChild(StickerCard(c, { stage: s.key })); });
+        ordered.forEach(function (c) {
+          frag.appendChild(StickerCard(c, {
+            stage: s.key,
+            selected: String(c.jobKey) === String(state.selectedJobKey),
+          }));
+        });
         body.appendChild(frag);
       }
+      col.setAttribute("data-search-active", searchActive ? "true" : "false");
+      col.setAttribute("data-search-match", searchMatch ? "true" : "false");
+      col.setAttribute(
+        "aria-label",
+        stageLabel(s.key) + " column" + (searchMatch ? " with " + ordered.length + " search " + (ordered.length === 1 ? "match" : "matches") : ""),
+      );
       var countEl = col.querySelector(".pipe-col__count");
       if (countEl) {
         countEl.textContent = String(ordered.length);
         countEl.setAttribute("data-count", String(ordered.length));
       }
+      var hitEl = col.querySelector(".pipe-col__search-hit");
+      if (hitEl) {
+        hitEl.textContent = searchMatch ? String(ordered.length) + " match" + (ordered.length === 1 ? "" : "es") : "";
+      }
       applyColumnCollapsed(region, state, s.key);
     });
 
-    // Animate fit rings on this render pass.
-    var rings = region.querySelectorAll(".pipe-sticker__fit-fill");
-    rings.forEach(function (ring) {
-      // Force layout, then set the dasharray via CSS variable.
-      // We use a class flip to trigger the animation.
-      ring.classList.remove("is-anim");
-      // eslint-disable-next-line no-unused-expressions
-      ring.getBoundingClientRect();
-      ring.classList.add("is-anim");
-    });
+    applySelectedCardState(region, state);
   }
 
   function ensureShell(region, state) {
@@ -447,6 +877,7 @@
     region.innerHTML = buildShell(state);
     applyCollapsedState(region, state);
     setFilterChipState(region, state);
+    setSearchInputState(region, state);
     bindToolbar(region, state);
     bindRegion(region, state);
   }
@@ -462,6 +893,26 @@
     renderCards(region, vm, state);
   }
 
+  function focusSearch(opts) {
+    opts = opts || {};
+    if (!shouldRun()) return false;
+    var region = getRegion();
+    if (!region) return false;
+    var state = ensureStateShape(region.__pipeState || (region.__pipeState = initialState()));
+    ensureShell(region, state);
+    var input = region.querySelector("[data-pipeline-search]");
+    if (!input) return false;
+    var prefersReduced = root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    try {
+      region.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth", block: "start" });
+    } catch (_) {
+      region.scrollIntoView();
+    }
+    input.focus();
+    if (opts.select !== false && input.select) input.select();
+    return true;
+  }
+
   /* ------------------------------ events -------------------------------- */
 
   function bindToolbar(region, state) {
@@ -470,7 +921,31 @@
       if (toggle) {
         e.preventDefault();
         var stageKey = toggle.getAttribute("data-stage-toggle");
-        if (stageKey) setColumnCollapsed(region, state, stageKey, !isCollapsed(state, stageKey));
+        if (stageKey) {
+          if (isCollapsed(state, stageKey)) expandColumnExclusive(region, state, stageKey);
+          else setColumnCollapsed(region, state, stageKey, true);
+        }
+        return;
+      }
+      var favoriteBtn = e.target.closest('[data-card-action="toggle-favorite"]');
+      if (favoriteBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+        var favoriteKey = favoriteBtn.getAttribute("data-key");
+        if (favoriteKey != null && favoriteKey !== "") {
+          var job = getPipelineJobByKey(favoriteKey);
+          var nextFavorite = !(job && job.favorite);
+          setCardFavoriteState(region, favoriteKey, nextFavorite);
+          var result = togglePipelineFavorite(favoriteKey);
+          if (result && typeof result.then === "function") {
+            result.then(function (ok) {
+              if (ok === false) setCardFavoriteState(region, favoriteKey, !nextFavorite);
+            }).catch(function () {
+              setCardFavoriteState(region, favoriteKey, !nextFavorite);
+            });
+          }
+        }
         return;
       }
       var chip = e.target.closest(".pipe-tool__chip[data-sort]");
@@ -502,26 +977,46 @@
         }
         return;
       }
-      var addBtn = e.target.closest('.pipe-tool__btn[data-action="add-role"]');
-      if (addBtn) {
+      var addJobUrlBtn = e.target.closest('.pipe-tool__btn[data-action="add-job-url"]');
+      if (addJobUrlBtn) {
         e.preventDefault();
-        if (typeof root.openAddJobDialog === "function") {
-          try { root.openAddJobDialog(); } catch (_) { /* noop */ }
-        } else if (typeof console !== "undefined" && console.info) {
-          console.info("[pipeline] TODO: wire Add role to legacy add-job flow");
-        }
+        openJobUrlModal(region, "");
         return;
       }
-      var pasteBtn = e.target.closest('.pipe-tool__btn[data-action="paste-url"]');
-      if (pasteBtn) {
+      var modalClose = e.target.closest("[data-pipeline-url-close], [data-pipeline-url-cancel]");
+      if (modalClose) {
         e.preventDefault();
-        if (typeof root.openPasteUrlDialog === "function") {
-          try { root.openPasteUrlDialog(); } catch (_) { /* noop */ }
-        } else if (typeof console !== "undefined" && console.info) {
-          console.info("[pipeline] TODO: wire Paste URL to legacy paste-url flow");
-        }
+        closeJobUrlModal(region);
         return;
       }
+      var modal = e.target.closest("[data-pipeline-url-modal]");
+      if (modal && e.target === modal) {
+        closeJobUrlModal(region);
+        return;
+      }
+    });
+
+    region.addEventListener("submit", function (e) {
+      var form = e.target && e.target.closest && e.target.closest("[data-pipeline-url-form]");
+      if (!form) return;
+      e.preventDefault();
+      submitJobUrlModal(region);
+    });
+
+    region.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      var els = getUrlModalEls(region);
+      if (!els.modal || els.modal.hidden) return;
+      e.preventDefault();
+      closeJobUrlModal(region);
+    });
+
+    region.addEventListener("input", function (e) {
+      var input = e.target && e.target.closest && e.target.closest("[data-pipeline-search]");
+      if (!input) return;
+      state.search = String(input.value || "").trim();
+      rerender(region, state);
+      setSearchInputState(region, state);
     });
   }
 
@@ -532,8 +1027,9 @@
     if (region.__pipeBound) return;
     region.__pipeBound = true;
 
-    function openRoleAndScroll(key) {
+    function openRoleAndScroll(key, stageKey) {
       if (!key) return;
+      if (stageKey) focusColumnForCard(region, state, stageKey, key);
       var openRole = root.JobBoredFlowing && root.JobBoredFlowing.openRole;
       if (openRole && typeof openRole.set === "function") {
         openRole.set(key);
@@ -557,12 +1053,28 @@
       scheduleRender();
     });
 
+    root.JobBoredPipeline = root.JobBoredPipeline || {};
+    root.JobBoredPipeline.focusSearch = focusSearch;
+    root.JobBoredPipeline.focusJob = focusJob;
+    if (!root.JobBoredPipeline._searchHotkeyBound) {
+      root.JobBoredPipeline._searchHotkeyBound = true;
+      document.addEventListener("keydown", function (e) {
+        if (!shouldRun()) return;
+        if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+        if (String(e.key || "").toLowerCase() !== "k") return;
+        e.preventDefault();
+        focusSearch({ select: true });
+      });
+    }
+
     // Card click → open role dossier (delegated, but drag handler suppresses click on drag).
     region.addEventListener("click", function (e) {
+      if (isInteractiveTarget(e.target)) return;
       var sticker = e.target.closest(".pipe-sticker[data-stable-key]");
       if (sticker && !sticker.__pipeJustDragged) {
         var key = sticker.getAttribute("data-stable-key");
-        if (key) openRoleAndScroll(key);
+        var stageKey = sticker.getAttribute("data-stage");
+        if (key) openRoleAndScroll(key, stageKey);
         return;
       }
     });
@@ -573,17 +1085,19 @@
     // we know it was a tap (no drag movement, no pointer capture taken).
     region.addEventListener("pointerup", function (e) {
       if (e.button !== 0) return;
+      if (isInteractiveTarget(e.target)) return;
       var sticker = e.target.closest(".pipe-sticker[data-stable-key]");
       if (!sticker || sticker.__pipeJustDragged) return;
       // Defer one tick so the natural `click` event (if it comes) still wins
       // and we don't double-fire. If click landed, __pipeTapHandled flips.
       var key = sticker.getAttribute("data-stable-key");
+      var stageKey = sticker.getAttribute("data-stage");
       if (!key) return;
       sticker.__pipeTapPending = true;
       setTimeout(function () {
         if (sticker.__pipeTapPending) {
           sticker.__pipeTapPending = false;
-          openRoleAndScroll(key);
+          openRoleAndScroll(key, stageKey);
         }
       }, 60);
     });
@@ -595,23 +1109,37 @@
     // Keyboard: Enter / Space on a sticker = open role.
     region.addEventListener("keydown", function (e) {
       if (e.key !== "Enter" && e.key !== " ") return;
+      if (isInteractiveTarget(e.target)) return;
       var sticker = e.target.closest && e.target.closest(".pipe-sticker[data-stable-key]");
       if (!sticker) return;
       e.preventDefault();
       var key = sticker.getAttribute("data-stable-key");
-      if (key) openRoleAndScroll(key);
+      var stageKey = sticker.getAttribute("data-stage");
+      if (key) openRoleAndScroll(key, stageKey);
     });
 
     // Drag and drop via pointer events.
     bindPointerDrag(region, state);
 
-    // Listen for write failures to roll back optimistic moves.
+    // Listen for write results to settle or roll back optimistic moves.
+    document.addEventListener("jb:write:succeeded", function (e) {
+      var detail = e && e.detail ? e.detail : {};
+      if (detail.kind && detail.kind !== "pipeline:move") return;
+      var jobKey = detail.jobKey;
+      if (jobKey == null || jobKey === "") return;
+      var pendingList = region.__pipePending || [];
+      for (var i = pendingList.length - 1; i >= 0; i--) {
+        if (pendingList[i].jobKey === jobKey) pendingList.splice(i, 1);
+      }
+      scheduleRender();
+    });
+
     document.addEventListener("jb:write:failed", function (e) {
       var detail = e && e.detail ? e.detail : {};
       // Only roll back pipeline moves we initiated.
       if (detail.kind && detail.kind !== "pipeline:move") return;
       var jobKey = detail.jobKey;
-      if (!jobKey) return;
+      if (jobKey == null || jobKey === "") return;
       var pendingList = region.__pipePending || [];
       for (var i = pendingList.length - 1; i >= 0; i--) {
         var p = pendingList[i];
@@ -637,6 +1165,38 @@
         }
       }
     });
+  }
+
+  function focusJob(jobKey) {
+    var key = jobKey == null ? "" : String(jobKey);
+    if (!key) return false;
+    var region = getRegion();
+    if (!region) return false;
+    var state = ensureStateShape(region.__pipeState || (region.__pipeState = initialState()));
+    var selector = '.pipe-sticker[data-stable-key="' + cssEscape(key) + '"]';
+    var card = region.querySelector(selector);
+    if (!card) {
+      state.selectedJobKey = key;
+      scheduleRender();
+      return false;
+    }
+    var stageKey = card.getAttribute("data-stage") || "";
+    if (stageKey) focusColumnForCard(region, state, stageKey, key);
+    setTimeout(function () {
+      var focusedCard = region.querySelector(selector);
+      if (!focusedCard) return;
+      focusedCard.classList.add("duplicate-focus");
+      focusedCard.setAttribute("data-selected", "true");
+      try {
+        focusedCard.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+      } catch (_) {
+        focusedCard.scrollIntoView();
+      }
+      setTimeout(function () {
+        focusedCard.classList.remove("duplicate-focus");
+      }, 2400);
+    }, 0);
+    return true;
   }
 
   function updateColumnCount(region, stageKey, delta) {
@@ -679,6 +1239,7 @@
 
     region.addEventListener("pointerdown", function (e) {
       if (e.button !== 0) return;
+      if (isInteractiveTarget(e.target)) return;
       var card = e.target.closest(".pipe-sticker[data-stable-key]");
       if (!card) return;
       // Begin tracking; commit to drag (and capture pointer) only after
@@ -883,6 +1444,8 @@
   function init() {
     root.JobBoredPipeline = root.JobBoredPipeline || {};
     root.JobBoredPipeline.scheduleRender = scheduleRender;
+    root.JobBoredPipeline.focusSearch = focusSearch;
+    root.JobBoredPipeline.focusJob = focusJob;
     if (!shouldRun()) {
       // Wait for flag to flip.
       var bodyMo = new MutationObserver(function () {

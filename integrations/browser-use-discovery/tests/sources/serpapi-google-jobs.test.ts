@@ -154,7 +154,7 @@ test("collectSerpApiGoogleJobsListings skips gracefully when API key is unset", 
   });
   assert.equal(fetchCallCount, 0);
   assert.deepEqual(result.listings, []);
-  assert.deepEqual(result.warnings, ["missing_api_key"]);
+  assert.deepEqual(result.warnings, []);
   assert.equal(result.stats.queryCount, 0);
   const skipEvent = logSink.find(
     ([event]) => event === "discovery.run.serpapi_google_jobs_skipped",

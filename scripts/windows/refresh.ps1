@@ -1,3 +1,7 @@
+param(
+  [string]$SheetId = ""
+)
+
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
@@ -41,11 +45,70 @@ if ($Port -lt 1 -or $Port -gt 65535) {
   exit 1
 }
 
-$Uri = "http://127.0.0.1:$Port/discovery-profile"
-$Headers = @{
-  "x-discovery-secret" = $Secret
-  "content-type" = "application/json"
+function Normalize-SheetId {
+  param([string]$Value)
+  $Raw = ([string]$Value).Trim()
+  if (-not $Raw -or $Raw -eq "YOUR_SHEET_ID_HERE") {
+    return ""
+  }
+  $Match = [regex]::Match($Raw, "/spreadsheets/d/([a-zA-Z0-9_-]+)(?:/|$|\?|#)")
+  if ($Match.Success) {
+    return $Match.Groups[1].Value
+  }
+  if ($Raw -match "^[a-zA-Z0-9_-]{10,}$") {
+    return $Raw
+  }
+  return ""
 }
-$Body = '{"event":"discovery.profile.request","schemaVersion":1,"mode":"refresh","trigger":"scheduled-local"}'
 
-Invoke-WebRequest -UseBasicParsing -TimeoutSec 600 -Method POST -Uri $Uri -Headers $Headers -Body $Body
+function Read-WorkerConfigSheetId {
+  $ConfigPath = Join-Path $RepoRoot "integrations\browser-use-discovery\state\worker-config.json"
+  if (-not (Test-Path $ConfigPath)) {
+    return ""
+  }
+  try {
+    $Config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+    $Direct = Normalize-SheetId ([string]$Config.sheetId)
+    if ($Direct) {
+      return $Direct
+    }
+    foreach ($Name in @("config", "default", "workerConfig")) {
+      if ($Config.PSObject.Properties.Name -contains $Name) {
+        $Candidate = Normalize-SheetId ([string]$Config.$Name.sheetId)
+        if ($Candidate) {
+          return $Candidate
+        }
+      }
+    }
+  } catch {
+    return ""
+  }
+  return ""
+}
+
+$ResolvedSheetId = Normalize-SheetId $SheetId
+foreach ($Name in @("BROWSER_USE_DISCOVERY_SHEET_ID", "JOBBORED_SHEET_ID", "SHEET_ID")) {
+  if (-not $ResolvedSheetId -and $EnvMap.ContainsKey($Name)) {
+    $ResolvedSheetId = Normalize-SheetId ([string]$EnvMap[$Name])
+  }
+}
+if (-not $ResolvedSheetId) {
+  $ResolvedSheetId = Read-WorkerConfigSheetId
+}
+
+$ScriptPath = Join-Path $RepoRoot "scripts\run-scheduled-discovery.mjs"
+$NodeArgs = @(
+  $ScriptPath,
+  "--trigger",
+  "scheduled-local",
+  "--port",
+  ([string]$Port)
+)
+if ($ResolvedSheetId) {
+  $NodeArgs += @("--sheet-id", $ResolvedSheetId)
+}
+
+& node @NodeArgs
+if ($LASTEXITCODE -ne 0) {
+  exit $LASTEXITCODE
+}

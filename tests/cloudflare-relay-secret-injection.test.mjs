@@ -168,4 +168,31 @@ describe("Cloudflare worker DISCOVERY_SECRET injection", () => {
     const res = await worker.fetch(req, env);
     assert.equal(res.status, 401);
   });
+
+  it("cron posts the discovery webhook contract to /webhook", async () => {
+    const worker = await loadWorker();
+    const env = {
+      TARGET_URL: "https://upstream.example/legacy-path",
+      DISCOVERY_SECRET: "cron-secret",
+      REFRESH_SHEET_ID: "1abcDEFghiJKLmnoPQRstuVWxyz1234567890",
+    };
+
+    await worker.scheduled({ cron: "0 8 * * *" }, env, {});
+
+    assert.equal(captured.calls.length, 1);
+    assert.equal(captured.calls[0].url, "https://upstream.example/webhook");
+    assert.equal(captured.calls[0].init.method, "POST");
+    assert.equal(
+      captured.calls[0].init.headers["x-discovery-secret"],
+      "cron-secret",
+    );
+
+    const body = JSON.parse(captured.calls[0].init.body);
+    assert.equal(body.event, "command-center.discovery");
+    assert.equal(body.schemaVersion, 1);
+    assert.equal(body.sheetId, env.REFRESH_SHEET_ID);
+    assert.equal(body.trigger, "scheduled-cloudflare");
+    assert.match(body.variationKey, /^scheduled-cloudflare:0 8 \* \* \*:/);
+    assert.ok(!Number.isNaN(Date.parse(body.requestedAt)));
+  });
 });

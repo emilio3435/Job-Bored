@@ -11,6 +11,6 @@
     "seniority": "mid-senior",
     "keywordsInclude": "typescript, node, browser automation",
     "keywordsExclude": "principal, staff director",
-    "maxLeadsPerRun": "25"
+    "maxLeadsPerRun": "15"
   }
 }

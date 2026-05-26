@@ -199,15 +199,28 @@
         <div class="login-gate__panel">
           <div class="login-gate__panel-inner" id="sheetAccessGatePanelInner">
             <div class="login-gate__logo-wrap">
-              <img
-                class="login-gate__logo login-gate__logo--mascot"
-                src="assets/jobbored-mascot-core/exports/jobbored-thinking-thought-bubble-canvas.png"
-                width="280"
-                height="180"
-                alt="JobBored"
-                decoding="async"
-                fetchpriority="high"
-              />
+              <!-- Official thinking-pose mascot — transparent + retina-quality
+                   set served from assets/chrome/ (same build pipeline as the
+                   top-bar rocket: trimmed off the off-cream brand-kit canvas
+                   so it sits flat on the gate's parchment surface). WebP first
+                   for sharpness, 1x/2x PNG fallback for non-WebP browsers and
+                   crisp retina rendering. -->
+              <picture>
+                <source
+                  type="image/webp"
+                  srcset="assets/chrome/jobbored-mascot-thinking.webp"
+                />
+                <img
+                  class="login-gate__logo login-gate__logo--mascot"
+                  src="assets/chrome/jobbored-mascot-thinking.png"
+                  srcset="assets/chrome/jobbored-mascot-thinking.png 1x, assets/chrome/jobbored-mascot-thinking@2x.png 2x"
+                  width="280"
+                  height="244"
+                  alt="JobBored"
+                  decoding="async"
+                  fetchpriority="high"
+                />
+              </picture>
             </div>
             <div id="sheetAccessGateMainFlow">
               <div
@@ -559,6 +572,37 @@
                 <path d="M3 3v5h5" />
                 <path d="M12 7v5l3 2" />
               </svg>
+            </button>
+            <button
+              type="button"
+              class="btn-materials btn-materials--icon btn-expired-review"
+              id="expiredReviewBtn"
+              title="Review potentially expired postings"
+              aria-label="Review potentially expired postings"
+              hidden
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M10.3 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5.3" />
+                <path d="M8 7h8" />
+                <path d="M8 11h6" />
+                <path d="M15 18h6" />
+                <path d="M18 15v6" />
+              </svg>
+              <span
+                class="expired-review-count"
+                id="expiredReviewCount"
+                hidden
+              ></span>
             </button>
             <button
               type="button"
@@ -1573,6 +1617,46 @@
       </div>
     </div>
 
+    <div
+      class="modal-overlay expired-review-modal"
+      id="expiredReviewModal"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="expiredReviewModalTitle"
+    >
+      <div class="modal-card modal-card--wide expired-review-card">
+        <div class="expired-review-card__head">
+          <div>
+            <p class="expired-review-card__kicker">Pipeline review</p>
+            <h3 id="expiredReviewModalTitle">Check aging postings</h3>
+          </div>
+          <button
+            type="button"
+            class="settings-modal-close"
+            id="expiredReviewModalClose"
+            aria-label="Close"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <p class="expired-review-card__lede" id="expiredReviewModalSummary">
+          Active New and Researching roles that may need an availability check.
+        </p>
+        <div class="expired-review-list" id="expiredReviewList"></div>
+      </div>
+    </div>
+
     <!-- Settings: localStorage overrides (no manual config.js editing) -->
     <div
       class="modal-overlay"
@@ -1652,30 +1736,6 @@
               tabindex="-1"
             >
               Sheet
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="settings-tablist__btn"
-              id="settings-tab-discovery"
-              data-tab-id="discovery"
-              aria-controls="settings-panel-discovery"
-              aria-selected="false"
-              tabindex="-1"
-            >
-              Discovery
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="settings-tablist__btn"
-              id="settings-tab-profile"
-              data-tab-id="profile"
-              aria-controls="settings-panel-profile"
-              aria-selected="false"
-              tabindex="-1"
-            >
-              Profile
             </button>
             <button
               type="button"
@@ -1892,875 +1952,6 @@
                 class="modal-input"
                 placeholder="JobBored"
               />
-            </div>
-
-            <!-- ── Discovery tab ──────────────────────────────────── -->
-            <div
-              role="tabpanel"
-              id="settings-panel-discovery"
-              class="settings-tab-panel"
-              aria-labelledby="settings-tab-discovery"
-              hidden
-            >
-              <h4 class="settings-tab-panel__title">Discovery</h4>
-              <p class="settings-tab-panel__lede">
-                Real BYO discovery endpoints, the optional Apps Script stub, and
-                filters sent when you run discovery.
-              </p>
-
-              <label class="field-label" for="settingsDiscoveryWebhookUrl"
-                >Discovery webhook URL (optional)</label
-              >
-              <input
-                type="url"
-                id="settingsDiscoveryWebhookUrl"
-                class="modal-input"
-                placeholder="https://…"
-              />
-              <p class="settings-field-hint settings-field-hint--compact">
-                <strong>Run discovery</strong> POSTs JSON (see
-                <a href="AGENT_CONTRACT.md" target="_blank" rel="noopener"
-                  >AGENT_CONTRACT.md</a
-                >). The dashboard-managed Apps Script deploy below is stub-only
-                until you replace it with real discovery logic.
-              </p>
-
-              <label class="field-label" for="settingsDiscoveryWebhookSecret"
-                >Discovery webhook secret</label
-              >
-              <input
-                type="password"
-                id="settingsDiscoveryWebhookSecret"
-                class="modal-input"
-                autocomplete="off"
-                spellcheck="false"
-                placeholder="Autofilled by npm run discovery:bootstrap-local"
-              />
-              <p class="settings-field-hint settings-field-hint--compact">
-                Sent as <code>x-discovery-secret</code>. You usually don't need
-                to touch this — running
-                <code>npm&nbsp;run&nbsp;discovery:bootstrap-local</code> on this
-                machine writes it to
-                <code>integrations/browser-use-discovery/.env</code> and the
-                dashboard autofills it on reload. Cloudflare relays inject their
-                own server-side secret, so leave it empty there. Apps Script
-                stubs and other public webhooks don't need a secret.
-              </p>
-
-              <p class="settings-field-hint settings-field-hint--compact">
-                <strong>Google Sheets credential:</strong> if you're signed in
-                to JobBored above, your sign-in is sent to the worker
-                automatically — no service account, no environment wiring,
-                nothing to configure. For unattended/cron runs, set
-                <code>BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE</code>
-                in
-                <code>integrations/browser-use-discovery/.env</code> (see
-                <a
-                  href="integrations/browser-use-discovery/README.md"
-                  target="_blank"
-                  rel="noopener"
-                  >worker README</a
-                >).
-              </p>
-
-              <div class="settings-discovery-callout" role="note">
-                <strong>Optional:</strong> Pipeline works without a webhook —
-                add rows manually or automate elsewhere.
-                <button
-                  type="button"
-                  class="btn-setup-scraper-link"
-                  id="settingsDiscoveryPathsBtn"
-                >
-                  Ways to avoid webhooks
-                </button>
-              </div>
-
-              <div
-                class="settings-discovery-callout settings-discovery-callout--serpapi"
-                id="settingsSerpApiCallout"
-                data-configured="unknown"
-                role="note"
-              >
-                <div class="settings-discovery-callout__head">
-                  <span
-                    class="settings-discovery-callout__icon"
-                    aria-hidden="true"
-                    >⚡</span
-                  >
-                  <strong>Boost job match quality (recommended)</strong>
-                  <span
-                    class="settings-discovery-callout__status"
-                    id="settingsSerpApiCalloutStatus"
-                    aria-live="polite"
-                    >Checking…</span
-                  >
-                </div>
-                <p class="settings-field-hint">
-                  Your worker uses Google Jobs (via SerpApi) as its
-                  highest-quality source of real, live job openings. Google
-                  has already indexed every job posted through Greenhouse,
-                  Lever, Ashby, Workday, and 100+ other ATS platforms — so
-                  this one integration replaces the need for brittle
-                  career-page scraping. Without it, the worker still runs,
-                  but you'll get far fewer matches.
-                </p>
-                <ol class="settings-discovery-callout__steps">
-                  <li>
-                    Create a free account at
-                    <a
-                      href="https://serpapi.com/users/sign_up"
-                      target="_blank"
-                      rel="noopener"
-                      >serpapi.com</a
-                    >
-                    — the free tier includes <strong>100 searches/month</strong>
-                    (~20 daily discovery runs).
-                  </li>
-                  <li>
-                    Copy your API key from the
-                    <a
-                      href="https://serpapi.com/manage-api-key"
-                      target="_blank"
-                      rel="noopener"
-                      >SerpApi dashboard</a
-                    >.
-                  </li>
-                  <li>
-                    Open
-                    <code>integrations/browser-use-discovery/.env</code>
-                    and add a new line:
-                    <code class="settings-discovery-callout__snippet"
-                      >SERPAPI_API_KEY=paste-your-key-here</code
-                    >
-                  </li>
-                  <li>
-                    Restart your local worker
-                    (<code>npm run discovery:worker:start-local</code>) so
-                    the new env var is picked up, then run discovery again.
-                  </li>
-                </ol>
-                <p
-                  class="settings-field-hint settings-field-hint--compact settings-discovery-callout__reminder"
-                >
-                  Already set up? This status indicator updates when you
-                  save your webhook URL or reload the page.
-                </p>
-              </div>
-
-              <div
-                class="settings-discovery-toolbar settings-discovery-toolbar--wrap"
-              >
-                <button
-                  type="button"
-                  class="btn-discovery-setup"
-                  id="settingsDiscoveryGuideBtn"
-                >
-                  Setup guide
-                </button>
-                <button
-                  type="button"
-                  class="btn-discovery-setup btn-discovery-setup--secondary"
-                  id="settingsDiscoveryLocalSetupBtn"
-                >
-                  Local worker + ngrok
-                  <span
-                    class="tunnel-stale-badge"
-                    id="settingsTunnelStaleBadge"
-                    style="display: none"
-                    title="ngrok tunnel URL may have changed"
-                  ></span>
-                </button>
-                <button
-                  type="button"
-                  class="btn-discovery-setup btn-discovery-setup--secondary"
-                  id="settingsDiscoveryRelayBtn"
-                >
-                  Cloudflare relay
-                </button>
-                <button
-                  type="button"
-                  class="btn-discovery-setup btn-discovery-setup--secondary"
-                  id="settingsDiscoveryTestBtn"
-                  title="POSTs a test payload from this browser (same as Run discovery)"
-                >
-                  Test webhook
-                </button>
-              </div>
-              <p
-                class="settings-field-hint settings-field-hint--compact"
-                id="settingsDiscoveryTestHint"
-              >
-                Uses Sheet ID and discovery preferences. CORS errors in the
-                browser don&rsquo;t always mean the request failed — try
-                <code class="modal-code">npm run test:discovery-webhook</code>
-                or the relay.
-              </p>
-              <div
-                class="settings-apps-script-status settings-apps-script-status--info"
-                id="settingsDiscoveryEngineStatus"
-                role="status"
-                aria-live="polite"
-              >
-                <p
-                  class="settings-apps-script-status__title"
-                  id="settingsDiscoveryEngineStatusTitle"
-                >
-                  No discovery webhook configured
-                </p>
-                <p
-                  class="settings-apps-script-status__detail"
-                  id="settingsDiscoveryEngineStatusDetail"
-                >
-                  Pipeline works without a webhook. Add a real discovery
-                  endpoint only if you want the Run discovery button.
-                </p>
-                <div
-                  class="settings-apps-script-status__actions"
-                  id="settingsDiscoveryEngineStatusActions"
-                  hidden
-                ></div>
-              </div>
-
-              <details class="settings-details" id="settingsAppsScriptDetails">
-                <summary class="settings-details__summary">
-                  Google Apps Script — deploy from this dashboard
-                </summary>
-                <div class="settings-details__body">
-                  <div
-                    class="settings-apps-script-card settings-apps-script-card--nested"
-                  >
-                    <p class="settings-field-hint settings-field-hint--compact">
-                      Extra Google consent only when you deploy. Creates a
-                      project in your Drive, uploads the stub, deploys as a web
-                      app, and saves the
-                      <code class="modal-code">/exec</code> URL. If you just
-                      pasted a new OAuth client ID above, click
-                      <strong>Save</strong> once so Google sign-in reloads with
-                      that client first. This managed deploy is for webhook
-                      wiring and smoke tests only; it does not discover real
-                      jobs by itself.
-                    </p>
-                    <div class="settings-discovery-toolbar">
-                      <button
-                        type="button"
-                        class="btn-discovery-setup"
-                        id="settingsAppsScriptDeployBtn"
-                      >
-                        Deploy Apps Script stub
-                      </button>
-                      <a
-                        class="btn-discovery-setup btn-discovery-setup--secondary"
-                        id="settingsAppsScriptOpenBtn"
-                        href="#"
-                        target="_blank"
-                        rel="noopener"
-                        hidden
-                        >Open script</a
-                      >
-                      <button
-                        type="button"
-                        class="btn-discovery-setup btn-discovery-setup--secondary"
-                        id="settingsAppsScriptCopyBtn"
-                        hidden
-                      >
-                        Copy /exec URL
-                      </button>
-                      <button
-                        type="button"
-                        class="btn-discovery-setup btn-discovery-setup--secondary"
-                        id="settingsAppsScriptRecheckBtn"
-                        hidden
-                      >
-                        Re-check public access
-                      </button>
-                    </div>
-                    <div
-                      class="settings-apps-script-status settings-apps-script-status--info"
-                      id="settingsAppsScriptStatus"
-                      role="status"
-                      aria-live="polite"
-                    >
-                      <p
-                        class="settings-apps-script-status__title"
-                        id="settingsAppsScriptStatusTitle"
-                      >
-                        Create a new Apps Script project in your Google Drive
-                        and save its <code class="modal-code">/exec</code> URL
-                        here.
-                      </p>
-                      <p
-                        class="settings-apps-script-status__detail"
-                        id="settingsAppsScriptStatusDetail"
-                      >
-                        Browser requests to the deployed
-                        <code class="modal-code">/exec</code> URL can still hit
-                        CORS even when deployment succeeds.
-                      </p>
-                      <ol
-                        class="settings-apps-script-status__steps"
-                        id="settingsAppsScriptStatusSteps"
-                        hidden
-                      ></ol>
-                      <p
-                        class="settings-apps-script-status__url"
-                        id="settingsAppsScriptUrlRow"
-                        hidden
-                      >
-                        <code
-                          class="modal-code"
-                          id="settingsAppsScriptUrl"
-                        ></code>
-                      </p>
-                      <div
-                        class="settings-apps-script-status__actions"
-                        id="settingsAppsScriptStatusActions"
-                        hidden
-                      ></div>
-                    </div>
-                  </div>
-                </div>
-              </details>
-
-              <details class="settings-details">
-                <summary class="settings-details__summary">
-                  Discovery preferences (roles, location, keywords)
-                </summary>
-                <div class="settings-details__body">
-                  <p class="materials-hint materials-hint--tight">
-                    Sent with each discovery run; stored only on this device.
-                  </p>
-                  <label class="field-label" for="settingsDiscoveryTargetRoles"
-                    >Target roles</label
-                  >
-                  <textarea
-                    id="settingsDiscoveryTargetRoles"
-                    class="modal-input modal-textarea"
-                    rows="2"
-                    placeholder="e.g. Staff engineer, platform, ML infra"
-                    spellcheck="true"
-                  ></textarea>
-                  <label class="field-label" for="settingsDiscoveryLocations"
-                    >Locations</label
-                  >
-                  <input
-                    type="text"
-                    id="settingsDiscoveryLocations"
-                    class="modal-input"
-                    placeholder="Cities, regions, countries"
-                    autocomplete="off"
-                  />
-                  <label class="field-label" for="settingsDiscoveryRemotePolicy"
-                    >Remote / work style</label
-                  >
-                  <input
-                    type="text"
-                    id="settingsDiscoveryRemotePolicy"
-                    class="modal-input"
-                    placeholder="e.g. remote-first, hybrid, on-site"
-                    autocomplete="off"
-                  />
-                  <label class="field-label" for="settingsDiscoverySeniority"
-                    >Seniority</label
-                  >
-                  <input
-                    type="text"
-                    id="settingsDiscoverySeniority"
-                    class="modal-input"
-                    placeholder="e.g. mid, senior, staff"
-                    autocomplete="off"
-                  />
-                  <label
-                    class="field-label"
-                    for="settingsDiscoveryKeywordsInclude"
-                    >Keywords to include</label
-                  >
-                  <input
-                    type="text"
-                    id="settingsDiscoveryKeywordsInclude"
-                    class="modal-input"
-                    placeholder="Comma-separated or free text"
-                    autocomplete="off"
-                  />
-                  <label
-                    class="field-label"
-                    for="settingsDiscoveryKeywordsExclude"
-                    >Keywords to exclude</label
-                  >
-                  <input
-                    type="text"
-                    id="settingsDiscoveryKeywordsExclude"
-                    class="modal-input"
-                    placeholder="Things to avoid"
-                    autocomplete="off"
-                  />
-                  <label
-                    class="field-label"
-                    for="settingsDiscoveryMaxLeadsPerRun"
-                    >Max leads per run (optional)</label
-                  >
-                  <input
-                    type="text"
-                    id="settingsDiscoveryMaxLeadsPerRun"
-                    class="modal-input"
-                    inputmode="numeric"
-                    placeholder="e.g. 25"
-                    autocomplete="off"
-                  />
-                  <label class="field-label field-label--checkbox">
-                    <input
-                      type="checkbox"
-                      id="settingsDiscoveryGroundedWeb"
-                      checked
-                    />
-                    Enable grounded web search
-                  </label>
-                  <p class="settings-field-hint">
-                    When enabled, the automation will also search the web for
-                    jobs beyond ATS listings.
-                  </p>
-                </div>
-              </details>
-            </div>
-
-            <!-- ── Profile tab (Feature B / Layer 5) ───────────────── -->
-            <div
-              role="tabpanel"
-              id="settings-panel-profile"
-              class="settings-tab-panel"
-              aria-labelledby="settings-tab-profile"
-              hidden
-            >
-              <h4 class="settings-tab-panel__title">Profile-driven discovery</h4>
-              <p class="settings-tab-panel__lede">
-                Drop your resume or fill the form, and the worker infers a
-                shortlist of companies to target. Resume text stays in this
-                browser-local profile store; extracted plain text is sent to
-                the worker only when you run discovery.
-              </p>
-
-              <div class="settings-profile-block">
-                <h5 class="settings-profile-block__title">1. Resume (optional)</h5>
-                <input
-                  type="file"
-                  id="settingsProfileResumeFile"
-                  class="settings-profile-file"
-                  accept=".pdf,.docx,.doc,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-                />
-                <p
-                  class="settings-field-hint settings-field-hint--compact"
-                  id="settingsProfileResumeStatus"
-                  role="status"
-                  aria-live="polite"
-                >
-                  PDF, DOCX, or plain text. Extracted client-side; the file
-                  itself never leaves your browser.
-                </p>
-                <label
-                  class="field-label"
-                  for="settingsProfileResumeText"
-                  >Extracted text (editable)</label
-                >
-                <textarea
-                  id="settingsProfileResumeText"
-                  class="modal-input settings-profile-textarea"
-                  rows="6"
-                  placeholder="Paste resume text here, or upload a file above."
-                  spellcheck="false"
-                ></textarea>
-                <button
-                  type="button"
-                  id="settingsProfileResumeClear"
-                  class="btn-modal-secondary settings-profile-clear-btn"
-                >
-                  Clear resume text
-                </button>
-              </div>
-
-              <div
-                class="settings-profile-status"
-                id="settingsProfileStatus"
-                hidden
-                aria-live="polite"
-              ></div>
-
-              <div class="settings-profile-block">
-                <h5 class="settings-profile-block__title">
-                  2. Form (fills gaps the resume misses)
-                </h5>
-
-                <label class="field-label" for="settingsProfileFormTargetRoles"
-                  >Target roles</label
-                >
-                <input
-                  type="text"
-                  id="settingsProfileFormTargetRoles"
-                  class="modal-input"
-                  placeholder="Senior Product Manager, Staff PM"
-                  autocomplete="off"
-                />
-
-                <label class="field-label" for="settingsProfileFormSkills"
-                  >Skills</label
-                >
-                <input
-                  type="text"
-                  id="settingsProfileFormSkills"
-                  class="modal-input"
-                  placeholder="Roadmapping, SQL, Figma"
-                  autocomplete="off"
-                />
-
-                <label class="field-label" for="settingsProfileFormSeniority"
-                  >Seniority</label
-                >
-                <select
-                  id="settingsProfileFormSeniority"
-                  class="status-select settings-select"
-                >
-                  <option value="">— unspecified —</option>
-                  <option value="junior">Junior</option>
-                  <option value="mid">Mid</option>
-                  <option value="senior">Senior</option>
-                  <option value="staff">Staff</option>
-                  <option value="principal">Principal</option>
-                  <option value="director">Director</option>
-                  <option value="vp">VP</option>
-                </select>
-
-                <label class="field-label" for="settingsProfileFormYears"
-                  >Years of experience</label
-                >
-                <input
-                  type="number"
-                  id="settingsProfileFormYears"
-                  class="modal-input"
-                  min="0"
-                  max="60"
-                  step="1"
-                  inputmode="numeric"
-                  placeholder="e.g. 8"
-                  autocomplete="off"
-                />
-
-                <label class="field-label" for="settingsProfileFormLocations"
-                  >Locations</label
-                >
-                <input
-                  type="text"
-                  id="settingsProfileFormLocations"
-                  class="modal-input"
-                  placeholder="Denver, CO · New York, NY"
-                  autocomplete="off"
-                />
-
-                <label class="field-label" for="settingsProfileFormRemotePolicy"
-                  >Remote policy</label
-                >
-                <select
-                  id="settingsProfileFormRemotePolicy"
-                  class="status-select settings-select"
-                >
-                  <option value="">— unspecified —</option>
-                  <option value="remote">Remote</option>
-                  <option value="hybrid">Hybrid</option>
-                  <option value="onsite">On-site</option>
-                </select>
-
-                <label class="field-label" for="settingsProfileFormIndustries"
-                  >Industries</label
-                >
-                <input
-                  type="text"
-                  id="settingsProfileFormIndustries"
-                  class="modal-input"
-                  placeholder="AI infra, climate, healthtech"
-                  autocomplete="off"
-                />
-              </div>
-
-              <div class="settings-profile-block">
-                <h5 class="settings-profile-block__title">3. Run</h5>
-                <label class="field-label field-label--checkbox">
-                  <input type="checkbox" id="settingsProfilePersist" />
-                  Persist inferred companies to worker-config (next run is
-                  company-anchored)
-                </label>
-                <div class="settings-profile-actions">
-                  <button
-                    type="button"
-                    id="settingsProfileRunBtn"
-                    class="btn-modal-primary"
-                  >
-                    Discover companies
-                  </button>
-                  <button
-                    type="button"
-                    id="settingsProfileRefreshBtn"
-                    class="btn-modal-secondary"
-                    title="Re-run discovery using the stored resume/form and skip any companies you've removed"
-                  >
-                    Refresh from stored profile
-                  </button>
-                  <span
-                    class="settings-profile-spinner"
-                    id="settingsProfileSpinner"
-                    hidden
-                    aria-hidden="true"
-                  ></span>
-                </div>
-                <p
-                  class="settings-form-error settings-profile-error"
-                  id="settingsProfileError"
-                  role="alert"
-                  hidden
-                ></p>
-
-              </div>
-
-              <div class="settings-profile-block settings-profile-schedule">
-                <h5 class="settings-profile-block__title">4. Schedule</h5>
-                <p class="settings-field-hint settings-field-hint--compact">
-                  Pick how discovery runs on its own. Tiers are independent —
-                  any combination is fine; overlapping fires just overwrite
-                  the same company list.
-                </p>
-
-                <section
-                  class="settings-profile-schedule__tier"
-                  data-tier="1"
-                  aria-labelledby="settingsProfileScheduleTier1Title"
-                >
-                  <header class="settings-profile-schedule__tier-head">
-                    <h6
-                      class="settings-profile-schedule__tier-title"
-                      id="settingsProfileScheduleTier1Title"
-                    >
-                      Runs while this tab is open
-                    </h6>
-                    <span class="settings-profile-badge">Tier 1 · zero-infra</span>
-                  </header>
-                  <div
-                    class="settings-profile-auto-refresh"
-                    role="group"
-                    aria-labelledby="settingsProfileAutoRefreshLabel"
-                  >
-                    <label
-                      class="field-label field-label--checkbox"
-                      id="settingsProfileAutoRefreshLabel"
-                    >
-                      <input
-                        type="checkbox"
-                        id="settingsProfileAutoRefreshToggle"
-                      />
-                      Enable — refresh in this browser tab
-                    </label>
-                    <label
-                      class="field-label settings-profile-auto-refresh__cadence"
-                      for="settingsProfileAutoRefreshCadence"
-                    >
-                      <span>Every</span>
-                      <select
-                        id="settingsProfileAutoRefreshCadence"
-                        class="status-select settings-select"
-                      >
-                        <option value="6">6 hours</option>
-                        <option value="12" selected>12 hours</option>
-                        <option value="24">24 hours</option>
-                      </select>
-                    </label>
-                    <p
-                      class="settings-field-hint"
-                      id="settingsProfileAutoRefreshHint"
-                    >
-                      Zero-infra cadence. Runs in this browser tab only;
-                      closing the tab pauses the schedule.
-                    </p>
-                  </div>
-                </section>
-
-                <section
-                  class="settings-profile-schedule__tier"
-                  data-tier="2"
-                  aria-labelledby="settingsProfileScheduleLocalTitle"
-                >
-                  <header class="settings-profile-schedule__tier-head">
-                    <h6
-                      class="settings-profile-schedule__tier-title"
-                      id="settingsProfileScheduleLocalTitle"
-                    >
-                      Runs daily on this computer
-                    </h6>
-                    <span
-                      class="settings-profile-badge"
-                      id="settingsProfileScheduleLocalBadge"
-                      data-state="unknown"
-                    >Not installed yet</span>
-                  </header>
-                  <label class="field-label field-label--checkbox">
-                    <input
-                      type="checkbox"
-                      id="settingsProfileScheduleLocalEnable"
-                    />
-                    Enable — save this time and install on the OS scheduler
-                  </label>
-                  <label
-                    class="field-label"
-                    for="settingsProfileScheduleLocalTime"
-                  >
-                    Local time (your computer's clock)
-                  </label>
-                  <input
-                    type="time"
-                    id="settingsProfileScheduleLocalTime"
-                    class="modal-input settings-profile-schedule__time"
-                    value="08:00"
-                    step="60"
-                  />
-                  <p
-                    class="settings-field-hint settings-field-hint--compact"
-                    id="settingsProfileScheduleLocalOsHint"
-                  >
-                    Detecting your operating system…
-                  </p>
-                  <pre
-                    class="settings-profile-schedule__command"
-                    id="settingsProfileScheduleLocalCommand"
-                    aria-label="Install command to run in your terminal"
-                  ></pre>
-                  <div class="settings-profile-schedule__actions">
-                    <button
-                      type="button"
-                      id="settingsProfileScheduleLocalCopyInstall"
-                      class="btn-modal-primary"
-                    >
-                      Copy install command
-                    </button>
-                    <button
-                      type="button"
-                      id="settingsProfileScheduleLocalCopyUninstall"
-                      class="btn-modal-secondary"
-                      title="Copy the command that removes the scheduled job"
-                    >
-                      Copy uninstall command
-                    </button>
-                  </div>
-                  <p
-                    class="settings-field-hint settings-field-hint--compact"
-                    id="settingsProfileScheduleLocalArtifact"
-                    hidden
-                  ></p>
-                  <p
-                    class="settings-form-error settings-profile-error"
-                    id="settingsProfileScheduleLocalError"
-                    role="alert"
-                    hidden
-                  ></p>
-                </section>
-
-                <section
-                  class="settings-profile-schedule__tier"
-                  data-tier="3"
-                  aria-labelledby="settingsProfileScheduleCloudTitle"
-                >
-                  <header class="settings-profile-schedule__tier-head">
-                    <h6
-                      class="settings-profile-schedule__tier-title"
-                      id="settingsProfileScheduleCloudTitle"
-                    >
-                      Runs in the cloud on a schedule
-                    </h6>
-                    <span
-                      class="settings-profile-badge"
-                      id="settingsProfileScheduleCloudBadge"
-                      data-state="idle"
-                    >Advisory</span>
-                  </header>
-                  <label class="field-label field-label--checkbox">
-                    <input
-                      type="checkbox"
-                      id="settingsProfileScheduleCloudEnable"
-                    />
-                    Enable — generate a GitHub Actions workflow for this schedule
-                  </label>
-                  <label
-                    class="field-label"
-                    for="settingsProfileScheduleCloudTime"
-                  >
-                    America/Chicago time
-                  </label>
-                  <input
-                    type="time"
-                    id="settingsProfileScheduleCloudTime"
-                    class="modal-input settings-profile-schedule__time"
-                    value="06:00"
-                    step="60"
-                  />
-                  <p
-                    class="settings-field-hint settings-field-hint--compact"
-                    id="settingsProfileScheduleCloudLocalPreview"
-                  ></p>
-                  <div class="settings-profile-schedule__actions">
-                    <button
-                      type="button"
-                      id="settingsProfileScheduleCloudDownload"
-                      class="btn-modal-primary"
-                    >
-                      Download workflow file
-                    </button>
-                  </div>
-                  <ol class="settings-profile-schedule__steps">
-                    <li>
-                      Fork or open your Command Center repo on GitHub.
-                    </li>
-                    <li>
-                      Add the repo secrets
-                      <code>COMMAND_CENTER_DISCOVERY_WEBHOOK_URL</code> and
-                      <code>COMMAND_CENTER_SHEET_ID</code>. Add
-                      <code>COMMAND_CENTER_DISCOVERY_WEBHOOK_SECRET</code> only
-                      if your endpoint enforces <code>x-discovery-secret</code> —
-                      <a
-                        href="https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions"
-                        target="_blank"
-                        rel="noopener"
-                        >how secrets work →</a
-                      >
-                    </li>
-                    <li>
-                      Upload the downloaded file to
-                      <code>.github/workflows/command-center-discovery.yml</code>
-                      and commit.
-                    </li>
-                    <li>
-                      Open the
-                      <a
-                        href="https://docs.github.com/en/actions/learn-github-actions/finding-and-customizing-actions"
-                        target="_blank"
-                        rel="noopener"
-                        >Actions tab</a
-                      >
-                      in your repo and confirm the workflow shows up.
-                    </li>
-                  </ol>
-                  <p class="settings-field-hint settings-field-hint--compact">
-                    The dashboard cannot verify GitHub remotely — the badge
-                    stays "Advisory." Check your GitHub Actions tab to
-                    confirm the schedule is live.
-                  </p>
-                  <p
-                    class="settings-form-error settings-profile-error"
-                    id="settingsProfileScheduleCloudError"
-                    role="alert"
-                    hidden
-                  ></p>
-                </section>
-              </div>
-
-              <div
-                class="settings-profile-results"
-                id="settingsProfileResults"
-                hidden
-                aria-live="polite"
-              ></div>
             </div>
 
             <!-- ── Scraping tab ───────────────────────────────────── -->
@@ -5483,253 +4674,955 @@ https://your-static-site.example</pre
           </button>
         </header>
 
+        <nav
+          class="discovery-subtabs"
+          role="tablist"
+          aria-label="Discovery sections"
+          id="discoverySubtabs"
+        >
+          <button
+            type="button"
+            role="tab"
+            class="discovery-subtab"
+            id="dd-tab-search"
+            data-subtab="search"
+            aria-controls="dd-panel-search"
+            aria-selected="true"
+            tabindex="0"
+          >
+            Search
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="discovery-subtab"
+            id="dd-tab-sources"
+            data-subtab="sources"
+            aria-controls="dd-panel-sources"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            Sources
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="discovery-subtab"
+            id="dd-tab-automation"
+            data-subtab="automation"
+            aria-controls="dd-panel-automation"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            Automation
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="discovery-subtab"
+            id="dd-tab-connection"
+            data-subtab="connection"
+            aria-controls="dd-panel-connection"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            Connection
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="discovery-subtab"
+            id="dd-tab-history"
+            data-subtab="history"
+            aria-controls="dd-panel-history"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            History
+          </button>
+        </nav>
+
         <div class="discovery-drawer__body">
-          <p class="discovery-drawer__lede">
-            Shape and remix your discovery search. Values are saved locally and sent with the run.
-          </p>
-
-          <label class="field-label" for="dpTargetRoles">Target roles</label>
-          <textarea
-            id="dpTargetRoles"
-            class="modal-input modal-textarea"
-            rows="2"
-            placeholder="e.g. Staff engineer, platform, ML infra"
-            spellcheck="true"
-          ></textarea>
-
-          <label class="field-label" for="dpLocations">Locations</label>
-          <input
-            type="text"
-            id="dpLocations"
-            class="modal-input"
-            placeholder="Cities, regions, countries"
-            autocomplete="off"
-          />
-
-          <div class="discovery-prefs-row discovery-prefs-row--2col">
-            <div>
-              <label class="field-label" for="dpRemotePolicy"
-                >Remote / work style</label
-              >
-              <input
-                type="text"
-                id="dpRemotePolicy"
-                class="modal-input"
-                placeholder="e.g. remote-first, hybrid"
-                autocomplete="off"
-              />
-            </div>
-            <div>
-              <label class="field-label" for="dpSeniority">Seniority</label>
-              <input
-                type="text"
-                id="dpSeniority"
-                class="modal-input"
-                placeholder="e.g. mid, senior, staff"
-                autocomplete="off"
-              />
-            </div>
-          </div>
-
-          <label class="field-label" for="dpKeywordsInclude"
-            >Keywords to include</label
+          <!-- ── Search sub-tab ─────────────────────────────────── -->
+          <section
+            role="tabpanel"
+            id="dd-panel-search"
+            class="discovery-subtab-panel"
+            aria-labelledby="dd-tab-search"
           >
-          <input
-            type="text"
-            id="dpKeywordsInclude"
-            class="modal-input"
-            placeholder="Comma-separated or free text"
-            autocomplete="off"
-          />
+            <p class="discovery-drawer__lede">
+              Shape and remix your discovery search. Values are saved locally and sent with the run.
+            </p>
 
-          <label class="field-label" for="dpKeywordsExclude"
-            >Keywords to exclude</label
-          >
-          <input
-            type="text"
-            id="dpKeywordsExclude"
-            class="modal-input"
-            placeholder="Things to avoid"
-            autocomplete="off"
-          />
+            <label class="field-label" for="dpTargetRoles">Target roles</label>
+            <textarea
+              id="dpTargetRoles"
+              class="modal-input modal-textarea"
+              rows="2"
+              placeholder="e.g. Staff engineer, platform, ML infra"
+              spellcheck="true"
+            ></textarea>
 
-          <label class="field-label" for="dpMaxLeads"
-            >Max leads per run (optional)</label
-          >
-          <input
-            type="text"
-            id="dpMaxLeads"
-            class="modal-input"
-            inputmode="numeric"
-            placeholder="e.g. 25"
-            autocomplete="off"
-          />
+            <label class="field-label" for="dpLocations">Locations</label>
+            <input
+              type="text"
+              id="dpLocations"
+              class="modal-input"
+              placeholder="Cities, regions, countries"
+              autocomplete="off"
+            />
 
-          <label class="field-label field-label--checkbox">
-            <input type="checkbox" id="dpGroundedWeb" checked />
-            Enable grounded web search
-          </label>
-          <p class="modal-field-hint">
-            When enabled, the automation will also search the web for jobs
-            beyond ATS listings.
-          </p>
-
-          <!-- Source preset selector -->
-          <fieldset class="dp-source-preset" id="dpSourcePresetGroup">
-            <legend class="field-label">Source preset</legend>
-            <div class="dp-source-preset-options">
-              <label class="dp-source-preset-option" data-preset="browser_only">
+            <div class="discovery-prefs-row discovery-prefs-row--2col">
+              <div>
+                <label class="field-label" for="dpRemotePolicy"
+                  >Remote / work style</label
+                >
                 <input
-                  type="radio"
-                  name="dpSourcePreset"
-                  value="browser_only"
-                  id="dpPresetBrowserOnly"
+                  type="text"
+                  id="dpRemotePolicy"
+                  class="modal-input"
+                  placeholder="e.g. remote-first, hybrid"
+                  autocomplete="off"
                 />
-                <span class="dp-preset-label">Web only</span>
-                <span class="dp-preset-hint">Grounded web search</span>
-              </label>
-              <label class="dp-source-preset-option" data-preset="ats_only">
+              </div>
+              <div>
+                <label class="field-label" for="dpSeniority">Seniority</label>
                 <input
-                  type="radio"
-                  name="dpSourcePreset"
-                  value="ats_only"
-                  id="dpPresetAtsOnly"
+                  type="text"
+                  id="dpSeniority"
+                  class="modal-input"
+                  placeholder="e.g. mid, senior, staff"
+                  autocomplete="off"
                 />
-                <span class="dp-preset-label">ATS only</span>
-                <span class="dp-preset-hint">Greenhouse, Lever, Ashby</span>
-              </label>
-              <label class="dp-source-preset-option dp-source-preset-option--active" data-preset="browser_plus_ats">
-                <input
-                  type="radio"
-                  name="dpSourcePreset"
-                  value="browser_plus_ats"
-                  id="dpPresetBrowserPlusAts"
-                  checked
-                />
-                <span class="dp-preset-label">Browser + ATS</span>
-                <span class="dp-preset-hint">Both sources</span>
-              </label>
+              </div>
             </div>
-          </fieldset>
 
-          <!-- Company targeting (optional, but visible) -->
-          <section class="discovery-drawer__section" aria-labelledby="dpCompanyTargetingLegend">
-            <h3 id="dpCompanyTargetingLegend" class="discovery-drawer__section-title">
-              Company targeting
-              <span class="discovery-drawer__section-hint">Optional — leave empty for broad search</span>
-            </h3>
-            <div class="dp-chip-list" id="dpCompanyAllowlistChips" data-list="allow" aria-label="Included companies">
-              <p class="dp-chip-empty" id="dpCompanyAllowlistEmpty">No companies added yet. AI suggestions will auto-include companies.</p>
-            </div>
-            <div class="dp-chip-controls">
-              <input
-                type="text"
-                id="dpCompanyAllowlistInput"
-                class="modal-input"
-                placeholder="Add company (press Enter)"
-                autocomplete="off"
-              />
-              <button type="button" class="btn-modal-secondary" id="dpCompanyAllowlistAddBtn">Add</button>
-            </div>
-            <details class="dp-blocklist-details">
-              <summary class="dp-blocklist-summary">Excluded companies</summary>
-              <div class="dp-chip-list" id="dpCompanyBlocklistChips" data-list="block" aria-label="Excluded companies">
-                <p class="dp-chip-empty" id="dpCompanyBlocklistEmpty">No companies excluded.</p>
+            <label class="field-label" for="dpKeywordsInclude"
+              >Keywords to include</label
+            >
+            <input
+              type="text"
+              id="dpKeywordsInclude"
+              class="modal-input"
+              placeholder="Comma-separated or free text"
+              autocomplete="off"
+            />
+
+            <label class="field-label" for="dpKeywordsExclude"
+              >Keywords to exclude</label
+            >
+            <input
+              type="text"
+              id="dpKeywordsExclude"
+              class="modal-input"
+              placeholder="Things to avoid"
+              autocomplete="off"
+            />
+
+            <label class="field-label" for="dpMaxLeads"
+              >Max leads per run (optional)</label
+            >
+            <input
+              type="text"
+              id="dpMaxLeads"
+              class="modal-input"
+              inputmode="numeric"
+              placeholder="e.g. 15"
+              autocomplete="off"
+            />
+
+            <!-- Company targeting (optional, but visible) -->
+            <section class="discovery-drawer__section" aria-labelledby="dpCompanyTargetingLegend">
+              <h3 id="dpCompanyTargetingLegend" class="discovery-drawer__section-title">
+                Company targeting
+                <span class="discovery-drawer__section-hint">Optional — leave empty for broad search</span>
+              </h3>
+              <div class="dp-chip-list" id="dpCompanyAllowlistChips" data-list="allow" aria-label="Included companies">
+                <p class="dp-chip-empty" id="dpCompanyAllowlistEmpty">No companies added yet. AI suggestions will auto-include companies.</p>
               </div>
               <div class="dp-chip-controls">
                 <input
                   type="text"
-                  id="dpCompanyBlocklistInput"
+                  id="dpCompanyAllowlistInput"
                   class="modal-input"
-                  placeholder="Exclude company (press Enter)"
+                  placeholder="Add company (press Enter)"
                   autocomplete="off"
                 />
-                <button type="button" class="btn-modal-secondary" id="dpCompanyBlocklistAddBtn">Exclude</button>
+                <button type="button" class="btn-modal-secondary" id="dpCompanyAllowlistAddBtn">Add</button>
+              </div>
+              <details class="dp-blocklist-details">
+                <summary class="dp-blocklist-summary">Excluded companies</summary>
+                <div class="dp-chip-list" id="dpCompanyBlocklistChips" data-list="block" aria-label="Excluded companies">
+                  <p class="dp-chip-empty" id="dpCompanyBlocklistEmpty">No companies excluded.</p>
+                </div>
+                <div class="dp-chip-controls">
+                  <input
+                    type="text"
+                    id="dpCompanyBlocklistInput"
+                    class="modal-input"
+                    placeholder="Exclude company (press Enter)"
+                    autocomplete="off"
+                  />
+                  <button type="button" class="btn-modal-secondary" id="dpCompanyBlocklistAddBtn">Exclude</button>
+                </div>
+              </details>
+            </section>
+
+            <!-- AI ideation section (secondary to the basic form) -->
+            <section class="discovery-drawer__section discovery-drawer__section--ai" aria-labelledby="dpAiIdeationLegend">
+              <h3 id="dpAiIdeationLegend" class="discovery-drawer__section-title">
+                AI ideas
+                <span class="discovery-drawer__section-hint">Generate three search variants from your profile</span>
+              </h3>
+              <p class="dp-ai-hint" id="dpAiHint" hidden>
+                Configure a resume AI provider (Gemini, OpenAI, or Anthropic) in
+                Settings to enable AI suggestions.
+              </p>
+              <div class="dp-url-row">
+                <input
+                  type="url"
+                  id="dpJobUrl"
+                  class="modal-input"
+                  placeholder="Optional job listing URL to anchor suggestions"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <button
+                  type="button"
+                  class="btn-modal-secondary btn-dp-scrape"
+                  id="dpScrapeBtn"
+                  title="Scrape the job listing and use it to refine suggestions"
+                >
+                  Scrape
+                </button>
+              </div>
+              <p class="dp-scrape-status" id="dpScrapeStatus" hidden></p>
+              <button
+                type="button"
+                class="btn-modal-primary btn-dp-suggest"
+                id="dpSuggestBtn"
+              >
+                Generate ideas
+              </button>
+              <p class="dp-suggest-status" id="dpSuggestStatus" hidden></p>
+              <div class="dp-strata-grid" id="dpStrataGrid" hidden>
+                <article class="dp-stratum-card" data-stratum="safe" id="dpStratumSafe">
+                  <header class="dp-stratum-card__head">
+                    <span class="dp-stratum-card__badge">Safe</span>
+                    <h4 class="dp-stratum-card__title">Close to your current target</h4>
+                  </header>
+                  <p class="dp-stratum-card__rationale" data-field="rationale"></p>
+                  <dl class="dp-stratum-card__details">
+                    <dt>Roles</dt><dd data-field="targetRoles"></dd>
+                    <dt>Locations</dt><dd data-field="locations"></dd>
+                    <dt>Keywords</dt><dd data-field="keywordsInclude"></dd>
+                    <dt>Companies</dt><dd data-field="companies"></dd>
+                  </dl>
+                  <button type="button" class="btn-modal-secondary dp-stratum-card__apply" data-action="apply-stratum">Apply</button>
+                </article>
+                <article class="dp-stratum-card" data-stratum="adjacent" id="dpStratumAdjacent">
+                  <header class="dp-stratum-card__head">
+                    <span class="dp-stratum-card__badge">Adjacent</span>
+                    <h4 class="dp-stratum-card__title">Nearby role families</h4>
+                  </header>
+                  <p class="dp-stratum-card__rationale" data-field="rationale"></p>
+                  <dl class="dp-stratum-card__details">
+                    <dt>Roles</dt><dd data-field="targetRoles"></dd>
+                    <dt>Locations</dt><dd data-field="locations"></dd>
+                    <dt>Keywords</dt><dd data-field="keywordsInclude"></dd>
+                    <dt>Companies</dt><dd data-field="companies"></dd>
+                  </dl>
+                  <button type="button" class="btn-modal-secondary dp-stratum-card__apply" data-action="apply-stratum">Apply</button>
+                </article>
+                <article class="dp-stratum-card" data-stratum="stretch" id="dpStratumStretch">
+                  <header class="dp-stratum-card__head">
+                    <span class="dp-stratum-card__badge">Stretch</span>
+                    <h4 class="dp-stratum-card__title">Ambitious or non-obvious paths</h4>
+                  </header>
+                  <p class="dp-stratum-card__rationale" data-field="rationale"></p>
+                  <dl class="dp-stratum-card__details">
+                    <dt>Roles</dt><dd data-field="targetRoles"></dd>
+                    <dt>Locations</dt><dd data-field="locations"></dd>
+                    <dt>Keywords</dt><dd data-field="keywordsInclude"></dd>
+                    <dt>Companies</dt><dd data-field="companies"></dd>
+                  </dl>
+                  <button type="button" class="btn-modal-secondary dp-stratum-card__apply" data-action="apply-stratum">Apply</button>
+                </article>
+              </div>
+            </section>
+          </section>
+
+          <!-- ── Sources sub-tab ────────────────────────────────── -->
+          <section
+            role="tabpanel"
+            id="dd-panel-sources"
+            class="discovery-subtab-panel"
+            aria-labelledby="dd-tab-sources"
+            hidden
+          >
+            <p class="discovery-drawer__lede">
+              Pick where discovery looks. ATS providers find jobs through
+              Greenhouse/Lever/Ashby. Grounded web search adds open-web
+              postings. SerpApi taps Google Jobs.
+            </p>
+
+            <fieldset class="dp-source-preset" id="dpSourcePresetGroup">
+              <legend class="field-label">Source preset</legend>
+              <div class="dp-source-preset-options">
+                <label class="dp-source-preset-option" data-preset="browser_only">
+                  <input
+                    type="radio"
+                    name="dpSourcePreset"
+                    value="browser_only"
+                    id="dpPresetBrowserOnly"
+                  />
+                  <span class="dp-preset-label">Web only</span>
+                  <span class="dp-preset-hint">Grounded web search</span>
+                </label>
+                <label class="dp-source-preset-option" data-preset="ats_only">
+                  <input
+                    type="radio"
+                    name="dpSourcePreset"
+                    value="ats_only"
+                    id="dpPresetAtsOnly"
+                  />
+                  <span class="dp-preset-label">ATS only</span>
+                  <span class="dp-preset-hint">Greenhouse, Lever, Ashby</span>
+                </label>
+                <label class="dp-source-preset-option dp-source-preset-option--active" data-preset="browser_plus_ats">
+                  <input
+                    type="radio"
+                    name="dpSourcePreset"
+                    value="browser_plus_ats"
+                    id="dpPresetBrowserPlusAts"
+                    checked
+                  />
+                  <span class="dp-preset-label">Browser + ATS</span>
+                  <span class="dp-preset-hint">Both sources</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <label class="field-label field-label--checkbox">
+              <input type="checkbox" id="dpGroundedWeb" checked />
+              Enable grounded web search
+            </label>
+            <p class="modal-field-hint">
+              When enabled, the automation will also search the web for jobs
+              beyond ATS listings.
+            </p>
+
+            <div
+              class="settings-discovery-callout settings-discovery-callout--serpapi"
+              id="settingsSerpApiCallout"
+              data-configured="unknown"
+              role="note"
+            >
+              <div class="settings-discovery-callout__head">
+                <span
+                  class="settings-discovery-callout__icon"
+                  aria-hidden="true"
+                  >⚡</span
+                >
+                <strong>Boost job match quality (recommended)</strong>
+                <span
+                  class="settings-discovery-callout__status"
+                  id="settingsSerpApiCalloutStatus"
+                  aria-live="polite"
+                  >Checking…</span
+                >
+              </div>
+              <p class="settings-field-hint">
+                Your worker uses Google Jobs (via SerpApi) as its
+                highest-quality source of real, live job openings. Google
+                has already indexed every job posted through Greenhouse,
+                Lever, Ashby, Workday, and 100+ other ATS platforms — so
+                this one integration replaces the need for brittle
+                career-page scraping. Without it, the worker still runs,
+                but you'll get far fewer matches.
+              </p>
+              <ol class="settings-discovery-callout__steps">
+                <li>
+                  Create a free account at
+                  <a
+                    href="https://serpapi.com/users/sign_up"
+                    target="_blank"
+                    rel="noopener"
+                    >serpapi.com</a
+                  >
+                  — the free tier includes <strong>100 searches/month</strong>
+                  (~20 daily discovery runs).
+                </li>
+                <li>
+                  Copy your API key from the
+                  <a
+                    href="https://serpapi.com/manage-api-key"
+                    target="_blank"
+                    rel="noopener"
+                    >SerpApi dashboard</a
+                  >.
+                </li>
+                <li>
+                  Open
+                  <code>integrations/browser-use-discovery/.env</code>
+                  and add a new line:
+                  <code class="settings-discovery-callout__snippet"
+                    >SERPAPI_API_KEY=paste-your-key-here</code
+                  >
+                </li>
+                <li>
+                  Restart your local worker
+                  (<code>npm run discovery:worker:start-local</code>) so
+                  the new env var is picked up, then run discovery again.
+                </li>
+              </ol>
+              <p
+                class="settings-field-hint settings-field-hint--compact settings-discovery-callout__reminder"
+              >
+                Already set up? This status indicator updates when you
+                save your webhook URL or reload the page.
+              </p>
+            </div>
+          </section>
+
+          <!-- ── Automation sub-tab (schedule tiers, ex-Profile) ─── -->
+          <section
+            role="tabpanel"
+            id="dd-panel-automation"
+            class="discovery-subtab-panel"
+            aria-labelledby="dd-tab-automation"
+            hidden
+          >
+            <p class="discovery-drawer__lede">
+              Pick how discovery runs on its own. Tiers are independent —
+              any combination is fine; overlapping fires just overwrite
+              the same company list.
+            </p>
+
+            <div class="settings-profile-schedule">
+              <section
+                class="settings-profile-schedule__tier"
+                data-tier="1"
+                aria-labelledby="settingsProfileScheduleTier1Title"
+              >
+                <header class="settings-profile-schedule__tier-head">
+                  <h6
+                    class="settings-profile-schedule__tier-title"
+                    id="settingsProfileScheduleTier1Title"
+                  >
+                    Runs while this tab is open
+                  </h6>
+                  <span class="settings-profile-badge">Tier 1 · zero-infra</span>
+                </header>
+                <div
+                  class="settings-profile-auto-refresh"
+                  role="group"
+                  aria-labelledby="settingsProfileAutoRefreshLabel"
+                >
+                  <label
+                    class="field-label field-label--checkbox"
+                    id="settingsProfileAutoRefreshLabel"
+                  >
+                    <input
+                      type="checkbox"
+                      id="settingsProfileAutoRefreshToggle"
+                    />
+                    Enable — refresh in this browser tab
+                  </label>
+                  <label
+                    class="field-label settings-profile-auto-refresh__cadence"
+                    for="settingsProfileAutoRefreshCadence"
+                  >
+                    <span>Every</span>
+                    <select
+                      id="settingsProfileAutoRefreshCadence"
+                      class="status-select settings-select"
+                    >
+                      <option value="6">6 hours</option>
+                      <option value="12" selected>12 hours</option>
+                      <option value="24">24 hours</option>
+                    </select>
+                  </label>
+                  <p
+                    class="settings-field-hint"
+                    id="settingsProfileAutoRefreshHint"
+                  >
+                    Zero-infra cadence. Runs in this browser tab only;
+                    closing the tab pauses the schedule.
+                  </p>
+                </div>
+              </section>
+
+              <section
+                class="settings-profile-schedule__tier"
+                data-tier="2"
+                aria-labelledby="settingsProfileScheduleLocalTitle"
+              >
+                <header class="settings-profile-schedule__tier-head">
+                  <h6
+                    class="settings-profile-schedule__tier-title"
+                    id="settingsProfileScheduleLocalTitle"
+                  >
+                    Runs daily on this computer
+                  </h6>
+                  <span
+                    class="settings-profile-badge"
+                    id="settingsProfileScheduleLocalBadge"
+                    data-state="unknown"
+                  >Not installed yet</span>
+                </header>
+                <label class="field-label field-label--checkbox">
+                  <input
+                    type="checkbox"
+                    id="settingsProfileScheduleLocalEnable"
+                  />
+                  Enable — save this time and install on the OS scheduler
+                </label>
+                <label
+                  class="field-label"
+                  for="settingsProfileScheduleLocalTime"
+                >
+                  Local time (your computer's clock)
+                </label>
+                <input
+                  type="time"
+                  id="settingsProfileScheduleLocalTime"
+                  class="modal-input settings-profile-schedule__time"
+                  value="08:00"
+                  step="60"
+                />
+                <p
+                  class="settings-field-hint settings-field-hint--compact"
+                  id="settingsProfileScheduleLocalOsHint"
+                >
+                  Detecting your operating system…
+                </p>
+                <pre
+                  class="settings-profile-schedule__command"
+                  id="settingsProfileScheduleLocalCommand"
+                  aria-label="Install command to run in your terminal"
+                ></pre>
+                <div class="settings-profile-schedule__actions">
+                  <button
+                    type="button"
+                    id="settingsProfileScheduleLocalCopyInstall"
+                    class="btn-modal-primary"
+                  >
+                    Copy install command
+                  </button>
+                  <button
+                    type="button"
+                    id="settingsProfileScheduleLocalCopyUninstall"
+                    class="btn-modal-secondary"
+                    title="Copy the command that removes the scheduled job"
+                  >
+                    Copy uninstall command
+                  </button>
+                </div>
+                <p
+                  class="settings-field-hint settings-field-hint--compact"
+                  id="settingsProfileScheduleLocalArtifact"
+                  hidden
+                ></p>
+                <p
+                  class="settings-form-error settings-profile-error"
+                  id="settingsProfileScheduleLocalError"
+                  role="alert"
+                  hidden
+                ></p>
+              </section>
+
+              <section
+                class="settings-profile-schedule__tier"
+                data-tier="3"
+                aria-labelledby="settingsProfileScheduleCloudTitle"
+              >
+                <header class="settings-profile-schedule__tier-head">
+                  <h6
+                    class="settings-profile-schedule__tier-title"
+                    id="settingsProfileScheduleCloudTitle"
+                  >
+                    Runs in the cloud on a schedule
+                  </h6>
+                  <span
+                    class="settings-profile-badge"
+                    id="settingsProfileScheduleCloudBadge"
+                    data-state="idle"
+                  >Advisory</span>
+                </header>
+                <label class="field-label field-label--checkbox">
+                  <input
+                    type="checkbox"
+                    id="settingsProfileScheduleCloudEnable"
+                  />
+                  Enable — generate a GitHub Actions workflow for this schedule
+                </label>
+                <label
+                  class="field-label"
+                  for="settingsProfileScheduleCloudTime"
+                >
+                  America/Chicago time
+                </label>
+                <input
+                  type="time"
+                  id="settingsProfileScheduleCloudTime"
+                  class="modal-input settings-profile-schedule__time"
+                  value="06:00"
+                  step="60"
+                />
+                <p
+                  class="settings-field-hint settings-field-hint--compact"
+                  id="settingsProfileScheduleCloudLocalPreview"
+                ></p>
+                <div class="settings-profile-schedule__actions">
+                  <button
+                    type="button"
+                    id="settingsProfileScheduleCloudDownload"
+                    class="btn-modal-primary"
+                  >
+                    Download workflow file
+                  </button>
+                </div>
+                <ol class="settings-profile-schedule__steps">
+                  <li>
+                    Fork or open your Command Center repo on GitHub.
+                  </li>
+                  <li>
+                    Add the repo secrets
+                    <code>COMMAND_CENTER_DISCOVERY_WEBHOOK_URL</code> and
+                    <code>COMMAND_CENTER_SHEET_ID</code>. Add
+                    <code>COMMAND_CENTER_DISCOVERY_WEBHOOK_SECRET</code> only
+                    if your endpoint enforces <code>x-discovery-secret</code> —
+                    optionally add
+                    <code>COMMAND_CENTER_DISCOVERY_PROFILE_JSON</code> and
+                    <code>COMMAND_CENTER_DISCOVERY_PREFERENCES_JSON</code> when
+                    GitHub cannot read stored worker profile state —
+                    <a
+                      href="https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions"
+                      target="_blank"
+                      rel="noopener"
+                      >how secrets work →</a
+                    >
+                  </li>
+                  <li>
+                    Upload the downloaded file to
+                    <code>.github/workflows/command-center-discovery.yml</code>
+                    and commit.
+                  </li>
+                  <li>
+                    Open the
+                    <a
+                      href="https://docs.github.com/en/actions/learn-github-actions/finding-and-customizing-actions"
+                      target="_blank"
+                      rel="noopener"
+                      >Actions tab</a
+                    >
+                    in your repo and confirm the workflow shows up.
+                  </li>
+                </ol>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  The dashboard cannot verify GitHub remotely — the badge
+                  stays "Advisory." Check your GitHub Actions tab to
+                  confirm the schedule is live.
+                </p>
+                <p
+                  class="settings-form-error settings-profile-error"
+                  id="settingsProfileScheduleCloudError"
+                  role="alert"
+                  hidden
+                ></p>
+              </section>
+            </div>
+          </section>
+
+          <!-- ── Connection sub-tab (webhook + advanced setup) ─── -->
+          <section
+            role="tabpanel"
+            id="dd-panel-connection"
+            class="discovery-subtab-panel"
+            aria-labelledby="dd-tab-connection"
+            hidden
+          >
+            <p class="discovery-drawer__lede">
+              The discovery webhook is where this dashboard sends each Run
+              request. Configure your own webhook, run a verification, or
+              spin up the optional Apps Script stub.
+            </p>
+
+            <label class="field-label" for="settingsDiscoveryWebhookUrl"
+              >Discovery webhook URL (optional)</label
+            >
+            <input
+              type="url"
+              id="settingsDiscoveryWebhookUrl"
+              class="modal-input"
+              placeholder="https://…"
+            />
+            <p class="settings-field-hint settings-field-hint--compact">
+              <strong>Run discovery</strong> POSTs JSON (see
+              <a href="AGENT_CONTRACT.md" target="_blank" rel="noopener"
+                >AGENT_CONTRACT.md</a
+              >). The dashboard-managed Apps Script deploy below is stub-only
+              until you replace it with real discovery logic.
+            </p>
+
+            <label class="field-label" for="settingsDiscoveryWebhookSecret"
+              >Discovery webhook secret</label
+            >
+            <input
+              type="password"
+              id="settingsDiscoveryWebhookSecret"
+              class="modal-input"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Autofilled by npm run discovery:bootstrap-local"
+            />
+            <p class="settings-field-hint settings-field-hint--compact">
+              Sent as <code>x-discovery-secret</code>. You usually don't need
+              to touch this — running
+              <code>npm&nbsp;run&nbsp;discovery:bootstrap-local</code> on this
+              machine writes it to
+              <code>integrations/browser-use-discovery/.env</code> and the
+              dashboard autofills it on reload. Cloudflare relays inject their
+              own server-side secret, so leave it empty there. Apps Script
+              stubs and other public webhooks don't need a secret.
+            </p>
+
+            <p class="settings-field-hint settings-field-hint--compact">
+              <strong>Google Sheets credential:</strong> if you're signed in
+              to JobBored above, your sign-in is sent to the worker
+              automatically — no service account, no environment wiring,
+              nothing to configure. For unattended/cron runs, set
+              <code>BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE</code>
+              in
+              <code>integrations/browser-use-discovery/.env</code> (see
+              <a
+                href="integrations/browser-use-discovery/README.md"
+                target="_blank"
+                rel="noopener"
+                >worker README</a
+              >).
+            </p>
+
+            <div class="settings-discovery-callout" role="note">
+              <strong>Optional:</strong> Pipeline works without a webhook —
+              add rows manually or automate elsewhere.
+              <button
+                type="button"
+                class="btn-setup-scraper-link"
+                id="settingsDiscoveryPathsBtn"
+              >
+                Ways to avoid webhooks
+              </button>
+            </div>
+
+            <div
+              class="settings-discovery-toolbar settings-discovery-toolbar--wrap"
+            >
+              <button
+                type="button"
+                class="btn-discovery-setup"
+                id="settingsDiscoveryGuideBtn"
+              >
+                Setup guide
+              </button>
+              <button
+                type="button"
+                class="btn-discovery-setup btn-discovery-setup--secondary"
+                id="settingsDiscoveryLocalSetupBtn"
+              >
+                Local worker + ngrok
+                <span
+                  class="tunnel-stale-badge"
+                  id="settingsTunnelStaleBadge"
+                  style="display: none"
+                  title="ngrok tunnel URL may have changed"
+                ></span>
+              </button>
+              <button
+                type="button"
+                class="btn-discovery-setup btn-discovery-setup--secondary"
+                id="settingsDiscoveryRelayBtn"
+              >
+                Cloudflare relay
+              </button>
+              <button
+                type="button"
+                class="btn-discovery-setup btn-discovery-setup--secondary"
+                id="settingsDiscoveryTestBtn"
+                title="POSTs a test payload from this browser (same as Run discovery)"
+              >
+                Test webhook
+              </button>
+            </div>
+            <p
+              class="settings-field-hint settings-field-hint--compact"
+              id="settingsDiscoveryTestHint"
+            >
+              Uses Sheet ID and discovery preferences. CORS errors in the
+              browser don&rsquo;t always mean the request failed — try
+              <code class="modal-code">npm run test:discovery-webhook</code>
+              or the relay.
+            </p>
+            <div
+              class="settings-apps-script-status settings-apps-script-status--info"
+              id="settingsDiscoveryEngineStatus"
+              role="status"
+              aria-live="polite"
+            >
+              <p
+                class="settings-apps-script-status__title"
+                id="settingsDiscoveryEngineStatusTitle"
+              >
+                No discovery webhook configured
+              </p>
+              <p
+                class="settings-apps-script-status__detail"
+                id="settingsDiscoveryEngineStatusDetail"
+              >
+                Pipeline works without a webhook. Add a real discovery
+                endpoint only if you want the Run discovery button.
+              </p>
+              <div
+                class="settings-apps-script-status__actions"
+                id="settingsDiscoveryEngineStatusActions"
+                hidden
+              ></div>
+            </div>
+
+            <details class="settings-details" id="settingsAppsScriptDetails">
+              <summary class="settings-details__summary">
+                Google Apps Script — deploy from this dashboard
+              </summary>
+              <div class="settings-details__body">
+                <div
+                  class="settings-apps-script-card settings-apps-script-card--nested"
+                >
+                  <p class="settings-field-hint settings-field-hint--compact">
+                    Extra Google consent only when you deploy. Creates a
+                    project in your Drive, uploads the stub, deploys as a web
+                    app, and saves the
+                    <code class="modal-code">/exec</code> URL. If you just
+                    pasted a new OAuth client ID above, click
+                    <strong>Save</strong> once so Google sign-in reloads with
+                    that client first. This managed deploy is for webhook
+                    wiring and smoke tests only; it does not discover real
+                    jobs by itself.
+                  </p>
+                  <div class="settings-discovery-toolbar">
+                    <button
+                      type="button"
+                      class="btn-discovery-setup"
+                      id="settingsAppsScriptDeployBtn"
+                    >
+                      Deploy Apps Script stub
+                    </button>
+                    <a
+                      class="btn-discovery-setup btn-discovery-setup--secondary"
+                      id="settingsAppsScriptOpenBtn"
+                      href="#"
+                      target="_blank"
+                      rel="noopener"
+                      hidden
+                      >Open script</a
+                    >
+                    <button
+                      type="button"
+                      class="btn-discovery-setup btn-discovery-setup--secondary"
+                      id="settingsAppsScriptCopyBtn"
+                      hidden
+                    >
+                      Copy /exec URL
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-discovery-setup btn-discovery-setup--secondary"
+                      id="settingsAppsScriptRecheckBtn"
+                      hidden
+                    >
+                      Re-check public access
+                    </button>
+                  </div>
+                  <div
+                    class="settings-apps-script-status settings-apps-script-status--info"
+                    id="settingsAppsScriptStatus"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <p
+                      class="settings-apps-script-status__title"
+                      id="settingsAppsScriptStatusTitle"
+                    >
+                      Create a new Apps Script project in your Google Drive
+                      and save its <code class="modal-code">/exec</code> URL
+                      here.
+                    </p>
+                    <p
+                      class="settings-apps-script-status__detail"
+                      id="settingsAppsScriptStatusDetail"
+                    >
+                      Browser requests to the deployed
+                      <code class="modal-code">/exec</code> URL can still hit
+                      CORS even when deployment succeeds.
+                    </p>
+                    <ol
+                      class="settings-apps-script-status__steps"
+                      id="settingsAppsScriptStatusSteps"
+                      hidden
+                    ></ol>
+                    <p
+                      class="settings-apps-script-status__url"
+                      id="settingsAppsScriptUrlRow"
+                      hidden
+                    >
+                      <code
+                        class="modal-code"
+                        id="settingsAppsScriptUrl"
+                      ></code>
+                    </p>
+                    <div
+                      class="settings-apps-script-status__actions"
+                      id="settingsAppsScriptStatusActions"
+                      hidden
+                    ></div>
+                  </div>
+                </div>
               </div>
             </details>
           </section>
 
-          <!-- AI ideation section (in body, not tabs) -->
-          <section class="discovery-drawer__section discovery-drawer__section--ai" aria-labelledby="dpAiIdeationLegend">
-            <h3 id="dpAiIdeationLegend" class="discovery-drawer__section-title">
-              AI ideas
-              <span class="discovery-drawer__section-hint">Generate three search variants from your profile</span>
-            </h3>
-            <p class="dp-ai-hint" id="dpAiHint" hidden>
-              Configure a resume AI provider (Gemini, OpenAI, or Anthropic) in
-              Settings to enable AI suggestions.
+          <!-- ── History sub-tab ────────────────────────────────── -->
+          <section
+            role="tabpanel"
+            id="dd-panel-history"
+            class="discovery-subtab-panel"
+            aria-labelledby="dd-tab-history"
+            hidden
+          >
+            <p class="discovery-drawer__lede">
+              Inspect past runs and diagnose setup issues.
             </p>
-            <div class="dp-url-row">
-              <input
-                type="url"
-                id="dpJobUrl"
-                class="modal-input"
-                placeholder="Optional job listing URL to anchor suggestions"
-                autocomplete="off"
-                spellcheck="false"
-              />
+            <div class="discovery-history-actions">
               <button
                 type="button"
-                class="btn-modal-secondary btn-dp-scrape"
-                id="dpScrapeBtn"
-                title="Scrape the job listing and use it to refine suggestions"
+                class="btn-modal-primary"
+                id="discoveryDrawerOpenRunsBtn"
               >
-                Scrape
+                Open discovery runs log
+              </button>
+              <button
+                type="button"
+                class="btn-modal-secondary"
+                id="discoveryDrawerOpenDoctorBtn"
+              >
+                Run setup doctor
               </button>
             </div>
-            <p class="dp-scrape-status" id="dpScrapeStatus" hidden></p>
-            <button
-              type="button"
-              class="btn-modal-primary btn-dp-suggest"
-              id="dpSuggestBtn"
-            >
-              Generate ideas
-            </button>
-            <p class="dp-suggest-status" id="dpSuggestStatus" hidden></p>
-            <div class="dp-strata-grid" id="dpStrataGrid" hidden>
-              <article class="dp-stratum-card" data-stratum="safe" id="dpStratumSafe">
-                <header class="dp-stratum-card__head">
-                  <span class="dp-stratum-card__badge">Safe</span>
-                  <h4 class="dp-stratum-card__title">Close to your current target</h4>
-                </header>
-                <p class="dp-stratum-card__rationale" data-field="rationale"></p>
-                <dl class="dp-stratum-card__details">
-                  <dt>Roles</dt><dd data-field="targetRoles"></dd>
-                  <dt>Locations</dt><dd data-field="locations"></dd>
-                  <dt>Keywords</dt><dd data-field="keywordsInclude"></dd>
-                  <dt>Companies</dt><dd data-field="companies"></dd>
-                </dl>
-                <button type="button" class="btn-modal-secondary dp-stratum-card__apply" data-action="apply-stratum">Apply</button>
-              </article>
-              <article class="dp-stratum-card" data-stratum="adjacent" id="dpStratumAdjacent">
-                <header class="dp-stratum-card__head">
-                  <span class="dp-stratum-card__badge">Adjacent</span>
-                  <h4 class="dp-stratum-card__title">Nearby role families</h4>
-                </header>
-                <p class="dp-stratum-card__rationale" data-field="rationale"></p>
-                <dl class="dp-stratum-card__details">
-                  <dt>Roles</dt><dd data-field="targetRoles"></dd>
-                  <dt>Locations</dt><dd data-field="locations"></dd>
-                  <dt>Keywords</dt><dd data-field="keywordsInclude"></dd>
-                  <dt>Companies</dt><dd data-field="companies"></dd>
-                </dl>
-                <button type="button" class="btn-modal-secondary dp-stratum-card__apply" data-action="apply-stratum">Apply</button>
-              </article>
-              <article class="dp-stratum-card" data-stratum="stretch" id="dpStratumStretch">
-                <header class="dp-stratum-card__head">
-                  <span class="dp-stratum-card__badge">Stretch</span>
-                  <h4 class="dp-stratum-card__title">Ambitious or non-obvious paths</h4>
-                </header>
-                <p class="dp-stratum-card__rationale" data-field="rationale"></p>
-                <dl class="dp-stratum-card__details">
-                  <dt>Roles</dt><dd data-field="targetRoles"></dd>
-                  <dt>Locations</dt><dd data-field="locations"></dd>
-                  <dt>Keywords</dt><dd data-field="keywordsInclude"></dd>
-                  <dt>Companies</dt><dd data-field="companies"></dd>
-                </dl>
-                <button type="button" class="btn-modal-secondary dp-stratum-card__apply" data-action="apply-stratum">Apply</button>
-              </article>
-            </div>
+            <p class="settings-field-hint settings-field-hint--compact">
+              The runs log reads the <code>DiscoveryRuns</code> tab on your
+              Google Sheet. Setup doctor checks OAuth, sheet access, and
+              local worker reachability.
+            </p>
           </section>
         </div>
 
@@ -5805,12 +5698,12 @@ https://your-static-site.example</pre
           role="alert"
         ></p>
         <form id="ingestManualForm" autocomplete="off" novalidate>
-          <label class="field-label" for="ingestManualUrl">Job URL</label>
+          <label class="field-label" for="ingestManualUrl">Job URL (optional)</label>
           <input
             type="url"
             id="ingestManualUrl"
             class="modal-input"
-            readonly
+            placeholder="https://company.com/jobs/123"
           />
 
           <label class="field-label" for="ingestManualTitle"
@@ -5894,6 +5787,7 @@ https://your-static-site.example</pre
     <script src="document-templates.js"></script>
     <script src="visual-themes.js"></script>
     <script src="user-content-store.js"></script>
+    <script src="discovery-payload.js"></script>
     <script src="discovery-autodetect.js"></script>
     <script src="discovery-shared-helpers.js"></script>
     <script src="discovery-wizard-shell.js"></script>
@@ -5905,6 +5799,7 @@ https://your-static-site.example</pre
     <script src="resume-bundle.js"></script>
     <script src="resume-generate.js"></script>
     <script src="job-posting-insights.js"></script>
+    <script src="expired-review.js"></script>
     <script src="config.js"></script>
     <script src="settings-tab-schema.js"></script>
     <script src="settings-tabs.js"></script>

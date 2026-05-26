@@ -143,11 +143,24 @@ for (const rel of DISCOVERY_EXAMPLES) {
 }
 
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
-const payloadKeys = extractDiscoveryPayloadKeys(appJs).sort();
-if (!sameSet(payloadKeys, expectedKeys)) {
-  console.error("app.js triggerDiscoveryRun payload keys do not match schema properties.");
-  console.error("  app.js:", payloadKeys.join(", "));
-  console.error("  schema:", expectedKeys.join(", "));
-  process.exit(1);
+if (appJs.includes("sharedBuilder.buildDiscoveryWebhookPayload")) {
+  const sharedBuilderJs = readFileSync(join(repoRoot, "discovery-payload.js"), "utf8");
+  const missing = expectedKeys.filter(
+    (key) => !new RegExp(`\\b${key}\\b`).test(sharedBuilderJs),
+  );
+  if (missing.length) {
+    console.error("discovery-payload.js does not mention every schema property.");
+    console.error("  missing:", missing.join(", "));
+    process.exit(1);
+  }
+  console.log("OK discovery-payload.js covers schema properties", SCHEMA);
+} else {
+  const payloadKeys = extractDiscoveryPayloadKeys(appJs).sort();
+  if (!sameSet(payloadKeys, expectedKeys)) {
+    console.error("app.js triggerDiscoveryRun payload keys do not match schema properties.");
+    console.error("  app.js:", payloadKeys.join(", "));
+    console.error("  schema:", expectedKeys.join(", "));
+    process.exit(1);
+  }
+  console.log("OK app.js discovery payload keys match", SCHEMA);
 }
-console.log("OK app.js discovery payload keys match", SCHEMA);

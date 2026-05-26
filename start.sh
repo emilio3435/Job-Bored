@@ -5,9 +5,4 @@ set -e
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-if [[ ! -d node_modules || ! -d server/node_modules ]]; then
-  echo "Installing dependencies (first run)..."
-  npm install
-fi
-
 exec npm start

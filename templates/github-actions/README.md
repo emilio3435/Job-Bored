@@ -2,7 +2,7 @@
 
 > **🆕 Easier path for most users:** the dashboard's **Settings → Profile → Schedule → Tier 3** card generates a personalized version of this workflow file with your chosen time baked in. See **[docs/SETTINGS-SCHEDULE.md](../../docs/SETTINGS-SCHEDULE.md)** for the walkthrough. The template below is still the source of truth for what gets deployed.
 
-Use this when the dashboard **cannot** POST to your webhook from the browser (common with **Google Apps Script**). GitHub Actions runs **`curl` on Ubuntu** — **no CORS** — so the same webhook URL works.
+Use this when the dashboard **cannot** POST to your webhook from the browser (common with **Google Apps Script**). GitHub Actions builds the same discovery payload shape as the dashboard, then runs **`curl` on Ubuntu** — **no CORS** — so the same webhook URL works.
 
 ## Setup
 
@@ -12,9 +12,11 @@ Use this when the dashboard **cannot** POST to your webhook from the browser (co
 
    | Secret                                      | Value                                                                                 |
    | ------------------------------------------- | ------------------------------------------------------------------------------------- |
-   | `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL`      | Full HTTPS URL (e.g. Apps Script `/exec` URL, Cloudflare Worker relay, or worker URL) |
-   | `COMMAND_CENTER_SHEET_ID`                   | Same Sheet ID as in the dashboard config                                              |
-   | `COMMAND_CENTER_DISCOVERY_WEBHOOK_SECRET`   | Optional; set only when posting directly to an endpoint that requires `x-discovery-secret` |
+	   | `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL`      | Full HTTPS URL (e.g. Apps Script `/exec` URL, Cloudflare Worker relay, or worker URL) |
+	   | `COMMAND_CENTER_SHEET_ID`                   | Same Sheet ID as in the dashboard config                                              |
+	   | `COMMAND_CENTER_DISCOVERY_WEBHOOK_SECRET`   | Optional; set only when posting directly to an endpoint that requires `x-discovery-secret` |
+	   | `COMMAND_CENTER_DISCOVERY_PROFILE_JSON`     | Optional current profile JSON for scheduled GitHub runs when the worker cannot load stored profile state |
+	   | `COMMAND_CENTER_DISCOVERY_PREFERENCES_JSON` | Optional current preference JSON used for scheduled search-plan rotation              |
 
 3. **Actions** tab → enable workflows if prompted.
 
@@ -29,10 +31,10 @@ A minimal JSON body matching [AGENT_CONTRACT.md](../../AGENT_CONTRACT.md) v1:
 - `event`: `command-center.discovery`
 - `schemaVersion`: `1`
 - `sheetId`: from secret
-- `variationKey`: `gh-<run_id>-<timestamp>`
+- `variationKey`: deterministic daily key from the shared payload builder
 - `requestedAt`: ISO time
 - `trigger`: `scheduled-github`
-- `discoveryProfile`: `{}` (extend the workflow if you want static prefs)
+- `discoveryProfile`: current profile/search-plan fields when supplied through secrets or worker config; omitted when the endpoint should fall back to stored worker config
 
 ## Patterns
 

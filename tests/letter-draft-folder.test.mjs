@@ -130,18 +130,27 @@ describe("Letter region — folder rendering (letter.js)", () => {
     );
   });
 
-  it("renders an empty state with both 'new' CTAs when there are zero drafts", () => {
+  it("renders a hidden empty-state shell when there are zero drafts (hero CTAs own the entry)", () => {
+    // The "+ Cover letter" and "+ Tailor résumé" buttons used to live in
+    // the empty-state. They were intentionally removed to eliminate the
+    // duplication with the Workshop hero CTAs above, which now own the
+    // "start a draft" entry point. The empty shell stays in the DOM but
+    // is hidden so the strip doesn't render a second blank card.
     assert.ok(
       letterJs.includes("jb-letter-folder--empty"),
-      "letter.js must render the .jb-letter-folder--empty shell when no drafts exist",
+      "letter.js must still render the .jb-letter-folder--empty shell when no drafts exist",
     );
     assert.ok(
-      letterJs.includes('data-action="new-cover-letter"'),
-      "empty state must expose a + Cover letter CTA (data-action=new-cover-letter)",
+      letterJs.includes("jb-letter-folder--empty\" hidden"),
+      "empty-state shell must be hidden — hero CTAs (data-action=resume-cover / resume-tailor) own the entry point now",
     );
     assert.ok(
-      letterJs.includes('data-action="new-resume"'),
-      "empty state must expose a + Tailor résumé CTA (data-action=new-resume)",
+      !letterJs.includes('data-action="new-cover-letter"'),
+      "folder strip must NOT duplicate the cover-letter CTA — it lives in the Workshop hero (data-action=resume-cover)",
+    );
+    assert.ok(
+      !letterJs.includes('data-action="new-resume"'),
+      "folder strip must NOT duplicate the resume CTA — it lives in the Workshop hero (data-action=resume-tailor)",
     );
   });
 
@@ -215,10 +224,14 @@ describe("Letter region — click delegation (letter.js)", () => {
     );
   });
 
-  it("one-click tools and Address call the in-page AI revision path", () => {
+  it("Address (per-miss) still calls the in-page AI revision path", () => {
+    /* The standalone One-click tools block and the Custom revision
+       textarea were removed from the right rail (the Compose panel
+       above the editor owns AI generation/revision now). The Address
+       buttons on each missing-keyword row still go through reviseWithAi. */
     assert.ok(
       letterJs.includes("function reviseWithAi("),
-      "letter.js must define reviseWithAi() for in-page AI edits",
+      "letter.js must keep reviseWithAi() for the per-miss Address path",
     );
     assert.ok(
       letterJs.includes("root.reviseLetterDraftForJob"),
@@ -226,26 +239,12 @@ describe("Letter region — click delegation (letter.js)", () => {
     );
     assert.ok(
       !letterJs.includes("TODO tool") && !letterJs.includes("TODO address term"),
-      "one-click tools and Address must not be left as TODO console logs",
+      "Address must not be left as a TODO console log",
     );
   });
 });
 
-describe("Letter region — manual AI revision controls", () => {
-  it("renders a custom instruction textarea and Revise with AI action", () => {
-    assert.ok(
-      letterJs.includes("data-letter-revision-instructions"),
-      "letter.js must render a manual revision textarea",
-    );
-    assert.ok(
-      letterJs.includes('data-action="manual-revise"'),
-      "letter.js must render a manual-revise action",
-    );
-    assert.ok(
-      letterCss.includes(".jb-letter-revision__input"),
-      "letter.css must style the manual revision input",
-    );
-  });
+describe("Letter region — AI revision bridge (app.js)", () => {
 
   it("the app bridge saves AI revisions as generated draft refine versions", () => {
     const fnStart = appJs.indexOf("async function reviseLetterDraftForJob");
@@ -268,7 +267,7 @@ describe("Letter region — manual AI revision controls", () => {
 });
 
 describe("Letter region — render smoke", () => {
-  it("renders one-click and manual AI controls in the live shell HTML", () => {
+  it("renders the Compose panel and per-miss Address controls in the live shell HTML", () => {
     const editor = {
       textContent: "",
       innerHTML: "",
@@ -360,12 +359,15 @@ describe("Letter region — render smoke", () => {
       setTimeout,
       clearTimeout,
     });
-    assert.match(region.innerHTML, /data-action="tighten"/);
-    assert.match(region.innerHTML, /data-action="add-evidence"/);
-    assert.match(region.innerHTML, /data-action="honest-cut"/);
-    assert.match(region.innerHTML, /data-action="trim"/);
-    assert.match(region.innerHTML, /data-action="manual-revise"/);
-    assert.match(region.innerHTML, /data-letter-revision-instructions/);
+    /* One-click tools (tighten/add-evidence/honest-cut/trim/manual-revise)
+       and the Custom-revision textarea were removed from the right rail.
+       Generation/revision now lives in the Compose panel above the editor;
+       the only AI-revision touchpoint left in the rail is the per-miss
+       Address button on each missing-keyword row. */
+    assert.doesNotMatch(region.innerHTML, /data-action="tighten"/);
+    assert.doesNotMatch(region.innerHTML, /data-action="manual-revise"/);
+    assert.doesNotMatch(region.innerHTML, /data-letter-revision-instructions/);
+    assert.match(region.innerHTML, /data-action="compose-generate"/);
     assert.match(region.innerHTML, /data-action="address"/);
   });
 });

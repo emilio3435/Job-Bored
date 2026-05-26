@@ -310,26 +310,115 @@
   // issue: pipeline tab or headers missing/wrong
   // --------------------------------------------------------------
 
-  const STARTER_PIPELINE_HEADERS = [
-    "Date",
-    "Company",
-    "Role",
-    "Job URL",
-    "Status",
-    "Priority",
-    "Reply",
-    "Notes",
-    "Source",
-    "Posted",
-    "Location",
-    "Comp",
-    "Last Activity",
-    "Time at Stage",
-    "Match Score",
-    "Recruiter",
-    "Recruiter URL",
-    "Stage",
-  ];
+  const PIPELINE_SCHEMA_URL = "schemas/pipeline-row.v1.json";
+  const FALLBACK_PIPELINE_CONTRACT = {
+    "schemaVersion": 1,
+    "tabName": "Pipeline",
+    "headerRow": [
+      "Date Found",
+      "Title",
+      "Company",
+      "Location",
+      "Link",
+      "Source",
+      "Salary",
+      "Fit Score",
+      "Priority",
+      "Tags",
+      "Fit Assessment",
+      "Contact",
+      "Status",
+      "Applied Date",
+      "Notes",
+      "Follow-up Date",
+      "Talking Points",
+      "Last contact",
+      "Did they reply?",
+      "Logo URL",
+    ],
+    "statuses": [
+      "New",
+      "Researching",
+      "Applied",
+      "Phone Screen",
+      "Interviewing",
+      "Offer",
+      "Rejected",
+      "Passed",
+      "Expired",
+    ],
+  };
+  let pipelineContractPromise = null;
+
+  function normalizePipelineContract(raw) {
+    const source = raw && typeof raw === "object" ? raw : {};
+    const columns = Array.isArray(source.columns) ? source.columns : [];
+    const headerRow = Array.isArray(source.headerRow)
+      ? source.headerRow
+      : columns
+          .slice()
+          .sort((a, b) => Number(a.sheetIndex) - Number(b.sheetIndex))
+          .map((column) => column && column.headerLabel);
+    const statusColumn = columns.find((column) => column && column.id === "status");
+    const statuses = Array.isArray(source.statuses)
+      ? source.statuses
+      : statusColumn && Array.isArray(statusColumn.enum)
+        ? statusColumn.enum
+        : [];
+    const cleanHeaders = headerRow
+      .map((header) => String(header || "").trim())
+      .filter(Boolean);
+    const cleanStatuses = statuses
+      .map((status) => String(status || "").trim())
+      .filter(Boolean);
+    if (!cleanHeaders.length) return { ...FALLBACK_PIPELINE_CONTRACT };
+    return {
+      schemaVersion: Number(source.schemaVersion) || 1,
+      tabName: String(source.tabName || "Pipeline"),
+      headerRow: cleanHeaders,
+      statuses: cleanStatuses.length
+        ? cleanStatuses
+        : FALLBACK_PIPELINE_CONTRACT.statuses.slice(),
+    };
+  }
+
+  async function loadPipelineContract() {
+    const w = getWin();
+    const schemaUrl =
+      (w &&
+        typeof w.JOBBORED_PIPELINE_SCHEMA_URL === "string" &&
+        w.JOBBORED_PIPELINE_SCHEMA_URL) ||
+      PIPELINE_SCHEMA_URL;
+    try {
+      const resp = await doFetch(schemaUrl, { cache: "no-store" });
+      if (!resp || !resp.ok) throw new Error("schema fetch failed");
+      const json = await resp.json();
+      return normalizePipelineContract(json);
+    } catch (_) {
+      return { ...FALLBACK_PIPELINE_CONTRACT };
+    }
+  }
+
+  async function getPipelineContract() {
+    if (!pipelineContractPromise) {
+      pipelineContractPromise = loadPipelineContract();
+    }
+    return pipelineContractPromise;
+  }
+
+  function headersMatchCanonical(headers, canonicalHeaders) {
+    if (!Array.isArray(headers) || !Array.isArray(canonicalHeaders)) return false;
+    if (headers.length < canonicalHeaders.length) return false;
+    for (let i = 0; i < canonicalHeaders.length; i += 1) {
+      if (
+        String(headers[i] || "").trim().toLowerCase() !==
+        String(canonicalHeaders[i] || "").trim().toLowerCase()
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   async function fetchSpreadsheetMeta(sheetId, token) {
     const url =
@@ -400,6 +489,7 @@
         w && typeof w.getSheetId === "function" ? w.getSheetId() : "";
       const token = getAccessToken();
       if (!sheetId || !token) return { ok: false };
+      const contract = await getPipelineContract();
       // Add Pipeline tab.
       const addResp = await doFetch(
         "https://sheets.googleapis.com/v4/spreadsheets/" +
@@ -439,7 +529,7 @@
           body: JSON.stringify({
             range: "Pipeline!A1",
             majorDimension: "ROWS",
-            values: [STARTER_PIPELINE_HEADERS],
+            values: [contract.headerRow],
           }),
         },
       );
@@ -469,20 +559,11 @@
       const token = getAccessToken();
       if (!sheetId || !token) return false;
       try {
+        const contract = await getPipelineContract();
         const headers = await fetchPipelineHeaders(sheetId, token);
         if (headers == null) return false;
         if (headers.length === 0) return true;
-        // Required first 8 columns must match exactly.
-        const REQUIRED_PREFIX = STARTER_PIPELINE_HEADERS.slice(0, 8);
-        for (let i = 0; i < REQUIRED_PREFIX.length; i += 1) {
-          if (
-            String(headers[i] || "").toLowerCase() !==
-            REQUIRED_PREFIX[i].toLowerCase()
-          ) {
-            return true;
-          }
-        }
-        return false;
+        return !headersMatchCanonical(headers, contract.headerRow);
       } catch (_) {
         return false;
       }
@@ -493,6 +574,7 @@
         w && typeof w.getSheetId === "function" ? w.getSheetId() : "";
       const token = getAccessToken();
       if (!sheetId || !token) return { ok: false };
+      const contract = await getPipelineContract();
       const writeResp = await doFetch(
         "https://sheets.googleapis.com/v4/spreadsheets/" +
           encodeURIComponent(sheetId) +
@@ -506,7 +588,7 @@
           body: JSON.stringify({
             range: "Pipeline!A1",
             majorDimension: "ROWS",
-            values: [STARTER_PIPELINE_HEADERS],
+            values: [contract.headerRow],
           }),
         },
       );
@@ -918,7 +1000,10 @@
     // exposed for tests
     _registry: ISSUE_REGISTRY,
     _isLocalhost: isLocalhost,
-    STARTER_PIPELINE_HEADERS,
+    _loadPipelineContract: getPipelineContract,
+    _normalizePipelineContract: normalizePipelineContract,
+    PIPELINE_SCHEMA_URL,
+    FALLBACK_PIPELINE_CONTRACT,
   };
 
   if (global) {

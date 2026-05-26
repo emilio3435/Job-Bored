@@ -20,7 +20,13 @@ function makeCard(attrs) {
   };
 }
 
-function loadWrites({ getPipelineSheetRow, cards = [], sheetLinks = [] } = {}) {
+function loadWrites({
+  getPipelineSheetRow,
+  applyPipelineStageWrite,
+  applyPipelineNotesWrite,
+  cards = [],
+  sheetLinks = [],
+} = {}) {
   const fetchCalls = [];
   const events = [];
   const listeners = Object.create(null);
@@ -58,6 +64,12 @@ function loadWrites({ getPipelineSheetRow, cards = [], sheetLinks = [] } = {}) {
   if (getPipelineSheetRow) {
     window.JobBored.getPipelineSheetRow = getPipelineSheetRow;
   }
+  if (applyPipelineStageWrite) {
+    window.JobBored.applyPipelineStageWrite = applyPipelineStageWrite;
+  }
+  if (applyPipelineNotesWrite) {
+    window.JobBored.applyPipelineNotesWrite = applyPipelineNotesWrite;
+  }
   const context = {
     window,
     document,
@@ -82,7 +94,15 @@ function loadWrites({ getPipelineSheetRow, cards = [], sheetLinks = [] } = {}) {
     },
   };
   vm.runInNewContext(flowingWritesSrc, context);
-  return { writes: window.JobBoredFlowing.writes, fetchCalls, events };
+  return { writes: window.JobBoredFlowing.writes, fetchCalls, events, document, CustomEvent };
+}
+
+async function waitFor(predicate, label) {
+  for (let i = 0; i < 20; i++) {
+    if (predicate()) return;
+    await Promise.resolve();
+  }
+  assert.fail(label || "timed out waiting for condition");
 }
 
 describe("flowing-writes stage row resolution", () => {
@@ -144,6 +164,32 @@ describe("flowing-writes stage row resolution", () => {
     );
   });
 
+  it("syncs successful stage moves back into the local app model before the success event", async () => {
+    const synced = [];
+    const { writes, events } = loadWrites({
+      getPipelineSheetRow: (jobKey) => (String(jobKey) === "4" ? 11 : null),
+      applyPipelineStageWrite: (jobKey, status) => {
+        synced.push({ jobKey, status, eventsSeen: events.length });
+      },
+    });
+
+    await writes.moveStage({ jobKey: "4", fromStage: "new", toStage: "researching" });
+
+    assert.deepEqual(synced, [
+      { jobKey: "4", status: "Researching", eventsSeen: 0 },
+    ]);
+    assert.ok(
+      events.some(
+        (event) =>
+          event.type === "jb:write:succeeded" &&
+          event.detail.kind === "pipeline:move" &&
+          event.detail.toStage === "researching" &&
+          event.detail.status === "Researching",
+      ),
+      "stage move success should include the target stage so the filtered board can settle",
+    );
+  });
+
   it("writes discovered moves back to the New sheet status", async () => {
     const { writes, fetchCalls } = loadWrites({
       getPipelineSheetRow: (jobKey) => (String(jobKey) === "1" ? 7 : null),
@@ -168,5 +214,80 @@ describe("flowing-writes stage row resolution", () => {
     assert.ok(putCall, "stage move should issue a Sheets update");
     assert.match(putCall.url, /\/values\/Pipeline!M7\?/);
     assert.deepEqual(JSON.parse(putCall.options.body), { values: [["Expired"]] });
+  });
+
+  it("writes role notes to column O and syncs the local app model before success", async () => {
+    const synced = [];
+    const { fetchCalls, events, document, CustomEvent } = loadWrites({
+      getPipelineSheetRow: (jobKey) => (String(jobKey) === "1" ? 7 : null),
+      applyPipelineNotesWrite: (jobKey, body) => {
+        synced.push({
+          jobKey,
+          body,
+          successEventsSeen: events.filter((event) => event.type === "jb:write:succeeded").length,
+        });
+      },
+    });
+
+    document.dispatchEvent(
+      new CustomEvent("jb:role:note", {
+        detail: { jobKey: "1", body: "Heard back from Maya" },
+      }),
+    );
+
+    await waitFor(
+      () =>
+        fetchCalls.some((call) => call.options.method === "PUT") &&
+        synced.length === 1 &&
+        events.some((event) => event.type === "jb:write:succeeded" && event.detail.kind === "role:note"),
+      "role note should finish the Sheets update and local sync",
+    );
+
+    const putCall = fetchCalls.find((call) => call.options.method === "PUT");
+    assert.ok(putCall, "role note should issue a Sheets update");
+    assert.match(putCall.url, /\/values\/Pipeline!O7\?/);
+    assert.deepEqual(JSON.parse(putCall.options.body), { values: [["Heard back from Maya"]] });
+    assert.deepEqual(synced, [
+      { jobKey: "1", body: "Heard back from Maya", successEventsSeen: 0 },
+    ]);
+    assert.ok(
+      events.some((event) => event.type === "jb:write:succeeded" && event.detail.kind === "role:note"),
+      "role note should emit success",
+    );
+  });
+
+  it("keeps legacy letter saves out of Pipeline notes", async () => {
+    const synced = [];
+    const { fetchCalls, events, document, CustomEvent } = loadWrites({
+      getPipelineSheetRow: (jobKey) => (String(jobKey) === "1" ? 7 : null),
+      applyPipelineNotesWrite: (jobKey, body) => synced.push({ jobKey, body }),
+    });
+
+    document.dispatchEvent(
+      new CustomEvent("jb:letter:save", {
+        detail: { jobKey: "1", draft: "Draft text must not overwrite notes" },
+      }),
+    );
+
+    await waitFor(
+      () => events.some((event) => event.type === "jb:write:succeeded" && event.detail.kind === "letter"),
+      "legacy letter save should settle without a Sheet write",
+    );
+
+    assert.equal(
+      fetchCalls.some((call) => call.options.method === "PUT"),
+      false,
+      "letter autosave must not write Pipeline!O",
+    );
+    assert.deepEqual(synced, [], "letter save must not update local notes");
+    assert.ok(
+      events.some(
+        (event) =>
+          event.type === "jb:write:succeeded" &&
+          event.detail.kind === "letter" &&
+          event.detail.persisted === false,
+      ),
+      "legacy letter save should report that no Sheet persistence happened",
+    );
   });
 });

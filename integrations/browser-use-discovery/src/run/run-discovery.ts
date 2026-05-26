@@ -70,8 +70,9 @@ import {
   type ExploitSelectionResult,
 } from "./frontier-scorer.ts";
 
-// Default maximum run duration: 5 minutes
-const DEFAULT_MAX_RUN_DURATION_MS = 5 * 60 * 1000;
+// Default maximum run duration: 60 minutes. Async discovery runs are background
+// work; source and matcher timeouts still keep individual lanes bounded.
+const DEFAULT_MAX_RUN_DURATION_MS = 60 * 60 * 1000;
 // Default per-source (adapter) timeout: 60 seconds
 const DEFAULT_SOURCE_TIMEOUT_MS = 60 * 1000;
 // Default per-matcher timeout: 30 seconds
@@ -639,9 +640,13 @@ export async function runDiscovery(
         !extractionResultsBySource.has(atsSourceId)
       ) {
         const emptyResult = createExtractionResult(runId, atsSourceId, "");
-        emptyResult.warnings.push(
-          `No boards detected for ${atsSourceId} in unrestricted scope (empty company target).`,
-        );
+        emptyResult.diagnostics = [
+          ...(emptyResult.diagnostics || []),
+          {
+            code: "zero_results",
+            context: `No boards detected for ${atsSourceId} in unrestricted scope (empty company target).`,
+          },
+        ];
         extractionResultsBySource.set(atsSourceId, emptyResult);
       }
     }
@@ -730,52 +735,67 @@ export async function runDiscovery(
       SERPAPI_GOOGLE_JOBS_SOURCE_ID,
       "",
     );
-    try {
-      const serpResult = await collectSerpApiGoogleJobsListings({
-        profile: {
-          targetRoles: [...config.targetRoles],
-          locations: [...config.locations],
-          remotePolicy: config.remotePolicy,
+    if (!String(dependencies.runtimeConfig.serpApiKey || "").trim()) {
+      extractionResult.diagnostics = [
+        ...(extractionResult.diagnostics || []),
+        {
+          code: "zero_results",
+          context:
+            "serpapi_google_jobs skipped because SERPAPI_API_KEY is not configured.",
         },
-        runtimeConfig: dependencies.runtimeConfig,
-        log: dependencies.log,
-      });
-      extractionResult.warnings.push(...serpResult.warnings);
-      extractionResult.stats.leadsSeen = serpResult.rawListings.length;
-      for (const rawListing of serpResult.rawListings) {
-        const normalized = await normalizeRawListing(rawListing, run, {
-          dependencies,
-          matchingState,
-          matcherTimeoutMs,
-        });
-        if (normalized.matchUsedAi) {
-          matchingState.aiMatchCallsUsed += 1;
-        }
-        if (!normalized.lead) {
-          if (normalized.rejection) {
-            recordRejection(
-              rejectionSummaryBySource,
-              SERPAPI_GOOGLE_JOBS_SOURCE_ID,
-              rawListing,
-              normalized.rejection,
-            );
-          }
-          continue;
-        }
-        normalizedLeads.push(normalized.lead);
-        extractionResult.leads.push(normalized.lead);
-        extractionResult.stats.leadsAccepted += 1;
-      }
-      listingCount += serpResult.rawListings.length;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      extractionResult.warnings.push(
-        `serpapi_google_jobs lane failed: ${message}`,
-      );
-      dependencies.log?.("discovery.run.serpapi_google_jobs_lane_failed", {
+      ];
+      dependencies.log?.("discovery.run.serpapi_google_jobs_skipped", {
         runId,
-        message,
+        reason: "missing_api_key",
       });
+    } else {
+      try {
+        const serpResult = await collectSerpApiGoogleJobsListings({
+          profile: {
+            targetRoles: [...config.targetRoles],
+            locations: [...config.locations],
+            remotePolicy: config.remotePolicy,
+          },
+          runtimeConfig: dependencies.runtimeConfig,
+          log: dependencies.log,
+        });
+        extractionResult.warnings.push(...serpResult.warnings);
+        extractionResult.stats.leadsSeen = serpResult.rawListings.length;
+        for (const rawListing of serpResult.rawListings) {
+          const normalized = await normalizeRawListing(rawListing, run, {
+            dependencies,
+            matchingState,
+            matcherTimeoutMs,
+          });
+          if (normalized.matchUsedAi) {
+            matchingState.aiMatchCallsUsed += 1;
+          }
+          if (!normalized.lead) {
+            if (normalized.rejection) {
+              recordRejection(
+                rejectionSummaryBySource,
+                SERPAPI_GOOGLE_JOBS_SOURCE_ID,
+                rawListing,
+                normalized.rejection,
+              );
+            }
+            continue;
+          }
+          normalizedLeads.push(normalized.lead);
+          extractionResult.leads.push(normalized.lead);
+          extractionResult.stats.leadsAccepted += 1;
+        }
+        listingCount += serpResult.rawListings.length;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        extractionResult.warnings.push(
+          `serpapi_google_jobs lane failed: ${message}`,
+        );
+        dependencies.log?.("discovery.run.serpapi_google_jobs_lane_failed", {
+          runId,
+          message,
+        });
+      }
     }
     extractionResultsBySource.set(
       SERPAPI_GOOGLE_JOBS_SOURCE_ID,
@@ -902,8 +922,16 @@ export async function runDiscovery(
   loopCounters.crossLaneDuplicates = crossLaneDuplicates;
   loopCounters.duplicateSuppressions = normalizedLeads.length - dedupedLeads.length;
   let leadsToWrite = selectLeadsForWrite(dedupedLeads, config);
-  if (config.maxLeadsPerRun > 0 && dedupedLeads.length > config.maxLeadsPerRun) {
-    warnings.push(`Truncated leads to maxLeadsPerRun=${config.maxLeadsPerRun}.`);
+  const maxLeadCapApplied =
+    config.maxLeadsPerRun > 0 && dedupedLeads.length > config.maxLeadsPerRun;
+  if (maxLeadCapApplied) {
+    dependencies.log?.("discovery.run.write_selection_capped", {
+      runId,
+      maxLeadsPerRun: config.maxLeadsPerRun,
+      dedupedLeadCount: dedupedLeads.length,
+      leadsToWriteCount: leadsToWrite.length,
+      suppressedByCap: dedupedLeads.length - leadsToWrite.length,
+    });
   }
   dependencies.log?.("discovery.run.write_started", {
     runId,
@@ -911,6 +939,8 @@ export async function runDiscovery(
     normalizedLeadCount: normalizedLeads.length,
     dedupedLeadCount: dedupedLeads.length,
     leadsToWriteCount: leadsToWrite.length,
+    maxLeadsPerRun: config.maxLeadsPerRun,
+    maxLeadCapApplied,
   });
 
   let writeResult: PipelineWriteResult;
@@ -940,13 +970,15 @@ export async function runDiscovery(
         });
         // Build a writeResult with the error info so it can be stored in status.
         // Also add a warning so the lifecycle state becomes "partial".
+        const partialResult = error.partialResult;
         writeResult = {
           sheetId: config.sheetId,
-          appended: 0,
-          updated: 0,
-          skippedDuplicates: 0,
-          skippedBlacklist: 0,
+          appended: partialResult?.appended ?? 0,
+          updated: partialResult?.updated ?? 0,
+          skippedDuplicates: partialResult?.skippedDuplicates ?? 0,
+          skippedBlacklist: partialResult?.skippedBlacklist ?? 0,
           warnings: [
+            ...(partialResult?.warnings ?? []),
             `Sheet write failed during ${error.phase} phase: ${error.message}`,
           ],
           writeError: {
@@ -984,13 +1016,26 @@ export async function runDiscovery(
     })),
   });
 
+  const lifecycleWarnings = [...warnings, ...writeResult.warnings];
   warnings.push(...writeResult.warnings);
   for (const extractionResult of extractionResultsBySource.values()) {
     warnings.push(...extractionResult.warnings);
+    lifecycleWarnings.push(
+      ...extractionResult.warnings.filter((warning) =>
+        isRunDegradingExtractionWarning(
+          extractionResult,
+          warning,
+          leadsToWrite.length,
+        ),
+      ),
+    );
   }
 
   const completedAt = dependencies.now().toISOString();
-  const lifecycleState = determineLifecycleState(leadsToWrite.length, warnings);
+  const lifecycleState = determineLifecycleState(
+    leadsToWrite.length,
+    lifecycleWarnings,
+  );
 
   // VAL-LOOP-CORE-008: Emit learn stage (memory persistence begins)
   stageOrder.push(nextStage("learn"));
@@ -1030,9 +1075,6 @@ export async function runDiscovery(
 
       if (!canonicalUrl) {
         skippedOutcomeCount += 1;
-        const warning =
-          `Exploit outcome memory persistence skipped for ${sourceId}: canonicalUrl unavailable because the source produced zero accepted leads.`;
-        extractionResult.warnings.push(warning);
         extractionResult.diagnostics = [
           ...(extractionResult.diagnostics || []),
           {
@@ -2070,6 +2112,29 @@ function determineLifecycleState(
   return "completed";
 }
 
+function isRunDegradingExtractionWarning(
+  extractionResult: BrowserUseExtractionResult,
+  warning: string,
+  writtenLeadCount: number,
+): boolean {
+  if (
+    writtenLeadCount > 0 &&
+    extractionResult.sourceId === "grounded_web" &&
+    isGroundedNoCandidateWarning(warning)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function isGroundedNoCandidateWarning(warning: string): boolean {
+  return (
+    /^Grounded search returned no usable candidate links\.$/i.test(warning) ||
+    /^Regex URL fallback used: grounded output was non-JSON or conversational; no valid URLs recovered\.$/i.test(warning) ||
+    /^Query ladder exhausted: all \d+ focused sub-queries returned zero candidates after retry broadening\.$/i.test(warning)
+  );
+}
+
 function selectLeadsForWrite(
   leads: NormalizedLead[],
   config: ResolvedRunSettings,
@@ -2494,8 +2559,10 @@ function formatError(error: unknown): string {
 
 const VALID_DISCOVERY_RUN_TRIGGERS: ReadonlySet<DiscoveryRunTrigger> = new Set([
   "manual",
+  "scheduled-browser",
   "scheduled-local",
   "scheduled-github",
+  "scheduled-cloudflare",
   "scheduled-appsscript",
   "cli",
 ]);

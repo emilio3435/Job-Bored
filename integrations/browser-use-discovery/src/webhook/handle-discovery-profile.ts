@@ -572,12 +572,10 @@ async function loadStoredConfigForFallback(
   if (!dependencies.loadStoredWorkerConfig) return null;
   const targetSheetId =
     refreshStoredSheetId ||
-    parsedRequest.sheetId ||
-    (dependencies.runtimeConfig as Record<string, unknown>).defaultSheetId ||
-    "";
-  if (!targetSheetId || typeof targetSheetId !== "string") return null;
+    (await resolveSheetId(parsedRequest, dependencies));
+  if (!targetSheetId) return null;
   try {
-    return await dependencies.loadStoredWorkerConfig(String(targetSheetId));
+    return await dependencies.loadStoredWorkerConfig(targetSheetId);
   } catch (error) {
     dependencies.log?.("discovery.profile.fallback_config_failed", {
       message: error instanceof Error ? error.message : String(error || "unknown error"),
@@ -677,17 +675,80 @@ function filterSkippedCompanies(
   return source.filter((company) => !blocked.has(companyFilterKey(company)));
 }
 
-function requireSheetId(
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeSheetIdCandidate(value: unknown): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw || raw === "YOUR_SHEET_ID_HERE") return "";
+  const match = raw.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)(?:\/|$|\?|#)/);
+  if (match?.[1]) return match[1];
+  return /^[a-zA-Z0-9_-]{10,}$/.test(raw) ? raw : "";
+}
+
+function findSheetIdInWorkerConfigPayload(raw: unknown): string {
+  if (!isPlainRecord(raw)) return "";
+  const directPayloads = [
+    raw,
+    raw.config,
+    raw.default,
+    raw.workerConfig,
+  ].filter(isPlainRecord);
+  for (const payload of directPayloads) {
+    const sheetId = normalizeSheetIdCandidate(payload.sheetId);
+    if (sheetId) return sheetId;
+  }
+
+  for (const key of ["sheets", "workers", "workspaces", "bySheetId", "configs"]) {
+    const group = raw[key];
+    if (!isPlainRecord(group)) continue;
+    for (const [groupKey, value] of Object.entries(group)) {
+      const sheetId =
+        normalizeSheetIdCandidate(isPlainRecord(value) ? value.sheetId : "") ||
+        normalizeSheetIdCandidate(groupKey);
+      if (sheetId) return sheetId;
+    }
+  }
+
+  return "";
+}
+
+async function readSheetIdFromWorkerConfig(
+  dependencies: HandleDiscoveryProfileDependencies,
+): Promise<string> {
+  const workerConfigPath = dependencies.runtimeConfig.workerConfigPath;
+  if (!workerConfigPath) return "";
+  try {
+    const text = await readFile(workerConfigPath, "utf8");
+    return findSheetIdInWorkerConfigPayload(JSON.parse(text));
+  } catch (error) {
+    dependencies.log?.("discovery.profile.sheet_id_lookup_failed", {
+      message: error instanceof Error ? error.message : String(error || "unknown error"),
+    });
+    return "";
+  }
+}
+
+async function resolveSheetId(
   request: DiscoveryProfileRequestV1,
   dependencies: HandleDiscoveryProfileDependencies,
-): string | null {
-  const targetSheetId =
-    request.sheetId ||
-    (dependencies.runtimeConfig as Record<string, unknown>).defaultSheetId ||
-    "";
-  if (!targetSheetId || typeof targetSheetId !== "string") return null;
-  const trimmed = targetSheetId.trim();
-  return trimmed ? trimmed : null;
+): Promise<string | null> {
+  const explicit =
+    normalizeSheetIdCandidate(request.sheetId) ||
+    normalizeSheetIdCandidate(
+      (dependencies.runtimeConfig as Record<string, unknown>).defaultSheetId,
+    );
+  if (explicit) return explicit;
+  const fromConfig = await readSheetIdFromWorkerConfig(dependencies);
+  return fromConfig || null;
+}
+
+async function requireSheetId(
+  request: DiscoveryProfileRequestV1,
+  dependencies: HandleDiscoveryProfileDependencies,
+): Promise<string | null> {
+  return resolveSheetId(request, dependencies);
 }
 
 function toScheduleResponse(
@@ -849,11 +910,8 @@ export async function handleDiscoveryProfileWebhook(
     const trigger: DiscoveryRunTrigger =
       parsedRequest.trigger ||
       (effectiveMode === "refresh" ? "cli" : "manual");
-    const sheetId =
-      parsedRequest.sheetId ||
-      (dependencies.runtimeConfig as Record<string, unknown>).defaultSheetId ||
-      "";
-    if (!sheetId || typeof sheetId !== "string") return;
+    const sheetId = await resolveSheetId(parsedRequest, dependencies);
+    if (!sheetId) return;
     const row: DiscoveryRunLogRow = {
       runAt: completedAt.toISOString(),
       trigger,
@@ -900,7 +958,7 @@ export async function handleDiscoveryProfileWebhook(
   // Persist the user's chosen schedule fields to worker-config.schedule. This
   // records intent only; OS scheduler artifacts are installed by CLI scripts.
   if (parsedRequest.mode === "schedule-save") {
-    const targetSheetId = requireSheetId(parsedRequest, dependencies);
+    const targetSheetId = await requireSheetId(parsedRequest, dependencies);
     if (!targetSheetId) {
       return jsonResponse(400, {
         ok: false,
@@ -970,7 +1028,7 @@ export async function handleDiscoveryProfileWebhook(
   // Read-only schedule snapshot plus local installer breadcrumb. Never calls
   // Gemini and never shells out to the OS scheduler.
   if (parsedRequest.mode === "schedule-status") {
-    const targetSheetId = requireSheetId(parsedRequest, dependencies);
+    const targetSheetId = await requireSheetId(parsedRequest, dependencies);
     if (!targetSheetId) {
       return jsonResponse(400, {
         ok: false,
@@ -1030,11 +1088,8 @@ export async function handleDiscoveryProfileWebhook(
   // profile exists, how many negative-list entries have been recorded, and
   // when the last successful refresh happened.
   if (parsedRequest.mode === "status") {
-    const targetSheetId =
-      parsedRequest.sheetId ||
-      (dependencies.runtimeConfig as Record<string, unknown>).defaultSheetId ||
-      "";
-    if (!targetSheetId || typeof targetSheetId !== "string") {
+    const targetSheetId = await resolveSheetId(parsedRequest, dependencies);
+    if (!targetSheetId) {
       return jsonResponse(400, {
         ok: false,
         message: "sheetId is required for status mode.",
@@ -1114,11 +1169,8 @@ export async function handleDiscoveryProfileWebhook(
   // Append the given companyKeys to the StoredWorkerConfig.negativeCompanyKeys
   // list so future refresh runs dedupe against them. No Gemini call.
   if (parsedRequest.mode === "skip_company") {
-    const targetSheetId =
-      parsedRequest.sheetId ||
-      (dependencies.runtimeConfig as Record<string, unknown>).defaultSheetId ||
-      "";
-    if (!targetSheetId || typeof targetSheetId !== "string") {
+    const targetSheetId = await resolveSheetId(parsedRequest, dependencies);
+    if (!targetSheetId) {
       return jsonResponse(400, {
         ok: false,
         message: "sheetId is required for skip_company mode.",
@@ -1185,11 +1237,8 @@ export async function handleDiscoveryProfileWebhook(
   let refreshStoredSheetId: string | null = null;
 
   if (parsedRequest.mode === "refresh") {
-    const targetSheetId =
-      parsedRequest.sheetId ||
-      (dependencies.runtimeConfig as Record<string, unknown>).defaultSheetId ||
-      "";
-    if (!targetSheetId || typeof targetSheetId !== "string") {
+    const targetSheetId = await resolveSheetId(parsedRequest, dependencies);
+    if (!targetSheetId) {
       return jsonResponse(400, {
         ok: false,
         message: "sheetId is required for refresh mode.",
@@ -1405,11 +1454,8 @@ export async function handleDiscoveryProfileWebhook(
 
   let persisted = false;
   if (shouldPersist && companies.length > 0) {
-    const targetSheetId =
-      parsedRequest.sheetId ||
-      (dependencies.runtimeConfig as Record<string, unknown>).defaultSheetId ||
-      "";
-    if (!targetSheetId || typeof targetSheetId !== "string") {
+    const targetSheetId = await resolveSheetId(parsedRequest, dependencies);
+    if (!targetSheetId) {
       dependencies.log?.("discovery.profile.persist_skipped", {
         reason: "missing_sheet_id",
         companyCount: companies.length,

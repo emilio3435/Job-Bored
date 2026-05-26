@@ -13,11 +13,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const KEEP_ALIVE_LABEL = "ai.jobbored.discovery.keepalive";
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;
+const EXPECTED_WORKER_SERVICE = "browser-use-discovery-worker";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
-const defaultBootstrapStatePath = join(repoRoot, "discovery-local-bootstrap.json");
-const relayTemplateDir = join(repoRoot, "integrations", "cloudflare-relay-template");
+const defaultBootstrapStatePath = resolve(repoRoot, "discovery-local-bootstrap.json");
 
 export function keepAlivePaths({ homeDir = homedir() } = {}) {
   const root = join(homeDir, ".jobbored");
@@ -95,6 +95,26 @@ function resolveLocalPort(bootstrap) {
   return 8644;
 }
 
+function resolveRelayTargetUrl(bootstrap, ngrokUrl) {
+  const publicBase = new URL(ngrokUrl);
+  let targetPath = "";
+  try {
+    const localWebhook = new URL(String(bootstrap && bootstrap.localWebhookUrl));
+    targetPath = localWebhook.pathname || "";
+  } catch (_) {
+    try {
+      const previousTarget = new URL(String(bootstrap && bootstrap.publicTargetUrl));
+      targetPath = previousTarget.pathname || "";
+    } catch {
+      targetPath = "";
+    }
+  }
+  publicBase.pathname = targetPath && targetPath !== "/" ? targetPath : "/";
+  publicBase.search = "";
+  publicBase.hash = "";
+  return publicBase.toString();
+}
+
 function tunnelMatchesPort(tunnel, port) {
   const addr = String(tunnel && tunnel.config && tunnel.config.addr ? tunnel.config.addr : "");
   return (
@@ -111,40 +131,113 @@ function pickNgrokPublicUrl(tunnels, port) {
     return publicUrl.startsWith("https://") && tunnelMatchesPort(tunnel, port);
   });
   if (matching) return normalizeNgrokPublicUrl(matching.public_url);
-
-  const fallback = tunnels.find((tunnel) =>
-    String(tunnel && tunnel.public_url ? tunnel.public_url : "").startsWith("https://"),
-  );
-  return fallback ? normalizeNgrokPublicUrl(fallback.public_url) : "";
+  return "";
 }
 
-async function getCurrentNgrokUrl({ fetchImpl = globalThis.fetch, port }) {
-  if (typeof fetchImpl !== "function") return "";
+function summarizeHttpsTunnels(tunnels) {
+  return tunnels
+    .filter((tunnel) =>
+      String(tunnel && tunnel.public_url ? tunnel.public_url : "").startsWith("https://"),
+    )
+    .map((tunnel) => ({
+      publicUrl: String(tunnel.public_url || ""),
+      addr: String(tunnel.config && tunnel.config.addr ? tunnel.config.addr : ""),
+    }));
+}
+
+async function getCurrentNgrokTarget({ fetchImpl = globalThis.fetch, port }) {
+  if (typeof fetchImpl !== "function") {
+    return { ngrokUrl: "", reason: "fetch_unavailable" };
+  }
   try {
     const res = await fetchImpl("http://127.0.0.1:4040/api/tunnels");
-    if (!res || !res.ok) return "";
+    if (!res || !res.ok) return { ngrokUrl: "", reason: "ngrok_api_down" };
     const data = await res.json().catch(() => ({}));
     const tunnels = Array.isArray(data.tunnels) ? data.tunnels : [];
-    return pickNgrokPublicUrl(tunnels, port);
+    const ngrokUrl = pickNgrokPublicUrl(tunnels, port);
+    if (ngrokUrl) return { ngrokUrl, reason: "" };
+    const httpsTunnels = summarizeHttpsTunnels(tunnels);
+    return {
+      ngrokUrl: "",
+      reason: httpsTunnels.length ? "no_matching_tunnel" : "ngrok_url_missing",
+      tunnels: httpsTunnels,
+    };
   } catch (_) {
-    return "";
+    return { ngrokUrl: "", reason: "ngrok_api_down" };
   }
 }
 
-function buildWranglerDeployArgs({ workerName, targetUrl }) {
-  const args = ["deploy"];
+function isExpectedWorkerHealthPayload(payload) {
+  return (
+    payload &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    String(payload.service || "").toLowerCase() === EXPECTED_WORKER_SERVICE &&
+    String(payload.status || "").toLowerCase() === "ok"
+  );
+}
+
+async function verifyNgrokWorkerIdentity(ngrokUrl, { fetchImpl = globalThis.fetch } = {}) {
+  if (typeof fetchImpl !== "function") {
+    return { ok: false, reason: "fetch_unavailable" };
+  }
+  let healthUrl;
+  try {
+    const parsed = new URL(ngrokUrl);
+    parsed.pathname = "/health";
+    parsed.search = "";
+    parsed.hash = "";
+    healthUrl = parsed.toString();
+  } catch (_) {
+    return { ok: false, reason: "invalid_ngrok_url" };
+  }
+  try {
+    const res = await fetchImpl(healthUrl, {
+      headers: { "ngrok-skip-browser-warning": "1" },
+    });
+    const payload = await res.json().catch(() => null);
+    if (res && res.ok && isExpectedWorkerHealthPayload(payload)) {
+      return { ok: true, healthUrl };
+    }
+    return {
+      ok: false,
+      reason: "unexpected_health_identity",
+      healthUrl,
+      statusCode: res && res.status ? res.status : 0,
+      service: payload && payload.service ? String(payload.service) : "",
+      workerStatus: payload && payload.status ? String(payload.status) : "",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "health_unreachable",
+      healthUrl,
+      message: error && error.message ? error.message : String(error || "error"),
+    };
+  }
+}
+
+function buildWranglerTargetSecretArgs({ workerName }) {
+  const args = ["secret", "put", "TARGET_URL"];
   if (workerName) {
     args.push("--name", workerName);
   }
-  args.push("--var", `DISCOVERY_TARGET:${targetUrl}`);
   return args;
 }
 
-function runWranglerDeploy({ spawnSyncImpl, workerName, targetUrl }) {
-  const args = buildWranglerDeployArgs({ workerName, targetUrl });
+function runWranglerTargetSecretPut({ spawnSyncImpl, workerName, targetUrl }) {
+  if (!workerName) {
+    return {
+      status: 1,
+      stderr: "Missing workerName in discovery-local-bootstrap.json.",
+      error: null,
+    };
+  }
+  const args = buildWranglerTargetSecretArgs({ workerName });
   return spawnSyncImpl("wrangler", args, {
-    cwd: relayTemplateDir,
+    cwd: repoRoot,
     encoding: "utf8",
+    input: `${targetUrl}\n`,
     env: process.env,
   });
 }
@@ -167,43 +260,76 @@ export async function runKeepAliveCheck(options = {}) {
   }
 
   const port = resolveLocalPort(bootstrap);
-  const ngrokUrl =
-    normalizeNgrokPublicUrl(options.ngrokPublicUrl) ||
-    (await getCurrentNgrokUrl({ fetchImpl: options.fetchImpl, port }));
+  const explicitNgrokUrl = normalizeNgrokPublicUrl(options.ngrokPublicUrl);
+  const ngrokTarget = explicitNgrokUrl
+    ? { ngrokUrl: explicitNgrokUrl, reason: "" }
+    : await getCurrentNgrokTarget({ fetchImpl: options.fetchImpl, port });
+  const ngrokUrl = ngrokTarget.ngrokUrl;
   if (!ngrokUrl) {
-    appendJsonLog("ngrok_url_missing", { port }, logOptions);
-    return { ok: false, reason: "ngrok_url_missing" };
+    appendJsonLog(
+      "ngrok_url_missing",
+      { port, reason: ngrokTarget.reason, tunnels: ngrokTarget.tunnels || [] },
+      logOptions,
+    );
+    return {
+      ok: false,
+      reason: ngrokTarget.reason || "ngrok_url_missing",
+      ...(ngrokTarget.tunnels ? { tunnels: ngrokTarget.tunnels } : {}),
+    };
   }
 
+  const health = await verifyNgrokWorkerIdentity(ngrokUrl, {
+    fetchImpl: options.fetchImpl,
+  });
+  if (!health.ok) {
+    appendJsonLog("ngrok_health_mismatch", { port, ngrokUrl, health }, logOptions);
+    return {
+      ok: false,
+      reason: "ngrok_health_mismatch",
+      ngrokUrl,
+      health,
+    };
+  }
+
+  const targetUrl = resolveRelayTargetUrl(bootstrap, ngrokUrl);
   const previous = readJsonFile(paths.statePath) || {};
-  if (previous.lastNgrokUrl === ngrokUrl && previous.lastRedeployAt) {
+  if (
+    previous.lastNgrokUrl === ngrokUrl &&
+    previous.lastTargetUrl === targetUrl &&
+    previous.lastRedeployAt
+  ) {
     writeJsonFile(paths.statePath, {
       ...previous,
       schemaVersion: 1,
       jobLabel: KEEP_ALIVE_LABEL,
       lastRunAt: nowIso,
       lastNgrokUrl: ngrokUrl,
+      lastTargetUrl: targetUrl,
     });
     appendJsonLog("ngrok_url_unchanged", { ngrokUrl }, logOptions);
-    return { ok: true, redeployed: false, lastNgrokUrl: ngrokUrl };
+    return { ok: true, redeployed: false, lastNgrokUrl: ngrokUrl, targetUrl };
   }
 
   const workerName = String(bootstrap.workerName || "").trim();
-  appendJsonLog("redeploy_start", { ngrokUrl, workerName }, logOptions);
-  const deploy = runWranglerDeploy({
+  appendJsonLog("target_secret_update_start", { ngrokUrl, targetUrl, workerName }, logOptions);
+  const secretUpdate = runWranglerTargetSecretPut({
     spawnSyncImpl,
     workerName,
-    targetUrl: ngrokUrl,
+    targetUrl,
   });
 
-  if (deploy.error || deploy.status !== 0) {
-    appendJsonLog("redeploy_failed", {
+  if (secretUpdate.error || secretUpdate.status !== 0) {
+    appendJsonLog("target_secret_update_failed", {
       ngrokUrl,
-      status: deploy.status,
-      error: deploy.error ? deploy.error.message || String(deploy.error) : "",
-      stderr: String(deploy.stderr || "").slice(0, 500),
+      targetUrl,
+      status: secretUpdate.status,
+      error: secretUpdate.error ? secretUpdate.error.message || String(secretUpdate.error) : "",
+      stderr: String(secretUpdate.stderr || "").slice(0, 500),
     }, logOptions);
-    return { ok: false, reason: "wrangler_failed" };
+    return {
+      ok: false,
+      reason: workerName ? "wrangler_failed" : "worker_name_missing",
+    };
   }
 
   writeJsonFile(paths.statePath, {
@@ -211,14 +337,17 @@ export async function runKeepAliveCheck(options = {}) {
     jobLabel: KEEP_ALIVE_LABEL,
     lastRunAt: nowIso,
     lastNgrokUrl: ngrokUrl,
+    lastTargetUrl: targetUrl,
     lastRedeployAt: nowIso,
     workerName,
   });
-  appendJsonLog("redeploy_success", { ngrokUrl, workerName }, logOptions);
+  appendJsonLog("target_secret_update_success", { ngrokUrl, targetUrl, workerName }, logOptions);
   return {
     ok: true,
     redeployed: true,
+    targetSecretUpdated: true,
     lastNgrokUrl: ngrokUrl,
+    targetUrl,
     lastRedeployAt: nowIso,
   };
 }
@@ -257,6 +386,14 @@ Usage:
   }
   return args;
 }
+
+export {
+  buildWranglerTargetSecretArgs,
+  pickNgrokPublicUrl,
+  resolveRelayTargetUrl,
+  tunnelMatchesPort,
+  verifyNgrokWorkerIdentity,
+};
 
 async function sleep(ms) {
   await new Promise((resolve) => {

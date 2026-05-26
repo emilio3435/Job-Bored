@@ -329,22 +329,29 @@ describe("sortRuns", () => {
 describe("filterRuns", () => {
   const sample = [
     { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
+    { runAt: "t", trigger: "scheduled-browser", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
     { runAt: "t", trigger: "scheduled-local", status: "failure", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "x" },
     { runAt: "t", trigger: "scheduled-github", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
+    { runAt: "t", trigger: "scheduled-cloudflare", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
     { runAt: "t", trigger: "cli", status: "partial", durationS: 1, companiesSeen: 0, leadsWritten: 0, source: "", variationKey: "", error: "" },
   ];
 
   it("all/all returns every row", async () => {
     const mod = await loadRunsTab();
     const result = mod.filterRuns(sample, { trigger: "all", status: "all" });
-    assert.equal(result.length, 4);
+    assert.equal(result.length, 6);
   });
 
-  it("trigger='scheduled' matches both scheduled-local and scheduled-github", async () => {
+  it("trigger='scheduled' matches scheduled origins", async () => {
     const mod = await loadRunsTab();
     const result = mod.filterRuns(sample, { trigger: "scheduled", status: "all" });
     const triggers = result.map((r) => r.trigger).sort();
-    assert.deepEqual(triggers, ["scheduled-github", "scheduled-local"]);
+    assert.deepEqual(triggers, [
+      "scheduled-browser",
+      "scheduled-cloudflare",
+      "scheduled-github",
+      "scheduled-local",
+    ]);
   });
 
   it("status='failure' filters to failures only", async () => {
@@ -357,7 +364,7 @@ describe("filterRuns", () => {
   it("status='success' excludes partial runs", async () => {
     const mod = await loadRunsTab();
     const result = mod.filterRuns(sample, { trigger: "all", status: "success" });
-    assert.equal(result.length, 2);
+    assert.equal(result.length, 4);
     for (const run of result) assert.equal(run.status, "success");
   });
 
@@ -519,7 +526,7 @@ describe("renderGhostRowHtml (ghost row markup)", () => {
 });
 
 describe("live job-discovery run row", () => {
-  it("normalizes active job discovery tracker state and rejects terminal state", async () => {
+  it("normalizes active and terminal job discovery tracker state", async () => {
     const mod = await loadRunsTab();
     const active = mod.__test.normalizeJobDiscoveryRunState({
       status: "running",
@@ -534,8 +541,11 @@ describe("live job-discovery run row", () => {
     const terminal = mod.__test.normalizeJobDiscoveryRunState({
       status: "completed",
       runId: "run_123",
+      completedAt: "2026-04-21T20:05:00Z",
+      leadsWritten: 4,
     });
-    assert.equal(terminal, null);
+    assert.equal(terminal.status, "completed");
+    assert.equal(terminal.leadsWritten, 4);
   });
 
   it("renders an active job-discovery run from localStorage when the modal opens", async () => {
@@ -595,14 +605,39 @@ describe("live job-discovery run row", () => {
     });
     await new Promise((resolve) => setImmediate(resolve));
 
-    assert.equal(
-      /data-runs-live="job-discovery"/.test(dom.tbody.innerHTML),
-      false,
+    assert.match(
+      dom.tbody.innerHTML,
+      /data-runs-live="job-discovery"/,
+      "terminal local run should stay visible while DiscoveryRuns is still empty",
     );
     assert.ok(
       fetchCalls > initialFetchCount,
       "terminal job-run event should refresh the sheet-backed run log",
     );
+  });
+
+  it("shows terminal local run state when DiscoveryRuns cannot be read", async () => {
+    const { dom } = await bootInitRunsTab({
+      storedJobRunState: {
+        status: "completed",
+        runId: "run_local_done",
+        initiatedAt: "2026-04-21T20:00:00Z",
+        completedAt: "2026-04-21T20:05:00Z",
+        trigger: "manual",
+        variationKey: "var-local",
+        leadsWritten: 6,
+      },
+      fetchImpl: async () =>
+        new Response("permission denied", {
+          status: 403,
+          headers: { "content-type": "text/plain" },
+        }),
+    });
+
+    assert.match(dom.tbody.innerHTML, /data-runs-live="job-discovery"/);
+    assert.match(dom.tbody.innerHTML, /Completed/);
+    assert.match(dom.tbody.innerHTML, /var-local/);
+    assert.match(dom.statusEl.textContent, /showing the local run state/i);
   });
 });
 

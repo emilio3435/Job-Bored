@@ -827,12 +827,12 @@ test("VAL-ROUTE-008: ats_only with empty companies does not fabricate ATS placeh
   );
 
   const greenhouseEntry = result.sourceSummary.find((s) => s.sourceId === "greenhouse");
-  // Wave-3: ATS source entries are created for unrestricted scope to provide lane-execution evidence.
-  // The entry should have a warning indicating no boards were found (not fabricated detections).
-  assert.ok(greenhouseEntry, "greenhouse should appear in sourceSummary with unrestricted-scope warning");
+  // ATS source entries are created for unrestricted scope to provide lane-execution evidence.
+  // Missing boards are diagnostics, not warnings, so they do not degrade the whole run.
+  assert.ok(greenhouseEntry, "greenhouse should appear in sourceSummary with unrestricted-scope diagnostic");
   assert.ok(
-    greenhouseEntry.warnings.some((w) => /unrestricted scope/i.test(w)),
-    "greenhouse warning should indicate unrestricted scope with empty company target",
+    greenhouseEntry.diagnostics?.some((d) => /unrestricted scope/i.test(d.context)),
+    "greenhouse diagnostic should indicate unrestricted scope with empty company target",
   );
   assert.equal(
     greenhouseEntry.leadsAccepted,
@@ -956,12 +956,12 @@ test("VAL-ROUTE-009: browser_plus_ats with empty companies runs grounded lane wi
   assert.equal(groundedEntry.leadsSeen, 0, "grounded_web should have 0 leadsSeen (no candidates found)");
 
   const greenhouseEntry = result.sourceSummary.find((s) => s.sourceId === "greenhouse");
-  // Wave-3: ATS source entries are created for unrestricted scope to provide lane-execution evidence.
-  // The entry should have a warning indicating no boards were found (not fabricated detections).
-  assert.ok(greenhouseEntry, "greenhouse should appear in sourceSummary with unrestricted-scope warning");
+  // ATS source entries are created for unrestricted scope to provide lane-execution evidence.
+  // Missing boards are diagnostics, not warnings, so they do not degrade the whole run.
+  assert.ok(greenhouseEntry, "greenhouse should appear in sourceSummary with unrestricted-scope diagnostic");
   assert.ok(
-    greenhouseEntry.warnings.some((w) => /unrestricted scope/i.test(w)),
-    "greenhouse warning should indicate unrestricted scope with empty company target",
+    greenhouseEntry.diagnostics?.some((d) => /unrestricted scope/i.test(d.context)),
+    "greenhouse diagnostic should indicate unrestricted scope with empty company target",
   );
   assert.equal(
     greenhouseEntry.leadsAccepted,

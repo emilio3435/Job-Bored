@@ -130,9 +130,13 @@ type DiscoveryWebhookAck = {
   ok: true;
   kind: "accepted_async" | "completed_sync";
   runId: string;
+  statusPath?: string;
+  pollAfterMs?: number;
   message: string;
 };
 ```
+
+For `accepted_async`, preserve `statusPath` exactly. Hosted `/runs/:runId` polling may depend on a `statusToken` query parameter embedded in `statusPath`; clients and relays must not strip, normalize, or rebuild it from `runId`.
 
 ### 4.5 Writer ownership rules
 

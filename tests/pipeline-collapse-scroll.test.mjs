@@ -41,6 +41,15 @@ describe("v2 pipeline column collapse and scrolling", () => {
     );
   });
 
+  it("uses single-open behavior when a column chevron expands a stage", () => {
+    assert.ok(
+      pipelineJs.includes("function expandColumnExclusive") &&
+        pipelineJs.includes("if (isCollapsed(state, stageKey)) expandColumnExclusive(region, state, stageKey);") &&
+        pipelineJs.includes("else state.collapsed[s.key] = true;"),
+      "expanding a collapsed column from its chevron should collapse every other column",
+    );
+  });
+
   it("caps column stacks and scrolls excess cards inside the column", () => {
     assert.ok(
       pipelineCss.includes("max-height: clamp(320px, 56vh, 640px);") &&

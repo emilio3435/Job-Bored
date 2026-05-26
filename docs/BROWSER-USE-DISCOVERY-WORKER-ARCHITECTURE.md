@@ -171,9 +171,16 @@ Recommended acknowledgment shape:
   "ok": true,
   "kind": "accepted_async",
   "runId": "run_123",
+  "statusPath": "/runs/run_123",
+  "pollAfterMs": 2000,
   "message": "Discovery accepted — worker queued the run"
 }
 ```
+
+Status polling note:
+- Browser clients must preserve the returned `statusPath` exactly, including query parameters.
+- Hosted workers append `statusToken` to `statusPath`; `GET /runs/:runId` in hosted mode requires that token, an `x-run-status-token` header, or the full webhook secret.
+- Treat `statusToken` as a run-status bearer credential. Do not log it raw, and do not rewrite `statusPath` from `runId` when `statusPath` is present.
 
 Important v1 note:
 - current webhook contract does not include company list

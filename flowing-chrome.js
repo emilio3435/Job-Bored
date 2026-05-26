@@ -39,6 +39,7 @@
     { id: "sheetLink", label: "Open Google Sheet", mode: "icon" },
     { id: "materialsBtn", label: "Portfolio", mode: "icon" },
     { id: "runsBtn", label: "Discovery run history", mode: "icon" },
+    { id: "expiredReviewBtn", label: "Review potentially expired postings", mode: "icon" },
     { id: "settingsBtn", label: "Settings and setup", mode: "icon" },
     { id: "authSection", label: "Account", mode: "auth" },
   ];
@@ -87,14 +88,73 @@
     return document.querySelector('[data-region="' + id + '"]');
   }
 
+  /* Brand cluster — official assets only.
+
+       (a) `.page-top__brand-mark` — the official rocket-pack mascot
+           from the brand kit, served from `assets/chrome/` as a
+           background-cleaned + retina-quality set:
+             - jobbored-mascot-rocket.webp     (lossless, 288px, sharp)
+             - jobbored-mascot-rocket@2x.png   (144px, 2x density)
+             - jobbored-mascot-rocket.png      (72px, 1x density)
+           Built from `03-square/jobbored-square-rocket-light.png`
+           by stripping the off-cream `srgb(250,247,241)` canvas to
+           transparent (fuzz 14%), trimming to the bounding box, and
+           re-padding with 24px of transparent margin. The mascot
+           sits flat on the chrome with NO background rectangle to
+           clash with the parchment, and renders crisp on retina via
+           the WebP / @2x set.
+
+       (b) `.page-top__brand-wordmark` — the official `JobBored`
+           wordmark inlined from the brand kit
+           (assets/jobbored-brand-mascot-kit/exports/01-wordmark),
+           with the background rectangle removed so it sits flat on
+           the parchment chrome. "Job" inherits the navy via
+           currentColor; "Bored" is explicitly mint-deep so theme
+           changes can't bleach it. Brand fonts and weights match
+           the source SVG verbatim. */
+  var MASCOT_ROCKET_WEBP = "assets/chrome/jobbored-mascot-rocket.webp";
+  var MASCOT_ROCKET_PNG  = "assets/chrome/jobbored-mascot-rocket.png";
+  var MASCOT_ROCKET_PNG2 = "assets/chrome/jobbored-mascot-rocket@2x.png";
+
+  /* Transparent wordmark — same dimensions and fonts as the brand-kit
+     source (exports/01-wordmark/jobbored-wordmark-light.svg) minus the
+     opaque background <rect>. "Job" inherits the navy through
+     currentColor; "Bored" uses an inline style so the mint-deep CSS
+     variable is honored (SVG `fill="…"` attribute syntax does not
+     accept var()). */
+  var WORDMARK_SVG = ''
+    + '<svg class="page-top__brand-wordmark" viewBox="0 0 460 130"'
+    +   ' role="img" aria-label="JobBored" focusable="false"'
+    +   ' xmlns="http://www.w3.org/2000/svg">'
+    +   '<text x="0" y="92"'
+    +     ' fill="currentColor"'
+    +     ' font-family="Futura, Avenir Next, Avenir, Century Gothic, Arial Black, sans-serif"'
+    +     ' font-size="108" font-weight="800">Job</text>'
+    +   '<text x="210" y="92"'
+    +     ' style="fill:var(--jb-mint-deep, #3FA374)"'
+    +     ' font-family="Caveat, Bradley Hand, Comic Sans MS, cursive"'
+    +     ' font-size="118" font-style="italic" font-weight="700">Bored</text>'
+    + '</svg>';
+
   function buildBrand() {
-    var mark = el("span", { class: "page-top__brand-mark", "aria-hidden": "true" });
-    var em = el("span", { class: "page-top__brand-em", text: "Bored" });
     var brand = el(
       "a",
       { class: "page-top__brand", href: "#", "aria-label": "JobBored — home" },
-      [mark, document.createTextNode("Job"), em]
+      []
     );
+    /* <picture> negotiates the smallest, sharpest variant the browser
+       supports: lossless WebP first, then a retina-aware PNG set with
+       a 1× fallback for non-DPR-2 displays. innerHTML keeps the SVG
+       wordmark in the correct (SVG) namespace. */
+    brand.innerHTML = ''
+      + '<picture class="page-top__brand-mark">'
+      +   '<source type="image/webp" srcset="' + MASCOT_ROCKET_WEBP + '">'
+      +   '<img'
+      +     ' src="' + MASCOT_ROCKET_PNG + '"'
+      +     ' srcset="' + MASCOT_ROCKET_PNG + ' 1x, ' + MASCOT_ROCKET_PNG2 + ' 2x"'
+      +     ' alt="" aria-hidden="true" draggable="false">'
+      + '</picture>'
+      + WORDMARK_SVG;
     brand.addEventListener("click", function (e) {
       e.preventDefault();
       scrollToRegion("dawn");

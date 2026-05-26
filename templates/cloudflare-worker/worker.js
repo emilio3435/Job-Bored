@@ -133,11 +133,10 @@ export default {
   },
 
   // Cron trigger — fires on the schedule configured in wrangler.toml
-  // `[triggers]` section. Posts a `mode:"refresh"` request to the worker's
-  // /discovery-profile endpoint so the stored candidateProfile gets replayed
-  // daily against Gemini; newly-discovered companies dedupe against the
-  // StoredWorkerConfig.negativeCompanyKeys list. Requires the same TARGET_URL
-  // + DISCOVERY_SECRET secrets as the fetch path.
+  // `[triggers]` section. Posts the same discovery webhook contract as the
+  // dashboard/other schedulers so the worker writes Pipeline rows and run
+  // status through the existing user-owned discovery path. Requires the same
+  // TARGET_URL + DISCOVERY_SECRET secrets as the fetch path.
   async scheduled(event, env, ctx) {
     const target = env.TARGET_URL;
     if (!target) {
@@ -147,7 +146,7 @@ export default {
     let upstream_url;
     try {
       const parsed = new URL(target);
-      parsed.pathname = "/discovery-profile";
+      parsed.pathname = "/webhook";
       parsed.search = "";
       upstream_url = parsed.toString();
     } catch (err) {
@@ -156,11 +155,18 @@ export default {
     }
 
     const sheetId = env.REFRESH_SHEET_ID || "";
+    if (!sheetId) {
+      console.error("[cron] REFRESH_SHEET_ID secret not set — skipping discovery");
+      return;
+    }
+    const requestedAt = new Date().toISOString();
     const body = JSON.stringify({
-      event: "discovery.profile.request",
+      event: "command-center.discovery",
       schemaVersion: 1,
-      mode: "refresh",
-      sheetId: sheetId || undefined,
+      variationKey: `scheduled-cloudflare:${event.cron}:${requestedAt.slice(0, 10)}`,
+      requestedAt,
+      trigger: "scheduled-cloudflare",
+      sheetId,
     });
 
     const upstreamHeaders = {
@@ -176,7 +182,7 @@ export default {
         headers: upstreamHeaders,
         body,
       });
-      const statusLine = `[cron ${event.cron}] refresh -> ${upstream_url} HTTP ${response.status}`;
+      const statusLine = `[cron ${event.cron}] discovery -> ${upstream_url} HTTP ${response.status}`;
       if (response.ok) {
         console.log(statusLine);
       } else {

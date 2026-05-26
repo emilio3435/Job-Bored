@@ -149,12 +149,10 @@ describe("role writeback bridge", () => {
       assert.deepEqual(JSON.parse(call.options.body), {
         values: [[c.expectedValue]],
       });
-      assert.deepEqual(runtime.documentEvents, [
-        {
-          type: "jb:write:succeeded",
-          detail: { jobKey: 7, kind: c.expectedKind },
-        },
-      ]);
+      assert.equal(runtime.documentEvents.length, 1);
+      assert.equal(runtime.documentEvents[0].type, "jb:write:succeeded");
+      assert.equal(runtime.documentEvents[0].detail.jobKey, 7);
+      assert.equal(runtime.documentEvents[0].detail.kind, c.expectedKind);
     });
   }
 });

@@ -34,30 +34,50 @@ body.jb-v2 .page-top {
   font-family: var(--jb-font-body);
 }
 
+/* Brand cluster — mascot square + official wordmark SVG.
+   The cluster is a single <a>; the mascot square sits on a mint
+   tile (matches the favicon palette), and the wordmark inherits
+   navy via currentColor. */
 body.jb-v2 .page-top__brand {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  font-family: var(--jb-font-display);
-  font-size: 28px;
   line-height: 1;
   color: var(--jb-navy);
   text-decoration: none;
-  letter-spacing: 0;
 }
 
-body.jb-v2 .page-top__brand-em {
-  font-style: italic;
-  color: var(--jb-mint-deep);
-}
-
+/* Mascot mark — the official rocket-pack mascot, served as a
+   transparent / retina-quality picture from assets/chrome/. The
+   <picture> sizes the wrapper; the child <img> fills it and uses
+   `object-fit: contain` so the mascot stays centered with its
+   transparent margin. No background, no tile — sits flat on the
+   chrome's parchment surface. */
 body.jb-v2 .page-top__brand-mark {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  background: var(--jb-mint);
-  display: inline-block;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
+  /* Crisper interpolation on browsers that honor it. */
+  image-rendering: -webkit-optimize-contrast;
+}
+body.jb-v2 .page-top__brand-mark > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+body.jb-v2 .page-top__brand-wordmark {
+  /* Scale by height; preserves the brand-kit aspect ratio. */
+  height: 24px;
+  width: auto;
+  display: block;
+  color: var(--jb-navy);
 }
 
 /* ---- Three section pills (Brief / Pipeline / Letter) ----- */
@@ -175,6 +195,7 @@ body.jb-v2 .page-top__actions .page-top__action--primary:hover {
 }
 
 body.jb-v2 .page-top__actions .page-top__action--icon {
+  position: relative;
   width: 36px;
   height: 36px;
   min-height: 36px;
@@ -185,6 +206,10 @@ body.jb-v2 .page-top__actions .page-top__action--icon {
 
 body.jb-v2 .page-top__actions .page-top__action--icon:hover {
   background: color-mix(in srgb, var(--jb-paper) 80%, transparent);
+}
+
+body.jb-v2 .page-top__actions .expired-review-count {
+  border-color: var(--jb-paper-2);
 }
 
 body.jb-v2 .page-top__actions .page-top__auth {
@@ -345,8 +370,8 @@ body.jb-v2 .flow-section__inner {
     gap: 12px;
   }
 
-  body.jb-v2 .page-top__brand {
-    font-size: 24px;
+  body.jb-v2 .page-top__brand-wordmark {
+    height: 22px;
   }
 
   body.jb-v2 .page-top__actions {
@@ -426,14 +451,16 @@ body.jb-v2 .flow-section__inner {
 
   body.jb-v2 .page-top__brand {
     gap: 0;
-    width: 22px;
-    overflow: hidden;
-    font-size: 0;
+  }
+  /* Hide the wordmark on very narrow screens; the mascot square
+     stays as a recognizable, tappable mark. */
+  body.jb-v2 .page-top__brand-wordmark {
+    display: none;
   }
 
   body.jb-v2 .page-top__brand-mark {
-    width: 22px;
-    height: 22px;
+    width: 32px;
+    height: 32px;
   }
 
   body.jb-v2 .page-top__actions .page-top__action--primary::after {

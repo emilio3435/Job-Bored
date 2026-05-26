@@ -95,26 +95,47 @@ describe("full-boot stale port cleanup", () => {
       healthyDiscoveryWorkerPort: 8644,
       currentPid: 100,
       waitAfterKillMs: 0,
-      findPids: (port) => (port === 8644 ? [200] : []),
+      findProcesses: (port) =>
+        port === 8644
+          ? [
+              {
+                pid: 200,
+                command: "node --experimental-strip-types integrations/browser-use-discovery/src/server.ts",
+              },
+            ]
+          : [],
       killPid: (pid) => {
         killedPids.push(pid);
       },
     });
 
-    assert.deepEqual(result, { killed: 0, skippedHealthyWorker: true });
+    assert.equal(result.killed, 0);
+    assert.equal(result.skippedHealthyWorker, true);
+    assert.deepEqual(result.killedProcesses, []);
+    assert.deepEqual(result.blocked, []);
     assert.deepEqual(killedPids, []);
   });
 
-  it("still kills stale listeners when the discovery worker is not healthy", async () => {
+  it("still kills known JobBored listeners when the discovery worker is not healthy", async () => {
     const killedPids = [];
     const result = await killFullBootStalePorts({
       ports: [8644, 4040],
+      workerPort: 8644,
       healthyDiscoveryWorkerPort: null,
       currentPid: 100,
       waitAfterKillMs: 0,
-      findPids: (port) => {
-        if (port === 8644) return [200];
-        if (port === 4040) return [300];
+      findProcesses: (port) => {
+        if (port === 8644) {
+          return [
+            {
+              pid: 200,
+              command: "node --experimental-strip-types integrations/browser-use-discovery/src/server.ts",
+            },
+          ];
+        }
+        if (port === 4040) {
+          return [{ pid: 300, command: "ngrok http 8644" }];
+        }
         return [];
       },
       killPid: (pid) => {
@@ -122,7 +143,30 @@ describe("full-boot stale port cleanup", () => {
       },
     });
 
-    assert.deepEqual(result, { killed: 2, skippedHealthyWorker: false });
+    assert.equal(result.killed, 2);
+    assert.equal(result.skippedHealthyWorker, false);
+    assert.deepEqual(result.blocked, []);
     assert.deepEqual(killedPids, [200, 300]);
+  });
+
+  it("reports foreign listeners instead of killing them", async () => {
+    const killedPids = [];
+    const result = await killFullBootStalePorts({
+      ports: [8644],
+      workerPort: 8644,
+      healthyDiscoveryWorkerPort: null,
+      currentPid: 100,
+      waitAfterKillMs: 0,
+      findProcesses: () => [{ pid: 200, command: "python -m http.server 8644" }],
+      killPid: (pid) => {
+        killedPids.push(pid);
+      },
+    });
+
+    assert.equal(result.killed, 0);
+    assert.equal(result.blocked.length, 1);
+    assert.equal(result.blocked[0].pid, 200);
+    assert.match(result.blocked[0].command, /python/);
+    assert.deepEqual(killedPids, []);
   });
 });

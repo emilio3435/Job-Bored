@@ -129,6 +129,121 @@ test("handleIngestUrlWebhook returns 400 on private-network URL", async () => {
   assert.equal(body.reason, "private_network");
 });
 
+test("handleIngestUrlWebhook rejects manual-fill malformed URL before writing", async () => {
+  let writerCalls = 0;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "not-a-url",
+      manual: {
+        title: "Growth Marketing Manager",
+        company: "Example Co",
+      },
+    }),
+    makeDependencies({
+      pipelineWriter: {
+        write: async () => {
+          writerCalls += 1;
+          throw new Error("should not write malformed manual URL");
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 400);
+  const body = JSON.parse(response.body);
+  assert.equal(body.reason, "invalid_url");
+  assert.equal(writerCalls, 0);
+});
+
+test("handleIngestUrlWebhook rejects manual-fill private URL before writing", async () => {
+  let writerCalls = 0;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "http://localhost:3000/jobs/123",
+      manual: {
+        title: "Growth Marketing Manager",
+        company: "Example Co",
+      },
+    }),
+    makeDependencies({
+      pipelineWriter: {
+        write: async () => {
+          writerCalls += 1;
+          throw new Error("should not write private manual URL");
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 400);
+  const body = JSON.parse(response.body);
+  assert.equal(body.reason, "private_network");
+  assert.equal(writerCalls, 0);
+});
+
+test("handleIngestUrlWebhook routes per-request googleAccessToken into the pipeline writer", async () => {
+  let factoryCalls = 0;
+  let capturedToken = "";
+  let requestWriterCalls = 0;
+  let defaultWriterCalls = 0;
+
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      googleAccessToken: "dashboard-token-123",
+      url: "https://example.com/jobs/growth-marketing-manager",
+    }),
+    makeDependencies({
+      pipelineWriter: {
+        write: async () => {
+          defaultWriterCalls += 1;
+          throw new Error("default writer should not be used with request token");
+        },
+      },
+      createPipelineWriterForRequest: (runtimeConfigOverride: WorkerRuntimeConfig) => {
+        factoryCalls += 1;
+        capturedToken = runtimeConfigOverride.googleAccessToken;
+        return {
+          write: async () => {
+            requestWriterCalls += 1;
+            return {
+              sheetId: "sheet_123",
+              appended: 1,
+              updated: 0,
+              skippedDuplicates: 0,
+              skippedBlacklist: 0,
+              warnings: [],
+            };
+          },
+        };
+      },
+      scrapeJobPosting: async () => ({
+        url: "https://example.com/jobs/growth-marketing-manager",
+        title: "Growth Marketing Manager",
+        description: "Own growth marketing programs.",
+        method: "cheerio",
+      }),
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(JSON.parse(response.body).ok, true);
+  assert.equal(factoryCalls, 1);
+  assert.equal(capturedToken, "dashboard-token-123");
+  assert.equal(requestWriterCalls, 1);
+  assert.equal(defaultWriterCalls, 0);
+  assert.doesNotMatch(response.body, /dashboard-token-123/);
+});
+
+test("handleIngestUrlWebhook rejects non-string googleAccessToken", async () => {
+  const response = await handleIngestUrlWebhook(
+    makeRequest({ googleAccessToken: { token: "bad" } }),
+    makeDependencies(),
+  );
+
+  assert.equal(response.status, 400);
+  assert.match(JSON.parse(response.body).message, /googleAccessToken/);
+});
+
 test("handleIngestUrlWebhook blocked_aggregator lands url-only row without scraping", async () => {
   // LinkedIn/Indeed/etc. block scrapers. Instead of forcing a manual-fill
   // modal, the handler now builds a minimal URL-only RawListing
@@ -265,6 +380,39 @@ test("handleIngestUrlWebhook manual-fill happy path", async () => {
   assert.equal(body.ok, true);
   assert.equal(body.strategy, "manual_fill");
   assert.equal(scraperCalls, 0);
+});
+
+test("handleIngestUrlWebhook clamps manual fitScore deterministically", async () => {
+  let capturedLead: Record<string, unknown> | null = null;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "https://company.example/jobs/123",
+      manual: {
+        title: "Growth Marketing Manager",
+        company: "Example Co",
+        fitScore: 12.7,
+      },
+    }),
+    makeDependencies({
+      pipelineWriter: {
+        write: async (_sheetId, leads) => {
+          capturedLead = leads[0] as unknown as Record<string, unknown>;
+          return {
+            sheetId: "sheet_123",
+            appended: 1,
+            updated: 0,
+            skippedDuplicates: 0,
+            skippedBlacklist: 0,
+            warnings: [],
+          };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  assert.ok(capturedLead);
+  assert.equal(capturedLead.fitScore, 10);
 });
 
 test("handleIngestUrlWebhook returns duplicate when writer reports skipped duplicate", async () => {

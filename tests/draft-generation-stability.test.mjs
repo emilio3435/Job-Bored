@@ -207,12 +207,16 @@ describe("ATS analysis follows draft modal lifecycle", () => {
     const fnStart = appJs.indexOf("async function openResumeGenerateModal");
     const fnEnd = appJs.indexOf("function closeResumeGenerateModal", fnStart);
     const fnBody = appJs.slice(fnStart, fnEnd);
+    const loadingStart = fnBody.indexOf("if (isLoading)");
+    const loadingEnd = fnBody.indexOf("} else {", loadingStart);
+    const loadingBody = fnBody.slice(loadingStart, loadingEnd);
 
     // When isLoading is true, atsScorecardState should be reset
     assert.ok(
-      fnBody.includes("atsScorecardState = {") &&
-        fnBody.includes("cacheKey:") &&
-        fnBody.includes('status: "idle"'),
+      loadingBody.includes("setAtsScorecardState({") &&
+        loadingBody.includes("cacheKey:") &&
+        loadingBody.includes('status: "idle"') &&
+        loadingBody.includes("payload: null"),
       "ATS scorecard state should be reset when opening modal in loading state",
     );
   });
@@ -242,10 +246,13 @@ describe("ATS analysis follows draft modal lifecycle", () => {
   });
 
   it("retry-ats-scorecard button uses current active draft text", () => {
-    // Find the retry handler - it may be registered via event delegation on atsGroups
-    const handlersStart = appJs.indexOf('data-action="retry-ats-scorecard"');
-    const handlerEnd = appJs.indexOf("});", handlersStart);
-    const handlerBody = appJs.slice(handlersStart, handlerEnd + 3);
+    const handlersStart = appJs.indexOf(
+      'const atsGroups = document.getElementById("resumeGenerateAtsGroups")',
+    );
+    assert.notEqual(handlersStart, -1, "ATS retry handler block must exist");
+    const handlerEnd = appJs.indexOf("if (draftNotesModal)", handlersStart);
+    assert.notEqual(handlerEnd, -1, "ATS retry handler block must be readable");
+    const handlerBody = appJs.slice(handlersStart, handlerEnd);
 
     // Should use getResumeGenerateDraftTextForInsights to get current text OR read from ta.value
     assert.ok(
@@ -257,7 +264,10 @@ describe("ATS analysis follows draft modal lifecycle", () => {
 
     // Should use session.job for current job context
     assert.ok(
-      handlerBody.includes("session.job") || handlerBody.includes("lastResumeGenerationSession.job"),
+      handlerBody.includes("const session = lastResumeGenerationSession") &&
+        handlerBody.includes("session.job") &&
+        handlerBody.includes("buildAtsScorecardRequestPayload") &&
+        handlerBody.includes("renderResumeGenerateInsights(draft, session.job)"),
       "retry-ats-scorecard should use the current session job context",
     );
   });

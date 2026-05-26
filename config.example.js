@@ -3,7 +3,10 @@
  *
  * 1. Copy this file: cp config.example.js config.js
  * 2. Replace the placeholder values below with your own.
- * 3. See SETUP.md for detailed instructions.
+ * 3. See SETUP.md and docs/GITHUB-PAGES.md for deployment instructions.
+ *
+ * Static hosts can also leave config.js placeholder-only and use in-app
+ * Settings. Those overrides are stored in this browser's localStorage.
  */
 window.COMMAND_CENTER_CONFIG = {
   // Google Sheet: paste the raw ID, or the full spreadsheet URL (same as Settings form)
@@ -21,6 +24,7 @@ window.COMMAND_CENTER_CONFIG = {
   // Optional: Hermes / automation — when the user clicks "Run discovery", the app
   // POSTs JSON to this URL so your agent can run another pass with a fresh
   // variation key (fewer duplicate leads). Endpoint must allow CORS from your site.
+  // On GitHub Pages, use an HTTPS endpoint or a Cloudflare Worker relay.
   // Body: { event, schemaVersion, sheetId, variationKey, requestedAt, discoveryProfile }
   // See AGENT_CONTRACT.md
   discoveryWebhookUrl: "",
@@ -29,6 +33,8 @@ window.COMMAND_CENTER_CONFIG = {
   // x-discovery-secret header. Required by the browser-use discovery worker
   // (which fail-closes on empty secrets). Leave empty for public endpoints
   // like the Apps Script stub.
+  // Do not commit real secrets to a public repository; prefer Settings,
+  // private forks, or a Pages deploy workflow that generates config.js.
   discoveryWebhookSecret: "",
 
   // Cheerio scraper for "Fetch posting" on job cards (see server/).
@@ -65,7 +71,7 @@ window.COMMAND_CENTER_CONFIG = {
   resumeProvider: "gemini",
   // Google AI Studio API key (browser-safe; do not commit real keys to public repos)
   resumeGeminiApiKey: "",
-  resumeGeminiModel: "gemini-2.5-flash",
+  resumeGeminiModel: "gemini-3.5-flash",
   // OpenAI may be blocked by CORS from some static hosts; prefer Gemini or webhook.
   resumeOpenAIApiKey: "",
   resumeOpenAIModel: "gpt-4o-mini",

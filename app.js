@@ -100,6 +100,7 @@ class DiscoveryRunTracker {
         leadsWritten: Number.isFinite(parsed.leadsWritten)
           ? parsed.leadsWritten
           : 0,
+        statusUnavailable: !!parsed.statusUnavailable,
       };
     } catch (_) {
       return this._idle();
@@ -136,6 +137,7 @@ class DiscoveryRunTracker {
       completedAt: "",
       companiesSeen: 0,
       leadsWritten: 0,
+      statusUnavailable: false,
     };
   }
 
@@ -160,6 +162,7 @@ class DiscoveryRunTracker {
     trigger = "manual",
     variationKey = "",
     requestedAt = "",
+    statusUnavailable = false,
   }) {
     this._state = {
       status: "pending",
@@ -181,6 +184,7 @@ class DiscoveryRunTracker {
       completedAt: "",
       companiesSeen: 0,
       leadsWritten: 0,
+      statusUnavailable: !!statusUnavailable,
     };
     this._persist(this._state);
     return this;
@@ -201,6 +205,7 @@ class DiscoveryRunTracker {
   updateFromStatusResponse(statusData) {
     if (!statusData || typeof statusData !== "object") return this;
     this._state.lastPollAt = new Date().toISOString();
+    this._state.statusUnavailable = false;
     const isTerminal = !!statusData.terminal;
     const runStatus = String(statusData.status || "").toLowerCase();
     const request = statusData.request && typeof statusData.request === "object"
@@ -252,10 +257,27 @@ class DiscoveryRunTracker {
     this._state.pollErrorCount = (this._state.pollErrorCount || 0) + 1;
     this._state.lastPollAt = new Date().toISOString();
     this._state.errorMessage = String(errorMessage || "Polling failed");
+    this._state.statusUnavailable = true;
     // Transition to polling_error state if we've been in running/pending
     if (this._state.status === "running" || this._state.status === "pending") {
       this._state.status = "polling_error";
     }
+    this._persist(this._state);
+    return this;
+  }
+
+  /** Stop retrying status fetches without marking the worker run failed. */
+  markStatusConnectionLost(errorMessage = "") {
+    this._state.pollErrorCount = Math.max(
+      this._state.pollErrorCount || 0,
+      MAX_POLL_ERRORS,
+    );
+    this._state.lastPollAt = new Date().toISOString();
+    this._state.errorMessage = String(
+      errorMessage || "Status connection unavailable",
+    );
+    if (this._state.runId) this._state.status = "polling_error";
+    this._state.statusUnavailable = true;
     this._persist(this._state);
     return this;
   }
@@ -265,6 +287,7 @@ class DiscoveryRunTracker {
     if (this._state.status !== "polling_error") return this;
     this._state.status = this._state.runId ? "running" : "idle";
     this._state.pollErrorCount = 0;
+    this._state.statusUnavailable = false;
     this._persist(this._state);
     return this;
   }
@@ -280,6 +303,7 @@ class DiscoveryRunTracker {
     this._state.terminalKind = "";
     this._state.errorMessage = "";
     this._state.pollErrorCount = 0;
+    this._state.statusUnavailable = false;
     this._persist(this._state);
     return this;
   }
@@ -290,6 +314,7 @@ class DiscoveryRunTracker {
     this._state.terminalAt = new Date().toISOString();
     this._state.terminalKind = "failed";
     this._state.errorMessage = String(errorMessage || "Run failed");
+    this._state.statusUnavailable = false;
     this._persist(this._state);
     return this;
   }
@@ -2003,7 +2028,9 @@ function buildFallbackReadinessSnapshot() {
         ? "stub_only"
         : "",
     localRecoveryState:
-      hasLocalPathSignals || savedWebhookKind === "worker"
+      !(hasSavedExternalEndpoint && !isLocalDashboardOrigin()) &&
+      (hasLocalPathSignals ||
+        (savedWebhookKind === "worker" && isLocalDashboardOrigin()))
         ? "needs_full_restart"
         : "ok",
   };
@@ -2092,14 +2119,54 @@ async function refreshDiscoveryReadinessSnapshot(options = {}) {
   return next;
 }
 
-async function buildDiscoveryWebhookPayload(sheetIdOverride) {
+function readDiscoveryScheduleStateForPayload(storageKey) {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== "object") return {};
+    return {
+      enabled: parsed.enabled === true,
+      hour: Number.isInteger(parsed.hour) ? parsed.hour : undefined,
+      minute: Number.isInteger(parsed.minute) ? parsed.minute : undefined,
+    };
+  } catch (_) {
+    return {};
+  }
+}
+
+function readDiscoveryScheduleContextForPayload() {
+  return {
+    local: readDiscoveryScheduleStateForPayload("settings_profile_schedule_local"),
+    github: readDiscoveryScheduleStateForPayload("settings_profile_schedule_cloud"),
+  };
+}
+
+async function buildDiscoveryWebhookPayload(sheetIdOverride, options) {
+  const payloadOptions =
+    options && typeof options === "object" && !Array.isArray(options)
+      ? options
+      : {};
+  const trigger = String(payloadOptions.trigger || "manual").trim() || "manual";
   const resolvedSheetId =
     parseGoogleSheetId(String(sheetIdOverride || "")) || SHEET_ID || "";
   let discoveryProfile = {};
+  let activeResume = null;
+  let preferences = null;
   try {
     const UC = window.CommandCenterUserContent;
-    if (UC && typeof UC.getDiscoveryProfile === "function") {
-      discoveryProfile = await UC.getDiscoveryProfile();
+    if (UC && typeof UC.openDb === "function") {
+      await UC.openDb();
+    }
+    if (UC) {
+      if (typeof UC.getDiscoveryProfile === "function") {
+        discoveryProfile = await UC.getDiscoveryProfile();
+      }
+      if (typeof UC.getActiveResume === "function") {
+        activeResume = await UC.getActiveResume();
+      }
+      if (typeof UC.getPreferences === "function") {
+        preferences = await UC.getPreferences();
+      }
     }
   } catch (e) {
     console.warn("[JobBored] discovery profile:", e);
@@ -2112,94 +2179,36 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride) {
   // credential and falls back to its env config if it's absent or stale.
   // We declare the key unconditionally so JSON.stringify drops it when
   // empty (keeps the contract scanner happy and the wire format unchanged).
-  const dashboardGoogleAccessToken = getDiscoveryRequestGoogleAccessToken();
-  // ====== [discovery-autodetect lane: contract sanitization] ======
-  // Per .factory/library/source-preset-contract.md: "Omitted sourcePreset →
-  // passes validation; fallback resolved by config resolver." But sending
-  // `sourcePreset: ""` (empty string) is rejected by the worker because the
-  // field is *present* but not in the enum. A fresh greenfield user has an
-  // empty discovery profile object, so getDiscoveryProfile() returns {} and
-  // any code path that defaulted sourcePreset to "" would trip the
-  // validator. Strip empty/whitespace sourcePreset before sending.
-  //
-  // Symptom this fixes: Step 7 wizard "Run test" returning
-  //   "discoveryProfile.sourcePreset must be one of: browser_only, ats_only,
-  //    browser_plus_ats. Received: ''."
+  const dashboardGoogleAccessToken =
+    await getFreshDiscoveryRequestGoogleAccessToken();
+  const requestedAt = new Date().toISOString();
+  const sharedBuilder = window.JobBoredDiscoveryPayload;
   if (
-    discoveryProfile &&
-    typeof discoveryProfile === "object" &&
-    Object.prototype.hasOwnProperty.call(discoveryProfile, "sourcePreset")
+    sharedBuilder &&
+    typeof sharedBuilder.buildDiscoveryWebhookPayload === "function"
   ) {
-    const sp = discoveryProfile.sourcePreset;
-    const trimmed = typeof sp === "string" ? sp.trim() : sp;
-    if (
-      trimmed === "" ||
-      trimmed == null ||
-      typeof trimmed !== "string"
-    ) {
-      // Clone so we never mutate the stored profile in IndexedDB.
-      const sanitized = { ...discoveryProfile };
-      delete sanitized.sourcePreset;
-      discoveryProfile = sanitized;
-    } else if (trimmed !== sp) {
-      discoveryProfile = { ...discoveryProfile, sourcePreset: trimmed };
-    }
-  }
-  // ====== [/discovery-autodetect lane] ======
-
-  // Company targeting: hoist allow/block-lists to top-level fields so
-  // the worker can apply them as a routing constraint without unpacking
-  // discoveryProfile. Empty/missing => no company restriction. Always
-  // strip the duplicates from discoveryProfile so the wire payload has
-  // exactly one source of truth for these arrays.
-  const sanitizeCompanies = (raw) => {
-    if (!Array.isArray(raw)) return [];
-    const seen = new Set();
-    const out = [];
-    for (const v of raw) {
-      if (typeof v !== "string") continue;
-      const t = v.trim();
-      if (!t) continue;
-      const key = t.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(t);
-      if (out.length >= 50) break;
-    }
-    return out;
-  };
-  const companyAllowlist = sanitizeCompanies(
-    discoveryProfile && Array.isArray(discoveryProfile.companyAllowlist)
-      ? discoveryProfile.companyAllowlist
-      : [],
-  );
-  const companyBlocklist = sanitizeCompanies(
-    discoveryProfile && Array.isArray(discoveryProfile.companyBlocklist)
-      ? discoveryProfile.companyBlocklist
-      : [],
-  );
-  if (
-    discoveryProfile &&
-    typeof discoveryProfile === "object" &&
-    (Object.prototype.hasOwnProperty.call(discoveryProfile, "companyAllowlist") ||
-      Object.prototype.hasOwnProperty.call(discoveryProfile, "companyBlocklist"))
-  ) {
-    const stripped = { ...discoveryProfile };
-    delete stripped.companyAllowlist;
-    delete stripped.companyBlocklist;
-    discoveryProfile = stripped;
+    return sharedBuilder.buildDiscoveryWebhookPayload({
+      sheetId: resolvedSheetId,
+      discoveryProfile,
+      resume: activeResume,
+      preferences,
+      schedule: readDiscoveryScheduleContextForPayload(),
+      requestedAt,
+      variationKey: payloadOptions.variationKey || generateDiscoveryVariationKey(),
+      trigger,
+      googleAccessToken: dashboardGoogleAccessToken || "",
+    });
   }
 
   return {
     event: "command-center.discovery",
     schemaVersion: 1,
     sheetId: resolvedSheetId,
-    variationKey: generateDiscoveryVariationKey(),
-    requestedAt: new Date().toISOString(),
+    variationKey: payloadOptions.variationKey || generateDiscoveryVariationKey(),
+    requestedAt,
+    trigger,
     discoveryProfile,
     googleAccessToken: dashboardGoogleAccessToken || undefined,
-    companyAllowlist: companyAllowlist.length ? companyAllowlist : undefined,
-    companyBlocklist: companyBlocklist.length ? companyBlocklist : undefined,
   };
 }
 
@@ -2218,6 +2227,35 @@ function getDiscoveryRequestGoogleAccessToken() {
     if (remainingMs < 60_000) return "";
   }
   return trimmed;
+}
+
+async function getFreshDiscoveryRequestGoogleAccessToken(options = {}) {
+  if (options && options.force === true) {
+    const refreshed = await refreshAccessTokenSilently().catch(() => false);
+    return refreshed ? getDiscoveryRequestGoogleAccessToken() : "";
+  }
+  const current = getDiscoveryRequestGoogleAccessToken();
+  if (current) return current;
+  if (!accessToken || !Number.isFinite(tokenExpiresAt)) return "";
+  const remainingMs = Number(tokenExpiresAt) - Date.now();
+  if (remainingMs >= 60_000) return "";
+  const refreshed = await refreshAccessTokenSilently().catch(() => false);
+  return refreshed ? getDiscoveryRequestGoogleAccessToken() : "";
+}
+
+function isIngestSheetAuthFailure(data) {
+  if (!data || typeof data !== "object" || data.ok !== false) return false;
+  const text = [
+    data.reason,
+    data.message,
+    data.detail,
+    data.error,
+  ]
+    .map((value) => String(value || ""))
+    .join(" ");
+  return /UNAUTHENTICATED|invalid authentication credentials|Expected OAuth 2 access token|Google session expired/i.test(
+    text,
+  );
 }
 
 function getDiscoveryEngineStateFromVerificationResult(result) {
@@ -5635,6 +5673,22 @@ function buildRunStatusUrl(statusPath, webhookUrl) {
   }
 }
 
+function canSynthesizeRunStatusPath(webhookUrl) {
+  const normalized = normalizeDiscoveryWebhookIdentity(webhookUrl);
+  if (!normalized) return false;
+  return isLocalWebhookCandidateUrl(normalized);
+}
+
+function resolveAcceptedRunStatusPath(result, webhookUrl) {
+  const explicit = String(
+    (result && (result.statusPath || result.status_path)) || "",
+  ).trim();
+  if (explicit) return explicit;
+  const runId = String((result && result.runId) || "").trim();
+  if (!runId || !canSynthesizeRunStatusPath(webhookUrl)) return "";
+  return "/runs/" + encodeURIComponent(runId);
+}
+
 function isLikelyNgrokUrl(raw) {
   const s = String(raw || "").trim();
   if (!s) return false;
@@ -5731,6 +5785,35 @@ async function pollRunStatus(webhookUrl) {
   return data;
 }
 
+function retryDiscoveryStatusConnection() {
+  const state = discoveryRunTracker.getState();
+  if (!state.runId || !state.statusPath) return;
+  discoveryRunTracker.resumeFromPollError();
+  renderDiscoveryRunStatus();
+  void startDiscoveryStatusPolling(state.webhookUrl || getDiscoveryWebhookUrl());
+}
+
+function shouldRefreshPipelineAfterDiscoveryRun(state) {
+  const status = String((state && state.status) || "").toLowerCase();
+  return (
+    status === "completed" ||
+    status === "partial" ||
+    Number((state && state.leadsWritten) || 0) > 0
+  );
+}
+
+async function refreshPipelineAfterDiscoveryRun(state) {
+  if (!shouldRefreshPipelineAfterDiscoveryRun(state)) return false;
+  if (typeof loadAllData !== "function") return false;
+  try {
+    await loadAllData();
+    return true;
+  } catch (err) {
+    console.warn("[JobBored] post-discovery refresh failed:", err);
+    return false;
+  }
+}
+
 /**
  * Main polling loop — call once after an accepted_async response.
  * Automatically stops when the run reaches a terminal state or polling errors exceed limit.
@@ -5764,9 +5847,8 @@ async function startDiscoveryStatusPolling(webhookUrl) {
 
     if (updated.status === "polling_error") {
       if (updated.pollErrorCount >= MAX_POLL_ERRORS) {
-        // Exhausted retries — surface error and stop
-        tracker.markFailed(
-          "Status polling failed after multiple attempts. Check the discovery worker logs.",
+        tracker.markStatusConnectionLost(
+          "Lost the status connection after multiple attempts. The discovery run may still be running.",
         );
         renderDiscoveryRunStatus();
         return;
@@ -5778,6 +5860,7 @@ async function startDiscoveryStatusPolling(webhookUrl) {
     }
 
     if (tracker.isTerminal()) {
+      await refreshPipelineAfterDiscoveryRun(updated);
       renderDiscoveryRunStatus();
       return;
     }
@@ -5808,7 +5891,13 @@ function stopDiscoveryStatusPolling() {
 
 function resumeDiscoveryStatusPollingIfNeeded() {
   const state = discoveryRunTracker.getState();
-  if (!state.runId || !state.statusPath) return;
+  if (!state.runId) return;
+  if (!state.statusPath) {
+    if (state.statusUnavailable && discoveryRunTracker.isActive()) {
+      renderDiscoveryRunStatus();
+    }
+    return;
+  }
   if (state.status === "failed") {
     discoveryRunTracker.resumeFromStatusPollingFailure();
   }
@@ -5846,7 +5935,9 @@ function renderDiscoveryRunStatus() {
 
   switch (state.status) {
     case "pending":
-      statusMessage = `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} accepted — checking status…`;
+      statusMessage = state.statusUnavailable
+        ? `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} accepted, but this worker did not return a status URL. Check Pipeline or Runs for the final result.`
+        : `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} accepted — checking status…`;
       statusTone = "info";
       break;
     case "running":
@@ -5854,7 +5945,10 @@ function renderDiscoveryRunStatus() {
       statusTone = "info";
       break;
     case "polling_error":
-      statusMessage = `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} — retrying…`;
+      statusMessage =
+        state.pollErrorCount >= MAX_POLL_ERRORS
+          ? `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} accepted, but JobBored lost the status connection. The worker may still be running.`
+          : `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} — retrying status connection…`;
       statusTone = "warning";
       break;
     case "completed":
@@ -5887,7 +5981,27 @@ function renderDiscoveryRunStatus() {
     // Also surface in a toast for non-terminal states
     if (state.status !== "idle") {
       // Use a transient toast (non-blocking) for live updates
-      showToast(statusMessage, statusTone, false);
+      const retryAction =
+        state.status === "polling_error" &&
+        state.statusPath &&
+        state.pollErrorCount >= MAX_POLL_ERRORS
+          ? { label: "Retry status", onClick: retryDiscoveryStatusConnection }
+          : state.status === "pending" && state.statusUnavailable
+            ? {
+                label: "Open runs",
+                onClick: () => {
+                  document.getElementById("runsBtn")?.click();
+                },
+              }
+          : undefined;
+      showToast(
+        statusMessage,
+        statusTone,
+        (state.status === "polling_error" &&
+          state.pollErrorCount >= MAX_POLL_ERRORS) ||
+          (state.status === "pending" && state.statusUnavailable),
+        retryAction,
+      );
     }
   }
 }
@@ -6077,18 +6191,23 @@ async function runScraperConnectionTest() {
   }
 }
 
-/** True for offline / connection refused / CORS-style fetch failures */
+/** True for offline / connection refused / CORS-style fetch failures
+ *  AND for AbortController-driven timeouts (so callers that wrap a
+ *  request in a timeout still classify the timeout as a network
+ *  problem rather than a hard error). */
 function isFetchNetworkError(err) {
   if (!err) return false;
   const msg = String(err.message || err || "");
   const name = err.name || "";
   return (
     name === "TypeError" ||
+    name === "AbortError" ||
     msg === "Failed to fetch" ||
     msg.includes("NetworkError") ||
     msg.includes("Network request failed") ||
     msg.includes("Load failed") ||
-    msg.includes("CONNECTION_REFUSED")
+    msg.includes("CONNECTION_REFUSED") ||
+    msg.includes("aborted")
   );
 }
 
@@ -7438,6 +7557,7 @@ let initialSheetAccessResolved = false;
 let pendingSetupStarterSheetCreate = false;
 let postAccessBootstrapDone = false;
 let postAccessBootstrapPromise = Promise.resolve();
+let expiredReviewModalKeyHandler = null;
 
 /** Pipeline indices with expanded detail panel — preserved across re-renders */
 const expandedJobKeys = new Set();
@@ -7451,6 +7571,57 @@ const viewedJobKeys = new Set(
 const ENRICHMENT_CACHE_KEY = "jb_enrichment_v1";
 const ENRICHMENT_CACHE_MAX = 300;
 const ENRICHMENT_CACHE_DESC_LIMIT = 8000; // chars kept for raw description
+
+function normalizeEnrichmentCacheUrl(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  try {
+    const u = new URL(raw);
+    u.hash = "";
+    const path = u.pathname === "/" ? "" : u.pathname.replace(/\/+$/, "");
+    return `${u.protocol}//${u.host.toLowerCase()}${path}${u.search}`;
+  } catch (_) {
+    return raw.toLowerCase();
+  }
+}
+
+function normalizeEnrichmentCacheIdentityPart(value) {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function getEnrichmentCacheIdentityKey(job) {
+  const o = job && typeof job === "object" ? job : {};
+  const company = normalizeEnrichmentCacheIdentityPart(o.company);
+  const title = normalizeEnrichmentCacheIdentityPart(o.title);
+  if (!company || !title) return "";
+  const location = normalizeEnrichmentCacheIdentityPart(o.location);
+  return `identity:${company}::${title}::${location}`;
+}
+
+function uniqueEnrichmentCacheKeys(keys) {
+  return [...new Set(keys.map((key) => String(key || "").trim()).filter(Boolean))];
+}
+
+function getEnrichmentCacheWriteKeys(jobOrUrl) {
+  const isObject = jobOrUrl && typeof jobOrUrl === "object";
+  const rawUrl = isObject
+    ? String(jobOrUrl.link || jobOrUrl.url || "").trim()
+    : String(jobOrUrl || "").trim();
+  const urlKey = normalizeEnrichmentCacheUrl(rawUrl);
+  const identityKey = isObject ? getEnrichmentCacheIdentityKey(jobOrUrl) : "";
+  return uniqueEnrichmentCacheKeys([urlKey, identityKey]);
+}
+
+function getEnrichmentCacheLookupKeys(job) {
+  const rawUrl = String((job && (job.link || job.url)) || "").trim();
+  const keys = getEnrichmentCacheWriteKeys(job);
+  if (rawUrl) keys.splice(1, 0, rawUrl); // legacy exact-key cache entries
+  return uniqueEnrichmentCacheKeys(keys);
+}
+
+function isUsableCachedEnrichment(enrichment) {
+  return !!(enrichment && enrichment.scrapedAt && !enrichment.llmError);
+}
 
 function _loadEnrichmentCache() {
   try {
@@ -7479,17 +7650,33 @@ function _saveEnrichmentCache(cache) {
 }
 
 /** Call after fetchJobPostingEnrichment succeeds to persist results. */
-function cacheEnrichment(url, enrichment) {
-  if (!url) return;
+function cacheEnrichment(jobOrUrl, enrichment) {
+  const keys = getEnrichmentCacheWriteKeys(jobOrUrl);
+  if (!keys.length) return;
   const cache = _loadEnrichmentCache();
   // Store AI fields + trimmed description; skip huge raw text to save space
-  cache[url] = {
+  const stored = {
     ...enrichment,
     description: enrichment.description
       ? String(enrichment.description).slice(0, ENRICHMENT_CACHE_DESC_LIMIT)
       : undefined,
   };
+  for (const key of keys) cache[key] = stored;
   _saveEnrichmentCache(cache);
+}
+
+function getCachedEnrichmentForJob(job, cacheOverride) {
+  if (!job) return null;
+  if (isUsableCachedEnrichment(job._postingEnrichment)) {
+    return job._postingEnrichment;
+  }
+  const cache = cacheOverride || _loadEnrichmentCache();
+  const keys = getEnrichmentCacheLookupKeys(job);
+  for (const key of keys) {
+    const hit = cache[key];
+    if (isUsableCachedEnrichment(hit)) return hit;
+  }
+  return null;
 }
 
 /** Restore cached enrichments into pipelineData after a Sheet load. */
@@ -7497,9 +7684,9 @@ function applyEnrichmentCache(jobs) {
   const cache = _loadEnrichmentCache();
   if (!Object.keys(cache).length) return;
   for (const job of jobs) {
-    if (!job.link || job._postingEnrichment) continue;
-    const hit = cache[job.link];
-    if (hit && hit.scrapedAt) job._postingEnrichment = hit;
+    if (job._postingEnrichment) continue;
+    const hit = getCachedEnrichmentForJob(job, cache);
+    if (hit) job._postingEnrichment = hit;
   }
 }
 
@@ -7607,6 +7794,29 @@ function setPipelineViewFilters(nextFilters = {}) {
   return getPipelineViewFilters();
 }
 
+function applyPipelineStageWrite(jobKey, statusLabel) {
+  const idx = Number(jobKey);
+  if (!Number.isInteger(idx) || idx < 0 || !pipelineData[idx]) return false;
+  const nextStatus = String(statusLabel || "").trim();
+  if (!nextStatus) return false;
+  pipelineData[idx].status = nextStatus;
+  renderPipeline();
+  renderStats();
+  renderBrief();
+  refreshDrawerIfOpen(idx);
+  return true;
+}
+
+function applyPipelineNotesWrite(jobKey, body) {
+  const idx = Number(jobKey);
+  if (!Number.isInteger(idx) || idx < 0 || !pipelineData[idx]) return false;
+  pipelineData[idx].notes = body == null ? "" : String(body);
+  renderPipeline();
+  renderBrief();
+  refreshDrawerIfOpen(idx);
+  return true;
+}
+
 // Auth state — access token stays in memory; localStorage only keeps a restore marker
 let accessToken = null;
 let userEmail = null;
@@ -7633,6 +7843,11 @@ if (typeof window !== "undefined") {
   };
   window.JobBored.getPipelineViewFilters = getPipelineViewFilters;
   window.JobBored.setPipelineViewFilters = setPipelineViewFilters;
+  window.JobBored.toggleFavorite = toggleFavorite;
+  window.JobBored.applyPipelineStageWrite = applyPipelineStageWrite;
+  window.JobBored.applyPipelineNotesWrite = applyPipelineNotesWrite;
+  window.JobBored.ingestJobUrl = ingestJobUrl;
+  window.JobBored.isParseableJobUrl = isParseableUrl;
 }
 /** Profile photo URL from Google userinfo (optional). */
 let userPictureUrl = null;
@@ -9400,20 +9615,110 @@ function getDiscoveryRunWebhookUrlCandidates(snapshot) {
     (state.savedWebhookKind === "local_http" ||
       state.localWebhookReady === true);
   return [
-    getDiscoveryWebhookUrl(),
-    state.savedWebhookUrl,
-    state.relayTargetUrl,
-    relayInfo && relayInfo.url,
-    localTunnelTargetUrl,
-    allowDirectLocal ? state.localWebhookUrl : "",
-    allowDirectLocal ? transport.localWebhookUrl : "",
+    { url: getDiscoveryWebhookUrl(), source: "configured" },
+    { url: state.savedWebhookUrl, source: "snapshot_saved" },
+    { url: state.relayTargetUrl, source: "snapshot_relay_target" },
+    { url: relayInfo && relayInfo.url, source: "relay_info" },
+    { url: localTunnelTargetUrl, source: "local_tunnel_target" },
+    {
+      url: allowDirectLocal ? state.localWebhookUrl : "",
+      source: "snapshot_local",
+    },
+    {
+      url: allowDirectLocal ? transport.localWebhookUrl : "",
+      source: "transport_local",
+    },
   ];
 }
 
-async function resolveDiscoveryRunWebhookUrl() {
-  const configured = normalizeDiscoveryWebhookIdentity(getDiscoveryWebhookUrl());
-  if (configured) return configured;
+function isLocalWebhookCandidateUrl(raw) {
+  const normalized = normalizeDiscoveryWebhookIdentity(raw);
+  if (!normalized) return false;
+  try {
+    const url = new URL(normalized);
+    const host = String(url.hostname || "")
+      .replace(/^\[|\]$/g, "")
+      .toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  } catch (_) {
+    return false;
+  }
+}
 
+function getDiscoveryRunWebhookCandidateProbe(candidate, snapshot) {
+  const src = candidate && typeof candidate === "object" ? candidate : {};
+  const url = normalizeDiscoveryWebhookIdentity(src.url || candidate);
+  if (!url) {
+    return { ok: false, url: "", source: src.source || "", score: -1 };
+  }
+
+  const verifyApi = getDiscoveryWizardVerifyApi();
+  if (verifyApi && typeof verifyApi.classifyEndpointInput === "function") {
+    const inputProblem = verifyApi.classifyEndpointInput(url);
+    if (inputProblem && inputProblem.kind === "invalid_endpoint") {
+      return {
+        ok: false,
+        url,
+        source: src.source || "",
+        score: -1,
+        reason: inputProblem.message || "invalid_endpoint",
+      };
+    }
+  }
+
+  const state = snapshot && typeof snapshot === "object" ? snapshot : {};
+  const local = isLocalWebhookCandidateUrl(url);
+  const worker = isLikelyCloudflareWorkerUrl(url);
+  const appsScript = isLikelyAppsScriptWebAppUrl(url);
+  const hostedHttps = /^https:\/\//i.test(url) && !local;
+  const source = String(src.source || "");
+  let score = 10;
+
+  if (local && !isLocalDashboardOrigin()) {
+    return {
+      ok: false,
+      url,
+      source,
+      score: -1,
+      reason: "local_only_on_hosted_dashboard",
+    };
+  }
+
+  if (source.includes("local") && local && state.localWebhookReady) score += 90;
+  else if (source.includes("local") && local) score += 20;
+  if (source === "configured") score += 35;
+  if (source === "snapshot_saved") score += 25;
+  if (worker) score += isLocalDashboardOrigin() ? 45 : 80;
+  else if (hostedHttps) score += isLocalDashboardOrigin() ? 35 : 65;
+  if (source.includes("relay")) score += 20;
+  if (source.includes("tunnel")) score += isLocalDashboardOrigin() ? 30 : 15;
+  if (appsScript) score -= 20;
+
+  const recovery = String(state.localRecoveryState || "ok");
+  if (recovery !== "ok" && (local || source.includes("tunnel"))) {
+    score -= 60;
+  }
+  if (!isLocalDashboardOrigin() && (worker || hostedHttps)) {
+    score += 20;
+  }
+
+  return { ok: true, url, source, score };
+}
+
+async function scoreDiscoveryRunWebhookCandidates(candidates, snapshot) {
+  const seen = new Set();
+  const scored = [];
+  for (const candidate of candidates || []) {
+    const probe = getDiscoveryRunWebhookCandidateProbe(candidate, snapshot);
+    if (!probe.ok || !probe.url || seen.has(probe.url)) continue;
+    seen.add(probe.url);
+    scored.push(probe);
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored;
+}
+
+async function resolveDiscoveryRunWebhookUrl() {
   await hydrateDiscoveryTransportSetupFromLocalBootstrap();
   let snapshot = getDiscoveryReadinessSnapshot();
   try {
@@ -9425,15 +9730,20 @@ async function resolveDiscoveryRunWebhookUrl() {
     console.warn("[JobBored] discovery run readiness:", err);
   }
 
-  for (const candidate of getDiscoveryRunWebhookUrlCandidates(snapshot)) {
-    const normalized = normalizeDiscoveryWebhookIdentity(candidate);
-    if (normalized) return normalized;
-  }
-  return "";
+  const scored = await scoreDiscoveryRunWebhookCandidates(
+    getDiscoveryRunWebhookUrlCandidates(snapshot),
+    snapshot,
+  );
+  return scored.length ? scored[0].url : "";
 }
 
 /** Notify automation (Hermes, n8n, etc.) to run another discovery pass (varied query). */
-async function triggerDiscoveryRun() {
+async function triggerDiscoveryRun(options) {
+  const runOptions =
+    options && typeof options === "object" && !Array.isArray(options)
+      ? options
+      : {};
+  const runTrigger = String(runOptions.trigger || "manual").trim() || "manual";
   const hook = await resolveDiscoveryRunWebhookUrl();
   if (!hook) {
     void requestDiscoverySetup({
@@ -9444,7 +9754,9 @@ async function triggerDiscoveryRun() {
     return { ok: false, reason: "no_url" };
   }
   try {
-    const payload = await buildDiscoveryWebhookPayload(SHEET_ID);
+    const payload = await buildDiscoveryWebhookPayload(SHEET_ID, {
+      trigger: runTrigger,
+    });
     // Guardrail: verify intent is present before sending webhook request
     const profile = payload && payload.discoveryProfile;
     const targetRoles = (profile && profile.targetRoles || "").trim();
@@ -9472,22 +9784,23 @@ async function triggerDiscoveryRun() {
       // Extract run tracking metadata from accepted_async responses and start polling
       if (result.kind === "accepted_async" && result.runId) {
         const webhookUrl = String(hook || "").trim();
-        // statusPath may come from the response body directly when the verifier
-        // parses the raw JSON and attaches it to the result object.
-        const statusPath = String(result.statusPath || result.status_path || "").trim();
+        const statusPath = resolveAcceptedRunStatusPath(result, webhookUrl);
         discoveryRunTracker.beginTracking({
           runId: result.runId,
           statusPath,
           pollAfterMs: Number.isFinite(result.pollAfterMs) ? result.pollAfterMs : 2000,
           webhookUrl,
-          trigger: "manual",
+          trigger: runTrigger,
           variationKey: payload.variationKey || "",
           requestedAt: payload.requestedAt || "",
+          statusUnavailable: !statusPath,
         });
         // Show initial pending feedback immediately
         renderDiscoveryRunStatus();
         // Start async polling — will update tracker state on each response
-        void startDiscoveryStatusPolling(webhookUrl);
+        if (statusPath) {
+          void startDiscoveryStatusPolling(webhookUrl);
+        }
       }
 
       return { ok: true, kind: result.kind };
@@ -9519,6 +9832,18 @@ async function triggerDiscoveryRun() {
     return { ok: false, reason: "error" };
   }
 }
+
+window.JobBoredDiscovery = Object.assign(window.JobBoredDiscovery || {}, {
+  triggerRun: triggerDiscoveryRun,
+  triggerScheduledRun(options) {
+    return triggerDiscoveryRun(
+      Object.assign({}, options || {}, {
+        trigger: (options && options.trigger) || "scheduled-browser",
+      }),
+    );
+  },
+  buildPayload: buildDiscoveryWebhookPayload,
+});
 
 /**
  * POST a test payload from the Settings form (same shape as Run discovery).
@@ -10753,13 +11078,13 @@ async function deleteBlacklistRowByUrl(url) {
 
 async function toggleFavorite(stableKey) {
   const job = pipelineData[stableKey];
-  if (!job) return;
+  if (!job) return false;
   if (!accessToken) {
     showSheetAccessGate("signin");
-    return;
+    return false;
   }
   const sheetRow = getSheetRow(stableKey);
-  if (!sheetRow) return;
+  if (!sheetRow) return false;
   const next = !job.favorite;
   job.favorite = next;
   renderPipeline();
@@ -10768,10 +11093,12 @@ async function toggleFavorite(stableKey) {
   ]);
   if (ok) {
     showToast(next ? "Favorited" : "Unfavorited", "success");
+    return true;
   } else {
     job.favorite = !next;
     renderPipeline();
     showToast("Couldn't save favorite", "error");
+    return false;
   }
 }
 
@@ -11010,7 +11337,9 @@ async function updateJobNotes(dataIndex, notes) {
 
   if (success) {
     pipelineData[dataIndex].notes = notes;
+    pipelineData[dataIndex]._rawNotes = notes;
     refreshDrawerIfOpen(dataIndex);
+    renderExpiredReviewButton();
     renderBrief();
     showToast("Notes saved");
   }
@@ -11395,6 +11724,7 @@ function parsePipelineCSV(rows) {
       status: row[12] || null,
       appliedDate: row[13] || null,
       notes: sanitizePipelineNotesFromSheet(row[14]) || null,
+      _rawNotes: row[14] || null,
       followUpDate: row[15] || null,
       talkingPoints: row[16] || null,
       lastHeardFrom:
@@ -11830,6 +12160,20 @@ function renderKanbanCard(job, index) {
   const contactsJson = job.contact && String(job.contact).trim()
     ? JSON.stringify([{ name: String(job.contact).trim() }])
     : "";
+  // Pull the AI enrichment fields the drawer uses (gemini scrape + LLM) so
+  // the v2 Dossier can render the same intelligence. Strings get clipped to
+  // safe lengths so the data attribute payload stays reasonable.
+  const _enr = (job && job._postingEnrichment) || null;
+  const _clip = (s, n) => (s ? String(s).slice(0, n) : "");
+  const _arrJson = (a) => {
+    if (!Array.isArray(a) || !a.length) return "";
+    const out = a
+      .map((x) => String(x || "").trim())
+      .filter(Boolean)
+      .slice(0, 16);
+    return out.length ? JSON.stringify(out) : "";
+  };
+  const _enrPair = (attr, value) => _pair(attr, value || "");
   const v2Attrs = [
     _pair("data-jd-snippet", jdRaw ? String(jdRaw).slice(0, 4000) : ""),
     _pair("data-notes", job.notes || ""),
@@ -11844,8 +12188,33 @@ function renderKanbanCard(job, index) {
     _pair("data-replied", repliedFlag),
     _pair("data-talking-points", job.talkingPoints || ""),
     _pair("data-contacts", contactsJson),
-    _pair("data-company-tagline", (job._postingEnrichment && job._postingEnrichment.aboutCompany) || ""),
-    _pair("data-employment", (job._postingEnrichment && job._postingEnrichment.employmentType) || ""),
+    _pair("data-company-tagline", (_enr && _enr.aboutCompany) || ""),
+    _pair("data-employment", (_enr && _enr.employmentType) || ""),
+    // Drawer-parity AI enrichment fields, surfaced so the v2 Dossier can
+    // render the same content (postingSummary, fitAngle, structured lists).
+    _enrPair("data-role-in-one-line", _enr && _clip(_enr.roleInOneLine, 240)),
+    _enrPair("data-posting-summary",  _enr && _clip(_enr.postingSummary, 1200)),
+    _enrPair("data-fit-angle",        _enr && _clip(_enr.fitAngle, 800)),
+    _enrPair("data-fit-assessment",   _clip(job.fitAssessment, 800)),
+    _enrPair("data-must-haves",       _enr && _arrJson(_enr.mustHaves)),
+    _enrPair("data-nice-to-haves",    _enr && _arrJson(_enr.niceToHaves)),
+    _enrPair("data-responsibilities", _enr && _arrJson(_enr.responsibilities)),
+    _enrPair("data-tools-and-stack",  _enr && _arrJson(_enr.toolsAndStack)),
+    _pair(
+      "data-ats-fit-score",
+      _enr && Number.isFinite(Number(_enr.atsFitScore))
+        ? String(Math.max(0, Math.min(100, Math.round(Number(_enr.atsFitScore)))))
+        : "",
+    ),
+    _enrPair("data-ats-fit-rationale", _enr && _clip(_enr.atsFitRationale, 500)),
+    _enrPair("data-extra-keywords",   _enr && _arrJson(_enr.extraKeywords)),
+    _enrPair("data-ai-talking-points",_enr && _arrJson(_enr.talkingPoints)),
+    _enrPair(
+      "data-enrichment-status",
+      job && job._enrichmentLoading
+        ? "loading"
+        : (_enr && _enr.scrapedAt && !_enr.llmError ? "ready" : ""),
+    ),
   ].filter(Boolean).join(" ");
 
   return `
@@ -12350,7 +12719,7 @@ function openJobDetail(stableKey) {
   // Guard against getJobPostingScrapeUrl() returning null to avoid a noisy toast on every open.
   if (
     job.link &&
-    !job._postingEnrichment?.scrapedAt &&
+    !isUsableCachedEnrichment(job._postingEnrichment) &&
     getJobPostingScrapeUrl()
   ) {
     fetchJobPostingEnrichment(stableKey).catch(() => {});
@@ -12601,6 +12970,7 @@ function renderPipeline() {
 
   // Board view: apply only search+sort, stages shown as collapsible lanes
   const data = filterAndSortJobs(pipelineData, currentSearch, currentSort);
+  renderExpiredReviewButton();
 
   roleCountEl.textContent = `${data.length} of ${pipelineData.length}`;
 
@@ -14055,6 +14425,150 @@ function safeHref(url) {
   return "";
 }
 
+function getExpiredReviewItems() {
+  const api = window.JobBoredExpiredReview;
+  if (!api || typeof api.getReviewJobs !== "function") return [];
+  return api.getReviewJobs(pipelineData, { now: new Date() });
+}
+
+function renderExpiredReviewButton() {
+  const btn = document.getElementById("expiredReviewBtn");
+  const countEl = document.getElementById("expiredReviewCount");
+  if (!btn) return;
+  const items = getExpiredReviewItems();
+  const count = items.length;
+  btn.hidden = count === 0;
+  btn.setAttribute(
+    "aria-label",
+    count
+      ? `Review ${count} potentially expired posting${count === 1 ? "" : "s"}`
+      : "No postings need expired-job review",
+  );
+  btn.title = count
+    ? `Review ${count} potentially expired posting${count === 1 ? "" : "s"}`
+    : "No postings need expired-job review";
+  if (countEl) {
+    countEl.textContent = count > 99 ? "99+" : String(count);
+    countEl.hidden = count === 0;
+  }
+}
+
+function formatExpiredReviewDate(job) {
+  const raw = job && (job.dateFoundRaw || job.dateFound);
+  if (!raw) return "";
+  const parsed = raw instanceof Date ? raw : new Date(String(raw));
+  if (Number.isNaN(parsed.getTime())) return String(raw || "");
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function renderExpiredReviewModal() {
+  const list = document.getElementById("expiredReviewList");
+  const summary = document.getElementById("expiredReviewModalSummary");
+  if (!list) return;
+  const items = getExpiredReviewItems();
+  if (summary) {
+    summary.textContent = items.length
+      ? `${items.length} active posting${items.length === 1 ? "" : "s"} may need an availability check. Open the job listing first, then update the Pipeline status if it has closed.`
+      : "No New or Researching postings currently need expired-job review.";
+  }
+  if (!items.length) {
+    list.innerHTML =
+      '<p class="expired-review-empty">No review items right now. Aging New and Researching roles will appear here when they need a quick listing check.</p>';
+    return;
+  }
+  list.innerHTML = items
+    .map((entry) => {
+      const job = entry.job || {};
+      const reason = entry.reason || {};
+      const href = safeHref(job.link);
+      const found = formatExpiredReviewDate(job);
+      const status = String(job.status || "New").trim() || "New";
+      const title = job.title || "Untitled role";
+      const company = job.company || "Unknown company";
+      const meta = [
+        status ? `Status: ${status}` : "",
+        found ? `Found: ${found}` : "",
+        job.location ? `Location: ${job.location}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      return `
+        <article class="expired-review-item">
+          <div class="expired-review-item__body">
+            <h4 class="expired-review-item__title">${escapeHtml(title)}</h4>
+            <p class="expired-review-item__company">${escapeHtml(company)}</p>
+            ${meta ? `<p class="expired-review-item__meta">${escapeHtml(meta)}</p>` : ""}
+            <span class="expired-review-item__reason">${escapeHtml(reason.label || "Needs review")}</span>
+            ${
+              reason.detail
+                ? `<p class="expired-review-item__meta">${escapeHtml(reason.detail)}</p>`
+                : ""
+            }
+          </div>
+          <div class="expired-review-item__actions">
+            ${
+              href
+                ? `<a class="expired-review-item__link" href="${escapeHtml(href)}" target="_blank" rel="noopener">Open posting</a>`
+                : ""
+            }
+            <button type="button" class="expired-review-item__ghost" data-action="expired-review-focus" data-index="${entry.index}">View card</button>
+          </div>
+        </article>`;
+    })
+    .join("");
+}
+
+function openExpiredReviewModal() {
+  const modal = document.getElementById("expiredReviewModal");
+  if (!modal) return;
+  if (expiredReviewModalKeyHandler) {
+    document.removeEventListener("keydown", expiredReviewModalKeyHandler);
+    expiredReviewModalKeyHandler = null;
+  }
+  renderExpiredReviewModal();
+  modal.style.display = "flex";
+  const closeBtn = document.getElementById("expiredReviewModalClose");
+  if (closeBtn) closeBtn.focus();
+  expiredReviewModalKeyHandler = (e) => {
+    if (e.key === "Escape") closeExpiredReviewModal();
+  };
+  document.addEventListener("keydown", expiredReviewModalKeyHandler);
+}
+
+function closeExpiredReviewModal() {
+  const modal = document.getElementById("expiredReviewModal");
+  if (modal) modal.style.display = "none";
+  if (expiredReviewModalKeyHandler) {
+    document.removeEventListener("keydown", expiredReviewModalKeyHandler);
+    expiredReviewModalKeyHandler = null;
+  }
+}
+
+function initExpiredReviewUi() {
+  document
+    .getElementById("expiredReviewBtn")
+    ?.addEventListener("click", openExpiredReviewModal);
+  document
+    .getElementById("expiredReviewModalClose")
+    ?.addEventListener("click", closeExpiredReviewModal);
+  const modal = document.getElementById("expiredReviewModal");
+  if (modal) {
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) closeExpiredReviewModal();
+      const focusBtn = e.target.closest?.('[data-action="expired-review-focus"]');
+      if (!focusBtn) return;
+      const idx = parseInt(focusBtn.dataset.index, 10);
+      closeExpiredReviewModal();
+      revealPipelineJobByIndex(idx);
+      setTimeout(() => openJobDetail(idx), 140);
+    });
+  }
+}
+
 function updateLastRefresh() {
   const el = document.getElementById("lastRefresh");
   const now = new Date();
@@ -14122,6 +14636,33 @@ function dispatchAtsState() {
 window.addEventListener("jb:ats:state:request", (e) => {
   const wantKey = e?.detail?.jobKey;
   if (!wantKey || wantKey === atsScorecardState.cacheKey) dispatchAtsState();
+});
+
+/* When the v2 Dossier opens a role, mirror the legacy drawer's auto-fetch:
+   if we have a posting URL, the scraper is configured, and we don't have
+   enrichment yet, kick off the same scrape + Gemini enrichment that the
+   drawer uses. fetchJobPostingEnrichment writes to job._postingEnrichment
+   and re-renders the pipeline, which re-emits enriched data-* attributes
+   on the kanban card — the Dossier picks those up via dawn-data.js's
+   getRoleViewModel parser, and role.js re-renders on jb:write:succeeded /
+   jb:role:opened. */
+/* Auto-enrich on Dossier open. The self-healing pipeline in
+   fetchJobPostingEnrichment handles every failure mode silently
+   as long as a Gemini key is configured, so we no longer gate
+   on the scraper URL being present. */
+window.addEventListener("jb:role:opened", (e) => {
+  try {
+    const key = e && e.detail && e.detail.jobKey;
+    if (key == null) return;
+    const idx = Number(key);
+    if (!Number.isFinite(idx)) return;
+    const job = pipelineData[idx];
+    if (!job) return;
+    if (isUsableCachedEnrichment(job._postingEnrichment)) return;
+    if (job._enrichmentLoading) return;
+    if (typeof fetchJobPostingEnrichment !== "function") return;
+    fetchJobPostingEnrichment(idx).catch(() => {});
+  } catch (_) { /* never throw to the dossier */ }
 });
 
 function getUserContent() {
@@ -14947,185 +15488,325 @@ function scheduleCandidateProfileMatchRefresh(shouldRender) {
   });
 }
 
-async function fetchJobPostingEnrichment(dataIndex) {
-  const job = pipelineData[dataIndex];
-  if (!job || !job.link) {
-    showToast("No job URL to scrape", "error");
-    return;
-  }
-  const base = getJobPostingScrapeUrl();
-  if (!base) {
-    showToast(
-      "Open the setup guide to start the Cheerio server and paste the URL.",
-      "error",
-    );
-    openScraperSetupModal();
-    return;
-  }
-  if (isScraperUrlBlockedOnThisPage(base)) {
-    showToast(SCRAPER_HTTPS_BLOCKED_HINT, "error", true);
-    openScraperSetupModal();
-    return;
-  }
+/* ============================================================
+   Job-posting enrichment — single self-healing pipeline.
+   ------------------------------------------------------------
+   Design intent: the ONLY user-visible prerequisite is a Gemini
+   API key. Everything else self-heals silently:
 
-  job._enrichmentLoading = true;
-  refreshDrawerIfOpen(dataIndex);
-  const _abortCtrl = new AbortController();
-  const _abortTimer = setTimeout(() => _abortCtrl.abort(), 30_000);
+   • No scraper URL configured?           → LLM-only path
+   • Scraper unreachable / offline?       → LLM-only path
+   • Mixed-content (HTTPS → http)?        → LLM-only path
+   • Scraper returns 4xx / 5xx?           → LLM-only path
+   • Scraper returns empty body?          → LLM-only path
+   • Scraper times out (8s)?              → LLM-only path
+   • Upstream site blocks scraper?        → LLM-only path
+   • Profile excerpt unavailable?         → continue with ""
+   • Gemini 401 / 429 / safety block?     → calm reason-specific
+                                            toast, don't cache, allow retry
+
+   The Cheerio scraper is a strict quality boost: when reachable,
+   we pass the full page text to Gemini. When NOT reachable, Gemini
+   gets URL + hostname + title + company + a "scrape failed,
+   conservative inference" hint, and still produces useful output.
+
+   The legacy setup modal is NEVER opened from this flow.
+   ============================================================ */
+
+/** The single canonical message shown when the user has no Gemini
+ *  key configured. No mention of the scraper, no shell commands. */
+const GEMINI_KEY_MISSING_TOAST =
+  "Add a Gemini API key in Settings → AI Providers to enable posting insights.";
+
+/** Race guard + offline + key gate. Returns true when it's safe to
+ *  proceed. Side-effect: shows a single toast on the no-go path. */
+function _enrichmentPreconditionsOk(job) {
+  if (!job) return false;
+  if (job._enrichmentLoading) return false;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    showToast("You're offline — insights will load when you reconnect.", "info");
+    return false;
+  }
+  const canLlm = !!(
+    window.CommandCenterJobPostingInsights &&
+    window.CommandCenterJobPostingInsights.canEnrichWithLLM()
+  );
+  if (!canLlm) {
+    showToast(GEMINI_KEY_MISSING_TOAST, "error");
+    return false;
+  }
+  return true;
+}
+
+/** Attempt a scrape. Returns the scraped payload on success, or
+ *  null on ANY failure (network, timeout, non-2xx, empty body,
+ *  malformed JSON, mixed-content, no URL). Never throws. */
+async function _tryScrape(jobLink) {
+  if (!jobLink) return null;
+  const base = getJobPostingScrapeUrl();
+  if (!base) return null;
+  if (isScraperUrlBlockedOnThisPage(base)) return null;
+  const ctrl = new AbortController();
+  // 8s is plenty for the local Cheerio service; longer waits feel
+  // broken and the LLM-only path produces useful output anyway.
+  const timer = setTimeout(() => ctrl.abort(), 8_000);
   try {
     const res = await fetch(`${base}/api/scrape-job`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: job.link }),
-      signal: _abortCtrl.signal,
+      body: JSON.stringify({ url: jobLink }),
+      signal: ctrl.signal,
     });
-    clearTimeout(_abortTimer);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.error || `HTTP ${res.status}`);
-    }
-    const scraped = {
-      ...data,
-      scrapedAt: Date.now(),
-    };
-    let merged = { ...scraped };
-    if (
-      window.CommandCenterJobPostingInsights &&
-      window.CommandCenterJobPostingInsights.canEnrichWithLLM()
-    ) {
-      try {
-        let profileExcerpt = "";
-        const UC = getUserContent();
-        if (UC) {
-          await UC.openDb();
-          profileExcerpt = await buildCandidateProfileExcerpt(UC, 14000);
-        }
-        const llm =
-          await window.CommandCenterJobPostingInsights.enrichFromScrape(
-            scraped,
-            { title: job.title, company: job.company },
-            profileExcerpt,
-          );
-        merged = {
-          ...merged,
-          // Clean LLM-extracted structured fields used by the paste-to-Pipeline
-          // auto-promotion path to patch B/C/D cells in place of the URL-only
-          // placeholders ("View" / "linkedin.com" / etc.). Empty strings when
-          // the LLM cannot determine a value.
-          inferredTitle: llm.inferredTitle,
-          inferredCompany: llm.inferredCompany,
-          inferredLocation: llm.inferredLocation,
-          postingSummary: llm.postingSummary,
-          roleInOneLine: llm.roleInOneLine,
-          mustHaves: llm.mustHaves,
-          niceToHaves: llm.niceToHaves,
-          responsibilities: llm.responsibilities,
-          toolsAndStack: llm.toolsAndStack,
-          fitAngle: llm.fitAngle,
-          talkingPoints: llm.talkingPoints,
-          extraKeywords: llm.extraKeywords,
-        };
-      } catch (e) {
-        console.warn("[JobBored] Posting LLM enrich:", e);
-        merged.llmError = e.message || "AI insight failed";
-      }
-    }
-    job._postingEnrichment = merged;
-    cacheEnrichment(job.link, merged);
-    renderPipeline();
-    showToast("Posting details loaded", "success");
-  } catch (e) {
-    console.error(e);
-    const errMsg = String((e && e.message) || "");
-    // Upstream site blocked the scraper (LinkedIn/Indeed/Glassdoor/etc.
-    // returning 401/403/429). This is expected for known-blocked
-    // aggregators; do NOT surface as an error toast. Instead try the
-    // LLM with what we already have from the sheet — for many
-    // postings the title + company alone is enough for Gemini to
-    // produce a useful role summary.
-    const isUpstreamBlock = /\bHTTP\s+(401|403|429)\b/i.test(errMsg);
-    if (isFetchNetworkError(e)) {
-      showToast(
-        `Can't reach the scraper at ${base}. From the project folder run: npm install && npm start — keep that terminal open, then try again.`,
-        "error",
-        true,
-      );
-      openScraperSetupModal();
-    } else if (isUpstreamBlock) {
-      await fallbackEnrichmentFromSheetOnly(job, dataIndex, errMsg);
-    } else {
-      showToast(e.message || "Could not fetch posting", "error");
-    }
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    if (!data) return null;
+    const hasDescription = !!String(data.description || "").trim();
+    const hasRequirements =
+      Array.isArray(data.requirements) && data.requirements.length > 0;
+    if (!hasDescription && !hasRequirements) return null; // empty scrape ≈ failure
+    return { ...data, url: jobLink, scrapedAt: Date.now() };
+  } catch (_e) {
+    // TypeError (network), AbortError (timeout), DOMException, etc.
+    return null;
   } finally {
-    clearTimeout(_abortTimer);
-    delete job._enrichmentLoading;
-    refreshDrawerIfOpen(dataIndex);
+    clearTimeout(timer);
   }
 }
 
-// When the upstream job site blocks the scraper (LinkedIn/Indeed/etc.
-// returning 401/403/429), fall back to the LLM using only the sheet-
-// stored title + company + URL. The response won't have a real job
-// description but the LLM can still produce a useful role summary from
-// the role+company context. Caches the result so the drawer doesn't
-// retry the scrape on every open.
-async function fallbackEnrichmentFromSheetOnly(job, dataIndex, errMsg) {
-  const stub = {
-    title: job.title || "",
-    description: "",
-    requirements: [],
-    skills: [],
-    scrapedAt: Date.now(),
-    _scrapeBlocked: true,
-    _scrapeError: errMsg || "upstream blocked scraper",
+/** Read the candidate profile excerpt for fitAngle / talkingPoints.
+ *  Any failure degrades to an empty string — never throws. */
+async function _safeProfileExcerpt() {
+  try {
+    const UC = getUserContent();
+    if (!UC) return "";
+    await UC.openDb();
+    return await buildCandidateProfileExcerpt(UC, 14000);
+  } catch (e) {
+    console.warn("[JobBored] profile excerpt unavailable:", e);
+    return "";
+  }
+}
+
+/** Classify a Gemini error into a user-facing toast. */
+function _toastForLlmError(err) {
+  const msg = String((err && err.message) || "");
+  if (/\b(401|API key not valid|invalid api key|unauthorized)\b/i.test(msg)) {
+    showToast(
+      "Gemini rejected the API key — re-enter it in Settings → AI Providers.",
+      "error",
+      true,
+    );
+    return;
+  }
+  if (/\b(429|RESOURCE_EXHAUSTED|quota|rate)\b/i.test(msg)) {
+    showToast("Gemini quota reached — try again in a minute.", "info");
+    return;
+  }
+  if (/\b(safety|SAFETY|blockReason|blocked)\b/i.test(msg)) {
+    showToast("Gemini blocked this posting (safety filter).", "info");
+    return;
+  }
+  showToast(msg ? `AI insight failed: ${msg}` : "AI insight failed", "error");
+}
+
+/** Pure-data merger: takes raw LLM output and copies only the
+ *  drawer-parity fields onto the base record. */
+function _mergeLlmFields(base, llm) {
+  if (!llm) return base;
+  return {
+    ...base,
+    inferredTitle: llm.inferredTitle,
+    inferredCompany: llm.inferredCompany,
+    inferredLocation: llm.inferredLocation,
+    postingSummary: llm.postingSummary,
+    roleInOneLine: llm.roleInOneLine,
+    mustHaves: llm.mustHaves,
+    niceToHaves: llm.niceToHaves,
+    responsibilities: llm.responsibilities,
+    toolsAndStack: llm.toolsAndStack,
+    atsFitScore: llm.atsFitScore,
+    atsFitRationale: llm.atsFitRationale,
+    fitAngle: llm.fitAngle,
+    talkingPoints: llm.talkingPoints,
+    extraKeywords: llm.extraKeywords,
   };
-  let merged = { ...stub };
-  if (
-    window.CommandCenterJobPostingInsights &&
-    window.CommandCenterJobPostingInsights.canEnrichWithLLM()
-  ) {
+}
+
+/** Try Gemini's URL Context tool to fetch the posting server-side.
+ *  Returns a Cheerio-shaped object on success, null on any failure.
+ *  Re-throws classifiable Gemini errors (401/429) so the outer flow
+ *  can toast them. */
+async function _tryGeminiUrlContext(jobLink) {
+  if (!jobLink) return null;
+  const insights = window.CommandCenterJobPostingInsights;
+  if (!insights || typeof insights.fetchViaGeminiUrlContext !== "function") {
+    return null;
+  }
+  return await insights.fetchViaGeminiUrlContext(jobLink);
+}
+
+/** The single entry point. Always succeeds when a Gemini key is
+ *  configured, regardless of scraper state.
+ *
+ *  Lane priority (best-quality first, all silent fallbacks):
+ *    A. Local Cheerio scraper      — fastest when reachable
+ *    B. Gemini URL Context tool    — works anywhere with just a key
+ *    C. Title + company + URL only — last resort, no page text
+ */
+async function fetchJobPostingEnrichment(dataIndex) {
+  const job = pipelineData[dataIndex];
+  if (!job) return;
+
+  const cached = getCachedEnrichmentForJob(job);
+  if (cached && cached.scrapedAt) {
+    job._postingEnrichment = cached;
+    delete job._enrichmentLoading;
+    refreshDrawerIfOpen(dataIndex);
     try {
-      let profileExcerpt = "";
-      const UC = getUserContent();
-      if (UC) {
-        await UC.openDb();
-        profileExcerpt = await buildCandidateProfileExcerpt(UC, 14000);
+      renderPipeline();
+      const _cachedDetail = { jobKey: String(dataIndex), status: "ready", cached: true };
+      window.dispatchEvent(new CustomEvent("jb:role:enriched", { detail: _cachedDetail }));
+      document.dispatchEvent(new CustomEvent("jb:role:enriched", { detail: _cachedDetail }));
+    } catch (_) {}
+    return;
+  }
+
+  if (!_enrichmentPreconditionsOk(job)) return;
+
+  job._enrichmentLoading = true;
+  /* Re-render the pipeline cards SYNCHRONOUSLY so the kanban card's
+     `data-enrichment-status="loading"` attribute flips before we
+     await any network call. The v2 Dossier reads enrichment state
+     off the card data-attrs, so without this the loading skeleton
+     would never appear — it would render once at empty state, then
+     once at done. Dispatch `jb:role:enriched` after the render so
+     role.js picks up the new attrs and re-renders the brief. */
+  refreshDrawerIfOpen(dataIndex);
+  try {
+    renderPipeline();
+    const _loadingDetail = { jobKey: String(dataIndex), status: "loading" };
+    window.dispatchEvent(new CustomEvent("jb:role:enriched", { detail: _loadingDetail }));
+    document.dispatchEvent(new CustomEvent("jb:role:enriched", { detail: _loadingDetail }));
+  } catch (_) {}
+
+  /* sourceLabel records which lane produced the page text, for
+     the success toast + cached metadata. */
+  let sourceLabel = "title-and-company";
+
+  try {
+    // Lane A: local Cheerio scraper (free, fast, but optional).
+    let scraped = await _tryScrape(job.link);
+    if (scraped) sourceLabel = "cheerio";
+
+    // Lane B: Gemini URL Context — the actual job page, fetched by
+    // Gemini's infrastructure. Works anywhere — GitHub Pages, plain
+    // localhost, behind corporate networks — using only the user's
+    // Gemini key. No local server required.
+    if (!scraped && job.link) {
+      try {
+        scraped = await _tryGeminiUrlContext(job.link);
+        if (scraped) sourceLabel = "gemini-url-context";
+      } catch (urlCtxErr) {
+        /* Classifiable Gemini error (401/429) — surface it
+           consistently with the structured-call path. */
+        _toastForLlmError(urlCtxErr);
+        delete job._enrichmentLoading;
+        refreshDrawerIfOpen(dataIndex);
+        try {
+          renderPipeline();
+          const _detail = { jobKey: String(dataIndex), status: "error" };
+          window.dispatchEvent(new CustomEvent("jb:role:enriched", { detail: _detail }));
+          document.dispatchEvent(new CustomEvent("jb:role:enriched", { detail: _detail }));
+        } catch (_) {}
+        return;
       }
+    }
+
+    const fallbackReason = scraped
+      ? ""
+      : !job.link
+        ? "no-url"
+        : "url-context-and-scraper-unavailable";
+
+    const base = scraped || {
+      url: job.link || "",
+      title: job.title || "",
+      description: "",
+      requirements: [],
+      skills: [],
+      scrapedAt: Date.now(),
+      _scrapeBlocked: true,
+      _scrapeFallbackReason: fallbackReason,
+    };
+
+    let merged = { ...base, _scrapeSource: sourceLabel };
+    let llmFailed = false;
+    try {
+      const profileExcerpt = await _safeProfileExcerpt();
       const llm = await window.CommandCenterJobPostingInsights.enrichFromScrape(
-        stub,
+        base,
         { title: job.title, company: job.company },
         profileExcerpt,
       );
-      merged = {
-        ...merged,
-        inferredTitle: llm.inferredTitle,
-        inferredCompany: llm.inferredCompany,
-        inferredLocation: llm.inferredLocation,
-        postingSummary: llm.postingSummary,
-        roleInOneLine: llm.roleInOneLine,
-        mustHaves: llm.mustHaves,
-        niceToHaves: llm.niceToHaves,
-        responsibilities: llm.responsibilities,
-        toolsAndStack: llm.toolsAndStack,
-        fitAngle: llm.fitAngle,
-        talkingPoints: llm.talkingPoints,
-        extraKeywords: llm.extraKeywords,
+      merged = _mergeLlmFields(merged, llm);
+    } catch (e) {
+      llmFailed = true;
+      merged.llmError = (e && e.message) || "AI insight failed";
+      console.warn("[JobBored] Posting LLM enrich:", e);
+      _toastForLlmError(e);
+    }
+
+    job._postingEnrichment = merged;
+    // Never cache a partial failure — let the next click retry.
+    if (!llmFailed) cacheEnrichment(job, merged);
+    delete job._enrichmentLoading;
+    refreshDrawerIfOpen(dataIndex);
+    renderPipeline();
+
+    // Notify the v2 Dossier so the brief re-pulls the new fields.
+    try {
+      const _detail = { jobKey: String(dataIndex), status: llmFailed ? "error" : "ready" };
+      window.dispatchEvent(new CustomEvent("jb:role:enriched", { detail: _detail }));
+      document.dispatchEvent(new CustomEvent("jb:role:enriched", { detail: _detail }));
+    } catch (_) {}
+
+    if (!llmFailed) {
+      /* Three success paths, three calm toasts, none mentions
+         infrastructure. The user just sees whether AI got the actual
+         page or had to infer from title + company. */
+      const toastByLane = {
+        "cheerio":           ["Posting details loaded", "success"],
+        "gemini-url-context":["AI read the posting and produced insights.", "success"],
+        "title-and-company": ["AI insights ready — inferred from title and company.", "info"],
       };
-    } catch (llmErr) {
-      console.warn("[JobBored] fallback LLM enrich:", llmErr);
-      merged.llmError =
-        (llmErr && llmErr.message) ||
-        "AI insight failed (source blocks scrapers).";
+      const [msg, kind] = toastByLane[sourceLabel] || toastByLane["title-and-company"];
+      showToast(msg, kind);
+    }
+  } finally {
+    if (job._enrichmentLoading) {
+      delete job._enrichmentLoading;
+      refreshDrawerIfOpen(dataIndex);
+      try {
+        renderPipeline();
+        const _detail = { jobKey: String(dataIndex), status: "error" };
+        window.dispatchEvent(new CustomEvent("jb:role:enriched", { detail: _detail }));
+        document.dispatchEvent(new CustomEvent("jb:role:enriched", { detail: _detail }));
+      } catch (_) {}
     }
   }
-  job._postingEnrichment = merged;
-  cacheEnrichment(job.link, merged);
-  renderPipeline();
-  // Subtle info toast instead of the error toast the old path showed.
-  showToast(
-    "This site blocks scrapers — details below are inferred from title + company.",
-    "info",
-  );
+}
+
+/* Compatibility alias: a couple of callers (and existing tests)
+   reference fallbackEnrichmentFromSheetOnly. The single-path
+   pipeline above subsumes the fallback — this thin shim keeps
+   the legacy entry-point alive. */
+async function fallbackEnrichmentFromSheetOnly(job, dataIndex /*, errMsg, opts */) {
+  if (!job) return;
+  const idx = typeof dataIndex === "number"
+    ? dataIndex
+    : pipelineData.indexOf(job);
+  if (idx < 0) return;
+  return fetchJobPostingEnrichment(idx);
 }
 
 /**
@@ -17096,32 +17777,9 @@ async function saveCommandCenterSettingsFromForm() {
     resumeGenerationWebhookUrl: val("settingsResumeGenerationWebhookUrl"),
   };
 
-  const UC = window.CommandCenterUserContent;
-  if (UC && typeof UC.saveDiscoveryProfile === "function") {
-    try {
-      // Handle grounded_web checkbox
-      const gwEl = document.getElementById("settingsDiscoveryGroundedWeb");
-      const groundedWebEnabled = gwEl ? gwEl.checked : true;
-      await UC.saveDiscoveryProfile({
-        targetRoles: val("settingsDiscoveryTargetRoles"),
-        locations: val("settingsDiscoveryLocations"),
-        remotePolicy: val("settingsDiscoveryRemotePolicy"),
-        seniority: val("settingsDiscoverySeniority"),
-        keywordsInclude: val("settingsDiscoveryKeywordsInclude"),
-        keywordsExclude: val("settingsDiscoveryKeywordsExclude"),
-        maxLeadsPerRun: val("settingsDiscoveryMaxLeadsPerRun"),
-        groundedWebEnabled,
-      });
-    } catch (e) {
-      console.warn("[JobBored] save discovery profile:", e);
-      if (err) {
-        err.textContent =
-          "Could not save discovery preferences. " + (e.message || "");
-        err.style.display = "block";
-      }
-      return;
-    }
-  }
+  // Discovery profile (target roles, locations, keywords, etc.) is owned
+  // by the Discovery drawer's Search sub-tab. Saving Settings does not
+  // touch the discovery profile — drawer Run discovery writes it instead.
 
   try {
     writeStoredConfigOverrides(payload);
@@ -18258,7 +18916,7 @@ function syncResumeGenerateFooterState() {
   if (print) print.disabled = !!busy || !hasBody;
 }
 
-function openDraftNotesModal(dataIndex, feature) {
+function openDraftNotesModal(dataIndex, feature, opts) {
   const modal = document.getElementById("draftNotesModal");
   const title = document.getElementById("draftNotesTitle");
   const target = document.getElementById("draftNotesTarget");
@@ -18276,13 +18934,58 @@ function openDraftNotesModal(dataIndex, feature) {
   if (target) {
     target.textContent = `${job.title || "Role"} · ${job.company || "Company"}`;
   }
-  if (input) input.value = "";
+  /* Prefill the notes input with an AI-derived starter when available
+     (drawer-parity enrichment: fitAngle + top must-haves). The user
+     can edit/clear before generating. Callers can also pass an
+     explicit prefill string via opts.prefillNotes. */
+  let prefill = String((opts && opts.prefillNotes) || "").trim();
+  if (!prefill) {
+    prefill = buildDraftNotesPrefill(job, feature);
+  }
+  if (input) input.value = prefill;
   if (generate) {
     generate.textContent =
       feature === "cover_letter" ? "Generate cover letter" : "Generate resume";
   }
   modal.style.display = "flex";
   input?.focus();
+  /* Place caret at end so the prefill is editable but the user can
+     still type their own additions immediately. */
+  if (input && prefill && typeof input.setSelectionRange === "function") {
+    try { input.setSelectionRange(prefill.length, prefill.length); } catch (_) {}
+  }
+}
+
+/* Build a short, opinionated "starter notes" string from the
+   _postingEnrichment so the user isn't staring at an empty textarea.
+   Returns "" when there's no enrichment yet — the modal stays blank,
+   matching the legacy behavior. */
+function buildDraftNotesPrefill(job, feature) {
+  const enr = job && job._postingEnrichment;
+  if (!enr) return "";
+  const fitAngle = String(enr.fitAngle || "").trim();
+  const musts = Array.isArray(enr.mustHaves)
+    ? enr.mustHaves
+        .map((s) => String(s || "").trim())
+        .filter(Boolean)
+        .slice(0, 3)
+    : [];
+  if (!fitAngle && !musts.length) return "";
+  const lines = [];
+  if (feature === "cover_letter") {
+    if (fitAngle) lines.push("Angle: " + fitAngle);
+    if (musts.length) lines.push("Must show: " + musts.join("; "));
+    lines.push(
+      "Keep it specific to " + (job.company || "this company") +
+      " — avoid generic language.",
+    );
+  } else {
+    /* resume_update */
+    if (musts.length) lines.push("Surface evidence of: " + musts.join("; "));
+    if (fitAngle) lines.push("Emphasize: " + fitAngle);
+    lines.push("Rewrite bullets so the top three lines speak to this JD.");
+  }
+  return lines.join("\n");
 }
 
 async function reviseLetterDraftForJob(dataIndex, options) {
@@ -18429,6 +19132,59 @@ if (typeof window !== "undefined") {
     var n = Number(idx);
     if (!Number.isFinite(n)) return null;
     return pipelineData[n] || null;
+  };
+  // Compose panel in the Workshop calls runResumeGeneration with a
+  // { silent: true, tone, maxWords, userNotes } shape so generation
+  // happens in-place. buildDraftNotesPrefill seeds the notes textarea.
+  window.runResumeGeneration = runResumeGeneration;
+  window.buildDraftNotesPrefill = buildDraftNotesPrefill;
+  // Read-only profile-source presence summary so the compose panel
+  // can show which sources will feed the next generation without
+  // pulling the user out of the Workshop.
+  window.getWorkshopProfileSummary = async function () {
+    const UC = getUserContent();
+    if (!UC) {
+      return {
+        hasResume: false,
+        hasLinkedIn: false,
+        hasAdditional: false,
+        tone: "warm",
+        defaultMaxWords: 350,
+      };
+    }
+    try {
+      await UC.openDb();
+      const active = await UC.getActiveResume();
+      const linkedIn =
+        typeof UC.getLinkedInProfile === "function"
+          ? await UC.getLinkedInProfile()
+          : { text: "" };
+      const additional =
+        typeof UC.getAdditionalContext === "function"
+          ? await UC.getAdditionalContext()
+          : { text: "" };
+      const prefs =
+        typeof UC.getPreferences === "function"
+          ? await UC.getPreferences()
+          : { tone: "warm", defaultMaxWords: 350 };
+      return {
+        hasResume: !!(active && String(active.extractedText || "").trim()),
+        hasLinkedIn: !!String(linkedIn && linkedIn.text ? linkedIn.text : "").trim(),
+        hasAdditional: !!String(
+          additional && additional.text ? additional.text : "",
+        ).trim(),
+        tone: prefs.tone || "warm",
+        defaultMaxWords: Number(prefs.defaultMaxWords) || 350,
+      };
+    } catch (_e) {
+      return {
+        hasResume: false,
+        hasLinkedIn: false,
+        hasAdditional: false,
+        tone: "warm",
+        defaultMaxWords: 350,
+      };
+    }
   };
 }
 
@@ -18613,32 +19369,49 @@ async function runResumeGeneration(dataIndex, feature, options) {
     return;
   }
 
+  /* Workshop compose panel can override tone, length, and skip the
+     legacy modal entirely. Defaults preserve the existing behavior.
+     Declared outside the try so the catch block can branch on it. */
+  const silent = !!(options && options.silent);
   try {
     const userNotes =
       options && options.userNotes != null
         ? String(options.userNotes).trim()
         : "";
+    const toneOverride =
+      options && options.tone != null
+        ? String(options.tone).trim().toLowerCase()
+        : "";
+    const maxWordsOverride =
+      options && options.maxWords != null && Number.isFinite(Number(options.maxWords))
+        ? Math.max(60, Math.min(1200, Math.floor(Number(options.maxWords))))
+        : 0;
     const profile = await Bundle.assembleProfile(UC);
+    if (toneOverride) {
+      profile.preferences = { ...profile.preferences, tone: toneOverride };
+    }
     const contextUsed = buildGenerationContextUsed(profile);
     const title =
       feature === "cover_letter" ? "Cover letter draft" : "Tailored resume";
     const feedbackEl = document.getElementById("resumeGenerateFeedback");
     if (feedbackEl) feedbackEl.value = "";
-    await openResumeGenerateModal(
-      title,
-      "Generating…",
-      "",
-      true,
-      feature,
-      contextUsed,
-      job,
-    );
+    if (!silent) {
+      await openResumeGenerateModal(
+        title,
+        "Generating…",
+        "",
+        true,
+        feature,
+        contextUsed,
+        job,
+      );
+    }
     const bundle = Bundle.buildResumeContextBundle(
       feature,
       job,
       profile,
       {
-        maxWords: profile.preferences.defaultMaxWords,
+        maxWords: maxWordsOverride || profile.preferences.defaultMaxWords,
         userNotes,
       },
       { sheetId: SHEET_ID },
@@ -18687,19 +19460,39 @@ async function runResumeGeneration(dataIndex, feature, options) {
       savedDraftId: savedDraft ? savedDraft.id : null,
       text,
     };
-    await openResumeGenerateModal(
-      title,
-      "",
+    if (silent) {
+      showToast(
+        feature === "cover_letter"
+          ? "Cover letter draft generated"
+          : "Tailored resume generated",
+        "success",
+      );
+    } else {
+      await openResumeGenerateModal(
+        title,
+        "",
+        text,
+        false,
+        feature,
+        contextUsed,
+        job,
+      );
+    }
+    return {
       text,
-      false,
+      draftId: savedDraft ? savedDraft.id : null,
       feature,
-      contextUsed,
-      job,
-    );
+      mode: "initial",
+      saved: !!savedDraft,
+    };
   } catch (err) {
     console.error("[JobBored] Resume generation:", err);
     const title =
       feature === "cover_letter" ? "Cover letter draft" : "Tailored resume";
+    if (silent) {
+      showToast(err.message || "Generation failed", "error", true);
+      throw err;
+    }
     await openResumeGenerateModal(
       title,
       err.message || "Generation failed",
@@ -19538,6 +20331,7 @@ function init() {
   // to run pre-SHEET_ID.
   initResumeMaterialsFeature();
   initDiscoveryDrawer();
+  initDiscoverySubtabs();
   initDiscoveryButton();
 
   if (!SHEET_ID) {
@@ -19613,6 +20407,7 @@ function init() {
     });
   }
   syncPipelineFilterControls();
+  initExpiredReviewUi();
 
   // Refresh
   document.getElementById("refreshBtn")?.addEventListener("click", () => {
@@ -20126,7 +20921,7 @@ function resolveGeminiModel(explicit) {
   if (typeof cfg.resumeGeminiModel === "string" && cfg.resumeGeminiModel.trim()) {
     return cfg.resumeGeminiModel.trim();
   }
-  return "gemini-2.5-flash";
+  return "gemini-3.5-flash";
 }
 
 async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
@@ -20243,6 +21038,109 @@ async function callDiscoveryAiAnthropic(system, user, apiKey, model) {
   if (!text.trim()) throw new Error("Empty response from Anthropic");
   return text.trim();
 }
+
+/**
+ * Discovery drawer sub-tab controller. Mirrors the WAI-ARIA tabs pattern
+ * used by settings-tabs.js but scoped to the drawer (Search · Sources ·
+ * Automation · Connection · History).
+ *
+ * Exposed on window.JobBoredDiscoveryDrawerSubtabs so adapter code
+ * (settings-discovery-adapters.js) can deep-link into a sub-tab when
+ * opening the drawer in response to a Settings-era flow (e.g. Cloudflare
+ * relay return, Apps Script remediation, webhook focus).
+ */
+const DISCOVERY_SUBTAB_ORDER = [
+  "search",
+  "sources",
+  "automation",
+  "connection",
+  "history",
+];
+let activeDiscoverySubtab = "search";
+
+function setDiscoveryDrawerSubtab(subtab, opts) {
+  const drawer = discoveryDrawerEl();
+  if (!drawer) return;
+  const id = String(subtab || "search");
+  if (DISCOVERY_SUBTAB_ORDER.indexOf(id) === -1) return;
+  DISCOVERY_SUBTAB_ORDER.forEach((tid) => {
+    const btn = drawer.querySelector(`#dd-tab-${tid}`);
+    const panel = drawer.querySelector(`#dd-panel-${tid}`);
+    if (btn) {
+      btn.setAttribute("aria-selected", tid === id ? "true" : "false");
+      btn.setAttribute("tabindex", tid === id ? "0" : "-1");
+    }
+    if (panel) panel.hidden = tid !== id;
+  });
+  activeDiscoverySubtab = id;
+  const silent = opts && opts.silent;
+  if (!silent) {
+    const activeBtn = drawer.querySelector(`#dd-tab-${id}`);
+    if (activeBtn) activeBtn.focus();
+  }
+}
+
+function initDiscoverySubtabs() {
+  const drawer = discoveryDrawerEl();
+  if (!drawer) return;
+  const tablist = drawer.querySelector("#discoverySubtabs");
+  if (!tablist) return;
+  if (tablist.dataset.subtabBound === "true") return;
+  tablist.dataset.subtabBound = "true";
+  const buttons = tablist.querySelectorAll('[role="tab"]');
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-subtab");
+      if (id) setDiscoveryDrawerSubtab(id);
+    });
+    btn.addEventListener("keydown", (e) => {
+      const idx = DISCOVERY_SUBTAB_ORDER.indexOf(activeDiscoverySubtab);
+      if (idx === -1) return;
+      let next = -1;
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+        next = (idx + 1) % DISCOVERY_SUBTAB_ORDER.length;
+      } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+        next =
+          (idx - 1 + DISCOVERY_SUBTAB_ORDER.length) %
+          DISCOVERY_SUBTAB_ORDER.length;
+      } else if (e.key === "Home") {
+        next = 0;
+      } else if (e.key === "End") {
+        next = DISCOVERY_SUBTAB_ORDER.length - 1;
+      }
+      if (next >= 0) {
+        e.preventDefault();
+        setDiscoveryDrawerSubtab(DISCOVERY_SUBTAB_ORDER[next]);
+      }
+    });
+  });
+  // Open the runs log and setup doctor from the History sub-tab.
+  const openRunsBtn = drawer.querySelector("#discoveryDrawerOpenRunsBtn");
+  if (openRunsBtn && openRunsBtn.dataset.bound !== "true") {
+    openRunsBtn.dataset.bound = "true";
+    openRunsBtn.addEventListener("click", () => {
+      closeDiscoveryDrawer();
+      const runsBtn = document.getElementById("runsBtn");
+      if (runsBtn) runsBtn.click();
+    });
+  }
+  const openDoctorBtn = drawer.querySelector("#discoveryDrawerOpenDoctorBtn");
+  if (openDoctorBtn && openDoctorBtn.dataset.bound !== "true") {
+    openDoctorBtn.dataset.bound = "true";
+    openDoctorBtn.addEventListener("click", () => {
+      closeDiscoveryDrawer();
+      const doctorBtn = document.getElementById("setupDoctorBtn");
+      if (doctorBtn) doctorBtn.click();
+    });
+  }
+  setDiscoveryDrawerSubtab("search", { silent: true });
+}
+
+window.JobBoredDiscoveryDrawerSubtabs = {
+  setActiveSubtab: setDiscoveryDrawerSubtab,
+  getActiveSubtab: () => activeDiscoverySubtab,
+  ORDER: DISCOVERY_SUBTAB_ORDER.slice(),
+};
 
 function initDiscoveryDrawer() {
   const drawer = discoveryDrawerEl();
@@ -20661,6 +21559,295 @@ function aggregatorLabelForHost(host) {
   return host || "this site";
 }
 
+function reportIngestProgress(onProgress, progress, label, step) {
+  if (typeof onProgress !== "function") return;
+  try {
+    onProgress({
+      progress: Math.max(0, Math.min(100, Number(progress) || 0)),
+      label: String(label || ""),
+      step: step || "",
+    });
+  } catch (_) {
+    // Progress callbacks are UI sugar; ingest should not depend on them.
+  }
+}
+
+function getDuplicatePipelineIndexFromIngest(url, data) {
+  const rowNumber = Number(data && data.rowNumber);
+  if (Number.isFinite(rowNumber) && rowNumber >= 2) {
+    const fromRow = rowNumber - 2;
+    if (pipelineData[fromRow]) return fromRow;
+  }
+  const normalized = normalizeLeadUrlClient(url || "");
+  if (!normalized) return -1;
+  return pipelineData.findIndex((job) => {
+    if (!job || !job.link) return false;
+    return normalizeLeadUrlClient(job.link) === normalized;
+  });
+}
+
+function focusPipelineJobByIndex(dataIndex) {
+  if (!Number.isInteger(dataIndex) || dataIndex < 0) return false;
+  const pipelineApi = window.JobBoredPipeline;
+  if (pipelineApi && typeof pipelineApi.focusJob === "function") {
+    try {
+      if (pipelineApi.focusJob(String(dataIndex))) return true;
+    } catch (_) {
+      /* fall through */
+    }
+  }
+  const selectors = [
+    `[data-stable-key="${String(dataIndex).replace(/"/g, '\\"')}"]`,
+    `[data-index="${String(dataIndex).replace(/"/g, '\\"')}"]`,
+  ];
+  for (const selector of selectors) {
+    const card = document.querySelector(selector);
+    if (!card) continue;
+    card.classList.add("duplicate-focus", "is-highlighted");
+    card.setAttribute("data-selected", "true");
+    try {
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+    } catch (_) {
+      card.scrollIntoView();
+    }
+    setTimeout(() => {
+      card.classList.remove("duplicate-focus", "is-highlighted");
+    }, 2400);
+    return true;
+  }
+  return false;
+}
+
+function clearPipelineRevealFilters() {
+  if (typeof document === "undefined") return false;
+  let rendered = false;
+  if (currentSearch) {
+    currentSearch = "";
+    rendered = true;
+  }
+  const legacySearch = document.getElementById("searchInput");
+  if (legacySearch && legacySearch.value) legacySearch.value = "";
+
+  if (favoritesOnly) {
+    favoritesOnly = false;
+    rendered = true;
+    syncPipelineFilterControls();
+    notifyPipelineFiltersChanged();
+  }
+
+  let v2SearchChanged = false;
+  document.querySelectorAll("[data-pipeline-search]").forEach((input) => {
+    if (input && input.value) {
+      input.value = "";
+      v2SearchChanged = true;
+    }
+  });
+  document.querySelectorAll('[data-region="pipeline"]').forEach((region) => {
+    if (region && region.__pipeState && region.__pipeState.search) {
+      region.__pipeState.search = "";
+      v2SearchChanged = true;
+    }
+  });
+
+  if (rendered && typeof renderPipeline === "function") {
+    renderPipeline();
+  }
+  if (
+    v2SearchChanged &&
+    window.JobBoredPipeline &&
+    typeof window.JobBoredPipeline.scheduleRender === "function"
+  ) {
+    window.JobBoredPipeline.scheduleRender();
+  }
+  return rendered || v2SearchChanged;
+}
+
+function revealPipelineJobByIndex(dataIndex) {
+  const idx = Number(dataIndex);
+  if (!Number.isInteger(idx) || idx < 0 || !pipelineData[idx]) return false;
+  clearPipelineRevealFilters();
+  const focused = focusPipelineJobByIndex(idx);
+  if (!focused && typeof setTimeout === "function") {
+    setTimeout(() => {
+      focusPipelineJobByIndex(idx);
+    }, 120);
+  }
+  return focused;
+}
+
+function createIngestVerificationError(result, endpointUrl, fallbackMessage) {
+  const message =
+    (result && result.message) ||
+    fallbackMessage ||
+    "Could not reach the discovery worker.";
+  const err = new Error(message);
+  err.discoveryVerificationResult = result || null;
+  err.endpointUrl = endpointUrl || "";
+  return err;
+}
+
+function classifyIngestEndpointFailure({
+  endpointUrl,
+  status,
+  data,
+  responseText,
+  responseUrl,
+}) {
+  const verifyApi = getDiscoveryWizardVerifyApi();
+  if (verifyApi && typeof verifyApi.summarizeResult === "function") {
+    return verifyApi.summarizeResult({
+      context: "ingest_url",
+      status,
+      data,
+      responseText,
+      responseUrl: responseUrl || endpointUrl,
+      endpointUrl,
+    });
+  }
+  return {
+    ok: false,
+    kind: status === 401 ? "auth_required" : "invalid_endpoint",
+    engineState: "none",
+    httpStatus: Number(status) || 0,
+    message:
+      status === 401
+        ? "The discovery worker needs a webhook secret."
+        : "The ingest endpoint returned an error.",
+    detail: responseText || "",
+    layer: "upstream",
+  };
+}
+
+function classifyIngestNetworkFailure(endpointUrl, err) {
+  const verifyApi = getDiscoveryWizardVerifyApi();
+  if (verifyApi && typeof verifyApi.createVerificationResult === "function") {
+    return verifyApi.createVerificationResult({
+      ok: false,
+      kind: "network_error",
+      engineState: "none",
+      httpStatus: 0,
+      message: "Can't reach the endpoint.",
+      detail:
+        "The browser lost the ingest connection. Likely causes: CORS, Cloudflare Access, a stale tunnel, or the worker being offline. Tried: " +
+        endpointUrl,
+      layer: "browser",
+    });
+  }
+  return {
+    ok: false,
+    kind: "network_error",
+    engineState: "none",
+    httpStatus: 0,
+    message: "Can't reach the endpoint.",
+    detail: err && err.message ? err.message : String(err || ""),
+    layer: "browser",
+  };
+}
+
+function formatDiscoveryVerificationError(result, fallback) {
+  if (!result || typeof result !== "object") return fallback || "";
+  const detail =
+    result.detail && result.detail !== result.message ? " " + result.detail : "";
+  return String(result.message || fallback || "Discovery endpoint failed") + detail;
+}
+
+function showIngestDiscoveryError(err) {
+  const result = err && err.discoveryVerificationResult;
+  if (!result) return false;
+  showDiscoveryVerificationToast(result, {
+    context: "ingest_url",
+    endpointUrl: err.endpointUrl || "",
+  });
+  return true;
+}
+
+async function appendManualPipelineRowDirect(manual) {
+  const src = manual && typeof manual === "object" ? manual : {};
+  const title = String(src.title || "").trim();
+  const company = String(src.company || "").trim();
+  const location = String(src.location || "").trim();
+  const url = String(src.url || "").trim();
+  const description = String(src.description || "").trim();
+  const fitScore = Number.isFinite(Number(src.fitScore))
+    ? Math.max(0, Math.min(10, Number(src.fitScore)))
+    : "";
+
+  if (!SHEET_ID) throw new Error("missing_sheet");
+  if (!accessToken) {
+    showSheetAccessGate("signin");
+    throw new Error("signed_out");
+  }
+  if (!title) throw new Error("missing_title");
+  if (!company) throw new Error("missing_company");
+  if (url && !isParseableUrl(url)) throw new Error("invalid_url");
+
+  const existingIndex = url
+    ? getDuplicatePipelineIndexFromIngest(url, { rowNumber: NaN })
+    : -1;
+  if (existingIndex >= 0) {
+    return {
+      ok: false,
+      reason: "duplicate",
+      rowNumber: getSheetRow(existingIndex),
+    };
+  }
+
+  const row = [
+    new Date().toISOString().slice(0, 10),
+    title,
+    company,
+    location,
+    url,
+    "Manual",
+    "",
+    fitScore === "" ? "" : String(fitScore),
+    "",
+    "",
+    "",
+    "",
+    "New",
+    "",
+    description,
+    "",
+    "",
+    "",
+    "",
+    "",
+  ];
+  await sheetsValuesAppend("Pipeline!A:T", [row]);
+  if (typeof loadAllData === "function") {
+    await loadAllData().catch(() => {});
+  }
+  return {
+    ok: true,
+    strategy: "manual_sheet_append",
+    lead: { title, company, location, url },
+  };
+}
+
+async function ingestJobUrl(url, options = {}) {
+  const value = String(url || "").trim();
+  const onProgress = options && options.onProgress;
+  if (!isParseableUrl(value)) {
+    throw new Error("invalid_url");
+  }
+
+  reportIngestProgress(onProgress, 10, "Sending the URL to the ingest worker", "worker");
+  const data = await handleIngestUrlSubmit(value, options.manual);
+  reportIngestProgress(onProgress, 44, "Adding the opportunity to Pipeline", "pipeline");
+
+  const handled = handleIngestUrlResponse(data, value, {
+    awaitAutoEnrich: true,
+    onProgress,
+  });
+  if (handled && typeof handled.then === "function") {
+    await handled;
+  }
+
+  reportIngestProgress(onProgress, 100, "Pipeline updated", "done");
+  return data;
+}
+
 /**
  * POST to the worker's /ingest-url endpoint.
  * @param {string} url — pasted job URL
@@ -20668,19 +21855,11 @@ function aggregatorLabelForHost(host) {
  * @returns {Promise<object>} parsed response
  */
 async function handleIngestUrlSubmit(url, manualOverride) {
-  const webhook = getDiscoveryWebhookUrl();
+  const webhook = await resolveDiscoveryRunWebhookUrl();
   if (!webhook) {
-    showToast(
-      "Configure your discovery webhook URL first",
-      "error",
-      false,
-      {
-        label: "Open settings",
-        onClick: () => {
-          openSettingsForDiscoveryWebhook().catch(() => {});
-        },
-      },
-    );
+    if (manualOverride && typeof manualOverride === "object") {
+      return appendManualPipelineRowDirect({ ...manualOverride, url });
+    }
     throw new Error("missing_discovery_webhook");
   }
 
@@ -20690,60 +21869,131 @@ async function handleIngestUrlSubmit(url, manualOverride) {
     throw new Error("invalid_endpoint");
   }
 
-  const body = {
-    event: "ingest.url.request",
-    schemaVersion: 1,
-    url: String(url || "").trim(),
-  };
-  const sheetId = getSheetId();
-  if (sheetId) body.sheetId = sheetId;
-  if (manualOverride && typeof manualOverride === "object") {
-    body.manual = {
-      title: String(manualOverride.title || "").trim(),
-      company: String(manualOverride.company || "").trim(),
-      location: String(manualOverride.location || "").trim(),
-      description: String(manualOverride.description || "").trim(),
-      fitScore: Number.isFinite(manualOverride.fitScore)
-        ? manualOverride.fitScore
-        : 5,
-    };
-  }
-
   const headers = { "content-type": "application/json" };
   const secret = getDiscoveryWebhookSecret();
   if (secret) headers["x-discovery-secret"] = secret;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(
-    () => controller.abort(),
-    INGEST_URL_TIMEOUT_MS,
-  );
-
-  try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    let data = null;
-    try {
-      data = await res.json();
-    } catch (_) {
-      data = null;
+  async function buildRequestBody(options = {}) {
+    const body = {
+      event: "ingest.url.request",
+      schemaVersion: 1,
+      url: String(url || "").trim(),
+    };
+    const sheetId = getSheetId();
+    if (sheetId) body.sheetId = sheetId;
+    const dashboardGoogleAccessToken =
+      await getFreshDiscoveryRequestGoogleAccessToken({
+        force: options.forceGoogleTokenRefresh === true,
+      });
+    if (dashboardGoogleAccessToken) {
+      body.googleAccessToken = dashboardGoogleAccessToken;
     }
-    if (!res.ok && !data) {
-      throw new Error("http_" + res.status);
+    if (manualOverride && typeof manualOverride === "object") {
+      body.manual = {
+        title: String(manualOverride.title || "").trim(),
+        company: String(manualOverride.company || "").trim(),
+        location: String(manualOverride.location || "").trim(),
+        description: String(manualOverride.description || "").trim(),
+        fitScore: Number.isFinite(manualOverride.fitScore)
+          ? manualOverride.fitScore
+          : 5,
+      };
     }
-    return data;
-  } catch (err) {
-    if (err && err.name === "AbortError") {
-      throw new Error("timeout");
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
+    return body;
   }
+
+  async function postRequestBody(body) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      INGEST_URL_TIMEOUT_MS,
+    );
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      const responseText = await res.text().catch(() => "");
+      let data = null;
+      try {
+        data = responseText ? JSON.parse(responseText) : null;
+      } catch (_) {
+        data = null;
+      }
+      if (!res.ok && !data) {
+        throw createIngestVerificationError(
+          classifyIngestEndpointFailure({
+            endpointUrl: endpoint,
+            status: res.status,
+            data,
+            responseText,
+            responseUrl: res.url || endpoint,
+          }),
+          endpoint,
+          "Ingest endpoint returned HTTP " + res.status,
+        );
+      }
+      if (!res.ok && isIngestSheetAuthFailure(data)) {
+        return data;
+      }
+      if (!res.ok) {
+        throw createIngestVerificationError(
+          classifyIngestEndpointFailure({
+            endpointUrl: endpoint,
+            status: res.status,
+            data,
+            responseText,
+            responseUrl: res.url || endpoint,
+          }),
+          endpoint,
+          data && data.message
+            ? data.message
+            : "Ingest endpoint returned HTTP " + res.status,
+        );
+      }
+      return data;
+    } catch (err) {
+      if (err && err.name === "AbortError") {
+        throw new Error("timeout");
+      }
+      if (err && err.discoveryVerificationResult) {
+        throw err;
+      }
+      if (isFetchNetworkError(err)) {
+        throw createIngestVerificationError(
+          classifyIngestNetworkFailure(endpoint, err),
+          endpoint,
+          "Could not reach the ingest endpoint.",
+        );
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  const initialBody = await buildRequestBody();
+  let data = await postRequestBody(initialBody);
+  if (isIngestSheetAuthFailure(data)) {
+    const retryBody = await buildRequestBody({
+      forceGoogleTokenRefresh: true,
+    });
+    if (retryBody.googleAccessToken) {
+      data = await postRequestBody(retryBody);
+    }
+    if (isIngestSheetAuthFailure(data)) {
+      clearPersistedRuntimeOAuthSession();
+      if (getOAuthClientId()) showSheetAccessGate("signin");
+      data = {
+        ...data,
+        message:
+          "Google session expired while adding this job. Sign in again, then click Add to Pipeline.",
+      };
+    }
+  }
+  return data;
 }
 
 function getIngestManualModalEls() {
@@ -20801,12 +22051,38 @@ function closeIngestManualModal() {
   setIngestManualModalError("");
 }
 
-function refreshPipelineAfterIngest() {
-  if (typeof loadAllData === "function") {
-    loadAllData().catch((err) => {
-      console.warn("[JobBored] post-ingest refresh failed:", err);
-    });
+async function refreshPipelineAfterIngest(options = {}) {
+  const url = String((options && options.url) || "").trim();
+  const data = options && typeof options.data === "object" ? options.data : {};
+  const onProgress = options && options.onProgress;
+  const shouldLocate =
+    !!url || Number.isFinite(Number(data && data.rowNumber));
+  const attempts = shouldLocate ? 4 : 1;
+  let idx = -1;
+
+  try {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (typeof loadAllData === "function") {
+        await loadAllData();
+      }
+      if (shouldLocate) {
+        idx = getDuplicatePipelineIndexFromIngest(url, data);
+        if (idx >= 0) {
+          revealPipelineJobByIndex(idx);
+          return true;
+        }
+      }
+      if (attempt < attempts - 1) {
+        reportIngestProgress(onProgress, 88, "Refreshing Pipeline", "refresh");
+        await new Promise((resolve) => setTimeout(resolve, 500 + attempt * 500));
+      }
+    }
+  } catch (err) {
+    console.warn("[JobBored] post-ingest refresh failed:", err);
+    return false;
   }
+
+  return false;
 }
 
 // Auto-enrich a freshly-ingested row so the card doesn't live on as
@@ -20815,8 +22091,9 @@ function refreshPipelineAfterIngest() {
 // sheet's Title/Company/Location cells when the LLM inferred better values.
 // All errors are non-fatal — row stays in Pipeline regardless, user can edit
 // manually or wait for drawer-open enrichment to retry.
-async function autoEnrichIngestedRow(url, persistedLead) {
+async function autoEnrichIngestedRow(url, persistedLead, options = {}) {
   if (!url) return;
+  const onProgress = options && options.onProgress;
 
   // Collect every URL candidate we know about. The backend normalizes URLs
   // before writing (strips utm_*, trailing slashes, etc.) so the raw pasted
@@ -20863,17 +22140,10 @@ async function autoEnrichIngestedRow(url, persistedLead) {
   }
 
   try {
-    // Skip entirely when the Cheerio scraper URL is not configured — the
-    // drawer-open enrichment path would also short-circuit here, so the
-    // row just stays as url_only. No toast spam for a missing dep.
-    if (typeof getJobPostingScrapeUrl === "function" && !getJobPostingScrapeUrl()) {
-      console.info("[JobBored] auto-enrich skipped: no scraper URL configured");
-      return;
-    }
-
     // 1. Wait for pipeline to refresh so the new row is in pipelineData.
     //    Google Sheets has eventual consistency on read-after-write, so
     //    retry up to 4x with short backoff (total ~6s) before giving up.
+    reportIngestProgress(onProgress, 54, "Finding the new Pipeline row", "refresh");
     let idx = -1;
     for (let attempt = 0; attempt < 4; attempt += 1) {
       if (typeof loadAllData === "function") {
@@ -20888,13 +22158,22 @@ async function autoEnrichIngestedRow(url, persistedLead) {
         "[JobBored] auto-enrich: row not found after 4 retries. URL candidates:",
         candidates,
       );
+      reportIngestProgress(onProgress, 88, "Refreshing Pipeline", "refresh");
+      void refreshPipelineAfterIngest();
       return;
     }
+    revealPipelineJobByIndex(idx);
 
     // 2. Visible progress signal — takes 3-8s typically.
     if (typeof showToast === "function") {
       showToast("Fetching job details…", "info");
     }
+    reportIngestProgress(
+      onProgress,
+      70,
+      "Scraping the posting and asking Gemini for details",
+      "enrich",
+    );
 
     // 3. Fire the same enrichment the drawer uses. Populates
     //    pipelineData[idx]._postingEnrichment with inferredTitle/Company/
@@ -20907,7 +22186,11 @@ async function autoEnrichIngestedRow(url, persistedLead) {
 
     const job = pipelineData[idx];
     const enr = job && job._postingEnrichment;
-    if (!enr) return;
+    if (!enr) {
+      reportIngestProgress(onProgress, 88, "Refreshing Pipeline", "refresh");
+      void refreshPipelineAfterIngest();
+      return;
+    }
 
     // 5. Compute cell updates. Only replace placeholders ("View", "Linkedin",
     //    "Job at <host>", empty) — never overwrite values the user has
@@ -20938,6 +22221,7 @@ async function autoEnrichIngestedRow(url, persistedLead) {
     const inferredLocation = String(enr.inferredLocation || "").trim();
 
     const updates = [];
+    reportIngestProgress(onProgress, 84, "Updating inferred job details", "write");
     if (inferredTitle && isPlaceholderTitle(job.title)) {
       updates.push({ range: `Pipeline!B${sheetRow}`, value: inferredTitle });
       job.title = inferredTitle;
@@ -20993,6 +22277,7 @@ async function autoEnrichIngestedRow(url, persistedLead) {
       // drawer open will be instant next time. Just re-render so the card
       // picks up any _postingEnrichment-derived display tweaks.
       if (typeof renderPipeline === "function") renderPipeline();
+      reportIngestProgress(onProgress, 92, "Pipeline refreshed", "refresh");
       return;
     }
 
@@ -21002,10 +22287,12 @@ async function autoEnrichIngestedRow(url, persistedLead) {
       // Re-render anyway so the in-memory title/company update is visible
       // locally, even if it doesn't persist to Sheets.
       if (typeof renderPipeline === "function") renderPipeline();
+      reportIngestProgress(onProgress, 92, "Pipeline refreshed", "refresh");
       return;
     }
 
     // Sheet patched. Refresh again so the pipeline reflects the real values.
+    reportIngestProgress(onProgress, 92, "Refreshing Pipeline", "refresh");
     if (typeof loadAllData === "function") {
       await loadAllData().catch(() => {});
     }
@@ -21017,16 +22304,18 @@ async function autoEnrichIngestedRow(url, persistedLead) {
   }
 }
 
-function handleIngestUrlResponse(data, url) {
+function handleIngestUrlResponse(data, url, options = {}) {
   if (!data || typeof data !== "object") {
     showToast("Unexpected response from worker", "error", true);
-    return;
+    return data;
   }
   if (data.ok === true) {
     const title =
       (data.lead && (data.lead.title || data.lead.role)) || "job";
     const strategy = (data && data.strategy) || "";
-    showToast("Added: " + title, "success");
+    const verb =
+      data.updated === true || data.appended === false ? "Updated" : "Added";
+    showToast(verb + ": " + title, "success");
     closeIngestManualModal();
     // For url_only rows we only have URL-derived placeholder title/company.
     // Fire the drawer enrichment pipeline now (scrape + LLM) and promote the
@@ -21034,11 +22323,26 @@ function handleIngestUrlResponse(data, url) {
     // strategies (ats_api / jsonld / cheerio_dom / manual_fill) already have
     // clean fields — just refresh.
     if (strategy === "url_only") {
-      void autoEnrichIngestedRow(url, data.lead);
+      const enrich = autoEnrichIngestedRow(url, data.lead, {
+        onProgress: options.onProgress,
+      });
+      if (options.awaitAutoEnrich) {
+        return enrich.then(() => data);
+      }
+      void enrich;
     } else {
-      refreshPipelineAfterIngest();
+      reportIngestProgress(options.onProgress, 82, "Refreshing Pipeline", "refresh");
+      const refresh = refreshPipelineAfterIngest({
+        url,
+        data,
+        onProgress: options.onProgress,
+      });
+      if (options.awaitAutoEnrich) {
+        return refresh.then(() => data);
+      }
+      void refresh;
     }
-    return;
+    return data;
   }
   if (data.ok === false) {
     switch (data.reason) {
@@ -21064,14 +22368,19 @@ function handleIngestUrlResponse(data, url) {
             hint +
             " (This shouldn't normally happen — check your worker version if it keeps showing up.)",
         });
-        return;
+        return data;
       }
       case "duplicate": {
         const row = data.rowNumber;
-        const suffix = Number.isFinite(row) ? " (row " + row + ")" : "";
-        showToast("Already in Pipeline" + suffix, "info");
+        const suffix = Number.isFinite(row) && row >= 2 ? " (row " + row + ")" : "";
+        const existingIndex = getDuplicatePipelineIndexFromIngest(url, data);
+        const focused = focusPipelineJobByIndex(existingIndex);
+        showToast(
+          "Already in Pipeline" + suffix + (focused ? " — focused the existing card." : ""),
+          "info",
+        );
         closeIngestManualModal();
-        return;
+        return data;
       }
       case "invalid_url":
       case "private_network": {
@@ -21079,7 +22388,7 @@ function handleIngestUrlResponse(data, url) {
           data.message || "Could not ingest URL: " + data.reason,
           "error",
         );
-        return;
+        return data;
       }
       default: {
         showToast(
@@ -21087,11 +22396,12 @@ function handleIngestUrlResponse(data, url) {
           "error",
           true,
         );
-        return;
+        return data;
       }
     }
   }
   showToast("Unexpected response from worker", "error", true);
+  return data;
 }
 
 function setIngestSubmitLoading(button, loading) {
@@ -21134,11 +22444,27 @@ async function submitIngestFromToolbar() {
     }
   } catch (err) {
     if (err && err.message === "missing_discovery_webhook") {
-      // toast + settings already triggered inside handleIngestUrlSubmit
+      showToast(
+        "No ingest worker is connected. Use Add manually, or connect a discovery worker.",
+        "warning",
+        true,
+        {
+          label: "Add manually",
+          onClick: () => {
+            openIngestManualModal({
+              url,
+              message:
+                "No ingest worker is connected. Fill in the details and JobBored will append the row directly to Pipeline.",
+            });
+          },
+        },
+      );
     } else if (err && err.message === "timeout") {
       showToast("Ingest timed out — try again", "error");
     } else if (err && err.message === "invalid_endpoint") {
       // toast already shown
+    } else if (showIngestDiscoveryError(err)) {
+      // Verifier copy + action already shown.
     } else {
       console.error("[JobBored] ingest-url submit failed:", err);
       showToast("Network error — could not reach worker", "error");
@@ -21171,20 +22497,23 @@ async function submitIngestFromManualModal() {
     if (els.company) els.company.focus();
     return;
   }
-  if (!url || !isParseableUrl(url)) {
-    setIngestManualModalError("URL is missing or invalid.");
+  if (url && !isParseableUrl(url)) {
+    setIngestManualModalError("URL is invalid.");
     return;
   }
 
   setIngestSubmitLoading(els.submit, true);
   try {
-    const data = await handleIngestUrlSubmit(url, {
+    const manualPayload = {
       title,
       company,
       location,
       description,
       fitScore,
-    });
+    };
+    const data = url
+      ? await handleIngestUrlSubmit(url, manualPayload)
+      : await appendManualPipelineRowDirect(manualPayload);
     if (data && data.ok === true) {
       handleIngestUrlResponse(data, url);
       const toolbarInput = document.getElementById("ingestUrlInput");
@@ -21201,11 +22530,42 @@ async function submitIngestFromManualModal() {
     );
   } catch (err) {
     if (err && err.message === "missing_discovery_webhook") {
-      setIngestManualModalError(
-        "Configure your discovery webhook URL in Settings first.",
-      );
+      try {
+        const direct = await appendManualPipelineRowDirect({
+          title,
+          company,
+          location,
+          description,
+          fitScore,
+          url,
+        });
+        handleIngestUrlResponse(direct, url);
+        return;
+      } catch (directErr) {
+        setIngestManualModalError(
+          directErr && directErr.message === "signed_out"
+            ? "Sign in with Google so JobBored can append this row to Pipeline."
+            : "Could not append directly to Pipeline.",
+        );
+      }
     } else if (err && err.message === "timeout") {
       setIngestManualModalError("Request timed out. Try again.");
+    } else if (err && err.message === "signed_out") {
+      setIngestManualModalError(
+        "Sign in with Google so JobBored can append this row to Pipeline.",
+      );
+    } else if (err && err.message === "missing_sheet") {
+      setIngestManualModalError(
+        "Connect your Pipeline sheet before adding manual rows.",
+      );
+    } else if (err && err.discoveryVerificationResult) {
+      setIngestManualModalError(
+        formatDiscoveryVerificationError(
+          err.discoveryVerificationResult,
+          "Could not reach the ingest worker.",
+        ),
+      );
+      showIngestDiscoveryError(err);
     } else {
       console.error("[JobBored] manual-fill submit failed:", err);
       setIngestManualModalError("Network error — could not reach worker.");

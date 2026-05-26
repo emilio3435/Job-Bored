@@ -6,7 +6,8 @@
  *
  * Listens for FE CustomEvents and writes back to the user's Google Sheet:
  *   - `jb:pipeline:move`  -> Pipeline!M{row}  (Status, column M)
- *   - `jb:letter:save`    -> Pipeline!O{row}  (Notes,  column O)
+ *   - `jb:letter:save`    -> legacy no-op; drafts live in IndexedDB
+ *   - `jb:role:note`      -> Pipeline!O{row}  (Notes,  column O)
  *
  * Emits success/failure CustomEvents for the FE optimistic-UI rollback flow:
  *   - `jb:write:succeeded` { jobKey, kind }
@@ -18,11 +19,10 @@
  * IIFE, no module deps. Loaded after app.js so window.JobBored.* is available.
  *
  * NOTE on column mapping:
- *   The orchestrator instructed reuse of "Notes" for the letter draft. Per
- *   schemas/pipeline-row.v1.json the Notes column is letter "O" (sheetIndex 14);
- *   column "N" is "Applied Date". This file therefore writes letter drafts to
- *   column O (Notes) — the semantic intent — and surfaces a console warning
- *   if any caller tries to override it with a non-Notes column.
+ *   Per schemas/pipeline-row.v1.json the Notes column is letter "O"
+ *   (sheetIndex 14); column "N" is "Applied Date". Dossier notes are the
+ *   only flowing-page write path that owns column O. Cover-letter drafts
+ *   are stored in the browser's IndexedDB draft library by app.js.
  */
 (function () {
   "use strict";
@@ -269,6 +269,26 @@
     }
   }
 
+  function syncStageToApp(jobKey, label) {
+    var jb = window.JobBored;
+    if (!jb || typeof jb.applyPipelineStageWrite !== "function") return;
+    try {
+      jb.applyPipelineStageWrite(jobKey, label);
+    } catch (_) {
+      /* Local UI sync is best-effort; the Sheet write already succeeded. */
+    }
+  }
+
+  function syncNotesToApp(jobKey, body) {
+    var jb = window.JobBored;
+    if (!jb || typeof jb.applyPipelineNotesWrite !== "function") return;
+    try {
+      jb.applyPipelineNotesWrite(jobKey, body);
+    } catch (_) {
+      /* Local UI sync is best-effort; the Sheet write already succeeded. */
+    }
+  }
+
   /**
    * Resolve a `jobKey` to a 1-based sheet row in the Pipeline tab. The FE
    * contract sends an opaque `jobKey`; we accept three shapes, in order:
@@ -340,7 +360,14 @@
       var row = await resolveSheetRow(jobKey);
       var range = "Pipeline!" + STATUS_COLUMN + row;
       await sheetsValuesUpdate(range, [[label]]);
-      emitResult("succeeded", { jobKey: jobKey, kind: "pipeline:move" });
+      syncStageToApp(jobKey, label);
+      emitResult("succeeded", {
+        jobKey: jobKey,
+        kind: "pipeline:move",
+        fromStage: detail.fromStage,
+        toStage: detail.toStage,
+        status: label,
+      });
     } catch (err) {
       var msg = (err && err.message) || String(err);
       emitResult("failed", { jobKey: jobKey, kind: "pipeline:move", error: msg });
@@ -418,22 +445,35 @@
   }
 
   /**
-   * Write a letter draft into the Notes (column O) cell for the given jobKey.
+   * Legacy letter autosave hook. Kept so older letter.js builds or tests that
+   * still dispatch jb:letter:save do not accidentally overwrite dossier notes.
+   * Cover-letter drafts are persisted by app.js into IndexedDB.
    * @param {{jobKey:any, draft:string}} payload
    */
   async function saveLetter(payload) {
     var detail = payload || {};
     var jobKey = detail.jobKey;
-    var draft = (detail.draft == null) ? "" : String(detail.draft);
+    emitResult("succeeded", { jobKey: jobKey, kind: "letter", persisted: false });
+  }
+
+  /**
+   * Write dossier notes into the Notes (column O) cell for the given jobKey.
+   * @param {{jobKey:any, body:string}} payload
+   */
+  async function saveRoleNote(payload) {
+    var detail = payload || {};
+    var jobKey = detail.jobKey;
+    var body = (detail.body == null) ? "" : String(detail.body);
     try {
       var row = await resolveSheetRow(jobKey);
       var range = "Pipeline!" + NOTES_COLUMN + row;
-      await sheetsValuesUpdate(range, [[draft]]);
-      emitResult("succeeded", { jobKey: jobKey, kind: "letter" });
+      await sheetsValuesUpdate(range, [[body]]);
+      syncNotesToApp(jobKey, body);
+      emitResult("succeeded", { jobKey: jobKey, kind: "role:note" });
     } catch (err) {
       var msg = (err && err.message) || String(err);
-      emitResult("failed", { jobKey: jobKey, kind: "letter", error: msg });
-      safeToast("Couldn't save letter draft: " + msg, "error");
+      emitResult("failed", { jobKey: jobKey, kind: "role:note", error: msg });
+      safeToast("Couldn't save notes: " + msg, "error");
     }
   }
 
@@ -450,6 +490,11 @@
   function onLetterEvent(e) {
     var payload = (e && e.detail) || {};
     saveLetter(payload);
+  }
+
+  function onRoleNoteEvent(e) {
+    var payload = (e && e.detail) || {};
+    saveRoleNote(payload);
   }
 
   function onRoleWritebackEvent(e) {
@@ -473,6 +518,7 @@
     if (typeof document === "undefined" || !document.addEventListener) return;
     document.addEventListener("jb:pipeline:move", onMoveEvent);
     document.addEventListener("jb:letter:save", onLetterEvent);
+    document.addEventListener("jb:role:note", onRoleNoteEvent);
     if (window && typeof window.addEventListener === "function") {
       window.addEventListener("jb:role:writeback", onRoleWritebackEvent);
     }
@@ -487,6 +533,7 @@
     /** Manual entry points for tests / programmatic callers. */
     moveStage: moveStage,
     saveLetter: saveLetter,
+    saveRoleNote: saveRoleNote,
     writeStage: writeStage,
     writeHeardBack: writeHeardBack,
     writeReply: writeReply,

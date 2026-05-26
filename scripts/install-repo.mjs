@@ -19,6 +19,7 @@ export const DEPENDENCY_INPUTS = [
 const ROOT_NODE_MODULES = "node_modules";
 const SERVER_NODE_MODULES = "server/node_modules";
 const INSTALL_STAMP_FILE = ".repo-install-state.json";
+const REQUIRED_NODE_MAJOR = 24;
 
 function getInstallStampPath(repoRoot = REPO_ROOT) {
   return join(repoRoot, ROOT_NODE_MODULES, INSTALL_STAMP_FILE);
@@ -61,6 +62,24 @@ function hasNodeModules(repoRoot = REPO_ROOT) {
     root: existsSync(join(repoRoot, ROOT_NODE_MODULES)),
     server: existsSync(join(repoRoot, SERVER_NODE_MODULES)),
   };
+}
+
+export function getNodeVersionCheck(version = process.version) {
+  const match = /^v?(\d+)\./.exec(String(version || ""));
+  const major = match ? Number(match[1]) : NaN;
+  return {
+    version,
+    required: `>=${REQUIRED_NODE_MAJOR} <${REQUIRED_NODE_MAJOR + 1}`,
+    ok: Number.isInteger(major) && major === REQUIRED_NODE_MAJOR,
+  };
+}
+
+function assertNodeVersion() {
+  const check = getNodeVersionCheck();
+  if (check.ok) return;
+  throw new Error(
+    `Node ${check.required} is required; current runtime is ${check.version || "unknown"}.`,
+  );
 }
 
 export async function getRepoInstallPlan(repoRoot = REPO_ROOT) {
@@ -154,11 +173,19 @@ async function writeInstallStamp(repoRoot = REPO_ROOT, inputs) {
   );
 }
 
+export async function recordInstallStamp(repoRoot = REPO_ROOT) {
+  assertNodeVersion();
+  const fingerprint = await buildDependencyFingerprint(repoRoot);
+  await writeInstallStamp(repoRoot, fingerprint);
+  return { ok: true, inputs: fingerprint };
+}
+
 export async function installRepo({
   repoRoot = REPO_ROOT,
   runner = runCommand,
   silent = false,
 } = {}) {
+  assertNodeVersion();
   const plan = await getRepoInstallPlan(repoRoot);
   if (!plan.shouldInstall) {
     if (!silent) {
@@ -204,6 +231,7 @@ function parseArgs(argv) {
   return {
     checkOnly: argv.includes("--check"),
     json: argv.includes("--json"),
+    stampOnly: argv.includes("--stamp-only"),
   };
 }
 
@@ -214,11 +242,14 @@ function isMainModule() {
 }
 
 if (isMainModule()) {
-  const { checkOnly, json } = parseArgs(process.argv.slice(2));
+  const { checkOnly, json, stampOnly } = parseArgs(process.argv.slice(2));
   try {
-    const result = checkOnly
-      ? await getRepoInstallPlan()
-      : await installRepo();
+    assertNodeVersion();
+    const result = stampOnly
+      ? await recordInstallStamp()
+      : checkOnly
+        ? await getRepoInstallPlan()
+        : await installRepo();
     if (json) {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     }

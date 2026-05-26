@@ -1,48 +1,21 @@
 /* ============================================================
    role.css — JobBored v2 PART 03 (The Dossier) + empty-state shelf
-                + Direction F two-card dossier (Brief + Workshop)
    ------------------------------------------------------------
-   Owner:    dossier-df/css lane (run dossier-df-20260519T2030Z)
+   Owner:    dossier-df/css lane
    Scope:    body.jb-v2 [data-region="role"] (region host) and
-             the Direction F namespaces consumed by
-             role-brief.js + role-workshop.js.
-   Visual:   docs/redesign/dossier-direction-f-wireframe.html
+             a few shared classes (.stepper, .writeback, .chip)
+             rendered by role-workshop.js into the renamed
+             Workshop region (data-region="letter").
    ------------------------------------------------------------
    Activation: body.jb-v2 [data-region="role"].
    Off-flag:   this file is a no-op for the legacy dashboard.
-               The dossier section namespaces below (.dossier,
-               .brief, .workshop, .chip, .stepper, .timeline,
-               .ats-card, …) are scoped through markup that
-               only renders inside the v2 role region; legacy
-               CSS does not match those class names.
    ------------------------------------------------------------
-   Direction F token contract:
-     New :root tokens added for this lane (additions, not
-     changes, in style.css):
-       --navy, --navy-soft, --ink, --ink-soft, --mute,
-       --parchment, --parchment-deep,
-       --workshop-bg, --workshop-card,
-       --border-strong, --mint, --mint-deep, --amber, --crimson,
-       --shadow-soft, --shadow-strong,
-       --serif, --sans, --mono
-     Inside .dossier and .workshop, the legacy --surface,
-     --border, --radius-md, --radius-lg tokens are locally
-     redefined so the parchment palette applies inside the
-     dossier subtree without touching the rest of style.css.
-   ------------------------------------------------------------
-   Frozen class namespaces (consumed by role-brief.js and
-   role-workshop.js — do not rename without orchestrator
-   approval):
-       .dossier
-       .brief, .brief__*, .skim, .section-label, .points,
-         .jd, .brief-notes
-       .mode-divider, .mode-divider__*
-       .workshop, .workshop__*
-       .btn-primary, .btn-ghost
-       .ws-card, .stepper, .stepper__*,
-         .timeline, .timeline__*,
-         .ats-card, .ats-card__*,
-         .writeback, .chip, .chip--*
+   What lives here:
+     .dossier
+     .brief, .brief__*, .brief__cta, .brief__cta-cluster, .skim,
+       .section-label, .points, .jd, .brief-notes
+     .stepper, .stepper__*          (used inside workshop region)
+     .writeback, .chip, .chip--*    (used inside workshop region)
    ------------------------------------------------------------
    This file deliberately does NOT override .detail-drawer.*
    selectors. The legacy detail overlay still uses those
@@ -64,13 +37,17 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
 /* ────────────────────────────────────────────────────────────
    Section divider — common to both empty + open states
    ──────────────────────────────────────────────────────────── */
+/* Section divider — small editorial tag above the Dossier and the
+   Workshop. The role title is the page hero (in .brief__masthead),
+   not this divider; we keep this as a small mono eyebrow + a tucked
+   close affordance, never as a headline. */
 .jb-role-divider {
   position: relative;
-  padding: 64px 32px 22px;
+  padding: 36px 32px 12px;
 }
 .jb-role-divider__rule {
   position: absolute;
-  left: 0; right: 0; top: 36px;
+  left: 0; right: 0; top: 24px;
   height: 1px;
   background: repeating-linear-gradient(90deg, var(--jb-line, #C9C2B0) 0 6px, transparent 6px 12px);
 }
@@ -78,43 +55,43 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   max-width: 1600px;
   margin: 0 auto;
   display: flex;
-  align-items: baseline;
-  gap: 18px;
+  align-items: center;
+  gap: 16px;
 }
 .jb-role-divider__num {
   font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--jb-mute, #6B7B82);
   letter-spacing: .25em;
 }
 .jb-role-divider__title {
-  font-family: var(--font-display, "Caveat", "Bradley Hand", cursive);
-  font-size: 56px;
-  line-height: 1.15;
+  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1;
   color: var(--jb-navy, #0E3A4E);
-  letter-spacing: -0.01em;
-  padding-bottom: 4px;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  padding: 0;
 }
 .jb-role-divider__title em {
-  font-style: italic;
+  font-style: normal;
   color: var(--jb-mint, #5FCB8E);
 }
 .jb-role-divider__sub {
   margin-left: auto;
-  max-width: 460px;
-  font-size: 13.5px;
-  line-height: 1.55;
+  max-width: 420px;
+  font-size: 12.5px;
+  line-height: 1.5;
   color: var(--jb-navy-soft, #355467);
   font-style: italic;
 }
 .jb-role-divider__close {
-  margin-left: 20px;
   font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--jb-mute, #6B7B82);
   letter-spacing: .15em;
   text-decoration: none;
-  padding: 6px 12px;
+  padding: 5px 11px;
   border: 1px solid var(--jb-line, #C9C2B0);
   border-radius: 999px;
   background: transparent;
@@ -229,50 +206,6 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   border: 1px solid var(--jb-line, #C9C2B0);
   border-radius: 4px;
 }
-.jb-recents {
-  max-width: 1100px;
-  margin: 0 auto 24px;
-  padding: 0 32px;
-}
-.jb-recents__eyebrow {
-  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
-  font-size: 10.5px;
-  color: var(--jb-mute, #6B7B82);
-  letter-spacing: .2em;
-  margin-bottom: 12px;
-  text-align: center;
-}
-.jb-recents__row {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-.jb-recent-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  background: var(--jb-paper, #FFFEF9);
-  border: 1px solid var(--jb-line, #C9C2B0);
-  border-radius: 999px;
-  font-size: 12.5px;
-  color: var(--jb-navy, #0E3A4E);
-  cursor: pointer;
-  font-family: inherit;
-}
-.jb-recent-chip:hover { border-color: var(--jb-navy, #0E3A4E); }
-.jb-recent-chip__co { color: var(--jb-mute, #6B7B82); }
-.jb-recent-chip__when {
-  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
-  font-size: 10px;
-  color: var(--jb-mute, #6B7B82);
-  letter-spacing: .12em;
-  padding-left: 6px;
-  border-left: 1px solid var(--jb-line-soft, #E5DFCC);
-  margin-left: 4px;
-}
-
 /* ════════════════════════════════════════════════════════
    Dossier — Direction F two-card layout
    ════════════════════════════════════════════════════════ */
@@ -363,31 +296,66 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   color: var(--border-strong);
 }
 
-.brief__stage-chip {
+/* Dossier action cluster — the single, canonical entry point for
+   View posting · Draft cover letter · Tailor resume. These three
+   CTAs are NOT duplicated in the Workshop (which owns the editor,
+   scorecard, and progress controls). */
+.brief__cta-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-self: start;
+}
+.brief__cta {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  padding: 8px 14px;
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: 999px;
-  padding: 8px 14px 8px 12px;
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.14em;
   color: var(--navy);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
+  text-decoration: none;
   cursor: pointer;
   box-shadow: var(--shadow-soft);
+  transition: border-color 160ms ease, color 160ms ease, transform 160ms ease, background-color 160ms ease;
 }
-.brief__stage-chip::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--mint-deep);
+.brief__cta:hover {
+  border-color: var(--navy);
+  color: var(--navy);
+  transform: translateY(-1px);
 }
-.brief__stage-chip .caret {
-  color: var(--mute);
+.brief__cta:focus-visible {
+  outline: 2px solid var(--mint-deep);
+  outline-offset: 2px;
+}
+.brief__cta--cover {
+  background: var(--mint-soft);
+  border-color: var(--mint-deep);
+  color: var(--navy);
+}
+.brief__cta--cover:hover {
+  background: var(--mint);
+  border-color: var(--navy);
+}
+.brief__cta--tailor {
+  background: var(--parchment);
+  border-color: var(--border-strong);
+}
+.brief__cta-icon {
+  flex-shrink: 0;
+  color: var(--crimson);
+}
+.brief__cta--cover .brief__cta-icon,
+.brief__cta--tailor .brief__cta-icon {
+  color: var(--mint-deep);
+}
+.brief__cta span {
+  white-space: nowrap;
 }
 
 /* Brief body — two-column editorial spread.
@@ -655,71 +623,43 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   content: "\2767";
 }
 
-/* JD accordion — ledger-rail */
+/* Raw posting — collapsed by default behind a single disclosure.
+   The AI-curated sections (lede, fit angle, must-haves, etc.) are
+   the primary read; this is here for users who want to verify what
+   the AI compressed. When opened, the polished subsections render
+   without nested disclosures. */
 .jd {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
   position: relative;
+  margin-top: 6px;
 }
-.jd::before {
-  content: "FROM THE POSTING";
-  position: absolute;
-  top: -18px;
-  left: 0;
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.24em;
-  color: var(--mute);
-}
-.jd details {
+.jd__details {
   border: 1px solid var(--border);
   border-left: 3px solid var(--border-strong);
   border-radius: 0 var(--radius-md) var(--radius-md) 0;
   background: var(--surface);
-  padding: 0;
   transition: border-left-color 160ms ease;
 }
-.jd details[open] { border-left-color: var(--crimson); }
-.jd details:hover { border-left-color: var(--amber); }
-
-.jd summary {
+.jd__details[open]    { border-left-color: var(--crimson); }
+.jd__details:hover    { border-left-color: var(--amber); }
+.jd__summary {
   list-style: none;
   cursor: pointer;
-  padding: 14px 18px;
+  padding: 12px 18px;
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: 1fr auto auto;
   align-items: center;
   gap: 12px;
   font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.14em;
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
   color: var(--navy);
   text-transform: uppercase;
 }
-.jd summary::-webkit-details-marker { display: none; }
-.jd summary .roman {
-  font-family: var(--serif);
-  font-style: italic;
-  color: var(--crimson);
-  font-size: 14px;
-  letter-spacing: 0;
-  min-width: 28px;
+.jd__summary::-webkit-details-marker { display: none; }
+.jd__summary-label {
+  font-weight: 600;
 }
-.jd summary .toggle {
-  font-family: var(--serif);
-  font-size: 22px;
-  line-height: 1;
-  color: var(--mute);
-  width: 18px;
-  text-align: center;
-  transition: transform 160ms ease, color 160ms ease;
-}
-.jd details[open] summary .toggle {
-  transform: rotate(45deg);
-  color: var(--crimson);
-}
-.jd .count {
+.jd__summary-count {
   font-family: var(--mono);
   font-size: 10px;
   background: var(--parchment-deep);
@@ -728,30 +668,88 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   border-radius: 999px;
   color: var(--ink-soft);
   letter-spacing: 0.08em;
+  text-transform: none;
 }
-.jd .body {
-  padding: 4px 22px 18px 22px;
+.jd__summary-toggle {
+  font-family: var(--serif);
+  font-size: 22px;
+  line-height: 1;
+  color: var(--mute);
+  width: 18px;
+  text-align: center;
+  transition: transform 160ms ease, color 160ms ease;
+}
+.jd__details[open] .jd__summary-toggle {
+  transform: rotate(45deg);
+  color: var(--crimson);
+}
+.jd__body {
+  padding: 6px 22px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.jd__section {
+  border-top: 1px dotted var(--border-strong);
+  padding-top: 12px;
+}
+.jd__section:first-child {
+  border-top: none;
+  padding-top: 4px;
+}
+.jd__section-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.jd__section-head .roman {
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--crimson);
+  font-size: 14px;
+  min-width: 24px;
+}
+.jd__section-title {
+  font-family: var(--serif);
+  font-size: 15px;
+  color: var(--navy);
+  font-weight: 500;
+}
+.jd__section-head .count {
+  font-family: var(--mono);
+  font-size: 10px;
+  background: var(--parchment-deep);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--ink-soft);
+  letter-spacing: 0.08em;
+}
+.jd__section-body {
   font-family: var(--serif);
   font-size: 15px;
   line-height: 1.6;
   color: var(--ink-soft);
 }
-.jd ul {
-  margin: 8px 0 0;
+.jd__section-body p { margin: 0 0 6px; }
+.jd__section-body ul {
+  margin: 6px 0 0;
   padding-left: 22px;
 }
-.jd li { margin-bottom: 6px; }
-.jd li::marker { color: var(--crimson); }
+.jd__section-body li { margin-bottom: 6px; }
+.jd__section-body li::marker { color: var(--crimson); }
 
 @media (prefers-reduced-motion: no-preference) {
-  .jd .body { animation: jdFadeIn 220ms ease; }
+  .jd__body { animation: jdFadeIn 220ms ease; }
   @keyframes jdFadeIn {
     from { opacity: 0; transform: translateY(-4px); }
     to   { opacity: 1; transform: none; }
   }
 }
 
-/* Marginalia notes */
+/* Notes */
 .brief-notes {
   margin-top: 8px;
   padding: 18px 20px 20px;
@@ -761,7 +759,7 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   position: relative;
 }
 .brief-notes::before {
-  content: "MARGINALIA";
+  content: "NOTES";
   position: absolute;
   top: -9px;
   left: 16px;
@@ -797,124 +795,13 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
 /* ════════════════════════════════════════════════════════
    DIVIDER between Brief and Workshop
    ════════════════════════════════════════════════════════ */
-.mode-divider {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  padding: 4px 8px;
-}
-.mode-divider__rule {
-  flex: 1;
-  border-top: 1px solid var(--border-strong);
-}
-.mode-divider__label {
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-  color: var(--navy);
-}
-.mode-divider__label em {
-  color: var(--crimson);
-  font-style: italic;
-  font-family: var(--serif);
-  font-size: 14px;
-  letter-spacing: 0;
-}
-
 /* ════════════════════════════════════════════════════════
-   CARD 2 · THE WORKSHOP — distinct, bordered, cool ground
+   Workshop sub-renderers — used inside [data-region="letter"]
+   (the renamed Workshop). The standalone workshop block that
+   once lived inside the Dossier has been removed; these
+   selectors are kept because role-workshop.js renders them
+   into the workshop region (stage stepper + progress chips).
    ════════════════════════════════════════════════════════ */
-.workshop {
-  --surface: #FFFEF9;
-  --border: #E5DFCC;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-
-  background: var(--workshop-bg);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-strong);
-  overflow: hidden;
-}
-
-.workshop__bar {
-  padding: 18px 32px;
-  border-bottom: 1px solid var(--border-strong);
-  background: var(--navy);
-  color: #F6F1DF;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-}
-.workshop__eyebrow {
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: #F6F1DF;
-  opacity: 0.85;
-}
-.workshop__primary {
-  display: flex;
-  gap: 10px;
-}
-
-.btn-primary {
-  background: var(--amber);
-  color: var(--navy);
-  border: 1px solid var(--amber);
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  padding: 9px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.18);
-}
-.btn-ghost {
-  background: transparent;
-  color: #F6F1DF;
-  border: 1px solid rgba(246, 241, 223, 0.5);
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  padding: 9px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.workshop__grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  background: var(--border-strong);
-}
-.workshop__col {
-  background: var(--workshop-bg);
-  padding: 28px 32px;
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-}
-
-.ws-card {
-  background: var(--workshop-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 16px 18px;
-}
-.ws-card h4 {
-  margin: 0 0 12px;
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--navy);
-}
 
 /* Stage stepper */
 .stepper {
@@ -955,93 +842,6 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   border-bottom-right-radius: 6px;
 }
 
-/* Timeline */
-.timeline {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-family: var(--serif);
-  font-size: 15px;
-  color: var(--ink);
-}
-.timeline__row {
-  display: flex;
-  justify-content: space-between;
-  border-bottom: 1px dotted var(--border-strong);
-  padding-bottom: 6px;
-}
-.timeline__row:last-child {
-  border-bottom: none;
-}
-.timeline__key {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--mute);
-  align-self: flex-end;
-}
-.timeline__val {
-  font-family: var(--serif);
-  font-size: 14px;
-  color: var(--ink);
-}
-.timeline__val--urgent {
-  color: var(--crimson);
-  font-style: italic;
-}
-
-/* ATS scorecard summary */
-.ats-card {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 18px;
-  align-items: center;
-}
-.ats-card__number {
-  font-family: var(--serif);
-  font-size: 56px;
-  line-height: 1;
-  color: var(--navy);
-  font-weight: 500;
-}
-.ats-card__number sup {
-  font-family: var(--mono);
-  font-size: 14px;
-  color: var(--mute);
-  margin-left: 4px;
-  vertical-align: top;
-}
-.ats-card__lines {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-family: var(--serif);
-  font-size: 14px;
-  line-height: 1.4;
-  color: var(--ink-soft);
-}
-.ats-card__lines strong {
-  color: var(--navy);
-}
-.ats-card__action {
-  grid-column: 1 / -1;
-  margin-top: 8px;
-}
-.ats-card__action button {
-  width: 100%;
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  color: var(--navy);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  padding: 10px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
 /* Write-back chips */
 .writeback {
   display: flex;
@@ -1080,9 +880,9 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .jd details,
-  .jd .body,
-  .jd summary .toggle {
+  .jd__details,
+  .jd__body,
+  .jd__summary-toggle {
     animation: none !important;
     transition: none !important;
   }
@@ -1106,13 +906,12 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
 }
 
 @media (max-width: 960px) {
-  .workshop__grid { grid-template-columns: 1fr; }
   .brief__masthead {
     padding: 28px 24px 18px;
     grid-template-columns: 1fr;
   }
   .brief__body { padding: 24px 24px 32px; }
-  .brief__stage-chip { justify-self: start; }
+  .brief__cta-cluster { justify-self: start; }
 }
 
 @media (max-width: 720px) {
@@ -1122,8 +921,411 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
     top: -10px;
   }
   .brief__lede::first-letter { font-size: 44px; }
-  .ats-card {
-    grid-template-columns: 1fr;
-    text-align: center;
+}
+
+/* ════════════════════════════════════════════════════════
+   Brief — AI enrichment sections
+   ------------------------------------------------------------
+   Rendered by role-brief.js when the kanban card carries the
+   scrape + Gemini enrichment payload (data-posting-summary,
+   data-fit-angle, data-must-haves, …). All sections degrade
+   gracefully: an empty array renders nothing, the loading
+   skeleton appears only while the scrape is in flight.
+   ════════════════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════════════════
+   Enrichment loading — two presentations
+   ────────────────────────────────────────────────────────
+   1. .brief__enriching--inline (refresh pill) — when cached
+      content already exists. A quiet mono line.
+   2. .brief__skeleton (full editorial skeleton) — first-time
+      enrichment for the role. Shimmer placeholders, AI badge,
+      and a rotating status line so the user knows specifically
+      that Gemini is reading the posting + weighing it against
+      their profile.
+   ════════════════════════════════════════════════════════ */
+
+/* Inline refresh pill */
+.brief__enriching {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 14px 18px;
+  margin: 0 56px 0;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--parchment-deep);
+}
+.brief__enriching--inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 56px 0;
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mute);
+  background: var(--parchment-deep);
+  border-radius: 999px;
+  border: 1px dashed var(--border-strong);
+}
+.brief__enriching-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--amber);
+  flex-shrink: 0;
+  margin-top: 6px;
+  animation: brief-enriching-pulse 1.4s ease-out infinite;
+}
+.brief__enriching--inline .brief__enriching-dot {
+  margin-top: 0;
+}
+@keyframes brief-enriching-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(231, 181, 73, 0.45); }
+  60%  { box-shadow: 0 0 0 8px rgba(231, 181, 73, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(231, 181, 73, 0); }
+}
+
+/* ────────────────────────────────────────────────────────
+   Full editorial skeleton
+   ──────────────────────────────────────────────────────── */
+
+.brief__skeleton {
+  display: grid;
+  gap: 18px;
+  padding: 24px 28px 28px;
+  margin: 4px 56px 0;
+  background:
+    linear-gradient(180deg, var(--parchment) 0%, var(--parchment-deep) 100%);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--mint-deep);
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 2px 14px rgba(27, 42, 78, 0.06);
+  /* Slow gentle breathing on the whole card so the user reads it
+     as "alive", not "stuck". Cooperates with the shimmer below. */
+  animation: brief-skeleton-breathe 4.8s ease-in-out infinite;
+}
+
+.brief__skeleton-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* AI badge — small mint pill with the Gemini sparkle */
+.brief__skeleton-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 8px;
+  background: var(--mint-soft);
+  border: 1px solid var(--mint-deep);
+  border-radius: 999px;
+  color: var(--mint-deep);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 600;
+  /* The badge itself rotates the sparkle gently as a tiny activity
+     signal — never the whole badge, just the icon. */
+}
+.brief__skeleton-badge-icon {
+  display: inline-block;
+  color: var(--mint-deep);
+  animation: brief-skeleton-sparkle 1.8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* Rotating status — four lines layered on top of each other,
+   each fading in/out in turn. No JS needed; CSS animation-delay
+   on each .brief__skeleton-status-line gives the rotation. */
+.brief__skeleton-status {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 1.4em;
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--ink-soft);
+  font-style: italic;
+  text-align: right;
+}
+.brief__skeleton-status-line {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  animation: brief-skeleton-status-cycle 11s linear infinite;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.brief__skeleton-status-line:nth-child(1) { animation-delay: 0s;    }
+.brief__skeleton-status-line:nth-child(2) { animation-delay: 2.75s; }
+.brief__skeleton-status-line:nth-child(3) { animation-delay: 5.5s;  }
+.brief__skeleton-status-line:nth-child(4) { animation-delay: 8.25s; }
+
+/* Section labels reuse the existing eyebrow style but slightly muted */
+.brief__skeleton-label {
+  display: block;
+  margin-bottom: 8px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--mute);
+  font-weight: 600;
+}
+
+/* Hook placeholder — a single big shimmer bar where the hook will land */
+.brief__skeleton-hook { padding-top: 4px; }
+.brief__shimmer--hook {
+  display: block;
+  height: 22px;
+  width: 70%;
+  border-radius: 4px;
+}
+
+/* Lede placeholder — four lines, last one short */
+.brief__skeleton-lede {
+  display: grid;
+  gap: 8px;
+}
+.brief__shimmer--lede-1,
+.brief__shimmer--lede-2,
+.brief__shimmer--lede-3 {
+  display: block;
+  height: 12px;
+  width: 100%;
+  border-radius: 3px;
+}
+.brief__shimmer--lede-4 {
+  display: block;
+  height: 12px;
+  width: 65%;
+  border-radius: 3px;
+}
+
+/* Fit-angle block — mint-bordered pull-quote placeholder */
+.brief__skeleton-fit {
+  padding: 14px 16px 12px;
+  background: rgba(165, 207, 184, 0.12);
+  border-left: 3px solid var(--mint-deep);
+  border-radius: 0 4px 4px 0;
+  display: grid;
+  gap: 8px;
+}
+.brief__shimmer--fit-1 {
+  display: block;
+  height: 12px;
+  width: 92%;
+  border-radius: 3px;
+}
+.brief__shimmer--fit-2 {
+  display: block;
+  height: 12px;
+  width: 76%;
+  border-radius: 3px;
+}
+
+/* Two structured-list previews side by side on wide screens */
+.brief__skeleton-lists {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-top: 4px;
+}
+@media (max-width: 720px) {
+  .brief__skeleton-lists { grid-template-columns: 1fr; }
+}
+.brief__skeleton-list {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.brief__shimmer--row {
+  display: block;
+  height: 11px;
+  width: 100%;
+  border-radius: 3px;
+}
+.brief__shimmer--row-short { width: 55%; }
+
+/* The shimmer itself — a slow gradient sweep over a paper-tinted
+   base. Soft, never distracting; matches the parchment palette. */
+.brief__shimmer {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(165, 207, 184, 0.10) 0%,
+      rgba(165, 207, 184, 0.32) 38%,
+      rgba(255, 247, 230, 0.55) 50%,
+      rgba(165, 207, 184, 0.32) 62%,
+      rgba(165, 207, 184, 0.10) 100%
+    ),
+    var(--parchment-deep);
+  background-size: 220% 100%, 100% 100%;
+  background-repeat: no-repeat;
+  animation: brief-skeleton-shimmer 1.8s ease-in-out infinite;
+}
+
+@keyframes brief-skeleton-shimmer {
+  0%   { background-position: 120% 0,   0 0; }
+  100% { background-position: -120% 0,  0 0; }
+}
+@keyframes brief-skeleton-breathe {
+  0%, 100% { box-shadow:
+               0 1px 0 rgba(255, 255, 255, 0.5) inset,
+               0 2px 14px rgba(27, 42, 78, 0.06); }
+  50%      { box-shadow:
+               0 1px 0 rgba(255, 255, 255, 0.5) inset,
+               0 4px 22px rgba(27, 42, 78, 0.10); }
+}
+@keyframes brief-skeleton-sparkle {
+  0%, 100% { transform: scale(1)    rotate(0deg);   opacity: 1;   }
+  50%      { transform: scale(1.18) rotate(12deg);  opacity: 0.6; }
+}
+/* Each status line fades in for ~2.5s and out for ~0.25s within an
+   11s loop (one full rotation through all four lines). */
+@keyframes brief-skeleton-status-cycle {
+  0%       { opacity: 0; transform: translateY(2px);  }
+  4%       { opacity: 1; transform: translateY(0);    }
+  22%      { opacity: 1; transform: translateY(0);    }
+  26%      { opacity: 0; transform: translateY(-2px); }
+  100%     { opacity: 0; transform: translateY(2px);  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brief__enriching-dot,
+  .brief__skeleton,
+  .brief__skeleton-badge-icon,
+  .brief__shimmer { animation: none; }
+  .brief__skeleton-status-line {
+    /* Reduced-motion users see only the first status line, statically. */
+    animation: none;
+    opacity: 0;
   }
+  .brief__skeleton-status-line:nth-child(1) { opacity: 1; }
+}
+
+/* Fit angle — the "why this role fits" pull-quote, sitting under
+   the lede in the main column. A second editorial beat. */
+.brief__fit {
+  padding: 18px 22px 20px;
+  background: linear-gradient(180deg, var(--parchment-deep) 0%, var(--parchment) 100%);
+  border-left: 3px solid var(--mint-deep);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  margin-top: 6px;
+}
+.brief__fit .section-label {
+  margin-bottom: 8px;
+}
+.brief__fit-body {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--ink);
+  font-style: italic;
+}
+
+/* Structured AI lists — must-haves / responsibilities / nice-to-haves
+   / tools & stack. Same ledger-rail vibe as the JD accordion but
+   always-open and a touch denser. */
+.brief__struct {
+  position: relative;
+  padding: 18px 20px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-soft);
+}
+.brief__struct + .brief__struct {
+  margin-top: 0;
+}
+.brief__struct .section-label {
+  margin: 0 0 10px;
+}
+.brief__struct ul {
+  margin: 0;
+  padding-left: 18px;
+  list-style: none;
+}
+.brief__struct li {
+  position: relative;
+  padding: 6px 0 6px 18px;
+  font-family: var(--serif);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink);
+  border-bottom: 1px dotted var(--border-strong);
+}
+.brief__struct li:last-child {
+  border-bottom: none;
+}
+.brief__struct li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.brief__struct--must  li::before { background: var(--crimson); }
+.brief__struct--resp  li::before { background: var(--navy); }
+.brief__struct--nice  li::before { background: var(--mint-deep); }
+.brief__struct--tools li::before { background: var(--amber); }
+
+/* Tags & skills — a quiet chip cloud in the side column, sitting
+   between the at-a-glance skim and the talking points. */
+.brief__tags {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.brief__tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.brief__skill-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+@media (max-width: 1080px) {
+  .brief__enriching,
+  .brief__enriching--inline,
+  .brief__skeleton {
+    margin-left: 40px;
+    margin-right: 40px;
+  }
+}
+@media (max-width: 720px) {
+  .brief__enriching,
+  .brief__enriching--inline,
+  .brief__skeleton {
+    margin-left: 24px;
+    margin-right: 24px;
+  }
+  .brief__skeleton { padding: 18px 18px 20px; }
+  .brief__skeleton-status { text-align: left; }
 }

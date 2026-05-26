@@ -48,12 +48,20 @@
       raw === "openai" || raw === "webhook" || raw === "anthropic"
         ? raw
         : "gemini";
+    /* Accept a generic *ApiKey as fallback for the resume-specific
+       field. The job-posting insights flow only needs *a* Gemini key
+       to work; users who set `geminiApiKey` (or the equivalent for
+       OpenAI/Anthropic) shouldn't have to also paste it into the
+       resume-prefixed field. */
     return {
       provider,
-      resumeGeminiApiKey: c.resumeGeminiApiKey || "",
-      resumeOpenAIApiKey: c.resumeOpenAIApiKey || "",
-      resumeAnthropicApiKey: c.resumeAnthropicApiKey || "",
-      resumeGeminiModel: c.resumeGeminiModel || "gemini-2.5-flash",
+      resumeGeminiApiKey:
+        c.resumeGeminiApiKey || c.geminiApiKey || "",
+      resumeOpenAIApiKey:
+        c.resumeOpenAIApiKey || c.openAIApiKey || c.openaiApiKey || "",
+      resumeAnthropicApiKey:
+        c.resumeAnthropicApiKey || c.anthropicApiKey || "",
+      resumeGeminiModel: c.resumeGeminiModel || "gemini-3.5-flash",
       resumeOpenAIModel: c.resumeOpenAIModel || "gpt-4o-mini",
       resumeAnthropicModel: c.resumeAnthropicModel || "claude-sonnet-4-6",
       resumeGenerationWebhookUrl: (c.resumeGenerationWebhookUrl || "").trim(),
