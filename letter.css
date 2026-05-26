@@ -1262,3 +1262,94 @@ body.jb-v2 [data-region="letter"] .jb-letter-compose__status {
 body.jb-v2 [data-region="letter"] .jb-letter-compose__status[data-tone="busy"]    { color: var(--jb-ink-2); }
 body.jb-v2 [data-region="letter"] .jb-letter-compose__status[data-tone="success"] { color: var(--jb-mint-deep); }
 body.jb-v2 [data-region="letter"] .jb-letter-compose__status[data-tone="error"]   { color: var(--jb-err); }
+
+/* --- Refine current version (rail Versions block) ---------- */
+/* Lives inside .jb-letter-versions, recessed against the rail's
+   paper-2 surface. Visually a quiet sibling of Compose — same
+   pill button + mono status pattern, but smaller and without a
+   primary CTA color so it never competes with Compose's
+   Generate button. */
+body.jb-v2 [data-region="letter"] .jb-letter-refine {
+  margin-top: var(--space-3, 12px);
+  padding-top: var(--space-3, 12px);
+  border-top: 1px solid var(--jb-line-soft);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-refine__label {
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-refine__input {
+  width: 100%;
+  resize: vertical;
+  min-height: 56px;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-sm, 6px);
+  background: var(--jb-paper);
+  color: var(--jb-ink-1);
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-sm);
+  line-height: 1.4;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-refine__input:focus-visible {
+  outline: none;
+  border-color: var(--jb-navy);
+  box-shadow: var(--jb-shadow-focus);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-refine__input:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-refine__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  flex-wrap: wrap;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-refine__button {
+  appearance: none;
+  border: 1px solid var(--jb-line);
+  background: var(--jb-paper);
+  color: var(--jb-navy);
+  border-radius: var(--jb-radius-pill);
+  padding: 0.4rem 0.85rem;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-refine__button:hover {
+  border-color: var(--jb-navy);
+  background: var(--jb-paper-2);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-refine__button:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-refine__button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-refine__button[data-busy="true"] {
+  border-color: var(--jb-mint-deep);
+  color: var(--jb-mint-deep);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-refine__status {
+  margin: 0 0 0 auto;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.04em;
+  color: var(--jb-ink-3);
+  min-height: 1.2em;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-refine__status[data-tone="busy"]    { color: var(--jb-ink-2); }
+body.jb-v2 [data-region="letter"] .jb-letter-refine__status[data-tone="success"] { color: var(--jb-mint-deep); }
+body.jb-v2 [data-region="letter"] .jb-letter-refine__status[data-tone="error"]   { color: var(--jb-err); }
