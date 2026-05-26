@@ -149,6 +149,69 @@ export type GroundedSearchTuning = {
   multiQueryCap?: number;
 };
 
+export type DiscoveryProfileSnapshot = {
+  snapshotVersion: 1;
+  profileHash: string;
+  targetRoles?: string[];
+  locations?: string[];
+  remotePolicy?: string;
+  seniority?: string;
+  keywordsInclude?: string[];
+  keywordsExclude?: string[];
+  resumeTextLength?: number;
+  resumeUpdatedAt?: string;
+  preferences?: {
+    tone?: string;
+    defaultMaxWords?: number;
+    industriesToEmphasize?: string[];
+    wordsToAvoid?: string[];
+    voiceNotesLength?: number;
+  };
+  schedule?: {
+    local?: { enabled?: boolean; hour?: number; minute?: number };
+    github?: { enabled?: boolean; hour?: number; minute?: number };
+  };
+};
+
+export type DiscoverySearchPlan = {
+  planVersion: 1;
+  generatedAt: string;
+  trigger?: string;
+  seed: string;
+  rotationKey?: string;
+  rotationIndex?: number;
+  profileHash?: string;
+  selected?: {
+    role?: string;
+    adjacentTitle?: string;
+    skill?: string;
+    industry?: string;
+    location?: string;
+    seniority?: string;
+    companyType?: string;
+    sourceLane?: string;
+  };
+  facets?: {
+    roles?: string[];
+    adjacentTitles?: string[];
+    skills?: string[];
+    industries?: string[];
+    locations?: string[];
+    seniority?: string[];
+    companyTypes?: string[];
+    sourceLanes?: string[];
+  };
+  query?: {
+    targetRoles?: string;
+    locations?: string;
+    remotePolicy?: string;
+    seniority?: string;
+    keywordsInclude?: string;
+    keywordsExclude?: string;
+    sourcePreset?: SourcePreset | "";
+  };
+};
+
 export type DiscoveryProfile = {
   sourcePreset?: SourcePreset;
   targetRoles?: string;
@@ -162,6 +225,10 @@ export type DiscoveryProfile = {
   ultraPlanTuning?: UltraPlanTuning;
   /** Grounded search tunable parameters. */
   groundedSearchTuning?: GroundedSearchTuning;
+  /** Non-secret browser-side snapshot used to prove which current profile powered the run. */
+  profileSnapshot?: DiscoveryProfileSnapshot;
+  /** Deterministic query/facet bundle used to rotate daily discovery runs. */
+  searchPlan?: DiscoverySearchPlan;
 };
 
 export type DiscoveryIntent = {
@@ -253,8 +320,10 @@ export const INGEST_URL_SCHEMA_VERSION = 1 as const;
  */
 export const DISCOVERY_RUN_TRIGGERS = [
   "manual",
+  "scheduled-browser",
   "scheduled-local",
   "scheduled-github",
+  "scheduled-cloudflare",
   "scheduled-appsscript",
   "cli",
 ] as const;
@@ -360,6 +429,12 @@ export type IngestUrlRequestV1 = {
   schemaVersion: typeof INGEST_URL_SCHEMA_VERSION;
   url: string;
   sheetId?: string;
+  /**
+   * Optional short-lived OAuth access token supplied by the browser dashboard.
+   * Lets a local worker write to the same user-owned Sheet without requiring
+   * persistent worker credentials. Never persist or log this value.
+   */
+  googleAccessToken?: string;
   manual?: {
     title: string;
     company: string;
@@ -833,6 +908,8 @@ export type DiscoveryRunStatusPayload = {
    * Exposes the machine-readable control-plane snapshot for VAL-API-001..005 validation.
    */
   groundedSearchTuning?: GroundedSearchTuning;
+  profileSnapshot?: DiscoveryProfileSnapshot;
+  searchPlan?: DiscoverySearchPlan;
 };
 
 export type DiscoveryWebhookAck = {
@@ -879,11 +956,11 @@ export type StoredWorkerConfig = {
     sourcePreset?: SourcePreset;
   };
   /**
-   * Last-used resume/form inputs to /discovery-profile, persisted so a
-   * scheduled daily refresh (Cloudflare Cron → POST /discovery-profile
-   * {mode:"refresh"}) can re-run company discovery without the dashboard
-   * being open. Populated when POST /discovery-profile is called with
-   * `persist: true`. Local-only; never pushed to a remote sheet.
+   * Last-used resume/form inputs from /discovery-profile, persisted so legacy
+   * profile refreshes and scheduled discovery payload builders can reuse the
+   * current candidate context without the dashboard being open. Populated when
+   * POST /discovery-profile is called with `persist: true`. Local-only; never
+   * pushed to a remote sheet.
    */
   candidateProfile?: {
     resumeText?: string;
@@ -915,6 +992,10 @@ export type EffectiveDiscoveryConfig = StoredWorkerConfig & {
   ultraPlanTuning: UltraPlanTuning;
   /** Resolved grounded search tuning parameters (with preset-specific defaults). */
   groundedSearchTuning: GroundedSearchTuning;
+  /** Non-secret snapshot supplied by the webhook payload builder. */
+  profileSnapshot?: DiscoveryProfileSnapshot;
+  /** Resolved search plan supplied by the webhook payload builder. */
+  searchPlan?: DiscoverySearchPlan;
 };
 
 export type DiscoveryRun = {

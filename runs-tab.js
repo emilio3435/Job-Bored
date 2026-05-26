@@ -24,14 +24,26 @@
   var JOB_DISCOVERY_RUN_STORAGE_KEY = "command_center_discovery_run_state";
 
   var SCHEDULED_TRIGGERS = {
+    "scheduled-browser": true,
     "scheduled-local": true,
     "scheduled-github": true,
+    "scheduled-cloudflare": true,
     "scheduled-appsscript": true,
   };
-  var ACTIVE_JOB_DISCOVERY_STATUSES = {
+  var LOCAL_JOB_DISCOVERY_STATUSES = {
     pending: true,
     running: true,
     polling_error: true,
+    completed: true,
+    empty: true,
+    partial: true,
+    failed: true,
+  };
+  var TERMINAL_JOB_DISCOVERY_STATUSES = {
+    completed: true,
+    empty: true,
+    partial: true,
+    failed: true,
   };
 
   function escapeHtml(value) {
@@ -213,8 +225,10 @@
 
   function triggerLabel(trigger) {
     if (trigger === "manual") return "Manual";
+    if (trigger === "scheduled-browser") return "Scheduled (browser)";
     if (trigger === "scheduled-local") return "Scheduled (local)";
     if (trigger === "scheduled-github") return "Scheduled (GitHub)";
+    if (trigger === "scheduled-cloudflare") return "Scheduled (Cloudflare)";
     if (trigger === "scheduled-appsscript") return "Scheduled (Apps Script)";
     if (trigger === "cli") return "CLI";
     return trigger || "";
@@ -243,7 +257,7 @@
     if (!o || typeof o !== "object") return null;
     var status = String(o.status || "").toLowerCase();
     var runId = String(o.runId || "").trim();
-    if (!runId || !ACTIVE_JOB_DISCOVERY_STATUSES[status]) return null;
+    if (!runId || !LOCAL_JOB_DISCOVERY_STATUSES[status]) return null;
     var runAt = String(o.initiatedAt || o.requestedAt || o.startedAt || "").trim();
     if (!runAt) runAt = new Date().toISOString();
     return {
@@ -257,6 +271,7 @@
       error: String(o.errorMessage || ""),
       companiesSeen: toInt(o.companiesSeen),
       leadsWritten: toInt(o.leadsWritten),
+      statusUnavailable: !!o.statusUnavailable,
     };
   }
 
@@ -273,8 +288,16 @@
 
   function jobDiscoveryStatusLabel(status) {
     if (status === "pending") return "Accepted";
+    if (status === "completed") return "Completed";
+    if (status === "empty") return "Empty";
+    if (status === "partial") return "Partial";
+    if (status === "failed") return "Failed";
     if (status === "polling_error") return "Retrying";
     return "Running";
+  }
+
+  function isTerminalJobDiscoveryRun(run) {
+    return !!(run && TERMINAL_JOB_DISCOVERY_STATUSES[run.status]);
   }
 
   function renderRunsTable(tbody, runs, options) {
@@ -339,17 +362,18 @@
       ? new Date().toISOString()
       : runAt.toISOString();
     var status = run && run.status ? run.status : "running";
+    var terminal = isTerminalJobDiscoveryRun(run);
     var errorText = run && run.error ? String(run.error) : "";
     var companiesSeen = run && run.companiesSeen > 0 ? String(run.companiesSeen) : "—";
     var leadsWritten = run && run.leadsWritten > 0 ? String(run.leadsWritten) : "—";
     return (
-      '<tr class="runs-row runs-row--in-progress" data-runs-live="job-discovery">' +
+      '<tr class="runs-row runs-row--' + escapeHtml(terminal ? status : "in-progress") + '" data-runs-live="job-discovery">' +
         '<td title="' + escapeHtml(runAtIso) + '">' +
           escapeHtml(formatRunAtShort(runAtIso)) +
         "</td>" +
         "<td>" + escapeHtml(triggerLabel((run && run.trigger) || "manual")) + "</td>" +
-        "<td>" + statusBadge("in_progress", jobDiscoveryStatusLabel(status)) + "</td>" +
-        '<td><span class="runs-dash">Live</span></td>' +
+        "<td>" + statusBadge(terminal ? status : "in_progress", jobDiscoveryStatusLabel(status)) + "</td>" +
+        '<td><span class="runs-dash">' + (terminal ? "Local" : "Live") + "</span></td>" +
         "<td>" + escapeHtml(companiesSeen) + "</td>" +
         "<td>" + escapeHtml(leadsWritten) + "</td>" +
         "<td>Job discovery</td>" +
@@ -575,12 +599,25 @@
         var result = await fetchDiscoveryRuns(sheetId, token);
         state.hasLoadedOnce = true;
         if (!result.ok) {
-          setStatus(statusEl, "error", "Couldn't load runs: " + result.reason);
-          if (isInitial) {
+          if (state.liveJobRun) {
+            showTable();
+            renderRunsTable(tbody, [], {
+              ghost: state.ghostRun,
+              liveJobRun: state.liveJobRun,
+            });
+            setStatus(
+              statusEl,
+              "warn",
+              "Couldn't load DiscoveryRuns; showing the local run state.",
+            );
+          } else if (isInitial) {
+            setStatus(statusEl, "error", "Couldn't load runs: " + result.reason);
             showEmpty({
               title: "Couldn't load runs",
               hint: "Check your connection and try Reload. Full detail: " + result.reason,
             });
+          } else {
+            setStatus(statusEl, "error", "Couldn't load runs: " + result.reason);
           }
           return;
         }
@@ -606,6 +643,9 @@
             setStatus(statusEl, "info", "");
           }
           return;
+        }
+        if (state.liveJobRun && isTerminalJobDiscoveryRun(state.liveJobRun)) {
+          state.liveJobRun = null;
         }
         rerender();
       } finally {
@@ -726,6 +766,15 @@
       if (!state.isOpen) return;
       if (state.liveJobRun) {
         rerender();
+        if (isTerminalJobDiscoveryRun(state.liveJobRun)) {
+          setStatus(
+            statusEl,
+            "info",
+            "Job discovery finished locally; refreshing DiscoveryRuns…",
+          );
+          loadRuns({ silent: false });
+          return;
+        }
         setStatus(statusEl, "info", "Job discovery run in progress…");
         return;
       }

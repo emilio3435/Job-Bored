@@ -8,7 +8,8 @@
  * extraction step needed.
  *
  * The lane is feature-gated on `runtimeConfig.serpApiKey`. An unset key
- * short-circuits to an empty result + diagnostic log event (never throws).
+ * short-circuits to an empty result + diagnostic log event (never throws and
+ * does not emit a warning, because SerpApi is an optional provider lane).
  * Per-query HTTP failures are caught and surfaced as warnings so a single
  * bad query doesn't tank the lane.
  *
@@ -104,7 +105,6 @@ export async function collectSerpApiGoogleJobsListings(
     input.log?.("discovery.run.serpapi_google_jobs_skipped", {
       reason: "missing_api_key",
     });
-    warnings.push("missing_api_key");
     stats.durationMs = Date.now() - startedAt;
     return { listings: [], rawListings: [], warnings, stats };
   }

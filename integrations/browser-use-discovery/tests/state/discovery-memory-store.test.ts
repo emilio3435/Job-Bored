@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
   buildAcceptedRunStatus,
+  buildRunningRunStatus,
   createDiscoveryRunStatusStore,
 } from "../../src/state/run-status-store.ts";
 import {
@@ -93,6 +94,41 @@ test("discovery memory store creates normalized tables without disturbing discov
     } finally {
       runStatusReader.close();
     }
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("run status store terminalizes non-terminal runs abandoned by worker restart", async () => {
+  const { tempDir, dbPath } = await makeTempDbPath();
+
+  try {
+    const runStatusStore = createDiscoveryRunStatusStore(dbPath);
+    const accepted = buildAcceptedRunStatus({
+      runId: "run_abandoned",
+      trigger: "manual",
+      request: {
+        sheetId: "sheet_123",
+        variationKey: "var_abandoned",
+        requestedAt: "2026-04-10T08:00:00.000Z",
+      },
+      acceptedAt: "2026-04-10T08:00:05.000Z",
+    });
+    runStatusStore.put(
+      buildRunningRunStatus(accepted, "2026-04-10T08:00:06.000Z"),
+    );
+
+    const recovered = runStatusStore.markNonTerminalRunsAbandoned!(
+      "2026-04-10T08:05:00.000Z",
+    );
+    const payload = runStatusStore.get("run_abandoned");
+    runStatusStore.close();
+
+    assert.equal(recovered, 1);
+    assert.equal(payload?.status, "partial");
+    assert.equal(payload?.terminal, true);
+    assert.equal(payload?.completedAt, "2026-04-10T08:05:00.000Z");
+    assert.match(payload?.error || "", /worker restarted/i);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

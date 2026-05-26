@@ -25,6 +25,8 @@ A beautiful, open-source job search dashboard powered by Google Sheets. Track ap
 
 If you cloned the repo and want the **Cheerio “Fetch posting”** feature without a second terminal:
 
+Requires **Node.js 24.x** and npm 11.x (see `.nvmrc` / `.node-version`).
+
 ```bash
 npm install
 npm start
@@ -94,10 +96,12 @@ Choose any of these (all free):
 #### GitHub Pages (recommended)
 
 1. Fork this repo
-2. Add your `config.js` (do NOT commit credentials to a public repo — use GitHub Pages environment or a private fork)
+2. Add runtime config safely: use Settings/localStorage for personal use, a private fork with `config.js`, or a GitHub Actions-generated `config.js` from repo secrets
 3. Go to **Settings → Pages → Source: Deploy from a branch → main / root**
 4. Your dashboard is live at `https://yourusername.github.io/command-center`
 5. Add that URL to your OAuth client's Authorized JavaScript Origins
+
+Concrete static deployment modes and CORS expectations are in **[docs/GITHUB-PAGES.md](docs/GITHUB-PAGES.md)**.
 
 #### Vercel
 
@@ -170,11 +174,37 @@ Automation (e.g. [Hermes Agent](https://github.com/NousResearch/hermes-agent), n
 
 Use `npm run cleanup:expired-jobs -- --sheet-id=<your-sheet-id>` for a dry-run scan of existing Pipeline links. Add `--write` only when the report looks right. The runner never deletes rows; it moves only confirmed closed New/Researching rows to `Status = Expired` and appends an audit entry to Notes. Applied, Phone Screen, Interviewing, Offer, Rejected, Passed, and already Expired rows are skipped by default. Network failures, 403s, captchas, timeouts, and ambiguous pages stay in the report as needs-review instead of being marked Expired.
 
+For unattended review, install the separate daily cleanup schedule:
+
+```bash
+npm run cleanup:expired-jobs:schedule:install -- --sheet-id YOUR_SHEET_ID
+```
+
+The default fire time is the installed discovery refresh time plus 45 minutes (9:00 local when discovery is at 8:15), so cleanup scans the same Pipeline once the morning discovery run has settled. The scheduled runner is bounded by a 45-minute total execution timeout that matches this post-discovery window. The job defaults to dry-run and logs to `integrations/browser-use-discovery/state/expired-cleanup-schedule.log`. Automatic writes stay opt-in:
+
+```bash
+npm run cleanup:expired-jobs:schedule:install -- --sheet-id YOUR_SHEET_ID --write --force
+```
+
+Inspect installed status, tail the log, and remove the schedule with:
+
+```bash
+npm run cleanup:expired-jobs:schedule:status
+tail -f integrations/browser-use-discovery/state/expired-cleanup-schedule.log
+npm run cleanup:expired-jobs:schedule:uninstall
+```
+
+This schedule uses separate artifacts from discovery refresh, including the macOS label `com.jobbored.expired-cleanup`.
+
+The dashboard also has one top-bar review icon when active New/Researching postings need an availability check. It opens a single review modal listing every Pipeline row that the cleanup pass could not confidently classify (HTTP 403, captcha, timeouts, ambiguous pages, plus aging active rows), each with a direct link to the job posting. Indicators stay off individual cards.
+
 **You do not need a webhook** to use the dashboard — only for the **Run discovery** button or automation that speaks the webhook contract. See **[docs/DISCOVERY-PATHS.md](docs/DISCOVERY-PATHS.md)** (diagrams: manual rows, scheduled jobs, GitHub Actions, vs browser POST).
 
 **Apps Script (visual walkthrough):** **[integrations/apps-script/WALKTHROUGH.md](integrations/apps-script/WALKTHROUGH.md)** — deploy the repo stub for webhook verification only (`npm run apps-script:push`, `npm run test:discovery-webhook`).
 
 **Built-in real worker path:** use **[`integrations/browser-use-discovery/`](integrations/browser-use-discovery/)** for the repo’s Browser Use-backed discovery worker. It keeps the v1 webhook contract stable, supports local and hosted deployment, writes directly to the user’s Sheet, and covers Greenhouse / Lever / Ashby as the first-layer sources.
+
+When the worker accepts an async run, it may return `statusPath` for `/runs/:runId` polling. Hosted workers include a per-run `statusToken` query parameter in that path; browser clients and relays must preserve the returned `statusPath` exactly, including the query string, instead of rebuilding it from `runId`.
 
 **Recommended: enable the SerpApi Google Jobs source for high-quality matches.** The discovery worker ships with three source lanes. One of them — `serpapi_google_jobs` — reads Google Jobs directly. Google has already indexed every `JobPosting` schema markup on the web (every Greenhouse, Lever, Ashby, Workday, iCIMS, SmartRecruiters board), so this one source replaces brittle page-by-page scraping with clean structured job data.
 
@@ -198,7 +228,7 @@ That's it. The dashboard's **Settings → Discovery** tab has a live status indi
 
 **Fast local real-discovery path:** if your agent runs on your own machine, use **local webhook → ngrok → Cloudflare Worker**. Start with `npm run discovery:bootstrap-local`, then use **Settings → Hermes + ngrok** to review the autofilled route/tunnel info and **Cloudflare relay** to generate the Worker deploy command and final browser URL.
 
-**Keep the relay alive across ngrok rotations:** free ngrok plans hand out a new public URL on every restart, which silently breaks the deployed Cloudflare Worker (its `TARGET_URL` secret still points at the dead tunnel). Run `npm run discovery:keep-alive` once after bootstrap+deploy to start a watchdog: it polls the local ngrok API every 30s and, when the URL rotates, runs a single `wrangler secret put TARGET_URL` on the existing Worker — no full redeploy. One-shot mode (`npm run discovery:keep-alive -- --once`) is also useful as a pre-flight check or launchd job. If you upgrade ngrok to a reserved domain, pass `--reserved-domain mytunnel.ngrok.app` and the watchdog launches ngrok with `--domain=...` so rotations stop happening at all.
+**Keep the relay alive across ngrok rotations:** free ngrok plans hand out a new public URL on restart. After `npm run discovery:bootstrap-local` and Cloudflare relay deploy, run `npm run discovery:keep-alive` in a long-running terminal to poll the local ngrok API every 30s and update the existing Worker's `TARGET_URL` secret. One-shot mode (`npm run discovery:keep-alive -- --once`) is useful as a pre-flight check or scheduler job.
 
 1. Point **Run discovery** at your HTTPS endpoint (see Settings and `discoveryWebhookUrl`), _or_ use **scheduled** automation only ([paths doc](docs/DISCOVERY-PATHS.md)).
 2. Schedule your agent or cron so rows append to **Pipeline** on a cadence you want.
@@ -226,10 +256,10 @@ All template paths in one place: **[SETUP.md — BYO automation templates](SETUP
 Once you've saved a resume on the **Profile & Companies** tab and run
 **Discover companies** at least once (with _Persist_ checked so the worker
 stores the inferred profile), pick one of three ways to keep the company
-shortlist fresh. All three POST `{mode:"refresh"}` to the worker's
-`/discovery-profile` endpoint — the worker replays the stored profile
-against Gemini and dedupes against the per-sheet `negativeCompanyKeys`
-list, so companies you've skipped never re-appear.
+shortlist and Pipeline discovery fresh. The local scheduler builds a
+`command-center.discovery` webhook payload at fire time, using the current
+stored profile/search context and deterministic daily rotation. The worker
+must be running for local scheduled discovery to land.
 
 **A — Browser tab only (zero infra).** In **Settings → Profile &
 Companies**, enable **Auto-refresh while this tab is open** and pick
@@ -241,19 +271,22 @@ the schedule. No Cloudflare account, no cron, nothing to install.
 
 ```bash
 npm run schedule:install-local
-# or customise: npm run schedule:install-local -- --hour 7 --minute 30
+# or customise/pin the sheet:
+npm run schedule:install-local -- --hour 7 --minute 30 --sheet-id YOUR_SHEET_ID
 ```
 
 Writes `~/Library/LaunchAgents/com.jobbored.refresh.plist` and loads it.
-At the configured local time, launchd fires a `curl` against the local
-worker on `http://127.0.0.1:8644/discovery-profile`. The worker
+At the configured local time, launchd runs
+`scripts/run-scheduled-discovery.mjs`, which posts to the local worker on
+`http://127.0.0.1:8644/webhook`. The worker
 (`npm run discovery:worker:start-local`) must be running when the agent
-fires. Remove later with `npm run schedule:uninstall-local`.
+fires. If `--sheet-id` is omitted, the installer falls back to `.env` and
+the local worker config. Remove later with `npm run schedule:uninstall-local`.
 
 Linux equivalent — add this line to your crontab (`crontab -e`):
 
 ```
-0 8 * * * /usr/bin/curl -sS --max-time 600 -X POST -H "content-type: application/json" -H "x-discovery-secret: $BROWSER_USE_DISCOVERY_WEBHOOK_SECRET" -d '{"event":"discovery.profile.request","schemaVersion":1,"mode":"refresh"}' http://127.0.0.1:8644/discovery-profile >> ~/.jobbored-refresh.log 2>&1
+0 8 * * * cd /path/to/Job-Bored && node scripts/run-scheduled-discovery.mjs --trigger scheduled-local --sheet-id YOUR_SHEET_ID >> integrations/browser-use-discovery/state/cron-refresh.log 2>&1
 ```
 
 **C — 24/7 refresh via Cloudflare Cron (laptop can be off).**
@@ -268,12 +301,11 @@ npm run cloudflare-relay:deploy -- \
 
 Requires a [free Cloudflare account](https://dash.cloudflare.com/sign-up)
 and [Wrangler](https://developers.cloudflare.com/workers/wrangler/install-and-update/).
-The deploy helper uploads `TARGET_URL`, `DISCOVERY_SECRET`, and (when
-`--sheet-id` is provided) `REFRESH_SHEET_ID` as Worker secrets, and
-writes the `--cron` expression into `triggers.crons` on the generated
-`wrangler.json`. The Worker's `scheduled()` handler POSTs
-`{mode:"refresh"}` to `<TARGET_URL origin>/discovery-profile` at each
-fire.
+The deploy helper uploads `TARGET_URL`, `DISCOVERY_SECRET`, and
+`REFRESH_SHEET_ID` as Worker secrets, and writes the `--cron` expression
+into `triggers.crons` on the generated `wrangler.json`. The Worker's
+`scheduled()` handler POSTs the `command-center.discovery` payload to
+`<TARGET_URL origin>/webhook` at each fire.
 
 **Rotating `TARGET_URL` when your tunnel rotates.** If you use ngrok (or
 any tunnel that cycles URLs), re-run the deploy with the new URL:
@@ -304,6 +336,7 @@ into Command Center is unchanged — only the upstream secret gets rotated.
 
 - **Reading** uses JSONP via Google's gviz endpoint — no auth needed, no CORS issues, works in iframes
 - **Writing** uses the Google Sheets API v4 with an OAuth access token obtained via Google Identity Services
+- **DiscoveryRuns** is an optional Sheet tab written by the local discovery worker so run history stays in your workbook
 - **No backend, no server, no database** — your Google Sheet IS the database
 
 ## Tech Stack
@@ -325,6 +358,7 @@ into Command Center is unchanged — only the upstream secret gets rotated.
 - **Never commit secrets** — use [`config.example.js`](config.example.js) in the repo; copy to `config.js` locally or use **Settings** (stored in `localStorage`). Real `config.js` must not be pushed to public remotes.
 - **Repository contents** — only placeholders (`YOUR_SHEET_ID_HERE`, empty API keys). The public template Sheet ID in links is not a secret.
 - OAuth access tokens are held **in memory only** (not localStorage)
+- Local discovery may receive a per-run `googleAccessToken` so it can write to your Sheet for that request. The worker strips it from persisted run config/state and must not log the raw token.
 - Gemini/OpenAI keys from Settings live in **this browser’s localStorage**; they are not sent to Command Center’s authors
 - Draft generation calls your chosen AI provider directly from the browser unless you select webhook mode
 - ATS scorecard can run through your own server (`/api/ats-scorecard`) or your own webhook URL; no maintainer-hosted ATS service is used
@@ -336,6 +370,7 @@ See [SECURITY.md](SECURITY.md) for maintainers and leak response.
 Index and contracts for automation and integrations (column layouts stay in [Sheet Structure](#sheet-structure) above):
 
 - **[docs/README.md](docs/README.md)** — documentation index
+- **[docs/GITHUB-PAGES.md](docs/GITHUB-PAGES.md)** — static deployment modes, generated config, OAuth origins, CORS, and worker expectations
 - **[AGENT_CONTRACT.md](AGENT_CONTRACT.md)** — discovery webhook contract (JSON, columns, dedupe)
 - **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)** — automation roadmap and template pointers
 - **[examples/](examples/)** — discovery webhook request fixtures for local testing
@@ -350,10 +385,8 @@ MIT
 
 ## One-line setup
 
-Placeholder until the greenfield automation command is wired:
-
 ```bash
 npm run setup:auto
 ```
 
-Expected behavior: run the install doctor, start or verify the local worker and ngrok tunnel, deploy or refresh the Cloudflare relay, and install the keep-alive job using only your own free Google, Cloudflare, and ngrok accounts.
+This installs/refreshes repo dependencies and starts the local discovery bootstrap flow. For read-only diagnostics before or after setup, run `npm run doctor`.

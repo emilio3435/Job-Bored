@@ -39,6 +39,9 @@ type PipelineWriterLike = {
 export type HandleIngestUrlDependencies = {
   runtimeConfig: WorkerRuntimeConfig;
   pipelineWriter: PipelineWriterLike;
+  createPipelineWriterForRequest?(
+    runtimeConfigOverride: WorkerRuntimeConfig,
+  ): PipelineWriterLike;
   loadStoredWorkerConfig?(sheetId: string): Promise<StoredWorkerConfig | null>;
   fetchGreenhouseJob?: typeof fetchGreenhouseJob;
   fetchLeverJob?: typeof fetchLeverJob;
@@ -94,23 +97,71 @@ export async function handleIngestUrlWebhook(
     `ingest_${randomUUID().replace(/-/g, "")}`;
   const now = dependencies.now || (() => new Date());
   const ingestRequest = parsed.request;
+  const requestGoogleAccessToken =
+    typeof ingestRequest.googleAccessToken === "string"
+      ? ingestRequest.googleAccessToken.trim()
+      : "";
+  const effectiveRuntimeConfig = requestGoogleAccessToken
+    ? {
+        ...dependencies.runtimeConfig,
+        googleAccessToken: requestGoogleAccessToken,
+      }
+    : dependencies.runtimeConfig;
+  const effectiveDependencies: HandleIngestUrlDependencies =
+    requestGoogleAccessToken && dependencies.createPipelineWriterForRequest
+      ? {
+          ...dependencies,
+          runtimeConfig: effectiveRuntimeConfig,
+          pipelineWriter:
+            dependencies.createPipelineWriterForRequest(effectiveRuntimeConfig),
+        }
+      : dependencies;
 
   dependencies.log?.("discovery.run.ingest_url_request_accepted", {
     runId,
     hasManual: !!ingestRequest.manual,
     hasSheetId: !!String(ingestRequest.sheetId || "").trim(),
+    hasRequestGoogleAccessToken: !!requestGoogleAccessToken,
   });
 
   try {
     const resolvedSheetId = await resolveSheetId(
       ingestRequest.sheetId,
-      dependencies,
+      effectiveDependencies,
     );
     if (!resolvedSheetId) {
       return jsonResponse(200, {
         ok: false,
         reason: "worker_error",
         message: "No sheetId was provided and no default sheetId is configured.",
+      } satisfies IngestUrlResponseV1);
+    }
+
+    const classified = classifyIngestUrl(ingestRequest.url);
+    dependencies.log?.("discovery.run.ingest_url_classified", {
+      runId,
+      kind: classified.kind,
+      ...(classified.host ? { host: classified.host } : {}),
+      ...(classified.kind === "blocked_aggregator"
+        ? { provider: classified.provider }
+        : {}),
+      ...(classified.kind === "ats_direct"
+        ? { provider: classified.provider }
+        : {}),
+    });
+
+    if (classified.kind === "invalid") {
+      return jsonResponse(400, {
+        ok: false,
+        reason: "invalid_url",
+        message: classified.message,
+      } satisfies IngestUrlResponseV1);
+    }
+    if (classified.kind === "private_network") {
+      return jsonResponse(400, {
+        ok: false,
+        reason: "private_network",
+        message: "Local and private-network URLs are not allowed.",
       } satisfies IngestUrlResponseV1);
     }
 
@@ -142,7 +193,7 @@ export async function handleIngestUrlWebhook(
         } satisfies IngestUrlResponseV1);
       }
       return writeLeadAndRespond({
-        dependencies,
+        dependencies: effectiveDependencies,
         sheetId: resolvedSheetId,
         lead: manualLead,
         strategy: "manual_fill",
@@ -150,33 +201,6 @@ export async function handleIngestUrlWebhook(
       });
     }
 
-    const classified = classifyIngestUrl(ingestRequest.url);
-    dependencies.log?.("discovery.run.ingest_url_classified", {
-      runId,
-      kind: classified.kind,
-      ...(classified.host ? { host: classified.host } : {}),
-      ...(classified.kind === "blocked_aggregator"
-        ? { provider: classified.provider }
-        : {}),
-      ...(classified.kind === "ats_direct"
-        ? { provider: classified.provider }
-        : {}),
-    });
-
-    if (classified.kind === "invalid") {
-      return jsonResponse(400, {
-        ok: false,
-        reason: "invalid_url",
-        message: classified.message,
-      } satisfies IngestUrlResponseV1);
-    }
-    if (classified.kind === "private_network") {
-      return jsonResponse(400, {
-        ok: false,
-        reason: "private_network",
-        message: "Local and private-network URLs are not allowed.",
-      } satisfies IngestUrlResponseV1);
-    }
     let rawListing: RawListing | null = null;
     let strategy: "ats_api" | "jsonld" | "cheerio_dom" | "url_only" = "cheerio_dom";
 
@@ -199,7 +223,7 @@ export async function handleIngestUrlWebhook(
       );
       strategy = "url_only";
     } else if (classified.kind === "ats_direct") {
-      const atsResult = await fetchFromAts(classified, dependencies);
+      const atsResult = await fetchFromAts(classified, effectiveDependencies);
       if (!atsResult.ok && classified.provider !== "workable") {
         // ATS JSON API failed (deleted posting, region-locked, network blip).
         // Fall back to the generic Cheerio scrape on the same URL — the
@@ -219,7 +243,7 @@ export async function handleIngestUrlWebhook(
     if (!rawListing) {
       const scraped = await scrapeToRawListing(
         ingestRequest.url,
-        dependencies,
+        effectiveDependencies,
       );
       if (!scraped.ok) {
         // Cheerio threw (HTTP 4xx/5xx upstream, timeout, or oversize page).
@@ -258,7 +282,7 @@ export async function handleIngestUrlWebhook(
     }
 
     return writeLeadAndRespond({
-      dependencies,
+      dependencies: effectiveDependencies,
       sheetId: resolvedSheetId,
       lead,
       strategy,
@@ -316,6 +340,19 @@ function parseRequest(bodyText: string): ParsedIngestUrlRequest {
   }
   const sheetId =
     typeof record.sheetId === "string" ? record.sheetId.trim() : "";
+  const googleAccessToken =
+    typeof record.googleAccessToken === "string"
+      ? record.googleAccessToken.trim()
+      : "";
+  if (
+    record.googleAccessToken != null &&
+    typeof record.googleAccessToken !== "string"
+  ) {
+    return {
+      ok: false,
+      message: "googleAccessToken must be a string when present.",
+    };
+  }
 
   const manualRaw = record.manual;
   let manual: IngestUrlRequestV1["manual"];
@@ -336,15 +373,18 @@ function parseRequest(bodyText: string): ParsedIngestUrlRequest {
         message: "manual.title and manual.company are required when manual is present.",
       };
     }
-    if (
-      manualRecord.fitScore !== undefined &&
-      (typeof manualRecord.fitScore !== "number" ||
-        !Number.isFinite(manualRecord.fitScore))
-    ) {
-      return {
-        ok: false,
-        message: "manual.fitScore must be a finite number between 0 and 10 when present.",
-      };
+    let fitScore: number | undefined;
+    if (manualRecord.fitScore !== undefined) {
+      if (
+        typeof manualRecord.fitScore !== "number" ||
+        !Number.isFinite(manualRecord.fitScore)
+      ) {
+        return {
+          ok: false,
+          message: "manual.fitScore must be a finite number between 0 and 10 when present.",
+        };
+      }
+      fitScore = Math.min(10, Math.max(0, Math.round(manualRecord.fitScore)));
     }
     manual = {
       title,
@@ -357,10 +397,7 @@ function parseRequest(bodyText: string): ParsedIngestUrlRequest {
         typeof manualRecord.description === "string"
           ? manualRecord.description
           : undefined,
-      fitScore:
-        typeof manualRecord.fitScore === "number"
-          ? manualRecord.fitScore
-          : undefined,
+      fitScore,
     };
   }
 
@@ -371,6 +408,7 @@ function parseRequest(bodyText: string): ParsedIngestUrlRequest {
       schemaVersion: INGEST_URL_SCHEMA_VERSION,
       url,
       ...(sheetId ? { sheetId } : {}),
+      ...(googleAccessToken ? { googleAccessToken } : {}),
       ...(manual ? { manual } : {}),
     },
   };

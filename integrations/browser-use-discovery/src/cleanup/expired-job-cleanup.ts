@@ -58,6 +58,7 @@ export type ExpiredCleanupResult = {
   checked: number;
   updated: number;
   wouldUpdate: number;
+  wouldExpire: number;
   skipped: number;
   needsReview: number;
   open: number;
@@ -512,6 +513,19 @@ function buildAuditLine(params: {
   return `[Expired cleanup ${params.timestamp}] Status: ${previous} -> Expired; checkedUrl="${quoteAudit(params.checkedUrl)}"; source=${c.source}; confidence=${c.confidence}; reason="${quoteAudit(c.reason)}"; evidence="${quoteAudit(c.evidence)}"`;
 }
 
+function buildNeedsReviewAuditLine(params: {
+  timestamp: string;
+  checkedUrl: string;
+  classification: JobAvailabilityClassification;
+}): string {
+  const c = params.classification;
+  return `[Expired cleanup ${params.timestamp}] Availability review: checkedUrl="${quoteAudit(params.checkedUrl)}"; source=${c.source}; confidence=${c.confidence}; reason="${quoteAudit(c.reason)}"`;
+}
+
+function notesContainsRecentNeedsReview(notes: string): boolean {
+  return /\bAvailability review:/i.test(String(notes || ""));
+}
+
 export async function runExpiredJobCleanup(params: {
   sheetId: string;
   runtimeConfig: WorkerRuntimeConfig;
@@ -657,6 +671,21 @@ export async function runExpiredJobCleanup(params: {
     }
 
     needsReview += 1;
+    const existingNotes = cells[NOTES_COLUMN_INDEX] || "";
+    const reviewAuditNote = buildNeedsReviewAuditLine({
+      timestamp,
+      checkedUrl: link,
+      classification,
+    });
+    const shouldAppendReviewNote =
+      !dryRun && !notesContainsRecentNeedsReview(existingNotes);
+    if (shouldAppendReviewNote) {
+      const updatedNotes = appendAuditNote(existingNotes, reviewAuditNote);
+      updates.push({
+        range: `${sheetName}!O${rowNumber}`,
+        values: [[updatedNotes]],
+      });
+    }
     results.push({
       rowNumber,
       link,
@@ -665,6 +694,7 @@ export async function runExpiredJobCleanup(params: {
       action: "needs_review",
       classification,
       reason: classification.reason,
+      auditNote: reviewAuditNote,
     });
   }
 
@@ -679,6 +709,7 @@ export async function runExpiredJobCleanup(params: {
     checked,
     updated,
     wouldUpdate,
+    wouldExpire: wouldUpdate,
     skipped,
     needsReview,
     open,

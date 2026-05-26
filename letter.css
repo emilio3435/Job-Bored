@@ -134,17 +134,29 @@ body.jb-v2 [data-region="letter"] .jb-letter-editor-frame {
   border-radius: var(--jb-radius-lg);
   box-shadow: var(--jb-shadow-card);
   padding: var(--space-5, 20px) var(--space-6, 24px);
-  min-height: 540px;
+  /* Auto-grow with the user's draft. The frame starts tall enough to
+     feel like a workspace, but its height is driven entirely by the
+     contenteditable below — no inner scrollbar, no clamped ceiling. */
+  min-height: clamp(28rem, 56vh, 44rem);
+  height: auto;
+  display: flex;
+  flex-direction: column;
 }
 body.jb-v2 [data-region="letter"] .jb-letter-editor {
   outline: none;
-  min-height: 480px;
+  /* Fill the frame visually so the cursor lands on a roomy canvas,
+     but allow the editor (and therefore the frame) to grow past it
+     when the draft is long. No max-height → no inner scrollbar. */
+  flex: 1 1 auto;
+  min-height: clamp(24rem, 50vh, 38rem);
+  height: auto;
   font-family: var(--jb-font-body);
   font-size: var(--jb-text-base);
   line-height: 1.7;
   color: var(--jb-ink);
   white-space: pre-wrap;
   word-break: break-word;
+  overflow: visible;
 }
 body.jb-v2 [data-region="letter"] .jb-letter-editor:focus-visible {
   box-shadow: var(--jb-shadow-focus);
@@ -166,9 +178,36 @@ body.jb-v2 [data-region="letter"] .jb-letter-editor p {
 }
 
 /* --- Scorecard pane ------------------------------------------ */
+/* With Stage/Tools/Progress removed, the rail only carries two
+   blocks (Scorecard summary + Missing keywords). Make it sticky
+   so it stays visible as the editor grows, and let it breathe
+   into the freed vertical space. */
 body.jb-v2 [data-region="letter"] .jb-letter-scorecard {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-4, 16px);
+  position: sticky;
+  top: var(--space-4, 16px);
+  /* Keep the rail within the viewport so deep scrolls still keep
+     the scorecard glance-able. Its own children handle overflow. */
+  max-height: calc(100vh - var(--space-6, 24px) * 2);
+  min-height: 0;
+  overflow: hidden;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-scorecard > .jb-letter-block--scorecard {
+  flex: 0 0 auto;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-scorecard > .jb-letter-block--misses {
+  flex: 1 1 auto;
+}
+@media (max-width: 1024px) {
+  /* On single-column layouts the rail flows under the editor and
+     should not be sticky (would clip itself against the viewport). */
+  body.jb-v2 [data-region="letter"] .jb-letter-scorecard {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
 }
 body.jb-v2 [data-region="letter"] .jb-letter-score-row {
   display: grid;
@@ -295,12 +334,35 @@ body.jb-v2 [data-region="letter"] .jb-letter-chips__empty {
   font-style: italic;
 }
 
-/* --- Miss rows ----------------------------------------------- */
+/* --- Miss block + rows ---------------------------------------- */
+/* With Stage/Tools/Progress removed, this block becomes the second
+   half of the right rail. Let it flex to fill the leftover sticky
+   height; only scroll inside its own list when there are many
+   misses. The block itself never shows a scrollbar — the inner
+   <ul> does, and only when overflow actually happens. */
+body.jb-v2 [data-region="letter"] .jb-letter-block--misses {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
 body.jb-v2 [data-region="letter"] .jb-letter-misses {
   list-style: none;
   margin: 0; padding: 0;
   display: grid;
   gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  /* Two columns when the rail is roomy — it reads like a quick
+     "fix list" instead of a single skinny column. */
+  grid-template-columns: 1fr;
+}
+@media (min-width: 1200px) {
+  body.jb-v2 [data-region="letter"] .jb-letter-misses {
+    grid-template-columns: 1fr 1fr;
+    column-gap: var(--space-2, 8px);
+  }
 }
 body.jb-v2 [data-region="letter"] .jb-letter-miss {
   display: grid;
@@ -383,6 +445,74 @@ body.jb-v2 [data-region="letter"] .jb-letter-pill__sub {
 body.jb-v2 [data-region="letter"] .jb-letter-pill[data-flavor="accessible"] { background: var(--jb-mint-soft); border-color: rgba(47, 138, 90, 0.30); }
 body.jb-v2 [data-region="letter"] .jb-letter-pill[data-flavor="balanced"]   { background: var(--jb-paper-2); }
 body.jb-v2 [data-region="letter"] .jb-letter-pill[data-flavor="dense"]      { background: var(--jb-amber-soft); border-color: rgba(239, 143, 38, 0.45); }
+
+/* --- Scorecard summary header (title + matched chip + reading pill) --- */
+body.jb-v2 [data-region="letter"] .jb-letter-block__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-block__head .jb-letter-block__title {
+  margin: 0;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-block__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--jb-radius-pill);
+  border: 1px solid var(--jb-line);
+  background: var(--jb-paper-2);
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-meta-chip__label {
+  color: var(--jb-ink-3);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-meta-chip__value {
+  color: var(--jb-navy);
+  font-weight: 600;
+}
+
+/* Matched-terms collapsed under a small details, so misses stay
+   the primary "what to fix" surface. */
+body.jb-v2 [data-region="letter"] .jb-letter-matched-details {
+  margin-top: 10px;
+  border-top: 1px dotted var(--jb-line);
+  padding-top: 10px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-matched-details > summary {
+  cursor: pointer;
+  font-family: var(--jb-font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3);
+  list-style: none;
+  padding: 2px 0 6px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-matched-details > summary::-webkit-details-marker {
+  display: none;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-matched-details > summary::before {
+  content: "+ ";
+  color: var(--jb-mint-deep);
+  font-weight: 700;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-matched-details[open] > summary::before {
+  content: "− ";
+}
 
 /* --- Tools row ----------------------------------------------- */
 body.jb-v2 [data-region="letter"] .jb-letter-tools {
@@ -680,3 +810,349 @@ body.jb-v2 [data-region="letter"] .jb-letter-folder--empty .jb-letter-folder__ey
     padding-top: var(--space-3, 12px);
   }
 }
+
+/* ============================================================
+   Workshop hero CTAs — removed.
+
+   The Dossier's brief masthead owns the canonical CTA cluster
+   (View posting / Draft cover letter / Tailor resume). The
+   Workshop is the doing surface and does NOT duplicate entry
+   points. role-workshop.js's renderHeroCtas() now returns "".
+   ============================================================ */
+
+/* ============================================================
+   Workshop blocks — stage stepper + progress chips
+   ------------------------------------------------------------
+   .stepper / .writeback / .chip class rules live in role.css;
+   here we override the local CSS-variable scope so they pick
+   up the cream/parchment palette of the Workshop region.
+   ============================================================ */
+body.jb-v2 [data-region="letter"] .jb-letter-block--stage,
+body.jb-v2 [data-region="letter"] .jb-letter-block--progress {
+  --surface: var(--jb-paper);
+  --border: var(--jb-line-soft);
+  --border-strong: var(--jb-line);
+  --navy: var(--jb-navy);
+  --ink: var(--jb-ink);
+  --ink-soft: var(--jb-ink-2);
+  --mute: var(--jb-ink-3);
+  --mint: var(--jb-mint-soft);
+  --mint-deep: var(--jb-mint-deep);
+  --crimson: #B23A48;
+  --mono: var(--jb-font-mono);
+}
+
+body.jb-v2 [data-region="letter"] .jb-letter-block--stage .stepper {
+  gap: 6px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-block--stage .stepper__step {
+  padding: 9px 6px;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  border-radius: 4px;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-block--stage .stepper__step:hover {
+  border-color: var(--jb-navy);
+  color: var(--jb-navy);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-block--stage .stepper__step--current:hover {
+  color: #F6F1DF;
+}
+
+body.jb-v2 [data-region="letter"] .jb-letter-block--progress .writeback {
+  gap: 6px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-block--progress .chip {
+  padding: 7px 12px;
+  font-size: 10px;
+  border-radius: 999px;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-block--progress .chip:hover {
+  border-color: var(--jb-navy);
+  background: var(--jb-paper-2);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-block--progress .chip--danger:hover {
+  border-color: #B23A48;
+  color: #B23A48;
+}
+
+/* ============================================================
+   Compose panel — prefill + tone/length + generate
+   ------------------------------------------------------------
+   Sits between the draft folder strip and the editor grid so
+   users can move from posting context → polished draft without
+   leaving the Workshop.
+   ============================================================ */
+body.jb-v2 [data-region="letter"] .jb-letter-compose {
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-md);
+  padding: var(--space-4, 16px) var(--space-5, 20px);
+  margin: 0 0 var(--space-5, 20px);
+  display: grid;
+  gap: var(--space-3, 12px);
+  box-shadow: var(--jb-shadow-sticker);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__head {
+  display: grid;
+  gap: 2px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__eyebrow {
+  margin: 0;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__title {
+  margin: 0;
+  font-family: var(--jb-font-display);
+  font-size: var(--jb-text-xl);
+  color: var(--jb-navy);
+  line-height: 1.1;
+}
+
+/* Summary block — fit angle + must-have chips + profile-source dots. */
+body.jb-v2 [data-region="letter"] .jb-letter-compose__summary {
+  display: grid;
+  gap: var(--space-2, 8px);
+  padding: var(--space-3, 12px);
+  background: var(--jb-paper-2);
+  border-radius: var(--jb-radius-sm);
+  border: 1px dashed var(--jb-line-soft);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__fit {
+  margin: 0;
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink);
+  line-height: 1.45;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__fit-label {
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3);
+  margin-right: 4px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__hint {
+  margin: 0;
+  font-size: var(--jb-text-xs);
+  font-style: italic;
+  color: var(--jb-ink-3);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--jb-radius-pill);
+  background: var(--jb-mint-soft);
+  color: var(--jb-mint-deep);
+  border: 1px solid rgba(47, 138, 90, 0.30);
+  font-size: var(--jb-text-xs);
+  font-family: var(--jb-font-mono);
+  letter-spacing: 0.04em;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__source {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--jb-radius-pill);
+  border: 1px solid var(--jb-line);
+  background: var(--jb-paper);
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__source[data-present="true"] {
+  color: var(--jb-navy);
+  border-color: rgba(47, 138, 90, 0.4);
+  background: var(--jb-mint-soft);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__source-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--jb-ink-3);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__source[data-present="true"] .jb-letter-compose__source-dot {
+  background: var(--jb-mint-deep);
+}
+
+/* Controls row — Document / Tone / Length selects. */
+body.jb-v2 [data-region="letter"] .jb-letter-compose__controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2, 8px);
+}
+@media (max-width: 720px) {
+  body.jb-v2 [data-region="letter"] .jb-letter-compose__controls {
+    grid-template-columns: 1fr;
+  }
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__field {
+  display: grid;
+  gap: 4px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__field-label {
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-sm);
+  background: var(--jb-paper-2);
+  color: var(--jb-ink);
+  padding: 6px 10px;
+  font: inherit;
+  font-size: var(--jb-text-sm);
+  line-height: 1.3;
+  cursor: pointer;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__select:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+/* Notes textarea with inline "Suggest" reset. */
+body.jb-v2 [data-region="letter"] .jb-letter-compose__notes-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--jb-ink-2);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__refresh {
+  appearance: none;
+  border: 1px solid var(--jb-line);
+  background: var(--jb-paper);
+  color: var(--jb-navy);
+  font-family: var(--jb-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: var(--jb-radius-pill);
+  cursor: pointer;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__refresh:hover {
+  background: var(--jb-mint-soft);
+  border-color: var(--jb-mint-deep);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__refresh:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__notes {
+  width: 100%;
+  min-height: 4.5rem;
+  resize: vertical;
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-sm);
+  background: var(--jb-paper-2);
+  color: var(--jb-ink);
+  font: inherit;
+  font-size: var(--jb-text-sm);
+  line-height: 1.45;
+  padding: var(--space-2, 8px);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__notes:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+/* Action row — primary generate + advanced fallback + status. */
+body.jb-v2 [data-region="letter"] .jb-letter-compose__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  flex-wrap: wrap;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__primary {
+  appearance: none;
+  border: 1px solid var(--jb-navy);
+  background: var(--jb-navy);
+  color: var(--jb-ink-inverse);
+  border-radius: var(--jb-radius-pill);
+  padding: 0.5rem 1rem;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__primary:hover {
+  border-color: var(--jb-mint-deep);
+  background: var(--jb-mint-deep);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__primary:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__secondary {
+  appearance: none;
+  border: 1px solid var(--jb-line);
+  background: var(--jb-paper);
+  color: var(--jb-navy);
+  border-radius: var(--jb-radius-pill);
+  padding: 0.4rem 0.85rem;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__secondary:hover {
+  border-color: var(--jb-navy);
+  background: var(--jb-paper-2);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__secondary:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__primary:disabled,
+body.jb-v2 [data-region="letter"] .jb-letter-compose__secondary:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__primary[data-busy="true"] {
+  background: var(--jb-mint-deep);
+  border-color: var(--jb-mint-deep);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__status {
+  margin: 0 0 0 auto;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.04em;
+  color: var(--jb-ink-3);
+  min-height: 1.2em;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-compose__status[data-tone="busy"]    { color: var(--jb-ink-2); }
+body.jb-v2 [data-region="letter"] .jb-letter-compose__status[data-tone="success"] { color: var(--jb-mint-deep); }
+body.jb-v2 [data-region="letter"] .jb-letter-compose__status[data-tone="error"]   { color: var(--jb-err); }

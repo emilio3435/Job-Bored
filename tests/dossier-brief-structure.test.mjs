@@ -8,6 +8,7 @@ import { describe, it } from "node:test";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const briefSource = readFileSync(join(repoRoot, "role-brief.js"), "utf8");
 const roleSource = readFileSync(join(repoRoot, "role.js"), "utf8");
+const roleCssSource = readFileSync(join(repoRoot, "role.css"), "utf8");
 
 class TestCustomEvent {
   constructor(type, options = {}) {
@@ -440,14 +441,26 @@ describe("dossier brief structure", () => {
     const { context } = loadBriefOnly();
 
     const mountFull = makeMount();
-    context.window.JobBoredDossierBrief.renderBrief(mountFull, fixtureVm());
+    context.window.JobBoredDossierBrief.renderBrief(
+      mountFull,
+      fixtureVm({
+        job: {
+          enrichment: {
+            atsFitScore: 82,
+            atsFitRationale: "Strong growth-design match; experimentation depth still needs proof.",
+            extraKeywords: ["Growth design", "Experimentation", "Lifecycle"],
+          },
+        },
+      }),
+    );
     const skimFull = mountFull.innerHTML;
     assert.match(skimFull, /<ul class="skim">/);
-    assert.match(skimFull, /<span class="key">Stack<\/span>/);
+    assert.match(skimFull, /<span class="key">ATS Fit<\/span>/);
+    assert.match(skimFull, /<span class="val val--score" title="Strong growth-design match; experimentation depth still needs proof\.">82/);
+    assert.match(skimFull, /<span class="key">Signals<\/span>/);
+    assert.match(skimFull, /Growth design · Experimentation · Lifecycle/);
     assert.match(skimFull, /<span class="key">Comp<\/span>/);
     assert.match(skimFull, /<span class="key">Location<\/span>/);
-    assert.match(skimFull, /<span class="key">ATS fit<\/span>/);
-    assert.match(skimFull, /<span class="val val--score">78/);
 
     const mountSparse = makeMount();
     context.window.JobBoredDossierBrief.renderBrief(
@@ -464,33 +477,48 @@ describe("dossier brief structure", () => {
     const skimSparse = mountSparse.innerHTML;
     assert.match(skimSparse, /<ul class="skim">/);
     assert.match(skimSparse, /<span class="key">Location<\/span>/);
-    assert.doesNotMatch(skimSparse, /<span class="key">Stack<\/span>/);
+    assert.doesNotMatch(skimSparse, /<span class="key">Signals<\/span>/);
     assert.doesNotMatch(skimSparse, /<span class="key">Comp<\/span>/);
     assert.doesNotMatch(skimSparse, /<span class="key">ATS fit<\/span>/);
 
-    const mountEmpty = makeMount();
+    const mountFitOnly = makeMount();
     context.window.JobBoredDossierBrief.renderBrief(
-      mountEmpty,
+      mountFitOnly,
       fixtureVm({
         job: {
           tags: [],
           salary: "",
           location: "",
-          fitScore: null,
+          fitScore: 7.8,
         },
       }),
     );
-    assert.doesNotMatch(mountEmpty.innerHTML, /class="skim"/);
+    assert.doesNotMatch(mountFitOnly.innerHTML, /class="skim"/);
+    assert.doesNotMatch(mountFitOnly.innerHTML, /ATS fit/);
+    assert.doesNotMatch(mountFitOnly.innerHTML, /val--score/);
   });
 
-  it("raw posting accordion renders one <details> per JD section beyond [0]", () => {
+  it("raw posting collapses behind a single <details> with one .jd__section per JD section beyond [0]", () => {
+    /* Editorial rhythm: the brief shows AI-curated sections (lede,
+       fit, must-haves, etc.) at full weight. The raw JD is tucked
+       behind one disclosure labeled "View full posting details", so
+       it doesn't break the rhythm with multiple nested accordions. */
     const { context } = loadBriefOnly();
 
     const mount = makeMount();
     context.window.JobBoredDossierBrief.renderBrief(mount, fixtureVm());
-    const detailMatches = mount.innerHTML.match(/<details(?:\s|>)/g) || [];
-    assert.equal(detailMatches.length, 2, "expected one <details> per JD section after [0]");
 
+    // Exactly one <details> for the raw posting (no per-section nesting).
+    const detailMatches = mount.innerHTML.match(/<details(?:\s|>)/g) || [];
+    assert.equal(detailMatches.length, 1, "expected exactly one <details> for the raw posting");
+    assert.match(mount.innerHTML, /class="jd__details"/);
+    assert.match(mount.innerHTML, /View full posting details/);
+
+    // One .jd__section per JD section after [0].
+    const sectionMatches = mount.innerHTML.match(/class="jd__section"/g) || [];
+    assert.equal(sectionMatches.length, 2, "expected one .jd__section per JD section after [0]");
+
+    // When there's only one JD section total, the raw-posting block is omitted.
     const oneSectionMount = makeMount();
     context.window.JobBoredDossierBrief.renderBrief(
       oneSectionMount,
@@ -506,18 +534,20 @@ describe("dossier brief structure", () => {
     assert.doesNotMatch(oneSectionMount.innerHTML, /class="jd"/);
   });
 
-  it("first accordion section has [open] attribute", () => {
+  it("raw posting <details> is closed by default", () => {
+    /* The user reads the AI-curated brief first; the raw posting is
+       opt-in. Closed-by-default is the deliberate editorial choice. */
     const { context } = loadBriefOnly();
     const mount = makeMount();
     context.window.JobBoredDossierBrief.renderBrief(mount, fixtureVm());
 
-    const firstDetailsMatch = mount.innerHTML.match(/<details( open)?>/);
+    const firstDetailsMatch = mount.innerHTML.match(/<details[^>]*>/);
     assert.ok(firstDetailsMatch, "expected at least one <details>");
-    assert.equal(firstDetailsMatch[1], " open", "first <details> should be open");
-
-    const allMatches = mount.innerHTML.match(/<details(?:\s+open)?>/g) || [];
-    const openCount = allMatches.filter((m) => /open/.test(m)).length;
-    assert.equal(openCount, 1, "only the first <details> should carry [open]");
+    assert.doesNotMatch(
+      firstDetailsMatch[0],
+      /\bopen\b/,
+      "raw-posting <details> must NOT carry [open]; user opens it on demand",
+    );
   });
 
   it("talking points list comes from jdSections[0].bullets", () => {
@@ -542,7 +572,7 @@ describe("dossier brief structure", () => {
     assert.doesNotMatch(noBullets.innerHTML, /class="points"/);
   });
 
-  it("marginalia textarea renders with data-action='notes' and a placeholder", () => {
+  it("notes textarea renders with data-action='notes' and a placeholder", () => {
     const { context } = loadBriefOnly();
     const mount = makeMount();
     context.window.JobBoredDossierBrief.renderBrief(
@@ -551,11 +581,15 @@ describe("dossier brief structure", () => {
     );
 
     assert.match(mount.innerHTML, /<div class="brief-notes">/);
+    assert.match(mount.innerHTML, /<h3 class="section-label">Notes<\/h3>/);
+    assert.doesNotMatch(mount.innerHTML, /Marginalia/);
     assert.match(mount.innerHTML, /<textarea data-action="notes" placeholder="[^"]+">/);
     assert.match(mount.innerHTML, /Recruiter Maya · Thu 2pm/);
+    assert.match(roleCssSource, /\.brief-notes::before\s*{[\s\S]*content: "NOTES";/);
+    assert.doesNotMatch(roleCssSource, /content:\s*"MARGINALIA"/);
   });
 
-  it("marginalia textarea is wired to jb:role:note on blur (role.js + role-brief.js)", () => {
+  it("notes textarea is wired to jb:role:note on blur (role.js + role-brief.js)", () => {
     const roleVm = fixtureVm({
       job: { jobKey: "L1", notes: { body: "initial", editedAt: "" } },
     });
@@ -587,5 +621,282 @@ describe("dossier brief structure", () => {
       jobKey: "L1",
       body: "Heard back from Maya",
     });
+  });
+
+  it("re-renders an already-open role after Pipeline card attrs hydrate cached enrichment", () => {
+    const roleVm = fixtureVm({
+      job: {
+        jobKey: "L1",
+        enrichment: { status: "", postingSummary: "", mustHaves: [] },
+      },
+    });
+    const { windowEl, documentEl, region } = loadRoleAndBrief({ vm: roleVm });
+
+    windowEl.JobBoredFlowing.role.renderForKey("L1");
+    assert.doesNotMatch(region.innerHTML, /Cached rich summary/);
+
+    roleVm.job.enrichment = {
+      status: "ready",
+      roleInOneLine: "Cached rich hook",
+      postingSummary: "Cached rich summary",
+      fitAngle: "Cached rich fit",
+      mustHaves: ["Cached must-have"],
+      niceToHaves: [],
+      responsibilities: ["Cached responsibility"],
+      toolsAndStack: ["Cached tool"],
+      atsFitScore: 82,
+      atsFitRationale: "Cached rationale",
+      extraKeywords: ["Cached"],
+      talkingPoints: ["Cached talking point"],
+    };
+    documentEl.dispatchEvent(new TestCustomEvent("jb:pipeline:rendered"));
+
+    const briefMount = region.querySelector('[data-mount="brief"]');
+    assert.ok(briefMount, "expected role.js to render the brief mount");
+    assert.match(briefMount.innerHTML, /Cached rich summary/);
+    assert.match(briefMount.innerHTML, /Cached must-have/);
+    assert.match(briefMount.innerHTML, /Cached responsibility/);
+    assert.match(briefMount.innerHTML, /Cached talking point/);
+  });
+});
+
+/* ----------------------------------------------------------------
+   AI enrichment — drawer-parity Gemini payload (postingSummary,
+   fitAngle, mustHaves, responsibilities, niceToHaves, toolsAndStack,
+   talkingPoints, roleInOneLine). renderBrief pulls these off
+   vm.job.enrichment and surfaces them in the dossier so the user
+   sees the same compressed insights the legacy drawer shows.
+   ---------------------------------------------------------------- */
+describe("dossier brief — AI enrichment sections", () => {
+  function withEnrichment(extra) {
+    const enrichment = Object.assign({
+      roleInOneLine: "",
+      postingSummary: "",
+      fitAngle: "",
+      fitAssessment: "",
+      mustHaves: [],
+      niceToHaves: [],
+      responsibilities: [],
+      toolsAndStack: [],
+      atsFitScore: null,
+      atsFitRationale: "",
+      extraKeywords: [],
+      talkingPoints: [],
+      status: "",
+    }, extra || {});
+    return fixtureVm({ job: { enrichment } });
+  }
+
+  it("prefers enrichment.roleInOneLine for the hook over the company tagline", () => {
+    const { context } = loadBriefOnly();
+    const mount = makeMount();
+    context.window.JobBoredDossierBrief.renderBrief(
+      mount,
+      withEnrichment({ roleInOneLine: "Own activation as an IC outcome." }),
+    );
+    assert.match(
+      mount.innerHTML,
+      /<p class="brief__hook">Own activation as an IC outcome\.<\/p>/,
+      "hook should be the AI's one-line role framing, not the tagline",
+    );
+  });
+
+  it("renders the LLM postingSummary as the lede and labels it 'AI Summary'", () => {
+    const { context } = loadBriefOnly();
+    const mount = makeMount();
+    context.window.JobBoredDossierBrief.renderBrief(
+      mount,
+      withEnrichment({
+        postingSummary:
+          "Lead growth design for Linear, owning onboarding and activation surfaces end-to-end with measurable outcomes.",
+      }),
+    );
+    assert.match(
+      mount.innerHTML,
+      /<p class="brief__lede">Lead growth design for Linear/,
+      "AI summary should drive the lede",
+    );
+    assert.match(
+      mount.innerHTML,
+      /<div class="brief__lede-tag">AI Summary · grounded in the posting<\/div>/,
+      "lede tag should advertise the LLM as the source",
+    );
+  });
+
+  it("renders fitAngle as the 'Why this role fits' pull-quote", () => {
+    const { context } = loadBriefOnly();
+    const mount = makeMount();
+    context.window.JobBoredDossierBrief.renderBrief(
+      mount,
+      withEnrichment({
+        fitAngle:
+          "Your activation work at Stripe maps directly to their onboarding ownership ask.",
+      }),
+    );
+    assert.match(mount.innerHTML, /<section class="brief__fit">/);
+    assert.match(mount.innerHTML, /Why this role fits/);
+    assert.match(
+      mount.innerHTML,
+      /Your activation work at Stripe maps directly/,
+    );
+  });
+
+  it("falls back to fitAssessment when fitAngle is empty", () => {
+    const { context } = loadBriefOnly();
+    const mount = makeMount();
+    context.window.JobBoredDossierBrief.renderBrief(
+      mount,
+      withEnrichment({
+        fitAngle: "",
+        fitAssessment: "Strong overlap with current work.",
+      }),
+    );
+    assert.match(mount.innerHTML, /<section class="brief__fit">/);
+    assert.match(mount.innerHTML, /Strong overlap with current work\./);
+  });
+
+  it("renders must-haves / responsibilities / nice-to-haves / tools as structured lists", () => {
+    const { context } = loadBriefOnly();
+    const mount = makeMount();
+    context.window.JobBoredDossierBrief.renderBrief(
+      mount,
+      withEnrichment({
+        mustHaves: ["5+ years growth design", "Portfolio of measurable outcomes"],
+        responsibilities: ["Own onboarding", "Run experiments with growth eng"],
+        niceToHaves: ["Experience with Linear", "Familiarity with experimentation tooling"],
+        toolsAndStack: ["Figma", "React", "Statsig"],
+      }),
+    );
+    assert.match(mount.innerHTML, /brief__struct--must/);
+    assert.match(mount.innerHTML, /brief__struct--resp/);
+    assert.match(mount.innerHTML, /brief__struct--nice/);
+    assert.match(mount.innerHTML, /brief__struct--tools/);
+    assert.match(mount.innerHTML, /5\+ years growth design/);
+    assert.match(mount.innerHTML, /Own onboarding/);
+    assert.match(mount.innerHTML, /Statsig/);
+  });
+
+  it("prefers enrichment.talkingPoints over JD bullets in the side column", () => {
+    const { context } = loadBriefOnly();
+    const mount = makeMount();
+    context.window.JobBoredDossierBrief.renderBrief(
+      mount,
+      withEnrichment({
+        talkingPoints: [
+          "Tie Stripe Atlas activation lift to their onboarding ask.",
+          "Show evidence of measurable outcomes from your last role.",
+        ],
+      }),
+    );
+    /* AI talking points present */
+    assert.match(mount.innerHTML, /Tie Stripe Atlas activation lift/);
+    assert.match(mount.innerHTML, /Show evidence of measurable outcomes/);
+    /* JD bullets suppressed when AI talking points are available */
+    assert.doesNotMatch(
+      mount.innerHTML,
+      /<li>Design and ship growth surfaces\.<\/li>/,
+      "JD bullets must NOT render when AI talking points exist",
+    );
+  });
+
+  it("renders the loading skeleton while enrichment is in flight", () => {
+    const { context } = loadBriefOnly();
+    const mount = makeMount();
+    context.window.JobBoredDossierBrief.renderBrief(
+      mount,
+      withEnrichment({ status: "loading" }),
+    );
+    /* Loading renders the editorial skeleton, not stale body/sidebar
+       content from a previous enrichment. */
+    assert.match(mount.innerHTML, /class="brief__skeleton"/);
+    assert.match(mount.innerHTML, /Reading the posting/);
+    assert.match(mount.innerHTML, /brief__skeleton-badge/);
+    assert.match(mount.innerHTML, /brief__shimmer/);
+    assert.doesNotMatch(mount.innerHTML, /class="brief__body"/);
+    assert.doesNotMatch(mount.innerHTML, /class="brief__fit"/);
+    assert.doesNotMatch(mount.innerHTML, /<ul class="skim">/);
+    assert.doesNotMatch(mount.innerHTML, /class="points"/);
+    assert.doesNotMatch(mount.innerHTML, /class="brief-notes"/);
+    assert.doesNotMatch(mount.innerHTML, /data-action="notes"/);
+  });
+
+  it("loading skeleton replaces cached content while a refresh is in flight", () => {
+    const { context } = loadBriefOnly();
+    const mount = makeMount();
+    context.window.JobBoredDossierBrief.renderBrief(
+      mount,
+      withEnrichment({
+        status: "loading",
+        roleInOneLine: "Own activation as an IC outcome.",
+        mustHaves: ["5+ years growth design"],
+      }),
+    );
+    assert.match(mount.innerHTML, /class="brief__skeleton"/);
+    assert.doesNotMatch(mount.innerHTML, /brief__enriching--inline/);
+    assert.doesNotMatch(mount.innerHTML, /class="brief__body"/);
+    assert.doesNotMatch(mount.innerHTML, /Own activation as an IC outcome/);
+  });
+
+  it("renders cached ready enrichment as the real brief with notes, not the skeleton", () => {
+    const { context } = loadBriefOnly();
+    const mount = makeMount();
+    context.window.JobBoredDossierBrief.renderBrief(
+      mount,
+      fixtureVm({
+        job: {
+          notes: { body: "Ask Maya about activation ownership", editedAt: "" },
+          enrichment: {
+            status: "ready",
+            roleInOneLine: "Own activation as an IC outcome.",
+            postingSummary:
+              "Lead growth design across onboarding and activation with measurable product outcomes.",
+            fitAngle: "Your activation work maps directly to this role's ownership ask.",
+            mustHaves: ["5+ years growth design", "Experimentation portfolio"],
+            niceToHaves: [],
+            responsibilities: ["Own onboarding", "Partner with growth engineering"],
+            toolsAndStack: ["Figma", "Statsig"],
+            atsFitScore: 84,
+            atsFitRationale: "Strong evidence for growth design and experimentation.",
+            extraKeywords: ["Growth design", "Activation"],
+            talkingPoints: ["Connect prior activation lifts to their onboarding funnel."],
+          },
+        },
+      }),
+    );
+
+    assert.doesNotMatch(mount.innerHTML, /class="brief__skeleton"/);
+    assert.match(mount.innerHTML, /class="brief__body"/);
+    assert.match(mount.innerHTML, /Own activation as an IC outcome/);
+    assert.match(mount.innerHTML, /5\+ years growth design/);
+    assert.match(mount.innerHTML, /Partner with growth engineering/);
+    assert.match(mount.innerHTML, /Ask Maya about activation ownership/);
+    assert.match(mount.innerHTML, /data-action="notes"/);
+  });
+
+  it("does not render the loading skeleton when status is empty", () => {
+    const { context } = loadBriefOnly();
+    const mount = makeMount();
+    context.window.JobBoredDossierBrief.renderBrief(mount, fixtureVm());
+    assert.doesNotMatch(mount.innerHTML, /class="brief__enriching/);
+    assert.doesNotMatch(mount.innerHTML, /class="brief__skeleton"/);
+  });
+
+  it("renders a tags & skills cloud only when there are more than three tags", () => {
+    const { context } = loadBriefOnly();
+
+    const mountFew = makeMount();
+    context.window.JobBoredDossierBrief.renderBrief(
+      mountFew,
+      fixtureVm({ job: { tags: ["A", "B"] } }),
+    );
+    assert.doesNotMatch(mountFew.innerHTML, /brief__tag-cloud/);
+
+    const mountMany = makeMount();
+    context.window.JobBoredDossierBrief.renderBrief(
+      mountMany,
+      fixtureVm({ job: { tags: ["Figma", "React", "Growth", "Statsig", "Activation"] } }),
+    );
+    assert.match(mountMany.innerHTML, /brief__tag-cloud/);
+    assert.match(mountMany.innerHTML, /brief__skill-chip">Statsig</);
   });
 });

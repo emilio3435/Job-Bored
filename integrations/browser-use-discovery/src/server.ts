@@ -38,6 +38,7 @@ import {
 } from "./webhook/handle-discovery-webhook.ts";
 import { handleDiscoveryProfileWebhook } from "./webhook/handle-discovery-profile.ts";
 import { handleIngestUrlWebhook } from "./webhook/handle-ingest-url.ts";
+import { hasValidRunStatusToken } from "./webhook/run-status-auth.ts";
 import { createBrowserUseSessionManager } from "./browser/session.ts";
 
 const runtimeConfig = loadRuntimeConfig(process.env);
@@ -262,6 +263,14 @@ const discoveryRunsLogger = createDiscoveryRunsLogger({
 const runStatusStore = createDiscoveryRunStatusStore(
   runtimeConfig.stateDatabasePath,
 );
+const abandonedRunCount = runStatusStore.markNonTerminalRunsAbandoned?.(
+  new Date().toISOString(),
+) ?? 0;
+if (abandonedRunCount > 0) {
+  logEvent("discovery.run_status.abandoned_terminalized", {
+    count: abandonedRunCount,
+  });
+}
 const RUN_STATUS_TEMPLATE = "/runs/{runId}";
 
 const sharedRunDependencies = {
@@ -279,6 +288,7 @@ const sharedRunDependencies = {
   mergeDiscoveryConfig,
   now: () => new Date(),
   randomId: (prefix: string) => `${prefix}_${randomUUID().replace(/-/g, "")}`,
+  maxRunDurationMs: runtimeConfig.maxRunDurationMs,
 };
 
 function mapPlannerCompany(company: Record<string, unknown>) {
@@ -494,11 +504,31 @@ function createPipelineWriterForRequest(
   return createPipelineWriter(runtimeConfigOverride);
 }
 
+function createDiscoveryRunsLoggerForRequest(
+  runtimeConfigOverride: typeof runtimeConfig,
+) {
+  return createDiscoveryRunsLogger({
+    runtimeConfig: runtimeConfigOverride,
+    log: logEvent,
+  });
+}
+
 function getHeaderValue(header: string | string[] | undefined): string {
   if (Array.isArray(header)) {
     return header[0] || "";
   }
   return String(header || "");
+}
+
+function requestHeadersForAuth(
+  headers: import("node:http").IncomingHttpHeaders,
+): Record<string, string | string[] | undefined> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [
+      key,
+      Array.isArray(value) ? value : (value ?? undefined),
+    ]),
+  );
 }
 
 // 2 MiB is comfortably larger than the largest plausible resume payload
@@ -605,7 +635,9 @@ async function buildHealthPayload() {
   const blockingWarnings: string[] = [];
   const advisoryWarnings: string[] = [];
   const sheetsCredentialReadiness =
-    await validateSheetsCredentialReadiness(runtimeConfig);
+    await validateSheetsCredentialReadiness(runtimeConfig, {
+      sheetId: String(storedConfig?.sheetId || "").trim(),
+    });
   const localInteractiveSheetsReady =
     runtimeConfig.runMode === "local" &&
     !sheetsCredentialReadiness.configured;
@@ -700,7 +732,11 @@ async function buildHealthPayload() {
         configured: sheetsCredentialReadiness.configured,
         ready:
           sheetsCredentialReadiness.configured || localInteractiveSheetsReady,
+        active: sheetsCredentialReadiness.active === true,
         source: sheetsCredentialReadiness.source,
+        ...(sheetsCredentialReadiness.sheetAccess
+          ? { sheetAccess: sheetsCredentialReadiness.sheetAccess }
+          : {}),
         requestScopedAuthSupported: runtimeConfig.runMode === "local",
         ...(localInteractiveSheetsReady
           ? {
@@ -807,7 +843,8 @@ const server = createServer(async (request, response) => {
   const startedAt = Date.now();
   const origin = getHeaderValue(request.headers.origin);
   const corsHeaders = buildCorsHeaders(runtimeConfig.allowedOrigins, origin);
-  const requestPath = new URL(request.url || "/", "http://127.0.0.1").pathname;
+  const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
+  const requestPath = requestUrl.pathname;
   const method = (request.method || "GET").toUpperCase();
 
   logEvent("http.request.received", {
@@ -880,6 +917,31 @@ const server = createServer(async (request, response) => {
     }
 
     const runId = decodeURIComponent(requestPath.slice("/runs/".length));
+    if (runtimeConfig.runMode === "hosted") {
+      const tokenAuthorized = hasValidRunStatusToken({
+        webhookSecret: runtimeConfig.webhookSecret,
+        runId,
+        providedToken:
+          requestUrl.searchParams.get("statusToken") ||
+          getHeaderValue(request.headers["x-run-status-token"]),
+      });
+      const secretAuthorized = hasValidWebhookSecret(
+        runtimeConfig.webhookSecret,
+        requestHeadersForAuth(request.headers),
+      ).valid;
+      if (!tokenAuthorized && !secretAuthorized) {
+        finishJson(
+          401,
+          {
+            ok: false,
+            message: "Unauthorized run status request.",
+          },
+          corsHeaders,
+        );
+        return;
+      }
+    }
+
     const payload = runStatusStore.get(runId);
     if (!payload) {
       finishJson(
@@ -931,39 +993,37 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  const preAuth = hasValidWebhookSecret(
+    runtimeConfig.webhookSecret,
+    requestHeadersForAuth(request.headers),
+  );
+  if (!preAuth.valid) {
+    logEvent("http.request.unauthorized", {
+      requestId,
+      method,
+      path: requestPath,
+      category: preAuth.category,
+    });
+    finishJson(
+      401,
+      {
+        ok: false,
+        message: preAuth.detail || "Unauthorized",
+        auth: {
+          category: preAuth.category,
+          detail: preAuth.detail,
+          ...(preAuth.remediation ? { remediation: preAuth.remediation } : {}),
+        },
+      },
+      corsHeaders,
+    );
+    return;
+  }
+
   // Feature B / Layer 5 — profile-driven company discovery endpoint. Uses the
   // same x-discovery-secret auth as the main webhook; never persists raw
   // resume text; optionally writes the inferred companies to worker-config.
   if (requestPath === "/discovery-profile") {
-    // Pre-body auth gate: reject missing/invalid secrets BEFORE buffering the
-    // request body. Without this, an unauthenticated client can force the
-    // worker to buffer arbitrary-size payloads (100MB+) and then only get 401
-    // back — a trivial memory/CPU DoS. Body-size cap in readBody is the
-    // second layer of defense for authenticated-but-hostile clients.
-    const preAuthHeaders = Object.fromEntries(
-      Object.entries(request.headers).map(([key, value]) => [
-        key,
-        Array.isArray(value) ? value : (value ?? undefined),
-      ]),
-    );
-    const preAuth = hasValidWebhookSecret(
-      runtimeConfig.webhookSecret,
-      preAuthHeaders,
-    );
-    if (!preAuth.valid) {
-      logEvent("http.request.unauthorized", {
-        requestId,
-        method,
-        path: requestPath,
-        category: preAuth.category,
-      });
-      finishJson(
-        401,
-        { ok: false, message: preAuth.detail || "Unauthorized" },
-        corsHeaders,
-      );
-      return;
-    }
     try {
       const bodyText = await readBody(request);
       logEvent("http.request.body", {
@@ -1051,30 +1111,6 @@ const server = createServer(async (request, response) => {
   }
 
   if (requestPath === "/ingest-url") {
-    const preAuthHeaders = Object.fromEntries(
-      Object.entries(request.headers).map(([key, value]) => [
-        key,
-        Array.isArray(value) ? value : (value ?? undefined),
-      ]),
-    );
-    const preAuth = hasValidWebhookSecret(
-      runtimeConfig.webhookSecret,
-      preAuthHeaders,
-    );
-    if (!preAuth.valid) {
-      logEvent("http.request.unauthorized", {
-        requestId,
-        method,
-        path: requestPath,
-        category: preAuth.category,
-      });
-      finishJson(
-        401,
-        { ok: false, message: preAuth.detail || "Unauthorized" },
-        corsHeaders,
-      );
-      return;
-    }
     try {
       const bodyText = await readBody(request);
       logEvent("http.request.body", {
@@ -1101,6 +1137,7 @@ const server = createServer(async (request, response) => {
           pipelineWriter,
           loadStoredWorkerConfig: (sheetId: string) =>
             loadStoredWorkerConfig(runtimeConfig, sheetId),
+          createPipelineWriterForRequest,
           now: () => new Date(),
           randomId: (prefix: string) =>
             `${prefix}_${randomUUID().replace(/-/g, "")}`,
@@ -1189,6 +1226,8 @@ const server = createServer(async (request, response) => {
         runDiscovery,
         runDependencies: sharedRunDependencies,
         createPipelineWriterForRequest,
+        createDiscoveryRunsLoggerForRequest,
+        includeRunStatusToken: runtimeConfig.runMode === "hosted",
         log: (event, details) =>
           logEvent(event, {
             requestId,
@@ -1196,9 +1235,7 @@ const server = createServer(async (request, response) => {
             path: requestPath,
             ...details,
           }),
-        // Default max duration for async runs is 5 minutes
-        // This guarantees terminalization even if the run stalls
-        maxRunDurationMs: 5 * 60 * 1000,
+        maxRunDurationMs: runtimeConfig.maxRunDurationMs,
       },
     );
     logEvent("http.request.completed", {
@@ -1215,6 +1252,21 @@ const server = createServer(async (request, response) => {
     });
     response.end(result.body);
   } catch (error) {
+    if (error instanceof BodyTooLargeError) {
+      logEvent("http.request.rejected", {
+        requestId,
+        method,
+        path: requestPath,
+        reason: "body_too_large",
+        limit: MAX_BODY_BYTES,
+      });
+      finishJson(
+        413,
+        { ok: false, message: "Request body exceeds the configured limit." },
+        corsHeaders,
+      );
+      return;
+    }
     logEvent("http.request.failed", {
       requestId,
       method,

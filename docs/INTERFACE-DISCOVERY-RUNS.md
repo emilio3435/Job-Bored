@@ -4,6 +4,8 @@
 
 **Scope:** a new `DiscoveryRuns` tab in the Sheet + a worker-side append hook at every discovery run completion + a new dashboard tab/panel that reads and renders those rows.
 
+**Token boundary:** local interactive requests may carry a transient `googleAccessToken` so the user-owned worker can write Pipeline and DiscoveryRuns rows as that user. That token is per-run input only: strip it before persisting run config/state, do not write it to `DiscoveryRuns`, and do not log it raw.
+
 ---
 
 ## 1. Sheet tab — `DiscoveryRuns`
@@ -51,20 +53,22 @@ Every discovery run MUST record one of these values in column B. The worker infe
 
 | Value | When |
 | --- | --- |
-| `manual` | POST `/discovery-profile` with `mode:"manual"` (the default — user clicked "Run discovery" in the UI). |
-| `scheduled-local` | POST `/discovery-profile` with `mode:"refresh"` + optional body `trigger:"scheduled-local"` (launchd / systemd / schtasks). |
-| `scheduled-github` | Same, with `trigger:"scheduled-github"` (GitHub Actions workflow). |
-| `scheduled-appsscript` | Same, with `trigger:"scheduled-appsscript"` (Apps Script time trigger). |
-| `cli` | Direct CLI invocation — a one-off `curl` or `npm run ...`. Default when `mode:"refresh"` and no `trigger` field is present. |
+| `manual` | POST `/webhook` / `/discovery` with `trigger:"manual"` or omitted (user clicked "Run discovery" in the UI). |
+| `scheduled-browser` | Browser-tab auto-refresh sends the webhook payload with `trigger:"scheduled-browser"`. |
+| `scheduled-local` | `scripts/run-scheduled-discovery.mjs` POSTs `/webhook` with `trigger:"scheduled-local"` (launchd / systemd / schtasks). |
+| `scheduled-github` | GitHub Actions builds the same webhook payload with `trigger:"scheduled-github"`. |
+| `scheduled-cloudflare` | Cloudflare Cron sends the webhook payload with `trigger:"scheduled-cloudflare"`. |
+| `scheduled-appsscript` | Apps Script time trigger sends the webhook payload with `trigger:"scheduled-appsscript"`. |
+| `cli` | Direct CLI invocation — a one-off `curl` or `npm run ...`. Default for legacy `mode:"refresh"` profile refreshes when no `trigger` field is present. |
 
 **Request contract extension:** add a top-level optional string field to `DiscoveryProfileRequestV1`:
 
 ```ts
 /** Who/what initiated this run. Omit for UI-initiated runs (worker defaults to "manual"). */
-trigger?: "manual" | "scheduled-local" | "scheduled-github" | "scheduled-appsscript" | "cli";
+trigger?: "manual" | "scheduled-browser" | "scheduled-local" | "scheduled-github" | "scheduled-cloudflare" | "scheduled-appsscript" | "cli";
 ```
 
-The three OS installer scripts (`templates/launchd/*.plist`, `scripts/windows/refresh.ps1`, `templates/systemd/*.service`) must be updated to include `"trigger":"scheduled-local"` in their POST body so the log reflects the origin accurately. The GitHub Actions template sends `"trigger":"scheduled-github"`.
+The three OS installer scripts (`templates/launchd/*.plist`, `scripts/windows/refresh.ps1`, `templates/systemd/*.service`) route through `scripts/run-scheduled-discovery.mjs` with `--trigger scheduled-local` so the log reflects the origin accurately. The GitHub Actions template passes `--trigger scheduled-github`.
 
 ---
 
@@ -74,7 +78,7 @@ The three OS installer scripts (`templates/launchd/*.plist`, `scripts/windows/re
 
 1. **`runDiscovery()`** (reference: `integrations/browser-use-discovery/src/run/run-discovery.ts`) — the primary Pipeline-writing path hit by POST `/discovery-webhook` (dashboard "Run discovery" button + GitHub Actions scheduled dispatch). `Leads Written` reflects `writeResult.appended`.
 
-2. **`handleDiscoveryProfileWebhook()`** (reference: `integrations/browser-use-discovery/src/webhook/handle-discovery-profile.ts`) for `mode:"manual"` and `mode:"refresh"` completions — these are the enrichment paths hit by the UI's initial discovery setup and by local OS schedulers (launchd / systemd / Windows Task Scheduler). These paths extract a profile + refresh the stored company list via Gemini; they do **not** write Pipeline rows. Log them with `Leads Written: 0` so scheduled-local fires are still visible to the user.
+2. **`handleDiscoveryProfileWebhook()`** (reference: `integrations/browser-use-discovery/src/webhook/handle-discovery-profile.ts`) for `mode:"manual"` and legacy `mode:"refresh"` completions — these are enrichment paths hit by the Profile tab and older refresh integrations. These paths extract a profile + refresh the stored company list via Gemini; they do **not** write Pipeline rows. Log them with `Leads Written: 0` so profile refreshes are still visible to the user.
 
 The row is constructed via the shared `appendDiscoveryRunRow(sheetId, row)` helper that appends via the existing Sheets client (reusing the Pipeline writer's `resolveAccessToken`).
 

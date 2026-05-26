@@ -12,7 +12,9 @@ const repoRoot = join(root, "..");
 
 const PIPELINE_SCHEMA = "schemas/pipeline-row.v1.json";
 const README = "README.md";
+const SETUP = "SETUP.md";
 const APP = "app.js";
+const SETUP_DOCTOR = "setup-doctor.js";
 
 function loadJson(rel) {
   return JSON.parse(readFileSync(join(repoRoot, rel), "utf8"));
@@ -106,6 +108,29 @@ function extractStarterHeadersFromAppJs(appJs) {
   return out;
 }
 
+function extractSetupDoctorFallbackArray(setupDoctor, propertyName) {
+  const marker = `"${propertyName}": [`;
+  const start = setupDoctor.indexOf(marker);
+  if (start === -1) {
+    throw new Error(`FALLBACK_PIPELINE_CONTRACT.${propertyName} not found in setup-doctor.js`);
+  }
+  const rest = setupDoctor.slice(start + marker.length);
+  const end = rest.indexOf("]");
+  if (end === -1) {
+    throw new Error(`FALLBACK_PIPELINE_CONTRACT.${propertyName} array is not closed`);
+  }
+  const out = [];
+  const stringRe = /"([^"]+)"/g;
+  let s;
+  while ((s = stringRe.exec(rest.slice(0, end)))) {
+    out.push(JSON.parse(`"${s[1]}"`));
+  }
+  if (out.length === 0) {
+    throw new Error(`no strings parsed from setup-doctor ${propertyName}`);
+  }
+  return out;
+}
+
 function sameOrdered(a, b) {
   if (a.length !== b.length) return false;
   return a.every((v, i) => v === b[i]);
@@ -118,6 +143,8 @@ function col(schema, id) {
 const schema = loadJson(PIPELINE_SCHEMA);
 const appJs = readFileSync(join(repoRoot, APP), "utf8");
 const readme = readFileSync(join(repoRoot, README), "utf8");
+const setup = readFileSync(join(repoRoot, SETUP), "utf8");
+const setupDoctor = readFileSync(join(repoRoot, SETUP_DOCTOR), "utf8");
 
 if (schema.schemaVersion !== 1) {
   console.error("Expected pipeline-row schemaVersion 1");
@@ -153,6 +180,14 @@ if (!sameOrdered(starterHeaders, schema.headerRow)) {
   process.exit(1);
 }
 
+const setupDoctorHeaders = extractSetupDoctorFallbackArray(setupDoctor, "headerRow");
+if (!sameOrdered(setupDoctorHeaders, schema.headerRow)) {
+  console.error("SetupDoctor fallback headers must match pipeline-row headerRow.");
+  console.error("  setup-doctor.js:", setupDoctorHeaders.join(", "));
+  console.error("  schema:", schema.headerRow.join(", "));
+  process.exit(1);
+}
+
 for (let i = 0; i < schema.columns.length; i++) {
   const c = schema.columns[i];
   if (c.sheetIndex !== i) {
@@ -168,6 +203,20 @@ if (!sameOrdered(appStatuses, schemaStatusEnum)) {
   console.error("  app.js:", appStatuses.join(", "));
   console.error("  schema:", schemaStatusEnum.join(", "));
   process.exit(1);
+}
+
+const setupDoctorStatuses = extractSetupDoctorFallbackArray(setupDoctor, "statuses");
+if (!sameOrdered(setupDoctorStatuses, schemaStatusEnum)) {
+  console.error("SetupDoctor fallback statuses must match pipeline-row status enum.");
+  console.error("  setup-doctor.js:", setupDoctorStatuses.join(", "));
+  console.error("  schema:", schemaStatusEnum.join(", "));
+  process.exit(1);
+}
+for (const status of schemaStatusEnum) {
+  if (!setup.includes(`| ${status}`)) {
+    console.error(`SETUP.md Status Values table is missing ${status}`);
+    process.exit(1);
+  }
 }
 
 const appPriorityKeys = extractPriorityKeysFromAppJs(appJs);

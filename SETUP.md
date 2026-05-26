@@ -28,6 +28,8 @@ For a phased roadmap, see **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)**. Full doc
 
 ## Quick Start
 
+Use **Node.js 24.x** with npm 11.x for local scripts and the Browser Use discovery worker. The repo includes `.nvmrc` and `.node-version`.
+
 ### 1. Create or copy the starter sheet
 
 Recommended in the app: save your OAuth client in Settings, then use the setup screen button to create a **blank starter sheet** in your own Google Drive with just the `Pipeline` headers.
@@ -92,6 +94,8 @@ Upload the files anywhere static files are served:
 - **Cloudflare Pages** — connect your repo
 - **Local** — `python3 -m http.server 8080` and open `http://localhost:8080`
 
+For GitHub Pages-specific setup, including safe `config.js` options, GitHub Actions-generated config, OAuth origins, relay CORS, and hosted/local-worker expectations, see **[docs/GITHUB-PAGES.md](docs/GITHUB-PAGES.md)**.
+
 ---
 
 ## Recommended: enable the SerpApi Google Jobs source
@@ -154,7 +158,9 @@ This is useful for sharing dashboard links or switching between multiple job sea
 ### Run discovery (optional, no sign-in required)
 
 - **Run discovery** sends a POST to `discoveryWebhookUrl` in `config.js` so your agent (Hermes, n8n, Apps Script, etc.) can start **another** search pass.
-- Each request includes `schemaVersion` **1**, a new `variationKey`, and optional `discoveryProfile` from **Settings** (target roles, locations, keywords — stored in IndexedDB on this device).
+- Each request includes `schemaVersion` **1**, a new `variationKey`, and optional `discoveryProfile` from **Settings** (target roles, locations, keywords — stored in IndexedDB on this device). The shared payload builder also adds a non-secret profile snapshot and deterministic search plan when current resume/preferences/schedule context is available.
+- Local worker runs may include a transient `googleAccessToken` for that run only. It lets the user-owned worker write to the Sheet without storing OAuth credentials; it is stripped from persisted config/state and must not be logged raw.
+- The Browser Use discovery worker writes run summaries to a `DiscoveryRuns` tab when configured. The dashboard reads that tab for run history; missing `DiscoveryRuns` is fine until the first logged run.
 - The dashboard-managed **Apps Script deploy is only a stub** for webhook verification and `[CC test]` smoke tests. It does **not** discover real jobs unless you replace that code with real logic or point the dashboard at another discovery engine.
 - If your real discovery engine runs locally, the browser-safe path is **JobBored → Cloudflare Worker → ngrok URL → local Hermes/OpenClaw webhook**. Start with `npm run discovery:bootstrap-local`, then use **Settings → Hermes + ngrok** to review the autofilled public target and **Cloudflare relay** to deploy the Worker and paste the Worker URL back into **Discovery webhook URL**.
 - Your endpoint must allow **CORS** from your dashboard origin. See the JSON example under **&ldquo;Run discovery&rdquo; webhook** below, the **[webhook receiver checklist](AGENT_CONTRACT.md#webhook-receiver-checklist-copy-paste)** in [AGENT_CONTRACT.md](AGENT_CONTRACT.md), and [docs/CONTRACT-CHANGELOG.md](docs/CONTRACT-CHANGELOG.md) when the contract changes.
@@ -239,6 +245,7 @@ The **Pipeline** sheet has **17 required columns (A–Q)**. **Optional columns R
 | Offer        | Received an offer                 |
 | Rejected     | Application was rejected          |
 | Passed       | You decided to pass on this role  |
+| Expired      | Posting is confirmed closed       |
 
 ### Additional Sheets
 
@@ -273,6 +280,7 @@ When `discoveryWebhookUrl` is set, the dashboard **POST**s JSON (schema **v1**):
   "sheetId": "YOUR_SHEET_ID",
   "variationKey": "hex-random-string",
   "requestedAt": "2026-04-08T12:00:00.000Z",
+  "trigger": "manual",
   "discoveryProfile": {
     "targetRoles": "",
     "locations": "",
@@ -280,14 +288,31 @@ When `discoveryWebhookUrl` is set, the dashboard **POST**s JSON (schema **v1**):
     "seniority": "",
     "keywordsInclude": "",
     "keywordsExclude": "",
-    "maxLeadsPerRun": ""
+    "maxLeadsPerRun": "",
+    "profileSnapshot": {
+      "snapshotVersion": 1,
+      "profileHash": "non-secret-hash",
+      "resumeTextLength": 0
+    },
+    "searchPlan": {
+      "planVersion": 1,
+      "generatedAt": "2026-04-08T12:00:00.000Z",
+      "seed": "daily-seed",
+      "query": {
+        "targetRoles": "",
+        "locations": "",
+        "keywordsInclude": ""
+      }
+    }
   }
 }
 ```
 
-`discoveryProfile` comes from **Settings → Discovery preferences** (stored in IndexedDB on this device). Empty strings mean no preference. Older automations can ignore `schemaVersion` and `discoveryProfile` if they only need `event`, `sheetId`, `variationKey`, and `requestedAt`.
+`discoveryProfile` comes from **Settings → Discovery preferences** (stored in IndexedDB on this device). The snapshot and search plan do not include raw resume text; they let the worker record and apply the specific rotated query bundle that powered the run. Empty strings mean no preference. Older automations can ignore `schemaVersion` and `discoveryProfile` if they only need `event`, `sheetId`, `variationKey`, and `requestedAt`.
 
 Your handler should start a job that searches with a **different** query or angle than the last run (use `variationKey` as a seed). Respond with **2xx** so the user sees a success toast.
+
+Async workers can respond with `kind:"accepted_async"`, `runId`, `statusPath`, and `pollAfterMs`. Browser clients should preserve the returned `statusPath` exactly when polling. Hosted Browser Use workers may append `?statusToken=...` to authorize `GET /runs/:runId`; do not strip that query string or log it raw.
 
 Full contract: [AGENT_CONTRACT.md](AGENT_CONTRACT.md). **Receiver checklist** (CORS, OPTIONS, 2xx): [Webhook receiver checklist](AGENT_CONTRACT.md#webhook-receiver-checklist-copy-paste). **Change history:** [docs/CONTRACT-CHANGELOG.md](docs/CONTRACT-CHANGELOG.md).
 

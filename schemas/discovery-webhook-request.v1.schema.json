@@ -36,8 +36,59 @@
         "seniority": { "type": "string" },
         "keywordsInclude": { "type": "string" },
         "keywordsExclude": { "type": "string" },
-        "maxLeadsPerRun": { "type": "string" }
+        "maxLeadsPerRun": { "type": "string" },
+        "profileSnapshot": {
+          "type": "object",
+          "description": "Optional non-secret snapshot of the profile/resume/preferences/schedule state used to build this run. Raw resume text is not included.",
+          "additionalProperties": true,
+          "properties": {
+            "snapshotVersion": { "type": "integer", "const": 1 },
+            "profileHash": { "type": "string" },
+            "resumeTextLength": { "type": "number" },
+            "resumeUpdatedAt": { "type": "string" }
+          }
+        },
+        "searchPlan": {
+          "type": "object",
+          "description": "Optional deterministic search facet/query bundle used by scheduled and manual runs to rotate daily discovery.",
+          "additionalProperties": true,
+          "properties": {
+            "planVersion": { "type": "integer", "const": 1 },
+            "generatedAt": { "type": "string", "format": "date-time" },
+            "seed": { "type": "string" },
+            "rotationKey": { "type": "string" },
+            "query": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "targetRoles": { "type": "string" },
+                "locations": { "type": "string" },
+                "remotePolicy": { "type": "string" },
+                "seniority": { "type": "string" },
+                "keywordsInclude": { "type": "string" },
+                "keywordsExclude": { "type": "string" },
+                "sourcePreset": {
+                  "type": "string",
+                  "enum": ["", "browser_only", "ats_only", "browser_plus_ats"]
+                }
+              }
+            }
+          }
+        }
       }
+    },
+    "trigger": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "scheduled-browser",
+        "scheduled-local",
+        "scheduled-github",
+        "scheduled-cloudflare",
+        "scheduled-appsscript",
+        "cli"
+      ],
+      "description": "Optional run-origin label recorded in DiscoveryRuns."
     },
     "googleAccessToken": {
       "type": "string",

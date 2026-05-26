@@ -13,6 +13,36 @@ const TLS_CERT_PATH = join(TLS_CACHE_DIR, "localhost-cert.pem");
 const TLS_KEY_PATH = join(TLS_CACHE_DIR, "localhost-key.pem");
 const TLS_CERT_SUBJECT = "/CN=localhost";
 const TLS_CERT_SAN = "subjectAltName=DNS:localhost,IP:127.0.0.1";
+const DEFAULT_DISCOVERY_WORKER_PORT = 8644;
+const EXPECTED_DISCOVERY_WORKER_SERVICE = "browser-use-discovery-worker";
+const DISCOVERY_WORKER_SCRIPT = join(
+  ROOT,
+  "integrations",
+  "browser-use-discovery",
+  "src",
+  "server.ts",
+);
+const DISCOVERY_WORKER_CONFIG_PATH = join(
+  ROOT,
+  "integrations",
+  "browser-use-discovery",
+  "state",
+  "worker-config.json",
+);
+const DISCOVERY_WORKER_STATE_DB_PATH = join(
+  ROOT,
+  "integrations",
+  "browser-use-discovery",
+  "state",
+  "worker-state.sqlite",
+);
+const DISCOVERY_WORKER_BROWSER_COMMAND = join(
+  ROOT,
+  "integrations",
+  "browser-use-discovery",
+  "bin",
+  "browser-use-agent-browser.mjs",
+);
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -43,10 +73,9 @@ function parseLocalProxyRoute(pathname, searchParams) {
   const match = PROXY_ROUTES[pathname];
   if (match) return match;
   if (pathname === "/__proxy/local-health") {
-    const port = parseInt(searchParams.get("port") || "8644", 10);
     return {
       host: "127.0.0.1",
-      port: port > 0 && port < 65536 ? port : 8644,
+      port: resolveDiscoveryWorkerPort(searchParams.get("port")),
       path: "/health",
     };
   }
@@ -135,8 +164,117 @@ function requestLocalJson(target, { method = "GET", body = null, timeout = 3000 
 }
 
 function normalizeDiscoveryWorkerPort(raw) {
-  const port = Number.parseInt(String(raw || "8644"), 10);
-  return Number.isInteger(port) && port > 0 && port < 65536 ? port : 8644;
+  const port = Number.parseInt(String(raw || DEFAULT_DISCOVERY_WORKER_PORT), 10);
+  return Number.isInteger(port) && port > 0 && port < 65536
+    ? port
+    : DEFAULT_DISCOVERY_WORKER_PORT;
+}
+
+function extractPortFromUrl(raw) {
+  try {
+    const url = new URL(String(raw || "").trim());
+    const port = Number.parseInt(
+      url.port || (url.protocol === "https:" ? "443" : "80"),
+      10,
+    );
+    return Number.isInteger(port) && port > 0 && port < 65536 ? port : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveDiscoveryWorkerPort(raw) {
+  const explicit = String(raw || "").trim();
+  if (explicit) return normalizeDiscoveryWorkerPort(explicit);
+
+  const envPort = String(process.env.BROWSER_USE_DISCOVERY_PORT || "").trim();
+  if (envPort) return normalizeDiscoveryWorkerPort(envPort);
+
+  const bootstrap = readBootstrapJson();
+  const bootstrapPort = Number.parseInt(String(bootstrap && bootstrap.localPort), 10);
+  if (Number.isInteger(bootstrapPort) && bootstrapPort > 0 && bootstrapPort < 65536) {
+    return bootstrapPort;
+  }
+  const urlPort = extractPortFromUrl(bootstrap && bootstrap.localWebhookUrl);
+  return urlPort || DEFAULT_DISCOVERY_WORKER_PORT;
+}
+
+function isExpectedDiscoveryWorkerPayload(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return false;
+  }
+  return (
+    String(payload.service || "").toLowerCase() === EXPECTED_DISCOVERY_WORKER_SERVICE &&
+    String(payload.status || "").toLowerCase() === "ok"
+  );
+}
+
+function classifyDiscoveryWorkerHealthResponse(response, port) {
+  const payload = response.json && typeof response.json === "object" ? response.json : null;
+  const base = {
+    port: normalizeDiscoveryWorkerPort(port),
+    statusCode: response.status || 0,
+    service: payload && payload.service ? String(payload.service) : "",
+    workerStatus: payload && payload.status ? String(payload.status) : "",
+  };
+
+  if (isExpectedDiscoveryWorkerPayload(payload) && response.ok) {
+    return {
+      ok: true,
+      ...base,
+      mode: payload.mode ? String(payload.mode) : "",
+      payload,
+      response,
+    };
+  }
+
+  if (!response.status) {
+    return {
+      ok: false,
+      ...base,
+      reason: "worker_down",
+      message: `No discovery worker is listening on 127.0.0.1:${base.port}.`,
+      response,
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      ...base,
+      reason: "worker_unhealthy",
+      message: `Port ${base.port} answered /health with HTTP ${response.status}, not a healthy discovery worker identity.`,
+      response,
+    };
+  }
+
+  if (!payload) {
+    return {
+      ok: false,
+      ...base,
+      reason: "invalid_health_response",
+      message: `Port ${base.port} answered /health but did not return JSON worker identity.`,
+      response,
+    };
+  }
+
+  if (String(payload.service || "").toLowerCase() !== EXPECTED_DISCOVERY_WORKER_SERVICE) {
+    return {
+      ok: false,
+      ...base,
+      reason: "wrong_service",
+      message: `Port ${base.port} is occupied by a different service.`,
+      response,
+    };
+  }
+
+  return {
+    ok: false,
+    ...base,
+    reason: "worker_unhealthy",
+    message: `Discovery worker on port ${base.port} did not report status ok.`,
+    response,
+  };
 }
 
 async function probeDiscoveryWorkerHealth(port) {
@@ -145,13 +283,25 @@ async function probeDiscoveryWorkerHealth(port) {
     port: normalizeDiscoveryWorkerPort(port),
     path: "/health",
   });
-  const payload = response.json && typeof response.json === "object" ? response.json : {};
+  return classifyDiscoveryWorkerHealthResponse(response, port);
+}
+
+function buildDiscoveryWorkerEnv(port) {
   return {
-    ok:
-      response.ok &&
-      String(payload.status || "").toLowerCase() === "ok" &&
-      String(payload.service || "").toLowerCase() === "browser-use-discovery-worker",
-    response,
+    ...process.env,
+    BROWSER_USE_DISCOVERY_RUN_MODE: "local",
+    BROWSER_USE_DISCOVERY_HOST: "127.0.0.1",
+    BROWSER_USE_DISCOVERY_PORT: String(normalizeDiscoveryWorkerPort(port)),
+    BROWSER_USE_DISCOVERY_CONFIG_PATH:
+      process.env.BROWSER_USE_DISCOVERY_CONFIG_PATH || DISCOVERY_WORKER_CONFIG_PATH,
+    BROWSER_USE_DISCOVERY_STATE_DB_PATH:
+      process.env.BROWSER_USE_DISCOVERY_STATE_DB_PATH || DISCOVERY_WORKER_STATE_DB_PATH,
+    BROWSER_USE_DISCOVERY_BROWSER_COMMAND:
+      process.env.BROWSER_USE_DISCOVERY_BROWSER_COMMAND || DISCOVERY_WORKER_BROWSER_COMMAND,
+    BROWSER_USE_DISCOVERY_GEMINI_API_KEY:
+      process.env.BROWSER_USE_DISCOVERY_GEMINI_API_KEY ||
+      process.env.ATS_GEMINI_API_KEY ||
+      "",
   };
 }
 
@@ -166,13 +316,31 @@ async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
       port: resolvedPort,
     };
   }
+  if (before.statusCode > 0) {
+    return {
+      ok: false,
+      started: false,
+      port: resolvedPort,
+      reason: before.reason,
+      statusCode: before.statusCode,
+      service: before.service,
+      workerStatus: before.workerStatus,
+      message:
+        before.message ||
+        `Port ${resolvedPort} is occupied by a process that is not the discovery worker.`,
+    };
+  }
 
-  const child = spawn("npm", ["run", "start:discovery-worker"], {
-    cwd: ROOT,
-    detached: true,
-    stdio: "ignore",
-    env: process.env,
-  });
+  const child = spawn(
+    process.execPath,
+    ["--experimental-strip-types", DISCOVERY_WORKER_SCRIPT],
+    {
+      cwd: ROOT,
+      detached: true,
+      stdio: "ignore",
+      env: buildDiscoveryWorkerEnv(resolvedPort),
+    },
+  );
   child.unref();
 
   for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -194,7 +362,9 @@ async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
     started: true,
     port: resolvedPort,
     pid: child.pid || 0,
-    message: "Discovery worker did not become healthy after starting.",
+    reason: "worker_start_timeout",
+    message:
+      "Discovery worker did not become healthy with the expected JSON identity after starting.",
   };
 }
 
@@ -278,11 +448,12 @@ async function handleFixSetup(req, res, options = {}) {
   const emit = (phase, detail) => phases.push({ phase, ...detail });
 
   const previousBootstrap = readBootstrapJson();
+  const workerPort = resolveDiscoveryWorkerPort(options.workerPort);
 
   emit("starting_worker", { message: "Running bootstrap to start worker and tunnel..." });
   const bootstrapResult = await runScript(
     join(ROOT, "scripts", "bootstrap-local-discovery.mjs"),
-    ["--json"],
+    ["--json", "--port", String(workerPort)],
   );
 
   if (!bootstrapResult.ok) {
@@ -452,38 +623,15 @@ async function handleKillStale(req, res) {
     return;
   }
 
-  const ports = [8644, 4040];
-  const killed = [];
-  for (const port of ports) {
-    try {
-      const lsof = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
-        encoding: "utf8",
-      });
-      const pids = String(lsof.stdout || "")
-        .split(/\s+/)
-        .filter((s) => /^\d+$/.test(s))
-        .map(Number);
-      for (const pid of pids) {
-        // Don't kill ourselves (the dev-server) — port 8080 is not in the list,
-        // but be defensive in case someone extends this list later.
-        if (pid === process.pid) continue;
-        try {
-          process.kill(pid, "SIGTERM");
-          killed.push({ port, pid });
-        } catch {
-          /* already dead — ignore */
-        }
-      }
-    } catch {
-      /* lsof unavailable on some systems — skip silently */
-    }
-  }
-
-  // Brief pause so OS releases the sockets before the caller starts new procs.
-  if (killed.length) await new Promise((r) => setTimeout(r, 600));
+  const url = new URL(req.url || "/", "http://localhost");
+  const workerPort = resolveDiscoveryWorkerPort(url.searchParams.get("port"));
+  const result = await terminateKnownStaleListeners({
+    ports: [workerPort, 4040],
+    workerPort,
+  });
 
   res.writeHead(200, corsHeaders);
-  res.end(JSON.stringify({ ok: true, killed }));
+  res.end(JSON.stringify({ ok: result.blocked.length === 0, ...result }));
 }
 
 function listListeningPids(port) {
@@ -496,36 +644,124 @@ function listListeningPids(port) {
     .map(Number);
 }
 
-export async function killFullBootStalePorts({
-  ports = [8644, 4040],
+function getProcessCommand(pid) {
+  const ps = spawnSync("ps", ["-p", String(pid), "-o", "command="], {
+    encoding: "utf8",
+  });
+  return String(ps.stdout || "").trim();
+}
+
+function listListeningProcesses(port) {
+  return listListeningPids(port).map((pid) => ({
+    pid,
+    command: getProcessCommand(pid),
+  }));
+}
+
+function isKnownJobBoredWorkerCommand(command) {
+  const text = String(command || "").toLowerCase();
+  return (
+    text.includes("browser-use-discovery") ||
+    text.includes("start:discovery-worker")
+  );
+}
+
+function isKnownNgrokCommandForPort(command, workerPort) {
+  const text = String(command || "").toLowerCase();
+  if (!text.includes("ngrok")) return false;
+  const port = String(normalizeDiscoveryWorkerPort(workerPort));
+  return (
+    new RegExp(`\\b${port}\\b`).test(text) ||
+    text.includes(`localhost:${port}`) ||
+    text.includes(`127.0.0.1:${port}`)
+  );
+}
+
+function isKnownManagedListener(processInfo, port, workerPort) {
+  const command = processInfo && processInfo.command ? processInfo.command : "";
+  if (port === workerPort) return isKnownJobBoredWorkerCommand(command);
+  if (port === 4040) return isKnownNgrokCommandForPort(command, workerPort);
+  return false;
+}
+
+async function terminateKnownStaleListeners({
+  ports = [DEFAULT_DISCOVERY_WORKER_PORT, 4040],
+  workerPort = DEFAULT_DISCOVERY_WORKER_PORT,
   healthyDiscoveryWorkerPort = null,
   currentPid = process.pid,
-  findPids = listListeningPids,
+  findProcesses = listListeningProcesses,
   killPid = (pid) => process.kill(pid, "SIGTERM"),
   waitAfterKillMs = 600,
 } = {}) {
-  let killed = 0;
+  const killedProcesses = [];
+  const blocked = [];
   let skippedHealthyWorker = false;
+
   for (const port of ports) {
     if (port === healthyDiscoveryWorkerPort) {
       skippedHealthyWorker = true;
       continue;
     }
-    const pids = findPids(port);
-    for (const pid of pids) {
-      if (pid === currentPid) continue;
+    let processes = [];
+    try {
+      processes = findProcesses(port) || [];
+    } catch {
+      processes = [];
+    }
+    for (const processInfo of processes) {
+      const pid = Number(processInfo && processInfo.pid);
+      if (!Number.isInteger(pid) || pid <= 0 || pid === currentPid) continue;
+      const command = String(processInfo.command || "");
+      if (!isKnownManagedListener({ pid, command }, port, workerPort)) {
+        blocked.push({
+          port,
+          pid,
+          command,
+          action:
+            port === workerPort
+              ? `Stop the foreign listener on port ${workerPort}, or rerun with --port to use another worker port.`
+              : "Stop the foreign ngrok/listener on port 4040 before automatic recovery can continue.",
+        });
+        continue;
+      }
       try {
         killPid(pid);
-        killed += 1;
+        killedProcesses.push({ port, pid, command });
       } catch {
         /* ignore */
       }
     }
   }
-  if (killed && waitAfterKillMs > 0) {
+
+  if (killedProcesses.length && waitAfterKillMs > 0) {
     await new Promise((r) => setTimeout(r, waitAfterKillMs));
   }
-  return { killed, skippedHealthyWorker };
+  return {
+    killed: killedProcesses.length,
+    killedProcesses,
+    blocked,
+    skippedHealthyWorker,
+  };
+}
+
+export async function killFullBootStalePorts({
+  ports = [DEFAULT_DISCOVERY_WORKER_PORT, 4040],
+  workerPort = DEFAULT_DISCOVERY_WORKER_PORT,
+  healthyDiscoveryWorkerPort = null,
+  currentPid = process.pid,
+  findProcesses = listListeningProcesses,
+  killPid = (pid) => process.kill(pid, "SIGTERM"),
+  waitAfterKillMs = 600,
+} = {}) {
+  return terminateKnownStaleListeners({
+    ports,
+    workerPort,
+    healthyDiscoveryWorkerPort,
+    currentPid,
+    findProcesses,
+    killPid,
+    waitAfterKillMs,
+  });
 }
 
 /**
@@ -547,19 +783,40 @@ async function handleFullBoot(req, res, discoveryWorkerStarter) {
 
   const phases = [];
   const emit = (phase, detail) => phases.push({ phase, ...detail });
+  const url = new URL(req.url || "/", "http://localhost");
+  const workerPort = resolveDiscoveryWorkerPort(url.searchParams.get("port"));
 
   // 1. Kill any stale process holding 8644 / 4040.
   try {
     let healthyDiscoveryWorkerPort = null;
     try {
-      const health = await probeDiscoveryWorkerHealth(8644);
+      const health = await probeDiscoveryWorkerHealth(workerPort);
       if (health && health.ok) {
-        healthyDiscoveryWorkerPort = 8644;
+        healthyDiscoveryWorkerPort = workerPort;
       }
     } catch {
       healthyDiscoveryWorkerPort = null;
     }
-    emit("kill_stale", await killFullBootStalePorts({ healthyDiscoveryWorkerPort }));
+    const cleanup = await killFullBootStalePorts({
+      ports: [workerPort, 4040],
+      workerPort,
+      healthyDiscoveryWorkerPort,
+    });
+    emit("kill_stale", cleanup);
+    if (cleanup.blocked && cleanup.blocked.length) {
+      res.writeHead(409, corsHeaders);
+      res.end(
+        JSON.stringify({
+          ok: false,
+          phase: "kill_stale",
+          reason: "foreign_listener",
+          message:
+            "A foreign process is using a required local port. Stop it manually or choose another discovery worker port.",
+          phases,
+        }),
+      );
+      return;
+    }
   } catch (e) {
     emit("kill_stale", { killed: 0, warning: e && e.message });
   }
@@ -570,7 +827,7 @@ async function handleFullBoot(req, res, discoveryWorkerStarter) {
       typeof discoveryWorkerStarter === "function"
         ? discoveryWorkerStarter
         : defaultDiscoveryWorkerStarter;
-    const startResult = await starter({ port: 8644 });
+    const startResult = await starter({ port: workerPort });
     emit("start_worker", startResult || {});
     if (!startResult || !startResult.ok) {
       res.writeHead(502, corsHeaders);
@@ -602,7 +859,7 @@ async function handleFullBoot(req, res, discoveryWorkerStarter) {
 
   // 3. Hand off to the existing fix-setup flow which bootstraps ngrok and
   //    deploys/refreshes the Cloudflare relay.
-  return handleFixSetup(req, res, { extraPhases: phases });
+  return handleFixSetup(req, res, { extraPhases: phases, workerPort });
 }
 
 // ============================================================================
@@ -853,15 +1110,17 @@ async function handleDiscoveryState(req, res) {
     return;
   }
 
-  const workerPort = 8644;
+  const url = new URL(req.url || "/", "http://localhost");
+  const workerPort = resolveDiscoveryWorkerPort(url.searchParams.get("port"));
 
   // Probe in parallel — every probe is best-effort and short-timeout.
-  const [workerUp, ngrokInfo, keepAliveStatus] = await Promise.all([
-    probeHttpAlive(`http://127.0.0.1:${workerPort}/health`, 1500),
-    probeNgrokTunnel(1500),
+  const [workerHealth, ngrokInfo, keepAliveStatus] = await Promise.all([
+    probeWorkerIdentity(workerPort, 1500),
+    probeNgrokTunnel(1500, workerPort),
     safeKeepAliveStatus(),
   ]);
 
+  const workerUp = !!(workerHealth && workerHealth.ok);
   const lastNgrokUrl =
     (keepAliveStatus && keepAliveStatus.lastNgrokUrl) || undefined;
   const ngrokUp = !!(ngrokInfo && ngrokInfo.up);
@@ -883,6 +1142,17 @@ async function handleDiscoveryState(req, res) {
   let recoverableHint;
   if (workerUp && ngrokUp && !ngrokRotated) {
     recommendation = "ready";
+  } else if (
+    workerHealth &&
+    (workerHealth.reason === "wrong_service" ||
+      workerHealth.reason === "invalid_health_response" ||
+      workerHealth.reason === "worker_unhealthy")
+  ) {
+    recommendation = "needs_human";
+    recoverableHint = workerHealth.reason;
+  } else if (ngrokInfo && ngrokInfo.reason === "no_matching_tunnel") {
+    recommendation = "needs_human";
+    recoverableHint = "ngrok_wrong_port";
   } else if (!workerUp || !ngrokUp || ngrokRotated) {
     recommendation = "auto_recoverable";
     if (!workerUp) recoverableHint = "worker_down";
@@ -897,10 +1167,22 @@ async function handleDiscoveryState(req, res) {
     worker: {
       up: workerUp,
       port: workerPort,
+      ...(workerHealth && !workerHealth.ok
+        ? {
+            reason: workerHealth.reason,
+            statusCode: workerHealth.statusCode,
+            service: workerHealth.service,
+            workerStatus: workerHealth.workerStatus,
+            message: workerHealth.message,
+            listeners: workerHealth.listeners || [],
+          }
+        : {}),
     },
     ngrok: {
       up: ngrokUp,
       ...(liveNgrokUrl ? { url: liveNgrokUrl } : {}),
+      ...(ngrokInfo && ngrokInfo.reason ? { reason: ngrokInfo.reason } : {}),
+      ...(ngrokInfo && ngrokInfo.tunnels ? { tunnels: ngrokInfo.tunnels } : {}),
     },
     relay: relayInfo,
     recommendation,
@@ -912,11 +1194,10 @@ async function handleDiscoveryState(req, res) {
 }
 
 /**
- * Best-effort HTTP HEAD/GET probe with a hard timeout. Returns true if any
- * 2xx/3xx/4xx response comes back (the service is alive even if the path
- * 404s), false on network error or timeout.
+ * Best-effort local worker probe with a hard timeout. A response only counts
+ * as healthy when /health returns the expected discovery-worker JSON identity.
  */
-async function probeHttpAlive(url, timeoutMs) {
+async function probeWorkerIdentity(port, timeoutMs) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => {
     try {
@@ -924,20 +1205,63 @@ async function probeHttpAlive(url, timeoutMs) {
     } catch (_) {}
   }, timeoutMs);
   try {
-    const resp = await fetch(url, { method: "GET", signal: ctrl.signal });
-    return resp.status > 0 && resp.status < 600;
-  } catch (_) {
-    return false;
+    const resp = await fetch(`http://127.0.0.1:${port}/health`, {
+      method: "GET",
+      signal: ctrl.signal,
+    });
+    const json = await resp.json().catch(() => null);
+    const result = classifyDiscoveryWorkerHealthResponse(
+      {
+        ok: resp.ok,
+        status: resp.status || 0,
+        json,
+        text: "",
+      },
+      port,
+    );
+    if (!result.ok && result.reason !== "worker_down") {
+      result.listeners = listListeningProcesses(port);
+    }
+    return result;
+  } catch (error) {
+    return classifyDiscoveryWorkerHealthResponse(
+      {
+        ok: false,
+        status: 0,
+        json: null,
+        text: "",
+        error: error && error.message ? error.message : String(error || "error"),
+      },
+      port,
+    );
   } finally {
     clearTimeout(timer);
   }
 }
 
+function tunnelMatchesPort(tunnel, port) {
+  const configAddr = String(
+    tunnel &&
+      tunnel.config &&
+      Object.prototype.hasOwnProperty.call(tunnel.config, "addr")
+      ? tunnel.config.addr
+      : "",
+  ).trim();
+  const resolvedPort = String(normalizeDiscoveryWorkerPort(port));
+  return (
+    configAddr === resolvedPort ||
+    configAddr.endsWith(`:${resolvedPort}`) ||
+    configAddr.includes(`localhost:${resolvedPort}`) ||
+    configAddr.includes(`127.0.0.1:${resolvedPort}`)
+  );
+}
+
 /**
- * Hit the local ngrok inspector API and return { up, url? } for the first
- * https tunnel. Tolerates ngrok being down entirely.
+ * Hit the local ngrok inspector API and return { up, url? } only for a tunnel
+ * whose config.addr points at the resolved discovery worker port. Tolerates
+ * ngrok being down entirely.
  */
-async function probeNgrokTunnel(timeoutMs) {
+async function probeNgrokTunnel(timeoutMs, workerPort) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => {
     try {
@@ -952,13 +1276,27 @@ async function probeNgrokTunnel(timeoutMs) {
     if (!resp.ok) return { up: false };
     const json = await resp.json().catch(() => null);
     const tunnels = (json && Array.isArray(json.tunnels) && json.tunnels) || [];
-    const httpsTunnel = tunnels.find(
-      (t) => t && typeof t.public_url === "string" && t.public_url.startsWith("https://"),
+    const httpsTunnels = tunnels
+      .filter((t) => t && typeof t.public_url === "string" && t.public_url.startsWith("https://"))
+      .map((t) => ({
+        publicUrl: t.public_url,
+        addr: String(t.config && t.config.addr ? t.config.addr : ""),
+      }));
+    const match = tunnels.find(
+      (t) =>
+        t &&
+        typeof t.public_url === "string" &&
+        t.public_url.startsWith("https://") &&
+        tunnelMatchesPort(t, workerPort),
     );
-    if (httpsTunnel) {
-      return { up: true, url: httpsTunnel.public_url };
+    if (match) {
+      return { up: true, url: match.public_url };
     }
-    return { up: false };
+    return {
+      up: false,
+      reason: httpsTunnels.length ? "no_matching_tunnel" : "ngrok_down",
+      ...(httpsTunnels.length ? { tunnels: httpsTunnels } : {}),
+    };
   } catch (_) {
     return { up: false };
   } finally {
@@ -1107,7 +1445,9 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
     }
 
     if (req.method === "POST" && pathname === "/__proxy/fix-setup") {
-      handleFixSetup(req, res).catch((err) => {
+      handleFixSetup(req, res, {
+        workerPort: resolveDiscoveryWorkerPort(url.searchParams.get("port")),
+      }).catch((err) => {
         logError("  Fix-setup error:", err);
         if (!res.headersSent) {
           res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
@@ -1293,7 +1633,8 @@ export function startDevServer({
       if (useTls) {
         log(`  Local TLS certificate: ${TLS_CERT_PATH}`);
       }
-      log(`  Proxying /__proxy/local-health → 127.0.0.1:8644/health`);
+      const workerPort = resolveDiscoveryWorkerPort();
+      log(`  Proxying /__proxy/local-health → 127.0.0.1:${workerPort}/health`);
       log(`  Proxying /__proxy/ngrok-tunnels → 127.0.0.1:4040/api/tunnels`);
       log(`  POST /__proxy/fix-setup → one-click recovery helper`);
       log(`  POST /__proxy/start-discovery-worker → starts local discovery worker`);

@@ -24,7 +24,9 @@ describe("v2 pipeline Discovered column", () => {
       "new/discovered should source cards from vm.untriaged inside the normal column loop",
     );
     assert.ok(
-      pipelineJs.includes("frag.appendChild(StickerCard(c, { stage: s.key }))"),
+      pipelineJs.includes("frag.appendChild(StickerCard(c, {") &&
+        pipelineJs.includes("stage: s.key,") &&
+        pipelineJs.includes("selected: String(c.jobKey) === String(state.selectedJobKey),"),
       "discovered cards should render through StickerCard, not a separate button rail",
     );
     assert.ok(

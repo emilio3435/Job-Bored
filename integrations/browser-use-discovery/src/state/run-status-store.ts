@@ -18,6 +18,7 @@ const DEFAULT_FAILED_MESSAGE = "Discovery failed — worker could not finish the
 export type DiscoveryRunStatusStore = {
   put(payload: DiscoveryRunStatusPayload): void;
   get(runId: string): DiscoveryRunStatusPayload | null;
+  markNonTerminalRunsAbandoned?(abandonedAt: string): number;
   close(): void;
 };
 
@@ -98,6 +99,8 @@ export function buildCompletedRunStatus(
     // These fields are only present at terminal state after config resolution.
     ultraPlanTuning: result.run.config.ultraPlanTuning,
     groundedSearchTuning: result.run.config.groundedSearchTuning,
+    profileSnapshot: result.run.config.profileSnapshot,
+    searchPlan: result.run.config.searchPlan,
   };
 }
 
@@ -146,6 +149,10 @@ export function createDiscoveryRunStatusStore(
     FROM discovery_run_status
     WHERE run_id = ?
   `);
+  const listStatement = database.prepare(`
+    SELECT payload_json
+    FROM discovery_run_status
+  `);
 
   return {
     put(payload) {
@@ -169,6 +176,39 @@ export function createDiscoveryRunStatusStore(
       } catch {
         return null;
       }
+    },
+    markNonTerminalRunsAbandoned(abandonedAt) {
+      const recoveredAt =
+        String(abandonedAt || "").trim() || new Date().toISOString();
+      let recoveredCount = 0;
+      for (const row of listStatement.all() as Array<{ payload_json?: string }>) {
+        if (!row?.payload_json) continue;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(row.payload_json);
+        } catch {
+          continue;
+        }
+        if (!isRunStatusPayload(parsed) || parsed.terminal) continue;
+        const warning =
+          "Discovery worker restarted before this run reached a terminal state.";
+        const warnings = parsed.warnings.includes(warning)
+          ? parsed.warnings
+          : [...parsed.warnings, warning];
+        this.put({
+          ...parsed,
+          status: "partial",
+          terminal: true,
+          message:
+            "Discovery run was interrupted by a worker restart before completion.",
+          completedAt: recoveredAt,
+          updatedAt: recoveredAt,
+          warnings,
+          error: warning,
+        });
+        recoveredCount += 1;
+      }
+      return recoveredCount;
     },
     close() {
       database.close();

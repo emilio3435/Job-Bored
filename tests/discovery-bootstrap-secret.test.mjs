@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import {
   generateWebhookSecret,
   parseEnvFile,
+  pickNgrokPublicUrl,
   WEBHOOK_SECRET_ENV_KEY,
 } from "../scripts/bootstrap-local-discovery.mjs";
 
@@ -177,5 +178,39 @@ describe("bootstrap webhook secret resolver", () => {
       assert.equal(r.source, "env_file");
       assert.equal(r.secret, "from-file");
     });
+  });
+});
+
+describe("bootstrap ngrok tunnel selection", () => {
+  it("selects the https tunnel whose config.addr matches the worker port", () => {
+    const selected = pickNgrokPublicUrl(
+      [
+        {
+          public_url: "https://wrong.ngrok-free.app",
+          config: { addr: "http://127.0.0.1:3000" },
+        },
+        {
+          public_url: "https://right.ngrok-free.app",
+          config: { addr: "http://127.0.0.1:8644" },
+        },
+      ],
+      "8644",
+    );
+
+    assert.equal(selected, "https://right.ngrok-free.app/");
+  });
+
+  it("does not fall back to the first https tunnel when none match", () => {
+    const selected = pickNgrokPublicUrl(
+      [
+        {
+          public_url: "https://wrong.ngrok-free.app",
+          config: { addr: "http://127.0.0.1:3000" },
+        },
+      ],
+      "8644",
+    );
+
+    assert.equal(selected, "");
   });
 });

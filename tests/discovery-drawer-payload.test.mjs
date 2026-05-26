@@ -24,6 +24,10 @@ const userContentStoreJs = readFileSync(
   join(repoRoot, "user-content-store.js"),
   "utf8",
 );
+const discoveryPayloadJs = readFileSync(
+  join(repoRoot, "discovery-payload.js"),
+  "utf8",
+);
 
 describe("Discovery drawer markup + open/close lifecycle", () => {
   it("has a #discoveryDrawer element using the shared detail-overlay/detail-drawer classes", () => {
@@ -62,6 +66,112 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
     assert.match(indexHtml, /id="dpCompanyAllowlistChips"/);
     assert.match(indexHtml, /id="dpCompanyBlocklistChips"/);
     assert.match(indexHtml, /id="dpCompanyAllowlistAddBtn"/);
+  });
+
+  it("exposes the canonical Discovery sub-tab tablist (Search · Sources · Automation · Connection · History)", () => {
+    assert.match(indexHtml, /id="discoverySubtabs"/);
+    ["search", "sources", "automation", "connection", "history"].forEach(
+      (id) => {
+        assert.ok(
+          indexHtml.includes(`id="dd-tab-${id}"`),
+          `drawer must have sub-tab button #dd-tab-${id}`,
+        );
+        assert.ok(
+          indexHtml.includes(`id="dd-panel-${id}"`),
+          `drawer must have sub-tab panel #dd-panel-${id}`,
+        );
+      },
+    );
+  });
+
+  it("Connection sub-tab carries the webhook URL/secret and Apps Script controls (moved from Settings)", () => {
+    const conn = indexHtml.indexOf('id="dd-panel-connection"');
+    assert.ok(conn !== -1, "Connection panel must exist");
+    const after = indexHtml.slice(conn);
+    const next = after.indexOf('id="dd-panel-history"');
+    assert.ok(next !== -1, "Connection panel must precede History");
+    const block = after.slice(0, next);
+    assert.match(block, /id="settingsDiscoveryWebhookUrl"/);
+    assert.match(block, /id="settingsDiscoveryWebhookSecret"/);
+    assert.match(block, /id="settingsAppsScriptDetails"/);
+    assert.match(block, /id="settingsDiscoveryEngineStatus"/);
+    assert.match(block, /id="settingsDiscoveryTestBtn"/);
+    assert.match(block, /id="settingsDiscoveryGuideBtn"/);
+    assert.match(block, /id="settingsDiscoveryLocalSetupBtn"/);
+    assert.match(block, /id="settingsDiscoveryRelayBtn"/);
+  });
+
+  it("Automation sub-tab carries the Tier 1/2/3 schedule controls (moved from Profile)", () => {
+    const auto = indexHtml.indexOf('id="dd-panel-automation"');
+    assert.ok(auto !== -1, "Automation panel must exist");
+    const after = indexHtml.slice(auto);
+    const next = after.indexOf('id="dd-panel-connection"');
+    assert.ok(next !== -1, "Automation panel must precede Connection");
+    const block = after.slice(0, next);
+    assert.match(block, /id="settingsProfileAutoRefreshToggle"/);
+    assert.match(block, /id="settingsProfileScheduleLocalEnable"/);
+    assert.match(block, /id="settingsProfileScheduleLocalTime"/);
+    assert.match(block, /id="settingsProfileScheduleCloudEnable"/);
+    assert.match(block, /id="settingsProfileScheduleCloudTime"/);
+  });
+
+  it("Sources sub-tab carries source preset, grounded web, and SerpApi callout", () => {
+    const sources = indexHtml.indexOf('id="dd-panel-sources"');
+    assert.ok(sources !== -1, "Sources panel must exist");
+    const after = indexHtml.slice(sources);
+    const next = after.indexOf('id="dd-panel-automation"');
+    assert.ok(next !== -1, "Sources panel must precede Automation");
+    const block = after.slice(0, next);
+    assert.match(block, /id="dpSourcePresetGroup"/);
+    assert.match(block, /id="dpGroundedWeb"/);
+    assert.match(block, /id="settingsSerpApiCallout"/);
+  });
+
+  it("Settings modal no longer renders a Discovery tab or duplicate discovery controls", () => {
+    assert.ok(
+      !indexHtml.includes('id="settings-panel-discovery"'),
+      "Settings Discovery tabpanel must be removed",
+    );
+    assert.ok(
+      !indexHtml.includes('id="settings-tab-discovery"'),
+      "Settings Discovery tab button must be removed",
+    );
+    // Old duplicate Discovery preferences fields (settingsDiscoveryTargetRoles
+    // et al.) must not be re-introduced anywhere — the canonical inputs are
+    // dpTargetRoles, dpLocations, … inside the drawer.
+    [
+      "settingsDiscoveryTargetRoles",
+      "settingsDiscoveryLocations",
+      "settingsDiscoveryRemotePolicy",
+      "settingsDiscoverySeniority",
+      "settingsDiscoveryKeywordsInclude",
+      "settingsDiscoveryKeywordsExclude",
+      "settingsDiscoveryMaxLeadsPerRun",
+      "settingsDiscoveryGroundedWeb",
+    ].forEach((id) => {
+      assert.ok(
+        !indexHtml.includes(`id="${id}"`),
+        `duplicate Discovery preference input #${id} must not exist`,
+      );
+    });
+  });
+
+  it("Settings modal no longer renders a Profile tab (lives behind portfolio nav icon)", () => {
+    assert.ok(
+      !indexHtml.includes('id="settings-panel-profile"'),
+      "Settings Profile tabpanel must be removed",
+    );
+    assert.ok(
+      !indexHtml.includes('id="settings-tab-profile"'),
+      "Settings Profile tab button must be removed",
+    );
+    // The legacy schedule card class must not be re-introduced anywhere.
+    assert.ok(
+      !/class="settings-profile-block settings-profile-schedule"/.test(
+        indexHtml,
+      ),
+      "discovery schedule card must live in the drawer Automation sub-tab only",
+    );
   });
 
   it("declares openDiscoveryDrawer / initDiscoveryDrawer as the entry points", () => {
@@ -158,11 +268,13 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
     assert.match(candidateSource, /state\.relayTargetUrl/);
     assert.match(candidateSource, /getCloudflareRelayTargetInfo\(\)/);
     assert.match(candidateSource, /buildDiscoveryTunnelTargetUrl\(/);
+    assert.match(candidateSource, /source:\s*"configured"/);
+    assert.match(resolverSource, /scoreDiscoveryRunWebhookCandidates\(/);
 
-    const triggerStart = appJs.indexOf("async function triggerDiscoveryRun()");
+    const triggerStart = appJs.indexOf("async function triggerDiscoveryRun(");
     assert.notEqual(triggerStart, -1, "triggerDiscoveryRun must exist");
     const triggerEnd = appJs.indexOf(
-      "\n}\n\n/**\n * POST a test payload",
+      "\n}\n\nwindow.JobBoredDiscovery",
       triggerStart,
     );
     assert.notEqual(triggerEnd, -1, "triggerDiscoveryRun body must be readable");
@@ -182,39 +294,39 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
       /skipAutodetect:\s*true/,
       "no-url fallback should show setup instead of the already-set-up toast",
     );
+    assert.match(
+      triggerSource,
+      /runTrigger/,
+      "manual and scheduled callers should share triggerDiscoveryRun with an explicit trigger label",
+    );
   });
 });
 
 describe("buildDiscoveryWebhookPayload — companyAllowlist / companyBlocklist", () => {
+  it("delegates browser Run discovery payloads to the shared payload builder", () => {
+    assert.match(appJs, /window\.JobBoredDiscoveryPayload/);
+    assert.match(appJs, /sharedBuilder\.buildDiscoveryWebhookPayload/);
+  });
+
   it("includes companyAllowlist and companyBlocklist as top-level fields", () => {
-    const builderStart = appJs.indexOf("async function buildDiscoveryWebhookPayload(");
-    assert.ok(builderStart !== -1, "builder function must exist");
-    const builderEnd = appJs.indexOf("\n}\n", builderStart);
-    const body = appJs.slice(builderStart, builderEnd);
-    assert.match(body, /companyAllowlist:\s*companyAllowlist\.length/);
-    assert.match(body, /companyBlocklist:\s*companyBlocklist\.length/);
+    assert.match(discoveryPayloadJs, /companyAllowlist:\s*allow/);
+    assert.match(discoveryPayloadJs, /companyBlocklist:\s*block/);
   });
 
   it("uses `undefined` so empty lists are dropped from the wire payload", () => {
-    const builderStart = appJs.indexOf("async function buildDiscoveryWebhookPayload(");
-    const builderEnd = appJs.indexOf("\n}\n", builderStart);
-    const body = appJs.slice(builderStart, builderEnd);
     assert.match(
-      body,
-      /companyAllowlist:\s*companyAllowlist\.length\s*\?\s*companyAllowlist\s*:\s*undefined/,
+      discoveryPayloadJs,
+      /\.\.\.\(allow\.length\s*\?\s*\{\s*companyAllowlist:\s*allow\s*\}\s*:\s*\{\}\)/,
     );
     assert.match(
-      body,
-      /companyBlocklist:\s*companyBlocklist\.length\s*\?\s*companyBlocklist\s*:\s*undefined/,
+      discoveryPayloadJs,
+      /\.\.\.\(block\.length\s*\?\s*\{\s*companyBlocklist:\s*block\s*\}\s*:\s*\{\}\)/,
     );
   });
 
   it("strips the duplicates from discoveryProfile so wire has exactly one source of truth", () => {
-    const builderStart = appJs.indexOf("async function buildDiscoveryWebhookPayload(");
-    const builderEnd = appJs.indexOf("\n}\n", builderStart);
-    const body = appJs.slice(builderStart, builderEnd);
-    assert.match(body, /delete stripped\.companyAllowlist/);
-    assert.match(body, /delete stripped\.companyBlocklist/);
+    assert.match(discoveryPayloadJs, /delete wireProfile\.companyAllowlist/);
+    assert.match(discoveryPayloadJs, /delete wireProfile\.companyBlocklist/);
   });
 
   it("simulated: sanitizer trims, dedupes (case-insensitive), and caps at 50", () => {

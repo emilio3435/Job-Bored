@@ -37,7 +37,7 @@ async function withDevServer(fn) {
  * inbound test requests through to the real fetch. We only intercept calls
  * to the two host:port pairs the discovery-state probes hit.
  */
-function installFetchMock({ workerUp, ngrokUp, ngrokUrl }) {
+function installFetchMock({ workerUp, workerBody, ngrokUp, ngrokUrl, ngrokAddr = "http://127.0.0.1:8644" }) {
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     const u = String(url);
@@ -45,7 +45,15 @@ function installFetchMock({ workerUp, ngrokUp, ngrokUrl }) {
       if (!workerUp) {
         throw new TypeError("connect ECONNREFUSED 127.0.0.1:8644");
       }
-      return new Response("ok", { status: 200 });
+      return new Response(
+        JSON.stringify(
+          workerBody || {
+            status: "ok",
+            service: "browser-use-discovery-worker",
+          },
+        ),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
     }
     if (u === "http://127.0.0.1:4040/api/tunnels") {
       if (!ngrokUp) {
@@ -53,7 +61,7 @@ function installFetchMock({ workerUp, ngrokUp, ngrokUrl }) {
       }
       const body = {
         tunnels: ngrokUrl
-          ? [{ public_url: ngrokUrl, proto: "https" }]
+          ? [{ public_url: ngrokUrl, proto: "https", config: { addr: ngrokAddr } }]
           : [],
       };
       return new Response(JSON.stringify(body), {
@@ -77,7 +85,7 @@ describe("GET /__proxy/discovery-state", () => {
     });
     try {
       await withDevServer(async (baseUrl) => {
-        const resp = await fetch(`${baseUrl}/__proxy/discovery-state`, {
+        const resp = await fetch(`${baseUrl}/__proxy/discovery-state?port=8644`, {
           headers: { Origin: "http://localhost:8080" },
         });
         assert.equal(resp.status, 200);
@@ -103,13 +111,38 @@ describe("GET /__proxy/discovery-state", () => {
     });
     try {
       await withDevServer(async (baseUrl) => {
-        const resp = await fetch(`${baseUrl}/__proxy/discovery-state`, {
+        const resp = await fetch(`${baseUrl}/__proxy/discovery-state?port=8644`, {
           headers: { Origin: "http://localhost:8080" },
         });
         const body = await resp.json();
         assert.equal(body.recommendation, "auto_recoverable");
         assert.equal(body.recoverableHint, "worker_down");
         assert.equal(body.worker.up, false);
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it("returns needs_human when port 8644 answers as the wrong service", async () => {
+    const restore = installFetchMock({
+      workerUp: true,
+      workerBody: { status: "ok", service: "some-other-service" },
+      ngrokUp: true,
+      ngrokUrl: "https://abc.ngrok.app",
+    });
+    try {
+      await withDevServer(async (baseUrl) => {
+        const resp = await fetch(`${baseUrl}/__proxy/discovery-state?port=8644`, {
+          headers: { Origin: "http://localhost:8080" },
+        });
+        const body = await resp.json();
+        assert.equal(resp.status, 200);
+        assert.equal(body.recommendation, "needs_human");
+        assert.equal(body.recoverableHint, "wrong_service");
+        assert.equal(body.worker.up, false);
+        assert.equal(body.worker.reason, "wrong_service");
+        assert.equal(body.worker.service, "some-other-service");
       });
     } finally {
       restore();
@@ -123,7 +156,7 @@ describe("GET /__proxy/discovery-state", () => {
     });
     try {
       await withDevServer(async (baseUrl) => {
-        const resp = await fetch(`${baseUrl}/__proxy/discovery-state`, {
+        const resp = await fetch(`${baseUrl}/__proxy/discovery-state?port=8644`, {
           headers: { Origin: "http://localhost:8080" },
         });
         const body = await resp.json();

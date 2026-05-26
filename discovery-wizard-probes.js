@@ -939,9 +939,14 @@
       blockingIssue = "relay_missing";
     }
 
+    const isHostedSavedEndpoint =
+      hasSavedExternalEndpoint && !isLocalDashboardOrigin();
     const isLocalSetup = sim
       ? sim.isLocalSetup
-      : hasLocalPathSignals || savedWebhookKind === SAVED_WEBHOOK_KIND_WORKER;
+      : !isHostedSavedEndpoint &&
+        (hasLocalPathSignals ||
+          (savedWebhookKind === SAVED_WEBHOOK_KIND_WORKER &&
+            isLocalDashboardOrigin()));
     const localRecoveryState = deriveLocalRecoveryState({
       isLocalSetup,
       localWebhookReady,

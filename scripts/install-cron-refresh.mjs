@@ -15,7 +15,8 @@ import { parseDotEnv, sanitizeSecret } from "./lib/env.mjs";
 import {
   envPath,
   formatClock,
-  refreshRequestBody,
+  normalizeSheetIdCandidate,
+  readWorkerConfigSheetId,
   renderTemplate,
   repoRoot,
   stateDir,
@@ -32,6 +33,11 @@ const servicePath = join(systemdUserDir, SERVICE_NAME);
 const timerPath = join(systemdUserDir, TIMER_NAME);
 const systemdTemplateDir = join(repoRoot, "templates", "systemd");
 const cronLogPath = join(stateDir, "cron-refresh.log");
+const scheduledDiscoveryScriptPath = join(
+  repoRoot,
+  "scripts",
+  "run-scheduled-discovery.mjs",
+);
 
 function fail(message, code = 1) {
   console.error(`${FAIL_PREFIX}: ${message}`);
@@ -52,6 +58,7 @@ Options:
   --hour N      Hour of day to fire (0-23, local time). Default: 8.
   --minute N    Minute of hour to fire (0-59). Default: 0.
   --port N      Worker port. Default: BROWSER_USE_DISCOVERY_PORT in .env or 8644.
+  --sheet-id ID Sheet ID to pin into the scheduled refresh request.
   --force       Overwrite an existing timer/crontab block.
   --help        Show this message.
 `);
@@ -63,6 +70,7 @@ export function parseArgs(argv) {
     hour: 8,
     minute: 0,
     port: null,
+    sheetId: "",
     force: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -73,9 +81,14 @@ export function parseArgs(argv) {
       continue;
     }
     const next = argv[i + 1];
-    if (arg === "--hour" || arg === "--minute" || arg === "--port") {
+    if (arg === "--hour" || arg === "--minute" || arg === "--port" || arg === "--sheet-id") {
       if (next === undefined || next.startsWith("--")) {
         fail(`missing value for ${arg}`);
+      }
+      if (arg === "--sheet-id") {
+        out.sheetId = String(next).trim();
+        i += 1;
+        continue;
       }
       const n = Number(next);
       if (!Number.isInteger(n)) fail(`${arg} must be an integer`);
@@ -114,10 +127,16 @@ function resolveEnv(args) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     fail(`resolved port is invalid: ${port}`);
   }
-  return { secret, port };
+  const sheetId =
+    normalizeSheetIdCandidate(args.sheetId) ||
+    normalizeSheetIdCandidate(env.BROWSER_USE_DISCOVERY_SHEET_ID) ||
+    normalizeSheetIdCandidate(env.JOBBORED_SHEET_ID) ||
+    normalizeSheetIdCandidate(env.SHEET_ID) ||
+    readWorkerConfigSheetId();
+  return { secret, port, sheetId };
 }
 
-export function renderSystemdFiles({ hour, minute, port, secret }) {
+export function renderSystemdFiles({ hour, minute, port, secret, sheetId }) {
   const serviceTemplate = readFileSync(
     join(systemdTemplateDir, SERVICE_NAME),
     "utf8",
@@ -125,9 +144,11 @@ export function renderSystemdFiles({ hour, minute, port, secret }) {
   const timerTemplate = readFileSync(join(systemdTemplateDir, TIMER_NAME), "utf8");
   return {
     service: renderTemplate(serviceTemplate, {
-      SECRET: secret,
+      NODE_PATH: process.execPath,
+      SCRIPT_PATH: scheduledDiscoveryScriptPath,
       PORT: port,
       REPO_ROOT: repoRoot,
+      SHEET_ID: sheetId,
     }),
     timer: renderTemplate(timerTemplate, {
       HOUR: String(hour).padStart(2, "0"),
@@ -155,6 +176,7 @@ function installSystemd(args, env) {
     minute: args.minute,
     port: env.port,
     secret: env.secret,
+    sheetId: env.sheetId,
   });
   writeFileSync(servicePath, rendered.service, { encoding: "utf8", mode: 0o600 });
   writeFileSync(timerPath, rendered.timer, { encoding: "utf8", mode: 0o600 });
@@ -180,6 +202,7 @@ function installSystemd(args, env) {
     hour: args.hour,
     minute: args.minute,
     port: env.port,
+    sheetId: env.sheetId,
   });
   printSuccess("systemd timer", timerPath, args, env.port);
 }
@@ -188,22 +211,16 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
-export function renderCronBlock({ hour, minute, port, secret }) {
-  const workerUrl = `http://127.0.0.1:${port}/discovery-profile`;
+export function renderCronBlock({ hour, minute, port, secret, sheetId }) {
   const command = [
-    "/usr/bin/curl",
-    "-sS",
-    "--max-time",
-    "600",
-    "-X",
-    "POST",
-    "-H",
-    shellQuote("content-type: application/json"),
-    "-H",
-    shellQuote(`x-discovery-secret: ${secret}`),
-    "-d",
-    shellQuote(refreshRequestBody),
-    shellQuote(workerUrl),
+    shellQuote(process.execPath),
+    shellQuote(scheduledDiscoveryScriptPath),
+    "--trigger",
+    "scheduled-local",
+    "--port",
+    String(port),
+    "--sheet-id",
+    shellQuote(sheetId),
     ">>",
     shellQuote(cronLogPath),
     "2>&1",
@@ -233,6 +250,7 @@ function installCron(args, env) {
     minute: args.minute,
     port: env.port,
     secret: env.secret,
+    sheetId: env.sheetId,
   });
   const next = `${cleaned ? `${cleaned}\n\n` : ""}${block}\n`;
   const write = spawnSync("crontab", ["-"], {
@@ -249,6 +267,7 @@ function installCron(args, env) {
     hour: args.hour,
     minute: args.minute,
     port: env.port,
+    sheetId: env.sheetId,
   });
   printSuccess("crontab fallback", "crontab:JobBoredRefresh", args, env.port);
 }
@@ -258,7 +277,7 @@ function printSuccess(kind, artifactPath, args, port) {
   console.log(`  Artifact:   ${artifactPath}`);
   console.log(`  Kind:       ${kind}`);
   console.log(`  Fires at:   ${formatClock(args.hour, args.minute)} local`);
-  console.log(`  Worker URL: http://127.0.0.1:${port}/discovery-profile`);
+  console.log(`  Worker URL: http://127.0.0.1:${port}/webhook`);
   console.log("");
   console.log(
     "Reminder: the local worker (npm run discovery:worker:start-local) must be running when the scheduler fires.",

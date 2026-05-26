@@ -233,6 +233,74 @@ test("POST /discovery-profile mode:schedule-status returns installed:false when 
   }
 });
 
+test("POST /discovery-profile mode:refresh resolves sheetId from worker-config when scheduler omits it", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jobbored-refresh-sheet-"));
+  const configPath = join(dir, "worker-config.json");
+  let loadedSheetId = "";
+  let persistedSheetId = "";
+  try {
+    await writeFile(
+      configPath,
+      JSON.stringify({ sheetId: "sheet_from_config" }),
+      "utf8",
+    );
+
+    const response = await handleDiscoveryProfileWebhook(
+      {
+        method: "POST",
+        headers: { "x-discovery-secret": "secret-xyz" },
+        bodyText: requestBody({
+          mode: "refresh",
+        }),
+      },
+      {
+        runtimeConfig: makeRuntimeConfig({ workerConfigPath: configPath }),
+        loadStoredWorkerConfig: async (sheetId) => {
+          loadedSheetId = sheetId;
+          return makeStoredConfig({
+            sheetId,
+            candidateProfile: {
+              resumeText: "Growth operator with AI automation experience.",
+              form: { targetRoles: "Growth Operations" },
+              updatedAt: "2026-05-20T12:00:00.000Z",
+            },
+          });
+        },
+        upsertStoredWorkerConfig: async (_runtimeConfig, input) => {
+          persistedSheetId = input.sheetId;
+          return makeStoredConfig({
+            sheetId: input.sheetId,
+            companies: input.mutations.companies || [],
+            lastRefreshAt: input.mutations.lastRefreshAt,
+          });
+        },
+        extractCandidateProfile: async () => ({
+          targetRoles: ["Growth Operations"],
+          skills: ["AI automation"],
+          seniority: "",
+          locations: [],
+          industries: ["SaaS"],
+        }),
+        discoverCompaniesForProfile: async () => [
+          {
+            name: "Acme AI",
+            companyKey: "acme-ai",
+            normalizedName: "acme-ai",
+          },
+        ],
+      },
+    );
+
+    assert.equal(response.status, 200);
+    const body = JSON.parse(response.body);
+    assert.equal(body.ok, true);
+    assert.equal(loadedSheetId, "sheet_from_config");
+    assert.equal(persistedSheetId, "sheet_from_config");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("POST /discovery-profile mode:schedule-status returns installed:true when breadcrumb is present", async () => {
   const dir = await mkdtemp(join(tmpdir(), "jobbored-schedule-"));
   const breadcrumbPath = join(dir, "schedule-installed.json");

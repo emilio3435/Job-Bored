@@ -642,6 +642,51 @@ test("SheetWriteError is thrown with append phase on append failure (VAL-DATA-00
   assert.ok(error instanceof SheetWriteError);
 });
 
+test("createPipelineWriter preserves update counts when append fails", async () => {
+  const existingRow = row([
+    "2026-04-01",
+    "Backend Engineer",
+    "Acme",
+    "Remote",
+    "https://jobs.example.com/backend-engineer",
+    "Greenhouse",
+  ]);
+  const { fetchImpl } = createMockFetch({
+    headerRows: [PIPELINE_HEADER_ROW],
+    dataRows: [existingRow],
+    responses: [
+      responseJson({ updatedRows: 1 }),
+      responseJson({ error: "append denied" }, 403),
+    ],
+  });
+  const writer = createPipelineWriter(runtimeConfig, {
+    fetchImpl,
+    now: () => new Date("2026-04-09T12:00:00.000Z"),
+  });
+
+  await assert.rejects(
+    writer.write("sheet_123", [
+      makeLead({
+        url: "https://jobs.example.com/backend-engineer",
+      }),
+      makeLead({
+        title: "Data Engineer",
+        company: "Beta",
+        url: "https://jobs.example.com/data-engineer",
+      }),
+    ]),
+    (error) => {
+      assert.ok(error instanceof SheetWriteError);
+      assert.equal(error.phase, "append");
+      assert.equal(error.partialResult?.updated, 1);
+      assert.equal(error.partialResult?.appended, 0);
+      assert.equal(error.partialResult?.skippedDuplicates, 0);
+      assert.equal(error.partialResult?.skippedBlacklist, 0);
+      return true;
+    },
+  );
+});
+
 test("SheetWriteError preserves canonical link and source attribution (VAL-DATA-002)", async () => {
   // Test that SheetWriteError includes sheetId for attribution
   const { fetchImpl, calls } = createMockFetch({

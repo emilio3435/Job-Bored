@@ -15,7 +15,7 @@ The Google Sheet is the source of truth for pipeline data. The dashboard reads o
 
 ## Common commands
 
-Use Node 20, matching CI.
+Use Node 24 with npm 11, matching CI and the repo version files.
 
 Install dependencies:
 
@@ -115,3 +115,16 @@ Important repository guidance is currently in:
 - `.factory/library/architecture.md` and `.factory/library/contracts.md` — current discovery-loop architecture and contract notes.
 
 No root `WARP.md`, prior root `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.cursor/rules`, or `.github/copilot-instructions.md` guidance was present when this file was created.
+
+<!-- directional-prompting:start -->
+## Directional Prompting
+Goal: Keep repo-local agent instructions aligned with the shared directional-prompting system.
+
+Success means:
+- Use the repo-local `directional-prompting` skill symlink when writing prompts, sub-agent directives, orchestration prompts, slash commands, eval rubrics, tool descriptions, or agent rules.
+- Open non-trivial prompt drafts with `Goal:`, `Success means:`, and `Stop when:`.
+- Phrase body instructions as positive actions and keep unavoidable negation scoped to safety, disambiguation, out-of-scope boundaries, or exact banned items.
+- Leave the canonical skill body in the shared source and reference it by path instead of copying it into this file.
+
+Stop when: The updated instruction points agents at the shared skill and the prompt draft has checkable completion criteria.
+<!-- directional-prompting:end -->

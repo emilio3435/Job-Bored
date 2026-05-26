@@ -173,7 +173,17 @@ test("getKeepAliveStatus reports installed and not-installed states", () => {
   }
 });
 
-test("runKeepAliveCheck redeploys through wrangler when ngrok URL changes", async () => {
+function discoveryWorkerHealthResponse() {
+  return new Response(
+    JSON.stringify({
+      status: "ok",
+      service: "browser-use-discovery-worker",
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
+
+test("runKeepAliveCheck updates TARGET_URL secret when ngrok URL changes", async () => {
   const homeDir = tempHome();
   const workDir = mkdtempSync(join(tmpdir(), "jobbored-bootstrap-test-"));
   try {
@@ -182,23 +192,31 @@ test("runKeepAliveCheck redeploys through wrangler when ngrok URL changes", asyn
       bootstrapStatePath,
       JSON.stringify({
         localPort: 8644,
+        localWebhookUrl: "http://127.0.0.1:8644/webhook",
         workerName: "jobbored-discovery-relay-local",
       }),
       "utf8",
     );
     const recorder = spawnRecorder();
-    const fetchImpl = async () =>
-      new Response(
-        JSON.stringify({
-          tunnels: [
-            {
-              public_url: "https://abc.ngrok-free.app",
-              config: { addr: "http://127.0.0.1:8644" },
-            },
-          ],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
+    const fetchImpl = async (url) => {
+      if (String(url) === "http://127.0.0.1:4040/api/tunnels") {
+        return new Response(
+          JSON.stringify({
+            tunnels: [
+              {
+                public_url: "https://abc.ngrok-free.app",
+                config: { addr: "http://127.0.0.1:8644" },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (String(url) === "https://abc.ngrok-free.app/health") {
+        return discoveryWorkerHealthResponse();
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
 
     const result = await runKeepAliveCheck({
       homeDir,
@@ -210,23 +228,26 @@ test("runKeepAliveCheck redeploys through wrangler when ngrok URL changes", asyn
 
     assert.equal(result.ok, true);
     assert.equal(result.redeployed, true);
+    assert.equal(result.targetSecretUpdated, true);
     assert.deepEqual(recorder.calls.map((call) => [call.command, call.args]), [
       [
         "wrangler",
         [
-          "deploy",
+          "secret",
+          "put",
+          "TARGET_URL",
           "--name",
           "jobbored-discovery-relay-local",
-          "--var",
-          "DISCOVERY_TARGET:https://abc.ngrok-free.app",
         ],
       ],
     ]);
+    assert.equal(recorder.calls[0].options.input, "https://abc.ngrok-free.app/webhook\n");
 
     const state = JSON.parse(
       readFileSync(getKeepAlivePaths({ homeDir }).statePath, "utf8"),
     );
     assert.equal(state.lastNgrokUrl, "https://abc.ngrok-free.app");
+    assert.equal(state.lastTargetUrl, "https://abc.ngrok-free.app/webhook");
     assert.equal(state.lastRedeployAt, "2026-05-06T12:02:00.000Z");
 
     const second = await runKeepAliveCheck({
@@ -238,6 +259,111 @@ test("runKeepAliveCheck redeploys through wrangler when ngrok URL changes", asyn
     });
     assert.equal(second.redeployed, false);
     assert.equal(recorder.calls.length, 1);
+  } finally {
+    cleanup(homeDir);
+    cleanup(workDir);
+  }
+});
+
+test("runKeepAliveCheck selects the ngrok tunnel matching the worker port", async () => {
+  const homeDir = tempHome();
+  const workDir = mkdtempSync(join(tmpdir(), "jobbored-bootstrap-test-"));
+  try {
+    const bootstrapStatePath = join(workDir, "discovery-local-bootstrap.json");
+    writeFileSync(
+      bootstrapStatePath,
+      JSON.stringify({
+        localPort: 8644,
+        localWebhookUrl: "http://127.0.0.1:8644/webhook",
+        workerName: "jobbored-discovery-relay-local",
+      }),
+      "utf8",
+    );
+    const recorder = spawnRecorder();
+    const fetchImpl = async (url) => {
+      if (String(url) === "http://127.0.0.1:4040/api/tunnels") {
+        return new Response(
+          JSON.stringify({
+            tunnels: [
+              {
+                public_url: "https://wrong.ngrok-free.app",
+                config: { addr: "http://127.0.0.1:3000" },
+              },
+              {
+                public_url: "https://right.ngrok-free.app",
+                config: { addr: "http://127.0.0.1:8644" },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (String(url) === "https://right.ngrok-free.app/health") {
+        return discoveryWorkerHealthResponse();
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const result = await runKeepAliveCheck({
+      homeDir,
+      bootstrapStatePath,
+      fetchImpl,
+      spawnSyncImpl: recorder.spawnSyncImpl,
+      nowIso: "2026-05-06T12:04:00.000Z",
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.lastNgrokUrl, "https://right.ngrok-free.app");
+    assert.equal(recorder.calls[0].options.input, "https://right.ngrok-free.app/webhook\n");
+  } finally {
+    cleanup(homeDir);
+    cleanup(workDir);
+  }
+});
+
+test("runKeepAliveCheck does not use a non-matching ngrok tunnel", async () => {
+  const homeDir = tempHome();
+  const workDir = mkdtempSync(join(tmpdir(), "jobbored-bootstrap-test-"));
+  try {
+    const bootstrapStatePath = join(workDir, "discovery-local-bootstrap.json");
+    writeFileSync(
+      bootstrapStatePath,
+      JSON.stringify({
+        localPort: 8644,
+        localWebhookUrl: "http://127.0.0.1:8644/webhook",
+        workerName: "jobbored-discovery-relay-local",
+      }),
+      "utf8",
+    );
+    const recorder = spawnRecorder();
+    const fetchImpl = async (url) => {
+      if (String(url) === "http://127.0.0.1:4040/api/tunnels") {
+        return new Response(
+          JSON.stringify({
+            tunnels: [
+              {
+                public_url: "https://wrong.ngrok-free.app",
+                config: { addr: "http://127.0.0.1:3000" },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const result = await runKeepAliveCheck({
+      homeDir,
+      bootstrapStatePath,
+      fetchImpl,
+      spawnSyncImpl: recorder.spawnSyncImpl,
+      nowIso: "2026-05-06T12:05:00.000Z",
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "no_matching_tunnel");
+    assert.equal(recorder.calls.length, 0);
   } finally {
     cleanup(homeDir);
     cleanup(workDir);

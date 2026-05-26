@@ -203,6 +203,36 @@
     return normalizePipelineFilters(state);
   }
 
+  function togglePipelineFavorite(dataIndex) {
+    if (
+      window.JobBored &&
+      typeof window.JobBored.toggleFavorite === "function"
+    ) {
+      return window.JobBored.toggleFavorite(dataIndex);
+    }
+    if (typeof window.toggleFavorite === "function") {
+      return window.toggleFavorite(dataIndex);
+    }
+    return null;
+  }
+
+  function setCardFavoriteState(dataIndex, favorite) {
+    var sel = '[data-region="lattice"] .jb-lat__card[data-index="' + dataIndex + '"]';
+    var card = document.querySelector(sel);
+    if (!card) return;
+    card.classList.toggle("jb-lat__card--favorite", !!favorite);
+    var btn = card.querySelector(".jb-lat__fav");
+    if (!btn) return;
+    btn.setAttribute("aria-pressed", favorite ? "true" : "false");
+    btn.setAttribute("aria-label", favorite ? "Unfavorite" : "Favorite");
+    btn.setAttribute("title", favorite ? "Unfavorite" : "Favorite");
+    btn.textContent = favorite ? "★" : "☆";
+  }
+
+  function isInteractiveTarget(target) {
+    return !!(target && target.closest && target.closest("button, a, input, select, textarea"));
+  }
+
   function getRoot() {
     return document.querySelector('[data-region="lattice"]');
   }
@@ -215,6 +245,7 @@
     favoritesOnly: false,
     showDismissed: false,
     selectedKey: null,
+    focusStage: "",
     drag: null, // { dataIndex, fromStage }
   };
 
@@ -229,21 +260,127 @@
     );
   }
 
+  // Feature flag — rich lattice card. Default ON.
+  // Disable per-browser:
+  //   localStorage.setItem('jb_latticeRichCard', '0'); location.reload();
+  // Re-enable:
+  //   localStorage.removeItem('jb_latticeRichCard'); location.reload();
+  function isLatticeRichCardEnabled() {
+    try {
+      return localStorage.getItem("jb_latticeRichCard") !== "0";
+    } catch (_e) {
+      return true;
+    }
+  }
+
+  // Map a stage key to the lowercase css token (matches lattice.css rules:
+  //   .jb-lat__card--stage-phone-screen, etc.). Mirrors stageToCssKey in
+  //   app.js so the visual stage rail stays in sync with legacy CSS.
+  function stageCssKey(stage) {
+    return String(stage || "")
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "");
+  }
+
+  // Detect a seniority/role-family chip from the title. Returns a short
+  // label or "" if nothing obvious. We bias toward the first hit so a
+  // title like "Senior Staff Engineer" lights up "Senior". Cheap, no LLM.
+  var SENIORITY_PATTERNS = [
+    { re: /\bprincipal\b/i,  label: "Principal" },
+    { re: /\bstaff\b/i,      label: "Staff" },
+    { re: /\bsenior\b|\bsr\.?\b/i, label: "Senior" },
+    { re: /\blead\b/i,       label: "Lead" },
+    { re: /\bhead of\b/i,    label: "Head of" },
+    { re: /\bdirector\b/i,   label: "Director" },
+    { re: /\bvp\b|\bvice president\b/i, label: "VP" },
+    { re: /\bmanager\b|\bmgr\b/i, label: "Manager" },
+    { re: /\bjunior\b|\bjr\.?\b|\bentry[- ]level\b/i, label: "Junior" },
+    { re: /\bintern\b/i,     label: "Intern" },
+  ];
+  function detectSeniority(title) {
+    var t = String(title || "");
+    if (!t) return "";
+    for (var i = 0; i < SENIORITY_PATTERNS.length; i++) {
+      if (SENIORITY_PATTERNS[i].re.test(t)) return SENIORITY_PATTERNS[i].label;
+    }
+    return "";
+  }
+
+  // Pretty source label: prefer explicit job.source ("Greenhouse"); fall
+  // back to the URL host stripped of "www." and TLDs that aren't useful.
+  // Always works when there's any job link; degrades to "" otherwise.
+  function deriveSource(job) {
+    var explicit = String((job && job.source) || "").trim();
+    if (explicit) return explicit;
+    var url = String((job && job.link) || "").trim();
+    if (!url) return "";
+    try {
+      var host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+      // Collapse known ATS hosts to their brand
+      if (/greenhouse\.io$/.test(host))  return "Greenhouse";
+      if (/lever\.co$/.test(host))       return "Lever";
+      if (/ashbyhq\.com$/.test(host))    return "Ashby";
+      if (/workable\.com$/.test(host))   return "Workable";
+      if (/myworkdayjobs\.com$/.test(host) || /workday\.com$/.test(host)) return "Workday";
+      if (/icims\.com$/.test(host))      return "iCIMS";
+      if (/smartrecruiters\.com$/.test(host)) return "SmartRecruiters";
+      if (/linkedin\.com$/.test(host))   return "LinkedIn";
+      if (/indeed\.com$/.test(host))     return "Indeed";
+      // Otherwise show second-level domain (e.g. "stripe.com" → "stripe")
+      var parts = host.split(".");
+      if (parts.length >= 2) return parts[parts.length - 2];
+      return host;
+    } catch (_e) {
+      return "";
+    }
+  }
+
   function buildCard(job, dataIndex) {
     var stableKey = dataIndex;
     var pct = fitPercent(job);
+    var selected = state.selectedKey === dataIndex;
+    var favorite = !!job.favorite;
+    var rich = isLatticeRichCardEnabled();
+    var enr = (job && job._postingEnrichment) || null;
+    var stageRaw = normalizeStage(job.status);   // "Phone Screen"
+    var stageKey = stageCssKey(stageRaw);        // "phone-screen"
+
+    // ── Adaptive fields (each shown only when data is present) ──────────
+    var hookText = "";
+    if (rich && enr && enr.roleInOneLine) {
+      var h = String(enr.roleInOneLine).trim();
+      if (h) hookText = h.length > 140 ? h.slice(0, 137) + "…" : h;
+    }
+    var empType = rich && enr && enr.employmentType
+      ? String(enr.employmentType).trim() : "";
+    var sourceLabel = rich ? deriveSource(job) : "";
+    var seniority = rich ? detectSeniority(job.title) : "";
+
+    var mustHaves = [];
+    if (rich && enr && Array.isArray(enr.mustHaves)) {
+      for (var mi = 0; mi < enr.mustHaves.length && mustHaves.length < 3; mi++) {
+        var mh = String(enr.mustHaves[mi] || "").trim();
+        if (mh) mustHaves.push(mh.length > 22 ? mh.slice(0, 20) + "…" : mh);
+      }
+    }
     var card = el(
       "article",
       {
-        class: "jb-sticker jb-lat__card",
+        class: "jb-sticker jb-lat__card"
+          + (favorite ? " jb-lat__card--favorite" : "")
+          + (rich ? " jb-lat__card--rich" : "")
+          + (rich ? " jb-lat__card--stage-" + stageKey : ""),
         role: "button",
         tabindex: "0",
         draggable: "true",
         "aria-roledescription": "Draggable card",
+        "aria-current": selected ? "true" : null,
         "data-action": "open-detail",
         "data-stable-key": String(stableKey),
         "data-index": String(dataIndex),
         "data-stage": normalizeStage(job.status),
+        "data-selected": selected ? "true" : "false",
         "aria-grabbed": "false",
       },
       [
@@ -253,14 +390,70 @@
             el("h4", { class: "jb-lat__title", text: safeText(job.title) || "(untitled role)" }),
             el("span", { class: "jb-lat__company", text: safeText(job.company) }),
           ]),
+          el("button", {
+            type: "button",
+            class: "jb-lat__fav",
+            title: favorite ? "Unfavorite" : "Favorite",
+            "aria-label": favorite ? "Unfavorite" : "Favorite",
+            "aria-pressed": favorite ? "true" : "false",
+            draggable: "false",
+            onclick: function (e) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+              var nextFavorite = !favorite;
+              setCardFavoriteState(dataIndex, nextFavorite);
+              var result = togglePipelineFavorite(dataIndex);
+              if (result && typeof result.then === "function") {
+                result.then(function (ok) {
+                  if (ok === false) setCardFavoriteState(dataIndex, !nextFavorite);
+                }).catch(function () {
+                  setCardFavoriteState(dataIndex, !nextFavorite);
+                });
+              }
+            },
+            onpointerdown: function (e) {
+              e.stopPropagation();
+            },
+          }, favorite ? "★" : "☆"),
           pct != null
             ? el("jb-fit-ring", { percent: String(pct), size: "sm", label: "Fit " + pct + "%" })
             : null,
         ]),
+        // Identity strip — always present. Stage chip + seniority give
+        // every card scannable color/structure even when enrichment is
+        // empty, which is the common case on a fresh sheet.
+        rich
+          ? el("div", { class: "jb-lat__strip", "aria-label": "Role classification" }, [
+              el("span", {
+                class: "jb-lat__stage-chip jb-lat__stage-chip--" + stageKey,
+                text: stageRaw,
+              }),
+              seniority
+                ? el("span", { class: "jb-lat__seniority", text: seniority })
+                : null,
+              sourceLabel
+                ? el("span", { class: "jb-lat__source", text: sourceLabel })
+                : null,
+            ])
+          : null,
+        hookText
+          ? el("p", { class: "jb-lat__hook", text: hookText })
+          : null,
         el("div", { class: "jb-lat__meta" }, [
           job.location ? el("span", { class: "jb-lat__loc", text: safeText(job.location) }) : null,
           job.salary ? el("span", { class: "jb-lat__comp", text: safeText(job.salary) }) : null,
+          empType ? el("span", { class: "jb-lat__tag jb-lat__tag--employment", text: empType }) : null,
         ]),
+        // Must-haves on their own row so they aren't silently truncated by
+        // the chips container's max-height. Only renders when present.
+        rich && mustHaves.length
+          ? el("div", { class: "jb-lat__musts", "aria-label": "Must-have requirements" },
+              mustHaves.map(function (m) {
+                return el("span", { class: "jb-lat__must", text: m });
+              })
+            )
+          : null,
         el("div", { class: "jb-lat__foot" }, [
           el(
             "div",
@@ -271,6 +464,9 @@
           ),
           el("span", { class: "jb-lat__age", text: ageString(lastTouched(job)) }),
         ]),
+        selected && job.notes
+          ? el("p", { class: "jb-lat__detail", text: safeText(job.notes).slice(0, 180) })
+          : null,
       ]
     );
 
@@ -280,6 +476,8 @@
 
   function buildColumn(stage, jobs) {
     var dotKey = STAGE_DOT_KEY[stage] || "new";
+    var focused = state.focusStage === stage;
+    var collapsed = !!state.focusStage && !focused;
     var head = el("div", { class: "jb-lat__col-head" }, [
       el("jb-stage-dot", { stage: dotKey, label: stage }),
       // jb-stage-dot already renders the stage label; keep our flexible name slot empty so dot wins.
@@ -303,8 +501,10 @@
     }
 
     var col = el("section", {
-      class: "jb-lat__col",
+      class: "jb-lat__col" + (focused ? " jb-lat__col--focused" : "") + (collapsed ? " jb-lat__col--collapsed" : ""),
       "data-stage": stage,
+      "data-focused": focused ? "true" : "false",
+      "data-collapsed": collapsed ? "true" : "false",
       "aria-label": stage + " column",
     }, [head, list]);
 
@@ -342,7 +542,11 @@
       return true;
     });
 
-    var board = el("div", { class: "jb-lat__board", role: "list" });
+    var board = el("div", {
+      class: "jb-lat__board",
+      role: "list",
+      "data-focus-stage": state.focusStage || null,
+    });
     for (var v = 0; v < visibleStages.length; v++) {
       board.appendChild(buildColumn(visibleStages[v], byStage[visibleStages[v]]));
     }
@@ -511,14 +715,14 @@
   function wireCardEvents(card) {
     card.addEventListener("click", function (e) {
       // Prevent native focus behavior interfering with drag pickup
+      if (isInteractiveTarget(e.target)) return;
       if (state.drag) return;
       var key = parseInt(card.getAttribute("data-stable-key"), 10);
-      if (!isNaN(key) && typeof window.openJobDetail === "function") {
-        window.openJobDetail(key);
-      }
+      if (!isNaN(key)) openCard(key, card.getAttribute("data-stage"));
     });
 
     card.addEventListener("keydown", function (e) {
+      if (isInteractiveTarget(e.target)) return;
       var key = parseInt(card.getAttribute("data-stable-key"), 10);
       var idx = parseInt(card.getAttribute("data-index"), 10);
       var stage = card.getAttribute("data-stage");
@@ -527,9 +731,7 @@
       if (e.key === "Enter" || e.key === " ") {
         if (meta) return;
         e.preventDefault();
-        if (!isNaN(key) && typeof window.openJobDetail === "function") {
-          window.openJobDetail(key);
-        }
+        if (!isNaN(key)) openCard(key, stage);
         return;
       }
 
@@ -548,6 +750,10 @@
     });
 
     card.addEventListener("dragstart", function (e) {
+      if (isInteractiveTarget(e.target)) {
+        e.preventDefault();
+        return;
+      }
       var idx = parseInt(card.getAttribute("data-index"), 10);
       var fromStage = card.getAttribute("data-stage");
       if (isNaN(idx)) return;
@@ -573,6 +779,16 @@
   function cardTitle(card) {
     var t = card.querySelector(".jb-lat__title");
     return t ? t.textContent.trim() : "";
+  }
+
+  function openCard(dataIndex, stage) {
+    state.selectedKey = dataIndex;
+    state.focusStage = normalizeStage(stage);
+    render();
+    refocus(dataIndex);
+    if (typeof window.openJobDetail === "function") {
+      window.openJobDetail(dataIndex);
+    }
   }
 
   function reorderWithinColumn(card, dir) {

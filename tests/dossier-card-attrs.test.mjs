@@ -1,3 +1,14 @@
+/* ============================================================
+   dossier-card-attrs.test.mjs
+   ------------------------------------------------------------
+   Post-refactor (2026-05-20) IA contract: the Dossier renders
+   only the editorial Brief. The standalone Workshop block has
+   been removed; stage controls, ATS scorecard, hero CTAs, and
+   progress chips live in the renamed PART 04 Workshop region
+   (data-region="letter"). This test pins what the role region
+   must (and must not) contain.
+   ============================================================ */
+
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -54,11 +65,6 @@ function makeClassList(initial) {
 function makeMount(classes) {
   const listeners = new Map();
   const attributes = {};
-  const atsContainer = {
-    _innerHTML: "",
-    get innerHTML() { return this._innerHTML; },
-    set innerHTML(v) { this._innerHTML = String(v == null ? "" : v); },
-  };
   const mount = {
     classList: makeClassList(classes),
     addEventListener(type, handler) {
@@ -75,12 +81,8 @@ function makeMount(classes) {
     _innerHTML: "",
     get innerHTML() { return this._innerHTML; },
     set innerHTML(v) { this._innerHTML = String(v == null ? "" : v); },
-    querySelector(selector) {
-      if (selector === "[data-ats-container]") return atsContainer;
-      return null;
-    },
+    querySelector() { return null; },
     _listeners: listeners,
-    _atsContainer: atsContainer,
   };
   return mount;
 }
@@ -248,7 +250,7 @@ function assembleHtml(region) {
 }
 
 describe("dossier card attrs", () => {
-  it("rendering the dossier emits all required Direction F selectors", () => {
+  it("the dossier renders the brief with masthead + notes + full CTA cluster (View / Cover / Tailor)", () => {
     const roleVm = fixtureVm();
     const { context, region } = loadAllThree({ vm: roleVm });
 
@@ -256,25 +258,53 @@ describe("dossier card attrs", () => {
 
     const html = assembleHtml(region);
 
-    // Action selectors
+    /* Dossier-owned actions: close-role lives on the divider; notes
+       are the marginalia textarea inside the brief. */
     assert.match(html, /data-action="close-role"/, "close-role action selector missing");
     assert.match(html, /data-action="notes"/, "notes action selector missing");
-    assert.match(html, /data-action="resume-tailor"/, "resume-tailor action selector missing");
-    assert.match(html, /data-action="resume-cover"/, "resume-cover action selector missing");
 
-    // Brief class selectors
+    /* Brief class selectors */
     assert.match(html, /class="brief__masthead"/, "brief__masthead missing");
     assert.match(html, /class="brief__col brief__col--main[^"]*"/, "brief__col--main missing");
     assert.match(html, /class="brief__col brief__col--side[^"]*"/, "brief__col--side missing");
 
-    // Workshop class selectors
-    assert.match(html, /class="workshop__bar"/, "workshop__bar missing");
-    assert.match(html, /class="stepper"/, "stepper missing");
-    assert.match(html, /class="ats-card[^"]*"/, "ats-card missing");
-    assert.match(html, /class="writeback"/, "writeback missing");
+    /* The Dossier hero owns the canonical action cluster: View posting,
+       Draft cover letter, Tailor resume. The Workshop is the doing
+       surface and does NOT duplicate these entry points. */
+    assert.match(html, /class="brief__cta-cluster"/, "brief__cta-cluster missing");
+    assert.match(html, /class="brief__cta brief__cta--view"/, "View posting CTA missing");
+    assert.match(html, /data-action="brief-view-posting"/, "brief-view-posting data-action missing");
+    assert.match(html, /class="brief__cta brief__cta--cover"/, "Cover-letter CTA missing");
+    assert.match(html, /data-action="resume-cover"/, "resume-cover CTA missing");
+    assert.match(html, /class="brief__cta brief__cta--tailor"/, "Tailor-resume CTA missing");
+    assert.match(html, /data-action="resume-tailor"/, "resume-tailor CTA missing");
+    assert.match(html, /href="https:\/\/example\.com\/jobs\/42"/, "posting href missing");
+    assert.match(html, /target="_blank"/, "external target missing");
   });
 
-  it("brief mount renders the brief card and workshop mount renders the workshop card", () => {
+  it("standalone workshop selectors are NOT rendered into the dossier region", () => {
+    const roleVm = fixtureVm();
+    const { context, region } = loadAllThree({ vm: roleVm });
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    const html = assembleHtml(region);
+
+    /* The standalone workshop block has been removed. None of these
+       Workshop-specific selectors may appear inside the dossier
+       region — they live in the renamed Workshop (data-region="letter")
+       instead. The CTAs themselves (resume-cover / resume-tailor) ARE
+       in the Dossier masthead as the canonical entry points; the
+       assertion target here is the Workshop's *editor and stepper UI*,
+       not the entry-point CTAs. */
+    assert.doesNotMatch(html, /class="workshop"/, "workshop block must not be in dossier");
+    assert.doesNotMatch(html, /class="workshop__bar"/, "workshop__bar must not be in dossier");
+    assert.doesNotMatch(html, /class="mode-divider"/, "mode-divider must not be in dossier");
+    assert.doesNotMatch(html, /class="stepper"/, "stage stepper must not be in dossier");
+    assert.doesNotMatch(html, /class="writeback"/, "progress chips must not be in dossier");
+    assert.doesNotMatch(html, /class="ats-card[^"]*"/, "ats-card must not be in dossier");
+  });
+
+  it("the brief mount is the only dossier mount; the workshop mount is gone", () => {
     const roleVm = fixtureVm();
     const { context, region } = loadAllThree({ vm: roleVm });
     context.window.JobBoredFlowing.role.renderForKey("linear-1");
@@ -282,19 +312,13 @@ describe("dossier card attrs", () => {
     const briefMount = region._mounts.get("brief");
     const workshopMount = region._mounts.get("workshop");
     assert.ok(briefMount, "expected a brief mount");
-    assert.ok(workshopMount, "expected a workshop mount");
+    assert.equal(workshopMount, undefined, "expected NO workshop mount in dossier");
 
     assert.match(briefMount.innerHTML, /class="brief__masthead"/);
     assert.match(briefMount.innerHTML, /class="brief__col brief__col--main[^"]*"/);
     assert.match(briefMount.innerHTML, /class="brief__col brief__col--side[^"]*"/);
     assert.match(briefMount.innerHTML, /data-action="notes"/);
-
-    assert.match(workshopMount.innerHTML, /class="workshop__bar"/);
-    assert.match(workshopMount.innerHTML, /class="stepper"/);
-    assert.match(workshopMount.innerHTML, /class="ats-card/);
-    assert.match(workshopMount.innerHTML, /class="writeback"/);
-    assert.match(workshopMount.innerHTML, /data-action="resume-tailor"/);
-    assert.match(workshopMount.innerHTML, /data-action="resume-cover"/);
+    assert.match(briefMount.innerHTML, /class="brief__cta-cluster"/);
   });
 
   it("renderForKey on an unknown key falls back to the empty shelf, not the dossier", () => {

@@ -58,6 +58,41 @@ Screen, Interviewing, Offer, Rejected, Passed, and already Expired rows are
 protected. HTTP 403, captchas, timeouts, network failures, and ambiguous pages
 are reported as needs-review.
 
+Install the separate daily scheduler from the repo root:
+
+```bash
+npm run cleanup:expired-jobs:schedule:install -- --sheet-id "$SHEET_ID"
+```
+
+The default fire time is the installed discovery refresh time plus 45 minutes
+(e.g. discovery at 08:15 → cleanup at 09:00). Pass `--hour` and `--minute` to
+override. The scheduled runner is wrapped with a 45-minute total-timeout that
+matches this post-discovery window. Scheduled cleanup defaults to dry-run and
+writes its report to `state/expired-cleanup-schedule.log`. Add `--write` only
+after reviewing dry-run accuracy. The scheduler uses distinct artifacts from
+discovery refresh, such as the macOS label `com.jobbored.expired-cleanup`.
+
+Operational commands:
+
+```bash
+# Inspect installed schedule + breadcrumb
+npm run cleanup:expired-jobs:schedule:status
+
+# Tail the most recent run log
+tail -f integrations/browser-use-discovery/state/expired-cleanup-schedule.log
+
+# Switch scheduled cleanup from dry-run to write
+npm run cleanup:expired-jobs:schedule:install -- --sheet-id "$SHEET_ID" --write --force
+
+# Remove the schedule entirely
+npm run cleanup:expired-jobs:schedule:uninstall
+```
+
+When cleanup classifies a row as `needs_review`, write mode appends an
+`Availability review:` audit line to column O Notes. The dashboard review modal
+reads those notes plus aging New/Researching rows and renders every match with
+a direct link to the job posting.
+
 ## Runtime Inputs
 
 Environment variables:
@@ -67,6 +102,7 @@ Environment variables:
 - `BROWSER_USE_DISCOVERY_HOST`: bind host, defaults to `127.0.0.1`
 - `BROWSER_USE_DISCOVERY_ALLOWED_ORIGINS`: comma/newline/semicolon-separated allowed origins
 - `BROWSER_USE_DISCOVERY_ASYNC_ACK`: `true` by default
+- `BROWSER_USE_DISCOVERY_MAX_RUN_DURATION_MS`: async run watchdog, defaults to `3600000` (60 minutes)
 - `BROWSER_USE_DISCOVERY_CONFIG_PATH`: path to worker config JSON
 - `BROWSER_USE_DISCOVERY_STATE_DB_PATH`: path to the worker state database
 - `BROWSER_USE_DISCOVERY_BROWSER_COMMAND`: optional browser automation command; when unset, the worker first tries the bundled `integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs` wrapper if it exists, then falls back to plain `browser-use`, and finally falls back to direct fetch on command failure
@@ -135,7 +171,7 @@ Worker config JSON:
   "locations": ["Remote", "Austin"],
   "remotePolicy": "remote-first",
   "seniority": "senior",
-  "maxLeadsPerRun": 25,
+  "maxLeadsPerRun": 15,
   "enabledSources": ["greenhouse", "lever", "ashby", "grounded_web"],
   "schedule": {
     "enabled": false,

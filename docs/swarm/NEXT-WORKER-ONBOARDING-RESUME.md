@@ -43,7 +43,7 @@ Likely files, only if evidence points there:
 
 ## Suggested Commands
 
-Use Node 20 if available. If this machine still only has Node 24, say so in your report and run with the available Node.
+Use Node 24.x, matching `.nvmrc`, `.node-version`, package engines, and CI.
 
 ```sh
 npm ci

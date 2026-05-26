@@ -419,7 +419,8 @@
           detail: "Check Pipeline rows shortly for results.",
           layer: "downstream",
           runId: text(data.runId),
-          statusPath: text(data.statusPath),
+          statusPath: text(data.statusPath || data.status_path),
+          status_path: text(data.status_path),
           pollAfterMs: Number.isFinite(Number(data.pollAfterMs))
             ? Number(data.pollAfterMs)
             : 2000,

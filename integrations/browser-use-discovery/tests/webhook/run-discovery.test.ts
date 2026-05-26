@@ -414,6 +414,275 @@ test("runDiscovery composes config, adapters, normalizer, and writer", async () 
   );
 });
 
+test("runDiscovery treats maxLeadsPerRun capping as successful bounded selection", async () => {
+  const writtenLeads: Array<Record<string, unknown>> = [];
+  const logs: Array<{ event: string; details: Record<string, unknown> }> = [];
+  const jobs = ["backend", "platform", "infra"].map((slug, index) => ({
+    sourceId: "greenhouse",
+    sourceLabel: "Greenhouse",
+    title: `Senior ${slug} Engineer`,
+    company: "Acme",
+    location: "Remote",
+    url: `https://jobs.example.com/${slug}`,
+    descriptionText:
+      "Build node services in TypeScript for a remote-first engineering team.",
+    tags: ["node", "typescript"],
+    metadata: { sourceQuery: "board", fitScore: 90 - index },
+  }));
+
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+      useStructuredExtraction: false,
+    },
+    sourceAdapterRegistry: {
+      adapters: [
+        {
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          detect: async () => null,
+          listJobs: async () => jobs,
+          normalize: async () => null,
+        },
+      ],
+      detectBoards: async ({ company }, _effectiveSources) => [
+        {
+          matched: true,
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          boardUrl: `https://boards.greenhouse.io/${company.name.toLowerCase()}`,
+          confidence: 1,
+          warnings: [],
+        },
+      ],
+      collectListings: async () => [],
+    },
+    pipelineWriter: {
+      write: async (sheetId, leads) => {
+        writtenLeads.push(...leads);
+        return {
+          sheetId,
+          appended: leads.length,
+          updated: 0,
+          skippedDuplicates: 0,
+          skippedBlacklist: 0,
+          warnings: [],
+        };
+      },
+    },
+    loadStoredWorkerConfig: async (sheetId) => ({
+      sheetId,
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [{ name: "Acme" }],
+      atsCompanies: [{ name: "Acme" }],
+      includeKeywords: ["TypeScript"],
+      excludeKeywords: [],
+      targetRoles: ["Backend Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "remote-first",
+      seniority: "senior",
+      maxLeadsPerRun: 5,
+      enabledSources: ["greenhouse"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored, request) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      maxLeadsPerRun: 2,
+      sourcePreset: "ats_only",
+      effectiveSources: ["greenhouse"],
+    }),
+    log: (event, details) => logs.push({ event, details }),
+    now: (() => {
+      let index = 0;
+      const dates = [
+        new Date("2026-04-09T12:00:00.000Z"),
+        new Date("2026-04-09T12:00:01.000Z"),
+      ];
+      return () => dates[Math.min(index++, dates.length - 1)];
+    })(),
+    randomId: (prefix) => `${prefix}_cap_success`,
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+
+  assert.equal(writtenLeads.length, 2);
+  assert.equal(result.lifecycle.state, "completed");
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(
+    logs.find((entry) => entry.event === "discovery.run.write_selection_capped")
+      ?.details,
+    {
+      runId: "run_cap_success",
+      maxLeadsPerRun: 2,
+      dedupedLeadCount: 3,
+      leadsToWriteCount: 2,
+      suppressedByCap: 1,
+    },
+  );
+});
+
+test("runDiscovery does not mark successful ATS writes partial when grounded web finds no URLs", async () => {
+  const writtenLeads: Array<Record<string, unknown>> = [];
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "test-key",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+      useStructuredExtraction: false,
+    },
+    sourceAdapterRegistry: {
+      adapters: [
+        {
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          detect: async () => null,
+          listJobs: async () => [
+            {
+              sourceId: "greenhouse",
+              sourceLabel: "Greenhouse",
+              title: "Senior Backend Engineer",
+              company: "Acme",
+              location: "Remote",
+              url: "https://jobs.example.com/backend-engineer",
+              descriptionText:
+                "Build node services in TypeScript for a remote-first team.",
+              tags: ["node", "typescript"],
+              metadata: { sourceQuery: "board" },
+            },
+          ],
+          normalize: async () => null,
+        },
+      ],
+      detectBoards: async ({ company }, _effectiveSources) => [
+        {
+          matched: true,
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          boardUrl: `https://boards.greenhouse.io/${company.name.toLowerCase()}`,
+          confidence: 1,
+          warnings: [],
+        },
+      ],
+      collectListings: async () => [],
+    },
+    groundedSearchClient: {
+      search: async () => ({
+        searchQueries: ["Senior Backend Engineer remote jobs"],
+        candidates: [],
+        warnings: [
+          "Grounded search returned no usable candidate links.",
+          "Regex URL fallback used: grounded output was non-JSON or conversational; no valid URLs recovered.",
+        ],
+      }),
+      searchAtsHosts: async () => ({
+        searchQueries: [],
+        candidates: [],
+        warnings: [],
+      }),
+    },
+    browserSessionManager: {
+      run: async (request) => ({
+        url: request.url,
+        text: "",
+        metadata: {},
+      }),
+    },
+    pipelineWriter: {
+      write: async (sheetId, leads) => {
+        writtenLeads.push(...leads);
+        return {
+          sheetId,
+          appended: leads.length,
+          updated: 0,
+          skippedDuplicates: 0,
+          skippedBlacklist: 0,
+          warnings: [],
+        };
+      },
+    },
+    loadStoredWorkerConfig: async (sheetId) => ({
+      sheetId,
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [{ name: "Acme" }],
+      atsCompanies: [{ name: "Acme" }],
+      includeKeywords: ["TypeScript"],
+      excludeKeywords: [],
+      targetRoles: ["Backend Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+      seniority: "senior",
+      maxLeadsPerRun: 5,
+      enabledSources: ["greenhouse", "grounded_web"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored, request) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "browser_plus_ats",
+      effectiveSources: ["greenhouse", "grounded_web"],
+    }),
+    now: (() => {
+      let index = 0;
+      const dates = [
+        new Date("2026-04-09T12:00:00.000Z"),
+        new Date("2026-04-09T12:00:01.000Z"),
+      ];
+      return () => dates[Math.min(index++, dates.length - 1)];
+    })(),
+    randomId: (prefix) => `${prefix}_grounded_advisory`,
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+
+  assert.equal(writtenLeads.length, 1);
+  assert.equal(result.lifecycle.state, "completed");
+  assert.ok(
+    result.warnings.some((warning) =>
+      warning.includes("Grounded search returned no usable candidate links"),
+    ),
+    "grounded zero-result warning should remain visible for traceability",
+  );
+});
+
 test("runDiscovery logs aggregated rejection reasons without per-listing spam", async () => {
   const logs = [];
   const dependencies = {
@@ -3495,12 +3764,6 @@ test("runDiscovery skips exploit outcome memory persistence when browser_only ze
     const groundedSource = result.sourceSummary.find((entry) => entry.sourceId === "grounded_web");
     assert.ok(groundedSource, "expected grounded_web source summary for zero-lead browser run");
     assert.ok(
-      groundedSource!.warnings.some((warning) =>
-        /memory persistence skipped/i.test(warning) && /canonicalurl/i.test(warning)
-      ),
-      `expected canonicalUrl skip warning, saw: ${(groundedSource!.warnings || []).join(" | ")}`,
-    );
-    assert.ok(
       groundedSource!.diagnostics?.some((diagnostic) =>
         /canonicalurl/i.test(diagnostic.context) && /zero accepted leads/i.test(diagnostic.context)
       ),
@@ -4976,6 +5239,83 @@ test("VAL-LOOP-OBS-004: unknown failure class when state is degraded but reason 
   assert.ok(
     validFailureClasses.includes(result.lifecycle.failureClass!),
     `failureClass "${result.lifecycle.failureClass}" must be one of: ${validFailureClasses.join(", ")}`,
+  );
+});
+
+test("runDiscovery treats missing optional SerpApi key as unavailable without partial warning", async () => {
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted" as const,
+      asyncAckByDefault: true,
+      serpApiKey: "",
+    },
+    sourceAdapterRegistry: {
+      adapters: [],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    pipelineWriter: {
+      write: async () => {
+        throw new Error("pipelineWriter.write should not run with zero leads");
+      },
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_serpapi_optional",
+      mode: "hosted" as const,
+      timezone: "UTC",
+      companies: [{ name: "Acme" }],
+      includeKeywords: [],
+      excludeKeywords: [],
+      targetRoles: ["Product Manager"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+      seniority: "",
+      maxLeadsPerRun: 5,
+      enabledSources: ["serpapi_google_jobs"] as const,
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored: Record<string, unknown>, request: Record<string, unknown>) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "browser_plus_ats" as const,
+      effectiveSources: ["serpapi_google_jobs"] as const,
+    }),
+    now: () => new Date("2026-04-13T00:00:00.000Z"),
+    randomId: (prefix: string) => `${prefix}_serpapi_optional`,
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies as any);
+
+  assert.equal(result.lifecycle.state, "empty");
+  assert.deepEqual(result.warnings, []);
+  const serpapiSource = result.sourceSummary.find(
+    (entry) => entry.sourceId === "serpapi_google_jobs",
+  );
+  assert.ok(serpapiSource, "serpapi source summary should be present");
+  assert.deepEqual(serpapiSource.warnings, []);
+  assert.ok(
+    serpapiSource.diagnostics?.some((diagnostic) =>
+      /SERPAPI_API_KEY is not configured/i.test(diagnostic.context)
+    ),
+    `expected missing-key diagnostic, got ${JSON.stringify(serpapiSource)}`,
   );
 });
 

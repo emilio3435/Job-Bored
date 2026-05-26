@@ -60,6 +60,16 @@
         items: { type: "string" },
         description: "Up to 12 tools, languages, or platforms mentioned.",
       },
+      atsFitScore: {
+        type: "integer",
+        description:
+          "0-100 ATS/resume fit score for this candidate against the posting. Score only from the supplied job posting text plus the supplied candidate profile excerpt. Reward direct evidence for must-have requirements, responsibilities, tools, seniority, and domain. Penalize missing must-haves. If candidate evidence or posting evidence is thin, choose a conservative score.",
+      },
+      atsFitRationale: {
+        type: "string",
+        description:
+          "One concise sentence explaining the ATS fit score, naming the strongest matched evidence and the biggest missing or uncertain signal.",
+      },
       fitAngle: {
         type: "string",
         description:
@@ -87,6 +97,8 @@
       "responsibilities",
       "niceToHaves",
       "toolsAndStack",
+      "atsFitScore",
+      "atsFitRationale",
       "fitAngle",
       "talkingPoints",
       "extraKeywords",
@@ -96,17 +108,33 @@
 
   // ── Prompts ──────────────────────────────────────────────────────────────────
   const SYSTEM =
-    "You are an expert technical recruiter. Ignore navigation menus, ads, and boilerplate in raw scraped text. Fill every field; use empty arrays for fields with no data. Be concise.";
+    "You are an expert technical recruiter and ATS evaluator. Ignore navigation menus, ads, and boilerplate in raw scraped text. Fill every field; use empty arrays for fields with no data. For atsFitScore, score only from the supplied posting and candidate profile excerpt; do not use any spreadsheet fit score or prior assumptions. Be concise.";
 
+  function safeHostname(u) {
+    try { return new URL(u).hostname; } catch (_) { return ""; }
+  }
+
+  /* Build the user prompt. When the scrape failed and we only have
+     title + company + URL, surface that to Gemini explicitly so it
+     can still produce a useful (conservative) summary from the URL
+     hostname + role/company alone. */
   function buildUserPrompt(p) {
+    const host = p.url ? safeHostname(p.url) : "";
     return [
+      p.url ? `Posting URL: ${p.url}` : "",
+      host ? `URL hostname: ${host}` : "",
       `Job title: ${p.jobTitle || "(unknown)"}`,
       `Company: ${p.company || "(unknown)"}`,
       p.scrapedTitle ? `Page title: ${p.scrapedTitle}` : "",
+      p.scrapeFallbackReason
+        ? `NOTE: The posting page could not be scraped (reason: ${p.scrapeFallbackReason}). Infer inferredTitle, inferredCompany, inferredLocation, and a conservative postingSummary from the URL, hostname, and the title/company alone. Leave fields empty if you cannot determine them. Do not invent specific requirements you cannot ground in the input.`
+        : "",
       "",
       p.resumeExcerpt
         ? `Candidate profile excerpt (resume + LinkedIn + AI context; use for fitAngle and talkingPoints):\n${p.resumeExcerpt}`
         : "Candidate profile: (none — keep fitAngle role-generic)",
+      "",
+      "ATS scoring instruction: produce atsFitScore as an integer 0-100 by comparing the candidate profile excerpt against the explicit posting requirements, responsibilities, seniority, tools, and domain. Do not derive it from any pre-existing fit score. If the page was not scraped or the candidate profile is missing/thin, keep the score conservative and explain that uncertainty in atsFitRationale.",
       "",
       "--- Job description ---",
       p.description || "(none)",
@@ -277,6 +305,12 @@
     return v.map((x) => String(x).trim()).filter(Boolean);
   }
 
+  function score100(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    return Math.max(0, Math.min(100, Math.round(n)));
+  }
+
   function normalizeEnrichmentJson(parsed) {
     return {
       inferredTitle: String(parsed.inferredTitle || "").trim(),
@@ -288,6 +322,8 @@
       niceToHaves: strArr(parsed.niceToHaves).slice(0, 8),
       responsibilities: strArr(parsed.responsibilities).slice(0, 10),
       toolsAndStack: strArr(parsed.toolsAndStack).slice(0, 14),
+      atsFitScore: score100(parsed.atsFitScore),
+      atsFitRationale: String(parsed.atsFitRationale || "").trim(),
       fitAngle: String(parsed.fitAngle || "").trim(),
       talkingPoints: strArr(parsed.talkingPoints).slice(0, 6),
       extraKeywords: strArr(parsed.extraKeywords).slice(0, 12),
@@ -457,6 +493,8 @@
     const g = getGenConfig();
 
     const userPrompt = buildUserPrompt({
+      url: scraped.url || job.url || "",
+      scrapeFallbackReason: scraped._scrapeFallbackReason || "",
       jobTitle: job.title || "",
       company: job.company || "",
       scrapedTitle: scraped.title || "",
@@ -508,8 +546,139 @@
     return g.provider !== "webhook";
   }
 
+  /* ============================================================
+     Gemini URL Context fetcher
+     ------------------------------------------------------------
+     The user-friendly alternative to running a local Cheerio
+     scraper. Gemini's `url_context` tool (GA since Aug 2025) fetches
+     the URL server-side from Google's infrastructure and feeds the
+     page to the model. We use it in two calls:
+
+       Call 1 (this function): tools=[{url_context}], ask for a
+         clean text extract of the job posting. NO responseSchema,
+         because URL Context is incompatible with structured output.
+
+       Call 2 (existing enrichFromScrape): pass that extract as the
+         "scraped" description into the schema-bound enrichment call.
+
+     Benefits over Cheerio: no local server, no CORS, no mixed-content,
+     works the same on localhost and GitHub Pages, handles JS-only
+     sites Gemini can render. Caveats: requires gemini-2.x or 3.x
+     (1.5 family doesn't support url_context), costs a second token-
+     budget, won't work for pages behind auth walls (LinkedIn etc.).
+
+     Returns { description, title, requirements, skills, url,
+     scrapedAt, _scrapeSource: "gemini-url-context" } shaped like a
+     Cheerio response, or null if anything fails.
+     ============================================================ */
+  async function fetchViaGeminiUrlContext(postingUrl) {
+    if (!postingUrl) return null;
+    if (!canEnrichWithLLM()) return null;
+    const g = getGenConfig();
+    if (g.provider !== "gemini" || !g.resumeGeminiApiKey) return null;
+    /* url_context requires gemini-2.x / 3.x. Auto-upgrade pre-2.0
+       models so users with `gemini-1.5-flash` configured still get
+       this lane. */
+    let model = g.resumeGeminiModel || "gemini-3.5-flash";
+    if (/^gemini-1\.|^models\/gemini-1\./i.test(model)) {
+      model = "gemini-3.5-flash";
+    }
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+      model,
+    )}:generateContent?key=${encodeURIComponent(g.resumeGeminiApiKey)}`;
+    const extractPrompt =
+      "Read the job posting at the URL below and return a clean, plain-text extract " +
+      "of the posting's content. Include the role title, company, location, full " +
+      "job description, all responsibilities, all requirements/qualifications, " +
+      "preferred/nice-to-haves, compensation/benefits if listed, and any tools or " +
+      "technologies mentioned. Use simple section headings like 'About the role', " +
+      "'Responsibilities', 'Requirements', 'Nice to have', 'Tools and stack', " +
+      "'Compensation'. Do not paraphrase — preserve the posting's wording. " +
+      "Do not add commentary or evaluation. If a section is missing, omit it.\n\n" +
+      `URL: ${postingUrl}`;
+    const body = {
+      contents: [{ role: "user", parts: [{ text: extractPrompt }] }],
+      tools: [{ url_context: {} }],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 4500,
+      },
+    };
+    const ctrl = new AbortController();
+    /* 25s — URL Context can be slow on heavyweight sites; longer than
+       the local-scraper budget because the value of success is higher. */
+    const timer = setTimeout(() => ctrl.abort(), 25_000);
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+      if (!resp.ok) {
+        /* Surface auth/quota errors so the outer pipeline can show a
+           specific toast. Other failures (4xx on the URL itself,
+           safety blocks, etc.) just return null so we fall through to
+           the title+company path. */
+        if (resp.status === 401 || resp.status === 403) {
+          throw new Error("API key not valid (401)");
+        }
+        if (resp.status === 429) {
+          throw new Error("RESOURCE_EXHAUSTED (429)");
+        }
+        return null;
+      }
+      const data = await resp.json().catch(() => null);
+      if (!data) return null;
+      const text =
+        data.candidates?.[0]?.content?.parts
+          ?.map((p) => p.text || "")
+          .join("")
+          .trim() || "";
+      /* Did Gemini actually retrieve the URL? url_context_metadata.url_metadata[].url_retrieval_status
+         is "URL_RETRIEVAL_STATUS_SUCCESS" on success. If absent or any other status,
+         the model probably failed to fetch (paywall, robots, 404, etc.) — fall through. */
+      const meta = data.candidates?.[0]?.url_context_metadata?.url_metadata || [];
+      const anySuccess = meta.some(
+        (m) =>
+          String(m.url_retrieval_status || "")
+            .toUpperCase()
+            .includes("SUCCESS"),
+      );
+      if (!anySuccess && meta.length > 0) {
+        /* Gemini tried and failed to retrieve. No point continuing. */
+        return null;
+      }
+      if (!text || text.length < 80) {
+        /* Empty / near-empty extract — treat as failure. */
+        return null;
+      }
+      return {
+        title: "",
+        description: text,
+        requirements: [],
+        skills: [],
+        url: postingUrl,
+        scrapedAt: Date.now(),
+        _scrapeSource: "gemini-url-context",
+      };
+    } catch (e) {
+      /* Network / abort / classifiable Gemini errors. Re-throw the
+         classifiable ones (401/429) so the outer pipeline can toast;
+         swallow the rest. */
+      const msg = String((e && e.message) || "");
+      if (/401|API key not valid|RESOURCE_EXHAUSTED|429/i.test(msg)) {
+        throw e;
+      }
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   window.CommandCenterJobPostingInsights = {
     enrichFromScrape,
     canEnrichWithLLM,
+    fetchViaGeminiUrlContext,
   };
 })();

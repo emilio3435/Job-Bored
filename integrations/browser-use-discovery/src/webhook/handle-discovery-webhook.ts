@@ -22,6 +22,10 @@ import {
   type DiscoveryRunStatusStore,
 } from "../state/run-status-store.ts";
 import { validateSheetsCredentialReadiness } from "../sheets/credential-readiness.ts";
+import {
+  appendRunStatusToken,
+  createRunStatusToken,
+} from "./run-status-auth.ts";
 
 export type WebhookRequestLike = {
   method: string;
@@ -44,7 +48,7 @@ export type HandleWebhookDependencies = {
   runStatusStore?: DiscoveryRunStatusStore;
   runDiscovery(
     request: DiscoveryWebhookRequestV1,
-    trigger: "manual",
+    trigger: "manual" | "scheduled",
     dependencies: RunDiscoveryDependencies,
   ): Promise<RunDiscoveryResult>;
   runDependencies: RunDiscoveryDependencies;
@@ -58,16 +62,21 @@ export type HandleWebhookDependencies = {
   createPipelineWriterForRequest?(
     runtimeConfigOverride: RunDiscoveryDependencies["runtimeConfig"],
   ): RunDiscoveryDependencies["pipelineWriter"];
+  createDiscoveryRunsLoggerForRequest?(
+    runtimeConfigOverride: RunDiscoveryDependencies["runtimeConfig"],
+  ): RunDiscoveryDependencies["discoveryRunsLogger"];
+  includeRunStatusToken?: boolean;
   /**
    * Maximum duration in milliseconds for an async run before it is forcibly
-   * terminalized. Defaults to 5 minutes (300000ms) if not specified.
+   * terminalized. Defaults to 60 minutes (3600000ms) if not specified.
    * This guarantees that async runs cannot stall indefinitely in running state.
    */
   maxRunDurationMs?: number;
 };
 
-// Default maximum async run duration: 5 minutes
-const DEFAULT_MAX_RUN_DURATION_MS = 5 * 60 * 1000;
+// Default maximum async run duration: 60 minutes. Discovery runs in the
+// background; per-source timeouts still provide narrower stuck-lane bounds.
+const DEFAULT_MAX_RUN_DURATION_MS = 60 * 60 * 1000;
 
 export async function handleDiscoveryWebhook(
   request: WebhookRequestLike,
@@ -127,11 +136,21 @@ export async function handleDiscoveryWebhook(
   const runId =
     dependencies.runDependencies.runId ||
     createRunId(dependencies.runDependencies.randomId);
+  const dispatchTrigger = dispatchTriggerFromRequest(parsed.request.trigger);
   const now = dependencies.now || (() => new Date());
   const acceptedAt = now().toISOString();
   const statusPathBuilder =
     dependencies.runStatusPathForRun || buildRunStatusPath;
-  const statusPath = statusPathBuilder(runId);
+  const baseStatusPath = statusPathBuilder(runId);
+  const statusPath = dependencies.includeRunStatusToken
+    ? appendRunStatusToken(
+        baseStatusPath,
+        createRunStatusToken(
+          dependencies.runDependencies.runtimeConfig.webhookSecret,
+          runId,
+        ),
+      )
+    : baseStatusPath;
   const pollAfterMs = Math.max(1000, dependencies.asyncPollAfterMs || 2000);
   const baseRunLogger = dependencies.runDependencies.log;
 
@@ -158,7 +177,7 @@ export async function handleDiscoveryWebhook(
     },
   };
   const runDependencies: RunDiscoveryDependencies =
-    requestGoogleAccessToken && dependencies.createPipelineWriterForRequest
+    requestGoogleAccessToken
       ? (() => {
           const overrideRuntimeConfig = {
             ...baseRunDependencies.runtimeConfig,
@@ -167,9 +186,15 @@ export async function handleDiscoveryWebhook(
           return {
             ...baseRunDependencies,
             runtimeConfig: overrideRuntimeConfig,
-            pipelineWriter: dependencies.createPipelineWriterForRequest(
-              overrideRuntimeConfig,
-            ),
+            pipelineWriter: dependencies.createPipelineWriterForRequest
+              ? dependencies.createPipelineWriterForRequest(
+                  overrideRuntimeConfig,
+                )
+              : baseRunDependencies.pipelineWriter,
+            discoveryRunsLogger:
+              dependencies.createDiscoveryRunsLoggerForRequest?.(
+                overrideRuntimeConfig,
+              ) ?? baseRunDependencies.discoveryRunsLogger,
           };
         })()
       : baseRunDependencies;
@@ -204,7 +229,7 @@ export async function handleDiscoveryWebhook(
 
   const acceptedStatus = buildAcceptedRunStatus({
     runId,
-    trigger: "manual",
+    trigger: dispatchTrigger,
     request: {
       sheetId: parsed.request.sheetId,
       variationKey: parsed.request.variationKey,
@@ -228,7 +253,7 @@ export async function handleDiscoveryWebhook(
       });
       const result = await dependencies.runDiscovery(
         requestForRun,
-        "manual",
+        dispatchTrigger,
         runDependencies,
       );
       const completedStatus = buildCompletedRunStatus(result, {
@@ -287,14 +312,14 @@ export async function handleDiscoveryWebhook(
   const maxRunDurationMs =
     dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
   let safetyTimer: ReturnType<typeof setTimeout> | null = null;
-  let runCompleted = false;
+  let terminalStatusWritten = false;
 
   // Safety terminalization: if the run doesn't complete within maxRunDurationMs,
   // force terminalize with partial status and a timeout warning.
   const scheduleSafetyTerminalization = () => {
     safetyTimer = setTimeout(() => {
-      if (!runCompleted) {
-        runCompleted = true;
+      if (!terminalStatusWritten) {
+        terminalStatusWritten = true;
         const currentStatus =
           dependencies.runStatusStore?.get(runId) ?? acceptedStatus;
         dependencies.runStatusStore?.put({
@@ -328,9 +353,17 @@ export async function handleDiscoveryWebhook(
   };
 
   void dependencies
-    .runDiscovery(requestForRun, "manual", runDependencies)
+    .runDiscovery(requestForRun, dispatchTrigger, runDependencies)
     .then((result) => {
-      runCompleted = true;
+      if (terminalStatusWritten) {
+        dependencies.log?.("discovery.run.late_completion_ignored", {
+          runId,
+          mode: runMode,
+          reason: "terminal_status_already_written",
+        });
+        return;
+      }
+      terminalStatusWritten = true;
       clearSafetyTerminalization();
       dependencies.runStatusStore?.put(
         buildCompletedRunStatus(result, {
@@ -356,7 +389,16 @@ export async function handleDiscoveryWebhook(
       });
     })
     .catch((error) => {
-      runCompleted = true;
+      if (terminalStatusWritten) {
+        dependencies.log?.("discovery.run.late_failure_ignored", {
+          runId,
+          mode: runMode,
+          reason: "terminal_status_already_written",
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      terminalStatusWritten = true;
       clearSafetyTerminalization();
       dependencies.runStatusStore?.put(
         buildFailedRunStatus(
@@ -456,6 +498,11 @@ async function validateDiscoveryPreflight(
     runDependencies.runtimeConfig,
     {
       now: runDependencies.now,
+      sheetId:
+        String(request.sheetId || "").trim() ||
+        (runDependencies.runtimeConfig.runMode === "local"
+          ? String(storedConfig.sheetId || "").trim()
+          : ""),
     },
   );
   if (!sheetsCredentialReadiness.configured) {
@@ -579,8 +626,20 @@ function parseWebhookRequest(
     // When discoveryProfile is absent, we allow the request to proceed (the preflight
     // and later intent-gating in the execution path will handle it).
     const profile = discoveryProfile as Record<string, unknown>;
-    const rawTargetRoles = profile.targetRoles;
-    const rawKeywordsInclude = profile.keywordsInclude;
+    const searchPlan = isPlainObject(profile.searchPlan)
+      ? (profile.searchPlan as Record<string, unknown>)
+      : {};
+    const searchPlanQuery = isPlainObject(searchPlan.query)
+      ? (searchPlan.query as Record<string, unknown>)
+      : {};
+    const rawTargetRoles = firstNonBlankString(
+      profile.targetRoles,
+      searchPlanQuery.targetRoles,
+    );
+    const rawKeywordsInclude = firstNonBlankString(
+      profile.keywordsInclude,
+      searchPlanQuery.keywordsInclude,
+    );
     const targetRolesBlank =
       rawTargetRoles == null ||
       (typeof rawTargetRoles === "string" && !rawTargetRoles.trim());
@@ -688,6 +747,46 @@ function parseWebhookRequest(
             };
           }
         }
+      }
+    }
+
+    if ("profileSnapshot" in profile && !isPlainObject(profile.profileSnapshot)) {
+      return {
+        ok: false,
+        message:
+          "discoveryProfile.profileSnapshot must be an object when present.",
+      };
+    }
+
+    if ("searchPlan" in profile) {
+      if (!isPlainObject(profile.searchPlan)) {
+        return {
+          ok: false,
+          message: "discoveryProfile.searchPlan must be an object when present.",
+        };
+      }
+      if (
+        "query" in searchPlan &&
+        searchPlan.query != null &&
+        !isPlainObject(searchPlan.query)
+      ) {
+        return {
+          ok: false,
+          message:
+            "discoveryProfile.searchPlan.query must be an object when present.",
+        };
+      }
+      const planSourcePreset = searchPlanQuery.sourcePreset;
+      if (
+        planSourcePreset != null &&
+        planSourcePreset !== "" &&
+        (typeof planSourcePreset !== "string" ||
+          !(SOURCE_PRESET_VALUES as readonly string[]).includes(planSourcePreset))
+      ) {
+        return {
+          ok: false,
+          message: `discoveryProfile.searchPlan.query.sourcePreset must be one of: ${SOURCE_PRESET_VALUES.join(", ")} when present.`,
+        };
       }
     }
   }
@@ -828,6 +927,15 @@ function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function firstNonBlankString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -889,12 +997,176 @@ function normalizeDiscoveryProfile(
     }
   }
 
+  if (isPlainObject(raw.profileSnapshot)) {
+    out.profileSnapshot = normalizeProfileSnapshot(raw.profileSnapshot);
+  }
+
+  if (isPlainObject(raw.searchPlan)) {
+    out.searchPlan = normalizeSearchPlan(raw.searchPlan);
+  }
+
   return out;
+}
+
+function normalizeStringArray(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out = raw
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 50);
+  return out.length ? out : undefined;
+}
+
+function normalizeFiniteNumber(raw: unknown): number | undefined {
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
+}
+
+function normalizeScheduleSnapshot(raw: unknown):
+  | { enabled?: boolean; hour?: number; minute?: number }
+  | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  const out: { enabled?: boolean; hour?: number; minute?: number } = {};
+  if (typeof raw.enabled === "boolean") out.enabled = raw.enabled;
+  const hour = normalizeFiniteNumber(raw.hour);
+  const minute = normalizeFiniteNumber(raw.minute);
+  if (hour !== undefined) out.hour = hour;
+  if (minute !== undefined) out.minute = minute;
+  return Object.keys(out).length ? out : undefined;
+}
+
+function normalizeProfileSnapshot(
+  raw: Record<string, unknown>,
+): NonNullable<DiscoveryWebhookRequestV1["discoveryProfile"]>["profileSnapshot"] {
+  const preferences = isPlainObject(raw.preferences) ? raw.preferences : {};
+  const schedule = isPlainObject(raw.schedule) ? raw.schedule : {};
+  const normalized: NonNullable<DiscoveryWebhookRequestV1["discoveryProfile"]>["profileSnapshot"] = {
+    snapshotVersion: 1,
+    profileHash: stringValue(raw.profileHash),
+  };
+  const targetRoles = normalizeStringArray(raw.targetRoles);
+  const locations = normalizeStringArray(raw.locations);
+  const keywordsInclude = normalizeStringArray(raw.keywordsInclude);
+  const keywordsExclude = normalizeStringArray(raw.keywordsExclude);
+  if (targetRoles) normalized.targetRoles = targetRoles;
+  if (locations) normalized.locations = locations;
+  if (typeof raw.remotePolicy === "string") normalized.remotePolicy = raw.remotePolicy;
+  if (typeof raw.seniority === "string") normalized.seniority = raw.seniority;
+  if (keywordsInclude) normalized.keywordsInclude = keywordsInclude;
+  if (keywordsExclude) normalized.keywordsExclude = keywordsExclude;
+  const resumeTextLength = normalizeFiniteNumber(raw.resumeTextLength);
+  if (resumeTextLength !== undefined) normalized.resumeTextLength = resumeTextLength;
+  if (typeof raw.resumeUpdatedAt === "string") normalized.resumeUpdatedAt = raw.resumeUpdatedAt;
+  const industriesToEmphasize = normalizeStringArray(preferences.industriesToEmphasize);
+  const wordsToAvoid = normalizeStringArray(preferences.wordsToAvoid);
+  const defaultMaxWords = normalizeFiniteNumber(preferences.defaultMaxWords);
+  const voiceNotesLength = normalizeFiniteNumber(preferences.voiceNotesLength);
+  const normalizedPreferences: NonNullable<
+    NonNullable<DiscoveryWebhookRequestV1["discoveryProfile"]>["profileSnapshot"]
+  >["preferences"] = {};
+  if (typeof preferences.tone === "string") normalizedPreferences.tone = preferences.tone;
+  if (defaultMaxWords !== undefined) normalizedPreferences.defaultMaxWords = defaultMaxWords;
+  if (industriesToEmphasize) normalizedPreferences.industriesToEmphasize = industriesToEmphasize;
+  if (wordsToAvoid) normalizedPreferences.wordsToAvoid = wordsToAvoid;
+  if (voiceNotesLength !== undefined) normalizedPreferences.voiceNotesLength = voiceNotesLength;
+  if (Object.keys(normalizedPreferences).length) {
+    normalized.preferences = normalizedPreferences;
+  }
+  const local = normalizeScheduleSnapshot(schedule.local);
+  const github = normalizeScheduleSnapshot(schedule.github);
+  if (local || github) {
+    normalized.schedule = {
+      ...(local ? { local } : {}),
+      ...(github ? { github } : {}),
+    };
+  }
+  return normalized;
+}
+
+function normalizeSearchPlan(
+  raw: Record<string, unknown>,
+): NonNullable<DiscoveryWebhookRequestV1["discoveryProfile"]>["searchPlan"] {
+  const selected = isPlainObject(raw.selected) ? raw.selected : {};
+  const facets = isPlainObject(raw.facets) ? raw.facets : {};
+  const query = isPlainObject(raw.query) ? raw.query : {};
+  const normalized: NonNullable<DiscoveryWebhookRequestV1["discoveryProfile"]>["searchPlan"] = {
+    planVersion: 1,
+    generatedAt: stringValue(raw.generatedAt),
+    seed: stringValue(raw.seed),
+  };
+  if (typeof raw.trigger === "string") normalized.trigger = raw.trigger;
+  if (typeof raw.rotationKey === "string") normalized.rotationKey = raw.rotationKey;
+  const rotationIndex = normalizeFiniteNumber(raw.rotationIndex);
+  if (rotationIndex !== undefined) normalized.rotationIndex = rotationIndex;
+  if (typeof raw.profileHash === "string") normalized.profileHash = raw.profileHash;
+  const normalizedSelected: NonNullable<
+    NonNullable<DiscoveryWebhookRequestV1["discoveryProfile"]>["searchPlan"]
+  >["selected"] = {};
+  for (const key of [
+    "role",
+    "adjacentTitle",
+    "skill",
+    "industry",
+    "location",
+    "seniority",
+    "companyType",
+    "sourceLane",
+  ] as const) {
+    if (typeof selected[key] === "string") {
+      normalizedSelected[key] = selected[key];
+    }
+  }
+  if (Object.keys(normalizedSelected).length) normalized.selected = normalizedSelected;
+  const normalizedFacets: NonNullable<
+    NonNullable<DiscoveryWebhookRequestV1["discoveryProfile"]>["searchPlan"]
+  >["facets"] = {};
+  for (const key of [
+    "roles",
+    "adjacentTitles",
+    "skills",
+    "industries",
+    "locations",
+    "seniority",
+    "companyTypes",
+    "sourceLanes",
+  ] as const) {
+    const values = normalizeStringArray(facets[key]);
+    if (values) normalizedFacets[key] = values;
+  }
+  if (Object.keys(normalizedFacets).length) normalized.facets = normalizedFacets;
+  const normalizedQuery: NonNullable<
+    NonNullable<DiscoveryWebhookRequestV1["discoveryProfile"]>["searchPlan"]
+  >["query"] = {};
+  for (const key of [
+    "targetRoles",
+    "locations",
+    "remotePolicy",
+    "seniority",
+    "keywordsInclude",
+    "keywordsExclude",
+  ] as const) {
+    if (typeof query[key] === "string") normalizedQuery[key] = query[key];
+  }
+  if (
+    typeof query.sourcePreset === "string" &&
+    ((SOURCE_PRESET_VALUES as readonly string[]).includes(query.sourcePreset) ||
+      query.sourcePreset === "")
+  ) {
+    normalizedQuery.sourcePreset = query.sourcePreset as SourcePreset | "";
+  }
+  if (Object.keys(normalizedQuery).length) normalized.query = normalizedQuery;
+  return normalized;
 }
 
 function createRunId(randomId?: ((prefix: string) => string) | null): string {
   if (typeof randomId === "function") return randomId("run");
   return `run_${randomUUID().replace(/-/g, "")}`;
+}
+
+function dispatchTriggerFromRequest(
+  trigger: DiscoveryRunTrigger | undefined,
+): "manual" | "scheduled" {
+  return trigger && trigger.startsWith("scheduled-") ? "scheduled" : "manual";
 }
 
 export type WebhookAuthCheckResult =

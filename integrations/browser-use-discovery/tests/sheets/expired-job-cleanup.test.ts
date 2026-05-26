@@ -105,6 +105,14 @@ test("classifyJobPostingAvailability only expires strong closed evidence", () =>
   );
   assert.equal(
     classifyJobPostingAvailability({
+      url: "https://jobs.example.com/rate-limited",
+      httpStatus: 429,
+      body: "Too many requests",
+    }).status,
+    "unknown",
+  );
+  assert.equal(
+    classifyJobPostingAvailability({
       url: "https://jobs.example.com/closed",
       httpStatus: 200,
       body: "<h1>This job posting has expired</h1>",
@@ -154,6 +162,25 @@ test("checkJobPostingUrl reports network failures as temporarily unreachable", a
 
   assert.equal(result.status, "temporarily_unreachable");
   assert.equal(result.source, "network_error");
+});
+
+test("checkJobPostingUrl reports timeouts as temporarily unreachable", async () => {
+  const result = await checkJobPostingUrl("https://jobs.example.com/slow", {
+    timeoutMs: 1,
+    fetchImpl: (async (_input: RequestInfo | URL, init: RequestInit = {}) => {
+      await new Promise((_, reject) => {
+        init.signal?.addEventListener("abort", () => {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          reject(err);
+        });
+      });
+      return responseText("Apply now", 200);
+    }) as any,
+  });
+
+  assert.equal(result.status, "temporarily_unreachable");
+  assert.equal(result.source, "timeout");
 });
 
 test("runExpiredJobCleanup dry-run reports changes without writing protected statuses", async () => {
@@ -221,6 +248,7 @@ test("runExpiredJobCleanup dry-run reports changes without writing protected sta
 
   assert.equal(result.checked, 2);
   assert.equal(result.wouldUpdate, 1);
+  assert.equal(result.wouldExpire, 1);
   assert.equal(result.needsReview, 1);
   assert.equal(result.skipped, 1);
   assert.equal(result.results[0].action, "would_expire");
@@ -234,6 +262,54 @@ test("runExpiredJobCleanup dry-run reports changes without writing protected sta
     calls.some((call) => call.url === "https://jobs.example.com/applied-closed"),
     false,
     "protected Applied rows should not be fetched or expired",
+  );
+});
+
+test("runExpiredJobCleanup skips every protected status without fetching postings", async () => {
+  const protectedStatuses = [
+    "Applied",
+    "Phone Screen",
+    "Interviewing",
+    "Offer",
+    "Rejected",
+    "Passed",
+    "Expired",
+  ];
+  const rows = protectedStatuses.map((status, index) =>
+    row([
+      "2026-05-01",
+      `${status} Role`,
+      "Acme",
+      "Remote",
+      `https://jobs.example.com/protected-${index}`,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      status,
+    ]),
+  );
+  const { fetchImpl, calls } = createCleanupFetch(rows, {});
+
+  const result = await runExpiredJobCleanup({
+    sheetId: "sheet_123",
+    runtimeConfig: runtimeConfig as any,
+    options: {
+      dryRun: true,
+      fetchImpl: fetchImpl as any,
+    },
+  });
+
+  assert.equal(result.checked, 0);
+  assert.equal(result.skipped, protectedStatuses.length);
+  assert.equal(result.results.every((entry) => entry.reason === "protected_status"), true);
+  assert.equal(
+    calls.some((call) => call.url.startsWith("https://jobs.example.com/protected-")),
+    false,
+    "protected rows should not be fetched",
   );
 });
 
@@ -285,4 +361,116 @@ test("runExpiredJobCleanup writes Status and Notes audit for confirmed expired r
   assert.match(body.data[1].values[0][0], /Status: Researching -> Expired/);
   assert.match(body.data[1].values[0][0], /source=http_status/);
   assert.match(body.data[1].values[0][0], /confidence=high/);
+});
+
+test("runExpiredJobCleanup write mode tags needs-review rows with a Notes audit so the dashboard review modal surfaces them", async () => {
+  const rows = [
+    row([
+      "2026-05-01",
+      "Captcha Role",
+      "Acme",
+      "Remote",
+      "https://jobs.example.com/captcha",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "New",
+      "",
+      "",
+    ]),
+    row([
+      "2026-05-01",
+      "Already Flagged",
+      "Acme",
+      "Remote",
+      "https://jobs.example.com/blocked",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "Researching",
+      "",
+      "[Expired cleanup 2026-05-01T00:00:00.000Z] Availability review: checkedUrl=\"https://jobs.example.com/blocked\"; source=http_status; confidence=none; reason=\"HTTP 403 requires review\"",
+    ]),
+  ];
+  const { fetchImpl, calls } = createCleanupFetch(rows, {
+    "https://jobs.example.com/captcha": responseText(
+      "Verify you are human before continuing",
+      200,
+    ),
+    "https://jobs.example.com/blocked": responseText("Forbidden", 403),
+  });
+
+  const result = await runExpiredJobCleanup({
+    sheetId: "sheet_123",
+    runtimeConfig: runtimeConfig as any,
+    options: {
+      dryRun: false,
+      fetchImpl: fetchImpl as any,
+      now: () => new Date("2026-05-20T12:00:00.000Z"),
+    },
+  });
+
+  assert.equal(result.needsReview, 2);
+  assert.equal(result.updated, 0);
+  const post = calls.find((call) => call.method === "POST");
+  assert.ok(post, "needs-review rows without a prior audit must be tagged with a Notes line");
+  const body = JSON.parse(post.body);
+  assert.equal(body.data.length, 1, "only the un-tagged needs-review row should be updated");
+  assert.equal(body.data[0].range, "Pipeline!O2");
+  assert.match(body.data[0].values[0][0], /Availability review:/);
+  assert.match(body.data[0].values[0][0], /source=captcha_marker/);
+});
+
+test("runExpiredJobCleanup dry-run does not write needs-review audit notes", async () => {
+  const rows = [
+    row([
+      "2026-05-01",
+      "Captcha Role",
+      "Acme",
+      "Remote",
+      "https://jobs.example.com/captcha",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "New",
+      "",
+      "",
+    ]),
+  ];
+  const { fetchImpl, calls } = createCleanupFetch(rows, {
+    "https://jobs.example.com/captcha": responseText(
+      "Verify you are human before continuing",
+      200,
+    ),
+  });
+
+  const result = await runExpiredJobCleanup({
+    sheetId: "sheet_123",
+    runtimeConfig: runtimeConfig as any,
+    options: {
+      dryRun: true,
+      fetchImpl: fetchImpl as any,
+      now: () => new Date("2026-05-20T12:00:00.000Z"),
+    },
+  });
+
+  assert.equal(result.needsReview, 1);
+  assert.equal(result.wouldUpdate, 0);
+  assert.equal(
+    calls.some((call) => call.method === "POST"),
+    false,
+    "dry-run must not write to Sheets",
+  );
 });

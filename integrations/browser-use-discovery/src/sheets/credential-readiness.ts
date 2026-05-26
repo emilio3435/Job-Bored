@@ -1,8 +1,10 @@
 import { readFile } from "node:fs/promises";
 
 import type { WorkerRuntimeConfig } from "../config.ts";
+import { resolveAccessToken } from "./pipeline-writer.ts";
 
 const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
+const DEFAULT_TOKEN_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 
 type GoogleServiceAccount = {
   client_email: string;
@@ -30,6 +32,8 @@ export type SheetsCredentialSource =
 export type SheetsCredentialReadiness = {
   configured: boolean;
   source: SheetsCredentialSource | null;
+  active?: boolean;
+  sheetAccess?: "verified";
   message?: string;
   detail?: string;
   remediation?: string;
@@ -151,6 +155,40 @@ async function refreshOAuthAccessToken(
   }
 }
 
+async function verifyActiveSheetsCredential(
+  runtimeConfig: WorkerRuntimeConfig,
+  options: {
+    now: () => Date;
+    fetchImpl: FetchLike;
+    sheetId?: string;
+  },
+): Promise<{ active: true; sheetAccess?: "verified" }> {
+  const token = await resolveAccessToken(
+    runtimeConfig,
+    options.fetchImpl,
+    options.now,
+    DEFAULT_TOKEN_SCOPE,
+  );
+  const sheetId = asText(options.sheetId);
+  if (!sheetId) return { active: true };
+
+  const url = new URL(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}`,
+  );
+  url.searchParams.set("fields", "spreadsheetId");
+  const response = await options.fetchImpl(url, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `Google Sheets access check failed for sheetId ${sheetId}: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+    );
+  }
+  return { active: true, sheetAccess: "verified" };
+}
+
 async function readCredentialFile(
   filePath: string,
   label: string,
@@ -195,6 +233,7 @@ export async function validateSheetsCredentialReadiness(
   options: {
     now?: () => Date;
     fetchImpl?: FetchLike;
+    sheetId?: string;
   } = {},
 ): Promise<SheetsCredentialReadiness> {
   const now = options.now || (() => new Date());
@@ -211,16 +250,22 @@ export async function validateSheetsCredentialReadiness(
   if (serviceAccountJson) {
     try {
       parseServiceAccount(serviceAccountJson);
+      const active = await verifyActiveSheetsCredential(runtimeConfig, {
+        now,
+        fetchImpl,
+        sheetId: options.sheetId,
+      });
       return {
         configured: true,
         source: "service_account_json",
+        ...active,
       };
     } catch (error) {
       return invalidCredential(
         "service_account_json",
-        "Discovery worker Google service account JSON is invalid.",
+        "Discovery worker Google service account JSON is invalid or cannot access the configured Sheet.",
         formatError(error),
-        "Set BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON to valid service-account JSON, or use BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE.",
+        "Set BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON to valid service-account JSON and share the target Sheet with the service-account email, or use BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE.",
       );
     }
   }
@@ -231,18 +276,24 @@ export async function validateSheetsCredentialReadiness(
       parseServiceAccount(
         await readCredentialFile(serviceAccountFile, "Google service account"),
       );
+      const active = await verifyActiveSheetsCredential(runtimeConfig, {
+        now,
+        fetchImpl,
+        sheetId: options.sheetId,
+      });
       return {
         configured: true,
         source: "service_account_file",
+        ...active,
       };
     } catch (error) {
       return invalidCredential(
         "service_account_file",
         error instanceof CredentialFileError
           ? "Discovery worker Google service account file is unreadable."
-          : "Discovery worker Google service account file is invalid.",
+          : "Discovery worker Google service account file is invalid or cannot access the configured Sheet.",
         formatError(error),
-        "Point BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE at a readable service-account JSON file, or use BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON.",
+        "Point BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE at a readable service-account JSON file and share the target Sheet with the service-account email, or use BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON.",
       );
     }
   }

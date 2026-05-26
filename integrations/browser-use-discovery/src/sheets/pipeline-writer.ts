@@ -20,6 +20,7 @@ export class SheetWriteError extends Error {
   readonly sheetId: string;
   readonly httpStatus?: number;
   readonly detail?: string;
+  readonly partialResult?: PipelineWriteResult;
 
   constructor(params: {
     phase: "update" | "append";
@@ -27,6 +28,7 @@ export class SheetWriteError extends Error {
     sheetId: string;
     httpStatus?: number;
     detail?: string;
+    partialResult?: PipelineWriteResult;
   }) {
     super(params.message);
     this.name = "SheetWriteError";
@@ -34,6 +36,7 @@ export class SheetWriteError extends Error {
     this.sheetId = params.sheetId;
     this.httpStatus = params.httpStatus;
     this.detail = params.detail;
+    this.partialResult = params.partialResult;
   }
 }
 
@@ -654,8 +657,35 @@ export function createPipelineWriter(
       appended += 1;
     }
 
+    const warnings = existingDuplicateCount
+      ? [
+          `Found ${existingDuplicateCount} duplicate existing Pipeline rows for normalized Link values.`,
+        ]
+      : [];
+
     await batchUpdateRows(sheetId, updates, accessToken, fetchImpl, sheetName);
-    await appendRows(sheetId, appends, accessToken, fetchImpl, sheetName);
+    try {
+      await appendRows(sheetId, appends, accessToken, fetchImpl, sheetName);
+    } catch (error) {
+      if (error instanceof SheetWriteError && error.phase === "append") {
+        throw new SheetWriteError({
+          phase: error.phase,
+          message: error.message,
+          sheetId: error.sheetId,
+          httpStatus: error.httpStatus,
+          detail: error.detail,
+          partialResult: {
+            sheetId,
+            appended: 0,
+            updated,
+            skippedDuplicates: skippedDuplicates + existingDuplicateCount,
+            skippedBlacklist: skippedBlacklist.length,
+            warnings,
+          },
+        });
+      }
+      throw error;
+    }
 
     return {
       sheetId,
@@ -663,11 +693,7 @@ export function createPipelineWriter(
       updated,
       skippedDuplicates: skippedDuplicates + existingDuplicateCount,
       skippedBlacklist: skippedBlacklist.length,
-      warnings: existingDuplicateCount
-        ? [
-            `Found ${existingDuplicateCount} duplicate existing Pipeline rows for normalized Link values.`,
-          ]
-        : [],
+      warnings,
     };
   }
 

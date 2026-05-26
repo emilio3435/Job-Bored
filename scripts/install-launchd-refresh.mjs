@@ -3,10 +3,9 @@
  * JobBored daily refresh — macOS launchd installer.
  *
  * Path B of the three-cadence-path ladder. Writes a launchd plist that fires
- * /usr/bin/curl POST http://127.0.0.1:<PORT>/discovery-profile with
- * {mode:"refresh"} at the configured local time. Requires the local worker
- * to be running (npm run discovery:worker:start-local) for the refresh to
- * land.
+ * node scripts/run-scheduled-discovery.mjs at the configured local time.
+ * Requires the local worker to be running (npm run discovery:worker:start-local)
+ * for the discovery run to land.
  *
  * Usage (from repo root):
  *   npm run schedule:install-local
@@ -26,7 +25,11 @@ import { homedir, platform } from "os";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { parseDotEnv, sanitizeSecret } from "./lib/env.mjs";
-import { writeScheduleBreadcrumb } from "./lib/schedule.mjs";
+import {
+  normalizeSheetIdCandidate,
+  readWorkerConfigSheetId,
+  writeScheduleBreadcrumb,
+} from "./lib/schedule.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
@@ -51,6 +54,11 @@ const logPath = join(
   "state",
   "launchd-refresh.log",
 );
+const scheduledDiscoveryScriptPath = join(
+  repoRoot,
+  "scripts",
+  "run-scheduled-discovery.mjs",
+);
 const LABEL = "com.jobbored.refresh";
 
 function fail(message, code = 1) {
@@ -72,6 +80,7 @@ Options:
   --hour N      Hour of day to fire (0-23, local time). Default: 8.
   --minute N    Minute of hour to fire (0-59). Default: 0.
   --port N      Worker port. Default: BROWSER_USE_DISCOVERY_PORT in .env or 8644.
+  --sheet-id ID Sheet ID to pin into the scheduled refresh request.
   --force       Overwrite an existing agent plist without prompting.
   --help        Show this message.
 
@@ -86,6 +95,7 @@ function parseArgs(argv) {
     hour: 8,
     minute: 0,
     port: null,
+    sheetId: "",
     force: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -96,9 +106,14 @@ function parseArgs(argv) {
       continue;
     }
     const next = argv[i + 1];
-    if (arg === "--hour" || arg === "--minute" || arg === "--port") {
+    if (arg === "--hour" || arg === "--minute" || arg === "--port" || arg === "--sheet-id") {
       if (next === undefined || next.startsWith("--")) {
         fail(`missing value for ${arg}`);
+      }
+      if (arg === "--sheet-id") {
+        out.sheetId = String(next).trim();
+        i += 1;
+        continue;
       }
       const n = Number(next);
       if (!Number.isInteger(n)) fail(`${arg} must be an integer`);
@@ -159,7 +174,13 @@ function main() {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     fail(`resolved port is invalid: ${port}`);
   }
-  const workerUrl = `http://127.0.0.1:${port}/discovery-profile`;
+  const workerUrl = `http://127.0.0.1:${port}/webhook`;
+  const sheetId =
+    normalizeSheetIdCandidate(args.sheetId) ||
+    normalizeSheetIdCandidate(env.BROWSER_USE_DISCOVERY_SHEET_ID) ||
+    normalizeSheetIdCandidate(env.JOBBORED_SHEET_ID) ||
+    normalizeSheetIdCandidate(env.SHEET_ID) ||
+    readWorkerConfigSheetId();
 
   if (existsSync(agentPath) && !args.force) {
     fail(
@@ -173,8 +194,10 @@ function main() {
 
   const template = readFileSync(templatePath, "utf8");
   const rendered = renderTemplate(template, {
-    SECRET: secret,
-    WORKER_URL: workerUrl,
+    NODE_PATH: process.execPath,
+    SCRIPT_PATH: scheduledDiscoveryScriptPath,
+    PORT: port,
+    SHEET_ID: sheetId,
     LOG_PATH: logPath,
     HOUR: args.hour,
     MINUTE: args.minute,
@@ -197,6 +220,7 @@ function main() {
     hour: args.hour,
     minute: args.minute,
     port,
+    sheetId,
   });
 
   console.log("schedule:install-local: OK");

@@ -80,36 +80,9 @@
     return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
   }
 
-  function relativeTime(ts) {
-    var diff = Date.now() - ts;
-    if (diff < 60 * 60 * 1000) return Math.max(1, Math.round(diff / (60 * 1000))) + "m ago";
-    if (diff < 24 * 60 * 60 * 1000) return Math.round(diff / (60 * 60 * 1000)) + "h ago";
-    var d = Math.round(diff / (24 * 60 * 60 * 1000));
-    if (d <= 1) return "yesterday";
-    return d + "d ago";
-  }
-
   /* -------------------- empty-state -------------------- */
 
   function renderEmpty(region) {
-    var recents = (root.JobBoredFlowing && root.JobBoredFlowing.recents && root.JobBoredFlowing.recents.list()) || [];
-    var recentsHtml = "";
-    if (recents.length) {
-      recentsHtml = '' +
-        '<div class="jb-recents">' +
-          '<div class="jb-recents__eyebrow">RECENTLY OPENED · LAST 7 DAYS</div>' +
-          '<div class="jb-recents__row">' +
-            recents.map(function (r) {
-              return '<button type="button" class="jb-recent-chip" data-recent-key="' + escapeHtml(r.jobKey) + '">' +
-                escapeHtml(r.company || "—") +
-                (r.role ? ' <span class="jb-recent-chip__co">— ' + escapeHtml(r.role) + '</span>' : "") +
-                '<span class="jb-recent-chip__when">' + escapeHtml(relativeTime(r.ts)) + '</span>' +
-              '</button>';
-            }).join("") +
-          '</div>' +
-        '</div>';
-    }
-
     region.innerHTML = '' +
       '<div class="jb-shelf">' +
         '<div class="jb-shelf__rule"></div>' +
@@ -133,8 +106,7 @@
           '<span class="jb-shelf__cta-key">⌘K</span>' +
           '<span>to search</span>' +
         '</button>' +
-      '</div>' +
-      recentsHtml;
+      '</div>';
 
     // wire up clicks
     var cta = region.querySelector('[data-shelf-cta="pipeline"]');
@@ -147,17 +119,14 @@
             pipeline.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth", block: "start" });
           } catch (e) { pipeline.scrollIntoView(); }
         }
-      });
-    }
-    var chips = region.querySelectorAll(".jb-recent-chip");
-    chips.forEach(function (chip) {
-      chip.addEventListener("click", function () {
-        var key = chip.getAttribute("data-recent-key");
-        if (key && root.JobBoredFlowing && root.JobBoredFlowing.openRole) {
-          root.JobBoredFlowing.openRole.set(key);
+        var pipelineApi = root.JobBoredPipeline;
+        if (pipelineApi && typeof pipelineApi.focusSearch === "function") {
+          root.setTimeout(function () {
+            pipelineApi.focusSearch({ select: true });
+          }, 80);
         }
       });
-    });
+    }
   }
 
   /* -------------------- dossier — mirrors right-hand .detail-drawer -------------------- */
@@ -385,20 +354,12 @@
       '</div>' +
       '<div class="dossier">' +
         '<article class="brief" data-mount="brief"></article>' +
-        '<div class="mode-divider">' +
-          '<div class="mode-divider__rule"></div>' +
-          '<div class="mode-divider__label">THE <em>workshop</em> · YOUR MOVES</div>' +
-          '<div class="mode-divider__rule"></div>' +
-        '</div>' +
-        '<aside class="workshop" data-mount="workshop"></aside>' +
       '</div>';
 
     var briefMount = region.querySelector('[data-mount="brief"]');
-    var workshopMount = region.querySelector('[data-mount="workshop"]');
     if (briefMount && root.JobBoredDossierBrief && typeof root.JobBoredDossierBrief.renderBrief === "function") {
       root.JobBoredDossierBrief.renderBrief(briefMount, vm);
     }
-    if (workshopMount && root.JobBoredDossierWorkshop && typeof root.JobBoredDossierWorkshop.renderWorkshop === "function") root.JobBoredDossierWorkshop.renderWorkshop(workshopMount, vm);
 
     wireDossier(region, job);
   }
@@ -475,6 +436,13 @@
     renderForKey(null);
   }
 
+  function rerenderOpenRole() {
+    var key = root.JobBoredFlowing
+      && root.JobBoredFlowing.openRole
+      && root.JobBoredFlowing.openRole.get();
+    if (key) renderForKey(key);
+  }
+
   function init() {
     if (!shouldRun()) {
       // Watch for flag flip
@@ -488,6 +456,25 @@
     renderForKey(key);
     root.addEventListener("jb:role:opened", onOpened);
     root.addEventListener("jb:role:closed", onClosed);
+    /* Cached enrichments are restored when app.js renders the Pipeline.
+       If a role was already open (for example after a hard reload with a
+       #role hash), re-read the freshly-rendered card data-* attrs so the
+       Dossier does not stay on its pre-hydration basic view. */
+    if (document && document.addEventListener) {
+      document.addEventListener("jb:pipeline:rendered", rerenderOpenRole);
+    }
+    /* When app.js finishes scrape + Gemini enrichment for a role, the
+       kanban-card's data-* attributes are refreshed; re-render the
+       Dossier so it picks up the new AI fields. */
+    root.addEventListener("jb:role:enriched", function (e) {
+      var k = e && e.detail && e.detail.jobKey;
+      var openKey = root.JobBoredFlowing
+        && root.JobBoredFlowing.openRole
+        && root.JobBoredFlowing.openRole.get();
+      if (k != null && String(k) === String(openKey)) {
+        renderForKey(openKey);
+      }
+    });
   }
 
   if (document.readyState === "loading") {

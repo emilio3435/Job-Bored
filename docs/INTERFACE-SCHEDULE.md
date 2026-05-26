@@ -135,7 +135,7 @@ When no schedule is saved yet: `{ok:true, schedule:{enabled:false}, installed:fa
 
 ## 3. CLI: cross-platform installer
 
-**Entry point:** `npm run schedule:install -- --hour <0-23> --minute <0-59>`
+**Entry point:** `npm run schedule:install -- --hour <0-23> --minute <0-59> [--sheet-id SHEET_ID]`
 
 **Flags (identical across OSes — the dispatcher enforces a single UX):**
 
@@ -144,6 +144,7 @@ When no schedule is saved yet: `{ok:true, schedule:{enabled:false}, installed:fa
 | `--hour` | int 0-23 | `8` | Local time. |
 | `--minute` | int 0-59 | `0` |  |
 | `--port` | int 1-65535 | from `BROWSER_USE_DISCOVERY_PORT` in `.env` or `8644` | Used to build the localhost URL for the scheduled POST. |
+| `--sheet-id` | string | from `.env` or worker config | Pins the scheduled refresh to the correct Google Sheet. |
 | `--force` | flag | false | Overwrite an existing artifact without prompting. |
 | `--help` / `-h` | flag | — | Print usage and exit 0. |
 
@@ -181,7 +182,8 @@ When no schedule is saved yet: `{ok:true, schedule:{enabled:false}, installed:fa
   "artifactPath": "<absolute path to the plist / .timer / schtasks task name>",
   "hour": 8,
   "minute": 0,
-  "port": 8644
+  "port": 8644,
+  "sheetId": "1abc..."
 }
 ```
 

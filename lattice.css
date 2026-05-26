@@ -139,6 +139,10 @@ body.jb-v2 [data-region="lattice"] .jb-lat__board {
   scrollbar-color: var(--jb-line) transparent;
 }
 
+body.jb-v2 [data-region="lattice"] .jb-lat__board[data-focus-stage] {
+  display: flex;
+}
+
 body.jb-v2 [data-region="lattice"] .jb-lat__board::-webkit-scrollbar {
   height: 10px;
 }
@@ -161,6 +165,34 @@ body.jb-v2 [data-region="lattice"] .jb-lat__col {
   max-height: 72vh;
   min-height: 220px;
   position: relative;
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__board[data-focus-stage] .jb-lat__col {
+  flex: 0 0 56px;
+  overflow: hidden;
+  transition: flex-basis var(--jb-transition-base),
+              background var(--jb-transition-fast);
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__board[data-focus-stage] .jb-lat__col--focused {
+  flex: 1 0 min(560px, 72vw);
+  background: var(--jb-surface-raised);
+  border-top-style: solid;
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__col--collapsed .jb-lat__col-head {
+  flex-direction: column;
+  align-items: center;
+  min-height: 220px;
+  border-bottom: 0;
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__col--collapsed .jb-lat__col-count {
+  padding-inline: 6px;
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__col--collapsed .jb-lat__list {
+  display: none;
 }
 
 body.jb-v2 [data-region="lattice"] .jb-lat__col[data-drop-active="true"] {
@@ -227,6 +259,27 @@ body.jb-v2 [data-region="lattice"] .jb-lat__card {
   overflow: hidden;
 }
 
+body.jb-v2 [data-region="lattice"] .jb-lat__card[data-selected="true"] {
+  outline: 1.5px solid var(--jb-amber);
+  box-shadow: var(--jb-shadow-sticker);
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__col--focused .jb-lat__card:not([data-selected="true"]) {
+  max-height: 68px;
+  opacity: 0.72;
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__col--focused .jb-lat__card:not([data-selected="true"]):hover {
+  opacity: 0.9;
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__col--focused .jb-lat__card:not([data-selected="true"]) .jb-lat__company,
+body.jb-v2 [data-region="lattice"] .jb-lat__col--focused .jb-lat__card:not([data-selected="true"]) .jb-lat__meta,
+body.jb-v2 [data-region="lattice"] .jb-lat__col--focused .jb-lat__card:not([data-selected="true"]) .jb-lat__foot,
+body.jb-v2 [data-region="lattice"] .jb-lat__col--focused .jb-lat__card:not([data-selected="true"]) .jb-lat__detail {
+  display: none;
+}
+
 body.jb-v2 [data-region="lattice"] .jb-lat__card:focus-visible {
   outline: none;
   box-shadow: var(--jb-shadow-focus), var(--jb-shadow-sticker);
@@ -247,7 +300,7 @@ body.jb-v2 [data-region="lattice"] .jb-lat__card[aria-grabbed="true"] {
 /* Card head: avatar + title + fit ring. */
 body.jb-v2 [data-region="lattice"] .jb-lat__card-head {
   display: grid;
-  grid-template-columns: 28px 1fr auto;
+  grid-template-columns: 28px 1fr auto auto;
   align-items: start;
   gap: 10px;
 }
@@ -291,6 +344,56 @@ body.jb-v2 [data-region="lattice"] .jb-lat__company {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__fav {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-pill);
+  background: var(--jb-paper);
+  color: var(--jb-ink-3);
+  font-family: var(--jb-font-body);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--jb-transition-fast),
+              border-color var(--jb-transition-fast),
+              color var(--jb-transition-fast),
+              transform var(--jb-transition-fast);
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__fav:hover,
+body.jb-v2 [data-region="lattice"] .jb-lat__fav[aria-pressed="true"] {
+  background: var(--jb-amber-soft);
+  border-color: var(--jb-amber);
+  color: var(--jb-ink);
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__fav:hover {
+  transform: translateY(-1px);
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__fav:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__col--focused .jb-lat__card[data-selected="true"] {
+  max-height: none;
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__col--focused .jb-lat__card[data-selected="true"] .jb-lat__title {
+  display: block;
+  overflow: visible;
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__col--focused .jb-lat__card[data-selected="true"] .jb-lat__company {
+  white-space: normal;
+  overflow: visible;
 }
 
 /* Meta row: location + comp. */
@@ -375,6 +478,206 @@ body.jb-v2 [data-region="lattice"] .jb-lat__age {
   flex: 0 0 auto;
 }
 
+body.jb-v2 [data-region="lattice"] .jb-lat__detail {
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1px dashed var(--jb-line-soft);
+  font-size: var(--jb-text-xs);
+  line-height: 1.45;
+  color: var(--jb-ink-2);
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   Rich lattice card (flag: jb_latticeRichCard, default on)
+   ──────────────────────────────────────────────────────────────────
+   Additive Linear-style detail rows + stage rail. Every new sub-element
+   only renders when its data is present, so a bare card still collapses
+   to the original layout. Tokens only — no ad-hoc hex.
+
+   Implementation notes:
+   - Stage rail is a ::before pseudo with absolute positioning, NOT a
+     box-shadow. The .jb-sticker primitive owns box-shadow and overrides
+     it on hover/focus/dragging/selected — using ::before guarantees the
+     rail survives every interactive state.
+   - The card has its own internal padding (sticker primitive), so the
+     rail is anchored at left: 0 inside the border-radius.
+   ────────────────────────────────────────────────────────────────── */
+
+body.jb-v2 [data-region="lattice"] .jb-lat__card--rich {
+  --jb-lat-stage: var(--jb-ink-3);
+  /* Make room for the stage rail without shifting the existing layout
+     (the sticker has 14px horizontal padding already, plenty of breathing
+     room for a 3px rail). */
+}
+body.jb-v2 [data-region="lattice"] .jb-lat__card--rich::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--jb-lat-stage);
+  border-top-left-radius: inherit;
+  border-bottom-left-radius: inherit;
+  pointer-events: none;
+}
+
+/* Stage palette — single source of truth. The matching ::before above
+   reads --jb-lat-stage. */
+body.jb-v2 [data-region="lattice"] .jb-lat__card--rich.jb-lat__card--stage-new          { --jb-lat-stage: var(--jb-ink-3); }
+body.jb-v2 [data-region="lattice"] .jb-lat__card--rich.jb-lat__card--stage-researching  { --jb-lat-stage: var(--jb-violet); }
+body.jb-v2 [data-region="lattice"] .jb-lat__card--rich.jb-lat__card--stage-applied      { --jb-lat-stage: var(--jb-amber); }
+body.jb-v2 [data-region="lattice"] .jb-lat__card--rich.jb-lat__card--stage-phone-screen { --jb-lat-stage: var(--jb-cyan); }
+body.jb-v2 [data-region="lattice"] .jb-lat__card--rich.jb-lat__card--stage-interviewing { --jb-lat-stage: var(--jb-mint); }
+body.jb-v2 [data-region="lattice"] .jb-lat__card--rich.jb-lat__card--stage-offer        { --jb-lat-stage: var(--jb-mint-deep); }
+body.jb-v2 [data-region="lattice"] .jb-lat__card--rich.jb-lat__card--stage-rejected     { --jb-lat-stage: var(--jb-rose); }
+body.jb-v2 [data-region="lattice"] .jb-lat__card--rich.jb-lat__card--stage-passed       { --jb-lat-stage: var(--jb-ink-3); }
+body.jb-v2 [data-region="lattice"] .jb-lat__card--rich.jb-lat__card--stage-expired      { --jb-lat-stage: var(--jb-ink-3); }
+
+/* Identity strip — stage chip + seniority + source, sits directly under
+   the head. This is the row that gives every card scannable structure
+   even when no enrichment has run. */
+body.jb-v2 [data-region="lattice"] .jb-lat__strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__stage-chip {
+  --chip-bg: var(--jb-paper-2);
+  --chip-fg: var(--jb-ink-2);
+  --chip-border: var(--jb-line-soft);
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--jb-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--chip-fg);
+  background: var(--chip-bg);
+  border: 1px solid var(--chip-border);
+  border-radius: var(--jb-radius-pill);
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+/* Per-stage chip colors — soft tint backgrounds reusing existing tokens.
+   Falls back to muted neutral for stages without a brand color. */
+body.jb-v2 [data-region="lattice"] .jb-lat__stage-chip--researching  { --chip-bg: var(--jb-violet-soft); --chip-fg: var(--jb-violet);    --chip-border: var(--jb-violet); }
+body.jb-v2 [data-region="lattice"] .jb-lat__stage-chip--applied      { --chip-bg: var(--jb-amber-soft);  --chip-fg: var(--jb-ink);       --chip-border: var(--jb-amber); }
+body.jb-v2 [data-region="lattice"] .jb-lat__stage-chip--phone-screen { --chip-bg: var(--jb-paper-2);     --chip-fg: var(--jb-cyan);      --chip-border: var(--jb-cyan); }
+body.jb-v2 [data-region="lattice"] .jb-lat__stage-chip--interviewing { --chip-bg: var(--jb-mint-soft);   --chip-fg: var(--jb-mint-deep); --chip-border: var(--jb-mint-deep); }
+body.jb-v2 [data-region="lattice"] .jb-lat__stage-chip--offer        { --chip-bg: var(--jb-mint-soft);   --chip-fg: var(--jb-mint-deep); --chip-border: var(--jb-mint-deep); }
+body.jb-v2 [data-region="lattice"] .jb-lat__stage-chip--rejected     { --chip-bg: var(--jb-paper-2);     --chip-fg: var(--jb-rose);      --chip-border: var(--jb-rose); }
+
+body.jb-v2 [data-region="lattice"] .jb-lat__seniority {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--jb-font-body);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--jb-ink-2);
+  background: transparent;
+  border: 1px dashed var(--jb-line-soft);
+  border-radius: var(--jb-radius-pill);
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+body.jb-v2 [data-region="lattice"] .jb-lat__source {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--jb-font-mono);
+  font-size: 10px;
+  color: var(--jb-ink-3);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.jb-v2 [data-region="lattice"] .jb-lat__source::before {
+  content: "↳";
+  margin-right: 3px;
+  opacity: 0.7;
+}
+
+/* AI one-line role hook — italic, 2-line clamp, sits between strip and meta. */
+body.jb-v2 [data-region="lattice"] .jb-lat__hook {
+  margin: 8px 0 0;
+  font-family: var(--jb-font-body);
+  font-style: italic;
+  font-size: var(--jb-text-xs);
+  line-height: 1.4;
+  color: var(--jb-ink-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Inline employment tag inside .jb-lat__meta (location/salary row). */
+body.jb-v2 [data-region="lattice"] .jb-lat__tag {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--jb-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  color: var(--jb-ink-3);
+  background: var(--jb-paper-2);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-pill);
+  padding: 1px 7px;
+  white-space: nowrap;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Must-have keyword row — own line, flex-wrap, NOT inside the
+   max-height-clipped chips container. AI-derived "what the role wants". */
+body.jb-v2 [data-region="lattice"] .jb-lat__musts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+body.jb-v2 [data-region="lattice"] .jb-lat__must {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--jb-font-body);
+  font-weight: 500;
+  font-size: 10px;
+  color: var(--jb-mint-deep);
+  background: var(--jb-mint-soft);
+  border: 1px solid var(--jb-mint-deep);
+  border-radius: var(--jb-radius-pill);
+  padding: 1px 7px;
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* In focused-column compact mode, hide the new rows along with the
+   existing meta/foot/detail so collapsed cards stay one-line. */
+body.jb-v2 [data-region="lattice"] .jb-lat__col--focused
+  .jb-lat__card:not([data-selected="true"]) .jb-lat__strip,
+body.jb-v2 [data-region="lattice"] .jb-lat__col--focused
+  .jb-lat__card:not([data-selected="true"]) .jb-lat__hook,
+body.jb-v2 [data-region="lattice"] .jb-lat__col--focused
+  .jb-lat__card:not([data-selected="true"]) .jb-lat__musts {
+  display: none;
+}
+
+/* Dragging — fade the stage rail slightly so it doesn't fight the drag
+   transform's tilt. */
+body.jb-v2 [data-region="lattice"] .jb-lat__card--rich[data-dragging="true"]::before {
+  opacity: 0.55;
+}
+
 /* Drop placeholder line shown between cards while dragging. */
 body.jb-v2 [data-region="lattice"] .jb-lat__drop-line {
   height: 0;
@@ -444,5 +747,9 @@ body.jb-v2 [data-region="lattice"] .jb-lat__live {
 @media (max-width: 600px) {
   body.jb-v2 [data-region="lattice"] .jb-lat__board {
     grid-auto-columns: minmax(248px, 84vw);
+  }
+
+  body.jb-v2 [data-region="lattice"] .jb-lat__board[data-focus-stage] .jb-lat__col--focused {
+    flex-basis: min(440px, 86vw);
   }
 }

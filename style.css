@@ -6369,6 +6369,31 @@ select.drawer-prop__val {
   z-index: 1;
 }
 
+.btn-expired-review {
+  position: relative;
+}
+
+.expired-review-count {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #c2410c;
+  color: #fffaf0;
+  border: 1px solid var(--surface);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
 a.btn-materials {
   text-decoration: none;
   color: inherit;
@@ -6491,6 +6516,183 @@ a.btn-materials {
 
 .settings-modal-lede {
   margin-bottom: var(--space-3);
+}
+
+.expired-review-modal {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(89, 203, 137, 0.16), transparent 32rem),
+    rgba(15, 23, 42, 0.48);
+}
+
+.expired-review-card {
+  max-width: min(760px, calc(100vw - 2rem));
+  padding: 0;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+}
+
+.expired-review-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-5) var(--space-3);
+  background:
+    linear-gradient(135deg, rgba(89, 203, 137, 0.16), rgba(245, 158, 11, 0.08)),
+    var(--surface);
+  border-bottom: 1px solid var(--divider);
+}
+
+.expired-review-card__kicker {
+  margin: 0 0 var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+
+.expired-review-card__head h3 {
+  margin: 0;
+  font-size: clamp(1.2rem, 2vw, 1.7rem);
+  color: var(--text);
+  letter-spacing: -0.03em;
+}
+
+.expired-review-card__lede {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  border-bottom: 1px solid var(--divider);
+}
+
+.expired-review-list {
+  max-height: min(58vh, 520px);
+  overflow-y: auto;
+  padding: var(--space-3);
+  background: var(--surface-2);
+}
+
+.expired-review-empty {
+  margin: 0;
+  padding: var(--space-5);
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.expired-review-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.expired-review-item + .expired-review-item {
+  margin-top: var(--space-2);
+}
+
+.expired-review-item__title {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--text);
+  line-height: 1.25;
+}
+
+.expired-review-item__company,
+.expired-review-item__meta {
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.expired-review-item__reason {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #92400e;
+  border: 1px solid rgba(245, 158, 11, 0.26);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+.expired-review-item__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.expired-review-item__link,
+.expired-review-item__ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.expired-review-item__link {
+  color: var(--text-inverse);
+  background: var(--jb-navy, var(--accent-text));
+  border: 1px solid var(--jb-navy, var(--accent-text));
+}
+
+body.jb-v2 .expired-review-item__link {
+  color: var(--jb-ink-inverse);
+}
+
+.expired-review-item__ghost {
+  color: var(--accent-text);
+  background: transparent;
+  border: 1px solid rgba(89, 203, 137, 0.35);
+}
+
+.expired-review-item__link:hover,
+.expired-review-item__ghost:hover {
+  opacity: 0.92;
+}
+
+@media (max-width: 640px) {
+  .expired-review-card__head,
+  .expired-review-card__lede {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+
+  .expired-review-item {
+    grid-template-columns: 1fr;
+  }
+
+  .expired-review-item__actions {
+    justify-content: stretch;
+  }
+
+  .expired-review-item__link,
+  .expired-review-item__ghost {
+    flex: 1 1 100%;
+  }
 }
 
 .settings-theme-nav {
@@ -12078,6 +12280,63 @@ a.btn-materials {
   .runs-error-cell {
     max-width: 12rem;
   }
+}
+
+/* ============================================
+   Discovery drawer — sub-tabs
+   ============================================ */
+.discovery-subtabs {
+  position: sticky;
+  top: 76px;
+  z-index: 9;
+  display: flex;
+  gap: 4px;
+  padding: 8px var(--space-4) 0;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.discovery-subtab {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-muted, #555);
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  border-radius: 0;
+  transition: color 120ms ease, border-color 120ms ease;
+  white-space: nowrap;
+}
+.discovery-subtab:hover {
+  color: var(--text, #111);
+}
+.discovery-subtab:focus-visible {
+  outline: 2px solid var(--accent, #59cb89);
+  outline-offset: 2px;
+}
+.discovery-subtab[aria-selected="true"] {
+  color: var(--accent, #047857);
+  border-bottom-color: var(--accent, #047857);
+  font-weight: 600;
+}
+.discovery-subtab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.discovery-subtab-panel[hidden] {
+  display: none;
+}
+.discovery-history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 /* ============================================

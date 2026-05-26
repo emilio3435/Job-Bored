@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -104,6 +105,17 @@ function makeDependencies(runtimeConfigOverrides = {}) {
   };
 }
 
+function makeServiceAccountJson() {
+  const { privateKey } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+  });
+  return JSON.stringify({
+    client_email: "worker@example.iam.gserviceaccount.com",
+    private_key: privateKey.export({ type: "pkcs8", format: "pem" }),
+    token_uri: "https://oauth2.googleapis.com/token",
+  });
+}
+
 test("validateSheetsCredentialReadiness reports missing service-account files explicitly", async () => {
   const tempDir = await mkdtemp(join(tmpdir(), "job-bored-credential-readiness-"));
   try {
@@ -191,6 +203,73 @@ test("validateSheetsCredentialReadiness rejects revoked OAuth token files when r
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
+});
+
+test("validateSheetsCredentialReadiness verifies service-account token exchange and sheet access", async () => {
+  const calls: Array<{ url: string; method: string }> = [];
+  const status = await validateSheetsCredentialReadiness(
+    {
+      ...baseRuntimeConfig,
+      googleServiceAccountJson: makeServiceAccountJson(),
+    },
+    {
+      sheetId: "sheet_active_123",
+      fetchImpl: async (input, init = {}) => {
+        const url = String(input);
+        const method = String(init.method || "GET").toUpperCase();
+        calls.push({ url, method });
+        if (url.includes("oauth2.googleapis.com/token")) {
+          return new Response(JSON.stringify({ access_token: "active-token" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        assert.match(url, /sheets\.googleapis\.com/);
+        assert.match(url, /sheet_active_123/);
+        assert.equal(init.headers?.["Authorization"], "Bearer active-token");
+        return new Response(JSON.stringify({ spreadsheetId: "sheet_active_123" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    },
+  );
+
+  assert.equal(status.configured, true);
+  assert.equal(status.source, "service_account_json");
+  assert.equal(status.active, true);
+  assert.equal(status.sheetAccess, "verified");
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].method, "POST");
+  assert.equal(calls[1].method, "GET");
+});
+
+test("validateSheetsCredentialReadiness fails service-account readiness when sheet is not shared", async () => {
+  const status = await validateSheetsCredentialReadiness(
+    {
+      ...baseRuntimeConfig,
+      googleServiceAccountJson: makeServiceAccountJson(),
+    },
+    {
+      sheetId: "sheet_denied_123",
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("oauth2.googleapis.com/token")) {
+          return new Response(JSON.stringify({ access_token: "active-token" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response("permission denied", { status: 403 });
+      },
+    },
+  );
+
+  assert.equal(status.configured, false);
+  assert.equal(status.source, "service_account_json");
+  assert.match(status.message || "", /cannot access/i);
+  assert.match(status.detail || "", /HTTP 403/);
+  assert.match(status.remediation || "", /share the target Sheet/i);
 });
 
 test("handleDiscoveryWebhook fails fast when a configured service-account file is missing", async () => {

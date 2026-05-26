@@ -13,6 +13,7 @@ import {
   formatWebhookAck,
   handleDiscoveryWebhook,
 } from "../../src/webhook/handle-discovery-webhook.ts";
+import { hasValidRunStatusToken } from "../../src/webhook/run-status-auth.ts";
 
 // Shared header value used in tests that need to bypass auth validation.
 // Uses obviously fake placeholder literals that avoid secret-like keywords.
@@ -740,6 +741,98 @@ test("handleDiscoveryWebhook persists failed async outcomes for later inspection
   assert.match(stored.error, /grounded_web was skipped/i);
 });
 
+test("handleDiscoveryWebhook does not let late async success overwrite timeout terminalization", async () => {
+  let releaseRun;
+  const backgroundRun = new Promise((resolve) => {
+    releaseRun = resolve;
+  });
+  const dependencies = makeDependencies({
+    runSynchronously: false,
+    maxRunDurationMs: 1,
+    runDiscovery: async (_request, trigger, dependencies) => {
+      await backgroundRun;
+      return {
+        run: {
+          runId: dependencies.runId || "run_timeout",
+          trigger,
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_123",
+            variationKey: "var_123",
+            requestedAt: "2026-04-09T12:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_123",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["greenhouse"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_123",
+            requestedAt: "2026-04-09T12:00:00.000Z",
+          },
+        },
+        lifecycle: {
+          runId: dependencies.runId || "run_timeout",
+          trigger,
+          startedAt: "2026-04-09T12:00:00.000Z",
+          completedAt: "2026-04-09T12:00:01.000Z",
+          state: "completed",
+          companyCount: 0,
+          detectionCount: 0,
+          listingCount: 0,
+          normalizedLeadCount: 0,
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "sheet_123",
+          appended: 0,
+          updated: 0,
+          skippedDuplicates: 0,
+          skippedBlacklist: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    makeRequestWithSecret(SHARED_HEADER_VALUE),
+    dependencies,
+  );
+
+  assert.equal(response.status, 202);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const timedOut = dependencies.runStatusStore.get("run_queued");
+  assert.equal(timedOut.status, "partial");
+  assert.equal(timedOut.terminal, true);
+  assert.match(timedOut.message, /force-terminalized/i);
+
+  releaseRun();
+  await backgroundRun;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const afterLateSuccess = dependencies.runStatusStore.get("run_queued");
+  assert.equal(afterLateSuccess.status, "partial");
+  assert.match(afterLateSuccess.message, /force-terminalized/i);
+});
+
 test("VAL-LOOP-CROSS-006: handleDiscoveryWebhook async zero-lead browser_only runs do not fail with canonicalUrl is required", async () => {
   const rawMemoryStore = createDiscoveryMemoryStore(":memory:");
 
@@ -861,10 +954,11 @@ test("VAL-LOOP-CROSS-006: handleDiscoveryWebhook async zero-lead browser_only ru
     const groundedSource = (stored.sources || []).find((entry) => entry.sourceId === "grounded_web");
     assert.ok(groundedSource, "expected grounded_web source summary in terminal status");
     assert.ok(
-      (groundedSource.warnings || []).some((warning) =>
-        /memory persistence skipped/i.test(String(warning)) && /canonicalurl/i.test(String(warning))
+      (groundedSource.diagnostics || []).some((diagnostic) =>
+        /canonicalurl/i.test(String(diagnostic.context)) &&
+          /zero accepted leads/i.test(String(diagnostic.context))
       ),
-      `expected canonicalUrl skip warning in terminal source summary, saw: ${JSON.stringify(groundedSource)}`,
+      `expected canonicalUrl diagnostic in terminal source summary, saw: ${JSON.stringify(groundedSource)}`,
     );
   } finally {
     rawMemoryStore.close();
@@ -1308,6 +1402,145 @@ test("handleDiscoveryWebhook routes per-request googleAccessToken into the run d
   assert.equal(
     factoryCalledWith.googleAccessToken,
     "test-access-token-dashboard-gis",
+  );
+});
+
+test("handleDiscoveryWebhook routes per-request googleAccessToken into DiscoveryRuns logger", async () => {
+  const scopedLogger = {
+    append: async () => ({ ok: true, created: false }),
+  };
+  let loggerFactoryConfig = null;
+  let observedLogger = null;
+  const dependencies = makeDependencies({
+    runSynchronously: true,
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+        googleAccessToken: "",
+      },
+      discoveryRunsLogger: {
+        append: async () => ({ ok: false, reason: "base logger should not be used" }),
+      },
+    },
+    runDiscovery: async (_request, _trigger, deps) => {
+      observedLogger = deps.discoveryRunsLogger;
+      return {
+        run: {
+          runId: "run_logger",
+          trigger: "manual",
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_123",
+            variationKey: "var_123",
+            requestedAt: "2026-04-09T12:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_123",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["greenhouse"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_123",
+            requestedAt: "2026-04-09T12:00:00.000Z",
+          },
+        },
+        lifecycle: {
+          runId: "run_logger",
+          trigger: "manual",
+          startedAt: "2026-04-09T12:00:00.000Z",
+          completedAt: "2026-04-09T12:00:01.000Z",
+          state: "completed",
+          companyCount: 0,
+          detectionCount: 0,
+          listingCount: 0,
+          normalizedLeadCount: 0,
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "sheet_123",
+          appended: 0,
+          updated: 0,
+          skippedDuplicates: 0,
+          skippedBlacklist: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        googleAccessToken: "test-access-token-for-runs-log",
+      }),
+    },
+    {
+      ...dependencies,
+      createPipelineWriterForRequest(runtimeConfigOverride) {
+        return dependencies.runDependencies.pipelineWriter;
+      },
+      createDiscoveryRunsLoggerForRequest(runtimeConfigOverride) {
+        loggerFactoryConfig = runtimeConfigOverride;
+        return scopedLogger;
+      },
+    },
+  );
+
+  assert.equal(response.status, 200, response.body);
+  assert.equal(loggerFactoryConfig.googleAccessToken, "test-access-token-for-runs-log");
+  assert.equal(observedLogger, scopedLogger);
+});
+
+test("handleDiscoveryWebhook can include a backward-compatible status token in statusPath", async () => {
+  const response = await handleDiscoveryWebhook(
+    makeRequestWithSecret(SHARED_HEADER_VALUE),
+    makeDependencies({
+      includeRunStatusToken: true,
+      runDependencies: {
+        ...makeDependencies().runDependencies,
+        runtimeConfig: {
+          ...makeDependencies().runDependencies.runtimeConfig,
+          webhookSecret: SHARED_HEADER_VALUE,
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 202, response.body);
+  const body = JSON.parse(response.body);
+  const url = new URL(body.statusPath, "http://worker.local");
+  assert.equal(url.pathname, "/runs/run_queued");
+  assert.ok(url.searchParams.get("statusToken"));
+  assert.equal(
+    hasValidRunStatusToken({
+      webhookSecret: SHARED_HEADER_VALUE,
+      runId: "run_queued",
+      providedToken: url.searchParams.get("statusToken"),
+    }),
+    true,
   );
 });
 
@@ -2169,6 +2402,104 @@ test("VAL-API-008: accepts request when keywordsInclude is present (non-blank) e
   const body = JSON.parse(response.body);
   assert.equal(body.ok, true);
   assert.ok(body.runId, "Must have runId for valid intent");
+});
+
+test("VAL-API-008: accepts rotated searchPlan intent when top-level fields are blank", async () => {
+  let observedRequest = null;
+  const dependencies = makeDependencies({
+    runSynchronously: true,
+    runDiscovery: async (request) => {
+      observedRequest = request;
+      return {
+        run: {
+          runId: "run_search_plan",
+          trigger: "manual",
+          request,
+          config: {
+            sheetId: "sheet_123",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["greenhouse"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_123",
+            requestedAt: "2026-04-09T12:00:00.000Z",
+          },
+        },
+        lifecycle: {
+          runId: "run_search_plan",
+          trigger: "manual",
+          startedAt: "2026-04-09T12:00:00.000Z",
+          completedAt: "2026-04-09T12:00:01.000Z",
+          state: "completed",
+          companyCount: 0,
+          detectionCount: 0,
+          listingCount: 0,
+          normalizedLeadCount: 0,
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "sheet_123",
+          appended: 0,
+          updated: 0,
+          skippedDuplicates: 0,
+          skippedBlacklist: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          targetRoles: "",
+          keywordsInclude: "",
+          searchPlan: {
+            query: {
+              targetRoles: "Platform Engineer",
+              keywordsInclude: "typescript, healthcare",
+            },
+          },
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 200, response.body);
+  assert.ok(observedRequest, "runDiscovery should be called for searchPlan intent");
+  assert.equal(
+    observedRequest.discoveryProfile.searchPlan.query.targetRoles,
+    "Platform Engineer",
+  );
 });
 
 test("VAL-API-008: rejects blank-only intent with explicit AI Suggester guidance", async () => {

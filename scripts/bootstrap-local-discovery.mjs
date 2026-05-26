@@ -35,6 +35,8 @@ const browserUseDiscoveryEnvPath = join(browserUseDiscoveryDir, ".env");
 const WEBHOOK_SECRET_ENV_KEY = "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET";
 const ngrokTokenUrl = "https://dashboard.ngrok.com/get-started/your-authtoken";
 const defaultCorsOrigin = "http://localhost:8080";
+const defaultWorkerPort = 8644;
+const expectedBrowserUseWorkerService = "browser-use-discovery-worker";
 
 function printUsage(code = 0) {
   const out = code === 0 ? console.log : console.error;
@@ -79,7 +81,7 @@ function parseArgs(argv) {
   const out = {
     engine: "auto",
     routeName: "",
-    port: "",
+    port: String(process.env.BROWSER_USE_DISCOVERY_PORT || "").trim(),
     portExplicit: false,
     corsOrigin: defaultCorsOrigin,
     workerName: "",
@@ -412,21 +414,33 @@ async function sleep(ms) {
 
 async function probeHealth(healthUrl) {
   try {
-    const res = await fetch(healthUrl, { method: "GET" });
+    const res = await fetch(healthUrl, {
+      method: "GET",
+      headers: { "ngrok-skip-browser-warning": "1" },
+    });
     const data = await res.json().catch(() => ({}));
     const body = data && typeof data === "object" ? data : {};
     return {
       ok: !!res.ok && String(body.status || "").toLowerCase() === "ok",
+      reachable: true,
+      statusCode: res.status || 0,
       serviceName: String(body.service || "").trim(),
+      workerStatus: String(body.status || "").trim(),
       mode: String(body.mode || "").trim(),
       platform: String(body.platform || "").trim(),
+      body,
     };
-  } catch (_) {
+  } catch (err) {
     return {
       ok: false,
+      reachable: false,
+      statusCode: 0,
       serviceName: "",
+      workerStatus: "",
       mode: "",
       platform: "",
+      body: null,
+      error: err && err.message ? err.message : String(err || "error"),
     };
   }
 }
@@ -436,7 +450,7 @@ function isBrowserUseDiscoveryHealth(healthProbe) {
     !!healthProbe &&
     !!healthProbe.ok &&
     String(healthProbe.serviceName || "").toLowerCase() ===
-      "browser-use-discovery-worker"
+      expectedBrowserUseWorkerService
   );
 }
 
@@ -608,7 +622,7 @@ async function probeWorkerAcceptsSecret(port, secret) {
   }
 }
 
-function findWorkerPidsOnPort(port) {
+function findPidsOnPort(port) {
   const result = spawnSync("lsof", ["-tiTCP:" + port, "-sTCP:LISTEN"], {
     encoding: "utf8",
   });
@@ -619,10 +633,52 @@ function findWorkerPidsOnPort(port) {
     .filter((n) => Number.isFinite(n) && n > 0);
 }
 
-async function killWorkerProcesses(port) {
-  const pids = findWorkerPidsOnPort(port);
-  if (!pids.length) return;
-  for (const pid of pids) {
+function getProcessCommand(pid) {
+  const result = spawnSync("ps", ["-p", String(pid), "-o", "command="], {
+    encoding: "utf8",
+  });
+  return String(result.stdout || "").trim();
+}
+
+function findProcessesOnPort(port) {
+  return findPidsOnPort(port).map((pid) => ({
+    pid,
+    command: getProcessCommand(pid),
+  }));
+}
+
+function isKnownBrowserUseWorkerCommand(command) {
+  const text = String(command || "").toLowerCase();
+  return (
+    text.includes("browser-use-discovery") ||
+    text.includes("start:discovery-worker")
+  );
+}
+
+function formatPortProcessList(processes) {
+  return processes
+    .map((processInfo) => {
+      const command = processInfo.command ? ` ${processInfo.command}` : "";
+      return `PID ${processInfo.pid}${command}`;
+    })
+    .join("; ");
+}
+
+async function killKnownWorkerProcesses(port) {
+  const processes = findProcessesOnPort(port);
+  const blocked = processes.filter(
+    (processInfo) => !isKnownBrowserUseWorkerCommand(processInfo.command),
+  );
+  if (blocked.length) {
+    fail(
+      `Port ${port} is occupied by a process that is not the JobBored browser-use discovery worker: ${formatPortProcessList(blocked)}. Stop it manually or rerun with --port to use another worker port.`,
+    );
+  }
+  const known = processes.filter((processInfo) =>
+    isKnownBrowserUseWorkerCommand(processInfo.command),
+  );
+  if (!known.length) return;
+  for (const { pid } of known) {
     try {
       process.kill(pid, "SIGTERM");
     } catch (_) {
@@ -631,6 +687,20 @@ async function killWorkerProcesses(port) {
   }
   // Brief grace period so the OS releases the port before we relaunch.
   await sleep(800);
+}
+
+async function ensureWorkerPortIsFreeOrKillKnownStale(port) {
+  const processes = findProcessesOnPort(port);
+  if (!processes.length) return;
+  const blocked = processes.filter(
+    (processInfo) => !isKnownBrowserUseWorkerCommand(processInfo.command),
+  );
+  if (blocked.length) {
+    fail(
+      `Port ${port} is already in use by a non-JobBored process: ${formatPortProcessList(blocked)}. Stop it manually or rerun with --port to use another worker port.`,
+    );
+  }
+  await killKnownWorkerProcesses(port);
 }
 
 async function ensureBrowserUseWorkerHealth(port, autoStartGateway, secret) {
@@ -672,7 +742,7 @@ async function ensureBrowserUseWorkerHealth(port, autoStartGateway, secret) {
       console.log(
         `discovery:bootstrap-local: existing worker on :${port} rejected the resolved secret — restarting it with the bootstrap secret...`,
       );
-      await killWorkerProcesses(port);
+      await killKnownWorkerProcesses(port);
       // Fall through to the launch path below.
     } else {
       // Network error against /webhook but /health is fine — treat as healthy
@@ -687,12 +757,28 @@ async function ensureBrowserUseWorkerHealth(port, autoStartGateway, secret) {
         platform: initialProbe.platform,
       };
     }
+  } else if (initialProbe.reachable) {
+    const detail = [
+      initialProbe.statusCode ? `HTTP ${initialProbe.statusCode}` : "",
+      initialProbe.serviceName ? `service=${initialProbe.serviceName}` : "",
+      initialProbe.workerStatus ? `status=${initialProbe.workerStatus}` : "",
+    ]
+      .filter(Boolean)
+      .join(", ");
+    const processes = findProcessesOnPort(port);
+    const processDetail = processes.length
+      ? ` Listener: ${formatPortProcessList(processes)}.`
+      : "";
+    fail(
+      `Port ${port} answered /health but it is not the JobBored browser-use discovery worker${detail ? ` (${detail})` : ""}.${processDetail} Stop the foreign process or rerun with --port to use another worker port.`,
+    );
   }
   if (!autoStartGateway) {
     fail(
       `Local discovery health is down at ${healthUrl}. Start the browser-use worker with \`npm run discovery:worker:start-local\`, or use \`--engine hermes\` if you intentionally want the advanced Hermes path, then retry.`,
     );
   }
+  await ensureWorkerPortIsFreeOrKillKnownStale(port);
   console.log(
     "discovery:bootstrap-local: starting browser-use discovery worker...",
   );
@@ -850,12 +936,34 @@ function pickNgrokPublicUrl(tunnels, port) {
   if (httpsMatches[0] && httpsMatches[0].public_url) {
     return normalizeNgrokPublicUrl(httpsMatches[0].public_url);
   }
-  const anyHttps = tunnels.find((tunnel) =>
+  return "";
+}
+
+function describeNgrokTunnels(tunnels) {
+  const httpsTunnels = tunnels.filter((tunnel) =>
     String(tunnel && tunnel.public_url ? tunnel.public_url : "").startsWith("https://"),
   );
-  return anyHttps && anyHttps.public_url
-    ? normalizeNgrokPublicUrl(anyHttps.public_url)
-    : "";
+  if (!httpsTunnels.length) return "";
+  return httpsTunnels
+    .map((tunnel) => {
+      const publicUrl = String(tunnel.public_url || "");
+      const addr = String(tunnel.config && tunnel.config.addr ? tunnel.config.addr : "");
+      return `${publicUrl}${addr ? ` -> ${addr}` : ""}`;
+    })
+    .join("; ");
+}
+
+async function verifyPublicWorkerIdentity(ngrokPublicUrl) {
+  const base = new URL(ngrokPublicUrl);
+  base.pathname = "/health";
+  base.search = "";
+  base.hash = "";
+  const health = await probeHealth(base.toString());
+  return {
+    ...health,
+    healthUrl: base.toString(),
+    ok: isBrowserUseDiscoveryHealth(health),
+  };
 }
 
 async function ensureNgrokPublicUrl(port, explicitPublicUrl, autoStartNgrok) {
@@ -866,9 +974,16 @@ async function ensureNgrokPublicUrl(port, explicitPublicUrl, autoStartNgrok) {
     };
   }
 
-  const existing = pickNgrokPublicUrl(await getNgrokTunnels(), port);
+  const currentTunnels = await getNgrokTunnels();
+  const existing = pickNgrokPublicUrl(currentTunnels, port);
   if (existing) {
     return { ngrokPublicUrl: existing, startedNgrok: false };
+  }
+  const existingTunnelSummary = describeNgrokTunnels(currentTunnels);
+  if (existingTunnelSummary) {
+    fail(
+      `ngrok is running, but no https:// tunnel targets port ${port}. Detected: ${existingTunnelSummary}. Stop the wrong tunnel or start one with \`ngrok http ${port}\`.`,
+    );
   }
 
   if (!autoStartNgrok) {
@@ -975,7 +1090,7 @@ async function main() {
   const enginePreference = normalizeEnginePreference(args.engine);
   ensureCommand("ngrok", ["version"]);
 
-  const defaultPort = String(args.port || "8644").trim();
+  const defaultPort = String(args.port || defaultWorkerPort).trim();
   if (!/^\d+$/.test(defaultPort)) {
     fail("--port must be numeric");
   }
@@ -1059,6 +1174,22 @@ async function main() {
     }
   }
   const publicTargetUrl = buildPublicTargetUrl(localWebhookUrl, ngrok.ngrokPublicUrl);
+  let publicHealth = null;
+  if (engineKind === "browser_use_worker") {
+    publicHealth = await verifyPublicWorkerIdentity(ngrok.ngrokPublicUrl);
+    if (!publicHealth.ok) {
+      const detail = [
+        publicHealth.statusCode ? `HTTP ${publicHealth.statusCode}` : "",
+        publicHealth.serviceName ? `service=${publicHealth.serviceName}` : "",
+        publicHealth.workerStatus ? `status=${publicHealth.workerStatus}` : "",
+      ]
+        .filter(Boolean)
+        .join(", ");
+      fail(
+        `The ngrok tunnel ${ngrok.ngrokPublicUrl} did not expose the expected browser-use discovery worker at /health${detail ? ` (${detail})` : ""}. Confirm \`ngrok http ${port}\` targets the worker port before saving relay state.`,
+      );
+    }
+  }
   const corsOrigin = normalizeCorsOrigin(args.corsOrigin);
   const sheetId = parseGoogleSheetId(args.sheetId) || readSheetIdFromConfig();
   const existingBootstrapState = readExistingBootstrapState(args.stateFile);
@@ -1123,6 +1254,7 @@ async function main() {
       localWebhookUrl,
       localHealthUrl: health.healthUrl,
       localPort: port,
+      publicHealthUrl: publicHealth && publicHealth.healthUrl ? publicHealth.healthUrl : "",
     },
     wizard: {
       version: 1,
@@ -1278,4 +1410,7 @@ export {
   writeWebhookSecretToEnvFile,
   browserUseDiscoveryEnvPath,
   WEBHOOK_SECRET_ENV_KEY,
+  pickNgrokPublicUrl,
+  tunnelMatchesPort,
+  isBrowserUseDiscoveryHealth,
 };

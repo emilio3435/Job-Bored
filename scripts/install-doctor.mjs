@@ -21,6 +21,8 @@ import childProcess from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const REQUIRED_NODE_MAJOR = 24;
+
 function run(command, args) {
   try {
     return childProcess.spawnSync(command, args, {
@@ -124,10 +126,20 @@ function buildMissing(tools) {
   }
 
   if (!tools.node.ok) {
-    missing.push("Install a working Node.js runtime.");
+    missing.push("Install Node.js 24.x.");
   }
 
   return missing;
+}
+
+function detectNode() {
+  const match = /^v?(\d+)\./.exec(String(process.version || ""));
+  const major = match ? Number(match[1]) : NaN;
+  return {
+    version: process.version,
+    ok: Number.isInteger(major) && major === REQUIRED_NODE_MAJOR,
+    required: ">=24 <25",
+  };
 }
 
 export function runInstallDoctor() {
@@ -135,7 +147,7 @@ export function runInstallDoctor() {
     gcloud: detectGcloud(),
     wrangler: detectWrangler(),
     ngrok: detectNgrok(),
-    node: { version: process.version, ok: Boolean(process.version) },
+    node: detectNode(),
   };
   const missing = buildMissing(tools);
   return {

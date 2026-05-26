@@ -43,11 +43,15 @@
     "  discovery:",
     "    runs-on: ubuntu-latest",
     "    steps:",
+    "      - uses: actions/checkout@v4",
+    "",
     "      - name: POST discovery webhook",
     "        env:",
     "          WEBHOOK_URL: ${{ secrets.COMMAND_CENTER_DISCOVERY_WEBHOOK_URL }}",
     "          SHEET_ID: ${{ secrets.COMMAND_CENTER_SHEET_ID }}",
     "          WEBHOOK_SECRET: ${{ secrets.COMMAND_CENTER_DISCOVERY_WEBHOOK_SECRET }}",
+    "          COMMAND_CENTER_DISCOVERY_PROFILE_JSON: ${{ secrets.COMMAND_CENTER_DISCOVERY_PROFILE_JSON }}",
+    "          COMMAND_CENTER_DISCOVERY_PREFERENCES_JSON: ${{ secrets.COMMAND_CENTER_DISCOVERY_PREFERENCES_JSON }}",
     "        run: |",
     "          set -euo pipefail",
     "          if [ -z \"${WEBHOOK_URL:-}\" ] || [ -z \"${SHEET_ID:-}\" ]; then",
@@ -60,21 +64,10 @@
     "            echo \"Skipping discovery: America/Chicago local time is $LOCAL_TIME, not $LOCAL_TARGET.\"",
     "            exit 0",
     "          fi",
-    "          VAR_KEY=\"gh-${{ github.run_id }}-${{ github.run_attempt }}-$(date +%s)\"",
-    "          REQ_AT=\"$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")\"",
-    "          BODY=$(jq -n \\",
-    "            --arg v \"$VAR_KEY\" \\",
-    "            --arg s \"$SHEET_ID\" \\",
-    "            --arg t \"$REQ_AT\" \\",
-    "            '{",
-    "              event: \"command-center.discovery\",",
-    "              schemaVersion: 1,",
-    "              sheetId: $s,",
-    "              variationKey: $v,",
-    "              requestedAt: $t,",
-    "              trigger: \"scheduled-github\",",
-    "              discoveryProfile: {}",
-    "            }')",
+    "          BODY=\"$(node scripts/run-scheduled-discovery.mjs \\",
+    "            --trigger scheduled-github \\",
+    "            --sheet-id \"$SHEET_ID\" \\",
+    "            --dry-run)\"",
     "          SECRET_HEADER=()",
     "          if [ -n \"${WEBHOOK_SECRET:-}\" ]; then",
     "            SECRET_HEADER=(-H \"x-discovery-secret: ${WEBHOOK_SECRET}\")",
@@ -1264,8 +1257,9 @@
   }
 
   // ── Auto-refresh while tab is open ────────────────────────────────
-  // Path A of the daily-refresh cadence options. Fires handleRefresh() at
-  // the user-selected cadence (6/12/24h) while the dashboard tab is open.
+  // Path A of the daily-refresh cadence options. Fires the shared discovery
+  // webhook path at the user-selected cadence (6/12/24h) while the dashboard
+  // tab is open.
   // State persists in localStorage so returning to the tab resumes the
   // schedule at the correct offset. Idempotent with Cloudflare cron — both
   // can be enabled; extra fires just overwrite the same company list.
@@ -1354,10 +1348,10 @@
       // a manual run that overlaps the scheduled fire.
       if (!runInFlight) {
         try {
-          await handleRefresh();
+          await handleAutoDiscoveryRefresh();
         } catch (_) {
-          // handleRefresh already surfaces errors in the UI; swallow here so
-          // the timer loop keeps running through transient failures.
+          // The run path surfaces errors in the main UI; swallow here so the
+          // timer loop keeps running through transient failures.
         }
       }
       writeAutoRefreshState({ lastFiredAt: Date.now() });
@@ -1370,6 +1364,19 @@
         scheduleAutoRefresh(current.intervalHours * 3600 * 1000);
       }
     }, wait);
+  }
+
+  async function handleAutoDiscoveryRefresh() {
+    var discoveryApi = window.JobBoredDiscovery;
+    if (
+      discoveryApi &&
+      typeof discoveryApi.triggerScheduledRun === "function"
+    ) {
+      return discoveryApi.triggerScheduledRun({
+        trigger: "scheduled-browser",
+      });
+    }
+    return handleRefresh();
   }
 
   function initAutoRefresh() {
@@ -1454,12 +1461,17 @@
     return h + ":" + m;
   }
 
-  function buildInstallCommand(platform, hour, minute) {
+  function quoteCliArg(value) {
+    return "'" + String(value || "").replace(/'/g, "'\\''") + "'";
+  }
+
+  function buildInstallCommand(platform, hour, minute, sheetId) {
     var h = clampHour(hour, 8);
     var m = clampMinute(minute, 0);
-    return (
-      "npm run schedule:install -- --hour " + String(h) + " --minute " + String(m)
-    );
+    var cmd =
+      "npm run schedule:install -- --hour " + String(h) + " --minute " + String(m);
+    if (sheetId) cmd += " --sheet-id " + quoteCliArg(sheetId);
+    return cmd;
   }
 
   function buildUninstallCommand() {
@@ -1667,6 +1679,7 @@
         platform,
         state.hour,
         state.minute,
+        resolveWebhookConfig().sheetId,
       );
     }
   }
@@ -1894,7 +1907,12 @@
       typeof navigator !== "undefined" ? navigator.userAgent : "",
       typeof navigator !== "undefined" ? navigator.platform : "",
     );
-    var cmd = buildInstallCommand(platform, state.hour, state.minute);
+    var cmd = buildInstallCommand(
+      platform,
+      state.hour,
+      state.minute,
+      resolveWebhookConfig().sheetId,
+    );
     var ok = await copyToClipboard(cmd);
     if (els.scheduleLocalCopyInstall) {
       var original = "Copy install command";

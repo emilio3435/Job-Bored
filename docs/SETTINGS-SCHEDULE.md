@@ -30,8 +30,10 @@ That's it. While the dashboard tab is open in your browser, it'll re-run discove
 3. Click **"Copy install command"** and paste it into a terminal:
 
    ```bash
-   npm run schedule:install -- --hour 8 --minute 0
+   npm run schedule:install -- --hour 8 --minute 0 --sheet-id YOUR_SHEET_ID
    ```
+
+   The copied command includes your configured Sheet ID when the dashboard can read it. If it is omitted, the installer falls back to `.env` and the local worker config.
 
 4. Done — the badge flips to green **"Installed"** next time you refresh Settings.
 
@@ -40,6 +42,7 @@ Under the hood, that one command:
 - **macOS** → writes `~/Library/LaunchAgents/com.jobbored.refresh.plist` + `launchctl load`.
 - **Linux** → writes a **systemd user timer** at `~/.config/systemd/user/jobbored-refresh.timer` (or falls back to `crontab` if systemd user activation isn't available).
 - **Windows** → registers a **Task Scheduler** task `JobBoredRefresh` that runs `scripts/windows/refresh.ps1`.
+- Each OS path runs `scripts/run-scheduled-discovery.mjs`, which builds the current `command-center.discovery` payload at fire time and posts it to the worker's `/webhook` endpoint.
 
 To uninstall: click **"Copy uninstall command"** and run `npm run schedule:uninstall`.
 
@@ -47,12 +50,14 @@ To uninstall: click **"Copy uninstall command"** and run `npm run schedule:unins
 **Requires:** the local worker running when the schedule fires (otherwise the POST fails silently — check `state/schedule-installed.json` exists).
 **Downside:** machine must be awake at fire time. Systemd's `Persistent=true` will retry after sleep; macOS/Windows will just skip a missed day.
 
+**Secret safety:** local scheduler artifacts run the repo script and read `BROWSER_USE_DISCOVERY_WEBHOOK_SECRET` from `.env` at runtime. macOS launchd, Linux systemd/crontab, and Windows Task Scheduler artifacts should still be treated as local machine config, but they no longer need to embed the webhook secret in the generated command.
+
 ### Windows walkthrough
 
-1. Install [Node.js 20+](https://nodejs.org/) and [Git for Windows](https://git-scm.com/download/win).
+1. Install [Node.js 24.x](https://nodejs.org/) and [Git for Windows](https://git-scm.com/download/win).
 2. Clone and `cd` into the repo. Open a **PowerShell** terminal.
 3. Start the local worker once so `.env` is populated: `npm run discovery:worker:start-local`.
-4. In another PowerShell window, in the repo root: `npm run schedule:install -- --hour 8 --minute 0`.
+4. In another PowerShell window, in the repo root: `npm run schedule:install -- --hour 8 --minute 0 --sheet-id YOUR_SHEET_ID`.
 5. Verify in **Task Scheduler** → Task Scheduler Library → look for `JobBoredRefresh`. Right-click → **Run** to test-fire.
 6. Uninstall with `npm run schedule:uninstall` any time.
 
@@ -73,6 +78,7 @@ This tier uses **GitHub Actions** — free for public repos, no CORS issues, run
    - Fork this repo (or use an existing fork).
    - Add repo secrets `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL` + `COMMAND_CENTER_SHEET_ID`.
    - Add `COMMAND_CENTER_DISCOVERY_WEBHOOK_SECRET` only if you post directly to the browser-use worker, or to another endpoint that enforces `x-discovery-secret`.
+   - Optional: add `COMMAND_CENTER_DISCOVERY_PROFILE_JSON` and `COMMAND_CENTER_DISCOVERY_PREFERENCES_JSON` when the public worker endpoint cannot load the profile state saved by your dashboard.
    - Upload the downloaded file to `.github/workflows/` in your fork.
 5. The **"Advisory"** badge stays on this tier — the worker cannot verify GitHub remotely, so check your fork's Actions tab to confirm the workflow is running.
 
@@ -108,4 +114,4 @@ You can enable more than one tier at once. The last tier that saved to the worke
 
 ### Known follow-ups
 
-- **Secret handling in scheduler artifacts.** The macOS launchd plist, the Linux systemd service, and the crontab entry currently embed the webhook secret directly in the scheduled command. The Windows tier already reads the secret at runtime from `.env` (the safer pattern). Before we ship publicly, the other OSes should be aligned to the Windows pattern. Tracked; not yet done.
+- **Remote profile source.** GitHub Actions and Cloudflare cron can only include profile/preferences that are available to their runtime. Use the optional JSON secrets when the remote webhook cannot load current worker-side profile state.

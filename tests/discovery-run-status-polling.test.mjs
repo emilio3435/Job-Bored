@@ -56,6 +56,98 @@ describe("discovery run status polling", () => {
       /updated\.isTerminal\(\)/,
       "getState() returns a plain object, not tracker methods",
     );
+    assert.doesNotMatch(
+      pollingSource,
+      /markFailed\(\s*["']Status polling failed/,
+      "polling transport loss must not mark the worker run as failed",
+    );
+    assert.match(pollingSource, /Lost the status connection/);
+  });
+
+  it("refreshes Pipeline data after a successful async discovery terminal status", () => {
+    const pollingStart = appJs.indexOf(
+      "async function startDiscoveryStatusPolling(",
+    );
+    assert.notEqual(pollingStart, -1, "polling loop must exist");
+    const pollingEnd = appJs.indexOf(
+      "\n}\n\n/** Stop any active polling loop",
+      pollingStart,
+    );
+    assert.notEqual(pollingEnd, -1, "polling body must be readable");
+    const pollingSource = appJs.slice(pollingStart, pollingEnd);
+
+    const refreshStart = appJs.indexOf(
+      "async function refreshPipelineAfterDiscoveryRun(",
+    );
+    assert.notEqual(refreshStart, -1, "post-discovery refresh helper must exist");
+    const refreshEnd = appJs.indexOf(
+      "\n}\n\n/**\n * Main polling loop",
+      refreshStart,
+    );
+    assert.notEqual(refreshEnd, -1, "post-discovery refresh helper must be readable");
+    const refreshSource = appJs.slice(refreshStart, refreshEnd);
+
+    assert.match(pollingSource, /await refreshPipelineAfterDiscoveryRun\(updated\)/);
+    assert.match(refreshSource, /shouldRefreshPipelineAfterDiscoveryRun\(state\)/);
+    assert.match(refreshSource, /await loadAllData\(\)/);
+    assert.match(appJs, /status === "completed"/);
+    assert.match(appJs, /status === "partial"/);
+  });
+
+  it("synthesizes /runs/:id for accepted async responses from known worker endpoints", () => {
+    assert.match(appJs, /function resolveAcceptedRunStatusPath\(/);
+    assert.match(appJs, /canSynthesizeRunStatusPath\(webhookUrl\)/);
+    assert.match(appJs, /"\/runs\/" \+ encodeURIComponent\(runId\)/);
+
+    const triggerStart = appJs.indexOf("async function triggerDiscoveryRun()");
+    assert.notEqual(triggerStart, -1, "triggerDiscoveryRun must exist");
+    const triggerEnd = appJs.indexOf(
+      "\n}\n\n/**\n * POST a test payload",
+      triggerStart,
+    );
+    const triggerSource = appJs.slice(triggerStart, triggerEnd);
+    assert.match(triggerSource, /resolveAcceptedRunStatusPath\(result, webhookUrl\)/);
+    assert.match(triggerSource, /statusUnavailable:\s*!statusPath/);
+    assert.match(triggerSource, /if \(statusPath\) \{\s*void startDiscoveryStatusPolling\(webhookUrl\);/);
+  });
+
+  it("does not synthesize tokenless hosted run status URLs when statusPath is omitted", () => {
+    const resolverStart = appJs.indexOf(
+      "function resolveAcceptedRunStatusPath(",
+    );
+    assert.notEqual(resolverStart, -1, "accepted run resolver must exist");
+    const resolverEnd = appJs.indexOf(
+      "\n}\n\nfunction isLikelyNgrokUrl",
+      resolverStart,
+    );
+    assert.notEqual(resolverEnd, -1, "accepted run resolver body must be readable");
+    const resolverSource = appJs.slice(resolverStart, resolverEnd);
+
+    assert.match(
+      resolverSource,
+      /if \(explicit\) return explicit;/,
+      "the dashboard must preserve a returned statusPath exactly, including statusToken",
+    );
+
+    const synthStart = appJs.indexOf("function canSynthesizeRunStatusPath(");
+    assert.notEqual(synthStart, -1, "status-path synthesis allowlist must exist");
+    const synthEnd = appJs.indexOf(
+      "\n}\n\nfunction resolveAcceptedRunStatusPath",
+      synthStart,
+    );
+    assert.notEqual(synthEnd, -1, "status-path synthesis allowlist body must be readable");
+    const synthSource = appJs.slice(synthStart, synthEnd);
+
+    assert.doesNotMatch(
+      synthSource,
+      /isLikelyCloudflareWorkerUrl/,
+      "hosted Worker URLs require the returned HMAC statusPath; do not synthesize tokenless /runs/:id",
+    );
+    assert.doesNotMatch(
+      synthSource,
+      /webhook\|discovery\|discovery-profile/,
+      "generic hosted webhook URLs require the returned statusPath; do not infer tokenless /runs/:id",
+    );
   });
 
   it("retries persisted failures caused by status polling after reload", () => {

@@ -38,7 +38,7 @@ describe("install doctor", () => {
         gcloud: { installed: false, loggedIn: false },
         wrangler: { installed: false, loggedIn: false },
         ngrok: { installed: false, hasAuthToken: false },
-        node: { version: process.version, ok: true },
+        node: { version: process.version, ok: true, required: ">=24 <25" },
       },
       missing: [
         "Install Google Cloud CLI (`gcloud`).",
@@ -82,7 +82,7 @@ describe("install doctor", () => {
           hasAuthToken: true,
           version: "ngrok version 3.0.0",
         },
-        node: { version: process.version, ok: true },
+          node: { version: process.version, ok: true, required: ">=24 <25" },
       },
       missing: [],
     });
@@ -115,7 +115,7 @@ describe("install doctor", () => {
           hasAuthToken: false,
           version: "ngrok version 3.0.0",
         },
-        node: { version: process.version, ok: true },
+        node: { version: process.version, ok: true, required: ">=24 <25" },
       },
       missing: [
         "Run `gcloud auth login`.",

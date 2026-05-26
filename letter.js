@@ -10,9 +10,10 @@
      - Active only when document.body has class "jb-v2".
      - Job key is read from URL hash: #letter=<jobKey>.
      - On mount + on hashchange the section re-renders.
-     - Editor is contenteditable; debounced re-score (1.2s) and
-       debounced auto-save (5s) dispatch a `jb:letter:save` event
-       on document. We never write to the Sheet ourselves.
+     - Editor is contenteditable; debounced re-score (1.2s).
+       Generated and AI-revised drafts persist through app.js's
+       IndexedDB draft library. Manual edits stay in the editor until
+       the user saves a generated/revised version.
      - Tools (Tighten / Add evidence / Honest cut / Trim), custom
        revision instructions, and per-miss "Address" buttons revise
        through app.js's generated-draft bridge.
@@ -23,7 +24,6 @@
 
   var REGION_SELECTOR = '[data-region="letter"]';
   var DEBOUNCE_SCORE_MS = 1200;
-  var DEBOUNCE_SAVE_MS = 5000;
 
   function escapeHtml(s) {
     if (s == null) return "";
@@ -155,14 +155,10 @@
     var totalCount = clDrafts.length + reDrafts.length;
     var idxAttr = ' data-index="' + escapeHtml(String(jobIdx == null ? "" : jobIdx)) + '"';
     if (!totalCount) {
-      return '' +
-        '<section class="jb-letter-folder jb-letter-folder--empty" data-region-folder' + idxAttr + '>' +
-          '<p class="jb-letter-folder__eyebrow">YOUR DRAFTS · none yet</p>' +
-          '<div class="jb-letter-folder__cta-row">' +
-            '<button type="button" class="jb-letter-folder__cta" data-action="new-cover-letter">+ Cover letter</button>' +
-            '<button type="button" class="jb-letter-folder__cta" data-action="new-resume">+ Tailor résumé</button>' +
-          '</div>' +
-        '</section>';
+      /* No drafts yet — render an empty container only. The hero CTAs
+         (Tailor / Cover) sit above and own the "start a draft" action,
+         so we don't duplicate +Cover/+Tailor here. */
+      return '<section class="jb-letter-folder jb-letter-folder--empty" hidden data-region-folder' + idxAttr + '></section>';
     }
     var clLabel = clDrafts.length + ' ' + (clDrafts.length === 1 ? "letter" : "letters");
     var reLabel = reDrafts.length + ' ' + (reDrafts.length === 1 ? "résumé" : "résumés");
@@ -187,10 +183,6 @@
       '<section class="jb-letter-folder" data-region-folder' + idxAttr + '>' +
         '<header class="jb-letter-folder__head">' +
           '<p class="jb-letter-folder__eyebrow">YOUR DRAFTS · ' + escapeHtml(clLabel) + ' · ' + escapeHtml(reLabel) + '</p>' +
-          '<div class="jb-letter-folder__cta-row">' +
-            '<button type="button" class="jb-letter-folder__cta jb-letter-folder__cta--ghost" data-action="new-cover-letter">+ Cover letter</button>' +
-            '<button type="button" class="jb-letter-folder__cta jb-letter-folder__cta--ghost" data-action="new-resume">+ Tailor résumé</button>' +
-          '</div>' +
         '</header>' +
         '<div class="jb-letter-folder__lanes">' + lanes + '</div>' +
       '</section>';
@@ -244,9 +236,9 @@
   function noJobHtml() {
     return [
       '<div class="jb-letter-empty">',
-      '  <p class="jb-letter-empty__eyebrow">LETTER</p>',
-      '  <h1 class="jb-letter-empty__headline">Open a card from the pipeline to draft a letter.</h1>',
-      '  <p class="jb-letter-empty__caption">Each role gets its own draft. Scores update as you type — keyword coverage, tone, length.</p>',
+      '  <p class="jb-letter-empty__eyebrow">WORKSHOP</p>',
+      '  <h1 class="jb-letter-empty__headline">Open a card from the pipeline to start working.</h1>',
+      '  <p class="jb-letter-empty__caption">Each role gets its own workbench — draft, score, and move the stage forward in one place.</p>',
       '</div>',
     ].join("");
   }
@@ -310,6 +302,247 @@
     ].join("");
   }
 
+  /* ---------- compose panel (prefill + tone/length + Generate) ---------- */
+
+  var TONE_OPTIONS = [
+    { value: "warm",       label: "Warm" },
+    { value: "direct",     label: "Direct" },
+    { value: "formal",     label: "Formal" },
+    { value: "confident",  label: "Confident" },
+    { value: "friendly",   label: "Friendly" },
+  ];
+  var LENGTH_OPTIONS = [
+    { value: "200", label: "Concise (~200)" },
+    { value: "350", label: "Standard (~350)" },
+    { value: "500", label: "Detailed (~500)" },
+  ];
+
+  function pipelineJobForKey(jobKey) {
+    if (typeof root.getPipelineJobByIndex !== "function") return null;
+    try { return root.getPipelineJobByIndex(jobKey); }
+    catch (e) { return null; }
+  }
+
+  function buildPrefill(pipelineJob, feature) {
+    if (!pipelineJob || typeof root.buildDraftNotesPrefill !== "function") return "";
+    try { return root.buildDraftNotesPrefill(pipelineJob, feature) || ""; }
+    catch (e) { return ""; }
+  }
+
+  function postingEnrichment(pipelineJob) {
+    return (pipelineJob && pipelineJob._postingEnrichment) || null;
+  }
+
+  function topMustHaves(pipelineJob, limit) {
+    var enr = postingEnrichment(pipelineJob);
+    if (!enr || !Array.isArray(enr.mustHaves)) return [];
+    var out = [];
+    for (var i = 0; i < enr.mustHaves.length && out.length < (limit || 4); i++) {
+      var v = String(enr.mustHaves[i] || "").trim();
+      if (v) out.push(v);
+    }
+    return out;
+  }
+
+  function fitAngleFor(pipelineJob) {
+    var enr = postingEnrichment(pipelineJob);
+    return String((enr && enr.fitAngle) || "").trim();
+  }
+
+  function selectHtml(name, dataAttr, options, selectedValue) {
+    var opts = options.map(function (o) {
+      var sel = String(o.value) === String(selectedValue) ? ' selected' : '';
+      return '<option value="' + escapeHtml(o.value) + '"' + sel + '>' + escapeHtml(o.label) + '</option>';
+    }).join("");
+    return '<select class="jb-letter-compose__select" ' + dataAttr +
+      ' aria-label="' + escapeHtml(name) + '">' + opts + '</select>';
+  }
+
+  function sourceBadge(label, present) {
+    return '<span class="jb-letter-compose__source" data-present="' + (present ? "true" : "false") + '">' +
+      '<span class="jb-letter-compose__source-dot" aria-hidden="true"></span>' +
+      escapeHtml(label) +
+    '</span>';
+  }
+
+  function composePanelHtml(jobKey, pipelineJob, defaults) {
+    var feature = (defaults && defaults.feature) || "cover_letter";
+    var tone = (defaults && defaults.tone) || "warm";
+    var maxWords = String((defaults && defaults.maxWords) || 350);
+    var notes = (defaults && defaults.notes != null) ? String(defaults.notes) : "";
+    var summary = (defaults && defaults.summary) || {
+      hasResume: false, hasLinkedIn: false, hasAdditional: false,
+    };
+    var fit = fitAngleFor(pipelineJob);
+    var musts = topMustHaves(pipelineJob, 4);
+    var mustChips = musts.length
+      ? '<div class="jb-letter-compose__chips">' +
+          musts.map(function (m) {
+            return '<span class="jb-letter-compose__chip">' + escapeHtml(m) + '</span>';
+          }).join("") +
+        '</div>'
+      : '<p class="jb-letter-compose__hint">No must-haves detected — generation will use the JD as-is.</p>';
+    var fitLine = fit
+      ? '<p class="jb-letter-compose__fit"><span class="jb-letter-compose__fit-label">Fit angle ·</span> ' + escapeHtml(fit) + '</p>'
+      : '<p class="jb-letter-compose__hint">No fit-angle on file. Open the role brief to enrich the posting.</p>';
+    return '' +
+      '<section class="jb-letter-compose" data-region-compose data-job-key="' + escapeHtml(String(jobKey)) + '">' +
+        '<header class="jb-letter-compose__head">' +
+          '<p class="jb-letter-compose__eyebrow">COMPOSE · PREFILLED FROM THIS ROLE</p>' +
+          '<h2 class="jb-letter-compose__title">Generate a draft</h2>' +
+        '</header>' +
+        '<div class="jb-letter-compose__summary">' +
+          fitLine +
+          mustChips +
+          '<div class="jb-letter-compose__sources" aria-label="Profile sources">' +
+            sourceBadge("Resume", summary.hasResume) +
+            sourceBadge("LinkedIn", summary.hasLinkedIn) +
+            sourceBadge("Notes", summary.hasAdditional) +
+          '</div>' +
+        '</div>' +
+        '<div class="jb-letter-compose__controls">' +
+          '<label class="jb-letter-compose__field">' +
+            '<span class="jb-letter-compose__field-label">Document</span>' +
+            selectHtml("Document type", 'data-compose-feature', [
+              { value: "cover_letter",  label: "Cover letter" },
+              { value: "resume_update", label: "Tailored résumé" },
+            ], feature) +
+          '</label>' +
+          '<label class="jb-letter-compose__field">' +
+            '<span class="jb-letter-compose__field-label">Tone</span>' +
+            selectHtml("Tone", 'data-compose-tone', TONE_OPTIONS, tone) +
+          '</label>' +
+          '<label class="jb-letter-compose__field">' +
+            '<span class="jb-letter-compose__field-label">Length</span>' +
+            selectHtml("Length", 'data-compose-length', LENGTH_OPTIONS, maxWords) +
+          '</label>' +
+        '</div>' +
+        '<label class="jb-letter-compose__notes-label" for="jbLetterComposeNotes">' +
+          'Notes for this draft' +
+          '<button type="button" class="jb-letter-compose__refresh" data-action="compose-refresh-notes" title="Reset notes from posting context">Suggest</button>' +
+        '</label>' +
+        '<textarea id="jbLetterComposeNotes" class="jb-letter-compose__notes" rows="3" data-compose-notes placeholder="Optional: emphasize Python platform work, reference Sarah&apos;s intro, keep it under 250 words…">' +
+          escapeHtml(notes) +
+        '</textarea>' +
+        '<div class="jb-letter-compose__actions">' +
+          '<button type="button" class="jb-letter-compose__primary" data-action="compose-generate">' +
+            '<span data-compose-primary-label>Generate draft</span>' +
+          '</button>' +
+          '<button type="button" class="jb-letter-compose__secondary" data-action="compose-open-modal" title="Open the full draft notes modal">Advanced…</button>' +
+          '<p class="jb-letter-compose__status" data-compose-status aria-live="polite"></p>' +
+        '</div>' +
+      '</section>';
+  }
+
+  function setComposeStatus(region, message, tone) {
+    var el = region && region.querySelector("[data-compose-status]");
+    if (!el) return;
+    el.textContent = message || "";
+    if (tone) el.setAttribute("data-tone", tone);
+    else el.removeAttribute("data-tone");
+  }
+
+  function setComposeBusy(region, busy) {
+    var btn = region && region.querySelector('[data-action="compose-generate"]');
+    var advanced = region && region.querySelector('[data-action="compose-open-modal"]');
+    var labelEl = region && region.querySelector('[data-compose-primary-label]');
+    [btn, advanced].forEach(function (el) {
+      if (!el) return;
+      el.disabled = !!busy;
+      el.setAttribute("aria-disabled", busy ? "true" : "false");
+      if (busy) el.setAttribute("data-busy", "true");
+      else el.removeAttribute("data-busy");
+    });
+    if (labelEl) labelEl.textContent = busy ? "Generating…" : "Generate draft";
+  }
+
+  function readComposeState(region) {
+    var feat = region.querySelector('[data-compose-feature]');
+    var tone = region.querySelector('[data-compose-tone]');
+    var len  = region.querySelector('[data-compose-length]');
+    var notes = region.querySelector('[data-compose-notes]');
+    return {
+      feature: feat ? String(feat.value || "cover_letter") : "cover_letter",
+      tone: tone ? String(tone.value || "warm") : "warm",
+      maxWords: len ? Number(len.value) || 350 : 350,
+      notes: notes ? String(notes.value || "") : "",
+    };
+  }
+
+  function renderComposePanelInto(region, jobKey, defaults) {
+    var pipelineJob = pipelineJobForKey(jobKey);
+    var existing = region.querySelector('[data-region-compose]');
+    var html = composePanelHtml(jobKey, pipelineJob, defaults);
+    if (existing) {
+      existing.outerHTML = html;
+    } else {
+      var grid = region.querySelector(".jb-letter-grid");
+      if (grid) grid.insertAdjacentHTML("beforebegin", html);
+    }
+  }
+
+  async function refreshComposeDefaultsAsync(region, jobKey, feature) {
+    if (!region) return;
+    var summary = {
+      hasResume: false, hasLinkedIn: false, hasAdditional: false,
+      tone: "warm", defaultMaxWords: 350,
+    };
+    if (typeof root.getWorkshopProfileSummary === "function") {
+      try { summary = await root.getWorkshopProfileSummary(); }
+      catch (e) { /* keep defaults */ }
+    }
+    var pipelineJob = pipelineJobForKey(jobKey);
+    var notes = buildPrefill(pipelineJob, feature || "cover_letter");
+    renderComposePanelInto(region, jobKey, {
+      feature: feature || "cover_letter",
+      tone: summary.tone || "warm",
+      maxWords: summary.defaultMaxWords || 350,
+      notes: notes,
+      summary: summary,
+    });
+  }
+
+  async function handleComposeGenerate(region, ctx) {
+    if (!region || !ctx) return;
+    if (typeof root.runResumeGeneration !== "function") {
+      setComposeStatus(region, "Generation is unavailable in this build.", "error");
+      return;
+    }
+    var idx = parseInt(ctx.jobKey, 10);
+    if (!Number.isFinite(idx)) {
+      setComposeStatus(region, "Open a role from the pipeline first.", "error");
+      return;
+    }
+    var state = readComposeState(region);
+    setComposeBusy(region, true);
+    setComposeStatus(region, "Generating…", "busy");
+    setSaveState(region, "saving");
+    try {
+      var result = await root.runResumeGeneration(idx, state.feature, {
+        userNotes: state.notes,
+        tone: state.tone,
+        maxWords: state.maxWords,
+        silent: true,
+      });
+      if (result && result.draftId) {
+        ctx.pendingActiveDraftId = result.draftId;
+      }
+      setComposeStatus(
+        region,
+        state.feature === "cover_letter"
+          ? "Cover letter saved as a new version."
+          : "Tailored resume saved as a new version.",
+        "success",
+      );
+    } catch (err) {
+      var msg = err && err.message ? String(err.message) : "Generation failed";
+      setSaveState(region, "dirty");
+      setComposeStatus(region, msg, "error");
+    } finally {
+      setComposeBusy(region, false);
+    }
+  }
+
   function shellHtml(vm) {
     var job = vm.job || {};
     var ats = vm.ats || { score: 0, keywordCoverage: 0, toneMatch: 0, length: { words: 0, target: [200, 320] }, hits: [], misses: [], readingLevel: "Grade 0" };
@@ -317,19 +550,28 @@
     var company = job.company || "Unknown company";
     var jobKey = job.jobKey || "";
 
+    /* Workshop sub-renderers (hero CTAs) are owned by role-workshop.js.
+       The Stage stepper, One-click tools, and Progress chips sections
+       have been intentionally removed from the Workshop right rail —
+       stage + progress live in the Dossier; revision is owned by the
+       Compose panel above the editor. */
+    var workshopApi = root.JobBoredDossierWorkshop;
+    var heroCtasHtml = (workshopApi && typeof workshopApi.renderHeroCtas === "function")
+      ? workshopApi.renderHeroCtas(job) : "";
+
     return [
       '<div class="jb-role-divider">',
       '  <div class="jb-role-divider__rule"></div>',
       '  <div class="jb-role-divider__inner">',
       '    <div>',
-      '      <div class="jb-role-divider__num">PART 04 · NOW WRITING</div>',
-      '      <div class="jb-role-divider__title">The <em>letter</em></div>',
+      '      <div class="jb-role-divider__num">PART 04 · NOW WORKING</div>',
+      '      <div class="jb-role-divider__title">The <em>workshop</em></div>',
       '    </div>',
-      '    <div class="jb-role-divider__sub">A draft, scored against the JD in real time. Edit on the left; the right side updates as you type.</div>',
+      '    <div class="jb-role-divider__sub">Draft, score, and move this role forward. Editor on the left; stage, scorecard, and tools on the right.</div>',
       '  </div>',
       '</div>',
       '<header class="jb-letter-head">',
-      '  <p class="jb-letter-eyebrow">LETTER · DRAFT</p>',
+      '  <p class="jb-letter-eyebrow">WORKSHOP · DRAFT</p>',
       '  <h1 class="jb-letter-headline">', escapeHtml(role), ' <span class="jb-letter-headline__co">at ', escapeHtml(company), '</span></h1>',
       '  <p class="jb-letter-meta">',
       '    <span class="jb-letter-meta__key">', escapeHtml(jobKey), '</span>',
@@ -341,8 +583,14 @@
       '  </p>',
       '</header>',
 
+      /* --- hero CTAs (Tailor / Cover) ------------------------- */
+      heroCtasHtml,
+
       /* --- draft folder strip (Part 04 paper-cards) ----------- */
       '<!--folder-slot-->',
+
+      /* --- compose panel (prefill + tone/length + generate) --- */
+      '<!--compose-slot-->',
 
       '<div class="jb-letter-grid">',
 
@@ -360,49 +608,54 @@
       '  </section>',
 
       /* --- scorecard pane ------------------------------------- */
-      '  <aside class="jb-letter-scorecard" aria-label="ATS scorecard">',
+      /* Right-rail hierarchy (diagnose → fix):
+           1. Scorecard summary  — how is the draft scoring?
+           2. Missing keywords   — what's hurting the score?
+         The Stage stepper, One-click tools, Custom revision, and
+         Progress chips have been removed from this rail — Compose
+         panel owns generation/revision; the Dossier owns stage and
+         progress write-backs. Matched-keywords list is rolled into
+         the scorecard summary as a count chip; reading-level grade
+         is rolled in as a compact pill in the scorecard header. */
+      '  <aside class="jb-letter-scorecard" aria-label="Workshop scorecard">',
 
-      '    <div class="jb-letter-score-row">',
+      /* 1. Scorecard summary. */
+      '    <section class="jb-letter-block jb-letter-block--scorecard">',
+      '      <header class="jb-letter-block__head">',
+      '        <h2 class="jb-letter-block__title">Scorecard</h2>',
+      '        <div class="jb-letter-block__meta">',
+      '          <span class="jb-letter-meta-chip" title="Matched JD keywords">',
+      '            <span class="jb-letter-meta-chip__label">Matched</span>',
+      '            <span class="jb-letter-meta-chip__value" data-hit-count>', (ats.hits || []).length, '</span>',
+      '          </span>',
+      '          <span class="jb-letter-pill" data-reading-level data-flavor="', readingLevelFlavor(ats.readingLevel), '">',
+      '            <span class="jb-letter-pill__label" data-reading-grade>', escapeHtml(ats.readingLevel || "Grade 0"), '</span>',
+      '            <span class="jb-letter-pill__sub" data-reading-flavor>', readingLevelFlavor(ats.readingLevel), '</span>',
+      '          </span>',
+      '        </div>',
+      '      </header>',
+      '      <div class="jb-letter-score-row">',
       scoreCardHtml("Keyword coverage", ats.keywordCoverage, { from: 60, to: 100, label: "60–100" }),
       scoreCardHtml("Tone match",      ats.toneMatch,        { from: 60, to: 100, label: "60–100" }),
       lengthTargetCard(ats.length),
-      '    </div>',
-
-      '    <section class="jb-letter-block jb-letter-block--hits">',
-      '      <h2 class="jb-letter-block__title">Matched <span class="jb-letter-block__count" data-hit-count>', (ats.hits || []).length, '</span></h2>',
-      '      <div class="jb-letter-chips" data-letter-hits>',
-      (ats.hits || []).map(function (h) { return chipHtml(h.term); }).join("") || '<span class="jb-letter-chips__empty">No matches yet — add keywords from the JD.</span>',
       '      </div>',
+      /* Matched-terms chips kept as an opt-in details for users who
+         want to scan the actual matched vocabulary; collapsed by
+         default so it doesn't compete with the misses list below. */
+      '      <details class="jb-letter-matched-details">',
+      '        <summary>Show matched terms</summary>',
+      '        <div class="jb-letter-chips" data-letter-hits>',
+      (ats.hits || []).map(function (h) { return chipHtml(h.term); }).join("") || '<span class="jb-letter-chips__empty">No matches yet — add keywords from the JD.</span>',
+      '        </div>',
+      '      </details>',
       '    </section>',
 
+      /* 2. Missing keywords — the primary "what to fix" list. */
       '    <section class="jb-letter-block jb-letter-block--misses">',
-      '      <h2 class="jb-letter-block__title">Missing <span class="jb-letter-block__count" data-miss-count>', (ats.misses || []).length, '</span></h2>',
+      '      <h2 class="jb-letter-block__title">Missing keywords <span class="jb-letter-block__count" data-miss-count>', (ats.misses || []).length, '</span></h2>',
       '      <ul class="jb-letter-misses" data-letter-misses>',
       (ats.misses || []).map(missRowHtml).join("") || '<li class="jb-letter-misses__empty">All top JD terms are covered.</li>',
       '      </ul>',
-      '    </section>',
-
-      '    <section class="jb-letter-block jb-letter-block--reading">',
-      '      <span class="jb-letter-pill" data-reading-level data-flavor="', readingLevelFlavor(ats.readingLevel), '">',
-      '        <span class="jb-letter-pill__label" data-reading-grade>', escapeHtml(ats.readingLevel || "Grade 0"), '</span>',
-      '        <span class="jb-letter-pill__sub" data-reading-flavor>', readingLevelFlavor(ats.readingLevel), '</span>',
-      '      </span>',
-      '    </section>',
-
-      '    <section class="jb-letter-block jb-letter-block--tools">',
-      '      <h2 class="jb-letter-block__title">One-click tools</h2>',
-      '      <div class="jb-letter-tools">',
-      toolButtonHtml("tighten",     "Tighten",      "Sharpen verbs, cut hedges."),
-      toolButtonHtml("add-evidence","Add evidence", "Insert a numeric outcome."),
-      toolButtonHtml("honest-cut",  "Honest cut",   "Drop overstatement, keep proof."),
-      toolButtonHtml("trim",        "Trim",         "Reduce length toward 250 words."),
-      '      </div>',
-      '      <div class="jb-letter-revision">',
-      '        <label class="jb-letter-revision__label" for="jbLetterRevisionInstructions">Custom revision</label>',
-      '        <textarea id="jbLetterRevisionInstructions" class="jb-letter-revision__input" rows="3" data-letter-revision-instructions placeholder="Make the opener warmer, emphasize platform work, keep it under 250 words…"></textarea>',
-      '        <button type="button" class="jb-letter-revision__button" data-action="manual-revise">Revise with AI</button>',
-      '        <p class="jb-letter-revision__status" data-letter-revision-status aria-live="polite"></p>',
-      '      </div>',
       '    </section>',
 
       '  </aside>',
@@ -641,22 +894,11 @@
         } catch (e) { /* never throw to user */ }
       }, DEBOUNCE_SCORE_MS);
 
-      // auto-save (5s)
+      // Manual editor edits are intentionally not written to Pipeline!O.
+      // That Sheet column is dossier notes; generated/revised drafts persist
+      // through the IndexedDB draft library instead.
       if (ctx.saveTimer) clearTimeout(ctx.saveTimer);
-      ctx.saveTimer = setTimeout(function () {
-        var draft = readEditorText(editor);
-        try {
-          setSaveState(region, "saving");
-          document.dispatchEvent(new CustomEvent("jb:letter:save", {
-            detail: { jobKey: ctx.jobKey, draft: draft },
-          }));
-          // Optimistic confirm — we don't own the write, so we mark
-          // "saved" once the event has been dispatched.
-          setSaveState(region, "saved", nowHHMM());
-        } catch (e) {
-          setSaveState(region, "dirty");
-        }
-      }, DEBOUNCE_SAVE_MS);
+      ctx.saveTimer = null;
     }
 
     editor.addEventListener("input", reschedule);
@@ -712,6 +954,50 @@
         var idx = parseInt(ctx.jobKey, 10);
         if (Number.isFinite(idx) && typeof root.openDraftNotesModal === "function") {
           root.openDraftNotesModal(idx, feature);
+        }
+        return;
+      }
+
+      /* --- compose panel actions ------------------------------- */
+      if (action === "compose-generate") {
+        void handleComposeGenerate(region, ctx);
+        return;
+      }
+      if (action === "compose-refresh-notes") {
+        var composeRegion = region.querySelector('[data-region-compose]');
+        var composeFeatEl = composeRegion && composeRegion.querySelector('[data-compose-feature]');
+        var composeFeat = composeFeatEl ? String(composeFeatEl.value || "cover_letter") : "cover_letter";
+        var notesEl = composeRegion && composeRegion.querySelector('[data-compose-notes]');
+        if (notesEl) {
+          var pipelineJob = pipelineJobForKey(ctx.jobKey);
+          notesEl.value = buildPrefill(pipelineJob, composeFeat);
+          setComposeStatus(region, "Notes refreshed from posting context.", "success");
+        }
+        return;
+      }
+      if (action === "compose-open-modal") {
+        var composeState = readComposeState(region);
+        var advIdx = parseInt(ctx.jobKey, 10);
+        if (Number.isFinite(advIdx) && typeof root.openDraftNotesModal === "function") {
+          root.openDraftNotesModal(advIdx, composeState.feature, {
+            prefillNotes: composeState.notes,
+          });
+        }
+        return;
+      }
+
+      /* --- workshop hero CTAs ----------------------------------- */
+      /* Tailor resume / Cover letter — role-workshop.js dispatches
+         the jb:role:action event from its own delegate. Here we also
+         open the draft-notes modal so the click actually opens the
+         drafting flow. Order: letter.js delegate runs first (because
+         it was attached first via bindEditorEvents → role-workshop.js
+         wireWorkshop attaches second), so we explicitly handle both. */
+      if (action === "resume-cover" || action === "resume-tailor") {
+        var heroFeature = action === "resume-cover" ? "cover_letter" : "resume_update";
+        var heroIdx = parseInt(ctx.jobKey, 10);
+        if (Number.isFinite(heroIdx) && typeof root.openDraftNotesModal === "function") {
+          root.openDraftNotesModal(heroIdx, heroFeature);
         }
         return;
       }
@@ -779,6 +1065,10 @@
        the scorecard + draft folder strip in place, preserving editor state. */
     if (region.__letterCtx && region.__letterCtx.jobKey === jobKey) {
       updateScorecard(region, vm.ats || {});
+      /* Keep workshop delegate's jobKey current even when shell is reused. */
+      if (root.JobBoredDossierWorkshop && typeof root.JobBoredDossierWorkshop.wireWorkshop === "function") {
+        root.JobBoredDossierWorkshop.wireWorkshop(region, jobKey);
+      }
       var pendingId = region.__letterCtx.pendingActiveDraftId;
       renderFolderInto(region, pipelineJob, pendingId || region.__letterCtx.activeDraftId);
       if (pendingId) {
@@ -794,10 +1084,22 @@
 
     clearTimers(region.__letterCtx);
 
-    var rendered = shellHtml(vm).replace("<!--folder-slot-->", folderHtml(jobKey,
-      getDraftsForFeature(pipelineJob, "cover_letter"),
-      getDraftsForFeature(pipelineJob, "resume_update"),
-      null));
+    /* Synchronous initial render uses defaults; the async refresh below
+       repopulates the compose panel with profile-source presence and
+       the user's saved tone/length preferences once IndexedDB resolves. */
+    var initialCompose = composePanelHtml(jobKey, pipelineJob, {
+      feature: "cover_letter",
+      tone: "warm",
+      maxWords: 350,
+      notes: buildPrefill(pipelineJob, "cover_letter"),
+      summary: { hasResume: false, hasLinkedIn: false, hasAdditional: false },
+    });
+    var rendered = shellHtml(vm)
+      .replace("<!--folder-slot-->", folderHtml(jobKey,
+        getDraftsForFeature(pipelineJob, "cover_letter"),
+        getDraftsForFeature(pipelineJob, "resume_update"),
+        null))
+      .replace("<!--compose-slot-->", initialCompose);
     region.innerHTML = rendered;
     region.__letterHtml = "letter:" + jobKey;
 
@@ -817,6 +1119,20 @@
     };
     region.__letterCtx = ctx;
     bindEditorEvents(region, ctx);
+    /* Wire the workshop delegate (stage stepper, progress chips,
+       hero CTAs). role-workshop.js owns the click → event mapping;
+       letter.js's own delegate handles editor tools/drafts. */
+    if (root.JobBoredDossierWorkshop && typeof root.JobBoredDossierWorkshop.wireWorkshop === "function") {
+      root.JobBoredDossierWorkshop.wireWorkshop(region, jobKey);
+    }
+    /* Repaint compose panel with real profile-source presence + saved
+       tone/length once IndexedDB resolves. Errors are swallowed; the
+       sync initial render already provides a usable panel. */
+    if (typeof root.Promise !== "undefined") {
+      Promise.resolve().then(function () {
+        return refreshComposeDefaultsAsync(region, jobKey, "cover_letter");
+      }).catch(function () { /* keep sync defaults */ });
+    }
     setSaveState(region, "saved", nowHHMM());
   }
 

@@ -9,6 +9,9 @@ const moduleSource = readFileSync(
   join(__dirname, "..", "setup-doctor.js"),
   "utf8",
 );
+const pipelineSchema = JSON.parse(
+  readFileSync(join(__dirname, "..", "schemas", "pipeline-row.v1.json"), "utf8"),
+);
 
 /**
  * The setup-doctor module attaches to `window`. To test it without a real
@@ -101,6 +104,23 @@ describe("SetupDoctor.diagnose", () => {
     const report = await api.diagnose({});
     const ids = report.issues.map((i) => i.id);
     assert.ok(ids.includes("gis_stuck"));
+  });
+
+  it("loads the canonical Pipeline contract from the schema with Expired status", async () => {
+    const { api } = loadDoctor({
+      fetch: async (url) => {
+        assert.equal(url, "schemas/pipeline-row.v1.json");
+        return {
+          ok: true,
+          async json() {
+            return pipelineSchema;
+          },
+        };
+      },
+    });
+    const contract = await api._loadPipelineContract();
+    assert.deepEqual(contract.headerRow, pipelineSchema.headerRow);
+    assert.ok(contract.statuses.includes("Expired"));
   });
 });
 
@@ -475,5 +495,68 @@ describe("SetupDoctor pipeline tab repair", () => {
     const report = await api.diagnose({});
     const ids = report.issues.map((i) => i.id);
     assert.ok(ids.includes("pipeline_headers_wrong"));
+  });
+
+  it("repairs stale starter headers with the schema header row", async () => {
+    const writes = [];
+    const staleHeaders = [
+      "Date",
+      "Company",
+      "Role",
+      "Job URL",
+      "Status",
+      "Priority",
+      "Reply",
+      "Notes",
+    ];
+    const { api } = loadDoctor({
+      accessToken: "tok",
+      getSheetId: () => "SHEET",
+      fetch: async (url, init = {}) => {
+        if (String(url) === "schemas/pipeline-row.v1.json") {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return pipelineSchema;
+            },
+          };
+        }
+        if (String(url).includes("?fields=")) {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return { sheets: [{ properties: { title: "Pipeline", sheetId: 0 } }] };
+            },
+          };
+        }
+        if (String(url).includes("/values/Pipeline!A1:Z1")) {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return { values: [staleHeaders] };
+            },
+          };
+        }
+        if (init.method === "PUT" && String(url).includes("/values/Pipeline!A1")) {
+          writes.push(JSON.parse(init.body));
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return { updatedCells: pipelineSchema.headerRow.length };
+            },
+          };
+        }
+        return { ok: false, status: 404, async json() { return {}; } };
+      },
+    });
+
+    const out = await api.autoHeal({});
+    assert.equal(out.fixed.some((finding) => finding.id === "pipeline_headers_wrong"), true);
+    assert.equal(writes.length, 1);
+    assert.deepEqual(writes[0].values, [pipelineSchema.headerRow]);
   });
 });
