@@ -91,7 +91,78 @@
     if (instr) {
       base += "\n\nTemplate requirements:\n" + instr.trim();
     }
+    /* Per-draft insights block. The model must end every response
+       with a JSON sentinel that the dashboard parses and strips
+       before showing the draft. Scores are 0–100 integers; reasons
+       are one-sentence explanations grounded in the draft + JD.
+       Schema is fixed; deviation triggers a parse-error banner in
+       the Workshop. */
+    base +=
+      "\n\nAFTER the draft body, on a new line, output EXACTLY this sentinel block " +
+      "(no Markdown, no prose around it):\n" +
+      "---JB-INSIGHTS---\n" +
+      "{\n" +
+      "  \"fitAngle\": \"<one-sentence angle for THIS draft vs. THIS role, e.g. 'Lead reliability work end-to-end for the robotics fleet, leaning on platform velocity over breadth'.>\",\n" +
+      "  \"keywordCoverage\": { \"score\": <int 0–100>, \"reason\": \"<one sentence: which JD priorities the draft hits or misses>\" },\n" +
+      "  \"toneMatch\":       { \"score\": <int 0–100>, \"reason\": \"<one sentence: how the draft's voice maps to the requested tone>\" },\n" +
+      "  \"length\":          { \"score\": <int 0–100>, \"reason\": \"<one sentence: word-count fit to recruiter scan band>\" }\n" +
+      "}\n" +
+      "---END-JB-INSIGHTS---\n" +
+      "All four keys are required. Scores are integers. Reasons are concrete, not generic.";
     return base;
+  }
+
+  /* Sentinel parser shared across providers. Extracts the
+     ---JB-INSIGHTS---...---END-JB-INSIGHTS--- block from a raw
+     model response, returns { cleanText, insights, insightsError }.
+     When the block is missing or malformed, cleanText still holds
+     the draft (best effort) and insightsError carries a message
+     the UI can surface as a "regenerate to retry" banner. */
+  function extractInsights(raw) {
+    const text = String(raw || "");
+    const startTag = "---JB-INSIGHTS---";
+    const endTag   = "---END-JB-INSIGHTS---";
+    const s = text.indexOf(startTag);
+    if (s < 0) {
+      return {
+        cleanText: text.trim(),
+        insights: null,
+        insightsError: "Model did not emit a JB-INSIGHTS block.",
+      };
+    }
+    const e = text.indexOf(endTag, s + startTag.length);
+    const cleanText = text.slice(0, s).trim();
+    if (e < 0) {
+      return {
+        cleanText,
+        insights: null,
+        insightsError: "JB-INSIGHTS block was opened but not closed.",
+      };
+    }
+    const jsonBlob = text.slice(s + startTag.length, e).trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonBlob);
+    } catch (err) {
+      return {
+        cleanText,
+        insights: null,
+        insightsError: "JB-INSIGHTS JSON was malformed: " + (err && err.message ? err.message : "parse failed"),
+      };
+    }
+    /* Shape validation — required keys + numeric scores. */
+    const fields = ["keywordCoverage", "toneMatch", "length"];
+    for (const k of fields) {
+      const n = parsed && parsed[k];
+      if (!n || typeof n !== "object" || !Number.isFinite(Number(n.score))) {
+        return {
+          cleanText,
+          insights: null,
+          insightsError: `JB-INSIGHTS.${k} missing or has no numeric score.`,
+        };
+      }
+    }
+    return { cleanText, insights: parsed, insightsError: "" };
   }
 
   function buildUserPayload(bundle) {

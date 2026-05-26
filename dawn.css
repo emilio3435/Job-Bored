@@ -438,3 +438,165 @@ body.jb-v2 [data-region="dawn"] .brief-btn--primary:focus-visible {
     box-shadow: none;
   }
 }
+
+/* ============================================================
+   Lead-story carousel — replaces the single lead + Also Today
+   editorial block. Up to 5 ATS-scored active roles, horizontally
+   scrollable on small screens, snap-aligned, with prev/next
+   chevrons.
+   ============================================================ */
+body.jb-v2 [data-region="dawn"] .brief-leads-section {
+  margin-block-end: var(--space-7, 28px);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4, 16px);
+  margin-block-end: var(--space-3, 12px);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-title {
+  font-family: var(--jb-font-display);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--jb-navy);
+  margin: 0;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-nav {
+  display: inline-flex;
+  gap: 6px;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-nav__btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--jb-radius-pill);
+  border: 1px solid var(--jb-line);
+  background: var(--jb-paper);
+  color: var(--jb-navy);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-nav__btn:hover {
+  background: var(--jb-paper-2);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-carousel {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(min(320px, 80%), 360px);
+  gap: var(--space-5, 18px);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-block-end: 6px;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-carousel > .brief-lead {
+  scroll-snap-align: start;
+  padding: var(--space-5, 20px);
+  position: relative;
+  overflow: visible;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2, 8px);
+  margin-block-end: 6px;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__fit-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--jb-radius-pill);
+  background: var(--jb-mint);
+  color: var(--jb-navy);
+  font-family: var(--jb-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  border: 1px solid var(--jb-navy);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-carousel .brief-lead__headline {
+  font-size: 26px;
+  max-width: none;
+  margin-block-end: var(--space-2, 8px);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__popover {
+  position: absolute;
+  bottom: var(--space-3, 12px);
+  inset-inline-end: var(--space-3, 12px);
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-md, 8px);
+  box-shadow: var(--jb-shadow-card);
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  z-index: 5;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__popover-action {
+  padding: 10px 14px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--jb-line-soft);
+  color: var(--jb-navy);
+  font-family: var(--jb-font-body);
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__popover-action:last-child {
+  border-bottom: 0;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__popover-action:hover {
+  background: var(--jb-paper-2);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-empty {
+  padding: var(--space-5, 20px);
+  margin: 0;
+  text-align: center;
+  color: var(--jb-ink-3);
+  background: var(--jb-paper);
+  border: 1px dashed var(--jb-line);
+  border-radius: var(--jb-radius-lg);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-btn--ghost {
+  background: transparent;
+  border-color: var(--jb-line);
+  color: var(--jb-ink-2);
+}
+
+/* ============================================================
+   Stats row (post-carousel) — by-the-numbers + funnel side by
+   side, replacing the old hero column.
+   ============================================================ */
+body.jb-v2 [data-region="dawn"] .brief-stats-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6, 22px);
+  margin-block-end: var(--space-7, 28px);
+}
+
+@media (max-width: 760px) {
+  body.jb-v2 [data-region="dawn"] .brief-stats-row {
+    grid-template-columns: 1fr;
+  }
+  body.jb-v2 [data-region="dawn"] .brief-leads-carousel {
+    grid-auto-columns: 88%;
+  }
+}

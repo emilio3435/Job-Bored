@@ -10,8 +10,13 @@ body:not(.jb-v2) [data-region="letter"] { display: none; }
 
 body.jb-v2 [data-region="letter"] {
   display: block;
+  /* Cap the Workshop so it stops reading edge-to-edge on wide
+     monitors (1872px wide at 1920px viewport today). Scaling
+     outer gutters give breathing room between 720px and 1280px. */
+  max-width: 1280px;
   margin-block: var(--space-6, 24px);
-  padding-inline: var(--space-4, 16px);
+  margin-inline: auto;
+  padding-inline: clamp(16px, 4vw, 48px);
   font-family: var(--jb-font-body);
   color: var(--jb-ink);
 }
@@ -114,7 +119,10 @@ body.jb-v2 [data-region="letter"] .jb-letter-save[data-save-state="saved"]  .jb-
 /* --- Two-pane grid ------------------------------------------- */
 body.jb-v2 [data-region="letter"] .jb-letter-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr);
+  /* Rail capped at 380px (was unbounded, ballooning to 774px on
+     1920px). This stops the lopsided "narrow rail + too-wide
+     editor" feel at every desktop width. */
+  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 380px);
   gap: var(--space-5, 20px);
   align-items: start;
 }
@@ -132,7 +140,14 @@ body.jb-v2 [data-region="letter"] .jb-letter-editor-frame {
   background: var(--jb-paper);
   border: 1px solid var(--jb-line);
   border-radius: var(--jb-radius-lg);
-  box-shadow: var(--jb-shadow-card);
+  /* Hero surface: stacked sticker + soft drop. No --jb-shadow-elevated
+     token exists, so this composes the existing sticker offset with a
+     larger soft drop-shadow underneath. The editor visually lifts off
+     the recessed paper-2 compose tray above it. */
+  box-shadow:
+    var(--jb-shadow-sticker),
+    0 18px 36px -18px rgba(14, 58, 78, 0.22),
+    0 6px 14px -10px rgba(14, 58, 78, 0.14);
   padding: var(--space-5, 20px) var(--space-6, 24px);
   /* Auto-grow with the user's draft. The frame starts tall enough to
      feel like a workspace, but its height is driven entirely by the
@@ -150,6 +165,12 @@ body.jb-v2 [data-region="letter"] .jb-letter-editor {
   flex: 1 1 auto;
   min-height: clamp(24rem, 50vh, 38rem);
   height: auto;
+  /* Cap line length at 68ch — the cover-letter sweet spot. 1044px
+     lines on 1920px read like a billboard; this centers the prose
+     inside the frame instead. */
+  max-width: 68ch;
+  margin-inline: auto;
+  width: 100%;
   font-family: var(--jb-font-body);
   font-size: var(--jb-text-base);
   line-height: 1.7;
@@ -183,31 +204,17 @@ body.jb-v2 [data-region="letter"] .jb-letter-editor p {
    so it stays visible as the editor grows, and let it breathe
    into the freed vertical space. */
 body.jb-v2 [data-region="letter"] .jb-letter-scorecard {
+  /* Static companion rail — sits in its grid column and scrolls
+     naturally with the page. No sticky, no max-height clamp; the
+     rail is whatever height its content asks for. */
   display: flex;
   flex-direction: column;
   gap: var(--space-4, 16px);
-  position: sticky;
-  top: var(--space-4, 16px);
-  /* Keep the rail within the viewport so deep scrolls still keep
-     the scorecard glance-able. Its own children handle overflow. */
-  max-height: calc(100vh - var(--space-6, 24px) * 2);
-  min-height: 0;
-  overflow: hidden;
+  margin-top: var(--space-6, 24px);
+  align-self: start;
 }
-body.jb-v2 [data-region="letter"] .jb-letter-scorecard > .jb-letter-block--scorecard {
+body.jb-v2 [data-region="letter"] .jb-letter-scorecard > .jb-letter-block {
   flex: 0 0 auto;
-}
-body.jb-v2 [data-region="letter"] .jb-letter-scorecard > .jb-letter-block--misses {
-  flex: 1 1 auto;
-}
-@media (max-width: 1024px) {
-  /* On single-column layouts the rail flows under the editor and
-     should not be sticky (would clip itself against the viewport). */
-  body.jb-v2 [data-region="letter"] .jb-letter-scorecard {
-    position: static;
-    max-height: none;
-    overflow: visible;
-  }
 }
 body.jb-v2 [data-region="letter"] .jb-letter-score-row {
   display: grid;
@@ -224,10 +231,13 @@ body.jb-v2 [data-region="letter"] .jb-letter-score {
   display: grid;
   gap: 4px;
   padding: var(--space-3, 12px);
-  background: var(--jb-paper);
+  /* Recessed tile inside the flattened rail — no shadow, softer
+     paper, lighter border. The three KPIs read as one unit
+     rather than three competing cards. */
+  background: var(--jb-paper-2);
   border: 1px solid var(--jb-line-soft);
   border-radius: var(--jb-radius-md);
-  box-shadow: var(--jb-shadow-sticker);
+  box-shadow: none;
   min-height: 96px;
 }
 body.jb-v2 [data-region="letter"] .jb-letter-score__label {
@@ -282,7 +292,54 @@ body.jb-v2 [data-region="letter"] .jb-letter-score__sub {
   letter-spacing: 0.04em;
 }
 
+/* Deterministic "why this score" reasoning under each tile. The
+   headline sits visually as part of the score; the <details> is a
+   quiet disclosure for users who want the math behind it. */
+body.jb-v2 [data-region="letter"] .jb-letter-score__reason {
+  margin: var(--space-2, 8px) 0 0 0;
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-xs);
+  line-height: 1.45;
+  color: var(--jb-ink-2);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score__why {
+  margin-top: 4px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score__why > summary {
+  list-style: none;
+  cursor: pointer;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3);
+  padding: 2px 0;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score__why > summary::-webkit-details-marker {
+  display: none;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score__why > summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform 120ms ease;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score__why[open] > summary::before {
+  transform: rotate(90deg);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score__why > p {
+  margin: 4px 0 0 0;
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-xs);
+  line-height: 1.5;
+  color: var(--jb-ink-2);
+}
+
 /* --- Block sections (hits / misses / tools) ------------------ */
+/* Default block surface (used outside the scorecard rail).
+   Inside the rail, the rules below flatten these to transparent
+   so the score tiles and miss list float on the page instead of
+   stacking paper-on-paper. */
 body.jb-v2 [data-region="letter"] .jb-letter-block {
   background: var(--jb-paper);
   border: 1px solid var(--jb-line-soft);
@@ -290,6 +347,14 @@ body.jb-v2 [data-region="letter"] .jb-letter-block {
   padding: var(--space-3, 12px) var(--space-4, 16px);
   display: grid;
   gap: var(--space-2, 8px);
+}
+/* Companion-rail flattening: kill the outer paper card so the
+   contents (score tiles + miss rows) read as a single elevation
+   layer floating beside the editor. */
+body.jb-v2 [data-region="letter"] .jb-letter-scorecard > .jb-letter-block {
+  background: transparent;
+  border: 0;
+  padding: 0;
 }
 body.jb-v2 [data-region="letter"] .jb-letter-block__title {
   font-family: var(--jb-font-mono);
@@ -334,87 +399,52 @@ body.jb-v2 [data-region="letter"] .jb-letter-chips__empty {
   font-style: italic;
 }
 
-/* --- Miss block + rows ---------------------------------------- */
-/* With Stage/Tools/Progress removed, this block becomes the second
-   half of the right rail. Let it flex to fill the leftover sticky
-   height; only scroll inside its own list when there are many
-   misses. The block itself never shows a scrollbar — the inner
-   <ul> does, and only when overflow actually happens. */
-body.jb-v2 [data-region="letter"] .jb-letter-block--misses {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  flex: 1 1 auto;
+/* (Miss block + per-miss rows deleted — the right rail no longer
+   exposes a deterministic Missing-keywords list.) */
+
+/* --- LLM "Fit angle" headline inside the scorecard ---------- */
+body.jb-v2 [data-region="letter"] .jb-letter-fit {
+  margin-top: var(--space-3, 12px);
+  padding-top: var(--space-3, 12px);
+  border-top: 1px dashed var(--jb-line-soft);
 }
-body.jb-v2 [data-region="letter"] .jb-letter-misses {
-  list-style: none;
-  margin: 0; padding: 0;
-  display: grid;
-  gap: 4px;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  /* Two columns when the rail is roomy — it reads like a quick
-     "fix list" instead of a single skinny column. */
-  grid-template-columns: 1fr;
-}
-@media (min-width: 1200px) {
-  body.jb-v2 [data-region="letter"] .jb-letter-misses {
-    grid-template-columns: 1fr 1fr;
-    column-gap: var(--space-2, 8px);
-  }
-}
-body.jb-v2 [data-region="letter"] .jb-letter-miss {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  align-items: center;
-  gap: var(--space-2, 8px);
-  padding: 6px 8px;
-  border-radius: var(--jb-radius-sm);
-  background: transparent;
-}
-body.jb-v2 [data-region="letter"] .jb-letter-miss:hover {
-  background: var(--jb-paper-2);
-}
-body.jb-v2 [data-region="letter"] .jb-letter-miss__term {
-  font-family: var(--jb-font-mono);
-  font-size: var(--jb-text-sm);
-  color: var(--jb-navy);
-  letter-spacing: 0.02em;
-}
-body.jb-v2 [data-region="letter"] .jb-letter-miss__weight {
+body.jb-v2 [data-region="letter"] .jb-letter-fit__title {
+  margin: 0 0 var(--space-2, 8px) 0;
   font-family: var(--jb-font-mono);
   font-size: var(--jb-text-xs);
-  color: var(--jb-ink-3);
-}
-body.jb-v2 [data-region="letter"] .jb-letter-miss__btn {
-  appearance: none;
-  border: 1px solid var(--jb-line);
-  background: var(--jb-paper);
-  color: var(--jb-navy);
-  font-family: var(--jb-font-mono);
-  font-size: var(--jb-text-xs);
-  letter-spacing: 0.10em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  padding: 4px 10px;
-  border-radius: var(--jb-radius-pill);
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+  color: var(--jb-ink-2);
 }
-body.jb-v2 [data-region="letter"] .jb-letter-miss__btn:hover {
-  background: var(--jb-mint);
-  color: var(--jb-ink-inverse);
-  border-color: var(--jb-mint-deep);
+body.jb-v2 [data-region="letter"] .jb-letter-fit__body {
+  margin: 0;
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-sm);
+  line-height: 1.55;
+  color: var(--jb-ink);
 }
-body.jb-v2 [data-region="letter"] .jb-letter-miss__btn:focus-visible {
-  outline: none;
-  box-shadow: var(--jb-shadow-focus);
+
+/* --- Insights parse-failure banner -------------------------- */
+body.jb-v2 [data-region="letter"] .jb-letter-insights-error {
+  margin-top: var(--space-3, 12px);
+  padding: var(--space-3, 12px);
+  background: var(--jb-paper-2);
+  border: 1px dashed var(--jb-amber);
+  border-radius: var(--jb-radius-sm);
 }
-body.jb-v2 [data-region="letter"] .jb-letter-misses__empty {
-  list-style: none;
-  color: var(--jb-ink-3);
+body.jb-v2 [data-region="letter"] .jb-letter-insights-error__title {
+  margin: 0 0 4px 0;
+  font-family: var(--jb-font-mono);
   font-size: var(--jb-text-xs);
-  font-style: italic;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--jb-amber-deep, var(--jb-amber));
+}
+body.jb-v2 [data-region="letter"] .jb-letter-insights-error__body {
+  margin: 0;
+  font-size: var(--jb-text-sm);
+  line-height: 1.5;
+  color: var(--jb-ink-2);
 }
 
 /* --- Reading-level pill -------------------------------------- */
@@ -558,7 +588,6 @@ body.jb-v2 [data-region="letter"] .jb-letter-tool__hint {
   color: var(--jb-ink-3);
 }
 body.jb-v2 [data-region="letter"] .jb-letter-tool:disabled,
-body.jb-v2 [data-region="letter"] .jb-letter-miss__btn:disabled,
 body.jb-v2 [data-region="letter"] .jb-letter-revision__button:disabled {
   cursor: wait;
   opacity: 0.62;
@@ -651,6 +680,60 @@ body.jb-v2 [data-region="letter"] .jb-letter-folder {
   margin: var(--space-3, 12px) 0 var(--space-5, 20px);
   padding-bottom: var(--space-4, 16px);
   border-bottom: 1px dashed var(--jb-line-soft);
+}
+
+/* "Versions" sub-section inside the Scorecard block.
+   Compresses the draft folder so it fits as a rail companion to
+   the score tiles rather than a full-width strip. */
+body.jb-v2 [data-region="letter"] .jb-letter-versions {
+  margin-top: var(--space-3, 12px);
+  padding-top: var(--space-3, 12px);
+  border-top: 1px dashed var(--jb-line-soft);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-versions__title {
+  margin: 0 0 var(--space-2, 8px) 0;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--jb-ink-2);
+}
+/* In rail mode: drop the dashed divider + outer margin so the
+   folder inherits its rail wrapper's spacing, and collapse the
+   two-column lanes to one stack. */
+body.jb-v2 [data-region="letter"] .jb-letter-versions .jb-letter-folder {
+  margin: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+  gap: var(--space-2, 8px);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-versions .jb-letter-folder__head {
+  /* Compress: hide the prominent "YOUR DRAFTS · …" eyebrow and
+     CTA row since the section already has its own "Versions" title.
+     If the head has actionable controls (e.g. "Open all"), keep
+     them small and inline. */
+  display: none;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-versions .jb-letter-folder__lanes {
+  grid-template-columns: 1fr;
+  gap: var(--space-2, 8px);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-versions .jb-letter-folder__lane + .jb-letter-folder__lane {
+  border-left: 0;
+  padding-left: 0;
+  margin-top: var(--space-2, 8px);
+  padding-top: var(--space-2, 8px);
+  border-top: 1px dashed var(--jb-line-soft);
+}
+/* Compact card sizing in rail mode — was 14rem flex-basis. */
+body.jb-v2 [data-region="letter"] .jb-letter-versions .jb-letter-folder__card {
+  flex: 0 0 11rem;
+  min-height: 6rem;
+  padding: 0.55rem 0.7rem 0.5rem;
+  font-size: var(--jb-text-xs);
+}
+body.jb-v2 [data-region="letter"] .jb-letter-versions .jb-letter-folder__strip {
+  padding: 0.15rem 0.15rem 0.55rem;
 }
 body.jb-v2 [data-region="letter"] .jb-letter-folder__head {
   display: flex;
@@ -886,14 +969,17 @@ body.jb-v2 [data-region="letter"] .jb-letter-block--progress .chip--danger:hover
    leaving the Workshop.
    ============================================================ */
 body.jb-v2 [data-region="letter"] .jb-letter-compose {
-  background: var(--jb-paper);
+  /* Recessed "setup tray" — the editor below is the hero, this
+     panel just primes generation. Drop shadow + use the recessed
+     paper-2 so it reads as the surface the editor sits on top of. */
+  background: var(--jb-paper-2);
   border: 1px solid var(--jb-line-soft);
   border-radius: var(--jb-radius-md);
   padding: var(--space-4, 16px) var(--space-5, 20px);
   margin: 0 0 var(--space-5, 20px);
   display: grid;
   gap: var(--space-3, 12px);
-  box-shadow: var(--jb-shadow-sticker);
+  box-shadow: none;
 }
 body.jb-v2 [data-region="letter"] .jb-letter-compose__head {
   display: grid;
@@ -924,20 +1010,9 @@ body.jb-v2 [data-region="letter"] .jb-letter-compose__summary {
   border-radius: var(--jb-radius-sm);
   border: 1px dashed var(--jb-line-soft);
 }
-body.jb-v2 [data-region="letter"] .jb-letter-compose__fit {
-  margin: 0;
-  font-size: var(--jb-text-sm);
-  color: var(--jb-ink);
-  line-height: 1.45;
-}
-body.jb-v2 [data-region="letter"] .jb-letter-compose__fit-label {
-  font-family: var(--jb-font-mono);
-  font-size: var(--jb-text-xs);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--jb-ink-3);
-  margin-right: 4px;
-}
+/* (jb-letter-compose__fit removed — fit-angle is now LLM-derived
+   from the latest generated draft's insights and lives in the
+   scorecard block, not the compose summary.) */
 body.jb-v2 [data-region="letter"] .jb-letter-compose__hint {
   margin: 0;
   font-size: var(--jb-text-xs);
@@ -982,9 +1057,12 @@ body.jb-v2 [data-region="letter"] .jb-letter-compose__source {
   color: var(--jb-ink-3);
 }
 body.jb-v2 [data-region="letter"] .jb-letter-compose__source[data-present="true"] {
+  /* Present-source signal lives in the green dot only. Neutral
+     pill bg keeps the panel calm — was a mint wall that fought
+     the navy/cream palette. */
   color: var(--jb-navy);
-  border-color: rgba(47, 138, 90, 0.4);
-  background: var(--jb-mint-soft);
+  border-color: var(--jb-line);
+  background: var(--jb-paper);
 }
 body.jb-v2 [data-region="letter"] .jb-letter-compose__source-dot {
   width: 6px; height: 6px; border-radius: 50%;
@@ -1035,36 +1113,31 @@ body.jb-v2 [data-region="letter"] .jb-letter-compose__select:focus-visible {
   box-shadow: var(--jb-shadow-focus);
 }
 
-/* Notes textarea with inline "Suggest" reset. */
+/* Title input + Version Notes textarea. Title is a single-line
+   human label for this draft version; Notes is the per-version
+   guidance the LLM gets. The legacy "Suggest" pill has been
+   removed (it duplicated cached posting data). */
+body.jb-v2 [data-region="letter"] .jb-letter-compose__title-label,
 body.jb-v2 [data-region="letter"] .jb-letter-compose__notes-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  display: block;
+  margin-top: var(--space-2, 8px);
   font-family: var(--jb-font-mono);
   font-size: var(--jb-text-xs);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--jb-ink-2);
 }
-body.jb-v2 [data-region="letter"] .jb-letter-compose__refresh {
-  appearance: none;
+body.jb-v2 [data-region="letter"] .jb-letter-compose__title-input {
+  width: 100%;
   border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-sm);
   background: var(--jb-paper);
-  color: var(--jb-navy);
-  font-family: var(--jb-font-mono);
-  font-size: 10px;
-  letter-spacing: 0.10em;
-  text-transform: uppercase;
-  padding: 3px 9px;
-  border-radius: var(--jb-radius-pill);
-  cursor: pointer;
+  color: var(--jb-ink);
+  font: inherit;
+  font-size: var(--jb-text-sm);
+  padding: var(--space-2, 8px) var(--space-2, 8px);
 }
-body.jb-v2 [data-region="letter"] .jb-letter-compose__refresh:hover {
-  background: var(--jb-mint-soft);
-  border-color: var(--jb-mint-deep);
-}
-body.jb-v2 [data-region="letter"] .jb-letter-compose__refresh:focus-visible {
+body.jb-v2 [data-region="letter"] .jb-letter-compose__title-input:focus-visible {
   outline: none;
   box-shadow: var(--jb-shadow-focus);
 }

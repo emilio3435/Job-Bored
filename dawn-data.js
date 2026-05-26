@@ -97,12 +97,21 @@
       var titleEl = card.querySelector(".kanban-card__title");
       var coEl = card.querySelector(".kanban-card__company");
       var idx = card.getAttribute("data-index");
+      // Lead-story facts: per-card fit / salary / found-date all come from
+      // the existing data-* attributes that app.js renders into kanban cards.
+      var fitAttr = card.getAttribute("data-fit");
+      var fitNum = fitAttr ? Number(String(fitAttr).replace(/[^0-9.]/g, "")) : NaN;
+      var fitScore = Number.isFinite(fitNum) ? Math.max(1, Math.min(10, Math.round(fitNum))) : null;
       out.push({
         key: key,
         index: idx ? Number(idx) : -1,
         stage: stage,
         title: titleEl ? (titleEl.textContent || "").trim() : "",
         company: coEl ? (coEl.textContent || "").trim() : "",
+        fitScore: fitScore,
+        foundAt: card.getAttribute("data-found-at") || "",
+        salary: card.getAttribute("data-salary") || "",
+        jobUrl: card.getAttribute("data-job-url") || "",
       });
     });
     return out;
@@ -173,7 +182,7 @@
         text: offers === 1
           ? "One offer is on the table."
           : offers + " offers are on the table.",
-        action: { event: "dawn:scroll-to-stage", payload: "offer", label: "Open offers" },
+        action: null,
       });
     }
     if (inLoop > 0 && offers === 0) {
@@ -182,7 +191,7 @@
         text: inLoop === 1
           ? "One conversation is live in the loop."
           : inLoop + " conversations are live in the loop.",
-        action: { event: "dawn:scroll-to-stage", payload: "interviewing", label: "Open loop" },
+        action: null,
       });
     }
     if (found > 0) {
@@ -191,7 +200,7 @@
         text: found === 1
           ? "One new role surfaced this week."
           : found + " new roles surfaced this week.",
-        action: { event: "dawn:scroll-to-stage", payload: "new", label: "Open new" },
+        action: null,
       });
     }
     if (applied > 0 && noticings.length < 3) {
@@ -200,7 +209,7 @@
         text: applied === 1
           ? "One application went out this week."
           : applied + " applications went out this week.",
-        action: { event: "dawn:scroll-to-stage", payload: "applied", label: "Open applied" },
+        action: null,
       });
     }
     if (noticings.length === 0) {
@@ -309,84 +318,92 @@
   }
 
   /** Highest-fit job in the pipeline (skips "new" — those are untriaged). */
-  function pickLeadJob(jobs) {
-    if (!jobs || !jobs.length) return null;
-    // Prefer offer > interviewing > phone-screen > applied; tie-break by data-index DESC.
-    var stagePriority = { "offer": 6, "interviewing": 5, "phone-screen": 4, "applied": 3, "researching": 2, "new": 1 };
-    var copy = jobs.slice().sort(function (a, b) {
-      var pa = stagePriority[a.stage] || 0;
-      var pb = stagePriority[b.stage] || 0;
-      if (pa !== pb) return pb - pa;
-      return (b.index || 0) - (a.index || 0);
-    });
-    return copy[0];
+  /** Lead-story candidates: active stages only. New + Researching + Applied
+   *  + Phone Screen + Interviewing — anything still in play. Offers/Rejected/
+   *  Passed/Expired are excluded so the carousel stays focused on roles the
+   *  user can act on today. */
+  var ACTIVE_LEAD_STAGES = {
+    "new": true,
+    "researching": true,
+    "applied": true,
+    "phone-screen": true,
+    "interviewing": true,
+  };
+
+  /** Stage CSS-key → human-readable label for per-card facts. */
+  var STAGE_FACT_LABEL = {
+    "new": "New",
+    "researching": "Researching",
+    "applied": "Applied",
+    "phone-screen": "Phone Screen",
+    "interviewing": "Interviewing",
+    "offer": "Offer",
+    "rejected": "Rejected",
+    "passed": "Passed",
+    "expired": "Expired",
+  };
+
+  function daysAgoFromIso(value, now) {
+    if (!value) return null;
+    var parsed = new Date(String(value));
+    if (Number.isNaN(parsed.getTime())) return null;
+    var MS_PER_DAY = 24 * 60 * 60 * 1000;
+    var refNow = now instanceof Date ? now : new Date();
+    var delta = Math.floor((refNow.getTime() - parsed.getTime()) / MS_PER_DAY);
+    return delta >= 0 ? delta : 0;
   }
 
-  /** Build the LEAD STORY slot — eyebrow + headline + facts + body + actions. */
-  function buildLead(hero, funnel, jobs) {
-    var offers = (funnel.find(function (s) { return s.stage === "offer"; }) || {}).count || 0;
-    var inLoop = hero.inLoop || 0;
-    var lead = pickLeadJob(jobs);
-
-    // Eyebrow + headline tone derived from the dominant signal.
-    var eyebrow = "LEAD STORY · TODAY";
-    var headlineHtml = "Today is a good day to <span class=\"underline\">decide</span>.";
-    var body = "A quiet pipeline. Reach out to one person you respect — that's the highest-leverage move on a slow day.";
-    var actions = [{ label: "Open pipeline", kind: "primary", event: "dawn:scroll-to-stage", payload: "applied" }];
-
-    if (offers > 0 && lead && lead.stage === "offer") {
-      eyebrow = "LEAD STORY · OFFER LIVE";
-      headlineHtml = (escapeHtmlSafe(lead.company || "An offer") +
-        " says <span class=\"underline\">yes</span>.<br>Decide before momentum slips.");
-      body = "An offer is on the table. Stack it against your live loops, then either accept, counter, or close the conversation cleanly.";
-      actions = [
-        { label: "Open " + (lead.company || "offer"), kind: "primary", event: "dawn:open-job", payload: lead.key || "" },
-        { label: "Compare loops", kind: "ghost", event: "dawn:scroll-to-stage", payload: "interviewing" },
-      ];
-    } else if (inLoop > 0 && lead && (lead.stage === "interviewing" || lead.stage === "phone-screen")) {
-      eyebrow = "LEAD STORY · INTERVIEW PREP";
-      headlineHtml = (escapeHtmlSafe(lead.company || "Your next loop") +
-        " is up <span class=\"underline\">next</span>.<br>Sharpen the one thing that moves the call.");
-      body = "Block 45 minutes today on the highest-weight skill for this loop. Notes-doc opened wins more loops than over-preparation.";
-      actions = [
-        { label: "Open " + (lead.company || "loop"), kind: "primary", event: "dawn:open-job", payload: lead.key || "" },
-        { label: "See all loops", kind: "ghost", event: "dawn:scroll-to-stage", payload: "interviewing" },
-      ];
-    } else if (lead && lead.stage === "applied") {
-      eyebrow = "LEAD STORY · STILL OUT THERE";
-      headlineHtml = (escapeHtmlSafe(lead.company || "Your last application") +
-        " hasn't <span class=\"underline\">replied</span> yet.<br>Decide: nudge, network, or move on.");
-      body = "Applications past their median reply window rarely warm back up on their own. A warm intro doubles the rate.";
-      actions = [
-        { label: "Open " + (lead.company || "role"), kind: "primary", event: "dawn:open-job", payload: lead.key || "" },
-        { label: "Find a warm intro", kind: "ghost", event: "dawn:scroll-to-stage", payload: "applied" },
-      ];
-    } else if (hero.found > 0) {
-      eyebrow = "LEAD STORY · FRESH FINDS";
-      headlineHtml = (String(hero.found) +
-        " new roles <span class=\"underline\">surfaced</span>.<br>Triage now, apply faster than yesterday.");
-      body = "Speed matters more than polish on first-touch. Skim the JD, pick two, draft cover letters before the day owns you.";
-      actions = [
-        { label: "Triage new", kind: "primary", event: "dawn:scroll-to-stage", payload: "new" },
-      ];
+  function buildLeadFacts(job, nowDate) {
+    var facts = [];
+    var stageLabel = STAGE_FACT_LABEL[job.stage] || "Active";
+    facts.push({ label: "STAGE", value: stageLabel });
+    if (Number.isFinite(job.fitScore) && job.fitScore > 0) {
+      facts.push({
+        label: "FIT",
+        value: String(job.fitScore) + "/10",
+        tone: job.fitScore >= 8 ? "mint" : job.fitScore >= 6 ? "amber" : null,
+      });
     }
+    var days = daysAgoFromIso(job.foundAt, nowDate);
+    if (days != null) {
+      facts.push({
+        label: "FOUND",
+        value: days === 0 ? "today" : days === 1 ? "1 day ago" : days + " days ago",
+      });
+    }
+    if (job.salary && job.salary.trim()) {
+      facts.push({ label: "SALARY", value: job.salary.trim() });
+    }
+    return facts;
+  }
 
-    // Facts: a small set of real, useful numbers derived from current pipeline.
-    var facts = [
-      { label: "PIPELINE", value: String(jobs.length), tone: null },
-      { label: "APPLIED",  value: String(hero.applied || 0), tone: hero.applied > 0 ? "amber" : null },
-      { label: "IN LOOP",  value: String(inLoop), tone: inLoop > 0 ? "mint" : null },
-      { label: "OFFERS",   value: String(offers), tone: offers > 0 ? "mint" : null },
-    ];
-
-    return {
-      eyebrow: eyebrow,
-      headlineHtml: headlineHtml,
-      facts: facts,
-      body: body,
-      actions: actions,
-      stickerLabel: "read me first",
-    };
+  /** Build the lead-story carousel — top-N active jobs by data-fit. */
+  function buildLeads(jobs, nowDate, maxLeads) {
+    var max = Number.isFinite(maxLeads) && maxLeads > 0 ? Math.floor(maxLeads) : 5;
+    if (!Array.isArray(jobs) || jobs.length === 0) return [];
+    var active = jobs.filter(function (j) {
+      return ACTIVE_LEAD_STAGES[j.stage];
+    });
+    // Sort by fit desc; jobs without a fit score still appear but at the end.
+    active.sort(function (a, b) {
+      var af = Number.isFinite(a.fitScore) ? a.fitScore : -Infinity;
+      var bf = Number.isFinite(b.fitScore) ? b.fitScore : -Infinity;
+      if (af !== bf) return bf - af;
+      // Tie-break: newer roles first (higher data-index).
+      return (b.index || 0) - (a.index || 0);
+    });
+    return active.slice(0, max).map(function (job) {
+      return {
+        key: job.key,
+        index: job.index,
+        title: job.title || "Untitled role",
+        company: job.company || "Unknown company",
+        stage: job.stage,
+        fitScore: job.fitScore,
+        jobUrl: job.jobUrl || "",
+        facts: buildLeadFacts(job, nowDate),
+      };
+    });
   }
 
   function _funnelCount(rows, kind) {
@@ -425,49 +442,6 @@
     ];
   }
 
-  /** Up to 3 editorial "Also today" stories — stale / prep / fresh. */
-  function buildStories(hero, funnel, jobs) {
-    var stories = [];
-    var staleApplied = jobs.filter(function (j) { return j.stage === "applied"; });
-    if (staleApplied.length) {
-      var pick = staleApplied[0];
-      stories.push({
-        kind: "stale",
-        title: (pick.company ? pick.company + " " : "Older applications ") + "haven't replied.",
-        body: "Median reply at companies your size falls off fast after a week. Two warm-intro routes usually exist if you ask.",
-        cta: { label: "Find a warm intro →", event: "dawn:open-job", payload: pick.key || "" },
-      });
-    }
-    var loops = jobs.filter(function (j) { return j.stage === "phone-screen" || j.stage === "interviewing"; });
-    if (loops.length) {
-      var loop = loops[0];
-      stories.push({
-        kind: "prep",
-        title: (loop.company ? loop.company + " loop coming up" : "Loops on the calendar") + ".",
-        body: "Block 45 minutes on the highest-weight session. Open the prep doc today — not the morning of.",
-        cta: { label: "Open prep doc →", event: "dawn:open-job", payload: loop.key || "" },
-      });
-    }
-    var fresh = jobs.filter(function (j) { return j.stage === "new"; });
-    if (fresh.length) {
-      stories.push({
-        kind: "fresh",
-        title: fresh.length + " surfaced. " + Math.min(fresh.length, Math.max(2, Math.round(fresh.length / 3))) + " worth a real look.",
-        body: "Skim, score, shortlist. The longer they sit untriaged, the colder the pipeline gets.",
-        cta: { label: "Triage " + fresh.length + " →", event: "dawn:scroll-to-stage", payload: "new" },
-      });
-    }
-    if (stories.length === 0) {
-      stories.push({
-        kind: "fresh",
-        title: "Slow day in the pipeline.",
-        body: "Use the gap. Reach out to one person, sharpen the resume, or draft a thank-you you've been putting off.",
-        cta: { label: "Open pipeline →", event: "dawn:scroll-to-stage", payload: "applied" },
-      });
-    }
-    return stories.slice(0, 3);
-  }
-
   function escapeHtmlSafe(s) {
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;")
@@ -495,9 +469,8 @@
     // only — no schema additions to legacy DOM.
     var nowDate = (opts && opts.now instanceof Date) ? opts.now : new Date();
     var funnel30d = buildFunnel30d(jobs);
-    var lead = buildLead(hero, funnel, jobs);
+    var leads = buildLeads(jobs, nowDate, 5);
     var byTheNumbers = buildByTheNumbers(funnel30d);
-    var stories = buildStories(hero, funnel, jobs);
 
     return {
       date: readDate(doc),
@@ -519,10 +492,9 @@
       readTime: buildReadTime(jobs.length),
       title: "The Daily Brief",
       deckCopy: buildDeck(hero, funnel),
-      lead: lead,
+      leads: leads,
       byTheNumbers: byTheNumbers,
       funnel30d: funnel30d,
-      stories: stories,
     };
   }
 
@@ -557,19 +529,7 @@
       readTime: "1 min read",
       title: "The Daily Brief",
       deckCopy: "An empty pipeline today. Start a discovery run, or add a role to start the day.",
-      lead: {
-        eyebrow: "LEAD STORY · GETTING STARTED",
-        headlineHtml: "Your pipeline is <span class=\"underline\">empty</span>.<br>That's a clean place to start.",
-        facts: [
-          { label: "PIPELINE", value: "0", tone: null },
-          { label: "APPLIED",  value: "0", tone: null },
-          { label: "IN LOOP",  value: "0", tone: null },
-          { label: "OFFERS",   value: "0", tone: null },
-        ],
-        body: "Run discovery to surface roles, or add a job manually. Once a few are in, this brief will sharpen itself.",
-        actions: [{ label: "Add a role", kind: "primary", event: "dawn:scroll-to-stage", payload: "new" }],
-        stickerLabel: "start here",
-      },
+      leads: [],
       byTheNumbers: [
         { value: 0, label: "roles surfaced", delta: "last 30 days", tone: null },
         { value: 0, label: "applications",   delta: "last 30 days", tone: null },
@@ -585,7 +545,6 @@
         { kind: "offer",        label: "Offer",        count: 0 },
         { kind: "expired",      label: "Expired",      count: 0 },
       ],
-      stories: [],
     };
   }
 

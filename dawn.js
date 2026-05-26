@@ -50,13 +50,6 @@
     "offer":        " brief-funnel__tick--green",
   };
 
-  /** Story kind → tag modifier (fixed per the mockup). */
-  var STORY_TAG_MOD = {
-    "stale": "brief-story__tag--stale",
-    "prep":  "brief-story__tag--prep",
-    "fresh": "brief-story__tag--fresh",
-  };
-
   function leadFactsHtml(facts) {
     return (facts || []).map(function (f) {
       var toneClass = f.tone === "mint"
@@ -73,14 +66,63 @@
     }).join("");
   }
 
-  function leadActionsHtml(actions) {
-    return (actions || []).map(function (a) {
-      var btnMod = a.kind === "primary" ? " brief-btn--primary" : "";
-      var evAttr = a.event ? ' data-event="' + escapeHtml(a.event) + '"' : "";
-      var pyAttr = a.payload ? ' data-payload="' + escapeHtml(a.payload) + '"' : "";
-      return '<button type="button" class="brief-btn' + btnMod + '"' + evAttr + pyAttr + '>'
-        + escapeHtml(a.label || "Open") + '</button>';
-    }).join("");
+  /** Per lead-card actions: open dossier, draft cover letter, mark expired or
+   *  dismiss. Each button declares the intent through `data-lead-action` so
+   *  the click delegate can route to JobBoredFlowing.openRole.set and the
+   *  jb:role:action / role-writeback bridges that already exist in app.js. */
+  function leadCardActionsHtml(lead) {
+    var key = escapeHtml(lead.key || "");
+    return [
+      '<button type="button" class="brief-btn brief-btn--primary" data-lead-action="open-dossier" data-key="', key, '">Open dossier</button>',
+      '<button type="button" class="brief-btn" data-lead-action="draft-cover" data-key="', key, '">Draft cover letter</button>',
+      '<button type="button" class="brief-btn brief-btn--ghost" data-lead-action="expire-or-dismiss" data-key="', key, '" aria-haspopup="true" aria-expanded="false">Mark expired / Dismiss ▾</button>',
+      '<div class="brief-lead__popover" hidden data-popover-for="', key, '">',
+      '  <button type="button" class="brief-lead__popover-action" data-lead-action="mark-expired" data-key="', key, '">Mark Expired</button>',
+      '  <button type="button" class="brief-lead__popover-action" data-lead-action="dismiss" data-key="', key, '">Dismiss</button>',
+      '</div>',
+    ].join("");
+  }
+
+  function leadCardHtml(lead) {
+    var fit = Number.isFinite(lead.fitScore) ? lead.fitScore : null;
+    var fitChip = fit != null
+      ? '<span class="brief-lead__fit-chip">FIT ' + fit + '/10</span>'
+      : "";
+    return [
+      '<article class="brief-card brief-lead" data-lead-key="', escapeHtml(lead.key || ""), '">',
+      '  <div class="brief-lead__head">',
+      '    <div class="brief-lead__eyebrow">', escapeHtml(lead.company || ""), '</div>',
+      '    ', fitChip,
+      '  </div>',
+      '  <h2 class="brief-lead__headline">', escapeHtml(lead.title || "Untitled role"), '</h2>',
+      '  <div class="brief-lead__facts">', leadFactsHtml(lead.facts), '</div>',
+      '  <div class="brief-lead__actions">', leadCardActionsHtml(lead), '</div>',
+      '</article>',
+    ].join("");
+  }
+
+  function leadsCarouselHtml(leads) {
+    if (!leads.length) {
+      return [
+        '<section class="brief-leads-section brief-leads-section--empty">',
+        '  <p class="brief-leads-empty">No active roles to lead with today. Run discovery, or add a role manually.</p>',
+        '</section>',
+      ].join("");
+    }
+    return [
+      '<section class="brief-leads-section">',
+      '  <div class="brief-leads-head">',
+      '    <h2 class="brief-leads-title">Lead with these — ranked by fit</h2>',
+      '    <div class="brief-leads-nav">',
+      '      <button type="button" class="brief-leads-nav__btn" data-leads-scroll="prev" aria-label="Scroll leads left">‹</button>',
+      '      <button type="button" class="brief-leads-nav__btn" data-leads-scroll="next" aria-label="Scroll leads right">›</button>',
+      '    </div>',
+      '  </div>',
+      '  <div class="brief-leads-carousel" data-leads-carousel>',
+      leads.map(leadCardHtml).join(""),
+      '  </div>',
+      '</section>',
+    ].join("");
   }
 
   function statHtml(s) {
@@ -120,32 +162,13 @@
     ].join("");
   }
 
-  function storyHtml(s) {
-    var tagMod = STORY_TAG_MOD[s.kind] || "";
-    var ctaAttrs = "";
-    if (s.cta) {
-      if (s.cta.event) ctaAttrs += ' data-event="' + escapeHtml(s.cta.event) + '"';
-      if (s.cta.payload) ctaAttrs += ' data-payload="' + escapeHtml(s.cta.payload) + '"';
-    }
-    var ctaLabel = s.cta && s.cta.label ? s.cta.label : "Open →";
-    return [
-      '<article class="brief-card brief-story">',
-      '  <div class="brief-story__tag ', tagMod, '">', escapeHtml((s.kind || "").toUpperCase()), '</div>',
-      '  <h3 class="brief-story__title">', escapeHtml(s.title || ""), '</h3>',
-      '  <p class="brief-story__body">', escapeHtml(s.body || ""), '</p>',
-      '  <button type="button" class="brief-btn"' + ctaAttrs + '>', escapeHtml(ctaLabel), '</button>',
-      '</article>',
-    ].join("");
-  }
-
-  /** Compose the newspaper-brief layout. vm.lead.headlineHtml is *trusted* —
-   *  it is built in dawn-data.js from escaped text + a fixed `<span
-   *  class="underline">` accent. No untrusted strings are interpolated. */
+  /** Compose the newspaper-brief layout. The lead carousel renders up to 5
+   *  active roles ranked by data-fit; each card hooks into the existing
+   *  JobBoredFlowing.openRole.set / jb:role:action contracts. */
   function buildHtml(vm) {
-    var lead = vm.lead || {};
     var stats = Array.isArray(vm.byTheNumbers) ? vm.byTheNumbers : [];
     var funnel30 = Array.isArray(vm.funnel30d) ? vm.funnel30d : [];
-    var stories = Array.isArray(vm.stories) ? vm.stories : [];
+    var leads = Array.isArray(vm.leads) ? vm.leads : [];
 
     return [
       // 1. Masthead row: edition stamp + read time
@@ -160,73 +183,76 @@
       '  <div class="brief-deck">', escapeHtml(vm.deckCopy || ""), '</div>',
       '</div>',
 
-      // 3. Hero block: lead story (left, 1.4fr) + stats column (right, 1fr)
-      '<div class="brief-hero">',
+      // 3. Leads carousel — top-N active roles by fit, horizontally scrollable.
+      leadsCarouselHtml(leads),
 
-      // 3a. Lead story card
-      '  <article class="brief-card brief-lead">',
-      '    <div class="brief-lead__sticker" aria-hidden="true">', escapeHtml(lead.stickerLabel || "read me first"), '</div>',
-      '    <div class="brief-lead__eyebrow">', escapeHtml(lead.eyebrow || ""), '</div>',
-      '    <h2 class="brief-lead__headline">', (lead.headlineHtml || ""), '</h2>',
-      '    <div class="brief-lead__facts">', leadFactsHtml(lead.facts), '</div>',
-      '    <p class="brief-lead__body">', escapeHtml(lead.body || ""), '</p>',
-      '    <div class="brief-lead__actions">', leadActionsHtml(lead.actions), '</div>',
-      '  </article>',
-
-      // 3b. Stats column: by-the-numbers 2x2 grid + 6-row funnel card.
-      '  <div class="brief-stats-col">',
-      '    <div class="brief-card brief-stats-card">',
-      '      <div class="brief-stats-card__eyebrow">BY THE NUMBERS · LAST 30 DAYS</div>',
-      '      <div class="brief-stats-grid">',
+      // 4. Stats row: by-the-numbers 2x2 grid + 6-row funnel card.
+      '<div class="brief-stats-row">',
+      '  <div class="brief-card brief-stats-card">',
+      '    <div class="brief-stats-card__eyebrow">BY THE NUMBERS · LAST 30 DAYS</div>',
+      '    <div class="brief-stats-grid">',
       stats.map(statHtml).join(""),
-      '      </div>',
-      '    </div>',
-
-      '    <div class="brief-card brief-funnel-card">',
-      '      <div class="brief-funnel-card__title">FUNNEL · LAST 30 DAYS</div>',
-      funnel30.map(funnelRowBriefHtml).join(""),
       '    </div>',
       '  </div>',
-      '</div>',
 
-      // 4. "Also today" — three editorial cards row.
-      '<div class="brief-also-eyebrow">ALSO TODAY · ', stories.length, ' STOR', (stories.length === 1 ? "Y" : "IES"), '</div>',
-      '<div class="brief-also-grid">',
-      stories.map(storyHtml).join(""),
+      '  <div class="brief-card brief-funnel-card">',
+      '    <div class="brief-funnel-card__title">FUNNEL · LAST 30 DAYS</div>',
+      funnel30.map(funnelRowBriefHtml).join(""),
+      '  </div>',
       '</div>',
     ].join("");
   }
 
-  /** Forward an activity-feed click to the legacy kanban-card so
-   *  openJobDetail / expandedJobKeys flow unchanged. */
-  function forwardClickToLegacyCard(stableKey) {
-    if (stableKey == null || stableKey === "") return;
-    var sel = '.kanban-card[data-stable-key="' + cssEscape(stableKey) + '"]';
-    var card = document.querySelector(sel);
-    if (card && typeof card.click === "function") {
-      card.click();
-    }
-  }
-
-  function cssEscape(s) {
-    if (typeof CSS !== "undefined" && CSS.escape) return CSS.escape(s);
-    return String(s).replace(/["\\]/g, "\\$&");
-  }
-
-  /** Scroll the legacy pipeline lane for a given stage into view. */
-  function scrollToStage(stageKey) {
-    if (!stageKey) return;
-    // Legacy uses kanban-card--stage-<csskey>; lane track ids are track-<csskey>.
-    var trackId = "track-" + stageKey.replace(/\s+/g, "-").toLowerCase();
-    var track = document.getElementById(trackId);
-    if (track && track.scrollIntoView) {
-      track.scrollIntoView({ behavior: "smooth", block: "start" });
+  function dispatchLeadAction(action, key) {
+    if (!key) return;
+    var flowing = root.JobBoredFlowing && root.JobBoredFlowing.openRole;
+    if (action === "open-dossier") {
+      if (flowing && typeof flowing.set === "function") flowing.set(key);
+      scrollToRoleRegion();
       return;
     }
-    var firstCard = document.querySelector('.kanban-card--stage-' + cssEscape(stageKey));
-    if (firstCard && firstCard.scrollIntoView) {
-      firstCard.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (action === "draft-cover") {
+      if (flowing && typeof flowing.set === "function") flowing.set(key);
+      try {
+        document.dispatchEvent(new CustomEvent("jb:role:action", {
+          detail: { action: "resume-cover", jobKey: key },
+        }));
+      } catch (_) {}
+      var letter = document.querySelector('[data-region="letter"]');
+      if (letter && letter.scrollIntoView) {
+        var reduce = root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        try { letter.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" }); }
+        catch (_) { letter.scrollIntoView(); }
+      }
+      return;
     }
+    if (action === "mark-expired") {
+      var setter = root.markStatusExpired;
+      if (typeof setter === "function") setter(key);
+      return;
+    }
+    if (action === "dismiss") {
+      var dismiss = root.dismissJob;
+      if (typeof dismiss === "function") dismiss(key);
+      return;
+    }
+  }
+
+  function scrollToRoleRegion() {
+    var roleRegion = document.querySelector('[data-region="role"]');
+    if (!roleRegion || !roleRegion.scrollIntoView) return;
+    var reduce = root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    try { roleRegion.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" }); }
+    catch (_) { roleRegion.scrollIntoView(); }
+  }
+
+  function closeAllLeadPopovers(region) {
+    region.querySelectorAll('.brief-lead__popover').forEach(function (pop) {
+      pop.hidden = true;
+    });
+    region.querySelectorAll('[data-lead-action="expire-or-dismiss"]').forEach(function (btn) {
+      btn.setAttribute('aria-expanded', 'false');
+    });
   }
 
   /** Mount click handlers on the dawn region (idempotent — replaces handler). */
@@ -235,34 +261,50 @@
     region.__dawnBound = true;
 
     region.addEventListener("click", function (e) {
-      // Any element with data-event ⇒ act on it (lead actions, funnel rows,
-      // story CTAs). Keeps the activity-feed/legacy-card forwarding pattern
-      // alive via the dawn:open-job event.
-      var actor = e.target.closest('[data-event]');
-      if (actor) {
+      // Carousel scroll buttons.
+      var navBtn = e.target.closest('[data-leads-scroll]');
+      if (navBtn) {
         e.preventDefault();
-        var ev = actor.getAttribute('data-event');
-        var payload = actor.getAttribute('data-payload') || "";
-        if (ev === 'dawn:open-job' && payload) {
-          forwardClickToLegacyCard(payload);
-          return;
-        }
-        if (ev === 'dawn:scroll-to-stage') {
-          scrollToStage(payload);
-          return;
+        var dir = navBtn.getAttribute('data-leads-scroll');
+        var carousel = region.querySelector('[data-leads-carousel]');
+        if (carousel) {
+          var amount = Math.max(240, Math.floor(carousel.clientWidth * 0.85));
+          carousel.scrollBy({ left: dir === "prev" ? -amount : amount, behavior: "smooth" });
         }
         return;
       }
-      // Funnel row clicks without data-event → scroll to that stage.
-      var fRow = e.target.closest('.brief-funnel__row[data-stage]');
-      if (fRow) {
+
+      // Lead "Mark expired / Dismiss" disclosure toggle.
+      var disc = e.target.closest('[data-lead-action="expire-or-dismiss"]');
+      if (disc) {
         e.preventDefault();
-        scrollToStage(fRow.getAttribute('data-stage'));
+        var key = disc.getAttribute('data-key');
+        var pop = region.querySelector('.brief-lead__popover[data-popover-for="' + (key || "") + '"]');
+        var opening = pop ? pop.hidden : false;
+        closeAllLeadPopovers(region);
+        if (pop && opening) {
+          pop.hidden = false;
+          disc.setAttribute('aria-expanded', 'true');
+        }
+        return;
+      }
+
+      var actor = e.target.closest('[data-lead-action]');
+      if (actor) {
+        e.preventDefault();
+        var action = actor.getAttribute('data-lead-action');
+        var leadKey = actor.getAttribute('data-key') || "";
+        dispatchLeadAction(action, leadKey);
+        closeAllLeadPopovers(region);
         return;
       }
     });
 
-    // Keyboard: Enter on focusable buttons already triggers click; nothing extra needed.
+    // Click outside any open popover closes them.
+    document.addEventListener("click", function (e) {
+      if (region.contains(e.target)) return;
+      closeAllLeadPopovers(region);
+    });
   }
 
   function getRegion() {
