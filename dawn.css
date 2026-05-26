@@ -440,18 +440,44 @@ body.jb-v2 [data-region="dawn"] .brief-btn--primary:focus-visible {
 }
 
 /* ============================================================
-   Lead-story carousel — replaces the single lead + Also Today
-   editorial block. Up to 5 ATS-scored active roles, horizontally
-   scrollable on small screens, snap-aligned, with prev/next
-   chevrons.
+   Daily Brief main area — two-column layout (desktop) with a
+   single-card lead stepper on the left and a stats stack on
+   the right. Replaces the older horizontally-scrolling carousel
+   and the side-by-side stats row.
    ============================================================ */
-body.jb-v2 [data-region="dawn"] .brief-leads-section {
+body.jb-v2 [data-region="dawn"] .brief-main {
+  display: grid;
+  /* ~58 / 42 split, 24px gutter. */
+  grid-template-columns: minmax(0, 58fr) minmax(0, 42fr);
+  gap: 24px;
   margin-block-end: var(--space-7, 28px);
+  align-items: start;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-main__left,
+body.jb-v2 [data-region="dawn"] .brief-main__right {
+  min-width: 0;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-main__right {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6, 22px);
+}
+
+/* --- Lead stepper (left column) ----------------------------- */
+body.jb-v2 [data-region="dawn"] .brief-leads-section {
+  outline: none;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-section:focus-visible {
+  box-shadow: var(--jb-shadow-focus);
+  border-radius: var(--jb-radius-lg);
 }
 
 body.jb-v2 [data-region="dawn"] .brief-leads-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-4, 16px);
   margin-block-end: var(--space-3, 12px);
@@ -467,7 +493,18 @@ body.jb-v2 [data-region="dawn"] .brief-leads-title {
 
 body.jb-v2 [data-region="dawn"] .brief-leads-nav {
   display: inline-flex;
-  gap: 6px;
+  align-items: center;
+  gap: var(--space-2, 8px);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-nav__counter {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.10em;
+  color: var(--jb-ink-3);
+  text-transform: uppercase;
+  min-width: 4.5ch;
+  text-align: center;
 }
 
 body.jb-v2 [data-region="dawn"] .brief-leads-nav__btn {
@@ -486,21 +523,27 @@ body.jb-v2 [data-region="dawn"] .brief-leads-nav__btn:hover {
   background: var(--jb-paper-2);
 }
 
-body.jb-v2 [data-region="dawn"] .brief-leads-carousel {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(min(320px, 80%), 360px);
-  gap: var(--space-5, 18px);
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  padding-block-end: 6px;
+body.jb-v2 [data-region="dawn"] .brief-leads-nav__btn:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
 }
 
-body.jb-v2 [data-region="dawn"] .brief-leads-carousel > .brief-lead {
-  scroll-snap-align: start;
-  padding: var(--space-5, 20px);
+/* Stage holds every ranked lead — only the active one is shown.
+   Larger card than the carousel variant since it has the column
+   to itself. */
+body.jb-v2 [data-region="dawn"] .brief-leads-stage {
+  position: relative;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-stage > .brief-lead {
+  padding: var(--space-6, 22px) var(--space-7, 28px);
   position: relative;
   overflow: visible;
+  transition: opacity 160ms ease;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-stage > .brief-lead[data-stepper-active="false"] {
+  display: none;
 }
 
 body.jb-v2 [data-region="dawn"] .brief-lead__head {
@@ -525,44 +568,10 @@ body.jb-v2 [data-region="dawn"] .brief-lead__fit-chip {
   border: 1px solid var(--jb-navy);
 }
 
-body.jb-v2 [data-region="dawn"] .brief-leads-carousel .brief-lead__headline {
-  font-size: 26px;
+body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__headline {
+  font-size: 30px;
   max-width: none;
   margin-block-end: var(--space-2, 8px);
-}
-
-body.jb-v2 [data-region="dawn"] .brief-lead__popover {
-  position: absolute;
-  bottom: var(--space-3, 12px);
-  inset-inline-end: var(--space-3, 12px);
-  background: var(--jb-paper);
-  border: 1px solid var(--jb-line);
-  border-radius: var(--jb-radius-md, 8px);
-  box-shadow: var(--jb-shadow-card);
-  display: flex;
-  flex-direction: column;
-  min-width: 160px;
-  z-index: 5;
-}
-
-body.jb-v2 [data-region="dawn"] .brief-lead__popover-action {
-  padding: 10px 14px;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--jb-line-soft);
-  color: var(--jb-navy);
-  font-family: var(--jb-font-body);
-  font-size: 13px;
-  text-align: start;
-  cursor: pointer;
-}
-
-body.jb-v2 [data-region="dawn"] .brief-lead__popover-action:last-child {
-  border-bottom: 0;
-}
-
-body.jb-v2 [data-region="dawn"] .brief-lead__popover-action:hover {
-  background: var(--jb-paper-2);
 }
 
 body.jb-v2 [data-region="dawn"] .brief-leads-empty {
@@ -575,28 +584,72 @@ body.jb-v2 [data-region="dawn"] .brief-leads-empty {
   border-radius: var(--jb-radius-lg);
 }
 
-body.jb-v2 [data-region="dawn"] .brief-btn--ghost {
-  background: transparent;
-  border-color: var(--jb-line);
-  color: var(--jb-ink-2);
+/* --- Per-card actions row: two primary pills + icon-only X --- */
+body.jb-v2 [data-region="dawn"] .brief-lead__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 12px);
+  margin-block-start: var(--space-4, 16px);
 }
 
-/* ============================================================
-   Stats row (post-carousel) — by-the-numbers + funnel side by
-   side, replacing the old hero column.
-   ============================================================ */
-body.jb-v2 [data-region="dawn"] .brief-stats-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-6, 22px);
-  margin-block-end: var(--space-7, 28px);
+body.jb-v2 [data-region="dawn"] .brief-lead__actions-primary {
+  display: flex;
+  gap: var(--space-2, 8px);
+  flex-wrap: wrap;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__mark-expired {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--jb-ink-3);
+  cursor: pointer;
+  border-radius: var(--jb-radius-pill);
+  transition: color 120ms ease, background 120ms ease;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__mark-expired:hover {
+  color: var(--jb-amber);
+  background: var(--jb-paper-2);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__mark-expired:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+  color: var(--jb-amber);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__mark-expired svg {
+  display: block;
+}
+
+/* --- Responsive: collapse main grid below 1024px ------------ */
+@media (max-width: 1023px) {
+  body.jb-v2 [data-region="dawn"] .brief-main {
+    grid-template-columns: 1fr;
+    gap: var(--space-6, 22px);
+  }
 }
 
 @media (max-width: 760px) {
-  body.jb-v2 [data-region="dawn"] .brief-stats-row {
-    grid-template-columns: 1fr;
+  body.jb-v2 [data-region="dawn"] .brief-leads-stage > .brief-lead {
+    padding: var(--space-5, 18px);
   }
-  body.jb-v2 [data-region="dawn"] .brief-leads-carousel {
-    grid-auto-columns: 88%;
+  body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__headline {
+    font-size: 24px;
+  }
+}
+
+/* --- Reduced motion: disable advance transition ------------- */
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 [data-region="dawn"] .brief-leads-stage > .brief-lead {
+    transition: none;
   }
 }
