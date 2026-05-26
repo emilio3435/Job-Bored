@@ -127,14 +127,16 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
     assert.match(block, /id="settingsSerpApiCallout"/);
   });
 
-  it("Settings modal no longer renders a Discovery tab or duplicate discovery controls", () => {
+  it("Settings modal no longer renders legacy Discovery controls", () => {
+    const legacyDiscoveryPanelId = ["settings", "panel", "discovery"].join("-");
+    const legacyDiscoveryTabId = ["settings", "tab", "discovery"].join("-");
     assert.ok(
-      !indexHtml.includes('id="settings-panel-discovery"'),
-      "Settings Discovery tabpanel must be removed",
+      !indexHtml.includes(`id="${legacyDiscoveryPanelId}"`),
+      "legacy Discovery panel must be removed",
     );
     assert.ok(
-      !indexHtml.includes('id="settings-tab-discovery"'),
-      "Settings Discovery tab button must be removed",
+      !indexHtml.includes(`id="${legacyDiscoveryTabId}"`),
+      "legacy Discovery tab button must be removed",
     );
     // Old duplicate Discovery preferences fields (settingsDiscoveryTargetRoles
     // et al.) must not be re-introduced anywhere — the canonical inputs are
@@ -156,14 +158,16 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
     });
   });
 
-  it("Settings modal no longer renders a Profile tab (lives behind portfolio nav icon)", () => {
+  it("Settings modal no longer renders legacy Profile controls", () => {
+    const legacyProfilePanelId = ["settings", "panel", "profile"].join("-");
+    const legacyProfileTabId = ["settings", "tab", "profile"].join("-");
     assert.ok(
-      !indexHtml.includes('id="settings-panel-profile"'),
-      "Settings Profile tabpanel must be removed",
+      !indexHtml.includes(`id="${legacyProfilePanelId}"`),
+      "legacy Profile panel must be removed",
     );
     assert.ok(
-      !indexHtml.includes('id="settings-tab-profile"'),
-      "Settings Profile tab button must be removed",
+      !indexHtml.includes(`id="${legacyProfileTabId}"`),
+      "legacy Profile tab button must be removed",
     );
     // The legacy schedule card class must not be re-introduced anywhere.
     assert.ok(

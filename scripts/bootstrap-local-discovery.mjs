@@ -1228,7 +1228,7 @@ async function main() {
     cloudflareDeployCommand,
     ngrokTokenUrl,
     // Browser-use worker fail-closes on empty secret. Surface the resolved
-    // secret so the dashboard can autofill Settings → Discovery webhook secret
+    // secret so the dashboard can autofill the Discovery drawer webhook secret
     // and the user never needs to copy/paste it. Only meaningful for the
     // browser-use worker engine; harmless for the Hermes path.
     webhookSecret: engineKind === "browser_use_worker" ? webhookSecret : "",

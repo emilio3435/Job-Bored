@@ -99,7 +99,7 @@ The plan should be implemented against the current static architecture:
 - [`app.js`](../app.js)
   Current GIS sign-in, token persistence, settings save, discovery webhook test, and Run discovery live here.
 - [`index.html`](../index.html)
-  Settings UI already contains the Discovery webhook URL field, setup guide, and Test webhook affordances.
+  Discovery drawer → Connection already contains the Discovery webhook URL field, setup guide, and Test webhook affordances.
 - [`user-content-store.js`](../user-content-store.js)
   IndexedDB-backed local settings store already persists discovery profile and agent checklist; this is the right place for Apps Script deployment metadata.
 - [`integrations/apps-script/Code.gs`](../integrations/apps-script/Code.gs)
@@ -197,10 +197,10 @@ The deploy flow should behave like an end-to-end setup action, not like a half-s
 
 After a successful deploy:
 
-- set the `Discovery webhook URL` field value in the open Settings modal,
+- set the `Discovery webhook URL` field value in the open Discovery drawer,
 - persist `discoveryWebhookUrl` to the same local config override store used by settings,
 - update `window.COMMAND_CENTER_CONFIG.discoveryWebhookUrl` in memory,
-- keep the modal open,
+- keep the drawer open,
 - surface `Test webhook` and `Run discovery` as the next step.
 
 Do **not** route this through the current “save and reload” settings path for the MVP success case.
@@ -489,7 +489,7 @@ Only if justified by user demand:
 
 ### [`index.html`](../index.html)
 
-- add deploy action block near `Discovery webhook URL`
+- add deploy action block near **Discovery drawer → Connection → Discovery webhook URL**
 - add progress/status region
 - add success actions (`Open script`, `Copy URL`, `Re-deploy`)
 - add concise consent/preflight copy

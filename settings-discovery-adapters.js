@@ -1,7 +1,7 @@
 /**
  * Discovery drawer adapters — helpers that open the Discovery side
  * drawer (and activate the right sub-tab) before focusing controls
- * that used to live in the Settings → Discovery tab.
+ * that now live in the Discovery drawer.
  *
  * The drawer is now the single canonical surface for discovery setup,
  * search intent, sources, automation, connection, and history. These

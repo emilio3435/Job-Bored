@@ -32,7 +32,7 @@
 | Sheet Access Gate (`#sheetAccessGateScreen`) | 122–431 | OAuth sign-in / sheet-connect split-pane |
 | Dashboard (`#dashboard`) | 432–928 | Top bar, daily brief, pipeline card list, footer |
 | Onboarding Wizard (9 panels) | 938–1402 | Multi-step mandatory onboarding flow |
-| Settings Modal | 1403–2221 | Tabbed settings (Setup, Sheet, Discovery, Scraping, ATS, AI Providers) |
+| Settings Modal | 1403–2221 | Tabbed settings (Setup, Sheet, Scraping, ATS, AI Providers) |
 | Scraper Setup Modal | 2222–2420 | Cheerio local server setup guide |
 | Profile Modal (Portfolio) | 2421–3126 | Resume, writing samples, AI context, style prefs |
 | LinkedIn Capture Modal | 3127–3328 | Guided LinkedIn profile capture |
@@ -136,7 +136,7 @@ All 19 scripts are external files loaded at end of body. No inline JS. This is c
 | Print styles | 7923–7963 | `@media print` block |
 | Onboarding wizard | 7964–8300 | `.onboarding-*` |
 | Discovery wizard | 8301–9486 | `.discovery-setup-wizard__*` |
-| Discovery preferences | 9487+ | `.discovery-prefs*` |
+| Discovery drawer preferences | 9487+ | `.discovery-prefs*` |
 | Profile settings | ~10000–10532 | `.profile-settings*`, `.profile-sample*`, `.profile-modal__footer` |
 
 ### 2.2 Naming Convention Analysis

@@ -5,7 +5,7 @@ user starting from a clean browser state.
 
 The expected greenfield path is:
 
-1. open the discovery setup wizard from Settings or `Run discovery`,
+1. open the discovery setup wizard from **Discovery drawer -> Connection** or `Run discovery`,
 2. choose the local agent path or a real existing endpoint,
 3. let the app autofill whatever it already knows,
 4. verify with the shared browser verifier,
@@ -30,7 +30,7 @@ Before the test, remove any prior local state for the dashboard origin:
 If you are reusing an existing account, also confirm:
 
 - Cloudflare Access is **off** for the open `workers.dev` Worker URL used by the dashboard.
-- The Worker URL you use in Settings is the open `https://<worker>.<subdomain>.workers.dev` URL, not `/forward`.
+- The Worker URL you use in **Discovery drawer -> Connection** is the open `https://<worker>.<subdomain>.workers.dev` URL, not `/forward`.
 
 ## Greenfield flow
 

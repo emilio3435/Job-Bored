@@ -307,7 +307,7 @@ The orchestrator should own:
 - new wizard controller bootstrap
 - all entry-point routing into the wizard
 - replacement of current modal-open actions with wizard entry actions
-- reuse of `readinessSnapshot` for Settings and `Run discovery`
+- reuse of `readinessSnapshot` for the Discovery drawer and `Run discovery`
 - final retirement of old modal paths
 
 ### Integration points in `index.html`
@@ -316,7 +316,7 @@ The orchestrator should own:
 
 - script tag load order for new seam files
 - one wizard mount container
-- replacement of Settings buttons and links to route into the wizard
+- replacement of Discovery drawer buttons and links to route into the wizard
 - eventual removal of the old discovery modal markup
 
 ## Execution Order
@@ -373,13 +373,13 @@ Orchestrator only.
 Tasks:
 
 - point all existing discovery entry points at the wizard
-- reuse `readinessSnapshot` in Settings and empty states
+- reuse `readinessSnapshot` in the Discovery drawer and empty states
 - demote old discovery modals from primary UX
 
 Merge gate:
 
 - `?setup=discovery` opens the wizard
-- Settings uses one primary `Open discovery setup` CTA
+- Discovery drawer -> Connection uses one primary `Open discovery setup` CTA
 
 ### Phase 4: Modal Retirement
 

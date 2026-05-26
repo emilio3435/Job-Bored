@@ -1,8 +1,8 @@
-# Schedule your daily discovery — three options, all from Settings
+# Schedule your daily discovery — three options, all from the Discovery drawer
 
 **New to Command Center?** You don't need to wire any automation to use the dashboard — pasting jobs into the Pipeline sheet works fine. This doc is for when you want Command Center to **find new jobs for you on a schedule**, without thinking about it.
 
-Open the dashboard → **Settings → Profile → Schedule**. You'll see three cards, top to bottom. Pick the first one that fits. You can always upgrade later.
+Open the dashboard → **Discovery drawer → Automation → Schedule**. You'll see three cards, top to bottom. Pick the first one that fits. You can always upgrade later.
 
 ---
 

@@ -1532,7 +1532,7 @@ function buildCloudflareRelayAgentPrompt(
   );
   const verifyLine = sheetId
     ? "5. Because the command includes `--sheet-id`, the helper should also run the webhook verification step automatically after deploy."
-    : "5. After it succeeds, tell me to paste the Worker URL into Settings -> Discovery webhook URL and run Test webhook.";
+    : "5. After it succeeds, tell me to paste the Worker URL into Discovery drawer -> Connection -> Discovery webhook URL and run Test webhook.";
   return `We’re in the Job-Bored repo. Set up the Cloudflare Worker relay for Command Center discovery.\n\nCurrent values:\n- TARGET_URL: ${targetUrl}\n- CORS_ORIGIN: ${origin || "*"}\n- Suggested worker name: ${workerName}\n\nDo this:\n1. Run this command from the repo root:\n   ${deployCommand}\n2. If Cloudflare auth is missing, let the helper script open \`wrangler login\` automatically. If that still cannot work, then tell me exactly whether you need \`npx wrangler login\` manually or \`CLOUDFLARE_API_TOKEN\` + \`CLOUDFLARE_ACCOUNT_ID\`.\n3. Return the deployed \`workers.dev\` URL only.\n4. Do not use \`/forward\` or \`FORWARD_SECRET\` for this dashboard path, and keep Cloudflare Access disabled on the open \`workers.dev\` URL.\n${verifyLine}\n\nIf the script stops at a one-time \`workers.dev\` subdomain prompt, tell me which path applies:\n- browser-login path: I should answer the prompt once in the terminal\n- API-token path: rerun with \`CLOUDFLARE_API_TOKEN\`; the helper can then reuse or create the account subdomain automatically.`;
 }
 
@@ -2742,7 +2742,7 @@ function classifyDiscoverySuggestedUrl(result) {
       caption:
         "This is the public Cloudflare Worker URL the dashboard should POST to.",
       applyHint:
-        "Saved to Settings → Discovery webhook URL when you click Use it.",
+        "Saved to Discovery drawer → Connection → Discovery webhook URL when you click Use it.",
       settingsField: "settingsDiscoveryWebhookUrl",
     };
   }
@@ -2763,7 +2763,7 @@ function classifyDiscoverySuggestedUrl(result) {
       label: "Use this webhook URL",
       caption: "This is your discovery webhook endpoint.",
       applyHint:
-        "Saved to Settings → Discovery webhook URL when you click Use it.",
+        "Saved to Discovery drawer → Connection → Discovery webhook URL when you click Use it.",
       settingsField: "settingsDiscoveryWebhookUrl",
     };
   }

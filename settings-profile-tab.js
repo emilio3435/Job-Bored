@@ -1,5 +1,5 @@
 /**
- * Feature B / Layer 5 — Settings → Profile tab controller.
+ * Feature B / Layer 5 — Materials/Profile controller.
  *
  * Drives the discovery-profile UI: client-side resume extraction, form
  * capture, POST /discovery-profile, and rendering of the inferred profile +
@@ -854,7 +854,7 @@
     var primaryEndpoint = resolveProfileEndpoint(config.url);
     if (!primaryEndpoint) {
       throw new Error(
-        "No discovery webhook URL configured. Set it in the Discovery tab first.",
+        "No discovery webhook URL configured. Set it in Discovery drawer → Connection first.",
       );
     }
     var headers = { "Content-Type": "application/json" };
@@ -1977,7 +1977,7 @@
   }
 
   // Pull the user's active resume from the Resume tab's IndexedDB store so
-  // the Profile tab stops asking for a re-upload every session. No-ops if
+  // the profile form stops asking for a re-upload every session. No-ops if
   // the store hasn't loaded yet, the user has no resume on file, or the
   // textarea already has content (don't clobber a freshly-pasted resume).
   async function autoPopulateResumeFromStore() {
