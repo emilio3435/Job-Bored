@@ -636,7 +636,7 @@
       /* --- compose panel (prefill + tone/length + generate) ---
          The draft folder ("Versions") used to live above Compose;
          it now lives inside the Scorecard block in the right rail
-         as a "Versions" sub-section. See the <!--folder-slot--> in
+         as a "Versions" sub-section. See the folder-slot marker in
          that block below. */
       '<!--compose-slot-->',
 
@@ -812,128 +812,12 @@
     if (flavor) flavor.textContent = readingLevelFlavor(ats.readingLevel);
   }
 
-  function readManualRevisionInstructions(region) {
-    var input = region && region.querySelector("[data-letter-revision-instructions]");
-    return input && input.value != null ? String(input.value).trim() : "";
-  }
-
-  function baseRevisionFeedback(action, term) {
-    if (action === "tighten") {
-      return "Tighten this cover letter: sharpen verbs, remove hedging and filler, keep the claims factual, and preserve the strongest role-specific evidence.";
-    }
-    if (action === "add-evidence") {
-      return "Add concrete evidence to this cover letter from the candidate profile and job posting. Prefer outcomes, scope, tools, or metrics only when they are supported by the source material. Do not invent numbers or credentials.";
-    }
-    if (action === "honest-cut") {
-      return "Make an honest cut: remove overstatement, unsupported claims, and generic praise. Keep the strongest truthful proof and make the letter sound credible.";
-    }
-    if (action === "trim") {
-      return "Trim this cover letter toward 250 words while preserving the strongest role-specific evidence, truthful fit, and a clear close.";
-    }
-    if (action === "address") {
-      return 'Revise this cover letter to address the missing job-description term "' + term + '". Use truthful evidence from the candidate profile or adjacent experience; do not pretend direct experience if it is not supported.';
-    }
-    return "";
-  }
-
-  function buildRevisionFeedback(region, action, term) {
-    var manual = readManualRevisionInstructions(region);
-    if (action === "manual-revise") return manual;
-    var base = baseRevisionFeedback(action, term);
-    if (!base) return manual;
-    return manual
-      ? base + "\n\nAdditional user instructions: " + manual
-      : base;
-  }
-
-  function setRevisionStatus(region, message, tone) {
-    var el = region && region.querySelector("[data-letter-revision-status]");
-    if (!el) return;
-    el.textContent = message || "";
-    if (tone) el.setAttribute("data-tone", tone);
-    else el.removeAttribute("data-tone");
-  }
-
-  function setRevisionBusy(region, busy, activeAction) {
-    var controls = region.querySelectorAll(".jb-letter-tool, .jb-letter-miss__btn, .jb-letter-revision__button");
-    controls.forEach(function (control) {
-      control.disabled = !!busy;
-      control.setAttribute("aria-disabled", busy ? "true" : "false");
-      if (busy && activeAction && control.getAttribute("data-action") === activeAction) {
-        control.setAttribute("data-busy", "true");
-      } else {
-        control.removeAttribute("data-busy");
-      }
-    });
-    var input = region.querySelector("[data-letter-revision-instructions]");
-    if (input) input.disabled = !!busy;
-  }
-
-  function applyRevisedDraft(region, ctx, text, draftId) {
-    var editor = region.querySelector("[data-letter-editor]");
-    if (!editor) return;
-    writeTextToEditor(editor, text);
-    if (ctx) {
-      if (ctx.scoreTimer) { clearTimeout(ctx.scoreTimer); ctx.scoreTimer = null; }
-      if (ctx.saveTimer) { clearTimeout(ctx.saveTimer); ctx.saveTimer = null; }
-      ctx.activeDraftId = draftId || ctx.activeDraftId || null;
-    }
-    try {
-      var ats = root.JobBoredAts && root.JobBoredAts.analyze
-        ? root.JobBoredAts.analyze({ jd: (ctx && ctx.jdSnippet) || "", draft: text })
-        : null;
-      if (ats) updateScorecard(region, ats);
-    } catch (e) { /* never throw */ }
-    if (ctx && typeof root.getPipelineJobByIndex === "function") {
-      renderFolderInto(region, root.getPipelineJobByIndex(ctx.jobKey), ctx.activeDraftId);
-    }
-    setSaveState(region, "saved", nowHHMM());
-  }
-
-  async function reviseWithAi(region, ctx, action, term) {
-    if (!region || !ctx || ctx.revisionBusy) return;
-    var editor = region.querySelector("[data-letter-editor]");
-    var previousDraft = readEditorText(editor).trim();
-    if (!previousDraft) {
-      setRevisionStatus(region, "Add or load a draft before revising.", "error");
-      return;
-    }
-    var feedback = buildRevisionFeedback(region, action, term || "");
-    if (!feedback) {
-      setRevisionStatus(region, "Type revision instructions first.", "error");
-      return;
-    }
-    if (typeof root.reviseLetterDraftForJob !== "function") {
-      setRevisionStatus(region, "AI revision is unavailable in this build.", "error");
-      return;
-    }
-    ctx.revisionBusy = true;
-    setRevisionBusy(region, true, action);
-    setRevisionStatus(region, "Revising with AI…", "busy");
-    setSaveState(region, "saving");
-    try {
-      var result = await root.reviseLetterDraftForJob(ctx.jobKey, {
-        previousDraft: previousDraft,
-        refinementFeedback: feedback,
-        parentDraftId: ctx.activeDraftId || null,
-      });
-      var nextText = result && result.text ? String(result.text).trim() : "";
-      if (!nextText) throw new Error("AI returned an empty revision");
-      applyRevisedDraft(region, ctx, nextText, result && result.draftId);
-      if (result && result.saved === false) {
-        setRevisionStatus(region, result.saveError || "Revised, but could not save a new version.", "error");
-      } else {
-        setRevisionStatus(region, "Revised and saved as a new version.", "success");
-      }
-    } catch (err) {
-      var msg = err && err.message ? String(err.message) : "Revision failed";
-      setSaveState(region, "dirty");
-      setRevisionStatus(region, msg, "error");
-    } finally {
-      ctx.revisionBusy = false;
-      setRevisionBusy(region, false);
-    }
-  }
+  /* (The revision-feedback builders, manual-revise status pill,
+     and applyRevisedDraft helper were removed alongside their UI:
+     the Missing keywords block, the one-click tools strip, and
+     the custom revision textarea. AI generation is owned by the
+     Compose panel; AI revision will be re-introduced through a
+     refine flow in a future tier.) */
 
   function bindEditorEvents(region, ctx) {
     var editor = region.querySelector("[data-letter-editor]");
@@ -973,15 +857,11 @@
       if (!btn) return;
       var action = btn.getAttribute("data-action");
       if (!action) return;
-      if (action === "address") {
-        var term = btn.getAttribute("data-term");
-        void reviseWithAi(region, ctx, action, term || "");
-        return;
-      }
-      if (action === "tighten" || action === "add-evidence" || action === "honest-cut" || action === "trim" || action === "manual-revise") {
-        void reviseWithAi(region, ctx, action, "");
-        return;
-      }
+      /* (The legacy "address" / "tighten" / "add-evidence" /
+         "honest-cut" / "trim" / "manual-revise" actions were
+         removed when the Missing keywords block and the
+         one-click tools strip came out of the rail. Generation
+         + revision are owned by the Compose panel now.) */
 
       /* --- draft folder strip ----------------------------------- */
       if (action === "load-draft") {
@@ -1107,6 +987,24 @@
       ? root.getPipelineJobByIndex(jobKey)
       : null;
 
+    /* Pull LLM insights for the rail from the latest draft (across
+       both features) and attach them to the view-model. Hand-typed
+       drafts and pre-insights generations leave these null/empty. */
+    var latestDraft = null;
+    try {
+      var clD = getDraftsForFeature(pipelineJob, "cover_letter");
+      var reD = getDraftsForFeature(pipelineJob, "resume_update");
+      var allD = clD.concat(reD).filter(Boolean);
+      allD.sort(function (a, b) {
+        return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
+      });
+      latestDraft = allD[0] || null;
+    } catch (_e) { latestDraft = null; }
+    if (latestDraft) {
+      vm.insights = latestDraft.insights || null;
+      vm.insightsError = latestDraft.insights ? "" : (latestDraft.insightsError || "");
+    }
+
     /* Re-render shell only if jobKey changed. Otherwise refresh
        the scorecard + draft folder strip in place, preserving editor state. */
     if (region.__letterCtx && region.__letterCtx.jobKey === jobKey) {
@@ -1195,8 +1093,17 @@
       if (!region || !region.__letterCtx) { render(); return; }
       var detailKey = e && e.detail && e.detail.jobKey != null ? String(e.detail.jobKey) : "";
       if (detailKey && detailKey !== String(region.__letterCtx.jobKey)) return;
-      region.__letterCtx.pendingActiveDraftId = (e && e.detail && e.detail.draftId) || null;
+      var pendingId = (e && e.detail && e.detail.draftId) || null;
+      /* Force a full reshell so the rail picks up the new draft's
+         LLM insights (fit angle + score reasons + error banner).
+         The in-place updateScorecard path can't paint those. */
+      region.__letterCtx = null;
+      region.__letterHtml = "";
       render();
+      var region2 = getRegion();
+      if (pendingId && region2 && region2.__letterCtx) {
+        region2.__letterCtx.pendingActiveDraftId = pendingId;
+      }
     });
   }
 

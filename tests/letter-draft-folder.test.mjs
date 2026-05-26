@@ -224,22 +224,22 @@ describe("Letter region — click delegation (letter.js)", () => {
     );
   });
 
-  it("Address (per-miss) still calls the in-page AI revision path", () => {
-    /* The standalone One-click tools block and the Custom revision
-       textarea were removed from the right rail (the Compose panel
-       above the editor owns AI generation/revision now). The Address
-       buttons on each missing-keyword row still go through reviseWithAi. */
+  it("legacy per-miss revision plumbing has been removed", () => {
+    /* The Missing keywords block, One-click tools strip, and Custom
+       revision textarea are all gone. Their consumer reviseWithAi()
+       and the matching action branches are gone too. AI generation
+       lives only in the Compose panel now. */
     assert.ok(
-      letterJs.includes("function reviseWithAi("),
-      "letter.js must keep reviseWithAi() for the per-miss Address path",
+      !letterJs.includes("function reviseWithAi("),
+      "reviseWithAi() must be removed — no remaining consumers in the rail",
     );
     assert.ok(
-      letterJs.includes("root.reviseLetterDraftForJob"),
-      "reviseWithAi must call the app.js generated-draft bridge",
+      !letterJs.includes('action === "address"'),
+      "the address action branch must be removed",
     );
     assert.ok(
-      !letterJs.includes("TODO tool") && !letterJs.includes("TODO address term"),
-      "Address must not be left as a TODO console log",
+      !letterJs.includes('action === "tighten"'),
+      "the tighten action branch must be removed",
     );
   });
 });
@@ -363,12 +363,16 @@ describe("Letter region — render smoke", () => {
        and the Custom-revision textarea were removed from the right rail.
        Generation/revision now lives in the Compose panel above the editor;
        the only AI-revision touchpoint left in the rail is the per-miss
-       Address button on each missing-keyword row. */
+       Address button on each missing-keyword row. The Missing keywords
+       block itself has since been removed entirely — deterministic
+       token-match scoring was replaced by LLM per-draft insights. */
     assert.doesNotMatch(region.innerHTML, /data-action="tighten"/);
     assert.doesNotMatch(region.innerHTML, /data-action="manual-revise"/);
     assert.doesNotMatch(region.innerHTML, /data-letter-revision-instructions/);
+    assert.doesNotMatch(region.innerHTML, /data-action="address"/);
+    assert.doesNotMatch(region.innerHTML, /jb-letter-block--misses/);
+    assert.doesNotMatch(region.innerHTML, /data-letter-misses/);
     assert.match(region.innerHTML, /data-action="compose-generate"/);
-    assert.match(region.innerHTML, /data-action="address"/);
   });
 });
 

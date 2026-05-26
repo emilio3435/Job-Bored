@@ -220,7 +220,7 @@
     const parts = data.candidates?.[0]?.content?.parts;
     const text = parts?.map((p) => p.text || "").join("") || "";
     if (!text.trim()) throw new Error("Empty response from Gemini");
-    return text.trim();
+    return extractInsights(text);
   }
 
   /** GPT-5 / o-series and other newer chat models use max_completion_tokens, not max_tokens. */
@@ -267,7 +267,7 @@
     }
     const text = data.choices?.[0]?.message?.content || "";
     if (!text.trim()) throw new Error("Empty response from OpenAI");
-    return text.trim();
+    return extractInsights(text);
   }
 
   async function callAnthropic(bundle, apiKey, model) {
@@ -303,7 +303,7 @@
       ? blocks.map((b) => (b.type === "text" ? b.text || "" : "")).join("")
       : "";
     if (!text.trim()) throw new Error("Empty response from Anthropic");
-    return text.trim();
+    return extractInsights(text);
   }
 
   async function callWebhook(bundle, hookUrl) {
@@ -320,15 +320,28 @@
     if (!resp.ok) {
       throw new Error(textRaw.slice(0, 200) || `HTTP ${resp.status}`);
     }
+    /* Webhooks may either pre-shape the response (an object with
+       text + insights) or return raw model text with the sentinel
+       block inline. Try the pre-shaped path first; fall back to
+       sentinel extraction. */
     try {
       const j = JSON.parse(textRaw);
-      if (typeof j.text === "string" && j.text.trim()) return j.text.trim();
-      if (typeof j.content === "string" && j.content.trim())
-        return j.content.trim();
+      const inner =
+        (typeof j.text === "string" && j.text.trim()) ||
+        (typeof j.content === "string" && j.content.trim()) ||
+        "";
+      if (j && (j.insights || j.insightsError)) {
+        return {
+          cleanText: inner,
+          insights: j.insights || null,
+          insightsError: j.insights ? "" : String(j.insightsError || "Webhook did not include insights."),
+        };
+      }
+      if (inner) return extractInsights(inner);
     } catch (_) {
       /* plain text */
     }
-    if (textRaw.trim()) return textRaw.trim();
+    if (textRaw.trim()) return extractInsights(textRaw);
     throw new Error("Webhook returned empty body");
   }
 
@@ -348,7 +361,7 @@
 
   /**
    * @param {ReturnType<typeof window.CommandCenterResumeBundle.buildResumeContextBundle>} bundle
-   * @returns {Promise<string>}
+   * @returns {Promise<{ cleanText: string, insights: object|null, insightsError: string }>}
    */
   async function generateFromBundle(bundle) {
     const g = getResumeGenerationConfig();
@@ -394,6 +407,7 @@
     getResumeGenerationConfig,
     generateFromBundle,
     buildSystemPrompt,
+    extractInsights,
     isResumeGenerationConfigured,
   };
 })();

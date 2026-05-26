@@ -137,6 +137,16 @@
     const text = String(o.text || "").trim().slice(0, GENERATED_DRAFT_TEXT_MAX_CHARS);
     const jobSnapshot = buildDraftJobSnapshot(o.jobSnapshot || {});
     const jobKey = collapseWhitespace(o.jobKey || "") || makeJobOpportunityKey(jobSnapshot);
+    /* User-supplied human label for the version. Falls back to
+       "Version N" downstream when blank. */
+    const title = String(o.title || "")
+      .trim()
+      .slice(0, GENERATED_DRAFT_NOTE_MAX_CHARS);
+    /* Per-draft LLM insights blob + parse-error string. Both fields
+       are optional; older drafts will have neither. */
+    const insights =
+      o.insights && typeof o.insights === "object" ? o.insights : null;
+    const insightsError = String(o.insightsError || "").trim();
     return {
       id: collapseWhitespace(o.id || "") || newId(),
       feature,
@@ -159,6 +169,9 @@
         .trim()
         .slice(0, GENERATED_DRAFT_NOTE_MAX_CHARS),
       jobSnapshot,
+      title,
+      insights,
+      insightsError,
     };
   }
 
@@ -861,6 +874,9 @@
       userNotes: source.userNotes || "",
       refinementFeedback: source.refinementFeedback || "",
       jobSnapshot,
+      title: source.title || "",
+      insights: source.insights || null,
+      insightsError: source.insightsError || "",
     });
     await putGeneratedDraft(record);
     return record;
