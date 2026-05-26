@@ -770,11 +770,16 @@
         : '      <div class="jb-letter-fit jb-letter-fit--empty"><h3 class="jb-letter-fit__title">Fit angle</h3><p class="jb-letter-fit__body">Generate a draft to see the model\'s read on this role.</p></div>',
       /* Insights parse-failure banner — shown when the LLM call
          succeeded for the draft text but the trailing insights JSON
-         could not be parsed. The user is asked to regenerate. */
+         could not be parsed. Includes a Regenerate now CTA that
+         re-fires the generation through the Compose panel (so the
+         same feature + tone + length + notes + title are reused). */
       insightsError
         ? '      <div class="jb-letter-insights-error" role="status">' +
           '<p class="jb-letter-insights-error__title">Insights unavailable</p>' +
-          '<p class="jb-letter-insights-error__body">The model returned a draft but its scoring block was malformed. Regenerate to get fresh insights.</p>' +
+          '<p class="jb-letter-insights-error__body">The model returned a draft but its scoring block was malformed.</p>' +
+          '<div class="jb-letter-insights-error__actions">' +
+          '<button type="button" class="jb-letter-insights-error__button" data-action="regenerate-insights">Regenerate now</button>' +
+          '</div>' +
           '</div>'
         : '',
       /* Versions sub-section: previous drafts for this role.
@@ -994,6 +999,15 @@
       /* --- refine current draft (rail Versions block) ----------- */
       if (action === "refine-draft") {
         void handleRefineDraft(region, ctx);
+        return;
+      }
+
+      /* --- regenerate after malformed insights ------------------ */
+      /* Same path as compose-generate — re-uses whatever the user
+         had selected in the Compose panel (feature, tone, length,
+         notes, title). The only difference is the entry point. */
+      if (action === "regenerate-insights") {
+        void handleComposeGenerate(region, ctx);
         return;
       }
 
