@@ -36,6 +36,7 @@ import {
   handleDiscoveryWebhook,
   hasValidWebhookSecret,
 } from "./webhook/handle-discovery-webhook.ts";
+import { handleCleanupExpiredWebhook } from "./webhook/handle-cleanup-webhook.ts";
 import { handleDiscoveryProfileWebhook } from "./webhook/handle-discovery-profile.ts";
 import { handleIngestUrlWebhook } from "./webhook/handle-ingest-url.ts";
 import { hasValidRunStatusToken } from "./webhook/run-status-auth.ts";
@@ -692,6 +693,7 @@ async function buildHealthPayload() {
       discovery: "/discovery",
       discoveryProfile: "/discovery-profile",
       ingestUrl: "/ingest-url",
+      cleanupExpired: "/cleanup-expired",
       runStatus: RUN_STATUS_TEMPLATE,
     },
     readiness: {
@@ -966,7 +968,11 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (!["/", "/webhook", "/discovery", "/discovery-profile", "/ingest-url"].includes(requestPath)) {
+  if (
+    !["/", "/webhook", "/discovery", "/discovery-profile", "/ingest-url", "/cleanup-expired"].includes(
+      requestPath,
+    )
+  ) {
     finishJson(
       404,
       {
@@ -1191,6 +1197,88 @@ const server = createServer(async (request, response) => {
         {
           ok: false,
           message: "Internal error handling ingest-url request.",
+          detail: error instanceof Error ? error.message : String(error),
+        },
+        corsHeaders,
+      );
+    }
+    return;
+  }
+
+  if (requestPath === "/cleanup-expired") {
+    try {
+      const bodyText = await readBody(request);
+      logEvent("http.request.body", {
+        requestId,
+        method,
+        path: requestPath,
+        bytes: Buffer.byteLength(bodyText, "utf8"),
+        contentType:
+          getHeaderValue(request.headers["content-type"]) || undefined,
+      });
+      const result = await handleCleanupExpiredWebhook(
+        {
+          method,
+          headers: Object.fromEntries(
+            Object.entries(request.headers).map(([key, value]) => [
+              key,
+              Array.isArray(value) ? value : (value ?? undefined),
+            ]),
+          ),
+          bodyText,
+        },
+        {
+          runtimeConfig,
+          log: (event, details) =>
+            logEvent(event, {
+              requestId,
+              method,
+              path: requestPath,
+              ...details,
+            }),
+        },
+      );
+      logEvent("http.request.completed", {
+        requestId,
+        method,
+        path: requestPath,
+        status: result.status,
+        durationMs: Date.now() - startedAt,
+      });
+      response.statusCode = result.status;
+      setHeaders(response, {
+        ...corsHeaders,
+        ...result.headers,
+      });
+      response.end(result.body);
+    } catch (error) {
+      if (error instanceof BodyTooLargeError) {
+        logEvent("http.request.rejected", {
+          requestId,
+          method,
+          path: requestPath,
+          reason: "body_too_large",
+          limit: MAX_BODY_BYTES,
+        });
+        finishJson(
+          413,
+          { ok: false, message: "Request body exceeds the configured limit." },
+          corsHeaders,
+        );
+        return;
+      }
+      logEvent("http.request.failed", {
+        requestId,
+        method,
+        path: requestPath,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      finishJson(
+        500,
+        {
+          ok: false,
+          message: "Internal error handling cleanup-expired request.",
           detail: error instanceof Error ? error.message : String(error),
         },
         corsHeaders,
