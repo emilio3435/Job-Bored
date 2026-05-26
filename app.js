@@ -20684,6 +20684,15 @@ function openDiscoveryDrawer() {
     checkDiscoveryAiAvailability();
     const first = document.getElementById("dpTargetRoles");
     if (first) first.focus();
+    // First-run coach: auto-fires once per browser, gated by localStorage.
+    try {
+      const coach = window.JobBoredDiscoveryCoach;
+      if (coach && typeof coach.start === "function") {
+        coach.start({ force: false });
+      }
+    } catch (err) {
+      console.warn("[JobBored] discovery coach start:", err);
+    }
   });
 }
 
@@ -21162,6 +21171,22 @@ function initDiscoveryDrawer() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && isDiscoveryDrawerOpen()) closeDiscoveryDrawer();
   });
+
+  /* ---- First-run coach: "?" button restarts the walkthrough ---- */
+  const coachBtn = document.getElementById("discoveryDrawerCoachBtn");
+  if (coachBtn && coachBtn.dataset.bound !== "true") {
+    coachBtn.dataset.bound = "true";
+    coachBtn.addEventListener("click", () => {
+      try {
+        const coach = window.JobBoredDiscoveryCoach;
+        if (coach && typeof coach.start === "function") {
+          coach.start({ force: true });
+        }
+      } catch (err) {
+        console.warn("[JobBored] discovery coach restart:", err);
+      }
+    });
+  }
 
   /* ---- Source preset mutual-exclusivity ---- */
   document
