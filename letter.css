@@ -299,11 +299,34 @@ body.jb-v2 [data-region="letter"] .jb-letter-score__sub {
    headline sits visually as part of the score; the <details> is a
    quiet disclosure for users who want the math behind it. */
 body.jb-v2 [data-region="letter"] .jb-letter-score__reason {
-  margin: var(--space-2, 8px) 0 0 0;
+  /* Calm slab-quote treatment so the reason reads as an intentional
+     editorial annotation, not a glued-on italic afterthought.
+     - Sits above a hairline divider that visually attaches it to
+       the meter directly above.
+     - Mono-quoted opening glyph (›) gives the line a deliberate
+       voice without the cliché of `"`.
+     - Slightly tighter leading + ink-2 keeps it secondary to the
+       score number but readable as prose. */
+  margin: var(--space-3, 12px) 0 0 0;
+  padding-top: var(--space-2, 8px);
+  border-top: 1px solid var(--jb-line-soft);
   font-family: var(--jb-font-body);
-  font-size: var(--jb-text-xs);
-  line-height: 1.45;
+  font-size: var(--jb-text-sm);
+  line-height: 1.5;
   color: var(--jb-ink-2);
+  position: relative;
+  padding-left: 18px;
+}
+body.jb-v2 [data-region="letter"] .jb-letter-score__reason::before {
+  content: "›";
+  position: absolute;
+  left: 0;
+  top: var(--space-2, 8px);
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-base);
+  line-height: 1.5;
+  color: var(--jb-mint-deep);
+  font-weight: 600;
 }
 body.jb-v2 [data-region="letter"] .jb-letter-score__why {
   margin-top: 4px;
