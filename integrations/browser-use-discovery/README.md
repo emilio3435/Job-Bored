@@ -88,10 +88,43 @@ npm run cleanup:expired-jobs:schedule:install -- --sheet-id "$SHEET_ID" --write 
 npm run cleanup:expired-jobs:schedule:uninstall
 ```
 
-When cleanup classifies a row as `needs_review`, write mode appends an
-`Availability review:` audit line to column O Notes. The dashboard review modal
-reads those notes plus aging New/Researching rows and renders every match with
-a direct link to the job posting.
+When cleanup classifies a row as `needs_review`, write mode appends a one-sentence
+audit line in plain English to column O Notes, e.g.
+`[JobBored 2026-05-26] Please review this job — the site blocked us before we could read the page (HTTP 403).`
+Confirmed-expired rows get a matching `Marked Expired because <reason>. Was: <previousStatus>.`
+line and have column M flipped to `Expired`. The dashboard review modal reads
+those notes plus aging New/Researching rows and renders every match with a
+direct link to the job posting plus per-row actions (`Mark Expired`,
+`Dismiss`, `Set Researching`) and a bulk select bar.
+
+### POST /cleanup-expired (dashboard helper)
+
+The worker also exposes `POST /cleanup-expired` for the dashboard's **Run
+cleanup now** button. It accepts the same `x-discovery-secret` header as
+`/discovery`, runs the cleanup synchronously, and returns the counts plus the
+full result list:
+
+```jsonc
+// Request
+{ "sheetId": "1mGJ04E…", "dryRun": false, "googleAccessToken": "ya29.…" }
+
+// Response (200)
+{
+  "ok": true,
+  "sheetId": "1mGJ04E…",
+  "dryRun": false,
+  "checked": 94,
+  "open": 37,
+  "needsReview": 57,
+  "skipped": 60,
+  "wouldExpire": 0,
+  "updated": 0,
+  "results": [ { "rowNumber": 12, "action": "needs_review", "reason": "…" }, ... ]
+}
+```
+
+Like `/discovery`, the per-request `googleAccessToken` is isolated to a per-call
+runtime config and never persisted on disk.
 
 ## Runtime Inputs
 

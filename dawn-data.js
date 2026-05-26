@@ -442,15 +442,6 @@
     ];
   }
 
-  function escapeHtmlSafe(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-  }
-
   /** Public API. */
   function getDawnViewModel(opts) {
     var doc = (opts && opts.doc) || (typeof document !== "undefined" ? document : null);

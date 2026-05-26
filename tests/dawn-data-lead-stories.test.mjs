@@ -127,7 +127,7 @@ describe("Dawn lead-story carousel (ATS-scored)", () => {
     const vmObj = api.getDawnViewModel({ doc, now: new Date("2026-05-20T12:00:00Z") });
     const lead = vmObj.leads[0];
     const labels = Array.from(lead.facts, (f) => f.label);
-    assert.deepEqual(labels, ["STAGE", "FIT", "FOUND", "SALARY"]);
+    assert.equal(JSON.stringify(labels), JSON.stringify(["STAGE", "FIT", "FOUND", "SALARY"]));
     const byLabel = Object.fromEntries(Array.from(lead.facts, (f) => [f.label, f.value]));
     assert.equal(byLabel.STAGE, "Applied");
     assert.equal(byLabel.FIT, "8/10");
