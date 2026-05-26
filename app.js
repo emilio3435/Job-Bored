@@ -11184,6 +11184,38 @@ async function restoreJob(stableKey) {
   }
 }
 
+/**
+ * Flip column M (Status) to "Expired" for a single pipeline row. Used by the
+ * Daily Brief lead-story popover and the review modal's per-row Mark Expired
+ * action. Optimistic — reverts the in-memory status if the writeback fails.
+ */
+async function markStatusExpired(stableKey) {
+  const job = pipelineData[stableKey];
+  if (!job) return;
+  if (!accessToken) {
+    showSheetAccessGate("signin");
+    return;
+  }
+  const sheetRow = getSheetRow(stableKey);
+  if (!sheetRow) return;
+  const prevStatus = job.status;
+  if ((prevStatus || "").toLowerCase() === "expired") return;
+  job.status = "Expired";
+  renderPipeline();
+  try {
+    const ok = await updateMultipleCells([
+      { range: `Pipeline!M${sheetRow}`, value: "Expired" },
+    ]);
+    if (!ok) throw new Error(`Pipeline M${sheetRow} write failed`);
+    showToast("Marked Expired", "info");
+  } catch (err) {
+    console.error("[JobBored] markStatusExpired failed", err);
+    job.status = prevStatus;
+    renderPipeline();
+    showToast("Couldn't mark expired — reverted", "error");
+  }
+}
+
 // Row index: the position in pipelineData maps to raw row index
 // pipelineData[i] comes from pipelineRawRows[i], which is rows[i+1] (skip header)
 // So sheet row = rawRowIndex + 2 (1-indexed, +1 for header)
@@ -11793,6 +11825,7 @@ async function loadAllData() {
     dashboardDataHydrated = true;
     renderAll();
     updateLastRefresh();
+    maybeAutoOpenExpiredReviewModal();
     if (!initialSheetAccessResolved) {
       // OAuth is configured but the user is signed out — block the dashboard
       // entirely, even if the JSONP path would have succeeded against a
@@ -12182,6 +12215,7 @@ function renderKanbanCard(job, index) {
     _pair("data-job-url", job.link || ""),
     _pair("data-source", job.source || ""),
     _pair("data-applied-at", job.appliedDate || ""),
+    _pair("data-found-at", job.dateFoundRaw || ""),
     _pair("data-follow-up", job.followUpDate || ""),
     _pair("data-tags", job.tags || ""),
     _pair("data-fit", Number.isFinite(job.fitScore) ? String(job.fitScore) : ""),
@@ -14465,19 +14499,33 @@ function formatExpiredReviewDate(job) {
   });
 }
 
+// Selection state for the review modal. Cleared whenever the modal closes
+// or the list re-renders, since indexes are re-derived from pipelineData.
+let expiredReviewSelection = new Set();
+
 function renderExpiredReviewModal() {
   const list = document.getElementById("expiredReviewList");
   const summary = document.getElementById("expiredReviewModalSummary");
+  const bulkbar = document.getElementById("expiredReviewBulkbar");
   if (!list) return;
   const items = getExpiredReviewItems();
+  // Drop selections that no longer correspond to a listed row.
+  const liveIndexes = new Set(items.map((it) => it.index));
+  expiredReviewSelection.forEach((idx) => {
+    if (!liveIndexes.has(idx)) expiredReviewSelection.delete(idx);
+  });
   if (summary) {
     summary.textContent = items.length
-      ? `${items.length} active posting${items.length === 1 ? "" : "s"} may need an availability check. Open the job listing first, then update the Pipeline status if it has closed.`
-      : "No New or Researching postings currently need expired-job review.";
+      ? `${items.length} posting${items.length === 1 ? "" : "s"} need a quick check. Open the listing in a new tab, then mark each one Expired, dismiss it, or send it back to Researching.`
+      : "All clear — every active posting passed the latest availability check.";
+  }
+  if (bulkbar) {
+    bulkbar.hidden = items.length === 0;
   }
   if (!items.length) {
     list.innerHTML =
-      '<p class="expired-review-empty">No review items right now. Aging New and Researching roles will appear here when they need a quick listing check.</p>';
+      '<p class="expired-review-empty">All clear. Aging New and Researching roles will appear here next time the cleanup pass flags them.</p>';
+    updateExpiredReviewBulkUi(items);
     return;
   }
   list.innerHTML = items
@@ -14496,8 +14544,10 @@ function renderExpiredReviewModal() {
       ]
         .filter(Boolean)
         .join(" · ");
+      const checked = expiredReviewSelection.has(entry.index) ? "checked" : "";
       return `
-        <article class="expired-review-item">
+        <article class="expired-review-item" data-row-index="${entry.index}">
+          <input type="checkbox" class="expired-review-item__select" data-action="expired-review-select" data-index="${entry.index}" ${checked} aria-label="Select ${escapeHtml(title)}" />
           <div class="expired-review-item__body">
             <h4 class="expired-review-item__title">${escapeHtml(title)}</h4>
             <p class="expired-review-item__company">${escapeHtml(company)}</p>
@@ -14512,14 +14562,144 @@ function renderExpiredReviewModal() {
           <div class="expired-review-item__actions">
             ${
               href
-                ? `<a class="expired-review-item__link" href="${escapeHtml(href)}" target="_blank" rel="noopener">Open posting</a>`
+                ? `<a class="expired-review-item__action" href="${escapeHtml(href)}" target="_blank" rel="noopener">Open posting</a>`
                 : ""
             }
-            <button type="button" class="expired-review-item__ghost" data-action="expired-review-focus" data-index="${entry.index}">View card</button>
+            <button type="button" class="expired-review-item__action expired-review-item__action--expire" data-action="expired-review-mark-expired" data-index="${entry.index}">Mark Expired</button>
+            <button type="button" class="expired-review-item__action expired-review-item__action--dismiss" data-action="expired-review-dismiss" data-index="${entry.index}">Dismiss</button>
+            <button type="button" class="expired-review-item__action expired-review-item__action--researching" data-action="expired-review-set-researching" data-index="${entry.index}">Set Researching</button>
           </div>
         </article>`;
     })
     .join("");
+  updateExpiredReviewBulkUi(items);
+}
+
+function updateExpiredReviewBulkUi(items) {
+  const total = items ? items.length : 0;
+  const selected = expiredReviewSelection.size;
+  const countEl = document.getElementById("expiredReviewSelectedCount");
+  if (countEl) countEl.textContent = `${selected} selected`;
+  const selectAll = document.getElementById("expiredReviewSelectAll");
+  if (selectAll) {
+    selectAll.checked = total > 0 && selected === total;
+    selectAll.indeterminate = selected > 0 && selected < total;
+  }
+  document
+    .querySelectorAll("#expiredReviewBulkbar [data-bulk-action]")
+    .forEach((btn) => {
+      btn.disabled = selected === 0;
+    });
+}
+
+async function applyExpiredReviewAction(action, index) {
+  const job = pipelineData[index];
+  if (!job) return;
+  if (!accessToken) {
+    showSheetAccessGate("signin");
+    return;
+  }
+  if (action === "dismiss") {
+    await dismissJob(index);
+    return;
+  }
+  const sheetRow = getSheetRow(index);
+  if (!sheetRow) return;
+  let nextStatus = null;
+  if (action === "expire") nextStatus = "Expired";
+  if (action === "researching") nextStatus = "Researching";
+  if (!nextStatus) return;
+  const prevStatus = job.status;
+  job.status = nextStatus;
+  renderPipeline();
+  try {
+    const ok = await updateMultipleCells([
+      { range: `Pipeline!M${sheetRow}`, value: nextStatus },
+    ]);
+    if (!ok) throw new Error(`Pipeline M${sheetRow} write failed`);
+  } catch (err) {
+    console.error("[JobBored] review action failed", err);
+    job.status = prevStatus;
+    renderPipeline();
+    showToast(`Couldn't update status — reverted`, "error");
+  }
+}
+
+async function applyExpiredReviewBulk(action) {
+  const indexes = Array.from(expiredReviewSelection);
+  if (!indexes.length) return;
+  for (const idx of indexes) {
+    // Sequential so each writeback completes before the next; matches the
+    // shape of dismissJob's single-row toast/undo and avoids token races.
+    // eslint-disable-next-line no-await-in-loop
+    await applyExpiredReviewAction(action, idx);
+  }
+  expiredReviewSelection.clear();
+  renderExpiredReviewModal();
+}
+
+async function runCleanupFromReviewModal() {
+  const btn = document.getElementById("expiredReviewRunCleanup");
+  const hint = document.getElementById("expiredReviewRunCleanupHint");
+  const spinner = btn?.querySelector(".expired-review-card__run-spinner");
+  if (btn) btn.disabled = true;
+  if (spinner) spinner.hidden = false;
+  if (hint) {
+    hint.hidden = false;
+    hint.textContent = "Running cleanup…";
+  }
+  try {
+    const result = await callCleanupExpiredWebhook({ dryRun: false });
+    if (!result || !result.ok) {
+      throw new Error(result?.message || "Cleanup endpoint refused the request");
+    }
+    if (hint) {
+      hint.textContent = `Cleanup finished — ${result.needsReview || 0} need review, ${result.updated || 0} flipped to Expired.`;
+    }
+    await loadAllData();
+    renderExpiredReviewModal();
+  } catch (err) {
+    console.error("[JobBored] run cleanup now failed", err);
+    if (hint) {
+      hint.textContent = `Cleanup failed: ${err && err.message ? err.message : "unknown error"}`;
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+    if (spinner) spinner.hidden = true;
+  }
+}
+
+async function callCleanupExpiredWebhook({ dryRun }) {
+  const worker = window.JobBoredConfig && window.JobBoredConfig.discoveryWorker;
+  const baseUrl = worker && worker.baseUrl;
+  const secret = worker && worker.webhookSecret;
+  const sheetId = window.JobBoredConfig && window.JobBoredConfig.spreadsheetId;
+  if (!baseUrl || !secret || !sheetId) {
+    throw new Error("Discovery worker is not configured (baseUrl/secret/sheetId).");
+  }
+  const url = baseUrl.replace(/\/+$/, "") + "/cleanup-expired";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-discovery-secret": secret,
+    },
+    body: JSON.stringify({
+      sheetId,
+      dryRun: !!dryRun,
+      googleAccessToken: accessToken || undefined,
+    }),
+  });
+  let payload = null;
+  try {
+    payload = await res.json();
+  } catch (_) {
+    payload = null;
+  }
+  if (!res.ok) {
+    throw new Error((payload && payload.message) || `HTTP ${res.status}`);
+  }
+  return payload;
 }
 
 function openExpiredReviewModal() {
@@ -14546,6 +14726,17 @@ function closeExpiredReviewModal() {
     document.removeEventListener("keydown", expiredReviewModalKeyHandler);
     expiredReviewModalKeyHandler = null;
   }
+  expiredReviewSelection.clear();
+}
+
+function maybeAutoOpenExpiredReviewModal() {
+  if (window.__expiredReviewAutoOpenedThisSession) return;
+  const items = getExpiredReviewItems();
+  if (!items.length) return;
+  window.__expiredReviewAutoOpenedThisSession = true;
+  // Defer one tick so the dashboard finishes its post-load render first;
+  // otherwise the modal pops over a half-painted card grid.
+  setTimeout(openExpiredReviewModal, 60);
 }
 
 function initExpiredReviewUi() {
@@ -14555,16 +14746,70 @@ function initExpiredReviewUi() {
   document
     .getElementById("expiredReviewModalClose")
     ?.addEventListener("click", closeExpiredReviewModal);
+  document
+    .getElementById("expiredReviewRunCleanup")
+    ?.addEventListener("click", runCleanupFromReviewModal);
+  const selectAll = document.getElementById("expiredReviewSelectAll");
+  if (selectAll) {
+    selectAll.addEventListener("change", () => {
+      const items = getExpiredReviewItems();
+      expiredReviewSelection.clear();
+      if (selectAll.checked) {
+        items.forEach((it) => expiredReviewSelection.add(it.index));
+      }
+      renderExpiredReviewModal();
+    });
+  }
+  document
+    .querySelectorAll("#expiredReviewBulkbar [data-bulk-action]")
+    .forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const action = btn.getAttribute("data-bulk-action");
+        applyExpiredReviewBulk(action);
+      });
+    });
   const modal = document.getElementById("expiredReviewModal");
   if (modal) {
     modal.addEventListener("click", (e) => {
-      if (e.target === modal) closeExpiredReviewModal();
-      const focusBtn = e.target.closest?.('[data-action="expired-review-focus"]');
-      if (!focusBtn) return;
-      const idx = parseInt(focusBtn.dataset.index, 10);
-      closeExpiredReviewModal();
-      revealPipelineJobByIndex(idx);
-      setTimeout(() => openJobDetail(idx), 140);
+      if (e.target === modal) {
+        closeExpiredReviewModal();
+        return;
+      }
+      const expireBtn = e.target.closest?.(
+        '[data-action="expired-review-mark-expired"]',
+      );
+      if (expireBtn) {
+        const idx = parseInt(expireBtn.dataset.index, 10);
+        applyExpiredReviewAction("expire", idx).then(renderExpiredReviewModal);
+        return;
+      }
+      const dismissBtn = e.target.closest?.(
+        '[data-action="expired-review-dismiss"]',
+      );
+      if (dismissBtn) {
+        const idx = parseInt(dismissBtn.dataset.index, 10);
+        applyExpiredReviewAction("dismiss", idx).then(renderExpiredReviewModal);
+        return;
+      }
+      const researchBtn = e.target.closest?.(
+        '[data-action="expired-review-set-researching"]',
+      );
+      if (researchBtn) {
+        const idx = parseInt(researchBtn.dataset.index, 10);
+        applyExpiredReviewAction("researching", idx).then(
+          renderExpiredReviewModal,
+        );
+        return;
+      }
+    });
+    modal.addEventListener("change", (e) => {
+      const cb = e.target.closest?.('[data-action="expired-review-select"]');
+      if (!cb) return;
+      const idx = parseInt(cb.dataset.index, 10);
+      if (Number.isNaN(idx)) return;
+      if (cb.checked) expiredReviewSelection.add(idx);
+      else expiredReviewSelection.delete(idx);
+      updateExpiredReviewBulkUi(getExpiredReviewItems());
     });
   }
 }

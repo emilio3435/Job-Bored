@@ -243,8 +243,10 @@
     ].join("");
   }
 
-  function scoreCardHtml(label, value, target) {
+  function scoreCardHtml(label, value, target, reason) {
     var v = Math.max(0, Math.min(100, Number(value) || 0));
+    var headline = reason && reason.headline ? reason.headline : "";
+    var detail   = reason && reason.detail   ? reason.detail   : "";
     return [
       '<article class="jb-letter-score" data-score-name="', escapeHtml(label), '">',
       '  <span class="jb-letter-score__label">', escapeHtml(label), '</span>',
@@ -254,23 +256,43 @@
       target ? '    <span class="jb-letter-score__bar-target" style="left:' + target.from + '%;width:' + (target.to - target.from) + '%"></span>' : '',
       '  </div>',
       '  <span class="jb-letter-score__sub">', escapeHtml(target ? ("target " + target.label) : "0–100"), '</span>',
+      headline ? '  <p class="jb-letter-score__reason">' + escapeHtml(headline) + '</p>' : '',
+      detail ? [
+        '  <details class="jb-letter-score__why">',
+        '    <summary>Why this score</summary>',
+        '    <p>', escapeHtml(detail), '</p>',
+        '  </details>',
+      ].join("") : '',
       '</article>',
     ].join("");
+  }
+
+  /* Pull score reasons from the LLM's per-draft insights payload.
+     Returns null when no insights exist (hand-typed draft, or a
+     generation that pre-dated the insights schema). The render
+     code MUST tolerate null and render numbers only. */
+  function readLlmReasons(vm) {
+    var i = vm && vm.insights;
+    if (!i) return null;
+    function pick(node) {
+      if (!node || typeof node !== "object") return null;
+      var headline = node.reason ? String(node.reason) : "";
+      return headline ? { headline: headline, detail: "" } : null;
+    }
+    return {
+      keyword: pick(i.keywordCoverage),
+      tone:    pick(i.toneMatch),
+      length:  pick(i.length),
+    };
   }
 
   function chipHtml(term) {
     return '<span class="jb-letter-chip" data-term="' + escapeHtml(term) + '">' + escapeHtml(term) + '</span>';
   }
 
-  function missRowHtml(m) {
-    return [
-      '<li class="jb-letter-miss" data-term="', escapeHtml(m.term), '">',
-      '  <span class="jb-letter-miss__term">', escapeHtml(m.term), '</span>',
-      '  <span class="jb-letter-miss__weight" aria-label="JD weight">×', escapeHtml(String(m.weight || 1)), '</span>',
-      '  <button type="button" class="jb-letter-miss__btn" data-action="address" data-term="', escapeHtml(m.term), '">Address</button>',
-      '</li>',
-    ].join("");
-  }
+  /* (missRowHtml removed — Missing keywords block has been deleted
+     from the right rail; the per-miss "Address" action no longer
+     has a rendering surface.) */
 
   function toolButtonHtml(action, label, hint) {
     return [
@@ -281,7 +303,7 @@
     ].join("");
   }
 
-  function lengthTargetCard(length) {
+  function lengthTargetCard(length, reason) {
     var words = (length && length.words) || 0;
     var lo = (length && length.target && length.target[0]) || 200;
     var hi = (length && length.target && length.target[1]) || 320;
@@ -289,6 +311,8 @@
     var pos = Math.min(100, Math.max(0, (words / max) * 100));
     var fromPct = Math.min(100, (lo / max) * 100);
     var toPct = Math.min(100, (hi / max) * 100);
+    var headline = reason && reason.headline ? reason.headline : "";
+    var detail   = reason && reason.detail   ? reason.detail   : "";
     return [
       '<article class="jb-letter-score" data-score-name="length">',
       '  <span class="jb-letter-score__label">Length</span>',
@@ -298,6 +322,13 @@
       '    <span class="jb-letter-score__bar-marker" style="left:', pos, '%"></span>',
       '  </div>',
       '  <span class="jb-letter-score__sub">target ', lo, '–', hi, ' words</span>',
+      headline ? '  <p class="jb-letter-score__reason">' + escapeHtml(headline) + '</p>' : '',
+      detail ? [
+        '  <details class="jb-letter-score__why">',
+        '    <summary>Why this score</summary>',
+        '    <p>', escapeHtml(detail), '</p>',
+        '  </details>',
+      ].join("") : '',
       '</article>',
     ].join("");
   }
@@ -344,10 +375,8 @@
     return out;
   }
 
-  function fitAngleFor(pipelineJob) {
-    var enr = postingEnrichment(pipelineJob);
-    return String((enr && enr.fitAngle) || "").trim();
-  }
+  /* (fitAngleFor removed — fit angle now comes from per-draft LLM
+     insights, not cached posting enrichment.) */
 
   function selectHtml(name, dataAttr, options, selectedValue) {
     var opts = options.map(function (o) {
@@ -373,7 +402,6 @@
     var summary = (defaults && defaults.summary) || {
       hasResume: false, hasLinkedIn: false, hasAdditional: false,
     };
-    var fit = fitAngleFor(pipelineJob);
     var musts = topMustHaves(pipelineJob, 4);
     var mustChips = musts.length
       ? '<div class="jb-letter-compose__chips">' +
@@ -382,9 +410,11 @@
           }).join("") +
         '</div>'
       : '<p class="jb-letter-compose__hint">No must-haves detected — generation will use the JD as-is.</p>';
-    var fitLine = fit
-      ? '<p class="jb-letter-compose__fit"><span class="jb-letter-compose__fit-label">Fit angle ·</span> ' + escapeHtml(fit) + '</p>'
-      : '<p class="jb-letter-compose__hint">No fit-angle on file. Open the role brief to enrich the posting.</p>';
+    /* Fit angle is no longer rendered from cached posting enrichment.
+       It is now rendered AFTER a draft generation, sourced from the
+       LLM's per-draft insights payload (see jb-letter-fit-angle slot
+       in the scorecard block). */
+    var titleVal   = String(defaults && defaults.title != null ? defaults.title : "");
     return '' +
       '<section class="jb-letter-compose" data-region-compose data-job-key="' + escapeHtml(String(jobKey)) + '">' +
         '<header class="jb-letter-compose__head">' +
@@ -392,7 +422,6 @@
           '<h2 class="jb-letter-compose__title">Generate a draft</h2>' +
         '</header>' +
         '<div class="jb-letter-compose__summary">' +
-          fitLine +
           mustChips +
           '<div class="jb-letter-compose__sources" aria-label="Profile sources">' +
             sourceBadge("Resume", summary.hasResume) +
@@ -417,11 +446,15 @@
             selectHtml("Length", 'data-compose-length', LENGTH_OPTIONS, maxWords) +
           '</label>' +
         '</div>' +
-        '<label class="jb-letter-compose__notes-label" for="jbLetterComposeNotes">' +
-          'Notes for this draft' +
-          '<button type="button" class="jb-letter-compose__refresh" data-action="compose-refresh-notes" title="Reset notes from posting context">Suggest</button>' +
-        '</label>' +
-        '<textarea id="jbLetterComposeNotes" class="jb-letter-compose__notes" rows="3" data-compose-notes placeholder="Optional: emphasize Python platform work, reference Sarah&apos;s intro, keep it under 250 words…">' +
+        /* Title field — a human label for this version. Falls back
+           to "Version N" downstream when blank. */
+        '<label class="jb-letter-compose__title-label" for="jbLetterComposeTitle">Title</label>' +
+        '<input type="text" id="jbLetterComposeTitle" class="jb-letter-compose__title-input" data-compose-title placeholder="e.g. Reliability-led, Acme robotics fleet" value="' + escapeHtml(titleVal) + '" />' +
+        /* Version Notes — guidance for THIS draft only. Was the
+           "Notes for this draft" field; the Suggest button has been
+           removed (it duplicated cached posting data). */
+        '<label class="jb-letter-compose__notes-label" for="jbLetterComposeNotes">Version Notes</label>' +
+        '<textarea id="jbLetterComposeNotes" class="jb-letter-compose__notes" rows="3" data-compose-notes placeholder="What changes do you want in THIS version vs. the last one? e.g. lean harder on platform reliability, drop the mentoring paragraph, keep it under 250 words.">' +
           escapeHtml(notes) +
         '</textarea>' +
         '<div class="jb-letter-compose__actions">' +
@@ -461,11 +494,13 @@
     var tone = region.querySelector('[data-compose-tone]');
     var len  = region.querySelector('[data-compose-length]');
     var notes = region.querySelector('[data-compose-notes]');
+    var title = region.querySelector('[data-compose-title]');
     return {
       feature: feat ? String(feat.value || "cover_letter") : "cover_letter",
       tone: tone ? String(tone.value || "warm") : "warm",
       maxWords: len ? Number(len.value) || 350 : 350,
       notes: notes ? String(notes.value || "") : "",
+      title: title ? String(title.value || "").trim() : "",
     };
   }
 
@@ -522,6 +557,7 @@
         userNotes: state.notes,
         tone: state.tone,
         maxWords: state.maxWords,
+        title: state.title,
         silent: true,
       });
       if (result && result.draftId) {
@@ -546,6 +582,17 @@
   function shellHtml(vm) {
     var job = vm.job || {};
     var ats = vm.ats || { score: 0, keywordCoverage: 0, toneMatch: 0, length: { words: 0, target: [200, 320] }, hits: [], misses: [], readingLevel: "Grade 0" };
+    var scoreReasons = readLlmReasons(vm) || { keyword: null, tone: null, length: null };
+    /* When LLM insights override the deterministic numbers, prefer
+       those for the displayed scores. Numbers absent → fall back to
+       deterministic ats.* so the UI never shows a blank. */
+    var ins = (vm && vm.insights) || null;
+    var kcVal = ins && ins.keywordCoverage && Number.isFinite(Number(ins.keywordCoverage.score))
+      ? Number(ins.keywordCoverage.score) : ats.keywordCoverage;
+    var tmVal = ins && ins.toneMatch && Number.isFinite(Number(ins.toneMatch.score))
+      ? Number(ins.toneMatch.score) : ats.toneMatch;
+    var llmFitAngle = ins && typeof ins.fitAngle === "string" ? ins.fitAngle.trim() : "";
+    var insightsError = !!(vm && vm.insightsError);
     var role = job.role || "Untitled role";
     var company = job.company || "Unknown company";
     var jobKey = job.jobKey || "";
@@ -586,10 +633,11 @@
       /* --- hero CTAs (Tailor / Cover) ------------------------- */
       heroCtasHtml,
 
-      /* --- draft folder strip (Part 04 paper-cards) ----------- */
-      '<!--folder-slot-->',
-
-      /* --- compose panel (prefill + tone/length + generate) --- */
+      /* --- compose panel (prefill + tone/length + generate) ---
+         The draft folder ("Versions") used to live above Compose;
+         it now lives inside the Scorecard block in the right rail
+         as a "Versions" sub-section. See the <!--folder-slot--> in
+         that block below. */
       '<!--compose-slot-->',
 
       '<div class="jb-letter-grid">',
@@ -635,9 +683,9 @@
       '        </div>',
       '      </header>',
       '      <div class="jb-letter-score-row">',
-      scoreCardHtml("Keyword coverage", ats.keywordCoverage, { from: 60, to: 100, label: "60–100" }),
-      scoreCardHtml("Tone match",      ats.toneMatch,        { from: 60, to: 100, label: "60–100" }),
-      lengthTargetCard(ats.length),
+      scoreCardHtml("Keyword coverage", kcVal, { from: 60, to: 100, label: "60–100" }, scoreReasons.keyword),
+      scoreCardHtml("Tone match",       tmVal, { from: 60, to: 100, label: "60–100" }, scoreReasons.tone),
+      lengthTargetCard(ats.length, scoreReasons.length),
       '      </div>',
       /* Matched-terms chips kept as an opt-in details for users who
          want to scan the actual matched vocabulary; collapsed by
@@ -648,15 +696,33 @@
       (ats.hits || []).map(function (h) { return chipHtml(h.term); }).join("") || '<span class="jb-letter-chips__empty">No matches yet — add keywords from the JD.</span>',
       '        </div>',
       '      </details>',
+      /* LLM-derived "Fit angle" for the active draft. Empty when no
+         insights are attached (hand-typed draft or pre-insights
+         generation). */
+      llmFitAngle
+        ? '      <div class="jb-letter-fit"><h3 class="jb-letter-fit__title">Fit angle</h3><p class="jb-letter-fit__body">' + escapeHtml(llmFitAngle) + '</p></div>'
+        : '',
+      /* Insights parse-failure banner — shown when the LLM call
+         succeeded for the draft text but the trailing insights JSON
+         could not be parsed. The user is asked to regenerate. */
+      insightsError
+        ? '      <div class="jb-letter-insights-error" role="status">' +
+          '<p class="jb-letter-insights-error__title">Insights unavailable</p>' +
+          '<p class="jb-letter-insights-error__body">The model returned a draft but its scoring block was malformed. Regenerate to get fresh insights.</p>' +
+          '</div>'
+        : '',
+      /* Versions sub-section: previous drafts for this role.
+         Lives inside the Scorecard block so users can compare
+         scores across versions without scrolling away. The slot
+         is replaced with folderHtml() at render time. */
+      '      <div class="jb-letter-versions">',
+      '        <h3 class="jb-letter-versions__title">Versions</h3>',
+      '<!--folder-slot-->',
+      '      </div>',
       '    </section>',
 
-      /* 2. Missing keywords — the primary "what to fix" list. */
-      '    <section class="jb-letter-block jb-letter-block--misses">',
-      '      <h2 class="jb-letter-block__title">Missing keywords <span class="jb-letter-block__count" data-miss-count>', (ats.misses || []).length, '</span></h2>',
-      '      <ul class="jb-letter-misses" data-letter-misses>',
-      (ats.misses || []).map(missRowHtml).join("") || '<li class="jb-letter-misses__empty">All top JD terms are covered.</li>',
-      '      </ul>',
-      '    </section>',
+      /* (Missing keywords block deleted — was a deterministic ATS
+         token-match list that didn't reflect real draft quality.) */
 
       '  </aside>',
       '</div>',
@@ -734,16 +800,8 @@
         : '<span class="jb-letter-chips__empty">No matches yet — add keywords from the JD.</span>';
     }
 
-    /* misses */
-    var missHost = region.querySelector("[data-letter-misses]");
-    var missCount = region.querySelector("[data-miss-count]");
-    var misses = ats.misses || [];
-    if (missCount) missCount.textContent = String(misses.length);
-    if (missHost) {
-      missHost.innerHTML = misses.length
-        ? misses.map(missRowHtml).join("")
-        : '<li class="jb-letter-misses__empty">All top JD terms are covered.</li>';
-    }
+    /* (Missing keywords block removed from the rail — no live
+       DOM update needed.) */
 
     /* reading level */
     var pill = region.querySelector("[data-reading-level]");
@@ -961,18 +1019,6 @@
       /* --- compose panel actions ------------------------------- */
       if (action === "compose-generate") {
         void handleComposeGenerate(region, ctx);
-        return;
-      }
-      if (action === "compose-refresh-notes") {
-        var composeRegion = region.querySelector('[data-region-compose]');
-        var composeFeatEl = composeRegion && composeRegion.querySelector('[data-compose-feature]');
-        var composeFeat = composeFeatEl ? String(composeFeatEl.value || "cover_letter") : "cover_letter";
-        var notesEl = composeRegion && composeRegion.querySelector('[data-compose-notes]');
-        if (notesEl) {
-          var pipelineJob = pipelineJobForKey(ctx.jobKey);
-          notesEl.value = buildPrefill(pipelineJob, composeFeat);
-          setComposeStatus(region, "Notes refreshed from posting context.", "success");
-        }
         return;
       }
       if (action === "compose-open-modal") {
