@@ -4,9 +4,11 @@
  * local browser-use-discovery worker. Used by launchd/systemd/cron/Task
  * Scheduler so scheduled runs use the same payload builder as #discoveryBtn.
  */
+import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { existsSync, readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { existsSync, openSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { parseDotEnv } from "./lib/env.mjs";
 import {
@@ -120,6 +122,28 @@ function joinStoredList(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+/**
+ * Pull role hints from atsCompanies[*].roleTags so refresh has non-blank
+ * intent even when the user has not filled in `targetRoles`/`includeKeywords`.
+ * Keeps the implicit intent local to the cron path; the webhook handler
+ * preflight is untouched.
+ */
+function deriveIntentFromAtsCompanies(workerConfig) {
+  const ats = Array.isArray(workerConfig.atsCompanies)
+    ? workerConfig.atsCompanies
+    : [];
+  const tagSet = new Set();
+  for (const company of ats) {
+    if (!company || typeof company !== "object") continue;
+    const tags = Array.isArray(company.roleTags) ? company.roleTags : [];
+    for (const tag of tags) {
+      const trimmed = String(tag || "").trim();
+      if (trimmed) tagSet.add(trimmed);
+    }
+  }
+  return Array.from(tagSet);
+}
+
 function buildDiscoveryProfile(workerConfig, env) {
   const envProfile = parseJsonObject(env.COMMAND_CENTER_DISCOVERY_PROFILE_JSON);
   if (Object.keys(envProfile).length) return envProfile;
@@ -128,12 +152,23 @@ function buildDiscoveryProfile(workerConfig, env) {
     typeof workerConfig.discoveryProfile === "object"
       ? workerConfig.discoveryProfile
       : {};
+  let targetRoles = joinStoredList(workerConfig.targetRoles);
+  let keywordsInclude = joinStoredList(workerConfig.includeKeywords);
+  // Intent fallback: when neither targetRoles nor includeKeywords are set,
+  // borrow role hints from atsCompanies so the preflight's blank-intent guard
+  // does not trip. Without this, an unconfigured worker config trips a 400.
+  if (!targetRoles && !keywordsInclude) {
+    const derived = deriveIntentFromAtsCompanies(workerConfig);
+    if (derived.length) {
+      targetRoles = derived.join(", ");
+    }
+  }
   return {
-    targetRoles: joinStoredList(workerConfig.targetRoles),
+    targetRoles,
     locations: joinStoredList(workerConfig.locations),
     remotePolicy: String(workerConfig.remotePolicy || "").trim(),
     seniority: String(workerConfig.seniority || "").trim(),
-    keywordsInclude: joinStoredList(workerConfig.includeKeywords),
+    keywordsInclude,
     keywordsExclude: joinStoredList(workerConfig.excludeKeywords),
     maxLeadsPerRun:
       workerConfig.maxLeadsPerRun != null
@@ -214,6 +249,74 @@ function resolvePort(args, env) {
   return port;
 }
 
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const WORKER_BOOT_LOG = resolve(
+  REPO_ROOT,
+  "integrations/browser-use-discovery/state/local-worker.log",
+);
+
+/**
+ * Probe `/health` on the local worker. Resolves true on HTTP 200, false on
+ * any error or non-2xx. Uses a 1s timeout so a hung worker does not stall
+ * the cron probe.
+ */
+async function isWorkerHealthy(port) {
+  const url = `http://127.0.0.1:${port}/health`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 1000);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Spawn the local discovery worker in a detached child process so launchd
+ * can complete and the worker keeps serving across cron invocations.
+ * Returns once the worker's /health endpoint reports OK or the deadline
+ * expires (fails the cron with a clear message in the latter case).
+ */
+async function ensureWorkerRunning(port) {
+  if (await isWorkerHealthy(port)) return;
+  console.log(
+    `${FAIL_PREFIX}: worker not reachable on 127.0.0.1:${port}; starting it…`,
+  );
+  // Append-mode log file so we never clobber the worker's existing log.
+  const logFd = openSync(WORKER_BOOT_LOG, "a");
+  const child = spawn(
+    "npm",
+    ["run", "discovery:worker:start-local", "--silent"],
+    {
+      cwd: REPO_ROOT,
+      detached: true,
+      stdio: ["ignore", logFd, logFd],
+      env: {
+        ...process.env,
+        BROWSER_USE_DISCOVERY_PORT: String(port),
+      },
+    },
+  );
+  child.unref();
+  const deadline = Date.now() + 25_000;
+  // Poll /health every 500ms until ready or deadline.
+  // eslint-disable-next-line no-await-in-loop
+  while (Date.now() < deadline) {
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, 500));
+    // eslint-disable-next-line no-await-in-loop
+    if (await isWorkerHealthy(port)) {
+      console.log(`${FAIL_PREFIX}: worker is healthy on 127.0.0.1:${port}.`);
+      return;
+    }
+  }
+  fail(
+    `worker did not become healthy on 127.0.0.1:${port} within 25s. Check ${WORKER_BOOT_LOG} for boot errors.`,
+  );
+}
+
 function hasPayloadIntent(payload) {
   const profile =
     payload.discoveryProfile &&
@@ -291,6 +394,9 @@ async function main() {
     fail("BROWSER_USE_DISCOVERY_WEBHOOK_SECRET is not set in integrations/browser-use-discovery/.env.");
   }
   const port = resolvePort(args, env);
+  // launchd does not keep the worker alive between cron fires; auto-start it
+  // when missing so the cron does not race the user's terminal session.
+  await ensureWorkerRunning(port);
   const url = `http://127.0.0.1:${port}/webhook`;
   const response = await fetch(url, {
     method: "POST",
