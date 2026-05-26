@@ -17,7 +17,9 @@ body.jb-v2 [data-region="dawn"] {
   display: block;
   max-width: 1600px;
   margin: 0 auto;
-  padding: var(--space-2, 8px) var(--space-8, 32px) var(--space-14, 56px);
+  /* Real top headroom so the edition stamp + read-time sit clearly
+     inside the page rather than against the chrome. Was 8px. */
+  padding: var(--space-8, 32px) var(--space-8, 32px) var(--space-14, 56px);
   font-family: var(--jb-font-body);
   color: var(--jb-ink);
   background: var(--jb-paper-2);
@@ -43,8 +45,11 @@ body.jb-v2 [data-region="dawn"] .brief-read-time {
 /* --- 2. Masthead title + deck ------------------------------- */
 body.jb-v2 [data-region="dawn"] .brief-masthead {
   border-block-end: 2px solid var(--jb-navy);
-  padding-block-end: var(--space-3, 12px);
-  margin-block-end: var(--space-6, 22px);
+  padding-block-end: var(--space-4, 16px);
+  /* Bumped from --space-6 → --space-8 so the "front page rule"
+     under the title gets proper air before the Lead section
+     starts. The newspaper-deck cadence needs this breathing room. */
+  margin-block-end: var(--space-8, 32px);
 }
 
 body.jb-v2 [data-region="dawn"] .brief-title {
@@ -190,8 +195,46 @@ body.jb-v2 [data-region="dawn"] .brief-stats-col {
   min-width: 0;
 }
 
+body.jb-v2 [data-region="dawn"] .brief-stats-card,
+body.jb-v2 [data-region="dawn"] .brief-funnel-card {
+  position: relative;
+}
+
+/* Colored kicker rules — mint above By the numbers (forward-looking
+   activity), violet above Funnel (process snapshot). Mirrors the
+   amber kicker on the active lead card to give the brief a coherent
+   newspaper-deck cadence across the whole page. */
+body.jb-v2 [data-region="dawn"] .brief-stats-card::before,
+body.jb-v2 [data-region="dawn"] .brief-funnel-card::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 3px;
+  border-top-left-radius: var(--jb-radius-lg);
+  border-top-right-radius: var(--jb-radius-lg);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-stats-card::before {
+  background: var(--jb-mint);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-funnel-card::before {
+  background: var(--jb-violet);
+}
+
 body.jb-v2 [data-region="dawn"] .brief-stats-card {
   padding: var(--space-6, 22px);
+}
+
+/* Hairline rule under the right-column eyebrows so the labels feel
+   like newspaper kickers (matches the lead-header rule pattern). */
+body.jb-v2 [data-region="dawn"] .brief-stats-card__eyebrow,
+body.jb-v2 [data-region="dawn"] .brief-funnel-card__title {
+  display: block;
+  padding-block-end: var(--space-2, 8px);
+  border-block-end: 1px solid var(--jb-line-soft);
+  margin-block-end: var(--space-3, 12px);
 }
 
 body.jb-v2 [data-region="dawn"] .brief-stats-card__eyebrow,
@@ -451,7 +494,10 @@ body.jb-v2 [data-region="dawn"] .brief-main {
   grid-template-columns: minmax(0, 58fr) minmax(0, 42fr);
   gap: 24px;
   margin-block-end: var(--space-7, 28px);
-  align-items: start;
+  /* Stretch — both columns share their tallest sibling so the
+     right column never floats over white space when the left is
+     enriched (lead card + queue). */
+  align-items: stretch;
 }
 
 body.jb-v2 [data-region="dawn"] .brief-main__left,
@@ -462,7 +508,14 @@ body.jb-v2 [data-region="dawn"] .brief-main__right {
 body.jb-v2 [data-region="dawn"] .brief-main__right {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6, 22px);
+  gap: var(--space-5, 18px);
+}
+
+/* When the right column needs to grow, let the funnel card take
+   the slack — it has the most density and benefits from extra
+   vertical room more than the stats card does. */
+body.jb-v2 [data-region="dawn"] .brief-main__right > .brief-funnel-card {
+  flex: 1 1 auto;
 }
 
 /* --- Lead stepper (left column) ----------------------------- */
@@ -475,68 +528,100 @@ body.jb-v2 [data-region="dawn"] .brief-leads-section:focus-visible {
   border-radius: var(--jb-radius-lg);
 }
 
+/* Section-header band: title + nav pill share a baseline AND a
+   1px hairline underline so the lead column has a clear top edge. */
 body.jb-v2 [data-region="dawn"] .brief-leads-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4, 16px);
-  margin-block-end: var(--space-3, 12px);
+  margin-block-end: var(--space-4, 16px);
+  padding-block-end: var(--space-3, 12px);
+  border-block-end: 1px solid var(--jb-line-soft);
 }
 
 body.jb-v2 [data-region="dawn"] .brief-leads-title {
   font-family: var(--jb-font-display);
-  font-size: 22px;
+  font-size: 26px;
   font-weight: 600;
   color: var(--jb-navy);
   margin: 0;
 }
 
+body.jb-v2 [data-region="dawn"] .brief-leads-title__after {
+  /* Quieter secondary phrase — keeps the script energy but
+     drops to ink-3 so "Lead with these" reads as the primary
+     subject and "— ranked by fit" reads as a subtitle. */
+  color: var(--jb-ink-3);
+  font-size: 18px;
+  margin-inline-start: 6px;
+}
+
+/* Unified nav pill — chevrons + counter inside one rounded
+   outline container, with internal hairline dividers. */
 body.jb-v2 [data-region="dawn"] .brief-leads-nav {
   display: inline-flex;
-  align-items: center;
-  gap: var(--space-2, 8px);
+  align-items: stretch;
+  gap: 0;
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-pill);
+  background: var(--jb-paper);
+  overflow: hidden;
+  box-shadow: 0 1px 0 rgba(14, 58, 78, 0.04);
 }
 
 body.jb-v2 [data-region="dawn"] .brief-leads-nav__counter {
+  display: inline-flex;
+  align-items: center;
   font-family: var(--jb-font-mono);
   font-size: 11px;
   letter-spacing: 0.10em;
-  color: var(--jb-ink-3);
+  color: var(--jb-navy);
   text-transform: uppercase;
-  min-width: 4.5ch;
-  text-align: center;
+  min-width: 6ch;
+  padding-inline: var(--space-3, 12px);
+  border-inline: 1px solid var(--jb-line-soft);
+  justify-content: center;
+  background: var(--jb-paper);
 }
 
 body.jb-v2 [data-region="dawn"] .brief-leads-nav__btn {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--jb-radius-pill);
-  border: 1px solid var(--jb-line);
+  width: 40px;
+  height: 36px;
+  padding: 0;
+  border: 0;
   background: var(--jb-paper);
   color: var(--jb-navy);
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms ease, color 120ms ease;
 }
 
 body.jb-v2 [data-region="dawn"] .brief-leads-nav__btn:hover {
   background: var(--jb-paper-2);
+  color: var(--jb-mint-deep);
 }
 
 body.jb-v2 [data-region="dawn"] .brief-leads-nav__btn:focus-visible {
   outline: none;
-  box-shadow: var(--jb-shadow-focus);
+  box-shadow: inset 0 0 0 2px var(--jb-mint-deep);
 }
 
 /* Stage holds every ranked lead — only the active one is shown.
-   Larger card than the carousel variant since it has the column
-   to itself. */
+   Generous padding, sticker top-right, underline-swipe behind
+   the trailing keyword of the headline. */
 body.jb-v2 [data-region="dawn"] .brief-leads-stage {
   position: relative;
 }
 
 body.jb-v2 [data-region="dawn"] .brief-leads-stage > .brief-lead {
-  padding: var(--space-6, 22px) var(--space-7, 28px);
+  /* Newspaper-deck breathing room. Was 22px/28px — now 36px/40px so
+     the sticker has room to breathe and the headline has air. */
+  padding: var(--space-9, 36px) var(--space-10, 40px) var(--space-7, 28px);
   position: relative;
   overflow: visible;
   transition: opacity 160ms ease;
@@ -547,31 +632,20 @@ body.jb-v2 [data-region="dawn"] .brief-leads-stage > .brief-lead[data-stepper-ac
 }
 
 body.jb-v2 [data-region="dawn"] .brief-lead__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2, 8px);
-  margin-block-end: 6px;
-}
-
-body.jb-v2 [data-region="dawn"] .brief-lead__fit-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: var(--jb-radius-pill);
-  background: var(--jb-mint);
-  color: var(--jb-navy);
-  font-family: var(--jb-font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  border: 1px solid var(--jb-navy);
-}
-
-body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__headline {
-  font-size: 30px;
-  max-width: none;
+  /* head now holds only the eyebrow — sticker is positioned absolute */
   margin-block-end: var(--space-2, 8px);
+  /* Reserve right gutter so the headline wraps cleanly under the sticker */
+  padding-inline-end: 88px;
+}
+
+/* Headline — promoted to the mockup's 44px display ramp size with
+   the mint underline-swipe restored behind the trailing keyword. */
+body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__headline {
+  font-size: 44px;
+  line-height: 1.05;
+  max-width: 22ch;
+  margin-block-end: var(--space-3, 12px);
+  padding-inline-end: 88px;
 }
 
 body.jb-v2 [data-region="dawn"] .brief-leads-empty {
@@ -584,13 +658,84 @@ body.jb-v2 [data-region="dawn"] .brief-leads-empty {
   border-radius: var(--jb-radius-lg);
 }
 
-/* --- Per-card actions row: two primary pills + icon-only X --- */
-body.jb-v2 [data-region="dawn"] .brief-lead__actions {
+/* --- Sticker: tilted yellow paper card with the FIT number ----
+   Replaces the old flat mint FIT chip. Anchored absolute top-right
+   of the lead card, rotated +6deg, drop-shadow per --jb-shadow-sticker. */
+body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__sticker {
+  position: absolute;
+  top: var(--space-5, 20px);
+  inset-inline-end: var(--space-5, 20px);
+  transform: rotate(6deg);
+  padding: 8px 14px 6px;
+  background: var(--jb-yellow);
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-xs);
+  font-family: var(--jb-font-display);
+  color: var(--jb-navy);
+  box-shadow: var(--jb-shadow-sticker);
+  pointer-events: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  line-height: 1;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__sticker-num {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-lead__sticker-suffix {
+  font-size: 12px;
+  font-family: var(--jb-font-mono);
+  letter-spacing: 0.04em;
+  color: var(--jb-navy-soft);
+}
+
+/* --- Stat strip: 3-cell band, vertical hairline dividers ------
+   Replaces the loose "label-value-label-value-label-value" row.
+   Each fact reads as a cell; FIT-tone colors land on the value. */
+body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__facts {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 0;
+  margin: var(--space-5, 18px) 0 var(--space-6, 22px);
+  padding-block: var(--space-3, 12px);
+  border-block: 1px solid var(--jb-line-soft);
+  flex-wrap: nowrap;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__fact {
+  padding-inline: var(--space-4, 16px);
+  border-inline-start: 1px solid var(--jb-line-soft);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__fact:first-child {
+  border-inline-start: 0;
+  padding-inline-start: 0;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__fact-label {
+  margin-block-end: 4px;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__fact-value {
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+/* --- Per-card actions row: anchored on a hairline footer rule -
+   Two primary pills left, icon-only Mark Expired right. The rule
+   above the row anchors the X icon visually so it stops floating. */
+body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3, 12px);
-  margin-block-start: var(--space-4, 16px);
+  margin-block-start: var(--space-5, 20px);
+  padding-block-start: var(--space-4, 16px);
+  border-block-start: 1px solid var(--jb-line-soft);
 }
 
 body.jb-v2 [data-region="dawn"] .brief-lead__actions-primary {
@@ -601,23 +746,24 @@ body.jb-v2 [data-region="dawn"] .brief-lead__actions-primary {
 
 body.jb-v2 [data-region="dawn"] .brief-lead__mark-expired {
   flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: transparent;
-  border: 0;
+  border: 1px solid transparent;
   color: var(--jb-ink-3);
   cursor: pointer;
   border-radius: var(--jb-radius-pill);
-  transition: color 120ms ease, background 120ms ease;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
 }
 
 body.jb-v2 [data-region="dawn"] .brief-lead__mark-expired:hover {
   color: var(--jb-amber);
   background: var(--jb-paper-2);
+  border-color: var(--jb-line-soft);
 }
 
 body.jb-v2 [data-region="dawn"] .brief-lead__mark-expired:focus-visible {
@@ -630,6 +776,138 @@ body.jb-v2 [data-region="dawn"] .brief-lead__mark-expired svg {
   display: block;
 }
 
+/* --- Colored top-edge kicker on the active lead card ----------
+   A 3px amber strip sits along the top edge of the lead card,
+   giving the card a colored anchor on its own (otherwise the
+   only color in the left column is the action pills). */
+body.jb-v2 [data-region="dawn"] .brief-leads-stage > .brief-lead {
+  position: relative;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-stage > .brief-lead::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 3px;
+  background: var(--jb-amber);
+  border-top-left-radius: var(--jb-radius-lg);
+  border-top-right-radius: var(--jb-radius-lg);
+}
+
+/* --- "Up next" queue list under the active lead card ---------
+   Fills the left column with body so the two-column grid balances.
+   Each row is a button that jumps the stepper to that lead. */
+body.jb-v2 [data-region="dawn"] .brief-leads-queue {
+  margin-block-start: var(--space-5, 20px);
+  padding: var(--space-4, 16px) var(--space-5, 20px);
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-lg);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-queue__eyebrow {
+  font-family: var(--jb-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--jb-ink-3);
+  text-transform: uppercase;
+  margin-block-end: var(--space-3, 12px);
+  padding-block-end: var(--space-2, 8px);
+  border-block-end: 1px solid var(--jb-line-soft);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-queue__row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  width: 100%;
+  padding: var(--space-2, 8px) var(--space-2, 8px);
+  background: transparent;
+  border: 0;
+  border-radius: var(--jb-radius-sm, 8px);
+  text-align: start;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-queue__row + .brief-leads-queue__row {
+  margin-block-start: 2px;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-queue__row:hover {
+  background: var(--jb-paper-2);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-queue__row:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-queue__row[aria-current="true"] {
+  background: var(--jb-mint-soft);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-queue__row[aria-current="true"] .brief-leads-queue__ord {
+  color: var(--jb-mint-deep);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-queue__ord {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  color: var(--jb-ink-3);
+  text-align: center;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-queue__title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2, 8px);
+  min-width: 0;
+  overflow: hidden;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-queue__company {
+  font-family: var(--jb-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--jb-amber);
+  font-weight: 700;
+  flex: 0 0 auto;
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-queue__role {
+  font-family: var(--jb-font-body);
+  font-size: 14px;
+  color: var(--jb-navy);
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-queue__fit {
+  font-family: var(--jb-font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--jb-mint-deep);
+  letter-spacing: 0.04em;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-queue__fit--empty {
+  color: var(--jb-ink-3);
+  font-weight: 400;
+}
+
 /* --- Responsive: collapse main grid below 1024px ------------ */
 @media (max-width: 1023px) {
   body.jb-v2 [data-region="dawn"] .brief-main {
@@ -640,10 +918,39 @@ body.jb-v2 [data-region="dawn"] .brief-lead__mark-expired svg {
 
 @media (max-width: 760px) {
   body.jb-v2 [data-region="dawn"] .brief-leads-stage > .brief-lead {
-    padding: var(--space-5, 18px);
+    padding: var(--space-6, 22px) var(--space-5, 20px);
   }
   body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__headline {
-    font-size: 24px;
+    font-size: 30px;
+    padding-inline-end: 0;
+  }
+  body.jb-v2 [data-region="dawn"] .brief-lead__head {
+    padding-inline-end: 0;
+  }
+  body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__sticker {
+    top: 12px;
+    inset-inline-end: 12px;
+  }
+  body.jb-v2 [data-region="dawn"] .brief-lead__sticker-num {
+    font-size: 22px;
+  }
+  body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__facts {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    grid-template-columns: 1fr;
+    border-block: 0;
+    padding-block: 0;
+    gap: var(--space-3, 12px);
+  }
+  body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__fact {
+    border-inline-start: 0;
+    padding-inline: 0;
+    padding-block: var(--space-2, 8px);
+    border-block-start: 1px solid var(--jb-line-soft);
+  }
+  body.jb-v2 [data-region="dawn"] .brief-leads-stage .brief-lead__fact:first-child {
+    border-block-start: 0;
+    padding-block-start: 0;
   }
 }
 
