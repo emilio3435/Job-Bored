@@ -449,6 +449,12 @@ body.jb-v2 [data-region="letter"] .jb-letter-fit__body {
   line-height: 1.55;
   color: var(--jb-ink);
 }
+/* Empty state — no draft exists yet, OR the LLM didn't return a
+   fitAngle. Reads as a placeholder, not real content. */
+body.jb-v2 [data-region="letter"] .jb-letter-fit--empty .jb-letter-fit__body {
+  color: var(--jb-ink-3);
+  font-style: italic;
+}
 
 /* --- Insights parse-failure banner -------------------------- */
 body.jb-v2 [data-region="letter"] .jb-letter-insights-error {

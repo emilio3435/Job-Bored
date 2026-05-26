@@ -761,10 +761,13 @@
       '      </details>',
       /* LLM-derived "Fit angle" for the active draft. Empty when no
          insights are attached (hand-typed draft or pre-insights
-         generation). */
+         generation). When the block is empty (no draft generated
+         for this role yet, OR the LLM didn't return a fitAngle),
+         render an empty-state stub instead of hiding the section
+         so users see what the block will eventually contain. */
       llmFitAngle
         ? '      <div class="jb-letter-fit"><h3 class="jb-letter-fit__title">Fit angle</h3><p class="jb-letter-fit__body">' + escapeHtml(llmFitAngle) + '</p></div>'
-        : '',
+        : '      <div class="jb-letter-fit jb-letter-fit--empty"><h3 class="jb-letter-fit__title">Fit angle</h3><p class="jb-letter-fit__body">Generate a draft to see the model\'s read on this role.</p></div>',
       /* Insights parse-failure banner — shown when the LLM call
          succeeded for the draft text but the trailing insights JSON
          could not be parsed. The user is asked to regenerate. */
