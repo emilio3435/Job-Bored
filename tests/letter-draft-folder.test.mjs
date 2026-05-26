@@ -426,6 +426,28 @@ describe("Letter region — CSS surface (letter.css)", () => {
   });
 });
 
+describe("Letter region — Fit angle empty state", () => {
+  it("renders an empty-state stub when no fitAngle is available", () => {
+    /* The Fit angle block used to be hidden entirely when no draft
+       had been generated for the role. It now always renders, with
+       a muted italic stub when there is no LLM insight to show. */
+    assert.match(
+      letterJs,
+      /jb-letter-fit jb-letter-fit--empty/,
+      "letter.js must render a .jb-letter-fit--empty variant when llmFitAngle is empty",
+    );
+    assert.ok(
+      letterJs.includes("Generate a draft to see the model"),
+      "the empty-state copy must explain what the block will contain",
+    );
+    assert.match(
+      letterCss,
+      /\.jb-letter-fit--empty \.jb-letter-fit__body/,
+      "letter.css must dim and italicize the empty-state body",
+    );
+  });
+});
+
 describe("Letter region — Refine current version (Versions sub-block)", () => {
   it("renders a textarea + Refine with AI button inside the Versions block", () => {
     /* The Versions sub-block (inside the Scorecard rail) is the home
