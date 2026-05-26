@@ -190,7 +190,7 @@
       sheetId: asString(source.sheetId),
       workerName: asString(source.workerName),
       // Webhook secret resolved by `npm run discovery:bootstrap-local`. The
-      // dashboard autofills Settings → Discovery webhook secret from this so
+      // dashboard autofills Discovery drawer → Connection webhook secret from this so
       // the user never needs to paste it manually.
       webhookSecret: asString(source.webhookSecret),
       webhookSecretSource: asString(source.webhookSecretSource),

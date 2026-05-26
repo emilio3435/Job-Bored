@@ -52,7 +52,7 @@ The dashboard surfaces review work through one top-bar review control and a sing
 
 ## Manual “Run discovery” (browser → your webhook)
 
-When the user clicks **Run discovery** and a **discovery webhook URL** is configured (`discoveryWebhookUrl` in config or Settings), the dashboard runs [`triggerDiscoveryRun`](app.js) in the browser:
+When the user clicks **Run discovery** and a **discovery webhook URL** is configured (`discoveryWebhookUrl` in config or **Discovery drawer → Connection**), the dashboard runs [`triggerDiscoveryRun`](app.js) in the browser:
 
 1. **POST** `Content-Type: application/json` to the configured URL.
 2. Body shape: see **Discovery webhook JSON** below (includes `schemaVersion` and optional `discoveryProfile`).
@@ -164,7 +164,7 @@ The dashboard and **resume onboarding** are separate: `onboardingComplete` in In
 
 | State | Condition                                         | Primary message (intent)                                                | Primary CTA                                                        |
 | ----- | ------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| **A** | No pipeline rows **and** no discovery webhook URL | Your pipeline is empty; connect automation or add jobs manually.        | Open **Settings** → discovery URL; open **Agent setup** checklist. |
+| **A** | No pipeline rows **and** no discovery webhook URL | Your pipeline is empty; connect automation or add jobs manually.        | Open **Discovery drawer → Connection**; open **Agent setup** checklist. |
 | **B** | No pipeline rows **but** webhook URL is set       | First run pending — trigger discovery or wait for your scheduled agent. | **Run discovery**; link to [SETUP.md](SETUP.md) agent section.     |
 | **C** | At least one pipeline row                         | Normal dashboard; filters and Daily Brief apply.                        | None specific.                                                     |
 

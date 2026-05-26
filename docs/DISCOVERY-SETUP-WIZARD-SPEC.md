@@ -6,13 +6,13 @@ Design spec for replacing the current manual discovery setup flow with one guide
 
 Today the app spreads discovery setup across:
 
-- Settings form fields
+- Discovery drawer fields across Search, Sources, Automation, and Connection
 - `discoveryHelpModal`
 - `discoveryPathsModal`
 - `discoverySetupGuideModal`
 - `discoveryLocalTunnelModal`
 - `cloudflareRelaySetupModal`
-- Apps Script deploy controls inside Settings
+- Apps Script deploy controls inside **Discovery drawer → Connection**
 
 That is accurate, but it is not onboarding-grade. Users must infer the difference between:
 
@@ -47,7 +47,7 @@ Make `Run discovery` setup feel like:
 
 - The app exposes transport concepts before user intent is clear.
 - The user must manually jump between multiple setup modals.
-- The same path is explained in Settings, docs, helper scripts, and status toasts with different levels of detail.
+- The same path is explained in the Discovery drawer, docs, helper scripts, and status toasts with different levels of detail.
 - The Cloudflare step still reads like infra setup, not product onboarding.
 - Apps Script deploy is visible beside the real path, so stub wiring and real automation are easy to confuse.
 
@@ -97,9 +97,9 @@ The wizard must support four outcomes:
 All current discovery entry points should converge into one wizard shell:
 
 - `Run discovery` help when no usable endpoint exists
-- Settings `Setup guide`
-- Settings `Hermes + ngrok`
-- Settings `Cloudflare relay`
+- **Discovery drawer → Connection → Setup guide**
+- **Discovery drawer → Connection → Hermes + ngrok**
+- **Discovery drawer → Connection → Cloudflare relay**
 - Deep link `?setup=discovery`
 - Empty Pipeline CTA
 - Daily Brief empty-state CTA
@@ -272,7 +272,7 @@ Suggested shape:
 This snapshot should be the single source of truth for:
 
 - wizard branch selection
-- Settings discovery status copy
+- Discovery drawer readiness/status copy
 - `Run discovery` enable/disable state
 - empty-state and CTA language
 
@@ -334,7 +334,7 @@ Suggested derived fields:
   - `unverified`
   - `connected`
 
-This snapshot should drive the wizard, the Settings status card, and the `Run discovery` button. One source of truth.
+This snapshot should drive the wizard, the Discovery drawer readiness/status card, and the `Run discovery` button. One source of truth.
 
 Detection should explicitly reuse current helpers where possible:
 
@@ -365,7 +365,7 @@ One inconsistency must be removed as part of the wizard work:
 
 ### Keep
 
-- Discovery readiness card in Settings
+- Discovery readiness card in **Discovery drawer → Connection**
 - `Run discovery` help affordance
 - Apps Script deploy controls for stub-only testing
 
@@ -381,7 +381,7 @@ These become wizard steps, not separate modal systems.
 
 ### Reframe
 
-- Settings should show a single button:
+- **Discovery drawer → Connection** should show a single button:
   `Open discovery setup`
 - Secondary text links can remain, but should route into wizard branches, not parallel docs-first flows.
 
@@ -435,7 +435,7 @@ Build:
 - unified readiness snapshot builder
 - webhook kind detection
 - step gating inputs
-- Settings/empty-state/readiness reuse
+- Discovery drawer/empty-state/readiness reuse
 
 Touches:
 
@@ -464,7 +464,7 @@ Touches:
 Ownership boundary:
 
 - owns local-agent setup and autofill behavior
-- does **not** own Cloudflare deploy UX or Settings status copy
+- does **not** own Cloudflare deploy UX or Discovery drawer status copy
 
 ### Agent 4 — relay deployment integration
 
@@ -522,7 +522,7 @@ The orchestrator should lock these interfaces before parallel implementation:
    local and relay actions without forking step navigation.
 
 4. `verificationResult`
-   Agent 5 defines the shared result shape used by Settings, the wizard, and
+   Agent 5 defines the shared result shape used by the Discovery drawer, the wizard, and
    `Run discovery`.
 
 ## Build Order
@@ -554,8 +554,8 @@ Goal: reduce maintenance cost and contradictory copy.
 
 - delete standalone discovery setup modals
 - keep docs as support material, not primary UX
-- collapse Settings buttons into one wizard entry point plus advanced links
-- remove duplicated copy paths that drifted across Settings and docs
+- collapse Discovery drawer Connection buttons into one wizard entry point plus advanced links
+- remove duplicated copy paths that drifted across the Discovery drawer and docs
 
 ## Acceptance Criteria
 
@@ -584,7 +584,7 @@ The wizard is done when:
 
 ## Open Questions
 
-- Should the wizard render as a modal overlay or replace the Settings body when
+- Should the wizard render as a modal overlay or replace the Discovery drawer body when
   entered from `?setup=discovery`?
 - Do we want lightweight telemetry in localStorage/IndexedDB for drop-off
   analysis during greenfield QA, or keep that QA-only at first?

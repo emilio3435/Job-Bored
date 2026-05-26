@@ -455,7 +455,7 @@
             : "The discovery worker needs a webhook secret.",
           detail: workerDownstream
             ? "Your Cloudflare relay forwarded the request, but the upstream worker fail-closed because DISCOVERY_SECRET is missing or wrong."
-            : "The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Settings → Discovery webhook secret.",
+            : "The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.",
           layer: workerDownstream ? "downstream" : "upstream",
           remediation: workerDownstream
             ? [
