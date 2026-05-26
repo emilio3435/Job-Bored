@@ -2,7 +2,7 @@
 
 **Audience:** A planning / architecture model tasked with producing a **comprehensive implementation plan** (not necessarily implementing code yet).
 
-**Goal:** Evaluate and design how Job-Bored could, **after the user signs in with Google**, request **additional OAuth consent** for the **Google Apps Script API**, then implement **“Deploy stub from dashboard”** — i.e. create/update an Apps Script project from the existing repo stub (`integrations/apps-script/Code.gs`), deploy it as a **Web app**, and surface the **`/exec` URL** into **Settings → Discovery webhook URL** (or equivalent), without requiring `clasp` or manual script.google.com steps for the happy path.
+**Goal:** Evaluate and design how Job-Bored could, **after the user signs in with Google**, request **additional OAuth consent** for the **Google Apps Script API**, then implement **“Deploy stub from dashboard”** — i.e. create/update an Apps Script project from the existing repo stub (`integrations/apps-script/Code.gs`), deploy it as a **Web app**, and surface the **`/exec` URL** into **Discovery drawer → Connection → Discovery webhook URL**, without requiring `clasp` or manual script.google.com steps for the happy path.
 
 **Current reality (explicit):** Today, discovery webhooks are **BYO**: users deploy Apps Script (or another HTTPS receiver) **outside** the dashboard, often via **clasp** or the Apps Script editor. The dashboard’s Google sign-in is scoped for **Sheets API** access, not for creating/deploying Apps Script projects. This handoff assumes extending that model is **possible in principle** but requires a deliberate product, security, and engineering design.
 
@@ -73,7 +73,7 @@ If Apps Script API is **not** callable from browser due to CORS, the handoff out
 
 ## 4. UX flows (the plan should include wire-level detail)
 
-- **Entry point:** Settings near **Discovery webhook URL**, e.g. **“Deploy Google Apps Script stub”** (disabled until signed in; optional sheet ID validation).
+- **Entry point:** **Discovery drawer → Connection**, near **Discovery webhook URL**, e.g. **“Deploy Google Apps Script stub”** (disabled until signed in; optional sheet ID validation).
 - **Consent:** Second OAuth step explaining **why** (one paragraph): deploy script in **your** Google account, no maintainer hosting.
 - **Progress:** Creating project → uploading code → deploying web app → **copy URL / auto-fill field**.
 - **Failure modes:** API errors, consent denied, quota, wrong Google account vs Sheet ownership.

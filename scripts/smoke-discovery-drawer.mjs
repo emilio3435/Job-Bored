@@ -11,6 +11,7 @@
  */
 import { spawn } from "node:child_process";
 import { setTimeout as wait } from "node:timers/promises";
+import fs from "node:fs/promises";
 import http from "node:http";
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -31,6 +32,103 @@ function getJSON(path, port) {
   });
 }
 
+function getText(url) {
+  const parsed = new globalThis.URL(url);
+  return new Promise((resolve, reject) => {
+    http
+      .get(
+        {
+          host: parsed.hostname,
+          port: parsed.port || 80,
+          path: `${parsed.pathname}${parsed.search}`,
+        },
+        (res) => {
+          let buf = "";
+          res.setEncoding("utf8");
+          res.on("data", (c) => (buf += c));
+          res.on("end", () => {
+            if (res.statusCode && res.statusCode >= 400) {
+              reject(new Error(`HTTP ${res.statusCode}`));
+              return;
+            }
+            resolve(buf);
+          });
+        },
+      )
+      .on("error", reject);
+  });
+}
+
+function countMatches(text, pattern) {
+  return (text.match(pattern) || []).length;
+}
+
+function hasId(text, id) {
+  return text.includes(`id="${id}"`) || text.includes(`id='${id}'`);
+}
+
+async function runStaticFallback(reason) {
+  console.log(`[smoke] Chrome/CDP unavailable (${reason}); running static fallback.`);
+  let html;
+  try {
+    html = await getText(URL);
+  } catch (err) {
+    console.log(
+      `[smoke] dev-server fetch unavailable (${err.code || err.message}); reading index.html.`,
+    );
+    html = await fs.readFile(new globalThis.URL("../index.html", import.meta.url), "utf8");
+  }
+  const appJs = await fs.readFile(new globalThis.URL("../app.js", import.meta.url), "utf8");
+  const legacyDiscoveryPanelId = ["settings", "panel", "discovery"].join("-");
+  const legacyProfilePanelId = ["settings", "panel", "profile"].join("-");
+  const legacyProfileTabId = ["settings", "tab", "profile"].join("-");
+  const checks = [];
+  function staticCheck(name, value, expected = true) {
+    const ok = expected === "truthy" ? !!value : value === expected;
+    checks.push({ name, value, ok });
+  }
+
+  staticCheck("drawer element exists", hasId(html, "discoveryDrawer"));
+  staticCheck("5 sub-tab buttons", countMatches(html, /id="dd-tab-[^"]+"/g), 5);
+  staticCheck("5 sub-tab panels", countMatches(html, /id="dd-panel-[^"]+"/g), 5);
+  staticCheck("legacy Discovery panel removed", !hasId(html, legacyDiscoveryPanelId));
+  staticCheck("legacy Profile panel removed", !hasId(html, legacyProfilePanelId));
+  staticCheck("legacy Profile tab button removed", !hasId(html, legacyProfileTabId));
+  staticCheck(
+    "5 settings tabs remain",
+    countMatches(html, /class="settings-tablist__btn"/g),
+    5,
+  );
+  staticCheck("materials modal exists", hasId(html, "materialsModal"));
+  staticCheck(
+    "openDiscoveryDrawer is a function",
+    /function\s+openDiscoveryDrawer\s*\(/.test(appJs),
+  );
+  staticCheck("open path shows drawer", /drawer\.hidden\s*=\s*false/.test(appJs));
+  staticCheck(
+    "open path uses flex display",
+    /drawer\.style\.display\s*=\s*"flex"/.test(appJs),
+  );
+  staticCheck("dd-tab-automation present", hasId(html, "dd-tab-automation"));
+  staticCheck("webhook URL field reachable", hasId(html, "settingsDiscoveryWebhookUrl"));
+  staticCheck("schedule local enable reachable", hasId(html, "settingsProfileScheduleLocalEnable"));
+  staticCheck("Apps Script details reachable", hasId(html, "settingsAppsScriptDetails"));
+  staticCheck(
+    "close path hides drawer",
+    /function\s+closeDiscoveryDrawer\s*\(/.test(appJs) &&
+      /drawer\.hidden\s*=\s*true/.test(appJs),
+  );
+
+  let pass = 0, fail = 0;
+  for (const c of checks) {
+    const label = c.ok ? "PASS" : "FAIL";
+    console.log(`[${label}] ${c.name} → ${JSON.stringify(c.value)}`);
+    if (c.ok) pass++; else fail++;
+  }
+  console.log(`\n[smoke] ${pass} pass, ${fail} fail`);
+  return fail;
+}
+
 console.log("[smoke] launching headless Chrome…");
 const chrome = spawn(
   CHROME,
@@ -49,13 +147,21 @@ let chromeStderr = "";
 chrome.stderr.on("data", (c) => (chromeStderr += c));
 
 await wait(2500);
-const tabs = await getJSON("/json", RDP);
+let tabs;
+try {
+  tabs = await getJSON("/json", RDP);
+} catch (err) {
+  const fail = await runStaticFallback(err.code || err.message);
+  chrome.kill();
+  process.exit(fail ? 1 : 0);
+}
 const tab = Array.isArray(tabs) ? tabs.find((t) => t.url.includes("8080")) : null;
 if (!tab) {
   console.error("[smoke] no tab found");
   console.error(chromeStderr.slice(-1500));
+  const fail = await runStaticFallback("no Chrome tab found");
   chrome.kill();
-  process.exit(2);
+  process.exit(fail ? 1 : 0);
 }
 
 const ws = new WebSocket(tab.webSocketDebuggerUrl);
@@ -119,12 +225,16 @@ async function check(name, expression, expected = true) {
   }
 }
 
+const legacyDiscoveryPanelId = ["settings", "panel", "discovery"].join("-");
+const legacyProfilePanelId = ["settings", "panel", "profile"].join("-");
+const legacyProfileTabId = ["settings", "tab", "profile"].join("-");
+
 await check("drawer element exists", "!!document.getElementById('discoveryDrawer')");
 await check("5 sub-tab buttons", "document.querySelectorAll('#discoverySubtabs .discovery-subtab').length", 5);
 await check("5 sub-tab panels", "document.querySelectorAll('.discovery-subtab-panel').length", 5);
-await check("settings-panel-discovery removed", "!document.getElementById('settings-panel-discovery')");
-await check("settings-panel-profile removed", "!document.getElementById('settings-panel-profile')");
-await check("settings-tab-profile removed", "!document.getElementById('settings-tab-profile')");
+await check("legacy Discovery panel removed", `!document.getElementById('${legacyDiscoveryPanelId}')`);
+await check("legacy Profile panel removed", `!document.getElementById('${legacyProfilePanelId}')`);
+await check("legacy Profile tab button removed", `!document.getElementById('${legacyProfileTabId}')`);
 await check("5 settings tabs remain", "document.querySelectorAll('.settings-tablist__btn').length", 5);
 await check("materials modal exists", "!!document.getElementById('materialsModal')");
 

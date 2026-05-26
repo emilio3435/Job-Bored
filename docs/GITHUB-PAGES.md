@@ -17,7 +17,7 @@ GitHub Pages cannot call `http://127.0.0.1` on your laptop from an HTTPS page. U
 
 `config.js` is loaded at runtime. Use one of these patterns:
 
-1. **Settings/localStorage:** deploy without a real `config.js`, then enter Sheet ID, OAuth Client ID, webhook URLs, and provider keys in Settings. Values stay in that browser's localStorage/IndexedDB.
+1. **Settings/localStorage:** deploy without a real `config.js`, then enter Sheet ID, OAuth Client ID, and provider keys in Settings; enter discovery webhook URLs in **Discovery drawer -> Connection**. Values stay in that browser's localStorage/IndexedDB.
 2. **Private fork:** commit a real `config.js` only if the repository is private.
 3. **GitHub Actions-generated config:** keep `config.js` out of git, store values in GitHub secrets, and generate it during Pages deploy.
 
@@ -59,7 +59,7 @@ Local worker path:
 1. Run `npm run discovery:worker:start-local`.
 2. Expose it with ngrok.
 3. Deploy the Cloudflare relay to the ngrok URL.
-4. Paste the Worker URL into Settings as the Discovery webhook URL.
+4. Paste the Worker URL into **Discovery drawer → Connection → Discovery webhook URL**.
 5. Run `npm run discovery:keep-alive` if you use a rotating ngrok URL.
 
 Hosted worker path:
@@ -67,7 +67,7 @@ Hosted worker path:
 1. Deploy the Browser Use discovery worker to your own host.
 2. Set its allowed origins to your Pages origin.
 3. Store secrets in that host, not in public git.
-4. Paste the hosted HTTPS webhook URL into Settings.
+4. Paste the hosted HTTPS webhook URL into **Discovery drawer -> Connection -> Discovery webhook URL**.
 
 ## Scraper expectations
 

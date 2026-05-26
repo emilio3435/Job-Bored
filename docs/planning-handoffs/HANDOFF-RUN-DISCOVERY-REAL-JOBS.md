@@ -274,7 +274,7 @@ But it should not be mistaken for job discovery.
   - `testDiscoveryWebhookFromSettings`
   - stub response detection / success copy
   - setup and sheet-access gating
-  - Settings / discovery state UI
+  - Discovery drawer / discovery state UI
 
 ### Apps Script webhook
 

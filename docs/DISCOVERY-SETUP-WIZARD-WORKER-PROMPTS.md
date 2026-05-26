@@ -416,11 +416,11 @@ Merge checklist:
    - discovery-wizard-local.js
    - discovery-wizard-relay.js
    - discovery-wizard-verify.js
-4. Integrate readinessSnapshot into Settings, empty states, and Run discovery gating.
+4. Integrate readinessSnapshot into the Discovery drawer, empty states, and Run discovery gating.
 5. Route these entry points into the wizard:
    - ?setup=discovery
    - disabled Run discovery help
-   - Settings setup actions
+   - Discovery drawer setup actions
    - empty Pipeline CTA
    - Daily Brief CTA
 6. Confirm Apps Script stub still cannot become connected.

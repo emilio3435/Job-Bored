@@ -6,17 +6,17 @@ Read-only mode works out of the box — just point it at any published Google Sh
 
 **Free automation (no maintainer-hosted discovery service):** the dashboard is static; **you** run job discovery (Apps Script, GitHub Actions, n8n, etc.) and paste your **discovery webhook URL**. See the [README](README.md#free-automation-without-maintainer-hosting) options table and **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)**; all in-repo template paths are collected under [BYO automation templates](#byo-automation-templates) below.
 
-**Deep link:** append `?setup=discovery` to the dashboard URL to open **Settings** focused on the discovery webhook field (see [URL Parameters](README.md#url-parameters) in the README).
+**Deep link:** append `?setup=discovery` to the dashboard URL to open **Discovery drawer → Connection** focused on the discovery webhook field (see [URL Parameters](README.md#url-parameters) in the README).
 
 **Discovery paths (not only webhooks):** [docs/DISCOVERY-PATHS.md](docs/DISCOVERY-PATHS.md) explains manual Pipeline entry, scheduled jobs (GitHub Actions, Apps Script triggers), and the optional **Run discovery** POST — with diagrams. **Apps Script:** step-by-step [integrations/apps-script/WALKTHROUGH.md](integrations/apps-script/WALKTHROUGH.md).
 
-**Daily refresh schedule (new):** pick a time in **Settings → Profile → Schedule** and install a cross-platform scheduler (launchd / systemd / Task Scheduler) with one copy-paste command, or generate a GitHub Actions workflow file. Full walkthrough: **[docs/SETTINGS-SCHEDULE.md](docs/SETTINGS-SCHEDULE.md)** — includes a Windows-first section for PowerShell users.
+**Daily refresh schedule (new):** pick a time in **Discovery drawer → Automation → Schedule** and install a cross-platform scheduler (launchd / systemd / Task Scheduler) with one copy-paste command, or generate a GitHub Actions workflow file. Full walkthrough: **[docs/SETTINGS-SCHEDULE.md](docs/SETTINGS-SCHEDULE.md)** — includes a Windows-first section for PowerShell users.
 
 ## BYO automation templates
 
 Copy-paste automation you deploy into **your** Google, GitHub, Cloudflare, or agent environment. The **Run discovery** POST shape and Pipeline rules are defined in **[AGENT_CONTRACT.md](AGENT_CONTRACT.md)**.
 
-- **[`integrations/apps-script/`](integrations/apps-script/)** — Deploy as web app; paste the `/exec` URL into Settings. **Step-by-step:** [WALKTHROUGH.md](integrations/apps-script/WALKTHROUGH.md).
+- **[`integrations/apps-script/`](integrations/apps-script/)** — Deploy as web app; paste the `/exec` URL into **Discovery drawer → Connection → Discovery webhook URL**. **Step-by-step:** [WALKTHROUGH.md](integrations/apps-script/WALKTHROUGH.md).
 - **[`templates/github-actions/`](templates/github-actions/)** — Scheduled workflow (server-side POST; useful when the browser hits CORS).
 - **[`templates/cloudflare-worker/`](templates/cloudflare-worker/)** — Optional Worker relay (CORS) to your target URL (e.g. Apps Script `/exec`).
 - **[`integrations/n8n/`](integrations/n8n/)** — n8n HTTP workflow notes (BYO instance).
@@ -114,7 +114,7 @@ The discovery worker at `integrations/browser-use-discovery/` has three source l
    ```
 4. Restart the worker (`npm run discovery:worker:start-local`) so the new env var loads.
 
-The dashboard's **Settings → Discovery** tab shows a live "✓ Configured" badge once it's working. If the key is unset, the lane just skips — no errors.
+The dashboard's **Discovery drawer → Sources** sub-tab shows a live "✓ Configured" badge once it's working. If the key is unset, the lane just skips — no errors.
 
 For $50/month you can upgrade to 5000 searches — plenty for daily refresh + multiple ad-hoc runs.
 
@@ -158,11 +158,11 @@ This is useful for sharing dashboard links or switching between multiple job sea
 ### Run discovery (optional, no sign-in required)
 
 - **Run discovery** sends a POST to `discoveryWebhookUrl` in `config.js` so your agent (Hermes, n8n, Apps Script, etc.) can start **another** search pass.
-- Each request includes `schemaVersion` **1**, a new `variationKey`, and optional `discoveryProfile` from **Settings** (target roles, locations, keywords — stored in IndexedDB on this device). The shared payload builder also adds a non-secret profile snapshot and deterministic search plan when current resume/preferences/schedule context is available.
+- Each request includes `schemaVersion` **1**, a new `variationKey`, and optional `discoveryProfile` from **Discovery drawer → Search** (target roles, locations, keywords — stored in IndexedDB on this device). The shared payload builder also adds a non-secret profile snapshot and deterministic search plan when current resume/preferences/schedule context is available.
 - Local worker runs may include a transient `googleAccessToken` for that run only. It lets the user-owned worker write to the Sheet without storing OAuth credentials; it is stripped from persisted config/state and must not be logged raw.
 - The Browser Use discovery worker writes run summaries to a `DiscoveryRuns` tab when configured. The dashboard reads that tab for run history; missing `DiscoveryRuns` is fine until the first logged run.
 - The dashboard-managed **Apps Script deploy is only a stub** for webhook verification and `[CC test]` smoke tests. It does **not** discover real jobs unless you replace that code with real logic or point the dashboard at another discovery engine.
-- If your real discovery engine runs locally, the browser-safe path is **JobBored → Cloudflare Worker → ngrok URL → local Hermes/OpenClaw webhook**. Start with `npm run discovery:bootstrap-local`, then use **Settings → Hermes + ngrok** to review the autofilled public target and **Cloudflare relay** to deploy the Worker and paste the Worker URL back into **Discovery webhook URL**.
+- If your real discovery engine runs locally, the browser-safe path is **JobBored → Cloudflare Worker → ngrok URL → local Hermes/OpenClaw webhook**. Start with `npm run discovery:bootstrap-local`, then use **Discovery drawer → Connection → Hermes + ngrok** to review the autofilled public target and **Cloudflare relay** to deploy the Worker and paste the Worker URL back into **Discovery drawer → Connection → Discovery webhook URL**.
 - Your endpoint must allow **CORS** from your dashboard origin. See the JSON example under **&ldquo;Run discovery&rdquo; webhook** below, the **[webhook receiver checklist](AGENT_CONTRACT.md#webhook-receiver-checklist-copy-paste)** in [AGENT_CONTRACT.md](AGENT_CONTRACT.md), and [docs/CONTRACT-CHANGELOG.md](docs/CONTRACT-CHANGELOG.md) when the contract changes.
 
 ### Resume Updater & Cover Letter Writer (optional)
@@ -308,7 +308,7 @@ When `discoveryWebhookUrl` is set, the dashboard **POST**s JSON (schema **v1**):
 }
 ```
 
-`discoveryProfile` comes from **Settings → Discovery preferences** (stored in IndexedDB on this device). The snapshot and search plan do not include raw resume text; they let the worker record and apply the specific rotated query bundle that powered the run. Empty strings mean no preference. Older automations can ignore `schemaVersion` and `discoveryProfile` if they only need `event`, `sheetId`, `variationKey`, and `requestedAt`.
+`discoveryProfile` comes from **Discovery drawer → Search** preferences (stored in IndexedDB on this device). The snapshot and search plan do not include raw resume text; they let the worker record and apply the specific rotated query bundle that powered the run. Empty strings mean no preference. Older automations can ignore `schemaVersion` and `discoveryProfile` if they only need `event`, `sheetId`, `variationKey`, and `requestedAt`.
 
 Your handler should start a job that searches with a **different** query or angle than the last run (use `variationKey` as a seed). Respond with **2xx** so the user sees a success toast.
 

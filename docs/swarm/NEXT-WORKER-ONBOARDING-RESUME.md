@@ -17,7 +17,7 @@ The suspected user-facing risk is that a user can choose a resume file during on
 
 - Start with evidence. Reproduce in the browser before patching.
 - Do not touch discovery worker internals under `integrations/browser-use-discovery/src/**`.
-- Do not redesign Settings/Profile/Discovery; PR #5 already landed that lane.
+- Keep the landed Settings, Profile, and Discovery drawer IA from PR #5 intact.
 - Do not edit `.env`, state DBs, logs, uploads, or local bootstrap files.
 - Do not commit or push. Leave changes for coordinator review.
 - Keep changes focused to browser onboarding/resume ingestion surfaces if a real issue is found.

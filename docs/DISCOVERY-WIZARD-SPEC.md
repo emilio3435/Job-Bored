@@ -6,7 +6,7 @@ The current discovery onboarding is functional but fragmented.
 
 Today a new user has to piece together:
 
-- `Settings -> Discovery webhook URL`
+- `Discovery drawer -> Connection -> Discovery webhook URL`
 - `Setup guide`
 - `Hermes + ngrok`
 - `Cloudflare relay`
@@ -84,7 +84,7 @@ Add one primary CTA: `Connect discovery`.
 
 It should open from:
 
-- `Settings -> Discovery & scraping`
+- `Discovery drawer -> Connection`
 - blocked `Run discovery` states
 - `?setup=discovery`
 - the empty-state CTA when Pipeline has no rows and discovery is not connected
@@ -355,7 +355,7 @@ Own:
 
 - wizard modal shell in [index.html](../index.html)
 - progress bar and step navigation
-- entry points from Settings, blocked Run discovery states, and `?setup=discovery`
+- entry points from Discovery drawer -> Connection, blocked Run discovery states, and `?setup=discovery`
 - resume logic to reopen at the first unmet step
 
 Touches:

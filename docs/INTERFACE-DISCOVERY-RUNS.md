@@ -78,7 +78,7 @@ The three OS installer scripts (`templates/launchd/*.plist`, `scripts/windows/re
 
 1. **`runDiscovery()`** (reference: `integrations/browser-use-discovery/src/run/run-discovery.ts`) — the primary Pipeline-writing path hit by POST `/discovery-webhook` (dashboard "Run discovery" button + GitHub Actions scheduled dispatch). `Leads Written` reflects `writeResult.appended`.
 
-2. **`handleDiscoveryProfileWebhook()`** (reference: `integrations/browser-use-discovery/src/webhook/handle-discovery-profile.ts`) for `mode:"manual"` and legacy `mode:"refresh"` completions — these are enrichment paths hit by the Profile tab and older refresh integrations. These paths extract a profile + refresh the stored company list via Gemini; they do **not** write Pipeline rows. Log them with `Leads Written: 0` so profile refreshes are still visible to the user.
+2. **`handleDiscoveryProfileWebhook()`** (reference: `integrations/browser-use-discovery/src/webhook/handle-discovery-profile.ts`) for `mode:"manual"` and legacy `mode:"refresh"` completions — these are enrichment paths hit by profile-refresh integrations. These paths extract a profile + refresh the stored company list via Gemini; they do **not** write Pipeline rows. Log them with `Leads Written: 0` so profile refreshes are still visible to the user.
 
 The row is constructed via the shared `appendDiscoveryRunRow(sheetId, row)` helper that appends via the existing Sheets client (reusing the Pipeline writer's `resolveAccessToken`).
 
@@ -124,7 +124,7 @@ Handle the "tab doesn't exist yet" case — if the API returns a 400 for a missi
 **Location (workspace picks; reasonable options listed):**
 
 a. **Top-level nav tab** next to Pipeline / Daily Brief / Settings. Discoverable, matches the Sheet-tab-as-UI-tab pattern.
-b. **Section inside Settings → Profile → Schedule**, below the three-tier ladder. Tighter contextual grouping but less discoverable.
+b. **Section inside Discovery drawer → History**, near the run-history controls. Tighter contextual grouping but less discoverable.
 
 **Default recommendation:** (a) — the log is a primary user surface, not a setting.
 

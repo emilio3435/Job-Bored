@@ -1,16 +1,17 @@
 # Settings Tabs Worker Prompts
 
 Copy-paste prompts for a master orchestrator and a 5-worker swarm to refactor
-the settings modal into real standalone tabs.
+the settings modal into real standalone tabs and route Discovery controls into
+the Discovery drawer.
 
 Use this when implementing the settings IA split into:
 
 - `Setup`
 - `Sheet`
-- `Discovery`
 - `Scraping`
 - `ATS Scoring`
 - `AI Providers`
+- Discovery drawer: `Search`, `Sources`, `Automation`, `Connection`, `History`
 
 ## How To Use This
 
@@ -38,11 +39,10 @@ Paste these rules into every worker prompt:
 - The required tabs are exactly:
   - `Setup`
   - `Sheet`
-  - `Discovery`
   - `Scraping`
   - `ATS Scoring`
   - `AI Providers`
-- `Discovery` and `Scraping` must be separate.
+- Discovery controls live in **Discovery drawer → Search / Sources / Automation / Connection / History**.
 - `ATS Scoring` and `AI Providers` must be separate.
 - `Setup` must absorb onboarding/reset behavior that is currently orphaned
   below the old nav.
@@ -62,13 +62,19 @@ Read these files first:
 Project goal:
 Replace the current anchor-based settings section nav with real standalone tabs.
 
-Required tab IA:
+Required Settings tab IA:
 - Setup
 - Sheet
-- Discovery
 - Scraping
 - ATS Scoring
 - AI Providers
+
+Required Discovery drawer IA:
+- Search
+- Sources
+- Automation
+- Connection
+- History
 
 Required content placement:
 - Setup:
@@ -79,12 +85,12 @@ Required content placement:
 - Sheet:
   - Spreadsheet URL / Sheet ID
   - Dashboard title
-- Discovery:
-  - Discovery webhook URL
-  - discovery status card
-  - discovery setup/test actions
-  - Apps Script deploy/remediation UI
-  - discovery preferences
+- Discovery drawer:
+  - Search: discovery preferences
+  - Sources: source toggles and source status cards
+  - Automation: schedule cards
+  - Connection: Discovery webhook URL, discovery status card, setup/test actions, and Apps Script deploy/remediation UI
+  - History: run history and diagnostics entry points
 - Scraping:
   - Job posting scraper URL
   - scraper setup entrypoint
@@ -126,8 +132,8 @@ Lock these interfaces before spawning workers:
 - window.JobBoredSettingsTabs.getActiveSettingsTab()
 - window.JobBoredSettingsTabSchema.SETTINGS_TAB_IDS
 - window.JobBoredSettingsTabSchema.getSettingsTabForField(fieldId)
-- window.JobBoredSettingsDiscoveryAdapters.ensureDiscoveryTabActive(tabApi)
-- window.JobBoredSettingsDiscoveryAdapters.focusDiscoveryWebhookField(tabApi)
+- window.JobBoredSettingsDiscoveryAdapters.ensureDiscoveryTabActive()
+- window.JobBoredSettingsDiscoveryAdapters.focusDiscoveryWebhookField()
 
 Important existing code to integrate carefully:
 - settings modal markup in /Users/emilionunezgarcia/Job-Bored/index.html
@@ -377,7 +383,7 @@ Shared rules:
 - Report exactly which files you changed and any orchestrator follow-ups.
 
 Your purpose:
-Build small adapter helpers so discovery-specific settings flows can safely activate the Discovery tab before focusing hidden controls.
+Build small adapter helpers so discovery-specific settings flows open the Discovery drawer to the right sub-tab before focusing hidden controls.
 
 Your write scope:
 - /Users/emilionunezgarcia/Job-Bored/settings-discovery-adapters.js
@@ -390,7 +396,7 @@ Read-only context:
 
 Build:
 - a namespaced API under window.JobBoredSettingsDiscoveryAdapters
-- ensureDiscoveryTabActive(tabApi)
+- ensureDiscoveryTabActive()
 - focusDiscoveryWebhookField(tabApi)
 - prepareAppsScriptRemediationView(tabApi)
 - prepareCloudflareRelayApplyReturn(tabApi)
