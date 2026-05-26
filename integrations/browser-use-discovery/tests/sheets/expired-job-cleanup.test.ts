@@ -357,10 +357,9 @@ test("runExpiredJobCleanup writes Status and Notes audit for confirmed expired r
     values: [["Expired"]],
   });
   assert.equal(body.data[1].range, "Pipeline!O2");
-  assert.match(body.data[1].values[0][0], /^Existing note\n\[Expired cleanup 2026-05-20T12:00:00.000Z\]/);
-  assert.match(body.data[1].values[0][0], /Status: Researching -> Expired/);
-  assert.match(body.data[1].values[0][0], /source=http_status/);
-  assert.match(body.data[1].values[0][0], /confidence=high/);
+  assert.match(body.data[1].values[0][0], /^Existing note\n\[JobBored 2026-05-20\]/);
+  assert.match(body.data[1].values[0][0], /Marked Expired because the company took the job page down \(HTTP 410\)/);
+  assert.match(body.data[1].values[0][0], /Was: Researching\./);
 });
 
 test("runExpiredJobCleanup write mode tags needs-review rows with a Notes audit so the dashboard review modal surfaces them", async () => {
@@ -397,7 +396,7 @@ test("runExpiredJobCleanup write mode tags needs-review rows with a Notes audit 
       "",
       "Researching",
       "",
-      "[Expired cleanup 2026-05-01T00:00:00.000Z] Availability review: checkedUrl=\"https://jobs.example.com/blocked\"; source=http_status; confidence=none; reason=\"HTTP 403 requires review\"",
+      "[JobBored 2026-05-01] Please review this job — the site blocked us before we could read the page (HTTP 403).",
     ]),
   ];
   const { fetchImpl, calls } = createCleanupFetch(rows, {
@@ -425,8 +424,8 @@ test("runExpiredJobCleanup write mode tags needs-review rows with a Notes audit 
   const body = JSON.parse(post.body);
   assert.equal(body.data.length, 1, "only the un-tagged needs-review row should be updated");
   assert.equal(body.data[0].range, "Pipeline!O2");
-  assert.match(body.data[0].values[0][0], /Availability review:/);
-  assert.match(body.data[0].values[0][0], /source=captcha_marker/);
+  assert.match(body.data[0].values[0][0], /Please review this job/);
+  assert.match(body.data[0].values[0][0], /asked us to prove we are human/);
 });
 
 test("runExpiredJobCleanup dry-run does not write needs-review audit notes", async () => {

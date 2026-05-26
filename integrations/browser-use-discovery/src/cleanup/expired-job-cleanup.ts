@@ -495,35 +495,78 @@ function appendAuditNote(existingNotes: string, auditLine: string): string {
   return current ? `${current}\n${auditLine}` : auditLine;
 }
 
-function quoteAudit(value: string): string {
-  return String(value || "")
-    .replace(/\s+/g, " ")
-    .replace(/"/g, "'")
-    .slice(0, 220);
+function shortDate(timestamp: string): string {
+  // ISO timestamps look like 2026-05-26T04:45:12.383Z. The cleanup notes need
+  // a human-readable date stamp rather than a full ISO with milliseconds, so
+  // keep just the YYYY-MM-DD prefix.
+  const trimmed = String(timestamp || "").slice(0, 10);
+  return trimmed || timestamp;
+}
+
+function plainStatus(status: string): string {
+  return status && status.trim() ? status.trim() : "no status";
+}
+
+/** Human-friendly reason text the dashboard and Sheet notes share. */
+export function describeAvailabilityReason(
+  classification: JobAvailabilityClassification,
+): string {
+  switch (classification.source) {
+    case "http_status": {
+      const code = Number(classification.httpStatus || 0);
+      if (code === 404) return "the job page is gone (HTTP 404)";
+      if (code === 410) return "the company took the job page down (HTTP 410)";
+      if (code === 401)
+        return "the job page asked us to sign in before showing it (HTTP 401)";
+      if (code === 403)
+        return "the site blocked us before we could read the page (HTTP 403)";
+      if (code === 429)
+        return "the site rate-limited us before we could read the page (HTTP 429)";
+      if (code >= 500) return `the site is down right now (HTTP ${code})`;
+      if (code) return `the site answered with HTTP ${code}`;
+      return "the site answered with an unexpected status";
+    }
+    case "html_marker":
+      return "the job page says the role is closed";
+    case "open_marker":
+      return "the job page is still accepting applications";
+    case "captcha_marker":
+      return "the page asked us to prove we are human before showing the job";
+    case "network_error":
+      return "we could not reach the site (network error)";
+    case "timeout":
+      return "the page took too long to load";
+    case "invalid_url":
+      return "the link in the row is not a valid URL";
+    case "ambiguous":
+    default:
+      return "the page loaded but it did not clearly say the job is open or closed";
+  }
 }
 
 function buildAuditLine(params: {
   timestamp: string;
   previousStatus: string;
-  checkedUrl: string;
   classification: JobAvailabilityClassification;
 }): string {
-  const previous = params.previousStatus || "blank";
-  const c = params.classification;
-  return `[Expired cleanup ${params.timestamp}] Status: ${previous} -> Expired; checkedUrl="${quoteAudit(params.checkedUrl)}"; source=${c.source}; confidence=${c.confidence}; reason="${quoteAudit(c.reason)}"; evidence="${quoteAudit(c.evidence)}"`;
+  return `[JobBored ${shortDate(params.timestamp)}] Marked Expired because ${describeAvailabilityReason(params.classification)}. Was: ${plainStatus(params.previousStatus)}.`;
 }
 
 function buildNeedsReviewAuditLine(params: {
   timestamp: string;
-  checkedUrl: string;
   classification: JobAvailabilityClassification;
 }): string {
-  const c = params.classification;
-  return `[Expired cleanup ${params.timestamp}] Availability review: checkedUrl="${quoteAudit(params.checkedUrl)}"; source=${c.source}; confidence=${c.confidence}; reason="${quoteAudit(c.reason)}"`;
+  return `[JobBored ${shortDate(params.timestamp)}] Please review this job — ${describeAvailabilityReason(params.classification)}.`;
 }
 
 function notesContainsRecentNeedsReview(notes: string): boolean {
-  return /\bAvailability review:/i.test(String(notes || ""));
+  // Match both the new "Please review this job" phrasing and the older
+  // "Availability review:" phrasing, so reruns on rows that were tagged by an
+  // earlier build of the cleanup are still treated as already-flagged and we
+  // do not append a duplicate line.
+  return /\b(Please review this job|Availability review:)/i.test(
+    String(notes || ""),
+  );
 }
 
 export async function runExpiredJobCleanup(params: {
@@ -623,7 +666,6 @@ export async function runExpiredJobCleanup(params: {
       const auditNote = buildAuditLine({
         timestamp,
         previousStatus,
-        checkedUrl: link,
         classification,
       });
       const notes = appendAuditNote(cells[NOTES_COLUMN_INDEX] || "", auditNote);
@@ -674,7 +716,6 @@ export async function runExpiredJobCleanup(params: {
     const existingNotes = cells[NOTES_COLUMN_INDEX] || "";
     const reviewAuditNote = buildNeedsReviewAuditLine({
       timestamp,
-      checkedUrl: link,
       classification,
     });
     const shouldAppendReviewNote =
