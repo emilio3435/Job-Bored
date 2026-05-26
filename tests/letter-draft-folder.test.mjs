@@ -426,6 +426,41 @@ describe("Letter region — CSS surface (letter.css)", () => {
   });
 });
 
+describe("Letter region — Insights parse-error CTA", () => {
+  it("renders a Regenerate now button inside the parse-error banner", () => {
+    /* The banner used to be descriptive copy only. It now ends in
+       a CTA button (data-action='regenerate-insights') that re-fires
+       the Compose panel's generation path with the existing settings. */
+    assert.match(
+      letterJs,
+      /jb-letter-insights-error[\s\S]*data-action="regenerate-insights"/,
+      "letter.js must render a regenerate-insights button inside the error banner",
+    );
+    assert.ok(
+      letterJs.includes("Regenerate now"),
+      "the CTA must use the 'Regenerate now' label",
+    );
+  });
+
+  it("the click handler routes regenerate-insights through handleComposeGenerate", () => {
+    /* No new bridge — reuse Compose's existing generate path so
+       feature, tone, length, notes, and title carry through. */
+    assert.match(
+      letterJs,
+      /action === "regenerate-insights"[\s\S]*handleComposeGenerate\(region, ctx\)/,
+      "regenerate-insights must call handleComposeGenerate",
+    );
+  });
+
+  it("CSS scopes .jb-letter-insights-error__button under the letter region", () => {
+    assert.match(
+      letterCss,
+      /body\.jb-v2 \[data-region="letter"\] \.jb-letter-insights-error__button\b/,
+      "letter.css must style the Regenerate now button",
+    );
+  });
+});
+
 describe("Letter region — Fit angle empty state", () => {
   it("renders an empty-state stub when no fitAngle is available", () => {
     /* The Fit angle block used to be hidden entirely when no draft
