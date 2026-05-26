@@ -19306,7 +19306,10 @@ async function reviseLetterDraftForJob(dataIndex, options) {
     },
     { sheetId: SHEET_ID },
   );
-  const text = await Gen.generateFromBundle(bundle);
+  const genResult = await Gen.generateFromBundle(bundle);
+  const text = (genResult && genResult.cleanText) || "";
+  const insights = (genResult && genResult.insights) || null;
+  const insightsError = (genResult && genResult.insightsError) || "";
   let savedDraft = null;
   let saveError = "";
   if (typeof UC.saveGeneratedDraft === "function") {
@@ -19320,6 +19323,8 @@ async function reviseLetterDraftForJob(dataIndex, options) {
           options && options.parentDraftId ? options.parentDraftId : null,
         userNotes,
         refinementFeedback,
+        insights,
+        insightsError,
       });
       await refreshGeneratedDraftLibraryCache();
       renderPipeline();
@@ -19671,7 +19676,11 @@ async function runResumeGeneration(dataIndex, feature, options) {
       savedDraftId: null,
       text: "",
     };
-    const text = await Gen.generateFromBundle(bundle);
+    const genResult = await Gen.generateFromBundle(bundle);
+    const text = (genResult && genResult.cleanText) || "";
+    const insights = (genResult && genResult.insights) || null;
+    const insightsError = (genResult && genResult.insightsError) || "";
+    const userTitle = options && typeof options.title === "string" ? options.title.trim() : "";
     let savedDraft = null;
     const UC2 = getUserContent();
     if (UC2 && typeof UC2.saveGeneratedDraft === "function") {
@@ -19682,6 +19691,9 @@ async function runResumeGeneration(dataIndex, feature, options) {
           text,
           job,
           userNotes,
+          title: userTitle,
+          insights,
+          insightsError,
         });
         await refreshGeneratedDraftLibraryCache();
         renderPipeline();
@@ -19797,7 +19809,10 @@ async function refineLastResumeGeneration() {
       session.contextUsed,
       session.job,
     );
-    const nextText = await Gen.generateFromBundle(nextBundle);
+    const genResult = await Gen.generateFromBundle(nextBundle);
+    const nextText = (genResult && genResult.cleanText) || "";
+    const insights = (genResult && genResult.insights) || null;
+    const insightsError = (genResult && genResult.insightsError) || "";
     let savedDraft = null;
     const UC = getUserContent();
     if (UC && typeof UC.saveGeneratedDraft === "function") {
@@ -19813,6 +19828,8 @@ async function refineLastResumeGeneration() {
               ? nextBundle.instructions.userNotes
               : "",
           refinementFeedback: feedback,
+          insights,
+          insightsError,
         });
         await refreshGeneratedDraftLibraryCache();
         renderPipeline();

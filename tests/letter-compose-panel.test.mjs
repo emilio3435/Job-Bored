@@ -2,17 +2,21 @@
  * tests/letter-compose-panel.test.mjs
  *
  * Compose panel for the Workshop (v2 letter region). Verifies that:
- *   1. The shell HTML reserves a compose slot between the folder strip
- *      and the editor grid.
- *   2. letter.js exposes the prefill + select/tone/length controls and
- *      wires the compose actions (generate, suggest, advanced).
- *   3. app.js's runResumeGeneration accepts the tone/maxWords/silent
- *      options the compose panel emits and is exported on window so
- *      letter.js can call it.
+ *   1. The shell HTML reserves a compose slot above the editor grid.
+ *      (The legacy folder slot above Compose has been removed; the
+ *      "Versions" sub-block now lives inside the Scorecard rail.)
+ *   2. letter.js exposes the document/tone/length controls plus the
+ *      new Title input and Version Notes textarea, and wires the
+ *      compose actions (generate, advanced). The Suggest button has
+ *      been removed.
+ *   3. app.js's runResumeGeneration accepts tone/maxWords/silent/
+ *      title options and is exported on window so letter.js can call
+ *      it.
  *   4. letter.css scopes the .jb-letter-compose styles under the v2
  *      region selector and reuses v2 tokens.
  *   5. The live render produces a usable compose section with default
- *      tone (warm) and default length (~350).
+ *      tone (warm) and default length (~350) and exposes Title +
+ *      Version Notes fields.
  */
 
 import assert from "node:assert/strict";
@@ -28,16 +32,20 @@ const letterJs = readFileSync(join(repoRoot, "letter.js"), "utf8");
 const letterCss = readFileSync(join(repoRoot, "letter.css"), "utf8");
 
 describe("Workshop compose panel — shell wiring", () => {
-  it("shellHtml reserves a compose-slot between the folder strip and the editor grid", () => {
-    const folderIdx = letterJs.indexOf("<!--folder-slot-->");
+  it("shellHtml reserves a compose-slot above the editor grid (folder slot now lives inside the rail)", () => {
     const composeIdx = letterJs.indexOf("<!--compose-slot-->");
     const gridIdx = letterJs.indexOf("'<div class=\"jb-letter-grid\">'");
-    assert.ok(folderIdx >= 0, "folder-slot marker must exist");
+    const folderIdx = letterJs.indexOf("<!--folder-slot-->");
     assert.ok(composeIdx >= 0, "compose-slot marker must exist");
     assert.ok(gridIdx >= 0, "editor grid marker must exist");
+    assert.ok(folderIdx >= 0, "folder-slot marker must exist (now inside the scorecard rail)");
     assert.ok(
-      composeIdx > folderIdx && composeIdx < gridIdx,
-      "compose-slot must sit between the folder slot and the editor grid",
+      composeIdx < gridIdx,
+      "compose-slot must sit above the editor grid",
+    );
+    assert.ok(
+      folderIdx > gridIdx,
+      "folder-slot must now live inside the rail (after the editor grid opens)",
     );
   });
 
@@ -58,29 +66,41 @@ describe("Workshop compose panel — shell wiring", () => {
 });
 
 describe("Workshop compose panel — markup contract", () => {
-  it("emits the document/tone/length selects with documented data attrs", () => {
+  it("emits the document/tone/length selects, Title input, and Version Notes textarea", () => {
     assert.ok(letterJs.includes('data-compose-feature'), "compose must emit data-compose-feature select");
     assert.ok(letterJs.includes('data-compose-tone'), "compose must emit data-compose-tone select");
     assert.ok(letterJs.includes('data-compose-length'), "compose must emit data-compose-length select");
     assert.ok(letterJs.includes('data-compose-notes'), "compose must emit data-compose-notes textarea");
+    assert.ok(letterJs.includes('data-compose-title'), "compose must emit data-compose-title input");
+    assert.ok(letterJs.includes("Version Notes"), "compose must label its notes field 'Version Notes'");
   });
 
-  it("exposes the three compose actions on the click delegate", () => {
+  it("Suggest button + compose-refresh-notes action are gone", () => {
+    assert.ok(
+      !letterJs.includes('data-action="compose-refresh-notes"'),
+      "compose-refresh-notes action must be removed (Suggest button gone)",
+    );
+    assert.ok(
+      !letterJs.includes('action === "compose-refresh-notes"'),
+      "click delegate must not branch on compose-refresh-notes any more",
+    );
+    assert.ok(
+      !letterJs.includes("jb-letter-compose__refresh"),
+      "the .jb-letter-compose__refresh pill class must be gone from letter.js",
+    );
+  });
+
+  it("exposes the remaining two compose actions on the click delegate", () => {
     assert.ok(letterJs.includes('data-action="compose-generate"'), "compose must emit a generate action button");
-    assert.ok(letterJs.includes('data-action="compose-refresh-notes"'), "compose must emit a refresh-notes action");
     assert.ok(letterJs.includes('data-action="compose-open-modal"'), "compose must emit an advanced/open-modal action");
     assert.ok(letterJs.includes('action === "compose-generate"'), "click delegate must branch on compose-generate");
-    assert.ok(
-      letterJs.includes('action === "compose-refresh-notes"'),
-      "click delegate must branch on compose-refresh-notes",
-    );
     assert.ok(
       letterJs.includes('action === "compose-open-modal"'),
       "click delegate must branch on compose-open-modal",
     );
   });
 
-  it("compose-generate calls runResumeGeneration with the silent option", () => {
+  it("compose-generate calls runResumeGeneration with silent + title options", () => {
     assert.ok(
       letterJs.includes("root.runResumeGeneration"),
       "compose-generate must call window.runResumeGeneration",
@@ -89,12 +109,17 @@ describe("Workshop compose panel — markup contract", () => {
       letterJs.includes("silent: true"),
       "compose-generate must pass silent: true so the legacy modal stays closed",
     );
+    assert.ok(
+      /title:\s*state\.title/.test(letterJs),
+      "compose-generate must pass the Title field through to runResumeGeneration",
+    );
   });
 
-  it("notes prefill uses the app.js buildDraftNotesPrefill helper", () => {
+  it("the cached fit-angle line in Compose summary has been removed", () => {
     assert.ok(
-      letterJs.includes("root.buildDraftNotesPrefill"),
-      "compose must source notes prefill from buildDraftNotesPrefill",
+      !letterJs.includes('"jb-letter-compose__fit-label"') &&
+        !letterJs.includes("Fit angle ·"),
+      "the fit-angle line is now LLM-derived from the latest draft; the cached one must be gone",
     );
   });
 });
@@ -261,15 +286,25 @@ describe("Workshop compose panel — live render smoke", () => {
       /Kubernetes/,
       "must-have chips must come from job._postingEnrichment.mustHaves",
     );
-    assert.match(
+    assert.doesNotMatch(
       region.innerHTML,
-      /Lead platform reliability/,
-      "fit-angle copy must surface in the compose summary",
+      /jb-letter-compose__fit-label/,
+      "the cached fit-angle line must NOT render in compose; it now lives in the scorecard as an LLM insight",
     );
     assert.match(
       region.innerHTML,
       /data-action="compose-generate"/,
       "primary generate button must be present",
+    );
+    assert.match(
+      region.innerHTML,
+      /data-compose-title/,
+      "Title input must render",
+    );
+    assert.match(
+      region.innerHTML,
+      /Version Notes/,
+      "Notes textarea must be labeled 'Version Notes'",
     );
   });
 });
