@@ -66,20 +66,31 @@
     }).join("");
   }
 
-  /** Per lead-card actions: open dossier, draft cover letter, mark expired or
-   *  dismiss. Each button declares the intent through `data-lead-action` so
-   *  the click delegate can route to JobBoredFlowing.openRole.set and the
-   *  jb:role:action / role-writeback bridges that already exist in app.js. */
+  /** Inline "x-in-circle" icon used by the icon-only Mark Expired button.
+   *  Drawn at the parent's currentColor so hover/focus colour rules work. */
+  var MARK_EXPIRED_ICON_SVG =
+    '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">' +
+    '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/>' +
+    '<path d="M8.5 8.5 L15.5 15.5 M15.5 8.5 L8.5 15.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
+    '</svg>';
+
+  /** Per lead-card actions: two primary pill buttons + one icon-only
+   *  Mark Expired affordance. The legacy expire-or-dismiss popover and
+   *  the Dismiss action were removed from the Daily Brief surface; the
+   *  remaining buttons keep their existing `data-lead-action` contracts
+   *  (open-dossier / draft-cover / mark-expired) so the click delegate
+   *  still routes through JobBoredFlowing.openRole.set + jb:role:action +
+   *  markStatusExpired exactly as before. */
   function leadCardActionsHtml(lead) {
     var key = escapeHtml(lead.key || "");
     return [
-      '<button type="button" class="brief-btn brief-btn--primary" data-lead-action="open-dossier" data-key="', key, '">Open dossier</button>',
-      '<button type="button" class="brief-btn" data-lead-action="draft-cover" data-key="', key, '">Draft cover letter</button>',
-      '<button type="button" class="brief-btn brief-btn--ghost" data-lead-action="expire-or-dismiss" data-key="', key, '" aria-haspopup="true" aria-expanded="false">Mark expired / Dismiss ▾</button>',
-      '<div class="brief-lead__popover" hidden data-popover-for="', key, '">',
-      '  <button type="button" class="brief-lead__popover-action" data-lead-action="mark-expired" data-key="', key, '">Mark Expired</button>',
-      '  <button type="button" class="brief-lead__popover-action" data-lead-action="dismiss" data-key="', key, '">Dismiss</button>',
+      '<div class="brief-lead__actions-primary">',
+      '  <button type="button" class="brief-btn brief-btn--primary" data-lead-action="open-dossier" data-key="', key, '">Open dossier</button>',
+      '  <button type="button" class="brief-btn brief-btn--primary" data-lead-action="draft-cover" data-key="', key, '">Draft cover letter</button>',
       '</div>',
+      '<button type="button" class="brief-lead__mark-expired" data-lead-action="mark-expired" data-key="', key, '" aria-label="Mark expired" title="Mark expired">',
+      MARK_EXPIRED_ICON_SVG,
+      '</button>',
     ].join("");
   }
 
@@ -101,7 +112,11 @@
     ].join("");
   }
 
-  function leadsCarouselHtml(leads) {
+  /** Single-card stepper. All ranked leads are rendered; only the active
+   *  one is visible (display rule in CSS via `[data-stepper-active]`).
+   *  Chevron buttons advance/rewind the index; ArrowLeft / ArrowRight
+   *  on the stepper wrapper do the same for keyboard users. */
+  function leadsStepperHtml(leads) {
     if (!leads.length) {
       return [
         '<section class="brief-leads-section brief-leads-section--empty">',
@@ -109,17 +124,27 @@
         '</section>',
       ].join("");
     }
+    var counterLabel = '1 of ' + leads.length;
+    var cards = leads.map(function (lead, idx) {
+      var card = leadCardHtml(lead);
+      // Inject a stepper-active attribute on each rendered card.
+      return card.replace(
+        '<article class="brief-card brief-lead"',
+        '<article class="brief-card brief-lead" data-stepper-active="' + (idx === 0 ? 'true' : 'false') + '" data-stepper-index="' + idx + '"',
+      );
+    }).join("");
     return [
-      '<section class="brief-leads-section">',
+      '<section class="brief-leads-section" data-leads-stepper aria-roledescription="carousel" aria-label="Daily Brief leads" tabindex="0">',
       '  <div class="brief-leads-head">',
       '    <h2 class="brief-leads-title">Lead with these — ranked by fit</h2>',
-      '    <div class="brief-leads-nav">',
-      '      <button type="button" class="brief-leads-nav__btn" data-leads-scroll="prev" aria-label="Scroll leads left">‹</button>',
-      '      <button type="button" class="brief-leads-nav__btn" data-leads-scroll="next" aria-label="Scroll leads right">›</button>',
+      '    <div class="brief-leads-nav" role="group" aria-label="Step through leads">',
+      '      <button type="button" class="brief-leads-nav__btn" data-leads-step="prev" aria-label="Previous lead">‹</button>',
+      '      <span class="brief-leads-nav__counter" data-leads-counter aria-live="polite">', counterLabel, '</span>',
+      '      <button type="button" class="brief-leads-nav__btn" data-leads-step="next" aria-label="Next lead">›</button>',
       '    </div>',
       '  </div>',
-      '  <div class="brief-leads-carousel" data-leads-carousel>',
-      leads.map(leadCardHtml).join(""),
+      '  <div class="brief-leads-stage" data-leads-stage>',
+      cards,
       '  </div>',
       '</section>',
     ].join("");
@@ -183,22 +208,24 @@
       '  <div class="brief-deck">', escapeHtml(vm.deckCopy || ""), '</div>',
       '</div>',
 
-      // 3. Leads carousel — top-N active roles by fit, horizontally scrollable.
-      leadsCarouselHtml(leads),
-
-      // 4. Stats row: by-the-numbers 2x2 grid + 6-row funnel card.
-      '<div class="brief-stats-row">',
-      '  <div class="brief-card brief-stats-card">',
-      '    <div class="brief-stats-card__eyebrow">BY THE NUMBERS · LAST 30 DAYS</div>',
-      '    <div class="brief-stats-grid">',
+      // 3. Main two-column area: leads stepper on the left, stats stack
+      //    on the right. Collapses to single-column below 1024px.
+      '<div class="brief-main">',
+      '  <div class="brief-main__left">',
+      leadsStepperHtml(leads),
+      '  </div>',
+      '  <aside class="brief-main__right">',
+      '    <div class="brief-card brief-stats-card">',
+      '      <div class="brief-stats-card__eyebrow">BY THE NUMBERS · LAST 30 DAYS</div>',
+      '      <div class="brief-stats-grid">',
       stats.map(statHtml).join(""),
+      '      </div>',
       '    </div>',
-      '  </div>',
-
-      '  <div class="brief-card brief-funnel-card">',
-      '    <div class="brief-funnel-card__title">FUNNEL · LAST 30 DAYS</div>',
+      '    <div class="brief-card brief-funnel-card">',
+      '      <div class="brief-funnel-card__title">FUNNEL · LAST 30 DAYS</div>',
       funnel30.map(funnelRowBriefHtml).join(""),
-      '  </div>',
+      '    </div>',
+      '  </aside>',
       '</div>',
     ].join("");
   }
@@ -231,11 +258,9 @@
       if (typeof setter === "function") setter(key);
       return;
     }
-    if (action === "dismiss") {
-      var dismiss = root.dismissJob;
-      if (typeof dismiss === "function") dismiss(key);
-      return;
-    }
+    /* (The "dismiss" action and the expire-or-dismiss popover were
+       removed from the Daily Brief. Mark Expired is the only
+       lifecycle action surfaced here now.) */
   }
 
   function scrollToRoleRegion() {
@@ -246,64 +271,72 @@
     catch (_) { roleRegion.scrollIntoView(); }
   }
 
-  function closeAllLeadPopovers(region) {
-    region.querySelectorAll('.brief-lead__popover').forEach(function (pop) {
-      pop.hidden = true;
+  /** Show only the card matching `nextIdx` and update the counter pill.
+   *  Wraps around either end so the chevrons never dead-end. */
+  function setStepperIndex(region, nextIdx) {
+    var stepper = region.querySelector('[data-leads-stepper]');
+    if (!stepper) return;
+    var cards = stepper.querySelectorAll('[data-stepper-index]');
+    if (!cards.length) return;
+    var total = cards.length;
+    var idx = ((nextIdx % total) + total) % total;
+    cards.forEach(function (card) {
+      var cardIdx = parseInt(card.getAttribute('data-stepper-index'), 10);
+      card.setAttribute('data-stepper-active', cardIdx === idx ? 'true' : 'false');
     });
-    region.querySelectorAll('[data-lead-action="expire-or-dismiss"]').forEach(function (btn) {
-      btn.setAttribute('aria-expanded', 'false');
-    });
+    var counter = stepper.querySelector('[data-leads-counter]');
+    if (counter) counter.textContent = (idx + 1) + ' of ' + total;
   }
 
-  /** Mount click handlers on the dawn region (idempotent — replaces handler). */
+  function activeStepperIndex(region) {
+    var active = region.querySelector('[data-leads-stepper] [data-stepper-active="true"]');
+    if (!active) return 0;
+    var idx = parseInt(active.getAttribute('data-stepper-index'), 10);
+    return Number.isFinite(idx) ? idx : 0;
+  }
+
+  /** Mount click + keyboard handlers on the dawn region (idempotent). */
   function bindRegionEvents(region) {
     if (region.__dawnBound) return;
     region.__dawnBound = true;
 
     region.addEventListener("click", function (e) {
-      // Carousel scroll buttons.
-      var navBtn = e.target.closest('[data-leads-scroll]');
-      if (navBtn) {
+      // Stepper chevrons.
+      var stepBtn = e.target.closest('[data-leads-step]');
+      if (stepBtn) {
         e.preventDefault();
-        var dir = navBtn.getAttribute('data-leads-scroll');
-        var carousel = region.querySelector('[data-leads-carousel]');
-        if (carousel) {
-          var amount = Math.max(240, Math.floor(carousel.clientWidth * 0.85));
-          carousel.scrollBy({ left: dir === "prev" ? -amount : amount, behavior: "smooth" });
-        }
+        var dir = stepBtn.getAttribute('data-leads-step');
+        setStepperIndex(region, activeStepperIndex(region) + (dir === "prev" ? -1 : 1));
         return;
       }
 
-      // Lead "Mark expired / Dismiss" disclosure toggle.
-      var disc = e.target.closest('[data-lead-action="expire-or-dismiss"]');
-      if (disc) {
-        e.preventDefault();
-        var key = disc.getAttribute('data-key');
-        var pop = region.querySelector('.brief-lead__popover[data-popover-for="' + (key || "") + '"]');
-        var opening = pop ? pop.hidden : false;
-        closeAllLeadPopovers(region);
-        if (pop && opening) {
-          pop.hidden = false;
-          disc.setAttribute('aria-expanded', 'true');
-        }
-        return;
-      }
-
+      // Lead-card actions (open-dossier / draft-cover / mark-expired).
       var actor = e.target.closest('[data-lead-action]');
       if (actor) {
         e.preventDefault();
         var action = actor.getAttribute('data-lead-action');
         var leadKey = actor.getAttribute('data-key') || "";
         dispatchLeadAction(action, leadKey);
-        closeAllLeadPopovers(region);
         return;
       }
     });
 
-    // Click outside any open popover closes them.
-    document.addEventListener("click", function (e) {
-      if (region.contains(e.target)) return;
-      closeAllLeadPopovers(region);
+    // Keyboard navigation on the stepper wrapper. ArrowLeft / ArrowRight
+    // advance through ranked leads so users on a keyboard don't have to
+    // tab into the chevron buttons just to step.
+    region.addEventListener("keydown", function (e) {
+      var stepper = e.target.closest && e.target.closest('[data-leads-stepper]');
+      if (!stepper) return;
+      // Don't steal arrow keys from inputs nested inside the stage.
+      var tag = (e.target && e.target.tagName) || "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        setStepperIndex(region, activeStepperIndex(region) + 1);
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setStepperIndex(region, activeStepperIndex(region) - 1);
+      }
     });
   }
 
