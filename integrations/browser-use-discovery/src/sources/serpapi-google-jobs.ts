@@ -26,6 +26,10 @@ import type {
 import { ATS_SOURCE_IDS } from "../contracts.ts";
 import type { WorkerRuntimeConfig } from "../config.ts";
 import {
+  buildQueryVariations,
+  inferQueryLane,
+} from "../discovery/directional-prompting.ts";
+import {
   AGGREGATOR_HOST_SIGNATURES,
   ATS_HOST_SIGNATURES,
 } from "./host-signatures.ts";
@@ -217,6 +221,27 @@ function buildQueries(
     const broadenedRole = broadenRoleQuery(role);
     const keywordFocus = includeKeywords.slice(0, 2);
     const seniority = normalizeSeniority(profile.seniority || "");
+
+    // Use directional-prompting query variation to generate lane-aware
+    // alternative queries. The lane is inferred from the role title, and
+    // variations add alternative phrasings relevant to Emilio's target lanes.
+    const lane = inferQueryLane(role);
+    const directionalVariations = buildQueryVariations(
+      role,
+      locationSuffix || "",
+      profile.remotePolicy || "",
+      lane,
+    );
+    // When location is present, add directional variations first — they
+    // provide lane-aware alternative phrasings that complement the core
+    // query set. When location is absent, skip directional variations so
+    // the else branch's broadening ladder retains full query diversity.
+    if (locationSuffix) {
+      for (const variation of directionalVariations) {
+        pushQuery(variation);
+      }
+    }
+
     if (locationSuffix) {
       pushQuery(`${role} ${locationSuffix}`);
       if (broadenedRole && broadenedRole.toLowerCase() !== role.toLowerCase()) {
