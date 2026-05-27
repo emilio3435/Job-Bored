@@ -161,6 +161,10 @@ The dashboard reads the **Pipeline** tab (and ignores other tabs).
 | R: Last contact    | Optional. When you last heard from them (shown on cards & in the brief)               | **You** or automation            |
 | S: Did they reply? | Optional. `Yes` / `No` / `Unknown` (`Unknown` shows as “Not sure” in the app)         | **You** or automation            |
 | T: Logo URL        | Optional. Company logo image URL; the dashboard falls back to the job Link domain     | Auto or **You**                  |
+| U: Match Score     | Optional. 0–10 AI match score from discovery worker                                  | Auto                             |
+| V: Favorite        | Optional. Manual star — a personal priority marker                                    | **You**                          |
+| W: Dismissed At   | Optional. Timestamp when a row was manually dismissed from the board                 | **You** or automation            |
+| X: Approval Status | Gate 1 approval marker — set to **Approved** before an agent may submit an apply    | **You** (required for apply gate) |
 
 ## Agentic discovery (optional)
 

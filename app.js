@@ -722,6 +722,12 @@ const STARTER_PIPELINE_HEADERS = [
   "Last contact",
   "Did they reply?",
   "Logo URL",
+  // Worker/dashboard extension columns (U–X); shift existing sheet layouts by zero columns.
+  "Match Score",
+  "Favorite",
+  "Dismissed At",
+  // Gate 1 approval marker — set to "Approved" to enable apply flow.
+  "Approval Status",
 ];
 const STARTER_PIPELINE_HEADER_RANGE = `Pipeline!A1:${String.fromCharCode("A".charCodeAt(0) + STARTER_PIPELINE_HEADERS.length - 1)}1`;
 

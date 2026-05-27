@@ -89,6 +89,10 @@ export const PIPELINE_HEADER_ROW = [
   "Match Score",
   "Favorite",
   "Dismissed At",
+  // Extension column for the JHOS approval guard (Gate 1). Emilio must set
+  // this to "Approved" in the Pipeline before an agent may proceed to apply.
+  // Workers read this field to determine whether an apply flow may advance.
+  "Approval Status",
 ] as const;
 
 export type SupportedSourceId = (typeof SUPPORTED_SOURCE_IDS)[number];
@@ -509,6 +513,13 @@ export type NormalizedLead = {
   followUpDate: string;
   talkingPoints: string;
   logoUrl: string;
+  /**
+   * Gate 1 approval marker for the JHOS apply flow. Set to "Approved" by
+   * Emilio in the Pipeline tab before an agent may advance an apply card.
+   * Workers read this field to determine whether submission is permitted.
+   * Empty string when not yet set.
+   */
+  approvalStatus: string;
   discoveredAt: string;
   metadata: {
     runId: string;
