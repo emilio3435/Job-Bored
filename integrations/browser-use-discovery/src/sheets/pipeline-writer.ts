@@ -175,6 +175,7 @@ function buildLeadRow(lead: NormalizedLead, now: Date): string[] {
     matchScore,
     lead.favorite ? "★" : "",
     lead.dismissedAt ?? "",
+    lead.approvalStatus ?? "",
   ];
 }
 

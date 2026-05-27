@@ -753,11 +753,14 @@ export async function runDiscovery(
         const serpResult = await collectSerpApiGoogleJobsListings({
           profile: {
             targetRoles: [...config.targetRoles],
+            includeKeywords: [...config.includeKeywords],
+            seniority: config.seniority,
             locations: [...config.locations],
             remotePolicy: config.remotePolicy,
           },
           runtimeConfig: dependencies.runtimeConfig,
           log: dependencies.log,
+          querySeed: request.variationKey || runId,
         });
         extractionResult.warnings.push(...serpResult.warnings);
         extractionResult.stats.leadsSeen = serpResult.rawListings.length;
@@ -1181,6 +1184,7 @@ export async function runDiscovery(
         durationS,
         companiesSeen: config.companies.length,
         leadsWritten: writeResult.appended,
+        leadsUpdated: writeResult.updated,
         source: dependencies.discoveryRunsSource || "worker",
         variationKey: request.variationKey || "",
         error: writeResult.writeError

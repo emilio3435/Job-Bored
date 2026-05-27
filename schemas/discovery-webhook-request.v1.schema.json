@@ -96,12 +96,12 @@
     },
     "companyAllowlist": {
       "type": "array",
-      "description": "Optional. When present and non-empty, restricts discovery to the listed company names/domains/keys. Empty/missing means no company restriction. Strings are trimmed by the worker; entries cap at 50.",
+      "description": "Optional. Per-run company allowlist selected from the dashboard. When present and non-empty, the worker restricts this run to matching stored companies/history entries after skipped-company filtering. Empty or omitted preserves default behavior. Never persisted.",
       "items": {
         "type": "string",
         "minLength": 1
       },
-      "maxItems": 50,
+      "maxItems": 500,
       "uniqueItems": true
     },
     "companyBlocklist": {

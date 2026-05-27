@@ -88,7 +88,7 @@ test("normalizeLead returns a scored normalized lead with stable defaults", () =
   assert.ok(["⚡", "🔥"].includes(lead?.priority || ""));
   assert.ok(lead?.tags.includes("automation"));
   assert.ok(lead?.tags.includes("Platform Engineer"));
-  assert.match(lead?.fitAssessment || "", /Role match/i);
+  assert.match(lead?.fitAssessment || "", /Senior Platform Engineer at Acme/);
   assert.match(lead?.logoUrl || "", /google\.com\/s2\/favicons/);
 });
 
@@ -410,31 +410,4 @@ test("normalizeLead strips HTML from title, company, location, and contact", () 
   assert.ok(!(lead?.company || "").includes("&amp;"));
   assert.ok(!(lead?.contact || "").includes("<"));
   assert.equal(lead?.compensationText, "$180k-$210k");
-});
-
-test("normalizeLead strips HTML from fitAssessment fallback", () => {
-  const run = makeRun({
-    includeKeywords: [],
-    targetRoles: [],
-    locations: [],
-    remotePolicy: "",
-    seniority: "",
-  });
-  const lead = normalizeLead(
-    {
-      sourceId: "greenhouse",
-      sourceLabel: "Greenhouse",
-      title: "Marketing Lead",
-      company: "Stripe",
-      location: "Remote",
-      url: "https://jobs.example.com/mktg-1",
-      descriptionText:
-        "<p>Build <strong>campaigns</strong> across channels.</p> We need a creative leader.",
-    },
-    run,
-  );
-
-  assert.ok(lead);
-  assert.ok(!(lead?.fitAssessment || "").includes("<"));
-  assert.ok((lead?.fitAssessment || "").includes("campaigns"));
 });

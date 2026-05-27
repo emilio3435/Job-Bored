@@ -13,6 +13,23 @@ const ONSITE_PATTERN =
   /\b(on[\s-]?site|onsite|in[\s-]?office|office-based)\b/i;
 const US_STATE_TOKEN_PATTERN =
   /\b(al|ak|az|ar|ca|co|ct|de|fl|ga|hi|ia|id|il|in|ks|ky|la|ma|md|me|mi|mn|mo|ms|mt|nc|nd|ne|nh|nj|nm|nv|ny|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|va|vt|wa|wi|wv|dc)\b/i;
+const ROLE_TOKEN_STOPWORDS = new Set([
+  "and",
+  "the",
+  "for",
+  "with",
+  "of",
+  "to",
+  "in",
+  "at",
+  "on",
+  "a",
+  "an",
+  "global",
+  "strategic",
+]);
+const SENIORITY_TOKEN_PATTERN =
+  /^(senior|sr|staff|principal|lead|junior|jr|associate)$/i;
 
 const ROLE_FAMILY_RULES = [
   {
@@ -536,10 +553,44 @@ function scoreRoleAlignment(
   }
   if (matchedRolePhrases.length > 0) return 1;
   if (matchedRoleFamilies.length > 0) return 0.85;
+  const overlapScore = scoreRoleTokenOverlap(target.targetRoles, job.canonicalTitle);
+  if (overlapScore > 0) return overlapScore;
   if (findMatchedPhrases(job.detailHaystack, target.includeKeywords).length > 0) {
     return 0.42;
   }
   return 0.1;
+}
+
+function scoreRoleTokenOverlap(targetRoles: string[], canonicalTitle: string): number {
+  if (!Array.isArray(targetRoles) || targetRoles.length === 0) return 0;
+  const titleTokens = roleMatchTokens(canonicalTitle);
+  if (titleTokens.length === 0) return 0;
+  const titleSet = new Set(titleTokens);
+  let best = 0;
+  for (const role of targetRoles) {
+    const roleTokens = roleMatchTokens(role);
+    if (roleTokens.length === 0) continue;
+    let matches = 0;
+    for (const token of roleTokens) {
+      if (titleSet.has(token)) matches += 1;
+    }
+    const score = matches / roleTokens.length;
+    if (score > best) best = score;
+  }
+  if (best >= 0.67) return 0.78;
+  if (best >= 0.5) return 0.62;
+  if (best >= 0.34) return 0.48;
+  return 0;
+}
+
+function roleMatchTokens(input: string): string[] {
+  return cleanText(input)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2)
+    .filter((token) => !ROLE_TOKEN_STOPWORDS.has(token))
+    .filter((token) => !SENIORITY_TOKEN_PATTERN.test(token));
 }
 
 function scoreLocationAlignment(

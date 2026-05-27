@@ -17,7 +17,7 @@
   "use strict";
 
   var SHEET_TAB = "DiscoveryRuns";
-  var SHEET_RANGE = "DiscoveryRuns!A2:I";
+  var SHEET_RANGE = "DiscoveryRuns!A2:J";
   var AUTO_REFRESH_MS = 60 * 1000;
   var DEFAULT_SORT = { key: "runAt", direction: "desc" };
   var MAX_ROWS = 200;
@@ -38,6 +38,12 @@
     empty: true,
     partial: true,
     failed: true,
+  };
+  var ACTIVE_JOB_DISCOVERY_STATUSES = {
+    pending: true,
+    running: true,
+    polling_error: true,
+    in_progress: true,
   };
   var TERMINAL_JOB_DISCOVERY_STATUSES = {
     completed: true,
@@ -76,6 +82,7 @@
       // Require at least Run At + Trigger + Status — rows with all three blank
       // are abandoned cells we want to skip rather than render as junk.
       if (!row[0] || !row[1] || !row[2]) continue;
+      var hasUpdatedColumn = row.length >= 10;
       out.push({
         runAt: String(row[0] || ""),
         trigger: String(row[1] || ""),
@@ -83,9 +90,10 @@
         durationS: toInt(row[3]),
         companiesSeen: toInt(row[4]),
         leadsWritten: toInt(row[5]),
-        source: String(row[6] || ""),
-        variationKey: String(row[7] || ""),
-        error: String(row[8] || ""),
+        leadsUpdated: hasUpdatedColumn ? toInt(row[6]) : 0,
+        source: String(hasUpdatedColumn ? row[7] : row[6] || ""),
+        variationKey: String(hasUpdatedColumn ? row[8] : row[7] || ""),
+        error: String(hasUpdatedColumn ? row[9] : row[8] || ""),
       });
     }
     return out;
@@ -271,6 +279,7 @@
       error: String(o.errorMessage || ""),
       companiesSeen: toInt(o.companiesSeen),
       leadsWritten: toInt(o.leadsWritten),
+      leadsUpdated: toInt(o.leadsUpdated),
       statusUnavailable: !!o.statusUnavailable,
     };
   }
@@ -284,6 +293,48 @@
     } catch (_) {
       return null;
     }
+  }
+
+  function clearStoredJobDiscoveryRun() {
+    try {
+      if (typeof localStorage === "undefined" || !localStorage) return;
+      localStorage.removeItem(JOB_DISCOVERY_RUN_STORAGE_KEY);
+    } catch (_) {}
+  }
+
+  function asTimestampMs(value) {
+    var ms = Date.parse(String(value || ""));
+    return Number.isFinite(ms) ? ms : 0;
+  }
+
+  function hasTerminalSheetMatchForLiveRun(liveJobRun, runs) {
+    if (!liveJobRun || !Array.isArray(runs) || runs.length === 0) return false;
+    var liveVariation = String(liveJobRun.variationKey || "").trim();
+    var liveTrigger = String(liveJobRun.trigger || "manual").trim().toLowerCase();
+    var liveRunAtMs = asTimestampMs(liveJobRun.runAt);
+    var newestTerminalAtMs = 0;
+    for (var i = 0; i < runs.length; i++) {
+      var row = runs[i] || {};
+      var rowStatus = String(row.status || "").trim().toLowerCase();
+      if (!rowStatus || rowStatus === "in_progress" || ACTIVE_JOB_DISCOVERY_STATUSES[rowStatus]) {
+        continue;
+      }
+      var rowTrigger = String(row.trigger || "").trim().toLowerCase();
+      if (liveTrigger && rowTrigger && rowTrigger !== liveTrigger) continue;
+      var rowRunAtMs = asTimestampMs(row.runAt);
+      if (rowRunAtMs > newestTerminalAtMs) newestTerminalAtMs = rowRunAtMs;
+      if (liveVariation && String(row.variationKey || "").trim() === liveVariation) {
+        if (!liveRunAtMs || !rowRunAtMs || rowRunAtMs + 60 * 1000 >= liveRunAtMs) {
+          return true;
+        }
+      }
+    }
+    // Fallback when variation key is missing: if we already have a newer
+    // terminal row for the same trigger, suppress the stale live banner.
+    if (!liveVariation && liveRunAtMs && newestTerminalAtMs >= liveRunAtMs) {
+      return true;
+    }
+    return false;
   }
 
   function jobDiscoveryStatusLabel(status) {
@@ -322,6 +373,7 @@
             "<td>" + escapeHtml(formatDuration(r.durationS)) + "</td>" +
             "<td>" + escapeHtml(String(r.companiesSeen)) + "</td>" +
             "<td>" + escapeHtml(String(r.leadsWritten)) + "</td>" +
+            "<td>" + escapeHtml(String(r.leadsUpdated || 0)) + "</td>" +
             "<td>" + escapeHtml(r.source) + "</td>" +
             "<td><code>" + escapeHtml(r.variationKey) + "</code></td>" +
             '<td class="runs-error-cell"' +
@@ -351,6 +403,7 @@
         '<td><span class="runs-dash">—</span></td>' +
         '<td><span class="runs-dash">—</span></td>' +
         '<td><span class="runs-dash">—</span></td>' +
+        '<td><span class="runs-dash">—</span></td>' +
         '<td class="runs-error-cell"></td>' +
       "</tr>"
     );
@@ -366,6 +419,7 @@
     var errorText = run && run.error ? String(run.error) : "";
     var companiesSeen = run && run.companiesSeen > 0 ? String(run.companiesSeen) : "—";
     var leadsWritten = run && run.leadsWritten > 0 ? String(run.leadsWritten) : "—";
+    var leadsUpdated = run && run.leadsUpdated > 0 ? String(run.leadsUpdated) : "—";
     return (
       '<tr class="runs-row runs-row--' + escapeHtml(terminal ? status : "in-progress") + '" data-runs-live="job-discovery">' +
         '<td title="' + escapeHtml(runAtIso) + '">' +
@@ -376,6 +430,7 @@
         '<td><span class="runs-dash">' + (terminal ? "Local" : "Live") + "</span></td>" +
         "<td>" + escapeHtml(companiesSeen) + "</td>" +
         "<td>" + escapeHtml(leadsWritten) + "</td>" +
+        "<td>" + escapeHtml(leadsUpdated) + "</td>" +
         "<td>Job discovery</td>" +
         "<td><code>" + escapeHtml((run && run.variationKey) || "") + "</code></td>" +
         '<td class="runs-error-cell"' +
@@ -393,6 +448,7 @@
     var bar = '<span class="runs-skeleton-bar" aria-hidden="true"></span>';
     var row =
       '<tr class="runs-row runs-row--skeleton" aria-hidden="true">' +
+        "<td>" + bar + "</td>" +
         "<td>" + bar + "</td>" +
         "<td>" + bar + "</td>" +
         "<td>" + bar + "</td>" +
@@ -622,6 +678,10 @@
           return;
         }
         state.rawRuns = result.runs;
+        if (state.liveJobRun && hasTerminalSheetMatchForLiveRun(state.liveJobRun, state.rawRuns)) {
+          state.liveJobRun = null;
+          clearStoredJobDiscoveryRun();
+        }
         if (result.reason === "missing_tab" || result.reason === "empty") {
           if (state.ghostRun || state.liveJobRun) {
             // Render a table view with just the ghost row so the pending

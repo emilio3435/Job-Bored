@@ -204,8 +204,8 @@ const MIN_VIABLE_SCORE = 15;
  * Conservative defaults that can be overridden by run configuration.
  */
 export const DEFAULT_EXPLORATION_BUDGET: ExplorationBudget = {
-  maxScoutSurfaces: 50,
-  maxExploitSurfaces: 12,
+  maxScoutSurfaces: 72,
+  maxExploitSurfaces: 18,
   maxScoutListingsPerSurface: 20,
 };
 
@@ -537,9 +537,24 @@ export function selectExploitTargets(
   // Select up to maxExploitSurfaces
   const selectedTargets: ExploitTarget[] = [];
   const rejectedCandidates: FrontierCandidate[] = [];
+  const priorityCandidates = sorted.filter(isPriorityCandidate);
+  const reservedPrioritySlots = Math.min(
+    Math.max(0, Math.ceil(budget.maxExploitSurfaces * 0.4)),
+    budget.maxExploitSurfaces,
+    priorityCandidates.length,
+  );
+  const reservedPriorityIds = new Set(
+    priorityCandidates
+      .slice(0, reservedPrioritySlots)
+      .map((candidate) => candidate.candidateId),
+  );
+  const candidateOrder = [
+    ...priorityCandidates.slice(0, reservedPrioritySlots),
+    ...sorted.filter((candidate) => !reservedPriorityIds.has(candidate.candidateId)),
+  ];
 
-  for (let i = 0; i < sorted.length; i++) {
-    const candidate = sorted[i];
+  for (let i = 0; i < candidateOrder.length; i++) {
+    const candidate = candidateOrder[i];
     const canSelect = budgetTracker.recordExploitSelection();
 
     if (canSelect) {
@@ -574,6 +589,21 @@ export function selectExploitTargets(
     finalBudgetUsage: budgetTracker.getUsage(),
     telemetry,
   };
+}
+
+function isPriorityCandidate(candidate: FrontierCandidate): boolean {
+  const score = Number.isFinite(candidate.compositeScore)
+    ? candidate.compositeScore
+    : 0;
+  const roleFit =
+    candidate.scores && Number.isFinite(candidate.scores.roleFit)
+      ? candidate.scores.roleFit
+      : 0;
+  const recentHiringEvidence =
+    candidate.scores && Number.isFinite(candidate.scores.recentHiringEvidence)
+      ? candidate.scores.recentHiringEvidence
+      : 0;
+  return score >= 72 || roleFit >= 85 || recentHiringEvidence >= 82;
 }
 
 // === Validation Helper ===

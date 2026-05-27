@@ -11,6 +11,12 @@ import {
   sanitizeCompensationText,
   toPlainText,
 } from "../browser/selectors/shared.ts";
+import {
+  computeProfileAwareFitScore,
+  buildProfileFitAssessment,
+  buildProfileTalkingPoints,
+  type ProfileAwareScoreResult,
+} from "./profile-aware-scorer.ts";
 
 const SAFE_TRACKING_PARAM_PATTERN =
   /^(utm_.+|ref|source|src|gh_src|lever-source|fbclid|gclid|trk)$/i;
@@ -244,19 +250,23 @@ export function normalizeLeadWithDiagnostics(
     ...matchedTargetRoles,
     ...matchedLocationSignals,
   ]);
-  const fitAssessment = buildFitAssessment({
-    matchedIncludeKeywords,
-    matchedTargetRoles,
-    matchedLocationSignals,
-    remoteMatch,
-    seniorityMatch,
+
+  // Profile-aware scoring: wire job-preferences.md rubric for richer Fit Score
+  const profileScore = computeProfileAwareFitScore(rawListing);
+  // Use the higher of the two scores so neither signal is lost
+  const effectiveFitScore = Math.max(fitScore, profileScore.fitScore);
+
+  const fitAssessment = buildProfileFitAssessment({
+    role: title,
+    company,
+    result: profileScore,
+    applicationComplexity: scoreApplicationComplexityLabel(rawListing),
     descriptionText,
   });
-  const talkingPoints = buildTalkingPoints({
-    matchedIncludeKeywords,
-    matchedTargetRoles,
-    remoteMatch,
-    seniorityMatch,
+  const talkingPoints = buildProfileTalkingPoints({
+    role: title,
+    company,
+    result: profileScore,
   });
   const discoveredAt = normalizeTimestamp(run.request.requestedAt);
   const sourceQuery =
@@ -305,7 +315,7 @@ export function normalizeLeadWithDiagnostics(
       location,
       url,
       compensationText,
-      fitScore,
+      fitScore: effectiveFitScore,
       // matchScore is populated later by finalizeMatchDecision in
       // run-discovery.ts when the AI job-matcher produced a decision. Leaves
       // it null by default for runs that skip the matcher.
@@ -323,6 +333,7 @@ export function normalizeLeadWithDiagnostics(
       talkingPoints,
       logoUrl,
       discoveredAt,
+      approvalStatus: "",
       metadata: {
         runId: run.runId,
         variationKey: run.request.variationKey,
@@ -865,6 +876,24 @@ function buildDescriptionFragment(input: string): string {
     .filter(Boolean)
     .slice(0, 32)
     .join(" ");
+}
+
+/** Human-readable application complexity label for buildProfileFitAssessment */
+function scoreApplicationComplexityLabel(rawListing: RawListing): string {
+  const url = (rawListing.url || "").toLowerCase();
+  const WORKDAY_HOSTS = new Set(["myworkday.com", "workday.com", "workdayjobs.com"]);
+  const ATS_HOSTS = new Set([
+    "boards.greenhouse.io", "boards.eu.greenhouse.io", "job-boards.greenhouse.io",
+    "jobs.lever.co", "jobs.ashbyhq.com", "apply.workable.com", "jobs.smartrecruiters.com",
+  ]);
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    if (WORKDAY_HOSTS.has(hostname)) return "Complex — Workday (discovery-link only)";
+    if (ATS_HOSTS.has(hostname)) return "Clean ATS — Greenhouse/Lever/Ashby";
+    return "Standard — manage direct apply";
+  } catch {
+    return "Unknown complexity";
+  }
 }
 
 function hashIdentityParts(parts: string[]): string {

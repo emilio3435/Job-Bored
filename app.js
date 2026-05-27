@@ -100,6 +100,9 @@ class DiscoveryRunTracker {
         leadsWritten: Number.isFinite(parsed.leadsWritten)
           ? parsed.leadsWritten
           : 0,
+        leadsUpdated: Number.isFinite(parsed.leadsUpdated)
+          ? parsed.leadsUpdated
+          : 0,
         statusUnavailable: !!parsed.statusUnavailable,
       };
     } catch (_) {
@@ -137,6 +140,7 @@ class DiscoveryRunTracker {
       completedAt: "",
       companiesSeen: 0,
       leadsWritten: 0,
+      leadsUpdated: 0,
       statusUnavailable: false,
     };
   }
@@ -184,6 +188,7 @@ class DiscoveryRunTracker {
       completedAt: "",
       companiesSeen: 0,
       leadsWritten: 0,
+      leadsUpdated: 0,
       statusUnavailable: !!statusUnavailable,
     };
     this._persist(this._state);
@@ -234,6 +239,9 @@ class DiscoveryRunTracker {
     }
     if (Number.isFinite(writeResult.appended)) {
       this._state.leadsWritten = writeResult.appended;
+    }
+    if (Number.isFinite(writeResult.updated)) {
+      this._state.leadsUpdated = writeResult.updated;
     }
     if (isTerminal) {
       this._state.status = runStatus; // completed | empty | partial | failed
@@ -754,6 +762,10 @@ const STARTER_PIPELINE_HEADERS = [
   "Last contact",
   "Did they reply?",
   "Logo URL",
+  "Match Score",
+  "Favorite",
+  "Dismissed At",
+  "Approval Status",
 ];
 const STARTER_PIPELINE_HEADER_RANGE = `Pipeline!A1:${String.fromCharCode("A".charCodeAt(0) + STARTER_PIPELINE_HEADERS.length - 1)}1`;
 
@@ -2182,6 +2194,28 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride, options) {
   const dashboardGoogleAccessToken =
     await getFreshDiscoveryRequestGoogleAccessToken();
   const requestedAt = new Date().toISOString();
+
+  // ====== [discovery-autodetect lane: contract sanitization] ======
+  // Per the discovery webhook contract, sourcePreset must either be omitted or
+  // be one of the enum values. Fresh greenfield profiles can contain
+  // sourcePreset:""; strip that key before the payload reaches the worker.
+  if (
+    discoveryProfile &&
+    typeof discoveryProfile === "object" &&
+    Object.prototype.hasOwnProperty.call(discoveryProfile, "sourcePreset")
+  ) {
+    const sp = discoveryProfile.sourcePreset;
+    const trimmed = typeof sp === "string" ? sp.trim() : sp;
+    if (trimmed === "" || trimmed == null || typeof trimmed !== "string") {
+      const sanitized = { ...discoveryProfile };
+      delete sanitized.sourcePreset;
+      discoveryProfile = sanitized;
+    } else if (trimmed !== sp) {
+      discoveryProfile = { ...discoveryProfile, sourcePreset: trimmed };
+    }
+  }
+  // ====== [/discovery-autodetect lane] ======
+
   const sharedBuilder = window.JobBoredDiscoveryPayload;
   if (
     sharedBuilder &&

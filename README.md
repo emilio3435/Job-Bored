@@ -11,7 +11,7 @@ A beautiful, open-source job search dashboard powered by Google Sheets. Track ap
 - **Daily Brief** — two-column layout with at-a-glance counts, follow-ups, who you’re waiting on, and stuck applications ([details](SETUP.md#daily-brief-computed-in-the-dashboard))
 - **KPI bar** — total roles, hot leads, applied count, interview count, avg fit score
 - **Pipeline filters** — scan active stages, archive Rejected / Passed / Expired roles, and keep dismissed roles out of view unless requested
-- **Run discovery** — optional webhook in `config.js` so your agent (Hermes, n8n, etc.) runs another pass; POST includes `schemaVersion` and optional `discoveryProfile` from **Discovery drawer → Search** ([AGENT_CONTRACT.md](AGENT_CONTRACT.md))
+- **Run discovery** — optional webhook in `config.js` so your agent (Hermes, n8n, etc.) runs another pass; POST includes `schemaVersion`, optional `discoveryProfile` from **Discovery drawer → Search**, and optional per-run company filters ([AGENT_CONTRACT.md](AGENT_CONTRACT.md))
 - **ATS LLM scorecard** — generated drafts now include structured ATS analysis (score, strengths, gaps, rewrite suggestions) via local server endpoint or webhook
 - **Last contact & reply** — optional columns R–S editable on each card when signed in
 - **Filter & search** — stage filters plus priority, sort by fit score/date/company, free-text search
@@ -165,6 +165,10 @@ The dashboard reads the **Pipeline** tab (and ignores other tabs).
 | R: Last contact    | Optional. When you last heard from them (shown on cards & in the brief)               | **You** or automation            |
 | S: Did they reply? | Optional. `Yes` / `No` / `Unknown` (`Unknown` shows as “Not sure” in the app)         | **You** or automation            |
 | T: Logo URL        | Optional. Company logo image URL; the dashboard falls back to the job Link domain     | Auto or **You**                  |
+| U: Match Score     | Optional. 0–10 AI match score from discovery worker                                  | Auto                             |
+| V: Favorite        | Optional. Manual star — a personal priority marker                                    | **You**                          |
+| W: Dismissed At   | Optional. Timestamp when a row was manually dismissed from the board                 | **You** or automation            |
+| X: Approval Status | Gate 1 approval marker — set to **Approved** before an agent may submit an apply    | **You** (required for apply gate) |
 
 ## Agentic discovery (optional)
 
@@ -230,7 +234,7 @@ That's it. The dashboard's **Discovery drawer → Sources** sub-tab has a live s
 
 **Fast local real-discovery path:** if your agent runs on your own machine, use **local webhook → ngrok → Cloudflare Worker**. Start with `npm run discovery:bootstrap-local`, then use **Discovery drawer → Connection → Hermes + ngrok** to review the autofilled route/tunnel info and **Cloudflare relay** to generate the Worker deploy command and final browser URL.
 
-**Keep the relay alive across ngrok rotations:** free ngrok plans hand out a new public URL on restart. After `npm run discovery:bootstrap-local` and Cloudflare relay deploy, run `npm run discovery:keep-alive` in a long-running terminal to poll the local ngrok API every 30s and update the existing Worker's `TARGET_URL` secret. One-shot mode (`npm run discovery:keep-alive -- --once`) is useful as a pre-flight check or scheduler job.
+**Keep the relay alive across ngrok rotations:** free ngrok plans hand out a new public URL on every restart, which silently breaks the deployed Cloudflare Worker (its `TARGET_URL` secret still points at the dead tunnel). Run `npm run discovery:keep-alive` once after bootstrap+deploy to start a watchdog: it polls the local ngrok API every 30s and, when the URL rotates, runs a single `wrangler secret put TARGET_URL` on the existing Worker — no full redeploy. One-shot mode (`npm run discovery:keep-alive -- --once`) is also useful as a pre-flight check or launchd job. If you upgrade ngrok to a reserved domain, pass `--reserved-domain mytunnel.ngrok.app` and the watchdog launches ngrok with `--domain=...` so rotations stop happening at all.
 
 1. Point **Run discovery** at your HTTPS endpoint (see **Discovery drawer → Connection** and `discoveryWebhookUrl`), _or_ use **scheduled** automation only ([paths doc](docs/DISCOVERY-PATHS.md)).
 2. Schedule your agent or cron so rows append to **Pipeline** on a cadence you want.

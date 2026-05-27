@@ -74,7 +74,9 @@ function parseReadmePipelineHeaders(readme) {
   const end = after.indexOf("\n## ");
   const section = end === -1 ? after : after.slice(0, end);
   const byLetter = {};
-  const lineRe = /^\| ([A-T]):\s*([^|]+?)\s*\|/gm;
+  // Match all pipeline column letters (A through X, covering base A-T plus
+  // extension columns U:Match Score, V:Favorite, W:Dismissed At, X:Approval Status).
+  const lineRe = /^\| ([A-X]):\s*([^|]+?)\s*\|/gm;
   let m;
   while ((m = lineRe.exec(section))) {
     const letter = m[1];
@@ -85,9 +87,10 @@ function parseReadmePipelineHeaders(readme) {
     byLetter[letter] = label;
   }
   const letters = Object.keys(byLetter).sort();
-  if (letters.length !== 20) {
+  // Updated to 24 to cover A-T (base) + U, V, W, X (extension columns).
+  if (letters.length !== 24) {
     throw new Error(
-      `README Pipeline table: expected 20 rows A–T, got ${letters.length}`,
+      `README Pipeline table: expected 24 rows A–X, got ${letters.length}`,
     );
   }
   return byLetter;
@@ -96,10 +99,13 @@ function parseReadmePipelineHeaders(readme) {
 function extractStarterHeadersFromAppJs(appJs) {
   const m = /const STARTER_PIPELINE_HEADERS = \[([\s\S]*?)\n\];/.exec(appJs);
   if (!m) throw new Error("STARTER_PIPELINE_HEADERS array not found in app.js");
+  // Strip single-line comments before extracting strings, so inline comments
+  // containing words like "Approved" do not get mistakenly parsed as header values.
+  const cleanContent = m[1].replace(/\/\/.*$/gm, "");
   const out = [];
   const stringRe = /"([^"]+)"/g;
   let s;
-  while ((s = stringRe.exec(m[1]))) {
+  while ((s = stringRe.exec(cleanContent))) {
     out.push(JSON.parse(`"${s[1]}"`));
   }
   if (out.length === 0) {
