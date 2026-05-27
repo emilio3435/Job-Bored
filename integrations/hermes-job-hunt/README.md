@@ -39,7 +39,7 @@ python3 apply-orchestrator.py --dry-run --job-url '<url>' --task-id manual-test
 
 **Materials-first:** Discovery → Researching → Hermes drafts dossier + resume + cover letter → JobBored dashboard review/download → manual apply.
 
-Automated form submit (Phase 7 universal filler) is shelved. See `HANDOFF-2026-05-27-materials-first-jobbored-ux.md`.
+Automated form submit (Phase 7 universal filler) is shelved. Treat it as an assisted-apply tool only when Emilio explicitly requests `ASSIST APPLY <company>`. See `HANDOFF-2026-05-27-materials-first-jobbored-ux.md`.
 
 ## Related commits
 

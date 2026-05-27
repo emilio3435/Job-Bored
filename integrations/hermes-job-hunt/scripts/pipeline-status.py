@@ -16,24 +16,124 @@ from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
-HERMES_HOME = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
-WORKER_CONFIG = Path.home() / "GitHub/emilio3435/Job-Bored/integrations/browser-use-discovery/state/worker-config.json"
-TOKEN_PATH = HERMES_HOME / "google_token.json"
-APPLICATIONS_DIR = HERMES_HOME / "job-hunt" / "applications"
+
+def env_path(name, default):
+    return Path(os.environ.get(name) or default).expanduser()
+
+
+HERMES_HOME = env_path("HERMES_HOME", Path.home() / ".hermes")
+HERMES_JOB_HUNT_HOME = env_path("HERMES_JOB_HUNT_HOME", HERMES_HOME / "job-hunt")
+DEFAULT_VENV_PYTHON = HERMES_JOB_HUNT_HOME / ".venv" / "bin" / "python"
+
+if (
+    DEFAULT_VENV_PYTHON.exists()
+    and os.environ.get("HERMES_SKIP_VENV_REEXEC") != "1"
+):
+    if Path(sys.executable).resolve() != DEFAULT_VENV_PYTHON.resolve():
+        os.environ["HERMES_SKIP_VENV_REEXEC"] = "1"
+        os.execv(str(DEFAULT_VENV_PYTHON), [str(DEFAULT_VENV_PYTHON), *sys.argv])
+
+JOBBORED_REPO = env_path("JOBBORED_REPO", Path.home() / "Job-Bored")
+WORKER_CONFIG = env_path(
+    "BROWSER_USE_DISCOVERY_WORKER_CONFIG",
+    JOBBORED_REPO / "integrations/browser-use-discovery/state/worker-config.json",
+)
+WORKER_ENV = env_path(
+    "BROWSER_USE_DISCOVERY_WORKER_ENV",
+    JOBBORED_REPO / "integrations/browser-use-discovery/.env",
+)
+TOKEN_PATH = env_path("HERMES_GOOGLE_TOKEN", HERMES_HOME / "google_token.json")
+APPLICATIONS_DIR = env_path(
+    "HERMES_APPLICATIONS_DIR",
+    HERMES_JOB_HUNT_HOME / "applications",
+)
+
+
+def read_worker_env():
+    """Read worker .env keys without echoing values."""
+    if not WORKER_ENV.exists():
+        return {}
+    values = {}
+    for raw_line in WORKER_ENV.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def resolve_env_value(worker_env, *names):
+    for name in names:
+        value = os.environ.get(name) or worker_env.get(name)
+        if value:
+            return value
+    return ""
+
+
+def get_oauth_sheets_service():
+    """Build a Sheets service from the Hermes user OAuth token."""
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+
+    creds = Credentials.from_authorized_user_file(str(TOKEN_PATH))
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        TOKEN_PATH.write_text(creds.to_json())
+    return build("sheets", "v4", credentials=creds)
+
+
+def get_service_account_sheets_service(worker_env):
+    """Build a Sheets service from the discovery worker service account."""
+    from google.oauth2.service_account import Credentials
+    from googleapiclient.discovery import build
+
+    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+    service_account_json = resolve_env_value(
+        worker_env,
+        "BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON",
+        "GOOGLE_SERVICE_ACCOUNT_JSON",
+    )
+    if service_account_json:
+        creds = Credentials.from_service_account_info(
+            json.loads(service_account_json),
+            scopes=scopes,
+        )
+        return build("sheets", "v4", credentials=creds)
+
+    service_account_file = resolve_env_value(
+        worker_env,
+        "BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE",
+        "GOOGLE_SERVICE_ACCOUNT_FILE",
+    )
+    if not service_account_file:
+        raise RuntimeError("No service account fallback is configured.")
+
+    service_account_path = Path(service_account_file).expanduser()
+    if not service_account_path.is_absolute():
+        service_account_path = WORKER_ENV.parent / service_account_path
+    creds = Credentials.from_service_account_file(
+        str(service_account_path),
+        scopes=scopes,
+    )
+    return build("sheets", "v4", credentials=creds)
+
+
+def get_sheets_service():
+    """Build authenticated Google Sheets service."""
+    if TOKEN_PATH.exists():
+        try:
+            return get_oauth_sheets_service()
+        except Exception:
+            pass
+    return get_service_account_sheets_service(read_worker_env())
 
 
 def get_pipeline_data(sheet_id):
     """Fetch Pipeline data via Sheets API or CSV fallback."""
     try:
-        from google.oauth2.credentials import Credentials
-        from google.auth.transport.requests import Request
-        from googleapiclient.discovery import build
-
-        creds = Credentials.from_authorized_user_file(str(TOKEN_PATH))
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            TOKEN_PATH.write_text(creds.to_json())
-        service = build("sheets", "v4", credentials=creds)
+        service = get_sheets_service()
         result = service.spreadsheets().values().get(
             spreadsheetId=sheet_id, range="Pipeline!A1:M500"
         ).execute()
