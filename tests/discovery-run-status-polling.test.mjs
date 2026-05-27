@@ -99,7 +99,7 @@ describe("discovery run status polling", () => {
     assert.match(appJs, /canSynthesizeRunStatusPath\(webhookUrl\)/);
     assert.match(appJs, /"\/runs\/" \+ encodeURIComponent\(runId\)/);
 
-    const triggerStart = appJs.indexOf("async function triggerDiscoveryRun()");
+    const triggerStart = appJs.indexOf("async function triggerDiscoveryRun(");
     assert.notEqual(triggerStart, -1, "triggerDiscoveryRun must exist");
     const triggerEnd = appJs.indexOf(
       "\n}\n\n/**\n * POST a test payload",

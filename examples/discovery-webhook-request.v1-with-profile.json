@@ -12,7 +12,7 @@
     "seniority": "Senior, Staff",
     "keywordsInclude": "Go, distributed systems, Postgres",
     "keywordsExclude": "PHP, WordPress",
-    "maxLeadsPerRun": "15",
+    "maxLeadsPerRun": "25",
     "groundedWebEnabled": true,
     "profileSnapshot": {
       "snapshotVersion": 1,
@@ -53,6 +53,6 @@
       }
     }
   },
-  "companyAllowlist": ["Stripe", "Linear", "Vercel"],
+  "companyAllowlist": ["stripe", "linear", "vercel"],
   "companyBlocklist": ["Acme Holdings"]
 }

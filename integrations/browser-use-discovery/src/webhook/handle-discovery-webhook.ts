@@ -799,18 +799,19 @@ function parseWebhookRequest(
       message: "googleAccessToken must be a string when present.",
     };
   }
-
   // Optional companyAllowlist / companyBlocklist top-level arrays.
   // Strict rules: when present, must be an array of trimmed non-empty strings,
-  // capped at 50 unique entries. Empty/missing => no restriction.
+  // capped to protect worker payload size. Empty/missing => no restriction.
   const companyAllowlistResult = parseCompanyList(
     payload.companyAllowlist,
     "companyAllowlist",
+    500,
   );
   if (!companyAllowlistResult.ok) return companyAllowlistResult;
   const companyBlocklistResult = parseCompanyList(
     payload.companyBlocklist,
     "companyBlocklist",
+    50,
   );
   if (!companyBlocklistResult.ok) return companyBlocklistResult;
   const companyAllowlist = companyAllowlistResult.value;
@@ -861,12 +862,13 @@ function parseWebhookRequest(
  *  - must be an array of strings
  *  - each string trimmed; empty strings rejected
  *  - duplicates (case-insensitive) collapsed
- *  - hard cap of 50 entries — anything beyond fails closed so a misconfigured
+ *  - hard cap per field — anything beyond fails closed so a misconfigured
  *    client doesn't silently send an oversized payload
  */
 function parseCompanyList(
   raw: unknown,
   fieldName: string,
+  maxEntries: number,
 ):
   | { ok: true; value: string[] }
   | { ok: false; message: string; detail?: string; remediation?: string } {
@@ -877,10 +879,10 @@ function parseCompanyList(
       message: `${fieldName} must be an array of strings when present.`,
     };
   }
-  if (raw.length > 50) {
+  if (raw.length > maxEntries) {
     return {
       ok: false,
-      message: `${fieldName} must contain at most 50 entries. Received: ${raw.length}.`,
+      message: `${fieldName} must contain at most ${maxEntries} entries. Received: ${raw.length}.`,
     };
   }
   const seen = new Set<string>();

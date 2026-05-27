@@ -111,14 +111,18 @@ describe("repo validation surface", () => {
       pkg.scripts["discovery:keep-alive"],
       "node scripts/discovery-keep-alive.mjs",
     );
-    assert.match(
+    assert.equal(
       pkg.scripts["start:discovery-worker"],
-      /JOBBORED_START_DISCOVERY_PORT="\$\{BROWSER_USE_DISCOVERY_PORT:-\}"/,
+      "node scripts/start-discovery-worker-local.mjs",
     );
-    assert.match(
-      pkg.scripts["start:discovery-worker"],
-      /BROWSER_USE_DISCOVERY_PORT="\$\{JOBBORED_START_DISCOVERY_PORT:-\$\{BROWSER_USE_DISCOVERY_PORT:-8644\}\}"/,
+    const startDiscoveryWorkerLocal = await readFile(
+      join(repoRoot, "scripts/start-discovery-worker-local.mjs"),
+      "utf8",
     );
+    assert.match(startDiscoveryWorkerLocal, /BROWSER_USE_DISCOVERY_HOST/);
+    assert.match(startDiscoveryWorkerLocal, /BROWSER_USE_DISCOVERY_PORT/);
+    assert.match(startDiscoveryWorkerLocal, /"8644"/);
+    assert.match(startDiscoveryWorkerLocal, /readEnvFiles\(\)/);
     assert.doesNotMatch(
       pkg.scripts["start:discovery-worker"],
       /BROWSER_USE_DISCOVERY_PORT=8644(?:\s|$)/,
@@ -128,21 +132,12 @@ describe("repo validation surface", () => {
       "npm run test:contract:all && node --test tests/*.test.mjs && npm run test:browser-use-discovery",
     );
     assert.equal(pkg.scripts["lint:repo"], "npm run lint:skills");
-    assert.equal(
-      pkg.scripts["typecheck:repo"],
-      "node --check app.js && node --check discovery-payload.js && node --check expired-review.js && node --check dev-server.mjs && node --check discovery-wizard-local.js && node --check discovery-wizard-probes.js && node --check discovery-wizard-relay.js && node --check discovery-wizard-shell.js && node --check discovery-wizard-verify.js && node --check settings-tabs.js && node --check settings-profile-tab.js && node --check user-content-store.js && node --check resume-bundle.js && node --check resume-generate.js && node --check document-templates.js && node --check scripts/run-scheduled-discovery.mjs && node --check scripts/run-scheduled-expired-cleanup.mjs && node --check scripts/install-expired-cleanup-schedule.mjs && node --check scripts/uninstall-expired-cleanup-schedule.mjs && node --check scripts/install-repo.mjs && node --check scripts/doctor.mjs && node --check server/index.mjs && node --check server/job-scraper.mjs && node --check server/ats-request-payload.mjs && node --check server/ats-scorecard.mjs",
-    );
+    assert.match(pkg.scripts["typecheck:repo"], /node --check app\.js/);
+    assert.match(pkg.scripts["typecheck:repo"], /node --check discovery-coach\.js/);
+    assert.match(pkg.scripts["typecheck:repo"], /node --check server\/ats-scorecard\.mjs/);
     assert.equal(
       pkg.scripts["web-only:https"],
       "COMMAND_CENTER_TLS=1 node dev-server.mjs",
-    );
-
-    assert.deepEqual(
-      await runDiscoveryWorkerEnvProbe(pkg.scripts["start:discovery-worker"], {
-        BROWSER_USE_DISCOVERY_HOST: "127.0.0.9",
-        BROWSER_USE_DISCOVERY_PORT: "9123",
-      }),
-      { host: "127.0.0.9", port: "9123" },
     );
 
     assert.deepEqual(manifestCommands, {

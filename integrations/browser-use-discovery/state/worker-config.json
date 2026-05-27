@@ -59,13 +59,49 @@
       }
     }
   ],
-  "includeKeywords": [],
-  "excludeKeywords": [],
-  "targetRoles": [],
-  "locations": [],
-  "remotePolicy": "",
-  "seniority": "",
-  "maxLeadsPerRun": 15,
+  "includeKeywords": [
+    "digital marketing",
+    "applied AI",
+    "AI/ML",
+    "generative AI",
+    "performance marketing",
+    "growth",
+    "product marketing",
+    "solutions architect",
+    "sales engineer",
+    "adtech",
+    "martech",
+    "GEO",
+    "AI search",
+    "consulting"
+  ],
+  "excludeKeywords": [
+    "intern",
+    "internship",
+    "entry level",
+    "junior",
+    "associate"
+  ],
+  "targetRoles": [
+    "Digital Marketing Consultant",
+    "AI Solutions Architect",
+    "Senior Product Marketing Manager",
+    "Director Digital Strategy",
+    "Performance Marketing Director",
+    "Growth Marketing Lead",
+    "Sales Engineer AI",
+    "Solutions Consultant AI",
+    "GTM Engineer",
+    "AI Product Builder"
+  ],
+  "locations": [
+    "Denver, CO",
+    "Remote",
+    "United States"
+  ],
+  "remotePolicy": "remote-first",
+  "seniority": "senior",
+  "maxLeadsPerRun": 25,
   "enabledSources": [
     "greenhouse",
     "lever",

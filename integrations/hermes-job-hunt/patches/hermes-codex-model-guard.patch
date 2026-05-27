@@ -1,0 +1,20 @@
+diff --git a/agent/auxiliary_client.py b/agent/auxiliary_client.py
+index 233c29975..51228e5c4 100644
+--- a/agent/auxiliary_client.py
++++ b/agent/auxiliary_client.py
+@@ -3274,6 +3274,15 @@ def resolve_provider_client(
+                 "or auxiliary.<task>.model for per-task aux routing)."
+             )
+             return None, None
++        _CODEX_MODEL_PREFIXES = ("gpt-", "o1-", "o3-", "o4-", "codex-", "chatgpt-")
++        if not model.lower().startswith(_CODEX_MODEL_PREFIXES):
++            logger.warning(
++                "resolve_provider_client: model %r is not compatible with "
++                "openai-codex provider (expected gpt-*/o*-*/codex-* model). "
++                "Skipping so fallback chain can try another provider.",
++                model,
++            )
++            return None, None
+         if raw_codex:
+             # Return the raw OpenAI client for callers that need direct
+             # access to responses.stream() (e.g., the main agent loop).

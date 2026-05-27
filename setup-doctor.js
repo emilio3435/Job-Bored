@@ -335,6 +335,10 @@
       "Last contact",
       "Did they reply?",
       "Logo URL",
+      "Match Score",
+      "Favorite",
+      "Dismissed At",
+      "Approval Status",
     ],
     "statuses": [
       "New",

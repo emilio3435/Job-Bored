@@ -130,6 +130,29 @@ test("scoreListingMatch does not let single-letter keywords match arbitrary word
   );
 });
 
+test("scoreListingMatch keeps close role variants (token overlap) out of hard reject", () => {
+  const result = scoreListingMatch(
+    {
+      sourceId: "grounded_web",
+      sourceLabel: "Grounded Web",
+      title: "Marketing Director",
+      company: "Scale AI",
+      location: "Remote in United States",
+      url: "https://jobs.example.com/marketing-director",
+      descriptionText: "Own performance and growth channels for B2B SaaS.",
+      tags: ["Marketing"],
+    },
+    makeRun({
+      targetRoles: ["Associate Director Performance Marketing"],
+      includeKeywords: [],
+      remotePolicy: "",
+    }),
+  );
+
+  assert.notEqual(result.decision, "reject");
+  assert.ok(result.componentScores.role >= 0.45);
+});
+
 test("shouldUseAiMatcher does not spend AI calls on deterministic rejects", () => {
   const decision = scoreListingMatch(
     {

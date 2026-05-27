@@ -14,8 +14,16 @@ integrations/browser-use-discovery/state/*
 # Local-only runtime artifacts (added during dossier-df bootstrap)
 integrations/browser-use-discovery/worker.log
 integrations/browser-use-discovery/.env
+integrations/browser-use-discovery/.env.*
+integrations/browser-use-discovery/service-account-key.json
 .claude/
 brief-mockup.html
-uploads/
+/uploads/
 # Old swarm run logs — local only; may contain transcripted secrets
 docs/redesign/logs/
+integrations/hermes-job-hunt/applications/
+integrations/hermes-job-hunt/state/
+integrations/hermes-job-hunt/evidence/
+__pycache__/
+*.pyc
+integrations/hermes-job-hunt/tests/tmp-app/

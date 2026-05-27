@@ -1,0 +1,954 @@
+Emilio Nunez-Garcia — Resume
+/* =========================================================
+     TOKENS — sampled from emiliobuilds.com
+     ========================================================= */
+  :root {
+    --cream:      #FAF4E6;
+    --cream-soft: #F7F1E8;
+    --navy:       #023047;
+    --navy-body:  #093444;
+    --navy-soft:  #2a4a5c;
+    --gold:       #FFB703;
+    --gold-soft:  rgba(255, 183, 3, 0.18);
+    --hairline:   rgba(2, 48, 71, 0.22);
+
+    --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+    --font-body:    'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+
+  /* =========================================================
+     PAGE — US Letter, 0.65" margins. Cream BG bleeds to edge.
+     ========================================================= */
+  @page {
+    size: 8.5in 11in;
+    margin: 0;
+  }
+
+  html, body { background: var(--cream); }
+  body {
+    margin: 0;
+    color: var(--navy-body);
+    font-family: var(--font-body);
+    font-size: 9pt;
+    line-height: 1.38;
+    -webkit-font-smoothing: antialiased;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Screen preview shell: show pages on a soft backdrop. Print: removed. */
+  .deck {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 28px;
+    padding: 36px 16px 64px;
+    background:
+      radial-gradient(ellipse 60% 80% at 20% 30%,
+        rgba(255, 183, 3, 0.06), transparent 60%),
+      radial-gradient(ellipse 50% 70% at 80% 70%,
+        rgba(2, 48, 71, 0.05), transparent 60%),
+      #efe7d6;
+    min-height: 100vh;
+  }
+
+  .page {
+    width: 8.5in;
+    height: 11in;
+    background: var(--cream);
+    padding: 0.6in 0.7in 0.45in;
+    box-sizing: border-box;
+    position: relative;
+    overflow: hidden;
+    box-shadow:
+      0 1px 0 rgba(2, 48, 71, 0.06),
+      0 18px 40px -22px rgba(2, 48, 71, 0.35),
+      0 60px 90px -50px rgba(2, 48, 71, 0.22);
+    display: flex;
+    flex-direction: column;
+  }
+
+  @media print {
+    .deck { display: block; padding: 0; background: var(--cream); min-height: 0; }
+    .page {
+      width: 8.5in; height: 11in;
+      box-shadow: none; margin: 0; padding: 0.6in 0.7in 0.45in;
+      page-break-after: always; break-after: page;
+      overflow: hidden;
+    }
+    .page:last-child { page-break-after: auto; break-after: auto; }
+  }
+
+  /* =========================================================
+     HEADER
+     ========================================================= */
+  .masthead { margin-bottom: 8pt; position: relative; }
+
+  /* Portfolio wordmark in upper-right of masthead — clickable. */
+  .masthead-link {
+    position: absolute;
+    top: 4pt;
+    right: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 5pt;
+    color: var(--navy);
+    text-decoration: none;
+    font-family: var(--font-mono);
+    font-size: 7pt;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    opacity: 0.85;
+  }
+  .masthead-link .mh-label {
+    color: var(--navy-soft);
+  }
+  .masthead-link .mh-mark {
+    display: inline-block;
+    height: 13pt;
+    width: auto;
+    color: var(--navy);
+  }
+  .masthead-link:hover { opacity: 1; }
+
+  .name {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 28pt;
+    line-height: 1.02;
+    letter-spacing: -0.012em;
+    color: var(--navy);
+    font-variation-settings: "opsz" 96;
+    margin: 0;
+  }
+
+  .tagline {
+    margin: 5pt 0 0;
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 12pt;
+    line-height: 1.3;
+    color: var(--navy);
+    font-variation-settings: "opsz" 36;
+  }
+  .tagline .it { font-style: italic; font-weight: 400; }
+  .tagline .dot { /* gold filled circle separator inline */
+    display: inline-block;
+    width: 4pt; height: 4pt;
+    background: var(--gold);
+    border-radius: 50%;
+    vertical-align: 0.18em;
+    margin: 0 7pt;
+  }
+
+  .contact {
+    margin: 7pt 0 0;
+    font-family: var(--font-body);
+    font-size: 8pt;
+    letter-spacing: 0.01em;
+    color: var(--navy-body);
+    line-height: 1.45;
+  }
+  .contact a { color: inherit; text-decoration: none; }
+  .contact .dot {
+    display: inline-block;
+    width: 3pt; height: 3pt;
+    background: var(--gold);
+    border-radius: 50%;
+    vertical-align: 0.2em;
+    margin: 0 7pt;
+  }
+
+  /* Signature rule pair: short thick gold + thin navy hairline */
+  .rule-pair {
+    display: flex;
+    align-items: center;
+    gap: 8pt;
+    margin-top: 9pt;
+  }
+  .rule-gold {
+    display: inline-block;
+    width: 38pt;
+    height: 1.6pt;
+    background: var(--gold);
+    border-radius: 0.8pt;
+  }
+  .rule-thin {
+    flex: 1;
+    height: 0.5pt;
+    background: var(--hairline);
+  }
+
+  /* =========================================================
+     SECTION HEADERS — §00  LABEL
+     ========================================================= */
+  section { margin-top: 9pt; }
+  section:first-of-type { margin-top: 8pt; }
+
+  .sec-head {
+    display: flex;
+    align-items: center;
+    gap: 9pt;
+    margin: 0;
+  }
+  .sec-mark {
+    /* chunky gold paragraph-bar (replaces §) */
+    display: inline-block;
+    width: 4pt;
+    height: 13pt;
+    background: var(--gold);
+    border-radius: 0.5pt;
+    flex: 0 0 auto;
+  }
+  .sec-label {
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 10pt;
+    text-transform: uppercase;
+    letter-spacing: 0.22em;
+    color: var(--navy);
+    flex: 1 1 auto;
+    line-height: 1;
+  }
+  .sec-num {
+    /* italic Fraunces gold folio on the right */
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 500;
+    font-size: 13pt;
+    color: var(--gold);
+    letter-spacing: -0.005em;
+    flex: 0 0 auto;
+    line-height: 1;
+    font-variation-settings: "opsz" 36;
+  }
+  .sec-rule {
+    display: flex;
+    align-items: center;
+    gap: 6pt;
+    margin: 4pt 0 5pt;
+  }
+  .sec-rule .rule-gold { width: 32pt; height: 1.4pt; }
+  .sec-rule .rule-thin { flex: 1; height: 0.4pt; }
+
+  /* =========================================================
+     SUMMARY
+     ========================================================= */
+  .summary .opener {
+    font-family: var(--font-display);
+    font-size: 11.5pt;
+    line-height: 1.3;
+    color: var(--navy);
+    margin: 0 0 4pt;
+    max-width: 6.9in;
+  }
+  .summary .opener .it { font-style: italic; }
+  .summary .body {
+    margin: 0;
+    font-size: 9pt;
+    line-height: 1.42;
+    color: var(--navy-body);
+    max-width: 6.9in;
+  }
+
+  /* =========================================================
+     COMPANY / ROLE BLOCKS
+     ========================================================= */
+  /* =========================================================
+     COMPANY / PROJECT LOGOS — small editorial marks
+     ========================================================= */
+  .company-head {
+    display: flex;
+    align-items: center;
+    gap: 7pt;
+    margin: 0 0 1pt;
+  }
+  .company-mark {
+    flex: 0 0 auto;
+    width: 16pt;
+    height: 16pt;
+    object-fit: contain;
+    border-radius: 50%;
+    display: block;
+  }
+  /* Inline project mark (square logos) */
+  .project-mark {
+    display: inline-block;
+    width: 13pt;
+    height: 13pt;
+    object-fit: contain;
+    border-radius: 2.5pt;
+    vertical-align: -3pt;
+    margin-right: 6pt;
+  }
+  /* Wide project mark (horizontal wordmark logos) */
+  .project-mark-wide {
+    display: inline-block;
+    height: 13pt;
+    width: auto;
+    object-fit: contain;
+    vertical-align: -3pt;
+    margin-right: 6pt;
+  }
+
+  .company { margin-top: 6pt; }
+  .company:first-child { margin-top: 0; }
+
+  .company-name {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 11.5pt;
+    line-height: 1.18;
+    color: var(--navy);
+    margin: 0;
+    /* subtle gold wash behind company name — does not break ATS */
+    display: inline-block;
+    padding: 0.5pt 6pt 0.5pt 6pt;
+    margin-left: -6pt;
+    background: linear-gradient(
+      to right,
+      var(--gold-soft) 0%,
+      var(--gold-soft) 70%,
+      transparent 100%
+    );
+    border-radius: 2pt;
+    white-space: nowrap;
+  }
+  .company-name .it { font-style: italic; font-weight: 500; }
+
+  /* When company-name sits next to a logo, drop the negative
+     margin so the gold wash starts at the text edge, not the logo. */
+  .company-head .company-name {
+    margin-left: 0;
+    padding-left: 4pt;
+  }
+
+  .company-meta {
+    font-family: var(--font-mono);
+    font-size: 7.5pt;
+    color: var(--navy-soft);
+    letter-spacing: 0.02em;
+    margin: 2.5pt 0 3pt;
+  }
+  .company-meta .dot {
+    display: inline-block;
+    width: 3pt; height: 3pt;
+    background: var(--gold);
+    border-radius: 50%;
+    vertical-align: 0.2em;
+    margin: 0 6pt;
+  }
+
+  .role { margin-top: 5pt; }
+  .role:first-of-type { margin-top: 1pt; }
+  .role > header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14pt;
+    margin-bottom: 1.5pt;
+    flex-wrap: nowrap;
+  }
+  .role h3 {
+    margin: 0;
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 9.5pt;
+    color: var(--navy);
+    letter-spacing: 0.01em;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .role h3 .alt {
+    color: var(--navy-soft);
+    font-weight: 400;
+  }
+  .role .dates {
+    font-family: var(--font-mono);
+    font-size: 8pt;
+    color: var(--navy-soft);
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+
+  /* Gold-circle bullet markers */
+  ul.bullets {
+    list-style: none;
+    margin: 1pt 0 0;
+    padding: 0;
+  }
+  ul.bullets > li {
+    position: relative;
+    padding-left: 11pt;
+    margin: 0 0 1.5pt;
+    font-size: 9pt;
+    line-height: 1.35;
+    color: var(--navy-body);
+  }
+  ul.bullets > li::before {
+    content: "";
+    position: absolute;
+    left: 1pt;
+    top: 5pt;
+    width: 3pt;
+    height: 3pt;
+    background: var(--gold);
+    border-radius: 50%;
+  }
+  ul.bullets > li:last-child { margin-bottom: 0; }
+
+  /* =========================================================
+     FOUNDER WORK — slimmer blocks
+     ========================================================= */
+  .project { margin-top: 6pt; }
+  .project:first-of-type { margin-top: 1pt; }
+  .project > header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14pt;
+    flex-wrap: nowrap;
+  }
+  .project h3 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 10.5pt;
+    color: var(--navy);
+    flex: 1 1 auto;
+    min-width: 0;
+    line-height: 1.2;
+  }
+  .project h3 .it { font-style: italic; font-weight: 500; }
+  .project .meta {
+    font-family: var(--font-mono);
+    font-size: 7.5pt;
+    color: var(--navy-soft);
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+  .project .meta .dot {
+    display: inline-block;
+    width: 3pt; height: 3pt;
+    background: var(--gold);
+    border-radius: 50%;
+    vertical-align: 0.2em;
+    margin: 0 5pt;
+  }
+
+  /* =========================================================
+     EDUCATION
+     ========================================================= */
+  .edu {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12pt;
+  }
+  .edu .degree {
+    font-family: var(--font-display);
+    font-size: 10.5pt;
+    font-weight: 600;
+    color: var(--navy);
+  }
+  .edu .degree .it { font-style: italic; font-weight: 500; }
+  .edu .where {
+    font-family: var(--font-mono);
+    font-size: 7.5pt;
+    color: var(--navy-soft);
+  }
+  .edu .where .dot {
+    display: inline-block;
+    width: 3pt; height: 3pt;
+    background: var(--gold);
+    border-radius: 50%;
+    vertical-align: 0.2em;
+    margin: 0 5pt;
+  }
+
+  /* =========================================================
+     CAPABILITIES + STACK — labeled rows
+     ========================================================= */
+  .rows {
+    display: grid;
+    grid-template-columns: 1.05in 1fr;
+    column-gap: 12pt;
+    row-gap: 3.5pt;
+  }
+  .rows dt {
+    font-family: var(--font-mono);
+    font-size: 7.4pt;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--navy);
+    padding-top: 1pt;
+    line-height: 1.3;
+  }
+  .rows dd {
+    margin: 0;
+    font-size: 8.7pt;
+    line-height: 1.32;
+    color: var(--navy-body);
+  }
+  .rows dd .accent { color: var(--navy); font-weight: 500; }
+
+  /* =========================================================
+     LANGUAGES + CERTS
+     ========================================================= */
+  .lang-cert {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 24pt;
+  }
+  .lang-cert h4 {
+    font-family: var(--font-mono);
+    font-size: 7.4pt;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--navy);
+    margin: 0 0 2.5pt;
+    font-weight: 500;
+  }
+  .lang-cert ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 8.7pt;
+    line-height: 1.45;
+    color: var(--navy-body);
+  }
+  .lang-cert li { margin: 0; }
+  .lang-cert .it { font-style: italic; font-family: var(--font-display); font-size: 9pt; color: var(--navy); }
+
+  /* =========================================================
+     CLOSING FLOURISH
+     ========================================================= */
+  .closing-flourish {
+    margin: 10pt 0 0;
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 400;
+    font-size: 11pt;
+    color: var(--navy);
+    line-height: 1.3;
+  }
+  .closing-flourish .dot {
+    display: inline-block;
+    width: 4pt; height: 4pt;
+    background: var(--gold);
+    border-radius: 50%;
+    vertical-align: 0.22em;
+    margin-left: 8pt;
+  }
+
+  /* =========================================================
+     FOOTER (each page)
+     ========================================================= */
+  .pagefoot {
+    margin-top: auto;
+    padding-top: 7pt;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12pt;
+    border-top: 0.4pt solid var(--hairline);
+  }
+  .pagefoot .colophon {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: 7.8pt;
+    color: var(--navy-soft);
+    letter-spacing: 0.01em;
+  }
+  .pagefoot .colophon .dot {
+    display: inline-block;
+    width: 3pt; height: 3pt;
+    background: var(--gold);
+    border-radius: 50%;
+    vertical-align: 0.2em;
+    margin: 0 5pt;
+  }
+  .pagefoot .pagenum {
+    font-family: var(--font-mono);
+    font-size: 7.5pt;
+    color: var(--navy-soft);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .pagefoot .pagenum .dot {
+    display: inline-block;
+    width: 3pt; height: 3pt;
+    background: var(--gold);
+    border-radius: 50%;
+    vertical-align: 0.2em;
+    margin-right: 5pt;
+  }
+
+  /* "/ continued" badge in section header */
+  .sec-cont {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 0.78em;
+    color: var(--navy-soft);
+    margin-left: 4pt;
+  }
+
+  /* Avoid orphan / widow on key blocks */
+  .company, .project, .role, section { break-inside: avoid; }
+  .sec-head, .sec-rule { break-after: avoid; }
+  ul.bullets { break-inside: avoid-page; }
+
+  /* =========================================================
+     TWEAK VARIANTS — body.voice-* and body.density-* classes
+     swap feel without touching content.
+     ========================================================= */
+
+  /* VOICE — Quiet: strip italics, all roman ink. */
+  body.voice-quiet .tagline .it,
+  body.voice-quiet .summary .opener .it,
+  body.voice-quiet .company-name .it,
+  body.voice-quiet .project h3 .it,
+  body.voice-quiet .edu .degree .it,
+  body.voice-quiet .lang-cert .it,
+  body.voice-quiet .pagefoot .colophon,
+  body.voice-quiet .closing-flourish,
+  body.voice-quiet .sec-num {
+    font-style: normal;
+  }
+  body.voice-quiet .closing-flourish,
+  body.voice-quiet .pagefoot .colophon {
+    font-family: var(--font-body);
+    font-weight: 500;
+  }
+  body.voice-quiet .sec-num {
+    font-family: var(--font-mono);
+    font-size: 8.5pt;
+    color: var(--navy-soft);
+  }
+  body.voice-quiet .lang-cert .it {
+    font-family: var(--font-body);
+    font-size: 8.7pt;
+    color: var(--navy);
+    font-weight: 500;
+  }
+
+  /* VOICE — Editorial: lean harder into Fraunces italic moments. */
+  body.voice-editorial .role .dates,
+  body.voice-editorial .project .meta,
+  body.voice-editorial .company-meta,
+  body.voice-editorial .edu .where {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: 8.5pt;
+    letter-spacing: 0;
+  }
+  body.voice-editorial .role h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 10.5pt;
+  }
+  body.voice-editorial .role h3 .alt {
+    font-style: italic;
+    font-weight: 500;
+  }
+  body.voice-editorial .sec-label {
+    font-family: var(--font-display);
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 13pt;
+    font-weight: 600;
+  }
+  body.voice-editorial .sec-label::first-letter { font-style: italic; }
+
+  /* DENSITY — Open: a touch more breathing room than standard. */
+  body.density-open section { margin-top: 11pt; }
+  body.density-open .sec-rule { margin: 4pt 0 6pt; }
+  body.density-open ul.bullets > li {
+    margin-bottom: 2.2pt;
+    line-height: 1.44;
+  }
+  body.density-open .summary .body { line-height: 1.5; }
+  body.density-open .rows { row-gap: 4.5pt; }
+  body.density-open .rows dd { line-height: 1.4; }
+  body.density-open .company { margin-top: 7pt; }
+  body.density-open .role { margin-top: 5.5pt; }
+  body.density-open .project { margin-top: 7pt; }
+
+  /* DENSITY — Tight: ruthless compression (targets 2 pages). */
+  body.density-tight section { margin-top: 5pt; }
+  body.density-tight .sec-rule { margin: 2pt 0 3pt; }
+  body.density-tight ul.bullets > li {
+    margin-bottom: 1pt;
+    line-height: 1.28;
+    font-size: 8.7pt;
+  }
+  body.density-tight .summary .body {
+    line-height: 1.32;
+    font-size: 8.7pt;
+  }
+  body.density-tight .rows { row-gap: 2pt; }
+  body.density-tight .rows dd {
+    line-height: 1.28;
+    font-size: 8.4pt;
+  }
+  body.density-tight .company { margin-top: 4pt; }
+  body.density-tight .role { margin-top: 3pt; }
+  body.density-tight .project { margin-top: 4pt; }
+  body.density-tight .lang-cert ul { line-height: 1.35; font-size: 8.4pt; }
+
+  /* Hide tweaks panel + screen-only chrome in print. */
+  @media print {
+    #tweaks-root { display: none !important; }
+  }
+window.TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "accent": "coral",
+    "voice": "editorial",
+    "density": "open"
+  }/*EDITMODE-END*/;
+portfolio
+Emilio Nunez-Garcia
+Performance marketing leader
+and the systems behind it.
+Denver, CO
+501.366.2080
+emilio3435@gmail.com
+emiliobuilds.com
+linkedin.com/in/emilio-nunez-garcia
+Summary
+00
+Ten years in performance marketing.
+One thesis: ship paid spend toward marginal ROAS.
+Performance marketer and AI product builder with 10+ years across paid acquisition, sales leadership, and the systems behind both. Eight years at Audacy (formerly Entercom) growing a $10M+ Denver digital book to a top-3 national ranking in a #19-sized market — owning CAC, ROAS, and LTV optimization, advanced bidding strategy, and full-funnel testing for hundreds of advertisers across home services, financial services, healthcare, hospitality, retail, dental, and automotive. Math Econ background; fluent in unit economics, payback modeling, and channel forecasting. Founder of elioai.app, a production multi-model AI platform on GCP that automates campaign forecasting, client briefings, and reporting workflows. Bilingual English / Spanish; proficient French and Italian.
+Experience
+01
+Audacy
+(formerly Entercom)
+Sep 2017 — 2026
+eight years
+four progressive roles
+Digital Sales Manager
+May 2021 — 2026
+Owned a $10M+ annual digital media P&L; drove Denver to a consistent top-3 ranking in Digital Marketing Solutions revenue across Audacy's national footprint (Denver = #19 U.S. market) by dynamically reallocating spend across Google Ads, Meta, OTT/CTV, programmatic, and streaming audio toward marginal ROAS.
+Delivered 130% YoY paid-search conversion growth and 13% YoY new-user lift on a flagship financial-services account through a bid-strategy overhaul, audience-signal layering, and landing-page CRO.
+Led the market's transformation from broadcast-dominant to ~60% digital revenue mix — built the playbook, the pitch system, and the seller training that moved the business.
+Architected an advanced bidding and attribution framework spanning Google Ads (Search, YouTube, PMax), Meta Ads, Amazon DSP, and programmatic display — including AI-search readiness (AIO/GEO, hub-and-spoke content architecture) ahead of peer markets.
+Ran 20+ tracked pitches per month via Advisr while coaching 10 AE desks; built and led the Digital Café and Happy Half-Hour enablement series on bidding strategy, attribution modeling, creative testing, and platform-algorithm shifts.
+Managed a rotating team of up to three Digital Campaign Managers plus Internal Media Specialists, creative and agency partners, and platform vendors to launch and optimize campaigns against client KPIs (CPA, ROAS, lead volume, booked revenue).
+Owned end-to-end client strategy across home services, financial services, healthcare, dental, hospitality, retail, and automotive — high-stakes pitches, QBRs, mid-year reviews, attribution disputes, and retention through complex situations.
+Became the market's go-to client-facing strategist and presenter, leading attribution and AI-search disruption conversations (AI Overviews, GEO/AIO readiness, shadow sites vs. hub-and-spoke) that positioned Denver ahead of peer markets.
+—
+Emilio Nunez-Garcia
+performance marketing leader
+ai product builder
+emiliobuilds.com
+01 / 03
+Experience
+/ continued
+01
+Audacy
+(cont.)
+Senior Key Account Manager
+/ Key Account Manager
+May 2019 — May 2021
+Retained and grew a portfolio of strategic Denver accounts as the digital SME, paired with AEs on SEM, Paid Social, OTT/CTV, and Streaming Audio strategy.
+Promoted to Senior KAM on the strength of account retention and digital revenue growth; promoted again into Digital Sales Manager at the Audacy rebrand in May 2021.
+Built cross-platform proposals integrating broadcast audio, streaming audio, OTT, and digital — the foundation of the market's later digital-first motion.
+Digital Campaign Manager
+Sep 2017 — Apr 2019
+Hands-on setup, trafficking, optimization, and reporting across Google Ads, Meta, OTT/CTV, and programmatic display for local and regional advertisers — the platform-level fluency that still underwrites every strategy call I make.
+Built reporting dashboards and pacing systems used across the Denver market for client performance reviews.
+Founder Work / Independent Projects
+02
+Elio Intelligence Suite
+— elioai.app
+Founder & AI Engineer
+Denver
+2024 — Present
+Designed, built, and deployed a production multi-model AI platform on GCP Cloud Run routing across Claude, GPT, Gemini, Grok, and Llama based on task-fit, latency, and cost; backed by Vertex AI Search RAG pipelines and Google Chirp 3 HD text-to-speech.
+Shipped an SEM Revenue Forecast tool on Gemini with live Google Search grounding — ran 21+ forecasts against $2.4M of real pipeline data for pitch cycles.
+Stood up agentic scheduled workflows (morning client-pulse briefings, daily job-board scans) with Telegram delivery — operates across 8–10 API keys, 3–4 GCP service accounts, Firebase auth, and Cloud Run.
+Wrote the full stack end-to-end: infrastructure, backend, frontend, auth, deployment, observability. No engineering team, no hand-offs.
+Hormiga Dormida
+Founder
+Denver
+2024 — Present
+Automated AI agency delivering marketing and ops workflows to SMB clients on the Elio Intelligence Suite stack.
+Authored an 18-idea automation playbook spanning client intelligence, sales ops, content production, lead gen, and reporting.
+JobBored
+Founder
+Denver
+2024 — Present
+Brand system, React dashboard, and Hermes agent for an AI-assisted job-search product — scheduled job-board scans, resume tailoring, Telegram notifications.
+Earlier
+2015 — 2017
+Cofounder, Bucketz (2016–2017) — automated focus-group recruitment for mid-sized market-research firms via paid social and paid search.
+Digital Marketing Strategist, Primary Residential Mortgage Inc. (2015–2016) — built and optimized SEM and WordPress content programs across 8 states for mortgage and real-estate partners.
+Education
+03
+B.A.
+Mathematical Economics
+— Colorado College
+Colorado Springs, CO
+2017
+—
+Emilio Nunez-Garcia
+performance marketing leader
+ai product builder
+emiliobuilds.com
+02 / 03
+Capabilities
+04
+Paid Media
+Google Ads (Search, Display, YouTube, PMax, Demand Gen, App), Meta Ads (Facebook, Instagram, Reels, Advantage+), Amazon DSP, programmatic display, OTT/CTV (DV360, The Trade Desk), SEM, paid social, streaming audio (Spotify, Pandora, Audacy O&O), native, retargeting.
+Bidding & Optimization
+Advanced bidding strategies (tCPA, tROAS, Max Conversions, manual CPC), audience-signal layering, lookalikes / custom audiences, exclusion lists, dayparting, geo-modifier strategy, auction-time learnings, smart-bidding migrations, portfolio bid strategies.
+Measurement
+Attribution modeling (last-click, data-driven, MTA), GA4, GTM, Looker Studio dashboards, CallRail, ServiceTitan, CRM-back attribution, incrementality testing, MMM literacy, conversion API, server-side tagging.
+CRO & Experimentation
+Landing-page CRO, creative testing frameworks, multivariate testing, statistical-rigor A/B design, funnel optimization end-to-end (ad → LP → onboarding → activation).
+AI Search (AIO / GEO)
+AI Overviews readiness, generative-engine optimization, hub-and-spoke content architecture, shadow-site strategy, entity SEO, structured data, LLM-citation strategy.
+Unit Economics
+CAC, LTV, contribution margin, payback period, blended vs. paid CAC, ROAS targets by channel, channel forecasting, portfolio budget allocation, marginal-return analysis, scenario modeling.
+Tooling & Stack
+05
+AI / Cloud
+Claude API, OpenAI API, Gemini / Vertex AI, Grok API, Llama (self-hosted), GCP Cloud Run, Vertex AI Search, RAG pipelines, multi-model routing, Google Chirp 3 HD TTS, Firebase, service accounts, IAM.
+Engineering
+Python, JavaScript, React, SQL, HTML/CSS, Node, bash, git worktrees, tmux, Claude Code, Codex, Cursor, VS Code, Xcode (XcodeGen), Swift basics.
+Adtech & Analytics
+Google Ads, Meta Ads Manager, Amazon DSP, DV360, The Trade Desk, GA4, Looker Studio, GTM, CallRail, ServiceTitan, Chart.js, Advisr, Salesforce basics, HubSpot basics.
+Business
+Microsoft Office Suite, Google Workspace, Tableau, QuickBooks, Notion, Linear, Figma (read), MS Teams, Zoom, Loom.
+Languages & Certifications
+06
+Languages
+Bilingual
+English / Spanish (native fluency)
+Proficient
+French
+Proficient
+Italian
+Certifications
+Google Ads — Fundamentals
+Google Ads — Search
+Google Ads — Mobile Advertising
+Google Analytics Certified
+Built to ship paid spend toward marginal ROAS.
+—
+Emilio Nunez-Garcia
+performance marketing leader
+ai product builder
+emiliobuilds.com
+03 / 03
+/* =========================================================
+     Resume Tweaks App
+     Three expressive controls that reshape feel, not pixels:
+       • accent   — swap the signature gold for another restrained ink
+       • voice    — Restrained / Editorial / Quiet (italic register)
+       • density  — Open / Standard / Tight (rhythm)
+     ========================================================= */
+
+  // Accent palette: each option = [gold, gold-soft]. gold-soft is the
+  // 18%-alpha wash for company-name backgrounds.
+  const ACCENTS = {
+    gold:  { gold: '#FFB703', soft: 'rgba(255, 183, 3, 0.18)' },
+    coral: { gold: '#EB4D56', soft: 'rgba(235, 77, 86, 0.16)' },
+    teal:  { gold: '#12A89C', soft: 'rgba(18, 168, 156, 0.18)' },
+    mono:  { gold: '#093444', soft: 'rgba(9, 52, 68, 0.10)' },
+  };
+  const ACCENT_LABELS = { gold: 'Gold', coral: 'Coral', teal: 'Teal', mono: 'Mono' };
+
+  function applyAccent(key) {
+    const a = ACCENTS[key] || ACCENTS.gold;
+    document.documentElement.style.setProperty('--gold', a.gold);
+    document.documentElement.style.setProperty('--gold-soft', a.soft);
+  }
+
+  function applyVoice(value) {
+    const b = document.body;
+    b.classList.remove('voice-restrained', 'voice-editorial', 'voice-quiet');
+    b.classList.add('voice-' + value);
+  }
+
+  function applyDensity(value) {
+    const b = document.body;
+    b.classList.remove('density-open', 'density-standard', 'density-tight');
+    b.classList.add('density-' + value);
+  }
+
+  function ResumeTweaks() {
+    const [t, setTweak] = useTweaks(window.TWEAK_DEFAULTS);
+
+    // Live-apply on every change
+    React.useEffect(() => { applyAccent(t.accent); },   [t.accent]);
+    React.useEffect(() => { applyVoice(t.voice); },     [t.voice]);
+    React.useEffect(() => { applyDensity(t.density); }, [t.density]);
+
+    return (
+      <TweaksPanel title="Tweaks">
+        <TweakSection label="Signature accent" />
+        <TweakColor
+          label="Accent"
+          value={ACCENTS[t.accent].gold}
+          options={Object.values(ACCENTS).map(a => a.gold)}
+          onChange={(hex) => {
+            const k = Object.keys(ACCENTS).find(k => ACCENTS[k].gold === hex) || 'gold';
+            setTweak('accent', k);
+          }}
+        />
+        <div style={{
+          fontSize: 10.5, color: 'rgba(41,38,27,.55)',
+          marginTop: -2, lineHeight: 1.35,
+        }}>
+          {ACCENT_LABELS[t.accent]} — replaces the signature gold across
+          rules, bullets, dots, and folios.
+        </div>
+
+        <TweakSection label="Editorial voice" />
+        <TweakRadio
+          label="Voice"
+          value={t.voice}
+          options={['restrained', 'editorial', 'quiet']}
+          onChange={(v) => setTweak('voice', v)}
+        />
+        <div style={{
+          fontSize: 10.5, color: 'rgba(41,38,27,.55)',
+          marginTop: -2, lineHeight: 1.35,
+        }}>
+          {t.voice === 'restrained' && 'Italic Fraunces shows up only in the tagline, opener, and closing line.'}
+          {t.voice === 'editorial'  && 'Section labels, role titles, and dates lean into Fraunces italic — magazine spread.'}
+          {t.voice === 'quiet'      && 'All roman, no italic. Reads as a clean serious technical doc.'}
+        </div>
+
+        <TweakSection label="Rhythm" />
+        <TweakRadio
+          label="Density"
+          value={t.density}
+          options={['open', 'standard', 'tight']}
+          onChange={(v) => setTweak('density', v)}
+        />
+        <div style={{
+          fontSize: 10.5, color: 'rgba(41,38,27,.55)',
+          marginTop: -2, lineHeight: 1.35,
+        }}>
+          {t.density === 'open'     && 'More breathing room. Expect 4 pages on the master superset.'}
+          {t.density === 'standard' && 'Default rhythm — 3-page master / 2-page per-job target.'}
+          {t.density === 'tight'    && 'Compressed line-heights and margins. Pushes toward 2 pages.'}
+        </div>
+      </TweaksPanel>
+    );
+  }
+
+  // Apply persisted defaults before mounting so the page looks "right"
+  // even if the user never opens the panel.
+  applyAccent(window.TWEAK_DEFAULTS.accent);
+  applyVoice(window.TWEAK_DEFAULTS.voice);
+  applyDensity(window.TWEAK_DEFAULTS.density);
+
+  const root = ReactDOM.createRoot(document.getElementById('tweaks-root'));
+  root.render(<ResumeTweaks />);

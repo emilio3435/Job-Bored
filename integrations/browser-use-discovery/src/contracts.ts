@@ -9,7 +9,8 @@ export const DISCOVERY_RUNS_HEADER_ROW = [
   "Status",
   "Duration (s)",
   "Companies Seen",
-  "Leads Written",
+  "Leads New",
+  "Leads Updated",
   "Source",
   "Variation Key",
   "Error",
@@ -88,6 +89,10 @@ export const PIPELINE_HEADER_ROW = [
   "Match Score",
   "Favorite",
   "Dismissed At",
+  // Extension column for the JHOS approval guard (Gate 1). Emilio must set
+  // this to "Approved" in the Pipeline before an agent may proceed to apply.
+  // Workers read this field to determine whether an apply flow may advance.
+  "Approval Status",
 ] as const;
 
 export type SupportedSourceId = (typeof SUPPORTED_SOURCE_IDS)[number];
@@ -267,7 +272,7 @@ export type DiscoveryWebhookRequestV1 = {
   /**
    * Optional allowlist of company names/domains/keys to restrict discovery to.
    * Empty or missing means no company restriction (broad discovery).
-   * Strings are trimmed by the worker; entries cap at 50.
+   * Strings are trimmed by the worker; entries cap at 500.
    */
   companyAllowlist?: string[];
   /**
@@ -346,6 +351,8 @@ export type DiscoveryRunLogRow = {
   companiesSeen: number;
   /** Distinct new rows appended to Pipeline this run. */
   leadsWritten: number;
+  /** Existing Pipeline rows updated this run. */
+  leadsUpdated: number;
   /** Free-form worker identity (e.g. "worker@v0.4.1"). */
   source: string;
   /** Existing concept from DiscoveryWebhookRequestV1.variationKey; blank when not applicable. */
@@ -388,10 +395,17 @@ export type DiscoveryProfileRequestV1 = {
   /**
    * Request mode. Default ("manual") treats resumeText/form as the input.
    * "refresh" ignores those fields, loads the stored candidateProfile from
-   * worker-config, re-runs discovery, dedupes against negativeCompanyKeys,
-   * and persists the new company list. Used by the Cloudflare Cron Trigger.
+   * worker-config, re-runs discovery, dedupes against negativeCompanyKeys
+   * plus previously-seen companies, and persists the new company list. Used
+   * by the Cloudflare Cron Trigger.
    * "skip_company" adds companyKey(s) to the negative list and returns the
    * current config without running Gemini.
+   * "unskip_company" removes companyKey(s) from the negative list and
+   * re-promotes any matching entries from companyHistory back into
+   * companies (dedup on companyKey). No Gemini call.
+   * "list_companies" returns a read-only snapshot of the active,
+   * skipped, and history company targets from stored worker-config so
+   * the dashboard's Companies panel can render without re-discovering.
    * "status" short-circuits before any Gemini call; returns a snapshot of
    * the stored profile, negative list length, and last refresh timestamp
    * for the dashboard's daily-refresh status panel.
@@ -403,11 +417,15 @@ export type DiscoveryProfileRequestV1 = {
     | "manual"
     | "refresh"
     | "skip_company"
+    | "unskip_company"
+    | "list_companies"
     | "status"
     | "schedule-save"
     | "schedule-status";
   /** For mode="skip_company": CompanyTarget.companyKey values to blacklist. */
   skipCompanyKeys?: string[];
+  /** For mode="unskip_company": CompanyTarget.companyKey values to restore. */
+  unskipCompanyKeys?: string[];
   /** For mode="schedule-save": schedule fields to persist. */
   schedule?: {
     enabled?: boolean;
@@ -497,6 +515,7 @@ export type DiscoveryProfileStatusV1 = {
   profileUpdatedAt: string | null;
   companyCount: number;
   negativeCompanyCount: number;
+  historyCompanyCount: number;
   lastRefreshAt: string | null;
   lastRefreshSource: "manual" | "refresh" | null;
 };
@@ -519,6 +538,7 @@ export type DiscoveryProfileResponseV1 =
       ok: true;
       profile: CandidateProfile;
       companies: CompanyTarget[];
+      historyCompanies?: CompanyTarget[];
       persisted: boolean;
       fallback?: {
         reason: "profile_extraction_failed" | "company_discovery_failed";
@@ -572,6 +592,13 @@ export type NormalizedLead = {
   followUpDate: string;
   talkingPoints: string;
   logoUrl: string;
+  /**
+   * Gate 1 approval marker for the JHOS apply flow. Set to "Approved" by
+   * Emilio in the Pipeline tab before an agent may advance an apply card.
+   * Workers read this field to determine whether submission is permitted.
+   * Empty string when not yet set.
+   */
+  approvalStatus: string;
   discoveredAt: string;
   metadata: {
     runId: string;
@@ -965,6 +992,12 @@ export type StoredWorkerConfig = {
   candidateProfile?: {
     resumeText?: string;
     form?: ProfileFormInput;
+    /**
+     * Last successfully resolved structured profile used for company discovery.
+     * Enables refresh runs to recover when upstream profile extraction is
+     * temporarily unavailable or returns an empty profile.
+     */
+    derivedProfile?: CandidateProfile;
     updatedAt?: string;
   };
   /**
@@ -973,6 +1006,17 @@ export type StoredWorkerConfig = {
    * companies against this list so skipped employers never re-appear.
    */
   negativeCompanyKeys?: string[];
+  /**
+   * Rolling list of all company keys surfaced by successful profile persists
+   * (manual or refresh). Refresh mode dedupes newly-discovered companies
+   * against this set so each refresh prefers net-new targets.
+   */
+  seenCompanyKeys?: string[];
+  /**
+   * Durable history of previously surfaced company targets. This preserves
+   * older lists even when `companies` is rotated to newer refresh results.
+   */
+  companyHistory?: CompanyTarget[];
   /**
    * Timestamp + source of the most recent successful /discovery-profile
    * persist. Written on every manual/refresh run that writes companies.

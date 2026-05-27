@@ -15,7 +15,7 @@ You can implement **A only** (cron job that appends rows) and never touch **B**.
 
 **Machine-readable Pipeline row (Interface A):** [schemas/pipeline-row.v1.json](schemas/pipeline-row.v1.json) — column letters, header labels for row 1, and enums where the UI constrains values (Status, Priority, “Did they reply?”). CI asserts this file matches [README.md](README.md) Sheet Structure and the status/priority lists in [`app.js`](app.js).
 
-**Machine-readable webhook shape:** [schemas/discovery-webhook-request.v1.schema.json](schemas/discovery-webhook-request.v1.schema.json) (JSON Schema for `schemaVersion` **1**). Example bodies: [examples/discovery-webhook-request.v1.json](examples/discovery-webhook-request.v1.json) (minimal, lets the worker use stored profile state) and [examples/discovery-webhook-request.v1-with-profile.json](examples/discovery-webhook-request.v1-with-profile.json) (profile, snapshot, and search plan filled).
+**Machine-readable webhook shape:** [schemas/discovery-webhook-request.v1.schema.json](schemas/discovery-webhook-request.v1.schema.json) (JSON Schema for `schemaVersion` **1**). Example bodies: [examples/discovery-webhook-request.v1.json](examples/discovery-webhook-request.v1.json) (minimal, lets the worker use stored profile state) and [examples/discovery-webhook-request.v1-with-profile.json](examples/discovery-webhook-request.v1-with-profile.json) (profile, snapshot, search plan, and optional per-run company filters filled).
 
 ---
 
@@ -55,7 +55,7 @@ The dashboard surfaces review work through one top-bar review control and a sing
 When the user clicks **Run discovery** and a **discovery webhook URL** is configured (`discoveryWebhookUrl` in config or **Discovery drawer → Connection**), the dashboard runs [`triggerDiscoveryRun`](app.js) in the browser:
 
 1. **POST** `Content-Type: application/json` to the configured URL.
-2. Body shape: see **Discovery webhook JSON** below (includes `schemaVersion` and optional `discoveryProfile`).
+2. Body shape: see **Discovery webhook JSON** below (includes `schemaVersion`, optional `discoveryProfile`, and optional per-run `companyAllowlist`).
 3. The automation should **enqueue or run** a search pass (use `variationKey` to vary queries and reduce duplicate leads).
 4. When the job finishes, new or updated rows appear in **Pipeline**; the dashboard refreshes on its normal cadence (or the user refreshes).
 
@@ -87,17 +87,18 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 
 ### Request body (v1)
 
-| Field              | Type   | Description                                                                                                   |
-| ------------------ | ------ | ------------------------------------------------------------------------------------------------------------- |
-| `event`            | string | Always `command-center.discovery`.                                                                            |
-| `schemaVersion`    | number | `1` for this contract.                                                                                        |
-| `sheetId`          | string | Target spreadsheet ID.                                                                                        |
-| `variationKey`     | string | Random hex string; use as a seed for query variation.                                                         |
-| `requestedAt`      | string | ISO 8601 timestamp.                                                                                           |
-| `discoveryProfile` | object | Optional. User preferences from the dashboard (see below). Omitted keys or empty values mean “no preference”. |
-| `trigger`          | string | Optional origin label: `manual`, `scheduled-browser`, `scheduled-local`, `scheduled-github`, `scheduled-cloudflare`, `scheduled-appsscript`, or `cli`. |
-| `companyAllowlist` | array  | Optional. Non-empty array of trimmed company names/domains/keys to restrict discovery to. Empty/missing means no company restriction. Capped at 50 unique entries. |
-| `companyBlocklist` | array  | Optional. Non-empty array of trimmed company names/domains/keys to suppress from results. Capped at 50 unique entries. |
+| Field               | Type     | Description                                                                                                                                            |
+| ------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `event`             | string   | Always `command-center.discovery`.                                                                                                                     |
+| `schemaVersion`     | number   | `1` for this contract.                                                                                                                                 |
+| `sheetId`           | string   | Target spreadsheet ID.                                                                                                                                 |
+| `variationKey`      | string   | Random hex string; use as a seed for query variation.                                                                                                  |
+| `requestedAt`       | string   | ISO 8601 timestamp.                                                                                                                                    |
+| `discoveryProfile`  | object   | Optional. User preferences from the dashboard (see below). Omitted keys or empty values mean “no preference”.                                          |
+| `trigger`           | string   | Optional origin label: `manual`, `scheduled-browser`, `scheduled-local`, `scheduled-github`, `scheduled-cloudflare`, `scheduled-appsscript`, or `cli`. |
+| `companyAllowlist`  | string[] | Optional. Per-run company subset selected from the dashboard. Omitted or empty means use the stored company list exactly as before. Capped at 500 entries. |
+| `companyBlocklist`  | string[] | Optional. Non-empty array of trimmed company names/keys to suppress from results. Capped at 50 unique entries.                                          |
+| `googleAccessToken` | string   | Optional. Short-lived dashboard Google OAuth token for this run only; receivers must not persist it.                                                    |
 
 **`discoveryProfile` fields (all optional):**
 
@@ -113,13 +114,15 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 | `profileSnapshot` | object | Optional non-secret metadata proving the current profile/resume/preferences/schedule snapshot used for the run. Raw resume text is not included. |
 | `searchPlan`      | object | Optional deterministic daily query/facet bundle. When `searchPlan.query` is present, the worker uses those query fields for this run while preserving the broader profile for observability. |
 
-Older automations that ignore `schemaVersion` and `discoveryProfile` keep working if they only read `event`, `sheetId`, `variationKey`, and `requestedAt`.
+`companyAllowlist` is ephemeral. It restricts only the current run to matching stored company/history entries after skipped-company filtering; unknown keys are ignored, and the worker never writes this field back to `worker-config.json`.
+
+Older automations that ignore `schemaVersion`, `discoveryProfile`, `companyAllowlist`, and `googleAccessToken` keep working if they only read `event`, `sheetId`, `variationKey`, and `requestedAt`.
 
 ### Evolving this contract
 
 - **Sheet columns:** If you add columns, prefer **after** T or a new tab — changing A–Q breaks existing sheets. Document changes in this file and README.
 - **Webhook:** Bump **`schemaVersion`** to `2` only when you introduce **breaking** request-field changes. The dashboard should send the new version when we ship it; until then it sends `1`.
-- **Non-breaking:** New optional fields inside `discoveryProfile` can be documented here without a version bump if old receivers ignore unknown keys.
+- **Non-breaking:** New optional fields inside `discoveryProfile` or optional top-level fields can be documented here without a version bump if old receivers ignore unknown keys.
 
 ---
 
