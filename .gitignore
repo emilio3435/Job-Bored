@@ -17,3 +17,6 @@ integrations/browser-use-discovery/service-account-key.json
 integrations/hermes-job-hunt/applications/
 integrations/hermes-job-hunt/state/
 integrations/hermes-job-hunt/evidence/
+__pycache__/
+*.pyc
+integrations/hermes-job-hunt/tests/tmp-app/
