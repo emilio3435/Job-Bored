@@ -16,12 +16,19 @@
 set -euo pipefail
 
 # ─── Configuration (all from environment/config, nothing hardcoded) ─────
-WORKER_DIR="$HOME/GitHub/emilio3435/Job-Bored/integrations/browser-use-discovery"
-WORKER_CONFIG="$WORKER_DIR/state/worker-config.json"
-WORKER_ENV="$WORKER_DIR/.env"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
-PYTHON_BIN="${HERMES_PYTHON:-$HERMES_HOME/hermes-agent/venv/bin/python}"
-GAPI="$PYTHON_BIN $HERMES_HOME/skills/productivity/google-workspace/scripts/google_api.py"
+HERMES_JOB_HUNT_HOME="${HERMES_JOB_HUNT_HOME:-$HERMES_HOME/job-hunt}"
+JOBBORED_REPO="${JOBBORED_REPO:-$HOME/Job-Bored}"
+WORKER_DIR="${BROWSER_USE_DISCOVERY_WORKER_DIR:-$JOBBORED_REPO/integrations/browser-use-discovery}"
+WORKER_CONFIG="${BROWSER_USE_DISCOVERY_WORKER_CONFIG:-$WORKER_DIR/state/worker-config.json}"
+WORKER_ENV="${BROWSER_USE_DISCOVERY_WORKER_ENV:-$WORKER_DIR/.env}"
+if [ -n "${HERMES_PYTHON:-}" ]; then
+  PYTHON_BIN="$HERMES_PYTHON"
+elif [ -x "$HERMES_JOB_HUNT_HOME/.venv/bin/python" ]; then
+  PYTHON_BIN="$HERMES_JOB_HUNT_HOME/.venv/bin/python"
+else
+  PYTHON_BIN="python3"
+fi
 
 # Worker HTTP config
 WORKER_PORT="${BROWSER_USE_DISCOVERY_PORT:-8644}"
@@ -31,7 +38,7 @@ HEALTH_URL="${WORKER_URL}/health"
 WEBHOOK_URL="${WORKER_URL}/webhook"
 
 # ─── Read required values from config files ─────────────────────────────
-SHEET_ID=$(python3 -c "import json; print(json.load(open('$WORKER_CONFIG'))['sheetId'])" 2>/dev/null || echo "")
+SHEET_ID=$("$PYTHON_BIN" -c "import json; print(json.load(open('$WORKER_CONFIG'))['sheetId'])" 2>/dev/null || echo "")
 if [ -z "$SHEET_ID" ]; then
   echo "ERROR: sheetId is empty in $WORKER_CONFIG. Complete JobBored onboarding first."
   exit 1
@@ -96,7 +103,7 @@ fi
 NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Build discoveryProfile from worker-config.json (webhook expects these in the payload)
-PAYLOAD=$(python3 -c "
+PAYLOAD=$("$PYTHON_BIN" -c "
 import json
 
 config = json.load(open('$WORKER_CONFIG'))
@@ -154,7 +161,7 @@ if [ "$OK" = "True" ]; then
 
   # ─── Read Pipeline for new jobs and format Telegram notification ───────
   # Fetch current Pipeline data via Sheets API or CSV fallback
-  $PYTHON_BIN -c "
+  "$PYTHON_BIN" -c "
 import json, sys, os
 from datetime import datetime, timedelta
 
