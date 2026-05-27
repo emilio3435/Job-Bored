@@ -1,0 +1,70 @@
+Emilio Nunez-Garcia — Resume
+portfolio
+Emilio Nunez-Garcia
+Performance marketing leader and the systems behind it.
+Denver, CO 501.366.2080 emilio3435@gmail.com emiliobuilds.com linkedin.com/in/emilio-nunez-garcia
+Summary 00
+Ten years in performance marketing. One thesis: ship paid spend toward marginal ROAS.
+Performance marketer and AI product builder with 10+ years across paid acquisition, sales leadership, and the systems behind both. Eight years at Audacy (formerly Entercom) growing a $10M+ Denver digital book to a top-3 national ranking in a #19-sized market — owning CAC, ROAS, and LTV optimization, advanced bidding strategy, and full-funnel testing for hundreds of advertisers across home services, financial services, healthcare, hospitality, retail, dental, and automotive. Math Econ background; fluent in unit economics, payback modeling, and channel forecasting. Founder of elioai.app, a production multi-model AI platform on GCP that automates campaign forecasting, client briefings, and reporting workflows. Bilingual English / Spanish; proficient French and Italian.
+Experience 01
+Audacy (formerly Entercom)
+Sep 2017 — 2026 eight years four progressive roles
+Digital Sales Manager
+May 2021 — 2026
+Owned a $10M+ annual digital media P&L; drove Denver to a consistent top-3 ranking in Digital Marketing Solutions revenue across Audacy's national footprint (Denver = #19 U.S. market) by dynamically reallocating spend across Google Ads, Meta, OTT/CTV, programmatic, and streaming audio toward marginal ROAS.
+Delivered 130% YoY paid-search conversion growth and 13% YoY new-user lift on a flagship financial-services account through a bid-strategy overhaul, audience-signal layering, and landing-page CRO.
+Led the market's transformation from broadcast-dominant to ~60% digital revenue mix — built the playbook, the pitch system, and the seller training that moved the business.
+Architected an advanced bidding and attribution framework spanning Google Ads (Search, YouTube, PMax), Meta Ads, Amazon DSP, and programmatic display — including AI-search readiness (AIO/GEO, hub-and-spoke content architecture) ahead of peer markets.
+Ran 20+ tracked pitches per month via Advisr while coaching 10 AE desks; built and led the Digital Café and Happy Half-Hour enablement series on bidding strategy, attribution modeling, creative testing, and platform-algorithm shifts.
+Managed a rotating team of up to three Digital Campaign Managers plus Internal Media Specialists, creative and agency partners, and platform vendors to launch and optimize campaigns against client KPIs (CPA, ROAS, lead volume, booked revenue).
+Owned end-to-end client strategy across home services, financial services, healthcare, dental, hospitality, retail, and automotive — high-stakes pitches, QBRs, mid-year reviews, attribution disputes, and retention through complex situations.
+Became the market's go-to client-facing strategist and presenter, leading attribution and AI-search disruption conversations (AI Overviews, GEO/AIO readiness, shadow sites vs. hub-and-spoke) that positioned Denver ahead of peer markets.
+— Emilio Nunez-Garcia performance marketing leader ai product builder emiliobuilds.com 01 / 03
+Experience / continued 01
+Audacy (cont.)
+Senior Key Account Manager / Key Account Manager
+May 2019 — May 2021
+Retained and grew a portfolio of strategic Denver accounts as the digital SME, paired with AEs on SEM, Paid Social, OTT/CTV, and Streaming Audio strategy.
+Promoted to Senior KAM on the strength of account retention and digital revenue growth; promoted again into Digital Sales Manager at the Audacy rebrand in May 2021.
+Built cross-platform proposals integrating broadcast audio, streaming audio, OTT, and digital — the foundation of the market's later digital-first motion.
+Digital Campaign Manager
+Sep 2017 — Apr 2019
+Hands-on setup, trafficking, optimization, and reporting across Google Ads, Meta, OTT/CTV, and programmatic display for local and regional advertisers — the platform-level fluency that still underwrites every strategy call I make.
+Built reporting dashboards and pacing systems used across the Denver market for client performance reviews.
+Founder Work / Independent Projects 02
+Elio Intelligence Suite — elioai.app
+Founder & AI Engineer Denver 2024 — Present
+Designed, built, and deployed a production multi-model AI platform on GCP Cloud Run routing across Claude, GPT, Gemini, Grok, and Llama based on task-fit, latency, and cost; backed by Vertex AI Search RAG pipelines and Google Chirp 3 HD text-to-speech.
+Shipped an SEM Revenue Forecast tool on Gemini with live Google Search grounding — ran 21+ forecasts against $2.4M of real pipeline data for pitch cycles.
+Stood up agentic scheduled workflows (morning client-pulse briefings, daily job-board scans) with Telegram delivery — operates across 8–10 API keys, 3–4 GCP service accounts, Firebase auth, and Cloud Run.
+Wrote the full stack end-to-end: infrastructure, backend, frontend, auth, deployment, observability. No engineering team, no hand-offs.
+Hormiga Dormida
+Founder Denver 2024 — Present
+Automated AI agency delivering marketing and ops workflows to SMB clients on the Elio Intelligence Suite stack.
+Authored an 18-idea automation playbook spanning client intelligence, sales ops, content production, lead gen, and reporting.
+JobBored
+Founder Denver 2024 — Present
+Brand system, React dashboard, and Hermes agent for an AI-assisted job-search product — scheduled job-board scans, resume tailoring, Telegram notifications.
+Earlier
+2015 — 2017
+Cofounder, Bucketz (2016–2017) — automated focus-group recruitment for mid-sized market-research firms via paid social and paid search.
+Digital Marketing Strategist, Primary Residential Mortgage Inc. (2015–2016) — built and optimized SEM and WordPress content programs across 8 states for mortgage and real-estate partners.
+Education 03
+B.A. Mathematical Economics — Colorado College Colorado Springs, CO 2017
+— Emilio Nunez-Garcia performance marketing leader ai product builder emiliobuilds.com 02 / 03
+Capabilities 04
+Paid Media Google Ads (Search, Display, YouTube, PMax, Demand Gen, App), Meta Ads (Facebook, Instagram, Reels, Advantage+), Amazon DSP, programmatic display, OTT/CTV (DV360, The Trade Desk), SEM, paid social, streaming audio (Spotify, Pandora, Audacy O&O), native, retargeting. Bidding & Optimization Advanced bidding strategies (tCPA, tROAS, Max Conversions, manual CPC), audience-signal layering, lookalikes / custom audiences, exclusion lists, dayparting, geo-modifier strategy, auction-time learnings, smart-bidding migrations, portfolio bid strategies. Measurement Attribution modeling (last-click, data-driven, MTA), GA4, GTM, Looker Studio dashboards, CallRail, ServiceTitan, CRM-back attribution, incrementality testing, MMM literacy, conversion API, server-side tagging. CRO & Experimentation Landing-page CRO, creative testing frameworks, multivariate testing, statistical-rigor A/B design, funnel optimization end-to-end (ad → LP → onboarding → activation). AI Search (AIO / GEO) AI Overviews readiness, generative-engine optimization, hub-and-spoke content architecture, shadow-site strategy, entity SEO, structured data, LLM-citation strategy. Unit Economics CAC, LTV, contribution margin, payback period, blended vs. paid CAC, ROAS targets by channel, channel forecasting, portfolio budget allocation, marginal-return analysis, scenario modeling.
+Tooling & Stack 05
+AI / Cloud Claude API, OpenAI API, Gemini / Vertex AI, Grok API, Llama (self-hosted), GCP Cloud Run, Vertex AI Search, RAG pipelines, multi-model routing, Google Chirp 3 HD TTS, Firebase, service accounts, IAM. Engineering Python, JavaScript, React, SQL, HTML/CSS, Node, bash, git worktrees, tmux, Claude Code, Codex, Cursor, VS Code, Xcode (XcodeGen), Swift basics. Adtech & Analytics Google Ads, Meta Ads Manager, Amazon DSP, DV360, The Trade Desk, GA4, Looker Studio, GTM, CallRail, ServiceTitan, Chart.js, Advisr, Salesforce basics, HubSpot basics. Business Microsoft Office Suite, Google Workspace, Tableau, QuickBooks, Notion, Linear, Figma (read), MS Teams, Zoom, Loom.
+Languages & Certifications 06
+Languages
+Bilingual English / Spanish (native fluency)
+Proficient French
+Proficient Italian
+Certifications
+Google Ads — Fundamentals
+Google Ads — Search
+Google Ads — Mobile Advertising
+Google Analytics Certified
+Built to ship paid spend toward marginal ROAS.
+— Emilio Nunez-Garcia performance marketing leader ai product builder emiliobuilds.com 03 / 03

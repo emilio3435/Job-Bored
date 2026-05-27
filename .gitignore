@@ -11,3 +11,9 @@ server/.env
 discovery-local-bootstrap.json
 integrations/browser-use-discovery/state/*
 !integrations/browser-use-discovery/state/worker-config.json
+integrations/browser-use-discovery/.env
+integrations/browser-use-discovery/.env.*
+integrations/browser-use-discovery/service-account-key.json
+integrations/hermes-job-hunt/applications/
+integrations/hermes-job-hunt/state/
+integrations/hermes-job-hunt/evidence/

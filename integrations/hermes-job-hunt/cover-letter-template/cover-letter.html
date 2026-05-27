@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Emilio Nunez-Garcia — Cover Letter</title>
+
+<!--
+  ============================================================
+  COVER LETTER TEMPLATE — Emilio Nunez-Garcia
+  ============================================================
+
+  This file is the canonical cover-letter master. Same design
+  language as resume.html (cream + navy + gold, Fraunces + Inter +
+  JetBrains Mono, section markers + gold-circle separators).
+
+  TO CUSTOMIZE FOR A SPECIFIC JOB — edit only the slots tagged
+  with data-slot. Do NOT change the CSS, fonts, or section system.
+
+    data-slot="date"           Today's date
+    data-slot="company"        Target company name
+    data-slot="company-addr"   Optional address line (city, state)
+    data-slot="role"           Role title
+    data-slot="hiring-manager" Salutation target ("Hiring Team" if unknown)
+    data-slot="hook"           Opening line — why you, why them, why now
+    data-slot="why-them"       Paragraph: what's compelling about THEIR mission
+    data-slot="why-me"         Paragraph: the case for you — concrete wins
+    data-slot="why-now"        Paragraph: how you'd show up in the role
+    data-slot="closing"        Closing line — keep it short and concrete
+
+  EDITORIAL RULES (keep these constants):
+    - Address Emilio in first person.
+    - No fluff: avoid "leverage", "synergize", "passionate about",
+      "results-driven", "proven track record".
+    - Use concrete numbers: $10M book, top-3 ranking, 130% YoY,
+      $2.4M pipeline, 21+ forecasts, 8-10 API keys.
+    - Match the resume's voice — confident, restrained, editorial.
+    - Mention BOTH sides of the dual-track identity: paid-media
+      operator AND AI product builder. That's the differentiator.
+
+  STRUCTURE (keep this rhythm):
+    1. Opening hook — one editorial line, mixed roman+italic.
+    2. Three short paragraphs: why them / why me / why now.
+    3. Closing flourish — italic Fraunces, mirrors the job's mission.
+
+  AFTER EDITING: run `python3 build.py` (a cover-letter target can be
+  added; see resume's build.py for the Playwright pattern).
+
+  KEYWORDS TO RECYCLE FROM RESUME (for ATS, if scanned):
+    Google Ads, Meta, PMax, OTT/CTV, programmatic, SEM, paid social,
+    ROAS, CAC, LTV, attribution, CRO, AI Overviews, GEO/AIO, Claude,
+    Vertex AI, RAG, Cloud Run, forecasting, unit economics.
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+  rel="stylesheet"
+/>
+
+<style>
+  /* =========================================================
+     TOKENS — same as resume.html
+     ========================================================= */
+  :root {
+    --cream:      #FAF4E6;
+    --cream-soft: #F7F1E8;
+    --navy:       #023047;
+    --navy-body:  #093444;
+    --navy-soft:  #2a4a5c;
+    --gold:       #FFB703;
+    --gold-soft:  rgba(255, 183, 3, 0.18);
+    --hairline:   rgba(2, 48, 71, 0.22);
+
+    --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+    --font-body:    'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+
+  @page { size: 8.5in 11in; margin: 0; }
+  html, body { background: var(--cream); }
+  body {
+    margin: 0;
+    color: var(--navy-body);
+    font-family: var(--font-body);
+    font-size: 10.5pt;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Screen preview shell */
+  .deck {
+    display: flex;
+    justify-content: center;
+    padding: 36px 16px 64px;
+    background:
+      radial-gradient(ellipse 60% 80% at 20% 30%,
+        rgba(255, 183, 3, 0.06), transparent 60%),
+      radial-gradient(ellipse 50% 70% at 80% 70%,
+        rgba(2, 48, 71, 0.05), transparent 60%),
+      #efe7d6;
+    min-height: 100vh;
+  }
+  .page {
+    width: 8.5in;
+    height: 11in;
+    background: var(--cream);
+    padding: 0.65in 0.8in 0.5in;
+    box-sizing: border-box;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow:
+      0 1px 0 rgba(2, 48, 71, 0.06),
+      0 18px 40px -22px rgba(2, 48, 71, 0.35),
+      0 60px 90px -50px rgba(2, 48, 71, 0.22);
+  }
+  @media print {
+    .deck { display: block; padding: 0; background: var(--cream); min-height: 0; }
+    .page {
+      width: 8.5in; height: 11in;
+      box-shadow: none; margin: 0;
+      padding: 0.65in 0.8in 0.5in;
+      page-break-after: always; break-after: page;
+    }
+    .page:last-child { page-break-after: auto; }
+  }
+
+  /* =========================================================
+     MASTHEAD — same family as the resume.
+     ========================================================= */
+  .masthead { margin-bottom: 8pt; position: relative; }
+
+  .masthead-link {
+    position: absolute;
+    top: 4pt;
+    right: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 5pt;
+    color: var(--navy);
+    text-decoration: none;
+    font-family: var(--font-mono);
+    font-size: 7pt;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    opacity: 0.85;
+  }
+  .masthead-link .mh-label { color: var(--navy-soft); }
+  .masthead-link .mh-mark { display: inline-block; height: 13pt; width: auto; }
+  .masthead-link:hover { opacity: 1; }
+
+  .name {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 28pt;
+    line-height: 1.02;
+    letter-spacing: -0.012em;
+    color: var(--navy);
+    font-variation-settings: "opsz" 96;
+    margin: 0;
+  }
+  .tagline {
+    margin: 5pt 0 0;
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 12pt;
+    line-height: 1.3;
+    color: var(--navy);
+    font-variation-settings: "opsz" 36;
+  }
+  .tagline .it { font-style: italic; font-weight: 400; }
+  .tagline .dot, .contact .dot {
+    display: inline-block;
+    background: var(--gold);
+    border-radius: 50%;
+    vertical-align: 0.2em;
+  }
+  .tagline .dot { width: 4pt; height: 4pt; margin: 0 7pt; }
+  .contact .dot { width: 3pt; height: 3pt; margin: 0 7pt; }
+
+  .contact {
+    margin: 6pt 0 0;
+    font-family: var(--font-body);
+    font-size: 8.3pt;
+    color: var(--navy-body);
+    line-height: 1.4;
+  }
+  .contact a { color: inherit; text-decoration: none; }
+
+  .rule-pair {
+    display: flex;
+    align-items: center;
+    gap: 8pt;
+    margin-top: 8pt;
+  }
+  .rule-gold {
+    display: inline-block;
+    width: 38pt; height: 1.6pt;
+    background: var(--gold); border-radius: 0.8pt;
+  }
+  .rule-thin { flex: 1; height: 0.5pt; background: var(--hairline); }
+
+  /* =========================================================
+     META BLOCK — date + recipient
+     ========================================================= */
+  .meta-block {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 3pt 18pt;
+    margin: 8pt 0 4pt;
+    font-family: var(--font-mono);
+    font-size: 8.5pt;
+    color: var(--navy-soft);
+    letter-spacing: 0.02em;
+  }
+  .meta-block dt {
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 7.5pt;
+    color: var(--navy);
+    padding-top: 1.5pt;
+  }
+  .meta-block dd {
+    margin: 0;
+    color: var(--navy);
+    font-family: var(--font-body);
+    font-size: 9.2pt;
+    letter-spacing: 0;
+    line-height: 1.4;
+  }
+  .meta-block dd .role {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 500;
+    color: var(--navy);
+  }
+
+  /* =========================================================
+     SECTION HEADER — single header for "Letter / 00"
+     Matches resume: chunky gold paragraph-bar, label, italic
+     Fraunces gold folio.
+     ========================================================= */
+  .sec-head {
+    display: flex;
+    align-items: center;
+    gap: 9pt;
+    margin: 11pt 0 0;
+  }
+  .sec-mark {
+    display: inline-block;
+    width: 4pt; height: 13pt;
+    background: var(--gold);
+    border-radius: 0.5pt;
+    flex: 0 0 auto;
+  }
+  .sec-label {
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 10pt;
+    text-transform: uppercase;
+    letter-spacing: 0.22em;
+    color: var(--navy);
+    flex: 1 1 auto;
+    line-height: 1;
+  }
+  .sec-num {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 500;
+    font-size: 13pt;
+    color: var(--gold);
+    flex: 0 0 auto;
+    line-height: 1;
+    font-variation-settings: "opsz" 36;
+  }
+  .sec-rule {
+    display: flex;
+    align-items: center;
+    gap: 6pt;
+    margin: 4pt 0 9pt;
+  }
+  .sec-rule .rule-gold { width: 32pt; height: 1.4pt; }
+  .sec-rule .rule-thin { flex: 1; height: 0.4pt; }
+
+  /* =========================================================
+     LETTER BODY
+     ========================================================= */
+  .salutation {
+    font-family: var(--font-display);
+    font-size: 12pt;
+    font-weight: 500;
+    color: var(--navy);
+    margin: 0 0 7pt;
+    font-variation-settings: "opsz" 36;
+  }
+  .salutation .it { font-style: italic; font-weight: 500; }
+
+  .hook {
+    font-family: var(--font-display);
+    font-size: 12.5pt;
+    line-height: 1.32;
+    color: var(--navy);
+    margin: 0 0 10pt;
+    max-width: 6.4in;
+    font-variation-settings: "opsz" 36;
+  }
+  .hook .it { font-style: italic; }
+  /* Drop-cap on the hook — editorial touch. */
+  .hook::first-letter {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 2.2em;
+    line-height: 0.92;
+    float: left;
+    padding: 3pt 6pt 0 0;
+    color: var(--navy);
+    font-style: normal;
+  }
+
+  .body p {
+    margin: 0 0 7pt;
+    font-size: 9.5pt;
+    line-height: 1.42;
+    color: var(--navy-body);
+    max-width: 6.4in;
+    text-wrap: pretty;
+  }
+  .body p:last-child { margin-bottom: 0; }
+  .body em, .body .it {
+    font-family: var(--font-display);
+    font-style: italic;
+    color: var(--navy);
+  }
+  .body strong {
+    font-weight: 600;
+    color: var(--navy);
+  }
+
+  /* Subtle gold-tint highlight for company name on first mention. */
+  .body .target {
+    background: linear-gradient(
+      to right,
+      var(--gold-soft) 0%,
+      var(--gold-soft) 92%,
+      transparent 100%
+    );
+    padding: 0 4pt;
+    margin: 0 -1pt;
+    border-radius: 2pt;
+  }
+
+  /* =========================================================
+     CLOSING
+     ========================================================= */
+  .closing-block {
+    margin-top: 10pt;
+  }
+  .sign-off {
+    font-family: var(--font-display);
+    font-size: 11pt;
+    color: var(--navy);
+    margin: 0 0 2pt;
+    font-style: italic;
+    font-variation-settings: "opsz" 36;
+  }
+  .signature {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 14pt;
+    color: var(--navy);
+    margin: 0 0 4pt;
+    letter-spacing: -0.005em;
+  }
+  .sig-meta {
+    font-family: var(--font-mono);
+    font-size: 7.8pt;
+    color: var(--navy-soft);
+    letter-spacing: 0.02em;
+  }
+  .sig-meta .dot {
+    display: inline-block;
+    width: 3pt; height: 3pt;
+    background: var(--gold);
+    border-radius: 50%;
+    vertical-align: 0.2em;
+    margin: 0 6pt;
+  }
+
+  .closing-flourish {
+    margin: 12pt 0 0;
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 400;
+    font-size: 11.5pt;
+    color: var(--navy);
+    line-height: 1.3;
+    max-width: 6.4in;
+  }
+  .closing-flourish .dot {
+    display: inline-block;
+    width: 4pt; height: 4pt;
+    background: var(--gold);
+    border-radius: 50%;
+    vertical-align: 0.22em;
+    margin-left: 8pt;
+  }
+
+  /* =========================================================
+     PAGE FOOTER
+     ========================================================= */
+  .pagefoot {
+    margin-top: auto;
+    padding-top: 7pt;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12pt;
+    border-top: 0.4pt solid var(--hairline);
+  }
+  .pagefoot .colophon {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: 8.5pt;
+    color: var(--navy-soft);
+  }
+  .pagefoot .colophon .dot,
+  .pagefoot .pagenum .dot {
+    display: inline-block;
+    width: 3pt; height: 3pt;
+    background: var(--gold);
+    border-radius: 50%;
+    vertical-align: 0.2em;
+    margin: 0 5pt;
+  }
+  .pagefoot .pagenum {
+    font-family: var(--font-mono);
+    font-size: 8pt;
+    color: var(--navy-soft);
+    letter-spacing: 0.04em;
+  }
+
+  /* =========================================================
+     TWEAK VARIANTS
+     ========================================================= */
+
+  /* VOICE — Quiet: strip italics, all roman. */
+  body.voice-quiet .tagline .it,
+  body.voice-quiet .salutation .it,
+  body.voice-quiet .hook .it,
+  body.voice-quiet .body em,
+  body.voice-quiet .body .it,
+  body.voice-quiet .sign-off,
+  body.voice-quiet .closing-flourish,
+  body.voice-quiet .sec-num,
+  body.voice-quiet .meta-block dd .role,
+  body.voice-quiet .pagefoot .colophon { font-style: normal; }
+  body.voice-quiet .sign-off,
+  body.voice-quiet .closing-flourish,
+  body.voice-quiet .pagefoot .colophon {
+    font-family: var(--font-body);
+    font-weight: 500;
+  }
+  body.voice-quiet .sec-num {
+    font-family: var(--font-mono);
+    font-size: 8.5pt;
+    color: var(--navy-soft);
+  }
+
+  /* VOICE — Editorial: lean into Fraunces. */
+  body.voice-editorial .sec-label {
+    font-family: var(--font-display);
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 13pt;
+    font-weight: 600;
+  }
+  body.voice-editorial .sec-label::first-letter { font-style: italic; }
+  body.voice-editorial .meta-block dt {
+    font-family: var(--font-display);
+    font-style: italic;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 9pt;
+    font-weight: 500;
+  }
+  body.voice-editorial .body p {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 10.5pt;
+    line-height: 1.5;
+    font-variation-settings: "opsz" 24;
+  }
+
+  /* HOOK STYLE — controls the editorial opening device.
+     Default (drop-cap) lives on the .hook rule above. */
+
+  /* PULLQUOTE: centered, large italic, oversized gold quotation marks. */
+  body.hook-pullquote .hook {
+    font-size: 16pt;
+    line-height: 1.32;
+    text-align: center;
+    max-width: 5.5in;
+    margin: 4pt auto 14pt;
+    padding: 12pt 18pt;
+    font-style: italic;
+    color: var(--navy);
+    position: relative;
+  }
+  body.hook-pullquote .hook::first-letter {
+    /* kill the drop-cap when pullquote is on */
+    font-size: inherit;
+    float: none;
+    padding: 0;
+    font-weight: inherit;
+  }
+  body.hook-pullquote .hook::before,
+  body.hook-pullquote .hook::after {
+    font-family: 'Fraunces', Georgia, serif;
+    color: var(--gold);
+    font-size: 32pt;
+    line-height: 0;
+    font-style: normal;
+    position: absolute;
+  }
+  body.hook-pullquote .hook::before { content: "“"; left: 0; top: 18pt; }
+  body.hook-pullquote .hook::after  { content: "”"; right: 0; bottom: 0; }
+
+  /* PLAIN: no drop-cap, no quotes — just italic Fraunces flowing into body. */
+  body.hook-plain .hook {
+    font-size: 12pt;
+    line-height: 1.4;
+    font-style: italic;
+    color: var(--navy);
+  }
+  body.hook-plain .hook::first-letter {
+    font-size: inherit;
+    float: none;
+    padding: 0;
+    font-weight: inherit;
+    font-style: italic;
+  }
+
+  /* Hide tweaks panel in print. */
+  @media print { #tweaks-root { display: none !important; } }
+</style>
+</head>
+<body>
+
+<script>
+  window.TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "accent": "coral",
+    "voice": "quiet",
+    "hook": "dropcap"
+  }/*EDITMODE-END*/;
+</script>
+
+<div class="deck">
+<article class="page">
+
+  <!-- ================== MASTHEAD ================== -->
+  <header class="masthead">
+    <a class="masthead-link" href="https://emiliobuilds.com" target="_blank" rel="noopener" aria-label="emiliobuilds.com">
+      <span class="mh-label">portfolio</span>
+      <img class="mh-mark" src="assets/emiliobuilds-wordmark.svg" alt="emiliobuilds.com" />
+    </a>
+    <h1 class="name">Emilio Nunez-Garcia</h1>
+    <p class="tagline">Performance marketing leader<span class="dot" aria-hidden="true"></span><span class="it">and the systems behind it.</span></p>
+    <p class="contact">
+      Denver, CO<span class="dot" aria-hidden="true"></span>501.366.2080<span class="dot" aria-hidden="true"></span><a href="mailto:emilio3435@gmail.com">emilio3435@gmail.com</a><span class="dot" aria-hidden="true"></span><a href="https://emiliobuilds.com">emiliobuilds.com</a><span class="dot" aria-hidden="true"></span><a href="https://www.linkedin.com/in/emiliobuilds">www.linkedin.com/in/emiliobuilds</a>
+    </p>
+    <div class="rule-pair" aria-hidden="true">
+      <span class="rule-gold"></span>
+      <span class="rule-thin"></span>
+    </div>
+  </header>
+
+  <!-- ================== META: date + recipient ================== -->
+  <dl class="meta-block">
+    <dt>Date</dt>
+    <dd data-slot="date">May 26, 2026</dd>
+
+    <dt>To</dt>
+    <dd>
+      <span data-slot="hiring-manager">Hiring Team</span><br />
+      <span data-slot="company">[Company Name]</span><br />
+      <span data-slot="company-addr">[City, State]</span>
+    </dd>
+
+    <dt>Re</dt>
+    <dd><span class="role" data-slot="role">[Role Title]</span></dd>
+  </dl>
+
+  <!-- ================== SECTION MARK ================== -->
+  <div class="sec-head">
+    <span class="sec-mark" aria-hidden="true"></span>
+    <span class="sec-label">Letter</span>
+    <span class="sec-num">00</span>
+  </div>
+  <div class="sec-rule" aria-hidden="true">
+    <span class="rule-gold"></span>
+    <span class="rule-thin"></span>
+  </div>
+
+  <!-- ================== SALUTATION ================== -->
+  <p class="salutation">Dear <span class="it" data-slot="salutation-name">Hiring Team</span>,</p>
+
+  <!-- ================== HOOK — one editorial sentence ================== -->
+  <!--
+    Pattern: state the thesis in one move. Mix roman + italic Fraunces
+    the way the resume does. Use the company name as a callout via
+    <span class="target">.
+  -->
+  <p class="hook" data-slot="hook">Ten years of shipping paid spend toward marginal ROAS — and the past two building the AI systems that decide where the next dollar goes. <span class="it">I'd like to bring both to <span class="target" data-slot="company-mention">[Company]</span>.</span></p>
+
+  <!-- ================== BODY — three short paragraphs ================== -->
+  <div class="body">
+
+    <!-- WHY THEM — what's compelling about their mission / product / moment. -->
+    <p data-slot="why-them"><span class="target" data-slot="company-mention-2">[Company]</span> is doing the kind of work I want to be near: <em>[one specific thing about them — a product bet, a metric, a hire, an article they published, a wedge they own]</em>. The <strong data-slot="role-keyword">[role]</strong> JD reads like a list of the problems I've been quietly solving for years — <em>[1–2 specific responsibilities from the JD, paraphrased in your voice]</em> — and the rest of it sounds like the work I'd be doing on weekends anyway.</p>
+
+    <!-- WHY ME — concrete wins; recycle resume specifics. -->
+    <p data-slot="why-me">For eight years at Audacy I owned a <strong>$10M+ digital media P&amp;L</strong> and drove Denver — the #19 U.S. market — to a consistent <strong>top-3 national ranking</strong> in Digital Marketing Solutions revenue. I delivered <strong>130% YoY paid-search conversion growth</strong> on a flagship financial-services account through a bidding overhaul, audience-signal layering, and landing-page CRO. I led the market's transformation to a ~60% digital revenue mix, architected an attribution and AI-search framework across Google Ads, Meta, OTT/CTV, and Amazon DSP, and trained ten AE desks to sell it. Numbers and accounts behind every claim — happy to walk you through them.</p>
+
+    <!-- WHY NOW — how I'd show up; tie to the dual track. -->
+    <p data-slot="why-now">In parallel I founded <span class="it">elioai.app</span> — a production multi-model AI platform on GCP Cloud Run routing across Claude, GPT, Gemini, Grok, and Llama, backed by Vertex AI Search RAG pipelines. I shipped an SEM Revenue Forecast tool on Gemini with live Google Search grounding that ran <strong>21+ forecasts against $2.4M of real pipeline data</strong>, plus agentic scheduled workflows operating across 8–10 API keys and 3–4 GCP service accounts. So when I talk about <em>"the systems behind performance marketing,"</em> I mean it literally: I write them, deploy them, and run them in production. That dual track — operator who can build the tooling instead of waiting for it — is what I'd bring to <span data-slot="company-mention-3">[Company]</span>.</p>
+
+    <!-- CLOSING — short, concrete, asks for a conversation. -->
+    <p data-slot="closing">I'd welcome the chance to talk about <em data-slot="closing-hook">[what specifically you want to dig into — a product area, a metric, a problem they posted]</em>. Either way, thanks for reading.</p>
+
+  </div>
+
+  <!-- ================== SIGN-OFF ================== -->
+  <div class="closing-block">
+    <p class="sign-off">Best,</p>
+    <p class="signature">Emilio Nunez-Garcia</p>
+    <p class="sig-meta">Denver, CO<span class="dot" aria-hidden="true"></span>501.366.2080<span class="dot" aria-hidden="true"></span>emilio3435@gmail.com</p>
+  </div>
+
+  <!-- ================== CLOSING FLOURISH ================== -->
+  <!--
+    Per-job swap: mirror the company's mission or your reason for
+    applying. Keep it one italic Fraunces line with a gold dot.
+    Default below echoes the resume's flourish.
+  -->
+  <p class="closing-flourish" data-slot="flourish">Built to ship paid spend toward marginal ROAS.<span class="dot" aria-hidden="true"></span></p>
+
+  <!-- ================== FOOTER ================== -->
+  <footer class="pagefoot">
+    <span class="colophon"><span style="font-style:normal;">—</span> Emilio Nunez-Garcia<span class="dot" aria-hidden="true"></span>performance marketing leader<span class="dot" aria-hidden="true"></span>ai product builder<span class="dot" aria-hidden="true"></span>emiliobuilds.com</span>
+    <span class="pagenum"><span class="dot" aria-hidden="true"></span>01 / 01</span>
+  </footer>
+
+</article>
+</div>
+
+<!-- ============================================================
+     TWEAKS PANEL
+     Three expressive controls that reshape the letter's feel:
+       • accent  — swap the signature gold for coral / teal / mono
+       • voice   — restrained / editorial / quiet  (italic register)
+       • hook    — dropcap / pullquote / plain      (opening device)
+     Hidden in print.
+     ============================================================ -->
+<div id="tweaks-root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+
+<script type="text/babel">
+  const ACCENTS = {
+    gold:  { gold: '#FFB703', soft: 'rgba(255, 183, 3, 0.18)' },
+    coral: { gold: '#EB4D56', soft: 'rgba(235, 77, 86, 0.16)' },
+    teal:  { gold: '#12A89C', soft: 'rgba(18, 168, 156, 0.18)' },
+    mono:  { gold: '#093444', soft: 'rgba(9, 52, 68, 0.10)' },
+  };
+
+  function applyAccent(key) {
+    const a = ACCENTS[key] || ACCENTS.gold;
+    document.documentElement.style.setProperty('--gold', a.gold);
+    document.documentElement.style.setProperty('--gold-soft', a.soft);
+  }
+  function applyVoice(v) {
+    const b = document.body;
+    b.classList.remove('voice-restrained', 'voice-editorial', 'voice-quiet');
+    b.classList.add('voice-' + v);
+  }
+  function applyHook(v) {
+    const b = document.body;
+    b.classList.remove('hook-dropcap', 'hook-pullquote', 'hook-plain');
+    b.classList.add('hook-' + v);
+  }
+
+  function CoverTweaks() {
+    const [t, setTweak] = useTweaks(window.TWEAK_DEFAULTS);
+
+    React.useEffect(() => { applyAccent(t.accent); }, [t.accent]);
+    React.useEffect(() => { applyVoice(t.voice); },   [t.voice]);
+    React.useEffect(() => { applyHook(t.hook); },     [t.hook]);
+
+    return (
+      <TweaksPanel title="Tweaks">
+        <TweakSection label="Signature accent" />
+        <TweakColor
+          label="Accent"
+          value={ACCENTS[t.accent].gold}
+          options={Object.values(ACCENTS).map(a => a.gold)}
+          onChange={(hex) => {
+            const k = Object.keys(ACCENTS).find(k => ACCENTS[k].gold === hex) || 'gold';
+            setTweak('accent', k);
+          }}
+        />
+        <div style={{fontSize:10.5,color:'rgba(41,38,27,.55)',marginTop:-2,lineHeight:1.35}}>
+          Replaces gold across rules, bullets, dots, target highlights, and folio.
+        </div>
+
+        <TweakSection label="Editorial voice" />
+        <TweakRadio
+          label="Voice"
+          value={t.voice}
+          options={['restrained', 'editorial', 'quiet']}
+          onChange={(v) => setTweak('voice', v)}
+        />
+        <div style={{fontSize:10.5,color:'rgba(41,38,27,.55)',marginTop:-2,lineHeight:1.35}}>
+          {t.voice === 'restrained' && 'Italic Fraunces shows up only in the hook, salutation, and closing line.'}
+          {t.voice === 'editorial'  && 'Body type becomes Fraunces. Meta keys italicize. Section label shifts to Fraunces.'}
+          {t.voice === 'quiet'      && 'All roman, no italic. Serious technical-business register.'}
+        </div>
+
+        <TweakSection label="Opening device" />
+        <TweakRadio
+          label="Hook"
+          value={t.hook}
+          options={['dropcap', 'pullquote', 'plain']}
+          onChange={(v) => setTweak('hook', v)}
+        />
+        <div style={{fontSize:10.5,color:'rgba(41,38,27,.55)',marginTop:-2,lineHeight:1.35}}>
+          {t.hook === 'dropcap'   && 'Magazine-style drop-cap on the first letter of the hook.'}
+          {t.hook === 'pullquote' && 'Hook becomes a centered italic pullquote with oversized gold quote marks.'}
+          {t.hook === 'plain'     && 'No ornament — hook flows as quiet italic Fraunces into the body.'}
+        </div>
+      </TweaksPanel>
+    );
+  }
+
+  applyAccent(window.TWEAK_DEFAULTS.accent);
+  applyVoice(window.TWEAK_DEFAULTS.voice);
+  applyHook(window.TWEAK_DEFAULTS.hook);
+
+  const root = ReactDOM.createRoot(document.getElementById('tweaks-root'));
+  root.render(<CoverTweaks />);
+</script>
+
+</body>
+</html>
