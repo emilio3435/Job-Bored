@@ -3,7 +3,21 @@
 **For:** Agent on Emilio's primary computer with the JobBored repo  
 **From:** cmux merge orchestrator (Phases 4–7 on secondary Mac)  
 **Date:** 2026-05-27  
+**Updated:** 2026-05-27 (Security cmux workspace)  
 **Repo:** https://github.com/emilio3435/Job-Bored.git
+
+---
+
+## Desktop transfer (two folders)
+
+| Folder                             | Role                                                                       |
+| ---------------------------------- | -------------------------------------------------------------------------- |
+| `Jobbored-Machine-Sync-2026-05-27` | Applications, OAuth, state, docs, cron reference                           |
+| `Jobbored-Rotated-Keys-2026-05-27` | **Post-rotation** worker `.env` + service-account key (Security workspace) |
+
+**Never deploy** the old `browser-use-discovery.env` or `service-account-key.json` from the Machine-Sync `02-secrets/` folder — those credentials were in public git history and are rotated/disabled.
+
+SerpAPI: regenerate at https://serpapi.com/manage-api-key and replace `PASTE_NEW_SERPAPI_KEY_HERE` in the rotated `.env`.
 
 ---
 
@@ -15,6 +29,7 @@
 | `8d164bd` | 5     | Default `worker-config.json` discovery targeting                                                                                 |
 | `df7ca8c` | 4–7   | **`integrations/hermes-job-hunt/`** — all Python scripts, templates, handoffs, tests (was only on disk at `~/.hermes/job-hunt/`) |
 | `c69cbe7` | —     | Gitignore cleanup (no `__pycache__` in repo)                                                                                     |
+| `500d8da` | sec   | Untrack worker `.env` from public repo (rotate keys via Rotated-Keys folder)                                                     |
 
 **Pull first:**
 
@@ -61,24 +76,32 @@ $HOME/GitHub/emilio3435/Job-Bored/integrations/browser-use-discovery/state/worke
 
 Adjust paths in `gate1-approve.py`, `pipeline-status.py`, `discovery-trigger.sh` if your clone lives elsewhere.
 
-### 3. Browser-use discovery worker
+### 3. Browser-use discovery worker (rotated credentials)
+
+From **`Jobbored-Rotated-Keys-2026-05-27/private/`** (Security workspace output):
 
 ```bash
+ROTATED=~/Desktop/Jobbored-Rotated-Keys-2026-05-27
 cd integrations/browser-use-discovery
-cp .env.example .env
-# Fill: BROWSER_USE_API_KEY, sheet ID after onboarding, service account path
+
+cp "$ROTATED/private/service-account-key.json" ./service-account-key.json
+cp "$ROTATED/private/browser-use-discovery.env" ./.env
+# Edit .env paths if clone location differs from secondary Mac
+# SerpAPI: regenerate at https://serpapi.com/manage-api-key → replace placeholder in .env
+
 npm install
 node --experimental-strip-types src/server.ts
-# Health: curl http://127.0.0.1:8644/health
+curl -s http://127.0.0.1:8644/health
 ```
 
-**Secrets (never commit):**
+OAuth (not in git) from Machine-Sync pack:
 
-- `integrations/browser-use-discovery/.env`
-- `integrations/browser-use-discovery/service-account-key.json`
-- `~/.hermes/google_token.json`
+```bash
+cp ~/Desktop/Jobbored-Machine-Sync-2026-05-27/02-secrets/google_token.json ~/.hermes/
+cp ~/Desktop/Jobbored-Machine-Sync-2026-05-27/02-secrets/google_client_secret.json ~/.hermes/
+```
 
-On secondary Mac a service account key was created for `jobbored@elio-ai-prod.iam.gserviceaccount.com` — copy the key file securely or regenerate on main.
+**Never commit:** `.env`, `service-account-key.json`, `~/.hermes/google_token.json`
 
 ### 4. Hermes agent local patch (optional)
 
@@ -135,13 +158,12 @@ Do **not** prioritize automated form submit.
 
 ## Application artifacts (not in GitHub)
 
-Generated PDFs/HTML under `~/.hermes/job-hunt/applications/` were **excluded** from the repo (PII). Sync separately:
+Copy `Jobbored-Machine-Sync-2026-05-27/01-applications/` → `~/.hermes/job-hunt/applications/`:
 
 - `chartis-senior-digital-marketing-consultant/`
 - `tegna-digital-sales-manager/`
 - `crowdstrike-director-sales-enablement-specialists/`
-
-Use AirDrop, iCloud, or rsync between machines.
+- `anthropic-solutions-architect-applied-ai-sl-gov-west/`
 
 ---
 
@@ -168,8 +190,11 @@ cd ~/.hermes/job-hunt && python3 -m pytest tests/ -q
 
 Main machine is ready when:
 
-- [ ] `git pull` at `df7ca8c` or later
+- [ ] `git pull` at `500d8da` or later
 - [ ] `~/.hermes/job-hunt/` synced from `integrations/hermes-job-hunt/`
+- [ ] Rotated `.env` + SA key installed (not legacy Machine-Sync `02-secrets` worker files)
+- [ ] SerpAPI placeholder replaced in `.env`
 - [ ] Discovery worker healthy on `:8644`
 - [ ] Sheet writes work with OAuth + service account
+- [ ] Desktop secret folders deleted after verify
 - [ ] Agent has read materials-first handoff and started manifest + dashboard contract work
