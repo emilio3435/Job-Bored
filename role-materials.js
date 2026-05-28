@@ -1085,6 +1085,9 @@
       documents: [],
       pending: {
         feature: feature,
+        company: ctx.company,
+        title: ctx.title,
+        jobUrl: ctx.jobUrl,
         requestedAt: new Date().toISOString(),
         notes: notes,
         source: "jobbored-dossier",

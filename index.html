@@ -103,15 +103,6 @@
     <section data-region="pipeline" aria-label="Pipeline (v2)"></section>
     <!-- region:pipeline:end -->
 
-    <!-- region:materials-queue:start
-         Global materials-drafting queue strip. Renders only when one
-         or more pending.json files are on disk anywhere in
-         ~/.hermes/job-hunt/applications/. Mounted near the top so
-         the user can see what Winky is working on regardless of
-         which dossier is open. -->
-    <section data-region="materials-queue" aria-label="Materials drafting queue" hidden></section>
-    <!-- region:materials-queue:end -->
-
     <!-- region:role:start -->
     <section data-region="role" aria-label="Role dossier (v2)"></section>
     <!-- region:role:end -->
@@ -870,6 +861,15 @@
           </div>
         </div>
       </section>
+
+      <!-- region:materials-queue:start
+           Global materials-drafting queue strip. Renders only when one
+           or more pending.json files are on disk anywhere in
+           ~/.hermes/job-hunt/applications/. Mounted right above the
+           main pipeline so the user can see what Winky is working on
+           regardless of which dossier is open. -->
+      <section data-region="materials-queue" aria-label="Materials drafting queue" hidden></section>
+      <!-- region:materials-queue:end -->
 
       <!-- Main Content: Pipeline -->
       <main class="main-content">

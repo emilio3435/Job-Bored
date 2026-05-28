@@ -8509,6 +8509,12 @@ function handleTokenResponse(tokenResponse) {
   }
 
   if (SHEET_ID) {
+    // Arm the auto-open flag only for interactive sign-in. Silent
+    // restore (page refresh with a valid token in storage) and
+    // silent-refresh paths leave this false, so the triage modal
+    // stays closed across refreshes — fixes the flicker-then-popup
+    // bug. The flag is consumed inside maybeAutoOpenExpiredReviewModal.
+    window.__expiredReviewArmFromInteractiveSignin = true;
     showSheetAccessGate("loading");
     loadAllData().then((ok) => {
       if (ok) revealDashboardShell();
@@ -14771,9 +14777,16 @@ function closeExpiredReviewModal() {
 
 function maybeAutoOpenExpiredReviewModal() {
   if (window.__expiredReviewAutoOpenedThisSession) return;
+  // Only auto-open after an actual interactive sign-in. A plain page
+  // refresh triggers a silent-restore (token still valid in storage)
+  // and should NOT pop the triage modal — that was a flicker bug.
+  // The interactive sign-in path sets this flag right before calling
+  // loadAllData(); silent paths leave it false.
+  if (!window.__expiredReviewArmFromInteractiveSignin) return;
   const items = getExpiredReviewItems();
   if (!items.length) return;
   window.__expiredReviewAutoOpenedThisSession = true;
+  window.__expiredReviewArmFromInteractiveSignin = false;
   // Defer one tick so the dashboard finishes its post-load render first;
   // otherwise the modal pops over a half-painted card grid.
   setTimeout(openExpiredReviewModal, 60);
@@ -20653,7 +20666,16 @@ function init() {
   // Hold the dashboard behind an access gate until the first read succeeds.
   document.getElementById("setupScreen").style.display = "none";
   document.getElementById("dashboard").style.display = "none";
-  showSheetAccessGate("loading");
+  // Only show the gate "loading" splash on cold loads (no persisted OAuth
+  // session). When a session IS persisted, silent-restore is about to fire
+  // and finish in ~200-500ms; showing the login-style gate during that
+  // window creates a jarring flicker on every refresh. If silent-restore
+  // fails, the error paths in initAuth/handleTokenResponse open the gate
+  // for us with the right mode.
+  const hasPersistedSession = !!loadPersistedOAuthSession();
+  if (!hasPersistedSession) {
+    showSheetAccessGate("loading");
+  }
 
   // Dashboard wordmark vs custom title
   const cfg = getConfig();
