@@ -380,7 +380,12 @@ describe("renderManifest", () => {
     assert.match(fullHtml, /brief-materials/);
     assert.match(fullHtml, /Tailored Resume/);
     assert.match(fullHtml, /Cover Letter/);
-    assert.match(fullHtml, /QA Report/);
+    /* QA Report / Job Analysis / Job Description are now filtered out
+       of the materials grid — only the user-facing deliverables
+       (resume + cover letter) surface. Confirm they're absent. */
+    assert.doesNotMatch(fullHtml, /QA Report/);
+    assert.doesNotMatch(fullHtml, /Job Analysis/);
+    assert.doesNotMatch(fullHtml, /Job Description/);
     assert.match(fullHtml, /data-action="materials-preview"/);
     assert.match(fullHtml, /data-action="materials-download"/);
     assert.match(fullHtml, /\/api\/applications\/chartis-senior-digital-marketing-consultant\/files\/resume.pdf/);
