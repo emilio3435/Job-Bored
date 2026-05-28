@@ -37,7 +37,7 @@ test("Hermes discovery trigger self-heals stale webhook secrets once", () => {
   );
 });
 
-test("Hermes discovery trigger fails loud on async worker failure or timeout", () => {
+test("Hermes discovery trigger stays under Dobby's script watchdog", () => {
   const pollStart = script.indexOf('if [ -n "$RUN_ID" ]; then');
   assert.notEqual(pollStart, -1, "async run polling block must exist");
   const pipelineStart = script.indexOf("# ─── Read Pipeline", pollStart);
@@ -49,9 +49,14 @@ test("Hermes discovery trigger fails loud on async worker failure or timeout", (
   assert.match(pollBlock, /\[ "\$STATUS" = "empty" \]/);
   assert.match(pollBlock, /\[ "\$STATUS" = "failed" \]/);
   assert.match(
+    script,
+    /BROWSER_USE_DISCOVERY_POLL_TIMEOUT_SECONDS:-540/,
+    "the default polling window must leave headroom below Dobby's 600s script timeout",
+  );
+  assert.match(
     pollBlock,
-    /ERROR: Discovery run did not reach terminal status within 10 minutes/,
-    "a never-terminal worker run should make the cron fail instead of sending a stale summary",
+    /JobBored Discovery accepted and still running after \$\{POLL_TIMEOUT_SECONDS\}s/,
+    "a long-running async worker run should report still-running status before Dobby kills the script",
   );
   assert.match(
     pollBlock,
