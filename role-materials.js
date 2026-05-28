@@ -261,6 +261,14 @@
     var statusAttr = primaryQualityIssue ? "needs_review" : "ready";
 
     var actions = [];
+    if (primaryQualityIssue) {
+      actions.push(
+        '<button type="button" class="brief-materials__btn brief-materials__btn--primary"'
+        + ' data-action="materials-repair"'
+        + ' data-feature="' + typeAttr + '"'
+        + '>Repair</button>'
+      );
+    }
     if (hasPreview && preview) {
       actions.push(
         '<a class="brief-materials__btn brief-materials__btn--primary"'
@@ -654,6 +662,14 @@
             );
             return;
           }
+          if (action === "materials-repair") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            handleRepair(
+              section.getAttribute("data-slug") || "",
+              t.getAttribute("data-feature") || "",
+            );
+            return;
+          }
         }
         t = t.parentNode;
       }
@@ -703,6 +719,45 @@
     postJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/dismiss", {})
       .catch(function () { /* dismiss may 404 if Dobby already cleared it — that's fine */ })
       .then(function () { return submitDraftRequest(ctx, feature, prevNotes); });
+  }
+
+  function handleRepair(slug, feature) {
+    if (!slug || !feature || !currentContext) return;
+    var ctx = currentContext;
+    var repairNote = "Repairing Review issues for the " + featureLabel(feature) + ".";
+
+    renderOptimisticPending(ctx, feature, repairNote, "jobbored-dossier-repair");
+
+    function sendRepairRequest() {
+      return postJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/repair", {
+        feature: feature,
+        jobUrl: ctx.jobUrl,
+      });
+    }
+
+    function completeRepairRequest() {
+      return sendRepairRequest().then(function () {
+        dispatch("jb:materials:changed", { slug: slug, reason: "repair-sent" });
+        return fetchJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/manifest");
+      }).then(function (manifest) {
+        var brief = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
+        if (!brief) return;
+        getApplications(ctx.base, { refresh: true });
+        renderManifest(brief, manifest, ctx.base);
+        if (manifest.pending) startPolling(manifest.slug, ctx.base);
+        dispatch("jb:materials:changed", { slug: slug });
+      });
+    }
+
+    ensureJobDescription(ctx).then(completeRepairRequest).catch(function (err) {
+      var brief = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
+      if (!brief) return;
+      if (err && err.code === "JD_PASTE_REQUIRED") {
+        renderJdPasteForm(brief, ctx, feature, repairNote, completeRepairRequest);
+        return;
+      }
+      renderError(brief, "Repair request failed: " + ((err && err.message) || "Unknown error"));
+    });
   }
 
   /* -------------------- network -------------------- */
@@ -1381,13 +1436,11 @@
     });
   }
 
-  function submitDraftRequest(ctx, feature, notes) {
+  function renderOptimisticPending(ctx, feature, notes, source) {
     var region = document.querySelector(REGION_SELECTOR);
     var brief = region && region.querySelector(BRIEF_SELECTOR);
     if (!brief) return;
 
-    /* Optimistic UI: stamp a fresh "pending" banner immediately so the
-       click visibly registers, even before the server responds. */
     var optimisticManifest = {
       slug: ctx.slug,
       company: ctx.company,
@@ -1401,7 +1454,7 @@
         jobUrl: ctx.jobUrl,
         requestedAt: new Date().toISOString(),
         notes: notes,
-        source: "jobbored-dossier",
+        source: source || "jobbored-dossier",
       },
     };
     /* Merge with whatever the manifest endpoint last returned so
@@ -1415,6 +1468,16 @@
         }
         renderManifest(brief, base, ctx.base);
       });
+  }
+
+  function submitDraftRequest(ctx, feature, notes) {
+    var region = document.querySelector(REGION_SELECTOR);
+    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    if (!brief) return;
+
+    /* Optimistic UI: stamp a fresh "pending" banner immediately so the
+       click visibly registers, even before the server responds. */
+    renderOptimisticPending(ctx, feature, notes, "jobbored-dossier");
 
     /* Run the JD fallback chain BEFORE asking Hermes to draft. The
        contract is: pending.json should not get written unless the
@@ -1539,7 +1602,7 @@
     });
   }
 
-  function renderJdPasteForm(briefEl, ctx, feature, notes) {
+  function renderJdPasteForm(briefEl, ctx, feature, notes, afterSave) {
     if (!briefEl) return;
     /* Locate the materials section so we can paint the paste form
        above it (similar to the notes form pattern). */
@@ -1583,11 +1646,14 @@
       putJobDescription(ctx.base, ctx.slug, text, "user-paste", ctx.jobUrl)
         .then(function () {
           if (holder.parentNode) holder.parentNode.removeChild(holder);
+          if (typeof afterSave === "function") {
+            return afterSave();
+          }
           /* Re-fire the original submit flow now that the JD is on
              disk. submitDraftRequest will re-run the JD chain, but
              step 1 will short-circuit (JD now exists) and we go
              straight to /request. */
-          submitDraftRequest(ctx, feature, notes);
+          return submitDraftRequest(ctx, feature, notes);
         })
         .catch(function (err) {
           var hint = holder.querySelector(".brief-materials__jd-hint");

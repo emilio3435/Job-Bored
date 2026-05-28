@@ -30,6 +30,7 @@ import {
   normalizeRequestBody,
   spawnMaterialsRequest,
 } from "./materials-request.mjs";
+import { buildRepairRequestPayload } from "./materials-repair.mjs";
 
 const PORT = Number(process.env.PORT) || 3847;
 /** 127.0.0.1 for local dev; set LISTEN_HOST=0.0.0.0 on Render/Fly/Docker so the service accepts external traffic. */
@@ -240,6 +241,26 @@ app.post("/api/applications/:slug/request", async (req, res) => {
     const payload = normalizeRequestBody(body);
     const result = await spawnMaterialsRequest(payload);
     res.json(result);
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+/* Converts a Review-status artifact into a concrete Hermes regeneration
+ * request. The quality gate decides which document needs work; this
+ * endpoint turns those issue codes into repair notes that ask Hermes to
+ * expand sparse drafts or collapse overlong ones automatically. */
+app.post("/api/applications/:slug/repair", async (req, res) => {
+  try {
+    const manifest = await buildManifest(req.params.slug);
+    const { payload: rawPayload, repair } = buildRepairRequestPayload(manifest, {
+      feature: req.body && req.body.feature,
+      jobUrl: req.body && (req.body.jobUrl || req.body.job_url),
+      notes: req.body && req.body.notes,
+    });
+    const payload = normalizeRequestBody(rawPayload);
+    const result = await spawnMaterialsRequest(payload);
+    res.json({ ...result, repair });
   } catch (e) {
     sendAppError(res, e);
   }
