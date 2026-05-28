@@ -25,13 +25,19 @@
    What stays:
      - #dashboard itself (its inline display: flex stays in
        force so the page is mounted).
-     - #dashboard > .top-bar — keeps the settings gear, auth
-       avatar, and toolbar reachable. Without this the user
-       cannot get back to the toggle.
+
+   .top-bar is hidden in JBv2 too: flowing-chrome.js adopts its
+   action buttons (sheetLink, materialsBtn, settingsBtn,
+   authSection, etc.) into .page-top, so the legacy header is
+   reduced to a duplicate logo. It was rendering as a stray
+   "Job Bored" stamp at the bottom of pages because #dashboard
+   is the last body child and its sticky top-bar got pushed far
+   down by the data-region sections that come before it.
    ============================================================ */
 
 body.jb-v2 #dashboard > .command-strip.daily-brief-panel,
-body.jb-v2 #dashboard > main.main-content {
+body.jb-v2 #dashboard > main.main-content,
+body.jb-v2 #dashboard > header.top-bar {
   display: none !important;
 }
 
