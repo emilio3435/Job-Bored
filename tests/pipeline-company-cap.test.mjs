@@ -140,4 +140,67 @@ describe("v2 pipeline per-company hard cap", () => {
       "Only 3 Figma cards in the rendered column",
     );
   });
+
+  it("Pinned cards (e.g. favorites, selected) survive the cap even with low fit", () => {
+    const { capCardsByFit } = loadPipelineInternals();
+    const cards = figmaCards(10, 90);
+    // Pin the worst-fit card; it must still show even though its fit is the
+    // lowest of the bunch. Otherwise a user's explicit star/click is silently
+    // overruled.
+    const pinnedKey = "figma-9";
+    const capped = capCardsByFit(cards, (c) => c.jobKey === pinnedKey);
+    const keys = capped.map((c) => c.jobKey);
+    assert.ok(keys.includes(pinnedKey), "Pinned card survives regardless of fit rank");
+    assert.equal(capped.length, 3, "Total survivors still bounded by cap (pin counts toward cap)");
+  });
+
+  it("Multiple pins are kept even if they would together exceed the cap", () => {
+    const { capCardsByFit } = loadPipelineInternals();
+    const cards = figmaCards(10, 90);
+    // Pin 4 cards — more than the cap. All 4 should survive; auto-picks
+    // contribute zero additional slots.
+    const pinnedKeys = new Set(["figma-5", "figma-6", "figma-7", "figma-8"]);
+    const capped = capCardsByFit(cards, (c) => pinnedKeys.has(c.jobKey));
+    const keys = capped.map((c) => c.jobKey).sort();
+    assert.deepEqual(
+      keys,
+      ["figma-5", "figma-6", "figma-7", "figma-8"],
+      "All 4 pinned cards survive even when count exceeds the visible cap",
+    );
+  });
+
+  it("Tied fitScores produce deterministic survivors via stable index tiebreak", () => {
+    const { capCardsByFit } = loadPipelineInternals();
+    const cards = [
+      { jobKey: "a", company: "Figma", fitScore: null },
+      { jobKey: "b", company: "Figma", fitScore: null },
+      { jobKey: "c", company: "Figma", fitScore: null },
+      { jobKey: "d", company: "Figma", fitScore: null },
+      { jobKey: "e", company: "Figma", fitScore: null },
+    ];
+    const capped = capCardsByFit(cards);
+    const keys = capped.map((c) => c.jobKey);
+    assert.deepEqual(
+      keys,
+      ["a", "b", "c"],
+      "With all fitScores tied, the first three by input index survive deterministically",
+    );
+  });
+
+  it("Equal-fit cards beat ties by input order, not engine-defined order", () => {
+    const { capCardsByFit } = loadPipelineInternals();
+    const cards = [
+      { jobKey: "p", company: "Figma", fitScore: 50 },
+      { jobKey: "q", company: "Figma", fitScore: 50 },
+      { jobKey: "r", company: "Figma", fitScore: 80 },
+      { jobKey: "s", company: "Figma", fitScore: 50 },
+    ];
+    const capped = capCardsByFit(cards);
+    const keys = capped.map((c) => c.jobKey).sort();
+    assert.deepEqual(
+      keys,
+      ["p", "q", "r"],
+      "Highest fit wins; among the 50-tied cards, earliest index breaks the tie",
+    );
+  });
 });
