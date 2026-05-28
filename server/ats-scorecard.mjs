@@ -564,7 +564,7 @@ export function getProviderConfigFromEnv() {
     anthropicApiKey: String(
       process.env.ATS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || "",
     ).trim(),
-    geminiModel: String(process.env.ATS_GEMINI_MODEL || "gemini-2.5-flash").trim(),
+    geminiModel: String(process.env.ATS_GEMINI_MODEL || "gemini-3.5-flash").trim(),
     openAIModel: String(process.env.ATS_OPENAI_MODEL || "gpt-5.4-mini").trim(),
     anthropicModel: String(process.env.ATS_ANTHROPIC_MODEL || "claude-sonnet-4-6").trim(),
   };

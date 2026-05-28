@@ -335,7 +335,7 @@ export function loadRuntimeConfig(
         "BROWSER_USE_DISCOVERY_GEMINI_MODEL",
         "DISCOVERY_GEMINI_MODEL",
         "GEMINI_MODEL",
-      ]) || "gemini-2.5-flash",
+      ]) || "gemini-3.5-flash",
     groundedSearchMaxResultsPerCompany: parsePositiveInt(
       readFirst(runtimeEnv, [
         "BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_RESULTS_PER_COMPANY",
