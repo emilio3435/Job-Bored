@@ -16671,6 +16671,30 @@ function renderOnboardingSummary() {
   ul.innerHTML = html;
 }
 
+const ONBOARDING_MASCOT_POSES = {
+  1: "assets/jobbored-brand-mascot-kit/exports/04-mascot-poses/pose-02-resume-review.webp",
+  2: "assets/jobbored-brand-mascot-kit/exports/04-mascot-poses/pose-01-laptop-thinking.webp",
+  3: "assets/jobbored-brand-mascot-kit/exports/04-mascot-poses/pose-03-writing-notes.webp",
+  4: "assets/jobbored-brand-mascot-kit/exports/04-mascot-poses/pose-07-celebrating.webp",
+};
+
+function updateOnboardingMascotPose(step) {
+  const img = document.getElementById("onboardingMascotPose");
+  if (!img) return;
+
+  const nextStep = ONBOARDING_MASCOT_POSES[step] ? step : 1;
+  const nextSrc = ONBOARDING_MASCOT_POSES[nextStep];
+  const frame = img.closest(".onboarding-wizard__mascot-frame");
+  if (frame) frame.dataset.step = String(nextStep);
+
+  if (img.getAttribute("src") === nextSrc) return;
+  img.classList.add("onboarding-wizard__logo--swapping");
+  img.setAttribute("src", nextSrc);
+  window.setTimeout(() => {
+    img.classList.remove("onboarding-wizard__logo--swapping");
+  }, 140);
+}
+
 function setOnboardingStep(step) {
   // Four-panel wizard: 1 = resume, 2 = role suggestions, 3 = AI context, 4 = tone.
   for (let i = 1; i <= ONBOARDING_TOTAL_STEPS; i++) {
@@ -16685,6 +16709,7 @@ function setOnboardingStep(step) {
     4: "Tone",
   };
   if (title) title.textContent = titles[step] || "Setup";
+  updateOnboardingMascotPose(step);
   updateOnboardingProgressUI(step);
   if (step === 1) updateOnboardingContinue2Enabled();
   if (step === 2) {
