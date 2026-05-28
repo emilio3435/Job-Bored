@@ -341,15 +341,6 @@
     var job = (vm && vm.job) || {};
 
     region.innerHTML = '' +
-      '<div class="jb-role-divider">' +
-        '<div class="jb-role-divider__rule"></div>' +
-        '<div class="jb-role-divider__inner">' +
-          '<div>' +
-            '<div class="jb-role-divider__num">PART 03 · NOW READING</div>' +
-            '<div class="jb-role-divider__title">The <em>dossier</em></div>' +
-          '</div>' +
-        '</div>' +
-      '</div>' +
       '<div class="dossier">' +
         '<article class="brief" data-mount="brief"></article>' +
       '</div>';
