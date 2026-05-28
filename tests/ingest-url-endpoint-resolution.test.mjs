@@ -77,6 +77,7 @@ describe("Add job from URL endpoint resolution", () => {
       /refreshDiscoveryReadinessSnapshot\(\{\s*force:\s*true,\s*rerender:\s*false,\s*\}\)/,
     );
     assert.match(candidatesSource, /state\.relayTargetUrl/);
+    assert.match(candidatesSource, /snapshot_tunnel_target/);
     assert.match(candidatesSource, /getCloudflareRelayTargetInfo\(\)/);
     assert.match(candidatesSource, /buildDiscoveryTunnelTargetUrl\(/);
     assert.match(candidatesSource, /source:\s*"configured"/);
@@ -85,6 +86,7 @@ describe("Add job from URL endpoint resolution", () => {
     assert.match(candidatesSource, /allowDirectLocal \? state\.localWebhookUrl : ""/);
     assert.match(candidatesSource, /allowDirectLocal \? transport\.localWebhookUrl : ""/);
     assert.match(resolverSource, /scoreDiscoveryRunWebhookCandidates\(/);
+    assert.match(resolverSource, /writeDiscoveryTransportSetupState\(/);
     assert.doesNotMatch(
       resolverSource,
       /if \(configured\) return configured/,
@@ -100,6 +102,8 @@ describe("Add job from URL endpoint resolution", () => {
 
     assert.match(probeSource, /local_only_on_hosted_dashboard/);
     assert.match(probeSource, /isLikelyCloudflareWorkerUrl\(url\)/);
+    assert.match(probeSource, /isLikelyNgrokWebhookUrl\(url\)/);
+    assert.match(probeSource, /sameDiscoveryUrlOrigin\(url, state\.tunnelPublicUrl\)/);
     assert.match(probeSource, /!isLocalDashboardOrigin\(\) && \(worker \|\| hostedHttps\)/);
     assert.match(probesJs, /const isHostedSavedEndpoint =/);
     assert.match(

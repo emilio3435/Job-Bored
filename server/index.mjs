@@ -132,7 +132,10 @@ app.post("/api/scrape-job", async (req, res) => {
     if (!target.ok) {
       return res.status(400).json({ error: target.error });
     }
-    const result = await scrapeJobPosting(target.url);
+    const result = await scrapeJobPosting(target.url, {
+      title: typeof req.body.title === "string" ? req.body.title : "",
+      company: typeof req.body.company === "string" ? req.body.company : "",
+    });
     res.json(result);
   } catch (e) {
     const msg = e && e.message ? String(e.message) : "Scrape failed";
@@ -245,7 +248,7 @@ app.post("/api/applications/:slug/request", async (req, res) => {
 /* Dismisses a stuck/failed pending.json by archiving it (rename, not
  * delete) so the JobBored UI clears its FAILED card without losing
  * the watcher's last-known state. Intended for the user clicking
- * "Dismiss" on a terminal-phase progress card — Winky leaves
+ * "Dismiss" on a terminal-phase progress card — Dobby leaves
  * pending.json in place on failure by design. */
 app.post("/api/applications/:slug/dismiss", async (req, res) => {
   try {
@@ -312,14 +315,25 @@ app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
       return;
     }
     const target = validateScrapeTarget(url);
-    const scraped = await scrapeJobPosting(target.url);
+    const scraped = await scrapeJobPosting(target.url, {
+      title: typeof req.body.title === "string" ? req.body.title : "",
+      company: typeof req.body.company === "string" ? req.body.company : "",
+    });
     const text = (scraped && (scraped.description || scraped.bodyText || ""))
       .toString().trim();
     if (!text) {
       res.status(502).json({ ok: false, error: "Scrape returned no description text" });
       return;
     }
-    res.json({ ok: true, text, jobUrl: target.url, scrapedAt: new Date().toISOString() });
+    res.json({
+      ok: true,
+      text,
+      jobUrl: target.url,
+      source: scraped.source || scraped.method || "server-scrape",
+      title: scraped.title || "",
+      company: scraped.company || "",
+      scrapedAt: new Date().toISOString(),
+    });
   } catch (e) {
     sendAppError(res, e);
   }

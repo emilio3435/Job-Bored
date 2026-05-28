@@ -851,9 +851,16 @@
         storedTunnelUrl,
       });
 
-    const relayTargetUrl =
+    const liveRelayTargetUrl =
+      buildRelayTargetUrl(localWebhookUrl, tunnelPublicUrl) || "";
+    const storedRelayTargetUrl =
       normalizeUrl((bootstrapData && bootstrapData.publicTargetUrl) || "") ||
-      buildRelayTargetUrl(localWebhookUrl, tunnelPublicUrl) ||
+      "";
+    const relayTargetUrl =
+      (tunnelLive && liveRelayTargetUrl) ||
+      (!tunnelStale && storedRelayTargetUrl) ||
+      liveRelayTargetUrl ||
+      storedRelayTargetUrl ||
       "";
     const directLocalWebhookReady =
       savedWebhookKind === SAVED_WEBHOOK_KIND_LOCAL_HTTP &&

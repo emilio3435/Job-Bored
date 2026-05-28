@@ -277,6 +277,13 @@
     if (Number(status) !== 401) return false;
     if (data && typeof data === "object") {
       const message = text(data.message).toLowerCase();
+      const authCategory = text(data.auth && data.auth.category).toLowerCase();
+      if (authCategory === "secret_mismatch") {
+        return true;
+      }
+      if (/x-discovery-secret.*match.*configured secret/.test(message)) {
+        return true;
+      }
       if (/unauthorized.*discovery.*webhook.*request/.test(message)) {
         return true;
       }

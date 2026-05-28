@@ -474,6 +474,88 @@ describe("Profile tab — resume restore source selection", () => {
     assert.equal(overrides.discoveryWebhookSecret, "secret-from-bootstrap");
   });
 
+  it("replaces a stale local webhook secret from discovery-local-bootstrap.json after a mismatch", async () => {
+    const seenHeaders = [];
+    const calls = [];
+    let postAttempt = 0;
+    const { module, localStorageRaw } = await loadScheduleModule({
+      location: {
+        hostname: "localhost",
+        port: "8080",
+      },
+      window: {
+        COMMAND_CENTER_CONFIG: {
+          discoveryWebhookUrl: "http://127.0.0.1:8644/discovery-profile",
+          discoveryWebhookSecret: "stale-secret",
+          sheetId: "sheet_abc123",
+        },
+      },
+      fetch: async (url, init) => {
+        calls.push(String(url));
+        if (String(url) === "discovery-local-bootstrap.json") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              localWebhookUrl: "http://127.0.0.1:8644/webhook",
+              webhookSecret: "fresh-secret",
+            }),
+          };
+        }
+        if (String(url) === "http://127.0.0.1:8644/discovery-profile") {
+          postAttempt += 1;
+          seenHeaders.push(init && init.headers ? init.headers : {});
+          if (postAttempt === 1) {
+            return {
+              ok: false,
+              status: 401,
+              text: async () =>
+                JSON.stringify({
+                  ok: false,
+                  message:
+                    "The provided x-discovery-secret does not match the configured secret.",
+                  auth: { category: "secret_mismatch" },
+                }),
+            };
+          }
+          return {
+            ok: true,
+            status: 200,
+            text: async () =>
+              JSON.stringify({
+                ok: true,
+                status: {
+                  hasStoredProfile: true,
+                  companyCount: 3,
+                  negativeCompanyCount: 0,
+                },
+              }),
+          };
+        }
+        throw new Error("unexpected endpoint: " + String(url));
+      },
+    });
+
+    const response = await module.__test.postProfileEndpoint(
+      { mode: "status" },
+      10_000,
+    );
+
+    assert.equal(response.ok, true);
+    assert.deepEqual(calls, [
+      "http://127.0.0.1:8644/discovery-profile",
+      "discovery-local-bootstrap.json",
+      "http://127.0.0.1:8644/discovery-profile",
+    ]);
+    assert.equal(seenHeaders.length, 2);
+    assert.equal(seenHeaders[0]["x-discovery-secret"], "stale-secret");
+    assert.equal(seenHeaders[1]["x-discovery-secret"], "fresh-secret");
+    const overrides = JSON.parse(
+      localStorageRaw.get("command_center_config_overrides") || "{}",
+    );
+    assert.equal(overrides.discoveryWebhookSecret, "fresh-secret");
+  });
+
   it("turns a stopped local worker into actionable guidance instead of relay 502", async () => {
     const calls = [];
     const { module } = await loadScheduleModule({
