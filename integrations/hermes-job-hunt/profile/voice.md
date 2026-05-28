@@ -58,6 +58,8 @@ All three projects are in active development. Do not claim public launch, genera
 
 ## Resume voice rules
 
+For page-fit, evidence coverage, and QA checks, read `materials-quality.md` before drafting application materials.
+
 1. Lead with “performance marketing leader and the systems behind it” or “digital marketing consultant and AI product builder,” depending on role.
 2. Start bullets with strong verbs.
 3. One bullet = one accomplishment.

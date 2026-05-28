@@ -235,7 +235,7 @@
     return "";
   }
 
-  function renderCard(slug, doc, base, pending, identity) {
+  function renderCard(slug, doc, base, pending, identity, quality) {
     var meta = DOC_LABELS[doc.type] || { label: doc.label || doc.type, role: "support" };
     var primaryFile = ALLOWED_FILES[doc.primary] || null;
     var preview = pickPreviewFile(doc);
@@ -252,9 +252,13 @@
     /* No "Generating…" pill on ready cards — the big progress banner
        above already owns that signal. We keep "Ready" so users see
        the card status at a glance. */
+    var qualityIssues = quality && Array.isArray(quality.issues)
+      ? quality.issues
+      : [];
+    var primaryQualityIssue = qualityIssues[0] || null;
     var isPending = false;
-    var statusLabel = "Ready";
-    var statusAttr = "ready";
+    var statusLabel = primaryQualityIssue ? "Review" : "Ready";
+    var statusAttr = primaryQualityIssue ? "needs_review" : "ready";
 
     var actions = [];
     if (hasPreview && preview) {
@@ -295,6 +299,12 @@
       if (identity.title)   parts.push(escapeHtml(identity.title));
       identityHtml = '<p class="brief-materials__card-identity">' + parts.join(' <span class="brief-materials__dot">·</span> ') + '</p>';
     }
+    var qualityHtml = "";
+    if (primaryQualityIssue && primaryQualityIssue.message) {
+      qualityHtml = '<p class="brief-materials__quality">'
+        + escapeHtml(primaryQualityIssue.message)
+        + '</p>';
+    }
 
     return '<article class="brief-materials__card brief-materials__card--' + (meta.role === "primary" ? "primary" : "support")
       + (isPending ? " brief-materials__card--pending" : "")
@@ -306,6 +316,7 @@
       + '</header>'
       + identityHtml
       + (metaParts.length ? '<p class="brief-materials__card-meta">' + metaParts.join(' <span class="brief-materials__dot">·</span> ') + '</p>' : '')
+      + qualityHtml
       + '<footer class="brief-materials__card-actions">' + actions.join("") + '</footer>'
       + '</article>';
   }
@@ -350,17 +361,17 @@
 
   /* Maps the watcher's progress.phase to a JobBored-flavoured message
      when the watcher hasn't supplied one of its own. Keeping these
-     concise + warm; Winky can still override per-run. */
+     concise + warm; Dobby can still override per-run. */
   function defaultPhaseMessage(phase, feature) {
     var label = featureLabel(feature);
     switch (phase) {
-      case "queued":         return "Your " + label + " is in line. Winky drafts one role at a time and will pick this up next.";
-      case "drafting":       return "Winky is drafting your " + label + "…";
+      case "queued":         return "Your " + label + " is in line. Dobby drafts one role at a time and will pick this up next.";
+      case "drafting":       return "Dobby is drafting your " + label + "…";
       case "rendering_pdf":  return "Polishing the PDFs…";
       case "verifying":      return "Double-checking the outputs…";
       case "complete":       return "Done! Files are syncing back to JobBored.";
       case "failed":         return "Something went sideways. Check Telegram.";
-      default:               return "Winky is on it…";
+      default:               return "Dobby is on it…";
     }
   }
 
@@ -400,12 +411,12 @@
        - explicit progress.phase wins
        - no progress block at all = "queued" (request landed, watcher
          hasn't claimed the file yet; can sit here for minutes if a
-         prior draft is in flight since Winky's concurrency=1)
+         prior draft is in flight since Dobby's concurrency=1)
        This distinction matters because "drafting at 0s" looks broken;
-       "QUEUED · waiting for Winky" reads as expected. */
+       "QUEUED · waiting for Dobby" reads as expected. */
     var phase = (progress && progress.phase) || "queued";
     /* Treat "complete" as a celebratory state — same card structure,
-       different visuals (no spin, check icon). Once Winky deletes
+       different visuals (no spin, check icon). Once Dobby deletes
        pending.json the whole pending block disappears entirely. */
     var isComplete = phase === "complete";
     var isFailed = phase === "failed";
@@ -434,7 +445,7 @@
 
     /* Elapsed counter rules:
        - terminal phases (complete/failed) freeze at the final value
-       - queued / no-progress states have nothing to count (Winky
+       - queued / no-progress states have nothing to count (Dobby
          hasn't started) — show "—" instead of a misleading "0s"
        - only running phases set data-elapsed-started so the ticker
          keeps counting between manifest polls */
@@ -519,7 +530,7 @@
     /* Filter to only the user-facing deliverables: tailored resume +
        cover letter. The other on-disk artifacts (job-description.md,
        job-analysis.md, qa-report.md, manual-apply-checklist.md) are
-       internal scaffolding for Winky and shouldn't crowd the Materials
+       internal scaffolding for Dobby and shouldn't crowd the Materials
        box. They remain readable through the direct file URL if
        someone really wants to inspect them. */
     var docs = docsAll.filter(function (d) {
@@ -535,7 +546,12 @@
       company: manifest.company || (pending && pending.company) || "",
       title: manifest.title || (pending && pending.title) || "",
     };
-    var cards = docs.map(function (d) { return renderCard(manifest.slug, d, base, pending, roleIdentity); });
+    var qualityDocs = manifest.quality && manifest.quality.documents
+      ? manifest.quality.documents
+      : {};
+    var cards = docs.map(function (d) {
+      return renderCard(manifest.slug, d, base, pending, roleIdentity, qualityDocs[d.type]);
+    });
     /* No per-doc placeholder cards. The enlarged progress banner
        above is the single source of "this is in flight" truth — a
        second "Generating…" pill on the doc grid is redundant and
@@ -685,7 +701,7 @@
        it dismisses the old pending.json, runs the JD chain (browser
        cache → server scrape → user paste), then re-submits. */
     postJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/dismiss", {})
-      .catch(function () { /* dismiss may 404 if Winky already cleared it — that's fine */ })
+      .catch(function () { /* dismiss may 404 if Dobby already cleared it — that's fine */ })
       .then(function () { return submitDraftRequest(ctx, feature, prevNotes); });
   }
 
@@ -909,8 +925,278 @@
     });
   }
 
+  /* -------------------- kanban auto-draft trigger --------------------
+     The board writes Status to Sheets before emitting jb:write:succeeded.
+     Use that confirmed event, not the optimistic drag event, so Hermes
+     only queues materials for moves that actually persisted. */
+
+  var autoDraftInFlight = Object.create(null);
+
+  function normalizeStageKey(value) {
+    var s = String(value == null ? "" : value).trim().toLowerCase();
+    if (!s) return "";
+    s = s.replace(/[_\s]+/g, "-");
+    if (s === "discovered") return "new";
+    return s;
+  }
+
+  function isAutoDraftMove(detail) {
+    if (!detail || detail.kind !== "pipeline:move") return false;
+    var fromStage = normalizeStageKey(detail.fromStage);
+    return (fromStage === "new" || fromStage === "")
+      && normalizeStageKey(detail.toStage) === "researching";
+  }
+
+  var AUTO_DRAFT_SNAPSHOT_STORAGE_KEY = "jobBored:autoDraftStageSnapshot:v1";
+  var autoDraftStageSnapshot = null;
+
+  function getAutoDraftSnapshotStorageKey() {
+    var sheetId = "";
+    var jb = root.JobBored;
+    try {
+      if (jb && typeof jb.getSheetId === "function") {
+        sheetId = String(jb.getSheetId() || "").trim();
+      }
+    } catch (e) { /* fall through to default key */ }
+    return AUTO_DRAFT_SNAPSHOT_STORAGE_KEY + ":" + (sheetId || "default");
+  }
+
+  function readAutoDraftStageSnapshot() {
+    var storage = root.localStorage;
+    if (!storage || typeof storage.getItem !== "function") return null;
+    try {
+      var raw = storage.getItem(getAutoDraftSnapshotStorageKey());
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeAutoDraftStageSnapshot(snapshot) {
+    var storage = root.localStorage;
+    if (!storage || typeof storage.setItem !== "function") return;
+    try {
+      storage.setItem(getAutoDraftSnapshotStorageKey(), JSON.stringify(snapshot || {}));
+    } catch (e) { /* best-effort only */ }
+  }
+
+  function pipelineStageRows() {
+    var jb = root.JobBored;
+    if (!jb || typeof jb.getPipelineJobs !== "function") return [];
+    var jobs = [];
+    try {
+      jobs = jb.getPipelineJobs() || [];
+    } catch (e) {
+      return [];
+    }
+    if (!Array.isArray(jobs)) return [];
+    return jobs.map(function (job, index) {
+      return {
+        jobKey: String(index),
+        stage: normalizeStageKey(job && (job.status || job.stage || "")),
+      };
+    });
+  }
+
+  function refreshAutoDraftStageSnapshot() {
+    if (!shouldRun()) return;
+    var rows = pipelineStageRows();
+    if (!rows.length) return;
+    if (!autoDraftStageSnapshot) {
+      autoDraftStageSnapshot = readAutoDraftStageSnapshot();
+    }
+    var next = Object.create(null);
+    rows.forEach(function (row) {
+      next[row.jobKey] = row.stage;
+      if (!autoDraftStageSnapshot) return;
+      var prior = Object.prototype.hasOwnProperty.call(autoDraftStageSnapshot, row.jobKey)
+        ? autoDraftStageSnapshot[row.jobKey]
+        : "";
+      if ((prior === "new" || prior === "") && row.stage === "researching") {
+        requestAutoDraftForMove({
+          jobKey: row.jobKey,
+          kind: "pipeline:move",
+          fromStage: prior || "new",
+          toStage: "researching",
+          status: "Researching",
+        });
+      }
+    });
+    autoDraftStageSnapshot = next;
+    writeAutoDraftStageSnapshot(next);
+  }
+
+  function getJobForAutoDraft(jobKey) {
+    function hasIdentity(job) {
+      return !!(job && (job.company || job.role || job.title));
+    }
+    var api = root.JobBoredDawn && root.JobBoredDawn.data;
+    if (api && typeof api.getRoleViewModel === "function") {
+      try {
+        var vm = api.getRoleViewModel(jobKey);
+        if (hasIdentity(vm && vm.job)) return vm.job;
+      } catch (e) { /* fall through */ }
+    }
+    if (typeof root.getPipelineJobByIndex === "function") {
+      try {
+        var byIndex = root.getPipelineJobByIndex(jobKey);
+        if (hasIdentity(byIndex)) return byIndex;
+      } catch (e2) { /* fall through */ }
+    }
+    var jb = root.JobBored;
+    if (jb && typeof jb.getPipelineJobs === "function") {
+      try {
+        var jobs = jb.getPipelineJobs() || [];
+        var n = Number(jobKey);
+        if (Number.isFinite(n) && hasIdentity(jobs[n])) return jobs[n];
+      } catch (e3) { /* fall through */ }
+    }
+    return null;
+  }
+
+  function manifestHasDoc(manifest, type) {
+    var docs = manifest && Array.isArray(manifest.documents) ? manifest.documents : [];
+    return docs.some(function (doc) {
+      return doc && doc.type === type && Array.isArray(doc.files) && doc.files.length > 0;
+    });
+  }
+
+  function autoDraftSkipReason(manifest) {
+    if (!manifest) return "";
+    if (manifest.pending) return "pending";
+    if (manifestHasDoc(manifest, "resume") && manifestHasDoc(manifest, "cover_letter")) {
+      return "ready";
+    }
+    return "";
+  }
+
+  function fetchManifestOrNull(base, slug) {
+    return fetchJson(base + "/api/applications/" + encodeURIComponent(slug) + "/manifest")
+      .catch(function (err) {
+        if (err && err.status === 404) return null;
+        throw err;
+      });
+  }
+
+  function emitAutoDraftSkipped(detail, reason, slug) {
+    dispatch("jb:materials:auto-request-skipped", {
+      jobKey: detail && detail.jobKey,
+      slug: slug || "",
+      reason: reason || "not-applicable",
+    });
+  }
+
+  function requestAutoDraftForMove(detail) {
+    if (!shouldRun() || !isAutoDraftMove(detail)) return;
+
+    var jobKey = detail.jobKey;
+    var job = getJobForAutoDraft(jobKey);
+    var role = job && (job.role || job.title || "");
+    var company = job && job.company;
+    if (!job || (!company && !role)) {
+      dispatch("jb:materials:auto-request-failed", {
+        jobKey: jobKey,
+        slug: "",
+        error: "Could not resolve job for auto materials request.",
+      });
+      return;
+    }
+
+    var base = getBaseUrl();
+    var slug = buildCandidateSlug({ company: company, role: role });
+    if (!base || !slug) {
+      dispatch("jb:materials:auto-request-failed", {
+        jobKey: jobKey,
+        slug: slug || "",
+        error: !base ? "Local materials server is not configured." : "Could not build materials slug.",
+      });
+      return;
+    }
+
+    var lockKey = String(jobKey == null ? "" : jobKey) + "|" + slug;
+    if (autoDraftInFlight[lockKey]) {
+      emitAutoDraftSkipped(detail, "in-flight", slug);
+      return;
+    }
+    autoDraftInFlight[lockKey] = true;
+
+    var ctx = {
+      jobKey: jobKey,
+      slug: slug,
+      company: String(company || ""),
+      title: String(role || ""),
+      jobUrl: pickPostingUrl(job),
+      base: base,
+      cachedJobDescription: pickCachedJobDescription(job),
+    };
+
+    getApplications(base, { refresh: true })
+      .catch(function () { return []; })
+      .then(function (apps) {
+        var picked = pickApplication({ company: company, role: role }, apps);
+        if (picked && picked.slug) {
+          slug = picked.slug;
+          ctx.slug = picked.slug;
+        }
+        return fetchManifestOrNull(base, slug);
+      })
+      .then(function (manifest) {
+        var reason = autoDraftSkipReason(manifest);
+        if (reason) {
+          emitAutoDraftSkipped(detail, reason, slug);
+          return null;
+        }
+        return ensureJobDescription(ctx)
+          .then(function (jdResult) {
+            return postJson(base + "/api/applications/" + encodeURIComponent(slug) + "/request", {
+              slug: slug,
+              company: ctx.company,
+              title: ctx.title,
+              feature: "both",
+              jobUrl: ctx.jobUrl,
+              notes: "",
+              jdSource: jdResult && jdResult.source,
+            });
+          })
+          .then(function (result) {
+            getApplications(base, { refresh: true });
+            dispatch("jb:materials:changed", { slug: slug, reason: "auto-request-sent" });
+            dispatch("jb:materials:auto-requested", {
+              jobKey: jobKey,
+              slug: slug,
+              feature: "both",
+              result: result || null,
+            });
+            return result;
+          });
+      })
+      .catch(function (err) {
+        var message = (err && err.message) || (err && err.code) || "Auto materials request failed.";
+        if (root.console && root.console.warn) {
+          root.console.warn("[role-materials] auto materials request failed", message);
+        }
+        dispatch("jb:materials:auto-request-failed", {
+          jobKey: jobKey,
+          slug: slug,
+          error: message,
+        });
+      })
+      .then(function () {
+        delete autoDraftInFlight[lockKey];
+      });
+  }
+
+  function onWriteSucceeded(e) {
+    requestAutoDraftForMove(e && e.detail);
+  }
+
   function pickPostingUrl(job) {
-    if (!job || !Array.isArray(job.links)) return "";
+    if (!job) return "";
+    var direct = job.jobUrl || job.job_url || job.url || job.link;
+    if (direct && /^https?:/i.test(String(direct).trim())) return String(direct).trim();
+    if (!Array.isArray(job.links)) return "";
     for (var i = 0; i < job.links.length; i++) {
       var l = job.links[i];
       var href = l && l.href ? String(l.href).trim() : "";
@@ -1132,7 +1418,7 @@
 
     /* Run the JD fallback chain BEFORE asking Hermes to draft. The
        contract is: pending.json should not get written unless the
-       slug folder has a job-description.md, otherwise Winky's
+       slug folder has a job-description.md, otherwise Dobby's
        refusal-on-missing-JD path triggers. */
     ensureJobDescription(ctx).then(function (jdResult) {
       return postJson(ctx.base + "/api/applications/" + encodeURIComponent(ctx.slug) + "/request", {
@@ -1207,20 +1493,27 @@
           return putJobDescription(base, slug, cached, "browser-cache", ctx.jobUrl)
             .then(function () { return { source: "browser-cache" }; })
             /* Cache write failed for some reason — fall through. */
-            .catch(function () { return tryScrape(base, slug, ctx.jobUrl); });
+            .catch(function () { return tryScrape(base, slug, ctx); });
         }
-        return tryScrape(base, slug, ctx.jobUrl);
+        return tryScrape(base, slug, ctx);
       });
   }
 
-  function tryScrape(base, slug, jobUrl) {
+  function tryScrape(base, slug, ctx) {
+    var jobUrl = typeof ctx === "string" ? ctx : (ctx && ctx.jobUrl);
     if (!jobUrl) return Promise.reject({ code: "JD_PASTE_REQUIRED" });
     var slugEnc = encodeURIComponent(slug);
-    return postJson(base + "/api/applications/" + slugEnc + "/scrape-job-description", { jobUrl: jobUrl })
+    var payload = {
+      jobUrl: jobUrl,
+      title: ctx && ctx.title ? String(ctx.title) : "",
+      company: ctx && ctx.company ? String(ctx.company) : "",
+    };
+    return postJson(base + "/api/applications/" + slugEnc + "/scrape-job-description", payload)
       .then(function (resp) {
         if (!resp || !resp.text) throw { code: "JD_PASTE_REQUIRED" };
-        return putJobDescription(base, slug, resp.text, "server-scrape", jobUrl)
-          .then(function () { return { source: "server-scrape" }; });
+        var source = resp.source || "server-scrape";
+        return putJobDescription(base, slug, resp.text, source, jobUrl)
+          .then(function () { return { source: source }; });
       })
       .catch(function (err) {
         /* If the server scrape produced nothing, fall through to
@@ -1371,6 +1664,7 @@
        inside onRoleAction is a belt-and-braces backup. */
     if (typeof document !== "undefined" && document.addEventListener) {
       document.addEventListener("jb:role:action", onRoleAction);
+      document.addEventListener("jb:write:succeeded", onWriteSucceeded);
     }
     /* On a hard reload the role can already be open when init() runs,
        which means jb:role:opened never fires. app.js dispatches
@@ -1379,6 +1673,7 @@
        the materials panel. */
     if (typeof document !== "undefined" && document.addEventListener) {
       document.addEventListener("jb:pipeline:rendered", function () {
+        refreshAutoDraftStageSnapshot();
         var openKey = root.JobBoredFlowing
           && root.JobBoredFlowing.openRole
           && root.JobBoredFlowing.openRole.get

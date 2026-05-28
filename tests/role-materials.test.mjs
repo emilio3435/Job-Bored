@@ -392,6 +392,49 @@ describe("renderManifest", () => {
     assert.match(fullHtml, /DERIVED/);
   });
 
+  it("marks ready documents for review when quality metadata has issues", () => {
+    const brief = makeBrief();
+    api.renderManifest(brief, {
+      slug: "entravision-smadex-sales-director-us",
+      company: "Entravision",
+      title: "Sales Director US",
+      derived: true,
+      updatedAt: new Date().toISOString(),
+      documents: [
+        {
+          type: "resume",
+          label: "Tailored Resume",
+          status: "ready",
+          primary: "resume.pdf",
+          lastModifiedAt: new Date().toISOString(),
+          files: [
+            { filename: "resume.pdf", format: "pdf", size: 1207877, modifiedAt: new Date().toISOString() },
+            { filename: "resume.html", format: "html", size: 23329, modifiedAt: new Date().toISOString() },
+          ],
+        },
+      ],
+      quality: {
+        documents: {
+          resume: {
+            status: "review",
+            issues: [
+              {
+                code: "resume_second_page_sparse",
+                message: "Second page has 126 words; expand with relevant evidence or collapse to one page.",
+                severity: "review",
+              },
+            ],
+          },
+        },
+      },
+    }, "http://127.0.0.1:3847");
+
+    const html = brief.children[0].innerHTML || "";
+    assert.match(html, /data-status="needs_review"/);
+    assert.match(html, /Review/);
+    assert.match(html, /Second page has 126 words/);
+  });
+
   it("renderEmpty renders a single placeholder message", () => {
     const brief = makeBrief();
     api.renderEmpty(brief, { note: "Custom note" });
