@@ -494,23 +494,23 @@ body.jb-v2 .flow-section__inner {
    Section transitions — 2026 cadence
    ────────────────────────────────────────────────────────
    The flowing page is one long scroll of four regions
-   (Brief → Pipeline → Dossier → Letter). The seams between
-   them get treated as deliberate cinematic transitions:
+   (Brief → Pipeline → Dossier → Letter). The seams get
+   smoothed in two ways:
 
    1. Scroll lands softly — html-level scroll-padding-top so
       a pill-jump or browser anchor leaves room for the
       sticky chrome instead of slamming the heading under
       it; per-region scroll-margin-top matches.
 
-   2. On enter, each region rises + fades up via
-      scroll-driven animation-timeline:view() (Chromium 115+,
-      Safari 17.4+; supported browsers only). Reduced motion
-      and unsupported browsers render the static end state.
-
-   3. The pill row gains a soft mint underline that slides
+   2. The pill row gains a soft mint underline that slides
       under non-active pills on hover, plus a softened
       active-state with a long, low shadow so the chrome
       reads continuous, not on/off.
+
+   The page deliberately does NOT animate region content on
+   enter — reveals at scroll time felt corny in earlier
+   iterations; the editorial cadence is now in spacing and
+   chrome alone, not in fade-up tricks.
    ════════════════════════════════════════════════════════ */
 
 html {
@@ -524,34 +524,6 @@ body.jb-v2 [data-region="pipeline"],
 body.jb-v2 [data-region="role"],
 body.jb-v2 [data-region="letter"] {
   scroll-margin-top: 96px;
-}
-
-/* Reveal cadence — runs only on enter, only once per scroll,
-   and only in browsers that support animation-timeline:view().
-   Unsupported browsers and reduced-motion users see the static
-   end state (no animation declared = no opacity/transform
-   override). */
-@supports (animation-timeline: view()) {
-  @media (prefers-reduced-motion: no-preference) {
-    body.jb-v2 [data-region="dawn"],
-    body.jb-v2 [data-region="pipeline"],
-    body.jb-v2 [data-region="role"],
-    body.jb-v2 [data-region="letter"] {
-      animation: jb-region-enter linear both;
-      animation-timeline: view();
-      animation-range: entry 0% cover 32%;
-    }
-    @keyframes jb-region-enter {
-      from {
-        opacity: 0.35;
-        transform: translateY(20px);
-      }
-      to {
-        opacity: 1;
-        transform: none;
-      }
-    }
-  }
 }
 
 /* ---- Active-pill underline slider ----------------------- */
