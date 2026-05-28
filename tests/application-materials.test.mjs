@@ -369,3 +369,124 @@ describe("listApplications", () => {
     assert.deepEqual(result, []);
   });
 });
+
+describe("writeJobDescription", () => {
+  /* writeJobDescription always writes under the production
+     getApplicationsRoot() (it doesn't take a `root` option because it
+     also creates dirs on demand). We stub HOME so the call lands in
+     an isolated tmpdir for the duration of the test. */
+  let scratch;
+  let prevHome;
+  beforeEach(async () => {
+    scratch = await mkdtemp(join(tmpdir(), "jb-mats-jd-"));
+    prevHome = process.env.HOME;
+    process.env.HOME = scratch;
+  });
+  afterEach(async () => {
+    process.env.HOME = prevHome;
+    if (scratch) await rm(scratch, { recursive: true, force: true });
+  });
+
+  it("creates the application dir if missing and writes job-description.md", async () => {
+    const { writeJobDescription } = await import("../server/application-materials.mjs");
+    const result = await writeJobDescription("brand-new-slug", "Body of the JD here. " + "X".repeat(60), {
+      source: "user-paste",
+      jobUrl: "https://example.com/job/123",
+    });
+    assert.ok(result.path.endsWith("/brand-new-slug/job-description.md"));
+    assert.ok(result.bytesWritten > 0);
+    assert.equal(result.source, "user-paste");
+    assert.equal(existsSync(result.path), true);
+  });
+
+  it("rejects empty text with 400", async () => {
+    const { writeJobDescription } = await import("../server/application-materials.mjs");
+    await assert.rejects(
+      () => writeJobDescription("brand-new-slug", "   ", {}),
+      (e) => e.statusCode === 400,
+    );
+  });
+
+  it("rejects oversized text with 413", async () => {
+    const { writeJobDescription } = await import("../server/application-materials.mjs");
+    const tooBig = "A".repeat(500_001);
+    await assert.rejects(
+      () => writeJobDescription("brand-new-slug", tooBig, {}),
+      (e) => e.statusCode === 413,
+    );
+  });
+
+  it("rejects invalid slugs without touching disk", async () => {
+    const { writeJobDescription } = await import("../server/application-materials.mjs");
+    await assert.rejects(
+      () => writeJobDescription("../../etc/passwd", "valid text " + "X".repeat(60), {}),
+      (e) => e.statusCode === 400,
+    );
+  });
+});
+
+describe("listPendingQueue", () => {
+  let root;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "jb-mats-queue-"));
+  });
+  afterEach(async () => {
+    if (root) await rm(root, { recursive: true, force: true });
+  });
+
+  it("returns pending requests FIFO by requested_at across slugs", async () => {
+    await mkdir(join(root, "alpha-co"));
+    await writeFile(join(root, "alpha-co", "pending.json"), JSON.stringify({
+      slug: "alpha-co",
+      company: "Alpha",
+      title: "Alpha Role",
+      feature: "cover_letter",
+      requested_at: "2026-05-28T10:00:00Z",
+    }));
+    await mkdir(join(root, "bravo-co"));
+    await writeFile(join(root, "bravo-co", "pending.json"), JSON.stringify({
+      slug: "bravo-co",
+      company: "Bravo",
+      title: "Bravo Role",
+      feature: "both",
+      requested_at: "2026-05-28T09:30:00Z",
+      progress: { phase: "drafting", started_at: "2026-05-28T09:31:00Z", elapsed_seconds: 60 },
+    }));
+    const { listPendingQueue } = await import("../server/application-materials.mjs");
+    const queue = await listPendingQueue({ root });
+    assert.equal(queue.length, 2);
+    /* Bravo requested earlier, so it's first. */
+    assert.equal(queue[0].slug, "bravo-co");
+    assert.equal(queue[0].progress.phase, "drafting");
+    assert.equal(queue[1].slug, "alpha-co");
+    assert.equal(queue[1].progress, null);
+  });
+
+  it("returns [] when no pending.json files exist", async () => {
+    await mkdir(join(root, "no-pending-here"));
+    const { listPendingQueue } = await import("../server/application-materials.mjs");
+    assert.deepEqual(await listPendingQueue({ root }), []);
+  });
+
+  it("skips invalid slug directories", async () => {
+    await mkdir(join(root, "_partial_results"));
+    await writeFile(join(root, "_partial_results", "pending.json"), '{"slug":"x"}');
+    const { listPendingQueue } = await import("../server/application-materials.mjs");
+    assert.deepEqual(await listPendingQueue({ root }), []);
+  });
+
+  it("skips corrupt pending.json without throwing", async () => {
+    await mkdir(join(root, "broken-co"));
+    await writeFile(join(root, "broken-co", "pending.json"), "{ not valid json");
+    await mkdir(join(root, "ok-co"));
+    await writeFile(join(root, "ok-co", "pending.json"), JSON.stringify({
+      slug: "ok-co",
+      feature: "resume",
+      requested_at: "2026-05-28T10:00:00Z",
+    }));
+    const { listPendingQueue } = await import("../server/application-materials.mjs");
+    const queue = await listPendingQueue({ root });
+    assert.equal(queue.length, 1);
+    assert.equal(queue[0].slug, "ok-co");
+  });
+});

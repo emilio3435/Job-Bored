@@ -18,8 +18,14 @@ import {
   buildManifest,
   dismissPending,
   listApplications,
+  listPendingQueue,
   resolveFile,
+  writeJobDescription,
+  getApplicationsRoot,
+  isValidSlug,
 } from "./application-materials.mjs";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
   normalizeRequestBody,
   spawnMaterialsRequest,
@@ -202,6 +208,18 @@ app.get("/api/applications", async (_req, res) => {
   }
 });
 
+/* Global queue view: every pending.json across all application slugs,
+ * FIFO ordered. Powers the dashboard-level queue strip so the user
+ * can see what's lined up regardless of which dossier is open. */
+app.get("/api/applications/queue", async (_req, res) => {
+  try {
+    const queue = await listPendingQueue();
+    res.json({ queue, fetchedAt: new Date().toISOString() });
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
 app.get("/api/applications/:slug/manifest", async (req, res) => {
   try {
     const manifest = await buildManifest(req.params.slug);
@@ -233,6 +251,75 @@ app.post("/api/applications/:slug/dismiss", async (req, res) => {
   try {
     const result = await dismissPending(req.params.slug);
     res.json({ ok: true, ...result });
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+/* Reports whether job-description.md exists for this slug. Used by
+ * the browser as the first step of the JD fallback chain — if it's
+ * already present we skip straight to drafting; if not, the browser
+ * tries cache → server-scrape → user-paste in that order. */
+app.get("/api/applications/:slug/job-description", async (req, res) => {
+  try {
+    const slug = req.params.slug;
+    if (!isValidSlug(slug)) {
+      res.status(400).json({ ok: false, error: "Invalid slug" });
+      return;
+    }
+    const filePath = join(getApplicationsRoot(), slug, "job-description.md");
+    res.json({ ok: true, exists: existsSync(filePath) });
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+/* Writes job-description.md for a slug. Body: { text, source?, jobUrl? }.
+ * source is one of "browser-cache" / "server-scrape" / "user-paste" and
+ * gets recorded in the file header so downstream graders know how the
+ * JD was acquired. Creates the application directory if needed. */
+app.put("/api/applications/:slug/job-description", async (req, res) => {
+  try {
+    const slug = req.params.slug;
+    const body = req.body || {};
+    const result = await writeJobDescription(slug, body.text, {
+      source: body.source,
+      jobUrl: body.jobUrl || body.job_url,
+    });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+/* Server-side JD scrape fallback. Used by the browser when the
+ * job-description.md is missing and the browser cache is empty (e.g.
+ * after a page reload). Reuses the existing scrapeJobPosting() so we
+ * don't duplicate scraping logic. Returns the scraped description
+ * text, which the browser then PUTs back via /job-description. */
+app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
+  try {
+    const slug = req.params.slug;
+    if (!isValidSlug(slug)) {
+      res.status(400).json({ ok: false, error: "Invalid slug" });
+      return;
+    }
+    const url = (req.body && typeof req.body.jobUrl === "string") ? req.body.jobUrl.trim()
+              : (req.body && typeof req.body.job_url === "string") ? req.body.job_url.trim()
+              : "";
+    if (!url) {
+      res.status(400).json({ ok: false, error: "jobUrl required" });
+      return;
+    }
+    const target = validateScrapeTarget(url);
+    const scraped = await scrapeJobPosting(target.url);
+    const text = (scraped && (scraped.description || scraped.bodyText || ""))
+      .toString().trim();
+    if (!text) {
+      res.status(502).json({ ok: false, error: "Scrape returned no description text" });
+      return;
+    }
+    res.json({ ok: true, text, jobUrl: target.url, scrapedAt: new Date().toISOString() });
   } catch (e) {
     sendAppError(res, e);
   }

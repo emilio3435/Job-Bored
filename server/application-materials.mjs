@@ -13,7 +13,7 @@
  * The root can be overridden with HERMES_APPLICATIONS_ROOT for tests.
  */
 
-import { readFile, readdir, stat, realpath, rename } from "node:fs/promises";
+import { readFile, readdir, stat, realpath, rename, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, sep, basename } from "node:path";
 import { homedir } from "node:os";
@@ -346,6 +346,68 @@ export async function listApplications({ root } = {}) {
 }
 
 /**
+ * List every application that currently has a pending.json on disk,
+ * sorted FIFO by requested_at (oldest first). Each entry includes the
+ * fields the JobBored queue strip needs to render: slug, company,
+ * title, feature, requestedAt, progress (if any). Stale/missing
+ * fields fall back to safe defaults.
+ *
+ * Matches Winky's actual drafting order: the watcher picks the
+ * earliest requested_at, concurrency=1.
+ */
+export async function listPendingQueue({ root } = {}) {
+  const base = root || getApplicationsRoot();
+  if (!existsSync(base)) return [];
+  let entries;
+  try {
+    entries = await readdir(base, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const items = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (!isValidSlug(entry.name)) continue;
+    const pendingPath = join(base, entry.name, "pending.json");
+    if (!existsSync(pendingPath)) continue;
+    let raw;
+    try {
+      raw = JSON.parse(await readFile(pendingPath, "utf8"));
+    } catch {
+      continue;
+    }
+    items.push({
+      slug: String(raw.slug || entry.name),
+      company: String(raw.company || ""),
+      title: String(raw.title || ""),
+      feature: String(raw.feature || ""),
+      jobUrl: String(raw.job_url || ""),
+      notes: String(raw.notes || ""),
+      requestedAt: String(raw.requested_at || ""),
+      source: String(raw.source || ""),
+      telegramMessageId: raw.telegram_message_id || null,
+      progress: raw.progress
+        ? {
+            phase: String(raw.progress.phase || ""),
+            message: String(raw.progress.message || ""),
+            startedAt: String(raw.progress.started_at || ""),
+            updatedAt: String(raw.progress.updated_at || ""),
+            attempt: Number(raw.progress.attempt || 0),
+            elapsedSeconds: Number(raw.progress.elapsed_seconds || 0),
+          }
+        : null,
+    });
+  }
+  /* FIFO. Missing requestedAt sinks to the end (likely malformed). */
+  items.sort((a, b) => {
+    if (!a.requestedAt) return 1;
+    if (!b.requestedAt) return -1;
+    return a.requestedAt.localeCompare(b.requestedAt);
+  });
+  return items;
+}
+
+/**
  * Resolve a single file inside an application package, validating both
  * the slug and the filename against the allowlist. Returns metadata
  * useful for streaming the response (content type, size, mtime).
@@ -405,4 +467,51 @@ export async function dismissPending(slug, { root } = {}) {
   const archivePath = join(dir, `pending.json.dismissed.${stamp}`);
   await rename(pendingPath, archivePath);
   return { archivePath, dismissedAt: new Date().toISOString() };
+}
+
+/**
+ * Write job-description.md for a slug. Creates the application
+ * directory if missing so a request can land before any Hermes
+ * scaffolding has run. Caller supplies the text body; we wrap it
+ * with a minimal yaml-ish header (source, fetched_at) so downstream
+ * graders can tell what they're looking at.
+ *
+ * @param {string} slug
+ * @param {string} text - raw JD text (will be trimmed; rejected if blank)
+ * @param {object} [meta] - { source?: "browser-cache" | "server-scrape" | "user-paste", jobUrl?: string }
+ * @returns { path, bytesWritten, source }
+ */
+export async function writeJobDescription(slug, text, meta = {}) {
+  if (typeof text !== "string") throw httpError("text must be a string", 400);
+  const body = text.replace(/\r\n/g, "\n").trim();
+  if (!body) throw httpError("text is empty", 400);
+  if (body.length > 500_000) throw httpError("text too large (>500KB)", 413);
+  if (!isValidSlug(slug)) throw httpError("Invalid application slug", 400);
+
+  const base = getApplicationsRoot();
+  const dir = join(base, slug);
+  if (!dir.startsWith(base + sep) && dir !== base) {
+    throw httpError("Path escape detected", 400);
+  }
+  /* Create the dir on demand. recursive:true is a no-op if it already
+     exists. resolveApplicationDir won't help here because we need to
+     write into a possibly-not-yet-extant folder. */
+  await mkdir(dir, { recursive: true });
+  const filePath = join(dir, "job-description.md");
+  if (!filePath.startsWith(dir + sep)) {
+    throw httpError("Path escape detected", 400);
+  }
+  const source = (meta && typeof meta.source === "string") ? meta.source : "unknown";
+  const jobUrl = (meta && typeof meta.jobUrl === "string") ? meta.jobUrl : "";
+  const header = [
+    `<!-- job-description.md`,
+    `source: ${source}`,
+    `fetched_at: ${new Date().toISOString()}`,
+    ...(jobUrl ? [`job_url: ${jobUrl}`] : []),
+    `-->`,
+    ``,
+  ].join("\n");
+  const payload = header + body + "\n";
+  await writeFile(filePath, payload, { encoding: "utf8" });
+  return { path: filePath, bytesWritten: Buffer.byteLength(payload, "utf8"), source };
 }
