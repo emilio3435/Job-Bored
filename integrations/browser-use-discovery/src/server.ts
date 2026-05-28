@@ -646,6 +646,10 @@ async function buildHealthPayload() {
   // VAL-OBS-001: Check browser runtime readiness
   const browserRuntimeReadiness =
     await validateBrowserRuntimeReadiness(runtimeConfig);
+  const browserUseCloudConfigured =
+    !!String(runtimeConfig.browserUseApiKey || "").trim();
+  const browserUseProfileConfigured =
+    !!String(runtimeConfig.browserUseProfileId || "").trim();
 
   if (configError) {
     blockingWarnings.push(`Worker config could not be loaded: ${configError}`);
@@ -772,6 +776,26 @@ async function buildHealthPayload() {
         ...(browserRuntimeReadiness.remediation
           ? { remediation: browserRuntimeReadiness.remediation }
           : {}),
+      },
+      browserUseCloud: {
+        configured: browserUseCloudConfigured,
+        profileConfigured: browserUseProfileConfigured,
+        ready: browserUseCloudConfigured,
+        authenticatedProfileReady:
+          browserUseCloudConfigured && browserUseProfileConfigured,
+        ...(!browserUseCloudConfigured
+          ? {
+              cause: "BROWSER_USE_API_KEY not configured.",
+              remediation:
+                "Add BROWSER_USE_API_KEY to integrations/browser-use-discovery/.env to enable Browser Use Cloud fallback for Add job from URL.",
+            }
+          : !browserUseProfileConfigured
+            ? {
+                cause: "BROWSER_USE_PROFILE_ID not configured.",
+                remediation:
+                  "Set BROWSER_USE_PROFILE_ID after syncing a Browser Use profile for authenticated LinkedIn-style extraction.",
+              }
+            : {}),
       },
       groundedWeb: {
         enabled: groundedWebEnabled,
