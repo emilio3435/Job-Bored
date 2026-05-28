@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchAgent for the 3-hour briefing on the always-on Mac.
+
+  Install:
+    1) Edit the two ABSOLUTE paths below (run.sh + logs) to match your machine.
+    2) cp this file to ~/Library/LaunchAgents/com.elio.briefing.plist
+    3) launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.elio.briefing.plist
+    4) Force a one-time run to verify: launchctl kickstart -k gui/$(id -u)/com.elio.briefing
+
+  Uninstall:
+    launchctl bootout gui/$(id -u)/com.elio.briefing
+
+  The StartCalendarInterval array fires at 6/9/12/15/18/21 local time —
+  swap or add entries to shift the cadence.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.elio.briefing</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/CHANGE_ME/Job-Bored/briefing/run.sh</string>
+  </array>
+
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>15</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>18</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>21</integer><key>Minute</key><integer>0</integer></dict>
+  </array>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/CHANGE_ME/Library/Logs/briefing.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/CHANGE_ME/Library/Logs/briefing.err.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
