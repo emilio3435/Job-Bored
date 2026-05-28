@@ -25,6 +25,14 @@ body.jb-v2 [data-region="dawn"] {
   font-family: var(--jb-font-body);
   color: var(--jb-ink);
   background: var(--jb-paper-2);
+  /* Full-bleed cream background to match the dossier
+     (data-region="role"), which paints cream to the viewport edges.
+     The element itself stays constrained to the flow content width
+     so dashboard content lines up with the kanban surface; the
+     box-shadow + clip-path pair extends the paper-2 fill out to the
+     left/right page edges without enlarging the layout box. */
+  box-shadow: 0 0 0 100vmax var(--jb-paper-2);
+  clip-path: inset(0 -100vmax);
 }
 
 /* --- 1. Masthead row: edition + read time -------------------- */

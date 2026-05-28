@@ -348,8 +348,6 @@
             '<div class="jb-role-divider__num">PART 03 · NOW READING</div>' +
             '<div class="jb-role-divider__title">The <em>dossier</em></div>' +
           '</div>' +
-          '<div class="jb-role-divider__sub">Everything you know about this role, on one page. The kanban is for sorting — this is for thinking.</div>' +
-          '<button type="button" class="jb-role-divider__close" data-action="close-role">CLOSE ✕</button>' +
         '</div>' +
       '</div>' +
       '<div class="dossier">' +

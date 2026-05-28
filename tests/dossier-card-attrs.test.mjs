@@ -258,9 +258,10 @@ describe("dossier card attrs", () => {
 
     const html = assembleHtml(region);
 
-    /* Dossier-owned actions: close-role lives on the divider; notes
-       are the marginalia textarea inside the brief. */
-    assert.match(html, /data-action="close-role"/, "close-role action selector missing");
+    /* Dossier-owned actions: notes are the marginalia textarea inside
+       the brief. The CLOSE button on the divider has been removed —
+       users close the dossier via the kanban-row affordance instead. */
+    assert.doesNotMatch(html, /data-action="close-role"/, "close-role button should be removed");
     assert.match(html, /data-action="notes"/, "notes action selector missing");
 
     /* Brief class selectors */

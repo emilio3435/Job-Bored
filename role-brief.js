@@ -354,63 +354,6 @@
     '</section>';
   }
 
-  /* Raw posting — the unedited JD sections, kept for users who want
-     to verify what the AI compressed. Collapsed by default so it
-     doesn't break the editorial rhythm of the brief; the AI-curated
-     sections above (lede, fit angle, must-haves, responsibilities,
-     etc.) are the primary read. */
-  function renderRawPosting(job) {
-    if (!Array.isArray(job.jdSections) || job.jdSections.length <= 1) return "";
-    var rest = job.jdSections.slice(1);
-    var sectionsHtml = "";
-    var renderedIndex = 0;
-    var totalBullets = 0;
-    for (var i = 0; i < rest.length; i++) {
-      var section = rest[i];
-      if (!section) continue;
-      var heading = section.heading ? String(section.heading).trim() : "";
-      var bullets = Array.isArray(section.bullets) ? section.bullets.filter(Boolean) : [];
-      var body = section.body ? String(section.body).trim() : "";
-      if (!heading && !body && !bullets.length) continue;
-      renderedIndex += 1;
-      totalBullets += bullets.length;
-      var roman = toRoman(renderedIndex);
-      var countText = bullets.length + " bullet" + (bullets.length === 1 ? "" : "s");
-      var bodyHtml = "";
-      if (body) bodyHtml += '<p>' + escapeHtml(body) + '</p>';
-      if (bullets.length) {
-        bodyHtml += '<ul>' + bullets.map(function (b) {
-          return '<li>' + escapeHtml(b) + '</li>';
-        }).join("") + '</ul>';
-      }
-      var headingLabel = heading || ("Section " + renderedIndex);
-      /* Each subsection renders as a small titled block — no nested
-         disclosure. The outer <details> handles the open/closed state
-         for the whole raw posting. */
-      sectionsHtml += '<div class="jd__section">' +
-        '<div class="jd__section-head">' +
-          '<span class="roman">' + escapeHtml(roman) + '.</span>' +
-          '<span class="jd__section-title">' + escapeHtml(headingLabel) + '</span>' +
-          '<span class="count">' + escapeHtml(countText) + '</span>' +
-        '</div>' +
-        '<div class="jd__section-body">' + bodyHtml + '</div>' +
-      '</div>';
-    }
-    if (!sectionsHtml) return "";
-    var summaryCount = renderedIndex + " section" + (renderedIndex === 1 ? "" : "s")
-      + (totalBullets ? " · " + totalBullets + " bullet" + (totalBullets === 1 ? "" : "s") : "");
-    return '<section class="jd">' +
-      '<details class="jd__details">' +
-        '<summary class="jd__summary">' +
-          '<span class="jd__summary-label">View full posting details</span>' +
-          '<span class="jd__summary-count">' + escapeHtml(summaryCount) + '</span>' +
-          '<span class="jd__summary-toggle" aria-hidden="true">+</span>' +
-        '</summary>' +
-        '<div class="jd__body">' + sectionsHtml + '</div>' +
-      '</details>' +
-    '</section>';
-  }
-
   /* -------------------- right column -------------------- */
 
   function renderSkim(job) {
@@ -524,17 +467,24 @@
     var ledeHtml = renderLede(job, hookText);
     var fitHtml = renderFitAngle(job);
     var enrichedSectionsHtml = renderEnrichedSections(job);
-    var rawHtml = renderRawPosting(job);
     var skimHtml = renderSkim(job);
     var tagsHtml = renderTagsAndSkills(job);
     var pointsHtml = renderTalkingPoints(job);
     var notesHtml = renderNotes(job);
 
+    // Full-width editorial "lead" band — hook + AI lede span the whole
+    // brief so the reader meets the role's framing before the two-column
+    // spread (left = role detail, right = at-a-glance / talking points).
+    var leadHtml = (hookHtml || ledeHtml)
+      ? '<div class="brief__lead">' + hookHtml + ledeHtml + '</div>'
+      : "";
+
     briefRoot.innerHTML = mastheadHtml +
       loadingHtml +
+      leadHtml +
       '<div class="brief__body">' +
         '<div class="brief__col brief__col--main">' +
-          hookHtml + ledeHtml + fitHtml + enrichedSectionsHtml + rawHtml +
+          fitHtml + enrichedSectionsHtml +
         '</div>' +
         '<div class="brief__col brief__col--side">' +
           skimHtml + tagsHtml + pointsHtml + notesHtml +
