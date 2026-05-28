@@ -18,7 +18,15 @@ set -euo pipefail
 # ─── Configuration (all from environment/config, nothing hardcoded) ─────
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 HERMES_JOB_HUNT_HOME="${HERMES_JOB_HUNT_HOME:-$HERMES_HOME/job-hunt}"
-JOBBORED_REPO="${JOBBORED_REPO:-$HOME/Job-Bored}"
+if [ -z "${JOBBORED_REPO:-}" ]; then
+  if [ -d "$HOME/Job-Bored" ]; then
+    JOBBORED_REPO="$HOME/Job-Bored"
+  elif [ -d "$HOME/GitHub/emilio3435/Job-Bored" ]; then
+    JOBBORED_REPO="$HOME/GitHub/emilio3435/Job-Bored"
+  else
+    JOBBORED_REPO="$HOME/Job-Bored"
+  fi
+fi
 WORKER_DIR="${BROWSER_USE_DISCOVERY_WORKER_DIR:-$JOBBORED_REPO/integrations/browser-use-discovery}"
 WORKER_CONFIG="${BROWSER_USE_DISCOVERY_WORKER_CONFIG:-$WORKER_DIR/state/worker-config.json}"
 WORKER_ENV="${BROWSER_USE_DISCOVERY_WORKER_ENV:-$WORKER_DIR/.env}"
@@ -39,6 +47,12 @@ WEBHOOK_URL="${WORKER_URL}/webhook"
 WORKER_LOG="${BROWSER_USE_DISCOVERY_WORKER_LOG:-/tmp/jobbored-worker.log}"
 
 # ─── Read required values from config files ─────────────────────────────
+if [ ! -d "$WORKER_DIR" ]; then
+  echo "ERROR: Worker directory not found: $WORKER_DIR"
+  echo "Set JOBBORED_REPO or BROWSER_USE_DISCOVERY_WORKER_DIR to the JobBored checkout."
+  exit 1
+fi
+
 SHEET_ID=$("$PYTHON_BIN" -c "import json; print(json.load(open('$WORKER_CONFIG'))['sheetId'])" 2>/dev/null || echo "")
 if [ -z "$SHEET_ID" ]; then
   echo "ERROR: sheetId is empty in $WORKER_CONFIG. Complete JobBored onboarding first."
@@ -222,22 +236,55 @@ if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
 fi
 
 # ─── Parse and report ───────────────────────────────────────────────────
-OK=$(echo "$RESPONSE" | python3 -c "import json,sys; r=json.load(sys.stdin); print(r.get('ok', False))" 2>/dev/null || echo "False")
+OK=$(echo "$RESPONSE" | "$PYTHON_BIN" -c "import json,sys; r=json.load(sys.stdin); print(r.get('ok', False))" 2>/dev/null || echo "False")
 
 if [ "$OK" = "True" ]; then
   # Extract run ID for polling if async
-  RUN_ID=$(echo "$RESPONSE" | python3 -c "import json,sys; r=json.load(sys.stdin); print(r.get('runId',''))" 2>/dev/null || echo "")
+  RUN_ID=$(echo "$RESPONSE" | "$PYTHON_BIN" -c "import json,sys; r=json.load(sys.stdin); print(r.get('runId',''))" 2>/dev/null || echo "")
 
   if [ -n "$RUN_ID" ]; then
-    # Async mode — poll for completion (up to 10 minutes)
+    # Async mode — poll for terminal completion (up to 10 minutes)
+    RUN_TERMINAL="false"
+    STATUS="unknown"
+    STATUS_RESP="{}"
     for i in $(seq 1 60); do
       sleep 10
       STATUS_RESP=$(curl -sf "${WORKER_URL}/runs/${RUN_ID}" 2>/dev/null || echo '{}')
-      STATUS=$(echo "$STATUS_RESP" | python3 -c "import json,sys; r=json.load(sys.stdin); print(r.get('status','unknown'))" 2>/dev/null || echo "unknown")
-      if [ "$STATUS" = "completed" ] || [ "$STATUS" = "failed" ]; then
+      STATUS=$(echo "$STATUS_RESP" | "$PYTHON_BIN" -c "import json,sys; r=json.load(sys.stdin); print(r.get('status','unknown'))" 2>/dev/null || echo "unknown")
+      TERMINAL=$(echo "$STATUS_RESP" | "$PYTHON_BIN" -c "import json,sys; r=json.load(sys.stdin); print(r.get('terminal', False))" 2>/dev/null || echo "False")
+      if [ "$TERMINAL" = "True" ] || [ "$STATUS" = "completed" ] || [ "$STATUS" = "partial" ] || [ "$STATUS" = "empty" ] || [ "$STATUS" = "failed" ]; then
+        RUN_TERMINAL="true"
         break
       fi
     done
+
+    if [ "$RUN_TERMINAL" != "true" ]; then
+      echo "ERROR: Discovery run did not reach terminal status within 10 minutes"
+      echo "$STATUS_RESP"
+      exit 1
+    fi
+
+    case "$STATUS" in
+      completed|partial|empty)
+        ;;
+      failed)
+        echo "ERROR: Discovery run failed"
+        echo "$STATUS_RESP" | "$PYTHON_BIN" -c "
+import json, sys
+r = json.load(sys.stdin)
+for key in ('message', 'error'):
+    value = r.get(key)
+    if value:
+        print(f'{key}: {value}')
+" 2>/dev/null || echo "$STATUS_RESP"
+        exit 1
+        ;;
+      *)
+        echo "ERROR: Discovery run reached unrecognized terminal status: $STATUS"
+        echo "$STATUS_RESP"
+        exit 1
+        ;;
+    esac
   fi
 
   # ─── Read Pipeline for new jobs and format Telegram notification ───────
@@ -348,6 +395,6 @@ print('\\n'.join(lines))
 "
 else
   echo "ERROR: Discovery webhook returned ok=false"
-  echo "$RESPONSE" | python3 -c "import json,sys; r=json.load(sys.stdin); print(r.get('message','unknown error'))" 2>/dev/null || echo "$RESPONSE"
+  echo "$RESPONSE" | "$PYTHON_BIN" -c "import json,sys; r=json.load(sys.stdin); print(r.get('message','unknown error'))" 2>/dev/null || echo "$RESPONSE"
   exit 1
 fi
