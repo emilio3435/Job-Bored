@@ -45,6 +45,8 @@ WORKER_URL="http://${WORKER_HOST}:${WORKER_PORT}"
 HEALTH_URL="${WORKER_URL}/health"
 WEBHOOK_URL="${WORKER_URL}/webhook"
 WORKER_LOG="${BROWSER_USE_DISCOVERY_WORKER_LOG:-/tmp/jobbored-worker.log}"
+POLL_TIMEOUT_SECONDS="${BROWSER_USE_DISCOVERY_POLL_TIMEOUT_SECONDS:-540}"
+POLL_INTERVAL_SECONDS="${BROWSER_USE_DISCOVERY_POLL_INTERVAL_SECONDS:-10}"
 
 # ─── Read required values from config files ─────────────────────────────
 if [ ! -d "$WORKER_DIR" ]; then
@@ -243,12 +245,12 @@ if [ "$OK" = "True" ]; then
   RUN_ID=$(echo "$RESPONSE" | "$PYTHON_BIN" -c "import json,sys; r=json.load(sys.stdin); print(r.get('runId',''))" 2>/dev/null || echo "")
 
   if [ -n "$RUN_ID" ]; then
-    # Async mode — poll for terminal completion (up to 10 minutes)
+    # Async mode — poll under Hermes' 600s script watchdog, then let the worker keep running.
     RUN_TERMINAL="false"
     STATUS="unknown"
     STATUS_RESP="{}"
-    for i in $(seq 1 60); do
-      sleep 10
+    POLL_DEADLINE=$(( $(date +%s) + POLL_TIMEOUT_SECONDS ))
+    while :; do
       STATUS_RESP=$(curl -sf "${WORKER_URL}/runs/${RUN_ID}" 2>/dev/null || echo '{}')
       STATUS=$(echo "$STATUS_RESP" | "$PYTHON_BIN" -c "import json,sys; r=json.load(sys.stdin); print(r.get('status','unknown'))" 2>/dev/null || echo "unknown")
       TERMINAL=$(echo "$STATUS_RESP" | "$PYTHON_BIN" -c "import json,sys; r=json.load(sys.stdin); print(r.get('terminal', False))" 2>/dev/null || echo "False")
@@ -256,12 +258,24 @@ if [ "$OK" = "True" ]; then
         RUN_TERMINAL="true"
         break
       fi
+      NOW_SECONDS=$(date +%s)
+      if [ "$NOW_SECONDS" -ge "$POLL_DEADLINE" ]; then
+        break
+      fi
+      REMAINING_SECONDS=$(( POLL_DEADLINE - NOW_SECONDS ))
+      SLEEP_SECONDS="$POLL_INTERVAL_SECONDS"
+      if [ "$REMAINING_SECONDS" -lt "$SLEEP_SECONDS" ]; then
+        SLEEP_SECONDS="$REMAINING_SECONDS"
+      fi
+      sleep "$SLEEP_SECONDS"
     done
 
     if [ "$RUN_TERMINAL" != "true" ]; then
-      echo "ERROR: Discovery run did not reach terminal status within 10 minutes"
-      echo "$STATUS_RESP"
-      exit 1
+      echo "JobBored Discovery accepted and still running after ${POLL_TIMEOUT_SECONDS}s."
+      echo "Run ID: $RUN_ID"
+      echo "Current status: $STATUS"
+      echo "Worker continues in the background; Pipeline Status or the next manual status check can report new rows."
+      exit 0
     fi
 
     case "$STATUS" in
