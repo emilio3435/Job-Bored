@@ -156,6 +156,33 @@ describe("discovery-wizard-verify x-discovery-secret header", () => {
     assert.match(result.detail || "", /secret/i);
   });
 
+  it("classifies explicit secret_mismatch responses as auth_required", async () => {
+    const { verify } = loadVerifier({
+      fetchImpl: () =>
+        makeFetchResponse(
+          JSON.stringify({
+            ok: false,
+            message:
+              "The provided x-discovery-secret does not match the configured secret.",
+            auth: {
+              category: "secret_mismatch",
+              detail:
+                "The provided x-discovery-secret does not match the configured secret.",
+            },
+          }),
+          401,
+        ),
+    });
+    const result = await verify.verifyDiscoveryEndpoint(
+      "https://relay.example.workers.dev/",
+      { sheetId: "sheet_abc", secret: "stale-secret" },
+    );
+    assert.equal(result.ok, false);
+    assert.equal(result.httpStatus, 401);
+    assert.equal(result.kind, "auth_required");
+    assert.equal(result.suggestedCommand, "npm run discovery:bootstrap-local");
+  });
+
   it("classifies a 401 from a non-relay endpoint with auth_required too", async () => {
     const { verify } = loadVerifier({
       fetchImpl: () =>

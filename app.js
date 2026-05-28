@@ -543,15 +543,97 @@ function isLocalDashboardOrigin() {
  * `npm run discovery:bootstrap-local`, the user reloads the dashboard and
  * Run discovery just works — no copy/paste of a hex string anywhere.
  */
-function autofillDiscoveryWebhookSecretFromBootstrap(data) {
-  if (!data || typeof data !== "object") return false;
+function getBootstrapDiscoveryWebhookSecret(data) {
+  if (!data || typeof data !== "object") return "";
   const secret =
     typeof data.webhookSecret === "string" ? data.webhookSecret.trim() : "";
+  return secret;
+}
+
+function isLikelyNgrokWebhookUrl(raw) {
+  const s = raw != null ? String(raw).trim() : "";
+  if (!s) return false;
+  try {
+    const url = new URL(s);
+    return /(^|\.)ngrok(?:-free)?\.app$/i.test(url.hostname);
+  } catch (_) {
+    return /\.ngrok(?:-free)?\.app/i.test(s);
+  }
+}
+
+function discoveryUrlOrigin(raw) {
+  const normalized = normalizeDiscoveryWebhookIdentity(raw);
+  if (!normalized) return "";
+  try {
+    return new URL(normalized).origin;
+  } catch (_) {
+    return "";
+  }
+}
+
+function sameDiscoveryUrlOrigin(a, b) {
+  const left = discoveryUrlOrigin(a);
+  const right = discoveryUrlOrigin(b);
+  return !!left && !!right && left === right;
+}
+
+function isBootstrapManagedDiscoveryEndpoint(data, endpointUrl) {
+  if (!isLocalDashboardOrigin()) return false;
+  const endpoint = normalizeDiscoveryWebhookIdentity(
+    endpointUrl || getDiscoveryWebhookUrl(),
+  );
+  if (!endpoint) return true;
+  if (isLocalWebhookCandidateUrl(endpoint) || isLikelyNgrokWebhookUrl(endpoint)) {
+    return true;
+  }
+
+  const source = data && typeof data === "object" ? data : {};
+  const localWebhookUrl = normalizeDiscoveryLocalWebhookUrl(source.localWebhookUrl);
+  const tunnelPublicUrl = normalizeDiscoveryTunnelPublicUrl(
+    source.tunnelPublicUrl || source.ngrokPublicUrl,
+  );
+  const publicTargetUrl =
+    normalizeDiscoveryWebhookIdentity(source.publicTargetUrl) ||
+    normalizeDiscoveryWebhookIdentity(
+      buildDiscoveryTunnelTargetUrl(localWebhookUrl, tunnelPublicUrl),
+    );
+  const relay =
+    source.relay && typeof source.relay === "object" ? source.relay : null;
+  const workerUrl = normalizeDiscoveryWebhookIdentity(
+    relay && typeof relay.workerUrl === "string" ? relay.workerUrl : "",
+  );
+  const candidates = [localWebhookUrl, publicTargetUrl, workerUrl].filter(
+    Boolean,
+  );
+  if (
+    candidates.some(
+      (candidate) =>
+        normalizeDiscoveryWebhookIdentity(candidate) === endpoint ||
+        sameDiscoveryUrlOrigin(candidate, endpoint),
+    )
+  ) {
+    return true;
+  }
+
+  const workerName =
+    typeof source.workerName === "string" ? source.workerName.trim() : "";
+  if (
+    workerName &&
+    inferCloudflareWorkerNameFromOpenWorkerUrl(endpoint) === workerName
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function writeDiscoveryWebhookSecretOverride(secret) {
   if (!secret) return false;
-  const existing = getDiscoveryWebhookSecret();
-  if (existing) return false; // never overwrite a manually-saved value
   try {
     mergeStoredConfigOverridePatch({ discoveryWebhookSecret: secret });
+    const field = document.getElementById("settingsDiscoveryWebhookSecret");
+    if (field && typeof field.value === "string") {
+      field.value = secret;
+    }
     return true;
   } catch (err) {
     console.warn(
@@ -559,6 +641,39 @@ function autofillDiscoveryWebhookSecretFromBootstrap(data) {
       err,
     );
     return false;
+  }
+}
+
+function autofillDiscoveryWebhookSecretFromBootstrap(data, options = {}) {
+  const secret = getBootstrapDiscoveryWebhookSecret(data);
+  if (!secret) return false;
+  const endpointUrl =
+    options && typeof options.endpointUrl === "string"
+      ? options.endpointUrl
+      : getDiscoveryWebhookUrl();
+  const existing = getDiscoveryWebhookSecret();
+  if (existing === secret) return true;
+  const shouldRefresh =
+    !existing || isBootstrapManagedDiscoveryEndpoint(data, endpointUrl);
+  if (!shouldRefresh) return false;
+  return writeDiscoveryWebhookSecretOverride(secret);
+}
+
+async function refreshDiscoveryWebhookSecretFromBootstrapForEndpoint(endpointUrl) {
+  if (!isLocalDashboardOrigin()) return "";
+  try {
+    const res = await fetch(DISCOVERY_LOCAL_BOOTSTRAP_STATE_PATH, {
+      cache: "no-store",
+    });
+    if (!res.ok) return "";
+    const data = await res.json().catch(() => null);
+    const secret = getBootstrapDiscoveryWebhookSecret(data);
+    if (!secret) return "";
+    if (!isBootstrapManagedDiscoveryEndpoint(data, endpointUrl)) return "";
+    autofillDiscoveryWebhookSecretFromBootstrap(data, { endpointUrl });
+    return getDiscoveryWebhookSecret() === secret ? secret : "";
+  } catch (_) {
+    return "";
   }
 }
 
@@ -609,7 +724,9 @@ async function hydrateDiscoveryTransportSetupFromLocalBootstrap() {
     if (!data || typeof data !== "object") {
       return getDiscoveryTransportSetupState();
     }
-    autofillDiscoveryWebhookSecretFromBootstrap(data);
+    autofillDiscoveryWebhookSecretFromBootstrap(data, {
+      endpointUrl: getDiscoveryWebhookUrl(),
+    });
     autofillDiscoveryWebhookUrlFromBootstrap(data);
     return writeDiscoveryTransportSetupState({
       localWebhookUrl: data.localWebhookUrl,
@@ -2377,18 +2494,32 @@ async function verifyDiscoveryWebhookWithSharedModel(
   options = {},
 ) {
   const verifyApi = getDiscoveryWizardVerifyApi();
-  const secret =
+  const initialSecret =
     typeof options.secret === "string" && options.secret.trim()
       ? options.secret.trim()
       : getDiscoveryWebhookSecret();
   if (verifyApi && typeof verifyApi.verifyDiscoveryEndpoint === "function") {
-    return verifyApi.verifyDiscoveryEndpoint(url, {
-      payload,
-      context: options.context || "test_webhook",
-      sheetId: options.sheetId || "",
-      timeoutMs: options.timeoutMs || 15000,
-      secret,
-    });
+    const runVerification = (secret) =>
+      verifyApi.verifyDiscoveryEndpoint(url, {
+        payload,
+        context: options.context || "test_webhook",
+        sheetId: options.sheetId || "",
+        timeoutMs: options.timeoutMs || 15000,
+        secret,
+      });
+
+    const result = await runVerification(initialSecret);
+    if (!result || result.ok || result.kind !== "auth_required") {
+      return result;
+    }
+
+    const refreshedSecret =
+      await refreshDiscoveryWebhookSecretFromBootstrapForEndpoint(url);
+    if (!refreshedSecret || refreshedSecret === initialSecret) {
+      return result;
+    }
+
+    return runVerification(refreshedSecret);
   }
   return {
     ok: false,
@@ -9653,6 +9784,10 @@ function getDiscoveryRunWebhookUrlCandidates(snapshot) {
   const state = snapshot && typeof snapshot === "object" ? snapshot : {};
   const transport = getDiscoveryTransportSetupState();
   const relayInfo = getCloudflareRelayTargetInfo();
+  const snapshotTunnelTargetUrl = buildDiscoveryTunnelTargetUrl(
+    state.localWebhookUrl,
+    state.tunnelPublicUrl,
+  );
   const localTunnelTargetUrl = buildDiscoveryTunnelTargetUrl(
     transport.localWebhookUrl,
     transport.tunnelPublicUrl,
@@ -9664,6 +9799,7 @@ function getDiscoveryRunWebhookUrlCandidates(snapshot) {
   return [
     { url: getDiscoveryWebhookUrl(), source: "configured" },
     { url: state.savedWebhookUrl, source: "snapshot_saved" },
+    { url: snapshotTunnelTargetUrl, source: "snapshot_tunnel_target" },
     { url: state.relayTargetUrl, source: "snapshot_relay_target" },
     { url: relayInfo && relayInfo.url, source: "relay_info" },
     { url: localTunnelTargetUrl, source: "local_tunnel_target" },
@@ -9739,11 +9875,20 @@ function getDiscoveryRunWebhookCandidateProbe(candidate, snapshot) {
   else if (hostedHttps) score += isLocalDashboardOrigin() ? 35 : 65;
   if (source.includes("relay")) score += 20;
   if (source.includes("tunnel")) score += isLocalDashboardOrigin() ? 30 : 15;
+  if (source === "snapshot_tunnel_target" && state.tunnelLive) score += 45;
   if (appsScript) score -= 20;
 
   const recovery = String(state.localRecoveryState || "ok");
   if (recovery !== "ok" && (local || source.includes("tunnel"))) {
     score -= 60;
+  }
+  if (
+    state.tunnelLive &&
+    state.tunnelPublicUrl &&
+    isLikelyNgrokWebhookUrl(url) &&
+    !sameDiscoveryUrlOrigin(url, state.tunnelPublicUrl)
+  ) {
+    score -= 120;
   }
   if (!isLocalDashboardOrigin() && (worker || hostedHttps)) {
     score += 20;
@@ -9773,6 +9918,13 @@ async function resolveDiscoveryRunWebhookUrl() {
       force: true,
       rerender: false,
     });
+    if (snapshot && snapshot.tunnelLive && snapshot.tunnelPublicUrl) {
+      const transportPatch = { tunnelPublicUrl: snapshot.tunnelPublicUrl };
+      if (snapshot.localWebhookUrl) {
+        transportPatch.localWebhookUrl = snapshot.localWebhookUrl;
+      }
+      writeDiscoveryTransportSetupState(transportPatch);
+    }
   } catch (err) {
     console.warn("[JobBored] discovery run readiness:", err);
   }
@@ -11369,6 +11521,25 @@ function getStatusSideEffects(newStatus, job, sheetRow) {
   return { updates, localUpdates };
 }
 
+function emitPipelineMoveSucceeded(jobKey, fromStage, toStage) {
+  if (typeof document === "undefined" || typeof CustomEvent !== "function") {
+    return;
+  }
+  try {
+    document.dispatchEvent(new CustomEvent("jb:write:succeeded", {
+      detail: {
+        jobKey,
+        kind: "pipeline:move",
+        fromStage,
+        toStage,
+        status: toStage,
+      },
+    }));
+  } catch (err) {
+    console.warn("[JobBored] status write event dispatch failed", err);
+  }
+}
+
 async function updateJobStatus(dataIndex, newStatus) {
   const sheetRow = getSheetRow(dataIndex);
   if (!sheetRow) {
@@ -11376,6 +11547,7 @@ async function updateJobStatus(dataIndex, newStatus) {
   }
 
   const job = pipelineData[dataIndex];
+  const prevStatus = job ? job.status : "";
   const { updates, localUpdates } = getStatusSideEffects(
     newStatus,
     job,
@@ -11390,6 +11562,7 @@ async function updateJobStatus(dataIndex, newStatus) {
     renderPipeline();
     renderStats();
     renderBrief();
+    emitPipelineMoveSucceeded(dataIndex, prevStatus, newStatus);
 
     // Build a descriptive toast
     const extras = [];
@@ -15839,7 +16012,7 @@ function _enrichmentPreconditionsOk(job) {
 /** Attempt a scrape. Returns the scraped payload on success, or
  *  null on ANY failure (network, timeout, non-2xx, empty body,
  *  malformed JSON, mixed-content, no URL). Never throws. */
-async function _tryScrape(jobLink) {
+async function _tryScrape(jobLink, context = {}) {
   if (!jobLink) return null;
   const base = getJobPostingScrapeUrl();
   if (!base) return null;
@@ -15852,7 +16025,11 @@ async function _tryScrape(jobLink) {
     const res = await fetch(`${base}/api/scrape-job`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: jobLink }),
+      body: JSON.stringify({
+        url: jobLink,
+        title: context && context.title ? String(context.title) : "",
+        company: context && context.company ? String(context.company) : "",
+      }),
       signal: ctrl.signal,
     });
     if (!res.ok) return null;
@@ -15993,7 +16170,10 @@ async function fetchJobPostingEnrichment(dataIndex) {
 
   try {
     // Lane A: local Cheerio scraper (free, fast, but optional).
-    let scraped = await _tryScrape(job.link);
+    let scraped = await _tryScrape(job.link, {
+      title: job.title,
+      company: job.company,
+    });
     if (scraped) sourceLabel = "cheerio";
 
     // Lane B: Gemini URL Context — the actual job page, fetched by
@@ -22234,9 +22414,14 @@ async function handleIngestUrlSubmit(url, manualOverride) {
     throw new Error("invalid_endpoint");
   }
 
-  const headers = { "content-type": "application/json" };
-  const secret = getDiscoveryWebhookSecret();
-  if (secret) headers["x-discovery-secret"] = secret;
+  let activeDiscoverySecret = getDiscoveryWebhookSecret();
+  function buildDiscoveryWorkerHeaders() {
+    const headers = { "content-type": "application/json" };
+    if (activeDiscoverySecret) {
+      headers["x-discovery-secret"] = activeDiscoverySecret;
+    }
+    return headers;
+  }
 
   async function buildRequestBody(options = {}) {
     const body = {
@@ -22276,7 +22461,7 @@ async function handleIngestUrlSubmit(url, manualOverride) {
     try {
       const res = await fetch(endpoint, {
         method: "POST",
-        headers,
+        headers: buildDiscoveryWorkerHeaders(),
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -22340,7 +22525,27 @@ async function handleIngestUrlSubmit(url, manualOverride) {
   }
 
   const initialBody = await buildRequestBody();
-  let data = await postRequestBody(initialBody);
+  let data;
+  try {
+    data = await postRequestBody(initialBody);
+  } catch (err) {
+    if (
+      err &&
+      err.discoveryVerificationResult &&
+      err.discoveryVerificationResult.kind === "auth_required"
+    ) {
+      const refreshedSecret =
+        await refreshDiscoveryWebhookSecretFromBootstrapForEndpoint(endpoint);
+      if (refreshedSecret && refreshedSecret !== activeDiscoverySecret) {
+        activeDiscoverySecret = refreshedSecret;
+        data = await postRequestBody(initialBody);
+      } else {
+        throw err;
+      }
+    } else {
+      throw err;
+    }
+  }
   if (isIngestSheetAuthFailure(data)) {
     const retryBody = await buildRequestBody({
       forceGoogleTokenRefresh: true,

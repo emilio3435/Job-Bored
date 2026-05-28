@@ -270,6 +270,7 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
     assert.notEqual(candidateEnd, -1, "candidate resolver body must be readable");
     const candidateSource = appJs.slice(candidateStart, candidateEnd);
     assert.match(candidateSource, /state\.relayTargetUrl/);
+    assert.match(candidateSource, /snapshot_tunnel_target/);
     assert.match(candidateSource, /getCloudflareRelayTargetInfo\(\)/);
     assert.match(candidateSource, /buildDiscoveryTunnelTargetUrl\(/);
     assert.match(candidateSource, /source:\s*"configured"/);
@@ -302,6 +303,11 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
       triggerSource,
       /runTrigger/,
       "manual and scheduled callers should share triggerDiscoveryRun with an explicit trigger label",
+    );
+    assert.match(
+      appJs,
+      /refreshDiscoveryWebhookSecretFromBootstrapForEndpoint/,
+      "local secret mismatch recovery should refresh the bootstrap secret instead of only asking for a reload",
     );
   });
 });

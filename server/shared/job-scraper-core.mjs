@@ -8,6 +8,8 @@ import { validateScrapeTarget } from "../security-boundaries.mjs";
 
 const FETCH_TIMEOUT_MS = 18000;
 const MAX_HTML_BYTES = 4 * 1024 * 1024;
+const SERPAPI_ENDPOINT = "https://serpapi.com/search.json";
+const SERPAPI_TIMEOUT_MS = 12000;
 
 const UA =
   "Mozilla/5.0 (compatible; CommandCenterJobBot/1.0; +https://github.com/job-bored) AppleWebKit/537.36 Chrome/120 Safari/537.36";
@@ -132,6 +134,197 @@ function normalizeSpace(s) {
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function normalizeMatchText(value) {
+  return normalizeSpace(value)
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[()]/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function tokenSet(value) {
+  return new Set(
+    normalizeMatchText(value)
+      .split(/\s+/)
+      .filter((token) => token.length > 1),
+  );
+}
+
+function tokenOverlapRatio(left, right) {
+  const leftTokens = tokenSet(left);
+  const rightTokens = tokenSet(right);
+  if (!leftTokens.size || !rightTokens.size) return 0;
+  let hits = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) hits += 1;
+  }
+  return hits / Math.max(leftTokens.size, 1);
+}
+
+function isLinkedInJobUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    return host === "linkedin.com" && /\/jobs\/view\//i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function linkedInJobId(url) {
+  const match = String(url || "").match(/\/jobs\/view\/(\d+)/i);
+  return match ? match[1] : "";
+}
+
+function getSerpApiKey(options = {}) {
+  return String(
+    options.serpApiKey ||
+      process.env.BROWSER_USE_DISCOVERY_SERPAPI_API_KEY ||
+      process.env.DISCOVERY_SERPAPI_API_KEY ||
+      process.env.SERPAPI_API_KEY ||
+      "",
+  ).trim();
+}
+
+function buildSerpApiQuery(options = {}) {
+  const title = normalizeSpace(options.title || "");
+  const company = normalizeSpace(options.company || "")
+    .replace(/[()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return [title, company].filter(Boolean).join(" ").trim();
+}
+
+function collectSerpApiCandidateUrls(raw) {
+  const candidates = [];
+  const push = (value) => {
+    if (typeof value === "string" && /^https?:/i.test(value)) candidates.push(value);
+  };
+  const applyOptions = Array.isArray(raw && raw.apply_options)
+    ? raw.apply_options
+    : [];
+  for (const option of applyOptions) {
+    if (option && typeof option === "object") push(option.link);
+  }
+  const relatedLinks = Array.isArray(raw && raw.related_links)
+    ? raw.related_links
+    : [];
+  for (const link of relatedLinks) {
+    if (link && typeof link === "object") push(link.link);
+  }
+  push(raw && raw.share_link);
+  return candidates;
+}
+
+function pickSerpApiUrl(raw, originalUrl) {
+  const candidates = collectSerpApiCandidateUrls(raw);
+  const originalId = linkedInJobId(originalUrl);
+  if (originalId) {
+    const exact = candidates.find((url) => linkedInJobId(url) === originalId);
+    if (exact) return exact;
+  }
+  const nonLinkedIn = candidates.find((url) => !/\/\/([^/]+\.)?linkedin\.com\//i.test(url));
+  return nonLinkedIn || candidates[0] || originalUrl;
+}
+
+function scoreSerpApiJob(raw, context, originalUrl) {
+  const title = typeof raw.title === "string" ? raw.title.trim() : "";
+  const company = typeof raw.company_name === "string" ? raw.company_name.trim() : "";
+  const description =
+    typeof raw.description === "string" ? raw.description.trim() : "";
+  if (!title || !company || description.length < 80) return -Infinity;
+
+  const originalId = linkedInJobId(originalUrl);
+  let score = 0;
+  if (originalId && collectSerpApiCandidateUrls(raw).some((url) => linkedInJobId(url) === originalId)) {
+    score += 200;
+  }
+  if (context.title) score += tokenOverlapRatio(context.title, title) * 120;
+  if (context.company) score += tokenOverlapRatio(context.company, company) * 90;
+  if (description.length > 400) score += 20;
+  return score;
+}
+
+function pickSerpApiJob(jobs, context, originalUrl) {
+  let best = null;
+  let bestScore = -Infinity;
+  for (const raw of jobs) {
+    if (!raw || typeof raw !== "object") continue;
+    const score = scoreSerpApiJob(raw, context, originalUrl);
+    if (score > bestScore) {
+      best = raw;
+      bestScore = score;
+    }
+  }
+  return bestScore >= 70 ? best : null;
+}
+
+async function fetchSerpApiJobs(query, apiKey, fetchImpl) {
+  const url = new URL(SERPAPI_ENDPOINT);
+  url.searchParams.set("engine", "google_jobs");
+  url.searchParams.set("q", query);
+  url.searchParams.set("hl", "en");
+  url.searchParams.set("google_domain", "google.com");
+  url.searchParams.set("num", "10");
+  url.searchParams.set("api_key", apiKey);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SERPAPI_TIMEOUT_MS);
+  try {
+    const response = await fetchImpl(url.toString(), {
+      method: "GET",
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`SerpApi HTTP ${response.status}`);
+    const body = await response.json();
+    return Array.isArray(body && body.jobs_results) ? body.jobs_results : [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function scrapeLinkedInViaSerpApi(originalUrl, options = {}) {
+  if (!isLinkedInJobUrl(originalUrl)) return null;
+  const context = {
+    title: normalizeSpace(options.title || ""),
+    company: normalizeSpace(options.company || ""),
+  };
+  const query = buildSerpApiQuery(context);
+  const apiKey = getSerpApiKey(options);
+  if (!query || !apiKey) return null;
+
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  const jobs = await fetchSerpApiJobs(query, apiKey, fetchImpl);
+  const matched = pickSerpApiJob(jobs, context, originalUrl);
+  if (!matched) return null;
+
+  const description = normalizeSpace(matched.description || "").slice(0, 25000);
+  const requirements = filterJunkBullets(guessRequirementsFromText(description));
+  const skills = extractSkillsFromText(description, requirements);
+  return {
+    url: pickSerpApiUrl(matched, originalUrl),
+    sourceUrl: originalUrl,
+    title: normalizeSpace(matched.title || context.title) || null,
+    company: normalizeSpace(matched.company_name || context.company),
+    location: normalizeSpace(matched.location || ""),
+    description,
+    requirements,
+    skills,
+    source: "serpapi-google-jobs",
+    method: "serpapi-google-jobs",
+    scraping: {
+      provider: "serpapi_google_jobs",
+      query,
+      originalUrl,
+      matchedUrl: pickSerpApiUrl(matched, originalUrl),
+    },
+    warnings: [
+      "LinkedIn direct scrape was replaced with a Google Jobs structured fallback.",
+    ],
+  };
 }
 
 function stripTags(html) {
@@ -456,6 +649,10 @@ function extractSkillsFromText(text, requirements) {
     "B2B",
     "B2C",
     "SMB",
+    "CTV",
+    "DSP",
+    "DMP",
+    "SSP",
   ]);
   while ((m = acronymRe.exec(blob))) {
     if (allowAcronym.has(m[1])) bag.add(m[1]);
@@ -468,17 +665,19 @@ function extractSkillsFromText(text, requirements) {
 /**
  * @param {string} url
  */
-export async function scrapeJobPosting(url) {
+export async function scrapeJobPosting(url, options = {}) {
   const target = validateScrapeTarget(url);
   if (!target.ok) {
     throw new Error(target.error);
   }
 
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   let html;
   try {
-    const res = await fetch(target.url, {
+    const res = await fetchImpl(target.url, {
       signal: controller.signal,
       headers: {
         "User-Agent": UA,
@@ -494,6 +693,13 @@ export async function scrapeJobPosting(url) {
       throw new Error("Page too large");
     }
     html = new TextDecoder("utf-8").decode(buf);
+  } catch (error) {
+    const linkedInFallback = await scrapeLinkedInViaSerpApi(target.url, {
+      ...options,
+      fetchImpl,
+    }).catch(() => null);
+    if (linkedInFallback) return linkedInFallback;
+    throw error;
   } finally {
     clearTimeout(t);
   }
@@ -608,6 +814,14 @@ export async function scrapeJobPosting(url) {
   const skills = extractSkillsFromText(description, requirements);
 
   description = description.slice(0, 25000);
+
+  if (isLinkedInJobUrl(target.url) && description.length < 160) {
+    const linkedInFallback = await scrapeLinkedInViaSerpApi(target.url, {
+      ...options,
+      fetchImpl,
+    }).catch(() => null);
+    if (linkedInFallback) return linkedInFallback;
+  }
 
   return {
     url: target.url,

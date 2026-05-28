@@ -682,11 +682,91 @@
     return { url: url, secret: secret, sheetId: sheetId };
   }
 
-  function updateDiscoverySecretCaches(secret) {
+  function normalizeEndpointIdentity(raw) {
+    var s = raw == null ? "" : String(raw).trim();
+    if (!s) return "";
+    try {
+      var url = new URL(s);
+      url.hash = "";
+      if (url.pathname !== "/") {
+        url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+      }
+      return url.toString();
+    } catch (_) {
+      return s.replace(/\/+$/, "");
+    }
+  }
+
+  function endpointOrigin(raw) {
+    var endpoint = normalizeEndpointIdentity(raw);
+    if (!endpoint) return "";
+    try {
+      return new URL(endpoint).origin;
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function isNgrokEndpoint(raw) {
+    var s = raw == null ? "" : String(raw).trim();
+    if (!s) return false;
+    try {
+      return /(^|\.)ngrok(?:-free)?\.app$/i.test(new URL(s).hostname);
+    } catch (_) {
+      return /\.ngrok(?:-free)?\.app/i.test(s);
+    }
+  }
+
+  function isLikelyWorkerEndpoint(raw) {
+    var s = raw == null ? "" : String(raw).trim();
+    if (!s) return false;
+    try {
+      var host = new URL(s).hostname;
+      return /\.workers\.dev$/i.test(host) || /(^|\.)cloudflareworkers\.com$/i.test(host);
+    } catch (_) {
+      return /workers\.dev|cloudflareworkers\.com/i.test(s);
+    }
+  }
+
+  function bootstrapWorkerNameFromUrl(raw) {
+    try {
+      var host = new URL(String(raw || "").trim()).hostname;
+      if (!/\.workers\.dev$/i.test(host)) return "";
+      return host.split(".")[0] || "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function shouldUseBootstrapSecretForEndpoint(data, endpointUrl) {
+    if (!isLocalDashboardOrigin()) return false;
+    var endpoint = normalizeEndpointIdentity(endpointUrl || resolveWebhookConfig().url);
+    if (!endpoint) return true;
+    if (isLocalWebhookUrl(endpoint) || isNgrokEndpoint(endpoint)) return true;
+    var source = data && typeof data === "object" ? data : {};
+    var relay = source.relay && typeof source.relay === "object" ? source.relay : null;
+    var relayWorkerUrl =
+      relay && typeof relay.workerUrl === "string" ? relay.workerUrl.trim() : "";
+    if (relayWorkerUrl && endpointOrigin(relayWorkerUrl) === endpointOrigin(endpoint)) {
+      return true;
+    }
+    var workerName = typeof source.workerName === "string" ? source.workerName.trim() : "";
+    if (
+      workerName &&
+      isLikelyWorkerEndpoint(endpoint) &&
+      bootstrapWorkerNameFromUrl(endpoint) === workerName
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function updateDiscoverySecretCaches(secret, options) {
     var value = String(secret || "").trim();
     if (!value) return;
     var current = resolveWebhookConfig();
-    if (current && current.secret) return;
+    var force = !!(options && options.force === true);
+    if (!force && current && current.secret) return;
     try {
       if (
         !window.COMMAND_CENTER_CONFIG ||
@@ -703,6 +783,7 @@
       var parsed = raw ? JSON.parse(raw) : {};
       if (!parsed || typeof parsed !== "object") parsed = {};
       if (
+        force ||
         typeof parsed.discoveryWebhookSecret !== "string" ||
         !parsed.discoveryWebhookSecret.trim()
       ) {
@@ -719,13 +800,13 @@
     if (
       secretField &&
       typeof secretField.value === "string" &&
-      !secretField.value.trim()
+      (force || !secretField.value.trim())
     ) {
       secretField.value = value;
     }
   }
 
-  async function hydrateLocalWebhookSecretFromBootstrap() {
+  async function hydrateLocalWebhookSecretFromBootstrap(endpointUrl) {
     if (!isLocalDashboardOrigin()) return "";
     try {
       var res = await fetch(DISCOVERY_LOCAL_BOOTSTRAP_STATE_PATH, {
@@ -739,8 +820,9 @@
       var secret =
         typeof data.webhookSecret === "string" ? data.webhookSecret.trim() : "";
       if (!secret) return "";
-      updateDiscoverySecretCaches(secret);
-      return secret;
+      if (!shouldUseBootstrapSecretForEndpoint(data, endpointUrl)) return "";
+      updateDiscoverySecretCaches(secret, { force: true });
+      return resolveWebhookConfig().secret === secret ? secret : "";
     } catch (_) {
       return "";
     }
@@ -1055,6 +1137,7 @@
           var httpError = new Error(message);
           httpError.httpStatus = res.status;
           httpError.endpoint = endpoint;
+          httpError.responseData = data;
           throw httpError;
         }
         return data;
@@ -1083,8 +1166,35 @@
     var hasLocalEndpoint =
       isLocalWebhookUrl(primaryEndpoint) || isLocalWebhookUrl(fallbackEndpoint);
     if (!config.secret && hasLocalEndpoint) {
-      config.secret = await hydrateLocalWebhookSecretFromBootstrap();
+      config.secret =
+        (await hydrateLocalWebhookSecretFromBootstrap(primaryEndpoint)) ||
+        config.secret;
     }
+
+    function isDiscoverySecretMismatchError(error) {
+      if (!error || Number(error.httpStatus || 0) !== 401) return false;
+      var data = error.responseData || null;
+      if (data && typeof data === "object") {
+        var category =
+          data.auth && typeof data.auth.category === "string"
+            ? data.auth.category
+            : "";
+        if (category === "secret_mismatch") return true;
+      }
+      return /x-discovery-secret.*match.*configured secret|unauthorized discovery webhook request/i.test(
+        String(error.message || ""),
+      );
+    }
+
+    async function retryProfileRequestWithBootstrapSecret(error, endpoint) {
+      if (!isDiscoverySecretMismatchError(error)) return null;
+      var previousSecret = String(config.secret || "").trim();
+      var freshSecret = await hydrateLocalWebhookSecretFromBootstrap(endpoint);
+      if (!freshSecret || freshSecret === previousSecret) return null;
+      config.secret = freshSecret;
+      return sendProfileRequest(endpoint, config.secret);
+    }
+
     if (preferLocal) {
       var localReady = await ensureLocalProfileEndpointReady(fallbackEndpoint);
       if (localReady.ok) {
@@ -1095,6 +1205,11 @@
           );
           return await sendProfileRequest(fallbackEndpoint, config.secret);
         } catch (localErr) {
+          var recoveredLocal = await retryProfileRequestWithBootstrapSecret(
+            localErr,
+            fallbackEndpoint,
+          );
+          if (recoveredLocal) return recoveredLocal;
           try {
             console.info(
               "[settings-profile-tab] local profile request failed:",
@@ -1114,6 +1229,11 @@
     try {
       return await sendProfileRequest(primaryEndpoint, config.secret);
     } catch (err) {
+      var recoveredPrimary = await retryProfileRequestWithBootstrapSecret(
+        err,
+        primaryEndpoint,
+      );
+      if (recoveredPrimary) return recoveredPrimary;
       primaryError = err;
     }
 

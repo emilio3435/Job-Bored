@@ -112,6 +112,36 @@ describe("Drawer CRM sync", () => {
     });
   });
 
+  describe("updateJobStatus emits the confirmed move event", () => {
+    const body = extractFunctionBody(appJs, "updateJobStatus");
+    const emitBody = extractFunctionBody(appJs, "emitPipelineMoveSucceeded");
+
+    it("has a dedicated confirmed move event helper", () => {
+      assert.ok(
+        emitBody && emitBody.includes('"jb:write:succeeded"'),
+        "status writes should emit the shared write-succeeded event",
+      );
+      assert.ok(
+        emitBody && emitBody.includes('kind: "pipeline:move"'),
+        "status writes should use the same pipeline move kind as kanban drag writes",
+      );
+    });
+
+    it("captures the previous stage before local mutation", () => {
+      assert.ok(
+        body && body.includes("const prevStatus = job ? job.status : \"\";"),
+        "updateJobStatus should keep the source stage before applying local status changes",
+      );
+    });
+
+    it("emits after the Sheet update succeeds", () => {
+      assert.ok(
+        body && body.includes("emitPipelineMoveSucceeded(dataIndex, prevStatus, newStatus);"),
+        "successful status-select and stage-step writes should notify downstream automation",
+      );
+    });
+  });
+
   describe("refreshDrawerIfOpen function exists and is called", () => {
     const body = extractFunctionBody(appJs, "refreshDrawerIfOpen");
     it("refreshDrawerIfOpen function exists", () => {
