@@ -4,16 +4,19 @@
  * the queue is empty, so the dashboard is unaffected on idle days.
  */
 
-/* Bottom-anchored toast dock. The queue floats above the main
- * content like a notification tray instead of consuming top-of-page
- * real estate. position:fixed pins it to the bottom-right of the
- * viewport regardless of scroll position; flex-wrap + max-width keep
- * it from spanning the full page width when only a few chips are
- * active.
+/* Bottom-right toast dock. Narrow column that lives within the
+ * right-hand margin so it never encroaches on the main content as
+ * the user scrolls. Chips stack vertically (taller, denser) so each
+ * request gets a clear row showing company + material type without
+ * fighting the reading column for horizontal space.
  *
  *   - position: fixed; bottom: 16px; right: 16px
- *   - z-index: 39    (below modals / toasts but above content)
- *   - max-width: min(720px, calc(100vw - 32px))
+ *   - width:  300px   (narrow column — fits inside the right margin
+ *                      of the dossier reading column at ~1280-1440px
+ *                      viewports without overlap)
+ *   - max-height: calc(100vh - 120px)  with overflow:auto so a long
+ *                      queue scrolls inside its own container instead
+ *                      of growing off-screen.
  *
  * Empty queue collapses entirely via the hidden attribute. */
 [data-region="materials-queue"] {
@@ -24,13 +27,16 @@
   left: auto;
   z-index: 39;
   margin: 0;
-  padding: 10px 14px;
-  max-width: min(720px, calc(100vw - 32px));
+  padding: 10px 12px;
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
   background: rgba(251, 247, 238, 0.97);
   backdrop-filter: blur(10px) saturate(1.15);
   -webkit-backdrop-filter: blur(10px) saturate(1.15);
   border: 1px solid var(--border, rgba(0, 0, 0, 0.10));
-  border-radius: 14px;
+  border-radius: 12px;
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.04),
     0 8px 24px rgba(14, 31, 54, 0.10);
@@ -41,9 +47,10 @@
   [data-region="materials-queue"] {
     bottom: 12px;
     right: 12px;
-    left: 12px;
-    max-width: none;
-    padding: 8px 12px;
+    left: auto;
+    width: calc(100vw - 24px);
+    max-width: 360px;
+    padding: 8px 10px;
   }
 }
 
@@ -76,29 +83,29 @@
   color: var(--mute, #888);
 }
 
-/* Chip-style queue items so multiple requests fit comfortably on one
- * row instead of one big row each. Flex-wrap lets the chips pack
- * naturally across as many lines as needed. */
+/* Vertical stack of rows so each request gets its own dense line
+ * with company + material type clearly visible. Narrow dock width
+ * makes horizontal pill packing too cramped, so we stack instead. */
 .mq__list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .mq__row {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 6px 6px 10px;
+  gap: 6px;
+  padding: 6px 8px;
   background: var(--parchment, #FBF7EE);
   border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
   border-left: 3px solid var(--amber, #E7B549);
-  border-radius: 999px;
+  border-radius: 8px;
   transition: opacity 200ms ease, border-color 120ms ease;
-  max-width: 100%;
+  width: 100%;
   min-width: 0;
 }
 .mq__row[data-phase="queued"]   { border-left-color: var(--mute, #999); }
@@ -112,21 +119,32 @@
   color: var(--mute, #888);
   letter-spacing: 0.10em;
   flex-shrink: 0;
+  min-width: 12px;
+  text-align: center;
 }
 
+.mq__elapsed { flex-shrink: 0; }
+.mq__phase   { flex-shrink: 0; }
+.mq__sep     { flex-shrink: 0; }
+
+/* Two-line layout per row: company + material type on line 1,
+ * phase + elapsed on line 2. Title is hidden in the dock to keep
+ * each row compact; the title still shows in the tooltip via the
+ * row's title attribute. */
 .mq__body {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .mq__line {
-  display: inline-flex;
+  display: flex;
   align-items: baseline;
   gap: 6px;
   font-family: var(--serif, Georgia, serif);
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--navy, #0E1F36);
   line-height: 1.2;
   min-width: 0;
@@ -136,41 +154,48 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 160px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
-.mq__title {
-  color: var(--ink, #1a1a1a);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 260px;
-}
-.mq__dot { color: var(--mute, #888); }
+/* Hide the role title in chip rows only — the dock is for "what is
+ * Winky working on right now," not full role context. The full title
+ * remains in the row's title attribute for hover discovery.
+ * .mq__head .mq__title (the dock header) stays visible. */
+.mq__line .mq__title { display: none; }
+.mq__line .mq__dot { display: none; }
 
 .mq__meta {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 6px;
   font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 0.10em;
   text-transform: uppercase;
   color: var(--ink-soft, #555);
-  flex-shrink: 0;
+  min-width: 0;
 }
-/* Hide the feature in chip mode — phase pill carries enough signal
- * and the title implies the deliverable. Available via :hover/title
- * if we ever want to surface it. */
-.mq__feature { display: none; }
-
-.mq__sep {
+/* Material type label takes whatever width is left and truncates;
+ * phase pill + elapsed are fixed-width and never wrap. */
+.mq__feature {
   display: inline-block;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--mute, #999);
-  opacity: 0.6;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--mute, #888);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
 }
+
+/* In the dock, gap between feature/phase/elapsed is enough; drop
+ * the bullet separators that were carry-overs from the wider strip
+ * layout. */
+.mq__sep { display: none; }
 
 .mq__elapsed { font-variant-numeric: tabular-nums; }
 
@@ -200,12 +225,15 @@
   color: #b03e3e;
 }
 
+/* Cancel is an icon-style ✕ in the dock since "Cancel" word is
+ * redundant with the row context. Hidden label retained for screen
+ * readers via aria-label set on the button. */
 .mq__cancel {
   font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.10em;
-  text-transform: uppercase;
-  padding: 3px 9px;
+  font-size: 0;          /* hide the "Cancel" text */
+  line-height: 1;
+  width: 20px;
+  height: 20px;
   border-radius: 999px;
   background: transparent;
   border: 1px solid var(--border, rgba(0, 0, 0, 0.15));
@@ -213,6 +241,17 @@
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  position: relative;
+}
+.mq__cancel::before {
+  content: "✕";
+  font-size: 10px;
+  letter-spacing: 0;
+  font-family: var(--font-body, sans-serif);
 }
 .mq__cancel:hover {
   background: rgba(192, 76, 76, 0.08);
@@ -220,7 +259,4 @@
   color: #b03e3e;
 }
 
-@media (max-width: 720px) {
-  .mq__company { max-width: 100px; }
-  .mq__title   { max-width: 140px; }
-}
+
