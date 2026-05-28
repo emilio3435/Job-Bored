@@ -368,7 +368,7 @@ async function main() {
   const workerConfig = readJson(workerConfigPath);
   const sheetId = resolveSheetId(args, env, workerConfig);
   if (!sheetId) {
-    fail("sheetId is required. Pass --sheet-id or set it in .env/worker-config.json.");
+    fail(`sheetId is required. Pass --sheet-id or set it in ${envPath} or ${workerConfigPath}.`);
   }
   const requestedAt = new Date().toISOString();
   const payload = payloadBuilder.buildDiscoveryWebhookPayload({
@@ -391,7 +391,7 @@ async function main() {
 
   const secret = String(env.BROWSER_USE_DISCOVERY_WEBHOOK_SECRET || "").trim();
   if (!secret) {
-    fail("BROWSER_USE_DISCOVERY_WEBHOOK_SECRET is not set in integrations/browser-use-discovery/.env.");
+    fail(`BROWSER_USE_DISCOVERY_WEBHOOK_SECRET is not set in ${envPath}.`);
   }
   const port = resolvePort(args, env);
   // launchd does not keep the worker alive between cron fires; auto-start it

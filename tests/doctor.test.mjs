@@ -58,6 +58,9 @@ async function createDoctorRepo() {
 
 function spawnSyncImpl(command, args = []) {
   const joined = [command, ...args].join(" ");
+  if (command === "git" && args.includes("ls-files")) {
+    return { status: 0, stdout: "", stderr: "" };
+  }
   if (joined === "npm -v") return { status: 0, stdout: "11.13.0\n", stderr: "" };
   if (joined === "ngrok --version") return { status: 0, stdout: "ngrok version 3\n", stderr: "" };
   if (joined === "wrangler --version") return { status: 0, stdout: "wrangler 4\n", stderr: "" };
@@ -94,5 +97,34 @@ describe("doctor CLI", () => {
     assert.match(output, /Pipeline headers differ from schemas\/pipeline-row\.v1\.json/);
     assert.match(output, /discovery worker is listening on 127\.0\.0\.1:8644/);
     assert.doesNotMatch(output, /secret-value/);
+  });
+
+  it("warns about tracked config values without printing the values", async () => {
+    const repoRoot = await createDoctorRepo();
+    await writeFile(
+      join(repoRoot, "config.js"),
+      `window.COMMAND_CENTER_CONFIG = {
+        sheetId: "real-sheet-id-12345",
+        resumeGeminiApiKey: "AIza-real-secret-key"
+      };\n`,
+    );
+    const report = await runDoctor({
+      repoRoot,
+      env: {},
+      spawnSyncImpl: (command, args = []) => {
+        if (command === "git" && args.includes("ls-files")) {
+          return { status: 0, stdout: "config.js\n", stderr: "" };
+        }
+        return spawnSyncImpl(command, args);
+      },
+      fetchImpl: async () => new Response("{}", { status: 403 }),
+      checkPortImpl: async () => false,
+    });
+    const output = formatDoctorReport(report);
+
+    assert.match(output, /Tracked config\.js appears to contain configured local values/);
+    assert.match(output, /values are redacted/);
+    assert.doesNotMatch(output, /real-sheet-id-12345/);
+    assert.doesNotMatch(output, /AIza-real-secret-key/);
   });
 });

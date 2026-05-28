@@ -3480,10 +3480,22 @@ function buildDiscoveryBootstrapBody(runtime) {
   const snapshot = runtime.snapshot;
   const result = runtime.lastLocalResult;
   const container = createWizardNode("div", "discovery-wizard-step-body");
-  appendWizardParagraph(
-    container,
-    "This reads your local config file to auto-fill ports, URLs, and tunnel info.",
-  );
+  if (isLocalDashboardOrigin()) {
+    appendWizardParagraph(
+      container,
+      "JobBored can generate the local discovery config from this running dev server, then auto-fill ports, URLs, and tunnel info.",
+    );
+    appendWizardParagraph(
+      container,
+      "Use the manual command only if automatic setup reports a missing ngrok token, port conflict, or login step.",
+      "settings-field-hint settings-field-hint--compact",
+    );
+  } else {
+    appendWizardParagraph(
+      container,
+      "This reads your local config file to auto-fill ports, URLs, and tunnel info.",
+    );
+  }
   appendWizardList(container, [
     `Config file: ${snapshot.localBootstrapAvailable ? "found" : "missing"}`,
     `Local server: ${snapshot.localWebhookUrl || "not detected"}`,
@@ -3491,9 +3503,11 @@ function buildDiscoveryBootstrapBody(runtime) {
   ]);
   appendWizardAssistChooser(container, {
     stepId: "bootstrap",
-    title: "Generate the config file:",
+    title: isLocalDashboardOrigin()
+      ? "Manual fallback:"
+      : "Generate the config file:",
     intro: "",
-    defaultMode: "agent",
+    defaultMode: isLocalDashboardOrigin() ? "manual" : "agent",
     choices: [
       {
         id: "agent",
@@ -3507,7 +3521,9 @@ function buildDiscoveryBootstrapBody(runtime) {
           );
           appendWizardParagraph(
             content,
-            "Then press Load config above.",
+            isLocalDashboardOrigin()
+              ? "Use this only if automatic setup cannot complete."
+              : "Then press Load config above.",
             "settings-field-hint settings-field-hint--compact",
           );
         },
@@ -3523,7 +3539,9 @@ function buildDiscoveryBootstrapBody(runtime) {
           });
           appendWizardParagraph(
             content,
-            "When the command finishes, press Load config above.",
+            isLocalDashboardOrigin()
+              ? "Use this only if automatic setup cannot complete."
+              : "When the command finishes, press Load config above.",
             "settings-field-hint settings-field-hint--compact",
           );
         },
@@ -4293,32 +4311,33 @@ function buildDiscoveryWizardSteps(runtime) {
       title: detectRecovery ? "Fix local setup" : "Load local config.",
       description: detectRecovery
         ? "Fix setup restarts what is down and redeploys the relay if ngrok changed."
-        : "Reads your saved local setup so the wizard knows your ports, URLs, and tunnel info.",
+        : isLocalDashboardOrigin()
+          ? "Generates or loads your local discovery config with no terminal step."
+          : "Reads your saved local setup so the wizard knows your ports, URLs, and tunnel info.",
       body: () => buildDiscoveryBootstrapBody(getDiscoveryWizardRuntime()),
-      actions: detectRecovery
-        ? [
-            {
-              id: "wizard_fix_setup",
-              label: "Fix setup",
-              variant: "primary",
-            },
-          ]
-        : [
-            {
-              id: "local_bootstrap_refresh",
-              label: "Load config",
-              variant: "primary",
-            },
-          ],
-      secondaryActions: detectRecovery
-        ? [
-            {
-              id: "local_bootstrap_refresh",
-              label: "Load config manually",
-              variant: "secondary",
-            },
-          ]
-        : [],
+      actions: [
+        {
+          id: detectRecovery ? "wizard_fix_setup" : "local_bootstrap_refresh",
+          label: detectRecovery
+            ? "Fix setup"
+            : isLocalDashboardOrigin()
+              ? "Set up locally"
+              : "Load config",
+          variant: "primary",
+        },
+      ],
+      secondaryActions:
+        detectRecovery || isLocalDashboardOrigin()
+          ? [
+              {
+                id: "local_bootstrap_refresh",
+                label: isLocalDashboardOrigin()
+                  ? "Load existing config"
+                  : "Load config manually",
+                variant: "secondary",
+              },
+            ]
+          : [],
     });
     steps.push({
       id: "local_health",
@@ -9771,6 +9790,61 @@ async function resolveDiscoveryRunWebhookUrl() {
   return scored.length ? scored[0].url : "";
 }
 
+async function ensureLocalDiscoveryAutoSetupForRun() {
+  if (!isLocalDashboardOrigin()) return false;
+  let shouldRunSetup = true;
+  try {
+    const stateResp = await fetch("/__proxy/discovery-state", {
+      method: "GET",
+      cache: "no-store",
+    });
+    const state = await stateResp.json().catch(() => null);
+    if (
+      stateResp.ok &&
+      state &&
+      state.recommendation === "ready" &&
+      (!state.worker || state.worker.originAllowed !== false)
+    ) {
+      return true;
+    }
+    shouldRunSetup = !!(
+      state &&
+      (state.recommendation === "auto_recoverable" ||
+        state.recoverableHint === "origin_not_allowed" ||
+        (state.worker && state.worker.originAllowed === false))
+    );
+  } catch (_) {
+    shouldRunSetup = true;
+  }
+  if (!shouldRunSetup) return false;
+  setDiscoveryWizardMessage(
+    "Setting up local discovery from this dev server...",
+    "info",
+  );
+  showToast("Setting up local discovery...", "info");
+  try {
+    const resp = await fetch("/__proxy/fix-setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok || !body || !body.ok) {
+      return false;
+    }
+    await hydrateDiscoveryTransportSetupFromLocalBootstrap();
+    await refreshDiscoveryReadinessSnapshot({
+      force: true,
+      rerender: false,
+    });
+    showToast("Local discovery setup is ready.", "success");
+    return true;
+  } catch (err) {
+    console.warn("[JobBored] local discovery auto setup failed:", err);
+    return false;
+  }
+}
+
 /** Notify automation (Hermes, n8n, etc.) to run another discovery pass (varied query). */
 async function triggerDiscoveryRun(options) {
   const runOptions =
@@ -9778,7 +9852,15 @@ async function triggerDiscoveryRun(options) {
       ? options
       : {};
   const runTrigger = String(runOptions.trigger || "manual").trim() || "manual";
-  const hook = await resolveDiscoveryRunWebhookUrl();
+  if (isLocalDashboardOrigin()) {
+    await ensureLocalDiscoveryAutoSetupForRun();
+    await warnDiscoverySourceReadinessBeforeRun();
+  }
+  let hook = await resolveDiscoveryRunWebhookUrl();
+  if (!hook && (await ensureLocalDiscoveryAutoSetupForRun())) {
+    await warnDiscoverySourceReadinessBeforeRun();
+    hook = await resolveDiscoveryRunWebhookUrl();
+  }
   if (!hook) {
     void requestDiscoverySetup({
       entryPoint: "run_discovery",
@@ -20933,6 +21015,97 @@ function refreshDiscoveryDrawerStatusChip() {
   }
 }
 
+function getLocalDiscoveryWorkerHealthUrlForSources() {
+  if (!isLocalDashboardOrigin()) return "";
+  const snap = getDiscoveryReadinessSnapshot();
+  const transport = getDiscoveryTransportSetupState();
+  const savedWebhookUrl = getDiscoveryWebhookUrl();
+  const localWebhookUrl =
+    transport.localWebhookUrl ||
+    (snap && snap.localWebhookUrl) ||
+    (isLocalWebhookCandidateUrl(savedWebhookUrl) ? savedWebhookUrl : "");
+  return getDiscoveryLocalWebhookHealthUrl(localWebhookUrl);
+}
+
+async function fetchLocalDiscoveryWorkerSourceReadiness() {
+  if (isLocalDashboardOrigin()) {
+    await hydrateDiscoveryTransportSetupFromLocalBootstrap();
+  }
+  const healthUrl = getLocalDiscoveryWorkerHealthUrlForSources();
+  if (!healthUrl) return null;
+  try {
+    const response = await fetch(healthUrl, {
+      method: "GET",
+      mode: "cors",
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const payload = await response.json().catch(() => null);
+    return payload && payload.readiness && typeof payload.readiness === "object"
+      ? payload.readiness
+      : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function getDiscoverySourceReadinessIssues(readiness) {
+  if (!readiness || typeof readiness !== "object") return [];
+  const issues = [];
+  const groundedWeb = readiness.groundedWeb;
+  if (
+    groundedWeb &&
+    groundedWeb.enabled &&
+    groundedWeb.ready === false
+  ) {
+    issues.push("Gemini API key");
+  }
+  const serpApi = readiness.serpApiGoogleJobs;
+  if (
+    serpApi &&
+    serpApi.enabled &&
+    (serpApi.configured === false || serpApi.ready === false)
+  ) {
+    issues.push("SerpApi key");
+  }
+  return issues;
+}
+
+function renderDiscoveryDrawerSourceReadiness(issues) {
+  const notice = document.getElementById("discoveryDrawerLastRun");
+  if (!notice) return;
+  if (!issues.length) {
+    notice.hidden = true;
+    notice.textContent = "";
+    return;
+  }
+  setDiscoveryReadinessChip("partial", "Source config missing");
+  notice.hidden = false;
+  notice.textContent = `Missing source config: ${issues.join(", ")}. Discovery can still run with fewer sources.`;
+}
+
+async function refreshDiscoveryDrawerSourceReadiness() {
+  const readiness = await fetchLocalDiscoveryWorkerSourceReadiness();
+  if (!readiness) return [];
+  const issues = getDiscoverySourceReadinessIssues(readiness);
+  renderDiscoveryDrawerSourceReadiness(issues);
+  return issues;
+}
+
+async function warnDiscoverySourceReadinessBeforeRun() {
+  const readiness = await fetchLocalDiscoveryWorkerSourceReadiness();
+  if (!readiness) return [];
+  const issues = getDiscoverySourceReadinessIssues(readiness);
+  if (issues.length) {
+    showToast(
+      `Discovery is missing ${issues.join(", ")}. This run will continue with fewer sources.`,
+      "warning",
+      true,
+    );
+  }
+  return issues;
+}
+
 function openDiscoveryDrawer() {
   const drawer = discoveryDrawerEl();
   if (!drawer) return;
@@ -20973,6 +21146,7 @@ function openDiscoveryDrawer() {
     renderCompanyChips("allow");
     renderCompanyChips("block");
     refreshDiscoveryDrawerStatusChip();
+    void refreshDiscoveryDrawerSourceReadiness();
     drawer.hidden = false;
     drawer.style.display = "flex";
     document.body.classList.add("detail-open");
@@ -21787,17 +21961,7 @@ function initDiscoveryButton() {
     else if (closeBtn) closeBtn.focus();
   }
 
-  openBtn.addEventListener("click", async () => {
-    const snapshot = getDiscoveryReadinessSnapshot();
-    const needsRecovery =
-      snapshot.localRecoveryState && snapshot.localRecoveryState !== "ok";
-    if (needsRecovery) {
-      await requestDiscoverySetup({
-        entryPoint: "header",
-        allowWhileOnboarding: true,
-      });
-      return;
-    }
+  openBtn.addEventListener("click", () => {
     openDiscoveryDrawer();
   });
 

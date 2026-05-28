@@ -3,7 +3,7 @@
  * JobBored daily refresh — Windows Task Scheduler installer.
  *
  * Manual smoke steps for reviewers:
- *   1. In PowerShell, set integrations\browser-use-discovery\.env with
+ *   1. In PowerShell, set the packaged worker env file with
  *      BROWSER_USE_DISCOVERY_WEBHOOK_SECRET and optionally
  *      BROWSER_USE_DISCOVERY_PORT.
  *   2. Run: npm run schedule:install -- --hour 8 --minute 0 --sheet-id YOUR_SHEET_ID --force
@@ -103,7 +103,7 @@ function resolveEnv(args) {
   const secret = String(env.BROWSER_USE_DISCOVERY_WEBHOOK_SECRET || "").trim();
   if (!secret) {
     fail(
-      "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET is not set in integrations/browser-use-discovery/.env. Set it and rerun.",
+      `BROWSER_USE_DISCOVERY_WEBHOOK_SECRET is not set in ${envPath}. Set it and rerun.`,
     );
   }
   try {

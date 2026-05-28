@@ -26,8 +26,10 @@ import { dirname, join, resolve } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { parseDotEnv, sanitizeSecret } from "./lib/env.mjs";
 import {
+  envPath,
   normalizeSheetIdCandidate,
   readWorkerConfigSheetId,
+  stateDir,
   writeScheduleBreadcrumb,
 } from "./lib/schedule.mjs";
 
@@ -39,21 +41,9 @@ const templatePath = join(
   "launchd",
   "com.jobbored.refresh.plist",
 );
-const envPath = join(
-  repoRoot,
-  "integrations",
-  "browser-use-discovery",
-  ".env",
-);
 const agentDir = join(homedir(), "Library", "LaunchAgents");
 const agentPath = join(agentDir, "com.jobbored.refresh.plist");
-const logPath = join(
-  repoRoot,
-  "integrations",
-  "browser-use-discovery",
-  "state",
-  "launchd-refresh.log",
-);
+const logPath = join(stateDir, "launchd-refresh.log");
 const scheduledDiscoveryScriptPath = join(
   repoRoot,
   "scripts",
@@ -159,7 +149,7 @@ function main() {
   ).trim();
   if (!secret) {
     fail(
-      "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET is not set in integrations/browser-use-discovery/.env. Set it and rerun.",
+      `BROWSER_USE_DISCOVERY_WEBHOOK_SECRET is not set in ${envPath}. Set it and rerun.`,
     );
   }
   try {

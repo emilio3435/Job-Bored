@@ -30,7 +30,12 @@ from pathlib import Path
 from urllib.parse import urlparse, urlencode, parse_qs
 
 # ─── Constants ────────────────────────────────────────────────────────
-JHOS_ROOT = Path.home() / ".hermes" / "job-hunt"
+def env_path(name, default):
+    return Path(os.environ.get(name) or default).expanduser()
+
+
+HERMES_HOME = env_path("HERMES_HOME", Path.home() / ".hermes")
+JHOS_ROOT = env_path("HERMES_JOB_HUNT_HOME", HERMES_HOME / "job-hunt")
 STATE_DIR = JHOS_ROOT / "state"
 EVIDENCE_DIR = JHOS_ROOT / "evidence"
 LOCK_DB = STATE_DIR / "submit-locks.db"

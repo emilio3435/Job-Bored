@@ -32,8 +32,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import jhos_submit as js
 
-JHOS_ROOT = Path.home() / ".hermes" / "job-hunt"
-APPLICATIONS_DIR = JHOS_ROOT / "applications"
+def env_path(name, default):
+    return Path(os.environ.get(name) or default).expanduser()
+
+
+HERMES_HOME = env_path("HERMES_HOME", Path.home() / ".hermes")
+JHOS_ROOT = env_path("HERMES_JOB_HUNT_HOME", HERMES_HOME / "job-hunt")
+APPLICATIONS_DIR = env_path("HERMES_APPLICATIONS_DIR", JHOS_ROOT / "applications")
 
 
 def log(msg: str, level: str = "INFO"):

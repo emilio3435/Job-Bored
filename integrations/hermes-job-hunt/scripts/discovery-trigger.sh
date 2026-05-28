@@ -61,7 +61,7 @@ if ! curl -sf "$HEALTH_URL" >/dev/null 2>&1; then
   # Source .env for the worker process
   set -a; source "$WORKER_ENV" 2>/dev/null || true; set +a
   # Pass service account explicitly — .env variable expansion doesn't reach Node process.env
-  nohup env BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE="$BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE" node --experimental-strip-types src/server.ts > /tmp/jobbored-worker.log 2>&1 &
+  nohup env BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE="${BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE:-}" node --experimental-strip-types src/server.ts > /tmp/jobbored-worker.log 2>&1 &
   WORKER_PID=$!
   # Wait up to 15 seconds for startup
   for i in $(seq 1 15); do

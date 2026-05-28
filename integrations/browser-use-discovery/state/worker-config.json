@@ -1,129 +1,24 @@
 {
-  "sheetId": "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ",
+  "sheetId": "YOUR_SHEET_ID_HERE",
   "mode": "local",
   "timezone": "America/Chicago",
   "companies": [],
-  "atsCompanies": [
-    {
-      "name": "Scale AI",
-      "companyKey": "scale-ai",
-      "normalizedName": "scale-ai",
-      "domains": [
-        "scale.com"
-      ],
-      "roleTags": [
-        "ai strategy",
-        "ai automation",
-        "operations",
-        "product manager"
-      ],
-      "boardHints": {
-        "greenhouse": "scaleai",
-        "ashby": "scale-ai"
-      }
-    },
-    {
-      "name": "Figma",
-      "companyKey": "figma",
-      "normalizedName": "figma",
-      "domains": [
-        "figma.com"
-      ],
-      "roleTags": [
-        "growth marketing",
-        "product manager",
-        "community",
-        "marketing operations"
-      ],
-      "boardHints": {
-        "greenhouse": "figma",
-        "ashby": "figma"
-      }
-    },
-    {
-      "name": "Notion",
-      "companyKey": "notion",
-      "normalizedName": "notion",
-      "domains": [
-        "notion.so"
-      ],
-      "roleTags": [
-        "growth marketing",
-        "product manager",
-        "community",
-        "marketing operations"
-      ],
-      "boardHints": {
-        "greenhouse": "notion",
-        "ashby": "notion"
-      }
-    }
-  ],
-  "includeKeywords": [
-    "digital marketing",
-    "applied AI",
-    "AI/ML",
-    "generative AI",
-    "performance marketing",
-    "growth",
-    "product marketing",
-    "solutions architect",
-    "sales engineer",
-    "adtech",
-    "martech",
-    "GEO",
-    "AI search",
-    "consulting"
-  ],
-  "excludeKeywords": [
-    "intern",
-    "internship",
-    "entry level",
-    "junior",
-    "associate"
-  ],
-  "targetRoles": [
-    "Digital Marketing Consultant",
-    "AI Solutions Architect",
-    "Senior Product Marketing Manager",
-    "Director Digital Strategy",
-    "Performance Marketing Director",
-    "Growth Marketing Lead",
-    "Sales Engineer AI",
-    "Solutions Consultant AI",
-    "GTM Engineer",
-    "AI Product Builder"
-  ],
-  "locations": [
-    "Denver, CO",
-    "Remote",
-    "United States"
-  ],
-  "remotePolicy": "remote-first",
-  "seniority": "senior",
-  "maxLeadsPerRun": 25,
+  "includeKeywords": [],
+  "excludeKeywords": [],
+  "targetRoles": [],
+  "locations": [],
+  "remotePolicy": "",
+  "seniority": "",
+  "maxLeadsPerRun": 15,
   "enabledSources": [
     "greenhouse",
     "lever",
     "ashby",
-    "smartrecruiters",
-    "workday",
-    "icims",
-    "jobvite",
-    "taleo",
-    "successfactors",
-    "workable",
-    "breezy",
-    "recruitee",
-    "teamtailor",
-    "personio",
     "grounded_web",
     "serpapi_google_jobs"
   ],
   "schedule": {
-    "enabled": true,
-    "hour": 8,
-    "minute": 15,
+    "enabled": false,
     "mode": "local"
   }
 }

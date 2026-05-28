@@ -2124,7 +2124,8 @@ function isRunDegradingExtractionWarning(
   if (
     writtenLeadCount > 0 &&
     extractionResult.sourceId === "grounded_web" &&
-    isGroundedNoCandidateWarning(warning)
+    (isGroundedNoCandidateWarning(warning) ||
+      isGroundedRecoveredRegexFallbackWarning(warning))
   ) {
     return false;
   }
@@ -2137,6 +2138,10 @@ function isGroundedNoCandidateWarning(warning: string): boolean {
     /^Regex URL fallback used: grounded output was non-JSON or conversational; no valid URLs recovered\.$/i.test(warning) ||
     /^Query ladder exhausted: all \d+ focused sub-queries returned zero candidates after retry broadening\.$/i.test(warning)
   );
+}
+
+function isGroundedRecoveredRegexFallbackWarning(warning: string): boolean {
+  return /^Regex URL fallback used: grounded output was non-JSON or conversational; URLs recovered via pattern matching\.$/i.test(warning);
 }
 
 function selectLeadsForWrite(

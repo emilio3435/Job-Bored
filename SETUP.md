@@ -30,6 +30,66 @@ For a phased roadmap, see **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)**. Full doc
 
 Use **Node.js 24.x** with npm 11.x for local scripts and the Browser Use discovery worker. The repo includes `.nvmrc` and `.node-version`.
 
+Packaged defaults:
+
+- `JOBBORED_REPO` defaults to `~/Job-Bored` for installed/local automation. If
+  your clone is elsewhere, export `JOBBORED_REPO=/path/to/clone`.
+- Local JobBored state defaults to `~/.jobbored/`.
+- Local discovery worker config/env defaults to
+  `~/.jobbored/browser-use-discovery/worker-config.json` and
+  `~/.jobbored/browser-use-discovery/.env`.
+- Optional Hermes materials workflow defaults to `~/.hermes/job-hunt/`, with
+  applications under `HERMES_APPLICATIONS_DIR` or
+  `~/.hermes/job-hunt/applications`.
+
+### Pick one setup path
+
+**1. Dashboard-only (core OSS path)**
+
+```bash
+git clone https://github.com/emilio3435/command-center.git ~/Job-Bored
+cd ~/Job-Bored
+npm run setup
+npm run web-only
+```
+
+Open `http://localhost:8080`, add your Sheet ID and OAuth Client ID in Settings,
+and sign in. Discovery worker and Hermes can be absent; the dashboard remains
+useful for reading/writing your `Pipeline` Sheet.
+
+**2. Local discovery worker**
+
+```bash
+npm run setup:discovery
+npm run discovery:worker:start-local
+npm run web-only
+```
+
+Put real local keys only in
+`~/.jobbored/browser-use-discovery/.env` or another ignored env file pointed to
+by `BROWSER_USE_DISCOVERY_WORKER_ENV`. The worker reads
+`BROWSER_USE_DISCOVERY_WORKER_CONFIG` /
+`BROWSER_USE_DISCOVERY_CONFIG_PATH` for its config and
+`BROWSER_USE_DISCOVERY_STATE_DB_PATH` for local state. `npm run doctor` reports
+which pieces are configured without printing secret values.
+
+Dependency policy: the root `package-lock.json` owns the Browser Use discovery
+worker install. A nested `integrations/browser-use-discovery/package-lock.json`
+is intentionally ignored and should not be committed.
+
+**3. Optional Hermes materials workflow**
+
+```bash
+npm run setup:hermes
+npm run doctor:hermes
+```
+
+This installs `integrations/hermes-job-hunt/` into `~/.hermes/job-hunt`,
+creates/uses `.venv`, installs `requirements.txt`, and checks Google Python
+dependencies, worker config, Sheet-read readiness when you provide
+`JOBBORED_DOCTOR_GOOGLE_ACCESS_TOKEN`, and materials folders. Automated form
+submit remains shelved unless Emilio explicitly asks `ASSIST APPLY <company>`.
+
 ### 1. Create or copy the starter sheet
 
 Recommended in the app: save your OAuth client in Settings, then use the setup screen button to create a **blank starter sheet** in your own Google Drive with just the `Pipeline` headers.
@@ -108,7 +168,7 @@ The discovery worker at `integrations/browser-use-discovery/` has three source l
 
 1. Sign up at [serpapi.com](https://serpapi.com/users/sign_up) — 100 free searches per month (~20 daily discovery runs).
 2. Copy your API key from the [SerpApi dashboard](https://serpapi.com/manage-api-key).
-3. Add it to `integrations/browser-use-discovery/.env`:
+3. Add it to `~/.jobbored/browser-use-discovery/.env`:
    ```
    SERPAPI_API_KEY=paste-your-key-here
    ```
