@@ -42,7 +42,7 @@ function makeRun(overrides = {}) {
   };
 }
 
-test("buildLeadFingerprint prefers canonicalUrl + externalJobId when both are present", () => {
+test("buildLeadFingerprint prefers canonicalUrl + externalJobId when both are present", async () => {
   const fingerprint = buildLeadFingerprint({
     title: "Senior Platform Engineer",
     company: "Acme",
@@ -70,7 +70,7 @@ test("buildLeadFingerprint prefers canonicalUrl + externalJobId when both are pr
   assert.match(fingerprint.fingerprintKey, /^primary:/);
 });
 
-test("buildLeadFingerprint falls back to semantic identity and keeps location in the key", () => {
+test("buildLeadFingerprint falls back to semantic identity and keeps location in the key", async () => {
   const chicago = buildLeadFingerprint({
     title: "Backend Engineer",
     company: "Acme",
@@ -100,7 +100,7 @@ test("buildLeadFingerprint falls back to semantic identity and keeps location in
   assert.notEqual(chicago.fingerprintKey, newYork.fingerprintKey);
 });
 
-test("buildLeadFingerprint falls back to content hash when semantic identity is incomplete", () => {
+test("buildLeadFingerprint falls back to content hash when semantic identity is incomplete", async () => {
   const fingerprint = buildLeadFingerprint({
     title: "ML Engineer",
     location: "Remote",
@@ -119,8 +119,8 @@ test("buildLeadFingerprint falls back to content hash when semantic identity is 
   assert.equal(fingerprint.contentHash, fingerprintVariant.contentHash);
 });
 
-test("normalizeLead stamps fingerprint metadata for downstream cross-run dedupe", () => {
-  const lead = normalizeLead(
+test("normalizeLead stamps fingerprint metadata for downstream cross-run dedupe", async () => {
+  const lead = await normalizeLead(
     {
       sourceId: "greenhouse",
       sourceLabel: "Greenhouse",

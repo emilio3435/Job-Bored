@@ -192,7 +192,7 @@ export async function handleIngestUrlWebhook(
         descriptionText:
           String(ingestRequest.manual.description || "").trim() || undefined,
       };
-      const manualLead = rawListingToSingleLead(rawManual, {
+      const manualLead = await rawListingToSingleLead(rawManual, {
         runId,
         sheetId: resolvedSheetId,
         now,
@@ -320,7 +320,7 @@ export async function handleIngestUrlWebhook(
       }
     }
 
-    const lead = rawListingToSingleLead(rawListing, {
+    const lead = await rawListingToSingleLead(rawListing, {
       runId,
       sheetId: resolvedSheetId,
       now,

@@ -15,8 +15,12 @@ import {
   computeProfileAwareFitScore,
   buildProfileFitAssessment,
   buildProfileTalkingPoints,
+  scoreListingForProfile,
   type ProfileAwareScoreResult,
 } from "./profile-aware-scorer.ts";
+import type {
+  LlmFitScoreResult,
+} from "../contracts/user-profile.ts";
 
 const SAFE_TRACKING_PARAM_PATTERN =
   /^(utm_.+|ref|source|src|gh_src|lever-source|fbclid|gclid|trk)$/i;
@@ -103,18 +107,18 @@ export function normalizeLeadUrl(input: string): string {
   }
 }
 
-export function normalizeLead(
+export async function normalizeLead(
   rawListing: RawListing,
   run: DiscoveryRun,
-): NormalizedLead | null {
-  return normalizeLeadWithDiagnostics(rawListing, run).lead;
+): Promise<NormalizedLead | null> {
+  return (await normalizeLeadWithDiagnostics(rawListing, run)).lead;
 }
 
-export function normalizeLeadWithDiagnostics(
+export async function normalizeLeadWithDiagnostics(
   rawListing: RawListing,
   run: DiscoveryRun,
   options: NormalizeLeadOptions = {},
-): LeadNormalizationResult {
+): Promise<LeadNormalizationResult> {
   const enforceRelevanceFilters = options.enforceRelevanceFilters !== false;
   const title = toPlainText(rawListing.title);
   const company = toPlainText(rawListing.company);
@@ -251,23 +255,75 @@ export function normalizeLeadWithDiagnostics(
     ...matchedLocationSignals,
   ]);
 
-  // Profile-aware scoring: wire job-preferences.md rubric for richer Fit Score
-  const profileScore = computeProfileAwareFitScore(rawListing);
-  // Use the higher of the two scores so neither signal is lost
-  const effectiveFitScore = Math.max(fitScore, profileScore.fitScore);
+  // Profile-aware scoring.
+  // When run.config.userProfile is set, we run the new LLM scorer:
+  //   pre-filter -> cache -> Gemini -> LlmFitScoreResult.
+  // Pre-filter rejections short-circuit the listing. LLM errors fall back to
+  // the legacy heuristic so we still surface a fit score.
+  // When no profile is configured, we use the legacy heuristic outright.
+  let effectiveFitScore: number;
+  let fitAssessment: string;
+  let talkingPoints: string;
+  let matchScoreFromLlm: number | null = null;
 
-  const fitAssessment = buildProfileFitAssessment({
-    role: title,
-    company,
-    result: profileScore,
-    applicationComplexity: scoreApplicationComplexityLabel(rawListing),
-    descriptionText,
-  });
-  const talkingPoints = buildProfileTalkingPoints({
-    role: title,
-    company,
-    result: profileScore,
-  });
+  const userProfile = run.config.userProfile;
+  const profileRuntimeConfig = run.config.runtimeConfig;
+
+  if (userProfile && profileRuntimeConfig) {
+    const outcome = await scoreListingForProfile(rawListing, userProfile, {
+      runtimeConfig: profileRuntimeConfig,
+      cache: run.config.listingScoreCache,
+    });
+    if (outcome.ok) {
+      effectiveFitScore = Math.max(fitScore, outcome.score.fitScore);
+      matchScoreFromLlm = outcome.score.fitScore;
+      fitAssessment = buildLlmFitAssessment(
+        outcome.score,
+        scoreApplicationComplexityLabel(rawListing),
+      );
+      talkingPoints =
+        outcome.score.leadAngle || deriveTalkingPointsFromBreakdown(outcome.score);
+    } else if (outcome.filteredBy === "pre_filter") {
+      return {
+        lead: null,
+        rejection: {
+          reason: "excluded_keyword",
+          detail: outcome.preFilter.detail,
+        },
+      };
+    } else {
+      // LLM error — fall through to legacy so the listing still gets captured.
+      const legacy = computeProfileAwareFitScore(rawListing);
+      effectiveFitScore = Math.max(fitScore, legacy.fitScore);
+      fitAssessment = buildProfileFitAssessment({
+        role: title,
+        company,
+        result: legacy,
+        applicationComplexity: scoreApplicationComplexityLabel(rawListing),
+        descriptionText,
+      });
+      talkingPoints = buildProfileTalkingPoints({
+        role: title,
+        company,
+        result: legacy,
+      });
+    }
+  } else {
+    const legacy = computeProfileAwareFitScore(rawListing);
+    effectiveFitScore = Math.max(fitScore, legacy.fitScore);
+    fitAssessment = buildProfileFitAssessment({
+      role: title,
+      company,
+      result: legacy,
+      applicationComplexity: scoreApplicationComplexityLabel(rawListing),
+      descriptionText,
+    });
+    talkingPoints = buildProfileTalkingPoints({
+      role: title,
+      company,
+      result: legacy,
+    });
+  }
   const discoveredAt = normalizeTimestamp(run.request.requestedAt);
   const sourceQuery =
     rawListing.metadata &&
@@ -317,9 +373,10 @@ export function normalizeLeadWithDiagnostics(
       compensationText,
       fitScore: effectiveFitScore,
       // matchScore is populated later by finalizeMatchDecision in
-      // run-discovery.ts when the AI job-matcher produced a decision. Leaves
-      // it null by default for runs that skip the matcher.
-      matchScore: null,
+      // run-discovery.ts when the AI job-matcher produced a decision. The
+      // profile-aware LLM scorer also writes here when it ran, so the
+      // pipeline always carries the freshest signal we have.
+      matchScore: matchScoreFromLlm,
       favorite,
       dismissedAt,
       priority,
@@ -876,6 +933,44 @@ function buildDescriptionFragment(input: string): string {
     .filter(Boolean)
     .slice(0, 32)
     .join(" ");
+}
+
+/**
+ * Build a Fit Assessment string from an LlmFitScoreResult.
+ * Used when the LLM scorer returned a structured breakdown for the listing.
+ */
+function buildLlmFitAssessment(
+  score: LlmFitScoreResult,
+  applicationComplexity: string,
+): string {
+  const parts: string[] = [];
+  parts.push(`${score.band} fit (score: ${score.fitScore}/10).`);
+  if (score.rationale) {
+    parts.push(score.rationale.trim());
+  }
+  if (score.matches.length) {
+    parts.push(`Matches: ${score.matches.slice(0, 4).join(" · ")}.`);
+  }
+  if (score.concerns.length) {
+    parts.push(`Concerns: ${score.concerns.slice(0, 3).join(" · ")}.`);
+  }
+  parts.push(`Application: ${applicationComplexity}.`);
+  return parts.join(" ");
+}
+
+/**
+ * Derive talking points from an LLM breakdown when no explicit leadAngle was
+ * returned. Picks the two highest-scoring strengths and surfaces them.
+ */
+function deriveTalkingPointsFromBreakdown(score: LlmFitScoreResult): string {
+  const ranked = [...score.perStrength]
+    .filter((s) => s.score >= 6)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 2);
+  if (ranked.length === 0) {
+    return score.matches.slice(0, 2).join(" · ");
+  }
+  return ranked.map((s) => `Lead with ${s.name}: ${s.rationale}`).join(" ");
 }
 
 /** Human-readable application complexity label for buildProfileFitAssessment */

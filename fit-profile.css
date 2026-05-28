@@ -1,0 +1,592 @@
+/* fit-profile.css — Task #4 onboarding wizard + Settings editor styles.
+ * Matches existing settings tab conventions (var(--space-*), var(--text-*),
+ * var(--surface-2), etc.). All custom classes prefixed `.fp-` so they
+ * don't collide with the legacy settings-profile-tab.js styles. */
+
+/* ── Wizard overlay (full-screen, opens on #/onboarding/fit-profile) ── */
+.fp-wizard {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: none;
+  background: var(--surface, #0f1115);
+  color: var(--text, #e7e8ee);
+  overflow: auto;
+}
+
+.fp-wizard[data-active="true"] {
+  display: block;
+}
+
+.fp-wizard__inner {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+}
+
+.fp-wizard__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.fp-wizard__title {
+  margin: 0;
+  font-size: var(--text-lg, 18px);
+  font-weight: 700;
+}
+
+.fp-wizard__step-label {
+  font-size: var(--text-xs, 12px);
+  font-weight: 600;
+  color: var(--text-muted, #98a0ad);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.fp-wizard__progress {
+  position: relative;
+  height: 4px;
+  background: var(--divider, rgba(255, 255, 255, 0.08));
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 28px;
+}
+
+.fp-wizard__progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent, #5fb4ff);
+  transition: width 240ms ease;
+}
+
+.fp-wizard__panel {
+  display: none;
+}
+
+.fp-wizard__panel[data-active="true"] {
+  display: block;
+}
+
+.fp-wizard__panel-title {
+  margin: 0 0 8px;
+  font-size: var(--text-md, 16px);
+  font-weight: 700;
+}
+
+.fp-wizard__panel-lede {
+  margin: 0 0 20px;
+  color: var(--text-muted, #98a0ad);
+  font-size: var(--text-sm, 13px);
+  line-height: 1.5;
+}
+
+.fp-wizard__actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid var(--divider, rgba(255, 255, 255, 0.08));
+}
+
+.fp-wizard__actions-right {
+  display: flex;
+  gap: 8px;
+}
+
+.fp-wizard__error {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.32);
+  border-radius: 8px;
+  color: #ef9b9b;
+  font-size: var(--text-sm, 13px);
+}
+
+/* ── Generic form bits used in both wizard and settings editor ── */
+.fp-field {
+  display: block;
+  margin-bottom: 16px;
+}
+
+.fp-field__label {
+  display: block;
+  font-size: var(--text-sm, 13px);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.fp-field__hint {
+  margin: 6px 0 0;
+  font-size: var(--text-xs, 12px);
+  color: var(--text-muted, #98a0ad);
+}
+
+.fp-input,
+.fp-textarea,
+.fp-select {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  color: var(--text, #e7e8ee);
+  border: 1px solid var(--divider, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.fp-textarea {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.fp-input:focus-visible,
+.fp-textarea:focus-visible,
+.fp-select:focus-visible {
+  outline: 2px solid var(--accent, #5fb4ff);
+  outline-offset: 0;
+  border-color: transparent;
+}
+
+.fp-counter {
+  font-size: var(--text-xs, 12px);
+  color: var(--text-muted, #98a0ad);
+  text-align: right;
+  margin-top: 4px;
+}
+
+.fp-counter[data-warn="true"] {
+  color: #f0b358;
+}
+
+/* ── Ordered list (target roles, strengths) ── */
+.fp-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fp-list__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--divider, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+}
+
+.fp-list__handle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 1px solid var(--divider, rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+  color: var(--text-muted, #98a0ad);
+  cursor: grab;
+  font-size: 12px;
+  user-select: none;
+}
+
+.fp-list__handle:hover {
+  color: var(--text, #e7e8ee);
+}
+
+.fp-list__rank {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  background: var(--accent-dim, rgba(95, 180, 255, 0.18));
+  color: var(--accent, #5fb4ff);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.fp-list__body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fp-list__remove {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--divider, rgba(255, 255, 255, 0.12));
+  color: var(--text-muted, #98a0ad);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.fp-list__remove:hover {
+  color: #ef9b9b;
+  border-color: rgba(239, 68, 68, 0.32);
+}
+
+.fp-list__add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.fp-list__add-row .fp-input {
+  flex: 1 1 auto;
+}
+
+.fp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  color: var(--text, #e7e8ee);
+  border: 1px solid var(--divider, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fp-btn:hover {
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.fp-btn--primary {
+  background: var(--accent, #5fb4ff);
+  color: #0a0d12;
+  border-color: transparent;
+}
+
+.fp-btn--primary:hover {
+  filter: brightness(1.08);
+}
+
+.fp-btn--ghost {
+  background: transparent;
+}
+
+.fp-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Chips ── */
+.fp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.fp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--accent-dim, rgba(95, 180, 255, 0.18));
+  color: var(--accent, #5fb4ff);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: var(--text-xs, 12px);
+  font-weight: 600;
+}
+
+.fp-chip__remove {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 0 0 2px;
+}
+
+.fp-chip__remove:hover {
+  color: #ef9b9b;
+}
+
+/* ── Resume pre-fill card (primary action above template grid) ── */
+.fp-resume-prefill {
+  margin: 16px 0 12px;
+}
+
+.fp-resume-prefill-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 16px 18px;
+  background: var(--accent-dim, rgba(95, 180, 255, 0.12));
+  border: 1px solid var(--accent, #5fb4ff);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.fp-resume-prefill-card:hover:not(:disabled) {
+  background: var(--accent-dim-strong, rgba(95, 180, 255, 0.2));
+}
+
+.fp-resume-prefill-card[data-selected="true"] {
+  background: var(--accent-dim-strong, rgba(95, 180, 255, 0.22));
+  box-shadow: 0 0 0 1px var(--accent, #5fb4ff) inset;
+}
+
+.fp-resume-prefill-card[data-state="loading"] {
+  cursor: progress;
+  opacity: 0.85;
+}
+
+.fp-resume-prefill-card:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.fp-resume-prefill-card__name {
+  font-weight: 700;
+  font-size: var(--text-sm, 13px);
+}
+
+.fp-resume-prefill-card__desc {
+  color: var(--text-muted, #98a0ad);
+  font-size: var(--text-xs, 12px);
+  line-height: 1.4;
+}
+
+.fp-resume-prefill__hint {
+  margin: 8px 2px 0;
+  color: var(--text-muted, #98a0ad);
+  font-size: var(--text-xs, 12px);
+  line-height: 1.4;
+}
+
+.fp-resume-prefill__hint--error {
+  color: var(--danger, #ef9b9b);
+}
+
+/* ── Template grid ── */
+.fp-template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 16px 0 8px;
+}
+
+.fp-template-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--divider, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.fp-template-card:hover {
+  border-color: var(--accent, #5fb4ff);
+}
+
+.fp-template-card[data-selected="true"] {
+  border-color: var(--accent, #5fb4ff);
+  background: var(--accent-dim, rgba(95, 180, 255, 0.12));
+}
+
+.fp-template-card__name {
+  font-weight: 700;
+  font-size: var(--text-sm, 13px);
+}
+
+.fp-template-card__desc {
+  color: var(--text-muted, #98a0ad);
+  font-size: var(--text-xs, 12px);
+  line-height: 1.4;
+}
+
+/* ── Review JSON ── */
+.fp-review {
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--divider, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 12px 0;
+}
+
+.fp-review__summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--text-sm, 13px);
+  padding: 6px 0;
+}
+
+.fp-review__pre {
+  margin: 8px 0 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Settings panel ── */
+.fp-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fp-settings__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fp-settings__explainer {
+  font-size: var(--text-sm, 13px);
+  color: var(--text-muted, #98a0ad);
+  line-height: 1.5;
+  margin: 0 0 8px;
+}
+
+.fp-settings__bucket {
+  padding: 14px 16px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--divider, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+}
+
+.fp-settings__bucket-title {
+  margin: 0 0 4px;
+  font-size: var(--text-sm, 13px);
+  font-weight: 700;
+}
+
+.fp-settings__bucket-lede {
+  margin: 0 0 12px;
+  font-size: var(--text-xs, 12px);
+  color: var(--text-muted, #98a0ad);
+}
+
+.fp-settings__save-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid var(--divider, rgba(255, 255, 255, 0.08));
+}
+
+.fp-settings__saved-at {
+  font-size: var(--text-xs, 12px);
+  color: var(--text-muted, #98a0ad);
+}
+
+.fp-settings__status {
+  font-size: var(--text-xs, 12px);
+  margin-left: 8px;
+}
+
+.fp-settings__status[data-kind="ok"] {
+  color: #6ee7b7;
+}
+
+.fp-settings__status[data-kind="error"] {
+  color: #ef9b9b;
+}
+
+/* ── Hidden helper for the rescore slot (Task #6 fills it in) ── */
+#fit-profile-rescore-slot:empty {
+  display: none;
+}
+
+/* ── workMode radio cluster ── */
+.fp-radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fp-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--divider, rgba(255, 255, 255, 0.12));
+  border-radius: 999px;
+  font-size: var(--text-xs, 12px);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fp-radio input {
+  margin: 0;
+  accent-color: var(--accent, #5fb4ff);
+}
+
+.fp-radio[data-checked="true"] {
+  border-color: var(--accent, #5fb4ff);
+  background: var(--accent-dim, rgba(95, 180, 255, 0.12));
+  color: var(--accent, #5fb4ff);
+}
+
+/* ── Salary inline row ── */
+.fp-inline-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.fp-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm, 13px);
+}
+
+@media (max-width: 640px) {
+  .fp-wizard__inner {
+    padding: 20px 16px 60px;
+  }
+  .fp-wizard__actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+  .fp-wizard__actions-right {
+    flex-direction: column-reverse;
+  }
+}

@@ -7,7 +7,7 @@ import {
 } from "../contracts.ts";
 import { normalizeLeadWithDiagnostics } from "./lead-normalizer.ts";
 
-export function rawListingToSingleLead(
+export async function rawListingToSingleLead(
   raw: RawListing,
   ctx: {
     runId: string;
@@ -15,7 +15,7 @@ export function rawListingToSingleLead(
     now?: () => Date;
     fitScoreOverride?: number;
   },
-): NormalizedLead | null {
+): Promise<NormalizedLead | null> {
   const now = ctx.now || (() => new Date());
   const requestedAt = now().toISOString();
   const run: DiscoveryRun = {
@@ -59,7 +59,7 @@ export function rawListingToSingleLead(
     },
   };
 
-  const normalized = normalizeLeadWithDiagnostics(raw, run, {
+  const normalized = await normalizeLeadWithDiagnostics(raw, run, {
     enforceRelevanceFilters: false,
   });
   if (!normalized.lead) return null;

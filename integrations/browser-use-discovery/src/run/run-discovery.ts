@@ -46,6 +46,10 @@ import {
   type LeadNormalizationRejection,
 } from "../normalize/lead-normalizer.ts";
 import {
+  loadUserProfile,
+  validateProfileCandidate,
+} from "../profile/load-user-profile.ts";
+import {
   scoreListingMatch,
   shouldUseAiMatcher,
   type DiscoveryMatchClient,
@@ -189,6 +193,33 @@ export async function runDiscovery(
   const startedAt = dependencies.now().toISOString();
   const storedConfig = await dependencies.loadStoredWorkerConfig(request.sheetId);
   const config = dependencies.mergeDiscoveryConfig(storedConfig, request);
+
+  // Resolve userProfile for this run: payload override beats disk file.
+  // The payload comes from the discovery pane after merging the master
+  // Fit Profile with per-run UI edits (see docs/SCORING-CONTRACT.md §8).
+  // Invalid payload profiles fall back to disk with a warning so a bad
+  // override doesn't kill the run.
+  let resolvedUserProfile = null;
+  if (request.mergedUserProfile) {
+    resolvedUserProfile = validateProfileCandidate(request.mergedUserProfile);
+    if (!resolvedUserProfile) {
+      dependencies.log?.("discovery.run.user_profile_payload_invalid", {
+        reason: "schema_validation_failed",
+      });
+    }
+  }
+  if (!resolvedUserProfile) {
+    try {
+      resolvedUserProfile = await loadUserProfile();
+    } catch (err) {
+      dependencies.log?.("discovery.run.user_profile_load_failed", {
+        message: err instanceof Error ? err.message : String(err),
+      });
+      resolvedUserProfile = null;
+    }
+  }
+  config.userProfile = resolvedUserProfile || undefined;
+
   const runId = dependencies.runId || dependencies.randomId("run");
   const run: DiscoveryRun = {
     runId,
@@ -1278,7 +1309,7 @@ function normalizeRawListing(
     matcherTimeoutMs?: number;
   },
 ): Promise<
-  ReturnType<typeof normalizeLeadWithDiagnostics> & {
+  Awaited<ReturnType<typeof normalizeLeadWithDiagnostics>> & {
     matchUsedAi: boolean;
   }
 > {
@@ -1347,12 +1378,12 @@ function recordRejection(
   summaries.set(sourceId, entry);
 }
 
-function finalizeMatchDecision(
+async function finalizeMatchDecision(
   rawListing: RawListing,
   run: DiscoveryRun,
   decision: MatchDecision,
   matchUsedAi: boolean,
-): ReturnType<typeof normalizeLeadWithDiagnostics> & { matchUsedAi: boolean } {
+): Promise<Awaited<ReturnType<typeof normalizeLeadWithDiagnostics>> & { matchUsedAi: boolean }> {
   // Hybrid matcher gate: only "reject" drops the listing. "uncertain" flows
   // through to the sheet — the Match Score column lets the user sort and
   // triage marginal matches instead of the matcher silently discarding them.
@@ -1364,7 +1395,7 @@ function finalizeMatchDecision(
     };
   }
 
-  const normalized = normalizeLeadWithDiagnostics(rawListing, run, {
+  const normalized = await normalizeLeadWithDiagnostics(rawListing, run, {
     enforceRelevanceFilters: false,
   });
   if (!normalized.lead) {

@@ -44,7 +44,7 @@ function makeRun(overrides = {}) {
   };
 }
 
-test("normalizeLeadUrl removes tracking params and trailing slashes", () => {
+test("normalizeLeadUrl removes tracking params and trailing slashes", async () => {
   assert.equal(
     normalizeLeadUrl(
       "https://jobs.example.com/backend-engineer/?utm_source=linkedin&jobId=123#section",
@@ -53,9 +53,9 @@ test("normalizeLeadUrl removes tracking params and trailing slashes", () => {
   );
 });
 
-test("normalizeLead returns a scored normalized lead with stable defaults", () => {
+test("normalizeLead returns a scored normalized lead with stable defaults", async () => {
   const run = makeRun();
-  const lead = normalizeLead(
+  const lead = await normalizeLead(
     {
       sourceId: "greenhouse",
       sourceLabel: "Greenhouse",
@@ -92,9 +92,9 @@ test("normalizeLead returns a scored normalized lead with stable defaults", () =
   assert.match(lead?.logoUrl || "", /google\.com\/s2\/favicons/);
 });
 
-test("normalizeLeadWithDiagnostics defaults favorite=false and dismissedAt=null when inputs omit them", () => {
+test("normalizeLeadWithDiagnostics defaults favorite=false and dismissedAt=null when inputs omit them", async () => {
   const run = makeRun();
-  const result = normalizeLeadWithDiagnostics(
+  const result = await normalizeLeadWithDiagnostics(
     {
       sourceId: "greenhouse",
       sourceLabel: "Greenhouse",
@@ -114,9 +114,9 @@ test("normalizeLeadWithDiagnostics defaults favorite=false and dismissedAt=null 
   assert.equal(result.lead?.dismissedAt, null);
 });
 
-test("normalizeLead filters out excluded-keyword matches", () => {
+test("normalizeLead filters out excluded-keyword matches", async () => {
   const run = makeRun();
-  const lead = normalizeLead(
+  const lead = await normalizeLead(
     {
       sourceId: "lever",
       sourceLabel: "Lever",
@@ -132,9 +132,9 @@ test("normalizeLead filters out excluded-keyword matches", () => {
   assert.equal(lead, null);
 });
 
-test("normalizeLeadWithDiagnostics explains excluded-keyword rejections", () => {
+test("normalizeLeadWithDiagnostics explains excluded-keyword rejections", async () => {
   const run = makeRun();
-  const result = normalizeLeadWithDiagnostics(
+  const result = await normalizeLeadWithDiagnostics(
     {
       sourceId: "lever",
       sourceLabel: "Lever",
@@ -152,7 +152,7 @@ test("normalizeLeadWithDiagnostics explains excluded-keyword rejections", () => 
   assert.match(result.rejection?.detail || "", /wordpress/i);
 });
 
-test("normalizeLead rejects jobs that only match generic keywords in the description", () => {
+test("normalizeLead rejects jobs that only match generic keywords in the description", async () => {
   const run = makeRun({
     companies: [{ name: "Stripe" }],
     includeKeywords: ["AI", "product", "operations"],
@@ -161,7 +161,7 @@ test("normalizeLead rejects jobs that only match generic keywords in the descrip
     remotePolicy: "remote",
     seniority: "",
   });
-  const lead = normalizeLead(
+  const lead = await normalizeLead(
     {
       sourceId: "greenhouse",
       sourceLabel: "Greenhouse",
@@ -179,7 +179,7 @@ test("normalizeLead rejects jobs that only match generic keywords in the descrip
   assert.equal(lead, null);
 });
 
-test("normalizeLead does not treat single-letter keywords as arbitrary substring matches", () => {
+test("normalizeLead does not treat single-letter keywords as arbitrary substring matches", async () => {
   const run = makeRun({
     companies: [{ name: "Acme" }],
     includeKeywords: ["R"],
@@ -188,7 +188,7 @@ test("normalizeLead does not treat single-letter keywords as arbitrary substring
     remotePolicy: "",
     seniority: "",
   });
-  const result = normalizeLeadWithDiagnostics(
+  const result = await normalizeLeadWithDiagnostics(
     {
       sourceId: "grounded_web",
       sourceLabel: "Grounded Web",
@@ -206,7 +206,7 @@ test("normalizeLead does not treat single-letter keywords as arbitrary substring
   assert.equal(result.rejection?.reason, "headline_mismatch");
 });
 
-test("normalizeLeadWithDiagnostics explains headline-only mismatch rejections", () => {
+test("normalizeLeadWithDiagnostics explains headline-only mismatch rejections", async () => {
   const run = makeRun({
     companies: [{ name: "Stripe" }],
     includeKeywords: ["AI", "product", "operations"],
@@ -215,7 +215,7 @@ test("normalizeLeadWithDiagnostics explains headline-only mismatch rejections", 
     remotePolicy: "remote",
     seniority: "",
   });
-  const result = normalizeLeadWithDiagnostics(
+  const result = await normalizeLeadWithDiagnostics(
     {
       sourceId: "greenhouse",
       sourceLabel: "Greenhouse",
@@ -236,8 +236,8 @@ test("normalizeLeadWithDiagnostics explains headline-only mismatch rejections", 
   assert.match(result.rejection?.detail || "", /Growth Marketing/i);
 });
 
-test("normalizeLeadWithDiagnostics rejects roles whose structured location misses the configured markets", () => {
-  const result = normalizeLeadWithDiagnostics(
+test("normalizeLeadWithDiagnostics rejects roles whose structured location misses the configured markets", async () => {
+  const result = await normalizeLeadWithDiagnostics(
     {
       sourceId: "greenhouse",
       sourceLabel: "Greenhouse",
@@ -264,8 +264,8 @@ test("normalizeLeadWithDiagnostics rejects roles whose structured location misse
   assert.match(result.rejection?.detail || "", /Riyadh, Saudi Arabia/);
 });
 
-test("normalizeLeadWithDiagnostics rejects roles that do not satisfy remotePolicy in the location field", () => {
-  const result = normalizeLeadWithDiagnostics(
+test("normalizeLeadWithDiagnostics rejects roles that do not satisfy remotePolicy in the location field", async () => {
+  const result = await normalizeLeadWithDiagnostics(
     {
       sourceId: "greenhouse",
       sourceLabel: "Greenhouse",
@@ -291,7 +291,7 @@ test("normalizeLeadWithDiagnostics rejects roles that do not satisfy remotePolic
   assert.match(result.rejection?.detail || "", /remotePolicy="remote"/);
 });
 
-test("normalizeLead uses the matching company keyword set instead of the first company", () => {
+test("normalizeLead uses the matching company keyword set instead of the first company", async () => {
   const run = makeRun({
     companies: [
       { name: "Scale AI", includeKeywords: ["automation"] },
@@ -303,7 +303,7 @@ test("normalizeLead uses the matching company keyword set instead of the first c
     seniority: "",
     locations: [],
   });
-  const lead = normalizeLead(
+  const lead = await normalizeLead(
     {
       sourceId: "greenhouse",
       sourceLabel: "Greenhouse",
@@ -320,7 +320,7 @@ test("normalizeLead uses the matching company keyword set instead of the first c
   assert.ok(lead?.tags.includes("marketing"));
 });
 
-test("deriveCompanyDomain extracts company slug from ATS board URLs", () => {
+test("deriveCompanyDomain extracts company slug from ATS board URLs", async () => {
   assert.equal(
     deriveCompanyDomain(
       "https://boards.greenhouse.io/stripe/jobs/1234",
@@ -338,14 +338,14 @@ test("deriveCompanyDomain extracts company slug from ATS board URLs", () => {
   );
 });
 
-test("deriveCompanyDomain uses host directly for non-ATS, non-aggregator URLs", () => {
+test("deriveCompanyDomain uses host directly for non-ATS, non-aggregator URLs", async () => {
   assert.equal(
     deriveCompanyDomain("https://careers.google.com/jobs/123", "Google"),
     "careers.google.com",
   );
 });
 
-test("deriveCompanyDomain skips aggregator hosts and uses company name", () => {
+test("deriveCompanyDomain skips aggregator hosts and uses company name", async () => {
   assert.equal(
     deriveCompanyDomain(
       "https://www.builtincolorado.com/job/marketing-ops/123",
@@ -359,15 +359,15 @@ test("deriveCompanyDomain skips aggregator hosts and uses company name", () => {
   );
 });
 
-test("deriveCompanyDomain strips corporate suffixes from company name", () => {
+test("deriveCompanyDomain strips corporate suffixes from company name", async () => {
   assert.equal(deriveCompanyDomain("", "MariaDB Corporation"), "mariadb.com");
   assert.equal(deriveCompanyDomain("", "Acme Inc."), "acme.com");
   assert.equal(deriveCompanyDomain("", ""), "");
 });
 
-test("normalizeLead strips HTML from compensationText", () => {
+test("normalizeLead strips HTML from compensationText", async () => {
   const run = makeRun();
-  const lead = normalizeLead(
+  const lead = await normalizeLead(
     {
       sourceId: "greenhouse",
       sourceLabel: "Greenhouse",
@@ -387,9 +387,9 @@ test("normalizeLead strips HTML from compensationText", () => {
   assert.equal(lead?.compensationText, "");
 });
 
-test("normalizeLead strips HTML from title, company, location, and contact", () => {
+test("normalizeLead strips HTML from title, company, location, and contact", async () => {
   const run = makeRun();
-  const lead = normalizeLead(
+  const lead = await normalizeLead(
     {
       sourceId: "greenhouse",
       sourceLabel: "Greenhouse",
