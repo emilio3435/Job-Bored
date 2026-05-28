@@ -6,8 +6,17 @@
 
 [data-region="materials-queue"] {
   display: block;
-  margin: 0 auto;
-  padding: 0;
+  max-width: 1400px;
+  margin: 16px auto 0;
+  padding: 0 24px;
+  box-sizing: border-box;
+}
+
+@media (max-width: 720px) {
+  [data-region="materials-queue"] {
+    padding: 0 16px;
+    margin-top: 12px;
+  }
 }
 
 [data-region="materials-queue"][hidden] {
