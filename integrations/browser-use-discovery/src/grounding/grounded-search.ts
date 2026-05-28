@@ -687,7 +687,7 @@ export function createGroundedSearchClient(
       }
       throwIfAborted(options?.signal);
 
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || "gemini-2.5-flash")}:generateContent`;
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || "gemini-3.5-flash")}:generateContent`;
       const tuning = run.config.groundedSearchTuning;
       const ultraPlanTuning = run.config.ultraPlanTuning;
       const multiQueryEnabled = ultraPlanTuning?.multiQueryEnabled ?? false;
@@ -942,7 +942,7 @@ export function createGroundedSearchClient(
       }
       throwIfAborted(signal);
 
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || "gemini-2.5-flash")}:generateContent`;
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || "gemini-3.5-flash")}:generateContent`;
       const maxResultsPerCompany =
         maxResults ??
         run.config.groundedSearchTuning?.maxResultsPerCompany ??
@@ -1021,7 +1021,7 @@ export function createGroundedSearchClient(
         return [];
       }
       throwIfAborted(signal);
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || "gemini-2.5-flash")}:generateContent`;
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || "gemini-3.5-flash")}:generateContent`;
       const result = await executeGroundedSearchRequest({
         prompt: buildHintResolutionPrompt(candidate, company, run, maxResults ?? DEFAULT_HINT_RESOLUTION_LIMIT),
         company,
@@ -1170,7 +1170,7 @@ export async function collectGroundedWebListings(input: {
     (searchResult.rawText || "").trim().length > 0 &&
     geminiApiKey
   ) {
-    const proseEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(input.runtimeConfig.geminiModel || "gemini-2.5-flash")}:generateContent`;
+    const proseEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(input.runtimeConfig.geminiModel || "gemini-3.5-flash")}:generateContent`;
     const proseMaxResults =
       input.run.config.groundedSearchTuning?.maxResultsPerCompany ??
       input.runtimeConfig.groundedSearchMaxResultsPerCompany ??
@@ -1232,7 +1232,7 @@ export async function collectGroundedWebListings(input: {
     effectiveCandidates.length > 0 &&
     geminiApiKey
   ) {
-    const structuringEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(input.runtimeConfig.geminiModel || "gemini-2.5-flash")}:generateContent`;
+    const structuringEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(input.runtimeConfig.geminiModel || "gemini-3.5-flash")}:generateContent`;
     const structuringMaxResults =
       input.run.config.groundedSearchTuning?.maxResultsPerCompany ??
       input.runtimeConfig.groundedSearchMaxResultsPerCompany ??

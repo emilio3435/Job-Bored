@@ -295,7 +295,7 @@ export function createGeminiMatchClient(
       if (!apiKey) return baseline;
 
       try {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || "gemini-2.5-flash")}:generateContent`;
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || "gemini-3.5-flash")}:generateContent`;
         const response = await fetchImpl(endpoint, {
           method: "POST",
           headers: {
