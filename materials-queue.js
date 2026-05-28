@@ -2,7 +2,7 @@
  * Global materials-drafting queue strip.
  *
  * Renders a compact list of every pending.json across all application
- * slugs (FIFO order, matching Winky's actual draft order). One row per
+ * slugs (FIFO order, matching Dobby's actual draft order). One row per
  * pending request. Each row shows company · title · feature · phase ·
  * elapsed and a Cancel button (archives pending.json server-side).
  *
@@ -46,9 +46,9 @@
   }
 
   function featureLabel(feature) {
-    if (feature === "both") return "RESUME + COVER LETTER";
+    if (feature === "both") return "RESUME + LETTER";
     if (feature === "resume") return "RESUME";
-    if (feature === "cover_letter") return "COVER LETTER";
+    if (feature === "cover_letter") return "LETTER";
     return "MATERIALS";
   }
 
@@ -101,7 +101,10 @@
     var elapsedText = isComplete ? "" : liveElapsed(item.progress);
     var company = item.company || "—";
     var title = item.title || "—";
-    return '<li class="mq__row" data-slug="' + escapeHtml(item.slug) + '" data-phase="' + escapeHtml(phase) + '">'
+    /* Tooltip surfaces the full company · role on hover, since the
+     * narrow dock truncates company and hides the role title. */
+    var rowTip = company + (title && title !== "—" ? " · " + title : "");
+    return '<li class="mq__row" data-slug="' + escapeHtml(item.slug) + '" data-phase="' + escapeHtml(phase) + '" title="' + escapeHtml(rowTip) + '">'
       + '<span class="mq__pos">' + escapeHtml(String(position)) + '</span>'
       + '<div class="mq__body">'
         + '<div class="mq__line">'
