@@ -27,3 +27,7 @@ integrations/hermes-job-hunt/evidence/
 __pycache__/
 *.pyc
 integrations/hermes-job-hunt/tests/tmp-app/
+tmp/
+briefing/.venv/
+briefing/state/
+briefing/.env
