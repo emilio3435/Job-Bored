@@ -131,6 +131,15 @@
     <section data-region="dawn" aria-label="Daily Brief (v2)"></section>
     <!-- region:dawn:end -->
 
+    <!-- region:materials-queue:start
+         Global materials-drafting queue strip. Mounted as a top-level
+         body child so it's NOT subject to the legacy chrome layout
+         inside #dashboard, AND so it sits at the top of the page
+         visually (right under the .page-top chrome via sticky offset).
+         Empty queue collapses entirely via the hidden attribute. -->
+    <section data-region="materials-queue" aria-label="Materials drafting queue" hidden></section>
+    <!-- region:materials-queue:end -->
+
     <!-- region:pipeline:start -->
     <section data-region="pipeline" aria-label="Pipeline (v2)"></section>
     <!-- region:pipeline:end -->
@@ -478,8 +487,27 @@
       </div>
     </div>
 
-    <!-- Dashboard (shown when config is valid) -->
+    <!-- Dashboard (shown when config is valid).
+         The inline style="display:none" is the SAFE default for cold
+         sessions. The pre-paint guard at the top of <body> sets
+         `html.auth-prepaint-dashboard` synchronously when a valid
+         OAuth runtime token is cached. We use a JS expression in the
+         opening tag's `data-prepaint-style` so this inline string can
+         change without touching app.js. Then a tiny script below
+         strips the inline `display:none` when the prepaint class is
+         set — important because jb-v2-legacy-hide.css's :has()
+         selectors test `[style*="display: none"]` literally and
+         would keep `.page-top` / data-region sections hidden even
+         after CSS overrode the computed display. -->
     <div class="dashboard" id="dashboard" style="display: none">
+      <script>
+        (function () {
+          if (document.documentElement.classList.contains("auth-prepaint-dashboard")) {
+            var d = document.getElementById("dashboard");
+            if (d) d.removeAttribute("style");
+          }
+        })();
+      </script>
       <!-- Top Bar -->
       <header class="top-bar">
         <div class="top-bar-left">
@@ -894,14 +922,9 @@
         </div>
       </section>
 
-      <!-- region:materials-queue:start
-           Global materials-drafting queue strip. Renders only when one
-           or more pending.json files are on disk anywhere in
-           ~/.hermes/job-hunt/applications/. Mounted right above the
-           main pipeline so the user can see what Winky is working on
-           regardless of which dossier is open. -->
-      <section data-region="materials-queue" aria-label="Materials drafting queue" hidden></section>
-      <!-- region:materials-queue:end -->
+      <!-- region:materials-queue moved up — see directly below the
+           top-bar so it sticks to the viewport top instead of being
+           buried below the daily-brief panel. -->
 
       <!-- Main Content: Pipeline -->
       <main class="main-content">
