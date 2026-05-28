@@ -207,13 +207,16 @@ describe("spawnMaterialsRequest", () => {
     );
   });
 
-  it("maps exit code 2 (Telegram failed) to 502 with the body attached", async () => {
-    await assert.rejects(
-      () => spawnMaterialsRequest(goodPayload, { bin: telegramFailBin }),
-      (e) => e.statusCode === 502
-        && /HTTP 401/.test(e.message)
-        && e.body && e.body.slug === "x",
-    );
+  it("treats legacy exit code 2 (Telegram-only failure) as success", async () => {
+    /* Telegram delivery is a non-blocking side effect — pending.json
+       was still written, so Hermes will pick up the work. The shell
+       script may have exited 2 (legacy behavior) but we coerce that
+       to success and pass telegram_error through as metadata so the
+       UI can show a soft warning if desired. */
+    const result = await spawnMaterialsRequest(goodPayload, { bin: telegramFailBin });
+    assert.equal(result.ok, true);
+    assert.equal(result.slug, "x");
+    assert.equal(result.telegram_error, "HTTP 401");
   });
 
   it("falls back to stderr/exit-code message when stdout is not JSON", async () => {
