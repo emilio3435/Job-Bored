@@ -8213,7 +8213,9 @@ function restoreOAuthSession() {
     );
     updateAuthUI();
     if (SHEET_ID) {
-      loadAllData();
+      loadAllData().then((ok) => {
+        if (ok) revealDashboardShell();
+      });
     } else {
       revealSetupScreenAfterAuth();
     }
@@ -8480,7 +8482,9 @@ function handleTokenResponse(tokenResponse) {
     fetchUserEmail();
     updateAuthUI();
     if (SHEET_ID) {
-      loadAllData();
+      loadAllData().then((ok) => {
+        if (ok) revealDashboardShell();
+      });
     } else {
       revealSetupScreenAfterAuth();
     }
@@ -8505,7 +8509,10 @@ function handleTokenResponse(tokenResponse) {
   }
 
   if (SHEET_ID) {
-    loadAllData();
+    showSheetAccessGate("loading");
+    loadAllData().then((ok) => {
+      if (ok) revealDashboardShell();
+    });
   } else {
     revealSetupScreenAfterAuth();
   }
@@ -11624,7 +11631,6 @@ async function fetchSheetViaSheetsAPI(sheetName, isRetry) {
       const ok = await refreshAccessTokenSilently();
       if (ok) return fetchSheetViaSheetsAPI(sheetName, true);
     }
-    clearSessionAuthState();
     return null;
   }
   if (!resp.ok) {

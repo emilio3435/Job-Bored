@@ -53,6 +53,7 @@ body.jb-v2 [data-region="welcome"]:not([data-mode]) {
    #dashboard.style.display to "block" / "flex").
    Default: hide all four regions.
    ──────────────────────────────────────────────────────────── */
+body.jb-v2 .page-top,
 body.jb-v2 [data-region="dawn"],
 body.jb-v2 [data-region="pipeline"],
 body.jb-v2 [data-region="role"],
@@ -63,14 +64,21 @@ body.jb-v2 [data-region="welcome"] {
   display: none !important;
 }
 
+/* The letter region (PART 04 Workshop) was removed in the materials-first
+   pivot (2026-05-27). Keep it forced-hidden in case any cached HTML still
+   contains the <section data-region="letter"> element. */
+body.jb-v2 [data-region="letter"] { display: none !important; }
+
 /* Only when the legacy #dashboard is mounted (post-auth) do
    the v2 regions take over. Each region's own CSS owns its
    layout once revealed. :has() is supported in all modern
    browsers (2023+). */
+body.jb-v2:has(#dashboard:not([style*="display: none"])) .page-top {
+  display: flex !important;
+}
 body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="dawn"],
 body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="pipeline"],
 body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="role"],
-body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="letter"],
 body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="lattice"],
 body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="scribe"] {
   display: block !important;
