@@ -1761,6 +1761,13 @@ body.jb-v2 .brief-materials {
   color: var(--ink-soft);
   letter-spacing: 0.02em;
 }
+.brief-materials__quality {
+  margin: -2px 0 2px;
+  color: var(--amber);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.35;
+}
 .brief-materials__card-identity {
   margin: 2px 0 6px;
   font-family: var(--serif, Georgia, serif);

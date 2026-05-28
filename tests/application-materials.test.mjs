@@ -192,6 +192,37 @@ describe("buildManifest", () => {
     );
   });
 
+  it("attaches quality metadata for sparse two-page resumes", async () => {
+    const dir = join(root, "sparse-two-page-role");
+    await mkdir(dir);
+    await writeFile(join(dir, "resume.pdf"), "%PDF\n/Type /Page\n/Type /Page\n");
+    await writeFile(join(dir, "resume.html"), `
+      <article class="page" data-page="1">
+        <section data-section="summary">Summary text.</section>
+        <section data-section="experience">${"Managed campaigns. ".repeat(60)}</section>
+      </article>
+      <article class="page" data-page="2">
+        <section data-section="founder-work">Built AI tools.</section>
+      </article>
+    `);
+
+    const manifest = await buildManifest("sparse-two-page-role", { root });
+    assert.equal(manifest.quality.version, "materials-quality.v1");
+    assert.equal(manifest.quality.documents.resume.status, "review");
+    assert.ok(
+      manifest.quality.documents.resume.issues.some(
+        (item) => item.code === "resume_two_page_sparse",
+      ),
+      "sparse two-page resumes should be flagged for review",
+    );
+    assert.ok(
+      manifest.quality.documents.resume.issues.some(
+        (item) => item.code === "resume_second_page_sparse",
+      ),
+      "short second pages should be flagged for review",
+    );
+  });
+
   it("surfaces pending.json when present", async () => {
     const pendingDir = join(root, "pending-only-package");
     await mkdir(pendingDir);
@@ -223,7 +254,7 @@ describe("buildManifest", () => {
     assert.equal(manifest.pending, undefined);
   });
 
-  it("surfaces the progress block when Winky has populated it", async () => {
+  it("surfaces the progress block when Dobby has populated it", async () => {
     const dir = join(root, "progress-state-package");
     await mkdir(dir);
     await writeFile(join(dir, "pending.json"), JSON.stringify({
@@ -245,6 +276,10 @@ describe("buildManifest", () => {
     assert.ok(manifest.pending, "pending block should be attached");
     assert.ok(manifest.pending.progress, "progress block should be attached");
     assert.equal(manifest.pending.progress.phase, "drafting");
+    assert.equal(
+      manifest.pending.progress.message,
+      "Dobby is drafting your cover letter and tailoring your resume…",
+    );
     assert.equal(manifest.pending.progress.startedAt, "2026-05-28T10:00:05Z");
     assert.equal(manifest.pending.progress.elapsedSeconds, 145);
     assert.equal(manifest.pending.progress.attempt, 1);
@@ -450,7 +485,12 @@ describe("listPendingQueue", () => {
       title: "Bravo Role",
       feature: "both",
       requested_at: "2026-05-28T09:30:00Z",
-      progress: { phase: "drafting", started_at: "2026-05-28T09:31:00Z", elapsed_seconds: 60 },
+      progress: {
+        phase: "drafting",
+        message: "Winky is drafting your cover letter…",
+        started_at: "2026-05-28T09:31:00Z",
+        elapsed_seconds: 60,
+      },
     }));
     const { listPendingQueue } = await import("../server/application-materials.mjs");
     const queue = await listPendingQueue({ root });
@@ -458,6 +498,7 @@ describe("listPendingQueue", () => {
     /* Bravo requested earlier, so it's first. */
     assert.equal(queue[0].slug, "bravo-co");
     assert.equal(queue[0].progress.phase, "drafting");
+    assert.equal(queue[0].progress.message, "Dobby is drafting your cover letter…");
     assert.equal(queue[1].slug, "alpha-co");
     assert.equal(queue[1].progress, null);
   });

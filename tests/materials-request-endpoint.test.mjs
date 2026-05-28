@@ -266,6 +266,12 @@ describe("end-to-end against the real Hermes wrapper", () => {
       assert.equal(pending.feature, "cover_letter");
       assert.equal(pending.company, "Smoke Co");
       assert.equal(pending.source, "jobbored-dossier");
+      assert.equal(pending.quality_contract.version, "materials-quality.v1");
+      assert.equal(
+        pending.quality_contract.profile_path,
+        "~/.hermes/job-hunt/profile/materials-quality.md",
+      );
+      assert.equal(pending.quality_contract.qa_required, true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

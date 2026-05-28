@@ -17,6 +17,7 @@ import { readFile, readdir, stat, realpath, rename, writeFile, mkdir } from "nod
 import { existsSync } from "node:fs";
 import { join, sep, basename } from "node:path";
 import { homedir } from "node:os";
+import { auditApplicationMaterials } from "./materials-quality.mjs";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
 
@@ -270,6 +271,14 @@ export async function buildManifest(slug, { root } = {}) {
       out.dossier = onDiskManifest.dossier;
     }
   }
+  try {
+    const quality = await auditApplicationMaterials(dir);
+    if (quality && Object.keys(quality.documents || {}).length) {
+      out.quality = quality;
+    }
+  } catch {
+    /* Quality metadata is advisory; manifest reads should stay resilient. */
+  }
   /* pending.json is written by the Hermes materials_request.py script
    * when the user clicks "Draft cover letter" / "Tailor resume". The
    * Hermes side deletes it once the drafts ship; until then we expose
@@ -295,18 +304,18 @@ export async function buildManifest(slug, { root } = {}) {
         notes: typeof pendingRaw.notes === "string" ? pendingRaw.notes : "",
         source: typeof pendingRaw.source === "string" ? pendingRaw.source : "",
       };
-      /* Winky's materials_watcher writes a `progress` object into
+      /* Dobby's materials_watcher writes a `progress` object into
        * pending.json as it works (phase, message, started_at,
        * updated_at, attempt, elapsed_seconds). We pass it through as
        * camelCase so the UI can render the spinning clock + per-phase
        * message + elapsed timer. Treat any field we don't recognise
-       * defensively — Winky is on a separate machine and may evolve
+       * defensively — Dobby is on a separate machine and may evolve
        * the schema independently. */
       if (pendingRaw.progress && typeof pendingRaw.progress === "object") {
         const p = pendingRaw.progress;
         out.pending.progress = {
           phase: typeof p.phase === "string" ? p.phase : "",
-          message: typeof p.message === "string" ? p.message : "",
+          message: displayProgressMessage(p.message),
           startedAt: typeof p.started_at === "string" ? p.started_at : "",
           updatedAt: typeof p.updated_at === "string" ? p.updated_at : "",
           attempt: Number.isFinite(p.attempt) ? p.attempt : 1,
@@ -323,6 +332,11 @@ export async function buildManifest(slug, { root } = {}) {
 function pickString(preferred, fallback) {
   if (typeof preferred === "string" && preferred.trim()) return preferred;
   return fallback || "";
+}
+
+function displayProgressMessage(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\bWinky\b/g, "Dobby").replace(/\bwinky\b/g, "Dobby");
 }
 
 /**
@@ -360,7 +374,7 @@ export async function listApplications({ root } = {}) {
  * title, feature, requestedAt, progress (if any). Stale/missing
  * fields fall back to safe defaults.
  *
- * Matches Winky's actual drafting order: the watcher picks the
+ * Matches Dobby's actual drafting order: the watcher picks the
  * earliest requested_at, concurrency=1.
  */
 export async function listPendingQueue({ root } = {}) {
@@ -397,7 +411,7 @@ export async function listPendingQueue({ root } = {}) {
       progress: raw.progress
         ? {
             phase: String(raw.progress.phase || ""),
-            message: String(raw.progress.message || ""),
+            message: displayProgressMessage(raw.progress.message),
             startedAt: String(raw.progress.started_at || ""),
             updatedAt: String(raw.progress.updated_at || ""),
             attempt: Number(raw.progress.attempt || 0),

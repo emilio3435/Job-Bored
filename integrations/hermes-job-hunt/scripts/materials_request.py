@@ -49,6 +49,13 @@ APPLICATIONS_ROOT = Path.home() / ".hermes" / "job-hunt" / "applications"
 
 SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,127}$")
 FEATURES = {"resume", "cover_letter", "both"}
+QUALITY_CONTRACT = {
+    "version": "materials-quality.v1",
+    "profile_path": "~/.hermes/job-hunt/profile/materials-quality.md",
+    "resume_target": "one_page_full_or_two_page_full",
+    "cover_letter_target": "one_page_325_450_words",
+    "qa_required": True,
+}
 
 
 def validate_args(args: argparse.Namespace) -> str | None:
@@ -124,6 +131,13 @@ def build_telegram_text(slug: str, company: str, title: str, feature: str,
             lines.append(f"  {line}")
     lines += [
         "",
+        "Quality contract:",
+        "  Read: ~/.hermes/job-hunt/profile/materials-quality.md",
+        "  Resume: intentional one-page or two-page fit; repair sparse/overflow pages.",
+        "  QA: record page count, page density, evidence used, omissions, and caveats.",
+    ]
+    lines += [
+        "",
         f"Folder: ~/.hermes/job-hunt/applications/{slug}/",
         "Once drafts are saved, delete pending.json to clear the UI badge.",
     ]
@@ -162,6 +176,7 @@ def main() -> int:
         "notes": args.notes.strip(),
         "requested_at": requested_at,
         "source": "jobbored-dossier",
+        "quality_contract": QUALITY_CONTRACT,
     }
 
     telegram_message_id: int | None = None
@@ -204,7 +219,7 @@ def main() -> int:
     if telegram_error:
         out["telegram_error"] = telegram_error
         # Telegram is a side-effect notifier, not the materials pipeline.
-        # pending.json was written; Winky's watcher will pick it up
+        # pending.json was written; Dobby's watcher will pick it up
         # regardless of whether the Telegram heads-up made it through.
         # Returning 0 keeps the JobBored optimistic UI intact (progress
         # card stays visible); the Telegram error is surfaced as metadata
