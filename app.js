@@ -12602,17 +12602,35 @@ function renderKanbanCard(job, index) {
     </article>`;
 }
 
+function applyLegacyKanbanCap(jobs) {
+  const cap = typeof window !== "undefined" ? window.JobBoredCompanyCap : null;
+  if (!cap || typeof cap.capCardsByFit !== "function") return { visible: jobs, hidden: [] };
+  const kept = cap.capCardsByFit(jobs, (job) => !!(job && job.favorite));
+  const hidden = cap.summarizeHidden(jobs, kept);
+  return { visible: kept, hidden: hidden };
+}
+
+function renderLegacyKanbanHiddenAffordance(hidden) {
+  if (!Array.isArray(hidden) || hidden.length === 0) return "";
+  const label = hidden
+    .map((entry) => `+${entry.hidden} from ${escapeHtml(entry.company)}`)
+    .join(" · ");
+  return `<p class="stage-lane__hidden" title="${escapeHtml(label)} — hidden so one company can’t dominate this column. Star a role to keep it pinned.">${label} hidden</p>`;
+}
+
 function renderStageLane(stage, jobs) {
   const isExpanded = expandedStages.has(stage);
   const isArchive = STAGE_ARCHIVE.has(stage);
   const cssKey = stageToCssKey(stage);
+  const { visible: visibleJobs, hidden } = applyLegacyKanbanCap(jobs);
+  const hiddenHtml = renderLegacyKanbanHiddenAffordance(hidden);
 
   return `
     <section class="stage-lane${isArchive ? " stage-lane--archive" : ""}${isExpanded ? " stage-lane--expanded" : ""}" data-stage="${escapeHtml(stage)}">
       <button type="button" class="stage-lane__header" data-action="toggle-stage" data-stage="${escapeHtml(stage)}">
         <span class="stage-dot stage-dot--${cssKey}" aria-hidden="true"></span>
         <span class="stage-lane__name">${escapeHtml(stage)}</span>
-        <span class="stage-lane__count">${jobs.length}</span>
+        <span class="stage-lane__count">${visibleJobs.length}</span>
         <svg class="stage-lane__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="stage-lane__body">
@@ -12621,12 +12639,13 @@ function renderStageLane(stage, jobs) {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
           <div class="stage-lane__track" id="track-${cssKey}">
-            ${jobs.map((job, i) => renderKanbanCard(job, i)).join("")}
+            ${visibleJobs.map((job, i) => renderKanbanCard(job, i)).join("")}
           </div>
           <button type="button" class="stage-lane__nav stage-lane__nav--next" data-action="scroll-stage" data-dir="next" data-stage="${escapeHtml(stage)}" aria-label="Scroll right">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         </div>
+        ${hiddenHtml}
         <div class="stage-lane__indicator">
           <div class="stage-indicator-thumb" id="thumb-${cssKey}"></div>
         </div>

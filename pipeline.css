@@ -779,6 +779,18 @@ body.jb-v2 [data-region="pipeline"] .pipe-col__empty {
   background: transparent;
 }
 
+body.jb-v2 [data-region="pipeline"] .pipe-col__hidden {
+  margin: 6px 4px 0;
+  padding: 6px 8px;
+  font-family: var(--jb-font-display);
+  font-size: var(--jb-text-xs, 11px);
+  color: var(--jb-ink-3);
+  text-align: center;
+  letter-spacing: 0.02em;
+  opacity: 0.7;
+  cursor: help;
+}
+
 /* ───────────────────────── sticker card ───────────────────────── */
 body.jb-v2 [data-region="pipeline"] .pipe-sticker {
   position: relative;

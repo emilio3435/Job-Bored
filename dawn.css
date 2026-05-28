@@ -668,6 +668,18 @@ body.jb-v2 [data-region="dawn"] .brief-leads-empty {
   border-radius: var(--jb-radius-lg);
 }
 
+body.jb-v2 [data-region="dawn"] .brief-leads-hidden {
+  margin: var(--space-3, 12px) 0 0;
+  padding: 6px 8px;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  color: var(--jb-ink-3);
+  letter-spacing: 0.04em;
+  text-align: center;
+  opacity: 0.7;
+  cursor: help;
+}
+
 /* --- Sticker: tilted yellow paper card with the FIT number ----
    Replaces the old flat mint FIT chip. Anchored absolute top-right
    of the lead card, rotated +6deg, drop-shadow per --jb-shadow-sticker. */

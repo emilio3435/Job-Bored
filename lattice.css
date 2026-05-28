@@ -723,6 +723,19 @@ body.jb-v2 [data-region="lattice"] .jb-lat__empty-tip {
   line-height: 1.4;
 }
 
+/* Per-company cap affordance — small label below the visible cards. */
+body.jb-v2 [data-region="lattice"] .jb-lat__hidden {
+  margin: 6px 12px 0;
+  padding: 6px 8px;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  color: var(--jb-ink-3);
+  text-align: center;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  cursor: help;
+}
+
 /* aria-live region — visually hidden but announced. */
 body.jb-v2 [data-region="lattice"] .jb-lat__live {
   position: absolute;
