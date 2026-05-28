@@ -46,6 +46,7 @@
 
   var SORT_DEFAULT = "urgency";
   var COLLAPSED_STORAGE_KEY = "jb_pipelineCollapsedColumns";
+  var DEFAULT_FOCUSED_STAGE = "researching";
 
   var ric =
     typeof root.requestIdleCallback === "function"
@@ -114,6 +115,18 @@
     return base + fit;
   }
 
+  function cardDateFoundMs(card) {
+    var raw = card && card.foundAt;
+    if (!raw) return -Infinity;
+    var ms = Date.parse(String(raw));
+    return Number.isFinite(ms) ? ms : -Infinity;
+  }
+
+  function cardRowIndex(card) {
+    var n = Number(card && card.index);
+    return Number.isFinite(n) ? n : -Infinity;
+  }
+
   function sortCards(cards, mode) {
     var copy = cards.slice();
     if (mode === "fit") {
@@ -124,10 +137,15 @@
         return 0;
       });
     } else if (mode === "newest") {
-      // VM does not expose timestamps for stage cards; preserve insertion order
-      // (already roughly newest-first as legacy renders) — caller passes cards
-      // in DOM order, so reverse to surface most-recent first.
-      copy.reverse();
+      copy.sort(function (a, b) {
+        var ad = cardDateFoundMs(a);
+        var bd = cardDateFoundMs(b);
+        if (ad !== bd) return bd - ad;
+        var ai = cardRowIndex(a);
+        var bi = cardRowIndex(b);
+        if (ai !== bi) return bi - ai;
+        return 0;
+      });
     } else {
       // urgency (default)
       copy.sort(function (a, b) { return urgencyWeight(b) - urgencyWeight(a); });
@@ -146,11 +164,19 @@
     return "--pipe-col-" + stageKey;
   }
 
+  function defaultCollapsedState() {
+    var next = {};
+    STAGES.forEach(function (s) {
+      if (s.key !== DEFAULT_FOCUSED_STAGE) next[s.key] = true;
+    });
+    return next;
+  }
+
   function loadCollapsedState() {
     try {
-      if (!root.localStorage) return {};
+      if (!root.localStorage) return defaultCollapsedState();
       var raw = root.localStorage.getItem(COLLAPSED_STORAGE_KEY);
-      if (!raw) return {};
+      if (!raw) return defaultCollapsedState();
       var parsed = JSON.parse(raw);
       var next = {};
       STAGES.forEach(function (s) {
@@ -158,7 +184,7 @@
       });
       return next;
     } catch (_) {
-      return {};
+      return defaultCollapsedState();
     }
   }
 
@@ -171,12 +197,25 @@
     }
   }
 
+  function inferFocusedStageFromCollapsed(collapsed) {
+    var openStage = "";
+    var openCount = 0;
+    STAGES.forEach(function (s) {
+      if (!collapsed || collapsed[s.key] !== true) {
+        openStage = s.key;
+        openCount += 1;
+      }
+    });
+    return openCount === 1 ? openStage : "";
+  }
+
   function initialState() {
+    var collapsed = loadCollapsedState();
     return {
       sort: SORT_DEFAULT,
-      collapsed: loadCollapsedState(),
+      collapsed: collapsed,
       filters: readPipelineFilters(),
-      focusedStage: "",
+      focusedStage: inferFocusedStageFromCollapsed(collapsed),
       selectedJobKey: "",
       search: "",
     };
@@ -185,7 +224,7 @@
   function ensureStateShape(state) {
     if (!state.collapsed) state.collapsed = loadCollapsedState();
     state.filters = readPipelineFilters(state.filters);
-    state.focusedStage = state.focusedStage || "";
+    state.focusedStage = state.focusedStage || inferFocusedStageFromCollapsed(state.collapsed);
     state.selectedJobKey = state.selectedJobKey || "";
     state.search = state.search || "";
     return state;

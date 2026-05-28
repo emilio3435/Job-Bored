@@ -16,6 +16,12 @@
 /* Fonts loaded via <link> in index.html (see docs/redesign/jb-fonts-perf.md). */
 
 body.jb-v2 {
+  --jb-flow-max: 1220px;
+  --jb-flow-gutter: clamp(16px, 3vw, 32px);
+  --jb-flow-content-width: min(
+    var(--jb-flow-max),
+    calc(100% - var(--jb-flow-gutter) - var(--jb-flow-gutter))
+  );
   background: var(--jb-paper);
   color: var(--jb-ink);
   font-family: var(--jb-font-body);

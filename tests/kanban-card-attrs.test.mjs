@@ -480,6 +480,59 @@ describe("v2 kanban-card data-* attributes → dossier view-model", () => {
     );
   });
 
+  it("Date Found freshness reaches every pipeline card for Newest sorting", () => {
+    const doc = makeDocument();
+    appendCard(doc, doc.body, {
+      classes: ["kanban-card--stage-new"],
+      title: "Fresh Discovery",
+      company: "Initrode",
+      data: {
+        "data-stable-key": "DISCOVERED",
+        "data-index": "7",
+        "data-found-at": "2026-05-28",
+      },
+    });
+    appendCard(doc, doc.body, {
+      classes: ["kanban-card--stage-applied"],
+      title: "Fresh Applied",
+      company: "Initech",
+      data: {
+        "data-stable-key": "APPLIED",
+        "data-index": "8",
+        "data-found-at": "2026-05-27",
+      },
+    });
+
+    const api = loadDawnData(doc);
+    const pipe = api.getPipelineViewModel({ doc });
+    const discovered = pipe.untriaged.find((c) => c.jobKey === "DISCOVERED");
+    const appliedStage = pipe.stages.find((s) => s.key === "applied");
+    const applied = appliedStage && appliedStage.cards.find((c) => c.jobKey === "APPLIED");
+
+    assert.ok(discovered, "DISCOVERED card not found in untriaged pipeline cards");
+    assert.ok(applied, "APPLIED card not found in applied pipeline cards");
+    assert.equal(
+      discovered.foundAt,
+      "2026-05-28",
+      "untriaged pipeline cards must retain Date Found for freshness sorting",
+    );
+    assert.equal(
+      discovered.index,
+      7,
+      "untriaged pipeline cards must retain row index as the freshness fallback",
+    );
+    assert.equal(
+      applied.foundAt,
+      "2026-05-27",
+      "stage pipeline cards must retain Date Found for freshness sorting",
+    );
+    assert.equal(
+      applied.index,
+      8,
+      "stage pipeline cards must retain row index as the freshness fallback",
+    );
+  });
+
   it("talking-points fallback: data-talking-points becomes a jdSections bullet block when no JD snippet", () => {
     const doc = makeDocument();
     appendCard(doc, doc.body, {

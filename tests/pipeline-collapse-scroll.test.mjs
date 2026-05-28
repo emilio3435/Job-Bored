@@ -34,6 +34,21 @@ describe("v2 pipeline column collapse and scrolling", () => {
     );
   });
 
+  it("hydrates hard refreshes with Researching as the expanded default column", () => {
+    assert.ok(
+      pipelineJs.includes('var DEFAULT_FOCUSED_STAGE = "researching";') &&
+        pipelineJs.includes("function defaultCollapsedState") &&
+        pipelineJs.includes("if (s.key !== DEFAULT_FOCUSED_STAGE) next[s.key] = true;") &&
+        pipelineJs.includes("function inferFocusedStageFromCollapsed") &&
+        pipelineJs.includes("focusedStage: inferFocusedStageFromCollapsed(collapsed),"),
+      "no saved preference should start with Researching as the single expanded column",
+    );
+    assert.ok(
+      pipelineJs.includes("state.focusedStage = state.focusedStage || inferFocusedStageFromCollapsed(state.collapsed);"),
+      "a saved single-open collapse state should rehydrate its expanded focus on refresh",
+    );
+  });
+
   it("auto-expands a collapsed destination before an optimistic move", () => {
     assert.ok(
       pipelineJs.includes("if (state && isCollapsed(state, toStage)) setColumnCollapsed(region, state, toStage, false);"),
@@ -50,13 +65,45 @@ describe("v2 pipeline column collapse and scrolling", () => {
     );
   });
 
+  it("lets the selected card column consume available width in focus mode", () => {
+    assert.ok(
+      pipelineJs.includes("function focusColumnForCard") &&
+        pipelineJs.includes("state.focusedStage = stageKey;") &&
+        pipelineJs.includes("state.selectedJobKey = String(jobKey);") &&
+        pipelineJs.includes("else state.collapsed[s.key] = true;"),
+      "opening a card should select it and collapse every non-selected column",
+    );
+    assert.ok(
+      pipelineCss.includes(".pipe-board[data-focus-stage]") &&
+        pipelineCss.includes("--pipe-col-focused: minmax(0, 1fr);") &&
+        pipelineCss.includes("width: 100%;") &&
+        pipelineCss.includes('.pipe-sticker[data-selected="true"]') &&
+        pipelineCss.includes("box-sizing: border-box;"),
+      "focus mode should let the selected card's column take the remaining kanban width",
+    );
+  });
+
   it("caps column stacks and scrolls excess cards inside the column", () => {
     assert.ok(
-      pipelineCss.includes("max-height: clamp(320px, 56vh, 640px);") &&
+      pipelineCss.includes("max-height: clamp(340px, calc(100vh - 300px), 680px);") &&
         pipelineCss.includes("overflow-y: auto;") &&
         pipelineCss.includes("overscroll-behavior: contain;") &&
-        pipelineCss.includes("scrollbar-gutter: stable;"),
+        pipelineCss.includes("scrollbar-gutter: stable;") &&
+        pipelineCss.includes("scrollbar-width: thin;"),
       "long kanban columns should scroll internally instead of stretching the page",
+    );
+  });
+
+  it("keeps wide kanban columns inside a horizontally scrollable shell", () => {
+    assert.ok(
+      pipelineCss.includes(".pipe-shell") &&
+        pipelineCss.includes("overflow-x: auto;") &&
+        pipelineCss.includes("overscroll-behavior-inline: contain;") &&
+        pipelineCss.includes("scroll-snap-type: x proximity;") &&
+        pipelineCss.includes("--pipe-col-open: clamp(236px, 22vw, 280px);") &&
+        pipelineCss.includes("width: max-content;") &&
+        pipelineCss.includes("min-width: 100%;"),
+      "the kanban should scroll horizontally in its shell instead of compressing across the viewport",
     );
   });
 

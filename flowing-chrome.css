@@ -26,7 +26,11 @@ body.jb-v2 .page-top {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 14px 32px;
+  padding-block: 14px;
+  padding-inline: max(
+    var(--jb-flow-gutter, 32px),
+    calc((100% - var(--jb-flow-max, 1220px)) / 2)
+  );
   background: color-mix(in srgb, var(--jb-paper) 88%, transparent);
   backdrop-filter: saturate(140%) blur(10px);
   -webkit-backdrop-filter: saturate(140%) blur(10px);
@@ -366,7 +370,8 @@ body.jb-v2 .flow-section__inner {
 /* ---- Mobile collapse ≤768px ----------------------------- */
 @media (max-width: 768px) {
   body.jb-v2 .page-top {
-    padding: 12px 18px;
+    padding-block: 12px;
+    padding-inline: var(--jb-flow-gutter, 18px);
     gap: 12px;
   }
 
@@ -408,7 +413,7 @@ body.jb-v2 .flow-section__inner {
   body.jb-v2 .page-nav {
     position: absolute;
     top: 100%;
-    right: 18px;
+    right: var(--jb-flow-gutter, 18px);
     flex-direction: column;
     align-items: stretch;
     gap: 4px;
@@ -445,7 +450,8 @@ body.jb-v2 .flow-section__inner {
 
 @media (max-width: 430px) {
   body.jb-v2 .page-top {
-    padding: 10px 12px;
+    padding-block: 10px;
+    padding-inline: var(--jb-flow-gutter, 12px);
     gap: 8px;
   }
 

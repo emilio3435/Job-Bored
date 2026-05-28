@@ -694,6 +694,7 @@
           company: r.company,
           fitScore: r.fitScore,
           foundAt: r.foundAt || "",
+          index: r.index,
         });
         continue;
       }
@@ -703,6 +704,8 @@
         role: r.role,
         company: r.company,
         fitScore: r.fitScore,
+        foundAt: r.foundAt || "",
+        index: r.index,
         salary: r.salary,
         note: r.note,
         flag: computeFlag(r, nowMs),

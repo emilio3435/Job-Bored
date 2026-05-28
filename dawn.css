@@ -15,11 +15,13 @@ body:not(.jb-v2) [data-region="dawn"] { display: none; }
 
 body.jb-v2 [data-region="dawn"] {
   display: block;
-  max-width: 1600px;
+  width: var(--jb-flow-content-width, min(1220px, calc(100% - 32px)));
+  max-width: none;
+  box-sizing: border-box;
   margin: 0 auto;
   /* Real top headroom so the edition stamp + read-time sit clearly
      inside the page rather than against the chrome. Was 8px. */
-  padding: var(--space-8, 32px) var(--space-8, 32px) var(--space-14, 56px);
+  padding: var(--space-8, 32px) 0 var(--space-14, 56px);
   font-family: var(--jb-font-body);
   color: var(--jb-ink);
   background: var(--jb-paper-2);
@@ -446,7 +448,7 @@ body.jb-v2 [data-region="dawn"] .brief-btn--primary:focus-visible {
 
 @media (max-width: 760px) {
   body.jb-v2 [data-region="dawn"] {
-    padding-inline: var(--space-4, 16px);
+    padding-inline: 0;
   }
   body.jb-v2 [data-region="dawn"] .brief-lead {
     padding: var(--space-5, 20px);
