@@ -280,6 +280,14 @@ export async function buildManifest(slug, { root } = {}) {
       const pendingRaw = JSON.parse(await readFile(pendingPath, "utf8"));
       out.pending = {
         feature: typeof pendingRaw.feature === "string" ? pendingRaw.feature : "",
+        /* Pass through the role identity so the dossier card's "company ·
+         * title · feature" line renders correctly. Without these, the
+         * card swaps from the optimistic state (which has them) into
+         * the server's manifest state (which didn't) and the identity
+         * line flickers blank. */
+        company: typeof pendingRaw.company === "string" ? pendingRaw.company : "",
+        title: typeof pendingRaw.title === "string" ? pendingRaw.title : "",
+        jobUrl: typeof pendingRaw.job_url === "string" ? pendingRaw.job_url : "",
         requestedAt: typeof pendingRaw.requested_at === "string" ? pendingRaw.requested_at : "",
         telegramMessageId: Number.isFinite(pendingRaw.telegram_message_id)
           ? pendingRaw.telegram_message_id

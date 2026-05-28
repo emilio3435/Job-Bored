@@ -235,7 +235,7 @@
     return "";
   }
 
-  function renderCard(slug, doc, base, pending) {
+  function renderCard(slug, doc, base, pending, identity) {
     var meta = DOC_LABELS[doc.type] || { label: doc.label || doc.type, role: "support" };
     var primaryFile = ALLOWED_FILES[doc.primary] || null;
     var preview = pickPreviewFile(doc);
@@ -284,6 +284,18 @@
     if (size) metaParts.push(escapeHtml(size));
     if (updatedRel) metaParts.push("Updated " + escapeHtml(updatedRel));
 
+    /* Role identity sub-line: "321 The Agency · Director of Digital
+       Marketing" baked into each card so the user can never confuse
+       which role a Ready cover letter belongs to. Falls back gracefully
+       when identity isn't supplied (e.g. older optimistic renders). */
+    var identityHtml = "";
+    if (identity && (identity.company || identity.title)) {
+      var parts = [];
+      if (identity.company) parts.push(escapeHtml(identity.company));
+      if (identity.title)   parts.push(escapeHtml(identity.title));
+      identityHtml = '<p class="brief-materials__card-identity">' + parts.join(' <span class="brief-materials__dot">·</span> ') + '</p>';
+    }
+
     return '<article class="brief-materials__card brief-materials__card--' + (meta.role === "primary" ? "primary" : "support")
       + (isPending ? " brief-materials__card--pending" : "")
       + '"'
@@ -292,6 +304,7 @@
         + '<span class="brief-materials__card-label">' + escapeHtml(meta.label) + '</span>'
         + '<span class="brief-materials__card-status" data-status="' + statusAttr + '">' + escapeHtml(statusLabel) + '</span>'
       + '</header>'
+      + identityHtml
       + (metaParts.length ? '<p class="brief-materials__card-meta">' + metaParts.join(' <span class="brief-materials__dot">·</span> ') + '</p>' : '')
       + '<footer class="brief-materials__card-actions">' + actions.join("") + '</footer>'
       + '</article>';
@@ -501,16 +514,28 @@
   function renderManifest(briefEl, manifest, base) {
     if (!briefEl || !manifest) return;
     removeExisting(briefEl);
-    var docs = Array.isArray(manifest.documents) ? manifest.documents : [];
+    var docsAll = Array.isArray(manifest.documents) ? manifest.documents : [];
     var pending = manifest.pending || null;
+    /* Filter to only the user-facing deliverables: tailored resume +
+       cover letter. The other on-disk artifacts (job-description.md,
+       job-analysis.md, qa-report.md, manual-apply-checklist.md) are
+       internal scaffolding for Winky and shouldn't crowd the Materials
+       box. They remain readable through the direct file URL if
+       someone really wants to inspect them. */
+    var docs = docsAll.filter(function (d) {
+      return d.type === "resume" || d.type === "cover_letter";
+    });
     docs.sort(function (a, b) {
-      var ra = DOC_LABELS[a.type] && DOC_LABELS[a.type].role === "primary" ? 0 : 1;
-      var rb = DOC_LABELS[b.type] && DOC_LABELS[b.type].role === "primary" ? 0 : 1;
-      if (ra !== rb) return ra - rb;
-      var oa = ["resume", "cover_letter", "job_analysis", "qa_report", "job_description", "manual_apply_checklist"];
+      var oa = ["resume", "cover_letter"];
       return oa.indexOf(a.type) - oa.indexOf(b.type);
     });
-    var cards = docs.map(function (d) { return renderCard(manifest.slug, d, base, pending); });
+    /* Carry company/title through to the card so each card can show
+       its role identity in the label. */
+    var roleIdentity = {
+      company: manifest.company || (pending && pending.company) || "",
+      title: manifest.title || (pending && pending.title) || "",
+    };
+    var cards = docs.map(function (d) { return renderCard(manifest.slug, d, base, pending, roleIdentity); });
     /* No per-doc placeholder cards. The enlarged progress banner
        above is the single source of "this is in flight" truth — a
        second "Generating…" pill on the doc grid is redundant and
@@ -1120,6 +1145,11 @@
         jdSource: jdResult && jdResult.source,
       });
     }).then(function () {
+      /* Fire the queue-changed event immediately so the global strip
+         updates without waiting for the manifest re-fetch round-trip.
+         A second dispatch lands later when the re-fetch resolves —
+         the queue strip's refresh is idempotent. */
+      dispatch("jb:materials:changed", { slug: ctx.slug, reason: "request-sent" });
       /* Re-fetch so we render the real pending.json the server wrote. */
       return fetchJson(ctx.base + "/api/applications/" + encodeURIComponent(ctx.slug) + "/manifest");
     }).then(function (manifest) {

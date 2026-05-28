@@ -20663,18 +20663,34 @@ function init() {
     return;
   }
 
-  // Hold the dashboard behind an access gate until the first read succeeds.
   document.getElementById("setupScreen").style.display = "none";
-  document.getElementById("dashboard").style.display = "none";
-  // Only show the gate "loading" splash on cold loads (no persisted OAuth
-  // session). When a session IS persisted, silent-restore is about to fire
-  // and finish in ~200-500ms; showing the login-style gate during that
-  // window creates a jarring flicker on every refresh. If silent-restore
-  // fails, the error paths in initAuth/handleTokenResponse open the gate
-  // for us with the right mode.
+  /* Refresh flicker fix:
+     - If we have a valid runtime token cached in localStorage, the
+       dashboard is going to render in milliseconds. Show it RIGHT NOW
+       (not after silent-restore + data load) so the page doesn't go
+       blank between paint and revealDashboardShell(). The dashboard
+       briefly shows whatever was last rendered/empty until loadAllData
+       repaints — far less jarring than a flash of the login gate or
+       a flash of nothing at all.
+     - If we only have METADATA persisted (no valid runtime token),
+       silent-restore is about to fire; still skip the gate "loading"
+       splash so we don't flicker the login illustration on refresh.
+     - If we have nothing persisted, show the gate "loading" splash
+       so the user has something to look at on a true cold start.
+     If silent-restore fails downstream, the error paths in
+     initAuth/handleTokenResponse open the gate with the right mode. */
+  const hasRuntimeToken = !!loadPersistedRuntimeOAuthSession();
   const hasPersistedSession = !!loadPersistedOAuthSession();
-  if (!hasPersistedSession) {
-    showSheetAccessGate("loading");
+  if (hasRuntimeToken) {
+    /* Eager reveal — silent-restore will finish in <500ms, then
+       loadAllData repaints. Until then the dashboard shell is visible
+       with last-known DOM state (or its first-paint defaults). */
+    document.getElementById("dashboard").style.display = "block";
+  } else {
+    document.getElementById("dashboard").style.display = "none";
+    if (!hasPersistedSession) {
+      showSheetAccessGate("loading");
+    }
   }
 
   // Dashboard wordmark vs custom title
