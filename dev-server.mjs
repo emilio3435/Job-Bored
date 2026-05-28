@@ -5,6 +5,7 @@ import { join, extname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -22,20 +23,9 @@ const DISCOVERY_WORKER_SCRIPT = join(
   "src",
   "server.ts",
 );
-const DISCOVERY_WORKER_CONFIG_PATH = join(
-  ROOT,
-  "integrations",
-  "browser-use-discovery",
-  "state",
-  "worker-config.json",
-);
-const DISCOVERY_WORKER_STATE_DB_PATH = join(
-  ROOT,
-  "integrations",
-  "browser-use-discovery",
-  "state",
-  "worker-state.sqlite",
-);
+const PACKAGED_PATHS = resolveJobBoredPaths({ repoRoot: ROOT });
+const DISCOVERY_WORKER_CONFIG_PATH = PACKAGED_PATHS.workerConfig;
+const DISCOVERY_WORKER_STATE_DB_PATH = PACKAGED_PATHS.workerStateDb;
 const DISCOVERY_WORKER_BROWSER_COMMAND = join(
   ROOT,
   "integrations",
@@ -286,23 +276,46 @@ async function probeDiscoveryWorkerHealth(port) {
   return classifyDiscoveryWorkerHealthResponse(response, port);
 }
 
-function buildDiscoveryWorkerEnv(port) {
-  return {
-    ...process.env,
+export function buildDiscoveryWorkerEnv(port, baseEnv = process.env) {
+  const fallbackGemini = [
+    baseEnv.BROWSER_USE_DISCOVERY_GEMINI_API_KEY,
+    baseEnv.DISCOVERY_GEMINI_API_KEY,
+    baseEnv.GEMINI_API_KEY,
+    baseEnv.ATS_GEMINI_API_KEY,
+  ]
+    .map((value) => String(value || "").trim())
+    .find(Boolean);
+  const env = {
+    ...baseEnv,
     BROWSER_USE_DISCOVERY_RUN_MODE: "local",
     BROWSER_USE_DISCOVERY_HOST: "127.0.0.1",
     BROWSER_USE_DISCOVERY_PORT: String(normalizeDiscoveryWorkerPort(port)),
+    BROWSER_USE_DISCOVERY_WORKER_CONFIG:
+      baseEnv.BROWSER_USE_DISCOVERY_WORKER_CONFIG ||
+      baseEnv.BROWSER_USE_DISCOVERY_CONFIG_PATH ||
+      DISCOVERY_WORKER_CONFIG_PATH,
     BROWSER_USE_DISCOVERY_CONFIG_PATH:
-      process.env.BROWSER_USE_DISCOVERY_CONFIG_PATH || DISCOVERY_WORKER_CONFIG_PATH,
-    BROWSER_USE_DISCOVERY_STATE_DB_PATH:
-      process.env.BROWSER_USE_DISCOVERY_STATE_DB_PATH || DISCOVERY_WORKER_STATE_DB_PATH,
+      baseEnv.BROWSER_USE_DISCOVERY_CONFIG_PATH ||
+      baseEnv.BROWSER_USE_DISCOVERY_WORKER_CONFIG ||
+      DISCOVERY_WORKER_CONFIG_PATH,
+    BROWSER_USE_DISCOVERY_WORKER_ENV:
+      baseEnv.BROWSER_USE_DISCOVERY_WORKER_ENV ||
+      baseEnv.BROWSER_USE_DISCOVERY_ENV_FILE ||
+      PACKAGED_PATHS.workerEnv,
+    BROWSER_USE_DISCOVERY_ENV_FILE:
+      baseEnv.BROWSER_USE_DISCOVERY_ENV_FILE ||
+      baseEnv.BROWSER_USE_DISCOVERY_WORKER_ENV ||
+      PACKAGED_PATHS.workerEnv,
+    BROWSER_USE_DISCOVERY_STATE_DB_PATH: baseEnv.BROWSER_USE_DISCOVERY_STATE_DB_PATH || DISCOVERY_WORKER_STATE_DB_PATH,
     BROWSER_USE_DISCOVERY_BROWSER_COMMAND:
-      process.env.BROWSER_USE_DISCOVERY_BROWSER_COMMAND || DISCOVERY_WORKER_BROWSER_COMMAND,
-    BROWSER_USE_DISCOVERY_GEMINI_API_KEY:
-      process.env.BROWSER_USE_DISCOVERY_GEMINI_API_KEY ||
-      process.env.ATS_GEMINI_API_KEY ||
-      "",
+      baseEnv.BROWSER_USE_DISCOVERY_BROWSER_COMMAND || DISCOVERY_WORKER_BROWSER_COMMAND,
   };
+  if (fallbackGemini) {
+    env.BROWSER_USE_DISCOVERY_GEMINI_API_KEY = fallbackGemini;
+  } else {
+    delete env.BROWSER_USE_DISCOVERY_GEMINI_API_KEY;
+  }
+  return env;
 }
 
 async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
@@ -400,6 +413,33 @@ function isLocalOrigin(req) {
   );
 }
 
+function resolveDashboardOrigin(req, currentPort) {
+  const headerOrigin = String((req.headers && req.headers.origin) || "").trim();
+  if (headerOrigin) {
+    try {
+      const parsed = new URL(headerOrigin);
+      const host = String(parsed.hostname || "")
+        .replace(/^\[|\]$/g, "")
+        .toLowerCase();
+      if (
+        host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "::1"
+      ) {
+        return parsed.origin;
+      }
+    } catch (_) {
+      // Fall through to Host-derived origin.
+    }
+  }
+  const hostHeader = String((req.headers && req.headers.host) || "").trim();
+  if (hostHeader) {
+    const scheme = req.socket && req.socket.encrypted ? "https" : "http";
+    return `${scheme}://${hostHeader}`;
+  }
+  return `http://127.0.0.1:${normalizePort(currentPort)}`;
+}
+
 function readBootstrapJson() {
   const filePath = join(ROOT, "discovery-local-bootstrap.json");
   if (!existsSync(filePath)) return null;
@@ -430,6 +470,34 @@ function runScript(scriptPath, args) {
   });
 }
 
+function parseJsonObjectFromScriptOutput(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    // Some helpers print progress before their --json payload. Keep the
+    // helper output human-friendly while letting the dev server consume the
+    // final JSON object deterministically.
+  }
+  const likelyStarts = [];
+  const schemaStart = text.indexOf('{\n  "schemaVersion"');
+  if (schemaStart >= 0) likelyStarts.push(schemaStart);
+  const okStart = text.indexOf('{\n  "ok"');
+  if (okStart >= 0) likelyStarts.push(okStart);
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === "{") likelyStarts.push(i);
+  }
+  for (const start of [...new Set(likelyStarts)]) {
+    try {
+      return JSON.parse(text.slice(start));
+    } catch (_) {
+      // Try the next object-looking boundary.
+    }
+  }
+  return null;
+}
+
 async function handleFixSetup(req, res, options = {}) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, { "content-type": "application/json" });
@@ -449,11 +517,16 @@ async function handleFixSetup(req, res, options = {}) {
 
   const previousBootstrap = readBootstrapJson();
   const workerPort = resolveDiscoveryWorkerPort(options.workerPort);
+  const dashboardOrigin = String(options.dashboardOrigin || "").trim();
 
   emit("starting_worker", { message: "Running bootstrap to start worker and tunnel..." });
+  const bootstrapArgs = ["--json", "--port", String(workerPort)];
+  if (dashboardOrigin) {
+    bootstrapArgs.push("--cors-origin", dashboardOrigin);
+  }
   const bootstrapResult = await runScript(
     join(ROOT, "scripts", "bootstrap-local-discovery.mjs"),
-    ["--json", "--port", String(workerPort)],
+    bootstrapArgs,
   );
 
   if (!bootstrapResult.ok) {
@@ -466,10 +539,8 @@ async function handleFixSetup(req, res, options = {}) {
     return;
   }
 
-  let bootstrapData;
-  try {
-    bootstrapData = JSON.parse(bootstrapResult.stdout);
-  } catch {
+  const bootstrapData = parseJsonObjectFromScriptOutput(bootstrapResult.stdout);
+  if (!bootstrapData) {
     emit("bootstrap_failed", { message: "Bootstrap output was not valid JSON." });
     res.writeHead(500, corsHeaders);
     res.end(JSON.stringify({ ok: false, phases }));
@@ -770,7 +841,7 @@ export async function killFullBootStalePorts({
  * a single summary so the dashboard can show "Discovery is ready" instead of
  * walking the user through 8 wizard steps.
  */
-async function handleFullBoot(req, res, discoveryWorkerStarter) {
+async function handleFullBoot(req, res, discoveryWorkerStarter, options = {}) {
   const corsHeaders = {
     "access-control-allow-origin": "*",
     "content-type": "application/json",
@@ -859,7 +930,11 @@ async function handleFullBoot(req, res, discoveryWorkerStarter) {
 
   // 3. Hand off to the existing fix-setup flow which bootstraps ngrok and
   //    deploys/refreshes the Cloudflare relay.
-  return handleFixSetup(req, res, { extraPhases: phases, workerPort });
+  return handleFixSetup(req, res, {
+    extraPhases: phases,
+    workerPort,
+    dashboardOrigin: options.dashboardOrigin,
+  });
 }
 
 // ============================================================================
@@ -1099,7 +1174,7 @@ async function handleKeepAliveStatus(req, res) {
 //                        existing /__proxy/full-boot can fix all of these
 //   needs_human        — anything else (e.g. unknown state, missing CLI auth)
 // ============================================================================
-async function handleDiscoveryState(req, res) {
+async function handleDiscoveryState(req, res, options = {}) {
   const corsHeaders = {
     "access-control-allow-origin": "*",
     "content-type": "application/json",
@@ -1112,15 +1187,22 @@ async function handleDiscoveryState(req, res) {
 
   const url = new URL(req.url || "/", "http://localhost");
   const workerPort = resolveDiscoveryWorkerPort(url.searchParams.get("port"));
+  const dashboardOrigin = String(options.dashboardOrigin || "").trim();
 
   // Probe in parallel — every probe is best-effort and short-timeout.
-  const [workerHealth, ngrokInfo, keepAliveStatus] = await Promise.all([
+  const [workerHealth, ngrokInfo, keepAliveStatus, workerCors] = await Promise.all([
     probeWorkerIdentity(workerPort, 1500),
     probeNgrokTunnel(1500, workerPort),
     safeKeepAliveStatus(),
+    probeDiscoveryWorkerCors(workerPort, dashboardOrigin, 1500),
   ]);
 
   const workerUp = !!(workerHealth && workerHealth.ok);
+  const workerOriginAllowed =
+    !dashboardOrigin ||
+    !workerUp ||
+    !workerCors ||
+    workerCors.ok !== false;
   const lastNgrokUrl =
     (keepAliveStatus && keepAliveStatus.lastNgrokUrl) || undefined;
   const ngrokUp = !!(ngrokInfo && ngrokInfo.up);
@@ -1140,7 +1222,10 @@ async function handleDiscoveryState(req, res) {
 
   let recommendation;
   let recoverableHint;
-  if (workerUp && ngrokUp && !ngrokRotated) {
+  if (workerUp && !workerOriginAllowed) {
+    recommendation = "auto_recoverable";
+    recoverableHint = "origin_not_allowed";
+  } else if (workerUp && ngrokUp && !ngrokRotated) {
     recommendation = "ready";
   } else if (
     workerHealth &&
@@ -1167,6 +1252,13 @@ async function handleDiscoveryState(req, res) {
     worker: {
       up: workerUp,
       port: workerPort,
+      ...(dashboardOrigin ? { dashboardOrigin } : {}),
+      ...(workerUp && workerCors
+        ? {
+            originAllowed: workerOriginAllowed,
+            ...(workerCors.status ? { corsStatus: workerCors.status } : {}),
+          }
+        : {}),
       ...(workerHealth && !workerHealth.ok
         ? {
             reason: workerHealth.reason,
@@ -1191,6 +1283,43 @@ async function handleDiscoveryState(req, res) {
 
   res.writeHead(200, corsHeaders);
   res.end(JSON.stringify(body));
+}
+
+async function probeDiscoveryWorkerCors(port, origin, timeoutMs) {
+  if (!origin) return { ok: true };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => {
+    try {
+      ctrl.abort();
+    } catch (_) {}
+  }, timeoutMs);
+  try {
+    const resp = await fetch(`http://127.0.0.1:${port}/webhook`, {
+      method: "OPTIONS",
+      signal: ctrl.signal,
+      headers: {
+        Origin: origin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type,x-discovery-secret",
+      },
+    });
+    const allowOrigin = String(
+      resp.headers.get("access-control-allow-origin") || "",
+    ).trim();
+    return {
+      ok: resp.ok && (allowOrigin === "*" || allowOrigin === origin),
+      status: resp.status || 0,
+      allowOrigin,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      message: error && error.message ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -1447,6 +1576,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
     if (req.method === "POST" && pathname === "/__proxy/fix-setup") {
       handleFixSetup(req, res, {
         workerPort: resolveDiscoveryWorkerPort(url.searchParams.get("port")),
+        dashboardOrigin: resolveDashboardOrigin(req, currentPort),
       }).catch((err) => {
         logError("  Fix-setup error:", err);
         if (!res.headersSent) {
@@ -1480,7 +1610,9 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
     }
 
     if (req.method === "POST" && pathname === "/__proxy/full-boot") {
-      handleFullBoot(req, res, discoveryWorkerStarter).catch((err) => {
+      handleFullBoot(req, res, discoveryWorkerStarter, {
+        dashboardOrigin: resolveDashboardOrigin(req, currentPort),
+      }).catch((err) => {
         logError("  Full-boot error:", err);
         if (!res.headersSent) {
           res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
@@ -1552,7 +1684,9 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
 
     // === discovery auto-detect lane ===
     if (req.method === "GET" && pathname === "/__proxy/discovery-state") {
-      handleDiscoveryState(req, res).catch((err) => {
+      handleDiscoveryState(req, res, {
+        dashboardOrigin: resolveDashboardOrigin(req, currentPort),
+      }).catch((err) => {
         logError("  Discovery-state error:", err);
         if (!res.headersSent) {
           res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
@@ -1648,9 +1782,13 @@ const isMainModule = process.argv[1]
   : false;
 
 if (isMainModule) {
+  let runningServer;
   startDevServer({
     port: process.env.PORT || DEFAULT_PORT,
     tls: process.env.COMMAND_CENTER_TLS || process.env.HTTPS,
+  }).then((server) => {
+    runningServer = server;
+    return runningServer;
   }).catch((error) => {
     console.error("Failed to start dev server:", error);
     process.exitCode = 1;

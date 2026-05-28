@@ -1,19 +1,21 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
+import { resolveJobBoredPaths } from "./paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export const repoRoot = resolve(__dirname, "..", "..");
 export const discoveryRoot = join(repoRoot, "integrations", "browser-use-discovery");
-export const stateDir = join(discoveryRoot, "state");
-export const envPath = join(discoveryRoot, ".env");
+const packagedPaths = resolveJobBoredPaths({ repoRoot });
+export const stateDir = packagedPaths.workerHome;
+export const envPath = packagedPaths.workerEnv;
 export const scheduleInstalledPath = join(stateDir, "schedule-installed.json");
 export const expiredCleanupScheduleInstalledPath = join(
   stateDir,
   "expired-cleanup-schedule-installed.json",
 );
-export const workerConfigPath = join(stateDir, "worker-config.json");
+export const workerConfigPath = packagedPaths.workerConfig;
 
 export function normalizeSheetIdCandidate(value) {
   const raw = value != null ? String(value).trim() : "";

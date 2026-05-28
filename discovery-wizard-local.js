@@ -266,6 +266,55 @@
     }
   }
 
+  function isLocalDashboard() {
+    try {
+      const host =
+        window && window.location
+          ? String(window.location.hostname || "").toLowerCase()
+          : "";
+      return (
+        host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "[::1]" ||
+        host === "::1"
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function requestLocalAutoSetup() {
+    if (!isLocalDashboard()) {
+      return {
+        ok: false,
+        phase: "not_local",
+        message:
+          "Automatic setup only runs from the local JobBored dev server.",
+      };
+    }
+    try {
+      const res = await fetch("/__proxy/fix-setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const data = await res.json().catch(() => ({}));
+      return {
+        ok: !!(res.ok && data && data.ok),
+        status: res.status,
+        ...(data && typeof data === "object" ? data : {}),
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        phase: "network_error",
+        message:
+          "Could not reach the local setup helper. Make sure the JobBored dev server is running.",
+        detail: err && err.message ? err.message : String(err),
+      };
+    }
+  }
+
   async function probeNgrokLocalApi() {
     try {
       const controller =
@@ -494,70 +543,96 @@
     const wizardState = normalizeWizardState(
       context.wizardState || context.state,
     );
-    const bootstrapState =
+    let bootstrapState =
       context.bootstrapState && typeof context.bootstrapState === "object"
         ? context.bootstrapState
         : await fetchLocalBootstrapState();
-    const bootstrapData =
-      bootstrapState &&
-      bootstrapState.data &&
-      typeof bootstrapState.data === "object"
-        ? bootstrapState.data
-        : null;
-    const bootstrap =
-      bootstrapData && bootstrapData.available ? bootstrapData : null;
-    const remediations = bootstrap
-      ? bootstrap.remediations
-      : bootstrapState.remediations ||
-        defaultRemediations(
-          inferPortFromUrl(
-            snapshot.localWebhookUrl ||
-              (bootstrapState &&
-                bootstrapState.data &&
-                bootstrapState.data.localWebhookUrl) ||
-              "",
-            "8644",
-          ),
-        );
-    const localWebhookUrl = asString(
-      bootstrap && bootstrap.localWebhookUrl
-        ? bootstrap.localWebhookUrl
-        : snapshot.localWebhookUrl,
-    );
-    const localHealthUrl = asString(
-      bootstrap && bootstrap.localHealthUrl
-        ? bootstrap.localHealthUrl
-        : buildLocalHealthUrl(localWebhookUrl),
-    );
-    const tunnelPublicUrl = asString(
-      bootstrap && bootstrap.tunnelPublicUrl
-        ? bootstrap.tunnelPublicUrl
-        : snapshot.tunnelPublicUrl,
-    );
-    const publicTargetUrl = asString(
-      bootstrap && bootstrap.publicTargetUrl
-        ? bootstrap.publicTargetUrl
-        : snapshot.relayTargetUrl,
-    );
-    const cloudflareDeployCommand = asString(
-      bootstrap && bootstrap.cloudflareDeployCommand
-        ? bootstrap.cloudflareDeployCommand
-        : "",
-    );
-    const ngrokDetected = !!tunnelPublicUrl;
-    const transportMode = selectTransportMode(snapshot, bootstrapState);
+    let bootstrapData = null;
+    let bootstrap = null;
+    let remediations = null;
+    let localWebhookUrl = "";
+    let localHealthUrl = "";
+    let tunnelPublicUrl = "";
+    let publicTargetUrl = "";
+    let cloudflareDeployCommand = "";
+    let ngrokDetected = false;
+    let transportMode = "";
+
+    function refreshLocalComputedState() {
+      bootstrapData =
+        bootstrapState &&
+        bootstrapState.data &&
+        typeof bootstrapState.data === "object"
+          ? bootstrapState.data
+          : null;
+      bootstrap =
+        bootstrapData && bootstrapData.available ? bootstrapData : null;
+      remediations = bootstrap
+        ? bootstrap.remediations
+        : bootstrapState.remediations ||
+          defaultRemediations(
+            inferPortFromUrl(
+              snapshot.localWebhookUrl ||
+                (bootstrapState &&
+                  bootstrapState.data &&
+                  bootstrapState.data.localWebhookUrl) ||
+                "",
+              "8644",
+            ),
+          );
+      localWebhookUrl = asString(
+        bootstrap && bootstrap.localWebhookUrl
+          ? bootstrap.localWebhookUrl
+          : snapshot.localWebhookUrl,
+      );
+      localHealthUrl = asString(
+        bootstrap && bootstrap.localHealthUrl
+          ? bootstrap.localHealthUrl
+          : buildLocalHealthUrl(localWebhookUrl),
+      );
+      tunnelPublicUrl = asString(
+        bootstrap && bootstrap.tunnelPublicUrl
+          ? bootstrap.tunnelPublicUrl
+          : snapshot.tunnelPublicUrl,
+      );
+      publicTargetUrl = asString(
+        bootstrap && bootstrap.publicTargetUrl
+          ? bootstrap.publicTargetUrl
+          : snapshot.relayTargetUrl,
+      );
+      cloudflareDeployCommand = asString(
+        bootstrap && bootstrap.cloudflareDeployCommand
+          ? bootstrap.cloudflareDeployCommand
+          : "",
+      );
+      ngrokDetected = !!tunnelPublicUrl;
+      transportMode = selectTransportMode(snapshot, bootstrapState);
+    }
+
+    refreshLocalComputedState();
 
     switch (actionId) {
       case "local_bootstrap_refresh": {
+        if (!bootstrapState.available) {
+          const setupResult = await requestLocalAutoSetup();
+          if (setupResult && setupResult.ok) {
+            bootstrapState = await fetchLocalBootstrapState();
+            refreshLocalComputedState();
+          }
+        }
         if (!bootstrapState.available) {
           return buildErrorResult(
             actionId,
             "bootstrap",
             "bootstrap_missing",
             "Config file not found.",
-            remediations.noBootstrapFile,
+            isLocalDashboard()
+              ? "Automatic setup could not generate the config file. Use Terminal only for the missing prerequisite shown below."
+              : remediations.noBootstrapFile,
             {
-              remediation: remediations.noBootstrapFile,
+              remediation: isLocalDashboard()
+                ? "Automatic setup could not generate the config file. Check ngrok auth, port conflicts, or the dev-server terminal output."
+                : remediations.noBootstrapFile,
               nextStepId: "bootstrap",
               suggestedCommand: "npm run discovery:bootstrap-local",
               wizardStatePatch: buildStepStatePatch("bootstrap", wizardState, {

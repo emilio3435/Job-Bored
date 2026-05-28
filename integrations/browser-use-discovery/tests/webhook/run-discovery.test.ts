@@ -210,6 +210,51 @@ async function captureScheduledTimeouts<T>(
   }
 }
 
+test("runDiscovery treats recovered grounded regex fallback as completed when leads write", async () => {
+  const { dependencies, writtenLeads } = createGroundedTimeoutDependencies();
+  dependencies.sourceTimeoutMs = 5_000;
+  dependencies.groundedSearchClient.search = async () => ({
+    searchQueries: ["TimeoutCo Backend Engineer"],
+    candidates: [
+      {
+        url: "https://timeout.example/jobs/backend-engineer",
+        title: "TimeoutCo Backend Engineer",
+        pageType: "job",
+        reason: "Regex fallback extraction from conversational output",
+        sourceDomain: "timeout.example",
+      },
+    ],
+    warnings: [
+      "Regex URL fallback used: grounded output was non-JSON or conversational; URLs recovered via pattern matching.",
+    ],
+    diagnostics: {
+      multiQueryFanOutEnabled: false,
+      multiQueryCap: 1,
+      focusedQueryCount: 0,
+      retryBroadeningEnabled: false,
+      ladderExhausted: false,
+      regexFallbackAttempted: true,
+      regexFallbackUsed: true,
+    },
+  });
+
+  const result = await runDiscovery(
+    makeGroundedTimeoutRequest({ variationKey: "var_regex_recovered" }),
+    "manual",
+    dependencies as any,
+  );
+
+  assert.equal(result.lifecycle.state, "completed");
+  assert.equal(result.writeResult.appended, 1);
+  assert.equal(writtenLeads.length, 1);
+  assert.ok(
+    result.warnings.some((warning) =>
+      warning.includes("URLs recovered via pattern matching"),
+    ),
+    "legacy recovered-fallback warning can remain visible without degrading the run",
+  );
+});
+
 test("runDiscovery composes config, adapters, normalizer, and writer", async () => {
   const calls = {
     loadStoredWorkerConfig: 0,

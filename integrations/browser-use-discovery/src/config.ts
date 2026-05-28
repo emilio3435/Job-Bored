@@ -66,16 +66,17 @@ type RuntimeEnv = Record<string, string | undefined>;
 type AnyRecord = Record<string, unknown>;
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
+const defaultWorkerHomePath = join(
+  homedir(),
+  ".jobbored",
+  "browser-use-discovery",
+);
 const defaultWorkerConfigPath = join(
-  moduleDir,
-  "..",
-  "state",
+  defaultWorkerHomePath,
   "worker-config.json",
 );
 const defaultStateDatabasePath = join(
-  moduleDir,
-  "..",
-  "state",
+  defaultWorkerHomePath,
   "worker-state.sqlite",
 );
 const bundledBrowserUseCommandPath = join(
@@ -84,7 +85,7 @@ const bundledBrowserUseCommandPath = join(
   "bin",
   "browser-use-agent-browser.mjs",
 );
-const defaultRuntimeEnvFilePath = join(moduleDir, "..", ".env");
+const defaultRuntimeEnvFilePath = join(defaultWorkerHomePath, ".env");
 const defaultHermesGoogleTokenPath = join(
   homedir(),
   ".hermes",
@@ -261,6 +262,7 @@ export function loadRuntimeConfig(
   );
   const workerConfigPath = resolvePath(
     readFirst(runtimeEnv, [
+      "BROWSER_USE_DISCOVERY_WORKER_CONFIG",
       "BROWSER_USE_DISCOVERY_CONFIG_PATH",
       "DISCOVERY_WORKER_CONFIG_PATH",
       "DISCOVERY_CONFIG_PATH",
@@ -445,6 +447,7 @@ function mergeRuntimeEnvWithDotEnv(env: RuntimeEnv): RuntimeEnv {
 
 function hasExplicitRuntimeEnvFile(env: RuntimeEnv): boolean {
   return !!readFirst(env, [
+    "BROWSER_USE_DISCOVERY_WORKER_ENV",
     "BROWSER_USE_DISCOVERY_ENV_FILE",
     "DISCOVERY_ENV_FILE",
   ]);
@@ -453,6 +456,7 @@ function hasExplicitRuntimeEnvFile(env: RuntimeEnv): boolean {
 function resolveRuntimeEnvFilePath(env: RuntimeEnv): string {
   const explicit = resolvePath(
     readFirst(env, [
+      "BROWSER_USE_DISCOVERY_WORKER_ENV",
       "BROWSER_USE_DISCOVERY_ENV_FILE",
       "DISCOVERY_ENV_FILE",
     ]),
@@ -1312,6 +1316,8 @@ function readList(env: RuntimeEnv, keys: string[]): string[] {
 
 function resolvePath(raw: string): string {
   const value = cleanString(raw);
+  if (value === "~") return homedir();
+  if (value.startsWith("~/")) return join(homedir(), value.slice(2));
   return value ? resolve(value) : "";
 }
 

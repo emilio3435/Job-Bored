@@ -24,6 +24,8 @@ window.COMMAND_CENTER_CONFIG = {
   // Optional: Hermes / automation — when the user clicks "Run discovery", the app
   // POSTs JSON to this URL so your agent can run another pass with a fresh
   // variation key (fewer duplicate leads). Endpoint must allow CORS from your site.
+  // Local packaged discovery setup keeps worker config/env under
+  // ~/.jobbored/browser-use-discovery/ by default; run `npm run setup:discovery`.
   // On GitHub Pages, use an HTTPS endpoint or a Cloudflare Worker relay.
   // Body: { event, schemaVersion, sheetId, variationKey, requestedAt, discoveryProfile }
   // See AGENT_CONTRACT.md

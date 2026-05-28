@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -83,6 +83,29 @@ test("loadRuntimeConfig defaults async run watchdog to 60 minutes", () => {
   assert.equal(result.maxRunDurationMs, 60 * 60 * 1000);
 });
 
+test("loadRuntimeConfig defaults packaged local state to ~/.jobbored", () => {
+  const result = loadRuntimeConfig({
+    BROWSER_USE_DISCOVERY_RUN_MODE: "local",
+  });
+
+  assert.equal(
+    result.workerConfigPath,
+    join(homedir(), ".jobbored", "browser-use-discovery", "worker-config.json"),
+  );
+  assert.equal(
+    result.stateDatabasePath,
+    join(homedir(), ".jobbored", "browser-use-discovery", "worker-state.sqlite"),
+  );
+});
+
+test("loadRuntimeConfig accepts worker config alias and expands home paths", () => {
+  const result = loadRuntimeConfig({
+    BROWSER_USE_DISCOVERY_WORKER_CONFIG: "~/custom-worker/config.json",
+  });
+
+  assert.equal(result.workerConfigPath, join(homedir(), "custom-worker", "config.json"));
+});
+
 test("loadRuntimeConfig accepts explicit async run watchdog override", () => {
   const result = loadRuntimeConfig({
     BROWSER_USE_DISCOVERY_MAX_RUN_DURATION_MS: "7200000",
@@ -139,7 +162,7 @@ test("loadRuntimeConfig loads discovery env file values and lets explicit env wi
     );
 
     const result = loadRuntimeConfig({
-      BROWSER_USE_DISCOVERY_ENV_FILE: envPath,
+      BROWSER_USE_DISCOVERY_WORKER_ENV: envPath,
       BROWSER_USE_DISCOVERY_GOOGLE_ACCESS_TOKEN: "override-google-token",
     });
 

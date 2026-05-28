@@ -115,7 +115,7 @@ function resolveEnv(args) {
   const secret = String(env.BROWSER_USE_DISCOVERY_WEBHOOK_SECRET || "").trim();
   if (!secret) {
     fail(
-      "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET is not set in integrations/browser-use-discovery/.env. Set it and rerun.",
+      `BROWSER_USE_DISCOVERY_WEBHOOK_SECRET is not set in ${envPath}. Set it and rerun.`,
     );
   }
   try {

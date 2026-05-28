@@ -37,7 +37,12 @@ from playwright.sync_api import Page, sync_playwright
 sys.path.insert(0, str(Path(__file__).parent))
 import filler_profile
 
-JHOS_ROOT = Path.home() / ".hermes" / "job-hunt"
+def env_path(name: str, default: Path) -> Path:
+    return Path(os.environ.get(name) or default).expanduser()
+
+
+HERMES_HOME = env_path("HERMES_HOME", Path.home() / ".hermes")
+JHOS_ROOT = env_path("HERMES_JOB_HUNT_HOME", HERMES_HOME / "job-hunt")
 SCRIPTS_DIR = JHOS_ROOT / "scripts"
 EXTRACTOR_PATH = SCRIPTS_DIR / "page_state_extractor.js"
 DEFAULT_MODEL = os.environ.get("JHOS_FILLER_MODEL", "anthropic/claude-sonnet-4.5")
@@ -63,7 +68,7 @@ def log(msg: str, level: str = "INFO") -> None:
     print(f"[{ts}] [{level}] {msg}")
 
 
-def load_dotenv(path: Path = Path.home() / ".hermes" / ".env") -> None:
+def load_dotenv(path: Path = HERMES_HOME / ".env") -> None:
     """Load simple KEY=VALUE lines without logging secrets."""
     if not path.exists():
         return

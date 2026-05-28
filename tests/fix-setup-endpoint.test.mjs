@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { killFullBootStalePorts, startDevServer } from "../dev-server.mjs";
+import {
+  buildDiscoveryWorkerEnv,
+  killFullBootStalePorts,
+  startDevServer,
+} from "../dev-server.mjs";
 
 const SILENT_LOGGER = {
   log() {},
@@ -46,6 +50,18 @@ describe("/__proxy/fix-setup endpoint", () => {
 });
 
 describe("/__proxy/start-discovery-worker endpoint", () => {
+  it("does not mask the packaged worker env file with an empty Gemini key", () => {
+    const env = buildDiscoveryWorkerEnv(8644, {});
+    assert.equal(Object.hasOwn(env, "BROWSER_USE_DISCOVERY_GEMINI_API_KEY"), false);
+  });
+
+  it("normalizes Gemini aliases when the parent process provides one", () => {
+    const env = buildDiscoveryWorkerEnv(8644, {
+      ATS_GEMINI_API_KEY: "ats-gemini-key",
+    });
+    assert.equal(env.BROWSER_USE_DISCOVERY_GEMINI_API_KEY, "ats-gemini-key");
+  });
+
   it("responds to OPTIONS with CORS headers", async () => {
     const server = await startDevServer({ port: 0, logger: SILENT_LOGGER });
     const port = server.address().port;
@@ -81,6 +97,24 @@ describe("/__proxy/start-discovery-worker endpoint", () => {
       assert.equal(res.status, 200);
       assert.deepEqual(body, { ok: true, started: true, port: 8644 });
       assert.equal(capturedPort, 8644);
+    } finally {
+      await closeServer(server);
+    }
+  });
+});
+
+describe("/__proxy/discovery-state endpoint", () => {
+  it("reports the current dashboard origin so setup can repair CORS", async () => {
+    const server = await startDevServer({ port: 0, logger: SILENT_LOGGER });
+    const port = server.address().port;
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/__proxy/discovery-state`,
+        { method: "GET" },
+      );
+      const body = await res.json();
+      assert.equal(res.status, 200);
+      assert.equal(body.worker.dashboardOrigin, `http://127.0.0.1:${port}`);
     } finally {
       await closeServer(server);
     }
