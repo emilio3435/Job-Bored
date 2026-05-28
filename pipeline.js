@@ -140,10 +140,15 @@
     return card && card.fitScore == null ? -Infinity : card.fitScore;
   }
 
-  function capCardsByFit(cards) {
+  function capCardsByFit(cards, shouldPin) {
     // For each company with more than COMPANY_VISIBLE_CAP cards in this set,
     // keep only the top N by fitScore. Cards with no company are never capped.
+    // Cards for which shouldPin(card) returns true are always kept (use this
+    // to preserve favorites, the currently selected card, etc.) and do not
+    // consume a slot in the cap — overrides surface above the noise reduction.
     // Preserves original relative order so downstream sortCards can re-order.
+    // Tied fitScores fall back to original index for a stable, deterministic
+    // survivor set across JS engines.
     var byCompany = Object.create(null);
     cards.forEach(function (card, idx) {
       var k = companyKey(card);
@@ -154,17 +159,23 @@
     var keepIdx = Object.create(null);
     cards.forEach(function (card, idx) {
       if (!companyKey(card)) keepIdx[idx] = true;
+      if (typeof shouldPin === "function" && shouldPin(card)) keepIdx[idx] = true;
     });
     Object.keys(byCompany).forEach(function (k) {
       var list = byCompany[k];
-      if (list.length <= COMPANY_VISIBLE_CAP) {
-        list.forEach(function (entry) { keepIdx[entry.idx] = true; });
+      var unpinned = list.filter(function (entry) { return !keepIdx[entry.idx]; });
+      var pinnedCount = list.length - unpinned.length;
+      var remainingSlots = Math.max(0, COMPANY_VISIBLE_CAP - pinnedCount);
+      if (unpinned.length <= remainingSlots) {
+        unpinned.forEach(function (entry) { keepIdx[entry.idx] = true; });
         return;
       }
-      var sorted = list.slice().sort(function (a, b) {
-        return fitScoreOf(b.card) - fitScoreOf(a.card);
+      var sorted = unpinned.slice().sort(function (a, b) {
+        var diff = fitScoreOf(b.card) - fitScoreOf(a.card);
+        if (diff !== 0) return diff;
+        return a.idx - b.idx;
       });
-      sorted.slice(0, COMPANY_VISIBLE_CAP).forEach(function (entry) {
+      sorted.slice(0, remainingSlots).forEach(function (entry) {
         keepIdx[entry.idx] = true;
       });
     });
@@ -919,7 +930,19 @@
       body.innerHTML = "";
       var cards = s.key === "new" ? (vm.untriaged || []) : (stageMap[s.key] || []);
       var searchActive = hasActiveSearch(state);
-      var ordered = sortCards(capCardsByFit(filterCardsBySearch(cards, state)), state.sort);
+      var filtered = filterCardsBySearch(cards, state);
+      // When the user is searching, do not hide hits behind the cap — search
+      // is an explicit "show me everything matching" gesture and the column's
+      // "X matches" header would otherwise lie.
+      var capped = searchActive
+        ? filtered
+        : capCardsByFit(filtered, function (card) {
+            if (!card) return false;
+            if (String(card.jobKey) === String(state.selectedJobKey)) return true;
+            var job = getPipelineJobByKey(card.jobKey);
+            return !!(job && job.favorite);
+          });
+      var ordered = sortCards(capped, state.sort);
       var searchMatch = searchActive && ordered.length > 0;
       if (ordered.length === 0) {
         body.innerHTML = emptyPlaceholderHtml(s.key);
