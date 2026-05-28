@@ -16,7 +16,10 @@
 /* Root region — full-width canvas, breathes inside the page. */
 body.jb-v2 [data-region="lattice"] {
   display: block;
-  margin: 24px 0 32px;
+  width: var(--jb-flow-content-width, min(1220px, calc(100% - 32px)));
+  max-width: none;
+  box-sizing: border-box;
+  margin: 24px auto 32px;
   font-family: var(--jb-font-body);
   color: var(--jb-ink);
 }
