@@ -498,56 +498,20 @@ describe("dossier brief structure", () => {
     assert.doesNotMatch(mountFitOnly.innerHTML, /val--score/);
   });
 
-  it("raw posting collapses behind a single <details> with one .jd__section per JD section beyond [0]", () => {
-    /* Editorial rhythm: the brief shows AI-curated sections (lede,
-       fit, must-haves, etc.) at full weight. The raw JD is tucked
-       behind one disclosure labeled "View full posting details", so
-       it doesn't break the rhythm with multiple nested accordions. */
+  it("does not render the raw-posting disclosure (removed for editorial clarity)", () => {
+    /* The brief now stays AI-curated end to end. The "View full posting
+       details" disclosure has been removed from the left column; users
+       open the original posting via the masthead's "View posting" CTA. */
     const { context } = loadBriefOnly();
 
     const mount = makeMount();
     context.window.JobBoredDossierBrief.renderBrief(mount, fixtureVm());
 
-    // Exactly one <details> for the raw posting (no per-section nesting).
-    const detailMatches = mount.innerHTML.match(/<details(?:\s|>)/g) || [];
-    assert.equal(detailMatches.length, 1, "expected exactly one <details> for the raw posting");
-    assert.match(mount.innerHTML, /class="jd__details"/);
-    assert.match(mount.innerHTML, /View full posting details/);
-
-    // One .jd__section per JD section after [0].
-    const sectionMatches = mount.innerHTML.match(/class="jd__section"/g) || [];
-    assert.equal(sectionMatches.length, 2, "expected one .jd__section per JD section after [0]");
-
-    // When there's only one JD section total, the raw-posting block is omitted.
-    const oneSectionMount = makeMount();
-    context.window.JobBoredDossierBrief.renderBrief(
-      oneSectionMount,
-      fixtureVm({
-        job: {
-          jdSections: [
-            { heading: "What you'll do", body: "Lead growth.", bullets: [] },
-          ],
-        },
-      }),
-    );
-    assert.doesNotMatch(oneSectionMount.innerHTML, /<details/);
-    assert.doesNotMatch(oneSectionMount.innerHTML, /class="jd"/);
-  });
-
-  it("raw posting <details> is closed by default", () => {
-    /* The user reads the AI-curated brief first; the raw posting is
-       opt-in. Closed-by-default is the deliberate editorial choice. */
-    const { context } = loadBriefOnly();
-    const mount = makeMount();
-    context.window.JobBoredDossierBrief.renderBrief(mount, fixtureVm());
-
-    const firstDetailsMatch = mount.innerHTML.match(/<details[^>]*>/);
-    assert.ok(firstDetailsMatch, "expected at least one <details>");
-    assert.doesNotMatch(
-      firstDetailsMatch[0],
-      /\bopen\b/,
-      "raw-posting <details> must NOT carry [open]; user opens it on demand",
-    );
+    assert.doesNotMatch(mount.innerHTML, /<details/, "no <details> in the brief");
+    assert.doesNotMatch(mount.innerHTML, /class="jd__details"/);
+    assert.doesNotMatch(mount.innerHTML, /View full posting details/);
+    assert.doesNotMatch(mount.innerHTML, /class="jd__section"/);
+    assert.doesNotMatch(mount.innerHTML, /class="jd"/);
   });
 
   it("talking points list comes from jdSections[0].bullets", () => {

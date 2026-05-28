@@ -358,15 +358,27 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   white-space: nowrap;
 }
 
+/* Brief lead band — hook + AI lede span the full width, just under
+   the masthead. Reads as the editorial opening before the two-column
+   spread below; pushes the At-a-glance card down so the rail starts
+   at the same Y as the left column's first section. */
+.brief__lead {
+  padding: 36px 56px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  border-bottom: 1px dashed var(--border);
+}
+
 /* Brief body — two-column editorial spread.
-   Left  (wider)   = posting lane (hook, AI summary, raw JD).
+   Left  (wider)   = posting lane (fit angle, must-haves, etc.).
    Right (narrower)= workspace lane (at-a-glance, points, notes). */
 .brief__body {
   padding: 40px 56px 48px;
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
-  gap: 48px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  gap: 72px;
+  align-items: stretch;
   position: relative;
 }
 .brief__body::before {
@@ -374,7 +386,7 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   position: absolute;
   top: 56px;
   bottom: 56px;
-  left: 60.78%;
+  left: 59.18%;
   width: 1px;
   background: linear-gradient(
     180deg,
@@ -392,13 +404,39 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   flex-direction: column;
   gap: 28px;
 }
-.brief__col--main { padding-right: 12px; }
-.brief__col--side { padding-left: 12px; }
+.brief__col--main { padding-right: 16px; }
+.brief__col--side {
+  padding-left: 20px;
+  gap: 36px; /* more breathing room between rail cards */
+  /* Stretches via `align-items: stretch` on .brief__body so the rail
+     height matches the left column; .brief-notes pushes to the bottom
+     and grows to fill the gap. */
+  align-self: stretch;
+}
 
+/* Push Notes to the bottom of the right rail and let it grow to fill
+   the remaining height, so its lower edge lines up with the end of
+   the left column. Users can still drag the textarea handle to
+   shrink/grow it manually (resize: vertical is preserved below). */
+.brief__col--side .brief-notes {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 140px;
+}
+.brief__col--side .brief-notes textarea {
+  flex: 1 1 auto;
+  min-height: 96px;
+}
+
+/* Sticky rail disabled — the rail now stretches to match the left
+   column so Notes can pin to the bottom and end at the same Y as
+   the last left-column section. */
 @media (min-width: 1081px) {
   .brief__col--side {
-    position: sticky;
-    top: 24px;
+    position: static;
+    top: auto;
   }
 }
 
@@ -892,6 +930,9 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
    Responsive
    ───────────────────────────────────────────────────────── */
 @media (max-width: 1080px) {
+  .brief__lead {
+    padding: 32px 40px 24px;
+  }
   .brief__body {
     grid-template-columns: 1fr;
     gap: 36px;
@@ -902,6 +943,7 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   .brief__col--side {
     padding-left: 0;
     position: static;
+    gap: 28px;
   }
 }
 
@@ -910,6 +952,7 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
     padding: 28px 24px 18px;
     grid-template-columns: 1fr;
   }
+  .brief__lead { padding: 24px 24px 20px; }
   .brief__body { padding: 24px 24px 32px; }
   .brief__cta-cluster { justify-self: start; }
 }
