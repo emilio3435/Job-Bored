@@ -160,8 +160,18 @@
         '</section>',
       ].join("");
     }
-    var counterLabel = '1 of ' + leads.length;
-    var cards = leads.map(function (lead, idx) {
+    // Apply per-company cap so the carousel doesn't show 25 Figma roles in a
+    // row. Survivors are top-3 per company by fit; the rest are summarized in
+    // a small affordance under the queue.
+    var cap = window.JobBoredCompanyCap;
+    var displayLeads = leads;
+    var hiddenSummary = [];
+    if (cap && typeof cap.capCardsByFit === "function") {
+      displayLeads = cap.capCardsByFit(leads);
+      hiddenSummary = cap.summarizeHidden(leads, displayLeads);
+    }
+    var counterLabel = '1 of ' + displayLeads.length;
+    var cards = displayLeads.map(function (lead, idx) {
       var card = leadCardHtml(lead);
       return card.replace(
         '<article class="brief-card brief-lead"',
@@ -170,7 +180,12 @@
     }).join("");
 
     // Show all leads in the queue (active row dims via CSS).
-    var queueRows = leads.map(leadQueueRowHtml).join("");
+    var queueRows = displayLeads.map(leadQueueRowHtml).join("");
+    var hiddenHtml = hiddenSummary.length
+      ? '<p class="brief-leads-hidden" title="Hidden so one company can’t dominate the lead list.">'
+        + hiddenSummary.map(function (h) { return '+' + h.hidden + ' from ' + escapeHtml(h.company); }).join(' · ')
+        + ' hidden</p>'
+      : '';
 
     return [
       '<section class="brief-leads-section" data-leads-stepper aria-roledescription="carousel" aria-label="Daily Brief leads" tabindex="0">',
@@ -185,7 +200,7 @@
       '  <div class="brief-leads-stage" data-leads-stage>',
       cards,
       '  </div>',
-      leads.length > 1
+      displayLeads.length > 1
         ? [
             '<div class="brief-leads-queue" data-leads-queue>',
             '  <div class="brief-leads-queue__eyebrow">Up next · ranked queue</div>',
@@ -193,6 +208,7 @@
             '</div>',
           ].join("")
         : "",
+      hiddenHtml,
       '</section>',
     ].join("");
   }

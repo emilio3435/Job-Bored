@@ -474,7 +474,41 @@
     return card;
   }
 
+  function buildHiddenAffordance(hidden) {
+    var label = hidden
+      .map(function (entry) { return "+" + entry.hidden + " from " + entry.company; })
+      .join(" · ");
+    return el("p", {
+      class: "jb-lat__hidden",
+      "aria-label": "Hidden by per-company cap: " + label,
+      title: label + " — hidden so one company can’t dominate this column. Search to see all.",
+      text: label + " hidden",
+    });
+  }
+
+  function capLatticeJobs(jobs) {
+    var cap = window.JobBoredCompanyCap;
+    if (!cap || typeof cap.capCardsByFit !== "function") return { visible: jobs, hidden: [] };
+    if (state.search) return { visible: jobs, hidden: [] };
+    var inner = jobs.map(function (w) { return w.job; });
+    var kept = cap.capCardsByFit(inner, function (job, idx) {
+      if (!job) return false;
+      if (job.favorite) return true;
+      // selectedKey is set by refocus() after a drag move, so a freshly
+      // dragged card stays pinned even if its fit ranks below cap survivors.
+      if (state.selectedKey != null && jobs[idx].dataIndex === state.selectedKey) return true;
+      return false;
+    });
+    var keptSet = new Set(kept);
+    var visible = jobs.filter(function (w) { return keptSet.has(w.job); });
+    var hidden = cap.summarizeHidden(inner, kept);
+    return { visible: visible, hidden: hidden };
+  }
+
   function buildColumn(stage, jobs) {
+    var capResult = capLatticeJobs(jobs);
+    var visibleJobs = capResult.visible;
+    var hidden = capResult.hidden;
     var dotKey = STAGE_DOT_KEY[stage] || "new";
     var focused = state.focusStage === stage;
     var collapsed = !!state.focusStage && !focused;
@@ -482,12 +516,12 @@
       el("jb-stage-dot", { stage: dotKey, label: stage }),
       // jb-stage-dot already renders the stage label; keep our flexible name slot empty so dot wins.
       el("span", { class: "jb-lat__col-name", "aria-hidden": "true" }),
-      el("span", { class: "jb-lat__col-count", text: String(jobs.length) }),
+      el("span", { class: "jb-lat__col-count", text: String(visibleJobs.length) }),
     ]);
 
     var list = el("div", { class: "jb-lat__list", "data-stage": stage, role: "list" });
 
-    if (jobs.length === 0) {
+    if (visibleJobs.length === 0) {
       list.appendChild(
         el("div", { class: "jb-lat__empty" }, [
           el("span", { class: "jb-lat__empty-name", text: stage }),
@@ -495,8 +529,11 @@
         ])
       );
     } else {
-      for (var i = 0; i < jobs.length; i++) {
-        list.appendChild(buildCard(jobs[i].job, jobs[i].dataIndex));
+      for (var i = 0; i < visibleJobs.length; i++) {
+        list.appendChild(buildCard(visibleJobs[i].job, visibleJobs[i].dataIndex));
+      }
+      if (hidden && hidden.length) {
+        list.appendChild(buildHiddenAffordance(hidden));
       }
     }
 

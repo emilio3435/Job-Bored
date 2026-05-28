@@ -47,11 +47,13 @@
   var SORT_DEFAULT = "urgency";
   var COLLAPSED_STORAGE_KEY = "jb_pipelineCollapsedColumns";
   var DEFAULT_FOCUSED_STAGE = "researching";
-  // Hard cap: at most this many cards per company per column. Survivors are
-  // the company's top N by fitScore; the rest are dropped from the column
-  // entirely (and from its count). Discovery still records them in the sheet —
-  // they just don't crowd the kanban.
-  var COMPANY_VISIBLE_CAP = 3;
+  // Per-company visible cap (helpers live in company-cap.js so dawn/lattice/
+  // app.js share the same rules). The local fallback below keeps pipeline.js
+  // self-sufficient if the shared script ever fails to load.
+  var capModule = (root.JobBoredCompanyCap && typeof root.JobBoredCompanyCap.capCardsByFit === "function")
+    ? root.JobBoredCompanyCap
+    : null;
+  var COMPANY_VISIBLE_CAP = capModule ? capModule.CAP : 3;
 
   var ric =
     typeof root.requestIdleCallback === "function"
@@ -133,22 +135,18 @@
   }
 
   function companyKey(card) {
+    if (capModule) return capModule.companyKey(card);
     return String((card && card.company) || "").trim().toLowerCase();
   }
 
   function fitScoreOf(card) {
+    if (capModule) return capModule.fitScoreOf(card);
     return card && card.fitScore == null ? -Infinity : card.fitScore;
   }
 
   function capCardsByFit(cards, shouldPin) {
-    // For each company with more than COMPANY_VISIBLE_CAP cards in this set,
-    // keep only the top N by fitScore. Cards with no company are never capped.
-    // Cards for which shouldPin(card) returns true are always kept (use this
-    // to preserve favorites, the currently selected card, etc.) and do not
-    // consume a slot in the cap — overrides surface above the noise reduction.
-    // Preserves original relative order so downstream sortCards can re-order.
-    // Tied fitScores fall back to original index for a stable, deterministic
-    // survivor set across JS engines.
+    if (capModule) return capModule.capCardsByFit(cards, shouldPin);
+    // Local fallback — kept in sync with company-cap.js for resilience.
     var byCompany = Object.create(null);
     cards.forEach(function (card, idx) {
       var k = companyKey(card);
@@ -159,7 +157,7 @@
     var keepIdx = Object.create(null);
     cards.forEach(function (card, idx) {
       if (!companyKey(card)) keepIdx[idx] = true;
-      if (typeof shouldPin === "function" && shouldPin(card)) keepIdx[idx] = true;
+      if (typeof shouldPin === "function" && shouldPin(card, idx)) keepIdx[idx] = true;
     });
     Object.keys(byCompany).forEach(function (k) {
       var list = byCompany[k];
@@ -264,6 +262,11 @@
     return openCount === 1 ? openStage : "";
   }
 
+  // How long a freshly-moved card stays pinned in its destination column,
+  // regardless of fit rank. Long enough to outlive upstream renders triggered
+  // by the move; short enough that the cap eventually normalizes.
+  var RECENTLY_MOVED_TTL_MS = 30000;
+
   function initialState() {
     var collapsed = loadCollapsedState();
     return {
@@ -273,6 +276,8 @@
       focusedStage: inferFocusedStageFromCollapsed(collapsed),
       selectedJobKey: "",
       search: "",
+      recentlyMovedJobKey: "",
+      recentlyMovedAt: 0,
     };
   }
 
@@ -282,7 +287,15 @@
     state.focusedStage = state.focusedStage || inferFocusedStageFromCollapsed(state.collapsed);
     state.selectedJobKey = state.selectedJobKey || "";
     state.search = state.search || "";
+    state.recentlyMovedJobKey = state.recentlyMovedJobKey || "";
+    state.recentlyMovedAt = state.recentlyMovedAt || 0;
     return state;
+  }
+
+  function isRecentlyMoved(state, jobKey) {
+    if (!state || !state.recentlyMovedJobKey) return false;
+    if (String(jobKey) !== state.recentlyMovedJobKey) return false;
+    return (Date.now() - state.recentlyMovedAt) < RECENTLY_MOVED_TTL_MS;
   }
 
   function normalizePipelineFilters(raw) {
@@ -788,6 +801,18 @@
     return '<p class="pipe-col__empty">' + escapeHtml(EMPTY_COPY[stageKey] || "Drop a role here.") + '</p>';
   }
 
+  function buildHiddenAffordance(hidden) {
+    var label = hidden
+      .map(function (entry) { return "+" + entry.hidden + " from " + entry.company; })
+      .join(" · ");
+    var el = document.createElement("p");
+    el.className = "pipe-col__hidden";
+    el.setAttribute("aria-label", "Hidden by per-company cap: " + label);
+    el.setAttribute("title", label + " — hidden so one company can’t dominate this column. Star a role or search to see all.");
+    el.textContent = label + " hidden";
+    return el;
+  }
+
   function buildToolbar(state) {
     var sortChips = ["urgency", "fit", "newest"].map(function (mode) {
       var label = mode === "urgency" ? "Urgency" : mode === "fit" ? "Fit" : "Newest";
@@ -939,10 +964,16 @@
         : capCardsByFit(filtered, function (card) {
             if (!card) return false;
             if (String(card.jobKey) === String(state.selectedJobKey)) return true;
+            // Honor the most recent drag/keyboard move so the dropped card
+            // stays visible even if its fit ranks below cap survivors.
+            if (isRecentlyMoved(state, card.jobKey)) return true;
             var job = getPipelineJobByKey(card.jobKey);
             return !!(job && job.favorite);
           });
       var ordered = sortCards(capped, state.sort);
+      var hiddenSummary = (root.JobBoredCompanyCap && !searchActive)
+        ? root.JobBoredCompanyCap.summarizeHidden(filtered, capped)
+        : [];
       var searchMatch = searchActive && ordered.length > 0;
       if (ordered.length === 0) {
         body.innerHTML = emptyPlaceholderHtml(s.key);
@@ -954,6 +985,9 @@
             selected: String(c.jobKey) === String(state.selectedJobKey),
           }));
         });
+        if (hiddenSummary.length) {
+          frag.appendChild(buildHiddenAffordance(hiddenSummary));
+        }
         body.appendChild(frag);
       }
       col.setAttribute("data-search-active", searchActive ? "true" : "false");
@@ -1469,6 +1503,10 @@
     if (!toBody) return;
     var state = region.__pipeState;
     if (state && isCollapsed(state, toStage)) setColumnCollapsed(region, state, toStage, false);
+    if (state) {
+      state.recentlyMovedJobKey = String(drag.jobKey || "");
+      state.recentlyMovedAt = Date.now();
+    }
     // Strip placeholder if present.
     var emptyEl = toBody.querySelector(".pipe-col__empty");
     if (emptyEl) emptyEl.remove();

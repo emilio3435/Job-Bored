@@ -4202,6 +4202,19 @@ button.feed-item {
   cursor: default;
 }
 
+/* Per-company cap affordance — small label between the cards and the
+   scroll indicator. Purely informative; pointer:help reveals the tooltip. */
+.stage-lane__hidden {
+  margin: 4px var(--space-3) 4px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, var(--ink-3));
+  text-align: center;
+  opacity: 0.7;
+  cursor: help;
+}
+
 /* Scroll position indicator bar */
 .stage-lane__indicator {
   position: relative;
