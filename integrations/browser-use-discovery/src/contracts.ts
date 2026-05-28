@@ -280,6 +280,15 @@ export type DiscoveryWebhookRequestV1 = {
    * Empty or missing means no blocklist. Entries cap at 50.
    */
   companyBlocklist?: string[];
+  /**
+   * Optional UserProfile sent by the dashboard's discovery pane after merging
+   * the user's master fit profile with any per-run overrides. When present,
+   * the worker prefers this profile over the disk-loaded one for the duration
+   * of this run only. Validated via ajv before acceptance — invalid payloads
+   * are ignored with a warning and the run falls back to the disk profile.
+   * See docs/SCORING-CONTRACT.md §8.
+   */
+  mergedUserProfile?: import("./contracts/user-profile.ts").UserProfile;
 };
 
 /**
@@ -1046,6 +1055,12 @@ export type EffectiveDiscoveryConfig = StoredWorkerConfig & {
   profileSnapshot?: DiscoveryProfileSnapshot;
   /** Resolved search plan supplied by the webhook payload builder. */
   searchPlan?: DiscoverySearchPlan;
+  /** Loaded once at run start. Drives the new LLM scorer. */
+  userProfile?: import("./contracts/user-profile.ts").UserProfile;
+  /** Lazy-initialized cache for LLM scoring results. */
+  listingScoreCache?: import("./state/listing-score-cache.ts").ListingScoreCache;
+  /** Reference to the resolved runtime config (so the scorer gets API key + model). */
+  runtimeConfig?: import("./config.ts").WorkerRuntimeConfig;
 };
 
 export type DiscoveryRun = {

@@ -551,7 +551,7 @@ export async function extractCandidateProfile(
     );
   }
   const fetchImpl = dependencies.fetchImpl || globalThis.fetch;
-  const model = dependencies.runtimeConfig.geminiModel || "gemini-2.5-flash";
+  const model = dependencies.runtimeConfig.geminiModel || "gemini-3.5-flash";
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
   const resumeLength = input.resumeText ? input.resumeText.length : 0;
@@ -1118,7 +1118,7 @@ function resolveCompanyJudgeProvider(
         "companyJudgeGeminiModel",
         "companyScoringGeminiModel",
         "geminiModel",
-      ]) || "gemini-2.5-flash";
+      ]) || "gemini-3.5-flash";
     providers.gemini = {
       provider: "gemini",
       model,
@@ -1663,7 +1663,7 @@ export async function discoverCompaniesForProfile(
       "discoverCompaniesForProfile: Gemini API key is not configured (BROWSER_USE_DISCOVERY_GEMINI_API_KEY).",
     );
   }
-  const model = dependencies.runtimeConfig.geminiModel || "gemini-2.5-flash";
+  const model = dependencies.runtimeConfig.geminiModel || "gemini-3.5-flash";
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
   let companies: CompanyTarget[] = [];

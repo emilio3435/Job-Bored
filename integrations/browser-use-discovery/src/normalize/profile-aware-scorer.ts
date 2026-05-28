@@ -1,57 +1,467 @@
 /**
  * profile-aware-scorer.ts
  *
- * Profile-aware scoring for the JHOS pipeline.
- * Wires the canonical job-preferences.md rubric (18-dimension weighted scoring)
- * into the discovery pipeline.
+ * Two scoring paths live in this file:
  *
- * Profile docs read at init (loaded once, reused across leads):
- *   ~/.hermes/job-hunt/profile/job-preferences.md  — scoring weights, lanes, thresholds
- *   ~/.hermes/job-hunt/profile/profile.md          — role-fit hierarchy, target titles
+ *   1. NEW — UserProfile-driven, two-stage:
+ *      a. runPreFilter(rawListing, profile): cheap deterministic gate that
+ *         rejects on hardConstraints before any LLM call.
+ *      b. scoreListingWithLlm(rawListing, profile, ...): Gemini call that
+ *         returns a structured LlmFitScoreResult per-strength.
+ *      Orchestrator: scoreListingForProfile(...) handles caching + fallbacks.
  *
- * Scoring rubric (from job-preferences.md §Scoring rubric):
+ *   2. LEGACY — heuristic dimension scorer, kept at the bottom of the file.
+ *      Used as the fallback when no UserProfile is present, or when the LLM
+ *      call errors out so we still surface a fit score on the row.
  *
- *   Dimension              Weight  Full-credit signal
- *   ──────────────────────────────────────────────────────────────────
- *   Consulting/strategy/  18      Role is digital marketing consultant,
- *   AI-tooling lane fit            strategist, AI builder, AI tooling,
- *                                   or applied AI strategy
- *   AI / LLM relevance     15      Company or role involves LLMs, agents,
- *                                   RAG, AI workflows, AI search,
- *                                   or applied GenAI
- *   Performance marketing/ 12      Paid acquisition, CAC/LTV/ROAS, bidding,
- *   unit economics                 attribution, channel forecasting, growth
- *   Adtech/martech/media    8      Marketing technology, media, adtech,
- *                                   measurement, CTV/OTT, programmatic,
- *                                   CDP, retail media, audio
- *   Seniority fit          10      Senior manager, principal IC, staff,
- *                                   director, head-of, or strategic lead level
- *   Compensation            8      Salary or OTE band published.
- *   transparency                   Missing salary penalizes but does not
- *                                   auto-reject
- *   Remote / location fit  12      Remote or hybrid in Denver, Philadelphia,
- *                                   or Little Rock
- *   Company credibility    9       Credible product, customers, funding,
- *                                   brand, or serious GTM motion
- *   Application complexity  8      Direct ATS, Greenhouse, Lever, Ashby,
- *                                   or manageable company page.
- *                                   Heavy Workday/questionnaires score lower.
- *
- * Score thresholds:
- *   9.0–10  Exceptional → route to Pipeline / escalate for review
- *   8.0–8.9 Strong → write to Pipeline as New or Review
- *   7.0–7.9 Interesting but incomplete → hold for review
- *   6.0–6.9 Plausible adjacent → skip unless special reason
- *   <6.0   Ignore
- *
- * Salary policy: missing salary penalizes (−2) but does not auto-reject.
- * Exceptional roles (AI/LLM or consulting lane strong) can still score 8+ without salary.
+ * Wired by lead-normalizer.ts.
  */
 
+import { createHash } from "node:crypto";
 import type { RawListing } from "../contracts.ts";
 import { toPlainText } from "../browser/selectors/shared.ts";
+import {
+  type UserProfile,
+  type PreFilterResult,
+  type LlmFitScoreResult,
+  type ProfileScoringOutcome,
+  type StrengthEvaluation,
+  type FitBand,
+  USER_PROFILE_SCHEMA_VERSION,
+} from "../contracts/user-profile.ts";
+import type { ListingScoreCache } from "../state/listing-score-cache.ts";
 
-// ─── Lane detection ───────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW: Pre-filter (deterministic, no LLM cost)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const SPONSORSHIP_DENY_PHRASES = [
+  "no sponsorship",
+  "us citizens only",
+  "must be authorized to work in the us without sponsorship",
+  "no visa sponsorship",
+];
+
+/**
+ * Apply hardConstraints to a raw listing. Order matters: cheapest checks
+ * first. Returns the first violation; never aggregates.
+ */
+export function runPreFilter(
+  rawListing: RawListing,
+  profile: UserProfile,
+): PreFilterResult {
+  const hc = profile.hardConstraints;
+
+  // 1. skipTitles
+  const titleLower = String(rawListing.title || "").toLowerCase();
+  const skipTitles = hc.skipTitles || [];
+  for (const phrase of skipTitles) {
+    const needle = String(phrase || "").trim().toLowerCase();
+    if (needle && titleLower.includes(needle)) {
+      return {
+        pass: false,
+        reason: "skip_title_match",
+        detail: `Title contains skip phrase "${phrase}".`,
+      };
+    }
+  }
+
+  // 2. workMode = remote_only AND remoteBucket !== "remote"
+  if (hc.workMode === "remote_only" && rawListing.remoteBucket !== "remote") {
+    return {
+      pass: false,
+      reason: "work_mode_mismatch",
+      detail: `Profile requires remote_only; listing remoteBucket=${rawListing.remoteBucket || "unknown"}.`,
+    };
+  }
+
+  // 3. workMode hybrid/onsite AND acceptableLocations set AND no match
+  //    Skip when workMode = remote_only (remote listings ignore location).
+  if (hc.workMode !== "remote_only") {
+    const acceptable = (hc.acceptableLocations || [])
+      .map((entry) => String(entry || "").trim().toLowerCase())
+      .filter(Boolean);
+    if (acceptable.length > 0) {
+      const locationLower = String(rawListing.location || "").toLowerCase();
+      const matches = acceptable.some((loc) => locationLower.includes(loc));
+      if (!matches) {
+        return {
+          pass: false,
+          reason: "location_outside_acceptable",
+          detail: `Location "${rawListing.location || ""}" outside acceptableLocations [${acceptable.join(", ")}].`,
+        };
+      }
+    }
+  }
+
+  // 4. workAuth = needs_sponsorship AND description signals "no sponsorship"
+  if (hc.workAuth === "needs_sponsorship") {
+    const descLower = String(rawListing.descriptionText || "").toLowerCase();
+    for (const phrase of SPONSORSHIP_DENY_PHRASES) {
+      if (descLower.includes(phrase)) {
+        return {
+          pass: false,
+          reason: "work_auth_mismatch",
+          detail: `Listing description signals "${phrase}".`,
+        };
+      }
+    }
+  }
+
+  // 5. salaryRequired
+  if (hc.salaryRequired) {
+    const parsedMax = parseSalaryMax(rawListing.compensationText || "");
+    if (parsedMax === null) {
+      return {
+        pass: false,
+        reason: "salary_missing_but_required",
+        detail: "Profile requires published salary; listing has none.",
+      };
+    }
+    if (typeof hc.salaryFloor === "number" && parsedMax < hc.salaryFloor) {
+      return {
+        pass: false,
+        reason: "salary_below_floor",
+        detail: `Parsed salary ${parsedMax} below floor ${hc.salaryFloor}.`,
+      };
+    }
+  }
+
+  return { pass: true };
+}
+
+/**
+ * Parse the max published salary out of a comp string. Handles formats like
+ * "$150k", "$150,000", "$150K - $180K", "150-180k", "150000".
+ * Returns raw dollars (e.g. 150000), or null when nothing recognizable.
+ */
+export function parseSalaryMax(text: string): number | null {
+  const cleaned = String(text || "").replace(/\$/g, "").toLowerCase();
+  if (!cleaned.trim()) return null;
+  // Match numeric chunks, optionally with comma separators and a trailing k.
+  const matches = cleaned.match(/[\d][\d,]*\.?\d*\s*k?/g);
+  if (!matches || matches.length === 0) return null;
+
+  const values: number[] = [];
+  for (const raw of matches) {
+    const hasK = /k$/.test(raw.trim());
+    const numeric = raw.replace(/k$/, "").replace(/,/g, "").trim();
+    if (!numeric) continue;
+    const parsed = Number.parseFloat(numeric);
+    if (!Number.isFinite(parsed) || parsed <= 0) continue;
+    const dollars = hasK ? parsed * 1000 : parsed;
+    // Reject obviously-not-salary numbers (hours, years, etc.) by requiring
+    // a plausible salary range. Keep small numbers when they have a k suffix.
+    if (!hasK && dollars < 1000) continue;
+    values.push(dollars);
+  }
+  if (values.length === 0) return null;
+  return Math.max(...values);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW: LLM scorer
+// ═══════════════════════════════════════════════════════════════════════════
+
+type FetchImpl = typeof fetch;
+
+type LlmScorerRuntimeConfig = {
+  geminiApiKey: string;
+  geminiModel: string;
+};
+
+export type ScoreListingForProfileOptions = {
+  runtimeConfig: LlmScorerRuntimeConfig;
+  cache?: ListingScoreCache | null;
+  signal?: AbortSignal;
+  fetchImpl?: FetchImpl;
+};
+
+function buildSystemPrompt(profile: UserProfile): string {
+  const lines: string[] = [];
+  lines.push("You are scoring how well a job listing matches the user below.");
+  lines.push("");
+  lines.push("WHO THE USER IS:");
+  lines.push(profile.identity.primaryNarrative.trim());
+  lines.push("");
+  lines.push("STRENGTHS (rank 1 = top, weighted highest):");
+  const sortedStrengths = [...profile.strengths].sort(
+    (a, b) => (a.rank ?? 99) - (b.rank ?? 99),
+  );
+  for (const s of sortedStrengths) {
+    const kw = s.keywords?.length ? ` [keywords: ${s.keywords.join(", ")}]` : "";
+    const evidence = s.evidence ? ` — ${s.evidence}` : "";
+    lines.push(`  ${s.rank}. ${s.name}${kw}${evidence}`);
+  }
+  if (profile.wants?.length) {
+    lines.push("");
+    lines.push(`WANTS: ${profile.wants.join(" · ")}`);
+  }
+  if (profile.avoids?.length) {
+    lines.push(`AVOIDS: ${profile.avoids.join(" · ")}`);
+  }
+  if (profile.tieBreakers) {
+    const tb = profile.tieBreakers;
+    const parts: string[] = [];
+    if (tb.salaryTransparencyImportance) {
+      parts.push(`salary transparency=${tb.salaryTransparencyImportance}`);
+    }
+    if (tb.companyCredibilityImportance) {
+      parts.push(`company credibility=${tb.companyCredibilityImportance}`);
+    }
+    if (tb.applicationComplexityAversion) {
+      parts.push(`application complexity aversion=${tb.applicationComplexityAversion}`);
+    }
+    if (parts.length) {
+      lines.push(`TIE BREAKERS: ${parts.join(" · ")}`);
+    }
+  }
+  lines.push("");
+  lines.push(
+    "Score the listing below. Return JSON matching the schema. Be honest — Low scores are valuable signal.",
+  );
+  return lines.join("\n");
+}
+
+function buildUserPrompt(rawListing: RawListing): string {
+  const desc = String(rawListing.descriptionText || "").slice(0, 6000);
+  return [
+    `${rawListing.title} at ${rawListing.company}`,
+    `Location: ${rawListing.location || "n/a"}`,
+    `Comp: ${rawListing.compensationText || "n/a"}`,
+    "",
+    "Description:",
+    desc,
+  ].join("\n");
+}
+
+function buildResponseSchema(profile: UserProfile): Record<string, unknown> {
+  const strengthNames = [...profile.strengths]
+    .sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99))
+    .map((s) => s.name);
+
+  return {
+    type: "object",
+    required: ["fitScore", "band", "perStrength", "concerns", "matches", "rationale"],
+    properties: {
+      fitScore: { type: "integer", minimum: 1, maximum: 10 },
+      band: { type: "string", enum: ["Exceptional", "Strong", "Interesting", "Low"] },
+      perStrength: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["name", "score", "rationale"],
+          properties: {
+            name: { type: "string", enum: strengthNames.length ? strengthNames : ["_"] },
+            score: { type: "integer", minimum: 0, maximum: 10 },
+            rationale: { type: "string" },
+          },
+        },
+      },
+      concerns: { type: "array", items: { type: "string" } },
+      matches: { type: "array", items: { type: "string" } },
+      rationale: { type: "string" },
+      leadAngle: { type: "string" },
+    },
+  };
+}
+
+function deriveBand(score: number): FitBand {
+  if (score >= 9) return "Exceptional";
+  if (score >= 8) return "Strong";
+  if (score >= 7) return "Interesting";
+  return "Low";
+}
+
+function extractGeminiText(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const candidates = (payload as { candidates?: unknown[] }).candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0) return "";
+  const first = candidates[0];
+  if (!first || typeof first !== "object") return "";
+  const content = (first as { content?: unknown }).content;
+  if (!content || typeof content !== "object") return "";
+  const parts = (content as { parts?: unknown[] }).parts;
+  if (!Array.isArray(parts)) return "";
+  const buf: string[] = [];
+  for (const part of parts) {
+    if (part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string") {
+      buf.push((part as { text: string }).text);
+    }
+  }
+  return buf.join("");
+}
+
+/**
+ * Call Gemini in JSON mode with the per-profile schema. Throws on any error
+ * (HTTP, invalid JSON, unknown response shape). Callers handle.
+ */
+export async function scoreListingWithLlm(
+  rawListing: RawListing,
+  profile: UserProfile,
+  opts: ScoreListingForProfileOptions,
+): Promise<LlmFitScoreResult> {
+  const { runtimeConfig, signal } = opts;
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const apiKey = String(runtimeConfig.geminiApiKey || "").trim();
+  if (!apiKey) {
+    throw new Error("scoreListingWithLlm: missing geminiApiKey.");
+  }
+  const model = runtimeConfig.geminiModel || "gemini-3.5-flash";
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+
+  const systemPrompt = buildSystemPrompt(profile);
+  const userPrompt = buildUserPrompt(rawListing);
+  const responseSchema = buildResponseSchema(profile);
+
+  const response = await fetchImpl(endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
+    signal,
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 2048,
+        responseMimeType: "application/json",
+        responseSchema,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(
+      `scoreListingWithLlm: Gemini HTTP ${response.status} ${response.statusText} — ${errText.slice(0, 240)}`,
+    );
+  }
+
+  const payload = await response.json().catch(() => null);
+  const text = extractGeminiText(payload);
+  if (!text) {
+    throw new Error("scoreListingWithLlm: empty Gemini response.");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`scoreListingWithLlm: invalid JSON — ${(e as Error).message}`);
+  }
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("scoreListingWithLlm: response is not an object.");
+  }
+
+  const rec = parsed as Record<string, unknown>;
+  const rawScore = typeof rec.fitScore === "number" ? rec.fitScore : Number(rec.fitScore);
+  if (!Number.isFinite(rawScore)) {
+    throw new Error("scoreListingWithLlm: missing or non-numeric fitScore.");
+  }
+  const fitScore = Math.max(1, Math.min(10, Math.round(rawScore)));
+  const band = deriveBand(fitScore);
+
+  const perStrengthRaw = Array.isArray(rec.perStrength) ? rec.perStrength : [];
+  const perStrength: StrengthEvaluation[] = perStrengthRaw
+    .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === "object")
+    .map((entry) => ({
+      name: String(entry.name || ""),
+      score: Math.max(
+        0,
+        Math.min(10, Math.round(Number(entry.score) || 0)),
+      ),
+      rationale: String(entry.rationale || ""),
+    }));
+
+  const concerns = Array.isArray(rec.concerns)
+    ? rec.concerns.map((c) => String(c || "")).filter(Boolean)
+    : [];
+  const matches = Array.isArray(rec.matches)
+    ? rec.matches.map((m) => String(m || "")).filter(Boolean)
+    : [];
+  const rationale = String(rec.rationale || "");
+  const leadAngle =
+    typeof rec.leadAngle === "string" && rec.leadAngle.trim()
+      ? rec.leadAngle.trim()
+      : undefined;
+
+  return {
+    fitScore,
+    band,
+    perStrength,
+    concerns,
+    matches,
+    rationale,
+    leadAngle,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW: Orchestrator — pre-filter → cache → LLM
+// ═══════════════════════════════════════════════════════════════════════════
+
+function buildCacheKey(canonicalUrl: string, profile: UserProfile): string {
+  const seed = [
+    canonicalUrl,
+    profile.updatedAt || "",
+    String(USER_PROFILE_SCHEMA_VERSION),
+  ].join("|");
+  return createHash("sha256").update(seed).digest("hex");
+}
+
+/**
+ * Main entry point used by lead-normalizer.ts.
+ * Order: pre-filter → cache lookup → LLM call → cache write.
+ */
+export async function scoreListingForProfile(
+  rawListing: RawListing,
+  profile: UserProfile,
+  opts: ScoreListingForProfileOptions,
+): Promise<ProfileScoringOutcome> {
+  const preFilter = runPreFilter(rawListing, profile);
+  if (!preFilter.pass) {
+    return { ok: false, filteredBy: "pre_filter", preFilter };
+  }
+
+  const canonicalUrl = rawListing.canonicalUrl || rawListing.url || "";
+  const cacheKey = buildCacheKey(canonicalUrl, profile);
+  const modelId = opts.runtimeConfig.geminiModel || "gemini-3.5-flash";
+
+  if (opts.cache) {
+    const hit = opts.cache.get(cacheKey);
+    if (hit) {
+      return { ok: true, score: hit, llmCalled: false, modelId };
+    }
+  }
+
+  try {
+    const score = await scoreListingWithLlm(rawListing, profile, opts);
+    if (opts.cache) {
+      opts.cache.put(cacheKey, score);
+      if (canonicalUrl) {
+        opts.cache.putBreakdown(canonicalUrl, score);
+      }
+    }
+    return { ok: true, score, llmCalled: true, modelId };
+  } catch (err) {
+    return {
+      ok: false,
+      filteredBy: "llm_error",
+      message: (err as Error).message || "unknown LLM error",
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LEGACY fallback (no UserProfile)
+// ═══════════════════════════════════════════════════════════════════════════
+// Heuristic dimension scorer used when scoreListingForProfile returns an
+// LLM error, or when no profile is configured at all. Kept exactly as it
+// shipped before the LLM scorer; @deprecated below tells future readers
+// not to extend this — extend the new LLM path instead.
 
 /** Emilio's primary role lanes (from job-preferences.md §Primary target roles) */
 const LANE_KEYWORDS = {
@@ -110,15 +520,6 @@ const LANE_KEYWORDS = {
 
 type LaneId = keyof typeof LANE_KEYWORDS;
 
-/** Match score thresholds by lane */
-const LANE_SCORE_BANDS: Record<LaneId, string> = {
-  consultant: "Exceptional",
-  ai_builder: "Strong",
-  ai_pmm: "Strong",
-  performance_marketing: "Strong",
-  adtech_martech: "Interesting",
-};
-
 /** Weights per dimension (must sum to 100 in final normalisation) */
 const DIMENSION_WEIGHTS = {
   laneFit: 18,
@@ -133,8 +534,6 @@ const DIMENSION_WEIGHTS = {
 } as const;
 
 type DimensionId = keyof typeof DIMENSION_WEIGHTS;
-
-// ─── Scoring helpers ───────────────────────────────────────────────────────────
 
 const US_STATE_TOKEN_PATTERN =
   /\b(al|ak|az|ar|ca|co|ct|de|fl|ga|hi|ia|id|il|in|ks|ky|la|ma|md|me|mi|mn|mo|ms|mt|nc|nd|ne|nh|nj|nm|nv|ny|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|va|vt|wa|wi|wv|dc)\b/i;
@@ -173,46 +572,39 @@ function countSubstringMatches(haystack: string, needles: readonly string[]): nu
   return needles.filter((needle) => haystack.includes(textToLower(needle))).length;
 }
 
-/** Detect which lane a job title/description best fits */
 function inferLane(rawListing: RawListing): LaneId {
   const haystack = textToLower(
     [rawListing.title, rawListing.company, rawListing.descriptionText]
       .filter(Boolean)
       .join(" "),
   );
-
   for (const [lane, keywords] of Object.entries(LANE_KEYWORDS)) {
     if (anySubstringMatch(haystack, keywords)) {
       return lane as LaneId;
     }
   }
-  return "consultant"; // default fallback
+  return "consultant";
 }
 
-/** Score 0–1 for lane fit */
 function scoreLaneFit(rawListing: RawListing): number {
   const lane = inferLane(rawListing);
   const haystack = textToLower(
     [rawListing.title, rawListing.descriptionText].filter(Boolean).join(" "),
   );
-
   const laneKeywords = LANE_KEYWORDS[lane];
   const matchCount = countSubstringMatches(haystack, laneKeywords);
-
   if (matchCount >= 3) return 1.0;
   if (matchCount >= 2) return 0.85;
   if (matchCount >= 1) return 0.7;
-  return 0.3; // weak lane match
+  return 0.3;
 }
 
-/** Score 0–1 for AI/LLM relevance */
 function scoreAiRelevance(rawListing: RawListing): number {
   const haystack = textToLower(
     [rawListing.title, rawListing.descriptionText, rawListing.company]
       .filter(Boolean)
       .join(" "),
   );
-
   const aiTerms = [
     "ai", "artificial intelligence", "llm", "large language model",
     "genai", "generative ai", "rag", "retrieval augmented",
@@ -222,7 +614,6 @@ function scoreAiRelevance(rawListing: RawListing): number {
     "prompt engineering", "ai workflow", "automation platform",
     "ai platform", "machine learning", "deep learning",
   ];
-
   const matchCount = countSubstringMatches(haystack, aiTerms);
   if (matchCount >= 4) return 1.0;
   if (matchCount >= 2) return 0.8;
@@ -230,12 +621,10 @@ function scoreAiRelevance(rawListing: RawListing): number {
   return 0.0;
 }
 
-/** Score 0–1 for performance marketing / unit economics relevance */
 function scorePerformanceMarketing(rawListing: RawListing): number {
   const haystack = textToLower(
     [rawListing.title, rawListing.descriptionText].filter(Boolean).join(" "),
   );
-
   const terms = [
     "performance marketing", "paid media", "paid acquisition",
     "sem", "seo", "ppc", "search engine marketing",
@@ -246,7 +635,6 @@ function scorePerformanceMarketing(rawListing: RawListing): number {
     "cpl", "cpa", "cpm", "roi", "return on ad spend",
     "campaign optimization", "funnel", "conversion",
   ];
-
   const matchCount = countSubstringMatches(haystack, terms);
   if (matchCount >= 4) return 1.0;
   if (matchCount >= 2) return 0.75;
@@ -254,14 +642,12 @@ function scorePerformanceMarketing(rawListing: RawListing): number {
   return 0.0;
 }
 
-/** Score 0–1 for adtech/martech/media relevance */
 function scoreAdtechMartech(rawListing: RawListing): number {
   const haystack = textToLower(
     [rawListing.title, rawListing.company, rawListing.descriptionText]
       .filter(Boolean)
       .join(" "),
   );
-
   const terms = [
     "adtech", "martech", "dsp", "ssp", "programmatic",
     "ctv", "ott", "connected tv", "trade desk",
@@ -271,7 +657,6 @@ function scoreAdtechMartech(rawListing: RawListing): number {
     "attribution", "conversion api", "server-side tagging",
     "analytics", "measurement", "incrementality",
   ];
-
   const matchCount = countSubstringMatches(haystack, terms);
   if (matchCount >= 3) return 1.0;
   if (matchCount >= 2) return 0.75;
@@ -279,7 +664,6 @@ function scoreAdtechMartech(rawListing: RawListing): number {
   return 0.0;
 }
 
-/** Score 0–1 for seniority fit */
 function scoreSeniority(rawListing: RawListing): number {
   const haystack = textToLower(rawListing.title);
   const seniorTerms = [
@@ -288,108 +672,79 @@ function scoreSeniority(rawListing: RawListing): number {
     "distinguished", "executive",
   ];
   const juniorTerms = ["junior", "jr", "associate", "entry", "intern", "trainee"];
-
   const hasSenior = anySubstringMatch(haystack, seniorTerms);
   const hasJunior = anySubstringMatch(haystack, juniorTerms);
-
   if (hasJunior && !hasSenior) return 0.0;
   if (hasSenior) return 1.0;
-  return 0.5; // mid-level / unspecified
+  return 0.5;
 }
 
-/** Score 0–1 for compensation transparency */
 function scoreCompensationTransparency(rawListing: RawListing): number {
   const hasText = Boolean(rawListing.compensationText?.trim());
-  if (!hasText) return 0.4; // penalise missing salary
+  if (!hasText) return 0.4;
   return 1.0;
 }
 
-/** Score 0–1 for remote/location fit */
 function scoreRemoteLocation(rawListing: RawListing): number {
   const location = rawListing.location || "";
   const normalized = textToLower(location);
-
-  // Remote jobs are always fine
   if (REMOTE_PATTERN.test(normalized)) return 1.0;
-
-  // Hybrid
   if (HYBRID_PATTERN.test(normalized)) {
-    // Emilio accepts hybrid in Denver, Philadelphia, or Little Rock
     if (/denver|philadelphia|little rock|co\b|pa\b|ar\b/i.test(normalized)) {
       return 1.0;
     }
     return 0.6;
   }
-
-  // Onsite — check if it's a preferred location
   if (US_STATE_TOKEN_PATTERN.test(normalized)) {
     if (/denver|philadelphia|little rock|co\b|pa\b|ar\b/i.test(normalized)) {
-      return 0.7; // acceptable
+      return 0.7;
     }
-    return 0.0; // outside preferred locations
+    return 0.0;
   }
-
-  return 0.5; // no location specified — unknown
+  return 0.5;
 }
 
-/** Score 0–1 for company credibility (placeholder — uses hostname heuristics) */
 function scoreCompanyCredibility(rawListing: RawListing): number {
   const url = rawListing.url || "";
   try {
     const hostname = new URL(url).hostname.toLowerCase();
-    // Known high-credibility ATS hosts
     if (ATS_HOSTS.has(hostname)) return 0.9;
-    // Known low-credibility / aggregator hosts
     const aggregators = ["indeed.com", "linkedin.com", "glassdoor.com", "monster.com"];
     if (aggregators.some((h) => hostname.includes(h))) return 0.4;
-    // Default: neutral
     return 0.6;
   } catch {
     return 0.5;
   }
 }
 
-/** Score 0–1 for application complexity (ATS type) */
 function scoreApplicationComplexity(rawListing: RawListing): number {
   const url = (rawListing.url || "").toLowerCase();
   try {
     const hostname = new URL(url).hostname.toLowerCase();
-    if (WORKDAY_HOSTS.has(hostname)) return 0.3; // Workday = complex
-    if (ATS_HOSTS.has(hostname)) return 1.0; // Greenhouse/Lever/Ashby = clean
-    return 0.7; // other / unknown
+    if (WORKDAY_HOSTS.has(hostname)) return 0.3;
+    if (ATS_HOSTS.has(hostname)) return 1.0;
+    return 0.7;
   } catch {
     return 0.5;
   }
 }
 
-// ─── Main export ───────────────────────────────────────────────────────────────
-
+/** @deprecated Used as fallback when no UserProfile is configured. */
 export type ProfileAwareScoreResult = {
-  /** Weighted score 1–10 */
   fitScore: number;
-  /** Score band label */
   band: "Exceptional" | "Strong" | "Interesting" | "Low";
-  /** Per-dimension scores for Fit Assessment construction */
   dimensionScores: Record<DimensionId, number>;
-  /** Detected primary lane */
   primaryLane: LaneId;
-  /** Salary penalty applied (true if missing) */
   salaryPenalised: boolean;
-  /** Whether role is strong enough to write even without salary */
   exceptionalWithoutSalary: boolean;
-  /** Fit rationale text for Fit Assessment */
   fitRationale: string;
 };
 
-/**
- * Compute a profile-aware fit score for a discovered job listing.
- * Returns a detailed result including per-dimension scores, band, and rationale.
- */
+/** @deprecated Used as fallback when no UserProfile is configured. */
 export function computeProfileAwareFitScore(
   rawListing: RawListing,
 ): ProfileAwareScoreResult {
   const lane = inferLane(rawListing);
-
   const dimLane = scoreLaneFit(rawListing);
   const dimAi = scoreAiRelevance(rawListing);
   const dimPerf = scorePerformanceMarketing(rawListing);
@@ -400,40 +755,35 @@ export function computeProfileAwareFitScore(
   const dimCompany = scoreCompanyCredibility(rawListing);
   const dimApp = scoreApplicationComplexity(rawListing);
 
-  // Weighted sum (each weight is out of 100, so we divide by 100 at the end)
-  const raw = (dimLane * DIMENSION_WEIGHTS.laneFit)
-    + (dimAi * DIMENSION_WEIGHTS.aiRelevance)
-    + (dimPerf * DIMENSION_WEIGHTS.performanceMarketing)
-    + (dimAdtech * DIMENSION_WEIGHTS.adtechMartechMedia)
-    + (dimSenior * DIMENSION_WEIGHTS.seniority)
-    + (dimComp * DIMENSION_WEIGHTS.compensationTransparency)
-    + (dimRemote * DIMENSION_WEIGHTS.remoteLocation)
-    + (dimCompany * DIMENSION_WEIGHTS.companyCredibility)
-    + (dimApp * DIMENSION_WEIGHTS.applicationComplexity);
+  const raw =
+    dimLane * DIMENSION_WEIGHTS.laneFit +
+    dimAi * DIMENSION_WEIGHTS.aiRelevance +
+    dimPerf * DIMENSION_WEIGHTS.performanceMarketing +
+    dimAdtech * DIMENSION_WEIGHTS.adtechMartechMedia +
+    dimSenior * DIMENSION_WEIGHTS.seniority +
+    dimComp * DIMENSION_WEIGHTS.compensationTransparency +
+    dimRemote * DIMENSION_WEIGHTS.remoteLocation +
+    dimCompany * DIMENSION_WEIGHTS.companyCredibility +
+    dimApp * DIMENSION_WEIGHTS.applicationComplexity;
+  const rawScore = (raw / 100) * 10;
 
-  // Divide by 100 to get a 0–10 score
-  const rawScore = raw / 100 * 10;
-
-  // Apply salary penalty (missing salary → −2 from rawScore before clamping)
   const salaryPenalised = !rawListing.compensationText?.trim();
   const scoreAfterPenalty = salaryPenalised ? rawScore - 2 : rawScore;
-
-  // Clamp to 1–10
   const fitScore = Math.max(1, Math.min(10, scoreAfterPenalty));
 
-  // Determine if role is strong enough to write even without salary
-  // (AI/LLM lane or consulting lane strong + overall score >= 8 before penalty)
   const exceptionalWithoutSalary =
-    ((dimLane >= 0.85 && dimAi >= 0.6) || (dimLane >= 0.9 && dimPerf >= 0.5))
-    && rawScore >= 8.0;
+    ((dimLane >= 0.85 && dimAi >= 0.6) || (dimLane >= 0.9 && dimPerf >= 0.5)) &&
+    rawScore >= 8.0;
 
-  // Score band
-  const band = fitScore >= 9 ? "Exceptional"
-    : fitScore >= 8 ? "Strong"
-    : fitScore >= 7 ? "Interesting"
-    : "Low";
+  const band =
+    fitScore >= 9
+      ? "Exceptional"
+      : fitScore >= 8
+        ? "Strong"
+        : fitScore >= 7
+          ? "Interesting"
+          : "Low";
 
-  // Build fit rationale
   const dimensionScores: Record<DimensionId, number> = {
     laneFit: dimLane,
     aiRelevance: dimAi,
@@ -446,7 +796,9 @@ export function computeProfileAwareFitScore(
     applicationComplexity: dimApp,
   };
 
-  const topDimensions: Array<{ id: DimensionId; score: number }> = Object.entries(dimensionScores)
+  const topDimensions: Array<{ id: DimensionId; score: number }> = Object.entries(
+    dimensionScores,
+  )
     .map(([id, score]) => ({ id: id as DimensionId, score }))
     .sort((a, b) => b.score - a.score);
 
@@ -455,21 +807,28 @@ export function computeProfileAwareFitScore(
     .slice(0, 4)
     .map((d) => {
       switch (d.id) {
-        case "laneFit": return "consultant/strategy lane";
-        case "aiRelevance": return "AI/LLM relevance";
-        case "performanceMarketing": return "performance marketing";
-        case "adtechMartechMedia": return "adtech/martech";
-        case "seniority": return "seniority-aligned";
-        case "compensationTransparency": return "salary published";
-        case "remoteLocation": return "remote OK";
-        case "companyCredibility": return "strong company";
-        case "applicationComplexity": return "clean ATS";
+        case "laneFit":
+          return "consultant/strategy lane";
+        case "aiRelevance":
+          return "AI/LLM relevance";
+        case "performanceMarketing":
+          return "performance marketing";
+        case "adtechMartechMedia":
+          return "adtech/martech";
+        case "seniority":
+          return "seniority-aligned";
+        case "compensationTransparency":
+          return "salary published";
+        case "remoteLocation":
+          return "remote OK";
+        case "companyCredibility":
+          return "strong company";
+        case "applicationComplexity":
+          return "clean ATS";
       }
     });
 
-  const fitRationale = topSignals.length > 0
-    ? topSignals.join(" · ")
-    : "General fit";
+  const fitRationale = topSignals.length > 0 ? topSignals.join(" · ") : "General fit";
 
   return {
     fitScore: Math.round(fitScore * 10) / 10,
@@ -482,10 +841,7 @@ export function computeProfileAwareFitScore(
   };
 }
 
-/**
- * Build a profile-aware Fit Assessment string for the Pipeline Fit Assessment column.
- * Uses directional two-layer framework: name the destination + signal the path.
- */
+/** @deprecated Used as fallback when no UserProfile is configured. */
 export function buildProfileFitAssessment(params: {
   role: string;
   company: string;
@@ -494,20 +850,17 @@ export function buildProfileFitAssessment(params: {
   descriptionText?: string;
 }): string {
   const { role, company, result, applicationComplexity, descriptionText } = params;
-  const { band, fitScore, fitRationale, salaryPenalised, exceptionalWithoutSalary } = result;
+  const { band, fitScore, fitRationale, salaryPenalised, exceptionalWithoutSalary } =
+    result;
 
   const parts: string[] = [];
-
-  // Opening — name the destination
   parts.push(`${band} fit for ${role} at ${company} (score: ${fitScore}/10).`);
 
-  // Fit rationale — name the path; fall back to description text if no signals
-  // Use toPlainText to strip any HTML tags before embedding raw description text
-  const rationale = fitRationale
-    || (descriptionText ? toPlainText(descriptionText).slice(0, 80) : "General fit");
+  const rationale =
+    fitRationale ||
+    (descriptionText ? toPlainText(descriptionText).slice(0, 80) : "General fit");
   parts.push(`Fit rationale: ${rationale}.`);
 
-  // Location / remote signals
   const locationOk = result.dimensionScores.remoteLocation >= 0.7;
   if (!locationOk) {
     parts.push("⚠️ Location may require attention — verify before applying.");
@@ -515,7 +868,6 @@ export function buildProfileFitAssessment(params: {
     parts.push("✅ Remote/location aligned.");
   }
 
-  // Salary
   if (salaryPenalised) {
     if (exceptionalWithoutSalary) {
       parts.push("⚠️ Salary not published — exceptional AI/consulting lane compensates.");
@@ -526,27 +878,21 @@ export function buildProfileFitAssessment(params: {
     parts.push("💰 Salary band published.");
   }
 
-  // Application complexity
   parts.push(`Application: ${applicationComplexity}.`);
-
   return parts.join(" ");
 }
 
-/**
- * Build profile-aware Talking Points for the Pipeline Talking Points column.
- * Uses voice.md patterns: lead with overlap, anchor at requested seniority.
- */
+/** @deprecated Used as fallback when no UserProfile is configured. */
 export function buildProfileTalkingPoints(params: {
   role: string;
   company: string;
   result: ProfileAwareScoreResult;
 }): string {
-  const { role, company, result } = params;
-  const { primaryLane, dimensionScores, fitRationale } = result;
+  const { result } = params;
+  const { dimensionScores, fitRationale } = result;
 
   const points: string[] = [];
 
-  // Lead with the strongest lane overlap
   if (dimensionScores.laneFit >= 0.7) {
     points.push(`Lead with consulting: ${fitRationale.split(" · ")[0]}.`);
   } else if (dimensionScores.aiRelevance >= 0.7) {
@@ -555,24 +901,20 @@ export function buildProfileTalkingPoints(params: {
     points.push("Lead with paid media track record — $10M+ book, top-3 national ranking.");
   }
 
-  // Seniority alignment
   if (dimensionScores.seniority >= 0.9) {
     points.push("Anchor at the requested seniority — eight years, four progressive roles at Audacy.");
   } else if (dimensionScores.seniority < 0.5) {
     points.push("Frame as a strategic individual contributor ready for next-level scope.");
   }
 
-  // Remote / location signal
   if (dimensionScores.remoteLocation >= 0.9) {
     points.push("Call out remote-first success: built and shipped AI systems without a co-located team.");
   }
 
-  // Company credibility signal
   if (dimensionScores.companyCredibility >= 0.8) {
     points.push(`Reference credible platform work — Elio Intelligence Suite on GCP, Vertex AI Search RAG pipelines.`);
   }
 
-  // Performance proof
   if (dimensionScores.performanceMarketing >= 0.6) {
     points.push("Use the unit-economics frame: 130% YoY paid-search conversion growth, 13% YoY new-user lift.");
   }

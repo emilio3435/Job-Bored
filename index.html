@@ -33,9 +33,11 @@
     <link rel="stylesheet" href="letter.css" />
     <link rel="stylesheet" href="scribe.css" />
     <link rel="stylesheet" href="welcome.css" />
+    <link rel="stylesheet" href="fit-profile.css" />
     <link rel="stylesheet" href="jb-v2-legacy-hide.css" />
     <script src="jb-ui.js" defer></script>
     <script src="welcome.js" defer></script>
+    <script src="company-cap.js" defer></script>
     <script src="lattice.js" defer></script>
     <script src="dawn-data.js" defer></script>
     <script src="dawn.js" defer></script>
@@ -1829,6 +1831,18 @@
               type="button"
               role="tab"
               class="settings-tablist__btn"
+              id="settings-tab-fit-profile"
+              data-tab-id="fit_profile"
+              aria-controls="settings-panel-fit-profile"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              Fit Profile
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="settings-tablist__btn"
               id="settings-tab-sheet"
               data-tab-id="sheet"
               aria-controls="settings-panel-sheet"
@@ -2013,6 +2027,18 @@
                   </div>
                 </div>
               </div>
+            </div>
+
+            <!-- ── Fit Profile tab (Task #4 — rendered by fit-profile-editor.js) ── -->
+            <div
+              role="tabpanel"
+              id="settings-panel-fit-profile"
+              class="settings-tab-panel"
+              aria-labelledby="settings-tab-fit-profile"
+              hidden
+            >
+              <!-- Editor mounts here on DOMContentLoaded. Loading state until JS attaches. -->
+              <p class="settings-tab-panel__lede">Loading your Fit Profile…</p>
             </div>
 
             <!-- ── Sheet tab ──────────────────────────────────────── -->
@@ -5915,6 +5941,9 @@ https://your-static-site.example</pre
     <script src="settings-jb-v2-tab.js"></script>
     <script src="settings-discovery-adapters.js"></script>
     <script src="settings-profile-tab.js?v=4"></script>
+    <script src="fit-profile-wizard.js"></script>
+    <script src="fit-profile-editor.js"></script>
+    <script src="fit-profile-backcompat.js"></script>
     <script src="runs-tab.js"></script>
     <script src="setup-doctor.js"></script>
     <script src="discovery-coach.js"></script>

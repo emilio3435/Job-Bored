@@ -2333,12 +2333,17 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride, options) {
   }
   // ====== [/discovery-autodetect lane] ======
 
+  // Compose `mergedUserProfile` — the run-time view of the master Fit Profile
+  // with per-run drawer overrides applied. Tasks #3 and #6 consume this field;
+  // the legacy `discoveryProfile` keeps working in parallel.
+  const mergedUserProfile = buildMergedUserProfileForPayload();
+
   const sharedBuilder = window.JobBoredDiscoveryPayload;
   if (
     sharedBuilder &&
     typeof sharedBuilder.buildDiscoveryWebhookPayload === "function"
   ) {
-    return sharedBuilder.buildDiscoveryWebhookPayload({
+    const built = sharedBuilder.buildDiscoveryWebhookPayload({
       sheetId: resolvedSheetId,
       discoveryProfile,
       resume: activeResume,
@@ -2349,6 +2354,10 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride, options) {
       trigger,
       googleAccessToken: dashboardGoogleAccessToken || "",
     });
+    if (built && typeof built === "object") {
+      built.mergedUserProfile = mergedUserProfile;
+    }
+    return built;
   }
 
   return {
@@ -2359,8 +2368,33 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride, options) {
     requestedAt,
     trigger,
     discoveryProfile,
+    mergedUserProfile,
     googleAccessToken: dashboardGoogleAccessToken || undefined,
   };
+}
+
+/**
+ * Deep-clone the loaded master Fit Profile and apply per-run drawer overrides.
+ * Returns null when no master profile is loaded — Task #3/#6 consumers should
+ * fall back to `discoveryProfile` in that case.
+ */
+function buildMergedUserProfileForPayload() {
+  const baseProfile = discoveryRunProfileState.baseProfile;
+  if (!baseProfile) return null;
+  const merged = JSON.parse(JSON.stringify(baseProfile));
+  const eff = getEffectiveFitProfileFields();
+  if (!eff) return merged;
+  merged.identity = merged.identity || {};
+  merged.hardConstraints = merged.hardConstraints || {};
+  if (eff.targetRoles) merged.identity.targetRoles = eff.targetRoles;
+  if (eff.targetSeniority)
+    merged.identity.targetSeniority = eff.targetSeniority;
+  if (eff.workMode) merged.hardConstraints.workMode = eff.workMode;
+  if (eff.acceptableLocations)
+    merged.hardConstraints.acceptableLocations = eff.acceptableLocations;
+  if (eff.wants) merged.wants = eff.wants;
+  if (eff.avoids) merged.avoids = eff.avoids;
+  return merged;
 }
 
 /**
@@ -5979,6 +6013,84 @@ async function refreshPipelineAfterDiscoveryRun(state) {
   }
 }
 
+const PRE_FILTER_REASON_LABELS = {
+  skip_title_match: "skip-title",
+  work_mode_mismatch: "work-mode",
+  location_outside_acceptable: "location",
+  work_auth_mismatch: "work-auth",
+  salary_below_floor: "salary floor",
+  salary_missing_but_required: "salary missing",
+};
+
+// Tracks the last rejection summary we've toasted so polling doesn't re-fire
+// the same banner every tick. Keyed by runId so a new run resets it.
+let _lastSurfacedRejectionKey = "";
+
+/**
+ * If the run status payload surfaces pre-filter rejections from the Fit
+ * Profile pipeline, render a one-line banner summarizing what was filtered.
+ * Tolerant of the upstream shape — looks at writeResult.rejectionSummary,
+ * preFilterSummary, and similar field names so it works regardless of where
+ * Task #3 chooses to land the data.
+ */
+function surfacePreFilterRejectionsFromStatus(statusData) {
+  if (!statusData || typeof statusData !== "object") return;
+  const summary =
+    (statusData.writeResult && statusData.writeResult.rejectionSummary) ||
+    statusData.preFilterSummary ||
+    statusData.rejectionSummary ||
+    null;
+  if (!summary) return;
+
+  // Accept either a map (reason → count) or an array of {reason, count}.
+  const counts = {};
+  if (Array.isArray(summary)) {
+    for (const entry of summary) {
+      if (!entry || typeof entry !== "object") continue;
+      const reason = String(entry.reason || "");
+      const count = Number(entry.count) || 1;
+      if (reason in PRE_FILTER_REASON_LABELS) {
+        counts[reason] = (counts[reason] || 0) + count;
+      }
+    }
+  } else if (typeof summary === "object") {
+    for (const [reason, count] of Object.entries(summary)) {
+      if (reason in PRE_FILTER_REASON_LABELS) {
+        const n = Number(count) || 0;
+        if (n > 0) counts[reason] = n;
+      }
+    }
+  }
+
+  const reasons = Object.keys(counts);
+  if (reasons.length === 0) return;
+
+  // Dedupe — only surface once per (runId, shape) combination.
+  const runId = String(
+    (discoveryRunTracker.getState() || {}).runId || "",
+  );
+  const key =
+    runId +
+    "|" +
+    reasons
+      .map((r) => `${r}:${counts[r]}`)
+      .sort()
+      .join(",");
+  if (key === _lastSurfacedRejectionKey) return;
+  _lastSurfacedRejectionKey = key;
+
+  const total = reasons.reduce((acc, r) => acc + counts[r], 0);
+  const parts = reasons
+    .map((r) => `${counts[r]} by ${PRE_FILTER_REASON_LABELS[r]}`)
+    .join(", ");
+  const message = `${total} listings filtered by your Fit Profile: ${parts}`;
+  if (typeof showToast === "function") {
+    showToast(message, "info", true);
+  } else {
+    console.info("[JobBored] " + message);
+  }
+}
+
 /**
  * Main polling loop — call once after an accepted_async response.
  * Automatically stops when the run reaches a terminal state or polling errors exceed limit.
@@ -6006,6 +6118,7 @@ async function startDiscoveryStatusPolling(webhookUrl) {
     const statusData = await pollRunStatus(pollingWebhookUrl);
     if (statusData) {
       tracker.updateFromStatusResponse(statusData);
+      surfacePreFilterRejectionsFromStatus(statusData);
     }
 
     const updated = tracker.getState();
@@ -21047,6 +21160,393 @@ const discoveryDrawerState = {
   strata: null,
 };
 
+// ────────────────────────────────────────────────────────────────────────────
+// Per-run profile-driven preferences. Cleared when the discovery drawer closes.
+// Never persisted — edits here do NOT write back to the master Fit Profile.
+// The master profile lives at ~/.jobbored/profile.json and is served by
+// GET /profile. The drawer treats it as a read-only source for defaults.
+// ────────────────────────────────────────────────────────────────────────────
+let discoveryRunProfileState = {
+  baseProfile: null,      // UserProfile from GET /profile, or null when none
+  perRunOverrides: {},    // Only fields the user explicitly edited this session
+  fetchedAt: null,
+};
+
+/**
+ * Load the master Fit Profile from GET /profile. Returns the profile or null.
+ * Resilient to the endpoint being unavailable (treats as "no profile" state).
+ */
+async function loadMasterFitProfile() {
+  try {
+    const resp = await fetch("/profile", { method: "GET" });
+    if (resp && resp.ok) {
+      const data = await resp.json().catch(() => null);
+      if (data && data.ok && data.profile) {
+        discoveryRunProfileState = {
+          baseProfile: data.profile,
+          perRunOverrides: {},
+          fetchedAt: new Date().toISOString(),
+        };
+        return data.profile;
+      }
+    }
+  } catch (e) {
+    console.warn("loadMasterFitProfile failed:", e);
+  }
+  discoveryRunProfileState = {
+    baseProfile: null,
+    perRunOverrides: {},
+    fetchedAt: new Date().toISOString(),
+  };
+  return null;
+}
+
+/**
+ * Returns the effective Fit Profile fields for THIS run only — base values
+ * shadowed by any per-run overrides the user made in the drawer. Returns null
+ * when no master profile is loaded (legacy free-form mode).
+ */
+function getEffectiveFitProfileFields() {
+  const base = discoveryRunProfileState.baseProfile;
+  const ov = discoveryRunProfileState.perRunOverrides;
+  if (!base) return null;
+  const identity = base.identity || {};
+  const hc = base.hardConstraints || {};
+  return {
+    targetRoles: ov.targetRoles ?? (identity.targetRoles || []),
+    targetSeniority: ov.targetSeniority ?? identity.targetSeniority,
+    workMode: ov.workMode ?? hc.workMode,
+    acceptableLocations:
+      ov.acceptableLocations ?? (hc.acceptableLocations || []),
+    wants: ov.wants ?? (base.wants || []),
+    avoids: ov.avoids ?? (base.avoids || []),
+  };
+}
+
+/**
+ * Record (or clear) a per-run override for a single Fit Profile field.
+ * If `value` is the same as the original base value, the override is removed
+ * so getEffectiveFitProfileFields() falls through to the base profile.
+ */
+function setRunOverride(field, value, originalValue) {
+  const same =
+    Array.isArray(value) && Array.isArray(originalValue)
+      ? value.length === originalValue.length &&
+        value.every((v, i) => v === originalValue[i])
+      : value === originalValue;
+  if (same || value === undefined) {
+    delete discoveryRunProfileState.perRunOverrides[field];
+  } else {
+    discoveryRunProfileState.perRunOverrides[field] = value;
+  }
+  const badge = document.querySelector(
+    `[data-run-override-badge="${field}"]`,
+  );
+  if (badge) {
+    badge.classList.toggle(
+      "is-modified",
+      field in discoveryRunProfileState.perRunOverrides,
+    );
+  }
+}
+
+// Map UserProfile.hardConstraints.workMode → legacy remotePolicy string
+function workModeToRemotePolicy(workMode) {
+  switch (workMode) {
+    case "remote_only":
+      return "remote";
+    case "hybrid_ok":
+      return "hybrid";
+    case "onsite_ok":
+      return "onsite";
+    case "any":
+    default:
+      return "";
+  }
+}
+
+// Map legacy remotePolicy string → UserProfile workMode (reverse direction)
+function remotePolicyToWorkMode(remotePolicy) {
+  const v = String(remotePolicy || "").trim().toLowerCase();
+  if (!v) return "any";
+  if (/remote/.test(v)) return "remote_only";
+  if (/hybrid/.test(v)) return "hybrid_ok";
+  if (/on[-\s]?site/.test(v)) return "onsite_ok";
+  return "any";
+}
+
+// Map TargetSeniority enum → human-readable string for legacy payload field
+function targetSeniorityToHuman(seniority) {
+  switch (seniority) {
+    case "intern":
+      return "Intern";
+    case "entry":
+      return "Entry";
+    case "ic_mid":
+      return "Mid";
+    case "ic_senior":
+      return "Senior";
+    case "ic_staff":
+      return "Staff";
+    case "ic_principal":
+      return "Principal";
+    case "manager":
+      return "Manager";
+    case "director":
+      return "Director";
+    case "head":
+      return "Head";
+    case "vp":
+      return "VP";
+    case "c_level":
+      return "C-level";
+    case "any":
+    default:
+      return "";
+  }
+}
+
+/**
+ * Render the empty-state banner shown when no master Fit Profile exists.
+ * Inserts (or removes) a banner inside the discovery drawer body.
+ */
+function renderFitProfileEmptyState(profile) {
+  const drawer = discoveryDrawerEl();
+  if (!drawer) return;
+  const body = drawer.querySelector(".discovery-drawer__body");
+  if (!body) return;
+  let banner = body.querySelector(".fit-profile-empty-banner");
+  if (profile) {
+    if (banner) banner.remove();
+    // Restore visibility of fit-profile-driven inputs
+    body
+      .querySelectorAll("[data-fit-profile-input]")
+      .forEach((el) => (el.hidden = false));
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.className = "fit-profile-empty-banner";
+    banner.setAttribute("role", "status");
+    banner.innerHTML =
+      '<span class="fit-profile-empty-banner__text">Set up your Fit Profile so JobBored can score jobs accurately.</span>' +
+      '<a class="fit-profile-empty-banner__cta" href="#/onboarding/fit-profile">Set up Fit Profile</a>';
+    body.insertBefore(banner, body.firstChild);
+  }
+  // When no profile, hide the fields the profile would have populated
+  body
+    .querySelectorAll("[data-fit-profile-input]")
+    .forEach((el) => (el.hidden = true));
+}
+
+/**
+ * Pre-fill the existing drawer inputs from the master Fit Profile. Also
+ * attaches "Reset to profile" affordances + modified-badge holders so the
+ * user can see which fields they edited this run.
+ */
+function prefillDrawerFromFitProfile(profile) {
+  if (!profile) return;
+  const identity = profile.identity || {};
+  const hc = profile.hardConstraints || {};
+
+  const setText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.value = value || "";
+  };
+
+  setText("dpTargetRoles", (identity.targetRoles || []).join(", "));
+  setText("dpLocations", (hc.acceptableLocations || []).join(", "));
+  setText("dpRemotePolicy", workModeToRemotePolicy(hc.workMode));
+  setText("dpSeniority", targetSeniorityToHuman(identity.targetSeniority));
+
+  attachRunOverrideAffordance("dpTargetRoles", "targetRoles", () =>
+    (identity.targetRoles || []).join(", "),
+  );
+  attachRunOverrideAffordance("dpLocations", "acceptableLocations", () =>
+    (hc.acceptableLocations || []).join(", "),
+  );
+  attachRunOverrideAffordance("dpRemotePolicy", "workMode", () =>
+    workModeToRemotePolicy(hc.workMode),
+  );
+  attachRunOverrideAffordance("dpSeniority", "targetSeniority", () =>
+    targetSeniorityToHuman(identity.targetSeniority),
+  );
+
+  // Wire change handlers that translate UI strings → UserProfile shapes.
+  bindOverrideChange("dpTargetRoles", (val) => {
+    const arr = String(val || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setRunOverride("targetRoles", arr, identity.targetRoles || []);
+  });
+  bindOverrideChange("dpLocations", (val) => {
+    const arr = String(val || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setRunOverride(
+      "acceptableLocations",
+      arr,
+      hc.acceptableLocations || [],
+    );
+  });
+  bindOverrideChange("dpRemotePolicy", (val) => {
+    const mode = remotePolicyToWorkMode(val);
+    setRunOverride("workMode", mode, hc.workMode);
+  });
+  bindOverrideChange("dpSeniority", (val) => {
+    // Free-text seniority — only treat exact case-insensitive matches as
+    // recognized enum overrides; otherwise leave the base value untouched.
+    const human = String(val || "").trim().toLowerCase();
+    const baseHuman = (targetSeniorityToHuman(identity.targetSeniority) || "")
+      .toLowerCase();
+    if (!human || human === baseHuman) {
+      setRunOverride("targetSeniority", undefined, identity.targetSeniority);
+      return;
+    }
+    setRunOverride("targetSeniority", val, identity.targetSeniority);
+  });
+}
+
+/**
+ * Inserts a tiny "↻ Reset to profile" link + modified badge after the input
+ * with id `inputId`. Idempotent — replaces any prior affordance.
+ */
+function attachRunOverrideAffordance(inputId, field, getBaseValue) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  input.setAttribute("data-fit-profile-input", field);
+
+  // Remove any prior affordance row so re-opening the drawer doesn't stack.
+  const prior = input.parentElement
+    ? input.parentElement.querySelector(
+        `[data-run-override-row="${field}"]`,
+      )
+    : null;
+  if (prior) prior.remove();
+
+  const row = document.createElement("div");
+  row.className = "fit-profile-run-override-row";
+  row.setAttribute("data-run-override-row", field);
+
+  const badge = document.createElement("span");
+  badge.className = "fit-profile-run-override-badge";
+  badge.setAttribute("data-run-override-badge", field);
+  badge.textContent = "modified for this run";
+  row.appendChild(badge);
+
+  const reset = document.createElement("button");
+  reset.type = "button";
+  reset.className = "fit-profile-run-override-reset";
+  reset.textContent = "↻ Reset to profile";
+  reset.addEventListener("click", () => {
+    const baseValue = getBaseValue();
+    input.value = baseValue;
+    setRunOverride(field, undefined, baseValue);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  row.appendChild(reset);
+
+  input.insertAdjacentElement("afterend", row);
+}
+
+/**
+ * Bind an input/change handler that pipes the input's current value into
+ * `handler`. Removes any prior handler we installed (tracked via dataset).
+ */
+function bindOverrideChange(inputId, handler) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  if (input.__fpOverrideHandler) {
+    input.removeEventListener("input", input.__fpOverrideHandler);
+  }
+  const fn = () => handler(input.value);
+  input.__fpOverrideHandler = fn;
+  input.addEventListener("input", fn);
+}
+
+/**
+ * Render the collapsible "Tuning from your Fit Profile" section that exposes
+ * wants/avoids editing for this run only. Idempotent.
+ */
+function renderTuningFromProfile(profile) {
+  const drawer = discoveryDrawerEl();
+  if (!drawer) return;
+  const body = drawer.querySelector(".discovery-drawer__body");
+  if (!body) return;
+
+  let section = body.querySelector(".fit-profile-tuning-section");
+  if (!profile) {
+    if (section) section.remove();
+    return;
+  }
+  if (!section) {
+    section = document.createElement("details");
+    section.className = "fit-profile-tuning-section";
+    section.setAttribute("data-fit-profile-input", "tuning");
+    section.innerHTML = `
+      <summary>Tuning from your Fit Profile</summary>
+      <p class="fit-profile-tuning-section__lede">
+        Edits here apply to this run only. Your master Fit Profile is unchanged.
+      </p>
+      <label class="field-label" for="dpRunWants">Wants (one per line)</label>
+      <textarea id="dpRunWants" class="modal-input modal-textarea" rows="4"></textarea>
+      <div class="fit-profile-run-override-row" data-run-override-row="wants">
+        <span class="fit-profile-run-override-badge" data-run-override-badge="wants">modified for this run</span>
+        <button type="button" class="fit-profile-run-override-reset" data-reset="wants">↻ Reset to profile</button>
+      </div>
+      <label class="field-label" for="dpRunAvoids">Avoids (one per line)</label>
+      <textarea id="dpRunAvoids" class="modal-input modal-textarea" rows="4"></textarea>
+      <div class="fit-profile-run-override-row" data-run-override-row="avoids">
+        <span class="fit-profile-run-override-badge" data-run-override-badge="avoids">modified for this run</span>
+        <button type="button" class="fit-profile-run-override-reset" data-reset="avoids">↻ Reset to profile</button>
+      </div>
+    `;
+    body.appendChild(section);
+  }
+
+  const baseWants = Array.isArray(profile.wants) ? profile.wants : [];
+  const baseAvoids = Array.isArray(profile.avoids) ? profile.avoids : [];
+
+  const wantsEl = section.querySelector("#dpRunWants");
+  const avoidsEl = section.querySelector("#dpRunAvoids");
+  if (wantsEl) wantsEl.value = baseWants.join("\n");
+  if (avoidsEl) avoidsEl.value = baseAvoids.join("\n");
+
+  const linesOf = (v) =>
+    String(v || "")
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+  if (wantsEl) {
+    bindOverrideChange("dpRunWants", (val) =>
+      setRunOverride("wants", linesOf(val), baseWants),
+    );
+  }
+  if (avoidsEl) {
+    bindOverrideChange("dpRunAvoids", (val) =>
+      setRunOverride("avoids", linesOf(val), baseAvoids),
+    );
+  }
+
+  section
+    .querySelectorAll(".fit-profile-run-override-reset")
+    .forEach((btn) => {
+      const field = btn.getAttribute("data-reset");
+      btn.onclick = () => {
+        if (field === "wants" && wantsEl) {
+          wantsEl.value = baseWants.join("\n");
+          setRunOverride("wants", undefined, baseWants);
+        } else if (field === "avoids" && avoidsEl) {
+          avoidsEl.value = baseAvoids.join("\n");
+          setRunOverride("avoids", undefined, baseAvoids);
+        }
+      };
+    });
+}
+
 function discoveryDrawerEl() {
   return document.getElementById("discoveryDrawer");
 }
@@ -21177,7 +21677,7 @@ function openDiscoveryDrawer() {
           return {};
         })
       : Promise.resolve({});
-  prefilled.then((p) => {
+  prefilled.then(async (p) => {
     Object.entries(fieldMap).forEach(([key, id]) => {
       const el = document.getElementById(id);
       if (el) el.value = (p && p[key]) || "";
@@ -21200,6 +21700,23 @@ function openDiscoveryDrawer() {
     drawer.hidden = false;
     drawer.style.display = "flex";
     document.body.classList.add("detail-open");
+
+    // Load the master Fit Profile and overlay it on the drawer. When present,
+    // its fields become the source of truth and the legacy IndexedDB values
+    // above are visually overwritten. When absent, an empty-state banner is
+    // shown so the user can complete onboarding.
+    try {
+      const masterProfile = await loadMasterFitProfile();
+      renderFitProfileEmptyState(masterProfile);
+      if (masterProfile) {
+        prefillDrawerFromFitProfile(masterProfile);
+        renderTuningFromProfile(masterProfile);
+      } else {
+        renderTuningFromProfile(null);
+      }
+    } catch (e) {
+      console.warn("[JobBored] Fit Profile overlay failed:", e);
+    }
     // Surface AI provider availability when opening the drawer.
     checkDiscoveryAiAvailability();
     const first = document.getElementById("dpTargetRoles");
@@ -21222,6 +21739,13 @@ function closeDiscoveryDrawer() {
   drawer.style.display = "none";
   drawer.hidden = true;
   document.body.classList.remove("detail-open");
+  // Per-run profile state dies with the drawer. This is the no-write-back
+  // rule — anything the user edited this run does NOT persist.
+  discoveryRunProfileState = {
+    baseProfile: null,
+    perRunOverrides: {},
+    fetchedAt: null,
+  };
 }
 
 function checkDiscoveryAiAvailability() {
@@ -21463,7 +21987,7 @@ async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
   // as JSON-only — this dramatically improves reliability vs. free-form
   // prose responses that have to be regex-extracted later.
   const wantJson = !!(opts && opts.json);
-  const isThinkingModel = /^gemini-2\.[5-9]/.test(resolvedModel);
+  const isThinkingModel = /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(resolvedModel);
   const generationConfig = {
     maxOutputTokens: isThinkingModel ? 8192 : 2048,
     temperature: 0.5,
@@ -21910,19 +22434,36 @@ function initDiscoveryDrawer() {
       );
 
       if (UC && typeof UC.saveDiscoveryProfile === "function") {
-        await UC.saveDiscoveryProfile({
-          targetRoles: finalTargetRoles,
-          locations: val("dpLocations"),
-          remotePolicy: val("dpRemotePolicy"),
-          seniority: val("dpSeniority"),
-          keywordsInclude: finalKeywordsInclude,
-          keywordsExclude: val("dpKeywordsExclude"),
-          maxLeadsPerRun: val("dpMaxLeads"),
-          groundedWebEnabled,
-          sourcePreset,
-          companyAllowlist,
-          companyBlocklist,
-        });
+        // When the master Fit Profile is the source of truth, strip the
+        // fit-profile-driven fields (targetRoles, locations, remotePolicy,
+        // seniority) from the IndexedDB save. This prevents per-run edits
+        // from drifting the local cache away from ~/.jobbored/profile.json.
+        // Legacy fields (sourcePreset, maxLeadsPerRun, etc.) still persist.
+        const hasMasterProfile = !!discoveryRunProfileState.baseProfile;
+        const savePayload = hasMasterProfile
+          ? {
+              keywordsInclude: finalKeywordsInclude,
+              keywordsExclude: val("dpKeywordsExclude"),
+              maxLeadsPerRun: val("dpMaxLeads"),
+              groundedWebEnabled,
+              sourcePreset,
+              companyAllowlist,
+              companyBlocklist,
+            }
+          : {
+              targetRoles: finalTargetRoles,
+              locations: val("dpLocations"),
+              remotePolicy: val("dpRemotePolicy"),
+              seniority: val("dpSeniority"),
+              keywordsInclude: finalKeywordsInclude,
+              keywordsExclude: val("dpKeywordsExclude"),
+              maxLeadsPerRun: val("dpMaxLeads"),
+              groundedWebEnabled,
+              sourcePreset,
+              companyAllowlist,
+              companyBlocklist,
+            };
+        await UC.saveDiscoveryProfile(savePayload);
       }
       closeDiscoveryDrawer();
       const openBtn = document.getElementById("discoveryBtn");

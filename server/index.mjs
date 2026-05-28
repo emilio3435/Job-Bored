@@ -37,6 +37,15 @@ import {
   readProfile,
   writeProfileAtomic,
 } from "./user-profile.mjs";
+import { migrateLegacyProfileIfPresent } from "./legacy-profile-migrator.mjs";
+import {
+  analyzeResumeToProfile,
+  getStoredResumeText,
+} from "./profile-from-resume.mjs";
+import {
+  loadWorkerConfig,
+  rescoreAllPipelineRows,
+} from "./profile-rescore-worker.mjs";
 
 const PORT = Number(process.env.PORT) || 3847;
 /** 127.0.0.1 for local dev; set LISTEN_HOST=0.0.0.0 on Render/Fly/Docker so the service accepts external traffic. */
@@ -257,6 +266,171 @@ app.post("/profile/template/:id", (req, res) => {
     });
   }
   return res.json({ ok: true, template });
+});
+
+/**
+ * POST /profile/from-resume
+ *
+ * Reads the user's stored resume text from a known location (worker config,
+ * ~/.jobbored/resume.txt, or legacy hermes), runs it through Gemini, and
+ * returns a draft v1 UserProfile for the wizard to display. Does NOT save.
+ *
+ * 200 { ok: true, profile, source }   — got a draft profile
+ * 404 { ok: false, reason: "no_resume_stored" }
+ * 500 { ok: false, reason: "gemini_error", message }
+ */
+app.post("/profile/from-resume", async (_req, res) => {
+  let stored;
+  try {
+    stored = await getStoredResumeText();
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      reason: "resume_lookup_failed",
+      message: err && err.message ? String(err.message) : "lookup failed",
+    });
+  }
+  if (!stored) {
+    return res.status(404).json({ ok: false, reason: "no_resume_stored" });
+  }
+  try {
+    const profile = await analyzeResumeToProfile(stored.text);
+    return res.json({ ok: true, profile, source: stored.source });
+  } catch (err) {
+    const code = err && err.code ? String(err.code) : "";
+    if (code === "GEMINI_NOT_CONFIGURED") {
+      return res.status(500).json({
+        ok: false,
+        reason: "gemini_not_configured",
+        message: err.message,
+      });
+    }
+    return res.status(500).json({
+      ok: false,
+      reason: "gemini_error",
+      message: err && err.message ? String(err.message) : "gemini failed",
+    });
+  }
+});
+
+/* ----- Profile backcompat: legacy migration + rescore (Task #6) ----- */
+
+/**
+ * POST /profile/migrate
+ * Idempotent. Reads ~/.hermes/job-hunt/profile/{job-preferences,profile}.md,
+ * parses into a v1 UserProfile, writes ~/.jobbored/profile.json, drops a
+ * `.migrated.v1` marker so repeat calls are no-ops.
+ */
+app.post("/profile/migrate", async (_req, res) => {
+  try {
+    const result = await migrateLegacyProfileIfPresent();
+    if (result.migrated) {
+      return res.json({ ok: true, migrated: true, profile: result.profile });
+    }
+    return res.json({ ok: true, migrated: false, reason: result.reason });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      reason: "migration_failed",
+      message: String(err && err.message ? err.message : err),
+    });
+  }
+});
+
+/**
+ * POST /profile/rescore[?dryRun=true]
+ *
+ * Walks the Pipeline sheet and re-scores every eligible row against the
+ * current saved Fit Profile using gemini-3.5-flash. Streams per-row progress
+ * as Server-Sent Events; the final event carries totals.
+ *
+ * Query params:
+ *   - dryRun=true → returns a JSON summary of how many rows WOULD be rescored
+ *                   without calling Gemini or writing back to the sheet.
+ *
+ * SSE event shapes (one per `data:` line):
+ *   { kind: "progress", row, status: "scored"|"skipped"|"failed", reason? }
+ *   { kind: "done", rescored, skipped, failed, total }
+ *   { kind: "error", message }
+ */
+app.post("/profile/rescore", async (req, res) => {
+  const dryRun = String(req.query.dryRun || "").toLowerCase() === "true";
+
+  // Load current profile
+  const profileResult = await readProfile();
+  if (!profileResult.ok) {
+    return res
+      .status(400)
+      .json({ ok: false, reason: "no_profile", detail: profileResult.reason });
+  }
+
+  // Resolve sheet id + Gemini key. The rescore worker reads its own
+  // worker-config.json for the sheet id; we just need the Gemini key here
+  // so we can fail fast with a helpful error before opening the SSE stream.
+  const geminiApiKey = String(
+    process.env.ATS_GEMINI_API_KEY ||
+      process.env.GEMINI_API_KEY ||
+      process.env.BROWSER_USE_DISCOVERY_GEMINI_API_KEY ||
+      "",
+  ).trim();
+  if (!geminiApiKey && !dryRun) {
+    return res.status(503).json({
+      ok: false,
+      reason: "gemini_not_configured",
+      detail:
+        "Set ATS_GEMINI_API_KEY (or GEMINI_API_KEY) in the server env before running a rescore.",
+    });
+  }
+
+  // Dry run path: short-circuit with JSON (no SSE).
+  if (dryRun) {
+    try {
+      const summary = await rescoreAllPipelineRows({
+        profile: profileResult.profile,
+        sheetId: undefined,
+        geminiApiKey: "",
+        dryRun: true,
+      });
+      return res.json({ ok: true, dryRun: true, ...summary });
+    } catch (err) {
+      return res.status(500).json({
+        ok: false,
+        reason: "dry_run_failed",
+        message: String(err && err.message ? err.message : err),
+      });
+    }
+  }
+
+  // Live path: open SSE.
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  const sendEvent = (payload) => {
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  const ac = new AbortController();
+  req.on("close", () => ac.abort());
+
+  try {
+    const summary = await rescoreAllPipelineRows({
+      profile: profileResult.profile,
+      sheetId: undefined,
+      geminiApiKey,
+      onProgress: sendEvent,
+      signal: ac.signal,
+    });
+    sendEvent({ kind: "done", ...summary });
+  } catch (err) {
+    sendEvent({
+      kind: "error",
+      message: String(err && err.message ? err.message : err),
+    });
+  } finally {
+    res.end();
+  }
 });
 
 /* ----- Application materials (read-only local file surface) -----
