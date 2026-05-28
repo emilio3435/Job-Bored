@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jobbored.dev/schemas/user-profile.v1.json",
+  "title": "JobBored User Profile",
+  "description": "Single source of truth for who the user is, what they want, and what hard rules apply. Read by the LLM scorer, the discovery query builder, the onboarding wizard, and the Settings editor.",
+  "type": "object",
+  "required": ["version", "identity", "strengths", "hardConstraints"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "starterTemplate": {
+      "type": "string",
+      "enum": ["marketer", "engineer", "product_manager", "data_scientist", "designer", "custom"],
+      "description": "Which onboarding template the user started from. 'custom' = filled by hand."
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targetRoles", "targetSeniority", "primaryNarrative"],
+      "properties": {
+        "targetRoles": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "minItems": 1,
+          "maxItems": 8,
+          "description": "Free-text role titles the user wants next. Order matters — first is most-wanted."
+        },
+        "targetSeniority": {
+          "type": "string",
+          "enum": ["intern", "entry", "ic_mid", "ic_senior", "ic_staff", "ic_principal", "manager", "director", "head", "vp", "c_level", "any"]
+        },
+        "yearsRelevantExperience": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60
+        },
+        "primaryNarrative": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 1200,
+          "description": "1–4 sentence first-person 'who I am professionally and what I want next'. Embedded verbatim in the LLM scoring prompt."
+        }
+      }
+    },
+    "strengths": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "rank"],
+        "properties": {
+          "name": { "type": "string", "minLength": 2, "maxLength": 60 },
+          "rank": { "type": "integer", "minimum": 1, "maximum": 8 },
+          "evidence": { "type": "string", "maxLength": 400 },
+          "keywords": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1, "maxLength": 40 },
+            "maxItems": 20,
+            "description": "Optional seed terms the LLM treats as positive signal for this strength. Empty is fine — the LLM infers from name + evidence + narrative."
+          }
+        }
+      },
+      "description": "Capability areas ranked by importance. Replaces hardcoded LANE_KEYWORDS. Rank 1 = top strength; the LLM weights perStrength scores in rank order."
+    },
+    "wants": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 2, "maxLength": 200 },
+      "maxItems": 12,
+      "description": "Specific things the user wants the role to involve. Free-form English (e.g., 'hands-on LLM work', 'P&L responsibility', 'small team')."
+    },
+    "avoids": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 2, "maxLength": 200 },
+      "maxItems": 12,
+      "description": "Soft 'please skip' signals. Free-form English (e.g., 'pure people management', 'enterprise sales')."
+    },
+    "hardConstraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workMode"],
+      "properties": {
+        "salaryFloor": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Annual USD minimum. Null = no floor. Used only when salaryRequired=true AND listing publishes a salary number."
+        },
+        "salaryRequired": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, listings without published salary are hard-rejected. If false, missing salary is a soft signal only."
+        },
+        "workMode": {
+          "type": "string",
+          "enum": ["remote_only", "hybrid_ok", "onsite_ok", "any"],
+          "default": "any"
+        },
+        "acceptableLocations": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 2, "maxLength": 80 },
+          "maxItems": 20,
+          "description": "City or metro names. Ignored when workMode = remote_only. Otherwise, onsite/hybrid listings outside this list are hard-rejected."
+        },
+        "workAuth": {
+          "type": "string",
+          "enum": ["us_citizen", "us_authorized", "needs_sponsorship", "any"],
+          "default": "any"
+        },
+        "skipTitles": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 2, "maxLength": 80 },
+          "maxItems": 30,
+          "description": "Case-insensitive substring matches on title that hard-reject before LLM scoring."
+        }
+      }
+    },
+    "tieBreakers": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Soft signals — nudge LLM score but never reject.",
+      "properties": {
+        "salaryTransparencyImportance": { "type": "string", "enum": ["high", "medium", "low"], "default": "medium" },
+        "companyCredibilityImportance": { "type": "string", "enum": ["high", "medium", "low"], "default": "medium" },
+        "applicationComplexityAversion": { "type": "string", "enum": ["high", "medium", "low"], "default": "medium" }
+      }
+    }
+  }
+}

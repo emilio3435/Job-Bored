@@ -31,6 +31,12 @@ import {
   spawnMaterialsRequest,
 } from "./materials-request.mjs";
 import { buildRepairRequestPayload } from "./materials-repair.mjs";
+import {
+  buildStarterTemplate,
+  listStarterTemplateIds,
+  readProfile,
+  writeProfileAtomic,
+} from "./user-profile.mjs";
 
 const PORT = Number(process.env.PORT) || 3847;
 /** 127.0.0.1 for local dev; set LISTEN_HOST=0.0.0.0 on Render/Fly/Docker so the service accepts external traffic. */
@@ -184,6 +190,73 @@ app.post("/api/ats-scorecard", async (req, res) => {
     res.status(status).json(responseBody);
     console.warn(`[ats-scorecard] requestId=${requestId} status=${status} error=${msg}`);
   }
+});
+
+/* ----- User profile (Task #4) -----
+ * GET  /profile                     → returns saved profile or { ok: false, reason: "no_profile" }
+ * POST /profile                     → validates against user-profile.schema.json, writes atomically
+ * POST /profile/template/:id        → returns a starter template (marketer | engineer | product_manager)
+ *
+ * Storage: ~/.jobbored/profile.json (override with JOBBORED_PROFILE_PATH).
+ * Local-only worker — no auth on these endpoints by design.
+ */
+app.get("/profile", async (_req, res) => {
+  try {
+    const result = await readProfile();
+    if (!result.ok) {
+      // 200 with ok:false so the wizard can branch cleanly without try/catch
+      // on 404s. The "missing profile" state is the expected first-run case.
+      return res.status(200).json({ ok: false, reason: result.reason });
+    }
+    return res.json({ ok: true, profile: result.profile });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      reason: "read_failed",
+      detail: err && err.message ? String(err.message) : "read failed",
+    });
+  }
+});
+
+app.post("/profile", async (req, res) => {
+  const candidate = req.body;
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return res.status(400).json({
+      ok: false,
+      reason: "invalid_profile",
+      errors: [{ message: "Request body must be a JSON object" }],
+    });
+  }
+  try {
+    const { updatedAt } = await writeProfileAtomic(candidate);
+    return res.json({ ok: true, updatedAt });
+  } catch (err) {
+    if (err && err.code === "INVALID_PROFILE") {
+      return res.status(400).json({
+        ok: false,
+        reason: "invalid_profile",
+        errors: err.errors || [],
+      });
+    }
+    return res.status(500).json({
+      ok: false,
+      reason: "write_failed",
+      detail: err && err.message ? String(err.message) : "write failed",
+    });
+  }
+});
+
+app.post("/profile/template/:id", (req, res) => {
+  const id = String(req.params.id || "").trim();
+  const template = buildStarterTemplate(id);
+  if (!template) {
+    return res.status(404).json({
+      ok: false,
+      reason: "unknown_template",
+      available: listStarterTemplateIds(),
+    });
+  }
+  return res.json({ ok: true, template });
 });
 
 /* ----- Application materials (read-only local file surface) -----
