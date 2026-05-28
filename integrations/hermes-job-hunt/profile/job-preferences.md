@@ -201,7 +201,7 @@ Missing salary should be penalized but not treated as an automatic rejection if 
 No application submission without both:
 
 1. Pipeline `Approval Status` = `Approved` in the dedicated approval extension field.
-2. Final confirmation from Emilio in the dedicated submit-approval Telegram/Winky thread.
+2. Final confirmation from Emilio in the dedicated submit-approval Telegram/Dobby thread.
 
 Allowed before approval: discovery, scoring, dedupe checks, Pipeline draft/writeback according to current workflow, resume tailoring, cover-letter drafting, talking points, and application prep.
 

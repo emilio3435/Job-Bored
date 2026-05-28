@@ -3,7 +3,7 @@
 Gate 2 — Status Watcher (Researching rows)
 
 Polls the Pipeline sheet for rows that just flipped to Status = Researching
-(with Date Found = today) and posts an approval request to thread 48.
+(with Date Found = today) and posts an approval request to thread 314.
 
 Silent when no new Researching rows are found (watchdog pattern).
 """
@@ -21,7 +21,7 @@ TOKEN_PATH = Path.home() / ".hermes" / "google_token.json"
 STATE_FILE = Path.home() / ".hermes" / "job-hunt" / "reported-researching.json"
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_HOME_CHANNEL", "-1003800236296")
-TELEGRAM_THREAD_ID = 48  # submit-approval thread
+TELEGRAM_THREAD_ID = 314  # submit-approval / Dobby updates thread
 CT = timezone(timedelta(hours=-5))  # Central Time
 TODAY = datetime.now(CT).strftime("%Y-%m-%d")
 
