@@ -468,7 +468,13 @@ export type IngestUrlResponseV1 =
       // "url_only" = couldn't auto-extract rich fields; row landed with
       // URL + hostname-as-company + slug-as-title and the dashboard's drawer
       // enrichment will backfill details when the user opens the row.
-      strategy: "ats_api" | "jsonld" | "cheerio_dom" | "manual_fill" | "url_only";
+      strategy:
+        | "ats_api"
+        | "jsonld"
+        | "cheerio_dom"
+        | "manual_fill"
+        | "url_only"
+        | "browser_use_cloud";
       lead: NormalizedLead;
       appended: boolean;
       rowNumber?: number;

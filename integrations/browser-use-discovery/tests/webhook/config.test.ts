@@ -91,6 +91,16 @@ test("loadRuntimeConfig accepts explicit async run watchdog override", () => {
   assert.equal(result.maxRunDurationMs, 7200000);
 });
 
+test("loadRuntimeConfig recognizes Browser Use Cloud API key and profile id", () => {
+  const result = loadRuntimeConfig({
+    BROWSER_USE_API_KEY: "bu_test_key",
+    BROWSER_USE_PROFILE_ID: "profile_123",
+  });
+
+  assert.equal(result.browserUseApiKey, "bu_test_key");
+  assert.equal(result.browserUseProfileId, "profile_123");
+});
+
 test("loadRuntimeConfig fails closed for hosted workers without explicit browser origins", () => {
   const result = loadRuntimeConfig({
     BROWSER_USE_DISCOVERY_RUN_MODE: "hosted",

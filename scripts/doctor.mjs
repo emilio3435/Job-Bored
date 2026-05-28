@@ -12,6 +12,7 @@ const REQUIRED_NODE_MAJOR = 24;
 const PIPELINE_SCHEMA_PATH = "schemas/pipeline-row.v1.json";
 const CONFIG_PATH = "config.js";
 const CONFIG_EXAMPLE_PATH = "config.example.js";
+const WORKER_ENV_PATH = "integrations/browser-use-discovery/.env";
 
 function firstLine(value) {
   return String(value || "")
@@ -71,6 +72,35 @@ async function readTextIfExists(repoRoot, relativePath) {
   const path = join(repoRoot, relativePath);
   if (!existsSync(path)) return "";
   return readFile(path, "utf8");
+}
+
+function parseEnvText(source) {
+  const out = {};
+  for (const rawLine of String(source || "").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"') && value.length >= 2) ||
+      (value.startsWith("'") && value.endsWith("'") && value.length >= 2)
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (key) out[key] = value;
+  }
+  return out;
+}
+
+async function loadWorkerEnv(repoRoot) {
+  const source = await readTextIfExists(repoRoot, WORKER_ENV_PATH);
+  return source ? parseEnvText(source) : {};
+}
+
+function readSecretPresence(env, fileEnv, key) {
+  return Boolean(String(env[key] || fileEnv[key] || "").trim());
 }
 
 function readConfigObject(source) {
@@ -338,6 +368,28 @@ async function runDoctor(options = {}) {
       ),
     );
   }
+
+  const workerEnv = await loadWorkerEnv(repoRoot);
+  const hasBrowserUseApiKey = readSecretPresence(env, workerEnv, "BROWSER_USE_API_KEY");
+  const hasBrowserUseProfileId = readSecretPresence(env, workerEnv, "BROWSER_USE_PROFILE_ID");
+  checks.push(
+    check(
+      hasBrowserUseApiKey ? "ok" : "warn",
+      "browser use api key",
+      hasBrowserUseApiKey
+        ? "BROWSER_USE_API_KEY is configured for Browser Use Cloud fallback."
+        : "BROWSER_USE_API_KEY is not configured; blocked Add-from-URL pages will use link-only fallback.",
+    ),
+  );
+  checks.push(
+    check(
+      hasBrowserUseProfileId ? "ok" : "warn",
+      "browser use profile",
+      hasBrowserUseProfileId
+        ? "BROWSER_USE_PROFILE_ID is configured for authenticated Browser Use extraction."
+        : "BROWSER_USE_PROFILE_ID is not configured; authenticated LinkedIn-style extraction may fall back to link-only rows.",
+    ),
+  );
 
   const schema = await readJson(repoRoot, PIPELINE_SCHEMA_PATH);
   const expectedHeaders = Array.isArray(schema.headerRow) ? schema.headerRow : [];

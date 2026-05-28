@@ -73,6 +73,8 @@ describe("doctor CLI", () => {
       env: {
         JOBBORED_DOCTOR_DASHBOARD_ORIGIN: "https://user.github.io",
         JOBBORED_DOCTOR_GOOGLE_ACCESS_TOKEN: "secret-value",
+        BROWSER_USE_API_KEY: "bu_secret_value",
+        BROWSER_USE_PROFILE_ID: "profile_secret_value",
       },
       spawnSyncImpl,
       fetchImpl: async () =>
@@ -93,6 +95,10 @@ describe("doctor CLI", () => {
     assert.match(output, /HTTPS dashboards cannot POST to localhost discovery URLs/);
     assert.match(output, /Pipeline headers differ from schemas\/pipeline-row\.v1\.json/);
     assert.match(output, /discovery worker is listening on 127\.0\.0\.1:8644/);
+    assert.match(output, /BROWSER_USE_API_KEY is configured/);
+    assert.match(output, /BROWSER_USE_PROFILE_ID is configured/);
     assert.doesNotMatch(output, /secret-value/);
+    assert.doesNotMatch(output, /bu_secret_value/);
+    assert.doesNotMatch(output, /profile_secret_value/);
   });
 });

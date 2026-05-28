@@ -29,6 +29,8 @@ export type WorkerRuntimeConfig = {
   stateDatabasePath: string;
   workerConfigPath: string;
   browserUseCommand: string;
+  browserUseApiKey: string;
+  browserUseProfileId: string;
   geminiApiKey: string;
   geminiModel: string;
   groundedSearchMaxResultsPerCompany: number;
@@ -321,6 +323,8 @@ export function loadRuntimeConfig(
     stateDatabasePath,
     workerConfigPath,
     browserUseCommand: resolveBrowserUseCommand(runtimeEnv),
+    browserUseApiKey: readFirst(runtimeEnv, ["BROWSER_USE_API_KEY"]),
+    browserUseProfileId: readFirst(runtimeEnv, ["BROWSER_USE_PROFILE_ID"]),
     geminiApiKey: readFirst(runtimeEnv, [
       "BROWSER_USE_DISCOVERY_GEMINI_API_KEY",
       "DISCOVERY_GEMINI_API_KEY",

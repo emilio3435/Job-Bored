@@ -15,6 +15,8 @@ function makeRuntimeConfig(
     stateDatabasePath: "",
     workerConfigPath: "",
     browserUseCommand: "browser-use",
+    browserUseApiKey: "",
+    browserUseProfileId: "",
     geminiApiKey: "",
     geminiModel: "gemini-2.5-flash",
     groundedSearchMaxResultsPerCompany: 6,
@@ -244,11 +246,7 @@ test("handleIngestUrlWebhook rejects non-string googleAccessToken", async () => 
   assert.match(JSON.parse(response.body).message, /googleAccessToken/);
 });
 
-test("handleIngestUrlWebhook blocked_aggregator lands url-only row without scraping", async () => {
-  // LinkedIn/Indeed/etc. block scrapers. Instead of forcing a manual-fill
-  // modal, the handler now builds a minimal URL-only RawListing
-  // (hostname-derived company, slug-derived title) and lands the row. The
-  // dashboard's drawer enrichment pass fills in details on row open.
+test("handleIngestUrlWebhook blocked_aggregator with missing Browser Use key lands url-only row without scraping", async () => {
   let fetcherCalls = 0;
   let scraperCalls = 0;
   let writerCalls = 0;
@@ -310,11 +308,92 @@ test("handleIngestUrlWebhook blocked_aggregator lands url-only row without scrap
   );
 });
 
+test("handleIngestUrlWebhook blocked_aggregator uses Browser Use Cloud when configured", async () => {
+  let extractorCalls = 0;
+  let writerCalls = 0;
+  let capturedLead: Record<string, unknown> | null = null;
+  let capturedProfileId = "";
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "https://www.linkedin.com/jobs/view/senior-product-manager-at-plaid",
+    }),
+    makeDependencies({
+      runtimeConfig: makeRuntimeConfig({
+        browserUseApiKey: "bu_test_key",
+        browserUseProfileId: "profile_123",
+      }),
+      extractWithBrowserUseCloud: async (input) => {
+        extractorCalls += 1;
+        capturedProfileId = input.runtimeConfig.browserUseProfileId;
+        return {
+          ok: true as const,
+          confidence: 0.91,
+          rawListing: {
+            sourceId: "ingest_url_browser_use",
+            sourceLabel: "URL paste (Browser Use Cloud)",
+            sourceLane: "grounded_web",
+            title: "Senior Product Manager",
+            company: "Plaid",
+            location: "Remote",
+            url: input.url,
+            canonicalUrl: input.url,
+            finalUrl: input.url,
+            descriptionText:
+              "Own the product roadmap for account connectivity and partner launches.",
+            metadata: {
+              sourceQuery: `browser_use_cloud:${input.url}`,
+            },
+          },
+        };
+      },
+      scrapeJobPosting: async () => {
+        throw new Error("blocked aggregator should not use Cheerio first");
+      },
+      pipelineWriter: {
+        write: async (_sheetId, leads) => {
+          writerCalls += 1;
+          capturedLead = leads[0] as unknown as Record<string, unknown>;
+          return {
+            sheetId: "sheet_123",
+            appended: 1,
+            updated: 0,
+            skippedDuplicates: 0,
+            skippedBlacklist: 0,
+            warnings: [],
+          };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.strategy, "browser_use_cloud");
+  assert.equal(extractorCalls, 1);
+  assert.equal(writerCalls, 1);
+  assert.equal(capturedProfileId, "profile_123");
+  assert.equal(capturedLead?.title, "Senior Product Manager");
+  assert.equal(capturedLead?.company, "Plaid");
+  assert.equal(capturedLead?.sourceLabel, "URL paste (Browser Use Cloud)");
+  assert.match(
+    String((capturedLead?.metadata as Record<string, unknown>)?.sourceQuery || ""),
+    /browser_use_cloud:/i,
+  );
+  assert.doesNotMatch(response.body, /bu_test_key/);
+});
+
 test("handleIngestUrlWebhook ats_direct happy path appends row", async () => {
   let writerCalls = 0;
+  let browserUseCalls = 0;
   const response = await handleIngestUrlWebhook(
     makeRequest({ url: "https://boards.greenhouse.io/plaid/jobs/4728292004" }),
     makeDependencies({
+      runtimeConfig: makeRuntimeConfig({ browserUseApiKey: "bu_test_key" }),
+      extractWithBrowserUseCloud: async () => {
+        browserUseCalls += 1;
+        throw new Error("Browser Use should not run after ATS success");
+      },
       fetchGreenhouseJob: async () => ({
         ok: true as const,
         rawListing: {
@@ -352,6 +431,7 @@ test("handleIngestUrlWebhook ats_direct happy path appends row", async () => {
   assert.equal(body.strategy, "ats_api");
   assert.equal(body.appended, true);
   assert.equal(writerCalls, 1);
+  assert.equal(browserUseCalls, 0);
 });
 
 test("handleIngestUrlWebhook manual-fill happy path", async () => {
@@ -490,4 +570,76 @@ test("handleIngestUrlWebhook generic_https scrape failure lands url-only row", a
     String((capturedLead as Record<string, unknown>).company),
     /Careers|Example/i,
   );
+});
+
+test("handleIngestUrlWebhook Browser Use error falls back to url-only row and logs failure", async () => {
+  const logs: Array<{ event: string; details: Record<string, unknown> }> = [];
+  let writerCalls = 0;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "https://www.linkedin.com/jobs/view/4369653076",
+    }),
+    makeDependencies({
+      runtimeConfig: makeRuntimeConfig({ browserUseApiKey: "bu_test_key" }),
+      extractWithBrowserUseCloud: async () => {
+        throw new Error("Browser Use timed out after 120000ms");
+      },
+      log: (event: string, details: Record<string, unknown>) => {
+        logs.push({ event, details });
+      },
+      pipelineWriter: {
+        write: async () => {
+          writerCalls += 1;
+          return {
+            sheetId: "sheet_123",
+            appended: 1,
+            updated: 0,
+            skippedDuplicates: 0,
+            skippedBlacklist: 0,
+            warnings: [],
+          };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.strategy, "url_only");
+  assert.equal(writerCalls, 1);
+  assert.ok(
+    logs.some(
+      (entry) => entry.event === "discovery.run.ingest_url_browser_use_failed",
+    ),
+  );
+  assert.doesNotMatch(JSON.stringify(logs), /bu_test_key/);
+});
+
+test("handleIngestUrlWebhook normal successful Cheerio scrape does not call Browser Use", async () => {
+  let browserUseCalls = 0;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "https://careers.example.com/roles/growth-marketing-manager",
+    }),
+    makeDependencies({
+      runtimeConfig: makeRuntimeConfig({ browserUseApiKey: "bu_test_key" }),
+      extractWithBrowserUseCloud: async () => {
+        browserUseCalls += 1;
+        throw new Error("Browser Use should not run after usable scrape");
+      },
+      scrapeJobPosting: async () => ({
+        url: "https://careers.example.com/roles/growth-marketing-manager",
+        title: "Growth Marketing Manager",
+        description: "Own growth marketing programs.",
+        method: "cheerio",
+      }),
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.strategy, "cheerio_dom");
+  assert.equal(browserUseCalls, 0);
 });

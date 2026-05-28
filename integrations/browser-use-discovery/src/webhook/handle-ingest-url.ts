@@ -15,6 +15,10 @@ import {
 import type { WorkerRuntimeConfig } from "../config.ts";
 import { rawListingToSingleLead } from "../normalize/raw-to-single-lead.ts";
 import { fetchAshbyJob, fetchGreenhouseJob, fetchLeverJob } from "../sources/ats-public-fetchers.ts";
+import {
+  extractJobWithBrowserUseCloud,
+  type BrowserUseCloudExtractor,
+} from "../sources/browser-use-cloud-extractor.ts";
 import { classifyIngestUrl } from "../sources/ingest-url-router.ts";
 import {
   hasValidWebhookSecret,
@@ -36,6 +40,14 @@ type PipelineWriterLike = {
   write(sheetId: string, leads: NormalizedLead[]): Promise<PipelineWriteResult>;
 };
 
+type IngestUrlStrategy =
+  | "ats_api"
+  | "jsonld"
+  | "cheerio_dom"
+  | "manual_fill"
+  | "url_only"
+  | "browser_use_cloud";
+
 export type HandleIngestUrlDependencies = {
   runtimeConfig: WorkerRuntimeConfig;
   pipelineWriter: PipelineWriterLike;
@@ -47,6 +59,7 @@ export type HandleIngestUrlDependencies = {
   fetchLeverJob?: typeof fetchLeverJob;
   fetchAshbyJob?: typeof fetchAshbyJob;
   scrapeJobPosting?: (url: string) => Promise<ScrapeResult>;
+  extractWithBrowserUseCloud?: BrowserUseCloudExtractor;
   now?: () => Date;
   randomId?: (prefix: string) => string;
   log?(event: string, details: Record<string, unknown>): void;
@@ -202,26 +215,32 @@ export async function handleIngestUrlWebhook(
     }
 
     let rawListing: RawListing | null = null;
-    let strategy: "ats_api" | "jsonld" | "cheerio_dom" | "url_only" = "cheerio_dom";
+    let strategy: IngestUrlStrategy = "cheerio_dom";
 
     if (classified.kind === "blocked_aggregator") {
-      // LinkedIn/Indeed/Glassdoor etc. block scrapers. Instead of forcing a
-      // manual-fill interruption, land the row with URL-derived placeholders
-      // (hostname → company, URL slug → title). The dashboard row-drawer
-      // enrichment path (/api/scrape-job + LLM inference) can still extract
-      // details on row open, which is often enough to be useful even when a
-      // raw fetch returns a login wall.
       dependencies.log?.("discovery.run.ingest_url_blocked_aggregator", {
         runId,
         host: classified.host,
         provider: classified.provider,
       });
-      rawListing = buildUrlOnlyRawListing(
-        ingestRequest.url,
-        classified.host,
-        `Couldn't auto-extract — ${classified.provider} blocks direct scrapers. Open the row for drawer-based detail fetch.`,
-      );
-      strategy = "url_only";
+      const browserUseResult = await tryBrowserUseCloudExtraction({
+        url: ingestRequest.url,
+        runId,
+        host: classified.host,
+        trigger: "blocked_aggregator",
+        dependencies: effectiveDependencies,
+      });
+      if (browserUseResult.ok) {
+        rawListing = browserUseResult.rawListing;
+        strategy = "browser_use_cloud";
+      } else {
+        rawListing = buildUrlOnlyRawListing(
+          ingestRequest.url,
+          classified.host,
+          `Couldn't auto-extract — ${classified.provider} blocks direct scrapers. Open the row for drawer-based detail fetch.`,
+        );
+        strategy = "url_only";
+      }
     } else if (classified.kind === "ats_direct") {
       const atsResult = await fetchFromAts(classified, effectiveDependencies);
       if (!atsResult.ok && classified.provider !== "workable") {
@@ -246,22 +265,55 @@ export async function handleIngestUrlWebhook(
         effectiveDependencies,
       );
       if (!scraped.ok) {
-        // Cheerio threw (HTTP 4xx/5xx upstream, timeout, or oversize page).
-        // Land the row anyway with URL-derived placeholders — the drawer
-        // enrichment will have another shot at fetching details when the
-        // user opens the row.
         dependencies.log?.("discovery.run.ingest_url_scrape_fallback", {
           runId,
           host: safeHost(ingestRequest.url),
           httpStatus: scraped.httpStatus,
           message: scraped.message,
         });
-        rawListing = buildUrlOnlyRawListing(
-          ingestRequest.url,
-          safeHost(ingestRequest.url),
-          `Couldn't auto-extract (${scraped.httpStatus ? `HTTP ${scraped.httpStatus}` : "scrape failed"}). Open the row for drawer-based detail fetch.`,
-        );
-        strategy = "url_only";
+        const browserUseResult = await tryBrowserUseCloudExtraction({
+          url: ingestRequest.url,
+          runId,
+          host: safeHost(ingestRequest.url),
+          trigger: "scrape_failed",
+          dependencies: effectiveDependencies,
+        });
+        if (browserUseResult.ok) {
+          rawListing = browserUseResult.rawListing;
+          strategy = "browser_use_cloud";
+        } else {
+          rawListing = buildUrlOnlyRawListing(
+            ingestRequest.url,
+            safeHost(ingestRequest.url),
+            `Couldn't auto-extract (${scraped.httpStatus ? `HTTP ${scraped.httpStatus}` : "scrape failed"}). Open the row for drawer-based detail fetch.`,
+          );
+          strategy = "url_only";
+        }
+      } else if (isWeakScrapedListing(scraped.rawListing)) {
+        dependencies.log?.("discovery.run.ingest_url_weak_scrape", {
+          runId,
+          host: safeHost(ingestRequest.url),
+          hasTitle: !!String(scraped.rawListing.title || "").trim(),
+          hasDescription: !!String(scraped.rawListing.descriptionText || "").trim(),
+        });
+        const browserUseResult = await tryBrowserUseCloudExtraction({
+          url: ingestRequest.url,
+          runId,
+          host: safeHost(ingestRequest.url),
+          trigger: "weak_scrape",
+          dependencies: effectiveDependencies,
+        });
+        if (browserUseResult.ok) {
+          rawListing = browserUseResult.rawListing;
+          strategy = "browser_use_cloud";
+        } else {
+          rawListing = buildUrlOnlyRawListing(
+            ingestRequest.url,
+            safeHost(ingestRequest.url),
+            "Couldn't auto-extract enough job details. Open the row for drawer-based detail fetch.",
+          );
+          strategy = "url_only";
+        }
       } else {
         rawListing = scraped.rawListing;
         strategy = scraped.strategy;
@@ -514,7 +566,7 @@ async function writeLeadAndRespond(input: {
   dependencies: HandleIngestUrlDependencies;
   sheetId: string;
   lead: NormalizedLead;
-  strategy: "ats_api" | "jsonld" | "cheerio_dom" | "manual_fill" | "url_only";
+  strategy: IngestUrlStrategy;
   runId: string;
 }): Promise<WebhookResponseLike> {
   const writeResult = await input.dependencies.pipelineWriter.write(
@@ -545,6 +597,62 @@ async function writeLeadAndRespond(input: {
     lead: input.lead,
     appended: writeResult.appended > 0,
   } satisfies IngestUrlResponseV1);
+}
+
+async function tryBrowserUseCloudExtraction(input: {
+  url: string;
+  runId: string;
+  host: string;
+  trigger: "blocked_aggregator" | "scrape_failed" | "weak_scrape";
+  dependencies: HandleIngestUrlDependencies;
+}): Promise<
+  | { ok: true; rawListing: RawListing }
+  | { ok: false; reason: string; message: string }
+> {
+  const extractor =
+    input.dependencies.extractWithBrowserUseCloud || extractJobWithBrowserUseCloud;
+  try {
+    const result = await extractor({
+      url: input.url,
+      runId: input.runId,
+      runtimeConfig: input.dependencies.runtimeConfig,
+    });
+    if (result.ok) {
+      input.dependencies.log?.("discovery.run.ingest_url_browser_use_completed", {
+        runId: input.runId,
+        host: input.host,
+        trigger: input.trigger,
+        confidence: result.confidence,
+      });
+      return { ok: true, rawListing: result.rawListing };
+    }
+    input.dependencies.log?.("discovery.run.ingest_url_browser_use_skipped", {
+      runId: input.runId,
+      host: input.host,
+      trigger: input.trigger,
+      reason: result.reason,
+      message: result.message,
+      hasApiKey: !!String(input.dependencies.runtimeConfig.browserUseApiKey || "").trim(),
+      hasProfileId: !!String(input.dependencies.runtimeConfig.browserUseProfileId || "").trim(),
+    });
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    input.dependencies.log?.("discovery.run.ingest_url_browser_use_failed", {
+      runId: input.runId,
+      host: input.host,
+      trigger: input.trigger,
+      message,
+    });
+    return { ok: false, reason: "extract_failed", message };
+  }
+}
+
+function isWeakScrapedListing(rawListing: RawListing): boolean {
+  return (
+    !String(rawListing.title || "").trim() ||
+    !String(rawListing.descriptionText || "").trim()
+  );
 }
 
 function safeHost(url: string): string {
