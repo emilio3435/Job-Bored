@@ -47,6 +47,11 @@
   var SORT_DEFAULT = "urgency";
   var COLLAPSED_STORAGE_KEY = "jb_pipelineCollapsedColumns";
   var DEFAULT_FOCUSED_STAGE = "researching";
+  // Hard cap: at most this many cards per company per column. Survivors are
+  // the company's top N by fitScore; the rest are dropped from the column
+  // entirely (and from its count). Discovery still records them in the sheet —
+  // they just don't crowd the kanban.
+  var COMPANY_VISIBLE_CAP = 3;
 
   var ric =
     typeof root.requestIdleCallback === "function"
@@ -127,12 +132,51 @@
     return Number.isFinite(n) ? n : -Infinity;
   }
 
+  function companyKey(card) {
+    return String((card && card.company) || "").trim().toLowerCase();
+  }
+
+  function fitScoreOf(card) {
+    return card && card.fitScore == null ? -Infinity : card.fitScore;
+  }
+
+  function capCardsByFit(cards) {
+    // For each company with more than COMPANY_VISIBLE_CAP cards in this set,
+    // keep only the top N by fitScore. Cards with no company are never capped.
+    // Preserves original relative order so downstream sortCards can re-order.
+    var byCompany = Object.create(null);
+    cards.forEach(function (card, idx) {
+      var k = companyKey(card);
+      if (!k) return;
+      if (!byCompany[k]) byCompany[k] = [];
+      byCompany[k].push({ card: card, idx: idx });
+    });
+    var keepIdx = Object.create(null);
+    cards.forEach(function (card, idx) {
+      if (!companyKey(card)) keepIdx[idx] = true;
+    });
+    Object.keys(byCompany).forEach(function (k) {
+      var list = byCompany[k];
+      if (list.length <= COMPANY_VISIBLE_CAP) {
+        list.forEach(function (entry) { keepIdx[entry.idx] = true; });
+        return;
+      }
+      var sorted = list.slice().sort(function (a, b) {
+        return fitScoreOf(b.card) - fitScoreOf(a.card);
+      });
+      sorted.slice(0, COMPANY_VISIBLE_CAP).forEach(function (entry) {
+        keepIdx[entry.idx] = true;
+      });
+    });
+    return cards.filter(function (_card, idx) { return !!keepIdx[idx]; });
+  }
+
   function sortCards(cards, mode) {
     var copy = cards.slice();
     if (mode === "fit") {
       copy.sort(function (a, b) {
-        var av = a.fitScore == null ? -Infinity : a.fitScore;
-        var bv = b.fitScore == null ? -Infinity : b.fitScore;
+        var av = fitScoreOf(a);
+        var bv = fitScoreOf(b);
         if (av !== bv) return bv - av;
         return 0;
       });
@@ -875,7 +919,7 @@
       body.innerHTML = "";
       var cards = s.key === "new" ? (vm.untriaged || []) : (stageMap[s.key] || []);
       var searchActive = hasActiveSearch(state);
-      var ordered = sortCards(filterCardsBySearch(cards, state), state.sort);
+      var ordered = sortCards(capCardsByFit(filterCardsBySearch(cards, state)), state.sort);
       var searchMatch = searchActive && ordered.length > 0;
       if (ordered.length === 0) {
         body.innerHTML = emptyPlaceholderHtml(s.key);
