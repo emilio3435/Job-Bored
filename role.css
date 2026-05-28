@@ -1329,3 +1329,454 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   .brief__skeleton { padding: 18px 18px 20px; }
   .brief__skeleton-status { text-align: left; }
 }
+
+/* ════════════════════════════════════════════════════════
+   Application Materials — Hermes-generated artifacts panel
+   ------------------------------------------------------------
+   Rendered by role-materials.js inside [data-mount="brief"]
+   after the existing brief columns. Visual language follows
+   the JobBored editorial palette (parchment surface, crimson
+   accent, mono labels) so the panel reads as the same product.
+   ════════════════════════════════════════════════════════ */
+
+body.jb-v2 .brief-materials {
+  display: block;
+  margin: 0 56px 48px;
+  padding: 22px 24px 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--crimson);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-soft);
+  position: relative;
+}
+.brief-materials__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.brief-materials__head .section-label {
+  margin: 0;
+  flex: 1;
+}
+.brief-materials__eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--mute);
+  text-transform: uppercase;
+}
+.brief-materials__derived {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  color: var(--amber);
+  background: rgba(231, 181, 73, 0.12);
+  border: 1px solid rgba(231, 181, 73, 0.35);
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+.brief-materials__empty {
+  margin: 6px 0 0;
+  font-family: var(--serif);
+  font-size: 15px;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+.brief-materials__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.brief-materials__card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--parchment, #FBF7EE);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  padding: 14px 16px 16px;
+  position: relative;
+  transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+.brief-materials__card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
+}
+.brief-materials__card--primary {
+  background: var(--mint-soft, #E5F4EA);
+  border-color: var(--mint-deep, #3FA46A);
+}
+.brief-materials__card--primary:hover {
+  border-color: var(--navy);
+}
+.brief-materials__card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.brief-materials__card-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--navy);
+  font-weight: 600;
+}
+.brief-materials__card-status {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mint-deep);
+  background: rgba(63, 164, 106, 0.12);
+  border: 1px solid rgba(63, 164, 106, 0.32);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.brief-materials__card-status[data-status="needs_review"] {
+  color: var(--amber);
+  background: rgba(231, 181, 73, 0.14);
+  border-color: rgba(231, 181, 73, 0.4);
+}
+.brief-materials__card-status[data-status="pending"] {
+  color: var(--amber);
+  background: rgba(231, 181, 73, 0.14);
+  border-color: rgba(231, 181, 73, 0.4);
+  position: relative;
+  padding-left: 18px;
+}
+.brief-materials__card-status[data-status="pending"]::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+  transform: translateY(-50%);
+  animation: brief-materials-pulse 1400ms ease-in-out infinite;
+}
+.brief-materials__card--pending {
+  background: var(--parchment, #FBF7EE);
+  border-color: rgba(231, 181, 73, 0.45);
+  border-left: 3px solid var(--amber);
+}
+.brief-materials__hint {
+  margin: 8px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--mute);
+  letter-spacing: 0.04em;
+}
+/* -------------------- progress card (Winky watcher live state) -------------------- */
+.brief-materials__progress {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 14px;
+  align-items: start;
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md, 10px);
+  background: linear-gradient(180deg, rgba(231, 181, 73, 0.14) 0%, rgba(231, 181, 73, 0.07) 100%);
+  border: 1px solid rgba(231, 181, 73, 0.42);
+  color: var(--navy);
+  position: relative;
+  overflow: hidden;
+}
+/* Faint scan-line shimmer to give the "live work" feeling without
+   being noisy. Slow on purpose — agents take minutes, not seconds. */
+.brief-materials__progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.32) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: brief-materials-shimmer 3800ms ease-in-out infinite;
+  pointer-events: none;
+}
+.brief-materials__progress[data-phase="complete"] {
+  background: linear-gradient(180deg, rgba(76, 175, 116, 0.16) 0%, rgba(76, 175, 116, 0.08) 100%);
+  border-color: rgba(76, 175, 116, 0.55);
+}
+.brief-materials__progress[data-phase="complete"]::after { display: none; }
+.brief-materials__progress[data-phase="failed"] {
+  background: linear-gradient(180deg, rgba(192, 76, 76, 0.14) 0%, rgba(192, 76, 76, 0.06) 100%);
+  border-color: rgba(192, 76, 76, 0.55);
+}
+.brief-materials__progress[data-phase="failed"]::after { display: none; }
+.brief-materials__progress-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--amber);
+  position: relative;
+  z-index: 1;
+}
+.brief-materials__progress[data-phase="complete"] .brief-materials__progress-icon {
+  color: #2f8a5e;
+  background: rgba(255, 255, 255, 0.85);
+}
+.brief-materials__progress[data-phase="failed"] .brief-materials__progress-icon {
+  color: #b03e3e;
+  background: rgba(255, 255, 255, 0.85);
+}
+.brief-materials__progress-clock {
+  animation: brief-materials-clock-spin 4200ms linear infinite;
+  transform-origin: 50% 50%;
+}
+.brief-materials__progress[data-phase="queued"] .brief-materials__progress-clock {
+  animation-duration: 6000ms;
+  opacity: 0.7;
+}
+.brief-materials__progress[data-phase="verifying"] .brief-materials__progress-clock {
+  animation-duration: 1800ms;
+}
+.brief-materials__progress-check {
+  animation: brief-materials-pop-in 320ms ease-out 1;
+}
+.brief-materials__progress-body {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+.brief-materials__progress-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.brief-materials__progress-eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.brief-materials__progress[data-phase="complete"] .brief-materials__progress-eyebrow {
+  color: #2f8a5e;
+}
+.brief-materials__progress[data-phase="failed"] .brief-materials__progress-eyebrow {
+  color: #b03e3e;
+}
+.brief-materials__progress-elapsed {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.brief-materials__progress-message {
+  font-family: var(--serif, Georgia, serif);
+  font-size: 15px;
+  line-height: 1.35;
+  color: var(--navy);
+  margin: 0;
+}
+.brief-materials__progress-note {
+  margin-top: 8px;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+.brief-materials__progress-meta {
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.brief-materials__progress-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.brief-materials__progress-actions .brief-materials__btn {
+  padding: 6px 14px;
+  font-size: 12px;
+}
+@keyframes brief-materials-clock-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes brief-materials-shimmer {
+  0%   { transform: translateX(-100%); }
+  60%  { transform: translateX(120%); }
+  100% { transform: translateX(120%); }
+}
+@keyframes brief-materials-pop-in {
+  0%   { transform: scale(0.6); opacity: 0; }
+  60%  { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+/* "On it!" celebration state on the notes form submit button. */
+.brief-materials__notes-form--sent {
+  border-color: rgba(76, 175, 116, 0.55);
+  background: linear-gradient(180deg, rgba(76, 175, 116, 0.10) 0%, rgba(76, 175, 116, 0.04) 100%);
+}
+.brief-materials__notes-form--sent .brief-materials__notes-eyebrow {
+  color: #2f8a5e;
+}
+.brief-materials__notes-form--sent .brief-materials__btn--primary {
+  background: #2f8a5e;
+  border-color: #2f8a5e;
+  color: #fff;
+  cursor: default;
+  animation: brief-materials-pop-in 260ms ease-out;
+}
+.brief-materials__notes-sent-icon {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .brief-materials__progress-clock,
+  .brief-materials__progress::after {
+    animation: none !important;
+  }
+}
+.brief-materials__card-meta {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  letter-spacing: 0.02em;
+}
+.brief-materials__dot {
+  color: var(--mute);
+  padding: 0 2px;
+}
+.brief-materials__card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: auto;
+}
+.brief-materials__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+.brief-materials__btn--primary {
+  background: var(--navy);
+  color: #F6F1DF;
+  border: 1px solid var(--navy);
+}
+.brief-materials__btn--primary:hover {
+  background: var(--crimson);
+  border-color: var(--crimson);
+  transform: translateY(-1px);
+}
+.brief-materials__btn--ghost {
+  background: transparent;
+  color: var(--navy);
+  border: 1px solid var(--border-strong);
+}
+.brief-materials__btn--ghost:hover {
+  background: var(--parchment-deep);
+  border-color: var(--navy);
+}
+.brief-materials--error .brief-materials__empty {
+  color: var(--crimson);
+  font-style: normal;
+}
+
+/* -------------------- inline notes form --------------------
+   Sits as a sibling above .brief-materials when the user clicks
+   Draft cover letter / Tailor resume. Non-modal: keeps the rest of
+   the dossier interactive. Styled to match the parchment palette. */
+.brief-materials__notes-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 56px 16px;
+  padding: 18px 20px 16px;
+  background: var(--parchment, #FBF7EE);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--navy);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-soft);
+}
+.brief-materials__notes-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.brief-materials__notes-title {
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--navy);
+}
+.brief-materials__notes-eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.brief-materials__notes-textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--navy);
+  background: #FFFDF6;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md, 8px);
+  box-sizing: border-box;
+}
+.brief-materials__notes-textarea:focus {
+  outline: none;
+  border-color: var(--navy);
+  box-shadow: 0 0 0 2px rgba(20, 32, 64, 0.12);
+}
+.brief-materials__notes-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  body.jb-v2 .brief-materials {
+    margin: 12px 24px 0;
+    padding: 18px 18px 20px;
+  }
+  .brief-materials__grid {
+    grid-template-columns: 1fr;
+  }
+  .brief-materials__notes-form {
+    margin: 12px 24px 12px;
+    padding: 14px 16px;
+  }
+}

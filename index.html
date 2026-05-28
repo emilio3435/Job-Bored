@@ -43,8 +43,12 @@
     <script src="pipeline.js" defer></script>
     <script src="role.js" defer></script>
     <script src="role-brief.js" defer></script>
-    <script src="role-workshop.js" defer></script>
-    <script src="letter.js" defer></script>
+    <script src="role-materials.js" defer></script>
+    <!-- role-workshop.js + letter.js removed in materials-first pivot -->
+    <!-- (2026-05-27). The dossier owns the canonical CTAs and the     -->
+    <!-- materials panel; PART 04 is gone.                             -->
+    <!-- <script src="role-workshop.js" defer></script>                -->
+    <!-- <script src="letter.js" defer></script>                       -->
     <script src="flowing-writes.js" defer></script>
     <script src="scribe.js" defer></script>
     <script>
@@ -101,9 +105,15 @@
     <section data-region="role" aria-label="Role dossier (v2)"></section>
     <!-- region:role:end -->
 
-    <!-- region:letter:start -->
-    <section data-region="letter" aria-label="Letter & Scorecard (v2)"></section>
-    <!-- region:letter:end -->
+    <!-- region:letter:removed -->
+    <!--
+      PART 04 (Workshop / Letter region) was removed in the materials-first
+      pivot (2026-05-27). The dossier CTAs now request drafts from Hermes
+      via /api/applications/:slug/request and surface the artifacts inside
+      the Application Materials panel in the role dossier. letter.js and
+      role-workshop.js are kept on disk to avoid breaking legacy tests but
+      are no longer loaded by index.html.
+    -->
 
     <!-- region:lattice:start -->
     <!-- LATTICE owns this block: Pipeline kanban (replacement). -->

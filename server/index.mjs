@@ -5,6 +5,7 @@
  */
 import "dotenv/config";
 import express from "express";
+import { createReadStream } from "node:fs";
 import { normalizeAtsRequestPayload } from "./ats-request-payload.mjs";
 import { analyzeAtsScorecard, getAtsConfigStatus } from "./ats-scorecard.mjs";
 import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
@@ -13,6 +14,16 @@ import {
   resolveAllowedBrowserOrigin,
   validateScrapeTarget,
 } from "./security-boundaries.mjs";
+import {
+  buildManifest,
+  dismissPending,
+  listApplications,
+  resolveFile,
+} from "./application-materials.mjs";
+import {
+  normalizeRequestBody,
+  spawnMaterialsRequest,
+} from "./materials-request.mjs";
 
 const PORT = Number(process.env.PORT) || 3847;
 /** 127.0.0.1 for local dev; set LISTEN_HOST=0.0.0.0 on Render/Fly/Docker so the service accepts external traffic. */
@@ -162,6 +173,96 @@ app.post("/api/ats-scorecard", async (req, res) => {
     };
     res.status(status).json(responseBody);
     console.warn(`[ats-scorecard] requestId=${requestId} status=${status} error=${msg}`);
+  }
+});
+
+/* ----- Application materials (read-only local file surface) -----
+ * GET /api/applications                       → list known packages
+ * GET /api/applications/:slug/manifest        → JSON manifest (derived
+ *                                                from disk when manifest.json
+ *                                                is absent)
+ * GET /api/applications/:slug/files/:filename → stream allowlisted file
+ *
+ * These endpoints only ever read from ~/.hermes/job-hunt/applications/
+ * (override via HERMES_APPLICATIONS_ROOT). The allowlist + slug pattern +
+ * realpath check in application-materials.mjs are what keep this safe.
+ */
+function sendAppError(res, err) {
+  const status = Number(err && err.statusCode);
+  const message = err && err.message ? String(err.message) : "Application materials error";
+  res.status(Number.isFinite(status) ? status : 500).json({ error: message });
+}
+
+app.get("/api/applications", async (_req, res) => {
+  try {
+    const apps = await listApplications();
+    res.json({ applications: apps });
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+app.get("/api/applications/:slug/manifest", async (req, res) => {
+  try {
+    const manifest = await buildManifest(req.params.slug);
+    res.json(manifest);
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+app.post("/api/applications/:slug/request", async (req, res) => {
+  try {
+    /* The body's slug must agree with the URL slug to keep the
+     * contract obvious and avoid accidental cross-slug requests. */
+    const body = { ...(req.body || {}), slug: req.params.slug };
+    const payload = normalizeRequestBody(body);
+    const result = await spawnMaterialsRequest(payload);
+    res.json(result);
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+/* Dismisses a stuck/failed pending.json by archiving it (rename, not
+ * delete) so the JobBored UI clears its FAILED card without losing
+ * the watcher's last-known state. Intended for the user clicking
+ * "Dismiss" on a terminal-phase progress card — Winky leaves
+ * pending.json in place on failure by design. */
+app.post("/api/applications/:slug/dismiss", async (req, res) => {
+  try {
+    const result = await dismissPending(req.params.slug);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+app.get("/api/applications/:slug/files/:filename", async (req, res) => {
+  try {
+    const meta = await resolveFile(req.params.slug, req.params.filename);
+    res.setHeader("Content-Type", meta.contentType);
+    res.setHeader("Content-Length", String(meta.size));
+    res.setHeader("Last-Modified", meta.modifiedAt);
+    res.setHeader("Cache-Control", "no-store");
+    /* PDFs default to inline (browsers know how to preview), HTML renders
+     * in a new tab, and Markdown is served as text/markdown so the
+     * dashboard can fetch + render it. The "download" intent is the
+     * client's call — they pass ?download=1 to force an attachment. */
+    if (String(req.query.download || "") === "1") {
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${req.params.filename.replace(/"/g, "")}"`,
+      );
+    }
+    const stream = createReadStream(meta.absolutePath);
+    stream.on("error", (err) => {
+      if (!res.headersSent) sendAppError(res, err);
+      else res.end();
+    });
+    stream.pipe(res);
+  } catch (e) {
+    sendAppError(res, e);
   }
 });
 
