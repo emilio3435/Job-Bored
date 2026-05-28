@@ -4,7 +4,26 @@
 
 set -euo pipefail
 
-KEY_DIR="${1:-/Users/emilionunezgarcia/Downloads/Jobbored-Rotated-Keys-2026-05-27}"
+ROTATED_KEYS_DIR_NAME="Jobbored-Rotated-Keys-2026-05-27"
+KEY_DIR_ARG="${1:-${JOBBORED_ROTATED_KEYS_DIR:-}}"
+if [ -n "$KEY_DIR_ARG" ]; then
+  KEY_DIR="$KEY_DIR_ARG"
+else
+  KEY_DIR=""
+  for candidate in \
+    "$HOME/Downloads/$ROTATED_KEYS_DIR_NAME" \
+    "/Users/emiliong/Downloads/$ROTATED_KEYS_DIR_NAME" \
+    "/Users/emilionunezgarcia/Downloads/$ROTATED_KEYS_DIR_NAME"
+  do
+    if [ -d "$candidate" ]; then
+      KEY_DIR="$candidate"
+      break
+    fi
+  done
+  if [ -z "$KEY_DIR" ]; then
+    KEY_DIR="$HOME/Downloads/$ROTATED_KEYS_DIR_NAME"
+  fi
+fi
 JOBBORED_REPO="${JOBBORED_REPO:-$HOME/GitHub/emilio3435/Job-Bored}"
 WORKER_DIR="${BROWSER_USE_DISCOVERY_WORKER_DIR:-$JOBBORED_REPO/integrations/browser-use-discovery}"
 ENV_FILE="${BROWSER_USE_DISCOVERY_WORKER_ENV:-$WORKER_DIR/.env}"
