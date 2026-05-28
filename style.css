@@ -517,6 +517,20 @@ textarea {
   background: var(--bg);
 }
 
+/* Pre-paint guard (set by the inline boot script in index.html when a
+ * valid OAuth runtime token is in localStorage). Reveals the dashboard
+ * on the very first paint so the user never sees a blank/login flash
+ * on refresh. The full app.js init then hydrates real data underneath.
+ * Inline style="display:none" attributes have higher specificity than
+ * this rule, so we use !important — the inline JS will swap them
+ * properly once init runs. */
+html.auth-prepaint-dashboard #dashboard {
+  display: block !important;
+}
+html.auth-prepaint-dashboard #sheetAccessGateScreen {
+  display: none !important;
+}
+
 .login-gate__split {
   display: flex;
   width: 100%;

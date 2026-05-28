@@ -152,17 +152,20 @@ export function spawnMaterialsRequest(payload, options = {}) {
       if (text) {
         try { parsed = JSON.parse(text); } catch { parsed = null; }
       }
-      /* Exit 2 means Telegram failed but pending.json was still
-       * written — we surface this as 502 with the payload attached
-       * so the UI can show a "queued but Telegram failed" hint. */
+      /* materials_request.py always returns 0 once pending.json is
+       * on disk — Telegram delivery is a non-blocking side effect.
+       * If telegram_error is present in the payload it's metadata
+       * for the UI to show a soft warning; the request itself is
+       * still successful. */
       if (code === 0) {
         return resolveFn(parsed || { ok: true });
       }
+      /* Legacy: older versions of the Python script could exit 2 on
+       * Telegram failure. Treat as success too — Hermes will still
+       * draft because pending.json was written. */
       if (code === 2 && parsed) {
-        const e = new Error(parsed.telegram_error || "Telegram send failed");
-        e.statusCode = 502;
-        e.body = parsed;
-        return rejectFn(e);
+        parsed.ok = true;
+        return resolveFn(parsed);
       }
       const message = parsed && parsed.error
         ? parsed.error

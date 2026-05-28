@@ -203,8 +203,15 @@ def main() -> int:
     }
     if telegram_error:
         out["telegram_error"] = telegram_error
+        # Telegram is a side-effect notifier, not the materials pipeline.
+        # pending.json was written; Winky's watcher will pick it up
+        # regardless of whether the Telegram heads-up made it through.
+        # Returning 0 keeps the JobBored optimistic UI intact (progress
+        # card stays visible); the Telegram error is surfaced as metadata
+        # so callers can show a non-blocking warning if they want.
+        out["ok"] = True
     print(json.dumps(out))
-    return 0 if telegram_error is None else 2
+    return 0
 
 
 if __name__ == "__main__":

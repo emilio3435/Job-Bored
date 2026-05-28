@@ -85,6 +85,38 @@
   </head>
   <body>
     <!-- ============================================================ -->
+    <!-- AUTH PRE-PAINT GUARD                                         -->
+    <!-- Runs SYNCHRONOUSLY (no defer/async) before any other JS so   -->
+    <!-- the first paint shows the right screen. Without this, the    -->
+    <!-- dashboard stays hidden until DOMContentLoaded → GIS load →   -->
+    <!-- silent-restore (~200-500ms), and the user sees a blank flash -->
+    <!-- or a flash of the login gate before the dashboard appears.  -->
+    <!-- ============================================================ -->
+    <script>
+      (function () {
+        try {
+          var rawRuntime = localStorage.getItem("command_center_oauth_runtime");
+          if (!rawRuntime) {
+            try {
+              rawRuntime = sessionStorage.getItem("command_center_oauth_runtime");
+            } catch (e) { /* ignore */ }
+          }
+          if (!rawRuntime) return;
+          var o = JSON.parse(rawRuntime);
+          if (!o || typeof o !== "object" || typeof o.accessToken !== "string") return;
+          var expiresAt = Number(o.expiresAt);
+          if (!Number.isFinite(expiresAt)) return;
+          // Allow 60s negative clock skew, matching app.js's logic.
+          if (expiresAt + 60_000 < Date.now()) return;
+          // Mark the html element so CSS can reveal the dashboard on
+          // the very first paint. The full app.js init still runs and
+          // hydrates real data; this just prevents the blank/flash.
+          document.documentElement.classList.add("auth-prepaint-dashboard");
+        } catch (e) { /* never break the page on a storage error */ }
+      })();
+    </script>
+
+    <!-- ============================================================ -->
     <!-- JB-V2 REGIONS — DO NOT remove or rename. Owned by Phase 3 agents. -->
     <!-- Each region renders only when body.jb-v2 is set. Legacy markup -->
     <!-- remains in place outside these blocks for the off-flag fallback. -->
