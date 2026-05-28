@@ -51,7 +51,7 @@ COL_APPROVAL = 23     # X: Approval Status
 
 COLUMN_COUNT = 24     # A through X
 
-GATE2_TARGET = "telegram:-1003800236296:48"
+GATE2_TARGET = "telegram:-1003800236296:314"
 GATE2_TIMEOUT_SECONDS = 600  # 10 minutes
 
 

@@ -36,6 +36,7 @@ WORKER_HOST="127.0.0.1"
 WORKER_URL="http://${WORKER_HOST}:${WORKER_PORT}"
 HEALTH_URL="${WORKER_URL}/health"
 WEBHOOK_URL="${WORKER_URL}/webhook"
+WORKER_LOG="${BROWSER_USE_DISCOVERY_WORKER_LOG:-/tmp/jobbored-worker.log}"
 
 # ─── Read required values from config files ─────────────────────────────
 SHEET_ID=$("$PYTHON_BIN" -c "import json; print(json.load(open('$WORKER_CONFIG'))['sheetId'])" 2>/dev/null || echo "")
@@ -55,31 +56,75 @@ if [ -z "$WEBHOOK_SECRET" ]; then
 fi
 
 # ─── Ensure worker is running ───────────────────────────────────────────
-if ! curl -sf "$HEALTH_URL" >/dev/null 2>&1; then
+wait_for_worker() {
+  local worker_pid="${1:-}"
+  for i in $(seq 1 25); do
+    if curl -sf "$HEALTH_URL" >/dev/null 2>&1; then
+      return 0
+    fi
+    if [ -n "$worker_pid" ] && ! kill -0 "$worker_pid" 2>/dev/null; then
+      echo "ERROR: Worker process died during startup. Check $WORKER_LOG"
+      tail -20 "$WORKER_LOG" 2>/dev/null || true
+      exit 1
+    fi
+    sleep 1
+  done
+  echo "ERROR: Worker did not become healthy within 25 seconds"
+  exit 1
+}
+
+start_worker() {
   echo "Worker not running on port $WORKER_PORT. Starting..."
   cd "$WORKER_DIR"
   # Source .env for the worker process
   set -a; source "$WORKER_ENV" 2>/dev/null || true; set +a
   # Pass service account explicitly — .env variable expansion doesn't reach Node process.env
-  nohup env BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE="$BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE" node --experimental-strip-types src/server.ts > /tmp/jobbored-worker.log 2>&1 &
+  nohup env BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE="${BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE:-}" node --experimental-strip-types src/server.ts > "$WORKER_LOG" 2>&1 &
   WORKER_PID=$!
-  # Wait up to 15 seconds for startup
-  for i in $(seq 1 15); do
-    if curl -sf "$HEALTH_URL" >/dev/null 2>&1; then
-      break
-    fi
-    if ! kill -0 "$WORKER_PID" 2>/dev/null; then
-      echo "ERROR: Worker process died during startup. Check /tmp/jobbored-worker.log"
-      tail -20 /tmp/jobbored-worker.log 2>/dev/null || true
-      exit 1
-    fi
-    sleep 1
-  done
-  if ! curl -sf "$HEALTH_URL" >/dev/null 2>&1; then
-    echo "ERROR: Worker did not become healthy within 15 seconds"
+  wait_for_worker "$WORKER_PID"
+  echo "Worker started (PID $WORKER_PID)"
+}
+
+worker_pid_for_port() {
+  if ! command -v lsof >/dev/null 2>&1; then
+    return 1
+  fi
+  lsof -tiTCP:"$WORKER_PORT" -sTCP:LISTEN 2>/dev/null | head -1
+}
+
+restart_worker_after_secret_mismatch() {
+  local pid command_line
+  pid="$(worker_pid_for_port || true)"
+  if [ -z "$pid" ]; then
+    echo "ERROR: Cannot restart worker after 401 because no listener PID was found for port $WORKER_PORT."
     exit 1
   fi
-  echo "Worker started (PID $WORKER_PID)"
+  command_line="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+  case "$command_line" in
+    *browser-use-discovery*|*src/server.ts*)
+      echo "Worker rejected x-discovery-secret; restarting PID $pid to reload $WORKER_ENV."
+      kill "$pid" 2>/dev/null || true
+      for i in $(seq 1 10); do
+        if ! kill -0 "$pid" 2>/dev/null; then
+          break
+        fi
+        sleep 1
+      done
+      if kill -0 "$pid" 2>/dev/null; then
+        echo "ERROR: Worker PID $pid did not stop after SIGTERM; leaving it running."
+        exit 1
+      fi
+      start_worker
+      ;;
+    *)
+      echo "ERROR: Refusing to restart unknown process on port $WORKER_PORT: $command_line"
+      exit 1
+      ;;
+  esac
+}
+
+if ! curl -sf "$HEALTH_URL" >/dev/null 2>&1; then
+  start_worker
 fi
 
 # ─── Get fresh Google OAuth access token ─────────────────────────────────
@@ -130,15 +175,51 @@ if tok:
 print(json.dumps(d))
 ")
 
-RESPONSE=$(curl -sf -X POST "$WEBHOOK_URL" \
-  -H "Content-Type: application/json" \
-  -H "x-discovery-secret: $WEBHOOK_SECRET" \
-  -d "$PAYLOAD" \
-  --max-time 300 2>&1) || {
-    echo "ERROR: Webhook POST failed"
+RESPONSE_BODY=$(mktemp "${TMPDIR:-/tmp}/jobbored-discovery-webhook.XXXXXX")
+CURL_ERROR=$(mktemp "${TMPDIR:-/tmp}/jobbored-discovery-curl.XXXXXX")
+trap 'rm -f "$RESPONSE_BODY" "$CURL_ERROR"' EXIT
+
+post_webhook() {
+  HTTP_STATUS=$(curl -sS -X POST "$WEBHOOK_URL" \
+    -H "Content-Type: application/json" \
+    -H "x-discovery-secret: $WEBHOOK_SECRET" \
+    -d "$PAYLOAD" \
+    --max-time 300 \
+    -o "$RESPONSE_BODY" \
+    -w "%{http_code}" \
+    2>"$CURL_ERROR") || {
+      echo "ERROR: Webhook POST failed"
+      if [ -s "$CURL_ERROR" ]; then
+        cat "$CURL_ERROR"
+      fi
+      if [ -s "$RESPONSE_BODY" ]; then
+        cat "$RESPONSE_BODY"
+      fi
+      exit 1
+    }
+  RESPONSE=$(cat "$RESPONSE_BODY")
+}
+
+post_webhook
+
+if [ "$HTTP_STATUS" = "401" ]; then
+  restart_worker_after_secret_mismatch
+  : > "$RESPONSE_BODY"
+  : > "$CURL_ERROR"
+  post_webhook
+fi
+
+if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+  echo "ERROR: Webhook POST failed"
+  echo "HTTP status: $HTTP_STATUS"
+  if [ -n "$RESPONSE" ]; then
     echo "$RESPONSE"
-    exit 1
-  }
+  fi
+  if [ "$HTTP_STATUS" = "401" ]; then
+    echo "Hint: the worker rejected x-discovery-secret. Restart the worker after syncing $WORKER_ENV, or make Dobby's BROWSER_USE_DISCOVERY_WEBHOOK_SECRET match the running worker."
+  fi
+  exit 1
+fi
 
 # ─── Parse and report ───────────────────────────────────────────────────
 OK=$(echo "$RESPONSE" | python3 -c "import json,sys; r=json.load(sys.stdin); print(r.get('ok', False))" 2>/dev/null || echo "False")
