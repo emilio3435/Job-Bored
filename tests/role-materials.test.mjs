@@ -433,6 +433,8 @@ describe("renderManifest", () => {
     assert.match(html, /data-status="needs_review"/);
     assert.match(html, /Review/);
     assert.match(html, /Second page has 126 words/);
+    assert.match(html, /data-action="materials-repair"/);
+    assert.match(html, /data-feature="resume"/);
   });
 
   it("renderEmpty renders a single placeholder message", () => {
