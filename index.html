@@ -29,6 +29,7 @@
     <link rel="stylesheet" href="flowing-chrome.css" />
     <link rel="stylesheet" href="pipeline.css" />
     <link rel="stylesheet" href="role.css" />
+    <link rel="stylesheet" href="materials-queue.css" />
     <link rel="stylesheet" href="letter.css" />
     <link rel="stylesheet" href="scribe.css" />
     <link rel="stylesheet" href="welcome.css" />
@@ -44,6 +45,7 @@
     <script src="role.js" defer></script>
     <script src="role-brief.js" defer></script>
     <script src="role-materials.js" defer></script>
+    <script src="materials-queue.js" defer></script>
     <!-- role-workshop.js + letter.js removed in materials-first pivot -->
     <!-- (2026-05-27). The dossier owns the canonical CTAs and the     -->
     <!-- materials panel; PART 04 is gone.                             -->
@@ -100,6 +102,15 @@
     <!-- region:pipeline:start -->
     <section data-region="pipeline" aria-label="Pipeline (v2)"></section>
     <!-- region:pipeline:end -->
+
+    <!-- region:materials-queue:start
+         Global materials-drafting queue strip. Renders only when one
+         or more pending.json files are on disk anywhere in
+         ~/.hermes/job-hunt/applications/. Mounted near the top so
+         the user can see what Winky is working on regardless of
+         which dossier is open. -->
+    <section data-region="materials-queue" aria-label="Materials drafting queue" hidden></section>
+    <!-- region:materials-queue:end -->
 
     <!-- region:role:start -->
     <section data-region="role" aria-label="Role dossier (v2)"></section>

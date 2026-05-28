@@ -235,21 +235,6 @@
     return "";
   }
 
-  function pendingAffectsType(pending, docType) {
-    if (!pending || !pending.feature) return false;
-    /* Don't paint cards as "Generating…" once the run is terminal. A
-       FAILED banner should not visually claim its sibling cards are
-       still in progress. */
-    var phase = pending.progress && pending.progress.phase;
-    if (phase === "failed" || phase === "complete") return false;
-    if (pending.feature === "both") {
-      return docType === "resume" || docType === "cover_letter";
-    }
-    if (pending.feature === "resume") return docType === "resume";
-    if (pending.feature === "cover_letter") return docType === "cover_letter";
-    return false;
-  }
-
   function renderCard(slug, doc, base, pending) {
     var meta = DOC_LABELS[doc.type] || { label: doc.label || doc.type, role: "support" };
     var primaryFile = ALLOWED_FILES[doc.primary] || null;
@@ -264,9 +249,12 @@
       : "";
     var updatedRel = formatRelative(doc.lastModifiedAt);
     var typeAttr = escapeHtml(doc.type);
-    var isPending = pendingAffectsType(pending, doc.type);
-    var statusLabel = isPending ? "Generating…" : "Ready";
-    var statusAttr = isPending ? "pending" : "ready";
+    /* No "Generating…" pill on ready cards — the big progress banner
+       above already owns that signal. We keep "Ready" so users see
+       the card status at a glance. */
+    var isPending = false;
+    var statusLabel = "Ready";
+    var statusAttr = "ready";
 
     var actions = [];
     if (hasPreview && preview) {
@@ -306,19 +294,6 @@
       + '</header>'
       + (metaParts.length ? '<p class="brief-materials__card-meta">' + metaParts.join(' <span class="brief-materials__dot">·</span> ') + '</p>' : '')
       + '<footer class="brief-materials__card-actions">' + actions.join("") + '</footer>'
-      + '</article>';
-  }
-
-  function renderPendingPlaceholderCard(slug, type) {
-    var meta = DOC_LABELS[type] || { label: type, role: "primary" };
-    return '<article class="brief-materials__card brief-materials__card--primary brief-materials__card--pending"'
-      + ' data-doc-type="' + escapeHtml(type) + '">'
-      + '<header class="brief-materials__card-head">'
-        + '<span class="brief-materials__card-label">' + escapeHtml(meta.label) + '</span>'
-        + '<span class="brief-materials__card-status" data-status="pending">Generating…</span>'
-      + '</header>'
-      + '<p class="brief-materials__card-meta">Hermes is drafting this · check Telegram</p>'
-      + '<footer class="brief-materials__card-actions"></footer>'
       + '</article>';
   }
 
@@ -366,7 +341,7 @@
   function defaultPhaseMessage(phase, feature) {
     var label = featureLabel(feature);
     switch (phase) {
-      case "queued":         return "Winky is queuing up your " + label + "…";
+      case "queued":         return "Your " + label + " is in line. Winky drafts one role at a time and will pick this up next.";
       case "drafting":       return "Winky is drafting your " + label + "…";
       case "rendering_pdf":  return "Polishing the PDFs…";
       case "verifying":      return "Double-checking the outputs…";
@@ -408,6 +383,13 @@
   function pendingBannerHtml(pending) {
     if (!pending || !pending.feature) return "";
     var progress = pending.progress || null;
+    /* Phase resolution:
+       - explicit progress.phase wins
+       - no progress block at all = "queued" (request landed, watcher
+         hasn't claimed the file yet; can sit here for minutes if a
+         prior draft is in flight since Winky's concurrency=1)
+       This distinction matters because "drafting at 0s" looks broken;
+       "QUEUED · waiting for Winky" reads as expected. */
     var phase = (progress && progress.phase) || "queued";
     /* Treat "complete" as a celebratory state — same card structure,
        different visuals (no spin, check icon). Once Winky deletes
@@ -424,27 +406,34 @@
       noteSnippet = t.length > 110 ? t.slice(0, 107) + "…" : t;
     }
     var requestedRel = formatRelative(pending.requestedAt);
+    /* Larger icons in the enlarged card. The clock SVG keeps its
+       inline width attribute internal — we just upscale via CSS via
+       the parent class. */
     var iconHtml = isComplete
-      ? ('<svg class="brief-materials__progress-check" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      ? ('<svg class="brief-materials__progress-check" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
          + '<polyline points="20 6 9 17 4 12"></polyline></svg>')
       : (isFailed
-         ? ('<svg class="brief-materials__progress-failed" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+         ? ('<svg class="brief-materials__progress-failed" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
             + '<circle cx="12" cy="12" r="10"></circle>'
             + '<line x1="12" y1="8" x2="12" y2="12"></line>'
             + '<line x1="12" y1="16" x2="12.01" y2="16"></line></svg>')
          : PROGRESS_CLOCK_SVG);
 
-    /* Terminal phases (complete/failed) freeze the elapsed counter at
-       its final value. Only "live" phases set data-elapsed-started so
-       the per-second ticker keeps counting. Otherwise a failed run
-       would show its timer creeping up indefinitely. */
-    var isLive = !isComplete && !isFailed;
+    /* Elapsed counter rules:
+       - terminal phases (complete/failed) freeze at the final value
+       - queued / no-progress states have nothing to count (Winky
+         hasn't started) — show "—" instead of a misleading "0s"
+       - only running phases set data-elapsed-started so the ticker
+         keeps counting between manifest polls */
+    var isQueued = phase === "queued" || !progress;
+    var isLive = !isComplete && !isFailed && !isQueued;
     var elapsedAttr = isLive
       ? ' data-elapsed-started="' + escapeHtml(progress && progress.startedAt || "") + '"'
       : '';
-    var elapsedText = isComplete
-      ? ""
-      : formatElapsed(elapsed);
+    var elapsedText;
+    if (isComplete) elapsedText = "";
+    else if (isQueued) elapsedText = "—";
+    else elapsedText = formatElapsed(elapsed);
     /* Failed runs get an action row so the user can dismiss the stuck
        state (we archive pending.json on disk) or re-try (delete +
        re-fire the same request). Without these the FAILED card
@@ -465,18 +454,35 @@
         + '</button>'
       + '</div>';
     }
-    return '<div class="brief-materials__progress" data-phase="' + escapeHtml(phase) + '" aria-live="polite">'
+    /* Identity line: company · title · feature. Lets a user know
+       exactly which role this card is for even when the dossier
+       header above is for a different selected role (e.g. the user
+       browsed to a different card while drafting was in flight). */
+    var feLabel = featureLabel(pending.feature);
+    var identityParts = [];
+    if (pending.company) identityParts.push(escapeHtml(pending.company));
+    if (pending.title)   identityParts.push(escapeHtml(pending.title));
+    var identityHtml = identityParts.length
+      ? '<div class="brief-materials__progress-identity">'
+        + identityParts.join(' <span class="brief-materials__dot">·</span> ')
+        + (feLabel ? ' <span class="brief-materials__progress-feature">' + escapeHtml(feLabel) + '</span>' : '')
+      + '</div>'
+      : '';
+
+    return '<div class="brief-materials__progress brief-materials__progress--enlarged" data-phase="' + escapeHtml(phase) + '" aria-live="polite">'
       + '<div class="brief-materials__progress-icon">' + iconHtml + '</div>'
       + '<div class="brief-materials__progress-body">'
         + '<div class="brief-materials__progress-line">'
           + '<span class="brief-materials__progress-eyebrow">'
             + (isComplete ? "MATERIALS READY"
-              : (isFailed ? "MATERIALS FAILED" : "DRAFTING IN PROGRESS"))
+              : (isFailed ? "MATERIALS FAILED"
+              : (isQueued ? "WAITING IN QUEUE" : "DRAFTING IN PROGRESS")))
           + '</span>'
           + '<span class="brief-materials__progress-elapsed"' + elapsedAttr + '>'
             + escapeHtml(elapsedText)
           + '</span>'
         + '</div>'
+        + identityHtml
         + '<div class="brief-materials__progress-message">' + escapeHtml(message) + '</div>'
         + (noteSnippet
             ? '<div class="brief-materials__progress-note">"' + escapeHtml(noteSnippet) + '"</div>'
@@ -505,24 +511,10 @@
       return oa.indexOf(a.type) - oa.indexOf(b.type);
     });
     var cards = docs.map(function (d) { return renderCard(manifest.slug, d, base, pending); });
-    /* When a request is in flight for a doc type that doesn't yet
-       exist on disk, inject a placeholder card so the user sees the
-       request took effect even before Hermes ships the first file.
-       Skip placeholders when the run has terminated (failed/complete)
-       — a "GENERATING…" card alongside a "MATERIALS FAILED" banner is
-       contradictory. */
-    var pendingPhase = pending && pending.progress && pending.progress.phase;
-    var pendingIsLive = pending && pendingPhase !== "failed" && pendingPhase !== "complete";
-    if (pendingIsLive) {
-      var existingTypes = {};
-      docs.forEach(function (d) { existingTypes[d.type] = true; });
-      var typesForFeature = pending.feature === "both"
-        ? ["resume", "cover_letter"]
-        : (pending.feature === "resume" ? ["resume"] : (pending.feature === "cover_letter" ? ["cover_letter"] : []));
-      typesForFeature.forEach(function (t) {
-        if (!existingTypes[t]) cards.unshift(renderPendingPlaceholderCard(manifest.slug, t));
-      });
-    }
+    /* No per-doc placeholder cards. The enlarged progress banner
+       above is the single source of "this is in flight" truth — a
+       second "Generating…" pill on the doc grid is redundant and
+       got visually contradictory in failed states. */
     var derivedTag = manifest.derived
       ? '<span class="brief-materials__derived" title="Manifest derived from disk (no manifest.json on disk)">DERIVED</span>'
       : "";
@@ -641,6 +633,7 @@
         var region = document.querySelector(REGION_SELECTOR);
         var brief = region && region.querySelector(BRIEF_SELECTOR);
         if (brief) renderManifest(brief, manifest, base);
+        dispatch("jb:materials:changed", { slug: slug, reason: "dismiss" });
       })
       .catch(function (err) {
         var brief = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
@@ -660,31 +653,15 @@
     if (noteEl) {
       prevNotes = String(noteEl.textContent || "").replace(/^"|"$/g, "").trim();
     }
+    /* Retry now runs through the same JD fallback chain as a fresh
+       click. The screenshot-bug case ("Missing job-description.md")
+       used to lock the user in a retry-fail loop because Retry would
+       just re-fire /request without ensuring a JD was on disk. Now
+       it dismisses the old pending.json, runs the JD chain (browser
+       cache → server scrape → user paste), then re-submits. */
     postJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/dismiss", {})
       .catch(function () { /* dismiss may 404 if Winky already cleared it — that's fine */ })
-      .then(function () {
-        return postJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/request", {
-          slug: slug,
-          company: ctx.company,
-          title: ctx.title,
-          feature: feature,
-          jobUrl: ctx.jobUrl,
-          notes: prevNotes,
-        });
-      })
-      .then(function () {
-        return fetchJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/manifest");
-      })
-      .then(function (manifest) {
-        var brief2 = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
-        if (!brief2) return;
-        renderManifest(brief2, manifest, ctx.base);
-        if (manifest.pending) startPolling(manifest.slug, ctx.base);
-      })
-      .catch(function (err) {
-        var brief3 = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
-        if (brief3) renderError(brief3, "Retry failed: " + ((err && err.message) || "unknown error"));
-      });
+      .then(function () { return submitDraftRequest(ctx, feature, prevNotes); });
   }
 
   /* -------------------- network -------------------- */
@@ -871,6 +848,11 @@
         title: String(job.role || ""),
         jobUrl: pickPostingUrl(job),
         base: base,
+        /* JD text held in browser memory from a prior posting scrape,
+           if any. First step of the JD fallback chain — we send this
+           up before kicking off Hermes so the watcher never refuses
+           on a missing job-description.md. */
+        cachedJobDescription: pickCachedJobDescription(job),
       };
       if (!picked) {
         if (root.console && root.console.info) {
@@ -909,6 +891,21 @@
       var href = l && l.href ? String(l.href).trim() : "";
       if (/^https?:/i.test(href)) return href;
     }
+    return "";
+  }
+
+  /* Returns the most useful JD text the browser already has cached
+     for this role, in this order:
+       1. job._postingEnrichment.description (full scraped JD)
+       2. job._postingEnrichment.bodyText    (fallback when description is empty)
+       3. job.fitAssessment                  (last-resort: AI summary text)
+     Returns "" if nothing usable is on hand. */
+  function pickCachedJobDescription(job) {
+    if (!job) return "";
+    var p = job._postingEnrichment;
+    if (p && typeof p.description === "string" && p.description.trim()) return p.description.trim();
+    if (p && typeof p.bodyText === "string" && p.bodyText.trim()) return p.bodyText.trim();
+    if (typeof job.fitAssessment === "string" && job.fitAssessment.trim()) return job.fitAssessment.trim();
     return "";
   }
 
@@ -1105,13 +1102,20 @@
         renderManifest(brief, base, ctx.base);
       });
 
-    postJson(ctx.base + "/api/applications/" + encodeURIComponent(ctx.slug) + "/request", {
-      slug: ctx.slug,
-      company: ctx.company,
-      title: ctx.title,
-      feature: feature,
-      jobUrl: ctx.jobUrl,
-      notes: notes,
+    /* Run the JD fallback chain BEFORE asking Hermes to draft. The
+       contract is: pending.json should not get written unless the
+       slug folder has a job-description.md, otherwise Winky's
+       refusal-on-missing-JD path triggers. */
+    ensureJobDescription(ctx).then(function (jdResult) {
+      return postJson(ctx.base + "/api/applications/" + encodeURIComponent(ctx.slug) + "/request", {
+        slug: ctx.slug,
+        company: ctx.company,
+        title: ctx.title,
+        feature: feature,
+        jobUrl: ctx.jobUrl,
+        notes: notes,
+        jdSource: jdResult && jdResult.source,
+      });
     }).then(function () {
       /* Re-fetch so we render the real pending.json the server wrote. */
       return fetchJson(ctx.base + "/api/applications/" + encodeURIComponent(ctx.slug) + "/manifest");
@@ -1123,10 +1127,146 @@
       getApplications(ctx.base, { refresh: true });
       renderManifest(brief2, manifest, ctx.base);
       if (manifest.pending) startPolling(manifest.slug, ctx.base);
+      /* Nudge the global queue strip so it shows the new request
+         without waiting for its next poll. */
+      dispatch("jb:materials:changed", { slug: ctx.slug });
     }).catch(function (err) {
       var brief3 = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
       if (!brief3) return;
+      /* The "needs paste" path is a structured error — show a paste
+         form instead of a generic error string. */
+      if (err && err.code === "JD_PASTE_REQUIRED") {
+        renderJdPasteForm(brief3, ctx, feature, notes);
+        return;
+      }
       renderError(brief3, "Materials request failed: " + ((err && err.message) || "Unknown error"));
+    });
+  }
+
+  /* The JD always-available fallback chain. Steps, in order:
+       1. Server reports JD already on disk → done.
+       2. Browser cache has JD → PUT it and we're done.
+       3. Server can scrape the jobUrl → server writes JD via scrape
+          endpoint and we PUT the returned text → done.
+       4. None of the above → reject with JD_PASTE_REQUIRED so the
+          UI prompts the user to paste.
+
+     Each step is best-effort: a failure in step N falls through to
+     step N+1 rather than blowing up. The only "hard" outcome is
+     step 4 — and even then we don't error, we surface a paste form. */
+  function ensureJobDescription(ctx) {
+    if (!ctx || !ctx.slug || !ctx.base) {
+      return Promise.reject(new Error("ensureJobDescription: missing slug/base"));
+    }
+    var slug = ctx.slug;
+    var base = ctx.base;
+    var slugEnc = encodeURIComponent(slug);
+
+    /* Step 1: does it already exist? */
+    return fetchJson(base + "/api/applications/" + slugEnc + "/job-description")
+      .catch(function () { return { exists: false }; })
+      .then(function (probe) {
+        if (probe && probe.exists) return { source: "already-on-disk" };
+
+        /* Step 2: browser memory cache. */
+        var cached = ctx.cachedJobDescription;
+        if (cached && cached.length > 50) {
+          return putJobDescription(base, slug, cached, "browser-cache", ctx.jobUrl)
+            .then(function () { return { source: "browser-cache" }; })
+            /* Cache write failed for some reason — fall through. */
+            .catch(function () { return tryScrape(base, slug, ctx.jobUrl); });
+        }
+        return tryScrape(base, slug, ctx.jobUrl);
+      });
+  }
+
+  function tryScrape(base, slug, jobUrl) {
+    if (!jobUrl) return Promise.reject({ code: "JD_PASTE_REQUIRED" });
+    var slugEnc = encodeURIComponent(slug);
+    return postJson(base + "/api/applications/" + slugEnc + "/scrape-job-description", { jobUrl: jobUrl })
+      .then(function (resp) {
+        if (!resp || !resp.text) throw { code: "JD_PASTE_REQUIRED" };
+        return putJobDescription(base, slug, resp.text, "server-scrape", jobUrl)
+          .then(function () { return { source: "server-scrape" }; });
+      })
+      .catch(function (err) {
+        /* If the server scrape produced nothing, fall through to
+           the paste form rather than failing the whole click. */
+        if (err && err.code === "JD_PASTE_REQUIRED") return Promise.reject(err);
+        return Promise.reject({ code: "JD_PASTE_REQUIRED" });
+      });
+  }
+
+  function putJobDescription(base, slug, text, source, jobUrl) {
+    var slugEnc = encodeURIComponent(slug);
+    var url = base + "/api/applications/" + slugEnc + "/job-description";
+    if (typeof fetch !== "function") return Promise.reject(new Error("fetch unavailable"));
+    return fetch(url, {
+      method: "PUT",
+      credentials: "omit",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text, source: source, jobUrl: jobUrl || "" }),
+    }).then(function (res) {
+      if (!res.ok) throw new Error("PUT /job-description -> HTTP " + res.status);
+      return res.json();
+    });
+  }
+
+  function renderJdPasteForm(briefEl, ctx, feature, notes) {
+    if (!briefEl) return;
+    /* Locate the materials section so we can paint the paste form
+       above it (similar to the notes form pattern). */
+    var section = briefEl.querySelector("." + SECTION_CLASS);
+    var existing = briefEl.querySelector(".brief-materials__jd-form");
+    if (existing) existing.parentNode.removeChild(existing);
+    var holder = document.createElement("div");
+    holder.className = "brief-materials__jd-form";
+    holder.innerHTML = ''
+      + '<form aria-label="Paste job description">'
+        + '<header class="brief-materials__jd-head">'
+          + '<span class="brief-materials__jd-title">Job description isn\'t on disk and we couldn\'t fetch it.</span>'
+          + '<span class="brief-materials__jd-eyebrow">PASTE THE JD</span>'
+        + '</header>'
+        + '<p class="brief-materials__jd-hint">'
+          + 'Paste the full job description from the posting and we\'ll save it as <code>job-description.md</code> in the slug folder, then kick off Hermes.'
+          + (ctx.jobUrl ? ' Source URL: <a href="' + escapeHtml(ctx.jobUrl) + '" target="_blank" rel="noopener">' + escapeHtml(ctx.jobUrl) + '</a>' : '')
+        + '</p>'
+        + '<textarea name="jd" rows="10" required minlength="50" placeholder="Paste the full job description here…"></textarea>'
+        + '<footer class="brief-materials__jd-actions">'
+          + '<button type="button" class="brief-materials__btn brief-materials__btn--ghost" data-action="jd-cancel">Cancel</button>'
+          + '<button type="submit" class="brief-materials__btn brief-materials__btn--primary">Save &amp; draft</button>'
+        + '</footer>'
+      + '</form>';
+    if (section && section.parentNode) section.parentNode.insertBefore(holder, section);
+    else briefEl.appendChild(holder);
+    var formEl = holder.querySelector("form");
+    var ta = holder.querySelector("textarea");
+    if (ta) setTimeout(function () { try { ta.focus(); } catch (e) {} }, 0);
+    formEl.addEventListener("click", function (e) {
+      var t = e.target;
+      if (t && t.getAttribute && t.getAttribute("data-action") === "jd-cancel") {
+        if (typeof e.preventDefault === "function") e.preventDefault();
+        if (holder.parentNode) holder.parentNode.removeChild(holder);
+      }
+    });
+    formEl.addEventListener("submit", function (e) {
+      if (typeof e.preventDefault === "function") e.preventDefault();
+      var text = ta && ta.value ? String(ta.value).trim() : "";
+      if (text.length < 50) return;
+      putJobDescription(ctx.base, ctx.slug, text, "user-paste", ctx.jobUrl)
+        .then(function () {
+          if (holder.parentNode) holder.parentNode.removeChild(holder);
+          /* Re-fire the original submit flow now that the JD is on
+             disk. submitDraftRequest will re-run the JD chain, but
+             step 1 will short-circuit (JD now exists) and we go
+             straight to /request. */
+          submitDraftRequest(ctx, feature, notes);
+        })
+        .catch(function (err) {
+          var hint = holder.querySelector(".brief-materials__jd-hint");
+          if (hint) hint.textContent = "Couldn't save: " + ((err && err.message) || "unknown error");
+        });
     });
   }
 

@@ -1501,6 +1501,17 @@ body.jb-v2 .brief-materials {
   animation: brief-materials-shimmer 3800ms ease-in-out infinite;
   pointer-events: none;
 }
+/* Queued state — Winky hasn't claimed this file yet (concurrency=1
+   means earlier requests draft first). Calmer than "drafting": no
+   shimmer, slower clock, parchment tone instead of amber. */
+.brief-materials__progress[data-phase="queued"] {
+  background: linear-gradient(180deg, rgba(120, 120, 120, 0.08) 0%, rgba(120, 120, 120, 0.04) 100%);
+  border-color: rgba(120, 120, 120, 0.35);
+}
+.brief-materials__progress[data-phase="queued"]::after { display: none; }
+.brief-materials__progress[data-phase="queued"] .brief-materials__progress-icon {
+  color: var(--ink-soft);
+}
 .brief-materials__progress[data-phase="complete"] {
   background: linear-gradient(180deg, rgba(76, 175, 116, 0.16) 0%, rgba(76, 175, 116, 0.08) 100%);
   border-color: rgba(76, 175, 116, 0.55);
@@ -1609,6 +1620,98 @@ body.jb-v2 .brief-materials {
 .brief-materials__progress-actions .brief-materials__btn {
   padding: 6px 14px;
   font-size: 12px;
+}
+
+/* Enlarged variant — used for the in-dossier card. Bigger icon,
+   bigger type, more breathing room. The identity line (company ·
+   title · feature) sits between the eyebrow and the message so the
+   user always knows exactly which role this card is for, even if
+   they've scrolled the dossier header out of view or selected a
+   different role above. */
+.brief-materials__progress--enlarged {
+  grid-template-columns: 56px 1fr;
+  gap: 20px;
+  padding: 22px 24px;
+  margin: 0 0 22px;
+}
+.brief-materials__progress--enlarged .brief-materials__progress-icon {
+  width: 56px;
+  height: 56px;
+}
+.brief-materials__progress--enlarged .brief-materials__progress-icon svg {
+  width: 30px;
+  height: 30px;
+}
+.brief-materials__progress--enlarged .brief-materials__progress-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+}
+.brief-materials__progress--enlarged .brief-materials__progress-elapsed {
+  font-size: 13px;
+}
+.brief-materials__progress--enlarged .brief-materials__progress-message {
+  font-size: 18px;
+  line-height: 1.32;
+  margin-top: 8px;
+}
+.brief-materials__progress--enlarged .brief-materials__progress-note {
+  font-size: 14px;
+  margin-top: 10px;
+}
+.brief-materials__progress--enlarged .brief-materials__progress-meta {
+  margin-top: 10px;
+  font-size: 11px;
+}
+.brief-materials__progress--enlarged .brief-materials__progress-actions {
+  margin-top: 16px;
+}
+.brief-materials__progress--enlarged .brief-materials__progress-actions .brief-materials__btn {
+  padding: 8px 18px;
+  font-size: 13px;
+}
+
+/* Identity line: company name + title + feature pill. Mono'd company,
+   serif title, amber/green/red feature pill matching the phase. */
+.brief-materials__progress-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 2px 0 0;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 14px;
+  color: var(--navy);
+  line-height: 1.35;
+}
+.brief-materials__progress--enlarged .brief-materials__progress-identity {
+  font-size: 15px;
+  margin-top: 4px;
+}
+.brief-materials__progress-feature {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(231, 181, 73, 0.20);
+  border: 1px solid rgba(231, 181, 73, 0.50);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--navy);
+  vertical-align: middle;
+}
+.brief-materials__progress[data-phase="complete"] .brief-materials__progress-feature {
+  background: rgba(76, 175, 116, 0.18);
+  border-color: rgba(76, 175, 116, 0.55);
+}
+.brief-materials__progress[data-phase="failed"] .brief-materials__progress-feature {
+  background: rgba(192, 76, 76, 0.16);
+  border-color: rgba(192, 76, 76, 0.50);
+}
+.brief-materials__progress[data-phase="queued"] .brief-materials__progress-feature {
+  background: rgba(120, 120, 120, 0.12);
+  border-color: rgba(120, 120, 120, 0.40);
 }
 @keyframes brief-materials-clock-spin {
   from { transform: rotate(0deg); }
@@ -1779,4 +1882,72 @@ body.jb-v2 .brief-materials {
     margin: 12px 24px 12px;
     padding: 14px 16px;
   }
+}
+
+/* JD paste fallback form. Surfaces when the JD chain exhausts all
+   automatic fallbacks (cache → server scrape) and we need the user
+   to paste. Visually echoes the notes form but with a wider textarea
+   and a clearer hint about the source URL. */
+.brief-materials__jd-form {
+  margin: 0 0 18px;
+  padding: 18px 20px;
+  background: var(--parchment, #FBF7EE);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--amber);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-soft);
+}
+.brief-materials__jd-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.brief-materials__jd-title {
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--navy);
+}
+.brief-materials__jd-eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+.brief-materials__jd-hint {
+  margin: 0 0 12px;
+  font-family: var(--serif);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+.brief-materials__jd-hint code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.brief-materials__jd-form textarea {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--navy);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  box-sizing: border-box;
+}
+.brief-materials__jd-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
 }
