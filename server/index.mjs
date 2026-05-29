@@ -127,6 +127,16 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: "2mb" }));
 
+// Opt-in static file serving for local dev and e2e tests. Off by default so
+// production deployments don't accidentally expose the repo root.
+// Enable with: JOBBORED_SERVE_STATIC=1 or JOBBORED_STATIC_ROOT=/path/to/dir
+if (process.env.JOBBORED_SERVE_STATIC || process.env.JOBBORED_STATIC_ROOT) {
+  const staticRoot = process.env.JOBBORED_STATIC_ROOT
+    ? String(process.env.JOBBORED_STATIC_ROOT)
+    : join(import.meta.dirname || ".", "..");
+  app.use(express.static(staticRoot, { index: "index.html", extensions: ["html"] }));
+}
+
 app.get("/health", (_req, res) => {
   const ats = getAtsConfigStatus();
   res.json({
@@ -355,6 +365,8 @@ app.post("/profile/migrate", async (_req, res) => {
  */
 app.post("/profile/rescore", async (req, res) => {
   const dryRun = String(req.query.dryRun || "").toLowerCase() === "true";
+  const maxRowsRaw = Number.parseInt(String(req.query.maxRows || ""), 10);
+  const maxRows = Number.isFinite(maxRowsRaw) && maxRowsRaw > 0 ? maxRowsRaw : undefined;
 
   // Load current profile
   const profileResult = await readProfile();
@@ -382,12 +394,25 @@ app.post("/profile/rescore", async (req, res) => {
     });
   }
 
+  // Resolve sheet id from worker-config (same source the discovery worker uses).
+  let sheetId = "";
+  try {
+    const cfg = await loadWorkerConfig();
+    sheetId = cfg.sheetId;
+  } catch (err) {
+    return res.status(503).json({
+      ok: false,
+      reason: "worker_config_missing",
+      detail: String(err && err.message ? err.message : err),
+    });
+  }
+
   // Dry run path: short-circuit with JSON (no SSE).
   if (dryRun) {
     try {
       const summary = await rescoreAllPipelineRows({
         profile: profileResult.profile,
-        sheetId: undefined,
+        sheetId,
         geminiApiKey: "",
         dryRun: true,
       });
@@ -417,10 +442,11 @@ app.post("/profile/rescore", async (req, res) => {
   try {
     const summary = await rescoreAllPipelineRows({
       profile: profileResult.profile,
-      sheetId: undefined,
+      sheetId,
       geminiApiKey,
       onProgress: sendEvent,
       signal: ac.signal,
+      maxRows,
     });
     sendEvent({ kind: "done", ...summary });
   } catch (err) {
