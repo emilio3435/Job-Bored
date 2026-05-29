@@ -14,7 +14,9 @@ function collectTestFiles(path) {
     const childStat = statSync(child);
     if (childStat.isDirectory()) {
       out.push(...collectTestFiles(child));
-    } else if (/\.(test|spec)\.(mjs|js|ts)$/.test(entry)) {
+    } else if (/\.test\.(mjs|js|ts)$/.test(entry)) {
+      // .spec.* files belong to Playwright (see playwright.config.mjs) and run
+      // via `npx playwright test`, not the node:test runner.
       out.push(child);
     }
   }

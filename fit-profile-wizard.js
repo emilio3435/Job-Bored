@@ -83,9 +83,13 @@
   ];
 
   /* ── Server-base resolver ─────────────────────────────────────────── */
-  // Mirrors app.js: explicit config wins, else localhost defaults to 3847.
+  // Explicit config wins. When the static dashboard is co-served with the
+  // API (e.g. via JOBBORED_SERVE_STATIC, or any reverse proxy), relative
+  // URLs hit the same origin — which is correct for every modern setup.
+  // The legacy 127.0.0.1:3847 fallback only kicks in for the deprecated
+  // file:// dev workflow where there is no http origin to be relative to.
   function getProfileApiBase() {
-    var cfg = window.COMMAND_CENTER_CONFIG || {};
+    var cfg = (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
     var raw =
       cfg.jobBoredApiUrl ||
       cfg.jobPostingScrapeUrl /* same scraper server hosts both */ ||
@@ -94,10 +98,12 @@
       return String(raw).trim().replace(/\/+$/, "");
     }
     if (typeof window === "undefined") return "";
-    var h = window.location.hostname;
-    if (h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "::1") {
+    // file:// has no origin host — fall back to default dev port.
+    if (window.location.protocol === "file:") {
       return "http://127.0.0.1:3847";
     }
+    // Any http(s) origin → relative URL, lets reverse-proxies and test
+    // harnesses on non-default ports just work.
     return "";
   }
 

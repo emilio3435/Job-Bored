@@ -575,6 +575,7 @@ export async function rescoreAllPipelineRows({
   dryRun = false,
   onProgress,
   signal,
+  maxRows,
 }) {
   if (!profile || typeof profile !== "object") {
     throw new Error("rescoreAllPipelineRows: profile is required");
@@ -595,7 +596,9 @@ export async function rescoreAllPipelineRows({
   const token = await resolveSheetsAccessToken({ overrideToken });
   const rows = await readPipelineRows(sheetId, token);
 
-  const counted = rows.slice(0, MAX_ROWS);
+  const effectiveMax =
+    Number.isInteger(maxRows) && maxRows > 0 ? Math.min(maxRows, MAX_ROWS) : MAX_ROWS;
+  const counted = rows.slice(0, effectiveMax);
   const candidates = [];
   let skipped = 0;
   for (let i = 0; i < counted.length; i += 1) {

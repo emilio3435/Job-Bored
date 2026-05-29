@@ -52,6 +52,7 @@
     "typecheck:repo": "node --check app.js && node --check discovery-coach.js && node --check discovery-payload.js && node --check expired-review.js && node --check dev-server.mjs && node --check discovery-wizard-local.js && node --check discovery-wizard-probes.js && node --check discovery-wizard-relay.js && node --check discovery-wizard-shell.js && node --check discovery-wizard-verify.js && node --check role-materials.js && node --check materials-queue.js && node --check settings-tabs.js && node --check settings-profile-tab.js && node --check user-content-store.js && node --check resume-bundle.js && node --check resume-generate.js && node --check document-templates.js && node --check scripts/run-scheduled-discovery.mjs && node --check scripts/run-scheduled-expired-cleanup.mjs && node --check scripts/install-expired-cleanup-schedule.mjs && node --check scripts/uninstall-expired-cleanup-schedule.mjs && node --check scripts/install-repo.mjs && node --check scripts/doctor.mjs && node --check server/index.mjs && node --check server/application-materials.mjs && node --check server/materials-request.mjs && node --check server/job-scraper.mjs && node --check server/ats-request-payload.mjs && node --check server/ats-scorecard.mjs"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "concurrently": "^9.1.2"

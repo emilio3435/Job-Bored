@@ -28,3 +28,6 @@ __pycache__/
 *.pyc
 integrations/hermes-job-hunt/tests/tmp-app/
 tmp/
+# Playwright e2e run artifacts
+test-results/
+playwright-report/
