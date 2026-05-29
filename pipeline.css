@@ -798,7 +798,7 @@ body.jb-v2 [data-region="pipeline"] .pipe-sticker {
   border: 1px solid var(--jb-line-soft);
   border-radius: var(--jb-radius-md);
   box-shadow: var(--jb-shadow-card);
-  padding: 12px 12px 10px;
+  padding: 14px 14px 12px;
   cursor: grab;
   user-select: none;
   transition: transform var(--jb-transition-fast),
@@ -818,27 +818,20 @@ body.jb-v2 [data-region="pipeline"] .pipe-sticker[data-selected="true"] {
 }
 
 body.jb-v2 [data-region="pipeline"] .pipe-col[data-focused="true"] .pipe-sticker:not([data-selected="true"]) {
-  padding: 9px 10px;
-  opacity: 0.72;
+  padding: 11px 12px;
+  opacity: 0.78;
   box-shadow: none;
 }
 
 body.jb-v2 [data-region="pipeline"] .pipe-col[data-focused="true"] .pipe-sticker:not([data-selected="true"]):hover {
-  opacity: 0.9;
+  opacity: 0.95;
 }
 
 body.jb-v2 [data-region="pipeline"] .pipe-col[data-focused="true"] .pipe-sticker:not([data-selected="true"]) .pipe-sticker__head {
-  grid-template-columns: 28px 1fr auto auto;
+  grid-template-columns: 1fr auto auto;
   gap: 8px;
 }
 
-body.jb-v2 [data-region="pipeline"] .pipe-col[data-focused="true"] .pipe-sticker:not([data-selected="true"]) .pipe-sticker__avatar {
-  width: 28px;
-  height: 28px;
-  font-size: var(--jb-text-sm);
-}
-
-body.jb-v2 [data-region="pipeline"] .pipe-col[data-focused="true"] .pipe-sticker:not([data-selected="true"]) .pipe-sticker__co,
 body.jb-v2 [data-region="pipeline"] .pipe-col[data-focused="true"] .pipe-sticker:not([data-selected="true"]) .pipe-sticker__foot,
 body.jb-v2 [data-region="pipeline"] .pipe-col[data-focused="true"] .pipe-sticker:not([data-selected="true"]) .pipe-sticker__detail {
   display: none;
@@ -868,50 +861,111 @@ body.jb-v2 [data-region="pipeline"] .pipe-sticker--ghost {
 
 body.jb-v2 [data-region="pipeline"] .pipe-sticker__head {
   display: grid;
-  grid-template-columns: 32px 1fr auto auto;
+  grid-template-columns: 1fr auto auto;
   gap: 10px;
   align-items: center;
-}
-
-body.jb-v2 [data-region="pipeline"] .pipe-sticker__avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--jb-radius-pill);
-  display: grid;
-  place-items: center;
-  background: var(--jb-mint-soft);
-  color: var(--jb-mint-deep);
-  font-family: var(--jb-font-body);
-  font-weight: 700;
-  font-size: var(--jb-text-base);
 }
 
 body.jb-v2 [data-region="pipeline"] .pipe-sticker__id {
   display: flex;
   flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
+/* Company sits on its own row alongside the materials badges so the
+   chips have a stable home that doesn't disturb the role title below. */
+body.jb-v2 [data-region="pipeline"] .pipe-sticker__co-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Company is the orientation anchor — show it first, uppercase + tight
+   tracking so the eye lands on it before the role title. */
+body.jb-v2 [data-region="pipeline"] .pipe-sticker__co {
+  flex: 0 1 auto;
+  font-family: var(--jb-font-mono);
+  font-weight: 600;
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--jb-mint-deep);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Tiny doc-status chips. Quiet by default, so the eye reads them as
+   "I have files for this role" without competing with the role title.
+   The repair state swaps in an amber chip with a "!" overlay so a
+   single glance tells you whether anything needs cleanup. */
+body.jb-v2 [data-region="pipeline"] .pipe-sticker__docs {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-sticker__doc-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 14px;
+  padding: 0 5px;
+  font-family: var(--jb-font-mono);
+  font-weight: 700;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  border-radius: var(--jb-radius-pill);
+  border: 1px solid color-mix(in oklab, var(--jb-mint-deep) 35%, transparent);
+  background: var(--jb-mint-soft);
+  color: var(--jb-mint-deep);
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-sticker__doc-badge[data-state="repair"] {
+  background: var(--jb-amber-soft);
+  color: var(--jb-ink);
+  border-color: var(--jb-amber);
+}
+
+/* "!" marker rides the top-right of a repair-state chip so a quick
+   scan separates "ready" (clean letter) from "needs repair" (alerted). */
+body.jb-v2 [data-region="pipeline"] .pipe-sticker__doc-badge[data-state="repair"]::after {
+  content: "!";
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--jb-radius-pill);
+  background: var(--jb-amber);
+  color: var(--jb-ink-inverse);
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 10px;
+  text-align: center;
+  box-shadow: 0 0 0 1.5px var(--jb-paper);
+}
+
+/* Role wraps to two lines so abbreviated title text stays readable
+   instead of being cut off with an ellipsis. */
 body.jb-v2 [data-region="pipeline"] .pipe-sticker__role {
   font-family: var(--jb-font-body);
   font-weight: 600;
   font-size: var(--jb-text-base);
   color: var(--jb-ink);
-  line-height: 1.25;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-body.jb-v2 [data-region="pipeline"] .pipe-sticker__co {
-  font-family: var(--jb-font-body);
-  font-weight: 400;
-  font-size: var(--jb-text-sm);
-  color: var(--jb-ink-2);
   line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-word;
 }
 
 body.jb-v2 [data-region="pipeline"] .pipe-sticker__favorite {
@@ -1047,6 +1101,45 @@ body.jb-v2 [data-region="pipeline"] .pipe-sticker__detail span {
   border: 1px solid var(--jb-line-soft);
   border-radius: var(--jb-radius-pill);
   padding: 2px 8px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Brief acknowledgement pulse on the destination column right after a
+   drop. Tells the user "your card landed here" without forcing the
+   column to expand and steal focus from the source column. */
+body.jb-v2 [data-region="pipeline"] .pipe-col[data-just-dropped="true"] {
+  border-style: solid;
+  border-color: var(--pipe-stage);
+  animation: pipe-col-drop-pulse 0.85s ease-out;
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-col[data-just-dropped="true"] .pipe-col__count {
+  border-color: var(--pipe-stage);
+  color: var(--jb-ink);
+  background: var(--jb-mint-soft);
+  animation: pipe-col-count-pop 0.85s ease-out;
+}
+
+@keyframes pipe-col-drop-pulse {
+  0%   { box-shadow: 0 0 0 0 var(--pipe-stage); }
+  35%  { box-shadow: 0 0 0 6px color-mix(in oklab, var(--pipe-stage) 35%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes pipe-col-count-pop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 [data-region="pipeline"] .pipe-col[data-just-dropped="true"],
+  body.jb-v2 [data-region="pipeline"] .pipe-col[data-just-dropped="true"] .pipe-col__count {
+    animation: none;
+  }
 }
 
 /* ───────────────────────── flag pill ───────────────────────── */

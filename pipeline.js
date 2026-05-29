@@ -31,7 +31,7 @@
     { key: "phone-screen", label: "Phone screen" },
     { key: "interviewing", label: "Interviewing" },
     { key: "offer",        label: "Offer" },
-    { key: "expired",      label: "Expired" },
+    { key: "expired",      label: "Dismissed" },
   ];
 
   var EMPTY_COPY = {
@@ -41,7 +41,7 @@
     "phone-screen": "Recruiter call? Park it here.",
     "interviewing": "Loops in flight live here.",
     "offer":        "Negotiate from here.",
-    "expired":      "Closed postings move here for reference.",
+    "expired":      "Dismissed or closed postings rest here for reference.",
   };
 
   var SORT_DEFAULT = "urgency";
@@ -102,11 +102,147 @@
     return "var(--jb-fit-low)";
   }
 
-  function initialFromCompany(company) {
-    var s = String(company || "").trim();
-    if (!s) return "?";
-    var first = s.charAt(0);
-    return first ? first.toUpperCase() : "?";
+  /* ----------------- application materials index -----------------
+     Tiny per-session catalog: ask the local materials server which
+     application slugs exist on disk, then per pipeline card look up
+     whether the user has resume / cover letter drafts and whether
+     any of those drafts have quality issues that need a repair pass.
+     The materials server is local-only; if it's unreachable we just
+     skip the badges silently. */
+
+  // slug -> { documents: [...], quality: { documents: { [type]: { issues: [...] } } } | null }
+  var materialsBySlug = Object.create(null);
+  var materialsFetchPromise = null;
+  var materialsFetchedAt = 0;
+  // Refresh at most every 30s. The materials queue + dossier both
+  // emit jb:materials:changed when state mutates, which forces a
+  // refresh sooner than that cap.
+  var MATERIALS_TTL_MS = 30 * 1000;
+
+  function pipelineBaseUrl() {
+    var helper = root.getJobPostingScrapeUrl;
+    if (typeof helper === "function") {
+      try {
+        var url = helper();
+        if (url) return String(url).replace(/\/+$/, "");
+      } catch (_) { /* fall through */ }
+    }
+    var cfg = root.COMMAND_CENTER_CONFIG;
+    var raw = cfg && cfg.jobPostingScrapeUrl;
+    if (raw) return String(raw).trim().replace(/\/+$/, "");
+    if (root.location) {
+      var h = root.location.hostname;
+      if (h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "::1") {
+        return "http://127.0.0.1:3847";
+      }
+    }
+    return "";
+  }
+
+  function ensureMaterialsIndex(opts) {
+    if (typeof fetch !== "function") return Promise.resolve(materialsBySlug);
+    var force = !!(opts && opts.force);
+    var fresh = (Date.now() - materialsFetchedAt) < MATERIALS_TTL_MS;
+    if (!force && fresh && Object.keys(materialsBySlug).length >= 0 && materialsFetchPromise == null) {
+      return Promise.resolve(materialsBySlug);
+    }
+    if (materialsFetchPromise) return materialsFetchPromise;
+    var base = pipelineBaseUrl();
+    if (!base) return Promise.resolve(materialsBySlug);
+    materialsFetchPromise = fetch(base + "/api/applications", { credentials: "omit", cache: "no-store" })
+      .then(function (res) { return res.ok ? res.json() : { applications: [] }; })
+      .then(function (body) {
+        var next = Object.create(null);
+        var apps = (body && Array.isArray(body.applications)) ? body.applications : [];
+        apps.forEach(function (app) {
+          if (!app || typeof app.slug !== "string") return;
+          next[app.slug] = {
+            slug: app.slug,
+            company: String(app.company || ""),
+            title: String(app.title || ""),
+            documents: Array.isArray(app.documents) ? app.documents : [],
+            quality: app.quality || null,
+          };
+        });
+        materialsBySlug = next;
+        materialsFetchedAt = Date.now();
+        return materialsBySlug;
+      })
+      .catch(function () { return materialsBySlug; })
+      .then(function (out) { materialsFetchPromise = null; return out; });
+    return materialsFetchPromise;
+  }
+
+  function materialsLookup(card, job) {
+    var helpers = root.JobBoredRoleMaterials;
+    if (!helpers || typeof helpers.pickApplication !== "function") return null;
+    var apps = Object.keys(materialsBySlug).map(function (k) { return materialsBySlug[k]; });
+    if (!apps.length) return null;
+    var query = {
+      company: String((job && job.company) || (card && card.company) || ""),
+      role: String((job && job.title) || (card && card.role) || ""),
+    };
+    if (!query.company && !query.role) return null;
+    return helpers.pickApplication(query, apps);
+  }
+
+  /* Reduce a manifest down to the two facts we care about on the
+     collapsed card: which "presentable" documents are ready (resume
+     and cover letter) and whether either of them needs a repair pass. */
+  function materialsBadgeData(card, job) {
+    var entry = materialsLookup(card, job);
+    if (!entry) return null;
+    var docs = entry.documents || [];
+    var hasResume = false;
+    var hasLetter = false;
+    docs.forEach(function (d) {
+      if (!d) return;
+      if (d.type === "resume") hasResume = true;
+      else if (d.type === "cover_letter") hasLetter = true;
+    });
+    var qualityDocs = entry.quality && entry.quality.documents ? entry.quality.documents : null;
+    function needsRepair(type) {
+      if (!qualityDocs) return false;
+      var info = qualityDocs[type];
+      var issues = info && Array.isArray(info.issues) ? info.issues : [];
+      return issues.length > 0;
+    }
+    return {
+      hasResume: hasResume,
+      hasLetter: hasLetter,
+      resumeNeedsRepair: hasResume && needsRepair("resume"),
+      letterNeedsRepair: hasLetter && needsRepair("cover_letter"),
+    };
+  }
+
+  // Tiny inline chips that show, at a glance, whether the user has
+  // presentable application documents on file for this opportunity.
+  // - "R"  = tailored resume is ready
+  // - "CL" = cover letter is ready
+  // A "!" overlay marks any document the materials quality audit
+  // flagged for repair (needs a repair pass before sending).
+  function materialsBadgesHtml(materials) {
+    if (!materials || (!materials.hasResume && !materials.hasLetter)) return "";
+    var parts = [];
+    if (materials.hasResume) {
+      var rState = materials.resumeNeedsRepair ? "repair" : "ready";
+      var rLabel = materials.resumeNeedsRepair
+        ? "Tailored resume on file — needs a repair pass"
+        : "Tailored resume on file";
+      parts.push(
+        '<span class="pipe-sticker__doc-badge" data-doc="resume" data-state="' + rState + '" title="' + escapeHtml(rLabel) + '" aria-label="' + escapeHtml(rLabel) + '">R</span>'
+      );
+    }
+    if (materials.hasLetter) {
+      var lState = materials.letterNeedsRepair ? "repair" : "ready";
+      var lLabel = materials.letterNeedsRepair
+        ? "Cover letter on file — needs a repair pass"
+        : "Cover letter on file";
+      parts.push(
+        '<span class="pipe-sticker__doc-badge" data-doc="cover_letter" data-state="' + lState + '" title="' + escapeHtml(lLabel) + '" aria-label="' + escapeHtml(lLabel) + '">CL</span>'
+      );
+    }
+    return '<span class="pipe-sticker__docs" aria-label="Application materials">' + parts.join("") + '</span>';
   }
 
   function urgencyWeight(card) {
@@ -346,6 +482,29 @@
     } catch (_) {
       return null;
     }
+  }
+
+  // Overlay of optimistic favorite state keyed by stable job key. Lets the
+  // kanban render the user's last expressed intent even when persistence
+  // hasn't landed yet (e.g., sign-in gate, Sheet write failure, async wait).
+  // The overlay is cleared once the canonical pipelineData.favorite matches
+  // the user's intent — that keeps it from forever shadowing real state.
+  var favoriteOverlay = Object.create(null);
+
+  function setFavoriteOverlay(jobKey, favorite) {
+    if (jobKey == null) return;
+    favoriteOverlay[String(jobKey)] = !!favorite;
+  }
+
+  function reconcileFavoriteOverlay(jobKey, canonicalFavorite) {
+    if (jobKey == null) return canonicalFavorite;
+    var key = String(jobKey);
+    if (!(key in favoriteOverlay)) return canonicalFavorite;
+    if (favoriteOverlay[key] === !!canonicalFavorite) {
+      delete favoriteOverlay[key];
+      return canonicalFavorite;
+    }
+    return favoriteOverlay[key];
   }
 
   function togglePipelineFavorite(jobKey) {
@@ -693,14 +852,11 @@
         },
       });
       if (data && data.ok === false && data.reason !== "duplicate") {
-        if (data.reason === "blocked_aggregator" || data.reason === "scrape_failed") {
-          setUrlModalProgress(region, { progress: 100, label: "Manual detail form opened", step: "done" });
-          setUrlModalBusy(region, false);
-          closeJobUrlModal(region);
-          return;
-        }
         setUrlModalBusy(region, false);
-        setUrlModalError(region, data.message || "The worker could not add this URL.");
+        setUrlModalError(
+          region,
+          data.hint || data.message || "The worker could not add this URL."
+        );
         return;
       }
       setUrlModalProgress(region, { progress: 100, label: "Added to Pipeline", step: "done" });
@@ -730,14 +886,15 @@
     var fitPct = (fitNum == null) ? 0 : Math.max(0, Math.min(100, Math.round(fitNum * 10)));
     var fitColor = fitColorVar(fitNum);
     var job = getPipelineJobByKey(card.jobKey);
-    var isFavorite = !!(job && job.favorite);
-    var initial = initialFromCompany(card.company);
+    var isFavorite = reconcileFavoriteOverlay(card.jobKey, !!(job && job.favorite));
     var note = card.note ? String(card.note) : (job && job.notes ? String(job.notes) : "");
     var salary = card.salary ? String(card.salary) : (job && job.salary ? String(job.salary) : "");
     var location = job && job.location ? String(job.location) : "";
     var source = job && job.source ? String(job.source) : "";
     var tags = job && job.tags ? String(job.tags).split(/[,;|]/).map(function (t) { return t.trim(); }).filter(Boolean).slice(0, 3) : [];
     var flag = card.flag || "";
+    var hasMeta = !!(location || source || tags.length);
+    var materials = materialsBadgeData(card, job);
 
     var el = document.createElement("article");
     el.className = "pipe-sticker" + (isFavorite ? " pipe-sticker--favorited" : "");
@@ -760,10 +917,12 @@
         ? '<span class="pipe-sticker__flag" data-flag="' + escapeHtml(flag) + '">' + escapeHtml(flag) + '</span>'
         : '',
       '<header class="pipe-sticker__head">',
-      '  <span class="pipe-sticker__avatar" aria-hidden="true">' + escapeHtml(initial) + '</span>',
       '  <span class="pipe-sticker__id">',
+      '    <span class="pipe-sticker__co-row">',
+      '      <span class="pipe-sticker__co">' + escapeHtml(card.company || "—") + '</span>',
+      materialsBadgesHtml(materials),
+      '    </span>',
       '    <span class="pipe-sticker__role">' + escapeHtml(card.role || "Untitled role") + '</span>',
-      '    <span class="pipe-sticker__co">' + escapeHtml(card.company || "—") + '</span>',
       '  </span>',
       '  <button type="button" class="pipe-sticker__favorite" data-card-action="toggle-favorite"',
       '          data-key="' + escapeHtml(cardKey) + '"',
@@ -781,17 +940,17 @@
       '    <span class="pipe-sticker__fit-num">' + (fitNum == null ? "—" : escapeHtml(String(fitNum))) + '</span>',
       '  </span>',
       '</header>',
-      (salary || note) ? '<footer class="pipe-sticker__foot">' +
-        (salary ? '<span class="pipe-sticker__salary jb-data">' + escapeHtml(salary) + '</span>' : '') +
-        (note ? '<span class="pipe-sticker__note">' + escapeHtml(note) + '</span>' : '') +
-        '</footer>' : '',
-      selected && (location || source || tags.length)
+      hasMeta
         ? '<div class="pipe-sticker__detail">' +
             (location ? '<span>' + escapeHtml(location) + '</span>' : '') +
             (source ? '<span>' + escapeHtml(source) + '</span>' : '') +
             tags.map(function (tag) { return '<span>' + escapeHtml(tag) + '</span>'; }).join("") +
           '</div>'
         : '',
+      (salary || note) ? '<footer class="pipe-sticker__foot">' +
+        (salary ? '<span class="pipe-sticker__salary jb-data">' + escapeHtml(salary) + '</span>' : '') +
+        (note ? '<span class="pipe-sticker__note">' + escapeHtml(note) + '</span>' : '') +
+        '</footer>' : '',
     ].join("");
 
     return el;
@@ -968,7 +1127,7 @@
             // stays visible even if its fit ranks below cap survivors.
             if (isRecentlyMoved(state, card.jobKey)) return true;
             var job = getPipelineJobByKey(card.jobKey);
-            return !!(job && job.favorite);
+            return reconcileFavoriteOverlay(card.jobKey, !!(job && job.favorite));
           });
       var ordered = sortCards(capped, state.sort);
       var hiddenSummary = (root.JobBoredCompanyCap && !searchActive)
@@ -1075,16 +1234,15 @@
         var favoriteKey = favoriteBtn.getAttribute("data-key");
         if (favoriteKey != null && favoriteKey !== "") {
           var job = getPipelineJobByKey(favoriteKey);
-          var nextFavorite = !(job && job.favorite);
+          var currentFavorite = reconcileFavoriteOverlay(favoriteKey, !!(job && job.favorite));
+          var nextFavorite = !currentFavorite;
+          // Record the user's intent in the overlay so any re-render that
+          // fires before persistence lands (materials index refresh, body
+          // class flip, etc.) preserves the chip state. The overlay clears
+          // itself once canonical pipelineData.favorite agrees.
+          setFavoriteOverlay(favoriteKey, nextFavorite);
           setCardFavoriteState(region, favoriteKey, nextFavorite);
-          var result = togglePipelineFavorite(favoriteKey);
-          if (result && typeof result.then === "function") {
-            result.then(function (ok) {
-              if (ok === false) setCardFavoriteState(region, favoriteKey, !nextFavorite);
-            }).catch(function () {
-              setCardFavoriteState(region, favoriteKey, !nextFavorite);
-            });
-          }
+          togglePipelineFavorite(favoriteKey);
         }
         return;
       }
@@ -1350,6 +1508,20 @@
     countEl.setAttribute("data-count", String(n));
   }
 
+  // Brief visual reaction on the destination column after a drop. The
+  // column doesn't expand — it just acknowledges that the card landed
+  // there — so the column the user was working in stays the focused one.
+  function pulseColumnDrop(region, stageKey) {
+    var col = region.querySelector('.pipe-col[data-stage="' + stageKey + '"]');
+    if (!col) return;
+    col.setAttribute("data-just-dropped", "true");
+    if (col.__pipeDropTimer) clearTimeout(col.__pipeDropTimer);
+    col.__pipeDropTimer = setTimeout(function () {
+      col.removeAttribute("data-just-dropped");
+      col.__pipeDropTimer = null;
+    }, 900);
+  }
+
   function showToast(region, msg) {
     var t = region.querySelector(".pipe-toast");
     if (!t) {
@@ -1502,12 +1674,13 @@
     var toBody = region.querySelector('[data-stage-body="' + toStage + '"]');
     if (!toBody) return;
     var state = region.__pipeState;
-    if (state && isCollapsed(state, toStage)) setColumnCollapsed(region, state, toStage, false);
     if (state) {
       state.recentlyMovedJobKey = String(drag.jobKey || "");
       state.recentlyMovedAt = Date.now();
     }
-    // Strip placeholder if present.
+    // Move the card into the destination column DOM so an immediate
+    // re-render (e.g. from a downstream Sheet write) reflects the move
+    // even when the target column is collapsed and the card stays hidden.
     var emptyEl = toBody.querySelector(".pipe-col__empty");
     if (emptyEl) emptyEl.remove();
     toBody.appendChild(card);
@@ -1517,6 +1690,7 @@
     }
     updateColumnCount(region, drag.fromStage, -1);
     updateColumnCount(region, toStage, +1);
+    pulseColumnDrop(region, toStage);
 
     region.__pipePending = region.__pipePending || [];
     region.__pipePending.push({ jobKey: drag.jobKey, fromStage: drag.fromStage, toStage: toStage });
@@ -1585,11 +1759,24 @@
     // Drop targets / write failures handled inside bindRegion.
   }
 
+  function refreshMaterialsIndex(opts) {
+    ensureMaterialsIndex(opts).then(function () {
+      // Re-render so doc badges reflect the freshly indexed state.
+      scheduleRender();
+    });
+  }
+
   function init() {
     root.JobBoredPipeline = root.JobBoredPipeline || {};
     root.JobBoredPipeline.scheduleRender = scheduleRender;
     root.JobBoredPipeline.focusSearch = focusSearch;
     root.JobBoredPipeline.focusJob = focusJob;
+    // Wire the materials index once. Cards render without badges
+    // until the catalog resolves; we re-render on success.
+    document.addEventListener("jb:materials:changed", function () {
+      refreshMaterialsIndex({ force: true });
+    });
+    refreshMaterialsIndex();
     if (!shouldRun()) {
       // Wait for flag to flip.
       var bodyMo = new MutationObserver(function () {
