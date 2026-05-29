@@ -22608,7 +22608,9 @@ function initDiscoveryButton() {
 // INGEST URL — paste-a-job-URL flow
 // ============================================
 
-const INGEST_URL_TIMEOUT_MS = 20000;
+const INGEST_URL_TIMEOUT_MS = 60000;
+const INGEST_URL_ASYNC_TIMEOUT_MS = 10 * 60 * 1000;
+const INGEST_URL_ASYNC_POLL_MS = 3000;
 const INGEST_URL_BLOCKED_HOST_LABELS = {
   "linkedin.com": "LinkedIn",
   "indeed.com": "Indeed",
@@ -22938,7 +22940,9 @@ async function ingestJobUrl(url, options = {}) {
   }
 
   reportIngestProgress(onProgress, 10, "Sending the URL to the ingest worker", "worker");
-  const data = await handleIngestUrlSubmit(value, options.manual);
+  const data = await handleIngestUrlSubmit(value, options.manual, {
+    onProgress,
+  });
   reportIngestProgress(onProgress, 44, "Adding the opportunity to Pipeline", "pipeline");
 
   const handled = handleIngestUrlResponse(data, value, {
@@ -22947,6 +22951,9 @@ async function ingestJobUrl(url, options = {}) {
   });
   if (handled && typeof handled.then === "function") {
     await handled;
+  }
+  if (data && data.ok === false) {
+    return data;
   }
 
   reportIngestProgress(onProgress, 100, "Pipeline updated", "done");
@@ -22959,7 +22966,7 @@ async function ingestJobUrl(url, options = {}) {
  * @param {object} [manualOverride] — { title, company, location, description, fitScore }
  * @returns {Promise<object>} parsed response
  */
-async function handleIngestUrlSubmit(url, manualOverride) {
+async function handleIngestUrlSubmit(url, manualOverride, options = {}) {
   const webhook = await resolveDiscoveryRunWebhookUrl();
   if (!webhook) {
     if (manualOverride && typeof manualOverride === "object") {
@@ -22989,6 +22996,9 @@ async function handleIngestUrlSubmit(url, manualOverride) {
       schemaVersion: 1,
       url: String(url || "").trim(),
     };
+    if (!manualOverride) {
+      body.async = true;
+    }
     const sheetId = getSheetId();
     if (sheetId) body.sheetId = sheetId;
     const dashboardGoogleAccessToken =
@@ -23084,10 +23094,106 @@ async function handleIngestUrlSubmit(url, manualOverride) {
     }
   }
 
+  async function resolveAsyncIngestResponse(data) {
+    if (
+      !data ||
+      data.ok !== true ||
+      data.kind !== "accepted_async" ||
+      !data.runId
+    ) {
+      return data;
+    }
+
+    const statusPath = resolveAcceptedRunStatusPath(data, endpoint);
+    const statusUrl = buildRunStatusUrl(statusPath, endpoint);
+    if (!statusUrl) {
+      throw new Error("timeout");
+    }
+
+    const pollAfterMs = Math.max(
+      1000,
+      Number(data.pollAfterMs) || INGEST_URL_ASYNC_POLL_MS,
+    );
+    const deadline = Date.now() + INGEST_URL_ASYNC_TIMEOUT_MS;
+    let pollErrors = 0;
+    reportIngestProgress(
+      options.onProgress,
+      32,
+      "Browser Use is reading the posting",
+      "scrape",
+    );
+
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, pollAfterMs));
+      let res;
+      try {
+        res = await fetch(statusUrl, {
+          method: "GET",
+          mode: "cors",
+          headers: buildDiscoveryStatusPollHeaders(statusUrl),
+        });
+      } catch (err) {
+        pollErrors += 1;
+        if (pollErrors >= MAX_POLL_ERRORS) {
+          throw createIngestVerificationError(
+            classifyIngestNetworkFailure(statusUrl, err),
+            statusUrl,
+            "Could not reach the ingest status endpoint.",
+          );
+        }
+        continue;
+      }
+      if (!res.ok) {
+        pollErrors += 1;
+        if (pollErrors >= MAX_POLL_ERRORS) {
+          throw createIngestVerificationError(
+            classifyIngestEndpointFailure({
+              endpointUrl: statusUrl,
+              status: res.status,
+              data: null,
+              responseText: await res.text().catch(() => ""),
+              responseUrl: res.url || statusUrl,
+            }),
+            statusUrl,
+            "Ingest status endpoint returned HTTP " + res.status,
+          );
+        }
+        continue;
+      }
+      pollErrors = 0;
+      const status = await res.json().catch(() => null);
+      const state = String((status && status.status) || "").toLowerCase();
+      const terminal =
+        !!(status && status.terminal) ||
+        state === "completed" ||
+        state === "partial" ||
+        state === "empty" ||
+        state === "failed";
+      if (!terminal) {
+        reportIngestProgress(
+          options.onProgress,
+          52,
+          "Still reading the posting",
+          "scrape",
+        );
+        continue;
+      }
+      if (status && status.ingestResult) {
+        return status.ingestResult;
+      }
+      if (state === "failed") {
+        throw new Error((status && (status.error || status.message)) || "worker_error");
+      }
+      throw new Error("worker_error");
+    }
+
+    throw new Error("timeout");
+  }
+
   const initialBody = await buildRequestBody();
   let data;
   try {
-    data = await postRequestBody(initialBody);
+    data = await resolveAsyncIngestResponse(await postRequestBody(initialBody));
   } catch (err) {
     if (
       err &&
@@ -23098,7 +23204,7 @@ async function handleIngestUrlSubmit(url, manualOverride) {
         await refreshDiscoveryWebhookSecretFromBootstrapForEndpoint(endpoint);
       if (refreshedSecret && refreshedSecret !== activeDiscoverySecret) {
         activeDiscoverySecret = refreshedSecret;
-        data = await postRequestBody(initialBody);
+        data = await resolveAsyncIngestResponse(await postRequestBody(initialBody));
       } else {
         throw err;
       }
@@ -23111,7 +23217,7 @@ async function handleIngestUrlSubmit(url, manualOverride) {
       forceGoogleTokenRefresh: true,
     });
     if (retryBody.googleAccessToken) {
-      data = await postRequestBody(retryBody);
+      data = await resolveAsyncIngestResponse(await postRequestBody(retryBody));
     }
     if (isIngestSheetAuthFailure(data)) {
       clearPersistedRuntimeOAuthSession();
@@ -23478,26 +23584,15 @@ function handleIngestUrlResponse(data, url, options = {}) {
     switch (data.reason) {
       case "blocked_aggregator":
       case "scrape_failed": {
-        // Defensive branch: the backend now auto-lands a url-only row for
-        // these cases (and returns ok:true, strategy:"url_only"). If an
-        // older worker is still returning these reasons, fall back to the
-        // explicit manual-fill modal so users aren't blocked on the fix
-        // deploy. Newer workers never hit this path.
-        const label =
-          data.reason === "blocked_aggregator"
-            ? aggregatorLabelForHost(data.host) + " blocks scrapers — "
-            : "";
         const hint =
           (typeof data.hint === "string" && data.hint.trim()) ||
           (typeof data.message === "string" && data.message.trim()) ||
-          "We couldn't auto-scrape this URL.";
-        openIngestManualModal({
-          url,
-          message:
-            label +
-            hint +
-            " (This shouldn't normally happen — check your worker version if it keeps showing up.)",
-        });
+          "We couldn't read a complete posting from this URL.";
+        const label =
+          data.reason === "blocked_aggregator"
+            ? aggregatorLabelForHost(data.host) + " did not expose a complete posting. "
+            : "";
+        showToast(label + hint, "warning", true);
         return data;
       }
       case "duplicate": {
@@ -23517,6 +23612,15 @@ function handleIngestUrlResponse(data, url, options = {}) {
         showToast(
           data.message || "Could not ingest URL: " + data.reason,
           "error",
+        );
+        return data;
+      }
+      case "low_quality_extraction": {
+        showToast(
+          data.message ||
+            "The worker could not read a complete posting from that link.",
+          "warning",
+          true,
         );
         return data;
       }
@@ -23549,6 +23653,18 @@ function setIngestSubmitLoading(button, loading) {
   }
 }
 
+function setIngestSubmitProgressLabel(button, update) {
+  if (!button || !update || typeof update !== "object") return;
+  const step = String(update.step || "");
+  if (step === "scrape") {
+    button.textContent = "Reading posting...";
+  } else if (step === "refresh") {
+    button.textContent = "Refreshing...";
+  } else if (step === "pipeline" || step === "write") {
+    button.textContent = "Adding...";
+  }
+}
+
 async function submitIngestFromToolbar() {
   const input = document.getElementById("ingestUrlInput");
   const button = document.getElementById("ingestUrlSubmit");
@@ -23567,7 +23683,9 @@ async function submitIngestFromToolbar() {
   }
   setIngestSubmitLoading(button, true);
   try {
-    const data = await handleIngestUrlSubmit(url);
+    const data = await handleIngestUrlSubmit(url, undefined, {
+      onProgress: (update) => setIngestSubmitProgressLabel(button, update),
+    });
     handleIngestUrlResponse(data, url);
     if (data && data.ok === true) {
       input.value = "";

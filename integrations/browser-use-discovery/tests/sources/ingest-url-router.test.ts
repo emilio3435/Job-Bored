@@ -14,6 +14,28 @@ test("classifyIngestUrl classifies ats_direct greenhouse", () => {
   assert.equal(result.jobId, "4728292004");
 });
 
+test("classifyIngestUrl classifies current Greenhouse job-board host", () => {
+  const result = classifyIngestUrl(
+    "https://job-boards.greenhouse.io/figma/jobs/5998147004?gh_jid=5998147004",
+  );
+  assert.equal(result.kind, "ats_direct");
+  if (result.kind !== "ats_direct") return;
+  assert.equal(result.provider, "greenhouse");
+  assert.equal(result.slug, "figma");
+  assert.equal(result.jobId, "5998147004");
+});
+
+test("classifyIngestUrl classifies Greenhouse EU board host", () => {
+  const result = classifyIngestUrl(
+    "https://boards.eu.greenhouse.io/acme/jobs/12345",
+  );
+  assert.equal(result.kind, "ats_direct");
+  if (result.kind !== "ats_direct") return;
+  assert.equal(result.provider, "greenhouse");
+  assert.equal(result.slug, "acme");
+  assert.equal(result.jobId, "12345");
+});
+
 test("classifyIngestUrl classifies ats_direct lever", () => {
   const result = classifyIngestUrl("https://jobs.lever.co/stripe/abc-123");
   assert.equal(result.kind, "ats_direct");

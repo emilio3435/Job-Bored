@@ -1168,6 +1168,9 @@ const server = createServer(async (request, response) => {
           loadStoredWorkerConfig: (sheetId: string) =>
             loadStoredWorkerConfig(runtimeConfig, sheetId),
           createPipelineWriterForRequest,
+          runStatusPathForRun: buildRunStatusPath,
+          runStatusStore,
+          includeRunStatusToken: runtimeConfig.runMode === "hosted",
           now: () => new Date(),
           randomId: (prefix: string) =>
             `${prefix}_${randomUUID().replace(/-/g, "")}`,

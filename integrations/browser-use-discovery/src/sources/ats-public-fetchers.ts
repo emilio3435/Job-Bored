@@ -48,7 +48,7 @@ export async function fetchGreenhouseJob(
     ok: true,
     rawListing: {
       sourceId: "greenhouse",
-      sourceLabel: "Greenhouse (URL paste)",
+      sourceLabel: "Greenhouse",
       providerType: "greenhouse",
       sourceLane: "company_surface",
       title,
@@ -59,6 +59,10 @@ export async function fetchGreenhouseJob(
       finalUrl: applyUrl,
       descriptionText: descriptionText || undefined,
       externalJobId: String(input.jobId),
+      tags: sanitizeTags([
+        ...deriveTitleTags(title),
+        ...collectNameFields(arrayObjectsField(body, "departments")),
+      ]),
     },
   };
 }
@@ -98,7 +102,7 @@ export async function fetchLeverJob(
     ok: true,
     rawListing: {
       sourceId: "lever",
-      sourceLabel: "Lever (URL paste)",
+      sourceLabel: "Lever",
       providerType: "lever",
       sourceLane: "company_surface",
       title,
@@ -109,6 +113,12 @@ export async function fetchLeverJob(
       finalUrl: applyUrl,
       descriptionText: descriptionText || undefined,
       externalJobId: String(input.jobId),
+      tags: sanitizeTags([
+        ...deriveTitleTags(title),
+        stringField(categories || {}, "team"),
+        stringField(categories || {}, "department"),
+        stringField(categories || {}, "commitment"),
+      ]),
     },
   };
 }
@@ -155,7 +165,7 @@ export async function fetchAshbyJob(
     ok: true,
     rawListing: {
       sourceId: "ashby",
-      sourceLabel: "Ashby (URL paste)",
+      sourceLabel: "Ashby",
       providerType: "ashby",
       sourceLane: "company_surface",
       title,
@@ -166,6 +176,12 @@ export async function fetchAshbyJob(
       finalUrl: applyUrl,
       descriptionText: descriptionText || undefined,
       externalJobId: String(input.jobId),
+      tags: sanitizeTags([
+        ...deriveTitleTags(title),
+        stringField(body, "department"),
+        stringField(body, "team"),
+        stringField(body, "employmentType"),
+      ]),
     },
   };
 }
@@ -249,4 +265,50 @@ function objectField(
   const value = record[key];
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+function arrayObjectsField(
+  record: Record<string, unknown>,
+  key: string,
+): Record<string, unknown>[] {
+  const value = record[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (entry): entry is Record<string, unknown> =>
+      !!entry && typeof entry === "object" && !Array.isArray(entry),
+  );
+}
+
+function collectNameFields(entries: Record<string, unknown>[]): string[] {
+  return entries
+    .map((entry) => stringField(entry, "name"))
+    .filter(Boolean);
+}
+
+function deriveTitleTags(title: string): string[] {
+  const clean = title.trim();
+  if (!clean) return [];
+  const tags: string[] = [];
+  const commaParts = clean.split(",").map((part) => part.trim()).filter(Boolean);
+  if (commaParts.length > 1) {
+    tags.push(commaParts.slice(1).join(", "));
+  }
+  const seniority = clean.match(
+    /\b(Intern|Junior|Associate|Senior|Staff|Principal|Lead|Director|Head|VP|Vice President)\b/i,
+  )?.[0];
+  if (seniority) tags.push(seniority);
+  return tags;
+}
+
+function sanitizeTags(tags: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const tag of tags) {
+    const value = String(tag || "").replace(/\s+/g, " ").trim();
+    const key = value.toLowerCase();
+    if (!value || seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
 }
