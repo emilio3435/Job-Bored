@@ -32,8 +32,12 @@ describe("Expired pipeline status contract", () => {
   });
 
   it("keeps v2 pipeline adapters from dropping Expired rows", () => {
+    // dawn-data.js carries the canonical stage definition that backs the
+    // sheet contract — its label still mirrors the schema enum.
     assert.match(read("dawn-data.js"), /\{ key: "expired",\s+label: "Expired"/);
-    assert.match(read("pipeline.js"), /\{ key: "expired",\s+label: "Expired"/);
+    // pipeline.js is the user-facing kanban; it surfaces the same stage
+    // under the gentler "Dismissed" label while preserving the schema key.
+    assert.match(read("pipeline.js"), /\{ key: "expired",\s+label: "Dismissed"/);
     assert.match(read("pipeline.css"), /--pipe-col-expired/);
     assert.match(read("flowing-writes.js"), /"expired": "Expired"/);
   });

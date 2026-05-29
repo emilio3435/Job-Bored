@@ -49,10 +49,21 @@ describe("v2 pipeline column collapse and scrolling", () => {
     );
   });
 
-  it("auto-expands a collapsed destination before an optimistic move", () => {
+  it("acknowledges the destination column on drop without expanding it", () => {
     assert.ok(
-      pipelineJs.includes("if (state && isCollapsed(state, toStage)) setColumnCollapsed(region, state, toStage, false);"),
-      "dropping into a collapsed stage should reveal the moved card",
+      !pipelineJs.includes("if (state && isCollapsed(state, toStage)) setColumnCollapsed(region, state, toStage, false);"),
+      "dropping into a stage should leave the destination collapse state alone so the source column keeps its focused width",
+    );
+    assert.ok(
+      pipelineJs.includes("pulseColumnDrop(region, toStage);") &&
+        pipelineJs.includes("function pulseColumnDrop") &&
+        pipelineJs.includes('col.setAttribute("data-just-dropped", "true");'),
+      "the destination column should briefly pulse so the user sees the drop landed",
+    );
+    assert.ok(
+      pipelineCss.includes('.pipe-col[data-just-dropped="true"]') &&
+        pipelineCss.includes("@keyframes pipe-col-drop-pulse"),
+      "CSS should provide a drop-pulse animation on the destination column",
     );
   });
 
