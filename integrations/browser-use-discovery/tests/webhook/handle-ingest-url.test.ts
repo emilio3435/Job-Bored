@@ -69,6 +69,32 @@ function makeDependencies(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function createMemoryRunStatusStore() {
+  const states = new Map<string, Record<string, unknown>>();
+  return {
+    states,
+    put(payload: Record<string, unknown>) {
+      states.set(String(payload.runId), payload);
+    },
+    get(runId: string) {
+      return states.get(runId) || null;
+    },
+    close() {},
+  };
+}
+
+async function waitForTerminalStatus(
+  store: ReturnType<typeof createMemoryRunStatusStore>,
+  runId: string,
+) {
+  for (let i = 0; i < 25; i += 1) {
+    const state = store.get(runId);
+    if (state?.terminal) return state;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  return store.get(runId);
+}
+
 test("handleIngestUrlWebhook returns 405 on GET", async () => {
   const response = await handleIngestUrlWebhook(
     {
@@ -246,11 +272,10 @@ test("handleIngestUrlWebhook rejects non-string googleAccessToken", async () => 
   assert.match(JSON.parse(response.body).message, /googleAccessToken/);
 });
 
-test("handleIngestUrlWebhook blocked_aggregator with missing Browser Use key lands url-only row without scraping", async () => {
+test("handleIngestUrlWebhook blocked_aggregator with missing Browser Use key rejects without writing", async () => {
   let fetcherCalls = 0;
   let scraperCalls = 0;
   let writerCalls = 0;
-  let capturedLead: Record<string, unknown> | null = null;
   const response = await handleIngestUrlWebhook(
     makeRequest({
       url: "https://www.linkedin.com/jobs/view/senior-product-manager-at-plaid",
@@ -273,9 +298,8 @@ test("handleIngestUrlWebhook blocked_aggregator with missing Browser Use key lan
         throw new Error("should not be called");
       },
       pipelineWriter: {
-        write: async (_sheetId, leads) => {
+        write: async () => {
           writerCalls += 1;
-          capturedLead = leads[0] as unknown as Record<string, unknown>;
           return {
             sheetId: "sheet_123",
             appended: 1,
@@ -291,21 +315,14 @@ test("handleIngestUrlWebhook blocked_aggregator with missing Browser Use key lan
 
   assert.equal(response.status, 200);
   const body = JSON.parse(response.body);
-  assert.equal(body.ok, true);
-  assert.equal(body.strategy, "url_only");
-  assert.equal(body.appended, true);
+  assert.equal(body.ok, false);
+  assert.equal(body.reason, "blocked_aggregator");
+  assert.match(body.hint, /employer careers|ATS posting/i);
   // Fetchers still skipped (no point calling Greenhouse for LinkedIn URL).
   assert.equal(fetcherCalls, 0);
   // Cheerio scraper also skipped — LinkedIn will 403 it anyway; save the RTT.
   assert.equal(scraperCalls, 0);
-  // But the writer IS called — that's the whole point of the new behavior.
-  assert.equal(writerCalls, 1);
-  assert.ok(capturedLead, "lead should have been written");
-  // Title derived from URL path, not a generic "Job at linkedin" fallback.
-  assert.match(
-    String((capturedLead as Record<string, unknown>).title),
-    /Senior Product Manager At Plaid/i,
-  );
+  assert.equal(writerCalls, 0);
 });
 
 test("handleIngestUrlWebhook blocked_aggregator uses Browser Use Cloud when configured", async () => {
@@ -330,7 +347,7 @@ test("handleIngestUrlWebhook blocked_aggregator uses Browser Use Cloud when conf
           confidence: 0.91,
           rawListing: {
             sourceId: "ingest_url_browser_use",
-            sourceLabel: "URL paste (Browser Use Cloud)",
+            sourceLabel: "Browser Use",
             sourceLane: "grounded_web",
             title: "Senior Product Manager",
             company: "Plaid",
@@ -375,12 +392,191 @@ test("handleIngestUrlWebhook blocked_aggregator uses Browser Use Cloud when conf
   assert.equal(capturedProfileId, "profile_123");
   assert.equal(capturedLead?.title, "Senior Product Manager");
   assert.equal(capturedLead?.company, "Plaid");
-  assert.equal(capturedLead?.sourceLabel, "URL paste (Browser Use Cloud)");
+  assert.equal(capturedLead?.sourceLabel, "Browser Use");
   assert.match(
     String((capturedLead?.metadata as Record<string, unknown>)?.sourceQuery || ""),
     /browser_use_cloud:/i,
   );
   assert.doesNotMatch(response.body, /bu_test_key/);
+});
+
+test("handleIngestUrlWebhook rejects source-gated Browser Use placeholders without writing", async () => {
+  let writerCalls = 0;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "https://www.linkedin.com/jobs/search-results?currentJobId=4415950551",
+    }),
+    makeDependencies({
+      runtimeConfig: makeRuntimeConfig({
+        browserUseApiKey: "bu_test_key",
+      }),
+      extractWithBrowserUseCloud: async (input) => ({
+        ok: true as const,
+        confidence: 0,
+        rawListing: {
+          sourceId: "ingest_url_browser_use",
+          sourceLabel: "Browser Use",
+          sourceLane: "grounded_web",
+          title: "Unavailable",
+          company: "LinkedIn (source gated)",
+          location: "",
+          url: input.url,
+          canonicalUrl: input.url,
+          finalUrl: input.url,
+          descriptionText: "clean ATS",
+          metadata: {
+            browserUseConfidence: 0,
+            sourceQuery: `browser_use_cloud:${input.url}`,
+          },
+        },
+      }),
+      pipelineWriter: {
+        write: async () => {
+          writerCalls += 1;
+          return {
+            sheetId: "sheet_123",
+            appended: 1,
+            updated: 0,
+            skippedDuplicates: 0,
+            skippedBlacklist: 0,
+            warnings: [],
+          };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+  assert.equal(body.reason, "low_quality_extraction");
+  assert.match(body.hint, /employer careers|ATS posting/i);
+  assert.equal(writerCalls, 0);
+});
+
+test("handleIngestUrlWebhook async Add URL returns statusPath and stores final Browser Use result", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      async: true,
+      url: "https://www.linkedin.com/jobs/view/senior-product-manager-at-plaid",
+    }),
+    makeDependencies({
+      runtimeConfig: makeRuntimeConfig({
+        browserUseApiKey: "bu_test_key",
+      }),
+      randomId: () => "ingest_async_test",
+      runStatusStore,
+      runStatusPathForRun: (runId: string) => `/runs/${runId}`,
+      extractWithBrowserUseCloud: async (input) => ({
+        ok: true as const,
+        confidence: 0.93,
+        rawListing: {
+          sourceId: "ingest_url_browser_use",
+          sourceLabel: "Browser Use",
+          sourceLane: "grounded_web",
+          title: "Senior Product Manager",
+          company: "Plaid",
+          location: "Remote",
+          url: input.url,
+          canonicalUrl: input.url,
+          finalUrl: input.url,
+          descriptionText:
+            "Own product strategy for trusted financial data connectivity.",
+        },
+      }),
+    }),
+  );
+
+  assert.equal(response.status, 202);
+  const ack = JSON.parse(response.body);
+  assert.equal(ack.ok, true);
+  assert.equal(ack.kind, "accepted_async");
+  assert.equal(ack.runId, "ingest_async_test");
+  assert.equal(ack.statusPath, "/runs/ingest_async_test");
+
+  const terminal = await waitForTerminalStatus(
+    runStatusStore,
+    "ingest_async_test",
+  );
+  assert.ok(terminal, "terminal run status should be written");
+  assert.equal(terminal?.status, "completed");
+  assert.equal(terminal?.terminal, true);
+  assert.equal(
+    (terminal?.ingestResult as Record<string, unknown>)?.strategy,
+    "browser_use_cloud",
+  );
+  assert.equal(
+    ((terminal?.ingestResult as Record<string, unknown>)?.lead as Record<
+      string,
+      unknown
+    >)?.title,
+    "Senior Product Manager",
+  );
+  assert.doesNotMatch(JSON.stringify(terminal), /bu_test_key/);
+});
+
+test("handleIngestUrlWebhook async Add URL terminal status fails for low-quality Browser Use output", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+  let writerCalls = 0;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      async: true,
+      url: "https://www.linkedin.com/jobs/search-results?currentJobId=4415950551",
+    }),
+    makeDependencies({
+      runtimeConfig: makeRuntimeConfig({
+        browserUseApiKey: "bu_test_key",
+      }),
+      randomId: () => "ingest_low_quality_async_test",
+      runStatusStore,
+      runStatusPathForRun: (runId: string) => `/runs/${runId}`,
+      extractWithBrowserUseCloud: async (input) => ({
+        ok: true as const,
+        confidence: 0,
+        rawListing: {
+          sourceId: "ingest_url_browser_use",
+          sourceLabel: "Browser Use",
+          sourceLane: "grounded_web",
+          title: "Unavailable",
+          company: "LinkedIn (source gated)",
+          url: input.url,
+          canonicalUrl: input.url,
+          finalUrl: input.url,
+          descriptionText: "clean ATS",
+          metadata: {
+            browserUseConfidence: 0,
+          },
+        },
+      }),
+      pipelineWriter: {
+        write: async () => {
+          writerCalls += 1;
+          return {
+            sheetId: "sheet_123",
+            appended: 1,
+            updated: 0,
+            skippedDuplicates: 0,
+            skippedBlacklist: 0,
+            warnings: [],
+          };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 202);
+  const terminal = await waitForTerminalStatus(
+    runStatusStore,
+    "ingest_low_quality_async_test",
+  );
+  assert.equal(terminal?.status, "failed");
+  assert.equal(terminal?.terminal, true);
+  assert.equal(
+    (terminal?.ingestResult as Record<string, unknown>)?.reason,
+    "low_quality_extraction",
+  );
+  assert.equal(writerCalls, 0);
 });
 
 test("handleIngestUrlWebhook ats_direct happy path appends row", async () => {
@@ -398,7 +594,7 @@ test("handleIngestUrlWebhook ats_direct happy path appends row", async () => {
         ok: true as const,
         rawListing: {
           sourceId: "greenhouse",
-          sourceLabel: "Greenhouse (URL paste)",
+          sourceLabel: "Greenhouse",
           providerType: "greenhouse",
           sourceLane: "company_surface",
           title: "Senior Product Manager",
@@ -431,6 +627,84 @@ test("handleIngestUrlWebhook ats_direct happy path appends row", async () => {
   assert.equal(body.strategy, "ats_api");
   assert.equal(body.appended, true);
   assert.equal(writerCalls, 1);
+  assert.equal(browserUseCalls, 0);
+});
+
+test("handleIngestUrlWebhook current Greenhouse host uses ATS API details", async () => {
+  let scraperCalls = 0;
+  let browserUseCalls = 0;
+  let capturedFetchInput: Record<string, string> | null = null;
+  let capturedLead: Record<string, unknown> | null = null;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "https://job-boards.greenhouse.io/figma/jobs/5998147004?gh_jid=5998147004",
+    }),
+    makeDependencies({
+      runtimeConfig: makeRuntimeConfig({ browserUseApiKey: "bu_test_key" }),
+      scrapeJobPosting: async () => {
+        scraperCalls += 1;
+        throw new Error("scraper should not run after ATS success");
+      },
+      extractWithBrowserUseCloud: async () => {
+        browserUseCalls += 1;
+        throw new Error("Browser Use should not run after ATS success");
+      },
+      fetchGreenhouseJob: async (input: Record<string, string>) => {
+        capturedFetchInput = input;
+        return {
+          ok: true as const,
+          rawListing: {
+            sourceId: "greenhouse",
+            sourceLabel: "Greenhouse",
+            providerType: "greenhouse",
+            sourceLane: "company_surface",
+            title: "Director, Growth Marketing",
+            company: "Figma",
+            location: "San Francisco, CA • New York, NY • United States",
+            url: "https://boards.greenhouse.io/figma/jobs/5998147004",
+            canonicalUrl: "https://boards.greenhouse.io/figma/jobs/5998147004",
+            descriptionText: "Lead paid search and growth marketing programs.",
+            tags: ["Growth Marketing", "Director", "Marketing"],
+          },
+        };
+      },
+      pipelineWriter: {
+        write: async (_sheetId: string, leads: unknown[]) => {
+          capturedLead = leads[0] as Record<string, unknown>;
+          return {
+            sheetId: "sheet_123",
+            appended: 1,
+            updated: 0,
+            skippedDuplicates: 0,
+            skippedBlacklist: 0,
+            warnings: [],
+          };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.strategy, "ats_api");
+  assert.deepEqual(capturedFetchInput, {
+    slug: "figma",
+    jobId: "5998147004",
+  });
+  assert.equal(capturedLead?.title, "Director, Growth Marketing");
+  assert.equal(capturedLead?.company, "Figma");
+  assert.equal(capturedLead?.sourceLabel, "Greenhouse");
+  assert.equal(
+    capturedLead?.url,
+    "https://job-boards.greenhouse.io/figma/jobs/5998147004?gh_jid=5998147004",
+  );
+  assert.deepEqual(capturedLead?.tags, [
+    "Growth Marketing",
+    "Director",
+    "Marketing",
+  ]);
+  assert.equal(scraperCalls, 0);
   assert.equal(browserUseCalls, 0);
 });
 
@@ -524,13 +798,8 @@ test("handleIngestUrlWebhook returns duplicate when writer reports skipped dupli
   assert.equal(body.reason, "duplicate");
 });
 
-test("handleIngestUrlWebhook generic_https scrape failure lands url-only row", async () => {
-  // When the Cheerio scrape throws (HTTP 4xx/5xx upstream, timeout, etc.)
-  // the handler falls back to a URL-only RawListing and still lands the row,
-  // rather than returning scrape_failed and forcing manual fill. The
-  // dashboard's drawer enrichment can retry when the user opens the row.
+test("handleIngestUrlWebhook generic_https scrape failure rejects without writing", async () => {
   let writerCalls = 0;
-  let capturedLead: Record<string, unknown> | null = null;
   const response = await handleIngestUrlWebhook(
     makeRequest({
       url: "https://careers.example.com/roles/principal-engineer-payments",
@@ -540,9 +809,8 @@ test("handleIngestUrlWebhook generic_https scrape failure lands url-only row", a
         throw new Error("HTTP 403");
       },
       pipelineWriter: {
-        write: async (_sheetId, leads) => {
+        write: async () => {
           writerCalls += 1;
-          capturedLead = leads[0] as unknown as Record<string, unknown>;
           return {
             sheetId: "sheet_123",
             appended: 1,
@@ -558,21 +826,13 @@ test("handleIngestUrlWebhook generic_https scrape failure lands url-only row", a
 
   assert.equal(response.status, 200);
   const body = JSON.parse(response.body);
-  assert.equal(body.ok, true);
-  assert.equal(body.strategy, "url_only");
-  assert.equal(writerCalls, 1);
-  assert.ok(capturedLead);
-  assert.match(
-    String((capturedLead as Record<string, unknown>).title),
-    /Principal Engineer Payments/i,
-  );
-  assert.match(
-    String((capturedLead as Record<string, unknown>).company),
-    /Careers|Example/i,
-  );
+  assert.equal(body.ok, false);
+  assert.equal(body.reason, "scrape_failed");
+  assert.match(body.hint, /employer careers|ATS posting/i);
+  assert.equal(writerCalls, 0);
 });
 
-test("handleIngestUrlWebhook Browser Use error falls back to url-only row and logs failure", async () => {
+test("handleIngestUrlWebhook Browser Use error rejects without writing and logs failure", async () => {
   const logs: Array<{ event: string; details: Record<string, unknown> }> = [];
   let writerCalls = 0;
   const response = await handleIngestUrlWebhook(
@@ -605,9 +865,9 @@ test("handleIngestUrlWebhook Browser Use error falls back to url-only row and lo
 
   assert.equal(response.status, 200);
   const body = JSON.parse(response.body);
-  assert.equal(body.ok, true);
-  assert.equal(body.strategy, "url_only");
-  assert.equal(writerCalls, 1);
+  assert.equal(body.ok, false);
+  assert.equal(body.reason, "blocked_aggregator");
+  assert.equal(writerCalls, 0);
   assert.ok(
     logs.some(
       (entry) => entry.event === "discovery.run.ingest_url_browser_use_failed",
@@ -642,4 +902,48 @@ test("handleIngestUrlWebhook normal successful Cheerio scrape does not call Brow
   assert.equal(body.ok, true);
   assert.equal(body.strategy, "cheerio_dom");
   assert.equal(browserUseCalls, 0);
+});
+
+test("handleIngestUrlWebhook cleans generic scrape title/company metadata", async () => {
+  let capturedLead: Record<string, unknown> | null = null;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "https://careers.example.com/jobs/5998147004",
+    }),
+    makeDependencies({
+      scrapeJobPosting: async () => ({
+        url: "https://careers.example.com/jobs/5998147004",
+        title: "Job Application for Director, Growth Marketing at Figma",
+        description: "Lead paid search and growth marketing programs.",
+        skills: ["AI"],
+        method: "cheerio",
+      }),
+      pipelineWriter: {
+        write: async (_sheetId: string, leads: unknown[]) => {
+          capturedLead = leads[0] as Record<string, unknown>;
+          return {
+            sheetId: "sheet_123",
+            appended: 1,
+            updated: 0,
+            skippedDuplicates: 0,
+            skippedBlacklist: 0,
+            warnings: [],
+          };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.strategy, "cheerio_dom");
+  assert.equal(capturedLead?.title, "Director, Growth Marketing");
+  assert.equal(capturedLead?.company, "Figma");
+  assert.equal(capturedLead?.sourceLabel, "Company page");
+  assert.deepEqual(capturedLead?.tags, [
+    "Growth Marketing",
+    "Director",
+    "AI",
+  ]);
 });

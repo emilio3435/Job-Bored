@@ -91,7 +91,15 @@ function extractAtsIdentity(
 
   if (provider === "greenhouse") {
     // boards.greenhouse.io/<slug>/jobs/<jobId>
-    if (host !== "boards.greenhouse.io") return null;
+    // boards.eu.greenhouse.io/<slug>/jobs/<jobId>
+    // job-boards.greenhouse.io/<slug>/jobs/<jobId>
+    if (
+      host !== "boards.greenhouse.io" &&
+      host !== "boards.eu.greenhouse.io" &&
+      host !== "job-boards.greenhouse.io"
+    ) {
+      return null;
+    }
     if (segments.length < 3 || segments[1] !== "jobs") return null;
     const slug = segments[0] || "";
     const jobId = segments[2] || "";

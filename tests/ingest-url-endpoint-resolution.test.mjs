@@ -34,6 +34,9 @@ function jsonResponse({ ok, status, body }) {
     async text() {
       return JSON.stringify(body);
     },
+    async json() {
+      return body;
+    },
   };
 }
 
@@ -148,6 +151,161 @@ describe("Add job from URL endpoint resolution", () => {
     assert.match(submitSource, /forceGoogleTokenRefresh:\s*true/);
     assert.match(submitSource, /clearPersistedRuntimeOAuthSession\(\)/);
     assert.match(submitSource, /showSheetAccessGate\("signin"\)/);
+  });
+
+  it("behaviorally polls async Add URL status until the final ingest result is ready", async () => {
+    const sources = [
+      completeFunction(
+        readFunctionSource(
+          "buildRunStatusUrl",
+          "\n}\n\nfunction canSynthesizeRunStatusPath",
+        ),
+      ),
+      completeFunction(
+        readFunctionSource(
+          "canSynthesizeRunStatusPath",
+          "\n}\n\nfunction resolveAcceptedRunStatusPath",
+        ),
+      ),
+      completeFunction(
+        readFunctionSource(
+          "resolveAcceptedRunStatusPath",
+          "\n}\n\nfunction isLikelyNgrokUrl",
+        ),
+      ),
+      completeFunction(
+        readFunctionSource(
+          "isLikelyNgrokUrl",
+          "\n}\n\nfunction getDiscoveryStatusPollingWebhookUrl",
+        ),
+      ),
+      completeFunction(
+        readFunctionSource(
+          "buildDiscoveryStatusPollHeaders",
+          "\n}\n\n/**\n * Fetch and process",
+        ),
+      ),
+      completeFunction(
+        readFunctionSource(
+          "getDiscoveryRequestGoogleAccessToken",
+          "\n}\n\nasync function getFreshDiscoveryRequestGoogleAccessToken",
+        ),
+      ),
+      completeFunction(
+        readAsyncFunctionSource(
+          "getFreshDiscoveryRequestGoogleAccessToken",
+          "\n}\n\nfunction isIngestSheetAuthFailure",
+        ),
+      ),
+      completeFunction(
+        readFunctionSource(
+          "isIngestSheetAuthFailure",
+          "\n}\n\nfunction getDiscoveryEngineStateFromVerificationResult",
+        ),
+      ),
+      completeFunction(
+        readAsyncFunctionSource(
+          "handleIngestUrlSubmit",
+          "\n}\n\nfunction getIngestManualModalEls",
+        ),
+      ),
+    ].join("\n");
+    const requests = [];
+    const context = vm.createContext({
+      console,
+      AbortController,
+      setTimeout,
+      clearTimeout,
+      Date,
+      URL,
+      MAX_POLL_ERRORS: 3,
+      INGEST_URL_TIMEOUT_MS: 5_000,
+      INGEST_URL_ASYNC_TIMEOUT_MS: 2_000,
+      INGEST_URL_ASYNC_POLL_MS: 1,
+      accessToken: "browser-token",
+      tokenExpiresAt: Date.now() + 3_600_000,
+      async resolveDiscoveryRunWebhookUrl() {
+        return "http://127.0.0.1:8644/webhook";
+      },
+      resolveIngestUrlEndpoint() {
+        return "http://127.0.0.1:8644/ingest-url";
+      },
+      getSheetId() {
+        return "sheet_123";
+      },
+      getDiscoveryWebhookSecret() {
+        return "webhook_secret";
+      },
+      clearPersistedRuntimeOAuthSession() {},
+      getOAuthClientId() {
+        return "client_123";
+      },
+      showSheetAccessGate() {},
+      createIngestVerificationError(_classification, _endpoint, message) {
+        return new Error(message);
+      },
+      classifyIngestEndpointFailure() {
+        return {};
+      },
+      classifyIngestNetworkFailure() {
+        return {};
+      },
+      isFetchNetworkError() {
+        return false;
+      },
+      reportIngestProgress() {},
+      fetch: async (endpoint, init = {}) => {
+        requests.push({ endpoint, init });
+        if (String(init.method || "GET").toUpperCase() === "GET") {
+          assert.equal(
+            endpoint,
+            "http://127.0.0.1:8644/runs/ingest_async_ui",
+          );
+          return jsonResponse({
+            ok: true,
+            status: 200,
+            body: {
+              runId: "ingest_async_ui",
+              status: "completed",
+              terminal: true,
+              ingestResult: {
+                ok: true,
+                strategy: "browser_use_cloud",
+                appended: true,
+                lead: { title: "Role", company: "Company" },
+              },
+            },
+          });
+        }
+        return jsonResponse({
+          ok: true,
+          status: 202,
+          body: {
+            ok: true,
+            kind: "accepted_async",
+            runId: "ingest_async_ui",
+            message: "accepted",
+            statusPath: "/runs/ingest_async_ui",
+            pollAfterMs: 1,
+          },
+        });
+      },
+    });
+
+    vm.runInContext(sources, context, {
+      filename: "app.js#ingest-url-async-submit",
+    });
+    const result = await vm.runInContext(
+      'handleIngestUrlSubmit("https://www.linkedin.com/jobs/view/123")',
+      context,
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(result.strategy, "browser_use_cloud");
+    assert.equal(requests.length, 2);
+    const postBody = JSON.parse(String(requests[0].init.body || "{}"));
+    assert.equal(postBody.async, true);
+    assert.equal(postBody.googleAccessToken, "browser-token");
   });
 
   it("behaviorally retries the worker POST with a fresh token after a Sheets auth body", async () => {

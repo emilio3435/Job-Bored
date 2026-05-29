@@ -147,7 +147,7 @@ describe("app.js — autofillDiscoveryWebhookUrlFromBootstrap", () => {
     const hydEnd = appJs.indexOf("\n}\n", hydStart);
     const fn = appJs.slice(hydStart, hydEnd);
     assert.ok(
-      fn.includes("autofillDiscoveryWebhookSecretFromBootstrap(data)"),
+      fn.includes("autofillDiscoveryWebhookSecretFromBootstrap(data"),
       "secret autofill still wired",
     );
     assert.ok(

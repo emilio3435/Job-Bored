@@ -198,6 +198,17 @@ function createMemoryRunStatusStore() {
   };
 }
 
+async function waitForRunStatus(runStatusStore, runId, predicate, timeoutMs = 250) {
+  const deadline = Date.now() + timeoutMs;
+  let state = null;
+  while (Date.now() < deadline) {
+    state = runStatusStore.get(runId);
+    if (predicate(state)) return state;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  return state;
+}
+
 test("handleDiscoveryWebhook validates requests before running", async () => {
   // Set a placeholder secret so auth passes and JSON validation can be tested.
   const dependencies = makeDependencies({
@@ -941,8 +952,11 @@ test("VAL-LOOP-CROSS-006: handleDiscoveryWebhook async zero-lead browser_only ru
     assert.equal(accepted.kind, "accepted_async");
     assert.equal(accepted.statusPath, "/runs/run_queued");
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const stored = dependencies.runStatusStore.get("run_queued");
+    const stored = await waitForRunStatus(
+      dependencies.runStatusStore,
+      "run_queued",
+      (status) => status?.terminal === true,
+    );
     assert.ok(stored, "expected async run status to be persisted");
     assert.equal(stored.status, "empty");
     assert.equal(stored.terminal, true);

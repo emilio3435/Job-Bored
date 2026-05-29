@@ -457,6 +457,12 @@ export type IngestUrlRequestV1 = {
   url: string;
   sheetId?: string;
   /**
+   * When true, the worker returns an accepted_async ack and exposes the final
+   * ingest response on the returned run-status path. This keeps long Browser
+   * Use extraction out of the browser POST timeout path.
+   */
+  async?: boolean;
+  /**
    * Optional short-lived OAuth access token supplied by the browser dashboard.
    * Lets a local worker write to the same user-owned Sheet without requiring
    * persistent worker credentials. Never persist or log this value.
@@ -474,9 +480,16 @@ export type IngestUrlRequestV1 = {
 export type IngestUrlResponseV1 =
   | {
       ok: true;
-      // "url_only" = couldn't auto-extract rich fields; row landed with
-      // URL + hostname-as-company + slug-as-title and the dashboard's drawer
-      // enrichment will backfill details when the user opens the row.
+      kind: "accepted_async";
+      runId: string;
+      message: string;
+      statusPath: string;
+      pollAfterMs: number;
+    }
+  | {
+      ok: true;
+      // "url_only" is retained for backward-compatible older workers; current
+      // Add URL handling rejects placeholder-only extracts before writing.
       strategy:
         | "ats_api"
         | "jsonld"
@@ -508,6 +521,12 @@ export type IngestUrlResponseV1 =
       ok: false;
       reason: "scrape_failed";
       httpStatus?: number;
+      message: string;
+      hint: string;
+    }
+  | {
+      ok: false;
+      reason: "low_quality_extraction";
       message: string;
       hint: string;
     }
@@ -938,6 +957,7 @@ export type DiscoveryRunStatusPayload = {
   warnings: string[];
   sources: DiscoverySourceSummary[];
   error?: string;
+  ingestResult?: IngestUrlResponseV1;
   /**
    * Resolved UltraPlan tuning flags at terminal state.
    * Only present when the run has completed and config was resolved.

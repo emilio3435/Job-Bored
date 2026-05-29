@@ -145,7 +145,7 @@ Environment variables:
 - `BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_PAGES_PER_COMPANY`: grounded pages to expand per company, defaults to `4`
 - `SERPAPI_API_KEY` (also read as `BROWSER_USE_DISCOVERY_SERPAPI_API_KEY` or `DISCOVERY_SERPAPI_API_KEY`): **strongly recommended.** Enables the `serpapi_google_jobs` source lane which queries Google Jobs directly — structured `title/company/location/description/apply_url` data with no scraping step. Free tier: 100 searches/month (~20 discovery runs). Developer tier: $50/mo for 5K. Lane is feature-gated: skips gracefully when unset. Get a key at https://serpapi.com/
 - `BROWSER_USE_API_KEY`: optional Browser Use Cloud API key for Add job from URL fallback. Used only after ATS/Cheerio extraction is blocked, fails, or returns weak content.
-- `BROWSER_USE_PROFILE_ID`: optional Browser Use Cloud profile id for authenticated LinkedIn-style Add job from URL extraction.
+- `BROWSER_USE_PROFILE_ID`: optional Browser Use Cloud profile id for authenticated Add job from URL extraction. Browser Use profiles preserve cookies/local storage across sessions; create or sync a profile that is already signed in to the target job board, then set this id. The worker passes it to Browser Use Cloud, but still rejects source-gated or placeholder output instead of writing junk rows.
 - `BROWSER_USE_DISCOVERY_GOOGLE_ACCESS_TOKEN`: optional bearer token for Sheets API
 - `BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON`: optional inline service-account JSON
 - `BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE`: optional service-account JSON file path
@@ -264,7 +264,7 @@ Hosted mode uses the same code path and contract. The difference is infrastructu
 
 ### POST /ingest-url
 
-`POST /ingest-url` accepts a single pasted job URL and attempts a tiered ingest strategy that writes one normalized Pipeline row: ATS public API first (when parsable), then JSON-LD/DOM extraction via the shared Cheerio scraper, with an explicit blocked-aggregator response for known anti-scraping boards.
+`POST /ingest-url` accepts a single pasted job URL and attempts a tiered ingest strategy that writes one normalized Pipeline row: ATS public API first (when parsable), then JSON-LD/DOM extraction via the shared Cheerio scraper, then Browser Use Cloud for blocked, failed, or weak extraction. If the worker cannot extract a real title, company, and posting body, it rejects the add instead of landing a placeholder Kanban card.
 
 ```ts
 POST /ingest-url
@@ -276,6 +276,7 @@ Body IngestUrlRequestV1:
   schemaVersion: 1,
   url: string,
   sheetId?: string,
+  async?: boolean,  // return accepted_async and expose final result on statusPath
   manual?: {
     title: string,
     company: string,
@@ -286,16 +287,20 @@ Body IngestUrlRequestV1:
 }
 
 Response IngestUrlResponseV1 (HTTP 200 unless server-side 5xx):
-  | { ok: true, strategy: "ats_api"|"jsonld"|"cheerio_dom"|"manual_fill", lead: NormalizedLead, appended: boolean, rowNumber?: number }
+  | { ok: true, kind: "accepted_async", runId: string, statusPath: string, pollAfterMs: number, message: string }
+  | { ok: true, strategy: "ats_api"|"jsonld"|"cheerio_dom"|"manual_fill"|"url_only"|"browser_use_cloud", lead: NormalizedLead, appended: boolean, rowNumber?: number }
   | { ok: false, reason: "invalid_url", message: string }
   | { ok: false, reason: "private_network", message: string }
-  | { ok: false, reason: "blocked_aggregator", host: string, message: string }
+  | { ok: false, reason: "blocked_aggregator", host: string, message: string, hint: string }
   | { ok: false, reason: "scrape_failed", httpStatus?: number, message: string, hint: string }
+  | { ok: false, reason: "low_quality_extraction", message: string, hint: string }
   | { ok: false, reason: "duplicate", rowNumber: number, message: string }
   | { ok: false, reason: "worker_error", message: string }
 ```
 
-LinkedIn / Indeed / Glassdoor / ZipRecruiter return `blocked_aggregator` — the dashboard surfaces a manual-fill modal for these; do not attempt to scrape them.
+When `async:true`, poll the returned `statusPath` until `terminal:true`; the final `DiscoveryRunStatusPayload.ingestResult` contains one of the non-async response shapes above. Hosted workers may include a `statusToken` query parameter in `statusPath`; preserve it exactly.
+
+LinkedIn / Indeed / Glassdoor / ZipRecruiter are classified as blocked aggregators. The worker skips direct Cheerio scraping for those hosts, tries Browser Use Cloud when `BROWSER_USE_API_KEY` is configured, and rejects the add when the page is still source-gated or only yields placeholder fields. Prefer employer-hosted career pages or ATS links when a job board hides the posting.
 
 ## Testing
 

@@ -27,6 +27,7 @@ test("fetchGreenhouseJob maps public API payload to RawListing", async () => {
         company_name: "Plaid",
         location: { name: "Remote (US)" },
         content: "<p>Build important products.</p>",
+        departments: [{ name: "Product" }],
       }),
     },
   );
@@ -34,7 +35,7 @@ test("fetchGreenhouseJob maps public API payload to RawListing", async () => {
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.rawListing.sourceId, "greenhouse");
-  assert.equal(result.rawListing.sourceLabel, "Greenhouse (URL paste)");
+  assert.equal(result.rawListing.sourceLabel, "Greenhouse");
   assert.equal(result.rawListing.providerType, "greenhouse");
   assert.equal(result.rawListing.sourceLane, "company_surface");
   assert.equal(
@@ -44,6 +45,7 @@ test("fetchGreenhouseJob maps public API payload to RawListing", async () => {
   assert.equal(result.rawListing.company, "Plaid");
   assert.equal(result.rawListing.location, "Remote (US)");
   assert.equal(result.rawListing.descriptionText, "Build important products.");
+  assert.deepEqual(result.rawListing.tags, ["Senior", "Product"]);
 });
 
 test("fetchLeverJob maps public API payload to RawListing", async () => {
@@ -54,7 +56,12 @@ test("fetchLeverJob maps public API payload to RawListing", async () => {
         text: "Backend Engineer",
         hostedUrl: "https://jobs.lever.co/stripe/abc-123",
         company: "Stripe",
-        categories: { location: "Remote (US)" },
+        categories: {
+          location: "Remote (US)",
+          team: "Engineering",
+          department: "Infrastructure",
+          commitment: "Full-time",
+        },
         descriptionPlain: "Ship backend systems.",
       }),
     },
@@ -63,13 +70,18 @@ test("fetchLeverJob maps public API payload to RawListing", async () => {
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.rawListing.sourceId, "lever");
-  assert.equal(result.rawListing.sourceLabel, "Lever (URL paste)");
+  assert.equal(result.rawListing.sourceLabel, "Lever");
   assert.equal(result.rawListing.providerType, "lever");
   assert.equal(result.rawListing.sourceLane, "company_surface");
   assert.equal(result.rawListing.url, "https://jobs.lever.co/stripe/abc-123");
   assert.equal(result.rawListing.company, "Stripe");
   assert.equal(result.rawListing.location, "Remote (US)");
   assert.equal(result.rawListing.descriptionText, "Ship backend systems.");
+  assert.deepEqual(result.rawListing.tags, [
+    "Engineering",
+    "Infrastructure",
+    "Full-time",
+  ]);
 });
 
 test("fetchAshbyJob maps public API payload to RawListing", async () => {
@@ -80,6 +92,8 @@ test("fetchAshbyJob maps public API payload to RawListing", async () => {
         title: "Product Marketing Manager",
         jobUrl: "https://jobs.ashbyhq.com/figma/a1b2c3",
         location: "San Francisco, CA",
+        department: "Marketing",
+        employmentType: "Full-time",
         descriptionPlain: "Own product marketing launches.",
       }),
     },
@@ -88,7 +102,7 @@ test("fetchAshbyJob maps public API payload to RawListing", async () => {
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.rawListing.sourceId, "ashby");
-  assert.equal(result.rawListing.sourceLabel, "Ashby (URL paste)");
+  assert.equal(result.rawListing.sourceLabel, "Ashby");
   assert.equal(result.rawListing.providerType, "ashby");
   assert.equal(result.rawListing.sourceLane, "company_surface");
   assert.equal(result.rawListing.url, "https://jobs.ashbyhq.com/figma/a1b2c3");
@@ -98,6 +112,7 @@ test("fetchAshbyJob maps public API payload to RawListing", async () => {
     result.rawListing.descriptionText,
     "Own product marketing launches.",
   );
+  assert.deepEqual(result.rawListing.tags, ["Marketing", "Full-time"]);
 });
 
 test("fetchGreenhouseJob returns not_found on 404", async () => {

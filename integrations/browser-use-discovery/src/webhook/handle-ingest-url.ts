@@ -14,6 +14,13 @@ import {
 } from "../contracts.ts";
 import type { WorkerRuntimeConfig } from "../config.ts";
 import { rawListingToSingleLead } from "../normalize/raw-to-single-lead.ts";
+import {
+  buildAcceptedRunStatus,
+  buildFailedRunStatus,
+  buildRunningRunStatus,
+  buildRunStatusPath,
+  type DiscoveryRunStatusStore,
+} from "../state/run-status-store.ts";
 import { fetchAshbyJob, fetchGreenhouseJob, fetchLeverJob } from "../sources/ats-public-fetchers.ts";
 import {
   extractJobWithBrowserUseCloud,
@@ -25,6 +32,10 @@ import {
   type WebhookRequestLike,
   type WebhookResponseLike,
 } from "./handle-discovery-webhook.ts";
+import {
+  appendRunStatusToken,
+  createRunStatusToken,
+} from "./run-status-auth.ts";
 
 type ScrapeResult = {
   url: string;
@@ -60,6 +71,10 @@ export type HandleIngestUrlDependencies = {
   fetchAshbyJob?: typeof fetchAshbyJob;
   scrapeJobPosting?: (url: string) => Promise<ScrapeResult>;
   extractWithBrowserUseCloud?: BrowserUseCloudExtractor;
+  runStatusPathForRun?(runId: string): string;
+  runStatusStore?: DiscoveryRunStatusStore;
+  includeRunStatusToken?: boolean;
+  asyncPollAfterMs?: number;
   now?: () => Date;
   randomId?: (prefix: string) => string;
   log?(event: string, details: Record<string, unknown>): void;
@@ -135,7 +150,22 @@ export async function handleIngestUrlWebhook(
     hasManual: !!ingestRequest.manual,
     hasSheetId: !!String(ingestRequest.sheetId || "").trim(),
     hasRequestGoogleAccessToken: !!requestGoogleAccessToken,
+    async: ingestRequest.async === true,
   });
+
+  if (
+    ingestRequest.async === true &&
+    !ingestRequest.manual &&
+    dependencies.runStatusStore
+  ) {
+    return acceptAsyncIngestUrl({
+      request,
+      ingestRequest,
+      runId,
+      now,
+      dependencies,
+    });
+  }
 
   try {
     const resolvedSheetId = await resolveSheetId(
@@ -234,12 +264,11 @@ export async function handleIngestUrlWebhook(
         rawListing = browserUseResult.rawListing;
         strategy = "browser_use_cloud";
       } else {
-        rawListing = buildUrlOnlyRawListing(
-          ingestRequest.url,
-          classified.host,
-          `Couldn't auto-extract — ${classified.provider} blocks direct scrapers. Open the row for drawer-based detail fetch.`,
-        );
-        strategy = "url_only";
+        return rejectBlockedAggregatorUrl({
+          url: ingestRequest.url,
+          host: classified.host,
+          provider: classified.provider,
+        });
       }
     } else if (classified.kind === "ats_direct") {
       const atsResult = await fetchFromAts(classified, effectiveDependencies);
@@ -254,7 +283,10 @@ export async function handleIngestUrlWebhook(
           message: atsResult.message,
         });
       } else if (atsResult.ok) {
-        rawListing = atsResult.rawListing;
+        rawListing = preservePastedIngestUrl(
+          atsResult.rawListing,
+          ingestRequest.url,
+        );
         strategy = "ats_api";
       }
     }
@@ -282,12 +314,10 @@ export async function handleIngestUrlWebhook(
           rawListing = browserUseResult.rawListing;
           strategy = "browser_use_cloud";
         } else {
-          rawListing = buildUrlOnlyRawListing(
-            ingestRequest.url,
-            safeHost(ingestRequest.url),
-            `Couldn't auto-extract (${scraped.httpStatus ? `HTTP ${scraped.httpStatus}` : "scrape failed"}). Open the row for drawer-based detail fetch.`,
-          );
-          strategy = "url_only";
+          return rejectScrapeFailedUrl({
+            httpStatus: scraped.httpStatus,
+            message: scraped.message,
+          });
         }
       } else if (isWeakScrapedListing(scraped.rawListing)) {
         dependencies.log?.("discovery.run.ingest_url_weak_scrape", {
@@ -307,17 +337,29 @@ export async function handleIngestUrlWebhook(
           rawListing = browserUseResult.rawListing;
           strategy = "browser_use_cloud";
         } else {
-          rawListing = buildUrlOnlyRawListing(
-            ingestRequest.url,
-            safeHost(ingestRequest.url),
-            "Couldn't auto-extract enough job details. Open the row for drawer-based detail fetch.",
-          );
-          strategy = "url_only";
+          return rejectLowQualityExtraction({
+            message: "The worker could not extract enough real job details from this URL.",
+          });
         }
       } else {
         rawListing = scraped.rawListing;
         strategy = scraped.strategy;
       }
+    }
+
+    const quality = assessIngestListingQuality(rawListing, strategy);
+    if (!quality.ok) {
+      dependencies.log?.("discovery.run.ingest_url_quality_rejected", {
+        runId,
+        strategy,
+        reason: quality.reason,
+        title: rawListing.title,
+        company: rawListing.company,
+        sourceId: rawListing.sourceId,
+      });
+      return rejectLowQualityExtraction({
+        message: quality.message,
+      });
     }
 
     const lead = await rawListingToSingleLead(rawListing, {
@@ -352,6 +394,222 @@ export async function handleIngestUrlWebhook(
       message,
     } satisfies IngestUrlResponseV1);
   }
+}
+
+function buildIngestStatusPath(
+  runId: string,
+  dependencies: HandleIngestUrlDependencies,
+): string {
+  const baseStatusPath = (dependencies.runStatusPathForRun || buildRunStatusPath)(
+    runId,
+  );
+  if (!dependencies.includeRunStatusToken) return baseStatusPath;
+  return appendRunStatusToken(
+    baseStatusPath,
+    createRunStatusToken(dependencies.runtimeConfig.webhookSecret, runId),
+  );
+}
+
+async function acceptAsyncIngestUrl(input: {
+  request: WebhookRequestLike;
+  ingestRequest: IngestUrlRequestV1;
+  runId: string;
+  now: () => Date;
+  dependencies: HandleIngestUrlDependencies;
+}): Promise<WebhookResponseLike> {
+  const acceptedAt = input.now().toISOString();
+  const statusPath = buildIngestStatusPath(input.runId, input.dependencies);
+  const pollAfterMs = Math.max(1000, input.dependencies.asyncPollAfterMs || 2500);
+  const acceptedStatus = buildAcceptedRunStatus({
+    runId: input.runId,
+    trigger: "manual",
+    request: {
+      sheetId: String(input.ingestRequest.sheetId || "").trim(),
+      variationKey: "ingest_url",
+      requestedAt: acceptedAt,
+    },
+    acceptedAt,
+  });
+  const startedAt = input.now().toISOString();
+  const runningStatus = buildRunningRunStatus(acceptedStatus, startedAt);
+  input.dependencies.runStatusStore?.put(runningStatus);
+
+  const { async: _asyncRequested, ...syncRequest } = input.ingestRequest;
+  void handleIngestUrlWebhook(
+    {
+      ...input.request,
+      bodyText: JSON.stringify(syncRequest),
+    },
+    {
+      ...input.dependencies,
+      randomId: () => input.runId,
+      runStatusStore: undefined,
+    },
+  )
+    .then((response) => {
+      const completedAt = input.now().toISOString();
+      const ingestResult = parseIngestResponseBody(response.body);
+      const failed = isFailedAsyncIngestResponse(response, ingestResult);
+      const current =
+        input.dependencies.runStatusStore?.get(input.runId) ?? runningStatus;
+      input.dependencies.runStatusStore?.put({
+        ...current,
+        status: failed ? "failed" : "completed",
+        terminal: true,
+        message: buildAsyncIngestMessage(ingestResult, failed),
+        completedAt,
+        updatedAt: completedAt,
+        warnings: current.warnings || [],
+        sources: current.sources || [],
+        ingestResult:
+          ingestResult ||
+          ({
+            ok: false,
+            reason: "worker_error",
+            message: `Ingest worker returned HTTP ${response.status}.`,
+          } satisfies IngestUrlResponseV1),
+        ...(failed
+          ? {
+              error:
+                (ingestResult && "message" in ingestResult
+                  ? ingestResult.message
+                  : "") || `Ingest worker returned HTTP ${response.status}.`,
+            }
+          : {}),
+      });
+      input.dependencies.log?.("discovery.run.ingest_url_async_completed", {
+        runId: input.runId,
+        status: failed ? "failed" : "completed",
+        httpStatus: response.status,
+        ok: ingestResult?.ok,
+        ...(ingestResult && "strategy" in ingestResult
+          ? { strategy: ingestResult.strategy }
+          : {}),
+        ...(ingestResult && "reason" in ingestResult
+          ? { reason: ingestResult.reason }
+          : {}),
+      });
+    })
+    .catch((error) => {
+      input.dependencies.runStatusStore?.put(
+        buildFailedRunStatus(runningStatus, error, input.now().toISOString()),
+      );
+      input.dependencies.log?.("discovery.run.ingest_url_async_failed", {
+        runId: input.runId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+
+  input.dependencies.log?.("discovery.run.ingest_url_async_accepted", {
+    runId: input.runId,
+    statusPath,
+    pollAfterMs,
+  });
+
+  return jsonResponse(
+    202,
+    {
+      ok: true,
+      kind: "accepted_async",
+      runId: input.runId,
+      message: "URL ingest accepted — worker is reading the posting.",
+      statusPath,
+      pollAfterMs,
+    } satisfies IngestUrlResponseV1,
+  );
+}
+
+function parseIngestResponseBody(body: string): IngestUrlResponseV1 | null {
+  try {
+    const parsed = JSON.parse(String(body || ""));
+    if (parsed && typeof parsed === "object") {
+      return parsed as IngestUrlResponseV1;
+    }
+  } catch {
+    // Fall through to null.
+  }
+  return null;
+}
+
+function isFailedAsyncIngestResponse(
+  response: WebhookResponseLike,
+  result: IngestUrlResponseV1 | null,
+): boolean {
+  if (response.status >= 500) return true;
+  if (!result) return true;
+  if (result.ok === true) return false;
+  return result.reason !== "duplicate";
+}
+
+function buildAsyncIngestMessage(
+  result: IngestUrlResponseV1 | null,
+  failed: boolean,
+): string {
+  if (!result) return "URL ingest finished without a readable response.";
+  if (result.ok === true) {
+    if ("strategy" in result) {
+      return `URL ingest completed via ${result.strategy}.`;
+    }
+    return "message" in result
+      ? result.message || "URL ingest accepted."
+      : "URL ingest accepted.";
+  }
+  if (result.reason === "duplicate") {
+    return result.message || "This job already exists in your Pipeline.";
+  }
+  return failed
+    ? result.message || "URL ingest failed."
+    : result.message || "URL ingest completed.";
+}
+
+function rejectBlockedAggregatorUrl(input: {
+  url: string;
+  host: string;
+  provider: string;
+}): WebhookResponseLike {
+  const label = input.provider || input.host || "This site";
+  return jsonResponse(200, {
+    ok: false,
+    reason: "blocked_aggregator",
+    host: input.host,
+    message:
+      `${label} did not expose a complete posting that JobBored can safely add.`,
+    hint: buildTryAnotherPostingLinkHint(input.url),
+  } satisfies IngestUrlResponseV1);
+}
+
+function rejectScrapeFailedUrl(input: {
+  httpStatus?: number;
+  message: string;
+}): WebhookResponseLike {
+  return jsonResponse(200, {
+    ok: false,
+    reason: "scrape_failed",
+    ...(input.httpStatus ? { httpStatus: input.httpStatus } : {}),
+    message:
+      "The worker could not read a complete job posting from this URL.",
+    hint: buildTryAnotherPostingLinkHint(""),
+  } satisfies IngestUrlResponseV1);
+}
+
+function rejectLowQualityExtraction(input: { message: string }): WebhookResponseLike {
+  return jsonResponse(200, {
+    ok: false,
+    reason: "low_quality_extraction",
+    message: input.message,
+    hint: buildTryAnotherPostingLinkHint(""),
+  } satisfies IngestUrlResponseV1);
+}
+
+function buildTryAnotherPostingLinkHint(url: string): string {
+  const host = safeHost(url);
+  const linkedInHint = host.includes("linkedin.com")
+    ? " LinkedIn often hides the full posting behind search/login pages."
+    : "";
+  return (
+    "Try the employer careers page or canonical ATS posting instead, such as Greenhouse, Lever, Ashby, Workday, or the company's own job-detail URL." +
+    linkedInHint
+  );
 }
 
 function jsonResponse(
@@ -396,6 +654,13 @@ function parseRequest(bodyText: string): ParsedIngestUrlRequest {
     typeof record.googleAccessToken === "string"
       ? record.googleAccessToken.trim()
       : "";
+  const asyncRequested = record.async === true;
+  if (record.async != null && typeof record.async !== "boolean") {
+    return {
+      ok: false,
+      message: "async must be a boolean when present.",
+    };
+  }
   if (
     record.googleAccessToken != null &&
     typeof record.googleAccessToken !== "string"
@@ -460,6 +725,7 @@ function parseRequest(bodyText: string): ParsedIngestUrlRequest {
       schemaVersion: INGEST_URL_SCHEMA_VERSION,
       url,
       ...(sheetId ? { sheetId } : {}),
+      ...(asyncRequested ? { async: true } : {}),
       ...(googleAccessToken ? { googleAccessToken } : {}),
       ...(manual ? { manual } : {}),
     },
@@ -505,6 +771,15 @@ async function fetchFromAts(
   };
 }
 
+function preservePastedIngestUrl(rawListing: RawListing, url: string): RawListing {
+  const pastedUrl = String(url || "").trim();
+  if (!pastedUrl) return rawListing;
+  return {
+    ...rawListing,
+    url: pastedUrl,
+  };
+}
+
 async function scrapeToRawListing(
   url: string,
   dependencies: HandleIngestUrlDependencies,
@@ -529,27 +804,32 @@ async function scrapeToRawListing(
     const strategy = sourceMethod.includes("json-ld")
       ? "jsonld"
       : "cheerio_dom";
+    const rawTitle = String(scraped.title || "").trim();
+    const parsedTitle = parseScrapedJobApplicationTitle(rawTitle);
+    const title = parsedTitle?.title || rawTitle;
+    const scrapedTags = [
+      ...deriveIngestTitleTags(title),
+      ...((Array.isArray(scraped.skills) ? scraped.skills : []) as string[]),
+      ...((Array.isArray(scraped.requirements)
+        ? scraped.requirements
+        : []) as string[]),
+    ];
 
     return {
       ok: true,
       strategy,
       rawListing: {
         sourceId: "ingest_url_scrape" as RawListing["sourceId"],
-        sourceLabel: "URL paste (scrape)",
+        sourceLabel: "Company page",
         sourceLane: "grounded_web",
-        title: String(scraped.title || "").trim(),
-        company: inferCompanyFromHost(host),
+        title,
+        company: parsedTitle?.company || inferCompanyFromHost(host),
         location: undefined,
         url: resolvedUrl,
         canonicalUrl: resolvedUrl,
         finalUrl: resolvedUrl,
         descriptionText: String(scraped.description || "").trim() || undefined,
-        tags: [
-          ...((Array.isArray(scraped.skills) ? scraped.skills : []) as string[]),
-          ...((Array.isArray(scraped.requirements)
-            ? scraped.requirements
-            : []) as string[]),
-        ].filter(Boolean),
+        tags: sanitizeIngestTags(scrapedTags),
       },
     };
   } catch (error) {
@@ -655,6 +935,77 @@ function isWeakScrapedListing(rawListing: RawListing): boolean {
   );
 }
 
+function assessIngestListingQuality(
+  rawListing: RawListing,
+  strategy: IngestUrlStrategy,
+):
+  | { ok: true }
+  | { ok: false; reason: string; message: string } {
+  if (strategy === "manual_fill") return { ok: true };
+  const title = String(rawListing.title || "").trim();
+  const company = String(rawListing.company || "").trim();
+  const description = String(rawListing.descriptionText || "").trim();
+  const confidence = Number(rawListing.metadata?.browserUseConfidence);
+
+  if (strategy === "url_only") {
+    return {
+      ok: false,
+      reason: "url_only",
+      message: "The worker only found the URL, not a complete job posting.",
+    };
+  }
+  if (strategy === "browser_use_cloud" && Number.isFinite(confidence) && confidence < 0.5) {
+    return {
+      ok: false,
+      reason: "low_browser_use_confidence",
+      message:
+        "Browser Use returned a low-confidence result instead of a complete job posting.",
+    };
+  }
+  if (isPlaceholderIngestText(title) || isPlaceholderIngestText(company)) {
+    return {
+      ok: false,
+      reason: "placeholder_fields",
+      message:
+        "The worker found placeholder job details instead of a real posting.",
+    };
+  }
+  if (description.length < 20 || isPlaceholderIngestDescription(description)) {
+    return {
+      ok: false,
+      reason: "weak_description",
+      message:
+        "The worker could not extract enough real job details from this URL.",
+    };
+  }
+  return { ok: true };
+}
+
+function isPlaceholderIngestText(value: string): boolean {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return true;
+  return (
+    normalized === "unavailable" ||
+    normalized === "unknown" ||
+    normalized === "unknown company" ||
+    normalized === "job posting" ||
+    normalized.includes("source gated") ||
+    normalized.includes("login required")
+  );
+}
+
+function isPlaceholderIngestDescription(value: string): boolean {
+  const normalized = String(value || "").trim().toLowerCase();
+  return (
+    !normalized ||
+    normalized.includes("couldn't auto-extract") ||
+    normalized.includes("source gated") ||
+    normalized.includes("login wall") ||
+    normalized.includes("sign in to view") ||
+    normalized === "clean ats"
+  );
+}
+
 function safeHost(url: string): string {
   try {
     return new URL(url).hostname.toLowerCase();
@@ -675,80 +1026,45 @@ function inferCompanyFromHost(host: string): string {
     .join(" ");
 }
 
-// Derive a best-guess human-readable title from a URL slug. Strips numeric
-// ids + job-request noise so `/jobs/4369653076` → "", but
-// `/jobs/senior-product-manager-at-plaid` → "Senior Product Manager At Plaid".
-// Returns empty string when nothing usable remains (normalizer will then
-// substitute a placeholder upstream).
-function inferTitleFromUrlPath(url: string): string {
-  let pathname = "";
-  try {
-    pathname = new URL(url).pathname || "";
-  } catch {
-    return "";
-  }
-  const segments = pathname
-    .split("/")
-    .filter(Boolean)
-    // Drop purely numeric ids and very short opaque segments.
-    .filter((seg) => !/^\d+$/.test(seg) && seg.length > 2);
-  if (segments.length === 0) return "";
-  // Prefer the last segment (usually the title). Strip query-like noise
-  // (utm_*, jk=, etc. would never be in a pathname, but defensively).
-  const candidate = segments[segments.length - 1]
-    .split(/[?#]/)[0]
-    .replace(/\.(html|htm|aspx|php)$/i, "")
-    .replace(/[-_+]+/g, " ")
-    // Strip trailing numeric ids that commonly tag job URLs
-    // ("senior-pm-at-plaid-4369653076" → "senior pm at plaid"). Also
-    // drop long opaque hex tokens. Keep short numbers (e.g. "java 17")
-    // by only stripping runs of 4+ digits.
-    .replace(/\s+[0-9a-f]{8,}\s*$/i, "")
-    .replace(/\s+\d{4,}\s*$/i, "")
-    .trim();
-  if (!candidate) return "";
-  return candidate
-    .split(/\s+/)
-    .map((token) =>
-      token.length > 0
-        ? token.charAt(0).toUpperCase() + token.slice(1).toLowerCase()
-        : "",
-    )
-    .join(" ")
-    .trim();
+function parseScrapedJobApplicationTitle(
+  title: string,
+): { title: string; company: string } | null {
+  const clean = String(title || "").replace(/\s+/g, " ").trim();
+  const match = clean.match(
+    /^(?:Job Application for|Apply for)\s+(.+?)\s+at\s+(.+?)(?:\s+[|–-]\s+.*)?$/i,
+  );
+  if (!match) return null;
+  const parsedTitle = String(match[1] || "").trim();
+  const company = String(match[2] || "").trim();
+  return parsedTitle && company ? { title: parsedTitle, company } : null;
 }
 
-// Build a minimal RawListing from just the URL. Used when classification
-// hits a blocked aggregator OR when the Cheerio scrape fails outright.
-// The row lands in the Pipeline with whatever we can derive (hostname as
-// company, last URL path segment as title) and the dashboard's per-row
-// enrichment (fetchJobPostingEnrichment in app.js) does a second scrape
-// when the user opens the drawer — that path has LLM inference on top of
-// Cheerio output and often extracts fields even for aggregators.
-function buildUrlOnlyRawListing(
-  url: string,
-  host: string,
-  noteForDescription: string,
-): RawListing {
-  const resolvedUrl = String(url || "").trim();
-  const inferredTitle = inferTitleFromUrlPath(resolvedUrl);
-  const company = inferCompanyFromHost(host) || "Unknown company";
-  // Title must be non-empty for the normalizer to accept the listing;
-  // fall back to a generic placeholder when URL slug is opaque.
-  const title = inferredTitle || `Job at ${company}`;
-  return {
-    sourceId: "ingest_url_scrape" as RawListing["sourceId"],
-    sourceLabel: "URL paste (link-only)",
-    sourceLane: "grounded_web",
-    title,
-    company,
-    location: undefined,
-    url: resolvedUrl,
-    canonicalUrl: resolvedUrl,
-    finalUrl: resolvedUrl,
-    descriptionText: noteForDescription,
-    tags: [],
-  };
+function deriveIngestTitleTags(title: string): string[] {
+  const clean = String(title || "").replace(/\s+/g, " ").trim();
+  if (!clean) return [];
+  const tags: string[] = [];
+  const commaParts = clean.split(",").map((part) => part.trim()).filter(Boolean);
+  if (commaParts.length > 1) {
+    tags.push(commaParts.slice(1).join(", "));
+  }
+  const seniority = clean.match(
+    /\b(Intern|Junior|Associate|Senior|Staff|Principal|Lead|Director|Head|VP|Vice President)\b/i,
+  )?.[0];
+  if (seniority) tags.push(seniority);
+  return tags;
+}
+
+function sanitizeIngestTags(tags: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const tag of tags) {
+    const value = String(tag || "").replace(/\s+/g, " ").trim();
+    const key = value.toLowerCase();
+    if (!value || seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
 }
 
 function extractHttpStatus(message: string): number | undefined {
