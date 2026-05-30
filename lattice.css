@@ -351,6 +351,12 @@ body.jb-v2 [data-region="lattice"] .jb-lat__company {
 
 body.jb-v2 [data-region="lattice"] .jb-lat__fav {
   appearance: none;
+  /* Defense-in-depth: own a local stacking context so the star sits
+     above the card's hover-glow ::before and any decoration layer
+     sitting over the lattice. Matches pipeline.css#.pipe-sticker__favorite. */
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
   width: 28px;
   height: 28px;
   display: grid;

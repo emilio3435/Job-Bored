@@ -970,6 +970,13 @@ body.jb-v2 [data-region="pipeline"] .pipe-sticker__role {
 
 body.jb-v2 [data-region="pipeline"] .pipe-sticker__favorite {
   appearance: none;
+  /* Defense-in-depth: own a local stacking context so the star sits
+     above ::before/::after decorations on the card surface and any
+     transient card-level layer, but stays below intentional modal
+     overlays (e.g. .pipe-url-modal at z-index:80). */
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
   width: 28px;
   height: 28px;
   display: grid;
