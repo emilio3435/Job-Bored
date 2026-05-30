@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-30T09:39:04Z",
+  "repository": {
+    "name": "Job-Bored",
+    "branch": "feat/seamless-discovery-coexistence",
+    "commit": "67e5dc7e0d43a4cf413531e43a0d2cf1e812e2ed",
+    "defaultBranch": "main"
+  },
+  "mode": "full",
+  "lenses": ["apps", "features"],
+  "conditionalSections": {
+    "api": true,
+    "deployment": true,
+    "security": true,
+    "background": true,
+    "cleanupOpportunities": true,
+    "funFacts": true
+  },
+  "pageCount": 50,
+  "skill": "wiki",
+  "skillVersion": "1.x"
+}
