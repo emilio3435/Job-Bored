@@ -295,15 +295,21 @@ function isPendingStale(pending, nowMs) {
   return nowMs - heartbeat > STALE_PENDING_MS;
 }
 
-/* Does a recorded failure belong to the live request rather than a
- * superseded earlier attempt? The error is current when it was written
- * at/after the request landed. With no request timestamp to compare, trust
- * the failure (better an honest error than a phantom spinner). */
+/* Is a recorded failure a LIVE terminal failure, rather than a stale note?
+ * The watcher overloads pending_error.json: it writes genuine failures AND
+ * benign notes — success summaries, "used fallback provider" lines — while
+ * the draft keeps going. So a failure only counts when it is the most recent
+ * activity: nothing happened after it (no progress heartbeat, no newer
+ * request). If the watcher updated progress or a fresh request landed after
+ * the error was written, the draft moved on and the record is a stale note,
+ * not a terminal failure — surfacing it would flash a phantom FAILED card on
+ * an in-flight draft. With no timestamps to compare at all, trust the failure
+ * (better an honest error than a phantom spinner). */
 function failureMatchesPending(failure, pending) {
   if (!failure || !Number.isFinite(failure.writtenAtMs)) return false;
-  const requestedAt = pendingRequestedAtMs(pending);
-  if (!Number.isFinite(requestedAt)) return true;
-  return failure.writtenAtMs >= requestedAt;
+  const heartbeat = pendingHeartbeatMs(pending);
+  if (!Number.isFinite(heartbeat)) return true;
+  return failure.writtenAtMs >= heartbeat;
 }
 
 /* A failure is superseded when the docs it was meant to produce now exist
