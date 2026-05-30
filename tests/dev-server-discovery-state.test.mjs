@@ -10,6 +10,9 @@
 
 import assert from "node:assert/strict";
 import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { startDevServer } from "../dev-server.mjs";
 
@@ -77,6 +80,31 @@ function installFetchMock({ workerUp, workerBody, ngrokUp, ngrokUrl, ngrokAddr =
 }
 
 describe("GET /__proxy/discovery-state", () => {
+  // The endpoint calls getKeepAliveStatus(), which reads
+  // ~/.jobbored/keep-alive-state.json via os.homedir() — real machine state
+  // the fetch mock can't reach. When the keep-alive daemon has recorded a
+  // lastNgrokUrl, it won't match the mocked ngrok URL, the endpoint flags the
+  // tunnel as "rotated", and `ready` flips to `auto_recoverable`. Redirect HOME
+  // (POSIX) + USERPROFILE (Windows) to an empty temp dir so the lookup finds no
+  // state and the classification is deterministic on any machine.
+  let tmpHome = "";
+  let savedHome;
+  let savedUserProfile;
+  before(() => {
+    tmpHome = mkdtempSync(join(tmpdir(), "jobbored-discovery-state-"));
+    savedHome = process.env.HOME;
+    savedUserProfile = process.env.USERPROFILE;
+    process.env.HOME = tmpHome;
+    process.env.USERPROFILE = tmpHome;
+  });
+  after(() => {
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+    if (savedUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = savedUserProfile;
+    if (tmpHome) rmSync(tmpHome, { recursive: true, force: true });
+  });
+
   it("returns ready when worker up + ngrok up", async () => {
     const restore = installFetchMock({
       workerUp: true,
