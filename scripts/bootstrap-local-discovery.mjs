@@ -27,6 +27,17 @@ import {
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { resolveJobBoredPaths } from "./lib/paths.mjs";
+import {
+  detectCloudflared,
+  parseQuickTunnelUrl,
+  selectTransport,
+  isStableTransport,
+  buildQuickTunnelCommand,
+  normalizeTransportPreference,
+  TRANSPORT_CLOUDFLARE_NAMED,
+  TRANSPORT_CLOUDFLARE_QUICK,
+  TRANSPORT_NGROK,
+} from "./lib/discovery-transport.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..");
@@ -60,6 +71,15 @@ const defaultLocalAllowedOrigins = Object.freeze([
 ]);
 const defaultWorkerPort = 8644;
 const expectedBrowserUseWorkerService = "browser-use-discovery-worker";
+// Named (stable) Cloudflare tunnel config is supplied by the user; we only read
+// it. A stable hostname makes keepalive resync a no-op.
+const TUNNEL_HOSTNAME_ENV_KEY = "BROWSER_USE_DISCOVERY_TUNNEL_HOSTNAME";
+const TUNNEL_NAME_ENV_KEY = "BROWSER_USE_DISCOVERY_TUNNEL_NAME";
+const cloudflaredQuickTunnelLogPath = join(
+  packagedPaths.workerHome,
+  "logs",
+  "discovery-tunnel.log",
+);
 
 function printUsage(code = 0) {
   const out = code === 0 ? console.log : console.error;
@@ -79,6 +99,8 @@ Options:
   --sheet-id           Optional. Included in the suggested Cloudflare relay deploy command.
   --ngrok-authtoken    Optional. Saves ngrok auth if config is missing.
   --ngrok-public-url   Optional. Skip ngrok startup and use this https:// public URL instead.
+  --tunnel             Public-URL transport: auto (default), cloudflare-named, cloudflare-quick, or ngrok.
+                       auto picks cloudflare-named (if configured) > cloudflare-quick (if cloudflared installed) > ngrok.
   --state-file         Where to write the local bootstrap JSON. Default: ${defaultStateFile}
   --no-start-gateway   Do not auto-start a local discovery server if /health is down.
   --no-start-ngrok     Do not auto-start ngrok if no tunnel is running.
@@ -111,6 +133,7 @@ function parseArgs(argv) {
     sheetId: "",
     ngrokAuthtoken: "",
     ngrokPublicUrl: "",
+    tunnel: "auto",
     stateFile: defaultStateFile,
     autoStartGateway: true,
     autoStartNgrok: true,
@@ -142,6 +165,7 @@ function parseArgs(argv) {
       arg === "--sheet-id" ||
       arg === "--ngrok-authtoken" ||
       arg === "--ngrok-public-url" ||
+      arg === "--tunnel" ||
       arg === "--state-file"
     ) {
       if (!next || next.startsWith("--")) {
@@ -159,6 +183,8 @@ function parseArgs(argv) {
         out.ngrokAuthtoken = String(next).trim();
       } else if (arg === "--ngrok-public-url") {
         out.ngrokPublicUrl = String(next).trim();
+      } else if (arg === "--tunnel") {
+        out.tunnel = String(next).trim();
       } else if (arg === "--state-file") {
         out.stateFile = resolve(String(next).trim());
       }
@@ -170,6 +196,11 @@ function parseArgs(argv) {
 
   if (!out.ngrokAuthtoken) {
     out.ngrokAuthtoken = String(process.env.NGROK_AUTHTOKEN || "").trim();
+  }
+  if (normalizeTransportPreference(out.tunnel) === "") {
+    fail(
+      "--tunnel must be one of: auto, cloudflare-named, cloudflare-quick, ngrok",
+    );
   }
   return out;
 }
@@ -1203,6 +1234,95 @@ async function ensureNgrokPublicUrl(port, explicitPublicUrl, autoStartNgrok) {
   );
 }
 
+/**
+ * Resolve the user's configured NAMED Cloudflare tunnel, if any. We never
+ * create a named tunnel; we only read its hostname (and optional tunnel name)
+ * from env or the worker env file. A named tunnel gives a STABLE public
+ * hostname bound to the user's own Cloudflare domain.
+ *
+ * Returns { configured, hostname, tunnelName, publicUrl }.
+ */
+function readNamedTunnelConfig() {
+  const envFile = readBrowserUseDiscoveryEnvFile();
+  const fromFile = (key) =>
+    envFile && envFile.parsed && envFile.parsed[key]
+      ? String(envFile.parsed[key]).trim()
+      : "";
+  const hostname =
+    String(process.env[TUNNEL_HOSTNAME_ENV_KEY] || "").trim() ||
+    fromFile(TUNNEL_HOSTNAME_ENV_KEY);
+  const tunnelName =
+    String(process.env[TUNNEL_NAME_ENV_KEY] || "").trim() ||
+    fromFile(TUNNEL_NAME_ENV_KEY);
+  if (!hostname) {
+    return { configured: false, hostname: "", tunnelName, publicUrl: "" };
+  }
+  const publicUrl = normalizeNamedTunnelUrl(hostname);
+  if (!publicUrl) {
+    return { configured: false, hostname: "", tunnelName, publicUrl: "" };
+  }
+  return { configured: true, hostname, tunnelName, publicUrl };
+}
+
+/**
+ * Normalize a configured named-tunnel hostname (which may be a bare hostname or
+ * a full https:// URL) into a canonical https:// origin URL. Returns "" when it
+ * cannot be parsed as a valid https host.
+ */
+function normalizeNamedTunnelUrl(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  const candidate = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+  let url;
+  try {
+    url = new URL(candidate);
+  } catch (_) {
+    return "";
+  }
+  if (url.protocol !== "https:") return "";
+  if (!url.hostname) return "";
+  url.pathname = "/";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+/**
+ * Start a Cloudflare QUICK tunnel (anonymous, zero-signup) for the worker port
+ * and poll its log file for the https://<random>.trycloudflare.com URL. Mirrors
+ * how ngrok startup polls. The cloudflared process is spawned detached and
+ * keeps running after bootstrap exits. Returns { publicUrl, startedTunnel }.
+ */
+async function ensureCloudflareQuickTunnel(port) {
+  const logPath = cloudflaredQuickTunnelLogPath;
+  // If a previous run already left a quick-tunnel URL in the log and the tunnel
+  // is still up, we still start fresh: quick tunnels rotate and we cannot
+  // reattach to an unknown PID's tunnel, so a clean start is the honest path.
+  const { command, args } = buildQuickTunnelCommand(port);
+  console.log(
+    `discovery:bootstrap-local: starting Cloudflare quick tunnel on port ${port}...`,
+  );
+  startDetached(command, args, {}, { logPath });
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await sleep(1000);
+    let logText = "";
+    try {
+      logText = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
+    } catch (_) {
+      logText = "";
+    }
+    const publicUrl = parseQuickTunnelUrl(logText);
+    if (publicUrl) {
+      return { publicUrl, startedTunnel: true };
+    }
+  }
+
+  fail(
+    `cloudflared did not expose a quick tunnel for port ${port}. Check ${logPath}, or rerun with \`--tunnel ngrok\` to use the ngrok fallback.`,
+  );
+}
+
 function buildPublicTargetUrl(localWebhookUrl, ngrokPublicUrl) {
   const local = new URL(localWebhookUrl);
   const ngrok = new URL(ngrokPublicUrl);
@@ -1375,11 +1495,52 @@ async function main() {
       ? `http://127.0.0.1:${port}/webhook`
       : normalizeLocalWebhookUrl(route && route.url ? route.url : "", port) ||
         `http://127.0.0.1:${port}/webhooks/${route ? route.name : "command-center-discovery"}`;
+  // Choose the public-URL transport before touching ngrok. An explicit
+  // --ngrok-public-url is an ngrok-path override and forces the ngrok branch.
+  const namedTunnel = readNamedTunnelConfig();
+  const cloudflared = args.ngrokPublicUrl
+    ? { installed: false }
+    : detectCloudflared();
+  const transportPreference = args.ngrokPublicUrl
+    ? TRANSPORT_NGROK
+    : normalizeTransportPreference(args.tunnel);
+  const transportKind = selectTransport({
+    preference: transportPreference,
+    cloudflaredInstalled: !!cloudflared.installed,
+    namedTunnelConfigured: namedTunnel.configured,
+    ngrokAvailable: true,
+  });
+
   let ngrokAuthSaved = false;
+  // `ngrok` keeps the same shape the rest of the pipeline expects: a public URL
+  // and a startedTunnel flag. For Cloudflare transports the URL comes from
+  // cloudflared instead of ngrok, but the downstream fields stay populated so
+  // the dashboard + relay continue to work unchanged.
   let ngrok;
-  if (args.ngrokPublicUrl) {
+  let transportStartedTunnel = false;
+
+  if (transportKind === TRANSPORT_CLOUDFLARE_NAMED) {
+    if (!namedTunnel.configured) {
+      fail(
+        `--tunnel cloudflare-named requires a configured named tunnel. Set ${TUNNEL_HOSTNAME_ENV_KEY} (your stable Cloudflare hostname) in the env, or rerun with \`--tunnel auto\`.`,
+      );
+    }
+    // The user runs their named tunnel themselves (or via the tunnel autostart
+    // service). We only read its stable hostname here — never create it.
+    ngrok = { ngrokPublicUrl: namedTunnel.publicUrl, startedNgrok: false };
+  } else if (transportKind === TRANSPORT_CLOUDFLARE_QUICK) {
+    if (!cloudflared.installed) {
+      fail(
+        "--tunnel cloudflare-quick requires the `cloudflared` binary on PATH. Install it (https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) or rerun with `--tunnel ngrok`.",
+      );
+    }
+    const quick = await ensureCloudflareQuickTunnel(port);
+    transportStartedTunnel = quick.startedTunnel;
+    ngrok = { ngrokPublicUrl: quick.publicUrl, startedNgrok: false };
+  } else if (args.ngrokPublicUrl) {
     ngrok = await ensureNgrokPublicUrl(port, args.ngrokPublicUrl, false);
   } else {
+    ensureCommand("ngrok", ["version"]);
     const existingNgrokPublicUrl = pickNgrokPublicUrl(await getNgrokTunnels(), port);
     if (existingNgrokPublicUrl) {
       ngrok = { ngrokPublicUrl: existingNgrokPublicUrl, startedNgrok: false };
@@ -1388,9 +1549,15 @@ async function main() {
       ngrok = await ensureNgrokPublicUrl(port, "", args.autoStartNgrok);
     }
   }
+  const transportStable = isStableTransport(transportKind);
   const publicTargetUrl = buildPublicTargetUrl(localWebhookUrl, ngrok.ngrokPublicUrl);
   let publicHealth = null;
-  if (engineKind === "browser_use_worker") {
+  // A named tunnel may route through the user's Cloudflare edge to the worker;
+  // verifying public /health for it is still valid (it proxies to the same
+  // local port), but we skip the hard fail for named tunnels since edge config
+  // is the user's responsibility and a transient edge delay should not abort
+  // the bootstrap that already verified local health.
+  if (engineKind === "browser_use_worker" && transportKind !== TRANSPORT_CLOUDFLARE_NAMED) {
     publicHealth = await verifyPublicWorkerIdentity(ngrok.ngrokPublicUrl);
     if (!publicHealth.ok) {
       const detail = [
@@ -1400,8 +1567,16 @@ async function main() {
       ]
         .filter(Boolean)
         .join(", ");
+      const tunnelLabel =
+        transportKind === TRANSPORT_CLOUDFLARE_QUICK
+          ? `The Cloudflare quick tunnel ${ngrok.ngrokPublicUrl}`
+          : `The ngrok tunnel ${ngrok.ngrokPublicUrl}`;
+      const remedy =
+        transportKind === TRANSPORT_CLOUDFLARE_QUICK
+          ? `Confirm cloudflared is forwarding to port ${port} before saving relay state.`
+          : `Confirm \`ngrok http ${port}\` targets the worker port before saving relay state.`;
       fail(
-        `The ngrok tunnel ${ngrok.ngrokPublicUrl} did not expose the expected browser-use discovery worker at /health${detail ? ` (${detail})` : ""}. Confirm \`ngrok http ${port}\` targets the worker port before saving relay state.`,
+        `${tunnelLabel} did not expose the expected browser-use discovery worker at /health${detail ? ` (${detail})` : ""}. ${remedy}`,
       );
     }
   }
