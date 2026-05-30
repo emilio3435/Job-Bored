@@ -1395,6 +1395,26 @@ function buildLocalBootstrapWizard(localWebhookUrl, gatewayHealthy, ngrokRunning
   });
 }
 
+/**
+ * Build the `transport` block persisted in the bootstrap state. Captures which
+ * public-URL transport bootstrap settled on, the chosen public URL, and whether
+ * the transport is stable (so the keepalive can skip resync). The named-tunnel
+ * name is persisted ONLY for the named transport so the tunnel autostart service
+ * can rebuild `cloudflared tunnel run <name>` without re-reading env. PURE.
+ */
+function buildTransportState({ kind, publicUrl, tunnelName }) {
+  const state = {
+    kind,
+    publicUrl: String(publicUrl || ""),
+    stable: isStableTransport(kind),
+  };
+  const name = String(tunnelName || "").trim();
+  if (kind === TRANSPORT_CLOUDFLARE_NAMED && name) {
+    state.tunnelName = name;
+  }
+  return state;
+}
+
 function writeBootstrapState(stateFile, payload) {
   writeFileSync(stateFile, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
@@ -1611,6 +1631,11 @@ async function main() {
     tunnelPublicUrl: ngrok.ngrokPublicUrl,
     ngrokPublicUrl: ngrok.ngrokPublicUrl,
     publicTargetUrl,
+    transport: buildTransportState({
+      kind: transportKind,
+      publicUrl: ngrok.ngrokPublicUrl,
+      tunnelName: namedTunnel.tunnelName,
+    }),
     corsOrigin,
     sheetId,
     workerName,
@@ -1817,4 +1842,5 @@ export {
   isTcpPortFree,
   findAvailableWorkerPort,
   portHasForeignListener,
+  buildTransportState,
 };

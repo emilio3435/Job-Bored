@@ -276,6 +276,22 @@ export async function runKeepAliveCheck(options = {}) {
     return { ok: false, reason: "bootstrap_state_missing" };
   }
 
+  // A stable transport (Cloudflare named tunnel) keeps the same public hostname
+  // across restarts, so the relay's TARGET_URL never goes stale and there is
+  // nothing to resync. Skip the ngrok probe + wrangler redeploy entirely.
+  // Rotating transports (cloudflare_quick, ngrok) fall through to the resync.
+  if (bootstrap.transport && bootstrap.transport.stable === true) {
+    appendJsonLog(
+      "stable_transport_skip",
+      {
+        kind: bootstrap.transport.kind || "",
+        publicUrl: bootstrap.transport.publicUrl || "",
+      },
+      logOptions,
+    );
+    return { ok: true, redeployed: false, reason: "stable_transport" };
+  }
+
   const port = resolveLocalPort(bootstrap);
   const explicitNgrokUrl = normalizeNgrokPublicUrl(options.ngrokPublicUrl);
   const ngrokTarget = explicitNgrokUrl

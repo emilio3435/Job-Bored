@@ -321,6 +321,113 @@ test("runKeepAliveCheck selects the ngrok tunnel matching the worker port", asyn
   }
 });
 
+test("runKeepAliveCheck no-ops on a stable transport without probing or redeploying", async () => {
+  const homeDir = tempHome();
+  const workDir = mkdtempSync(join(tmpdir(), "jobbored-bootstrap-test-"));
+  try {
+    const bootstrapStatePath = join(workDir, "discovery-local-bootstrap.json");
+    writeFileSync(
+      bootstrapStatePath,
+      JSON.stringify({
+        localPort: 8644,
+        localWebhookUrl: "http://127.0.0.1:8644/webhook",
+        workerName: "jobbored-discovery-relay-local",
+        transport: {
+          kind: "cloudflare_named",
+          publicUrl: "https://discovery.example.com/",
+          stable: true,
+          tunnelName: "jobbored-discovery",
+        },
+      }),
+      "utf8",
+    );
+    const recorder = spawnRecorder();
+    // A stable transport must short-circuit BEFORE any network or wrangler work.
+    const fetchImpl = async (url) => {
+      throw new Error(`fetch should not be called for a stable transport: ${url}`);
+    };
+
+    const result = await runKeepAliveCheck({
+      homeDir,
+      bootstrapStatePath,
+      fetchImpl,
+      spawnSyncImpl: recorder.spawnSyncImpl,
+      nowIso: "2026-05-30T12:06:00.000Z",
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      redeployed: false,
+      reason: "stable_transport",
+    });
+    // No wrangler/npx call and no relay state write happened.
+    assert.equal(recorder.calls.length, 0);
+    assert.equal(existsSync(getKeepAlivePaths({ homeDir }).statePath), false);
+  } finally {
+    cleanup(homeDir);
+    cleanup(workDir);
+  }
+});
+
+test("runKeepAliveCheck still resyncs a rotating cloudflare_quick transport", async () => {
+  const homeDir = tempHome();
+  const workDir = mkdtempSync(join(tmpdir(), "jobbored-bootstrap-test-"));
+  try {
+    const bootstrapStatePath = join(workDir, "discovery-local-bootstrap.json");
+    writeFileSync(
+      bootstrapStatePath,
+      JSON.stringify({
+        localPort: 8644,
+        localWebhookUrl: "http://127.0.0.1:8644/webhook",
+        workerName: "jobbored-discovery-relay-local",
+        transport: {
+          kind: "cloudflare_quick",
+          publicUrl: "https://abc.trycloudflare.com/",
+          stable: false,
+        },
+      }),
+      "utf8",
+    );
+    const recorder = spawnRecorder();
+    const fetchImpl = async (url) => {
+      if (String(url) === "http://127.0.0.1:4040/api/tunnels") {
+        return new Response(
+          JSON.stringify({
+            tunnels: [
+              {
+                public_url: "https://abc.ngrok-free.app",
+                config: { addr: "http://127.0.0.1:8644" },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (String(url) === "https://abc.ngrok-free.app/health") {
+        return discoveryWorkerHealthResponse();
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const result = await runKeepAliveCheck({
+      homeDir,
+      bootstrapStatePath,
+      fetchImpl,
+      spawnSyncImpl: recorder.spawnSyncImpl,
+      nowIso: "2026-05-30T12:07:00.000Z",
+    });
+
+    // Unstable transport keeps the existing resync path (a wrangler call fires).
+    assert.equal(result.ok, true);
+    assert.equal(result.redeployed, true);
+    assert.equal(recorder.calls.length, 1);
+    assert.equal(recorder.calls[0].command, "wrangler");
+  } finally {
+    cleanup(homeDir);
+    cleanup(workDir);
+  }
+});
+
 test("runKeepAliveCheck does not use a non-matching ngrok tunnel", async () => {
   const homeDir = tempHome();
   const workDir = mkdtempSync(join(tmpdir(), "jobbored-bootstrap-test-"));
