@@ -36,6 +36,28 @@ body.jb-v2 .page-top {
   -webkit-backdrop-filter: saturate(140%) blur(10px);
   border-bottom: 1px solid var(--jb-line-soft);
   font-family: var(--jb-font-body);
+  /* The sticky chrome spans the full page width and overlaps the top
+     row of every Pipeline column / Lattice card beneath it. Without
+     pointer-events:none on the bar itself, the gaps between the four
+     interactive children (brand, nav, actions, menu) eat clicks meant
+     for the cards underneath — most visibly the favorite stars on the
+     top card of each column, which never even show the pointer cursor
+     because document.elementFromPoint returns .page-top. We restore
+     pointer events on the actual controls below so the header still
+     works normally. Background + blur still render visually. */
+  pointer-events: none;
+}
+
+/* Re-enable pointer events on every interactive child of the header
+   so the sign-in button, brand link, section pills, action buttons,
+   and the mobile menu toggle all keep working. Anything that is NOT
+   one of these — empty padding / gap / backdrop / wordmark text — is
+   click-through so the cards beneath receive the event. */
+body.jb-v2 .page-top > .page-top__brand,
+body.jb-v2 .page-top > .page-nav,
+body.jb-v2 .page-top > .page-top__actions,
+body.jb-v2 .page-top > .page-top__menu-btn {
+  pointer-events: auto;
 }
 
 /* Brand cluster — mascot square + official wordmark SVG.
