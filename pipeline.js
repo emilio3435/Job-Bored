@@ -776,7 +776,13 @@
 
   function closeJobUrlModal(region) {
     var els = getUrlModalEls(region);
-    if (!els.modal || els.modal.getAttribute("data-busy") === "true") return;
+    if (!els.modal) return;
+    // Force-clear busy first so the modal can always be restored to
+    // hidden. Bailing while busy used to leave the fixed/inset:0/z:80
+    // backdrop in place after any stuck ingest, which then blanketed
+    // the whole board and ate every click — including the favorite
+    // stars on both Pipeline and Lattice (Lattice shares the layout).
+    setUrlModalBusy(region, false);
     els.modal.hidden = true;
     document.body.classList.remove("pipe-url-modal-open");
     setUrlModalError(region, "");
