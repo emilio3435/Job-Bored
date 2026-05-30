@@ -362,7 +362,17 @@ export async function scoreListingWithLlm(
     throw new Error("scoreListingWithLlm: missing or non-numeric fitScore.");
   }
   const fitScore = Math.max(1, Math.min(10, Math.round(rawScore)));
-  const band = deriveBand(fitScore);
+  // Trust the LLM's own band when it returned a valid enum value; only fall
+  // back to deriving from fitScore if it's missing or out-of-enum. The schema
+  // requires `band`, so this fallback is purely defensive.
+  const llmBandRaw = typeof rec.band === "string" ? rec.band : "";
+  const band: FitBand =
+    llmBandRaw === "Exceptional" ||
+    llmBandRaw === "Strong" ||
+    llmBandRaw === "Interesting" ||
+    llmBandRaw === "Low"
+      ? llmBandRaw
+      : deriveBand(fitScore);
 
   const perStrengthRaw = Array.isArray(rec.perStrength) ? rec.perStrength : [];
   const perStrength: StrengthEvaluation[] = perStrengthRaw

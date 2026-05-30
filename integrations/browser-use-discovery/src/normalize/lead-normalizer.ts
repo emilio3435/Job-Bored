@@ -275,7 +275,12 @@ export async function normalizeLeadWithDiagnostics(
       cache: run.config.listingScoreCache,
     });
     if (outcome.ok) {
-      effectiveFitScore = Math.max(fitScore, outcome.score.fitScore);
+      // Trust the LLM score directly. Previously we did Math.max(keywordScore,
+      // llmScore), which let run-config keyword hits floor-bump a listing the
+      // LLM had honestly judged as low fit — the main source of inflated fit
+      // scores for off-target listings. Keyword `fitScore` stays available via
+      // `priority` / `tags` for debugging.
+      effectiveFitScore = outcome.score.fitScore;
       matchScoreFromLlm = outcome.score.fitScore;
       fitAssessment = buildLlmFitAssessment(
         outcome.score,
@@ -293,8 +298,12 @@ export async function normalizeLeadWithDiagnostics(
       };
     } else {
       // LLM error — fall through to legacy so the listing still gets captured.
+      // Trust the legacy heuristic's score directly; the keyword `fitScore`
+      // is a count of run-config matches, not a quality signal, so floor-
+      // bumping with it produces the same inflated-score problem as the LLM
+      // path did.
       const legacy = computeProfileAwareFitScore(rawListing);
-      effectiveFitScore = Math.max(fitScore, legacy.fitScore);
+      effectiveFitScore = legacy.fitScore;
       fitAssessment = buildProfileFitAssessment({
         role: title,
         company,
@@ -309,8 +318,9 @@ export async function normalizeLeadWithDiagnostics(
       });
     }
   } else {
+    // No UserProfile configured — legacy heuristic owns the score directly.
     const legacy = computeProfileAwareFitScore(rawListing);
-    effectiveFitScore = Math.max(fitScore, legacy.fitScore);
+    effectiveFitScore = legacy.fitScore;
     fitAssessment = buildProfileFitAssessment({
       role: title,
       company,
