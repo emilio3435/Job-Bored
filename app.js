@@ -883,6 +883,7 @@ const STARTER_PIPELINE_HEADERS = [
   "Favorite",
   "Dismissed At",
   "Approval Status",
+  "Edit Lock",
 ];
 const STARTER_PIPELINE_HEADER_RANGE = `Pipeline!A1:${String.fromCharCode("A".charCodeAt(0) + STARTER_PIPELINE_HEADERS.length - 1)}1`;
 
@@ -8141,6 +8142,7 @@ if (typeof window !== "undefined") {
   window.JobBored.getPipelineViewFilters = getPipelineViewFilters;
   window.JobBored.setPipelineViewFilters = setPipelineViewFilters;
   window.JobBored.toggleFavorite = toggleFavorite;
+  window.JobBored.editJobField = editJobField;
   window.JobBored.applyPipelineStageWrite = applyPipelineStageWrite;
   window.JobBored.applyPipelineNotesWrite = applyPipelineNotesWrite;
   window.JobBored.ingestJobUrl = ingestJobUrl;
@@ -11823,6 +11825,65 @@ async function markStatusExpired(stableKey) {
   }
 }
 
+// Identity fields the user can edit in the v2 dossier masthead. The column
+// letters are fixed by STARTER_PIPELINE_HEADERS order (line ~861): Title=B,
+// Company=C, Location=D, Salary=G. Reads use the same indices in
+// parsePipelineCSV, so writes must target these exact columns.
+const EDIT_FIELD_COLUMN = { title: "B", company: "C", location: "D", salary: "G" };
+const EDIT_LOCK_COLUMN = "Y"; // STARTER_PIPELINE_HEADERS -> "Edit Lock" (sheetIndex 24)
+
+// Union a field id into the comma-separated, de-duplicated Edit Lock value so
+// re-discovery (mergeExistingRow) leaves user-edited identity fields intact
+// while still improving untouched ones.
+function unionLock(existing, field) {
+  const ids = String(existing || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (ids.indexOf(field) === -1) ids.push(field);
+  return ids.join(",");
+}
+
+// Persist a user edit to title/company/location/salary from the dossier
+// masthead. Mirrors markStatusExpired (optimistic mutate + render before the
+// await, revert + error toast on failure) but writes the field value AND the
+// unioned Edit Lock in ONE atomic updateMultipleCells batch so there is no
+// window where the value persists unlocked.
+async function editJobField(stableKey, field, value) {
+  const job = pipelineData[stableKey];
+  if (!job) return;
+  const col = EDIT_FIELD_COLUMN[field];
+  if (!col) return;
+  const next = String(value).trim(); // compare trimmed: a whitespace-only change is a no-op
+  if ((job[field] || "") === next) return; // no-op on unchanged value
+  if (!accessToken) {
+    showSheetAccessGate("signin");
+    return;
+  }
+  const sheetRow = getSheetRow(stableKey);
+  if (!sheetRow) return; // locally-added job, no row to write
+  const prevValue = job[field];
+  const prevLock = job._editLock || "";
+  const nextLock = unionLock(prevLock, field);
+  job[field] = next;
+  job._editLock = nextLock;
+  renderPipeline();
+  try {
+    const ok = await updateMultipleCells([
+      { range: `Pipeline!${col}${sheetRow}`, value: next },
+      { range: `Pipeline!${EDIT_LOCK_COLUMN}${sheetRow}`, value: nextLock },
+    ]);
+    if (!ok) throw new Error(`Pipeline ${col}${sheetRow} write failed`);
+    showToast("Saved", "info");
+  } catch (err) {
+    console.error("[JobBored] editJobField failed", err);
+    job[field] = prevValue;
+    job._editLock = prevLock;
+    renderPipeline();
+    showToast("Couldn't save — reverted", "error");
+  }
+}
+
 // Row index: the position in pipelineData maps to raw row index
 // pipelineData[i] comes from pipelineRawRows[i], which is rows[i+1] (skip header)
 // So sheet row = rawRowIndex + 2 (1-indexed, +1 for header)
@@ -12397,6 +12458,9 @@ function parsePipelineCSV(rows) {
       logoUrl: row[19] ? String(row[19]).trim() : null,
       favorite: row[21] === "★",
       dismissedAt: row[22] ? String(row[22]).trim() || null : null,
+      // Edit Lock (column Y, sheetIndex 24): comma-separated locked field ids
+      // ({title,company,location,salary}) that discovery must not re-clobber.
+      _editLock: row[24] != null ? String(row[24]).trim() : "",
     });
   }
 

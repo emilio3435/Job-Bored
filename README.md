@@ -223,6 +223,7 @@ The dashboard reads the **Pipeline** tab (and ignores other tabs).
 | V: Favorite        | Optional. Manual star — a personal priority marker                                    | **You**                          |
 | W: Dismissed At   | Optional. Timestamp when a row was manually dismissed from the board                 | **You** or automation            |
 | X: Approval Status | Gate 1 approval marker — set to **Approved** before an agent may submit an apply    | **You** (required for apply gate) |
+| Y: Edit Lock       | Optional. Comma-separated identity fields you edited in-app (`title`,`company`,`location`,`salary`); discovery skips these so your renames stick | App (set when **You** edit a card) |
 
 ## Agentic discovery (optional)
 

@@ -861,7 +861,7 @@ body.jb-v2 [data-region="pipeline"] .pipe-sticker--ghost {
 
 body.jb-v2 [data-region="pipeline"] .pipe-sticker__head {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto auto auto;
   gap: 10px;
   align-items: center;
 }
@@ -966,6 +966,45 @@ body.jb-v2 [data-region="pipeline"] .pipe-sticker__role {
   -webkit-box-orient: vertical;
   overflow: hidden;
   word-break: break-word;
+}
+
+/* Edit affordance — a pencil that reveals on card hover/focus and opens the
+   dossier with the title focused. Stays hidden at rest so the card reads clean;
+   discoverable the moment the user reaches for the card. */
+body.jb-v2 [data-region="pipeline"] .pipe-sticker__edit {
+  appearance: none;
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-pill);
+  background: var(--jb-paper);
+  color: var(--jb-ink-3);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--jb-transition-fast),
+              background var(--jb-transition-fast),
+              border-color var(--jb-transition-fast),
+              color var(--jb-transition-fast),
+              transform var(--jb-transition-fast);
+}
+body.jb-v2 [data-region="pipeline"] .pipe-sticker:hover .pipe-sticker__edit,
+body.jb-v2 [data-region="pipeline"] .pipe-sticker:focus-within .pipe-sticker__edit,
+body.jb-v2 [data-region="pipeline"] .pipe-sticker__edit:focus-visible {
+  opacity: 1;
+}
+body.jb-v2 [data-region="pipeline"] .pipe-sticker__edit:hover {
+  border-color: var(--jb-ink-3);
+  color: var(--jb-ink);
+  transform: translateY(-1px);
+}
+body.jb-v2 [data-region="pipeline"] .pipe-sticker__edit:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
 }
 
 body.jb-v2 [data-region="pipeline"] .pipe-sticker__favorite {

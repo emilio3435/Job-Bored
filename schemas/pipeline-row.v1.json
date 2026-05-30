@@ -28,7 +28,8 @@
     "Match Score",
     "Favorite",
     "Dismissed At",
-    "Approval Status"
+    "Approval Status",
+    "Edit Lock"
   ],
   "columns": [
     {
@@ -221,6 +222,15 @@
       "type": "string",
       "sheetIndex": 23,
       "description": "Gate 1 approval marker for the JHOS apply flow. Set to 'Approved' by Emilio in the Pipeline tab before an agent may advance an apply card. Workers read this field to determine whether submission is permitted.",
+      "optionalColumn": true
+    },
+    {
+      "id": "editLock",
+      "letter": "Y",
+      "headerLabel": "Edit Lock",
+      "type": "string",
+      "sheetIndex": 24,
+      "description": "Comma-separated, de-duplicated list of user-locked field ids drawn from {title,company,location,salary}, e.g. 'title,salary'. Written by the dashboard when a user edits an identity field. mergeExistingRow preserves the locked columns (title:1, company:2, location:3, salary:6) against re-discovery for that row only; untouched/locked-elsewhere identity fields keep improving. Empty/absent => no lock => byte-identical pre-change discovery behavior.",
       "optionalColumn": true
     }
   ]

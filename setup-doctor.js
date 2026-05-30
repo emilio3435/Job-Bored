@@ -339,6 +339,7 @@
       "Favorite",
       "Dismissed At",
       "Approval Status",
+      "Edit Lock",
     ],
     "statuses": [
       "New",

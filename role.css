@@ -267,6 +267,18 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   color: var(--navy);
   margin: 0 0 6px;
   font-weight: 500;
+  /* Editable field: reads as a heading, reveals its affordance on
+     hover/focus (matches the notes textarea idiom). */
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  border-bottom: 1px dashed transparent;
+  background: transparent;
+  padding: 1px 0;
+  outline: none;
 }
 
 .brief__company {
@@ -275,6 +287,16 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   font-size: 18px;
   color: var(--ink-soft);
   margin: 0 0 14px;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  border-bottom: 1px dashed transparent;
+  background: transparent;
+  padding: 1px 0;
+  outline: none;
 }
 
 .brief__facts {
@@ -294,6 +316,37 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
 }
 .brief__facts .dot {
   color: var(--border-strong);
+}
+
+/* Editable location/salary facts — inherit the mono fact styling, size to
+   content where supported, and reveal as editable on hover/focus. */
+.brief__fact-input {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  border-bottom: 1px dashed transparent;
+  background: transparent;
+  padding: 0 2px;
+  outline: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  width: 12ch;
+  max-width: 100%;
+  field-sizing: content;
+}
+
+/* Shared hover/focus affordance for the editable masthead identity fields. */
+.brief__masthead [data-action="edit-field"]:hover {
+  border-bottom-color: var(--border-strong);
+}
+.brief__masthead [data-action="edit-field"]:focus {
+  border-bottom-color: var(--crimson);
+}
+.brief__masthead [data-action="edit-field"]::placeholder {
+  color: var(--mute);
+  font-style: italic;
 }
 
 /* Dossier action cluster — the single, canonical entry point for

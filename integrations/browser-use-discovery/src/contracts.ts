@@ -93,6 +93,11 @@ export const PIPELINE_HEADER_ROW = [
   // this to "Approved" in the Pipeline before an agent may proceed to apply.
   // Workers read this field to determine whether an apply flow may advance.
   "Approval Status",
+  // Comma-separated, de-duplicated list of user-locked field ids drawn from
+  // {title,company,location,salary}. Written by the dashboard when a user edits
+  // an identity field so re-discovery preserves it. Empty/absent => no lock =>
+  // discovery overwrites identity fields exactly as before.
+  "Edit Lock",
 ] as const;
 
 export type SupportedSourceId = (typeof SUPPORTED_SOURCE_IDS)[number];

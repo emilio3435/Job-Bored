@@ -907,6 +907,14 @@
       '    </span>',
       '    <span class="pipe-sticker__role">' + escapeHtml(card.role || "Untitled role") + '</span>',
       '  </span>',
+      '  <button type="button" class="pipe-sticker__edit" data-card-action="edit-open"',
+      '          data-key="' + escapeHtml(cardKey) + '"',
+      '          aria-label="Edit role details" title="Edit role details">',
+      '    <svg viewBox="0 0 24 24" width="14" height="14" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">',
+      '      <path d="M12 20h9"></path>',
+      '      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"></path>',
+      '    </svg>',
+      '  </button>',
       '  <button type="button" class="pipe-sticker__favorite" data-card-action="toggle-favorite"',
       '          data-key="' + escapeHtml(cardKey) + '"',
       '          aria-label="' + (isFavorite ? "Unfavorite" : "Favorite") + '"',
@@ -1340,6 +1348,22 @@
     }
     region.__pipeOpenRole = openRoleAndScroll;
 
+    // Focus an editable masthead field in the freshly-opened dossier. Called
+    // right after openRoleAndScroll, which renders the dossier synchronously
+    // (jb:role:opened dispatch -> role.js renderForKey), so the input exists.
+    function focusDossierField(field) {
+      var roleRegion = document.querySelector('[data-region="role"]');
+      if (!roleRegion) return;
+      var input = roleRegion.querySelector(
+        '[data-action="edit-field"][data-field="' + field + '"]'
+      );
+      if (!input || typeof input.focus !== "function") return;
+      try {
+        input.focus();
+        if (typeof input.select === "function") input.select();
+      } catch (e) { /* focus is best-effort */ }
+    }
+
     document.addEventListener("jb:pipeline:filters-changed", function (e) {
       state.filters = normalizePipelineFilters(e && e.detail);
       setFilterChipState(region, state);
@@ -1362,6 +1386,22 @@
 
     // Card click → open role dossier (delegated, but drag handler suppresses click on drag).
     region.addEventListener("click", function (e) {
+      // The pencil is an interactive target (so it skips drag + plain card-open),
+      // so handle it here BEFORE the isInteractiveTarget bail — this closure owns
+      // openRoleAndScroll + focusDossierField.
+      var editBtn = e.target.closest('[data-card-action="edit-open"]');
+      if (editBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+        var editCard = editBtn.closest(".pipe-sticker");
+        var editStage = editCard ? editCard.getAttribute("data-stage") : null;
+        // Open the dossier (renders synchronously via jb:role:opened) then drop
+        // the cursor into the title so the user can rename immediately.
+        openRoleAndScroll(editBtn.getAttribute("data-key"), editStage);
+        focusDossierField("title");
+        return;
+      }
       if (isInteractiveTarget(e.target)) return;
       var sticker = e.target.closest(".pipe-sticker[data-stable-key]");
       if (sticker && !sticker.__pipeJustDragged) {
@@ -1731,7 +1771,13 @@
   }
 
   function observeLegacy() {
-    var pipelineRoot = document.getElementById("kanbanPipeline") || document.body;
+    // Observe the LEGACY board (#jobCards) so we re-mirror when app.js renders
+    // fresh data. Never fall back to document.body: this region rewrites its own
+    // innerHTML on every render, so a body-subtree observer would see our own
+    // writes and re-trigger scheduleRender forever (a render loop that silently
+    // rebuilds every card each idle frame). #kanbanPipeline does not exist — the
+    // real legacy container is #jobCards.
+    var pipelineRoot = document.getElementById("kanbanPipeline") || document.getElementById("jobCards");
     var mo = new MutationObserver(function () {
       // Settle a frame to coalesce bursts.
       scheduleRender();

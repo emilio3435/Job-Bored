@@ -4,6 +4,17 @@ import test from "node:test";
 import { PIPELINE_HEADER_ROW } from "../../src/contracts.ts";
 import { SheetWriteError, createPipelineWriter } from "../../src/sheets/pipeline-writer.ts";
 
+// COLUMN_COUNT is derived (PIPELINE_HEADER_ROW.length). The Edit-Lock work
+// widens the header to include column Y (sheetIndex 24), so the count must be
+// 25. We pin both the derived count AND the literal 25 so a regression that
+// drops the Y column (or fails to widen the header) is caught here.
+const COLUMN_COUNT = PIPELINE_HEADER_ROW.length;
+// Sheet column indices for the user-lockable identity fields, mirroring the
+// LOCKABLE_INDEX map inside mergeExistingRow: title=B(1), company=C(2),
+// location=D(3), salary=G(6). Fit Score=H(7) is a discovery-improved field
+// that must keep updating even when identity is locked.
+const IDX = { title: 1, company: 2, location: 3, salary: 6, fitScore: 7 } as const;
+
 const runtimeConfig = {
   stateDatabasePath: "/tmp/state.db",
   workerConfigPath: "/tmp/config.json",
@@ -741,5 +752,171 @@ test("SheetWriteError preserves canonical link and source attribution (VAL-DATA-
       assert.ok(calls.some((c) => c.url.includes(encodeURIComponent(sheetId))));
       return true;
     },
+  );
+});
+
+/* ============================================================
+   Edit Lock (column Y) merge coexistence
+   ------------------------------------------------------------
+   The reported bug: on every re-discovery, mergeExistingRow
+   overwrites any column whose freshly-discovered value is
+   truthy — so a user-renamed Title / Company / Location / Salary
+   is silently re-clobbered. The fix reads a per-row, comma-
+   separated list of LOCKED field ids from column Y (sheetIndex
+   24) and adds those columns to the merge loop's skip set FOR
+   THAT ROW ONLY.
+
+   WHY granular (CSV), not a boolean: editing only the title must
+   protect ONLY the title — company / location / salary must keep
+   improving on the next run. And critically, locking identity must
+   NEVER freeze the discovery-improved fields (Fit Score, Tags,
+   Logo, Match Score). These tests drive mergeExistingRow through
+   the public write() update path (the same way the existing
+   "updates existing rows" test does) so they stay independent of
+   the source's private helpers.
+   ============================================================ */
+
+// A row exactly COLUMN_COUNT wide so index 24 (column Y / Edit Lock) is
+// addressable. The shared row() helper pads to PIPELINE_HEADER_ROW.length;
+// this variant lets a test set the Edit-Lock cell explicitly.
+function rowWithLock(values: Record<number, string>): string[] {
+  const out = Array.from({ length: COLUMN_COUNT }, () => "");
+  for (const [k, v] of Object.entries(values)) out[Number(k)] = v;
+  return out;
+}
+
+const MATCH_URL = "https://jobs.example.com/openings/locked-role?jobId=99";
+
+// Base existing sheet cells for a row that the incoming lead will MATCH by URL.
+// Index 24 (Edit Lock) is overridden per test. CRM columns are left empty so
+// the merge runs the identity path (column 22 / Dismissed At must stay empty,
+// or the row is treated as blacklisted and skipped).
+function existingMatchRow(overrides: Record<number, string>): string[] {
+  return rowWithLock({
+    0: "2026-04-01",
+    [IDX.title]: "User Renamed Title",
+    [IDX.company]: "User Renamed Co",
+    [IDX.location]: "User Renamed Loc",
+    4: MATCH_URL,
+    5: "Greenhouse",
+    [IDX.salary]: "$999k",
+    [IDX.fitScore]: "5",
+    12: "Applied", // Status (always preserved CRM column)
+    ...overrides,
+  });
+}
+
+// An incoming lead whose URL matches existingMatchRow and which differs on
+// ALL FOUR identity fields plus a higher Fit Score.
+function rediscoveredLead(overrides: Record<string, unknown> = {}) {
+  return makeLead({
+    title: "Discovery Title",
+    company: "Discovery Co",
+    location: "Discovery Loc",
+    compensationText: "$111k",
+    fitScore: 9,
+    url: "https://jobs.example.com/openings/locked-role/?utm_source=x&jobId=99",
+    ...overrides,
+  });
+}
+
+async function mergedRowFor(
+  existingRow: string[],
+  lead: ReturnType<typeof makeLead>,
+): Promise<string[]> {
+  const { fetchImpl, calls } = createMockFetch({
+    headerRows: [PIPELINE_HEADER_ROW],
+    dataRows: [existingRow],
+    responses: [responseJson({ updatedRows: 1 })],
+  });
+  const writer = createPipelineWriter(runtimeConfig, {
+    fetchImpl,
+    now: () => new Date("2026-04-09T12:00:00.000Z"),
+  });
+  const result = await writer.write("sheet_123", [lead]);
+  assert.equal(result.updated, 1, "the existing row must be matched + updated");
+  const batchCall = calls.find((c) => c.method === "POST" && /values:batchUpdate$/.test(c.url));
+  assert.ok(batchCall, "a batchUpdate call must be issued for the matched row");
+  return JSON.parse(batchCall.body).data[0].values[0];
+}
+
+test("mergeExistingRow with Edit Lock 'title,salary' keeps user title+salary but takes discovery company+location", async () => {
+  const existingRow = existingMatchRow({ 24: "title,salary" });
+  const merged = await mergedRowFor(existingRow, rediscoveredLead());
+
+  // Locked: the user's title + salary survive re-discovery.
+  assert.equal(merged[IDX.title], "User Renamed Title", "locked title must be preserved");
+  assert.equal(merged[IDX.salary], "$999k", "locked salary must be preserved");
+  // Unlocked: company + location still take the freshly-discovered value —
+  // this is WHY the lock is a granular CSV and not a blanket boolean.
+  assert.equal(merged[IDX.company], "Discovery Co", "unlocked company must update");
+  assert.equal(merged[IDX.location], "Discovery Loc", "unlocked location must update");
+});
+
+test("mergeExistingRow preserves a locked Title while still updating Fit Score on re-discovery", async () => {
+  // The core regression for the reported bug: locked identity survives, but
+  // discovery-improved fields (Fit Score) must keep getting better.
+  const existingRow = existingMatchRow({ 24: "title", [IDX.fitScore]: "5" });
+  const merged = await mergedRowFor(existingRow, rediscoveredLead({ fitScore: 9 }));
+
+  assert.equal(merged[IDX.title], "User Renamed Title", "locked title must be preserved");
+  assert.equal(
+    merged[IDX.fitScore],
+    "9",
+    "a locked identity field must NOT freeze discovery-improved fields like Fit Score",
+  );
+});
+
+test("mergeExistingRow with empty/absent Edit Lock overwrites identity fields exactly as before (back-compat)", async () => {
+  // Case A: explicit empty Y cell.
+  const withEmptyY = existingMatchRow({ 24: "" });
+  const mergedA = await mergedRowFor(withEmptyY, rediscoveredLead());
+  assert.equal(mergedA[IDX.title], "Discovery Title", "empty lock must overwrite title");
+  assert.equal(mergedA[IDX.company], "Discovery Co", "empty lock must overwrite company");
+  assert.equal(mergedA[IDX.location], "Discovery Loc", "empty lock must overwrite location");
+  assert.equal(mergedA[IDX.salary], "$111k", "empty lock must overwrite salary");
+  // Always-preserved CRM columns stay untouched regardless of the lock.
+  assert.equal(mergedA[12], "Applied", "Status (CRM) must always be preserved");
+
+  // Case B: a legacy row that has NO column Y at all (length 24). A short /
+  // undefined Y cell must read as no-lock — never accidentally freeze the row.
+  const legacyRow = existingMatchRow({}).slice(0, 24);
+  assert.equal(legacyRow.length, 24, "legacy row must be A..X only (no Y cell)");
+  const mergedB = await mergedRowFor(legacyRow, rediscoveredLead());
+  assert.equal(mergedB[IDX.title], "Discovery Title", "absent Y must overwrite title");
+  assert.equal(mergedB[IDX.salary], "$111k", "absent Y must overwrite salary");
+});
+
+test("buildLeadRow emits COLUMN_COUNT (25) cells with a trailing empty Edit Lock", async () => {
+  // buildLeadRow is private; we observe its output via the append path (a
+  // brand-new lead with no existing match). The appended row must be exactly
+  // COLUMN_COUNT wide with an empty trailing Edit-Lock cell so rows never go
+  // ragged after the header widens to column Y.
+  assert.equal(COLUMN_COUNT, 25, "header must widen to 25 columns (Edit Lock = Y)");
+
+  const { fetchImpl, calls } = createMockFetch({
+    headerRows: [PIPELINE_HEADER_ROW],
+    dataRows: [],
+    responses: [responseJson({ appendedRows: 1 })],
+  });
+  const writer = createPipelineWriter(runtimeConfig, {
+    fetchImpl,
+    now: () => new Date("2026-04-09T12:00:00.000Z"),
+  });
+
+  await writer.write("sheet_123", [makeLead()]);
+
+  const appendCall = calls.find((c) => c.method === "POST" && /:append/.test(c.url));
+  assert.ok(appendCall, "a freshly-discovered lead must append a row");
+  const appendedRow = JSON.parse(appendCall.body).values[0];
+  assert.equal(
+    appendedRow.length,
+    COLUMN_COUNT,
+    "an appended lead row must be COLUMN_COUNT (25) wide",
+  );
+  assert.equal(
+    appendedRow[24],
+    "",
+    "a newly-discovered row carries an EMPTY Edit Lock cell (nothing locked yet)",
   );
 });
