@@ -12679,6 +12679,11 @@ body.jb-v2 .expired-review-item__link {
   background: var(--surface-2);
   color: var(--text-muted);
 }
+.doctor-keep-alive-pill--error {
+  border-color: var(--status-err-border);
+  background: var(--status-err-bg);
+  color: var(--status-err);
+}
 
 /* ============================================
    DISCOVERY DRAWER

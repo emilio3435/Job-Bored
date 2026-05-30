@@ -20,7 +20,7 @@ import {
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -379,12 +379,52 @@ function getCompatibilityDate() {
   return match && match[1] ? match[1] : "2024-01-01";
 }
 
+/**
+ * Extract a JSON value from wrangler `--json` stdout robustly.
+ *
+ * Recent wrangler versions print non-JSON notices (e.g. "Cloudflare agent
+ * skills are available…") to STDOUT alongside the JSON payload, which breaks a
+ * naive JSON.parse(stdout.trim()). This helper first tries the last non-empty
+ * line that JSON-parses, then falls back to slicing from the first "{" to the
+ * last "}". Returns null when no JSON object can be recovered.
+ */
+function extractWranglerJson(stdout) {
+  const text = String(stdout || "");
+  if (!text.trim()) return null;
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    if (!line.startsWith("{") && !line.startsWith("[")) continue;
+    try {
+      return JSON.parse(line);
+    } catch (_) {
+      // keep scanning earlier lines
+    }
+  }
+
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    try {
+      return JSON.parse(text.slice(start, end + 1));
+    } catch (_) {
+      return null;
+    }
+  }
+  return null;
+}
+
 function parseWranglerWhoAmI() {
   const result = spawnSync("npx", ["--yes", "wrangler", "whoami", "--json"], {
     cwd: repoRoot,
     encoding: "utf8",
     env: {
       ...process.env,
+      CI: "1",
       FORCE_COLOR: "0",
       WRANGLER_SEND_METRICS: "false",
     },
@@ -392,11 +432,7 @@ function parseWranglerWhoAmI() {
   if (result.status !== 0) {
     return null;
   }
-  try {
-    return JSON.parse(String(result.stdout || "").trim());
-  } catch (_) {
-    return null;
-  }
+  return extractWranglerJson(result.stdout);
 }
 
 function tryAutoLogin() {
@@ -703,6 +739,7 @@ function tryReadStatusUrl(configPath) {
       encoding: "utf8",
       env: {
         ...process.env,
+        CI: "1",
         FORCE_COLOR: "0",
         WRANGLER_SEND_METRICS: "false",
       },
@@ -710,9 +747,10 @@ function tryReadStatusUrl(configPath) {
   );
   if (result.status !== 0) return "";
   const found = new Set();
-  try {
-    collectWorkersDevUrls(JSON.parse(String(result.stdout || "").trim()), found);
-  } catch (_) {
+  const parsed = extractWranglerJson(result.stdout);
+  if (parsed !== null) {
+    collectWorkersDevUrls(parsed, found);
+  } else {
     collectWorkersDevUrls(String(result.stdout || ""), found);
   }
   return [...found][0] || "";
@@ -977,4 +1015,17 @@ async function main() {
   }
 }
 
-await main();
+// Only run the CLI entry point when invoked directly
+// (`node scripts/deploy-cloudflare-relay.mjs`). When imported from a test, the
+// exported helpers below stay testable without running the deploy pipeline.
+const __invokedAsCli =
+  process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (__invokedAsCli) {
+  await main();
+}
+
+// Test-only exports. Keep the surface narrow — these are not a stable public
+// API; they exist so tests can exercise wrangler stdout parsing without
+// running the full deploy pipeline.
+export { extractWranglerJson };

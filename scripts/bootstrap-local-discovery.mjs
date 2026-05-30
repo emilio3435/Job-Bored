@@ -14,6 +14,7 @@
 
 import { randomBytes } from "crypto";
 import { spawn, spawnSync } from "child_process";
+import { createServer } from "net";
 import {
   appendFileSync,
   closeSync,
@@ -765,6 +766,76 @@ function formatPortProcessList(processes) {
     .join("; ");
 }
 
+/**
+ * Probe whether a TCP port is free to bind on 127.0.0.1 by briefly opening a
+ * listener on it. Resolves false when the bind fails (e.g. EADDRINUSE),
+ * regardless of which process holds the port.
+ */
+function isTcpPortFree(port, { createServerImpl = createServer } = {}) {
+  return new Promise((resolveProbe) => {
+    const server = createServerImpl();
+    let settled = false;
+    const finish = (free) => {
+      if (settled) return;
+      settled = true;
+      try {
+        server.close();
+      } catch (_) {
+        // best effort
+      }
+      resolveProbe(free);
+    };
+    server.once("error", () => finish(false));
+    server.once("listening", () => finish(true));
+    try {
+      server.listen(port, "127.0.0.1");
+    } catch (_) {
+      finish(false);
+    }
+  });
+}
+
+/**
+ * Scan upward from startPort and return the first free TCP port. Used when the
+ * preferred worker port is held by a foreign process (e.g. a Hermes gateway)
+ * and we need to relocate the JobBored worker without disturbing it.
+ */
+async function findAvailableWorkerPort(startPort, options = {}) {
+  const maxScan = Number.isFinite(options.maxScan) ? options.maxScan : 100;
+  const isPortFree = options.isPortFree || isTcpPortFree;
+  const start = Number.parseInt(String(startPort), 10);
+  if (!Number.isFinite(start) || start <= 0) {
+    fail("findAvailableWorkerPort requires a positive start port");
+  }
+  for (let candidate = start; candidate < start + maxScan; candidate += 1) {
+    if (candidate > 65535) break;
+    // eslint-disable-next-line no-await-in-loop
+    const free = await isPortFree(candidate, options);
+    if (free) return candidate;
+  }
+  fail(
+    `Could not find a free TCP port in the range ${start}-${Math.min(
+      start + maxScan - 1,
+      65535,
+    )} for the browser-use discovery worker. Free a port or rerun with --port.`,
+  );
+}
+
+/**
+ * Decide whether the port is held by a process that is NOT the JobBored
+ * browser-use worker. When the worker (or nothing) holds it we keep today's
+ * reuse/launch behavior; a foreign listener (e.g. Hermes) means we should
+ * relocate the worker to a free port instead of failing.
+ */
+function portHasForeignListener(port, { findProcesses = findProcessesOnPort } = {}) {
+  const processes = findProcesses(port);
+  if (!processes.length) return { foreign: false, processes };
+  const foreign = processes.filter(
+    (processInfo) => !isKnownBrowserUseWorkerCommand(processInfo.command),
+  );
+  return { foreign: foreign.length > 0, processes, foreignProcesses: foreign };
+}
+
 async function killKnownWorkerProcesses(port) {
   const processes = findProcessesOnPort(port);
   const blocked = processes.filter(
@@ -1271,6 +1342,21 @@ async function main() {
     health = await ensureGatewayHealth(port, args.autoStartGateway);
     engineKind = "hermes";
   } else {
+    // Free-port coexistence: when the preferred worker port is held by a
+    // foreign process (e.g. a Hermes gateway) and the user did NOT pin --port
+    // explicitly, relocate the worker to the next free port instead of failing.
+    // If our own worker already holds the port, reuse it. An explicit --port is
+    // honored exactly with no auto-bump (keeps today's fail-on-foreign path).
+    if (!args.portExplicit && !isBrowserUseDiscoveryHealth(initialHealth)) {
+      const occupancy = portHasForeignListener(port);
+      if (occupancy.foreign) {
+        const freePort = await findAvailableWorkerPort(Number.parseInt(port, 10) + 1);
+        console.log(
+          `discovery:bootstrap-local: port ${port} is held by a foreign process; using free port ${freePort} for the worker instead.`,
+        );
+        port = String(freePort);
+      }
+    }
     // Always go through ensureBrowserUseWorkerHealth — it handles the
     // "already running but with wrong secret" case by killing + restarting,
     // so the dashboard's autofilled secret is guaranteed to work afterward.
@@ -1553,4 +1639,7 @@ export {
   pickNgrokPublicUrl,
   tunnelMatchesPort,
   isBrowserUseDiscoveryHealth,
+  isTcpPortFree,
+  findAvailableWorkerPort,
+  portHasForeignListener,
 };
