@@ -403,14 +403,14 @@
               if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
               var nextFavorite = !favorite;
               setCardFavoriteState(dataIndex, nextFavorite);
-              var result = togglePipelineFavorite(dataIndex);
-              if (result && typeof result.then === "function") {
-                result.then(function (ok) {
-                  if (ok === false) setCardFavoriteState(dataIndex, !nextFavorite);
-                }).catch(function () {
-                  setCardFavoriteState(dataIndex, !nextFavorite);
-                });
-              }
+              // app.js#toggleFavorite now writes through a localStorage
+              // cache before any network/auth check, so a failure path
+              // (Sheet write failed, accessToken missing, etc.) no longer
+              // means lost intent — the next CSV load layers the cache
+              // back in. Roll-back here would just flash the chip back
+              // off and reintroduce the "favorites button doesn't work"
+              // feel that the cache is there to prevent.
+              togglePipelineFavorite(dataIndex);
             },
             onpointerdown: function (e) {
               e.stopPropagation();

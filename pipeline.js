@@ -484,29 +484,6 @@
     }
   }
 
-  // Overlay of optimistic favorite state keyed by stable job key. Lets the
-  // kanban render the user's last expressed intent even when persistence
-  // hasn't landed yet (e.g., sign-in gate, Sheet write failure, async wait).
-  // The overlay is cleared once the canonical pipelineData.favorite matches
-  // the user's intent — that keeps it from forever shadowing real state.
-  var favoriteOverlay = Object.create(null);
-
-  function setFavoriteOverlay(jobKey, favorite) {
-    if (jobKey == null) return;
-    favoriteOverlay[String(jobKey)] = !!favorite;
-  }
-
-  function reconcileFavoriteOverlay(jobKey, canonicalFavorite) {
-    if (jobKey == null) return canonicalFavorite;
-    var key = String(jobKey);
-    if (!(key in favoriteOverlay)) return canonicalFavorite;
-    if (favoriteOverlay[key] === !!canonicalFavorite) {
-      delete favoriteOverlay[key];
-      return canonicalFavorite;
-    }
-    return favoriteOverlay[key];
-  }
-
   function togglePipelineFavorite(jobKey) {
     var api = root.JobBored;
     if (api && typeof api.toggleFavorite === "function") {
@@ -886,7 +863,7 @@
     var fitPct = (fitNum == null) ? 0 : Math.max(0, Math.min(100, Math.round(fitNum * 10)));
     var fitColor = fitColorVar(fitNum);
     var job = getPipelineJobByKey(card.jobKey);
-    var isFavorite = reconcileFavoriteOverlay(card.jobKey, !!(job && job.favorite));
+    var isFavorite = !!(job && job.favorite);
     var note = card.note ? String(card.note) : (job && job.notes ? String(job.notes) : "");
     var salary = card.salary ? String(card.salary) : (job && job.salary ? String(job.salary) : "");
     var location = job && job.location ? String(job.location) : "";
@@ -1127,7 +1104,7 @@
             // stays visible even if its fit ranks below cap survivors.
             if (isRecentlyMoved(state, card.jobKey)) return true;
             var job = getPipelineJobByKey(card.jobKey);
-            return reconcileFavoriteOverlay(card.jobKey, !!(job && job.favorite));
+            return !!(job && job.favorite);
           });
       var ordered = sortCards(capped, state.sort);
       var hiddenSummary = (root.JobBoredCompanyCap && !searchActive)
@@ -1234,13 +1211,7 @@
         var favoriteKey = favoriteBtn.getAttribute("data-key");
         if (favoriteKey != null && favoriteKey !== "") {
           var job = getPipelineJobByKey(favoriteKey);
-          var currentFavorite = reconcileFavoriteOverlay(favoriteKey, !!(job && job.favorite));
-          var nextFavorite = !currentFavorite;
-          // Record the user's intent in the overlay so any re-render that
-          // fires before persistence lands (materials index refresh, body
-          // class flip, etc.) preserves the chip state. The overlay clears
-          // itself once canonical pipelineData.favorite agrees.
-          setFavoriteOverlay(favoriteKey, nextFavorite);
+          var nextFavorite = !(job && job.favorite);
           setCardFavoriteState(region, favoriteKey, nextFavorite);
           togglePipelineFavorite(favoriteKey);
         }
