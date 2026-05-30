@@ -46,6 +46,15 @@ before(async () => {
       PORT: String(PORT),
       JOBBORED_PROFILE_PATH: profilePath,
       LISTEN_HOST: "127.0.0.1",
+      // Redirect the home dir so filesystem resume lookups are hermetic. The
+      // /profile/from-resume route reads ~/.jobbored/resume.txt and
+      // ~/.hermes/job-hunt/profile/resume*.md via os.homedir() with no env
+      // override — so on a dev box that has a legacy hermes resume the
+      // "no resume stored" precondition is false and the endpoint returns a
+      // real 200 draft instead of 404. HOME (POSIX) and USERPROFILE (Windows)
+      // both back os.homedir().
+      HOME: tmpDir,
+      USERPROFILE: tmpDir,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -203,12 +212,13 @@ test("POST /profile/rescore?dryRun=true returns a row count or sheet-not-configu
 });
 
 test("POST /profile/from-resume returns 404 when no resume is stored", async () => {
-  // The temp env has no resume in any of the lookup locations. Expect 404.
+  // HOME is redirected to an empty temp dir in before(), so none of the resume
+  // lookup locations resolve (worker-config resumeText is empty in the repo,
+  // ~/.jobbored/resume.txt and ~/.hermes/.../resume*.md live under the temp
+  // home). The endpoint must take the clean no-resume path on any machine.
   const r = await fetch(`${BASE_URL}/profile/from-resume`, { method: "POST" });
-  // Acceptable outcomes:
-  //   404 no_resume_stored (clean path)
-  //   503 gemini_not_configured (if it found a legacy hermes resume on the dev box)
-  assert.match(String(r.status), /^404$|^503$|^500$/);
+  assert.equal(r.status, 404);
   const data = await r.json();
   assert.equal(data.ok, false);
+  assert.equal(data.reason, "no_resume_stored");
 });
