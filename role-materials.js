@@ -100,7 +100,23 @@
   function companyTokens(company) {
     return slugify(company).split("-").filter(function (t) {
       return t && !COMPANY_NOISE[t];
+    }).map(function (t) {
+      return stripFusedCompanyNoise(t);
+    }).filter(function (t) {
+      return t && !COMPANY_NOISE[t];
     });
+  }
+
+  function stripFusedCompanyNoise(token) {
+    var t = String(token || "");
+    var suffixes = ["corporation", "incorporated", "llc", "ltd", "corp", "pbc", "plc", "gmbh"];
+    for (var i = 0; i < suffixes.length; i++) {
+      var suffix = suffixes[i];
+      if (t.length > suffix.length + 2 && t.slice(-suffix.length) === suffix) {
+        return t.slice(0, -suffix.length);
+      }
+    }
+    return t;
   }
 
   /**
@@ -140,6 +156,7 @@
     var titleWords = titleSlug.split("-").filter(Boolean);
 
     var bestScore = -1;
+    var bestOverlap = 0;
     var best = null;
     applications.forEach(function (a) {
       if (!a || typeof a.slug !== "string") return;
@@ -159,9 +176,11 @@
       var score = overlap * 2 + companyBonus;
       if (score > bestScore || (score === bestScore && best && a.slug.length < best.slug.length)) {
         bestScore = score;
+        bestOverlap = overlap;
         best = a;
       }
     });
+    if (best && titleWords.length && bestOverlap === 0) return null;
     return best;
   }
 
@@ -233,6 +252,14 @@
       }
     }
     return "";
+  }
+
+  function getLocalMaterialsBaseUrl() {
+    return "http://127.0.0.1:3847";
+  }
+
+  function isLocalMaterialsBase(base) {
+    return String(base || "").replace(/\/+$/, "") === getLocalMaterialsBaseUrl();
   }
 
   function renderCard(slug, doc, base, pending, identity, quality) {
@@ -726,8 +753,6 @@
     var ctx = currentContext;
     var repairNote = "Repairing Review issues for the " + featureLabel(feature) + ".";
 
-    renderOptimisticPending(ctx, feature, repairNote, "jobbored-dossier-repair");
-
     function sendRepairRequest() {
       return postJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/repair", {
         feature: feature,
@@ -749,7 +774,13 @@
       });
     }
 
-    ensureJobDescription(ctx).then(completeRepairRequest).catch(function (err) {
+    refreshContextApplication(ctx).then(function () {
+      return refreshContextFromLocalMaterials(ctx);
+    }).then(function () {
+      slug = ctx.slug || slug;
+      renderOptimisticPending(ctx, feature, repairNote, "jobbored-dossier-repair");
+      return ensureJobDescription(ctx);
+    }).then(completeRepairRequest).catch(function (err) {
       var brief = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
       if (!brief) return;
       if (err && err.code === "JD_PASTE_REQUIRED") {
@@ -820,11 +851,69 @@
     stopPolling();
   }
 
+  function pickApplicationWithRefresh(base, job, applications) {
+    var picked = pickApplication(job, applications);
+    if (picked) {
+      return Promise.resolve({ applications: applications || [], picked: picked });
+    }
+    return getApplications(base, { refresh: true })
+      .then(function (freshApps) {
+        return {
+          applications: freshApps || [],
+          picked: pickApplication(job, freshApps || []),
+        };
+      })
+      .catch(function () {
+        return { applications: applications || [], picked: null };
+      });
+  }
+
+  function refreshContextApplication(ctx) {
+    if (!ctx || !ctx.base) return Promise.resolve(ctx);
+    var job = {
+      company: ctx.company,
+      role: ctx.title || ctx.role,
+    };
+    if (!hasJobIdentity(job)) return Promise.resolve(ctx);
+    return getApplications(ctx.base, { refresh: true })
+      .then(function (apps) {
+        var picked = pickApplication(job, apps || []);
+        if (picked && picked.slug) ctx.slug = picked.slug;
+        return ctx;
+      })
+      .catch(function () {
+        return ctx;
+      });
+  }
+
+  function refreshContextFromLocalMaterials(ctx) {
+    if (!ctx || !ctx.base || isLocalMaterialsBase(ctx.base)) return Promise.resolve(ctx);
+    var localBase = getLocalMaterialsBaseUrl();
+    var job = {
+      company: ctx.company,
+      role: ctx.title || ctx.role,
+    };
+    if (!hasJobIdentity(job)) return Promise.resolve(ctx);
+    return fetchJson(localBase + "/api/applications")
+      .then(function (body) {
+        var apps = body && Array.isArray(body.applications) ? body.applications : [];
+        var picked = pickApplication(job, apps);
+        if (picked && picked.slug) {
+          ctx.base = localBase;
+          ctx.slug = picked.slug;
+        }
+        return ctx;
+      })
+      .catch(function () {
+        return ctx;
+      });
+  }
+
   /* -------------------- pending poller --------------------
      When a draft request fires (or the manifest already has a pending
      state on first open) we poll the manifest endpoint until either
      the pending state clears (Hermes removed pending.json) or new
-     documents appear. Capped at ~10 minutes; the next manual open
+     documents appear. Capped at ~30 minutes; the next manual open
      resumes polling fresh. */
 
   var poller = null;
@@ -872,7 +961,7 @@
     stopPolling();
     var startedAt = Date.now();
     var attempts = 0;
-    var maxMs = 10 * 60 * 1000;
+    var maxMs = 30 * 60 * 1000;
     var minDelay = 3000;
     var maxDelay = 12000;
 
@@ -1008,7 +1097,10 @@
     }
 
     getApplications(base).then(function (apps) {
-      var picked = pickApplication(job, apps);
+      return pickApplicationWithRefresh(base, job, apps);
+    }).then(function (resolved) {
+      var apps = resolved.applications || [];
+      var picked = resolved.picked;
       var slug = picked ? picked.slug : buildCandidateSlug(job);
       currentContext = {
         jobKey: jobKey,
@@ -1573,13 +1665,20 @@
 
     /* Optimistic UI: stamp a fresh "pending" banner immediately so the
        click visibly registers, even before the server responds. */
-    renderOptimisticPending(ctx, feature, notes, "jobbored-dossier");
-
-    /* Run the JD fallback chain BEFORE asking Hermes to draft. The
-       contract is: pending.json should not get written unless the
-       slug folder has a job-description.md, otherwise Dobby's
-       refusal-on-missing-JD path triggers. */
-    ensureJobDescription(ctx).then(function (jdResult) {
+    /* Re-resolve against disk before the JD check. The user may have
+       had the role open before Hermes created a matching folder, which
+       leaves currentContext.slug stale even though job-description.md
+       now exists under the canonical application slug. */
+    refreshContextApplication(ctx).then(function () {
+      return refreshContextFromLocalMaterials(ctx);
+    }).then(function () {
+      renderOptimisticPending(ctx, feature, notes, "jobbored-dossier");
+      /* Run the JD fallback chain BEFORE asking Hermes to draft. The
+         contract is: pending.json should not get written unless the
+         slug folder has a job-description.md, otherwise Dobby's
+         refusal-on-missing-JD path triggers. */
+      return ensureJobDescription(ctx);
+    }).then(function (jdResult) {
       return postJson(ctx.base + "/api/applications/" + encodeURIComponent(ctx.slug) + "/request", {
         slug: ctx.slug,
         company: ctx.company,
@@ -1874,5 +1973,7 @@
     renderError: renderError,
     /** Test-only hook to inject a fresh applications list. */
     _resetCache: clearCache,
+    _refreshContextApplication: refreshContextApplication,
+    _refreshContextFromLocalMaterials: refreshContextFromLocalMaterials,
   };
 })(typeof window !== "undefined" ? window : this);
