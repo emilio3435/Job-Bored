@@ -406,6 +406,31 @@ describe("buildManifest — watcher failure reconciliation", () => {
     assert.equal(manifest.pending.progress.phase, "drafting");
   });
 
+  it("does NOT flash FAILED for a benign pending_error.json note written mid-draft", async () => {
+    /* cdata case: the watcher overloads pending_error.json with success
+       summaries / fallback notes while still drafting. A note written BEFORE
+       the latest heartbeat (or before a fresh repair request) must not mark
+       the in-flight draft as FAILED. */
+    const slug = "note-not-failure-role";
+    const dir = join(root, slug);
+    await mkdir(dir);
+    await writeFile(join(dir, "pending.json"), JSON.stringify({
+      slug,
+      feature: "cover_letter",
+      requested_at: ago(2 * MIN), // fresh repair request
+      progress: { phase: "drafting", started_at: ago(12 * MIN), updated_at: ago(30 * 1000) },
+    }));
+    await writeFile(join(dir, "pending_error.json"), JSON.stringify({
+      written_at: ago(5 * MIN), // note written BEFORE the request + latest heartbeat
+      summary: "Resume: 2 pages, density-tight. Cover letter: 1 page, voice-quiet…",
+      feature: "both",
+    }));
+
+    const manifest = await buildManifest(slug, { root });
+    assert.ok(manifest.pending, "an in-flight draft must stay visible");
+    assert.equal(manifest.pending.progress.phase, "drafting", "a stale note must not flash FAILED");
+  });
+
   it("marks a non-terminal run FAILED when its heartbeat is older than 30 minutes", async () => {
     const slug = "stalled-drafting-role";
     const dir = join(root, slug);
