@@ -270,6 +270,21 @@ async function readPendingError(dir) {
   }
 }
 
+/* The watcher carries a draft's original started_at across a re-request
+ * (repair / retry reuse the same pending.json progress block), so a fresh
+ * repair would otherwise show the elapsed timer of the draft it replaced
+ * ("11m" while "requested just now"). Clamp the displayed start forward to
+ * the request time so the timer resets when a newer request supersedes an
+ * older draft's progress. A normal draft (started at/after its request) is
+ * left untouched. */
+function effectiveStartedAt(startedAt, requestedAt) {
+  const started = Date.parse(String(startedAt || ""));
+  if (!Number.isFinite(started)) return startedAt || "";
+  const requested = Date.parse(String(requestedAt || ""));
+  if (Number.isFinite(requested) && requested > started) return requestedAt;
+  return startedAt;
+}
+
 /* Most recent moment the watcher touched a request: its last progress
  * heartbeat, else when work started, else when it was requested. */
 function pendingHeartbeatMs(pending) {
@@ -504,7 +519,10 @@ export async function buildManifest(slug, { root } = {}) {
         pending.progress = {
           phase: typeof p.phase === "string" ? p.phase : "",
           message: displayProgressMessage(p.message),
-          startedAt: typeof p.started_at === "string" ? p.started_at : "",
+          startedAt: effectiveStartedAt(
+            typeof p.started_at === "string" ? p.started_at : "",
+            pending.requestedAt,
+          ),
           updatedAt: typeof p.updated_at === "string" ? p.updated_at : "",
           attempt: Number.isFinite(p.attempt) ? p.attempt : 1,
           elapsedSeconds: Number.isFinite(p.elapsed_seconds) ? p.elapsed_seconds : 0,
@@ -616,7 +634,7 @@ export async function listPendingQueue({ root } = {}) {
         ? {
             phase: String(raw.progress.phase || ""),
             message: displayProgressMessage(raw.progress.message),
-            startedAt: String(raw.progress.started_at || ""),
+            startedAt: effectiveStartedAt(String(raw.progress.started_at || ""), String(raw.requested_at || "")),
             updatedAt: String(raw.progress.updated_at || ""),
             attempt: Number(raw.progress.attempt || 0),
             elapsedSeconds: Number(raw.progress.elapsed_seconds || 0),
