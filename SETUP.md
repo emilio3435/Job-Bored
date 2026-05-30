@@ -225,6 +225,18 @@ This is useful for sharing dashboard links or switching between multiple job sea
 - If your real discovery engine runs locally, the browser-safe path is **JobBored → Cloudflare Worker → ngrok URL → local Hermes/OpenClaw webhook**. Start with `npm run discovery:bootstrap-local`, then use **Discovery drawer → Connection → Hermes + ngrok** to review the autofilled public target and **Cloudflare relay** to deploy the Worker and paste the Worker URL back into **Discovery drawer → Connection → Discovery webhook URL**.
 - Your endpoint must allow **CORS** from your dashboard origin. See the JSON example under **&ldquo;Run discovery&rdquo; webhook** below, the **[webhook receiver checklist](AGENT_CONTRACT.md#webhook-receiver-checklist-copy-paste)** in [AGENT_CONTRACT.md](AGENT_CONTRACT.md), and [docs/CONTRACT-CHANGELOG.md](docs/CONTRACT-CHANGELOG.md) when the contract changes.
 
+#### Public URL: 3 ways
+
+The bootstrap exposes your local worker through one of three transports. Pick with `--tunnel` (or let `auto` choose): `npm run discovery:bootstrap-local -- --tunnel <kind>`.
+
+- **`cloudflare-quick`** *(zero-signup default)* — an anonymous `cloudflared` tunnel that prints a `https://<random>.trycloudflare.com` URL. No account, no domain. Install `cloudflared` ([downloads](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)) and `auto` picks this. The URL **rotates** on every restart, so the keepalive resyncs the relay's `TARGET_URL` automatically.
+- **`cloudflare-named`** *(stable)* — a **stable** hostname bound to **your own Cloudflare domain** through a `cloudflared` *named* tunnel that you set up yourself ([guide](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)). Bootstrap only **reads** the config — it never creates the tunnel. Set `BROWSER_USE_DISCOVERY_TUNNEL_HOSTNAME` (your stable hostname, e.g. `discovery.example.com`) and, for the autostart, `BROWSER_USE_DISCOVERY_TUNNEL_NAME` (the tunnel's name) in `integrations/browser-use-discovery/.env` or the environment. A stable URL never rotates, so the keepalive **skips** resync entirely.
+- **`ngrok`** *(fallback)* — the original path. Needs an [ngrok authtoken](https://dashboard.ngrok.com/get-started/your-authtoken); rotates on the free tier, so the keepalive resyncs like the quick tunnel.
+
+`auto` selects in priority order: **named** (if a hostname is configured) → **quick** (if `cloudflared` is installed) → **ngrok**.
+
+**Keep the tunnel up across reboots** (Cloudflare transports): `npm run discovery:tunnel:autostart:install` registers a per-user launchd (macOS) / systemd-user (Linux) service that restarts `cloudflared` on crash and at login, reusing whichever transport the last bootstrap settled on. Pair it with `npm run discovery:worker:autostart:install` so both the worker and its tunnel survive a reboot. Check with `npm run discovery:tunnel:autostart:status`; remove with `npm run discovery:tunnel:autostart:uninstall`.
+
 ### Resume Updater & Cover Letter Writer (optional)
 
 - **First visit:** a **step-by-step onboarding** runs before you can use the dashboard (welcome, upload or paste resume, tone, length, optional voice notes, then confirm). You add **one resume**; writing samples and fields like industries / phrases to avoid are available in **Profile** after setup. Until you finish onboarding, the main UI stays behind the wizard.
