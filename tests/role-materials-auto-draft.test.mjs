@@ -340,6 +340,93 @@ describe("role-materials kanban auto draft", () => {
     );
   });
 
+  it("writes dossier JD snippet to disk before requesting materials", async () => {
+    const jdText =
+      "This director role owns growth marketing strategy, paid search, lifecycle experimentation, " +
+      "pipeline reporting, cross-functional planning, and executive communication for a global team.";
+    const { documentEl, fetchCalls } = loadAutoDraftHarness({
+      job: {
+        company: "Figma",
+        role: "Director, Growth Marketing",
+        jdSnippet: jdText,
+      },
+      jobDescriptionExists: false,
+    });
+
+    dispatchMove(documentEl);
+    await flushMicrotasks();
+
+    const writeCall = fetchCalls.find(
+      (call) =>
+        /\/job-description$/.test(call.url) &&
+        call.options.method === "PUT",
+    );
+    assert.ok(
+      writeCall,
+      "dossier-scoped jobs should persist cached JD text before requesting materials",
+    );
+    assert.deepEqual(JSON.parse(writeCall.options.body), {
+      text: jdText,
+      source: "browser-cache",
+      jobUrl: "",
+    });
+    assert.equal(
+      fetchCalls.filter((call) =>
+        /\/scrape-job-description$/.test(call.url),
+      ).length,
+      0,
+      "cached dossier JD should avoid falling through to server scrape/paste",
+    );
+
+    const requestCall = fetchCalls.find((call) => /\/request$/.test(call.url));
+    assert.ok(requestCall, "successful JD write should still queue materials");
+    assert.equal(JSON.parse(requestCall.options.body).jdSource, "browser-cache");
+  });
+
+  it("merges Pipeline row URL when the dossier view only has identity", async () => {
+    const pipelineJobs = [{
+      company: "Figma",
+      title: "Director, Growth Marketing",
+      status: "Researching",
+      link: "https://job-boards.greenhouse.io/figma/jobs/5998147004?gh_jid=5998147004",
+      _postingEnrichment: {
+        description:
+          "Lead a team of growth marketers across paid search, lifecycle, experimentation, and pipeline analytics.",
+      },
+    }];
+    const { documentEl, fetchCalls } = loadAutoDraftHarness({
+      job: {
+        company: "Figma",
+        role: "Director, Growth Marketing",
+        links: [],
+      },
+      pipelineJobs,
+      jobDescriptionExists: false,
+    });
+
+    dispatchMove(documentEl, { jobKey: "0", fromStage: "new", toStage: "researching" });
+    await flushMicrotasks();
+
+    const writeCall = fetchCalls.find(
+      (call) =>
+        /\/job-description$/.test(call.url) &&
+        call.options.method === "PUT",
+    );
+    assert.ok(writeCall, "Pipeline fallback enrichment should be persisted as the JD");
+    assert.deepEqual(JSON.parse(writeCall.options.body), {
+      text: pipelineJobs[0]._postingEnrichment.description,
+      source: "browser-cache",
+      jobUrl: "https://job-boards.greenhouse.io/figma/jobs/5998147004?gh_jid=5998147004",
+    });
+
+    const requestCall = fetchCalls.find((call) => /\/request$/.test(call.url));
+    assert.ok(requestCall, "Pipeline fallback should still queue materials");
+    assert.equal(
+      JSON.parse(requestCall.options.body).jobUrl,
+      "https://job-boards.greenhouse.io/figma/jobs/5998147004?gh_jid=5998147004",
+    );
+  });
+
   it("detects New -> Researching across refreshes from the persisted pipeline snapshot", async () => {
     const pipelineJobs = [{
       company: "321 The Agency",

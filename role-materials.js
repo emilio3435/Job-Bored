@@ -916,6 +916,80 @@
     catch (e) { return null; }
   }
 
+  function hasJobIdentity(job) {
+    return !!(job && (job.company || job.role || job.title));
+  }
+
+  function getPipelineJobByKey(jobKey) {
+    if (typeof root.getPipelineJobByIndex === "function") {
+      try {
+        var byIndex = root.getPipelineJobByIndex(jobKey);
+        if (byIndex) return byIndex;
+      } catch (e) { /* fall through */ }
+    }
+    var jb = root.JobBored;
+    if (jb && typeof jb.getPipelineJobs === "function") {
+      try {
+        var jobs = jb.getPipelineJobs() || [];
+        var n = Number(jobKey);
+        if (Number.isFinite(n) && jobs[n]) return jobs[n];
+      } catch (e2) { /* fall through */ }
+    }
+    return null;
+  }
+
+  function firstText() {
+    for (var i = 0; i < arguments.length; i++) {
+      var value = arguments[i];
+      if (value == null) continue;
+      var text = String(value).trim();
+      if (text) return text;
+    }
+    return "";
+  }
+
+  function firstArray() {
+    for (var i = 0; i < arguments.length; i++) {
+      var value = arguments[i];
+      if (Array.isArray(value) && value.length) return value;
+    }
+    return [];
+  }
+
+  function mergeMaterialsJob(primary, fallback) {
+    if (!primary && !fallback) return null;
+    primary = primary || {};
+    fallback = fallback || {};
+    return {
+      company: firstText(primary.company, fallback.company),
+      role: firstText(primary.role, primary.title, fallback.role, fallback.title),
+      title: firstText(primary.title, primary.role, fallback.title, fallback.role),
+      jobUrl: firstText(primary.jobUrl, primary.job_url, fallback.jobUrl, fallback.job_url),
+      postingUrl: firstText(primary.postingUrl, fallback.postingUrl),
+      applyUrl: firstText(primary.applyUrl, fallback.applyUrl),
+      canonicalUrl: firstText(primary.canonicalUrl, fallback.canonicalUrl),
+      finalUrl: firstText(primary.finalUrl, fallback.finalUrl),
+      url: firstText(primary.url, fallback.url),
+      link: firstText(primary.link, fallback.link),
+      links: firstArray(primary.links, fallback.links),
+      _postingEnrichment: primary._postingEnrichment || fallback._postingEnrichment || null,
+      enrichment: primary.enrichment || fallback.enrichment || null,
+      cachedJobDescription: firstText(primary.cachedJobDescription, fallback.cachedJobDescription),
+      jobDescription: firstText(primary.jobDescription, fallback.jobDescription),
+      description: firstText(primary.description, fallback.description),
+      jdSnippet: firstText(primary.jdSnippet, fallback.jdSnippet),
+      jdSections: firstArray(primary.jdSections, fallback.jdSections),
+      fitAssessment: firstText(primary.fitAssessment, fallback.fitAssessment),
+    };
+  }
+
+  function getMaterialsJob(jobKey) {
+    var vm = getCurrentJob(jobKey);
+    var vmJob = vm && vm.job;
+    var pipelineJob = getPipelineJobByKey(jobKey);
+    return mergeMaterialsJob(vmJob, pipelineJob);
+  }
+
   function loadForOpenRole(jobKey) {
     if (!shouldRun()) return;
     var region = document.querySelector(REGION_SELECTOR);
@@ -923,9 +997,8 @@
     var brief = region.querySelector(BRIEF_SELECTOR);
     if (!brief) return;
 
-    var vm = getCurrentJob(jobKey);
-    var job = vm && vm.job;
-    if (!job || (!job.company && !job.role)) return;
+    var job = getMaterialsJob(jobKey);
+    if (!hasJobIdentity(job)) return;
 
     var base = getBaseUrl();
     if (!base) {
@@ -941,7 +1014,7 @@
         jobKey: jobKey,
         slug: slug,
         company: String(job.company || ""),
-        title: String(job.role || ""),
+        title: String(job.role || job.title || ""),
         jobUrl: pickPostingUrl(job),
         base: base,
         /* JD text held in browser memory from a prior posting scrape,
@@ -1084,31 +1157,16 @@
   }
 
   function getJobForAutoDraft(jobKey) {
-    function hasIdentity(job) {
-      return !!(job && (job.company || job.role || job.title));
-    }
     var api = root.JobBoredDawn && root.JobBoredDawn.data;
+    var vmJob = null;
     if (api && typeof api.getRoleViewModel === "function") {
       try {
         var vm = api.getRoleViewModel(jobKey);
-        if (hasIdentity(vm && vm.job)) return vm.job;
+        vmJob = vm && vm.job;
       } catch (e) { /* fall through */ }
     }
-    if (typeof root.getPipelineJobByIndex === "function") {
-      try {
-        var byIndex = root.getPipelineJobByIndex(jobKey);
-        if (hasIdentity(byIndex)) return byIndex;
-      } catch (e2) { /* fall through */ }
-    }
-    var jb = root.JobBored;
-    if (jb && typeof jb.getPipelineJobs === "function") {
-      try {
-        var jobs = jb.getPipelineJobs() || [];
-        var n = Number(jobKey);
-        if (Number.isFinite(n) && hasIdentity(jobs[n])) return jobs[n];
-      } catch (e3) { /* fall through */ }
-    }
-    return null;
+    var job = mergeMaterialsJob(vmJob, getPipelineJobByKey(jobKey));
+    return hasJobIdentity(job) ? job : null;
   }
 
   function manifestHasDoc(manifest, type) {
@@ -1249,7 +1307,15 @@
 
   function pickPostingUrl(job) {
     if (!job) return "";
-    var direct = job.jobUrl || job.job_url || job.url || job.link;
+    var direct =
+      job.jobUrl ||
+      job.job_url ||
+      job.postingUrl ||
+      job.applyUrl ||
+      job.canonicalUrl ||
+      job.finalUrl ||
+      job.url ||
+      job.link;
     if (direct && /^https?:/i.test(String(direct).trim())) return String(direct).trim();
     if (!Array.isArray(job.links)) return "";
     for (var i = 0; i < job.links.length; i++) {
@@ -1264,15 +1330,45 @@
      for this role, in this order:
        1. job._postingEnrichment.description (full scraped JD)
        2. job._postingEnrichment.bodyText    (fallback when description is empty)
-       3. job.fitAssessment                  (last-resort: AI summary text)
+       3. dossier/Pipeline cached JD fields  (jdSnippet, jdSections, description)
+       4. job.fitAssessment                  (last-resort: AI summary text)
      Returns "" if nothing usable is on hand. */
   function pickCachedJobDescription(job) {
     if (!job) return "";
     var p = job._postingEnrichment;
+    var e = job.enrichment;
     if (p && typeof p.description === "string" && p.description.trim()) return p.description.trim();
     if (p && typeof p.bodyText === "string" && p.bodyText.trim()) return p.bodyText.trim();
+    if (typeof job.cachedJobDescription === "string" && job.cachedJobDescription.trim()) return job.cachedJobDescription.trim();
+    if (typeof job.jobDescription === "string" && job.jobDescription.trim()) return job.jobDescription.trim();
+    if (typeof job.description === "string" && job.description.trim()) return job.description.trim();
+    if (typeof job.jdSnippet === "string" && job.jdSnippet.trim()) return job.jdSnippet.trim();
+    var fromSections = jdSectionsToText(job.jdSections);
+    if (fromSections) return fromSections;
+    if (e && typeof e.description === "string" && e.description.trim()) return e.description.trim();
+    if (e && typeof e.postingSummary === "string" && e.postingSummary.trim()) return e.postingSummary.trim();
+    if (e && typeof e.fitAssessment === "string" && e.fitAssessment.trim()) return e.fitAssessment.trim();
     if (typeof job.fitAssessment === "string" && job.fitAssessment.trim()) return job.fitAssessment.trim();
     return "";
+  }
+
+  function jdSectionsToText(sections) {
+    if (!Array.isArray(sections) || !sections.length) return "";
+    var out = [];
+    sections.forEach(function (section) {
+      if (!section) return;
+      var heading = section.heading ? String(section.heading).trim() : "";
+      var body = section.body ? String(section.body).trim() : "";
+      if (heading) out.push(heading);
+      if (body) out.push(body);
+      if (Array.isArray(section.bullets)) {
+        section.bullets.forEach(function (bullet) {
+          var text = String(bullet || "").trim();
+          if (text) out.push("- " + text);
+        });
+      }
+    });
+    return out.join("\n").trim();
   }
 
   /* -------------------- inline notes form --------------------
