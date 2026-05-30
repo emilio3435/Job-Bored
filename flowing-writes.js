@@ -8,6 +8,12 @@
  *   - `jb:pipeline:move`  -> Pipeline!M{row}  (Status, column M)
  *   - `jb:letter:save`    -> legacy no-op; drafts live in IndexedDB
  *   - `jb:role:note`      -> Pipeline!O{row}  (Notes,  column O)
+ *   - `jb:role:writeback` { jobKey, field, value } — multiplexed bridge:
+ *       stage/heardBack/reply/followupAt/passed write a column here directly,
+ *       while the masthead identity edits title/company/location/salary
+ *       (Pipeline columns B/C/D/G) delegate to window.JobBored.editJobField,
+ *       which also writes the Edit Lock column Y atomically so re-discovery
+ *       preserves the user's edit.
  *
  * Emits success/failure CustomEvents for the FE optimistic-UI rollback flow:
  *   - `jb:write:succeeded` { jobKey, kind }
@@ -509,6 +515,19 @@
       case "reply": return writeReply(jobKey, value);
       case "followupAt": return writeFollowup(jobKey, value);
       case "passed": return writePassed(jobKey, value);
+      // Identity-field edits (masthead inputs) route to app.js editJobField,
+      // which owns pipelineData + getSheetRow + the atomic value+Edit-Lock
+      // updateMultipleCells batch + optimistic revert — none of which the
+      // single-cell writeColumn path provides. Mirrors the syncStageToApp /
+      // syncNotesToApp window.JobBored callback pattern.
+      case "title":
+      case "company":
+      case "location":
+      case "salary": {
+        var jb = window.JobBored;
+        if (jb && typeof jb.editJobField === "function") return jb.editJobField(jobKey, field, value);
+        return;
+      }
       default:
         try { console.warn("[writeback-bridge] unknown field", field); } catch (_) {}
     }

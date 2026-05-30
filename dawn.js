@@ -460,7 +460,10 @@
   function observeLegacy() {
     var briefStats = document.getElementById("briefStats");
     var briefHeadline = document.getElementById("briefHeadline");
-    var pipelineRoot = document.getElementById("kanbanPipeline") || document.body;
+    // #kanbanPipeline does not exist; the real legacy board is #jobCards. Never
+    // fall back to document.body — observing the whole body subtree turns each
+    // render's own DOM writes into a self-retriggering render loop.
+    var pipelineRoot = document.getElementById("kanbanPipeline") || document.getElementById("jobCards");
 
     var mo = new MutationObserver(function () {
       scheduleRender();

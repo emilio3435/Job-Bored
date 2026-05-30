@@ -8,9 +8,13 @@
    Events:
      LISTENS  jb:role:opened  { jobKey }
               jb:role:closed
-     EMITS    jb:pipeline:move  { jobKey, fromStage, toStage }
-              jb:role:action    { action, jobKey }
-              jb:role:note      { jobKey, body }
+     EMITS    jb:pipeline:move    { jobKey, fromStage, toStage }
+              jb:role:action      { action, jobKey }
+              jb:role:note        { jobKey, body }
+              jb:role:writeback   { jobKey, field, value }
+              (masthead title/company/location/salary edits, on
+              blur/Enter; routed to app.js editJobField by the
+              flowing-writes.js bridge)
               (and re-triggers a smooth scroll to letter region)
 
    Activation: body.jb-v2 only. Off-flag: no-op.
@@ -409,14 +413,61 @@
         dispatch("jb:role:note", { jobKey: jobKey, body: body });
       });
     }
+
+    // Masthead identity fields (title/company/location/salary) — borderless
+    // inputs rendered by role-brief.js. Commit on blur/Enter only (never per
+    // keystroke, matching the notes pattern above); Escape restores the seeded
+    // value. A commit no-ops when the value is unchanged vs data-original so we
+    // never issue a needless Sheet write or re-lock the column.
+    function commitEditField(input) {
+      var field = input.getAttribute("data-field");
+      var original = input.getAttribute("data-original") || "";
+      var value = input.value.trim();
+      if (value === original) return;
+      dispatch("jb:role:writeback", { jobKey: jobKey, field: field, value: value });
+    }
+
+    var editFields = typeof region.querySelectorAll === "function"
+      ? region.querySelectorAll('[data-action="edit-field"]')
+      : [];
+    for (var i = 0; i < editFields.length; i++) {
+      (function (input) {
+        input.addEventListener("blur", function () {
+          commitEditField(input);
+        });
+        input.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            input.blur();
+          } else if (e.key === "Escape") {
+            input.value = input.getAttribute("data-original") || "";
+            input.blur();
+          }
+        });
+      })(editFields[i]);
+    }
   }
 
   /* -------------------- top-level render -------------------- */
+
+  // Focus re-render guard: skip the wholesale innerHTML rebuild while the user
+  // is mid-edit in a masthead [data-action="edit-field"] input. The dossier is
+  // a single open instance, so guarding one region is enough — this is the
+  // analog of pipeline.js scheduleRender's __pipePending bail and is what keeps
+  // jb:pipeline:rendered (5-min poll / jb:write:succeeded cascade) from wiping
+  // keystrokes before blur commits. Scoped to ONLY an edit-field activeElement
+  // so genuine updates (e.g. enrichment) are never swallowed.
+  function editFieldFocusedIn(region) {
+    if (!region) return false;
+    var ae = document.activeElement;
+    return !!(ae && ae.matches && ae.matches('[data-action="edit-field"]') && region.contains(ae));
+  }
 
   function renderForKey(jobKey) {
     if (!shouldRun()) return;
     var region = getRegion();
     if (!region) return;
+    if (editFieldFocusedIn(region)) return;
     if (!jobKey) {
       renderEmpty(region);
       return;
@@ -439,6 +490,7 @@
   }
 
   function rerenderOpenRole() {
+    if (editFieldFocusedIn(getRegion())) return;
     var key = root.JobBoredFlowing
       && root.JobBoredFlowing.openRole
       && root.JobBoredFlowing.openRole.get();

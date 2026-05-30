@@ -347,18 +347,28 @@ function loadRoleAndBrief({ vm: roleVm }) {
 }
 
 describe("dossier brief structure", () => {
-  it("masthead emits role + company + facts", () => {
+  it("masthead emits editable role + company + facts seeded with current values", () => {
     const { context } = loadBriefOnly();
     const mount = makeMount();
     context.window.JobBoredDossierBrief.renderBrief(mount, fixtureVm());
 
     const html = mount.innerHTML;
     assert.match(html, /<header class="brief__masthead">/);
-    assert.match(html, /<h1 class="brief__title">Senior Product Designer, Growth<\/h1>/);
-    assert.match(html, /<p class="brief__company">Linear<\/p>/);
+    // Title and company are now editable inputs (data-action="edit-field"),
+    // seeded with the current value so a blur with no change is a no-op.
+    assert.match(
+      html,
+      /<input[^>]*class="brief__title"[^>]*data-action="edit-field"[^>]*data-field="title"[^>]*value="Senior Product Designer, Growth"/,
+    );
+    assert.match(
+      html,
+      /<input[^>]*class="brief__company"[^>]*data-action="edit-field"[^>]*data-field="company"[^>]*value="Linear"/,
+    );
     assert.match(html, /<div class="brief__facts">/);
-    assert.match(html, /<span>Remote · SF<\/span>/);
-    assert.match(html, /<span>\$165–210k<\/span>/);
+    // Location and salary are editable facts.
+    assert.match(html, /<input[^>]*data-action="edit-field"[^>]*data-field="location"[^>]*value="Remote · SF"/);
+    assert.match(html, /<input[^>]*data-action="edit-field"[^>]*data-field="salary"[^>]*value="\$165–210k"/);
+    // Source attribution stays static (not user-editable).
     assert.match(html, /<span>via Linear Careers<\/span>/);
     assert.match(html, /<div class="brief__eyebrow">Full-time<\/div>/);
   });

@@ -31,9 +31,11 @@ function createEventTarget() {
   };
 }
 
-function loadRuntime() {
+function loadRuntime(options = {}) {
   const calls = [];
   const documentEvents = [];
+  const editJobFieldCalls = [];
+  const warnings = [];
   const windowTarget = createEventTarget();
   const documentTarget = createEventTarget();
   documentTarget.addEventListener("jb:write:succeeded", (event) => {
@@ -44,6 +46,15 @@ function loadRuntime() {
     getAccessToken: () => "test-token",
     getSheetId: () => "sheet-123",
   };
+  // The four identity fields (title/company/location/salary) route to the
+  // app-side writer, which owns pipelineData + getSheetRow + the atomic
+  // value+lock batch + revert. Installing it only when requested lets the
+  // base column-write cases assert against the legacy writeColumn path.
+  if (options.withEditJobField) {
+    windowTarget.JobBored.editJobField = (jobKey, field, value) => {
+      editJobFieldCalls.push({ jobKey, field, value });
+    };
+  }
   windowTarget.showToast = () => {};
 
   const context = {
@@ -54,7 +65,7 @@ function loadRuntime() {
     Promise,
     RegExp,
     String,
-    console: { error() {}, log() {}, warn() {} },
+    console: { error() {}, log() {}, warn(...args) { warnings.push(args.join(" ")); } },
     document: documentTarget,
     encodeURIComponent,
     fetch: async (url, options = {}) => {
@@ -69,7 +80,7 @@ function loadRuntime() {
   };
 
   vm.runInNewContext(source, context, { filename: "flowing-writes.js" });
-  return { calls, documentEvents, window: windowTarget };
+  return { calls, documentEvents, editJobFieldCalls, warnings, window: windowTarget };
 }
 
 async function waitForCall(calls) {
@@ -155,4 +166,68 @@ describe("role writeback bridge", () => {
       assert.equal(runtime.documentEvents[0].detail.kind, c.expectedKind);
     });
   }
+});
+
+/* ------------------------------------------------------------------
+   Identity-field routing (title / company / location / salary)
+   ------------------------------------------------------------------
+   WHY: these four fields are NOT single-cell column writes like the
+   CRM fields above. A title/company/location/salary edit must persist
+   the value AND atomically write the Edit-Lock column (Y) so the next
+   discovery run does not re-clobber the user's rename. That logic lives
+   in app.js editJobField (it owns pipelineData, getSheetRow, the atomic
+   B/C/D/G + Y batch, and the revert). The bridge's only job is to route
+   these four fields to window.JobBored.editJobField with (jobKey, field,
+   value) — NEVER to writeColumn, which knows nothing about the lock.
+   ------------------------------------------------------------------ */
+describe("role writeback bridge — identity fields route to editJobField", () => {
+  const fieldCases = [
+    { field: "title", value: "Staff Engineer" },
+    { field: "company", value: "Linear" },
+    { field: "location", value: "Remote" },
+    { field: "salary", value: "$200k" },
+  ];
+
+  for (const c of fieldCases) {
+    it(`routes ${c.field} to window.JobBored.editJobField, not a column write`, async () => {
+      const runtime = loadRuntime({ withEditJobField: true });
+
+      runtime.window.dispatchEvent(
+        new TestCustomEvent("jb:role:writeback", {
+          detail: { jobKey: 7, field: c.field, value: c.value },
+        }),
+      );
+      await waitForCall(runtime.editJobFieldCalls);
+
+      // Exactly one editJobField call carrying field + value through.
+      assert.equal(runtime.editJobFieldCalls.length, 1);
+      assert.deepEqual(runtime.editJobFieldCalls[0], {
+        jobKey: 7,
+        field: c.field,
+        value: c.value,
+      });
+      // It must NOT fall through to the legacy single-cell column writer:
+      // that path has no lock awareness and would silently leave Y unset.
+      assert.equal(runtime.calls.length, 0);
+      assert.equal(runtime.documentEvents.length, 0);
+    });
+  }
+
+  it("still warns (does not route) on an unknown field", async () => {
+    const runtime = loadRuntime({ withEditJobField: true });
+
+    runtime.window.dispatchEvent(
+      new TestCustomEvent("jb:role:writeback", {
+        detail: { jobKey: 7, field: "haircolor", value: "blue" },
+      }),
+    );
+    await waitForCall(runtime.warnings);
+
+    assert.equal(runtime.editJobFieldCalls.length, 0);
+    assert.equal(runtime.calls.length, 0);
+    assert.ok(
+      runtime.warnings.some((w) => /unknown field/i.test(w) && /haircolor/.test(w)),
+      "an unrecognized writeback field must warn rather than silently route",
+    );
+  });
 });

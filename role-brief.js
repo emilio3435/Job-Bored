@@ -12,6 +12,10 @@
      EMITS    jb:role:note { jobKey, body }
               (via [data-action="notes"] blur, wired by role.js's
               wireDossier — preserved contract)
+              jb:role:writeback { jobKey, field, value }
+              (via masthead [data-action="edit-field"] blur/Enter,
+              wired by role.js's wireDossier — field is one of
+              title|company|location|salary)
 
    Activation: body.jb-v2 only. Off-flag: no-op.
    ============================================================ */
@@ -135,10 +139,13 @@
 
   /* -------------------- masthead -------------------- */
 
-  /* The Dossier hero. The role title is the dominant H1; company,
-     location, comp, and source sit directly beneath it. The action
-     cluster (View posting · Draft cover letter · Tailor resume) lives
-     to the right on wide screens and stacks beneath the facts on
+  /* The Dossier hero. The role title is the dominant heading; company,
+     location, comp, and source sit directly beneath it. Title, company,
+     location, and salary are inline-editable borderless <input>s
+     (data-action="edit-field"); role.js's wireDossier wires blur/Enter
+     to commit and Escape to cancel, dispatching jb:role:writeback. The
+     action cluster (View posting · Draft cover letter · Tailor resume)
+     lives to the right on wide screens and stacks beneath the facts on
      narrow screens. These are the only entry points into the Workshop;
      they are intentionally NOT duplicated in the Workshop hero. */
   function renderMasthead(job) {
@@ -149,17 +156,30 @@
       ? '<div class="brief__eyebrow">' + escapeHtml(eyebrowText) + '</div>'
       : "";
 
-    var title = job.role
-      ? '<h1 class="brief__title">' + escapeHtml(job.role) + '</h1>'
-      : "";
+    // Title / company / location / salary are inline-editable. They render as
+    // borderless <input>s that read like static text until hover/focus; role.js
+    // wireDossier owns the blur/Enter/Escape wiring (this file sets innerHTML
+    // only). data-original carries the seeded value so Escape can restore and
+    // commit can no-op on an unchanged value.
+    var titleVal = job.role ? String(job.role) : "";
+    var title = '<input type="text" class="brief__title" data-action="edit-field"' +
+      ' data-field="title" data-original="' + escapeHtml(titleVal) + '"' +
+      ' value="' + escapeHtml(titleVal) + '" aria-label="Role title">';
 
-    var company = job.company
-      ? '<p class="brief__company">' + escapeHtml(job.company) + '</p>'
-      : "";
+    var companyVal = job.company ? String(job.company) : "";
+    var company = '<input type="text" class="brief__company" data-action="edit-field"' +
+      ' data-field="company" data-original="' + escapeHtml(companyVal) + '"' +
+      ' value="' + escapeHtml(companyVal) + '" aria-label="Company">';
 
+    var locationVal = job.location ? String(job.location) : "";
+    var salaryVal = job.salary ? String(job.salary) : "";
     var factSpans = [];
-    if (job.location) factSpans.push('<span>' + escapeHtml(job.location) + '</span>');
-    if (job.salary)   factSpans.push('<span>' + escapeHtml(job.salary) + '</span>');
+    factSpans.push('<input type="text" class="brief__fact-input" data-action="edit-field"' +
+      ' data-field="location" data-original="' + escapeHtml(locationVal) + '"' +
+      ' value="' + escapeHtml(locationVal) + '" aria-label="Location" placeholder="Location">');
+    factSpans.push('<input type="text" class="brief__fact-input" data-action="edit-field"' +
+      ' data-field="salary" data-original="' + escapeHtml(salaryVal) + '"' +
+      ' value="' + escapeHtml(salaryVal) + '" aria-label="Salary" placeholder="Salary">');
     if (job.source)   factSpans.push('<span>via ' + escapeHtml(job.source) + '</span>');
     var factsInner = "";
     for (var i = 0; i < factSpans.length; i++) {

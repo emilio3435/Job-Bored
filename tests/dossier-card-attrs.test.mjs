@@ -332,3 +332,73 @@ describe("dossier card attrs", () => {
     assert.doesNotMatch(html, /class="dossier"/);
   });
 });
+
+/* ============================================================
+   parsePipelineCSV reads the Edit-Lock column (Y) into _editLock
+   ------------------------------------------------------------
+   WHY: the read side must stay in lockstep with the write side.
+   editJobField writes a comma-separated list of locked field ids
+   into column Y (sheetIndex 24) so re-discovery skips those
+   identity columns. If the parser does not surface that value as
+   job._editLock, the in-app dossier would have no way to know a
+   field is locked, and the lock state would silently round-trip
+   only through the Sheet — invisible to the client. A row with NO
+   column Y (legacy / un-edited) must default to '' so the rest of
+   the app treats it as "nothing locked", preserving back-compat.
+   ============================================================ */
+function sliceParsePipelineCSV() {
+  const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+  // The two notes-sanitizer helpers are parsePipelineCSV's only
+  // module-level dependencies and sit immediately above it in source.
+  const start = appJs.indexOf("function isDiscoveryAutomationNotesString");
+  assert.ok(start >= 0, "isDiscoveryAutomationNotesString must exist");
+  const end = appJs.indexOf("async function loadAllData", start);
+  assert.ok(end > start, "loadAllData must follow parsePipelineCSV in source order");
+  return appJs.slice(start, end);
+}
+
+function runParsePipelineCSV(rows) {
+  const slice = sliceParsePipelineCSV();
+  const factory = new Function(
+    "console",
+    `${slice}\nreturn parsePipelineCSV;`,
+  );
+  const parse = factory({ error() {}, warn() {}, log() {} });
+  return parse(rows);
+}
+
+describe("parsePipelineCSV — Edit Lock (column Y) read", () => {
+  const header = Array.from({ length: 25 }, (_, i) => `col${i}`);
+
+  it("parses column Y ('title,company') into job._editLock", () => {
+    const dataRow = Array.from({ length: 25 }, () => "");
+    dataRow[1] = "Senior Designer"; // title (required for the row to parse)
+    dataRow[2] = "Linear"; // company
+    dataRow[24] = "title,company"; // Edit Lock (column Y)
+
+    const [job] = runParsePipelineCSV([header, dataRow]);
+    assert.ok(job, "expected the row to parse into a job");
+    assert.equal(
+      job._editLock,
+      "title,company",
+      "the locked-field CSV in column Y must surface verbatim on _editLock",
+    );
+  });
+
+  it("defaults _editLock to '' when the row has no column Y (back-compat)", () => {
+    // A legacy 24-wide row (A..X, no Edit Lock column at all).
+    const legacyHeader = Array.from({ length: 24 }, (_, i) => `col${i}`);
+    const dataRow = Array.from({ length: 24 }, () => "");
+    dataRow[1] = "Senior Designer";
+    dataRow[2] = "Linear";
+
+    const [job] = runParsePipelineCSV([legacyHeader, dataRow]);
+    assert.ok(job, "expected the legacy row to parse into a job");
+    assert.equal(
+      job._editLock,
+      "",
+      "an absent column Y must read as no-lock ('') so un-edited rows " +
+        "keep byte-identical pre-change discovery behavior",
+    );
+  });
+});

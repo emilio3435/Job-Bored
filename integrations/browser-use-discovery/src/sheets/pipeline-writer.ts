@@ -176,12 +176,32 @@ function buildLeadRow(lead: NormalizedLead, now: Date): string[] {
     lead.favorite ? "★" : "",
     lead.dismissedAt ?? "",
     lead.approvalStatus ?? "",
+    "",
   ];
 }
 
 function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
   const merged = existingRow.slice(0, COLUMN_COUNT);
   while (merged.length < COLUMN_COUNT) merged.push("");
+
+  // Per-row edit-lock skip set. The Edit Lock column (Y, index 24) holds a
+  // comma-separated list of user-locked field ids; locked identity columns are
+  // preserved against re-discovery FOR THIS ROW ONLY. Empty Y => empty set =>
+  // byte-identical pre-change behavior.
+  const LOCKABLE_INDEX: Record<string, number> = {
+    title: 1,
+    company: 2,
+    location: 3,
+    salary: 6,
+  };
+  const lockedRaw = (existingRow[24] || "").trim();
+  const lockedIndexes = new Set<number>();
+  if (lockedRaw) {
+    for (const id of lockedRaw.split(",")) {
+      const idx = LOCKABLE_INDEX[id.trim()];
+      if (idx !== undefined) lockedIndexes.add(idx);
+    }
+  }
 
   for (let index = 0; index < COLUMN_COUNT; index += 1) {
     if (
@@ -191,7 +211,8 @@ function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
       index === 14 ||
       index === 15 ||
       index === 17 ||
-      index === 18
+      index === 18 ||
+      lockedIndexes.has(index)
     ) {
       continue;
     }
