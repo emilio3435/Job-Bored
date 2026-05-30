@@ -406,6 +406,53 @@ describe("buildManifest — watcher failure reconciliation", () => {
     assert.equal(manifest.pending.progress.phase, "drafting");
   });
 
+  it("resets the elapsed start to the request time when a repair reuses an older draft's progress", async () => {
+    /* cdata case: the repair's pending.json carries the original 'both'
+       draft's started_at, so the timer read "11m" while "requested just
+       now". The displayed start must clamp forward to the request. */
+    const slug = "repair-timer-reset-role";
+    const dir = join(root, slug);
+    await mkdir(dir);
+    const requestedAt = ago(40 * 1000); // repair requested 40s ago
+    const oldStart = ago(12 * MIN);     // carried over from the prior draft
+    await writeFile(join(dir, "pending.json"), JSON.stringify({
+      slug,
+      feature: "cover_letter",
+      requested_at: requestedAt,
+      progress: { phase: "drafting", started_at: oldStart, updated_at: ago(20 * 1000), elapsed_seconds: 700 },
+    }));
+
+    const manifest = await buildManifest(slug, { root });
+    assert.ok(manifest.pending);
+    assert.equal(
+      manifest.pending.progress.startedAt,
+      requestedAt,
+      "a repair reusing an old started_at should reset the timer to the request",
+    );
+  });
+
+  it("leaves started_at untouched for a normal draft that started after its request", async () => {
+    const slug = "normal-draft-timer-role";
+    const dir = join(root, slug);
+    await mkdir(dir);
+    const requestedAt = ago(3 * MIN);
+    const realStart = new Date(Date.parse(requestedAt) + 6000).toISOString(); // 6s after request
+    await writeFile(join(dir, "pending.json"), JSON.stringify({
+      slug,
+      feature: "resume",
+      requested_at: requestedAt,
+      progress: { phase: "drafting", started_at: realStart, updated_at: ago(10 * 1000) },
+    }));
+
+    const manifest = await buildManifest(slug, { root });
+    assert.ok(manifest.pending);
+    assert.equal(
+      manifest.pending.progress.startedAt,
+      realStart,
+      "a normal draft's own started_at must be preserved",
+    );
+  });
+
   it("does NOT flash FAILED for a benign pending_error.json note written mid-draft", async () => {
     /* cdata case: the watcher overloads pending_error.json with success
        summaries / fallback notes while still drafting. A note written BEFORE
