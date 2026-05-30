@@ -1148,6 +1148,110 @@ async function handleKeepAliveStatus(req, res) {
   }
 }
 
+// Worker-autostart: keep the local browser-use discovery worker running across
+// reboot (start at login/boot, restart on crash). Mirrors the keep-alive
+// handlers above.
+async function handleInstallWorkerAutostart(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  let body = {};
+  try {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    body = raw ? JSON.parse(raw) : {};
+  } catch (_) {
+    body = {};
+  }
+  try {
+    const { installDiscoveryWorkerAutostart } = await import(
+      "./scripts/install-discovery-worker-autostart.mjs"
+    );
+    const result = installDiscoveryWorkerAutostart({
+      schedule:
+        body && typeof body.schedule === "string" ? body.schedule : "auto",
+    });
+    res.writeHead(200, corsHeaders);
+    if (result.ok) {
+      res.end(
+        JSON.stringify({
+          ok: true,
+          installedAt: result.installedAt,
+          jobLabel: result.jobLabel,
+          logPath: result.logPath,
+          port: result.port,
+        }),
+      );
+    } else {
+      res.end(
+        JSON.stringify({
+          ok: false,
+          reason: result.reason || "internal_error",
+          ...(result.actionable ? { actionable: result.actionable } : {}),
+        }),
+      );
+    }
+  } catch (_) {
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+  }
+}
+
+async function handleUninstallWorkerAutostart(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  try {
+    const { uninstallDiscoveryWorkerAutostart } = await import(
+      "./scripts/uninstall-discovery-worker-autostart.mjs"
+    );
+    const result = uninstallDiscoveryWorkerAutostart();
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ ok: true, removed: !!result.removed }));
+  } catch (_) {
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+  }
+}
+
+async function handleWorkerAutostartStatus(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ installed: false, reason: "forbidden" }));
+    return;
+  }
+  try {
+    const { getDiscoveryWorkerAutostartStatus } = await import(
+      "./scripts/install-discovery-worker-autostart.mjs"
+    );
+    const status = getDiscoveryWorkerAutostartStatus();
+    const response = { installed: !!status.installed };
+    if (status.jobLabel) response.jobLabel = status.jobLabel;
+    if (status.port) response.port = status.port;
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify(response));
+  } catch (_) {
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ installed: false }));
+  }
+}
+
 // ============================================================================
 // Discovery auto-detect & silent-recover lane
 // ----------------------------------------------------------------------------
@@ -1673,6 +1777,39 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
     if (req.method === "GET" && pathname === "/__proxy/install-keep-alive/status") {
       handleKeepAliveStatus(req, res).catch((err) => {
         logError("  Keep-alive-status error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/__proxy/install-worker-autostart") {
+      handleInstallWorkerAutostart(req, res).catch((err) => {
+        logError("  Install-worker-autostart error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "DELETE" && pathname === "/__proxy/install-worker-autostart") {
+      handleUninstallWorkerAutostart(req, res).catch((err) => {
+        logError("  Uninstall-worker-autostart error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "GET" && pathname === "/__proxy/install-worker-autostart/status") {
+      handleWorkerAutostartStatus(req, res).catch((err) => {
+        logError("  Worker-autostart-status error:", err);
         if (!res.headersSent) {
           res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
           res.end(JSON.stringify({ ok: false, reason: "internal_error" }));

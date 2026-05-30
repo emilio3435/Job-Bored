@@ -9018,6 +9018,14 @@ function initAuthUserMenu() {
         showToast("All install tools look healthy.", "success");
       }
       refreshKeepAlivePill();
+      refreshWorkerAutostartPill();
+    });
+  }
+
+  const workerAutostartBtn = document.getElementById("workerAutostartBtn");
+  if (workerAutostartBtn) {
+    workerAutostartBtn.addEventListener("click", async () => {
+      await toggleWorkerAutostart();
     });
   }
 
@@ -9025,6 +9033,7 @@ function initAuthUserMenu() {
   if (authToggle) {
     authToggle.addEventListener("click", () => {
       refreshKeepAlivePill();
+      refreshWorkerAutostartPill();
     });
   }
 }
@@ -9126,6 +9135,118 @@ async function refreshKeepAlivePill() {
     }
   } catch (_) {
     pill.hidden = true;
+  }
+}
+
+// Mirrors the keep-alive pill: a small status indicator in the user menu
+// that lets the user install/uninstall a "start the local discovery worker
+// on boot" service without opening a terminal. Endpoints mirror the
+// keep-alive contract — only the path differs.
+async function refreshWorkerAutostartPill() {
+  const btn = document.getElementById("workerAutostartBtn");
+  const pill = document.getElementById("workerAutostartPill");
+  if (!btn || !pill) return;
+  try {
+    const resp = await fetch("/__proxy/install-worker-autostart/status");
+    if (resp.status === 501) {
+      btn.hidden = true;
+      pill.hidden = true;
+      return;
+    }
+    const body = await resp.json().catch(() => ({}));
+    if (typeof window !== "undefined") {
+      window.workerAutostartStatusState = body;
+    }
+    btn.hidden = false;
+    pill.hidden = false;
+    pill.classList.remove("doctor-keep-alive-pill--error");
+    if (body && body.installed) {
+      pill.textContent = "On — runs on boot";
+      pill.classList.add("doctor-keep-alive-pill--on");
+      pill.classList.remove("doctor-keep-alive-pill--off");
+    } else {
+      pill.textContent = "Off — start on boot";
+      pill.classList.add("doctor-keep-alive-pill--off");
+      pill.classList.remove("doctor-keep-alive-pill--on");
+    }
+  } catch (_) {
+    btn.hidden = true;
+    pill.hidden = true;
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.refreshWorkerAutostartPill = refreshWorkerAutostartPill;
+}
+
+// Toggle install/uninstall of the worker boot service. Installed -> DELETE,
+// not installed -> POST. Surfaces the endpoint's actionable/reason message
+// inline on failure rather than swallowing it.
+async function toggleWorkerAutostart() {
+  const pill = document.getElementById("workerAutostartPill");
+  const installed = !!(
+    typeof window !== "undefined" &&
+    window.workerAutostartStatusState &&
+    window.workerAutostartStatusState.installed
+  );
+  try {
+    let resp;
+    if (installed) {
+      resp = await fetch("/__proxy/install-worker-autostart", {
+        method: "DELETE",
+      });
+    } else {
+      resp = await fetch("/__proxy/install-worker-autostart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schedule: "auto" }),
+      });
+    }
+    if (resp.status === 501) {
+      showToast("Worker autostart isn't available in this build.", "info");
+      await refreshWorkerAutostartPill();
+      return;
+    }
+    const body = await resp.json().catch(() => ({}));
+    if (!body || !body.ok) {
+      const msg =
+        (body && (body.actionable || body.reason)) ||
+        (installed
+          ? "Couldn't turn off discovery worker autostart."
+          : "Couldn't start the discovery worker on boot.");
+      if (pill) {
+        pill.textContent = installed ? "Couldn't turn off" : "Install failed";
+        pill.classList.add("doctor-keep-alive-pill--error");
+        pill.classList.remove(
+          "doctor-keep-alive-pill--on",
+          "doctor-keep-alive-pill--off",
+        );
+      }
+      showToast(msg, "error", true);
+      return;
+    }
+    showToast(
+      installed
+        ? "Discovery worker will no longer start on boot."
+        : "Discovery worker will now start on boot.",
+      "success",
+    );
+  } catch (e) {
+    if (pill) {
+      pill.textContent = "Error";
+      pill.classList.add("doctor-keep-alive-pill--error");
+      pill.classList.remove(
+        "doctor-keep-alive-pill--on",
+        "doctor-keep-alive-pill--off",
+      );
+    }
+    showToast(
+      (e && e.message) || "Couldn't reach the worker autostart service.",
+      "error",
+      true,
+    );
+  } finally {
+    await refreshWorkerAutostartPill();
   }
 }
 

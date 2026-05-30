@@ -804,6 +804,21 @@
                     </button>
                     <button
                       class="auth-user-menu__signout"
+                      id="workerAutostartBtn"
+                      type="button"
+                      style="margin-bottom: 8px;"
+                      title="Keeps your local discovery worker running across reboot, so new roles keep showing up without reopening a terminal."
+                      hidden
+                    >
+                      <span>Discovery worker on boot</span>
+                      <span
+                        class="doctor-keep-alive-pill"
+                        id="workerAutostartPill"
+                        hidden
+                      ></span>
+                    </button>
+                    <button
+                      class="auth-user-menu__signout"
                       id="signOutBtn"
                       type="button"
                     >

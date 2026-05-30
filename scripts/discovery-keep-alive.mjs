@@ -225,6 +225,15 @@ function buildWranglerTargetSecretArgs({ workerName }) {
   return args;
 }
 
+function isSpawnEnoentError(result) {
+  const error = result && result.error;
+  if (!error) return false;
+  return (
+    error.code === "ENOENT" ||
+    /\bENOENT\b/.test(String(error.message || ""))
+  );
+}
+
 function runWranglerTargetSecretPut({ spawnSyncImpl, workerName, targetUrl }) {
   if (!workerName) {
     return {
@@ -234,12 +243,20 @@ function runWranglerTargetSecretPut({ spawnSyncImpl, workerName, targetUrl }) {
     };
   }
   const args = buildWranglerTargetSecretArgs({ workerName });
-  return spawnSyncImpl("wrangler", args, {
+  const spawnOptions = {
     cwd: repoRoot,
     encoding: "utf8",
     input: `${targetUrl}\n`,
     env: process.env,
-  });
+  };
+  const result = spawnSyncImpl("wrangler", args, spawnOptions);
+  // wrangler is often not globally installed. When the bare call cannot be
+  // spawned (ENOENT), retry through `npx --yes wrangler ...` which resolves the
+  // locally installed binary. Any other failure is returned as-is.
+  if (isSpawnEnoentError(result)) {
+    return spawnSyncImpl("npx", ["--yes", "wrangler", ...args], spawnOptions);
+  }
+  return result;
 }
 
 export async function runKeepAliveCheck(options = {}) {
