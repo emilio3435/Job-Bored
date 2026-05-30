@@ -469,4 +469,6 @@ if (!customElements.get("jb-stage-dot")) customElements.define("jb-stage-dot", J
 if (!customElements.get("jb-ai-chip")) customElements.define("jb-ai-chip", JbAiChip);
 if (!customElements.get("jb-kbd")) customElements.define("jb-kbd", JbKbd);
 
-export { JbFitRing, JbSpark, JbStageDot, JbAiChip, JbKbd };
+// Loaded as a classic <script defer> (see index.html), NOT a module — an ES
+// `export` here is a SyntaxError that aborts the entire file and unregisters
+// every component above. Components are exposed globally via customElements.

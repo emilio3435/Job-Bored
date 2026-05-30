@@ -1198,6 +1198,30 @@
   /* ------------------------------ events -------------------------------- */
 
   function bindToolbar(region, state) {
+    // The favorite star toggles from BOTH the native click and a pointerup
+    // fallback. Some environments eat the synthetic click that follows
+    // pointerup on these draggable cards — the card-open handler already
+    // compensates with its own pointerup fallback (see bindRegion); without
+    // the same here, the star's only handler (click) is silently lost and
+    // the button looks dead. The time-guard de-dups when the click DOES land.
+    var favToggleAt = Object.create(null);
+    function toggleFavoriteByKey(favoriteKey) {
+      if (favoriteKey == null || favoriteKey === "") return;
+      var now = Date.now();
+      if (favToggleAt[favoriteKey] && now - favToggleAt[favoriteKey] < 300) return;
+      favToggleAt[favoriteKey] = now;
+      var job = getPipelineJobByKey(favoriteKey);
+      var nextFavorite = !(job && job.favorite);
+      setCardFavoriteState(region, favoriteKey, nextFavorite);
+      togglePipelineFavorite(favoriteKey);
+    }
+
+    region.addEventListener("pointerup", function (e) {
+      if (e.button !== 0) return;
+      var favoriteBtn = e.target.closest('[data-card-action="toggle-favorite"]');
+      if (favoriteBtn) toggleFavoriteByKey(favoriteBtn.getAttribute("data-key"));
+    });
+
     region.addEventListener("click", function (e) {
       var toggle = e.target.closest('.pipe-col__toggle[data-stage-toggle]');
       if (toggle) {
@@ -1214,13 +1238,7 @@
         e.preventDefault();
         e.stopPropagation();
         if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
-        var favoriteKey = favoriteBtn.getAttribute("data-key");
-        if (favoriteKey != null && favoriteKey !== "") {
-          var job = getPipelineJobByKey(favoriteKey);
-          var nextFavorite = !(job && job.favorite);
-          setCardFavoriteState(region, favoriteKey, nextFavorite);
-          togglePipelineFavorite(favoriteKey);
-        }
+        toggleFavoriteByKey(favoriteBtn.getAttribute("data-key"));
         return;
       }
       var chip = e.target.closest(".pipe-tool__chip[data-sort]");
