@@ -5,10 +5,18 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
-$EnvPath = Join-Path $RepoRoot "integrations\browser-use-discovery\.env"
+$HomeDir = [Environment]::GetFolderPath("UserProfile")
+$DefaultWorkerHome = Join-Path $HomeDir ".jobbored\browser-use-discovery"
+$EnvPath = if ($Env:BROWSER_USE_DISCOVERY_WORKER_ENV) {
+  $Env:BROWSER_USE_DISCOVERY_WORKER_ENV
+} elseif ($Env:BROWSER_USE_DISCOVERY_ENV_FILE) {
+  $Env:BROWSER_USE_DISCOVERY_ENV_FILE
+} else {
+  Join-Path $DefaultWorkerHome ".env"
+}
 
 if (-not (Test-Path $EnvPath)) {
-  throw "Missing integrations\browser-use-discovery\.env"
+  throw "Missing worker env file: $EnvPath"
 }
 
 $EnvMap = @{}
@@ -29,7 +37,7 @@ Get-Content $EnvPath | ForEach-Object {
 
 $Secret = [string]$EnvMap["BROWSER_USE_DISCOVERY_WEBHOOK_SECRET"]
 if (-not $Secret) {
-  throw "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET is not set in integrations\browser-use-discovery\.env"
+  throw "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET is not set in $EnvPath"
 }
 
 $Port = 8644
@@ -62,7 +70,13 @@ function Normalize-SheetId {
 }
 
 function Read-WorkerConfigSheetId {
-  $ConfigPath = Join-Path $RepoRoot "integrations\browser-use-discovery\state\worker-config.json"
+  $ConfigPath = if ($EnvMap.ContainsKey("BROWSER_USE_DISCOVERY_WORKER_CONFIG") -and $EnvMap["BROWSER_USE_DISCOVERY_WORKER_CONFIG"]) {
+    [string]$EnvMap["BROWSER_USE_DISCOVERY_WORKER_CONFIG"]
+  } elseif ($EnvMap.ContainsKey("BROWSER_USE_DISCOVERY_CONFIG_PATH") -and $EnvMap["BROWSER_USE_DISCOVERY_CONFIG_PATH"]) {
+    [string]$EnvMap["BROWSER_USE_DISCOVERY_CONFIG_PATH"]
+  } else {
+    Join-Path $DefaultWorkerHome "worker-config.json"
+  }
   if (-not (Test-Path $ConfigPath)) {
     return ""
   }

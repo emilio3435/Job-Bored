@@ -3,12 +3,15 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
+import { resolveJobBoredPaths } from "./lib/paths.mjs";
 
 const repoRoot = process.cwd();
+const initialPaths = resolveJobBoredPaths({ env: process.env, repoRoot });
 const envFilePaths = [
   join(repoRoot, "integrations", "browser-use-discovery", ".env"),
   join(repoRoot, "server", ".env"),
-];
+  initialPaths.workerEnv,
+].filter((path, index, all) => path && all.indexOf(path) === index);
 const bootstrapStatePath = join(repoRoot, "discovery-local-bootstrap.json");
 
 function parseEnvFile(text) {
@@ -52,6 +55,7 @@ function readEnvFiles() {
 function resolveRuntimeEnv() {
   const fromFiles = readEnvFiles();
   const env = { ...fromFiles, ...process.env };
+  const paths = resolveJobBoredPaths({ env, repoRoot });
   const fallbackGemini =
     String(env.BROWSER_USE_DISCOVERY_GEMINI_API_KEY || "").trim() ||
     String(env.ATS_GEMINI_API_KEY || "").trim() ||
@@ -66,22 +70,23 @@ function resolveRuntimeEnv() {
       String(env.BROWSER_USE_DISCOVERY_PORT || "").trim() || "8644",
     BROWSER_USE_DISCOVERY_CONFIG_PATH:
       String(env.BROWSER_USE_DISCOVERY_CONFIG_PATH || "").trim() ||
-      join(
-        repoRoot,
-        "integrations",
-        "browser-use-discovery",
-        "state",
-        "worker-config.json",
-      ),
+      String(env.BROWSER_USE_DISCOVERY_WORKER_CONFIG || "").trim() ||
+      paths.workerConfig,
+    BROWSER_USE_DISCOVERY_WORKER_CONFIG:
+      String(env.BROWSER_USE_DISCOVERY_WORKER_CONFIG || "").trim() ||
+      String(env.BROWSER_USE_DISCOVERY_CONFIG_PATH || "").trim() ||
+      paths.workerConfig,
+    BROWSER_USE_DISCOVERY_ENV_FILE:
+      String(env.BROWSER_USE_DISCOVERY_ENV_FILE || "").trim() ||
+      String(env.BROWSER_USE_DISCOVERY_WORKER_ENV || "").trim() ||
+      paths.workerEnv,
+    BROWSER_USE_DISCOVERY_WORKER_ENV:
+      String(env.BROWSER_USE_DISCOVERY_WORKER_ENV || "").trim() ||
+      String(env.BROWSER_USE_DISCOVERY_ENV_FILE || "").trim() ||
+      paths.workerEnv,
     BROWSER_USE_DISCOVERY_STATE_DB_PATH:
       String(env.BROWSER_USE_DISCOVERY_STATE_DB_PATH || "").trim() ||
-      join(
-        repoRoot,
-        "integrations",
-        "browser-use-discovery",
-        "state",
-        "worker-state.sqlite",
-      ),
+      paths.workerStateDb,
     BROWSER_USE_DISCOVERY_BROWSER_COMMAND:
       String(env.BROWSER_USE_DISCOVERY_BROWSER_COMMAND || "").trim() ||
       join(

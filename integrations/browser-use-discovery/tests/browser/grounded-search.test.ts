@@ -2143,12 +2143,11 @@ test("VAL-DATA-001: regex fallback recovers URLs from conversational/non-JSON ou
   assert.ok(urls.some((u) => u.includes("notion.so/careers")), "Should recover notion.so/careers URL");
   assert.ok(urls.some((u) => u.includes("lever.co")), "Should recover lever.co URL");
 
-  // Should have regex fallback diagnostic and warning
-  if (result.diagnostics?.regexFallbackUsed) {
-    assert.ok(true, "regexFallbackUsed diagnostic should be set");
-  }
+  // Successful regex fallback is diagnostic, not run-degrading.
+  assert.equal(result.diagnostics?.regexFallbackAttempted, true);
+  assert.equal(result.diagnostics?.regexFallbackUsed, true);
   const regexWarning = result.warnings.find((w) => w.includes("Regex URL fallback"));
-  assert.ok(regexWarning, "Should have regex fallback warning");
+  assert.equal(regexWarning, undefined, "Recovered regex fallback should not emit a warning");
 });
 
 test("VAL-DATA-001: regex fallback handles zero-supported case explicitly", async () => {

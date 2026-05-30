@@ -209,6 +209,16 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
       /\/__proxy\/full-boot/,
       "header click should not bypass the tailoring drawer with local full-boot",
     );
+    assert.doesNotMatch(
+      handlerSource,
+      /requestDiscoverySetup\(/,
+      "header click should not detour into setup before opening the drawer",
+    );
+    assert.doesNotMatch(
+      handlerSource,
+      /localRecoveryState|needsRecovery/,
+      "stale local recovery state must not prevent the drawer from opening",
+    );
   });
 
   it("wires the discovery drawer before the no-sheet early return", () => {
@@ -286,8 +296,23 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
     const triggerSource = appJs.slice(triggerStart, triggerEnd);
     assert.match(
       triggerSource,
-      /const hook = await resolveDiscoveryRunWebhookUrl\(\);/,
+      /let hook = await resolveDiscoveryRunWebhookUrl\(\);/,
       "run should use the transport resolver before falling back to setup",
+    );
+    assert.match(
+      triggerSource,
+      /ensureLocalDiscoveryAutoSetupForRun\(\)/,
+      "run should try local automatic setup before showing setup instructions",
+    );
+    assert.ok(
+      triggerSource.indexOf("ensureLocalDiscoveryAutoSetupForRun()") <
+        triggerSource.indexOf("resolveDiscoveryRunWebhookUrl()"),
+      "run should validate local setup before selecting a local webhook URL",
+    );
+    assert.match(
+      appJs,
+      /async function ensureLocalDiscoveryAutoSetupForRun\(\)[\s\S]*\/__proxy\/discovery-state[\s\S]*\/__proxy\/fix-setup/,
+      "local automatic setup should probe readiness before using the setup proxy",
     );
     assert.doesNotMatch(
       triggerSource,
@@ -309,6 +334,64 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
       /refreshDiscoveryWebhookSecretFromBootstrapForEndpoint/,
       "local secret mismatch recovery should refresh the bootstrap secret instead of only asking for a reload",
     );
+  });
+
+  it("surfaces missing local worker source config before opening/running discovery", () => {
+    const readinessStart = appJs.indexOf(
+      "async function fetchLocalDiscoveryWorkerSourceReadiness()",
+    );
+    assert.notEqual(
+      readinessStart,
+      -1,
+      "fetchLocalDiscoveryWorkerSourceReadiness must exist",
+    );
+    const readinessEnd = appJs.indexOf(
+      "\n}\n\nfunction getDiscoverySourceReadinessIssues",
+      readinessStart,
+    );
+    assert.notEqual(
+      readinessEnd,
+      -1,
+      "fetchLocalDiscoveryWorkerSourceReadiness body must be readable",
+    );
+    const readinessSource = appJs.slice(readinessStart, readinessEnd);
+    assert.match(
+      appJs,
+      /function getLocalDiscoveryWorkerHealthUrlForSources\([\s\S]*getDiscoveryLocalWebhookHealthUrl\(localWebhookUrl\)/,
+      "source readiness should resolve the local worker /health endpoint",
+    );
+    assert.match(
+      readinessSource,
+      /fetch\(healthUrl,[\s\S]*mode:\s*"cors"[\s\S]*cache:\s*"no-store"/,
+      "drawer source readiness should read the local worker /health endpoint",
+    );
+    assert.match(
+      appJs,
+      /function getDiscoverySourceReadinessIssues\([\s\S]*groundedWeb[\s\S]*Gemini API key[\s\S]*serpApiGoogleJobs[\s\S]*SerpApi key/,
+      "source readiness should call out missing Gemini and SerpApi config",
+    );
+    assert.match(
+      appJs,
+      /function renderDiscoveryDrawerSourceReadiness\([\s\S]*discoveryDrawerLastRun[\s\S]*Source config missing/,
+      "drawer header should show missing source config instead of hiding it in a later partial run",
+    );
+
+    const openStart = appJs.indexOf("function openDiscoveryDrawer()");
+    assert.notEqual(openStart, -1, "openDiscoveryDrawer must exist");
+    const openEnd = appJs.indexOf("\n}\n\nfunction closeDiscoveryDrawer", openStart);
+    assert.notEqual(openEnd, -1, "openDiscoveryDrawer body must be readable");
+    const openSource = appJs.slice(openStart, openEnd);
+    assert.match(openSource, /refreshDiscoveryDrawerSourceReadiness\(\)/);
+
+    const triggerStart = appJs.indexOf("async function triggerDiscoveryRun(");
+    assert.notEqual(triggerStart, -1, "triggerDiscoveryRun must exist");
+    const triggerEnd = appJs.indexOf(
+      "\n}\n\nwindow.JobBoredDiscovery",
+      triggerStart,
+    );
+    assert.notEqual(triggerEnd, -1, "triggerDiscoveryRun body must be readable");
+    const triggerSource = appJs.slice(triggerStart, triggerEnd);
+    assert.match(triggerSource, /warnDiscoverySourceReadinessBeforeRun\(\)/);
   });
 });
 

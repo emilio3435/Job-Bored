@@ -2,7 +2,15 @@
 
 Hermes-orchestrated automation that pairs with [Job-Bored](../browser-use-discovery/) discovery and the Pipeline Google Sheet.
 
-**Runtime home (per machine):** `~/.hermes/job-hunt/` — copy or symlink this directory there after clone, or run scripts from this repo path and set `JHOS_HOME`.
+**Runtime home (per machine):** `~/.hermes/job-hunt/`. Install it with
+`npm run setup:hermes` from the JobBored repo root. Override paths with:
+
+- `JOBBORED_REPO` (default `~/Job-Bored`)
+- `HERMES_HOME` (default `~/.hermes`)
+- `HERMES_JOB_HUNT_HOME` (default `~/.hermes/job-hunt`)
+- `HERMES_APPLICATIONS_DIR` (default `~/.hermes/job-hunt/applications`)
+- `BROWSER_USE_DISCOVERY_WORKER_CONFIG` (default `~/.jobbored/browser-use-discovery/worker-config.json`)
+- `BROWSER_USE_DISCOVERY_WORKER_ENV` (default `~/.jobbored/browser-use-discovery/.env`)
 
 ## Layout
 
@@ -17,23 +25,16 @@ Hermes-orchestrated automation that pairs with [Job-Bored](../browser-use-discov
 ## Quick start (main machine)
 
 ```bash
-# 1. Sync repo
-git pull origin main
-
-# 2. Install Hermes job-hunt home (choose one)
-mkdir -p ~/.hermes
-rsync -a integrations/hermes-job-hunt/ ~/.hermes/job-hunt/
-
-# 3. Start discovery worker (from repo root)
-cd integrations/browser-use-discovery
-npm install
-# Configure .env from .env.example (never commit secrets)
-node --experimental-strip-types src/server.ts
-
-# 4. Dry-run apply orchestrator
-cd ~/.hermes/job-hunt/scripts
-python3 apply-orchestrator.py --dry-run --job-url '<url>' --task-id manual-test
+cd ~/Job-Bored
+npm run setup:discovery
+npm run setup:hermes
+npm run doctor:hermes
 ```
+
+`setup:hermes` creates/uses `~/.hermes/job-hunt/.venv` and installs
+`requirements.txt`. Keep Google tokens, worker secrets, and service-account
+paths in ignored local env/token files only. Doctor output reports whether a
+secret is configured without printing the value.
 
 ## Current strategy (2026-05-27)
 

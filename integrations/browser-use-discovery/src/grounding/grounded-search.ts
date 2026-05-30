@@ -217,7 +217,9 @@ export type GroundedSearchDiagnostics = {
     query: string;
     finalRung: GroundedQueryRung;
   }>;
-  /** VAL-DATA-001: True if regex fallback was used for non-JSON/conversational output. */
+  /** VAL-DATA-001: True if regex fallback was attempted for non-JSON/conversational output. */
+  regexFallbackAttempted?: boolean;
+  /** VAL-DATA-001: True if regex fallback recovered candidates from non-JSON/conversational output. */
   regexFallbackUsed?: boolean;
   /** Upstream Gemini request failures encountered while searching. */
   requestFailures?: GroundedSearchRequestFailure[];
@@ -754,11 +756,18 @@ export function createGroundedSearchClient(
               ],
               abortedDueToUpstreamError: !result.failure.retryable,
             }
+          : result.regexFallbackAttempted
+            ? {
+                multiQueryFanOutEnabled: multiQueryEnabled,
+                multiQueryCap,
+                focusedQueryCount: 0,
+                retryBroadeningEnabled,
+                ladderExhausted: false,
+                regexFallbackAttempted: true,
+                ...(result.regexFallbackUsed ? { regexFallbackUsed: true } : {}),
+              }
           : undefined;
 
-        // VAL-DATA-001: Emit explicit warning for regex fallback on non-JSON/conversational output
-        // Use regexFallbackAttempted to emit warning whenever fallback was tried (regardless of outcome),
-        // but differentiate the message based on whether candidates were recovered
         if (result.failure) {
           warnings.push(formatGroundedSearchFailureWarning({
             query: "broad_query",
@@ -769,16 +778,10 @@ export function createGroundedSearchClient(
         } else if (result.candidates.length === 0) {
           warnings.push("Grounded search returned no usable candidate links.");
         }
-        if (result.regexFallbackAttempted) {
-          if (result.regexFallbackUsed) {
-            warnings.push(
-              "Regex URL fallback used: grounded output was non-JSON or conversational; URLs recovered via pattern matching.",
-            );
-          } else {
-            warnings.push(
-              "Regex URL fallback used: grounded output was non-JSON or conversational; no valid URLs recovered.",
-            );
-          }
+        if (result.regexFallbackAttempted && !result.regexFallbackUsed) {
+          warnings.push(
+            "Regex URL fallback used: grounded output was non-JSON or conversational; no valid URLs recovered.",
+          );
         }
         log?.("discovery.run.grounded_search_completed", {
           runId: run.runId,
@@ -790,6 +793,8 @@ export function createGroundedSearchClient(
           warningCount: warnings.length,
           requestFailureCount: diagnostics?.requestFailures?.length || 0,
           focusedQueryCount: 0,
+          regexFallbackAttempted: result.regexFallbackAttempted,
+          regexFallbackUsed: result.regexFallbackUsed,
         });
 
         return {
@@ -872,6 +877,7 @@ export function createGroundedSearchClient(
           ? { exhaustedRungs: exhaustedSubQueries }
           : {}),
         ...(regexFallbackUsed ? { regexFallbackUsed: true } : {}),
+        ...(regexFallbackAttempted ? { regexFallbackAttempted: true } : {}),
         ...(requestFailures.length > 0
           ? { requestFailures }
           : {}),
@@ -895,19 +901,10 @@ export function createGroundedSearchClient(
           `Query ladder exhausted: all ${focusedQueries.length} focused sub-queries returned zero candidates after retry broadening.`,
         );
       }
-      // VAL-DATA-001: Emit explicit warning for regex fallback on non-JSON/conversational output
-      // Use regexFallbackAttempted to emit warning whenever fallback was tried (regardless of outcome),
-      // but differentiate the message based on whether candidates were recovered
-      if (regexFallbackAttempted) {
-        if (regexFallbackUsed) {
-          warnings.push(
-            "Regex URL fallback used: grounded output was non-JSON or conversational; URLs recovered via pattern matching.",
-          );
-        } else {
-          warnings.push(
-            "Regex URL fallback used: grounded output was non-JSON or conversational; no valid URLs recovered.",
-          );
-        }
+      if (regexFallbackAttempted && !regexFallbackUsed) {
+        warnings.push(
+          "Regex URL fallback used: grounded output was non-JSON or conversational; no valid URLs recovered.",
+        );
       }
       log?.("discovery.run.grounded_search_completed", {
         runId: run.runId,
@@ -921,6 +918,8 @@ export function createGroundedSearchClient(
         focusedQueryCount: focusedQueries.length,
         ladderExhausted,
         abortedDueToUpstreamError,
+        regexFallbackAttempted,
+        regexFallbackUsed,
       });
 
       return {
@@ -984,11 +983,11 @@ export function createGroundedSearchClient(
         warnings.push("ATS host search returned no usable provider surfaces.");
       }
       if (result.regexFallbackAttempted) {
-        warnings.push(
-          result.regexFallbackUsed
-            ? "Regex URL fallback used during ATS host search; URLs recovered via pattern matching."
-            : "Regex URL fallback used during ATS host search; no valid ATS URLs recovered.",
-        );
+        if (!result.regexFallbackUsed) {
+          warnings.push(
+            "Regex URL fallback used during ATS host search; no valid ATS URLs recovered.",
+          );
+        }
       }
 
       return {
@@ -1012,6 +1011,16 @@ export function createGroundedSearchClient(
               ],
               abortedDueToUpstreamError: !result.failure.retryable,
             }
+          : result.regexFallbackAttempted
+            ? {
+                multiQueryFanOutEnabled: false,
+                multiQueryCap: 1,
+                focusedQueryCount: 0,
+                retryBroadeningEnabled: false,
+                ladderExhausted: false,
+                regexFallbackAttempted: true,
+                ...(result.regexFallbackUsed ? { regexFallbackUsed: true } : {}),
+              }
           : undefined,
       };
     },
