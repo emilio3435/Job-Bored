@@ -84,7 +84,14 @@ test("normalizeLead returns a scored normalized lead with stable defaults", asyn
   assert.equal(lead?.metadata.runId, "run_test_1");
   assert.equal(lead?.metadata.variationKey, "var_123");
   assert.equal(lead?.metadata.sourceQuery, "Acme platform engineer");
-  assert.ok((lead?.fitScore || 0) >= 8);
+  // No-profile path: fitScore now comes from the legacy dimension-weighted
+  // heuristic alone — the keyword counter no longer floor-bumps. Expect a
+  // mid-range score (~4.6) for a Platform Engineer listing that doesn't
+  // match any of the legacy consultant/AI/perf-marketing lanes.
+  assert.ok((lead?.fitScore || 0) >= 4);
+  assert.ok((lead?.fitScore || 0) <= 7);
+  // priority is still derived from the keyword counter (debug-only), which
+  // produces a strong match here.
   assert.ok(["⚡", "🔥"].includes(lead?.priority || ""));
   assert.ok(lead?.tags.includes("automation"));
   assert.ok(lead?.tags.includes("Platform Engineer"));
