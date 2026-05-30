@@ -257,17 +257,21 @@ describe("buildManifest", () => {
   it("surfaces the progress block when Dobby has populated it", async () => {
     const dir = join(root, "progress-state-package");
     await mkdir(dir);
+    /* A genuinely live draft: recent heartbeat so the stale guard leaves
+       its phase alone and we can assert the camelCase passthrough. */
+    const startedAt = new Date(Date.now() - 145 * 1000).toISOString();
+    const updatedAt = new Date(Date.now() - 5 * 1000).toISOString();
     await writeFile(join(dir, "pending.json"), JSON.stringify({
       slug: "progress-state-package",
       company: "Progress Co",
       title: "Progress Role",
       feature: "both",
-      requested_at: "2026-05-28T10:00:00Z",
+      requested_at: startedAt,
       progress: {
         phase: "drafting",
         message: "Winky is drafting your cover letter and tailoring your resume…",
-        started_at: "2026-05-28T10:00:05Z",
-        updated_at: "2026-05-28T10:02:30Z",
+        started_at: startedAt,
+        updated_at: updatedAt,
         attempt: 1,
         elapsed_seconds: 145,
       },
@@ -280,9 +284,275 @@ describe("buildManifest", () => {
       manifest.pending.progress.message,
       "Dobby is drafting your cover letter and tailoring your resume…",
     );
-    assert.equal(manifest.pending.progress.startedAt, "2026-05-28T10:00:05Z");
+    assert.equal(manifest.pending.progress.startedAt, startedAt);
     assert.equal(manifest.pending.progress.elapsedSeconds, 145);
     assert.equal(manifest.pending.progress.attempt, 1);
+  });
+
+  it("suppresses a terminal failed pending state once the requested cover letter PDF is ready", async () => {
+    const slug = "failed-but-ready-cover-letter";
+    const dir = join(root, slug);
+    await mkdir(dir);
+    const pdfPath = join(dir, "cover-letter.pdf");
+    await writeFile(pdfPath, "PDF");
+    const modified = new Date("2026-05-28T10:05:00Z");
+    await utimes(pdfPath, modified, modified);
+    await writeFile(join(dir, "pending.json"), JSON.stringify({
+      slug,
+      company: "Ready Co",
+      title: "Ready Role",
+      feature: "cover_letter",
+      requested_at: "2026-05-28T10:00:00Z",
+      progress: {
+        phase: "failed",
+        message: "Artifacts written but confirmation flags remain.",
+        elapsed_seconds: 303,
+      },
+    }));
+
+    const manifest = await buildManifest(slug, { root });
+    assert.equal(manifest.pending, undefined);
+    assert.ok(
+      manifest.documents.some((doc) => doc.type === "cover_letter"),
+      "ready requested artifacts should still surface as documents",
+    );
+  });
+
+  it("keeps a terminal failed pending state when the requested PDF predates the request", async () => {
+    const slug = "failed-still-unresolved-cover-letter";
+    const dir = join(root, slug);
+    await mkdir(dir);
+    const pdfPath = join(dir, "cover-letter.pdf");
+    await writeFile(pdfPath, "OLDPDF");
+    const modified = new Date("2026-05-28T09:55:00Z");
+    await utimes(pdfPath, modified, modified);
+    await writeFile(join(dir, "pending.json"), JSON.stringify({
+      slug,
+      company: "Unresolved Co",
+      title: "Unresolved Role",
+      feature: "cover_letter",
+      requested_at: "2026-05-28T10:00:00Z",
+      progress: {
+        phase: "failed",
+        message: "No fresh artifact was produced.",
+        elapsed_seconds: 303,
+      },
+    }));
+
+    const manifest = await buildManifest(slug, { root });
+    assert.ok(manifest.pending, "unresolved failed runs should still be visible");
+    assert.equal(manifest.pending.progress.phase, "failed");
+  });
+});
+
+describe("buildManifest — watcher failure reconciliation", () => {
+  let root;
+  const ago = (ms) => new Date(Date.now() - ms).toISOString();
+  const MIN = 60 * 1000;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "jb-mats-fail-"));
+  });
+  afterEach(async () => {
+    if (root) await rm(root, { recursive: true, force: true });
+  });
+
+  it("turns a still-'drafting' run into a FAILED card when pending_error.json is at/after the request", async () => {
+    /* The real bug: the watcher writes pending_error.json on an empty-model
+       run but never flips pending.json's phase, so the dossier spins forever. */
+    const slug = "winky-empty-response-role";
+    const dir = join(root, slug);
+    await mkdir(dir);
+    await writeFile(join(dir, "pending.json"), JSON.stringify({
+      slug,
+      company: "Route",
+      title: "Growth Marketing Manager",
+      feature: "both",
+      requested_at: ago(20 * MIN),
+      progress: { phase: "drafting", message: "Winky is tailoring…", started_at: ago(20 * MIN), updated_at: ago(15 * MIN) },
+    }));
+    await writeFile(join(dir, "pending_error.json"), JSON.stringify({
+      written_at: ago(15 * MIN),
+      summary: "Missing required output(s): resume.html, resume.pdf, cover-letter.html",
+      feature: "both",
+    }));
+
+    const manifest = await buildManifest(slug, { root });
+    assert.ok(manifest.pending, "pending block should remain attached");
+    assert.equal(manifest.pending.progress.phase, "failed");
+    assert.match(manifest.pending.progress.message, /Missing required output/);
+  });
+
+  it("ignores a superseded (older) failure while a fresh retry is in flight", async () => {
+    /* careers-growth-marketing-manager case: an old 'both' failure with a
+       newer 'resume' retry actively drafting must stay 'drafting'. */
+    const slug = "superseded-failure-role";
+    const dir = join(root, slug);
+    await mkdir(dir);
+    await writeFile(join(dir, "pending.json"), JSON.stringify({
+      slug,
+      feature: "resume",
+      requested_at: ago(5 * MIN),
+      progress: { phase: "drafting", started_at: ago(5 * MIN), updated_at: ago(1 * MIN) },
+    }));
+    await writeFile(join(dir, "pending_error.json"), JSON.stringify({
+      written_at: ago(20 * MIN),
+      summary: "Missing required output(s): resume.html",
+      feature: "both",
+    }));
+
+    const manifest = await buildManifest(slug, { root });
+    assert.ok(manifest.pending, "the live retry should still be attached");
+    assert.equal(manifest.pending.progress.phase, "drafting");
+  });
+
+  it("marks a non-terminal run FAILED when its heartbeat is older than 30 minutes", async () => {
+    const slug = "stalled-drafting-role";
+    const dir = join(root, slug);
+    await mkdir(dir);
+    await writeFile(join(dir, "pending.json"), JSON.stringify({
+      slug,
+      feature: "both",
+      requested_at: ago(45 * MIN),
+      progress: { phase: "drafting", started_at: ago(45 * MIN), updated_at: ago(40 * MIN), elapsed_seconds: 300 },
+    }));
+
+    const manifest = await buildManifest(slug, { root });
+    assert.ok(manifest.pending, "stalled runs should remain visible");
+    assert.equal(manifest.pending.progress.phase, "failed");
+    assert.match(manifest.pending.progress.message, /stalled/i);
+  });
+
+  it("synthesizes a FAILED card when only pending_error.json remains (no pending.json)", async () => {
+    const slug = "error-only-role";
+    const dir = join(root, slug);
+    await mkdir(dir);
+    await writeFile(join(dir, "pending_error.json"), JSON.stringify({
+      written_at: ago(10 * MIN),
+      summary: "Missing required output(s): resume.pdf",
+      feature: "resume",
+      company: "Acme",
+      title: "Marketer",
+    }));
+
+    const manifest = await buildManifest(slug, { root });
+    assert.ok(manifest.pending, "a lone failure record should still surface");
+    assert.equal(manifest.pending.progress.phase, "failed");
+    assert.equal(manifest.pending.feature, "resume");
+    assert.match(manifest.pending.progress.message, /Missing required output/);
+  });
+
+  it("surfaces the failure when pending.json is empty/malformed mid-sync but a failure exists", async () => {
+    const slug = "empty-pending-with-error-role";
+    const dir = join(root, slug);
+    await mkdir(dir);
+    await writeFile(join(dir, "pending.json"), ""); // emptied mid-sync from the watcher machine
+    await writeFile(join(dir, "pending_error.json"), JSON.stringify({
+      written_at: ago(5 * MIN),
+      summary: "xAI unavailable, used MiniMax",
+      feature: "both",
+    }));
+
+    const manifest = await buildManifest(slug, { root });
+    assert.ok(manifest.pending, "an empty pending.json must not hide a real failure");
+    assert.equal(manifest.pending.progress.phase, "failed");
+    assert.match(manifest.pending.progress.message, /MiniMax/);
+  });
+
+  it("does NOT surface a failure superseded by freshly-rendered documents", async () => {
+    const slug = "error-then-success-role";
+    const dir = join(root, slug);
+    await mkdir(dir);
+    const pdfPath = join(dir, "resume.pdf");
+    await writeFile(pdfPath, "PDF");
+    await writeFile(join(dir, "resume.html"), "<html>r</html>");
+    const fresh = new Date(); // newer than the failure below
+    await utimes(pdfPath, fresh, fresh);
+    await writeFile(join(dir, "pending_error.json"), JSON.stringify({
+      written_at: ago(10 * MIN),
+      summary: "Missing required output(s): resume.pdf",
+      feature: "resume",
+    }));
+
+    const manifest = await buildManifest(slug, { root });
+    assert.equal(manifest.pending, undefined);
+    assert.ok(manifest.documents.some((doc) => doc.type === "resume"));
+  });
+});
+
+describe("buildManifest — delivery detection (spinner stops on file arrival)", () => {
+  let root;
+  const ago = (ms) => new Date(Date.now() - ms).toISOString();
+  const MIN = 60 * 1000;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "jb-mats-deliver-"));
+  });
+  afterEach(async () => {
+    if (root) await rm(root, { recursive: true, force: true });
+  });
+
+  it("stops a still-'drafting' pending once the requested file lands fresh", async () => {
+    /* The bug: files sync in while phase is still 'drafting', so the banner
+       spun forever. Delivery (fresh primary file) must clear the pending. */
+    const slug = "delivered-while-drafting";
+    const dir = join(root, slug);
+    await mkdir(dir);
+    const pdf = join(dir, "resume.pdf");
+    await writeFile(pdf, "PDF");
+    await writeFile(join(dir, "resume.html"), "<html>r</html>");
+    const delivered = new Date(); // newer than the request below
+    await utimes(pdf, delivered, delivered);
+    await writeFile(join(dir, "pending.json"), JSON.stringify({
+      slug,
+      feature: "resume",
+      requested_at: ago(5 * MIN),
+      progress: { phase: "drafting", started_at: ago(5 * MIN), updated_at: ago(30 * 1000) },
+    }));
+
+    const manifest = await buildManifest(slug, { root });
+    assert.equal(manifest.pending, undefined, "a delivered file must stop the drafting indicator");
+    assert.ok(manifest.documents.some((doc) => doc.type === "resume"));
+  });
+
+  it("keeps a 'drafting' pending during a re-draft while only a stale prior file exists", async () => {
+    const slug = "redraft-stale-file";
+    const dir = join(root, slug);
+    await mkdir(dir);
+    const pdf = join(dir, "resume.pdf");
+    await writeFile(pdf, "OLD"); // left by a previous successful draft
+    const stale = new Date(Date.now() - 60 * MIN);
+    await utimes(pdf, stale, stale);
+    await writeFile(join(dir, "pending.json"), JSON.stringify({
+      slug,
+      feature: "resume",
+      requested_at: ago(2 * MIN), // requested AFTER the stale file
+      progress: { phase: "drafting", started_at: ago(2 * MIN), updated_at: ago(20 * 1000) },
+    }));
+
+    const manifest = await buildManifest(slug, { root });
+    assert.ok(manifest.pending, "a re-draft must keep showing progress until the fresh file lands");
+    assert.equal(manifest.pending.progress.phase, "drafting");
+  });
+
+  it("waits for ALL requested deliverables on a 'both' draft (resume done, letter pending)", async () => {
+    const slug = "both-half-delivered";
+    const dir = join(root, slug);
+    await mkdir(dir);
+    const pdf = join(dir, "resume.pdf");
+    await writeFile(pdf, "PDF");
+    const delivered = new Date();
+    await utimes(pdf, delivered, delivered);
+    await writeFile(join(dir, "pending.json"), JSON.stringify({
+      slug,
+      feature: "both",
+      requested_at: ago(5 * MIN),
+      progress: { phase: "drafting", started_at: ago(5 * MIN), updated_at: ago(15 * 1000) },
+    }));
+
+    const manifest = await buildManifest(slug, { root });
+    assert.ok(manifest.pending, "the letter is still pending, so the indicator stays");
+    assert.equal(manifest.pending.progress.phase, "drafting");
   });
 });
 
@@ -312,7 +582,7 @@ describe("dismissPending", () => {
     assert.equal(existsSync(result.archivePath), true);
   });
 
-  it("returns 404 when no pending.json is on disk", async () => {
+  it("returns 404 when neither pending.json nor pending_error.json is on disk", async () => {
     const dir = join(root, "no-pending-slug");
     await mkdir(dir);
     const { dismissPending } = await import("../server/application-materials.mjs");
@@ -320,6 +590,39 @@ describe("dismissPending", () => {
       () => dismissPending("no-pending-slug", { root }),
       (e) => e.statusCode === 404,
     );
+  });
+
+  it("archives pending_error.json alongside pending.json so the FAILED card clears", async () => {
+    const dir = join(root, "dismiss-with-error-slug");
+    await mkdir(dir);
+    await writeFile(join(dir, "pending.json"), JSON.stringify({
+      slug: "dismiss-with-error-slug",
+      feature: "both",
+      progress: { phase: "failed", message: "Missing required output(s): resume.pdf" },
+    }));
+    await writeFile(join(dir, "pending_error.json"), JSON.stringify({
+      written_at: "2026-05-30T11:59:06Z",
+      summary: "Missing required output(s): resume.pdf",
+      feature: "both",
+    }));
+    const { dismissPending } = await import("../server/application-materials.mjs");
+    await dismissPending("dismiss-with-error-slug", { root });
+    assert.equal(existsSync(join(dir, "pending.json")), false);
+    assert.equal(existsSync(join(dir, "pending_error.json")), false, "the failure record must be archived too");
+  });
+
+  it("dismisses a failure that has no pending.json (error-only FAILED card)", async () => {
+    const dir = join(root, "dismiss-error-only-slug");
+    await mkdir(dir);
+    await writeFile(join(dir, "pending_error.json"), JSON.stringify({
+      written_at: "2026-05-30T11:59:06Z",
+      summary: "Missing required output(s): resume.pdf",
+      feature: "resume",
+    }));
+    const { dismissPending } = await import("../server/application-materials.mjs");
+    const result = await dismissPending("dismiss-error-only-slug", { root });
+    assert.match(result.archivePath, /pending_error\.json\.dismissed\.\d{8}T\d{6}Z$/);
+    assert.equal(existsSync(join(dir, "pending_error.json")), false);
   });
 
   it("rejects invalid slugs without touching disk", async () => {
@@ -529,5 +832,60 @@ describe("listPendingQueue", () => {
     const queue = await listPendingQueue({ root });
     assert.equal(queue.length, 1);
     assert.equal(queue[0].slug, "ok-co");
+  });
+
+  it("skips terminal failed queue entries once the requested artifact is ready", async () => {
+    await mkdir(join(root, "ready-cover-letter"));
+    const readyPdf = join(root, "ready-cover-letter", "cover-letter.pdf");
+    await writeFile(readyPdf, "PDF");
+    const readyModified = new Date("2026-05-28T10:05:00Z");
+    await utimes(readyPdf, readyModified, readyModified);
+    await writeFile(join(root, "ready-cover-letter", "pending.json"), JSON.stringify({
+      slug: "ready-cover-letter",
+      feature: "cover_letter",
+      requested_at: "2026-05-28T10:00:00Z",
+      progress: { phase: "failed", elapsed_seconds: 303 },
+    }));
+
+    await mkdir(join(root, "unresolved-cover-letter"));
+    const oldPdf = join(root, "unresolved-cover-letter", "cover-letter.pdf");
+    await writeFile(oldPdf, "OLDPDF");
+    const oldModified = new Date("2026-05-28T09:55:00Z");
+    await utimes(oldPdf, oldModified, oldModified);
+    await writeFile(join(root, "unresolved-cover-letter", "pending.json"), JSON.stringify({
+      slug: "unresolved-cover-letter",
+      feature: "cover_letter",
+      requested_at: "2026-05-28T10:00:00Z",
+      progress: { phase: "failed", elapsed_seconds: 303 },
+    }));
+
+    const { listPendingQueue } = await import("../server/application-materials.mjs");
+    const queue = await listPendingQueue({ root });
+    assert.equal(queue.length, 1);
+    assert.equal(queue[0].slug, "unresolved-cover-letter");
+  });
+
+  it("drops a still-'drafting' entry from the queue once its file is delivered", async () => {
+    /* The queue strip ("toast") row spun forever because a 'drafting' entry
+       with delivered files was never recognized as done. */
+    await mkdir(join(root, "drafting-delivered"));
+    const pdf = join(root, "drafting-delivered", "resume.pdf");
+    await writeFile(pdf, "PDF");
+    const fresh = new Date();
+    await utimes(pdf, fresh, fresh);
+    await writeFile(join(root, "drafting-delivered", "pending.json"), JSON.stringify({
+      slug: "drafting-delivered",
+      feature: "resume",
+      requested_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+      progress: { phase: "drafting", started_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(), elapsed_seconds: 60 },
+    }));
+
+    const { listPendingQueue } = await import("../server/application-materials.mjs");
+    const queue = await listPendingQueue({ root });
+    assert.equal(
+      queue.find((q) => q.slug === "drafting-delivered"),
+      undefined,
+      "a delivered drafting entry should drop from the queue strip",
+    );
   });
 });

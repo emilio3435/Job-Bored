@@ -162,6 +162,209 @@ async function listAllowedFiles(dir) {
   return result;
 }
 
+function documentsFromFileStats(fileStats) {
+  const documents = [];
+  for (const def of DOC_TYPES) {
+    const present = def.files
+      .map((f) => fileStats.get(f))
+      .filter(Boolean);
+    if (!present.length) continue;
+    const primaryFile = fileStats.get(def.primary) || present[0];
+    const lastModifiedAt = present.reduce(
+      (acc, s) => (s.modifiedAt > acc ? s.modifiedAt : acc),
+      "",
+    );
+    documents.push({
+      type: def.type,
+      label: def.label,
+      status: "ready",
+      primary: primaryFile.filename,
+      files: present.map((s) => ({
+        filename: s.filename,
+        format: s.format,
+        size: s.size,
+        modifiedAt: s.modifiedAt,
+      })),
+      lastModifiedAt,
+    });
+  }
+  return documents;
+}
+
+function requestedDocumentTypes(feature) {
+  if (feature === "cover_letter") return ["cover_letter"];
+  if (feature === "resume") return ["resume"];
+  if (feature === "both") return ["resume", "cover_letter"];
+  return [];
+}
+
+function isTerminalPending(pending) {
+  const phase = String((pending && pending.progress && pending.progress.phase) || "").toLowerCase();
+  return phase === "failed" || phase === "complete" || phase === "done";
+}
+
+function pendingRequestedAtMs(pending) {
+  const raw = pending && (pending.requestedAt || pending.requested_at);
+  if (!raw) return NaN;
+  const t = Date.parse(String(raw));
+  return Number.isFinite(t) ? t : NaN;
+}
+
+/* A pending request is satisfied once every requested deliverable's primary
+ * file is on disk AND newer than the request. We deliberately do NOT gate on
+ * pending.json's phase: on the two-machine sync the rendered files routinely
+ * land while phase is still "drafting" (or pending.json is mid-sync/empty), so
+ * gating on a terminal phase leaves the dossier banner and the queue strip
+ * spinning forever after the file has actually been delivered. The freshness
+ * check (modifiedAt >= requestedAt) is the real signal — it distinguishes the
+ * awaited new render from a stale file left by an earlier draft, so a re-draft
+ * still shows progress until its fresh file lands. */
+function pendingSatisfiedByDocuments(pending, documents) {
+  const types = requestedDocumentTypes(String((pending && pending.feature) || ""));
+  if (!types.length) return false;
+  const requestedAt = pendingRequestedAtMs(pending);
+  if (!Number.isFinite(requestedAt)) return false;
+  return types.every((type) => {
+    const doc = documents.find((item) => item && item.type === type);
+    if (!doc || !Array.isArray(doc.files)) return false;
+    const primary = doc.files.find((file) => file.filename === doc.primary);
+    if (!primary || !primary.modifiedAt) return false;
+    const modifiedAt = Date.parse(primary.modifiedAt);
+    return Number.isFinite(modifiedAt) && modifiedAt >= requestedAt;
+  });
+}
+
+async function pendingSatisfiedByDir(dir, pending) {
+  const fileStats = await listAllowedFiles(dir);
+  return pendingSatisfiedByDocuments(pending, documentsFromFileStats(fileStats));
+}
+
+/* How long a non-terminal pending may sit without a fresh heartbeat before
+ * the dossier treats it as stalled. The watcher updates pending.json's
+ * progress (updated_at / elapsed_seconds) as it works, so a long-dead
+ * heartbeat means the draft process died or wedged. Aligned with the
+ * dashboard poller's 30-minute cap: past this, a spinner is a lie. */
+const STALE_PENDING_MS = 30 * 60 * 1000;
+
+/* The watcher leaves pending_error.json when a draft produced no usable
+ * output (model returned empty, PDF render failed, …). It does NOT flip
+ * pending.json's phase to "failed", so without reconciliation the dossier
+ * spins forever. Returns the normalised failure record or null. */
+async function readPendingError(dir) {
+  const errorPath = join(dir, "pending_error.json");
+  if (!existsSync(errorPath)) return null;
+  try {
+    const raw = JSON.parse(await readFile(errorPath, "utf8"));
+    const writtenAt = typeof raw.written_at === "string" ? raw.written_at : "";
+    const writtenAtMs = Date.parse(writtenAt);
+    return {
+      writtenAt,
+      writtenAtMs: Number.isFinite(writtenAtMs) ? writtenAtMs : NaN,
+      summary: typeof raw.summary === "string" ? raw.summary : "",
+      feature: typeof raw.feature === "string" ? raw.feature : "",
+      company: typeof raw.company === "string" ? raw.company : "",
+      title: typeof raw.title === "string" ? raw.title : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/* Most recent moment the watcher touched a request: its last progress
+ * heartbeat, else when work started, else when it was requested. */
+function pendingHeartbeatMs(pending) {
+  const candidates = [
+    pending && pending.progress && pending.progress.updatedAt,
+    pending && pending.progress && pending.progress.startedAt,
+    pending && pending.requestedAt,
+  ];
+  let best = NaN;
+  for (const candidate of candidates) {
+    const t = Date.parse(String(candidate || ""));
+    if (Number.isFinite(t) && (!Number.isFinite(best) || t > best)) best = t;
+  }
+  return best;
+}
+
+/* A pending request is stale when it's still mid-flight (non-terminal) but
+ * hasn't been touched within STALE_PENDING_MS. */
+function isPendingStale(pending, nowMs) {
+  if (isTerminalPending(pending)) return false;
+  const heartbeat = pendingHeartbeatMs(pending);
+  if (!Number.isFinite(heartbeat)) return false;
+  return nowMs - heartbeat > STALE_PENDING_MS;
+}
+
+/* Does a recorded failure belong to the live request rather than a
+ * superseded earlier attempt? The error is current when it was written
+ * at/after the request landed. With no request timestamp to compare, trust
+ * the failure (better an honest error than a phantom spinner). */
+function failureMatchesPending(failure, pending) {
+  if (!failure || !Number.isFinite(failure.writtenAtMs)) return false;
+  const requestedAt = pendingRequestedAtMs(pending);
+  if (!Number.isFinite(requestedAt)) return true;
+  return failure.writtenAtMs >= requestedAt;
+}
+
+/* A failure is superseded when the docs it was meant to produce now exist
+ * and are newer than the failure — i.e. a later attempt succeeded. */
+function failureSupersededByDocuments(failure, documents) {
+  return pendingSatisfiedByDocuments(
+    { feature: failure.feature, progress: { phase: "failed" }, requestedAt: failure.writtenAt },
+    documents,
+  );
+}
+
+function failedProgress(prior, message) {
+  const base = prior || {};
+  return {
+    phase: "failed",
+    message,
+    startedAt: typeof base.startedAt === "string" ? base.startedAt : "",
+    updatedAt: typeof base.updatedAt === "string" ? base.updatedAt : "",
+    attempt: Number.isFinite(base.attempt) ? base.attempt : 1,
+    elapsedSeconds: Number.isFinite(base.elapsedSeconds) ? base.elapsedSeconds : 0,
+  };
+}
+
+/* Fold a watcher failure or a stall into a pending request's progress so
+ * the dossier renders an actionable FAILED card (Retry / Dismiss) rather
+ * than an endless spinner. Mutates and returns `pending`. */
+function reconcilePendingFailure(pending, failure, nowMs) {
+  if (!pending || isTerminalPending(pending)) return pending;
+  if (failureMatchesPending(failure, pending)) {
+    pending.progress = failedProgress(
+      pending.progress,
+      displayProgressMessage(failure.summary) || "Draft failed before any files were produced.",
+    );
+  } else if (isPendingStale(pending, nowMs)) {
+    pending.progress = failedProgress(
+      pending.progress,
+      "Draft stalled — no progress for over 30 minutes. Try again or dismiss.",
+    );
+  }
+  return pending;
+}
+
+/* Build a minimal failed pending from a failure record alone, for when the
+ * watcher already removed pending.json but left pending_error.json. */
+function synthesizeFailedPending(failure) {
+  return {
+    feature: failure.feature || "",
+    company: failure.company || "",
+    title: failure.title || "",
+    jobUrl: "",
+    requestedAt: failure.writtenAt || "",
+    telegramMessageId: null,
+    notes: "",
+    source: "",
+    progress: failedProgress(
+      null,
+      displayProgressMessage(failure.summary) || "Draft failed before any files were produced.",
+    ),
+  };
+}
+
 /**
  * Resolve and validate the absolute directory for a given slug.
  *
@@ -224,31 +427,7 @@ export async function buildManifest(slug, { root } = {}) {
     }
   }
   const fileStats = await listAllowedFiles(dir);
-  const documents = [];
-  for (const def of DOC_TYPES) {
-    const present = def.files
-      .map((f) => fileStats.get(f))
-      .filter(Boolean);
-    if (!present.length) continue;
-    const primaryFile = fileStats.get(def.primary) || present[0];
-    const lastModifiedAt = present.reduce(
-      (acc, s) => (s.modifiedAt > acc ? s.modifiedAt : acc),
-      "",
-    );
-    documents.push({
-      type: def.type,
-      label: def.label,
-      status: "ready",
-      primary: primaryFile.filename,
-      files: present.map((s) => ({
-        filename: s.filename,
-        format: s.format,
-        size: s.size,
-        modifiedAt: s.modifiedAt,
-      })),
-      lastModifiedAt,
-    });
-  }
+  const documents = documentsFromFileStats(fileStats);
 
   const updatedAt = documents.reduce(
     (acc, d) => (d.lastModifiedAt > acc ? d.lastModifiedAt : acc),
@@ -284,10 +463,13 @@ export async function buildManifest(slug, { root } = {}) {
    * Hermes side deletes it once the drafts ship; until then we expose
    * it so the UI shows a "Generating…" status on the affected cards. */
   const pendingPath = join(dir, "pending.json");
+  const failure = await readPendingError(dir);
+  const nowMs = Date.now();
+  let pendingFromFile = null;
   if (existsSync(pendingPath)) {
     try {
       const pendingRaw = JSON.parse(await readFile(pendingPath, "utf8"));
-      out.pending = {
+      const pending = {
         feature: typeof pendingRaw.feature === "string" ? pendingRaw.feature : "",
         /* Pass through the role identity so the dossier card's "company ·
          * title · feature" line renders correctly. Without these, the
@@ -313,7 +495,7 @@ export async function buildManifest(slug, { root } = {}) {
        * the schema independently. */
       if (pendingRaw.progress && typeof pendingRaw.progress === "object") {
         const p = pendingRaw.progress;
-        out.pending.progress = {
+        pending.progress = {
           phase: typeof p.phase === "string" ? p.phase : "",
           message: displayProgressMessage(p.message),
           startedAt: typeof p.started_at === "string" ? p.started_at : "",
@@ -322,9 +504,24 @@ export async function buildManifest(slug, { root } = {}) {
           elapsedSeconds: Number.isFinite(p.elapsed_seconds) ? p.elapsed_seconds : 0,
         };
       }
+      /* Reconcile a watcher failure / stall into the phase so the dossier
+       * shows an actionable FAILED card instead of an eternal spinner. */
+      reconcilePendingFailure(pending, failure, nowMs);
+      pendingFromFile = pending;
     } catch {
-      /* malformed pending.json: treat as no pending state */
+      /* malformed/empty pending.json: fall through to the failure path so
+       * an accompanying pending_error.json still surfaces. */
     }
+  }
+  if (pendingFromFile) {
+    if (!pendingSatisfiedByDocuments(pendingFromFile, documents)) {
+      out.pending = pendingFromFile;
+    }
+  } else if (failure && !failureSupersededByDocuments(failure, documents)) {
+    /* No usable pending.json, but the watcher left a failure behind (or
+     * emptied pending.json mid-sync). Surface it so the user learns why and
+     * can retry, rather than seeing a silently empty Materials box. */
+    out.pending = synthesizeFailedPending(failure);
   }
   return out;
 }
@@ -398,6 +595,7 @@ export async function listPendingQueue({ root } = {}) {
     } catch {
       continue;
     }
+    if (await pendingSatisfiedByDir(join(base, entry.name), raw)) continue;
     items.push({
       slug: String(raw.slug || entry.name),
       company: String(raw.company || ""),
@@ -479,15 +677,27 @@ export async function resolveFile(slug, filename, { root } = {}) {
 export async function dismissPending(slug, { root } = {}) {
   const dir = await resolveApplicationDir(slug, { root });
   const pendingPath = join(dir, "pending.json");
+  const errorPath = join(dir, "pending_error.json");
   if (!pendingPath.startsWith(dir + sep)) {
     throw httpError("Path escape detected", 400);
   }
-  if (!existsSync(pendingPath)) {
+  const hasPending = existsSync(pendingPath);
+  const hasError = existsSync(errorPath);
+  /* A FAILED card can be backed by pending.json (stalled / reconciled
+   * failure) or by pending_error.json alone (watcher cleared pending.json
+   * but left the failure). Dismiss must clear whichever exists. */
+  if (!hasPending && !hasError) {
     throw httpError("No pending request to dismiss", 404);
   }
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
-  const archivePath = join(dir, `pending.json.dismissed.${stamp}`);
-  await rename(pendingPath, archivePath);
+  const archivePath = hasPending
+    ? join(dir, `pending.json.dismissed.${stamp}`)
+    : join(dir, `pending_error.json.dismissed.${stamp}`);
+  if (hasPending) await rename(pendingPath, join(dir, `pending.json.dismissed.${stamp}`));
+  /* Archive the failure record too. Otherwise a lingering pending_error.json
+   * would re-synthesise a FAILED card on the next manifest build and Dismiss
+   * would appear to do nothing. */
+  if (hasError) await rename(errorPath, join(dir, `pending_error.json.dismissed.${stamp}`));
   return { archivePath, dismissedAt: new Date().toISOString() };
 }
 
