@@ -122,6 +122,18 @@ describe("v2 top-bar brand — official assets", () => {
     }
   });
 
+  it("the login-gate thinking mascot fallback assets actually exist on disk", () => {
+    const assetDir = join(repoRoot, "assets", "chrome");
+    for (const file of [
+      "jobbored-mascot-thinking.webp",
+      "jobbored-mascot-thinking.png",
+      "jobbored-mascot-thinking@2x.png",
+    ]) {
+      const bytes = readFileSync(join(assetDir, file));
+      assert.ok(bytes.length > 1000, file + " must exist and be non-trivial");
+    }
+  });
+
   it("the wordmark SVG matches the brand kit (Futura/Caveat fonts, two <text> elements, no background <rect>)", () => {
     assert.match(chromeJs, /var\s+WORDMARK_SVG\s*=/);
     /* Brand-kit fonts (light/dark SVGs at exports/01-wordmark) */

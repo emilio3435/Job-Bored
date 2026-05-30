@@ -35,6 +35,7 @@ import {
   readWorkerConfigSheetId,
   repoRoot,
   stateDir,
+  workerConfigPath,
   writeExpiredCleanupScheduleBreadcrumb,
 } from "./lib/schedule.mjs";
 
@@ -454,7 +455,7 @@ function main() {
   }
   const sheetId = resolveSheetId(args);
   if (!sheetId) {
-    fail("sheetId is required. Pass --sheet-id or set it in .env/worker-config.json.");
+    fail(`sheetId is required. Pass --sheet-id or set it in ${envPath} or ${workerConfigPath}.`);
   }
   const os = platform();
   if (os === "darwin") installDarwin(args, sheetId);

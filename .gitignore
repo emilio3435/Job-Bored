@@ -7,6 +7,10 @@ server/node_modules/
 server/.env
 .cursor/
 *.png
+!assets/chrome/jobbored-mascot-rocket.png
+!assets/chrome/jobbored-mascot-rocket@2x.png
+!assets/chrome/jobbored-mascot-thinking.png
+!assets/chrome/jobbored-mascot-thinking@2x.png
 .gstack/
 discovery-local-bootstrap.json
 integrations/browser-use-discovery/state/*
@@ -16,6 +20,8 @@ integrations/browser-use-discovery/worker.log
 integrations/browser-use-discovery/.env
 integrations/browser-use-discovery/.env.*
 integrations/browser-use-discovery/service-account-key.json
+# Root package-lock owns the worker package; ignore accidental nested locks.
+integrations/browser-use-discovery/package-lock.json
 .claude/
 brief-mockup.html
 /uploads/
@@ -24,6 +30,8 @@ docs/redesign/logs/
 integrations/hermes-job-hunt/applications/
 integrations/hermes-job-hunt/state/
 integrations/hermes-job-hunt/evidence/
+integrations/hermes-job-hunt/.env
+integrations/hermes-job-hunt/.env.*
 __pycache__/
 *.pyc
 integrations/hermes-job-hunt/tests/tmp-app/

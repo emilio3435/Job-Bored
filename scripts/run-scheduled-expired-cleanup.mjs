@@ -3,7 +3,7 @@
  * Run the expired-job cleanup with scheduler-friendly env loading.
  *
  * Local schedulers do not inherit the interactive shell environment, so this
- * wrapper loads integrations/browser-use-discovery/.env before invoking the
+ * wrapper loads the packaged worker env file before invoking the
  * same cleanup runner exposed by npm run cleanup:expired-jobs.
  *
  * `--total-timeout-ms` bounds the entire scheduled execution; the scheduler
@@ -21,6 +21,7 @@ import {
   normalizeSheetIdCandidate,
   readWorkerConfigSheetId,
   repoRoot,
+  workerConfigPath,
 } from "./lib/schedule.mjs";
 
 const FAIL_PREFIX = "scheduled-expired-cleanup";
@@ -210,7 +211,7 @@ async function main() {
   for (const [k, v] of Object.entries(env)) process.env[k] = v;
   const sheetId = resolveSheetId(args, env);
   if (!sheetId) {
-    fail("sheetId is required. Pass --sheet-id or set it in .env/worker-config.json.");
+    fail(`sheetId is required. Pass --sheet-id or set it in ${envPath} or ${workerConfigPath}.`);
   }
 
   const child = buildScheduledExpiredCleanupCommand(args, sheetId);

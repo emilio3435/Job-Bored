@@ -136,7 +136,8 @@ Environment variables:
 - `BROWSER_USE_DISCOVERY_ALLOWED_ORIGINS`: comma/newline/semicolon-separated allowed origins
 - `BROWSER_USE_DISCOVERY_ASYNC_ACK`: `true` by default
 - `BROWSER_USE_DISCOVERY_MAX_RUN_DURATION_MS`: async run watchdog, defaults to `3600000` (60 minutes)
-- `BROWSER_USE_DISCOVERY_CONFIG_PATH`: path to worker config JSON
+- `BROWSER_USE_DISCOVERY_WORKER_CONFIG` / `BROWSER_USE_DISCOVERY_CONFIG_PATH`: path to worker config JSON, defaults to `~/.jobbored/browser-use-discovery/worker-config.json`
+- `BROWSER_USE_DISCOVERY_WORKER_ENV` / `BROWSER_USE_DISCOVERY_ENV_FILE`: path to the ignored local env file, defaults to `~/.jobbored/browser-use-discovery/.env`
 - `BROWSER_USE_DISCOVERY_STATE_DB_PATH`: path to the worker state database
 - `BROWSER_USE_DISCOVERY_BROWSER_COMMAND`: optional browser automation command; when unset, the worker first tries the bundled `integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs` wrapper if it exists, then falls back to plain `browser-use`, and finally falls back to direct fetch on command failure
 - `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`: optional Gemini key for grounded Google Search expansion
@@ -224,14 +225,22 @@ ATS adapters still handle Greenhouse, Lever, and Ashby directly. `grounded_web` 
 Example:
 
 ```bash
+npm run setup:discovery
+
 BROWSER_USE_DISCOVERY_RUN_MODE=local \
-BROWSER_USE_DISCOVERY_CONFIG_PATH="$PWD/integrations/browser-use-discovery/state/worker-config.json" \
-BROWSER_USE_DISCOVERY_STATE_DB_PATH="$PWD/integrations/browser-use-discovery/state/worker-state.sqlite" \
+BROWSER_USE_DISCOVERY_WORKER_CONFIG="$HOME/.jobbored/browser-use-discovery/worker-config.json" \
+BROWSER_USE_DISCOVERY_WORKER_ENV="$HOME/.jobbored/browser-use-discovery/.env" \
+BROWSER_USE_DISCOVERY_CONFIG_PATH="$HOME/.jobbored/browser-use-discovery/worker-config.json" \
+BROWSER_USE_DISCOVERY_STATE_DB_PATH="$HOME/.jobbored/browser-use-discovery/worker-state.sqlite" \
 BROWSER_USE_DISCOVERY_BROWSER_COMMAND="$PWD/integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs" \
 BROWSER_USE_DISCOVERY_GEMINI_API_KEY="$GEMINI_API_KEY" \
 BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE="$PWD/service-account.json" \
 node --experimental-strip-types integrations/browser-use-discovery/src/server.ts
 ```
+
+The repo-level `integrations/browser-use-discovery/package.json` is a script
+surface only; root `package-lock.json` owns dependency installation for the
+worker. Do not commit a nested `integrations/browser-use-discovery/package-lock.json`.
 
 The bundled `browser-use-agent-browser.mjs` adapter wraps the local `agent-browser`
 CLI and speaks the worker's JSON-over-stdin/stdout contract. When

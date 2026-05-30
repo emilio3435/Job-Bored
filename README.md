@@ -21,18 +21,72 @@ A beautiful, open-source job search dashboard powered by Google Sheets. Track ap
 
 ## Quick Start
 
+Use Node.js 24.x and npm 11.x (see `.nvmrc` / `.node-version`). The packaged
+defaults are:
+
+- Repo: `~/Job-Bored` unless `JOBBORED_REPO` points at another clone/worktree.
+- Local JobBored state: `~/.jobbored/`.
+- Optional Hermes materials runtime: `~/.hermes/job-hunt/`.
+
+### Path 1: dashboard-only Google Sheet
+
+This is the core OSS path. It works without the discovery worker or Hermes.
+
+```bash
+git clone https://github.com/emilio3435/command-center.git ~/Job-Bored
+cd ~/Job-Bored
+npm run setup
+npm run web-only
+```
+
+Then open **http://localhost:8080**, add your Sheet ID and OAuth Client ID in
+Settings, and sign in with Google. `npm run setup` installs dependencies and
+creates a placeholder-only `config.js`; it does not require automation.
+
+### Path 2: local discovery worker
+
+Use this when you want the **Run discovery** button or scheduled local refreshes.
+
+```bash
+npm run setup:discovery
+npm run discovery:worker:start-local
+npm run web-only
+```
+
+`setup:discovery` creates local worker config/env files under
+`~/.jobbored/browser-use-discovery/`. Put real local secrets only in that ignored
+env file, for example `SERPAPI_API_KEY`, `BROWSER_USE_DISCOVERY_WEBHOOK_SECRET`,
+or a Google service-account path. The dashboard-only app remains usable if the
+worker is not running; discovery controls show connection status instead of
+blocking the board.
+
+The root `package-lock.json` owns worker dependencies; do not commit a nested
+`integrations/browser-use-discovery/package-lock.json`.
+
+### Path 3: optional Hermes materials workflow
+
+Hermes is optional and local-only. It prepares resume/cover-letter materials for
+manual review; automated submit remains shelved unless Emilio explicitly asks
+`ASSIST APPLY <company>`.
+
+```bash
+npm run setup:hermes
+npm run doctor:hermes
+```
+
+This creates/uses `~/.hermes/job-hunt`, creates `.venv`, installs
+`integrations/hermes-job-hunt/requirements.txt`, and verifies Google Python
+dependencies, worker config, Sheet-read readiness when a read token is provided,
+and materials folders.
+
 ### Local run (dashboard + job scraper, one terminal)
 
 If you cloned the repo and want the **Cheerio “Fetch posting”** feature without a second terminal:
-
-Requires **Node.js 24.x** and npm 11.x (see `.nvmrc` / `.node-version`).
 
 ```bash
 npm install
 npm start
 ```
-
-Or run **`./start.sh`** (macOS/Linux) or double-click **`start.command`** in Finder — same as `npm start`; first run installs dependencies if needed.
 
 Then open **http://localhost:8080**. This installs dependencies for `server/` automatically and runs the UI plus **http://127.0.0.1:3847** together. You can leave **`jobPostingScrapeUrl`** empty in `config.js` on localhost — the app defaults to the local scraper.
 The same local server now also provides **`POST /api/ats-scorecard`** when ATS mode is set to `server`.
@@ -220,7 +274,7 @@ When the worker accepts an async run, it may return `statusPath` for `/runs/:run
 
 1. Create a free account at [serpapi.com](https://serpapi.com/users/sign_up). The free tier includes **100 searches per month** (~20 daily discovery runs). Paid tier: $50/month for 5000 searches.
 2. Copy your API key from the [SerpApi dashboard](https://serpapi.com/manage-api-key).
-3. Add it to `integrations/browser-use-discovery/.env`:
+3. Add it to `~/.jobbored/browser-use-discovery/.env`:
    ```
    SERPAPI_API_KEY=your-key-here
    ```
@@ -389,10 +443,15 @@ PRs welcome. Keep it simple — no build tools, no frameworks, minimal CDN use (
 
 MIT
 
-## One-line setup
+## Setup and doctor commands
 
 ```bash
-npm run setup:auto
+npm run setup            # dashboard-only
+npm run setup:discovery  # add local worker config/env under ~/.jobbored
+npm run setup:hermes     # optional materials workflow under ~/.hermes/job-hunt
+npm run doctor
+npm run doctor:hermes
 ```
 
-This installs/refreshes repo dependencies and starts the local discovery bootstrap flow. For read-only diagnostics before or after setup, run `npm run doctor`.
+`npm run setup:auto` is kept for the older local tunnel/bootstrap flow. New OSS
+users should start with the explicit path that matches what they want to run.

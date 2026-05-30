@@ -6,6 +6,7 @@ Single source of truth for the universal form filler.
 All candidate data, answer strategies, and resume/cover-letter paths live here.
 """
 
+import os
 from pathlib import Path
 
 # ─── Candidate identity ──────────────────────────────────────────────
@@ -107,8 +108,13 @@ WHY_INTERESTED_TEMPLATE = (
 
 # ─── File paths ──────────────────────────────────────────────────────
 
-JHOS_ROOT = Path.home() / ".hermes" / "job-hunt"
-APPLICATIONS_DIR = JHOS_ROOT / "applications"
+def env_path(name, default):
+    return Path(os.environ.get(name) or default).expanduser()
+
+
+HERMES_HOME = env_path("HERMES_HOME", Path.home() / ".hermes")
+JHOS_ROOT = env_path("HERMES_JOB_HUNT_HOME", HERMES_HOME / "job-hunt")
+APPLICATIONS_DIR = env_path("HERMES_APPLICATIONS_DIR", JHOS_ROOT / "applications")
 PROFILE_DIR = JHOS_ROOT / "profile"
 
 

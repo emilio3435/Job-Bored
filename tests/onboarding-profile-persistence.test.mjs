@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const indexHtml = readFileSync(join(repoRoot, "index.html"), "utf8");
+const styleCss = readFileSync(join(repoRoot, "style.css"), "utf8");
 const userContentStoreJs = readFileSync(
   join(repoRoot, "user-content-store.js"),
   "utf8",
@@ -49,6 +51,53 @@ describe("Clear settings boundary", () => {
       !configBody.includes("indexedDB"),
       "readStoredConfigOverrides should NOT use IndexedDB",
     );
+  });
+});
+
+// ============================================================
+// Tests: Onboarding Mascot Poses
+// ============================================================
+
+describe("Onboarding mascot poses", () => {
+  it("uses bundled mascot pose assets for the onboarding steps", () => {
+    const posePaths = [
+      "assets/jobbored-brand-mascot-kit/exports/04-mascot-poses/pose-02-resume-review.webp",
+      "assets/jobbored-brand-mascot-kit/exports/04-mascot-poses/pose-01-laptop-thinking.webp",
+      "assets/jobbored-brand-mascot-kit/exports/04-mascot-poses/pose-03-writing-notes.webp",
+      "assets/jobbored-brand-mascot-kit/exports/04-mascot-poses/pose-07-celebrating.webp",
+    ];
+
+    assert.match(
+      indexHtml,
+      /id="onboardingMascotPose"/,
+      "onboarding wizard should expose a swappable mascot image",
+    );
+    assert.match(
+      styleCss,
+      /onboarding-wizard__mascot-frame/,
+      "onboarding wizard should frame the mascot asset",
+    );
+    assert.match(
+      appJs,
+      /const ONBOARDING_MASCOT_POSES = \{/,
+      "app should map onboarding steps to mascot poses",
+    );
+    assert.match(
+      appJs,
+      /updateOnboardingMascotPose\(step\)/,
+      "setOnboardingStep should update the mascot pose",
+    );
+
+    for (const posePath of posePaths) {
+      assert.ok(
+        appJs.includes(posePath) || indexHtml.includes(posePath),
+        `${posePath} should be referenced by onboarding`,
+      );
+      assert.ok(
+        existsSync(join(repoRoot, posePath)),
+        `${posePath} should be bundled in the app`,
+      );
+    }
   });
 });
 

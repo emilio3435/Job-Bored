@@ -6,6 +6,7 @@ import net from "node:net";
 import { join, resolve } from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
+import { displayPath, resolveJobBoredPaths } from "./lib/paths.mjs";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const REQUIRED_NODE_MAJOR = 24;
@@ -13,6 +14,7 @@ const PIPELINE_SCHEMA_PATH = "schemas/pipeline-row.v1.json";
 const CONFIG_PATH = "config.js";
 const CONFIG_EXAMPLE_PATH = "config.example.js";
 const WORKER_ENV_PATH = "integrations/browser-use-discovery/.env";
+const INTEGRATION_LOCK_PATH = "integrations/browser-use-discovery/package-lock.json";
 
 function firstLine(value) {
   return String(value || "")
@@ -50,6 +52,10 @@ function runCommand(spawnSyncImpl, command, args = []) {
   } catch (error) {
     return { status: 1, stdout: "", stderr: "", error };
   }
+}
+
+function runCommandInRepo(spawnSyncImpl, repoRoot, command, args = []) {
+  return runCommand(spawnSyncImpl, command, ["-C", repoRoot, ...args]);
 }
 
 function detectTool(spawnSyncImpl, command, args = ["--version"]) {
@@ -162,6 +168,315 @@ function isHttpsUrl(raw) {
   }
 }
 
+function isPlaceholderValue(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return true;
+  return /YOUR_|PASTE_|placeholder|example|paste-your|your-key|your-sheet|your-client/i.test(
+    value,
+  );
+}
+
+function isSensitiveConfigKey(key) {
+  return /secret|token|api[_-]?key|service[_-]?account/i.test(String(key || ""));
+}
+
+function isLocalConfigKey(key) {
+  return /sheetId|oauthClientId|webhookUrl|scrapeUrl|serverUrl|client_id/i.test(
+    String(key || ""),
+  );
+}
+
+function collectAssignmentsFromText(text) {
+  const assignments = [];
+  const envLine = /^([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*(.*)$/gm;
+  let match;
+  while ((match = envLine.exec(text))) {
+    assignments.push({
+      key: match[1],
+      value: String(match[2] || "").trim().replace(/^['"]|['"]$/g, ""),
+    });
+  }
+
+  const jsPair = /([A-Za-z0-9_]*?(?:sheetId|oauthClientId|WebhookUrl|ScrapeUrl|ServerUrl|ApiKey|Secret|Token|ClientId)[A-Za-z0-9_]*)[ \t]*:[ \t]*["'`]([^"'`]+)["'`]/g;
+  while ((match = jsPair.exec(text))) {
+    assignments.push({ key: match[1], value: match[2] });
+  }
+
+  try {
+    const parsed = JSON.parse(text);
+    const visit = (value, prefix = "") => {
+      if (!value || typeof value !== "object") return;
+      if (Array.isArray(value)) {
+        value.forEach((item, index) => visit(item, `${prefix}[${index}]`));
+        return;
+      }
+      for (const [key, child] of Object.entries(value)) {
+        const path = prefix ? `${prefix}.${key}` : key;
+        if (typeof child === "string") {
+          assignments.push({ key: path, value: child });
+        } else {
+          visit(child, path);
+        }
+      }
+    };
+    visit(parsed);
+  } catch (_) {
+    // non-JSON config
+  }
+
+  return assignments;
+}
+
+function suspiciousAssignments(text) {
+  return collectAssignmentsFromText(text)
+    .filter((item) => !isPlaceholderValue(item.value))
+    .filter((item) => isSensitiveConfigKey(item.key) || isLocalConfigKey(item.key))
+    .map((item) => item.key);
+}
+
+async function trackedFiles(repoRoot, spawnSyncImpl, candidates) {
+  const result = runCommandInRepo(spawnSyncImpl, repoRoot, "git", [
+    "ls-files",
+    ...candidates,
+  ]);
+  if (result.error || result.status !== 0) return [];
+  return String(result.stdout || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+async function collectTrackedConfigChecks(repoRoot, spawnSyncImpl) {
+  const candidates = [
+    "config.js",
+    "config.example.js",
+    ".env",
+    "server/.env",
+    "integrations/browser-use-discovery/.env",
+    "integrations/browser-use-discovery/.env.example",
+    "integrations/browser-use-discovery/state/worker-config.json",
+    "integrations/browser-use-discovery/service-account-key.json",
+  ];
+  const files = await trackedFiles(repoRoot, spawnSyncImpl, candidates);
+  if (!files.length) {
+    return [
+      check(
+        "info",
+        "tracked config scan",
+        "No tracked local config files were found among known secret-bearing paths.",
+      ),
+    ];
+  }
+
+  const findings = [];
+  for (const file of files) {
+    const text = await readTextIfExists(repoRoot, file);
+    const keys = suspiciousAssignments(text);
+    if (keys.length) {
+      findings.push({ file, keys: [...new Set(keys)] });
+    }
+  }
+
+  if (!findings.length) {
+    return [
+      check(
+        "ok",
+        "tracked config scan",
+        "Tracked config/example files contain placeholders or empty values only.",
+      ),
+    ];
+  }
+
+  return findings.map((finding) =>
+    check(
+      "warn",
+      "tracked config scan",
+      `Tracked ${finding.file} appears to contain configured local values (${finding.keys.join(", ")}); values are redacted.`,
+      { file: finding.file, keys: finding.keys },
+    ),
+  );
+}
+
+function collectPathChecks(repoRoot, env) {
+  const paths = resolveJobBoredPaths({ env, repoRoot });
+  return {
+    paths,
+    checks: [
+      check(
+        "ok",
+        "repo path",
+        `JOBBORED_REPO resolves to ${displayPath(paths.jobBoredRepo)}.`,
+      ),
+      check(
+        existsSync(paths.jobBoredHome) ? "ok" : "info",
+        "state home",
+        existsSync(paths.jobBoredHome)
+          ? `JobBored local state home exists at ${displayPath(paths.jobBoredHome)}.`
+          : `JobBored local state home will be created at ${displayPath(paths.jobBoredHome)} by npm run setup.`,
+      ),
+      check(
+        "info",
+        "worker paths",
+        `Discovery worker config/env default to ${displayPath(paths.workerConfig)} and ${displayPath(paths.workerEnv)}.`,
+      ),
+    ],
+  };
+}
+
+async function collectDiscoveryPackagingChecks(repoRoot, paths) {
+  const checks = [];
+  checks.push(
+    check(
+      existsSync(paths.workerConfig) ? "ok" : "info",
+      "worker config path",
+      existsSync(paths.workerConfig)
+        ? `Worker config exists at ${displayPath(paths.workerConfig)}.`
+        : `Worker config is not created yet; run npm run setup:discovery to create ${displayPath(paths.workerConfig)}.`,
+    ),
+  );
+  checks.push(
+    check(
+      existsSync(paths.workerEnv) ? "ok" : "info",
+      "worker env path",
+      existsSync(paths.workerEnv)
+        ? `Worker env file exists at ${displayPath(paths.workerEnv)}.`
+        : `Worker env file is not created yet; run npm run setup:discovery to create ${displayPath(paths.workerEnv)}.`,
+    ),
+  );
+
+  const integrationLock = join(repoRoot, INTEGRATION_LOCK_PATH);
+  checks.push(
+    check(
+      existsSync(integrationLock) ? "warn" : "ok",
+      "discovery lockfile policy",
+      existsSync(integrationLock)
+        ? `${INTEGRATION_LOCK_PATH} exists; this repo policy is root package-lock ownership, so keep this file ignored or remove it.`
+        : "Root package-lock owns Browser Use worker dependency installation; integration package-lock is intentionally absent/ignored.",
+    ),
+  );
+  return checks;
+}
+
+async function readWorkerSheetId(paths) {
+  if (!existsSync(paths.workerConfig)) return "";
+  try {
+    const parsed = JSON.parse(await readFile(paths.workerConfig, "utf8"));
+    return normalizeSheetId(parsed.sheetId);
+  } catch (_) {
+    return "";
+  }
+}
+
+async function collectHermesChecks({ repoRoot, env, spawnSyncImpl, fetchImpl, paths, expectedHeaders }) {
+  const checks = [];
+  const hermesExists = existsSync(paths.hermesJobHuntHome);
+  checks.push(
+    check(
+      hermesExists ? "ok" : "info",
+      "hermes home",
+      hermesExists
+        ? `Hermes job-hunt home exists at ${displayPath(paths.hermesJobHuntHome)}.`
+        : `Optional Hermes job-hunt home is not installed; run npm run setup:hermes to create ${displayPath(paths.hermesJobHuntHome)}.`,
+    ),
+  );
+  if (!hermesExists) return checks;
+
+  const venvPython = join(paths.hermesJobHuntHome, ".venv", "bin", "python");
+  checks.push(
+    check(
+      existsSync(venvPython) ? "ok" : "warn",
+      "hermes venv",
+      existsSync(venvPython)
+        ? "Hermes .venv exists."
+        : "Hermes .venv is missing; run npm run setup:hermes.",
+    ),
+  );
+
+  if (existsSync(venvPython)) {
+    const result = runCommand(spawnSyncImpl, venvPython, [
+      "-c",
+      "import googleapiclient, google.auth, google_auth_oauthlib",
+    ]);
+    checks.push(
+      check(
+        !result.error && result.status === 0 ? "ok" : "warn",
+        "hermes google deps",
+        !result.error && result.status === 0
+          ? "Hermes Google Python dependencies import successfully."
+          : "Hermes Google Python dependencies are missing or not importable; rerun npm run setup:hermes.",
+      ),
+    );
+  } else {
+    checks.push(check("skip", "hermes google deps", "Skipped: Hermes .venv missing."));
+  }
+
+  const folders = [
+    ["applications", paths.hermesApplicationsDir],
+    ["profile", join(paths.hermesJobHuntHome, "profile")],
+    ["resume-template", join(paths.hermesJobHuntHome, "resume-template")],
+    ["cover-letter-template", join(paths.hermesJobHuntHome, "cover-letter-template")],
+  ];
+  for (const [name, pathname] of folders) {
+    checks.push(
+      check(
+        existsSync(pathname) ? "ok" : "warn",
+        `hermes ${name}`,
+        existsSync(pathname)
+          ? `${name} folder exists.`
+          : `${name} folder is missing from ${displayPath(paths.hermesJobHuntHome)}.`,
+      ),
+    );
+  }
+
+  checks.push(
+    check(
+      existsSync(paths.workerConfig) ? "ok" : "warn",
+      "hermes worker config",
+      existsSync(paths.workerConfig)
+        ? `Hermes will read worker config from ${displayPath(paths.workerConfig)}.`
+        : `Hermes cannot find worker config at ${displayPath(paths.workerConfig)}.`,
+    ),
+  );
+
+  const sheetId = await readWorkerSheetId(paths);
+  const sheetToken = env.JOBBORED_DOCTOR_GOOGLE_ACCESS_TOKEN || env.GOOGLE_ACCESS_TOKEN || "";
+  if (!sheetId || sheetId === "YOUR_SHEET_ID_HERE") {
+    checks.push(check("skip", "hermes sheet read", "Skipped: no Sheet ID in worker config."));
+  } else if (!sheetToken || typeof fetchImpl !== "function") {
+    checks.push(
+      check(
+        "skip",
+        "hermes sheet read",
+        "Skipped: provide JOBBORED_DOCTOR_GOOGLE_ACCESS_TOKEN for a read-only Pipeline header check.",
+      ),
+    );
+  } else {
+    const headerResult = await fetchSheetHeaders({
+      sheetId,
+      token: sheetToken,
+      fetchImpl,
+    }).catch((error) => ({
+      ok: false,
+      error: error && error.message ? error.message : String(error),
+    }));
+    checks.push(
+      check(
+        headerResult.ok && headersMatch(headerResult.headers, expectedHeaders)
+          ? "ok"
+          : "warn",
+        "hermes sheet read",
+        headerResult.ok
+          ? headersMatch(headerResult.headers, expectedHeaders)
+            ? "Hermes worker Sheet read matches the Pipeline schema."
+            : "Hermes worker Sheet read succeeded but headers differ from the Pipeline schema."
+          : `Could not read Pipeline headers${headerResult.status ? ` (HTTP ${headerResult.status})` : ""}.`,
+      ),
+    );
+  }
+
+  return checks;
+}
+
 function headersMatch(actual, expected) {
   if (!Array.isArray(actual) || actual.length < expected.length) return false;
   return expected.every(
@@ -232,7 +547,10 @@ async function runDoctor(options = {}) {
   const spawnSyncImpl = options.spawnSyncImpl || spawnSync;
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const checkPortImpl = options.checkPortImpl || defaultCheckPort;
+  const includeHermes = Boolean(options.includeHermes);
   const checks = [];
+  const pathReport = collectPathChecks(repoRoot, env);
+  const paths = pathReport.paths;
 
   const nodeMajor = parseNodeMajor(process.version);
   checks.push(
@@ -274,6 +592,9 @@ async function runDoctor(options = {}) {
       `.nvmrc=${nvmrc.trim() || "missing"} .node-version=${nodeVersion.trim() || "missing"}.`,
     ),
   );
+
+  checks.push(...pathReport.checks);
+  checks.push(...(await collectTrackedConfigChecks(repoRoot, spawnSyncImpl)));
 
   const config = await loadConfig(repoRoot);
   if (config.error) {
@@ -490,6 +811,21 @@ async function runDoctor(options = {}) {
     );
   }
 
+  checks.push(...(await collectDiscoveryPackagingChecks(repoRoot, paths)));
+
+  if (includeHermes) {
+    checks.push(
+      ...(await collectHermesChecks({
+        repoRoot,
+        env,
+        spawnSyncImpl,
+        fetchImpl,
+        paths,
+        expectedHeaders,
+      })),
+    );
+  }
+
   checks.push(...(await collectPortChecks(checkPortImpl)));
 
   return {
@@ -513,13 +849,14 @@ function formatDoctorReport(report) {
 function parseArgs(argv) {
   return {
     json: argv.includes("--json"),
+    includeHermes: argv.includes("--hermes") || argv.includes("--all"),
   };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = parseArgs(process.argv.slice(2));
   try {
-    const report = await runDoctor();
+    const report = await runDoctor({ includeHermes: args.includeHermes });
     process.stdout.write(args.json ? `${JSON.stringify(report, null, 2)}\n` : formatDoctorReport(report));
     process.exitCode = report.ok ? 0 : 1;
   } catch (error) {

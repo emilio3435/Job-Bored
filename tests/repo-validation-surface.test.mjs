@@ -100,12 +100,17 @@ describe("repo validation surface", () => {
     const manifestCommands = readManifestCommands();
 
     assert.equal(pkg.scripts["install:repo"], "node scripts/install-repo.mjs");
+    assert.equal(pkg.scripts["setup"], "node scripts/setup.mjs dashboard");
+    assert.equal(pkg.scripts["setup:dashboard"], "node scripts/setup.mjs dashboard");
+    assert.equal(pkg.scripts["setup:discovery"], "node scripts/setup.mjs discovery");
+    assert.equal(pkg.scripts["setup:hermes"], "node scripts/setup.mjs hermes");
     assert.equal(pkg.scripts["doctor"], "node scripts/doctor.mjs");
+    assert.equal(pkg.scripts["doctor:hermes"], "node scripts/doctor.mjs --hermes");
     assert.equal(pkg.scripts["prestart"], "node scripts/install-repo.mjs");
     assert.equal(pkg.scripts["predev"], "node scripts/install-repo.mjs");
     assert.equal(
       pkg.scripts["setup:auto"],
-      "npm run install:repo && npm run discovery:bootstrap-local",
+      "npm run setup:discovery && npm run discovery:bootstrap-local",
     );
     assert.equal(
       pkg.scripts["discovery:keep-alive"],
@@ -133,6 +138,7 @@ describe("repo validation surface", () => {
     );
     assert.equal(pkg.scripts["lint:repo"], "npm run lint:skills");
     assert.match(pkg.scripts["typecheck:repo"], /node --check app\.js/);
+    assert.match(pkg.scripts["typecheck:repo"], /node --check scripts\/setup\.mjs/);
     assert.match(pkg.scripts["typecheck:repo"], /node --check discovery-coach\.js/);
     assert.match(pkg.scripts["typecheck:repo"], /node --check server\/ats-scorecard\.mjs/);
     assert.equal(
@@ -151,6 +157,9 @@ describe("repo validation surface", () => {
       readManifestText(),
       /\n  web_tls:\n    start: npm run web-only:https\n    stop: if lsof -ti tcp:8080 >\/dev\/null; then lsof -ti tcp:8080 \| xargs kill; fi\n    healthcheck: curl -skf https:\/\/localhost:8080\/\n    port: 8080\n    depends_on: \[\]/,
     );
+
+    const gitignore = await readFile(join(repoRoot, ".gitignore"), "utf8");
+    assert.match(gitignore, /integrations\/browser-use-discovery\/package-lock\.json/);
   });
 
   it("keeps documented npm run commands backed by package scripts", async () => {
