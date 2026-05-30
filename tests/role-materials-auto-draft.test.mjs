@@ -177,7 +177,13 @@ function loadAutoDraftHarness({
     JSON,
   });
   vm.runInContext(source, ctx, { filename: "role-materials.js" });
-  return { documentEl, events, fetchCalls, storage };
+  return {
+    api: windowEl.JobBoredRoleMaterials,
+    documentEl,
+    events,
+    fetchCalls,
+    storage,
+  };
 }
 
 async function flushMicrotasks() {
@@ -540,6 +546,115 @@ describe("role-materials kanban auto draft", () => {
           event.detail.slug === "321-the-agency-director-of-digital-marketing-remote-job",
       ),
       "the skip event should report the matched slug",
+    );
+  });
+
+  it("refreshes stale dossier context to the existing Acxiom materials slug", async () => {
+    const { api, fetchCalls } = loadAutoDraftHarness({
+      applications: [
+        {
+          slug: "acxiom-principal-solution-consultant",
+          company: "Acxiom",
+          title: "Principal Solution Consultant",
+        },
+      ],
+    });
+    const ctx = {
+      base: "http://127.0.0.1:3847",
+      slug: "acxiom-llc-principal-solution-consultant-remote",
+      company: "Acxiom LLC",
+      title: "Principal Solution Consultant (Remote)",
+    };
+
+    await api._refreshContextApplication(ctx);
+
+    assert.equal(ctx.slug, "acxiom-principal-solution-consultant");
+    assert.ok(
+      fetchCalls.some((call) => /\/api\/applications$/.test(call.url)),
+      "manual request context should refresh the applications list before JD fallback",
+    );
+  });
+
+  it("matches Acxiomllc to the existing Acxiom materials slug", async () => {
+    const { api, fetchCalls } = loadAutoDraftHarness({
+      applications: [
+        {
+          slug: "acxiom-principal-solution-consultant",
+          company: "Acxiom",
+          title: "Principal Solution Consultant",
+        },
+      ],
+    });
+    const ctx = {
+      base: "http://127.0.0.1:3847",
+      slug: "acxiomllc-principal-solution-consultant-remote",
+      company: "Acxiomllc",
+      title: "Principal Solution Consultant (Remote)",
+    };
+
+    await api._refreshContextApplication(ctx);
+
+    assert.equal(ctx.slug, "acxiom-principal-solution-consultant");
+    assert.ok(
+      fetchCalls.some((call) => /\/api\/applications$/.test(call.url)),
+      "fused corporate suffixes should not prevent matching an existing folder",
+    );
+  });
+
+  it("picks Acxiom folder when company suffix is fused into the company token", async () => {
+    const { api } = loadAutoDraftHarness();
+    const picked = api.pickApplication(
+      { company: "Acxiomllc", role: "Principal Solution Consultant (Remote)" },
+      [{ slug: "acxiom-principal-solution-consultant" }],
+    );
+
+    assert.equal(picked?.slug, "acxiom-principal-solution-consultant");
+  });
+
+  it("does not strip unsafe short suffixes from real company names", async () => {
+    const { api } = loadAutoDraftHarness();
+    assert.equal(
+      api.pickApplication(
+        { company: "Cisco", role: "Solutions Engineer" },
+        [{ slug: "cisco-solutions-engineer" }],
+      )?.slug,
+      "cisco-solutions-engineer",
+    );
+    assert.equal(
+      api.pickApplication(
+        { company: "Visa", role: "Marketing Manager" },
+        [{ slug: "visa-marketing-manager" }],
+      )?.slug,
+      "visa-marketing-manager",
+    );
+  });
+
+  it("falls back to local materials server when scraper settings point elsewhere", async () => {
+    const { api, fetchCalls } = loadAutoDraftHarness({
+      applications: [
+        {
+          slug: "acxiom-principal-solution-consultant",
+          company: "Acxiom",
+          title: "Principal Solution Consultant",
+        },
+      ],
+    });
+    const ctx = {
+      base: "https://scraper.example.test",
+      slug: "acxiom-llc-principal-solution-consultant-remote",
+      company: "Acxiom LLC",
+      title: "Principal Solution Consultant (Remote)",
+    };
+
+    await api._refreshContextFromLocalMaterials(ctx);
+
+    assert.equal(ctx.base, "http://127.0.0.1:3847");
+    assert.equal(ctx.slug, "acxiom-principal-solution-consultant");
+    assert.ok(
+      fetchCalls.some(
+        (call) => call.url === "http://127.0.0.1:3847/api/applications",
+      ),
+      "manual request context should check the local materials server before falling back to paste",
     );
   });
 

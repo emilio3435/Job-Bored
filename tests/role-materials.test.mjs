@@ -316,6 +316,14 @@ describe("pickApplication", () => {
     );
     assert.equal(picked.slug, "crowdstrike-director-sales-enablement-specialists");
   });
+
+  it("does not reuse a same-company folder when the title has no overlap", () => {
+    const picked = api.pickApplication(
+      { company: "Acxiom", role: "Principal Solution Consultant" },
+      [{ slug: "acxiom-senior-data-engineer" }],
+    );
+    assert.equal(picked, null);
+  });
 });
 
 describe("renderManifest", () => {
