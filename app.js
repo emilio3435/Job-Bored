@@ -5229,6 +5229,22 @@ const expandedStages = new Set(
 /** Stable key of the job currently shown in the detail drawer, or -1 */
 let activeDetailKey = -1;
 
+function getPipelineData() {
+  return pipelineData;
+}
+
+function setPipelineData(data) {
+  pipelineData = data;
+}
+
+function getPipelineRawRows() {
+  return pipelineRawRows;
+}
+
+function setPipelineRawRows(rows) {
+  pipelineRawRows = rows;
+}
+
 function getPipelineViewFilters() {
   return {
     favoritesOnly,
@@ -5326,6 +5342,14 @@ function applyPipelineNotesWrite(jobKey, body) {
 // Auth state — access token stays in memory; localStorage only keeps a restore marker
 let accessToken = null;
 let userEmail = null;
+
+function getAccessToken() {
+  return accessToken;
+}
+
+function getUserEmail() {
+  return userEmail;
+}
 
 // Minimal external accessor for modules that need the live access token
 // without grabbing internal symbols. Kept tiny on purpose — just getters,
@@ -7648,6 +7672,248 @@ window.JobBoredApp.brief.host = {
   responseLabelForDisplay,
   openJobDetail,
 };
+
+// Core bridge for extracted modules — host delegates + mutable-state accessors (Phase 1; no body moves).
+window.JobBoredApp.core = window.JobBoredApp.core || {};
+window.JobBoredApp.core.host = {
+  showToast(...args) {
+    return showToast(...args);
+  },
+  escapeHtml(...args) {
+    return window.JobBoredApp.utils.escapeHtml(...args);
+  },
+  safeHref(...args) {
+    return window.JobBoredApp.utils.safeHref(...args);
+  },
+  getConfig() {
+    return getConfig();
+  },
+  getSheetId() {
+    return getSheetId();
+  },
+  getActiveSheetId() {
+    return getActiveSheetId();
+  },
+  getAccessToken() {
+    return getAccessToken();
+  },
+  getUserEmail() {
+    return getUserEmail();
+  },
+  isSignedIn() {
+    return isSignedIn();
+  },
+  refreshAccessTokenSilently() {
+    return refreshAccessTokenSilently();
+  },
+  getPipelineData() {
+    return getPipelineData();
+  },
+  setPipelineData(data) {
+    return setPipelineData(data);
+  },
+  getPipelineRawRows() {
+    return getPipelineRawRows();
+  },
+  setPipelineRawRows(rows) {
+    return setPipelineRawRows(rows);
+  },
+  getPipelineViewFilters() {
+    return getPipelineViewFilters();
+  },
+  setPipelineViewFilters(next) {
+    return setPipelineViewFilters(next);
+  },
+  renderPipeline() {
+    return renderPipeline();
+  },
+  renderBrief(...args) {
+    return renderBrief(...args);
+  },
+  refreshDrawerIfOpen(...args) {
+    return refreshDrawerIfOpen(...args);
+  },
+  loadAllData() {
+    return loadAllData();
+  },
+  updateSheetCell(...args) {
+    return updateSheetCell(...args);
+  },
+  updateMultipleCells(...args) {
+    return updateMultipleCells(...args);
+  },
+  sheetsValuesAppend(...args) {
+    return sheetsValuesAppend(...args);
+  },
+  sheetsValuesGet(...args) {
+    return sheetsValuesGet(...args);
+  },
+  sheetsValuesUpdate(...args) {
+    return sheetsValuesUpdate(...args);
+  },
+  sheetsBatchUpdate(...args) {
+    return sheetsBatchUpdate(...args);
+  },
+  showSheetAccessGate(...args) {
+    return showSheetAccessGate(...args);
+  },
+  openCommandCenterSettingsModal(...args) {
+    return openCommandCenterSettingsModal(...args);
+  },
+  closeCommandCenterSettingsModal(...args) {
+    return closeCommandCenterSettingsModal(...args);
+  },
+  getUserContent() {
+    return getUserContent();
+  },
+  getResumeBundle() {
+    return getResumeBundle();
+  },
+  getResumeGenerate() {
+    return getResumeGenerate();
+  },
+  getResumeIngest() {
+    return getResumeIngest();
+  },
+  getCachedEnrichmentForJob(...args) {
+    return getCachedEnrichmentForJob(...args);
+  },
+  cacheEnrichment(...args) {
+    return cacheEnrichment(...args);
+  },
+  applyEnrichmentCache(...args) {
+    return applyEnrichmentCache(...args);
+  },
+  getDraftsForJob(...args) {
+    return getDraftsForJob(...args);
+  },
+  refreshGeneratedDraftLibraryCache(...args) {
+    return refreshGeneratedDraftLibraryCache(...args);
+  },
+  getGeneratedDraftLibraryCache() {
+    return generatedDraftLibraryCache;
+  },
+  setGeneratedDraftLibraryCache(next) {
+    generatedDraftLibraryCache = next;
+  },
+  getCandidateProfileMatchCache() {
+    return candidateProfileMatchCache;
+  },
+  setCandidateProfileMatchCache(next) {
+    candidateProfileMatchCache = next;
+  },
+};
+
+Object.assign(window.JobBoredApp.core, {
+  getSHEET_ID() {
+    return SHEET_ID;
+  },
+  setSHEET_ID(value) {
+    SHEET_ID = value;
+  },
+  getPipelineData() {
+    return pipelineData;
+  },
+  setPipelineData(data) {
+    pipelineData = data;
+  },
+  getPipelineRawRows() {
+    return pipelineRawRows;
+  },
+  setPipelineRawRows(rows) {
+    pipelineRawRows = rows;
+  },
+  getAccessToken() {
+    return accessToken;
+  },
+  setAccessToken(value) {
+    accessToken = value;
+  },
+  getUserEmail() {
+    return userEmail;
+  },
+  setUserEmail(value) {
+    userEmail = value;
+  },
+  getTokenExpiresAt() {
+    return tokenExpiresAt;
+  },
+  setTokenExpiresAt(value) {
+    tokenExpiresAt = value;
+  },
+  getTokenClient() {
+    return tokenClient;
+  },
+  setTokenClient(value) {
+    tokenClient = value;
+  },
+  getGisLoaded() {
+    return gisLoaded;
+  },
+  setGisLoaded(value) {
+    gisLoaded = value;
+  },
+  getCurrentSort() {
+    return currentSort;
+  },
+  setCurrentSort(value) {
+    currentSort = value;
+  },
+  getCurrentSearch() {
+    return currentSearch;
+  },
+  setCurrentSearch(value) {
+    currentSearch = value;
+  },
+  getFavoritesOnly() {
+    return favoritesOnly;
+  },
+  setFavoritesOnly(value) {
+    favoritesOnly = value;
+  },
+  getShowDismissed() {
+    return showDismissed;
+  },
+  setShowDismissed(value) {
+    showDismissed = value;
+  },
+  getActiveDetailKey() {
+    return activeDetailKey;
+  },
+  setActiveDetailKey(value) {
+    activeDetailKey = value;
+  },
+  getBriefActivityRange() {
+    return window.JobBoredApp.brief.getBriefActivityRange();
+  },
+  setBriefActivityRange(range) {
+    return window.JobBoredApp.brief.setBriefActivityRange(range);
+  },
+  getLastResumeGenerationSession() {
+    return lastResumeGenerationSession;
+  },
+  setLastResumeGenerationSession(value) {
+    lastResumeGenerationSession = value;
+  },
+  getAtsScorecardState() {
+    return atsScorecardState;
+  },
+  setAtsScorecardState(next) {
+    return setAtsScorecardState(next);
+  },
+  getGeneratedDraftLibraryCache() {
+    return generatedDraftLibraryCache;
+  },
+  setGeneratedDraftLibraryCache(next) {
+    generatedDraftLibraryCache = next;
+  },
+  getCandidateProfileMatchCache() {
+    return candidateProfileMatchCache;
+  },
+  setCandidateProfileMatchCache(next) {
+    candidateProfileMatchCache = next;
+  },
+});
 
 // Thin delegating wrappers for wizard functions that now live in
 // discovery-wizard-ui.js but are still called by bare name from app.js code
