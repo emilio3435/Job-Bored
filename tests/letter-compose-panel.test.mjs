@@ -28,6 +28,10 @@ import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const resumeGenerationJs = readFileSync(
+  join(repoRoot, "resume-generation.js"),
+  "utf8",
+);
 const letterJs = readFileSync(join(repoRoot, "letter.js"), "utf8");
 const letterCss = readFileSync(join(repoRoot, "letter.css"), "utf8");
 
@@ -126,9 +130,12 @@ describe("Workshop compose panel — markup contract", () => {
 
 describe("Workshop compose panel — app.js options pass-through", () => {
   it("runResumeGeneration accepts tone/maxWords/silent options", () => {
-    const fnStart = appJs.indexOf("async function runResumeGeneration");
-    const fnEnd = appJs.indexOf("async function refineLastResumeGeneration", fnStart);
-    const body = appJs.slice(fnStart, fnEnd);
+    const fnStart = resumeGenerationJs.indexOf("async function runResumeGeneration");
+    const fnEnd = resumeGenerationJs.indexOf(
+      "async function refineLastResumeGeneration",
+      fnStart,
+    );
+    const body = resumeGenerationJs.slice(fnStart, fnEnd);
     assert.ok(body.includes("options.tone"), "runResumeGeneration must read options.tone");
     assert.ok(body.includes("options.maxWords"), "runResumeGeneration must read options.maxWords");
     assert.ok(body.includes("options.silent"), "runResumeGeneration must read options.silent");

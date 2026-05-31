@@ -20,6 +20,10 @@ import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const resumeGenerationJs = readFileSync(
+  join(repoRoot, "resume-generation.js"),
+  "utf8",
+);
 const letterJs = readFileSync(join(repoRoot, "letter.js"), "utf8");
 const letterCss = readFileSync(join(repoRoot, "letter.css"), "utf8");
 
@@ -55,10 +59,13 @@ describe("Letter region — draft folder bridge (app.js exports)", () => {
 
 describe("Letter region — jb:draft:saved dispatch", () => {
   it("runResumeGeneration dispatches jb:draft:saved after the initial save", () => {
-    const fnStart = appJs.indexOf("async function runResumeGeneration");
+    const fnStart = resumeGenerationJs.indexOf("async function runResumeGeneration");
     assert.ok(fnStart >= 0, "runResumeGeneration must exist");
-    const fnEnd = appJs.indexOf("async function refineLastResumeGeneration", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnEnd = resumeGenerationJs.indexOf(
+      "async function refineLastResumeGeneration",
+      fnStart,
+    );
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
     assert.ok(
       fnBody.includes('"jb:draft:saved"'),
       "runResumeGeneration must dispatch a 'jb:draft:saved' CustomEvent after saveGeneratedDraft",
@@ -74,10 +81,10 @@ describe("Letter region — jb:draft:saved dispatch", () => {
   });
 
   it("refineLastResumeGeneration dispatches jb:draft:saved after the refine save", () => {
-    const fnStart = appJs.indexOf("async function refineLastResumeGeneration");
+    const fnStart = resumeGenerationJs.indexOf("async function refineLastResumeGeneration");
     assert.ok(fnStart >= 0, "refineLastResumeGeneration must exist");
-    const fnEnd = appJs.indexOf("async function openSavedDraftVersion", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnEnd = resumeGenerationJs.indexOf("async function openSavedDraftVersion", fnStart);
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
     assert.ok(
       fnBody.includes('"jb:draft:saved"'),
       "refineLastResumeGeneration must dispatch a 'jb:draft:saved' CustomEvent so the folder updates",
@@ -89,9 +96,12 @@ describe("Letter region — jb:draft:saved dispatch", () => {
   });
 
   it("runResumeGeneration stashes dataIndex on the session so refine can use it as jobKey", () => {
-    const fnStart = appJs.indexOf("async function runResumeGeneration");
-    const fnEnd = appJs.indexOf("async function refineLastResumeGeneration", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = resumeGenerationJs.indexOf("async function runResumeGeneration");
+    const fnEnd = resumeGenerationJs.indexOf(
+      "async function refineLastResumeGeneration",
+      fnStart,
+    );
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
     assert.ok(
       /lastResumeGenerationSession\s*=\s*\{[\s\S]*?dataIndex,/.test(fnBody),
       "runResumeGeneration must persist dataIndex on lastResumeGenerationSession so refine's dispatch can derive a jobKey",
@@ -247,10 +257,10 @@ describe("Letter region — click delegation (letter.js)", () => {
 describe("Letter region — AI revision bridge (app.js)", () => {
 
   it("the app bridge saves AI revisions as generated draft refine versions", () => {
-    const fnStart = appJs.indexOf("async function reviseLetterDraftForJob");
+    const fnStart = resumeGenerationJs.indexOf("async function reviseLetterDraftForJob");
     assert.ok(fnStart >= 0, "reviseLetterDraftForJob must exist");
-    const fnEnd = appJs.indexOf("// Exposed for the v2 dossier", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnEnd = resumeGenerationJs.indexOf("function closeDraftNotesModal", fnStart);
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
     assert.ok(
       fnBody.includes("previousDraft") && fnBody.includes("refinementFeedback"),
       "reviseLetterDraftForJob must pass previousDraft and refinementFeedback into the bundle",

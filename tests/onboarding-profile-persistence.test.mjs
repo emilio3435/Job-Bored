@@ -235,12 +235,16 @@ describe("Onboarding reset preserves data", () => {
 
 describe("Profile source minimums for generation", () => {
   it("resume generation requires at least one profile source", () => {
-    const genStart = appJs.indexOf("async function runResumeGeneration");
-    const genEnd = appJs.indexOf(
-      "async function openResumeGenerateModal",
+    const resumeGenerationJs = readFileSync(
+      join(repoRoot, "resume-generation.js"),
+      "utf8",
+    );
+    const genStart = resumeGenerationJs.indexOf("async function runResumeGeneration");
+    const genEnd = resumeGenerationJs.indexOf(
+      "async function refineLastResumeGeneration",
       genStart,
     );
-    const genBody = appJs.slice(genStart, genEnd);
+    const genBody = resumeGenerationJs.slice(genStart, genEnd);
 
     // Should check hasResume, hasLinkedIn, hasAdditional
     assert.ok(

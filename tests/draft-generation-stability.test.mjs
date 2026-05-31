@@ -20,6 +20,10 @@ const resumeGenerateJs = readFileSync(
   "utf8",
 );
 const resumeBundleJs = readFileSync(join(repoRoot, "resume-bundle.js"), "utf8");
+const resumeGenerationJs = readFileSync(
+  join(repoRoot, "resume-generation.js"),
+  "utf8",
+);
 
 // ============================================================
 // Tests: Draft Version History — Refinement Creates New Versions
@@ -27,9 +31,14 @@ const resumeBundleJs = readFileSync(join(repoRoot, "resume-bundle.js"), "utf8");
 
 describe("Draft version history — refinement creates new versions", () => {
   it("refineLastResumeGeneration creates a new draft with incremented versionNumber", () => {
-    const fnStart = appJs.indexOf("async function refineLastResumeGeneration");
-    const fnEnd = appJs.indexOf("async function openSavedDraftVersion", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = resumeGenerationJs.indexOf(
+      "async function refineLastResumeGeneration",
+    );
+    const fnEnd = resumeGenerationJs.indexOf(
+      "async function openSavedDraftVersion",
+      fnStart,
+    );
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
 
     // Should call saveGeneratedDraft with mode: "refine"
     assert.ok(
@@ -87,9 +96,12 @@ describe("Draft version history — refinement creates new versions", () => {
 
 describe("Saved snapshot reopen — reload persistence", () => {
   it("openSavedDraftVersion restores draft text from the stored snapshot", () => {
-    const fnStart = appJs.indexOf("async function openSavedDraftVersion");
-    const fnEnd = appJs.indexOf("async function openLatestSavedDraftForJob", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = resumeGenerationJs.indexOf("async function openSavedDraftVersion");
+    const fnEnd = resumeGenerationJs.indexOf(
+      "async function openLatestSavedDraftForJob",
+      fnStart,
+    );
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
 
     // Should get draft from cache or store
     assert.ok(
@@ -105,9 +117,12 @@ describe("Saved snapshot reopen — reload persistence", () => {
   });
 
   it("openSavedDraftVersion builds a fresh bundle from the current job context", () => {
-    const fnStart = appJs.indexOf("async function openSavedDraftVersion");
-    const fnEnd = appJs.indexOf("async function openLatestSavedDraftForJob", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = resumeGenerationJs.indexOf("async function openSavedDraftVersion");
+    const fnEnd = resumeGenerationJs.indexOf(
+      "async function openLatestSavedDraftForJob",
+      fnStart,
+    );
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
 
     // Should call buildResumeContextBundle to create a new bundle
     assert.ok(
@@ -155,9 +170,9 @@ describe("Saved snapshot reopen — reload persistence", () => {
 
 describe("ATS analysis follows draft modal lifecycle", () => {
   it("renderResumeGenerateInsights is called after modal opens with bodyText and job", () => {
-    const fnStart = appJs.indexOf("async function openResumeGenerateModal");
-    const fnEnd = appJs.indexOf("function closeResumeGenerateModal", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = resumeGenerationJs.indexOf("async function openResumeGenerateModal");
+    const fnEnd = resumeGenerationJs.indexOf("function closeResumeGenerateModal", fnStart);
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
 
     // After modal is shown with bodyText, renderResumeGenerateInsights should be called
     assert.ok(
@@ -209,9 +224,9 @@ describe("ATS analysis follows draft modal lifecycle", () => {
   });
 
   it("ATS scorecard state is reset when modal opens in loading state", () => {
-    const fnStart = appJs.indexOf("async function openResumeGenerateModal");
-    const fnEnd = appJs.indexOf("function closeResumeGenerateModal", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = resumeGenerationJs.indexOf("async function openResumeGenerateModal");
+    const fnEnd = resumeGenerationJs.indexOf("function closeResumeGenerateModal", fnStart);
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
     const loadingStart = fnBody.indexOf("if (isLoading)");
     const loadingEnd = fnBody.indexOf("} else {", loadingStart);
     const loadingBody = fnBody.slice(loadingStart, loadingEnd);
@@ -253,13 +268,13 @@ describe("ATS analysis follows draft modal lifecycle", () => {
   });
 
   it("retry-ats-scorecard button uses current active draft text", () => {
-    const handlersStart = appJs.indexOf(
+    const handlersStart = resumeGenerationJs.indexOf(
       'const atsGroups = document.getElementById("resumeGenerateAtsGroups")',
     );
     assert.notEqual(handlersStart, -1, "ATS retry handler block must exist");
-    const handlerEnd = appJs.indexOf("if (draftNotesModal)", handlersStart);
+    const handlerEnd = resumeGenerationJs.indexOf("if (draftNotesModal)", handlersStart);
     assert.notEqual(handlerEnd, -1, "ATS retry handler block must be readable");
-    const handlerBody = appJs.slice(handlersStart, handlerEnd);
+    const handlerBody = resumeGenerationJs.slice(handlersStart, handlerEnd);
 
     // Should use getResumeGenerateDraftTextForInsights to get current text OR read from ta.value
     assert.ok(
@@ -522,9 +537,14 @@ describe("ATS scoring stays coupled to active draft and current job context", ()
   });
 
   it("renderResumeGenerateInsights uses current textarea text via getResumeGenerateDraftTextForInsights", () => {
-    const fnStart = appJs.indexOf("function getResumeGenerateDraftTextForInsights");
-    const fnEnd = appJs.indexOf("function scheduleResumeGenerateAtsRefresh", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = resumeGenerationJs.indexOf(
+      "function getResumeGenerateDraftTextForInsights",
+    );
+    const fnEnd = resumeGenerationJs.indexOf(
+      "function scheduleResumeGenerateAtsRefresh",
+      fnStart,
+    );
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
 
     // Should read from textarea when modal is open
     assert.ok(
