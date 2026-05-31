@@ -25,3 +25,25 @@ export function filterSkippedCompanies(
   if (blocked.size === 0) return source;
   return source.filter((company) => !blocked.has(companyFilterKey(company)));
 }
+
+/** ATS lanes use explicit atsCompanies when non-empty; otherwise inherit broad seeds. */
+export function effectiveAtsCompanySeeds(
+  atsCompanies: readonly CompanyTarget[],
+  companies: readonly CompanyTarget[],
+): CompanyTarget[] {
+  if (atsCompanies.length > 0) return [...atsCompanies];
+  return [...companies];
+}
+
+/** After profile refresh, keep ATS subset in sync with the active company pool. */
+export function reconcileAtsCompaniesWithActivePool(
+  priorAts: readonly CompanyTarget[] | undefined,
+  nextCompanies: readonly CompanyTarget[],
+): CompanyTarget[] {
+  const nextKeys = new Set(
+    nextCompanies.map((company) => companyFilterKey(company)),
+  );
+  const prior = Array.isArray(priorAts) ? priorAts : [];
+  const kept = prior.filter((company) => nextKeys.has(companyFilterKey(company)));
+  return effectiveAtsCompanySeeds(kept, nextCompanies);
+}

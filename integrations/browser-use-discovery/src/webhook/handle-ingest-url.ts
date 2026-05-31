@@ -163,7 +163,7 @@ export async function handleIngestUrlWebhook(
       ingestRequest,
       runId,
       now,
-      dependencies,
+      dependencies: effectiveDependencies,
     });
   }
 
