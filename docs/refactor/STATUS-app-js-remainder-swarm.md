@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-05-31 (session 5 — Phase 4 integrated).
+> Orchestrator ledger. **Last updated:** 2026-05-31 (session 6 — Phase 5 cut #1).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -12,7 +12,7 @@
 | Pre-existing dirty files | `M app.js` (1-line discovery webhook candidate — **do not mix into module cuts**), `M package-lock.json`, untracked `docs/refactor/*` |
 | Node / npm | v24.13.0 / 11.13.0 ✓ |
 | Baseline `npm test` | **892 pass / 0 fail / 0 skip** (188 suites, ~7.6s) |
-| `app.js` LOC (current) | **13,140** (post Phase 4; was 15,139 pre-Phase 4) |
+| `app.js` LOC (current) | **12,456** (post Phase 5 cut #1; was 13,140 post Phase 4) |
 | `SetActiveBranch` | `refactor/app-js-decompose` ✓ |
 | Swarm model | Cursor Task subagents per [PROMPT-app-js-remainder-cursor-swarm-orchestrator.md](./PROMPT-app-js-remainder-cursor-swarm-orchestrator.md) |
 
@@ -48,6 +48,7 @@
 | `95657ad` | `sheets-writeback.js` | −~889 LOC | green |
 | `c4d529b` | `sheets-read-load.js` | −~545 LOC | green |
 | `576782d` | `pipeline-render.js` | −~1,432 LOC | green |
+| *(this commit)* | `discovery-run-tracker.js` | −~330 LOC body | green (892 pass) |
 
 ## Extraction order progress
 
@@ -67,7 +68,8 @@
 | 11 | `sheets-writeback.js` | **DONE** | parallel worktree | `95657ad` | cherry-picked; `JobBoredApp.sheetsWrite` |
 | 12 | `sheets-read-load.js` | **DONE** | parallel worktree | `c4d529b` | cherry-picked; `JobBoredApp.sheetsRead` |
 | 13 | `pipeline-render.js` | **DONE** | parallel worktree | `576782d` | cherry-picked; `JobBoredApp.pipelineRender` |
-| 14+ | discovery remainder | pending | — | — | PLAN §D Phase 5 |
+| 14 | `discovery-run-tracker.js` | **DONE** | backend-developer | primary | `JobBoredDiscovery.runTracker`; **348** LOC module; thin wrappers in app.js |
+| 15+ | discovery remainder | pending | — | — | PLAN §D Phase 5 (config-overrides next) |
 
 ## Worktrees
 
@@ -106,14 +108,14 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 | 2 | Leaf modules: keyword → profile → expired UI → enrichment | **DONE** |
 | 3 | Materials / ATS / onboarding / settings / logo / feature init | **DONE** |
 | 4 | Pipeline / Sheets | **DONE** (`95657ad`, `c4d529b`, `576782d`; **892 pass**) |
-| 5 | Discovery remainder | **next** |
+| 5 | Discovery remainder | **in progress** (cut #1 done) |
 | 6 | Auth / config / core collapse | pending |
 
 ## Blockers / hygiene
 
 1. **Discovery autofill WIP** — stashed as `discovery autofill WIP (post-phase4)` (`fb7c653`); breaks 4 discovery tests until finished; keep out of module-cut commits.
 2. Phase 2 leaf cuts committed: `5cd73d6`, `51f97e4`, `cf1c654`.
-3. **Plan LOC table** — re-derive ranges from **13,140** LOC `app.js` before each cut.
+3. **Plan LOC table** — re-derive ranges from **12,456** LOC `app.js` before each cut.
 
 ## Next actions (orchestrator)
 
@@ -121,12 +123,13 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 1. ~~Land Phase 1 foundation bridge~~ **done** (892 pass; commit when authorized).
 2. ~~Phase 3 + parallel batch~~ **done** (`11b6d86`, `c5748db`, `6facfc2` integrated; **892 pass**).
 3. ~~Phase 4~~ **done** — writeback, read-load, pipeline-render integrated; **892 pass** at **13,140** LOC.
-4. Next: Phase 5 — discovery remainder modules per PLAN §D.
+4. Phase 5 cut #1 **done** — `discovery-run-tracker.js`; **892 pass** at **12,456** LOC.
+5. Next: Phase 5 cut #2 — `config-overrides.js` per PLAN §D.
 
-## `index.html` script order (post Phase 4)
+## `index.html` script order (post Phase 5 cut #1)
 
 ```
-… → materials-feature → sheets-writeback → sheets-read-load → pipeline-render → app.js?v=28
+… → sheets-writeback → sheets-read-load → pipeline-render → discovery-run-tracker → app.js?v=28
 ```
 
 ## Owner-only risks (unchanged)
