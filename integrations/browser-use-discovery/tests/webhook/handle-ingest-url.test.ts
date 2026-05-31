@@ -262,6 +262,68 @@ test("handleIngestUrlWebhook routes per-request googleAccessToken into the pipel
   assert.doesNotMatch(response.body, /dashboard-token-123/);
 });
 
+test("handleIngestUrlWebhook async Add URL routes per-request googleAccessToken into the pipeline writer", async () => {
+  const runStatusStore = createMemoryRunStatusStore();
+  let factoryCalls = 0;
+  let capturedToken = "";
+  let requestWriterCalls = 0;
+  let defaultWriterCalls = 0;
+
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      async: true,
+      googleAccessToken: "dashboard-token-async",
+      url: "https://example.com/jobs/growth-marketing-manager",
+    }),
+    makeDependencies({
+      randomId: () => "ingest_async_token_test",
+      runStatusStore,
+      runStatusPathForRun: (runId: string) => `/runs/${runId}`,
+      pipelineWriter: {
+        write: async () => {
+          defaultWriterCalls += 1;
+          throw new Error("default writer should not be used with request token");
+        },
+      },
+      createPipelineWriterForRequest: (runtimeConfigOverride: WorkerRuntimeConfig) => {
+        factoryCalls += 1;
+        capturedToken = runtimeConfigOverride.googleAccessToken;
+        return {
+          write: async () => {
+            requestWriterCalls += 1;
+            return {
+              sheetId: "sheet_123",
+              appended: 1,
+              updated: 0,
+              skippedDuplicates: 0,
+              skippedBlacklist: 0,
+              warnings: [],
+            };
+          },
+        };
+      },
+      scrapeJobPosting: async () => ({
+        url: "https://example.com/jobs/growth-marketing-manager",
+        title: "Growth Marketing Manager",
+        description: "Own growth marketing programs.",
+        method: "cheerio",
+      }),
+    }),
+  );
+
+  assert.equal(response.status, 202);
+  const terminal = await waitForTerminalStatus(
+    runStatusStore,
+    "ingest_async_token_test",
+  );
+  assert.ok(terminal, "terminal run status should be written");
+  assert.equal(terminal?.status, "completed");
+  assert.equal(factoryCalls, 1);
+  assert.equal(capturedToken, "dashboard-token-async");
+  assert.equal(requestWriterCalls, 1);
+  assert.equal(defaultWriterCalls, 0);
+});
+
 test("handleIngestUrlWebhook rejects non-string googleAccessToken", async () => {
   const response = await handleIngestUrlWebhook(
     makeRequest({ googleAccessToken: { token: "bad" } }),
