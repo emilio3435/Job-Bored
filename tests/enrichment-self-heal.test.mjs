@@ -27,6 +27,10 @@ const postingEnrichmentJs = readFileSync(
   join(repoRoot, "posting-enrichment.js"),
   "utf8",
 );
+const pipelineRenderJs = readFileSync(
+  join(repoRoot, "pipeline-render.js"),
+  "utf8",
+);
 const insightsJs = readFileSync(join(repoRoot, "job-posting-insights.js"), "utf8");
 const resumeGenJs = readFileSync(join(repoRoot, "resume-generate.js"), "utf8");
 
@@ -432,8 +436,8 @@ describe("LLM prompt — preserves quality when scrape fails", () => {
   it("fetchJobPostingEnrichment promotes ATS score fields onto card data attrs", () => {
     assert.match(postingEnrichmentJs, /atsFitScore:\s*llm\.atsFitScore/);
     assert.match(postingEnrichmentJs, /atsFitRationale:\s*llm\.atsFitRationale/);
-    assert.match(appJs, /data-ats-fit-score/);
-    assert.match(appJs, /data-ats-fit-rationale/);
+    assert.match(pipelineRenderJs, /data-ats-fit-score/);
+    assert.match(pipelineRenderJs, /data-ats-fit-rationale/);
   });
 });
 
@@ -496,9 +500,9 @@ describe("enrichment pipeline — loading-state propagation", () => {
   });
 
   it("serializes loading ahead of stale scrapedAt and only marks complete enrichments ready", () => {
-    const statusIdx = appJs.indexOf('"data-enrichment-status"');
+    const statusIdx = pipelineRenderJs.indexOf('"data-enrichment-status"');
     assert.ok(statusIdx > 0, "data-enrichment-status attr must be serialized");
-    const block = appJs.slice(statusIdx, statusIdx + 500);
+    const block = pipelineRenderJs.slice(statusIdx, statusIdx + 500);
     const loadingIdx = block.indexOf('job && job._enrichmentLoading');
     const readyIdx = block.indexOf('_enr.scrapedAt');
     assert.ok(loadingIdx > 0, "loading state must be represented");

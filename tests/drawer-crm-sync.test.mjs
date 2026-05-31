@@ -7,9 +7,13 @@ import { describe, it } from "node:test";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
 const sheetsWriteJs = readFileSync(join(repoRoot, "sheets-writeback.js"), "utf8");
+const pipelineRenderJs = readFileSync(
+  join(repoRoot, "pipeline-render.js"),
+  "utf8",
+);
 
 /**
- * Extract a function body from app.js source
+ * Extract a function body from app.js or pipeline-render.js source
  */
 function extractFunctionBody(source, functionName) {
   // Match function definition - handle both function name() and async function name()
@@ -31,6 +35,12 @@ function extractFunctionBody(source, functionName) {
   }
 
   return source.slice(start, end - 1);
+}
+
+function extractPipelineFunctionBody(functionName) {
+  const body = extractFunctionBody(pipelineRenderJs, functionName);
+  if (body !== null) return body;
+  return extractFunctionBody(appJs, functionName);
 }
 
 /**
@@ -113,14 +123,14 @@ describe("Drawer CRM sync", () => {
     it("status-select change handler refreshes drawer after status change", () => {
       // The status-select handler is in attachCardListeners
       // It should call refreshDrawerIfOpen after updateJobStatus succeeds
-      const handlerStart = appJs.indexOf(
+      const handlerStart = pipelineRenderJs.indexOf(
         "// Pipeline stage select",
       );
-      const handlerEnd = appJs.indexOf(
+      const handlerEnd = pipelineRenderJs.indexOf(
         "// Stage stepper clicks",
         handlerStart,
       );
-      const statusSelectSection = appJs.slice(handlerStart, handlerEnd);
+      const statusSelectSection = pipelineRenderJs.slice(handlerStart, handlerEnd);
 
       assert.ok(
         statusSelectSection.includes("refreshDrawerIfOpen"),
@@ -160,7 +170,7 @@ describe("Drawer CRM sync", () => {
   });
 
   describe("refreshDrawerIfOpen function exists and is called", () => {
-    const body = extractFunctionBody(appJs, "refreshDrawerIfOpen");
+    const body = extractPipelineFunctionBody("refreshDrawerIfOpen");
     it("refreshDrawerIfOpen function exists", () => {
       assert.ok(
         body !== null,
@@ -169,7 +179,7 @@ describe("Drawer CRM sync", () => {
     });
     it("checks activeDetailKey matches dataIndex before refreshing", () => {
       assert.ok(
-        body && body.includes("activeDetailKey !== dataIndex"),
+        body && body.includes("core().getActiveDetailKey() !== dataIndex"),
         "refreshDrawerIfOpen should guard against refreshing wrong job",
       );
     });
@@ -182,8 +192,8 @@ describe("Drawer CRM sync", () => {
   });
 
   describe("openJobDetail and closeJobDetail", () => {
-    const openBody = extractFunctionBody(appJs, "openJobDetail");
-    const closeBody = extractFunctionBody(appJs, "closeJobDetail");
+    const openBody = extractPipelineFunctionBody("openJobDetail");
+    const closeBody = extractPipelineFunctionBody("closeJobDetail");
 
     it("openJobDetail function exists", () => {
       assert.ok(openBody !== null, "openJobDetail function should exist");
@@ -193,13 +203,13 @@ describe("Drawer CRM sync", () => {
     });
     it("openJobDetail sets activeDetailKey", () => {
       assert.ok(
-        openBody && openBody.includes("activeDetailKey = stableKey"),
+        openBody && openBody.includes("core().setActiveDetailKey(stableKey)"),
         "openJobDetail should set activeDetailKey",
       );
     });
     it("closeJobDetail resets activeDetailKey to -1", () => {
       assert.ok(
-        closeBody && closeBody.includes("activeDetailKey = -1"),
+        closeBody && closeBody.includes("core().setActiveDetailKey(-1)"),
         "closeJobDetail should reset activeDetailKey to -1",
       );
     });

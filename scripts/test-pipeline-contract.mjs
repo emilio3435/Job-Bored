@@ -149,6 +149,10 @@ function col(schema, id) {
 
 const schema = loadJson(PIPELINE_SCHEMA);
 const appJs = readFileSync(join(repoRoot, APP), "utf8");
+const pipelineRenderJs = readFileSync(
+  join(repoRoot, "pipeline-render.js"),
+  "utf8",
+);
 const readme = readFileSync(join(repoRoot, README), "utf8");
 const setup = readFileSync(join(repoRoot, SETUP), "utf8");
 const setupDoctor = readFileSync(join(repoRoot, SETUP_DOCTOR), "utf8");
@@ -203,7 +207,7 @@ for (let i = 0; i < schema.columns.length; i++) {
   }
 }
 
-const appStatuses = extractStatusesFromAppJs(appJs);
+const appStatuses = extractStatusesFromAppJs(pipelineRenderJs);
 const schemaStatusEnum = col(schema, "status").enum;
 if (!sameOrdered(appStatuses, schemaStatusEnum)) {
   console.error("app.js statuses array must match pipeline-row status enum (same order).");
@@ -226,7 +230,7 @@ for (const status of schemaStatusEnum) {
   }
 }
 
-const appPriorityKeys = extractPriorityKeysFromAppJs(appJs);
+const appPriorityKeys = extractPriorityKeysFromAppJs(pipelineRenderJs);
 const schemaPriEnum = col(schema, "priority").enum;
 if (
   !sameOrdered(

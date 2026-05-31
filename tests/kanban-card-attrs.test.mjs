@@ -2,7 +2,7 @@
  * tests/dossier-card-attrs.test.mjs
  *
  * Contract test for the v2 .kanban-card[data-stable-key] data-* attributes
- * emitted by app.js renderKanbanCard, consumed by dawn-data.js view-models
+ * emitted by pipeline-render.js renderKanbanCard, consumed by dawn-data.js view-models
  * (getRoleViewModel, getPipelineViewModel).
  *
  * Failure messages name the specific attribute / VM field so the swarm
