@@ -22,13 +22,17 @@ describe("Expired pipeline status contract", () => {
 
   it("surfaces Expired in legacy dashboard stages, dropdowns, and brief counts", () => {
     const app = read("app.js");
+    const brief = read("daily-brief.js");
 
     assert.match(app, /const STAGE_ORDER = \[[\s\S]*"Expired"[\s\S]*\];/);
     assert.match(app, /const STAGE_ARCHIVE = new Set\(\["Rejected", "Passed", "Expired"\]\)/);
     assert.match(app, /case "Expired":[\s\S]*Pipeline!P/);
     assert.match(app, /const statuses = \[[\s\S]*"Expired"[\s\S]*\];/);
-    assert.match(app, /const expired = pipelineData\.filter/);
-    assert.match(app, /\{ label: "Expired", count: expired, color: "var\(--stage-rail-expired\)" \}/);
+    assert.match(brief, /const expired = getPipelineData\(\)\.filter/);
+    assert.match(
+      brief,
+      /\{ label: "Expired", count: expired, color: "var\(--stage-rail-expired\)" \}/,
+    );
   });
 
   it("keeps v2 pipeline adapters from dropping Expired rows", () => {
