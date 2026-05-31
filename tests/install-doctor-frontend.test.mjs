@@ -5,21 +5,27 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const authSessionSource = readFileSync(
+  join(__dirname, "..", "auth-session.js"),
+  "utf8",
+);
 const appJsSource = readFileSync(join(__dirname, "..", "app.js"), "utf8");
 
 /**
  * The frontend helpers (installDoctor, installKeepAliveOnce,
- * refreshKeepAlivePill) live at module scope inside app.js. We extract that
+ * refreshKeepAlivePill) live in auth-session.js. We extract that
  * slice and evaluate it in a fresh sandbox so we can fetch-mock the proxy
  * endpoints and assert behavior, without instantiating the rest of the app.
  */
 function extractHelpers() {
-  const start = appJsSource.indexOf("async function installDoctor()");
-  const end = appJsSource.indexOf("function setAuthAvatarDisplay");
+  const start = authSessionSource.indexOf("async function installDoctor()");
+  const end = authSessionSource.indexOf("function setAuthAvatarDisplay");
   if (start < 0 || end < 0 || end <= start) {
-    throw new Error("Could not locate frontend install helpers in app.js");
+    throw new Error(
+      "Could not locate frontend install helpers in auth-session.js",
+    );
   }
-  return appJsSource.slice(start, end);
+  return authSessionSource.slice(start, end);
 }
 
 function makeFakeLocalStorage() {

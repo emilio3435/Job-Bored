@@ -44,6 +44,16 @@ function completeFunction(source) {
   return `${source}\n}`;
 }
 
+/** VM stubs for hoisted auth getters referenced by sliced app.js helpers. */
+const ingestAuthVmPreamble = `
+function getAccessToken() {
+  return typeof accessToken === "undefined" ? "" : accessToken;
+}
+function getTokenExpiresAt() {
+  return tokenExpiresAt;
+}
+`;
+
 describe("Add job from URL endpoint resolution", () => {
   it("submits ingest through the same resolved discovery endpoint used by runs", () => {
     const submitSource = readAsyncFunctionSource(
@@ -292,7 +302,7 @@ describe("Add job from URL endpoint resolution", () => {
       },
     });
 
-    vm.runInContext(sources, context, {
+    vm.runInContext(ingestAuthVmPreamble + sources, context, {
       filename: "app.js#ingest-url-async-submit",
     });
     const result = await vm.runInContext(
@@ -407,7 +417,7 @@ describe("Add job from URL endpoint resolution", () => {
       },
     });
 
-    vm.runInContext(sources, context, {
+    vm.runInContext(ingestAuthVmPreamble + sources, context, {
       filename: "app.js#ingest-url-submit",
     });
     const result = await vm.runInContext(
@@ -506,7 +516,7 @@ describe("Add job from URL endpoint resolution", () => {
         }),
     });
 
-    vm.runInContext(sources, context, {
+    vm.runInContext(ingestAuthVmPreamble + sources, context, {
       filename: "app.js#ingest-url-submit",
     });
     await assert.rejects(

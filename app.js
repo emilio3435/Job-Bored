@@ -1778,11 +1778,11 @@ function buildMergedUserProfileForPayload() {
  * expires mid-run will fail at the Sheets write step.
  */
 function getDiscoveryRequestGoogleAccessToken() {
-  if (!accessToken || typeof accessToken !== "string") return "";
-  const trimmed = accessToken.trim();
+  if (!getAccessToken() || typeof getAccessToken() !== "string") return "";
+  const trimmed = getAccessToken().trim();
   if (!trimmed) return "";
-  if (Number.isFinite(tokenExpiresAt)) {
-    const remainingMs = Number(tokenExpiresAt) - Date.now();
+  if (Number.isFinite(getTokenExpiresAt())) {
+    const remainingMs = Number(getTokenExpiresAt()) - Date.now();
     if (remainingMs < 60_000) return "";
   }
   return trimmed;
@@ -1795,8 +1795,8 @@ async function getFreshDiscoveryRequestGoogleAccessToken(options = {}) {
   }
   const current = getDiscoveryRequestGoogleAccessToken();
   if (current) return current;
-  if (!accessToken || !Number.isFinite(tokenExpiresAt)) return "";
-  const remainingMs = Number(tokenExpiresAt) - Date.now();
+  if (!getAccessToken() || !Number.isFinite(getTokenExpiresAt())) return "";
+  const remainingMs = Number(getTokenExpiresAt()) - Date.now();
   if (remainingMs >= 60_000) return "";
   const refreshed = await refreshAccessTokenSilently().catch(() => false);
   return refreshed ? getDiscoveryRequestGoogleAccessToken() : "";
@@ -3191,7 +3191,7 @@ function requestAppsScriptDeployAccessToken() {
     );
   }
   if (
-    !gisLoaded ||
+    !getGisLoaded() ||
     typeof google === "undefined" ||
     !google.accounts ||
     !google.accounts.oauth2
@@ -3215,7 +3215,7 @@ function requestAppsScriptDeployAccessToken() {
         client_id: clientId,
         scope: APPS_SCRIPT_DEPLOY_SCOPES.join(" "),
         include_granted_scopes: true,
-        login_hint: userEmail || undefined,
+        login_hint: getUserEmailFromAuth() || undefined,
         callback: (tokenResponse) => {
           if (!tokenResponse || tokenResponse.error) {
             finish(
@@ -3252,7 +3252,7 @@ function requestAppsScriptDeployAccessToken() {
         },
       });
       client.requestAccessToken({
-        prompt: userEmail ? "" : "select_account",
+        prompt: getUserEmailFromAuth() ? "" : "select_account",
       });
     } catch (err) {
       finish(reject, err);
@@ -3849,7 +3849,7 @@ function renderAppsScriptDeployUi() {
     !clientId ||
     !sheetId ||
     needsOAuthReload ||
-    !gisLoaded;
+    !getGisLoaded();
 
   if (!clientId) {
     deployBtn.title = "Add an OAuth Client ID above first";
@@ -3858,7 +3858,7 @@ function renderAppsScriptDeployUi() {
       "Save Settings so the page reloads with this OAuth client";
   } else if (!sheetId) {
     deployBtn.title = "Paste a spreadsheet URL or Sheet ID above first";
-  } else if (!gisLoaded) {
+  } else if (!getGisLoaded()) {
     deployBtn.title = "Google sign-in is still loading";
   } else {
     deployBtn.title = hasManaged
@@ -3875,13 +3875,13 @@ function renderAppsScriptDeployUi() {
     recheckBtn.hidden =
       !hasManaged || publicAccessReady || configCore.appsScriptDeployBusy || !scriptId;
     recheckBtn.disabled =
-      configCore.appsScriptDeployBusy || !gisLoaded || !clientId || needsOAuthReload;
+      configCore.appsScriptDeployBusy || !getGisLoaded() || !clientId || needsOAuthReload;
     if (!clientId) {
       recheckBtn.title = "Add an OAuth Client ID above first";
     } else if (needsOAuthReload) {
       recheckBtn.title =
         "Save Settings so the page reloads with this OAuth client";
-    } else if (!gisLoaded) {
+    } else if (!getGisLoaded()) {
       recheckBtn.title = "Google sign-in is still loading";
     } else {
       recheckBtn.title =
@@ -3926,7 +3926,7 @@ function renderAppsScriptDeployUi() {
     tone = effectiveStatus.tone;
     message = effectiveStatus.message;
     detail = effectiveStatus.detail;
-  } else if (!gisLoaded) {
+  } else if (!getGisLoaded()) {
     effectiveStatus = buildAppsScriptGisNotReadyStatus(clientId);
     tone = effectiveStatus.tone;
     message = effectiveStatus.message;
@@ -4166,7 +4166,7 @@ async function deployAppsScriptStubFromSettings() {
     let nextState = {
       managedBy: APPS_SCRIPT_MANAGED_BY,
       origin: window.location.origin || "",
-      ownerEmail: userEmail || "",
+      ownerEmail: getUserEmailFromAuth() || "",
       scriptId,
       deploymentId,
       webAppUrl,
@@ -4565,9 +4565,118 @@ function applyPipelineNotesWrite(jobKey, body) {
   return true;
 }
 
-// Auth state — access token stays in memory; localStorage only keeps a restore marker
-let accessToken = null;
-let userEmail = null;
+// Auth session — extracted to auth-session.js (JobBoredApp.auth)
+function getAccessToken() {
+  return window.JobBoredApp.auth.getAccessToken();
+}
+function getUserEmailFromAuth() {
+  return window.JobBoredApp.auth.getUserEmail();
+}
+function getTokenExpiresAt() {
+  return window.JobBoredApp.auth.getTokenExpiresAt();
+}
+function getGisLoaded() {
+  return window.JobBoredApp.auth.getGisLoaded();
+}
+function getTokenClient() {
+  return window.JobBoredApp.auth.getTokenClient();
+}
+function showToast(...args) {
+  return window.JobBoredApp.auth.showToast(...args);
+}
+function canUseLocalStorage(...args) {
+  return window.JobBoredApp.auth.canUseLocalStorage(...args);
+}
+function canUseSessionStorage(...args) {
+  return window.JobBoredApp.auth.canUseSessionStorage(...args);
+}
+function applyOAuthClientChange(...args) {
+  return window.JobBoredApp.auth.applyOAuthClientChange(...args);
+}
+function initAuth(...args) {
+  return window.JobBoredApp.auth.initAuth(...args);
+}
+function handleTokenResponse(...args) {
+  return window.JobBoredApp.auth.handleTokenResponse(...args);
+}
+function fetchUserEmail(...args) {
+  return window.JobBoredApp.auth.fetchUserEmail(...args);
+}
+function signIn(...args) {
+  return window.JobBoredApp.auth.signIn(...args);
+}
+function signOut(...args) {
+  return window.JobBoredApp.auth.signOut(...args);
+}
+function setupAuthUI(...args) {
+  return window.JobBoredApp.auth.setupAuthUI(...args);
+}
+function closeAuthUserMenu(...args) {
+  return window.JobBoredApp.auth.closeAuthUserMenu(...args);
+}
+function isAuthUserMenuOpen(...args) {
+  return window.JobBoredApp.auth.isAuthUserMenuOpen(...args);
+}
+function toggleAuthUserMenu(...args) {
+  return window.JobBoredApp.auth.toggleAuthUserMenu(...args);
+}
+function initAuthUserMenu(...args) {
+  return window.JobBoredApp.auth.initAuthUserMenu(...args);
+}
+async function installDoctor(...args) {
+  return window.JobBoredApp.auth.installDoctor(...args);
+}
+async function installKeepAliveOnce(...args) {
+  return window.JobBoredApp.auth.installKeepAliveOnce(...args);
+}
+async function refreshKeepAlivePill(...args) {
+  return window.JobBoredApp.auth.refreshKeepAlivePill(...args);
+}
+async function refreshWorkerAutostartPill(...args) {
+  return window.JobBoredApp.auth.refreshWorkerAutostartPill(...args);
+}
+async function toggleWorkerAutostart(...args) {
+  return window.JobBoredApp.auth.toggleWorkerAutostart(...args);
+}
+function setAuthAvatarDisplay(...args) {
+  return window.JobBoredApp.auth.setAuthAvatarDisplay(...args);
+}
+function updateAuthUI(...args) {
+  return window.JobBoredApp.auth.updateAuthUI(...args);
+}
+function isSignedIn(...args) {
+  return window.JobBoredApp.auth.isSignedIn(...args);
+}
+function persistOAuthSession(...args) {
+  return window.JobBoredApp.auth.persistOAuthSession(...args);
+}
+function clearPersistedOAuthSession(...args) {
+  return window.JobBoredApp.auth.clearPersistedOAuthSession(...args);
+}
+function clearPersistedRuntimeOAuthSession(...args) {
+  return window.JobBoredApp.auth.clearPersistedRuntimeOAuthSession(...args);
+}
+function clearSessionAuthState(...args) {
+  return window.JobBoredApp.auth.clearSessionAuthState(...args);
+}
+function loadPersistedOAuthSession(...args) {
+  return window.JobBoredApp.auth.loadPersistedOAuthSession(...args);
+}
+function loadPersistedRuntimeOAuthSession(...args) {
+  return window.JobBoredApp.auth.loadPersistedRuntimeOAuthSession(...args);
+}
+function refreshAccessTokenSilently(...args) {
+  return window.JobBoredApp.auth.refreshAccessTokenSilently(...args);
+}
+function restoreOAuthSession(...args) {
+  return window.JobBoredApp.auth.restoreOAuthSession(...args);
+}
+function normalizeOauthScopes(...args) {
+  return window.JobBoredApp.auth.normalizeOauthScopes(...args);
+}
+function hasGrantedOauthScope(...args) {
+  return window.JobBoredApp.auth.hasGrantedOauthScope(...args);
+}
 
 // Minimal external accessor for modules that need the live access token
 // without grabbing internal symbols. Kept tiny on purpose — just getters,
@@ -4576,7 +4685,7 @@ let userEmail = null;
 if (typeof window !== "undefined") {
   window.JobBored = window.JobBored || {};
   window.JobBored.getAccessToken = function () {
-    return accessToken;
+    return getAccessToken();
   };
   window.JobBored.getSheetId = function () {
     return typeof SHEET_ID === "string" ? SHEET_ID : "";
@@ -4598,1192 +4707,7 @@ if (typeof window !== "undefined") {
   window.JobBored.ingestJobUrl = ingestJobUrl;
   window.JobBored.isParseableJobUrl = isParseableUrl;
 }
-/** Profile photo URL from Google userinfo (optional). */
-let userPictureUrl = null;
-let grantedOauthScopes = "";
-/** Epoch ms when accessToken is expected to expire (Google typically ~1h). */
-let tokenExpiresAt = null;
-let tokenClient = null;
-let gisLoaded = false;
-let gisInitStartedAt = 0;
-let gisInitWatchdogTimer = null;
 
-const OAUTH_SESSION_STORAGE_KEY = "command_center_oauth_session";
-const OAUTH_RUNTIME_SESSION_STORAGE_KEY = "command_center_oauth_runtime";
-
-/** Pending GIS callback: interactive sign-in, silent session restore, or silent token refresh (401 / proactive). */
-let oauthPendingOp = null;
-let tokenRefreshTimer = null;
-
-function canUseLocalStorage() {
-  try {
-    const k = "__command_center_ls_test__";
-    localStorage.setItem(k, "1");
-    localStorage.removeItem(k);
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
-function canUseSessionStorage() {
-  try {
-    const k = "__command_center_ss_test__";
-    sessionStorage.setItem(k, "1");
-    sessionStorage.removeItem(k);
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
-function normalizeOauthScopes(raw) {
-  if (!raw) return "";
-  return [...new Set(String(raw).trim().split(/\s+/).filter(Boolean))].join(
-    " ",
-  );
-}
-
-function hasGrantedOauthScope(scope) {
-  const wanted = String(scope || "").trim();
-  if (!wanted) return false;
-  return normalizeOauthScopes(grantedOauthScopes)
-    .split(/\s+/)
-    .filter(Boolean)
-    .includes(wanted);
-}
-
-function persistOAuthSession() {
-  if (!tokenExpiresAt) return;
-  const cid = getOAuthClientId();
-  if (!cid) return;
-  if (canUseLocalStorage()) {
-    try {
-      localStorage.setItem(
-        OAUTH_SESSION_STORAGE_KEY,
-        JSON.stringify({
-          expiresAt: tokenExpiresAt,
-          userEmail,
-          userPictureUrl,
-          grantedOauthScopes,
-          oauthClientId: cid,
-          hasOauthSession: true,
-        }),
-      );
-    } catch (e) {
-      // Quota or private mode
-    }
-  }
-  persistRuntimeOAuthSession();
-}
-
-function persistRuntimeOAuthSession() {
-  // Runtime session (access token + expiry) lives in localStorage so it
-  // survives hard refresh. Token is short-lived (~1h) and auto-expires via
-  // the loadPersistedRuntimeOAuthSession expiry check below.
-  if (!canUseLocalStorage() || !tokenExpiresAt || !accessToken) {
-    console.info(
-      `[JobBored][auth] persist: skipped (ls=${canUseLocalStorage()} exp=${!!tokenExpiresAt} tok=${!!accessToken})`,
-    );
-    return;
-  }
-  const cid = getOAuthClientId();
-  if (!cid) {
-    console.warn("[JobBored][auth] persist: no oauth client id");
-    return;
-  }
-  try {
-    localStorage.setItem(
-      OAUTH_RUNTIME_SESSION_STORAGE_KEY,
-      JSON.stringify({
-        accessToken,
-        expiresAt: tokenExpiresAt,
-        userEmail,
-        userPictureUrl,
-        grantedOauthScopes,
-        oauthClientId: cid,
-        hasOauthSession: true,
-      }),
-    );
-    console.info(
-      `[JobBored][auth] persist: OK (expires in ${Math.round((tokenExpiresAt - Date.now()) / 1000)}s)`,
-    );
-  } catch (e) {
-    console.warn("[JobBored][auth] persist: exception", e);
-  }
-  // Best-effort cleanup of legacy sessionStorage entry from earlier versions.
-  if (canUseSessionStorage()) {
-    try {
-      sessionStorage.removeItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
-    } catch (e) {
-      /* ignore */
-    }
-  }
-}
-
-function updatePersistedUserEmail() {
-  persistOAuthSession();
-}
-
-function clearPersistedOAuthSession() {
-  if (!canUseLocalStorage()) return;
-  try {
-    localStorage.removeItem(OAUTH_SESSION_STORAGE_KEY);
-  } catch (e) {
-    /* ignore */
-  }
-}
-
-function clearPersistedRuntimeOAuthSession() {
-  if (canUseLocalStorage()) {
-    try {
-      localStorage.removeItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
-    } catch (e) {
-      /* ignore */
-    }
-  }
-  if (canUseSessionStorage()) {
-    try {
-      sessionStorage.removeItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
-    } catch (e) {
-      /* ignore */
-    }
-  }
-}
-
-/** Drop auth state after expiry or failed refresh (does not revoke the token server-side). */
-function clearSessionAuthState() {
-  clearScheduledTokenRefresh();
-  accessToken = null;
-  userEmail = null;
-  userPictureUrl = null;
-  grantedOauthScopes = "";
-  tokenExpiresAt = null;
-  oauthPendingOp = null;
-  pendingSetupStarterSheetCreate = false;
-  clearPersistedOAuthSession();
-  clearPersistedRuntimeOAuthSession();
-  updateAuthUI();
-}
-
-function loadPersistedOAuthSession() {
-  if (!canUseLocalStorage()) return null;
-  const cid = getOAuthClientId();
-  if (!cid) return null;
-  try {
-    const raw = localStorage.getItem(OAUTH_SESSION_STORAGE_KEY);
-    if (!raw) return null;
-    const o = JSON.parse(raw);
-    if (
-      !o ||
-      typeof o !== "object" ||
-      o.hasOauthSession !== true ||
-      typeof o.expiresAt !== "number" ||
-      o.oauthClientId !== cid
-    ) {
-      clearPersistedOAuthSession();
-      return null;
-    }
-    return o;
-  } catch (e) {
-    clearPersistedOAuthSession();
-    return null;
-  }
-}
-
-function loadPersistedRuntimeOAuthSession() {
-  if (!canUseLocalStorage()) {
-    console.info("[JobBored][auth] restore: localStorage unavailable");
-    return null;
-  }
-  const cid = getOAuthClientId();
-  if (!cid) {
-    console.info("[JobBored][auth] restore: oauth client id not resolved yet");
-    return null;
-  }
-  try {
-    let raw = localStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
-    // Migration from v<12: read any legacy sessionStorage entry, promote it
-    // to localStorage on the fly so the first refresh after upgrade Just Works.
-    if (!raw && canUseSessionStorage()) {
-      try {
-        raw = sessionStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
-        if (raw) {
-          localStorage.setItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY, raw);
-          sessionStorage.removeItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
-          console.info("[JobBored][auth] restore: promoted legacy sessionStorage entry");
-        }
-      } catch (e) {
-        /* ignore */
-      }
-    }
-    if (!raw) {
-      console.info("[JobBored][auth] restore: no persisted token");
-      return null;
-    }
-    const o = JSON.parse(raw);
-    // Allow up to 60s of negative clock skew: treat the token as valid until
-    // 60s AFTER its recorded expiry, since system clocks occasionally drift
-    // backward on wake-from-sleep. The 401/retry/refresh machinery will
-    // handle the actual server-side rejection if the token really is dead.
-    const nowMs = Date.now();
-    const expiresAt = typeof o?.expiresAt === "number" ? o.expiresAt : 0;
-    const secondsRemaining = Math.round((expiresAt - nowMs) / 1000);
-    if (!o || typeof o !== "object" || o.hasOauthSession !== true) {
-      console.warn("[JobBored][auth] restore: payload shape invalid");
-      clearPersistedRuntimeOAuthSession();
-      return null;
-    }
-    if (typeof o.accessToken !== "string" || !o.accessToken) {
-      console.warn("[JobBored][auth] restore: no access token in payload");
-      clearPersistedRuntimeOAuthSession();
-      return null;
-    }
-    if (expiresAt + 60_000 <= nowMs) {
-      console.info(
-        `[JobBored][auth] restore: token expired (${secondsRemaining}s remaining incl. grace)`,
-      );
-      clearPersistedRuntimeOAuthSession();
-      return null;
-    }
-    if (o.oauthClientId !== cid) {
-      console.warn(
-        `[JobBored][auth] restore: client id mismatch (stored=${o.oauthClientId?.slice(0, 12)}… current=${cid.slice(0, 12)}…)`,
-      );
-      clearPersistedRuntimeOAuthSession();
-      return null;
-    }
-    console.info(
-      `[JobBored][auth] restore: OK (${secondsRemaining}s remaining)`,
-    );
-    return o;
-  } catch (e) {
-    console.warn("[JobBored][auth] restore: exception", e);
-    clearPersistedRuntimeOAuthSession();
-    return null;
-  }
-}
-
-function clearScheduledTokenRefresh() {
-  if (tokenRefreshTimer != null) {
-    clearTimeout(tokenRefreshTimer);
-    tokenRefreshTimer = null;
-  }
-}
-
-function scheduleTokenRefresh() {
-  clearScheduledTokenRefresh();
-  if (!tokenExpiresAt || !tokenClient) return;
-  // Refresh ~5 minutes before expiry
-  const delay = Math.max(10_000, tokenExpiresAt - Date.now() - 5 * 60 * 1000);
-  tokenRefreshTimer = setTimeout(async () => {
-    tokenRefreshTimer = null;
-    if (!accessToken) return;
-    const ok = await refreshAccessTokenSilently();
-    if (ok) scheduleTokenRefresh();
-  }, delay);
-}
-
-/**
- * Ask GIS for a new access token without user interaction (uses Google session + prior consent).
- * @returns {Promise<boolean>}
- */
-function refreshAccessTokenSilently() {
-  if (!tokenClient) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    let settled = false;
-    const done = (ok) => {
-      if (settled) return;
-      settled = true;
-      resolve(ok);
-    };
-    const t = setTimeout(() => done(false), 25_000);
-    oauthPendingOp = {
-      kind: "silent-refresh",
-      finish: (ok) => {
-        clearTimeout(t);
-        oauthPendingOp = null;
-        done(ok);
-      },
-    };
-    try {
-      tokenClient.requestAccessToken({ prompt: "none" });
-    } catch (e) {
-      clearTimeout(t);
-      oauthPendingOp = null;
-      done(false);
-    }
-  });
-}
-
-function restoreOAuthSession() {
-  const runtimeSession = loadPersistedRuntimeOAuthSession();
-  if (runtimeSession) {
-    accessToken = runtimeSession.accessToken;
-    tokenExpiresAt = runtimeSession.expiresAt;
-    userEmail = runtimeSession.userEmail || null;
-    userPictureUrl = runtimeSession.userPictureUrl || null;
-    grantedOauthScopes = normalizeOauthScopes(
-      runtimeSession.grantedOauthScopes || GOOGLE_SIGNIN_SCOPES,
-    );
-    updateAuthUI();
-    if (SHEET_ID) {
-      loadAllData().then((ok) => {
-        if (ok) revealDashboardShell();
-      });
-    } else {
-      revealSetupScreenAfterAuth();
-    }
-    scheduleTokenRefresh();
-    maybeSyncSettingsModalModeAfterAuth();
-    void fetchUserEmail();
-    return;
-  }
-  const persisted = loadPersistedOAuthSession();
-  if (!persisted || !tokenClient) {
-    // No runtime token AND no restorable metadata → user is truly signed out.
-    // Open the gate now so the dashboard never renders in a broken state.
-    if (getOAuthClientId() && !accessToken) {
-      showSheetAccessGate("signin");
-    }
-    return;
-  }
-
-  oauthPendingOp = { kind: "silent-restore" };
-  try {
-    tokenClient.requestAccessToken({ prompt: "none" });
-  } catch (e) {
-    oauthPendingOp = null;
-    clearPersistedOAuthSession();
-    if (getOAuthClientId() && !accessToken) {
-      showSheetAccessGate("signin");
-    }
-  }
-}
-
-// ============================================
-// TOAST SYSTEM
-// ============================================
-
-function showToast(message, type = "success", persistent = false, action) {
-  const container = document.getElementById("toastContainer");
-  const toast = document.createElement("div");
-  toast.className = `toast toast-${type}`;
-
-  const icons = {
-    success: "\u2713",
-    error: "\u2717",
-    info: "i",
-    warning: "\u26A0",
-  };
-
-  toast.innerHTML = `
-    <span class="toast-icon">${icons[type] || icons.info}</span>
-    <span class="toast-message">${escapeHtml(message)}</span>
-    <button class="toast-close" aria-label="Dismiss">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-    </button>
-  `;
-
-  const dismiss = () => {
-    toast.classList.add("removing");
-    setTimeout(() => toast.remove(), 200);
-  };
-
-  if (action && action.label && typeof action.onClick === "function") {
-    const btn = document.createElement("button");
-    btn.className = "toast-action-btn";
-    btn.textContent = action.label;
-    btn.addEventListener("click", () => {
-      action.onClick();
-      dismiss();
-    });
-    toast.querySelector(".toast-message").after(btn);
-  }
-
-  toast.querySelector(".toast-close").addEventListener("click", dismiss);
-
-  container.appendChild(toast);
-
-  // Auto-dismiss success/info toasts
-  if (!persistent && type !== "error") {
-    setTimeout(dismiss, 3000);
-  }
-
-  return dismiss;
-}
-
-// ============================================
-// AUTH — Google Identity Services
-// ============================================
-
-/**
- * Apply a freshly saved OAuth client ID without forcing a full page reload.
- * Tries to rebuild the GIS tokenClient in place; falls back to reload if that
- * fails (e.g. GIS not loaded yet, or tokenClient threw). Removes the most
- * jarring UX moment in the greenfield setup path.
- */
-function applyOAuthClientChange(clientId) {
-  const cid = String(clientId || "").trim();
-  if (!cid) return false;
-  // We only safely re-init when GIS is already loaded.
-  if (
-    typeof google === "undefined" ||
-    !google.accounts ||
-    !google.accounts.oauth2 ||
-    !gisLoaded
-  ) {
-    return false;
-  }
-  try {
-    // Drop any cached session bound to a different client id.
-    clearPersistedOAuthSession();
-    accessToken = null;
-    tokenExpiresAt = 0;
-    grantedOauthScopes = [];
-    tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: cid,
-      scope: GOOGLE_SIGNIN_SCOPES,
-      include_granted_scopes: true,
-      callback: handleTokenResponse,
-      error_callback: (err) => {
-        console.error("[JobBored] GIS error_callback (re-init):", err);
-        recordSheetAccessError(err);
-      },
-    });
-    setupAuthUI();
-    renderSetupStarterSheetUi();
-    renderAppsScriptDeployUi();
-    maybeSyncSettingsModalModeAfterAuth();
-    showSheetAccessGate(getOAuthClientId() ? "signin" : "loading");
-    return true;
-  } catch (e) {
-    console.warn("[JobBored] in-place OAuth re-init failed, will reload:", e);
-    return false;
-  }
-}
-
-function initAuth() {
-  const clientId = getOAuthClientId();
-  if (!clientId) {
-    // No OAuth configured — hide auth section entirely
-    const authSection = document.getElementById("authSection");
-    if (authSection) authSection.style.display = "none";
-    return;
-  }
-  gisInitStartedAt = Date.now();
-  if (gisInitWatchdogTimer != null) {
-    clearTimeout(gisInitWatchdogTimer);
-    gisInitWatchdogTimer = null;
-  }
-  gisInitWatchdogTimer = setTimeout(() => {
-    gisInitWatchdogTimer = null;
-    if (!gisLoaded) renderAppsScriptDeployUi();
-  }, GIS_INIT_STUCK_MS + 250);
-
-  // Wait for GIS library to load
-  function tryInit() {
-    if (
-      typeof google !== "undefined" &&
-      google.accounts &&
-      google.accounts.oauth2
-    ) {
-      gisLoaded = true;
-      gisInitStartedAt = 0;
-      if (gisInitWatchdogTimer != null) {
-        clearTimeout(gisInitWatchdogTimer);
-        gisInitWatchdogTimer = null;
-      }
-      tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: GOOGLE_SIGNIN_SCOPES,
-        include_granted_scopes: true,
-        callback: handleTokenResponse,
-        error_callback: (err) => {
-          console.error("[JobBored] GIS error_callback:", err);
-          if (oauthPendingOp?.kind === "silent-refresh") {
-            oauthPendingOp.finish(false);
-            return;
-          }
-          if (oauthPendingOp?.kind === "silent-restore") {
-            clearPersistedOAuthSession();
-            oauthPendingOp = null;
-            // Silent restore failed — user's Google session is dead or consent was
-            // revoked. Open the sign-in gate instead of letting the dashboard render
-            // and then throw toasts on the first click.
-            if (getOAuthClientId() && !accessToken) {
-              showSheetAccessGate("signin");
-            }
-            return;
-          }
-          oauthPendingOp = null;
-          const errType =
-            err && typeof err === "object" && err.type != null
-              ? String(err.type)
-              : "";
-          const isPopup =
-            errType === "popup_failed" ||
-            errType === "popup_closed" ||
-            /popup/i.test(
-              String(err && err.message != null ? err.message : err),
-            );
-          const msg = isPopup
-            ? "Google sign-in couldn’t open a window. Allow popups for this site, turn off your popup blocker for localhost, and use a normal browser tab (embedded previews often block OAuth)."
-            : "Google sign-in failed. Try again, allow third-party cookies for accounts.google.com if your browser blocks them, or open the app in Chrome/Edge.";
-          showToast(msg, "error", true);
-        },
-      });
-      setupAuthUI();
-      restoreOAuthSession();
-      renderSetupStarterSheetUi();
-      renderAppsScriptDeployUi();
-      maybeSyncSettingsModalModeAfterAuth();
-    } else {
-      // Retry in 200ms — GIS library is loaded async
-      setTimeout(tryInit, 200);
-    }
-  }
-
-  tryInit();
-}
-
-function handleTokenResponse(tokenResponse) {
-  const pending = oauthPendingOp;
-  const silentOp =
-    pending &&
-    (pending.kind === "silent-refresh" || pending.kind === "silent-restore");
-
-  if (tokenResponse.error) {
-    console.error("[JobBored] OAuth error:", tokenResponse.error);
-    if (pending?.kind === "silent-refresh") {
-      pending.finish(false);
-    } else {
-      if (pending?.kind === "silent-restore") {
-        clearPersistedOAuthSession();
-      }
-      oauthPendingOp = null;
-    }
-    if (silentOp && getOAuthClientId() && !accessToken) {
-      showSheetAccessGate("signin");
-    }
-    if (!silentOp) {
-      showToast(
-        "Sign-in failed: " +
-          (tokenResponse.error_description || tokenResponse.error),
-        "error",
-      );
-    }
-    return;
-  }
-
-  accessToken = tokenResponse.access_token;
-  grantedOauthScopes = normalizeOauthScopes(
-    tokenResponse.scope || GOOGLE_SIGNIN_SCOPES,
-  );
-  const expiresIn = Number(tokenResponse.expires_in) || 3600;
-  tokenExpiresAt = Date.now() + expiresIn * 1000;
-  persistOAuthSession();
-
-  if (pending?.kind === "silent-refresh") {
-    pending.finish(true);
-    fetchUserEmail();
-    updateAuthUI();
-    maybeSyncSettingsModalModeAfterAuth();
-    return;
-  }
-
-  if (pending?.kind === "silent-restore") {
-    oauthPendingOp = null;
-    fetchUserEmail();
-    updateAuthUI();
-    if (SHEET_ID) {
-      loadAllData().then((ok) => {
-        if (ok) revealDashboardShell();
-      });
-    } else {
-      revealSetupScreenAfterAuth();
-    }
-    scheduleTokenRefresh();
-    maybeSyncSettingsModalModeAfterAuth();
-    return;
-  }
-
-  oauthPendingOp = null;
-
-  fetchUserEmail();
-  updateAuthUI();
-  showToast("Signed in", "success");
-
-  if (pendingSetupStarterSheetCreate) {
-    pendingSetupStarterSheetCreate = false;
-    scheduleTokenRefresh();
-    if (!SHEET_ID) revealSetupScreenAfterAuth();
-    void handleSetupCreateStarterSheet();
-    maybeSyncSettingsModalModeAfterAuth();
-    return;
-  }
-
-  if (SHEET_ID) {
-    // Arm the auto-open flag only for interactive sign-in. Silent
-    // restore (page refresh with a valid token in storage) and
-    // silent-refresh paths leave this false, so the triage modal
-    // stays closed across refreshes — fixes the flicker-then-popup
-    // bug. The flag is consumed inside maybeAutoOpenExpiredReviewModal.
-    window.__expiredReviewArmFromInteractiveSignin = true;
-    showSheetAccessGate("loading");
-    loadAllData().then((ok) => {
-      if (ok) revealDashboardShell();
-    });
-  } else {
-    revealSetupScreenAfterAuth();
-  }
-  scheduleTokenRefresh();
-  maybeSyncSettingsModalModeAfterAuth();
-}
-
-async function fetchUserEmail() {
-  if (!accessToken) return;
-  const userInfoUrl = "https://www.googleapis.com/oauth2/v3/userinfo";
-  try {
-    let resp = await fetch(userInfoUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (resp.ok) {
-      const data = await resp.json();
-      userEmail = data.email || null;
-      userPictureUrl =
-        typeof data.picture === "string" && data.picture.trim()
-          ? data.picture.trim()
-          : null;
-      updateAuthUI();
-      updatePersistedUserEmail();
-      return;
-    }
-    if (resp.status === 401) {
-      const ok = await refreshAccessTokenSilently();
-      if (!ok || !accessToken) return;
-      resp = await fetch(userInfoUrl, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        userEmail = data.email || null;
-        userPictureUrl =
-          typeof data.picture === "string" && data.picture.trim()
-            ? data.picture.trim()
-            : null;
-        updateAuthUI();
-        updatePersistedUserEmail();
-      }
-    }
-  } catch (err) {
-    console.warn("[JobBored] Could not fetch user email:", err.message);
-  }
-}
-
-function signIn(options = {}) {
-  if (!tokenClient) {
-    showToast(
-      "Google sign-in is not ready yet. Save your OAuth client and reload first.",
-      "error",
-      true,
-    );
-    return;
-  }
-  if (oauthPendingOp?.kind === "silent-refresh") {
-    oauthPendingOp.finish(false);
-  } else if (oauthPendingOp?.kind === "silent-restore") {
-    oauthPendingOp = null;
-  }
-  oauthPendingOp = { kind: "interactive" };
-  const request = {};
-  let prompt =
-    options && typeof options === "object" && options.prompt != null
-      ? String(options.prompt)
-      : "";
-  // One-shot consent override: if the user just ran "Clear settings", force
-  // the consent screen on the very next interactive sign-in so they cannot
-  // be silently re-authed from a lingering Google consent grant. Consume the
-  // flag here so it only applies once.
-  try {
-    if (canUseLocalStorage() && localStorage.getItem(FORCE_CONSENT_PROMPT_KEY)) {
-      prompt = "consent";
-      localStorage.removeItem(FORCE_CONSENT_PROMPT_KEY);
-    }
-  } catch (_) {
-    /* ignore */
-  }
-  if (prompt) request.prompt = prompt;
-  tokenClient.requestAccessToken(request);
-}
-
-function signOut() {
-  closeAuthUserMenu();
-  if (accessToken) {
-    try {
-      google.accounts.oauth2.revoke(accessToken, () => {
-        console.log("[JobBored] Token revoked");
-      });
-    } catch (e) {
-      // Ignore revoke errors
-    }
-  }
-  clearSessionAuthState();
-  // Wipe in-memory and on-DOM pipeline data so the signed-out session can't
-  // see or interact with what was loaded before.
-  pipelineRawRows = null;
-  pipelineData = [];
-  dashboardDataHydrated = false;
-  try {
-    renderPipeline();
-  } catch (e) {
-    /* render may no-op if the dashboard is hidden — safe to ignore */
-  }
-  showToast("Signed out", "info");
-  maybeSyncSettingsModalModeAfterAuth();
-  if (SHEET_ID) {
-    initialSheetAccessResolved = false;
-    // Do NOT call loadAllData() here — the JSONP fallback would re-populate
-    // pipelineData from a public sheet and re-reveal the dashboard. The gate
-    // is the terminal state until the user signs back in.
-    showSheetAccessGate(getOAuthClientId() ? "signin" : "loading");
-  } else {
-    const setup = document.getElementById("setupScreen");
-    if (setup) setup.style.display = "none";
-    if (getOAuthClientId()) {
-      showSheetAccessGate("signin");
-    } else {
-      showSheetAccessGate("no-oauth");
-    }
-    renderSetupStarterSheetUi();
-  }
-}
-
-function setupAuthUI() {
-  const signInBtn = document.getElementById("signInBtn");
-  const signOutBtn = document.getElementById("signOutBtn");
-
-  if (signInBtn) signInBtn.addEventListener("click", signIn);
-  if (signOutBtn) signOutBtn.addEventListener("click", signOut);
-}
-
-function closeAuthUserMenu() {
-  const menu = document.getElementById("authUserMenu");
-  const toggle = document.getElementById("authMenuToggle");
-  if (menu && !menu.hidden) {
-    menu.hidden = true;
-    if (toggle) toggle.setAttribute("aria-expanded", "false");
-  }
-}
-
-function isAuthUserMenuOpen() {
-  const menu = document.getElementById("authUserMenu");
-  return !!(menu && !menu.hidden);
-}
-
-async function toggleAuthUserMenu() {
-  const menu = document.getElementById("authUserMenu");
-  const toggle = document.getElementById("authMenuToggle");
-  if (!menu || !toggle) return;
-  const willOpen = !!menu.hidden;
-  if (willOpen) await refreshPersonalPreferencesPanel();
-  menu.hidden = !willOpen;
-  toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
-}
-
-let authUserMenuInitialized = false;
-
-function initAuthUserMenu() {
-  if (authUserMenuInitialized) return;
-  const toggle = document.getElementById("authMenuToggle");
-  const menu = document.getElementById("authUserMenu");
-  if (!toggle || !menu) return;
-  authUserMenuInitialized = true;
-
-  toggle.addEventListener("click", async (e) => {
-    e.stopPropagation();
-    await toggleAuthUserMenu();
-  });
-
-  document.addEventListener(
-    "click",
-    (e) => {
-      if (!isAuthUserMenuOpen()) return;
-      const t = e.target;
-      if (toggle.contains(t)) return;
-      if (menu.contains(t)) return;
-      closeAuthUserMenu();
-    },
-    true,
-  );
-
-  // "Resume onboarding": always-available re-entry into the wizard,
-  // regardless of whether onboarding was previously marked complete.
-  const resumeBtn = document.getElementById("resumeOnboardingBtn");
-  if (resumeBtn) {
-    resumeBtn.addEventListener("click", () => {
-      closeAuthUserMenu();
-      try {
-        showOnboardingWizard();
-      } catch (e) {
-        console.warn("[JobBored] resume onboarding:", e);
-      }
-    });
-  }
-
-  // "Run setup doctor": run a full diagnose+autoHeal pass on demand.
-  const doctorBtn = document.getElementById("setupDoctorBtn");
-  if (doctorBtn) {
-    doctorBtn.addEventListener("click", async () => {
-      closeAuthUserMenu();
-      if (!window.SetupDoctor) {
-        showToast("Setup doctor unavailable in this build.", "warning");
-        return;
-      }
-      showToast("Running setup doctor…", "info");
-      const ctx = { lastError: lastSheetAccessError || "" };
-      const report = await window.SetupDoctor.diagnose(ctx);
-      if (!report.issues.length) {
-        showToast("Setup looks healthy.", "success");
-        return;
-      }
-      // Render into the login gate panel slot so the user has a
-      // consistent place to act on findings, even if they're already
-      // signed in.
-      showSheetAccessGate("error");
-    });
-  }
-
-  const healthBtn = document.getElementById("setupHealthBtn");
-  if (healthBtn) {
-    healthBtn.addEventListener("click", async () => {
-      closeAuthUserMenu();
-      const result = await installDoctor();
-      if (!result || result.notImplemented) {
-        showToast("Install doctor isn't available in this build.", "info");
-        return;
-      }
-      const missing = (result && result.missing) || [];
-      if (missing.length) {
-        showToast(missing[0], "warning", true);
-      } else {
-        showToast("All install tools look healthy.", "success");
-      }
-      refreshKeepAlivePill();
-      refreshWorkerAutostartPill();
-    });
-  }
-
-  const workerAutostartBtn = document.getElementById("workerAutostartBtn");
-  if (workerAutostartBtn) {
-    workerAutostartBtn.addEventListener("click", async () => {
-      await toggleWorkerAutostart();
-    });
-  }
-
-  const authToggle = document.getElementById("authMenuToggle");
-  if (authToggle) {
-    authToggle.addEventListener("click", () => {
-      refreshKeepAlivePill();
-      refreshWorkerAutostartPill();
-    });
-  }
-}
-
-async function installDoctor() {
-  try {
-    const resp = await fetch("/__proxy/install-doctor", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
-    if (resp.status === 501) {
-      return { ok: false, notImplemented: true };
-    }
-    const body = await resp.json().catch(() => ({}));
-    if (typeof window !== "undefined") {
-      window.installDoctorState = body;
-      try {
-        window.dispatchEvent(
-          new CustomEvent("jobbored:install-doctor:update", { detail: body }),
-        );
-      } catch (_) {}
-    }
-    return body;
-  } catch (e) {
-    return { ok: false, error: e && e.message };
-  }
-}
-
-if (typeof window !== "undefined") {
-  window.installDoctor = installDoctor;
-}
-
-const KEEP_ALIVE_INSTALLED_KEY = "jb:install-keep-alive:installedAt";
-
-async function installKeepAliveOnce() {
-  try {
-    if (
-      typeof localStorage !== "undefined" &&
-      localStorage.getItem(KEEP_ALIVE_INSTALLED_KEY)
-    ) {
-      return;
-    }
-    const resp = await fetch("/__proxy/install-keep-alive", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ schedule: "auto" }),
-    });
-    if (resp.status === 501) return;
-    const body = await resp.json().catch(() => ({}));
-    if (body && body.ok) {
-      try {
-        if (typeof localStorage !== "undefined") {
-          localStorage.setItem(
-            KEEP_ALIVE_INSTALLED_KEY,
-            body.installedAt || new Date().toISOString(),
-          );
-        }
-      } catch (_) {}
-      if (typeof window !== "undefined") {
-        window.keepAliveStatusState = {
-          installed: true,
-          lastRunAt: body.installedAt,
-          jobLabel: body.jobLabel,
-        };
-      }
-    }
-  } catch (_) {
-    /* silent — never block the user */
-  }
-}
-
-if (typeof window !== "undefined") {
-  window.installKeepAliveOnce = installKeepAliveOnce;
-}
-
-async function refreshKeepAlivePill() {
-  const pill = document.getElementById("keepAlivePill");
-  if (!pill) return;
-  try {
-    const resp = await fetch("/__proxy/install-keep-alive/status");
-    if (resp.status === 501) {
-      pill.hidden = true;
-      return;
-    }
-    const body = await resp.json().catch(() => ({}));
-    if (typeof window !== "undefined") {
-      window.keepAliveStatusState = body;
-    }
-    pill.hidden = false;
-    if (body && body.installed) {
-      pill.textContent = "Auto-healing on";
-      pill.classList.add("doctor-keep-alive-pill--on");
-      pill.classList.remove("doctor-keep-alive-pill--off");
-    } else {
-      pill.textContent = "Not installed — install";
-      pill.classList.add("doctor-keep-alive-pill--off");
-      pill.classList.remove("doctor-keep-alive-pill--on");
-    }
-  } catch (_) {
-    pill.hidden = true;
-  }
-}
-
-// Mirrors the keep-alive pill: a small status indicator in the user menu
-// that lets the user install/uninstall a "start the local discovery worker
-// on boot" service without opening a terminal. Endpoints mirror the
-// keep-alive contract — only the path differs.
-async function refreshWorkerAutostartPill() {
-  const btn = document.getElementById("workerAutostartBtn");
-  const pill = document.getElementById("workerAutostartPill");
-  if (!btn || !pill) return;
-  try {
-    const resp = await fetch("/__proxy/install-worker-autostart/status");
-    if (resp.status === 501) {
-      btn.hidden = true;
-      pill.hidden = true;
-      return;
-    }
-    const body = await resp.json().catch(() => ({}));
-    if (typeof window !== "undefined") {
-      window.workerAutostartStatusState = body;
-    }
-    btn.hidden = false;
-    pill.hidden = false;
-    pill.classList.remove("doctor-keep-alive-pill--error");
-    if (body && body.installed) {
-      pill.textContent = "On — runs on boot";
-      pill.classList.add("doctor-keep-alive-pill--on");
-      pill.classList.remove("doctor-keep-alive-pill--off");
-    } else {
-      pill.textContent = "Off — start on boot";
-      pill.classList.add("doctor-keep-alive-pill--off");
-      pill.classList.remove("doctor-keep-alive-pill--on");
-    }
-  } catch (_) {
-    btn.hidden = true;
-    pill.hidden = true;
-  }
-}
-
-if (typeof window !== "undefined") {
-  window.refreshWorkerAutostartPill = refreshWorkerAutostartPill;
-}
-
-// Toggle install/uninstall of the worker boot service. Installed -> DELETE,
-// not installed -> POST. Surfaces the endpoint's actionable/reason message
-// inline on failure rather than swallowing it.
-async function toggleWorkerAutostart() {
-  const pill = document.getElementById("workerAutostartPill");
-  const installed = !!(
-    typeof window !== "undefined" &&
-    window.workerAutostartStatusState &&
-    window.workerAutostartStatusState.installed
-  );
-  try {
-    let resp;
-    if (installed) {
-      resp = await fetch("/__proxy/install-worker-autostart", {
-        method: "DELETE",
-      });
-    } else {
-      resp = await fetch("/__proxy/install-worker-autostart", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schedule: "auto" }),
-      });
-    }
-    if (resp.status === 501) {
-      showToast("Worker autostart isn't available in this build.", "info");
-      await refreshWorkerAutostartPill();
-      return;
-    }
-    const body = await resp.json().catch(() => ({}));
-    if (!body || !body.ok) {
-      const msg =
-        (body && (body.actionable || body.reason)) ||
-        (installed
-          ? "Couldn't turn off discovery worker autostart."
-          : "Couldn't start the discovery worker on boot.");
-      if (pill) {
-        pill.textContent = installed ? "Couldn't turn off" : "Install failed";
-        pill.classList.add("doctor-keep-alive-pill--error");
-        pill.classList.remove(
-          "doctor-keep-alive-pill--on",
-          "doctor-keep-alive-pill--off",
-        );
-      }
-      showToast(msg, "error", true);
-      return;
-    }
-    showToast(
-      installed
-        ? "Discovery worker will no longer start on boot."
-        : "Discovery worker will now start on boot.",
-      "success",
-    );
-  } catch (e) {
-    if (pill) {
-      pill.textContent = "Error";
-      pill.classList.add("doctor-keep-alive-pill--error");
-      pill.classList.remove(
-        "doctor-keep-alive-pill--on",
-        "doctor-keep-alive-pill--off",
-      );
-    }
-    showToast(
-      (e && e.message) || "Couldn't reach the worker autostart service.",
-      "error",
-      true,
-    );
-  } finally {
-    await refreshWorkerAutostartPill();
-  }
-}
-
-function setAuthAvatarDisplay() {
-  const slot = document.getElementById("authAvatarSlot");
-  const img = document.getElementById("authAvatarImg");
-  const fb = document.getElementById("authAvatarFallback");
-  if (!slot || !img || !fb) return;
-
-  if (!accessToken) {
-    img.removeAttribute("src");
-    img.hidden = true;
-    img.alt = "";
-    fb.textContent = "";
-    slot.classList.remove("auth-avatar--show-fallback");
-    slot.removeAttribute("title");
-    slot.removeAttribute("role");
-    slot.removeAttribute("aria-label");
-    document.getElementById("authMenuToggle")?.removeAttribute("aria-label");
-    return;
-  }
-
-  const tip = userEmail || "Signed in";
-  slot.title = tip;
-  slot.setAttribute("role", "presentation");
-  slot.removeAttribute("aria-label");
-  img.alt = "";
-  const menuToggle = document.getElementById("authMenuToggle");
-  if (menuToggle) {
-    menuToggle.setAttribute(
-      "aria-label",
-      userEmail
-        ? `Account menu — signed in as ${userEmail}`
-        : "Account menu — personal preferences",
-    );
-  }
-
-  const initial = (userEmail || "?").trim().charAt(0).toUpperCase() || "?";
-  fb.textContent = initial;
-
-  if (userPictureUrl) {
-    img.onerror = () => {
-      img.hidden = true;
-      img.removeAttribute("src");
-      slot.classList.add("auth-avatar--show-fallback");
-    };
-    img.onload = () => {
-      img.hidden = false;
-      slot.classList.remove("auth-avatar--show-fallback");
-    };
-    const next = userPictureUrl;
-    if (img.getAttribute("src") !== next) {
-      img.hidden = true;
-      slot.classList.add("auth-avatar--show-fallback");
-      img.src = next;
-    } else if (img.complete && img.naturalWidth > 0) {
-      img.hidden = false;
-      slot.classList.remove("auth-avatar--show-fallback");
-    }
-  } else {
-    img.removeAttribute("src");
-    img.hidden = true;
-    slot.classList.add("auth-avatar--show-fallback");
-  }
-}
-
-function updateAuthUI() {
-  const signInBtn = document.getElementById("signInBtn");
-  const authUser = document.getElementById("authUser");
-
-  if (accessToken) {
-    signInBtn.style.display = "none";
-    authUser.style.display = "flex";
-    setAuthAvatarDisplay();
-  } else {
-    signInBtn.style.display = "flex";
-    authUser.style.display = "none";
-    setAuthAvatarDisplay();
-  }
-  renderSetupStarterSheetUi();
-}
-
-function isSignedIn() {
-  return !!accessToken;
-}
 
 /** Rotating hero tips on the login gate (left panel). */
 const LOGIN_GATE_TIPS = [
@@ -6027,7 +4951,7 @@ function showSheetAccessGate(mode) {
 
   // Signed-in users without a pipeline sheet belong on the setup steps, not the login gate.
   // Many code paths call showSheetAccessGate() and would otherwise hide #setupScreen.
-  if (!getSheetId() && accessToken && mode !== "no-oauth") {
+  if (!getSheetId() && getAccessToken() && mode !== "no-oauth") {
     revealPipelineSetupStepsScreen();
     return;
   }
@@ -6067,7 +4991,7 @@ function showSheetAccessGate(mode) {
     nextStepTitle = "";
     nextStepBody = "";
     const canOAuth = !!getOAuthClientId();
-    const needGoogleBtn = canOAuth && !accessToken;
+    const needGoogleBtn = canOAuth && !getAccessToken();
     showSignIn = needGoogleBtn;
     showSpinner = !needGoogleBtn;
     footText = needGoogleBtn
@@ -6102,7 +5026,7 @@ function showSheetAccessGate(mode) {
     nextDetail = "Check the Sheet ID and permissions, then try again.";
     nextStepTitle = "";
     nextStepBody = "";
-    showSignIn = !!getOAuthClientId() && !accessToken;
+    showSignIn = !!getOAuthClientId() && !getAccessToken();
     footText = showSignIn
       ? "Sign in with the account that can open this sheet."
       : "Check Settings or your network and reload.";
@@ -6217,14 +5141,14 @@ function renderSetupStarterSheetUi() {
       "Complete OAuth setup on the sign-in screen, then reload this page.";
     return;
   }
-  if (!gisLoaded) {
+  if (!getGisLoaded()) {
     btn.disabled = true;
     btn.textContent = "Loading Google sign-in…";
     status.textContent =
       "Reload once after signing in so Google sign-in can initialize.";
     return;
   }
-  if (!accessToken) {
+  if (!getAccessToken()) {
     btn.disabled = false;
     btn.textContent = "Sign in & create blank starter sheet";
     status.textContent =
@@ -6247,7 +5171,7 @@ function renderSetupStarterSheetUi() {
 }
 
 async function createBlankStarterSheet(isRetry) {
-  if (!accessToken) {
+  if (!getAccessToken()) {
     showSheetAccessGate("signin");
     return null;
   }
@@ -6259,7 +5183,7 @@ async function createBlankStarterSheet(isRetry) {
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${getAccessToken()}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -6334,7 +5258,7 @@ async function createBlankStarterSheet(isRetry) {
       {
         method: "PUT",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${getAccessToken()}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -6375,7 +5299,7 @@ async function handleSetupCreateStarterSheet() {
     void openCommandCenterSettingsModal();
     return;
   }
-  if (!gisLoaded || !tokenClient) {
+  if (!getGisLoaded() || !getTokenClient()) {
     showToast(
       "Google sign-in is not ready yet. Save the OAuth client, reload, then try again.",
       "error",
@@ -6383,10 +5307,10 @@ async function handleSetupCreateStarterSheet() {
     );
     return;
   }
-  if (!accessToken || !hasGrantedOauthScope(GOOGLE_SHEETS_SCOPE)) {
+  if (!getAccessToken() || !hasGrantedOauthScope(GOOGLE_SHEETS_SCOPE)) {
     pendingSetupStarterSheetCreate = true;
     signIn({
-      prompt: accessToken ? "consent" : "",
+      prompt: getAccessToken() ? "consent" : "",
     });
     return;
   }
@@ -6978,10 +5902,10 @@ window.JobBoredApp.core.host = {
     return getActiveSheetId();
   },
   getAccessToken() {
-    return accessToken;
+    return getAccessToken();
   },
   getUserEmail() {
-    return userEmail;
+    return getUserEmailFromAuth();
   },
   isSignedIn() {
     return isSignedIn();
@@ -7045,6 +5969,30 @@ window.JobBoredApp.core.host = {
   },
   showSheetAccessGate(...args) {
     return showSheetAccessGate(...args);
+  },
+  revealSetupScreenAfterAuth(...args) {
+    return revealSetupScreenAfterAuth(...args);
+  },
+  renderSetupStarterSheetUi(...args) {
+    return renderSetupStarterSheetUi(...args);
+  },
+  handleSetupCreateStarterSheet(...args) {
+    return handleSetupCreateStarterSheet(...args);
+  },
+  getPendingSetupStarterSheetCreate() {
+    return pendingSetupStarterSheetCreate;
+  },
+  setPendingSetupStarterSheetCreate(value) {
+    pendingSetupStarterSheetCreate = !!value;
+  },
+  getLastSheetAccessError() {
+    return lastSheetAccessError;
+  },
+  refreshPersonalPreferencesPanel(...args) {
+    return refreshPersonalPreferencesPanel(...args);
+  },
+  showOnboardingWizard(...args) {
+    return showOnboardingWizard(...args);
   },
   openCommandCenterSettingsModal(...args) {
     return window.JobBoredApp.settings.openCommandCenterSettingsModal(...args);
@@ -7345,34 +6293,34 @@ Object.assign(window.JobBoredApp.core, {
     pipelineRawRows = rows;
   },
   getAccessToken() {
-    return accessToken;
+    return getAccessToken();
   },
   setAccessToken(value) {
-    accessToken = value;
+    return window.JobBoredApp.auth.setAccessToken(value);
   },
   getUserEmail() {
-    return userEmail;
+    return getUserEmailFromAuth();
   },
   setUserEmail(value) {
-    userEmail = value;
+    return window.JobBoredApp.auth.setUserEmail(value);
   },
   getTokenExpiresAt() {
-    return tokenExpiresAt;
+    return getTokenExpiresAt();
   },
   setTokenExpiresAt(value) {
-    tokenExpiresAt = value;
+    return window.JobBoredApp.auth.setTokenExpiresAt(value);
   },
   getTokenClient() {
-    return tokenClient;
+    return getTokenClient();
   },
   setTokenClient(value) {
-    tokenClient = value;
+    return window.JobBoredApp.auth.setTokenClient(value);
   },
   getGisLoaded() {
-    return gisLoaded;
+    return getGisLoaded();
   },
   setGisLoaded(value) {
-    gisLoaded = value;
+    return window.JobBoredApp.auth.setGisLoaded(value);
   },
   getCurrentSort() {
     return currentSort;
@@ -11149,7 +10097,7 @@ async function appendManualPipelineRowDirect(manual) {
     : "";
 
   if (!SHEET_ID) throw new Error("missing_sheet");
-  if (!accessToken) {
+  if (!getAccessToken()) {
     showSheetAccessGate("signin");
     throw new Error("signed_out");
   }
