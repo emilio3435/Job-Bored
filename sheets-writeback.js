@@ -11,6 +11,10 @@
     return window.JobBoredApp.core.host;
   }
 
+  function sheetsRead() {
+    return window.JobBoredApp.sheetsRead;
+  }
+
   function sheetId() {
     const h = host();
     return (h.getActiveSheetId && h.getActiveSheetId()) || h.getSheetId() || "";
@@ -333,93 +337,18 @@ async function deleteBlacklistRowByUrl(url) {
   return true;
 }
 
-// localStorage-backed pending favorites map. Keyed by the job link (or by a
-// link-less synthetic key built from title|company so manually-entered rows
-// without a link still persist). Survives across refresh so a user who
-// clicked the star but hadn't yet signed in / whose Sheet write failed
-// still sees their pick on next load. Cleared per-row once the Sheet write
-// succeeds (canonical column V holds "★").
-const PENDING_FAVORITES_STORAGE_KEY = "jobbored.favorites.pending";
-
-function favoriteCacheKeyForJob(job) {
-  if (!job) return "";
-  const link = job.link ? String(job.link).trim() : "";
-  if (link) return link;
-  const title = job.title ? String(job.title).trim().toLowerCase() : "";
-  const company = job.company ? String(job.company).trim().toLowerCase() : "";
-  if (!title && !company) return "";
-  return `synthetic::${company}::${title}`;
-}
-
-function loadPendingFavorites() {
-  try {
-    const raw = localStorage.getItem(PENDING_FAVORITES_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function savePendingFavorites(map) {
-  try {
-    localStorage.setItem(PENDING_FAVORITES_STORAGE_KEY, JSON.stringify(map || {}));
-  } catch {
-    // Quota exceeded or storage disabled — silent best-effort.
-  }
-}
-
-function setPendingFavorite(cacheKey, favorite) {
-  if (!cacheKey) return;
-  const map = loadPendingFavorites();
-  map[cacheKey] = !!favorite;
-  savePendingFavorites(map);
-}
-
-function clearPendingFavorite(cacheKey) {
-  if (!cacheKey) return;
-  const map = loadPendingFavorites();
-  if (!(cacheKey in map)) return;
-  delete map[cacheKey];
-  savePendingFavorites(map);
-}
-
-/** Layer pending (unwritten / unsynced) favorites into freshly-parsed jobs.
- *  Called after parsePipelineCSV so a user whose Sheet write failed or who
- *  toggled while auth-gated still sees their pick after refresh. Entries
- *  that match the canonical Sheet state are dropped from the cache. */
-function applyFavoriteCache(jobs) {
-  if (!jobs || !jobs.length) return;
-  const map = loadPendingFavorites();
-  if (!map || !Object.keys(map).length) return;
-  let dirty = false;
-  for (const job of jobs) {
-    const cacheKey = favoriteCacheKeyForJob(job);
-    if (!cacheKey || !(cacheKey in map)) continue;
-    const pending = !!map[cacheKey];
-    if (pending === !!job.favorite) {
-      // Sheet caught up — drop the cache entry.
-      delete map[cacheKey];
-      dirty = true;
-    } else {
-      job.favorite = pending;
-    }
-  }
-  if (dirty) savePendingFavorites(map);
-}
-
 async function toggleFavorite(stableKey) {
   const job = host().getPipelineData()[stableKey];
   if (!job) return false;
   const next = !job.favorite;
-  const cacheKey = favoriteCacheKeyForJob(job);
+  const read = sheetsRead();
+  const cacheKey = read.favoriteCacheKeyForJob(job);
 
   // Mutate the in-memory model + record the user's intent locally
   // BEFORE any network/auth check, so the chip stays correct across a
   // refresh even if the Sheet write never lands.
   job.favorite = next;
-  if (cacheKey) setPendingFavorite(cacheKey, next);
+  if (cacheKey) read.setPendingFavorite(cacheKey, next);
   host().renderPipeline();
 
   if (!host().getAccessToken()) {
@@ -439,7 +368,7 @@ async function toggleFavorite(stableKey) {
   ]);
   if (ok) {
     // Sheet now matches local intent — drop the cache entry.
-    if (cacheKey) clearPendingFavorite(cacheKey);
+    if (cacheKey) read.clearPendingFavorite(cacheKey);
     host().showToast(next ? "Favorited" : "Unfavorited", "success");
     return true;
   }
@@ -864,12 +793,6 @@ async function updateJobResponseFlag(dataIndex, value) {
     ensureBlacklistTab,
     appendBlacklistRow,
     deleteBlacklistRowByUrl,
-    favoriteCacheKeyForJob,
-    loadPendingFavorites,
-    savePendingFavorites,
-    setPendingFavorite,
-    clearPendingFavorite,
-    applyFavoriteCache,
     toggleFavorite,
     dismissJob,
     restoreJob,

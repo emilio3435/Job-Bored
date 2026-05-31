@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-05-31 (session 3 — Phase 2 leaf cuts 4–6).
+> Orchestrator ledger. **Last updated:** 2026-05-31 (session 5 — Phase 4 integrated).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -12,7 +12,7 @@
 | Pre-existing dirty files | `M app.js` (1-line discovery webhook candidate — **do not mix into module cuts**), `M package-lock.json`, untracked `docs/refactor/*` |
 | Node / npm | v24.13.0 / 11.13.0 ✓ |
 | Baseline `npm test` | **892 pass / 0 fail / 0 skip** (188 suites, ~7.6s) |
-| `app.js` LOC (current) | **19,268** (post cuts 3–6; was 20,873 pre-swarm) |
+| `app.js` LOC (current) | **13,140** (post Phase 4; was 15,139 pre-Phase 4) |
 | `SetActiveBranch` | `refactor/app-js-decompose` ✓ |
 | Swarm model | Cursor Task subagents per [PROMPT-app-js-remainder-cursor-swarm-orchestrator.md](./PROMPT-app-js-remainder-cursor-swarm-orchestrator.md) |
 
@@ -38,7 +38,16 @@
 | `f215a33` | `keyword-profile-match.js` | −~511 LOC | green |
 | `5cd73d6` | `profile-materials.js` | −~370 LOC | green |
 | `51f97e4` | `expired-review-ui.js` | −~370 LOC | green |
-| *(pending)* | `posting-enrichment.js` | −~450 LOC | 890 pass / 2 env fail |
+| `6facfc2` | `materials-feature.js` | −~470 LOC | green |
+| `c5748db` | `settings-modal.js` | −~617 LOC | green |
+| `11b6d86` | `company-logo.js` | −~153 LOC | green |
+| `947af1b` | `onboarding-wizard.js` | −~1,144 LOC | green |
+| `08e5283` | `resume-generation.js` | −~1,235 LOC | green |
+| `e81f74d` | `ats-scorecard.js` | −~564 LOC | green |
+| `5e72f5b` | `materials-state.js` | −~273 LOC | green |
+| `95657ad` | `sheets-writeback.js` | −~889 LOC | green |
+| `c4d529b` | `sheets-read-load.js` | −~545 LOC | green |
+| `576782d` | `pipeline-render.js` | −~1,432 LOC | green |
 
 ## Extraction order progress
 
@@ -50,16 +59,24 @@
 | 3 | `keyword-profile-match.js` | **DONE** | frontend-developer | worktree → primary | `f215a33`; **~511** LOC out |
 | 4 | `profile-materials.js` | **DONE** | frontend-developer | primary | `5cd73d6`; Materials modal + LinkedIn capture |
 | 5 | `expired-review-ui.js` (`JobBoredApp.expiredReview`) | **DONE** | frontend-developer | primary | `51f97e4`; UI only; root `expired-review.js` unchanged |
-| 6 | `posting-enrichment.js` | **DONE** (uncommitted) | frontend-developer | primary | Cache + pipeline + `jb:role:opened` listener; **519** LOC module |
-| 7+ | materials / ATS / onboarding / … | pending | — | — | see PLAN §D |
+| 6 | `posting-enrichment.js` | **DONE** | frontend-developer | primary | `cf1c654`; cache + pipeline + `jb:role:opened` listener; **519** LOC module |
+| 7 | Phase 3: materials-state → ats → resume-gen → onboarding | **DONE** | composer workers | primary | see commits above |
+| 8 | `company-logo.js` | **DONE** | parallel worktree | `11b6d86` | cherry-picked |
+| 9 | `settings-modal.js` | **DONE** | parallel worktree | `c5748db` | cherry-picked |
+| 10 | `materials-feature.js` | **DONE** | parallel worktree | `6facfc2` | cherry-picked |
+| 11 | `sheets-writeback.js` | **DONE** | parallel worktree | `95657ad` | cherry-picked; `JobBoredApp.sheetsWrite` |
+| 12 | `sheets-read-load.js` | **DONE** | parallel worktree | `c4d529b` | cherry-picked; `JobBoredApp.sheetsRead` |
+| 13 | `pipeline-render.js` | **DONE** | parallel worktree | `576782d` | cherry-picked; `JobBoredApp.pipelineRender` |
+| 14+ | discovery remainder | pending | — | — | PLAN §D Phase 5 |
 
 ## Worktrees
 
 | Path | Branch | Purpose | Status |
 |---|---|---|---|
 | `/Users/emilionunezgarcia/Job-Bored` | `refactor/app-js-decompose` | integration / orchestrator | active |
-| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-core-host` | `refactor/app-js-decompose-core-host` | Phase 1 bridge | **green / merge pending commit** |
-| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-keyword-profile-match` | `refactor/app-js-decompose-keyword-profile-match` | Cut 3 keyword-profile-match | **green / merge pending commit** |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-sheets-writeback` | `refactor/app-js-decompose-sheets-writeback` | Phase 4 writeback | merged `95657ad` |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-sheets-read-load` | `refactor/app-js-decompose-sheets-read-load` | Phase 4 read-load | merged `c4d529b` |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-render` | `refactor/app-js-decompose-pipeline-render` | Phase 4 pipeline | merged `576782d` |
 
 Worktree create (orchestrator or shell subagent):
 
@@ -86,24 +103,31 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 |---|---|---|
 | 0 | Baseline + research manifests (cuts 3–6 + bridge) | **DONE** |
 | 1 | Foundation bridge (`JobBoredApp.core.host` + accessors) | **DONE** (892 pass; uncommitted) |
-| 2 | Leaf modules: keyword → profile → expired UI → enrichment | **DONE** (commit cut 6 pending) |
-| 3 | Materials / ATS / onboarding / settings | pending |
-| 4 | Pipeline / Sheets | pending |
-| 5 | Discovery remainder | pending |
+| 2 | Leaf modules: keyword → profile → expired UI → enrichment | **DONE** |
+| 3 | Materials / ATS / onboarding / settings / logo / feature init | **DONE** |
+| 4 | Pipeline / Sheets | **DONE** (`95657ad`, `c4d529b`, `576782d`; **892 pass**) |
+| 5 | Discovery remainder | **next** |
 | 6 | Auth / config / core collapse | pending |
 
 ## Blockers / hygiene
 
-1. **Uncommitted local fix** — `app.js` adds `!!transport.localWebhookUrl` to `getDiscoveryRunWebhookUrlCandidates`; keep out of module-cut commits unless owner folds it in separately.
-2. Cuts 4–5 committed (`5cd73d6`, `51f97e4`); cut 6 staged locally pending commit.
-3. **Plan LOC table** — line ranges in PLAN were authored at 21,648 LOC; re-derive ranges from current `app.js` before each cut.
+1. **Discovery autofill WIP** — stashed as `discovery autofill WIP (post-phase4)` (`fb7c653`); breaks 4 discovery tests until finished; keep out of module-cut commits.
+2. Phase 2 leaf cuts committed: `5cd73d6`, `51f97e4`, `cf1c654`.
+3. **Plan LOC table** — re-derive ranges from **13,140** LOC `app.js` before each cut.
 
 ## Next actions (orchestrator)
 
 1. ~~Collect Phase 0 research manifests~~ **done** (all 5 ready)
 1. ~~Land Phase 1 foundation bridge~~ **done** (892 pass; commit when authorized).
-2. ~~Extract `keyword-profile-match.js`~~ **done** (892 pass; commit when authorized).
-3. Next: Phase 3 materials / ATS / onboarding per PLAN §D; re-derive ranges from **19,268** LOC `app.js`.
+2. ~~Phase 3 + parallel batch~~ **done** (`11b6d86`, `c5748db`, `6facfc2` integrated; **892 pass**).
+3. ~~Phase 4~~ **done** — writeback, read-load, pipeline-render integrated; **892 pass** at **13,140** LOC.
+4. Next: Phase 5 — discovery remainder modules per PLAN §D.
+
+## `index.html` script order (post Phase 4)
+
+```
+… → materials-feature → sheets-writeback → sheets-read-load → pipeline-render → app.js?v=28
+```
 
 ## Owner-only risks (unchanged)
 

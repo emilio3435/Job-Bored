@@ -91,8 +91,7 @@ describe("favorite toggle persists across refresh", () => {
     const fn = sliceToggleFavorite();
     // The local mutation + cache write happen up front.
     assert.match(fn, /job\.favorite\s*=\s*next;/);
-    assert.match(fn, /if\s*\(cacheKey\)\s*setPendingFavorite\(cacheKey,\s*next\);/);
-    // The cache write must occur BEFORE the accessToken check.
+    assert.match(fn, /if\s*\(cacheKey\)\s*read\.setPendingFavorite\(cacheKey,\s*next\);/);
     const cacheWriteIdx = fn.search(/setPendingFavorite\(cacheKey,\s*next\)/);
     const authCheckIdx = fn.search(/if\s*\(!host\(\)\.getAccessToken\(\)\)/);
     assert.ok(
@@ -118,7 +117,7 @@ describe("favorite toggle persists across refresh", () => {
   it("clears the cache entry only when the Sheet write actually succeeded", () => {
     const fn = sliceToggleFavorite();
     // The success branch is the only place that calls clearPendingFavorite.
-    assert.match(fn, /if\s*\(ok\)\s*\{[\s\S]*?clearPendingFavorite\(cacheKey\)/);
+    assert.match(fn, /if\s*\(ok\)\s*\{[\s\S]*?read\.clearPendingFavorite\(cacheKey\)/);
     // The failure branch leaves the cache entry in place.
     const failBranch = fn.slice(fn.indexOf("if (ok)"));
     assert.doesNotMatch(

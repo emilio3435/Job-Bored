@@ -7101,30 +7101,6 @@ async function deleteBlacklistRowByUrl(...args) {
   return window.JobBoredApp.sheetsWrite.deleteBlacklistRowByUrl(...args);
 }
 
-function favoriteCacheKeyForJob(...args) {
-  return window.JobBoredApp.sheetsWrite.favoriteCacheKeyForJob(...args);
-}
-
-function loadPendingFavorites(...args) {
-  return window.JobBoredApp.sheetsWrite.loadPendingFavorites(...args);
-}
-
-function savePendingFavorites(...args) {
-  return window.JobBoredApp.sheetsWrite.savePendingFavorites(...args);
-}
-
-function setPendingFavorite(...args) {
-  return window.JobBoredApp.sheetsWrite.setPendingFavorite(...args);
-}
-
-function clearPendingFavorite(...args) {
-  return window.JobBoredApp.sheetsWrite.clearPendingFavorite(...args);
-}
-
-function applyFavoriteCache(...args) {
-  return window.JobBoredApp.sheetsWrite.applyFavoriteCache(...args);
-}
-
 async function toggleFavorite(...args) {
   return window.JobBoredApp.sheetsWrite.toggleFavorite(...args);
 }
@@ -9473,6 +9449,9 @@ function renderAtsScorecardGroupsHtml(...args) {
 // --- Sheets read/load (extracted to sheets-read-load.js) ---
 function loadAllData(...args) {
   return window.JobBoredApp.sheetsRead.loadAllData(...args);
+}
+function applyFavoriteCache(...args) {
+  return window.JobBoredApp.sheetsRead.applyFavoriteCache(...args);
 }
 function favoriteCacheKeyForJob(...args) {
   return window.JobBoredApp.sheetsRead.favoriteCacheKeyForJob(...args);
