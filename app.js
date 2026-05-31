@@ -4709,642 +4709,48 @@ if (typeof window !== "undefined") {
 }
 
 
-/** Rotating hero tips on the login gate (left panel). */
-const LOGIN_GATE_TIPS = [
-  {
-    label: "Did you know?",
-    headline: "Your pipeline, one glance",
-    body: "Scan cards for stage, notes, and follow-ups without digging through rows.",
-  },
-  {
-    label: "Did you know?",
-    headline: "Write-back stays in your sheet",
-    body: "Updates sync to Google Sheets — your spreadsheet remains the source of truth.",
-  },
-  {
-    label: "Did you know?",
-    headline: "Built for speed",
-    body: "Filter, sort, and expand details only when you need the full story.",
-  },
-];
+// ============================================
+// SHEET ACCESS / SETUP — delegated to sheet-access-setup.js
+// ============================================
 
-let loginGateTipTimer = null;
-
-function stopLoginGateTipRotation() {
-  if (loginGateTipTimer != null) {
-    clearInterval(loginGateTipTimer);
-    loginGateTipTimer = null;
-  }
+function showSheetAccessGate(...args) {
+  return window.JobBoredApp.setup.showSheetAccessGate(...args);
 }
 
-function applyLoginGateTip(index) {
-  const tip = LOGIN_GATE_TIPS[index % LOGIN_GATE_TIPS.length];
-  const labelEl = document.getElementById("sheetAccessGateTipLabel");
-  const headEl = document.getElementById("sheetAccessGateTipHeadline");
-  const bodyEl = document.getElementById("sheetAccessGateTipBody");
-  if (!tip || !labelEl || !headEl || !bodyEl) return;
-  labelEl.textContent = tip.label;
-  headEl.textContent = tip.headline;
-  bodyEl.textContent = tip.body;
+function recordSheetAccessError(...args) {
+  return window.JobBoredApp.setup.recordSheetAccessError(...args);
 }
 
-function startLoginGateTipRotation() {
-  stopLoginGateTipRotation();
-  let i = Math.floor(Math.random() * LOGIN_GATE_TIPS.length);
-  applyLoginGateTip(i);
-  loginGateTipTimer = setInterval(() => {
-    i = (i + 1) % LOGIN_GATE_TIPS.length;
-    applyLoginGateTip(i);
-  }, 52000);
+function hideSheetAccessGate(...args) {
+  return window.JobBoredApp.setup.hideSheetAccessGate(...args);
 }
 
-function setDashboardSheetLinks() {
-  const currentSheetId = getSheetId() || SHEET_ID;
-  if (!currentSheetId) return;
-  SHEET_ID = currentSheetId;
-  const sheetUrl = `https://docs.google.com/spreadsheets/d/${currentSheetId}/edit`;
-  const sheetLink = document.getElementById("sheetLink");
-  const footerSheetLink = document.getElementById("footerSheetLink");
-  if (sheetLink) sheetLink.href = sheetUrl;
-  if (footerSheetLink) footerSheetLink.href = sheetUrl;
+function revealPipelineSetupStepsScreen(...args) {
+  return window.JobBoredApp.setup.revealPipelineSetupStepsScreen(...args);
 }
 
-function syncLoginGateOAuthOriginDisplay() {
-  const originEl = document.getElementById("sheetAccessGateOAuthOriginDisplay");
-  if (originEl && typeof window !== "undefined" && window.location) {
-    originEl.textContent = window.location.origin;
-  }
+function revealSetupScreenAfterAuth(...args) {
+  return window.JobBoredApp.setup.revealSetupScreenAfterAuth(...args);
 }
 
-function resetLoginGateOAuthWizardToChoice() {
-  const choice = document.getElementById("sheetAccessGateOAuthChoice");
-  const wizard = document.getElementById("sheetAccessGateOAuthWizard");
-  const input = document.getElementById("sheetAccessGateOAuthClientIdInput");
-  if (choice) choice.hidden = false;
-  if (wizard) wizard.hidden = true;
-  syncLoginGateOAuthOriginDisplay();
-  if (input) {
-    const stored = readStoredConfigOverrides().oauthClientId;
-    const s = stored != null ? String(stored).trim() : "";
-    input.value =
-      s &&
-      s !== "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com" &&
-      /\.apps\.googleusercontent\.com$/i.test(s)
-        ? s
-        : "";
-  }
+function revealDashboardShell(...args) {
+  return window.JobBoredApp.setup.revealDashboardShell(...args);
 }
 
-function initLoginGateOAuthUi() {
-  const createOAuth = document.getElementById("sheetAccessGateBtnCreateOAuth");
-  const back = document.getElementById("sheetAccessGateOAuthWizardBack");
-  const save = document.getElementById("sheetAccessGateOAuthSaveBtn");
-  const openConsole = document.getElementById(
-    "sheetAccessGateOAuthOpenConsoleBtn",
-  );
-  const inputs = [
-    document.getElementById("sheetAccessGateOAuthClientIdInput"),
-    document.getElementById("sheetAccessGateOAuthClientIdInputAlt"),
-  ].filter(Boolean);
-
-  /** Accept any pasted Client ID (raw, full URL, or surrounding whitespace). */
-  function extractClientIdFromInput(raw) {
-    const t = String(raw || "").trim();
-    if (!t) return "";
-    const m = t.match(/[\w-]+\.apps\.googleusercontent\.com/i);
-    return m ? m[0] : "";
-  }
-
-  function trySaveAndContinue(raw) {
-    const id = extractClientIdFromInput(raw);
-    if (!id || id === "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com") {
-      return false;
-    }
-    mergeStoredConfigOverridePatch({ oauthClientId: id });
-    if (applyOAuthClientChange(id)) {
-      showToast("Signed-in setup saved.", "success");
-    } else {
-      showToast("Saved — reloading…", "success");
-      setTimeout(() => window.location.reload(), 400);
-    }
-    return true;
-  }
-
-  // Auto-save on paste — no separate "Save" click required.
-  inputs.forEach((input) => {
-    input.addEventListener("input", () => {
-      trySaveAndContinue(input.value);
-    });
-  });
-
-  if (createOAuth) {
-    createOAuth.addEventListener("click", async () => {
-      const choice = document.getElementById("sheetAccessGateOAuthChoice");
-      const wizard = document.getElementById("sheetAccessGateOAuthWizard");
-      syncLoginGateOAuthOriginDisplay();
-      // Pre-copy the origin so the user just pastes when Google asks.
-      try {
-        await navigator.clipboard.writeText(window.location.origin);
-      } catch (_) {
-        /* clipboard may be blocked — non-fatal, the origin is still visible */
-      }
-      if (choice) choice.hidden = true;
-      if (wizard) wizard.hidden = false;
-      document
-        .getElementById("sheetAccessGateOAuthClientIdInputAlt")
-        ?.focus();
-      maybeRevealOAuthGcloudButton();
-    });
-  }
-
-  const gcloudBtn = document.getElementById("sheetAccessGateOAuthGcloudBtn");
-  if (gcloudBtn) {
-    gcloudBtn.addEventListener("click", async () => {
-      gcloudBtn.disabled = true;
-      const original = gcloudBtn.textContent;
-      gcloudBtn.textContent = "Creating with gcloud…";
-      try {
-        const resp = await fetch("/__proxy/oauth-bootstrap", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: "{}",
-        });
-        if (resp.status === 501) {
-          gcloudBtn.hidden = true;
-          return;
-        }
-        const body = await resp.json().catch(() => ({}));
-        if (body && body.ok && body.clientId) {
-          const altInput = document.getElementById(
-            "sheetAccessGateOAuthClientIdInputAlt",
-          );
-          if (altInput) altInput.value = body.clientId;
-          if (trySaveAndContinue(body.clientId)) {
-            showToast("Client ID created with gcloud.", "success");
-            return;
-          }
-        }
-        const message =
-          (body && body.actionable) ||
-          "gcloud couldn’t create a Client ID. Try the manual steps.";
-        showToast(message, "warning", true);
-      } catch (e) {
-        console.warn("[JobBored] oauth-bootstrap:", e);
-        showToast(
-          "gcloud auto-create unavailable. Try manual steps.",
-          "warning",
-        );
-      } finally {
-        gcloudBtn.disabled = false;
-        gcloudBtn.textContent = original;
-      }
-    });
-  }
-  if (openConsole) {
-    openConsole.addEventListener("click", () => {
-      // Deep-link straight to the OAuth client creation page.
-      window.open(
-        "https://console.cloud.google.com/apis/credentials/oauthclient",
-        "_blank",
-        "noopener",
-      );
-    });
-  }
-  if (back) {
-    back.addEventListener("click", () => {
-      resetLoginGateOAuthWizardToChoice();
-    });
-  }
-  if (save) {
-    save.addEventListener("click", () => {
-      const input = document.getElementById(
-        "sheetAccessGateOAuthClientIdInput",
-      );
-      if (!trySaveAndContinue(input ? input.value : "")) {
-        showToast("Paste a valid Google Client ID.", "error", true);
-      }
-    });
-  }
+function renderSetupStarterSheetUi(...args) {
+  return window.JobBoredApp.setup.renderSetupStarterSheetUi(...args);
 }
 
-async function maybeRevealOAuthGcloudButton() {
-  const btn = document.getElementById("sheetAccessGateOAuthGcloudBtn");
-  if (!btn) return;
-  btn.hidden = true;
-  try {
-    const result = await installDoctor();
-    if (!result || result.notImplemented) return;
-    const gcloud = result.tools && result.tools.gcloud;
-    if (gcloud && gcloud.installed && gcloud.loggedIn) {
-      btn.hidden = false;
-    }
-  } catch (_) {
-    /* leave hidden */
-  }
+async function createBlankStarterSheet(...args) {
+  return window.JobBoredApp.setup.createBlankStarterSheet(...args);
 }
 
-function showSheetAccessGate(mode) {
-  const screen = document.getElementById("sheetAccessGateScreen");
-  const dashboard = document.getElementById("dashboard");
-  const setup = document.getElementById("setupScreen");
-  if (!screen || !dashboard) return;
-
-  // Signed-in users without a pipeline sheet belong on the setup steps, not the login gate.
-  // Many code paths call showSheetAccessGate() and would otherwise hide #setupScreen.
-  if (!getSheetId() && getAccessToken() && mode !== "no-oauth") {
-    revealPipelineSetupStepsScreen();
-    return;
-  }
-
-  screen.dataset.gateMode = mode;
-
-  const mainFlow = document.getElementById("sheetAccessGateMainFlow");
-  const oauthShell = document.getElementById("sheetAccessGateOAuthShell");
-  const panelInner = document.getElementById("sheetAccessGatePanelInner");
-
-  const title = document.getElementById("sheetAccessGateTitle");
-  const detail = document.getElementById("sheetAccessGateDetail");
-  const stepTitle = document.getElementById("sheetAccessGateStepTitle");
-  const stepBody = document.getElementById("sheetAccessGateStepBody");
-  const statusBlock = document.getElementById("sheetAccessGateStatusBlock");
-  const signInBtn = document.getElementById("sheetAccessGateSignInBtn");
-  const settingsBtn = document.getElementById("sheetAccessGateOpenSettingsBtn");
-  const reloadBtn = document.getElementById("sheetAccessGateReloadBtn");
-  const spinner = document.getElementById("sheetAccessGateSpinner");
-  const foot = document.getElementById("sheetAccessGateFoot");
-
-  let nextTitle = "Opening your workspace";
-  let nextDetail = "";
-  let nextStepTitle = "";
-  let nextStepBody = "";
-  let showSignIn = false;
-  let footText = "Google sign-in";
-  let showSpinner = mode === "loading";
-
-  const showOAuthShell = mode === "no-oauth";
-
-  stopLoginGateTipRotation();
-
-  if (mode === "loading") {
-    nextTitle = "Opening your workspace";
-    nextDetail = "";
-    nextStepTitle = "";
-    nextStepBody = "";
-    const canOAuth = !!getOAuthClientId();
-    const needGoogleBtn = canOAuth && !getAccessToken();
-    showSignIn = needGoogleBtn;
-    showSpinner = !needGoogleBtn;
-    footText = needGoogleBtn
-      ? "Log in with Google to continue."
-      : "Connecting to your sheet…";
-    startLoginGateTipRotation();
-  } else if (mode === "signin") {
-    if (!SHEET_ID) {
-      nextTitle = "Get started";
-      footText =
-        "Sign in with Google to create a starter sheet or connect your sheet.";
-    } else {
-      nextTitle = "Welcome back";
-      footText = "Use the Google account that can access this sheet.";
-    }
-    nextDetail = "";
-    nextStepTitle = "";
-    nextStepBody = "";
-    showSignIn = true;
-    startLoginGateTipRotation();
-  } else if (mode === "no-oauth") {
-    nextTitle = "";
-    nextDetail = "";
-    nextStepTitle = "";
-    nextStepBody = "";
-    showSignIn = false;
-    footText = "Choose an option or follow the guide to create a client ID.";
-    resetLoginGateOAuthWizardToChoice();
-    startLoginGateTipRotation();
-  } else if (mode === "error") {
-    nextTitle = "Couldn’t load this sheet";
-    nextDetail = "Check the Sheet ID and permissions, then try again.";
-    nextStepTitle = "";
-    nextStepBody = "";
-    showSignIn = !!getOAuthClientId() && !getAccessToken();
-    footText = showSignIn
-      ? "Sign in with the account that can open this sheet."
-      : "Check Settings or your network and reload.";
-    startLoginGateTipRotation();
-  }
-
-  if (mainFlow) mainFlow.hidden = !!showOAuthShell;
-  if (oauthShell) oauthShell.hidden = !showOAuthShell;
-  if (panelInner) {
-    panelInner.classList.toggle(
-      "login-gate__panel-inner--oauth",
-      !!showOAuthShell,
-    );
-  }
-
-  if (title) title.textContent = nextTitle;
-  if (detail) detail.textContent = nextDetail;
-  if (stepTitle) stepTitle.textContent = nextStepTitle;
-  if (stepBody) stepBody.textContent = nextStepBody;
-  if (signInBtn) signInBtn.hidden = !showSignIn;
-  if (settingsBtn) settingsBtn.hidden = !!showOAuthShell;
-  if (reloadBtn) reloadBtn.hidden = false;
-  if (spinner) spinner.hidden = !showSpinner;
-  if (foot) foot.textContent = footText;
-
-  if (statusBlock) {
-    const hasCallout =
-      String(nextStepTitle || "").trim() || String(nextStepBody || "").trim();
-    statusBlock.hidden = !hasCallout;
-  }
-
-  if (setup) setup.style.display = "none";
-  dashboard.style.display = "none";
-  screen.style.display = "flex";
-
-  // Run the SetupDoctor in error mode so the user sees concrete fix actions
-  // instead of a generic "Couldn't load this sheet" message.
-  const doctorHost = document.getElementById("sheetAccessGateDoctorPanel");
-  if (
-    doctorHost &&
-    typeof window !== "undefined" &&
-    window.SetupDoctor &&
-    typeof window.SetupDoctor.diagnose === "function"
-  ) {
-    if (mode === "error") {
-      doctorHost.hidden = false;
-      const ctx = { lastError: lastSheetAccessError || "" };
-      window.SetupDoctor.diagnose(ctx)
-        .then((report) => {
-          report._ctx = ctx;
-          if (report.issues.length === 0) return;
-          window.SetupDoctor.renderInline(doctorHost, report);
-        })
-        .catch(() => {
-          /* doctor is best-effort; ignore */
-        });
-    } else {
-      doctorHost.hidden = true;
-      while (doctorHost.firstChild) doctorHost.removeChild(doctorHost.firstChild);
-    }
-  }
+async function handleSetupCreateStarterSheet(...args) {
+  return window.JobBoredApp.setup.handleSetupCreateStarterSheet(...args);
 }
 
-/** Last raw error string the sheet/auth pipeline saw — fed into SetupDoctor. */
-let lastSheetAccessError = "";
-function recordSheetAccessError(err) {
-  if (!err) return;
-  lastSheetAccessError = err && err.message ? String(err.message) : String(err);
-}
-
-function hideSheetAccessGate() {
-  stopLoginGateTipRotation();
-  const screen = document.getElementById("sheetAccessGateScreen");
-  if (screen) screen.style.display = "none";
-}
-
-/** Show the starter Pipeline setup screen before the guided wizard takes over. */
-function revealPipelineSetupStepsScreen() {
-  const setup = document.getElementById("setupScreen");
-  const dashboard = document.getElementById("dashboard");
-  hideSheetAccessGate();
-  if (setup) setup.style.display = "flex";
-  if (dashboard) dashboard.style.display = "none";
-  renderSetupStarterSheetUi();
-}
-
-/** No Sheet ID yet: after Google sign-in, show the starter-sheet setup steps. */
-function revealSetupScreenAfterAuth() {
-  if (getSheetId()) return;
-  revealPipelineSetupStepsScreen();
-}
-
-function revealDashboardShell() {
-  const setup = document.getElementById("setupScreen");
-  const screen = document.getElementById("sheetAccessGateScreen");
-  const dashboard = document.getElementById("dashboard");
-  if (setup) setup.style.display = "none";
-  if (screen) screen.style.display = "none";
-  if (dashboard) dashboard.style.display = "block";
-}
-
-function renderSetupStarterSheetUi() {
-  const btn = document.getElementById("setupCreateStarterSheetBtn");
-  const status = document.getElementById("setupCreateStarterSheetStatus");
-  if (!btn || !status) return;
-
-  const hasClient = !!getOAuthClientId();
-  if (!hasClient) {
-    btn.disabled = false;
-    btn.textContent = "Create blank starter sheet";
-    status.textContent =
-      "Complete OAuth setup on the sign-in screen, then reload this page.";
-    return;
-  }
-  if (!getGisLoaded()) {
-    btn.disabled = true;
-    btn.textContent = "Loading Google sign-in…";
-    status.textContent =
-      "Reload once after signing in so Google sign-in can initialize.";
-    return;
-  }
-  if (!getAccessToken()) {
-    btn.disabled = false;
-    btn.textContent = "Sign in & create blank starter sheet";
-    status.textContent =
-      "This will open Google sign-in, then create a fresh Pipeline sheet with just the headers.";
-    return;
-  }
-
-  if (getSheetId()) {
-    btn.disabled = true;
-    btn.textContent = "Starter sheet linked";
-    status.textContent =
-      "Your Pipeline sheet is saved. The guided setup wizard is the next step.";
-    return;
-  }
-
-  btn.disabled = false;
-  btn.textContent = "Create blank starter sheet";
-  status.textContent =
-    "Signed in and ready. This creates a fresh Pipeline sheet with only the required headers.";
-}
-
-async function createBlankStarterSheet(isRetry) {
-  if (!getAccessToken()) {
-    showSheetAccessGate("signin");
-    return null;
-  }
-
-  const title = `JobBored Pipeline ${new Date().toISOString().slice(0, 10)}`;
-  try {
-    const createResp = await fetch(
-      "https://sheets.googleapis.com/v4/spreadsheets",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${getAccessToken()}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          properties: { title },
-          sheets: [
-            {
-              properties: {
-                title: "Pipeline",
-                gridProperties: {
-                  rowCount: 200,
-                  columnCount: STARTER_PIPELINE_HEADERS.length,
-                  frozenRowCount: 1,
-                },
-              },
-            },
-          ],
-        }),
-      },
-    );
-
-    if (createResp.status === 401) {
-      if (!isRetry) {
-        const ok = await refreshAccessTokenSilently();
-        if (ok) return createBlankStarterSheet(true);
-      }
-      clearSessionAuthState();
-      throw new Error(
-        "Google session expired while creating the starter sheet.",
-      );
-    }
-
-    if (!createResp.ok) {
-      const err = await createResp.json().catch(() => ({}));
-      const message = String(
-        err.error?.message ||
-          `Starter sheet creation failed (HTTP ${createResp.status}).`,
-      );
-      if (
-        createResp.status === 403 &&
-        /insufficient authentication scopes/i.test(message) &&
-        !isRetry
-      ) {
-        pendingSetupStarterSheetCreate = true;
-        showToast(
-          "Google needs Sheets permission before JobBored can create a starter sheet. Approve the prompt and try again.",
-          "info",
-          true,
-        );
-        signIn({ prompt: "consent" });
-        return null;
-      }
-      throw new Error(message);
-    }
-
-    const spreadsheet = await createResp.json();
-    const spreadsheetId =
-      spreadsheet && spreadsheet.spreadsheetId
-        ? String(spreadsheet.spreadsheetId).trim()
-        : "";
-    const spreadsheetUrl =
-      spreadsheet && spreadsheet.spreadsheetUrl
-        ? String(spreadsheet.spreadsheetUrl).trim()
-        : "";
-    if (!spreadsheetId) {
-      throw new Error(
-        "Google created a sheet but did not return a spreadsheetId.",
-      );
-    }
-
-    const headerResp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(STARTER_PIPELINE_HEADER_RANGE)}?valueInputOption=RAW`,
-      {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${getAccessToken()}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          range: STARTER_PIPELINE_HEADER_RANGE,
-          majorDimension: "ROWS",
-          values: [STARTER_PIPELINE_HEADERS],
-        }),
-      },
-    );
-
-    if (!headerResp.ok) {
-      const err = await headerResp.json().catch(() => ({}));
-      throw new Error(
-        err.error?.message ||
-          `Starter sheet header setup failed (HTTP ${headerResp.status}).`,
-      );
-    }
-
-    return { spreadsheetId, spreadsheetUrl };
-  } catch (err) {
-    console.error("[JobBored] Starter sheet:", err);
-    showToast(
-      String(err.message || err || "Could not create starter sheet"),
-      "error",
-      true,
-    );
-    return null;
-  }
-}
-
-async function handleSetupCreateStarterSheet() {
-  if (!getOAuthClientId()) {
-    showToast(
-      "Save a Google OAuth client in Settings first, then come back and create the sheet.",
-      "error",
-      true,
-    );
-    void openCommandCenterSettingsModal();
-    return;
-  }
-  if (!getGisLoaded() || !getTokenClient()) {
-    showToast(
-      "Google sign-in is not ready yet. Save the OAuth client, reload, then try again.",
-      "error",
-      true,
-    );
-    return;
-  }
-  if (!getAccessToken() || !hasGrantedOauthScope(GOOGLE_SHEETS_SCOPE)) {
-    pendingSetupStarterSheetCreate = true;
-    signIn({
-      prompt: getAccessToken() ? "consent" : "",
-    });
-    return;
-  }
-
-  const btn = document.getElementById("setupCreateStarterSheetBtn");
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "Creating starter sheet…";
-  }
-  const created = await createBlankStarterSheet(false);
-  renderSetupStarterSheetUi();
-  if (!created) return;
-
-  mergeStoredConfigOverridePatch({ sheetId: created.spreadsheetId });
-  SHEET_ID = created.spreadsheetId;
-  initialSheetAccessResolved = true;
-  setDashboardSheetLinks();
-  revealDashboardShell();
-  const hadDiscoveryDeepLink =
-    new URLSearchParams(window.location.search).get("setup") === "discovery";
-  await runPostAccessBootstrapOnce();
-  void loadAllData();
-  if (created.spreadsheetUrl) {
-    window.open(created.spreadsheetUrl, "_blank", "noopener");
-  }
-  if (!hadDiscoveryDeepLink) {
-    await requestDiscoverySetup({ entryPoint: "starter_sheet_created" });
-  }
-  showToast(
-    hasPendingDiscoverySetup()
-      ? "Starter sheet created. Finish onboarding to continue guided setup."
-      : "Starter sheet created. Opening guided setup…",
-    "success",
-  );
+function setDashboardSheetLinks(...args) {
+  return window.JobBoredApp.setup.setDashboardSheetLinks(...args);
 }
 
 // ============================================
@@ -5968,7 +5374,7 @@ window.JobBoredApp.core.host = {
     return sheetsBatchUpdate(...args);
   },
   showSheetAccessGate(...args) {
-    return showSheetAccessGate(...args);
+    return window.JobBoredApp.setup.showSheetAccessGate(...args);
   },
   revealSetupScreenAfterAuth(...args) {
     return revealSetupScreenAfterAuth(...args);
@@ -6109,7 +5515,7 @@ window.JobBoredApp.core.host = {
     return syncDiscoveryButtonState();
   },
   setDashboardSheetLinks() {
-    return setDashboardSheetLinks();
+    return window.JobBoredApp.setup.setDashboardSheetLinks();
   },
   setSHEET_ID(value) {
     SHEET_ID = value;
@@ -6203,7 +5609,25 @@ window.JobBoredApp.core.host = {
     return getOAuthClientId();
   },
   recordSheetAccessError(...args) {
-    return recordSheetAccessError(...args);
+    return window.JobBoredApp.setup.recordSheetAccessError(...args);
+  },
+  hasGrantedOauthScope(...args) {
+    return hasGrantedOauthScope(...args);
+  },
+  getGoogleSheetsScope() {
+    return GOOGLE_SHEETS_SCOPE;
+  },
+  getStarterPipelineHeaders() {
+    return STARTER_PIPELINE_HEADERS;
+  },
+  getStarterPipelineHeaderRange() {
+    return STARTER_PIPELINE_HEADER_RANGE;
+  },
+  installDoctor() {
+    return installDoctor();
+  },
+  hasPendingDiscoverySetup() {
+    return hasPendingDiscoverySetup();
   },
   getDataLoadFailed() {
     return dataLoadFailed;
@@ -6230,7 +5654,7 @@ window.JobBoredApp.core.host = {
     return maybeAutoOpenExpiredReviewModal(...args);
   },
   revealDashboardShell() {
-    return revealDashboardShell();
+    return window.JobBoredApp.setup.revealDashboardShell();
   },
   runPostAccessBootstrapOnce() {
     return runPostAccessBootstrapOnce();
@@ -6321,6 +5745,12 @@ Object.assign(window.JobBoredApp.core, {
   },
   setGisLoaded(value) {
     return window.JobBoredApp.auth.setGisLoaded(value);
+  },
+  getPendingSetupStarterSheetCreate() {
+    return pendingSetupStarterSheetCreate;
+  },
+  setPendingSetupStarterSheetCreate(value) {
+    pendingSetupStarterSheetCreate = value;
   },
   getCurrentSort() {
     return currentSort;
@@ -7970,40 +7400,8 @@ function initCommandCenterSettings(...args) {
 }
 
 
-function initSetupAndSheetAccessActions() {
-  document
-    .getElementById("setupCreateStarterSheetBtn")
-    ?.addEventListener("click", () => {
-      void handleSetupCreateStarterSheet();
-    });
-  document
-    .getElementById("sheetAccessGateSignInBtn")
-    ?.addEventListener("click", () => {
-      signIn();
-    });
-  document
-    .getElementById("sheetAccessGateOpenSettingsBtn")
-    ?.addEventListener("click", () => {
-      const input = document.getElementById(
-        "sheetAccessGateOAuthClientIdInput",
-      );
-      const raw = input && input.value ? String(input.value).trim() : "";
-      if (
-        raw &&
-        /\.apps\.googleusercontent\.com$/i.test(raw) &&
-        raw !== "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com"
-      ) {
-        mergeStoredConfigOverridePatch({ oauthClientId: raw });
-      }
-      void openCommandCenterSettingsModal();
-    });
-  document
-    .getElementById("sheetAccessGateReloadBtn")
-    ?.addEventListener("click", () => {
-      window.location.reload();
-    });
-  initLoginGateOAuthUi();
-  renderSetupStarterSheetUi();
+function initSetupAndSheetAccessActions(...args) {
+  return window.JobBoredApp.setup.initSetupAndSheetAccessActions(...args);
 }
 
 function initPipelineEmptyAndBriefActions() {

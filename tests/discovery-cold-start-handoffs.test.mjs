@@ -7,6 +7,7 @@ import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const setupJs = readFileSync(join(repoRoot, "sheet-access-setup.js"), "utf8");
 
 const HANDOFF_SECTION_START = appJs.indexOf(
   'const PENDING_DISCOVERY_SETUP_KEY = "pendingDiscoverySetup";',
@@ -192,20 +193,17 @@ describe("Discovery cold-start handoffs", () => {
   });
 
   it("starter-sheet creation routes through the shared deferred discovery helper", () => {
-    const fnStart = appJs.indexOf("async function handleSetupCreateStarterSheet");
-    const fnEnd = appJs.indexOf(
-      "// ============================================\n// WRITE-BACK",
-      fnStart,
-    );
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = setupJs.indexOf("async function handleSetupCreateStarterSheet");
+    const fnEnd = setupJs.indexOf("function initSetupAndSheetAccessActions", fnStart);
+    const fnBody = setupJs.slice(fnStart, fnEnd);
 
     assert.ok(
-      fnBody.includes("await runPostAccessBootstrapOnce()"),
+      fnBody.includes("await host().runPostAccessBootstrapOnce()"),
       "starter-sheet handoff should wait for onboarding bootstrap sequencing",
     );
     assert.ok(
       fnBody.includes(
-        'await requestDiscoverySetup({ entryPoint: "starter_sheet_created" })',
+        'await host().requestDiscoverySetup({ entryPoint: "starter_sheet_created" })',
       ),
       "starter-sheet handoff should use the shared discovery deferral helper",
     );
