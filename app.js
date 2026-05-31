@@ -206,60 +206,32 @@ function parseGoogleSheetId(raw) {
 }
 
 /** Default dashboard label; legacy templates used "Command Center". */
-function normalizeDashboardTitle(raw) {
-  const t = raw != null ? String(raw).trim() : "";
-  if (!t) return "JobBored";
-  if (t.toLowerCase() === "command center") return "JobBored";
-  return t;
+function normalizeDashboardTitle(...args) {
+  return window.JobBoredApp.configCore.normalizeDashboardTitle(...args);
 }
 
 function getConfig() {
-  const cfg = window.COMMAND_CENTER_CONFIG;
-  if (!cfg) return null;
-  const sheetId = parseGoogleSheetId(String(cfg.sheetId || ""));
-  if (!sheetId || sheetId === "YOUR_SHEET_ID_HERE") return null;
-  return {
-    ...cfg,
-    sheetId,
-    title: normalizeDashboardTitle(cfg.title),
-  };
+  return window.JobBoredApp.configCore.getConfig();
 }
 
-function getSheetId() {
-  const params = new URLSearchParams(window.location.search);
-  const urlSheet = params.get("sheet");
-  if (urlSheet) {
-    const id = parseGoogleSheetId(urlSheet);
-    if (id) return id;
-  }
-
-  const cfg = getConfig();
-  return cfg ? cfg.sheetId : null;
+function getSheetId(...args) {
+  return window.JobBoredApp.configCore.getSheetId(...args);
 }
 
 // Live read of the resolved SHEET_ID module var (distinct from getSheetId,
 // which derives from URL/config). Exposed via the UI host bridge so wizard
 // orchestration that moved to discovery-wizard-ui.js can read the current value.
-function getActiveSheetId() {
-  return SHEET_ID;
+function getActiveSheetId(...args) {
+  return window.JobBoredApp.configCore.getActiveSheetId(...args);
 }
 
-function getOAuthClientId() {
-  const cfg = window.COMMAND_CENTER_CONFIG || {};
-  const id = String(cfg.oauthClientId || "").trim();
-  if (!id || id === "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com") {
-    return null;
-  }
-  return id;
+function getOAuthClientId(...args) {
+  return window.JobBoredApp.configCore.getOAuthClientId(...args);
 }
 
 /** Optional POST target for &ldquo;Run discovery&rdquo; (browser-use worker / Hermes / n8n / Apps Script). */
-function getDiscoveryWebhookUrl() {
-  const cfg = getConfig();
-  const u = cfg && cfg.discoveryWebhookUrl;
-  if (!u || typeof u !== "string") return "";
-  const t = u.trim();
-  return t.length > 0 ? t : "";
+function getDiscoveryWebhookUrl(...args) {
+  return window.JobBoredApp.configCore.getDiscoveryWebhookUrl(...args);
 }
 
 /**
@@ -267,76 +239,34 @@ function getDiscoveryWebhookUrl() {
  * forwards it as the `x-discovery-secret` header so receivers that fail-closed
  * on empty secrets (e.g. the browser-use worker) accept the request.
  */
-function getDiscoveryWebhookSecret() {
-  const cfg = getConfig();
-  const s = cfg && cfg.discoveryWebhookSecret;
-  if (!s || typeof s !== "string") return "";
-  const t = s.trim();
-  return t.length > 0 ? t : "";
+function getDiscoveryWebhookSecret(...args) {
+  return window.JobBoredApp.configCore.getDiscoveryWebhookSecret(...args);
 }
 
-const APPS_SCRIPT_API_BASE = "https://script.googleapis.com/v1";
-const GOOGLE_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
-const GOOGLE_USERINFO_EMAIL_SCOPE =
-  "https://www.googleapis.com/auth/userinfo.email";
-const GOOGLE_USERINFO_PROFILE_SCOPE =
-  "https://www.googleapis.com/auth/userinfo.profile";
-const GOOGLE_SIGNIN_SCOPES = [
-  GOOGLE_SHEETS_SCOPE,
-  GOOGLE_USERINFO_EMAIL_SCOPE,
-  GOOGLE_USERINFO_PROFILE_SCOPE,
-].join(" ");
-const APPS_SCRIPT_DEPLOY_SCOPES = [
-  "https://www.googleapis.com/auth/script.projects",
-  "https://www.googleapis.com/auth/script.deployments",
-];
-const APPS_SCRIPT_MANAGED_BY = "command-center";
-const APPS_SCRIPT_PROJECT_TITLE = "Command Center discovery webhook";
-const APPS_SCRIPT_WEBAPP_ACCESS = "ANYONE_ANONYMOUS";
-const APPS_SCRIPT_WEBAPP_EXECUTE_AS = "USER_DEPLOYING";
-const APPS_SCRIPT_PUBLIC_ACCESS_READY = "ready";
-const APPS_SCRIPT_PUBLIC_ACCESS_NEEDS_REMEDIATION = "needs_remediation";
-const DISCOVERY_ENGINE_STATE_NONE = "none";
-const DISCOVERY_ENGINE_STATE_STUB_ONLY = "stub_only";
-const DISCOVERY_ENGINE_STATE_UNVERIFIED = "unverified";
-const DISCOVERY_ENGINE_STATE_CONNECTED = "connected";
-const GIS_INIT_STUCK_MS = 8000;
-const STARTER_PIPELINE_HEADERS = [
-  "Date Found",
-  "Title",
-  "Company",
-  "Location",
-  "Link",
-  "Source",
-  "Salary",
-  "Fit Score",
-  "Priority",
-  "Tags",
-  "Fit Assessment",
-  "Contact",
-  "Status",
-  "Applied Date",
-  "Notes",
-  "Follow-up Date",
-  "Talking Points",
-  "Last contact",
-  "Did they reply?",
-  "Logo URL",
-  "Match Score",
-  "Favorite",
-  "Dismissed At",
-  "Approval Status",
-  "Edit Lock",
-];
-const STARTER_PIPELINE_HEADER_RANGE = `Pipeline!A1:${String.fromCharCode("A".charCodeAt(0) + STARTER_PIPELINE_HEADERS.length - 1)}1`;
-
-let appsScriptDeployStateCache = null;
-let appsScriptDeployBusy = false;
-let appsScriptDeployStatus = null;
-let discoveryEngineStateCache = null;
-let discoveryReadinessSnapshotCache = null;
-let discoveryReadinessSnapshotPromise = null;
-let discoveryWizardRuntime = null;
+// --- App config core (extracted to app-config-core.js) ---
+const configCore = window.JobBoredApp.configCore;
+const APPS_SCRIPT_API_BASE = configCore.APPS_SCRIPT_API_BASE;
+const GOOGLE_SHEETS_SCOPE = configCore.GOOGLE_SHEETS_SCOPE;
+const GOOGLE_USERINFO_EMAIL_SCOPE = configCore.GOOGLE_USERINFO_EMAIL_SCOPE;
+const GOOGLE_USERINFO_PROFILE_SCOPE = configCore.GOOGLE_USERINFO_PROFILE_SCOPE;
+const GOOGLE_SIGNIN_SCOPES = configCore.GOOGLE_SIGNIN_SCOPES;
+const APPS_SCRIPT_DEPLOY_SCOPES = configCore.APPS_SCRIPT_DEPLOY_SCOPES;
+const APPS_SCRIPT_MANAGED_BY = configCore.APPS_SCRIPT_MANAGED_BY;
+const APPS_SCRIPT_PROJECT_TITLE = configCore.APPS_SCRIPT_PROJECT_TITLE;
+const APPS_SCRIPT_WEBAPP_ACCESS = configCore.APPS_SCRIPT_WEBAPP_ACCESS;
+const APPS_SCRIPT_WEBAPP_EXECUTE_AS = configCore.APPS_SCRIPT_WEBAPP_EXECUTE_AS;
+const APPS_SCRIPT_PUBLIC_ACCESS_READY = configCore.APPS_SCRIPT_PUBLIC_ACCESS_READY;
+const APPS_SCRIPT_PUBLIC_ACCESS_NEEDS_REMEDIATION =
+  configCore.APPS_SCRIPT_PUBLIC_ACCESS_NEEDS_REMEDIATION;
+const DISCOVERY_ENGINE_STATE_NONE = configCore.DISCOVERY_ENGINE_STATE_NONE;
+const DISCOVERY_ENGINE_STATE_STUB_ONLY =
+  configCore.DISCOVERY_ENGINE_STATE_STUB_ONLY;
+const DISCOVERY_ENGINE_STATE_UNVERIFIED =
+  configCore.DISCOVERY_ENGINE_STATE_UNVERIFIED;
+const DISCOVERY_ENGINE_STATE_CONNECTED = configCore.DISCOVERY_ENGINE_STATE_CONNECTED;
+const GIS_INIT_STUCK_MS = configCore.GIS_INIT_STUCK_MS;
+const STARTER_PIPELINE_HEADERS = configCore.STARTER_PIPELINE_HEADERS;
+const STARTER_PIPELINE_HEADER_RANGE = configCore.STARTER_PIPELINE_HEADER_RANGE;
 
 function getSettingsFieldValue(id) {
   const el = document.getElementById(id);
@@ -406,13 +336,13 @@ function getDiscoveryWebhookUrlForSettingsPreview() {
 
 function getManagedAppsScriptWebhookIdentity() {
   if (
-    !appsScriptDeployStateCache ||
-    typeof appsScriptDeployStateCache.webAppUrl !== "string"
+    !configCore.appsScriptDeployStateCache ||
+    typeof configCore.appsScriptDeployStateCache.webAppUrl !== "string"
   ) {
     return "";
   }
   return normalizeDiscoveryWebhookIdentity(
-    appsScriptDeployStateCache.webAppUrl,
+    configCore.appsScriptDeployStateCache.webAppUrl,
   );
 }
 
@@ -420,10 +350,10 @@ function getSavedDiscoveryEngineStateForUrl(rawUrl) {
   const target = normalizeDiscoveryWebhookIdentity(rawUrl);
   if (!target) return null;
   const saved =
-    discoveryEngineStateCache &&
-    typeof discoveryEngineStateCache === "object" &&
-    typeof discoveryEngineStateCache.state === "string"
-      ? discoveryEngineStateCache
+    configCore.discoveryEngineStateCache &&
+    typeof configCore.discoveryEngineStateCache === "object" &&
+    typeof configCore.discoveryEngineStateCache.state === "string"
+      ? configCore.discoveryEngineStateCache
       : null;
   if (!saved) return null;
   const savedUrl = normalizeDiscoveryWebhookIdentity(saved.webhookUrl);
@@ -544,7 +474,7 @@ function buildDiscoveryStatusActions(status) {
 function refreshDiscoveryUiState() {
   syncDiscoveryButtonState();
   renderDiscoveryEngineStatusUi();
-  if (discoveryWizardRuntime) {
+  if (configCore.discoveryWizardRuntime) {
     updateDiscoveryWizardRuntime({
       snapshot: getDiscoveryReadinessSnapshot(),
     });
@@ -566,20 +496,20 @@ async function saveDiscoveryEngineStatePatch(patch) {
       ? patch
       : { state: DISCOVERY_ENGINE_STATE_NONE };
   if (!store) {
-    discoveryEngineStateCache = next;
+    configCore.discoveryEngineStateCache = next;
     refreshDiscoveryUiState();
     void refreshDiscoveryReadinessSnapshot({ force: true });
     return next;
   }
   try {
-    discoveryEngineStateCache = await store.saveDiscoveryEngineState(next);
+    configCore.discoveryEngineStateCache = await store.saveDiscoveryEngineState(next);
   } catch (err) {
     console.warn("[JobBored] discovery engine state:", err);
-    discoveryEngineStateCache = next;
+    configCore.discoveryEngineStateCache = next;
   }
   refreshDiscoveryUiState();
   void refreshDiscoveryReadinessSnapshot({ force: true });
-  return discoveryEngineStateCache;
+  return configCore.discoveryEngineStateCache;
 }
 
 async function recordDiscoveryEngineState(rawUrl, state, source) {
@@ -607,7 +537,7 @@ async function preloadDiscoveryUiState() {
   };
   if (stores.appsScript) {
     try {
-      appsScriptDeployStateCache =
+      configCore.appsScriptDeployStateCache =
         await stores.appsScript.getAppsScriptDeployState();
     } catch (err) {
       console.warn("[JobBored] Apps Script deploy state preload:", err);
@@ -615,7 +545,7 @@ async function preloadDiscoveryUiState() {
   }
   if (stores.discovery) {
     try {
-      discoveryEngineStateCache =
+      configCore.discoveryEngineStateCache =
         await stores.discovery.getDiscoveryEngineState();
     } catch (err) {
       console.warn("[JobBored] discovery engine state preload:", err);
@@ -810,7 +740,7 @@ function openAppsScriptRemediationFlowInSettings() {
 }
 
 function showAppsScriptPublicAccessRemediationFromState() {
-  const state = appsScriptDeployStateCache;
+  const state = configCore.appsScriptDeployStateCache;
   if (!isManagedAppsScriptDeployState(state)) return false;
   if (isAppsScriptPublicAccessReady(state)) return false;
 
@@ -918,10 +848,10 @@ function getCloudflareRelayTargetInfo() {
     transportSetup.tunnelPublicUrl,
   );
   const managedWebAppUrl =
-    isAppsScriptPublicAccessReady(appsScriptDeployStateCache) &&
-    appsScriptDeployStateCache &&
-    typeof appsScriptDeployStateCache.webAppUrl === "string"
-      ? appsScriptDeployStateCache.webAppUrl.trim()
+    isAppsScriptPublicAccessReady(configCore.appsScriptDeployStateCache) &&
+    configCore.appsScriptDeployStateCache &&
+    typeof configCore.appsScriptDeployStateCache.webAppUrl === "string"
+      ? configCore.appsScriptDeployStateCache.webAppUrl.trim()
       : "";
 
   if (isLikelyAppsScriptWebAppUrl(currentWebhookUrl)) {
@@ -1265,14 +1195,14 @@ function mapDiscoveryWizardFlow(rawFlow) {
 }
 
 function getFallbackAppsScriptState() {
-  if (!appsScriptDeployStateCache) return "none";
+  if (!configCore.appsScriptDeployStateCache) return "none";
   if (
-    isManagedAppsScriptDeployState(appsScriptDeployStateCache) &&
-    isAppsScriptPublicAccessReady(appsScriptDeployStateCache)
+    isManagedAppsScriptDeployState(configCore.appsScriptDeployStateCache) &&
+    isAppsScriptPublicAccessReady(configCore.appsScriptDeployStateCache)
   ) {
     return "stub_only";
   }
-  return isManagedAppsScriptDeployState(appsScriptDeployStateCache)
+  return isManagedAppsScriptDeployState(configCore.appsScriptDeployStateCache)
     ? "unverified"
     : "none";
 }
@@ -1618,7 +1548,7 @@ function buildFallbackReadinessSnapshot() {
 }
 
 function getDiscoveryReadinessSnapshot() {
-  return discoveryReadinessSnapshotCache || buildFallbackReadinessSnapshot();
+  return configCore.discoveryReadinessSnapshotCache || buildFallbackReadinessSnapshot();
 }
 
 function getDiscoverySettingsView(snapshot) {
@@ -1660,12 +1590,12 @@ function getDiscoveryEmptyStateView(snapshot) {
 }
 
 async function refreshDiscoveryReadinessSnapshot(options = {}) {
-  if (discoveryReadinessSnapshotPromise && !options.force) {
-    return discoveryReadinessSnapshotPromise;
+  if (configCore.discoveryReadinessSnapshotPromise && !options.force) {
+    return configCore.discoveryReadinessSnapshotPromise;
   }
   const buildFallback = () => buildFallbackReadinessSnapshot();
   const probes = getDiscoveryWizardProbesApi();
-  discoveryReadinessSnapshotPromise = Promise.resolve()
+  configCore.discoveryReadinessSnapshotPromise = Promise.resolve()
     .then(async () => {
       if (probes && typeof probes.buildReadinessSnapshot === "function") {
         return probes.buildReadinessSnapshot();
@@ -1673,19 +1603,19 @@ async function refreshDiscoveryReadinessSnapshot(options = {}) {
       return buildFallback();
     })
     .then((snapshot) => {
-      discoveryReadinessSnapshotCache =
+      configCore.discoveryReadinessSnapshotCache =
         snapshot && typeof snapshot === "object" ? snapshot : buildFallback();
-      return discoveryReadinessSnapshotCache;
+      return configCore.discoveryReadinessSnapshotCache;
     })
     .catch((err) => {
       console.warn("[JobBored] discovery readiness snapshot:", err);
-      discoveryReadinessSnapshotCache = buildFallback();
-      return discoveryReadinessSnapshotCache;
+      configCore.discoveryReadinessSnapshotCache = buildFallback();
+      return configCore.discoveryReadinessSnapshotCache;
     })
     .finally(() => {
-      discoveryReadinessSnapshotPromise = null;
+      configCore.discoveryReadinessSnapshotPromise = null;
     });
-  const next = await discoveryReadinessSnapshotPromise;
+  const next = await configCore.discoveryReadinessSnapshotPromise;
   if (options.rerender !== false) {
     refreshDiscoveryUiState();
   }
@@ -2064,15 +1994,15 @@ function createDiscoveryWizardRuntime(patch = {}) {
 }
 
 function getDiscoveryWizardRuntime() {
-  if (!discoveryWizardRuntime) {
-    discoveryWizardRuntime = createDiscoveryWizardRuntime();
+  if (!configCore.discoveryWizardRuntime) {
+    configCore.discoveryWizardRuntime = createDiscoveryWizardRuntime();
   }
-  return discoveryWizardRuntime;
+  return configCore.discoveryWizardRuntime;
 }
 
 function updateDiscoveryWizardRuntime(patch = {}) {
   const current = getDiscoveryWizardRuntime();
-  discoveryWizardRuntime = createDiscoveryWizardRuntime({
+  configCore.discoveryWizardRuntime = createDiscoveryWizardRuntime({
     ...current,
     ...patch,
     state: {
@@ -2090,16 +2020,16 @@ function updateDiscoveryWizardRuntime(patch = {}) {
         : {}),
     },
   });
-  return discoveryWizardRuntime;
+  return configCore.discoveryWizardRuntime;
 }
 
 function clearDiscoveryWizardRuntime() {
-  discoveryWizardRuntime = null;
+  configCore.discoveryWizardRuntime = null;
 }
 
 function setDiscoveryWizardRuntime(runtime) {
-  discoveryWizardRuntime = runtime;
-  return discoveryWizardRuntime;
+  configCore.discoveryWizardRuntime = runtime;
+  return configCore.discoveryWizardRuntime;
 }
 
 /**
@@ -2400,7 +2330,7 @@ function setAppsScriptDeployStatus(tone, message, detail) {
     extra && typeof extra === "object" && Array.isArray(extra.steps)
       ? extra.steps.map((step) => String(step || "").trim()).filter(Boolean)
       : [];
-  appsScriptDeployStatus = {
+  configCore.appsScriptDeployStatus = {
     tone: tone || "info",
     message: String(message || ""),
     detail: detail ? String(detail) : "",
@@ -2418,7 +2348,7 @@ function setAppsScriptDeployStatus(tone, message, detail) {
 }
 
 function clearAppsScriptDeployStatus() {
-  appsScriptDeployStatus = null;
+  configCore.appsScriptDeployStatus = null;
   renderAppsScriptDeployUi();
 }
 
@@ -3537,16 +3467,16 @@ function getAppsScriptDeployStateStore() {
 async function populateAppsScriptDeployStateIntoSettingsForm() {
   const store = getAppsScriptDeployStateStore();
   if (!store) {
-    appsScriptDeployStateCache = null;
+    configCore.appsScriptDeployStateCache = null;
     renderAppsScriptDeployUi();
     return;
   }
   try {
-    appsScriptDeployStateCache = await store.getAppsScriptDeployState();
+    configCore.appsScriptDeployStateCache = await store.getAppsScriptDeployState();
   } catch (err) {
     console.warn("[JobBored] Apps Script deploy state:", err);
-    appsScriptDeployStateCache = null;
-    appsScriptDeployStatus = {
+    configCore.appsScriptDeployStateCache = null;
+    configCore.appsScriptDeployStatus = {
       tone: "error",
       message: "Could not load saved Apps Script deploy state.",
       detail: err && err.message ? String(err.message) : "",
@@ -3898,7 +3828,7 @@ function renderAppsScriptDeployUi() {
   );
   if (!deployBtn || !statusCard || !statusTitle || !statusDetail) return;
 
-  const state = appsScriptDeployStateCache;
+  const state = configCore.appsScriptDeployStateCache;
   const hasManaged = isManagedAppsScriptDeployState(state);
   const publicAccessReady = isAppsScriptPublicAccessReady(state);
   const scriptId =
@@ -3909,13 +3839,13 @@ function renderAppsScriptDeployUi() {
   const sheetId = getSettingsSheetIdValue();
   const needsOAuthReload = hasUnsavedOAuthClientIdChange(clientId);
 
-  deployBtn.textContent = appsScriptDeployBusy
+  deployBtn.textContent = configCore.appsScriptDeployBusy
     ? "Deploying..."
     : hasManaged
       ? "Re-deploy managed Apps Script"
       : "Deploy Google Apps Script stub";
   deployBtn.disabled =
-    appsScriptDeployBusy ||
+    configCore.appsScriptDeployBusy ||
     !clientId ||
     !sheetId ||
     needsOAuthReload ||
@@ -3943,9 +3873,9 @@ function renderAppsScriptDeployUi() {
   }
   if (recheckBtn) {
     recheckBtn.hidden =
-      !hasManaged || publicAccessReady || appsScriptDeployBusy || !scriptId;
+      !hasManaged || publicAccessReady || configCore.appsScriptDeployBusy || !scriptId;
     recheckBtn.disabled =
-      appsScriptDeployBusy || !gisLoaded || !clientId || needsOAuthReload;
+      configCore.appsScriptDeployBusy || !gisLoaded || !clientId || needsOAuthReload;
     if (!clientId) {
       recheckBtn.title = "Add an OAuth Client ID above first";
     } else if (needsOAuthReload) {
@@ -3975,12 +3905,12 @@ function renderAppsScriptDeployUi() {
     "Create a new Apps Script stub in your Google Drive and save its /exec URL here.";
   let detail =
     "This keeps webhook verification in your account. Browser -> /exec requests may still need a proxy or server-side POST if CORS blocks them, and the stub still needs real discovery logic before it can add jobs.";
-  let effectiveStatus = appsScriptDeployStatus;
+  let effectiveStatus = configCore.appsScriptDeployStatus;
 
-  if (appsScriptDeployStatus && appsScriptDeployStatus.message) {
-    tone = appsScriptDeployStatus.tone || "info";
-    message = appsScriptDeployStatus.message;
-    detail = appsScriptDeployStatus.detail || "";
+  if (configCore.appsScriptDeployStatus && configCore.appsScriptDeployStatus.message) {
+    tone = configCore.appsScriptDeployStatus.tone || "info";
+    message = configCore.appsScriptDeployStatus.message;
+    detail = configCore.appsScriptDeployStatus.detail || "";
   } else if (!clientId) {
     tone = "warning";
     message = "Add an OAuth Client ID above to deploy from the dashboard.";
@@ -4080,7 +4010,7 @@ function renderAppsScriptDeployUi() {
 }
 
 async function deployAppsScriptStubFromSettings() {
-  if (appsScriptDeployBusy) return;
+  if (configCore.appsScriptDeployBusy) return;
 
   const sheetId = getSettingsSheetIdValue();
   if (!sheetId) {
@@ -4100,7 +4030,7 @@ async function deployAppsScriptStubFromSettings() {
     return;
   }
 
-  appsScriptDeployBusy = true;
+  configCore.appsScriptDeployBusy = true;
   renderAppsScriptDeployUi();
 
   try {
@@ -4114,9 +4044,9 @@ async function deployAppsScriptStubFromSettings() {
     const stub = await loadAppsScriptStubBundle();
 
     const existingState = isManagedAppsScriptDeployState(
-      appsScriptDeployStateCache,
+      configCore.appsScriptDeployStateCache,
     )
-      ? appsScriptDeployStateCache
+      ? configCore.appsScriptDeployStateCache
       : null;
 
     let scriptId =
@@ -4254,7 +4184,7 @@ async function deployAppsScriptStubFromSettings() {
         await store.saveAgentChecklist({ webhookConfigured: true });
       }
     }
-    appsScriptDeployStateCache = nextState;
+    configCore.appsScriptDeployStateCache = nextState;
 
     if (!readiness.ready) {
       setAppsScriptDeployStatus(
@@ -4314,14 +4244,14 @@ async function deployAppsScriptStubFromSettings() {
       );
     }
   } finally {
-    appsScriptDeployBusy = false;
+    configCore.appsScriptDeployBusy = false;
     renderAppsScriptDeployUi();
   }
 }
 
 async function recheckAppsScriptPublicAccessFromSettings() {
-  if (appsScriptDeployBusy) return;
-  const state = appsScriptDeployStateCache;
+  if (configCore.appsScriptDeployBusy) return;
+  const state = configCore.appsScriptDeployStateCache;
   if (!isManagedAppsScriptDeployState(state)) return;
 
   const scriptId =
@@ -4344,7 +4274,7 @@ async function recheckAppsScriptPublicAccessFromSettings() {
     return;
   }
 
-  appsScriptDeployBusy = true;
+  configCore.appsScriptDeployBusy = true;
   renderAppsScriptDeployUi();
   try {
     setAppsScriptDeployStatus(
@@ -4377,7 +4307,7 @@ async function recheckAppsScriptPublicAccessFromSettings() {
         await store.saveAgentChecklist({ webhookConfigured: true });
       }
     }
-    appsScriptDeployStateCache = nextState;
+    configCore.appsScriptDeployStateCache = nextState;
 
     if (!readiness.ready) {
       setAppsScriptDeployStatus(
@@ -4444,7 +4374,7 @@ async function recheckAppsScriptPublicAccessFromSettings() {
       );
     }
   } finally {
-    appsScriptDeployBusy = false;
+    configCore.appsScriptDeployBusy = false;
     renderAppsScriptDeployUi();
   }
 }
@@ -7303,14 +7233,14 @@ window.JobBoredApp.core.host = {
     return requestDiscoverySetup(...args);
   },
   resetAppsScriptDeployModalState() {
-    appsScriptDeployStatus = null;
-    appsScriptDeployStateCache = null;
+    configCore.appsScriptDeployStatus = null;
+    configCore.appsScriptDeployStateCache = null;
   },
   getAppsScriptDeployStateCache() {
-    return appsScriptDeployStateCache;
+    return configCore.appsScriptDeployStateCache;
   },
   clearAppsScriptDeployStatusIfIdle() {
-    if (!appsScriptDeployBusy) appsScriptDeployStatus = null;
+    if (!configCore.appsScriptDeployBusy) configCore.appsScriptDeployStatus = null;
   },
   isAuthUserMenuOpen() {
     return isAuthUserMenuOpen();
@@ -8133,13 +8063,13 @@ async function handleAppsScriptBrowserCorsFailure(
   if (!isLikelyAppsScriptWebAppUrl(url)) return false;
   const isNetworkLikeFailure =
     (resultKind === "network_error" &&
-      isManagedAppsScriptDeployState(appsScriptDeployStateCache)) ||
+      isManagedAppsScriptDeployState(configCore.appsScriptDeployStateCache)) ||
     (resultKind === "invalid_endpoint" &&
-      isManagedAppsScriptDeployState(appsScriptDeployStateCache));
+      isManagedAppsScriptDeployState(configCore.appsScriptDeployStateCache));
   if (!isNetworkLikeFailure) return false;
   if (
-    isManagedAppsScriptDeployState(appsScriptDeployStateCache) &&
-    !isAppsScriptPublicAccessReady(appsScriptDeployStateCache)
+    isManagedAppsScriptDeployState(configCore.appsScriptDeployStateCache) &&
+    !isAppsScriptPublicAccessReady(configCore.appsScriptDeployStateCache)
   ) {
     if (!isSettingsModalOpen()) {
       await openCommandCenterSettingsModal();
