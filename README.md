@@ -33,7 +33,7 @@ defaults are:
 This is the core OSS path. It works without the discovery worker or Hermes.
 
 ```bash
-git clone https://github.com/emilio3435/command-center.git ~/Job-Bored
+git clone https://github.com/emilio3435/Job-Bored.git ~/Job-Bored
 cd ~/Job-Bored
 npm run setup
 npm run web-only
@@ -152,20 +152,20 @@ Choose any of these (all free):
 1. Fork this repo
 2. Add runtime config safely: use Settings/localStorage for personal use, a private fork with `config.js`, or a GitHub Actions-generated `config.js` from repo secrets
 3. Go to **Settings → Pages → Source: Deploy from a branch → main / root**
-4. Your dashboard is live at `https://yourusername.github.io/command-center`
+4. Your dashboard is live at `https://yourusername.github.io/Job-Bored`
 5. Add that URL to your OAuth client's Authorized JavaScript Origins
 
 Concrete static deployment modes and CORS expectations are in **[docs/GITHUB-PAGES.md](docs/GITHUB-PAGES.md)**.
 
 #### Vercel
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/emilio3435/command-center)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/emilio3435/Job-Bored)
 
 After deploying, add `config.js` with your credentials and add your Vercel URL to OAuth origins.
 
 #### Netlify
 
-[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/emilio3435/command-center)
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/emilio3435/Job-Bored)
 
 #### Cloudflare Pages
 
@@ -177,8 +177,8 @@ After deploying, add `config.js` with your credentials and add your Vercel URL t
 
 ```bash
 # Clone and open
-git clone https://github.com/emilio3435/command-center.git
-cd command-center
+git clone https://github.com/emilio3435/Job-Bored.git
+cd ~/Job-Bored
 cp config.example.js config.js
 # Edit config.js with your credentials
 open index.html
