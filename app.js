@@ -12448,21 +12448,12 @@ function renderBrief() {
 // UTILITY
 // ============================================
 
-function escapeHtml(str) {
-  if (!str) return "";
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+function escapeHtml(...args) {
+  return window.JobBoredApp.utils.escapeHtml(...args);
 }
 
-function safeHref(url) {
-  if (!url) return "";
-  var s = String(url).trim();
-  if (/^https?:\/\//i.test(s)) return s;
-  return "";
+function safeHref(...args) {
+  return window.JobBoredApp.utils.safeHref(...args);
 }
 
 function getExpiredReviewItems() {
