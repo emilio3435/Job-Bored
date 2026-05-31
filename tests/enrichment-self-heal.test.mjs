@@ -443,9 +443,10 @@ describe("LLM prompt — preserves quality when scrape fails", () => {
 
 describe("isFetchNetworkError recognizes aborts", () => {
   it("classifies AbortError as a network error (timeout-friendly)", () => {
-    const idx = appJs.indexOf("function isFetchNetworkError");
+    const scraperAtsJs = readFileSync(join(repoRoot, "scraper-ats-config.js"), "utf8");
+    const idx = scraperAtsJs.indexOf("function isFetchNetworkError");
     assert.ok(idx > 0);
-    const body = appJs.slice(idx, idx + 600);
+    const body = scraperAtsJs.slice(idx, idx + 600);
     assert.match(body, /AbortError/, "AbortError must be in the network-error set");
     assert.match(body, /aborted/, "messages containing 'aborted' must classify too");
   });
