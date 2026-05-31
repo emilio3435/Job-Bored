@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const sheetsWriteJs = readFileSync(join(repoRoot, "sheets-writeback.js"), "utf8");
 
 /**
  * Extract a function body from app.js source
@@ -41,9 +42,13 @@ function callsRefreshDrawer(body) {
 
 describe("Drawer CRM sync", () => {
   describe("updateJobNotes calls refreshDrawerIfOpen", () => {
-    const body = extractFunctionBody(appJs, "updateJobNotes");
+    const body = extractFunctionBody(sheetsWriteJs, "updateJobNotes");
     it("updateJobNotes function exists", () => {
       assert.ok(body !== null, "updateJobNotes function should exist");
+      assert.ok(
+        extractFunctionBody(appJs, "updateJobNotes") !== null,
+        "updateJobNotes wrapper should exist in app.js",
+      );
     });
     it("calls refreshDrawerIfOpen after successful save", () => {
       assert.ok(
@@ -54,9 +59,13 @@ describe("Drawer CRM sync", () => {
   });
 
   describe("updateFollowUpDate calls refreshDrawerIfOpen", () => {
-    const body = extractFunctionBody(appJs, "updateFollowUpDate");
+    const body = extractFunctionBody(sheetsWriteJs, "updateFollowUpDate");
     it("updateFollowUpDate function exists", () => {
       assert.ok(body !== null, "updateFollowUpDate function should exist");
+      assert.ok(
+        extractFunctionBody(appJs, "updateFollowUpDate") !== null,
+        "updateFollowUpDate wrapper should exist in app.js",
+      );
     });
     it("calls refreshDrawerIfOpen after successful save", () => {
       assert.ok(
@@ -67,9 +76,13 @@ describe("Drawer CRM sync", () => {
   });
 
   describe("updateLastHeardFrom calls refreshDrawerIfOpen", () => {
-    const body = extractFunctionBody(appJs, "updateLastHeardFrom");
+    const body = extractFunctionBody(sheetsWriteJs, "updateLastHeardFrom");
     it("updateLastHeardFrom function exists", () => {
       assert.ok(body !== null, "updateLastHeardFrom function should exist");
+      assert.ok(
+        extractFunctionBody(appJs, "updateLastHeardFrom") !== null,
+        "updateLastHeardFrom wrapper should exist in app.js",
+      );
     });
     it("calls refreshDrawerIfOpen after successful save", () => {
       assert.ok(
@@ -80,9 +93,13 @@ describe("Drawer CRM sync", () => {
   });
 
   describe("updateJobResponseFlag calls refreshDrawerIfOpen", () => {
-    const body = extractFunctionBody(appJs, "updateJobResponseFlag");
+    const body = extractFunctionBody(sheetsWriteJs, "updateJobResponseFlag");
     it("updateJobResponseFlag function exists", () => {
       assert.ok(body !== null, "updateJobResponseFlag function should exist");
+      assert.ok(
+        extractFunctionBody(appJs, "updateJobResponseFlag") !== null,
+        "updateJobResponseFlag wrapper should exist in app.js",
+      );
     });
     it("calls refreshDrawerIfOpen after successful save", () => {
       assert.ok(
@@ -113,8 +130,8 @@ describe("Drawer CRM sync", () => {
   });
 
   describe("updateJobStatus emits the confirmed move event", () => {
-    const body = extractFunctionBody(appJs, "updateJobStatus");
-    const emitBody = extractFunctionBody(appJs, "emitPipelineMoveSucceeded");
+    const body = extractFunctionBody(sheetsWriteJs, "updateJobStatus");
+    const emitBody = extractFunctionBody(sheetsWriteJs, "emitPipelineMoveSucceeded");
 
     it("has a dedicated confirmed move event helper", () => {
       assert.ok(

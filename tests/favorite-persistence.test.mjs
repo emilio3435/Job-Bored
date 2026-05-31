@@ -37,19 +37,20 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const sheetsWriteJs = readFileSync(join(repoRoot, "sheets-writeback.js"), "utf8");
 
 function sliceToggleFavorite() {
-  const start = appJs.indexOf("async function toggleFavorite");
-  assert.ok(start >= 0, "toggleFavorite must exist");
-  const end = appJs.indexOf("async function dismissJob", start);
+  const start = sheetsWriteJs.indexOf("async function toggleFavorite");
+  assert.ok(start >= 0, "toggleFavorite must exist in sheets-writeback.js");
+  const end = sheetsWriteJs.indexOf("async function dismissJob", start);
   assert.ok(end > start, "dismissJob must follow toggleFavorite in source order");
-  return appJs.slice(start, end);
+  return sheetsWriteJs.slice(start, end);
 }
 
 describe("favorite toggle persists across refresh", () => {
   it("declares a versioned localStorage key for pending favorites", () => {
     assert.match(
-      appJs,
+      sheetsWriteJs,
       /const\s+PENDING_FAVORITES_STORAGE_KEY\s*=\s*"jobbored\.favorites\.pending"/,
       "PENDING_FAVORITES_STORAGE_KEY must exist under a clearly-namespaced " +
         "non-secret-shaped localStorage path",
@@ -58,21 +59,26 @@ describe("favorite toggle persists across refresh", () => {
 
   it("exposes a stable cache-key derivation from job link with a synthetic fallback", () => {
     assert.match(
-      appJs,
+      sheetsWriteJs,
       /function\s+favoriteCacheKeyForJob\s*\(/,
       "favoriteCacheKeyForJob must exist",
     );
     // job.link is the primary key (stable across sheet row reordering); the
     // synthetic key keeps link-less manually-added rows persistable.
-    assert.match(appJs, /const\s+link\s*=\s*job\.link[\s\S]*?return\s+link/);
-    assert.match(appJs, /return\s+`synthetic::\$\{company\}::\$\{title\}`/);
+    assert.match(sheetsWriteJs, /const\s+link\s*=\s*job\.link[\s\S]*?return\s+link/);
+    assert.match(sheetsWriteJs, /return\s+`synthetic::\$\{company\}::\$\{title\}`/);
   });
 
   it("layers cached favorites into freshly-parsed pipelineData after CSV parse", () => {
     assert.match(
       appJs,
       /function\s+applyFavoriteCache\s*\(/,
-      "applyFavoriteCache must exist",
+      "applyFavoriteCache wrapper must exist in app.js",
+    );
+    assert.match(
+      sheetsWriteJs,
+      /function\s+applyFavoriteCache\s*\(/,
+      "applyFavoriteCache implementation must exist in sheets-writeback.js",
     );
     // The function is wired into the load path right after the existing
     // enrichment cache hydration so the user's favorites land on first paint.
@@ -89,7 +95,7 @@ describe("favorite toggle persists across refresh", () => {
     assert.match(fn, /if\s*\(cacheKey\)\s*setPendingFavorite\(cacheKey,\s*next\);/);
     // The cache write must occur BEFORE the accessToken check.
     const cacheWriteIdx = fn.search(/setPendingFavorite\(cacheKey,\s*next\)/);
-    const authCheckIdx = fn.search(/if\s*\(!accessToken\)/);
+    const authCheckIdx = fn.search(/if\s*\(!host\(\)\.getAccessToken\(\)\)/);
     assert.ok(
       cacheWriteIdx >= 0 && authCheckIdx > cacheWriteIdx,
       "favorite cache must be written before the auth gate so the user's " +
