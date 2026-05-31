@@ -417,7 +417,7 @@ function appendWizardFailureRecoveryCluster(parent, options) {
   );
   retryBtn.type = "button";
   retryBtn.addEventListener("click", () => {
-    void host().handleDiscoveryWizardAction(opts.retryActionId);
+    void handleDiscoveryWizardAction(opts.retryActionId);
   });
   row.appendChild(retryBtn);
 
@@ -455,7 +455,7 @@ function appendWizardFailureRecoveryCluster(parent, options) {
     skipBtn.addEventListener("click", () => {
       const runtime = host().getDiscoveryWizardRuntime();
       const snapshot = host().getDiscoveryReadinessSnapshot();
-      void host().moveDiscoveryWizardToStep(opts.skipToStepId, {
+      void moveDiscoveryWizardToStep(opts.skipToStepId, {
         snapshot,
         state: { ...(runtime.state || {}), [`${opts.skipKey || "skipped"}`]: true },
       });
@@ -560,7 +560,7 @@ function appendWizardAssistChooser(parent, options) {
     button.setAttribute("aria-pressed", isActive ? "true" : "false");
     button.addEventListener("click", () => {
       setDiscoveryWizardAssistMode(stepId, choice.id);
-      void host().renderDiscoverySetupWizard();
+      void renderDiscoverySetupWizard();
     });
     actions.appendChild(button);
   });
@@ -1205,7 +1205,7 @@ async function probeAndShowWizardTunnelBanner(slot, storedTunnelUrl, port) {
     );
     action.type = "button";
     action.addEventListener("click", () => {
-      void host().handleDiscoveryWizardAction("wizard_fix_setup");
+      void handleDiscoveryWizardAction("wizard_fix_setup");
     });
     banner.appendChild(action);
   } else {
@@ -1906,9 +1906,932 @@ function buildDiscoveryWizardSteps(runtime) {
   );
 }
 
+  // ==== orchestration moved from app.js (Phase 1b) ====
+async function renderDiscoverySetupWizard() {
+  const shell = host().getDiscoveryWizardShellApi();
+  if (!shell || typeof shell.renderWizardShell !== "function") {
+    await host().openCommandCenterSettingsModal();
+    return null;
+  }
+  const runtime = host().getDiscoveryWizardRuntime();
+  return shell.renderWizardShell({
+    title: "Discovery setup wizard",
+    lede: "Connect your job discovery pipeline in a few steps.",
+    snapshot: runtime.snapshot,
+    state: runtime.state,
+    steps: buildDiscoveryWizardSteps(runtime),
+    activeStepId: runtime.activeStepId,
+    onAction: (actionId) => {
+      void handleDiscoveryWizardAction(actionId).catch((err) => {
+        console.error("[JobBored] discovery wizard action:", actionId, err);
+        host().showToast(
+          "That action failed. Check the browser console for details.",
+          "error",
+        );
+      });
+    },
+    onNavigate: (stepId, detail) => {
+      const current = host().getDiscoveryWizardRuntime();
+      host().updateDiscoveryWizardRuntime({
+        activeStepId: stepId,
+        state: {
+          ...(current.state || {}),
+          ...(detail && detail.state ? detail.state : {}),
+          currentStep: stepId,
+        },
+      });
+      void host().persistDiscoveryWizardState({
+        ...(detail && detail.state ? detail.state : {}),
+        currentStep: stepId,
+      });
+    },
+    onStateChange: (state) => {
+      host().updateDiscoveryWizardRuntime({ state });
+      void host().persistDiscoveryWizardState(state);
+    },
+    onClose: () => {
+      // Restore onboarding if it was showing when discovery wizard opened
+      const runtime = host().getDiscoveryWizardRuntime();
+      const shouldRestoreOnboarding =
+        runtime &&
+        runtime.state &&
+        runtime.state._onboardingWasHiddenByDiscovery;
+      host().clearDiscoveryWizardRuntime();
+      void host().refreshDiscoveryReadinessSnapshot({ force: true });
+      if (shouldRestoreOnboarding) {
+        host().showOnboardingWizard();
+      }
+    },
+  });
+}
+
+async function openDiscoverySetupWizard(options = {}) {
+  // ====== [discovery-autodetect lane: silent recover] ======
+  // Probe the local discovery stack BEFORE rendering the wizard. If
+  // everything is healthy, skip the wizard entirely. If the only problem
+  // is fixable (worker down, ngrok rotated, etc.), the autodetect module
+  // runs /__proxy/full-boot silently and re-probes. Only when human input
+  // is genuinely needed do we fall through to the wizard below.
+  //
+  // Module owns no UI. Endpoint contract locked in dev-server.mjs
+  // handleDiscoveryState header. Pass options.skipAutodetect to bypass.
+  if (
+    !options.skipAutodetect &&
+    typeof window !== "undefined" &&
+    window.JobBoredDiscoveryAutodetect &&
+    typeof window.JobBoredDiscoveryAutodetect.recoverIfPossible === "function"
+  ) {
+    try {
+      const verdict =
+        await window.JobBoredDiscoveryAutodetect.recoverIfPossible();
+      if (verdict && verdict.ready) {
+        // Belt-and-suspenders: greenfield users who land on a healthy
+        // discovery stack still need keep-alive installed so the next ngrok
+        // rotation doesn't break them. installKeepAliveOnce is idempotent
+        // (localStorage-gated), so running it here is safe even if the
+        // explicit "Fix tunnel" path also called it earlier.
+        if (typeof host().installKeepAliveOnce === "function") {
+          try {
+            host().installKeepAliveOnce();
+          } catch (_) {
+            /* never block the user on keep-alive bookkeeping */
+          }
+        }
+        if (typeof host().showToast === "function") {
+          host().showToast("Discovery is already set up.", "info");
+        }
+        return;
+      }
+    } catch (err) {
+      // Autodetect failure is never fatal — fall through to the wizard.
+      console.warn("[JobBored] discovery autodetect skipped:", err);
+    }
+  }
+  // ====== [/discovery-autodetect lane] ======
+
+  // Remember if onboarding was showing so we can restore it after wizard closes
+  const onboardingWasVisible = host().isOnboardingWizardVisible();
+  if (onboardingWasVisible) {
+    host().hideOnboardingWizard();
+  }
+  if (host().isSettingsModalOpen()) {
+    host().closeCommandCenterSettingsModal();
+  }
+  const helpModal = document.getElementById("discoveryHelpModal");
+  if (helpModal) {
+    helpModal.style.display = "none";
+  }
+  host().closeDiscoverySetupGuideModal();
+  const snapshot = await host().refreshDiscoveryReadinessSnapshot({
+    force: true,
+    rerender: false,
+  });
+  const probes = host().getDiscoveryWizardProbesApi();
+  let savedState = null;
+  if (probes && typeof probes.getDiscoverySetupWizardState === "function") {
+    try {
+      savedState = await probes.getDiscoverySetupWizardState();
+    } catch (err) {
+      console.warn("[JobBored] load discovery wizard state:", err);
+    }
+  }
+  const needsRecovery =
+    snapshot.localRecoveryState && snapshot.localRecoveryState !== "ok";
+  const initialFlow = host().mapDiscoveryWizardFlow(
+    needsRecovery
+      ? "local_agent"
+      : options.flow ||
+          (savedState && savedState.flow) ||
+          snapshot.recommendedFlow,
+  );
+  const initialStep = needsRecovery
+    ? "bootstrap"
+    : options.startStep ||
+      (savedState &&
+      savedState.currentStep !== "path_select" &&
+      host().getDiscoveryWizardStepIds(initialFlow).includes(savedState.currentStep)
+        ? savedState.currentStep
+        : "detect");
+  const savedCompleted =
+    savedState && Array.isArray(savedState.completedSteps)
+      ? savedState.completedSteps
+      : [];
+  const implicitlyCompleted = host().getDiscoveryWizardStepsBefore(
+    initialFlow,
+    initialStep,
+  );
+  const mergedCompleted = [
+    ...new Set([...savedCompleted, ...implicitlyCompleted]),
+  ];
+  host().setDiscoveryWizardRuntime(host().createDiscoveryWizardRuntime({
+    entryPoint: options.entryPoint || "manual",
+    snapshot,
+    state: {
+      ...(savedState && typeof savedState === "object" ? savedState : {}),
+      flow: initialFlow,
+      currentStep: initialStep,
+      completedSteps: mergedCompleted,
+      // Track that we hid onboarding so we can reshow it on close
+      _onboardingWasHiddenByDiscovery: onboardingWasVisible,
+    },
+    activeStepId: initialStep,
+    drafts: {
+      ...getDiscoveryWizardDefaultDrafts(snapshot),
+      ...(options.drafts && typeof options.drafts === "object"
+        ? options.drafts
+        : {}),
+    },
+  }));
+  await host().persistDiscoveryWizardState({
+    ...getDiscoveryWizardRuntime().state,
+    flow: initialFlow,
+    currentStep: initialStep,
+    completedSteps: mergedCompleted,
+  });
+  return renderDiscoverySetupWizard();
+}
+
+function getDiscoveryWizardCurrentStepContext() {
+  const shell = host().getDiscoveryWizardShellApi();
+  return shell &&
+    shell.lastRender &&
+    shell.lastRender.context &&
+    typeof shell.lastRender.context === "object"
+    ? shell.lastRender.context
+    : null;
+}
+
+async function moveDiscoveryWizardToStep(stepId, patch = {}) {
+  const runtime = host().updateDiscoveryWizardRuntime({
+    activeStepId: stepId,
+    state: {
+      ...(host().getDiscoveryWizardRuntime().state || {}),
+      ...(patch.state && typeof patch.state === "object" ? patch.state : {}),
+      currentStep: stepId,
+    },
+    ...patch,
+  });
+  await host().persistDiscoveryWizardState({
+    ...(runtime.state || {}),
+    currentStep: stepId,
+  });
+  return renderDiscoverySetupWizard();
+}
+
+function setDiscoveryWizardMessage(message, tone = "info") {
+  host().updateDiscoveryWizardRuntime({
+    lastWizardMessage: message || "",
+    lastWizardMessageTone: tone,
+  });
+}
+
+async function handleDiscoveryWizardFlowSelection(flow) {
+  const snapshot = await host().refreshDiscoveryReadinessSnapshot({
+    force: true,
+    rerender: false,
+  });
+  const mappedFlow = host().mapDiscoveryWizardFlow(flow);
+  const runtime = host().getDiscoveryWizardRuntime();
+  const currentState = runtime.state || {};
+
+  const flowCache = { ...(runtime.flowProgressCache || {}) };
+  if (currentState.flow) {
+    flowCache[currentState.flow] = {
+      completedSteps: [...(currentState.completedSteps || [])],
+      currentStep: runtime.activeStepId || currentState.currentStep || "",
+      drafts: { ...(runtime.drafts || {}) },
+    };
+  }
+
+  const cached = flowCache[mappedFlow];
+  const nextStep =
+    cached && cached.currentStep
+      ? cached.currentStep
+      : getDiscoveryWizardActionableStep(mappedFlow, snapshot);
+  const restoredSteps =
+    cached && cached.completedSteps
+      ? cached.completedSteps
+      : host().getDiscoveryWizardStepsBefore(mappedFlow, nextStep);
+  const restoredDrafts = cached && cached.drafts ? cached.drafts : undefined;
+
+  setDiscoveryWizardMessage("");
+  return moveDiscoveryWizardToStep(nextStep, {
+    snapshot,
+    flowProgressCache: flowCache,
+    drafts: restoredDrafts,
+    state: {
+      flow: mappedFlow,
+      completedSteps: [...restoredSteps],
+    },
+  });
+}
+
+async function handleDiscoveryWizardVerification(url, context) {
+  const payload = await host().buildDiscoveryWebhookPayload(
+    context === "run_discovery"
+      ? host().getActiveSheetId()
+      : host().getSettingsSheetIdValue() || host().getActiveSheetId(),
+  );
+  const result = await host().verifyDiscoveryWebhookWithSharedModel(url, payload, {
+    context,
+    sheetId: host().getSettingsSheetIdValue() || host().getActiveSheetId() || "",
+  });
+  host().updateDiscoveryWizardRuntime({
+    lastVerificationResult: result,
+    lastDownstreamDiagnosis: null,
+  });
+  if (result.ok) {
+    const engineState = host().getDiscoveryEngineStateFromVerificationResult(result);
+    if (engineState) {
+      await host().recordDiscoveryEngineState(
+        url,
+        engineState,
+        context === "run_discovery"
+          ? "wizard_run_discovery"
+          : "wizard_verify_endpoint",
+      );
+    }
+    if (url) {
+      host().mergeStoredConfigOverridePatch({ discoveryWebhookUrl: url });
+    }
+    await host().refreshDiscoveryReadinessSnapshot({ force: true, rerender: false });
+    const snapshot = host().getDiscoveryReadinessSnapshot();
+    const flow =
+      result.kind === "stub_only"
+        ? "stub_only"
+        : host().getDiscoveryWizardRuntime().state.flow;
+    setDiscoveryWizardMessage(
+      result.message,
+      result.kind === "stub_only" ? "warning" : "info",
+    );
+    await host().persistDiscoveryWizardState({
+      flow,
+      currentStep: result.kind === "stub_only" ? "stub_only" : "ready",
+      completedSteps: [
+        ...((host().getDiscoveryWizardRuntime().state || {}).completedSteps || []),
+        "verify",
+      ],
+      lastVerifiedAt: new Date().toISOString(),
+      result:
+        result.kind === "stub_only"
+          ? "stub_only"
+          : result.engineState || "connected",
+    });
+    host().updateDiscoveryWizardRuntime({
+      snapshot,
+      state: {
+        ...(host().getDiscoveryWizardRuntime().state || {}),
+        flow: host().mapDiscoveryWizardFlow(flow),
+      },
+    });
+    host().showDiscoveryVerificationToast(result, { context });
+    return moveDiscoveryWizardToStep(
+      result.kind === "stub_only" ? "stub_only" : "ready",
+      {
+        snapshot,
+        state: {
+          flow: host().mapDiscoveryWizardFlow(flow),
+        },
+      },
+    );
+  }
+  if (
+    (result.kind === "network_error" || result.kind === "invalid_endpoint") &&
+    (await host().handleAppsScriptBrowserCorsFailure(url))
+  ) {
+    // Apps Script stub that is publicly accessible — CORS blocked the browser from
+    // reading the response, but the endpoint did receive and accept the request.
+    // Classify as stub_only so the wizard shows warning semantics, not a generic
+    // network error, and the Run discovery path does not report full-connected success.
+    // Also handles the case where the Apps Script stub URL returns 404 because it is
+    // not yet deployed — the 404 is classified as invalid_endpoint by the verifier,
+    // but for a known managed Apps Script stub URL we treat it as stub_only.
+    result.kind = "stub_only";
+    result.engineState = "stub_only";
+    result.message =
+      "Apps Script stub received the request. Wiring works, but the stub does not find real jobs.";
+    result.detail =
+      "Switch to a real discovery engine or set up a Cloudflare relay to enable real discovery.";
+    setDiscoveryWizardMessage(result.message, "warning");
+    return renderDiscoverySetupWizard();
+  }
+  const freshSnapshot = await host().refreshDiscoveryReadinessSnapshot({
+    force: true,
+    rerender: false,
+  });
+
+  const freshRecovery = freshSnapshot.localRecoveryState || "ok";
+  if (freshRecovery !== "ok") {
+    host().updateDiscoveryWizardRuntime({
+      snapshot: freshSnapshot,
+      lastDownstreamDiagnosis: null,
+    });
+    setDiscoveryWizardMessage(
+      "The local chain is down. Click Fix setup to restore it.",
+      "warning",
+    );
+    host().showDiscoveryVerificationToast(result, { context, endpointUrl: url });
+    return renderDiscoverySetupWizard();
+  }
+
+  const hasLocalTunnel =
+    host().isLocalDashboardOrigin() && !!freshSnapshot.tunnelPublicUrl;
+  const isDiagnosableDownstreamFailure =
+    result.layer === "downstream" &&
+    [502, 503, 504].includes(Number(result.httpStatus) || 0);
+  const isLikelyTunnelFailure =
+    !isDiagnosableDownstreamFailure &&
+    hasLocalTunnel &&
+    (result.kind === "network_error" ||
+      /ngrok|tunnel|offline|err_ngrok_/i.test(
+        `${result.message || ""}\n${result.detail || ""}`,
+      ));
+  if (isDiagnosableDownstreamFailure || isLikelyTunnelFailure) {
+    const diagnosis = await host().diagnoseDownstreamChain(freshSnapshot);
+    host().updateDiscoveryWizardRuntime({
+      snapshot: freshSnapshot,
+      lastDownstreamDiagnosis: diagnosis,
+    });
+  } else {
+    host().updateDiscoveryWizardRuntime({
+      snapshot: freshSnapshot,
+      lastDownstreamDiagnosis: null,
+    });
+  }
+  host().showDiscoveryVerificationToast(result, { context, endpointUrl: url });
+  setDiscoveryWizardMessage(result.message, "warning");
+  return renderDiscoverySetupWizard();
+}
+
+async function handleDiscoveryWizardAction(actionId) {
+  let runtime = host().getDiscoveryWizardRuntime();
+  const shellContext = getDiscoveryWizardCurrentStepContext();
+  const shell = host().getDiscoveryWizardShellApi();
+  const snapshot = await host().refreshDiscoveryReadinessSnapshot({
+    force: true,
+    rerender: false,
+  });
+  host().updateDiscoveryWizardRuntime({ snapshot });
+  runtime = host().getDiscoveryWizardRuntime();
+
+  if (actionId === "wizard_back") {
+    const previousStep =
+      shellContext && shellContext.previousStep
+        ? shellContext.previousStep.id
+        : "";
+    if (previousStep) {
+      return moveDiscoveryWizardToStep(previousStep);
+    }
+    return null;
+  }
+
+  if (actionId === "wizard_next" || actionId === "wizard_finish_setup") {
+    const nextStep =
+      shellContext && shellContext.nextStep ? shellContext.nextStep.id : "";
+    if (actionId === "wizard_finish_setup" || !nextStep) {
+      if (shell && typeof shell.closeWizardShell === "function") {
+        shell.closeWizardShell("finish");
+      }
+      return null;
+    }
+    return moveDiscoveryWizardToStep(nextStep);
+  }
+
+  if (actionId === "wizard_run_discovery_now") {
+    const shellApi = host().getDiscoveryWizardShellApi();
+    if (shellApi && typeof shellApi.closeWizardShell === "function") {
+      shellApi.closeWizardShell("run-discovery");
+    }
+    return host().triggerDiscoveryRun();
+  }
+
+  if (actionId === "wizard_choose_flow_local") {
+    return handleDiscoveryWizardFlowSelection("local_agent");
+  }
+  if (actionId === "wizard_choose_flow_existing") {
+    return handleDiscoveryWizardFlowSelection("external_endpoint");
+  }
+  if (actionId === "wizard_choose_flow_no_webhook") {
+    return handleDiscoveryWizardFlowSelection("no_webhook");
+  }
+
+  if (actionId === "wizard_refresh_detect") {
+    setDiscoveryWizardMessage(
+      "Refreshed discovery signals from the current repo and browser state.",
+    );
+    return moveDiscoveryWizardToStep("detect", {
+      snapshot,
+      state: {
+        completedSteps: [
+          ...((runtime.state || {}).completedSteps || []),
+          "detect",
+        ],
+        lastProbeAt: new Date().toISOString(),
+      },
+    });
+  }
+  if (actionId === "wizard_fix_setup") {
+    const probes = host().getDiscoveryWizardProbesApi();
+    if (!probes || typeof probes.requestFixSetup !== "function") {
+      setDiscoveryWizardMessage(
+        "Fix setup is not available outside the local dev server.",
+      );
+      return renderDiscoverySetupWizard();
+    }
+    setDiscoveryWizardMessage(
+      "Running Fix setup — checking worker, tunnel, and relay...",
+    );
+    await renderDiscoverySetupWizard();
+    const result = await probes.requestFixSetup();
+    if (result && result.ok) {
+      if (result.needsAuth) {
+        const authMsg = (result.phases || []).find(
+          (p) => p.phase === "needs_cloudflare_auth",
+        );
+        setDiscoveryWizardMessage(
+          (authMsg && authMsg.message) ||
+            "Cloudflare auth needed. Run `npx wrangler login` in a terminal, then try again.",
+        );
+        return renderDiscoverySetupWizard();
+      }
+      const freshSnapshot = await host().refreshDiscoveryReadinessSnapshot({
+        force: true,
+        rerender: false,
+      });
+      host().updateDiscoveryWizardRuntime({ snapshot: freshSnapshot });
+      const verifiedMsg = (result.phases || []).find(
+        (p) => p.phase === "verified",
+      );
+      setDiscoveryWizardMessage(
+        (verifiedMsg && verifiedMsg.message) || "Setup restored successfully.",
+      );
+      return moveDiscoveryWizardToStep("verify", {
+        snapshot: freshSnapshot,
+      });
+    }
+    const failedPhase = ((result && result.phases) || []).slice(-1)[0];
+    setDiscoveryWizardMessage(
+      (failedPhase && failedPhase.message) ||
+        (result && result.message) ||
+        "Fix setup failed. Check the terminal for details.",
+    );
+    return renderDiscoverySetupWizard();
+  }
+  if (actionId === "wizard_show_manual_steps") {
+    setDiscoveryWizardMessage(
+      "Showing manual steps. Follow bootstrap → server → tunnel → relay → verify.",
+    );
+    return moveDiscoveryWizardToStep("bootstrap", {
+      snapshot,
+      state: {
+        flow: "local_agent",
+        completedSteps: [
+          ...((runtime.state || {}).completedSteps || []),
+          "detect",
+          "path_select",
+        ],
+      },
+    });
+  }
+  if (actionId === "wizard_review_options") {
+    setDiscoveryWizardMessage("");
+    return moveDiscoveryWizardToStep("path_select", {
+      snapshot,
+      state: {
+        completedSteps: [
+          ...((runtime.state || {}).completedSteps || []),
+          "detect",
+        ],
+      },
+    });
+  }
+  if (actionId === "wizard_use_recommended_flow") {
+    const recommendedFlow = getDiscoveryWizardRecommendedFlow(snapshot);
+    const targetStep = getDiscoveryWizardActionableStep(
+      recommendedFlow,
+      snapshot,
+    );
+    const priorSteps = host().getDiscoveryWizardStepsBefore(
+      recommendedFlow,
+      targetStep,
+    );
+    setDiscoveryWizardMessage(
+      `Continuing with the recommended path: ${getDiscoveryWizardStepTitle(recommendedFlow)}.`,
+    );
+    return moveDiscoveryWizardToStep(targetStep, {
+      snapshot,
+      state: {
+        flow: recommendedFlow,
+        completedSteps: [
+          ...((runtime.state || {}).completedSteps || []),
+          ...priorSteps,
+        ],
+      },
+    });
+  }
+  if (actionId === "wizard_complete_no_webhook") {
+    setDiscoveryWizardMessage(
+      "Saved the no-webhook path. Run discovery will stay disabled on purpose.",
+    );
+    return moveDiscoveryWizardToStep("ready", {
+      state: {
+        flow: "no_webhook",
+        completedSteps: [
+          ...((runtime.state || {}).completedSteps || []),
+          "detect",
+          "no_webhook",
+        ],
+        result: "none",
+      },
+    });
+  }
+  if (actionId === "wizard_complete_stub_only") {
+    if (runtime.snapshot.savedWebhookUrl) {
+      await host().recordDiscoveryEngineState(
+        runtime.snapshot.savedWebhookUrl,
+        host().DISCOVERY_ENGINE_STATE_STUB_ONLY,
+        "wizard_stub_only",
+      );
+    }
+    await host().refreshDiscoveryReadinessSnapshot({ force: true, rerender: false });
+    setDiscoveryWizardMessage(
+      "Stub-only wiring stays available, but it is not real discovery-ready.",
+      "warning",
+    );
+    return moveDiscoveryWizardToStep("ready", {
+      snapshot: host().getDiscoveryReadinessSnapshot(),
+      state: {
+        flow: "stub_only",
+        completedSteps: [
+          ...((runtime.state || {}).completedSteps || []),
+          "detect",
+          "stub_only",
+        ],
+        result: "stub_only",
+      },
+    });
+  }
+  if (actionId === "wizard_verify_existing_endpoint") {
+    const relayApi = host().getDiscoveryWizardRelayApi();
+    const endpointUrl = host().normalizeDiscoveryWebhookIdentity(
+      runtime.drafts.endpointUrl || runtime.snapshot.savedWebhookUrl || "",
+    );
+    if (
+      relayApi &&
+      typeof relayApi.buildExternalEndpointValidationResult === "function"
+    ) {
+      const validation = relayApi.buildExternalEndpointValidationResult(
+        endpointUrl,
+        runtime.snapshot,
+      );
+      host().updateDiscoveryWizardRuntime({ lastVerificationResult: validation });
+      if (!validation.ok && validation.kind === "invalid_endpoint") {
+        host().showDiscoveryVerificationToast(validation, { context: "test_webhook" });
+        setDiscoveryWizardMessage(validation.message, "warning");
+        return renderDiscoverySetupWizard();
+      }
+    }
+    return handleDiscoveryWizardVerification(endpointUrl, "test_webhook");
+  }
+
+  if (
+    actionId === "local_bootstrap_refresh" ||
+    actionId === "local_health_check" ||
+    actionId === "local_tunnel_detect" ||
+    actionId === "local_relay_apply" ||
+    actionId === "local_verify_end_to_end"
+  ) {
+    const localApi = host().getDiscoveryWizardLocalApi();
+    if (!localApi || typeof localApi.runLocalWizardAction !== "function") {
+      console.warn(
+        "[JobBored] discovery wizard local API missing; check discovery-wizard-local.js loaded",
+      );
+      host().showToast(
+        "Discovery local helpers failed to load. Try a hard refresh (cache clear).",
+        "error",
+      );
+      return null;
+    }
+    const result = await localApi.runLocalWizardAction(actionId, {
+      snapshot: runtime.snapshot,
+      state: runtime.state,
+      wizardState: runtime.state,
+      bootstrapState: runtime.localBootstrapState,
+    });
+    if (
+      actionId === "local_tunnel_detect" &&
+      result.ok &&
+      result.suggestedUrl
+    ) {
+      host().writeDiscoveryTransportSetupState({
+        tunnelPublicUrl: result.suggestedUrl,
+      });
+    }
+    host().updateDiscoveryWizardRuntime({
+      lastLocalResult: result,
+      localBootstrapState: result.bootstrap
+        ? { available: true, data: result.bootstrap }
+        : runtime.localBootstrapState,
+    });
+    setDiscoveryWizardMessage(
+      result.message || "Updated the local discovery path.",
+      result.ok ? "info" : "warning",
+    );
+    let nextStep = result.nextStepId || runtime.activeStepId;
+    let statePatch = result.wizardStatePatch || {};
+    // Per UX consultation: auto-advance on success for the gate steps
+    // (local_health_check + local_tunnel_detect). The previous design held
+    // the user on the step which felt like "stuck" — most users missed the
+    // step rail and didn't realize they could continue.
+    const detailOneLine =
+      result.detail && typeof result.detail === "string"
+        ? result.detail.replace(/\s+/g, " ").trim().slice(0, 220)
+        : "";
+    const toastText = [result.message || "", detailOneLine]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    host().showToast(
+      toastText || (result.ok ? "Done." : "Something went wrong."),
+      result.ok ? "success" : "warning",
+    );
+    if (result.ok && result.wizardStatePatch) {
+      await host().persistDiscoveryWizardState(statePatch);
+    }
+    await host().refreshDiscoveryReadinessSnapshot({ force: true, rerender: false });
+    const nextSnapshot = host().getDiscoveryReadinessSnapshot();
+    return moveDiscoveryWizardToStep(nextStep, {
+      snapshot: nextSnapshot,
+      state: statePatch,
+    });
+  }
+
+  if (
+    actionId === "relay_copy_deploy_command" ||
+    actionId === "relay_copy_agent_prompt" ||
+    actionId === "relay_apply_worker_url"
+  ) {
+    const relayApi = host().getDiscoveryWizardRelayApi();
+    if (!relayApi || typeof relayApi.runRelayWizardAction !== "function") {
+      return null;
+    }
+    const relayResult = await relayApi.runRelayWizardAction(actionId, {
+      snapshot: runtime.snapshot,
+      workerUrl: runtime.drafts.workerUrl || runtime.snapshot.savedWebhookUrl,
+      sheetId: host().getSettingsSheetIdValue() || "",
+      origin:
+        (window.location && typeof window.location.origin === "string"
+          ? window.location.origin
+          : "") || "*",
+    });
+    host().updateDiscoveryWizardRuntime({ lastRelayResult: relayResult });
+    if (relayResult && relayResult.text) {
+      host().copyTextToClipboard(relayResult.text);
+      host().showToast("Copied to clipboard", "success");
+      setDiscoveryWizardMessage("Copied relay setup text to the clipboard.");
+      return renderDiscoverySetupWizard();
+    }
+    if (actionId === "relay_apply_worker_url") {
+      if (!relayResult.ok) {
+        const result = {
+          ok: false,
+          kind: relayResult.kind || "invalid_endpoint",
+          message: relayResult.message || "Worker URL validation failed.",
+          detail: relayResult.detail || "",
+        };
+        host().updateDiscoveryWizardRuntime({ lastVerificationResult: result });
+        host().showDiscoveryVerificationToast(result, { context: "test_webhook" });
+        setDiscoveryWizardMessage(result.message, "warning");
+        return renderDiscoverySetupWizard();
+      }
+      host().mergeStoredConfigOverridePatch({ discoveryWebhookUrl: relayResult.url });
+      await host().recordDiscoveryEngineState(
+        relayResult.url,
+        host().DISCOVERY_ENGINE_STATE_UNVERIFIED,
+        "wizard_relay_apply",
+      );
+      await host().refreshDiscoveryReadinessSnapshot({ force: true, rerender: false });
+      setDiscoveryWizardMessage("Worker URL saved — ready to test.");
+      return moveDiscoveryWizardToStep("verify", {
+        snapshot: host().getDiscoveryReadinessSnapshot(),
+        state: {
+          completedSteps: [
+            ...((runtime.state || {}).completedSteps || []),
+            "relay_deploy",
+          ],
+        },
+      });
+    }
+    return null;
+  }
+
+  if (actionId === "wizard_verify_current_endpoint") {
+    host().updateDiscoveryWizardRuntime({ lastDownstreamDiagnosis: null });
+    const endpointUrl = host().normalizeDiscoveryWebhookIdentity(
+      host().getDiscoveryWebhookUrl() ||
+        runtime.drafts.workerUrl ||
+        runtime.drafts.endpointUrl ||
+        runtime.snapshot.savedWebhookUrl ||
+        "",
+    );
+    return handleDiscoveryWizardVerification(endpointUrl, "test_webhook");
+  }
+
+  if (actionId === "diag_rerun_diagnosis") {
+    const freshSnapshot = await host().refreshDiscoveryReadinessSnapshot({
+      force: true,
+      rerender: false,
+    });
+    const diagnosis = await host().diagnoseDownstreamChain(freshSnapshot);
+    host().updateDiscoveryWizardRuntime({
+      snapshot: freshSnapshot,
+      lastDownstreamDiagnosis: diagnosis,
+    });
+    setDiscoveryWizardMessage(
+      diagnosis.summary || "Diagnosis complete.",
+      diagnosis.primaryFix ? "warning" : "info",
+    );
+    return renderDiscoverySetupWizard();
+  }
+
+  if (actionId === "diag_fix_local_server") {
+    const freshSnapshot = await host().refreshDiscoveryReadinessSnapshot({
+      force: true,
+      rerender: false,
+    });
+    const diagnosis = await host().diagnoseDownstreamChain(freshSnapshot);
+    host().updateDiscoveryWizardRuntime({
+      snapshot: freshSnapshot,
+      lastDownstreamDiagnosis: diagnosis,
+    });
+    if (diagnosis.localServer.healthy) {
+      host().showToast("Server is running.", "success");
+      setDiscoveryWizardMessage(
+        "Server is healthy — try the test again.",
+        "info",
+      );
+    } else {
+      host().showToast("Server still down — go to the Server step for help.", "error");
+      setDiscoveryWizardMessage(
+        "Server not responding. Use the Server step to start it.",
+        "warning",
+      );
+      return moveDiscoveryWizardToStep("local_health");
+    }
+    return renderDiscoverySetupWizard();
+  }
+
+  if (actionId === "diag_fix_tunnel") {
+    return moveDiscoveryWizardToStep("tunnel");
+  }
+
+  if (actionId === "diag_fix_relay") {
+    return moveDiscoveryWizardToStep("relay_deploy");
+  }
+
+  if (actionId === "diag_fix_update_tunnel_and_relay") {
+    const diagnosis = runtime.lastDownstreamDiagnosis;
+    const liveUrl = diagnosis && diagnosis.liveNgrokUrl;
+    if (liveUrl && liveUrl !== "unknown") {
+      host().writeDiscoveryTransportSetupState({ tunnelPublicUrl: liveUrl });
+    }
+
+    // Auto-heal path: when running on localhost, the dev-server exposes
+    // /__proxy/fix-setup which redeploys the relay against the live ngrok
+    // URL in place. No copy-paste, no second terminal.
+    const isLocal =
+      typeof window !== "undefined" &&
+      window.location &&
+      (window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.hostname === "[::1]" ||
+        window.location.hostname === "::1");
+
+    if (isLocal) {
+      setDiscoveryWizardMessage(
+        "Auto-healing tunnel & relay… (no terminal needed)",
+        "info",
+      );
+      try {
+        const resp = await fetch("/__proxy/fix-setup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        const body = await resp.json().catch(() => ({}));
+        if (resp.ok && body && body.ok) {
+          host().showToast(
+            body.relayRedeployed
+              ? "Relay redeployed against live ngrok URL — re-testing…"
+              : "Local setup restored — re-testing…",
+            "success",
+          );
+          // Re-snapshot, clear stale diagnosis, then re-run verification.
+          await host().refreshDiscoveryReadinessSnapshot({
+            force: true,
+            rerender: false,
+          });
+          host().updateDiscoveryWizardRuntime({ lastDownstreamDiagnosis: null });
+          const endpointUrl = host().normalizeDiscoveryWebhookIdentity(
+            host().getDiscoveryWebhookUrl() ||
+              runtime.drafts.workerUrl ||
+              runtime.drafts.endpointUrl ||
+              runtime.snapshot.savedWebhookUrl ||
+              "",
+          );
+          return handleDiscoveryWizardVerification(
+            endpointUrl,
+            "test_webhook",
+          );
+        }
+        if (body && body.needsAuth) {
+          host().showToast(
+            "Cloudflare auth needed. Run `npx wrangler login` in a terminal, then click Re-check.",
+            "warning",
+            true,
+          );
+          return renderDiscoverySetupWizard();
+        }
+        // fall through to copy-command UX
+      } catch (e) {
+        console.warn("[JobBored] fix-setup proxy unavailable:", e);
+      }
+    }
+
+    // Fallback: hosted dashboard or proxy unavailable — show the copy command
+    // (preserves the original UX so we never regress non-local users).
+    const deployCommand =
+      diagnosis && diagnosis.redeployCommand ? diagnosis.redeployCommand : "";
+    if (liveUrl && liveUrl !== "unknown") {
+      host().showToast(
+        "Live ngrok URL saved. Copy the command, paste it into a terminal in the Job-Bored repo, press Enter, then Test again.",
+        "warning",
+        true,
+        host().createDiscoveryRelayCopyCommandToastAction(deployCommand),
+      );
+    }
+    return moveDiscoveryWizardToStep("relay_deploy");
+  }
+
+  if (actionId === "diag_fix_reverify") {
+    host().updateDiscoveryWizardRuntime({ lastDownstreamDiagnosis: null });
+    const endpointUrl = host().normalizeDiscoveryWebhookIdentity(
+      host().getDiscoveryWebhookUrl() ||
+        runtime.drafts.workerUrl ||
+        runtime.drafts.endpointUrl ||
+        runtime.snapshot.savedWebhookUrl ||
+        "",
+    );
+    return handleDiscoveryWizardVerification(endpointUrl, "test_webhook");
+  }
+
+  return null;
+}
+
   // ==== exposed for app.js delegating wrappers ====
-  ui.getDiscoveryWizardActionableStep = getDiscoveryWizardActionableStep;
   ui.getDiscoveryWizardRecommendedFlow = getDiscoveryWizardRecommendedFlow;
-  ui.getDiscoveryWizardStepTitle = getDiscoveryWizardStepTitle;
-  ui.buildDiscoveryWizardSteps = buildDiscoveryWizardSteps;
+  ui.renderDiscoverySetupWizard = renderDiscoverySetupWizard;
+  ui.openSetupWizard = openDiscoverySetupWizard;
+  ui.handleAction = handleDiscoveryWizardAction;
+  ui.setDiscoveryWizardMessage = setDiscoveryWizardMessage;
 })();

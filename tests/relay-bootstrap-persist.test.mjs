@@ -20,6 +20,10 @@ const deployScript = readFileSync(
   "utf8",
 );
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const discoveryWizardUi = readFileSync(
+  join(repoRoot, "discovery-wizard-ui.js"),
+  "utf8",
+);
 
 describe("scripts/deploy-cloudflare-relay.mjs — bootstrap persistence", () => {
   it("contains the persist fence comment", () => {
@@ -232,23 +236,26 @@ describe("app.js — autofillDiscoveryWebhookUrlFromBootstrap", () => {
   });
 });
 
-describe("app.js — keep-alive auto-install on autodetect ready", () => {
+// openDiscoverySetupWizard (with its autodetect-recover lane) was extracted to
+// discovery-wizard-ui.js; the keep-alive contract lives there now and reaches
+// installKeepAliveOnce through the ui.host bridge.
+describe("discovery-wizard-ui.js — keep-alive auto-install on autodetect ready", () => {
   it("autodetect-ready branch calls installKeepAliveOnce", () => {
-    const fenceStart = appJs.indexOf(
+    const fenceStart = discoveryWizardUi.indexOf(
       "[discovery-autodetect lane: silent recover]",
     );
-    const fenceEnd = appJs.indexOf(
+    const fenceEnd = discoveryWizardUi.indexOf(
       "[/discovery-autodetect lane]",
       fenceStart,
     );
     assert.ok(fenceStart !== -1 && fenceEnd > fenceStart, "lane fence pair");
-    const block = appJs.slice(fenceStart, fenceEnd);
+    const block = discoveryWizardUi.slice(fenceStart, fenceEnd);
     assert.ok(
-      block.includes("installKeepAliveOnce"),
+      block.includes("host().installKeepAliveOnce"),
       "ready-verdict branch must install keep-alive so the next ngrok rotation auto-heals",
     );
     assert.ok(
-      /typeof installKeepAliveOnce === ["']function["']/.test(block),
+      /typeof host\(\)\.installKeepAliveOnce === ["']function["']/.test(block),
       "must guard the call with a typeof check (graceful fallback)",
     );
   });
