@@ -10,6 +10,10 @@ const settingsModalJs = readFileSync(
   join(repoRoot, "settings-modal.js"),
   "utf8",
 );
+const materialsFeatureJs = readFileSync(
+  join(repoRoot, "materials-feature.js"),
+  "utf8",
+);
 const onboardingWizardJs = readFileSync(
   join(repoRoot, "onboarding-wizard.js"),
   "utf8",
@@ -203,7 +207,7 @@ describe("Onboarding reset preserves data", () => {
   });
 
   it("profileResetWizardBtn handler preserves data before showing wizard", () => {
-    const resetHandlerStart = appJs.indexOf(
+    const resetHandlerStart = materialsFeatureJs.indexOf(
       'profileResetWizardBtn.addEventListener("click"',
     );
     assert.ok(
@@ -212,11 +216,11 @@ describe("Onboarding reset preserves data", () => {
     );
 
     // Find the handler body
-    const handlerEnd = appJs.indexOf(
+    const handlerEnd = materialsFeatureJs.indexOf(
       "});",
       resetHandlerStart,
     );
-    const handlerBody = appJs.slice(resetHandlerStart, handlerEnd + 3);
+    const handlerBody = materialsFeatureJs.slice(resetHandlerStart, handlerEnd + 3);
 
     // Should call resetOnboardingCompletion
     assert.ok(
@@ -236,11 +240,11 @@ describe("Onboarding reset preserves data", () => {
   });
 
   it("confirm dialog text mentions data is preserved", () => {
-    const resetHandlerStart = appJs.indexOf(
+    const resetHandlerStart = materialsFeatureJs.indexOf(
       'profileResetWizardBtn.addEventListener("click"',
     );
-    const handlerEnd = appJs.indexOf("});", resetHandlerStart);
-    const handlerBody = appJs.slice(resetHandlerStart, handlerEnd + 3);
+    const handlerEnd = materialsFeatureJs.indexOf("});", resetHandlerStart);
+    const handlerBody = materialsFeatureJs.slice(resetHandlerStart, handlerEnd + 3);
 
     assert.ok(
       handlerBody.includes("Your resume and profile stay saved"),
