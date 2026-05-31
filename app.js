@@ -319,207 +319,58 @@ const GIS_INIT_STUCK_MS = configCore.GIS_INIT_STUCK_MS;
 const STARTER_PIPELINE_HEADERS = configCore.STARTER_PIPELINE_HEADERS;
 const STARTER_PIPELINE_HEADER_RANGE = configCore.STARTER_PIPELINE_HEADER_RANGE;
 
+// --- Discovery engine state (extracted to discovery-engine-state.js) ---
+
 function getSettingsFieldValue(id) {
-  const el = document.getElementById(id);
-  return el ? String(el.value || "") : "";
+  return window.JobBoredDiscovery.engineState.getSettingsFieldValue(id);
 }
 
 function getSettingsSheetIdValue() {
-  const el = document.getElementById("settingsSheetId");
-  const raw = el
-    ? String(el.value || "")
-    : String((window.COMMAND_CENTER_CONFIG || {}).sheetId || "");
-  return parseGoogleSheetId(raw.trim());
+  return window.JobBoredDiscovery.engineState.getSettingsSheetIdValue();
 }
 
 function getSettingsOAuthClientIdValue() {
-  const el = document.getElementById("settingsOAuthClientId");
-  const raw = el
-    ? String(el.value || "")
-    : String((window.COMMAND_CENTER_CONFIG || {}).oauthClientId || "");
-  const id = raw.trim();
-  if (!id || id === "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com") {
-    return "";
-  }
-  return id;
+  return window.JobBoredDiscovery.engineState.getSettingsOAuthClientIdValue();
 }
 
 function hasUnsavedOAuthClientIdChange(candidateId) {
-  const nextId =
-    candidateId != null
-      ? String(candidateId || "").trim()
-      : getSettingsOAuthClientIdValue();
-  const activeId = String(getOAuthClientId() || "").trim();
-  return !!nextId && nextId !== activeId;
-}
-
-function getDiscoveryEngineStateStore() {
-  const UC = window.CommandCenterUserContent;
-  return UC &&
-    typeof UC.getDiscoveryEngineState === "function" &&
-    typeof UC.saveDiscoveryEngineState === "function"
-    ? UC
-    : null;
-}
-
-function normalizeDiscoveryWebhookIdentity(raw) {
-  const s = raw != null ? String(raw).trim() : "";
-  if (!s) return "";
-  try {
-    const url = new URL(s);
-    url.hash = "";
-    if (url.pathname !== "/") {
-      url.pathname = url.pathname.replace(/\/+$/, "") || "/";
-    }
-    return url.toString();
-  } catch (_) {
-    return s.replace(/\/+$/, "");
-  }
-}
-
-function getDiscoveryWebhookUrlForSettingsPreview() {
-  const field = document.getElementById("settingsDiscoveryWebhookUrl");
-  if (field) {
-    return String(field.value || "").trim();
-  }
-  return getDiscoveryWebhookUrl();
-}
-
-function getManagedAppsScriptWebhookIdentity() {
-  if (
-    !configCore.appsScriptDeployStateCache ||
-    typeof configCore.appsScriptDeployStateCache.webAppUrl !== "string"
-  ) {
-    return "";
-  }
-  return normalizeDiscoveryWebhookIdentity(
-    configCore.appsScriptDeployStateCache.webAppUrl,
+  return window.JobBoredDiscovery.engineState.hasUnsavedOAuthClientIdChange(
+    candidateId,
   );
 }
 
+function getDiscoveryEngineStateStore() {
+  return window.JobBoredDiscovery.engineState.getDiscoveryEngineStateStore();
+}
+
+function normalizeDiscoveryWebhookIdentity(raw) {
+  return window.JobBoredDiscovery.engineState.normalizeDiscoveryWebhookIdentity(
+    raw,
+  );
+}
+
+function getDiscoveryWebhookUrlForSettingsPreview() {
+  return window.JobBoredDiscovery.engineState.getDiscoveryWebhookUrlForSettingsPreview();
+}
+
+function getManagedAppsScriptWebhookIdentity() {
+  return window.JobBoredDiscovery.engineState.getManagedAppsScriptWebhookIdentity();
+}
+
 function getSavedDiscoveryEngineStateForUrl(rawUrl) {
-  const target = normalizeDiscoveryWebhookIdentity(rawUrl);
-  if (!target) return null;
-  const saved =
-    configCore.discoveryEngineStateCache &&
-    typeof configCore.discoveryEngineStateCache === "object" &&
-    typeof configCore.discoveryEngineStateCache.state === "string"
-      ? configCore.discoveryEngineStateCache
-      : null;
-  if (!saved) return null;
-  const savedUrl = normalizeDiscoveryWebhookIdentity(saved.webhookUrl);
-  if (!savedUrl || savedUrl !== target) return null;
-  return saved;
+  return window.JobBoredDiscovery.engineState.getSavedDiscoveryEngineStateForUrl(
+    rawUrl,
+  );
 }
 
 function getEffectiveDiscoveryEngineStatus(rawUrl) {
-  const hook = normalizeDiscoveryWebhookIdentity(rawUrl);
-  if (!hook) {
-    return {
-      state: DISCOVERY_ENGINE_STATE_NONE,
-      tone: "info",
-      label: "No discovery webhook configured",
-      detail:
-        "Pipeline still works without a webhook. Add a real discovery endpoint only if you want the Run discovery button.",
-    };
-  }
-
-  const saved = getSavedDiscoveryEngineStateForUrl(hook);
-  if (saved && saved.state === DISCOVERY_ENGINE_STATE_CONNECTED) {
-    return {
-      state: DISCOVERY_ENGINE_STATE_CONNECTED,
-      tone: "success",
-      label: "Discovery endpoint connected",
-      detail:
-        "Run discovery will POST to your endpoint so your automation can add or update Pipeline rows.",
-    };
-  }
-
-  if (saved && saved.state === DISCOVERY_ENGINE_STATE_STUB_ONLY) {
-    return {
-      state: DISCOVERY_ENGINE_STATE_STUB_ONLY,
-      tone: "warning",
-      label: "Webhook stub connected",
-      detail:
-        "This endpoint only verifies wiring or appends a [CC test] row. It does not add real job leads.",
-    };
-  }
-
-  const managedAppsScriptUrl = getManagedAppsScriptWebhookIdentity();
-  if (managedAppsScriptUrl && managedAppsScriptUrl === hook) {
-    return {
-      state: DISCOVERY_ENGINE_STATE_STUB_ONLY,
-      tone: "warning",
-      label: "Managed Apps Script stub connected",
-      detail:
-        "The dashboard-deployed Apps Script endpoint is a stub for webhook verification only. Connect a real discovery engine before using Run discovery.",
-    };
-  }
-
-  return {
-    state: DISCOVERY_ENGINE_STATE_UNVERIFIED,
-    tone: "info",
-    label: "Custom discovery endpoint configured",
-    detail:
-      "This app can POST to the URL, but it cannot prove the endpoint writes Pipeline rows yet. Make sure it is a real discovery engine, not the default stub.",
-  };
+  return window.JobBoredDiscovery.engineState.getEffectiveDiscoveryEngineStatus(
+    rawUrl,
+  );
 }
 
 function buildDiscoveryStatusActions(status) {
-  switch (status.state) {
-    case DISCOVERY_ENGINE_STATE_STUB_ONLY:
-      return [
-        {
-          label: "Open real discovery paths",
-          href: "docs/DISCOVERY-PATHS.md",
-          primary: true,
-        },
-        {
-          label: "Open agent discovery guide",
-          href: "integrations/openclaw-command-center/README.md",
-        },
-        {
-          label: "Apps Script stub walkthrough",
-          href: "integrations/apps-script/WALKTHROUGH.md",
-        },
-      ];
-    case DISCOVERY_ENGINE_STATE_UNVERIFIED:
-      return [
-        {
-          label: "Open AGENT_CONTRACT",
-          href: "AGENT_CONTRACT.md",
-          primary: true,
-        },
-        {
-          label: "Open discovery paths",
-          href: "docs/DISCOVERY-PATHS.md",
-        },
-      ];
-    case DISCOVERY_ENGINE_STATE_CONNECTED:
-      return [
-        {
-          label: "Open AGENT_CONTRACT",
-          href: "AGENT_CONTRACT.md",
-          primary: true,
-        },
-        {
-          label: "Open discovery paths",
-          href: "docs/DISCOVERY-PATHS.md",
-        },
-      ];
-    default:
-      return [
-        {
-          label: "Open discovery paths",
-          href: "docs/DISCOVERY-PATHS.md",
-          primary: true,
-        },
-        {
-          label: "Open agent discovery guide",
-          href: "integrations/openclaw-command-center/README.md",
-        },
-      ];
-  }
+  return window.JobBoredDiscovery.engineState.buildDiscoveryStatusActions(status);
 }
 
 function refreshDiscoveryUiState() {
@@ -541,67 +392,30 @@ function refreshDiscoveryUiState() {
 }
 
 async function saveDiscoveryEngineStatePatch(patch) {
-  const store = getDiscoveryEngineStateStore();
-  const next =
-    patch && typeof patch === "object"
-      ? patch
-      : { state: DISCOVERY_ENGINE_STATE_NONE };
-  if (!store) {
-    configCore.discoveryEngineStateCache = next;
-    refreshDiscoveryUiState();
-    void refreshDiscoveryReadinessSnapshot({ force: true });
-    return next;
-  }
-  try {
-    configCore.discoveryEngineStateCache = await store.saveDiscoveryEngineState(next);
-  } catch (err) {
-    console.warn("[JobBored] discovery engine state:", err);
-    configCore.discoveryEngineStateCache = next;
-  }
-  refreshDiscoveryUiState();
-  void refreshDiscoveryReadinessSnapshot({ force: true });
-  return configCore.discoveryEngineStateCache;
+  return window.JobBoredDiscovery.engineState.saveDiscoveryEngineStatePatch(
+    patch,
+  );
 }
 
 async function recordDiscoveryEngineState(rawUrl, state, source) {
-  const normalizedUrl = normalizeDiscoveryWebhookIdentity(rawUrl);
-  if (!normalizedUrl) {
-    return saveDiscoveryEngineStatePatch({
-      state: DISCOVERY_ENGINE_STATE_NONE,
-      webhookUrl: "",
-      source: source || "",
-      lastCheckedAt: new Date().toISOString(),
-    });
-  }
-  return saveDiscoveryEngineStatePatch({
+  return window.JobBoredDiscovery.engineState.recordDiscoveryEngineState(
+    rawUrl,
     state,
-    webhookUrl: normalizedUrl,
-    source: source || "",
-    lastCheckedAt: new Date().toISOString(),
-  });
+    source,
+  );
 }
 
 async function preloadDiscoveryUiState() {
-  const stores = {
-    appsScript: getAppsScriptDeployStateStore(),
-    discovery: getDiscoveryEngineStateStore(),
-  };
-  if (stores.appsScript) {
+  const appsScriptStore = getAppsScriptDeployStateStore();
+  if (appsScriptStore) {
     try {
       configCore.appsScriptDeployStateCache =
-        await stores.appsScript.getAppsScriptDeployState();
+        await appsScriptStore.getAppsScriptDeployState();
     } catch (err) {
       console.warn("[JobBored] Apps Script deploy state preload:", err);
     }
   }
-  if (stores.discovery) {
-    try {
-      configCore.discoveryEngineStateCache =
-        await stores.discovery.getDiscoveryEngineState();
-    } catch (err) {
-      console.warn("[JobBored] discovery engine state preload:", err);
-    }
-  }
+  await window.JobBoredDiscovery.engineState.preloadDiscoveryEngineState();
   await refreshDiscoveryReadinessSnapshot({ force: true, rerender: false });
   refreshDiscoveryUiState();
 }
@@ -1496,12 +1310,9 @@ function isIngestSheetAuthFailure(data) {
 }
 
 function getDiscoveryEngineStateFromVerificationResult(result) {
-  if (!result || result.ok !== true) return "";
-  if (result.kind === "stub_only") return DISCOVERY_ENGINE_STATE_STUB_ONLY;
-  if (result.kind === "accepted_async")
-    return DISCOVERY_ENGINE_STATE_UNVERIFIED;
-  if (result.kind === "connected_ok") return DISCOVERY_ENGINE_STATE_CONNECTED;
-  return result.engineState || DISCOVERY_ENGINE_STATE_UNVERIFIED;
+  return window.JobBoredDiscovery.engineState.getDiscoveryEngineStateFromVerificationResult(
+    result,
+  );
 }
 
 function showDiscoveryVerificationToast(result, options = {}) {
@@ -4693,6 +4504,18 @@ window.JobBoredDiscovery = Object.assign(window.JobBoredDiscovery || {}, {
   },
   buildPayload: buildDiscoveryWebhookPayload,
 });
+
+// Discovery engine state bridge. discovery-engine-state.js loads BEFORE app.js
+// and reads host lazily for settings getters and persistence side effects.
+window.JobBoredDiscovery = window.JobBoredDiscovery || {};
+window.JobBoredDiscovery.engineState = window.JobBoredDiscovery.engineState || {};
+window.JobBoredDiscovery.engineState.host = {
+  parseGoogleSheetId,
+  getOAuthClientId,
+  getDiscoveryWebhookUrl,
+  refreshDiscoveryUiState,
+  refreshDiscoveryReadinessSnapshot,
+};
 
 // Config overrides bridge. config-overrides.js loads BEFORE app.js and reads
 // host lazily for bootstrap hydration helpers that depend on later app.js defs.
