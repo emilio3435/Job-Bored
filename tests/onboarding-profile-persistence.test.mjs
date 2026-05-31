@@ -6,6 +6,10 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const settingsModalJs = readFileSync(
+  join(repoRoot, "settings-modal.js"),
+  "utf8",
+);
 const onboardingWizardJs = readFileSync(
   join(repoRoot, "onboarding-wizard.js"),
   "utf8",
@@ -28,9 +32,14 @@ describe("Clear settings boundary", () => {
     // returning user starts from a clean slate. Tests previously asserted
     // the opposite; the boundary moved deliberately when greenfield reset
     // semantics were locked in.
-    const clearStart = appJs.indexOf("function performSettingsClearOverrides");
-    const clearEnd = appJs.indexOf("function initCommandCenterSettings", clearStart);
-    const clearBody = appJs.slice(clearStart, clearEnd);
+    const clearStart = settingsModalJs.indexOf(
+      "function performSettingsClearOverrides",
+    );
+    const clearEnd = settingsModalJs.indexOf(
+      "function initCommandCenterSettings",
+      clearStart,
+    );
+    const clearBody = settingsModalJs.slice(clearStart, clearEnd);
 
     assert.ok(
       clearBody.includes("localStorage.removeItem"),
