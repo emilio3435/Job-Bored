@@ -6,6 +6,10 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const onboardingWizardJs = readFileSync(
+  join(repoRoot, "onboarding-wizard.js"),
+  "utf8",
+);
 const indexHtml = readFileSync(join(repoRoot, "index.html"), "utf8");
 const styleCss = readFileSync(join(repoRoot, "style.css"), "utf8");
 const userContentStoreJs = readFileSync(
@@ -78,19 +82,26 @@ describe("Onboarding mascot poses", () => {
       "onboarding wizard should frame the mascot asset",
     );
     assert.match(
-      appJs,
-      /const ONBOARDING_MASCOT_POSES = \{/,
-      "app should map onboarding steps to mascot poses",
+      indexHtml,
+      /onboarding-wizard\.js/,
+      "index.html should load onboarding-wizard.js before app.js",
     );
     assert.match(
-      appJs,
+      onboardingWizardJs,
+      /const ONBOARDING_MASCOT_POSES = \{/,
+      "onboarding module should map onboarding steps to mascot poses",
+    );
+    assert.match(
+      onboardingWizardJs,
       /updateOnboardingMascotPose\(step\)/,
       "setOnboardingStep should update the mascot pose",
     );
 
     for (const posePath of posePaths) {
       assert.ok(
-        appJs.includes(posePath) || indexHtml.includes(posePath),
+        onboardingWizardJs.includes(posePath) ||
+          appJs.includes(posePath) ||
+          indexHtml.includes(posePath),
         `${posePath} should be referenced by onboarding`,
       );
       assert.ok(
@@ -358,9 +369,14 @@ describe("Profile source minimums for generation", () => {
 
 describe("Resume capture validation", () => {
   it("onboarding step 2 requires resume before advancing", () => {
-    const fnStart = appJs.indexOf("function updateOnboardingContinue2Enabled");
-    const fnEnd = appJs.indexOf("}", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd + 1);
+    const fnStart = onboardingWizardJs.indexOf(
+      "function updateOnboardingContinue2Enabled",
+    );
+    const fnEnd = onboardingWizardJs.indexOf(
+      "function updateOnboardingNext3Enabled",
+      fnStart,
+    );
+    const fnBody = onboardingWizardJs.slice(fnStart, fnEnd);
 
     assert.ok(
       fnBody.includes("btn.disabled = !hasDraft"),
@@ -374,9 +390,11 @@ describe("Resume capture validation", () => {
   });
 
   it("onboarding step 3 requires paste or draft before advancing", () => {
-    const fnStart = appJs.indexOf("function updateOnboardingNext3Enabled");
-    const fnEnd = appJs.indexOf("}", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd + 1);
+    const fnStart = onboardingWizardJs.indexOf(
+      "function updateOnboardingNext3Enabled",
+    );
+    const fnEnd = onboardingWizardJs.indexOf("async function checkOnboardingGate", fnStart);
+    const fnBody = onboardingWizardJs.slice(fnStart, fnEnd);
 
     assert.ok(
       fnBody.includes("onboardingResumeDraft") &&
@@ -391,9 +409,11 @@ describe("Resume capture validation", () => {
   });
 
   it("ensureResumeDraftFromPasteStep shows error for empty paste", () => {
-    const fnStart = appJs.indexOf("function ensureResumeDraftFromPasteStep");
-    const fnEnd = appJs.indexOf("function initOnboardingWizard", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = onboardingWizardJs.indexOf(
+      "function ensureResumeDraftFromPasteStep",
+    );
+    const fnEnd = onboardingWizardJs.indexOf("function initOnboardingWizard", fnStart);
+    const fnBody = onboardingWizardJs.slice(fnStart, fnEnd);
 
     assert.ok(
       fnBody.includes('status.textContent = "Paste your resume to continue."'),
@@ -409,9 +429,12 @@ describe("Resume capture validation", () => {
     // Verify step navigation requires valid input
     // The Continue2 button handler validates resume before advancing
     // We need to search within initOnboardingWizard function to find the correct handler
-    const initStart = appJs.indexOf("function initOnboardingWizard");
-    const initEnd = appJs.indexOf("function initResumeMaterialsFeature");
-    const initBody = appJs.slice(initStart, initEnd);
+    const initStart = onboardingWizardJs.indexOf("function initOnboardingWizard");
+    const initEnd = onboardingWizardJs.indexOf(
+      "\n  Object.assign(onboarding",
+      initStart,
+    );
+    const initBody = onboardingWizardJs.slice(initStart, initEnd);
 
     const continue2Start = initBody.indexOf('getElementById("onboardingContinue2")');
     const clickHandlerStart = initBody.indexOf("?.addEventListener", continue2Start);
@@ -433,9 +456,11 @@ describe("Resume capture validation", () => {
 
 describe("Onboarding gate behavior", () => {
   it("checkOnboardingGate shows wizard only when onboarding is incomplete", () => {
-    const fnStart = appJs.indexOf("async function checkOnboardingGate");
-    const fnEnd = appJs.indexOf("function ensureResumeDraftFromPasteStep");
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = onboardingWizardJs.indexOf("async function checkOnboardingGate");
+    const fnEnd = onboardingWizardJs.indexOf(
+      "function ensureResumeDraftFromPasteStep",
+    );
+    const fnBody = onboardingWizardJs.slice(fnStart, fnEnd);
 
     assert.ok(
       fnBody.includes("migrateOnboardingState"),
