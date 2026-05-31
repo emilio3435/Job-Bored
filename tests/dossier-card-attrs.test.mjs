@@ -347,14 +347,12 @@ describe("dossier card attrs", () => {
    the app treats it as "nothing locked", preserving back-compat.
    ============================================================ */
 function sliceParsePipelineCSV() {
-  const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
-  // The two notes-sanitizer helpers are parsePipelineCSV's only
-  // module-level dependencies and sit immediately above it in source.
-  const start = appJs.indexOf("function isDiscoveryAutomationNotesString");
+  const sheetsReadJs = readFileSync(join(repoRoot, "sheets-read-load.js"), "utf8");
+  const start = sheetsReadJs.indexOf("function isDiscoveryAutomationNotesString");
   assert.ok(start >= 0, "isDiscoveryAutomationNotesString must exist");
-  const end = appJs.indexOf("async function loadAllData", start);
+  const end = sheetsReadJs.indexOf("async function loadAllData", start);
   assert.ok(end > start, "loadAllData must follow parsePipelineCSV in source order");
-  return appJs.slice(start, end);
+  return sheetsReadJs.slice(start, end);
 }
 
 function runParsePipelineCSV(rows) {

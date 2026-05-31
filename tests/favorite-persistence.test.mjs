@@ -38,6 +38,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
 const sheetsWriteJs = readFileSync(join(repoRoot, "sheets-writeback.js"), "utf8");
+const sheetsReadJs = readFileSync(join(repoRoot, "sheets-read-load.js"), "utf8");
 
 function sliceToggleFavorite() {
   const start = sheetsWriteJs.indexOf("async function toggleFavorite");
@@ -50,7 +51,7 @@ function sliceToggleFavorite() {
 describe("favorite toggle persists across refresh", () => {
   it("declares a versioned localStorage key for pending favorites", () => {
     assert.match(
-      sheetsWriteJs,
+      sheetsReadJs,
       /const\s+PENDING_FAVORITES_STORAGE_KEY\s*=\s*"jobbored\.favorites\.pending"/,
       "PENDING_FAVORITES_STORAGE_KEY must exist under a clearly-namespaced " +
         "non-secret-shaped localStorage path",
@@ -59,14 +60,14 @@ describe("favorite toggle persists across refresh", () => {
 
   it("exposes a stable cache-key derivation from job link with a synthetic fallback", () => {
     assert.match(
-      sheetsWriteJs,
+      sheetsReadJs,
       /function\s+favoriteCacheKeyForJob\s*\(/,
       "favoriteCacheKeyForJob must exist",
     );
     // job.link is the primary key (stable across sheet row reordering); the
     // synthetic key keeps link-less manually-added rows persistable.
-    assert.match(sheetsWriteJs, /const\s+link\s*=\s*job\.link[\s\S]*?return\s+link/);
-    assert.match(sheetsWriteJs, /return\s+`synthetic::\$\{company\}::\$\{title\}`/);
+    assert.match(sheetsReadJs, /const\s+link\s*=\s*job\.link[\s\S]*?return\s+link/);
+    assert.match(sheetsReadJs, /return\s+`synthetic::\$\{company\}::\$\{title\}`/);
   });
 
   it("layers cached favorites into freshly-parsed pipelineData after CSV parse", () => {
@@ -76,15 +77,13 @@ describe("favorite toggle persists across refresh", () => {
       "applyFavoriteCache wrapper must exist in app.js",
     );
     assert.match(
-      sheetsWriteJs,
+      sheetsReadJs,
       /function\s+applyFavoriteCache\s*\(/,
-      "applyFavoriteCache implementation must exist in sheets-writeback.js",
+      "applyFavoriteCache implementation must exist in sheets-read-load.js",
     );
-    // The function is wired into the load path right after the existing
-    // enrichment cache hydration so the user's favorites land on first paint.
     assert.match(
-      appJs,
-      /pipelineData = parsePipelineCSV\(pipelineRows\);\s*\n\s*applyEnrichmentCache\(pipelineData\);\s*\n\s*applyFavoriteCache\(pipelineData\);/,
+      sheetsReadJs,
+      /parsePipelineCSV\(pipelineRows\);\s*\n\s*h\.applyEnrichmentCache\(pipelineData\);\s*\n\s*applyFavoriteCache\(pipelineData\);/,
     );
   });
 

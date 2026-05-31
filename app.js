@@ -7897,6 +7897,42 @@ window.JobBoredApp.core.host = {
   hideSettingsClearConfirmBar() {
     return hideSettingsClearConfirmBar();
   },
+  getOAuthClientId() {
+    return getOAuthClientId();
+  },
+  recordSheetAccessError(...args) {
+    return recordSheetAccessError(...args);
+  },
+  getDataLoadFailed() {
+    return dataLoadFailed;
+  },
+  setDataLoadFailed(value) {
+    dataLoadFailed = value;
+  },
+  getDashboardDataHydrated() {
+    return dashboardDataHydrated;
+  },
+  setDashboardDataHydrated(value) {
+    dashboardDataHydrated = value;
+  },
+  getInitialSheetAccessResolved() {
+    return initialSheetAccessResolved;
+  },
+  setInitialSheetAccessResolved(value) {
+    initialSheetAccessResolved = value;
+  },
+  updateLastRefresh() {
+    return updateLastRefresh();
+  },
+  maybeAutoOpenExpiredReviewModal(...args) {
+    return maybeAutoOpenExpiredReviewModal(...args);
+  },
+  revealDashboardShell() {
+    return revealDashboardShell();
+  },
+  runPostAccessBootstrapOnce() {
+    return runPostAccessBootstrapOnce();
+  },
 };
 
 Object.assign(window.JobBoredApp.core, {
@@ -8991,469 +9027,6 @@ function initDiscoverySetupGuide() {
   );
 }
 
-
-// ============================================
-// LIGHTWEIGHT CSV PARSER
-// ============================================
-
-function parseCSV(text) {
-  const rows = [];
-  let current = "";
-  let inQuotes = false;
-  let row = [];
-  let fieldStart = true;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    const next = text[i + 1];
-
-    if (fieldStart && ch === '"') {
-      inQuotes = true;
-      fieldStart = false;
-      continue;
-    }
-
-    fieldStart = false;
-
-    if (inQuotes) {
-      if (ch === '"') {
-        if (next === '"') {
-          current += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        current += ch;
-      }
-    } else {
-      if (ch === ",") {
-        row.push(current.trim());
-        current = "";
-        fieldStart = true;
-      } else if (ch === "\n" || (ch === "\r" && next === "\n")) {
-        row.push(current.trim());
-        if (row.some((cell) => cell !== "")) {
-          rows.push(row);
-        }
-        row = [];
-        current = "";
-        fieldStart = true;
-        if (ch === "\r") i++;
-      } else if (ch === "\r") {
-        row.push(current.trim());
-        if (row.some((cell) => cell !== "")) {
-          rows.push(row);
-        }
-        row = [];
-        current = "";
-        fieldStart = true;
-      } else {
-        current += ch;
-      }
-    }
-  }
-
-  row.push(current.trim());
-  if (row.some((cell) => cell !== "")) {
-    rows.push(row);
-  }
-
-  return rows;
-}
-
-// ============================================
-// DATA FETCHING — JSONP (bypasses CORS/iframe restrictions)
-// ============================================
-
-let _jsonpCounter = 0;
-
-function fetchSheetJSONP(sheetName) {
-  return new Promise((resolve, reject) => {
-    const callbackName = `__commandCenter_cb_${++_jsonpCounter}`;
-    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json;responseHandler:${callbackName}&sheet=${encodeURIComponent(sheetName)}`;
-
-    console.log(`[JobBored] JSONP fetch: ${sheetName}`);
-
-    const timeout = setTimeout(() => {
-      cleanup();
-      console.error(`[JobBored] JSONP timeout for ${sheetName}`);
-      reject(new Error(`Timeout fetching ${sheetName}`));
-    }, 15000);
-
-    function cleanup() {
-      clearTimeout(timeout);
-      delete window[callbackName];
-      const el = document.getElementById(`jsonp-${callbackName}`);
-      if (el) el.remove();
-    }
-
-    window[callbackName] = function (response) {
-      cleanup();
-      if (!response || !response.table) {
-        reject(new Error(`Invalid response for ${sheetName}`));
-        return;
-      }
-      console.log(
-        `[JobBored] ${sheetName} loaded via JSONP (${response.table.rows ? response.table.rows.length : 0} rows)`,
-      );
-      resolve(response.table);
-    };
-
-    const script = document.createElement("script");
-    script.id = `jsonp-${callbackName}`;
-    script.src = url;
-    script.onerror = () => {
-      cleanup();
-      console.error(`[JobBored] JSONP script error for ${sheetName}`);
-      reject(new Error(`Script load failed for ${sheetName}`));
-    };
-    document.head.appendChild(script);
-  });
-}
-
-function getCellValue(cell) {
-  if (!cell) return null;
-  if (cell.v === null || cell.v === undefined) return null;
-  return cell.v;
-}
-
-function getCellFormatted(cell) {
-  if (!cell) return null;
-  if (cell.f) return cell.f;
-  return getCellValue(cell);
-}
-
-function parseGvizDate(val) {
-  if (!val) return null;
-  if (typeof val === "string" && val.startsWith("Date(")) {
-    const parts = val.match(/Date\((\d+),(\d+),(\d+)\)/);
-    if (parts)
-      return new Date(
-        parseInt(parts[1]),
-        parseInt(parts[2]),
-        parseInt(parts[3]),
-      );
-  }
-  const d = new Date(val);
-  return isNaN(d.getTime()) ? null : d;
-}
-
-/**
- * Read sheet values with OAuth (works for private sheets — no publish step).
- * Returns null on hard failure; [] if the tab exists but has no cells.
- */
-async function fetchSheetViaSheetsAPI(sheetName, isRetry) {
-  if (!accessToken || !SHEET_ID) return null;
-  const name = String(sheetName);
-  const needsQuote = /[^A-Za-z0-9_]/.test(name) || /^\d/.test(name);
-  const a1 = needsQuote ? `'${name.replace(/'/g, "''")}'!A:ZZ` : `${name}!A:ZZ`;
-  const encRange = encodeURIComponent(a1);
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(SHEET_ID)}/values/${encRange}`;
-  const resp = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (resp.status === 401) {
-    if (!isRetry) {
-      const ok = await refreshAccessTokenSilently();
-      if (ok) return fetchSheetViaSheetsAPI(sheetName, true);
-    }
-    return null;
-  }
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    console.error(
-      "[JobBored] Sheets API read failed:",
-      resp.status,
-      err.error || err,
-    );
-    // Record the raw Google API error for SetupDoctor to classify
-    // (insufficient_scope, origin_mismatch, sheet 403/404, etc.).
-    const msg =
-      (err.error && err.error.message) ||
-      `Sheets API ${resp.status} on ${name}`;
-    recordSheetAccessError({ message: msg, status: resp.status });
-    return null;
-  }
-  const data = await resp.json();
-  return data.values != null ? data.values : [];
-}
-
-async function fetchSheetCSV(sheetName) {
-  // 1) Signed in: Google Sheets API (private sheet in your Drive — no "publish to web")
-  if (accessToken) {
-    try {
-      const apiRows = await fetchSheetViaSheetsAPI(sheetName);
-      if (apiRows !== null) {
-        return apiRows;
-      }
-    } catch (e) {
-      console.warn("[JobBored] Sheets API read:", e);
-    }
-  }
-
-  // 2) Public / published: JSONP (works inside iframes, no CORS issues)
-  try {
-    const table = await fetchSheetJSONP(sheetName);
-    // Convert gviz table to CSV-like rows array for compatibility with existing parsers
-    const headers = table.cols.map((c) => c.label || c.id);
-    const rows = [headers];
-    for (const row of table.rows || []) {
-      const cells = [];
-      for (let i = 0; i < headers.length; i++) {
-        const cell = row.c ? row.c[i] : null;
-        if (!cell || cell.v === null || cell.v === undefined) {
-          cells.push("");
-        } else if (typeof cell.v === "string" && cell.v.startsWith("Date(")) {
-          const d = parseGvizDate(cell.v);
-          cells.push(d ? d.toISOString().split("T")[0] : cell.f || "");
-        } else if (cell.f) {
-          cells.push(cell.f);
-        } else {
-          cells.push(String(cell.v));
-        }
-      }
-      rows.push(cells);
-    }
-    return rows;
-  } catch (err) {
-    console.error(`[JobBored] JSONP failed for ${sheetName}:`, err.message);
-  }
-
-  // Fallback: try fetch CSV (works when not in iframe)
-  const csvUrls = [
-    `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`,
-    `https://docs.google.com/spreadsheets/d/${SHEET_ID}/pub?gid=0&single=true&output=csv`,
-  ];
-
-  for (const url of csvUrls) {
-    try {
-      const resp = await fetch(url);
-      if (!resp.ok) continue;
-      const text = await resp.text();
-      if (!text || text.length < 10) continue;
-      if (text.trim().startsWith("<!") || text.trim().startsWith("<html"))
-        continue;
-      console.log(`[JobBored] ${sheetName} loaded via CSV fallback`);
-      return parseCSV(text);
-    } catch (e) {
-      continue;
-    }
-  }
-
-  console.error(`[JobBored] All fetch attempts failed for ${sheetName}`);
-  return null;
-}
-
-/**
- * Some discovery/LLM automations write run provenance into Pipeline column O (Notes).
- * That is not user notes — hide it in the UI; saving real notes still overwrites the cell.
- */
-function isDiscoveryAutomationNotesString(text) {
-  const t = String(text || "").trim();
-  if (!t) return false;
-  if (/^Discovered\s+via\s+variationKey\b/i.test(t)) return true;
-  if (
-    /^Discovered\s+via\s+/i.test(t) &&
-    /\bvariationKey\b/i.test(t) &&
-    /\b(direct-source|direct\s+source)\b/i.test(t)
-  ) {
-    return true;
-  }
-  if (
-    /^Discovered\s+via\s+/i.test(t) &&
-    /\bvariationKey\b/i.test(t) &&
-    /\bYC\b/i.test(t)
-  ) {
-    return true;
-  }
-  return false;
-}
-
-function sanitizePipelineNotesFromSheet(raw) {
-  const s = String(raw ?? "").trim();
-  if (!s) return "";
-  if (isDiscoveryAutomationNotesString(s)) return "";
-  return s;
-}
-
-function parsePipelineCSV(rows) {
-  if (!rows || rows.length < 2) return [];
-
-  const dataRows = rows.slice(1);
-  const results = [];
-
-  for (let i = 0; i < dataRows.length; i++) {
-    const row = dataRows[i];
-    const title = row[1] || null;
-    const company = row[2] || null;
-
-    if (!title && !company) continue;
-    if (!company && !row[4] && !row[7]) continue;
-
-    const fitScoreRaw = row[7];
-    let fitScore = null;
-    if (fitScoreRaw) {
-      const parsed = parseFloat(fitScoreRaw);
-      if (!isNaN(parsed)) fitScore = parsed;
-    }
-
-    let dateFound = null;
-    const dateRaw = row[0] || null;
-    if (dateRaw) {
-      const d = new Date(dateRaw);
-      if (!isNaN(d.getTime())) dateFound = d;
-    }
-
-    results.push({
-      _rawIndex: i, // Index into dataRows (0-based), sheet row = i + 2
-      dateFound: dateFound,
-      dateFoundRaw: dateRaw,
-      title: title ? title.trim() : null,
-      company: company,
-      location: row[3] || null,
-      link: row[4] || null,
-      source: row[5] || null,
-      salary: row[6] || null,
-      fitScore: fitScore,
-      priority: row[8] || null,
-      tags: row[9] || null,
-      fitAssessment: row[10] || null,
-      contact: row[11] || null,
-      status: row[12] || null,
-      appliedDate: row[13] || null,
-      notes: sanitizePipelineNotesFromSheet(row[14]) || null,
-      _rawNotes: row[14] || null,
-      followUpDate: row[15] || null,
-      talkingPoints: row[16] || null,
-      lastHeardFrom:
-        row[17] != null && String(row[17]).trim() !== ""
-          ? String(row[17]).trim()
-          : null,
-      responseFlag:
-        row[18] != null && String(row[18]).trim() !== ""
-          ? String(row[18]).trim()
-          : null,
-      logoUrl: row[19] ? String(row[19]).trim() : null,
-      favorite: row[21] === "★",
-      dismissedAt: row[22] ? String(row[22]).trim() || null : null,
-      // Edit Lock (column Y, sheetIndex 24): comma-separated locked field ids
-      // ({title,company,location,salary}) that discovery must not re-clobber.
-      _editLock: row[24] != null ? String(row[24]).trim() : "",
-    });
-  }
-
-  return results;
-}
-
-// ============================================
-// MAIN DATA LOADER
-// ============================================
-
-async function loadAllData() {
-  // Auth gate: if OAuth is configured but the user has no valid token, never
-  // fetch the sheet (the public JSONP fallback would otherwise leak a
-  // publicly-shared sheet's contents to a signed-out session).
-  if (getOAuthClientId() && !accessToken) {
-    pipelineRawRows = null;
-    pipelineData = [];
-    dashboardDataHydrated = false;
-    showSheetAccessGate("signin");
-    return false;
-  }
-
-  const refreshBtn = document.getElementById("refreshBtn");
-  if (refreshBtn) refreshBtn.classList.add("loading");
-
-  try {
-    const pipelineRows = await fetchSheetCSV("Pipeline");
-
-    if (!pipelineRows) {
-      if (!initialSheetAccessResolved) {
-        if (!accessToken && getOAuthClientId()) {
-          showSheetAccessGate("signin");
-        } else if (!getOAuthClientId()) {
-          showSheetAccessGate("no-oauth");
-        } else {
-          showSheetAccessGate("error");
-        }
-      } else {
-        showErrorState();
-      }
-      dataLoadFailed = true;
-      return false;
-    }
-
-    dataLoadFailed = false;
-    hideErrorState();
-
-    pipelineRawRows = pipelineRows;
-    pipelineData = parsePipelineCSV(pipelineRows);
-    applyEnrichmentCache(pipelineData);
-    applyFavoriteCache(pipelineData);
-    console.log(`[JobBored] Pipeline: ${pipelineData.length} jobs`);
-
-    dashboardDataHydrated = true;
-    renderAll();
-    updateLastRefresh();
-    maybeAutoOpenExpiredReviewModal();
-    if (!initialSheetAccessResolved) {
-      // OAuth is configured but the user is signed out — block the dashboard
-      // entirely, even if the JSONP path would have succeeded against a
-      // publicly-shared sheet. The gate is the only thing the user should see.
-      if (getOAuthClientId() && !accessToken) {
-        pipelineRawRows = null;
-        pipelineData = [];
-        dashboardDataHydrated = false;
-        showSheetAccessGate("signin");
-        return true;
-      }
-      initialSheetAccessResolved = true;
-      revealDashboardShell();
-      runPostAccessBootstrapOnce();
-    }
-    return true;
-  } catch (err) {
-    console.error("[JobBored] Error loading data:", err);
-    if (!initialSheetAccessResolved) {
-      showSheetAccessGate(
-        !accessToken && getOAuthClientId() ? "signin" : "error",
-      );
-    } else {
-      showErrorState();
-    }
-    dataLoadFailed = true;
-    return false;
-  } finally {
-    if (refreshBtn) refreshBtn.classList.remove("loading");
-  }
-}
-
-function showErrorState() {
-  const jobCards = document.getElementById("jobCards");
-  const errorState = document.getElementById("errorState");
-  const errorOpenDirect = document.getElementById("errorOpenDirect");
-  const errorViewSheet = document.getElementById("errorViewSheet");
-  const errorHint = document.getElementById("errorStateHint");
-
-  jobCards.innerHTML = "";
-  errorState.style.display = "block";
-  errorOpenDirect.href = window.location.href;
-  errorViewSheet.href = `https://docs.google.com/spreadsheets/d/${SHEET_ID}`;
-  if (errorHint) {
-    if (getOAuthClientId()) {
-      errorHint.textContent =
-        "Confirm you’re signed in with Google and the Sheet ID is correct.";
-    } else {
-      errorHint.textContent =
-        "Publish the sheet for public read access, or add an OAuth client in Settings.";
-    }
-  }
-}
-
-function hideErrorState() {
-  document.getElementById("errorState").style.display = "none";
-}
 
 // ============================================
 // RENDERING
@@ -11118,6 +10691,20 @@ function renderAtsScorecardGroupsHtml(...args) {
   return window.JobBoredApp.ats.renderAtsScorecardGroupsHtml(...args);
 }
 
+
+// --- Sheets read/load (extracted to sheets-read-load.js) ---
+function loadAllData(...args) {
+  return window.JobBoredApp.sheetsRead.loadAllData(...args);
+}
+function favoriteCacheKeyForJob(...args) {
+  return window.JobBoredApp.sheetsRead.favoriteCacheKeyForJob(...args);
+}
+function setPendingFavorite(...args) {
+  return window.JobBoredApp.sheetsRead.setPendingFavorite(...args);
+}
+function clearPendingFavorite(...args) {
+  return window.JobBoredApp.sheetsRead.clearPendingFavorite(...args);
+}
 
 // --- Posting enrichment (extracted to posting-enrichment.js) ---
 function cacheEnrichment(...args) {
