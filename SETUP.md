@@ -47,7 +47,7 @@ Packaged defaults:
 **1. Dashboard-only (core OSS path)**
 
 ```bash
-git clone https://github.com/emilio3435/command-center.git ~/Job-Bored
+git clone https://github.com/emilio3435/Job-Bored.git ~/Job-Bored
 cd ~/Job-Bored
 npm run setup
 npm run web-only

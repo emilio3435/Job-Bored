@@ -1,6 +1,7 @@
 {
   "name": "command-center",
   "private": true,
+  "license": "MIT",
   "description": "Job search dashboard + optional local Cheerio scraper (npm start runs both)",
   "engines": {
     "node": ">=24 <25",
