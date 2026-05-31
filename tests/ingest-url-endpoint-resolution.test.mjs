@@ -8,23 +8,31 @@ import { readIndexHtml } from "../scripts/lib/expand-index-includes.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const statusHandoffJs = readFileSync(
+  join(repoRoot, "discovery-status-handoff.js"),
+  "utf8",
+);
 const probesJs = readFileSync(join(repoRoot, "discovery-wizard-probes.js"), "utf8");
 const indexHtml = readIndexHtml(repoRoot);
 
-function readFunctionSource(name, endMarker) {
-  const start = appJs.indexOf(`function ${name}(`);
+function readFunctionSource(name, endMarker, source = appJs) {
+  const start = source.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `${name} must exist`);
-  const end = appJs.indexOf(endMarker, start);
+  const end = source.indexOf(endMarker, start);
   assert.notEqual(end, -1, `${name} body must be readable`);
-  return appJs.slice(start, end);
+  return source.slice(start, end);
 }
 
-function readAsyncFunctionSource(name, endMarker) {
-  const start = appJs.indexOf(`async function ${name}(`);
+function readAsyncFunctionSource(name, endMarker, source = appJs) {
+  const start = source.indexOf(`async function ${name}(`);
   assert.notEqual(start, -1, `${name} must exist`);
-  const end = appJs.indexOf(endMarker, start);
+  const end = source.indexOf(endMarker, start);
   assert.notEqual(end, -1, `${name} body must be readable`);
-  return appJs.slice(start, end);
+  return source.slice(start, end);
+}
+
+function readStatusFunctionSource(name, endMarker) {
+  return readFunctionSource(name, endMarker, statusHandoffJs);
 }
 
 function jsonResponse({ ok, status, body }) {
@@ -52,6 +60,26 @@ function getAccessToken() {
 }
 function getTokenExpiresAt() {
   return tokenExpiresAt;
+}
+`;
+
+/** VM stubs for discovery-status-handoff.js host/runTracker accessors. */
+const statusHandoffVmPreamble = `
+function host() {
+  return {
+    normalizeDiscoveryWebhookIdentity(raw) {
+      return raw != null ? String(raw).trim() : "";
+    },
+    isLocalWebhookCandidateUrl() {
+      return true;
+    },
+  };
+}
+function runTracker() {
+  return {};
+}
+function configCore() {
+  return {};
 }
 `;
 
@@ -167,31 +195,31 @@ describe("Add job from URL endpoint resolution", () => {
   it("behaviorally polls async Add URL status until the final ingest result is ready", async () => {
     const sources = [
       completeFunction(
-        readFunctionSource(
+        readStatusFunctionSource(
           "buildRunStatusUrl",
           "\n}\n\nfunction canSynthesizeRunStatusPath",
         ),
       ),
       completeFunction(
-        readFunctionSource(
+        readStatusFunctionSource(
           "canSynthesizeRunStatusPath",
           "\n}\n\nfunction resolveAcceptedRunStatusPath",
         ),
       ),
       completeFunction(
-        readFunctionSource(
+        readStatusFunctionSource(
           "resolveAcceptedRunStatusPath",
           "\n}\n\nfunction isLikelyNgrokUrl",
         ),
       ),
       completeFunction(
-        readFunctionSource(
+        readStatusFunctionSource(
           "isLikelyNgrokUrl",
           "\n}\n\nfunction getDiscoveryStatusPollingWebhookUrl",
         ),
       ),
       completeFunction(
-        readFunctionSource(
+        readStatusFunctionSource(
           "buildDiscoveryStatusPollHeaders",
           "\n}\n\n/**\n * Fetch and process",
         ),
@@ -303,9 +331,13 @@ describe("Add job from URL endpoint resolution", () => {
       },
     });
 
-    vm.runInContext(ingestAuthVmPreamble + sources, context, {
-      filename: "app.js#ingest-url-async-submit",
-    });
+    vm.runInContext(
+      statusHandoffVmPreamble + ingestAuthVmPreamble + sources,
+      context,
+      {
+        filename: "app.js#ingest-url-async-submit",
+      },
+    );
     const result = await vm.runInContext(
       'handleIngestUrlSubmit("https://www.linkedin.com/jobs/view/123")',
       context,

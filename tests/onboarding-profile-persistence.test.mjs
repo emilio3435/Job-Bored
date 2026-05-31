@@ -503,11 +503,18 @@ describe("Onboarding gate behavior", () => {
   });
 
   it("onboarding is checked after access is resolved", () => {
-    const bootstrapStart = appJs.indexOf(
+    const statusHandoffJs = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "..", "discovery-status-handoff.js"),
+      "utf8",
+    );
+    const bootstrapStart = statusHandoffJs.indexOf(
       "function runPostAccessBootstrapOnce",
     );
-    const bootstrapEnd = appJs.indexOf("}", appJs.indexOf("{", bootstrapStart) + 1);
-    const bootstrapBody = appJs.slice(bootstrapStart, bootstrapEnd + 1);
+    const bootstrapEnd = statusHandoffJs.indexOf(
+      "}",
+      statusHandoffJs.indexOf("{", bootstrapStart) + 1,
+    );
+    const bootstrapBody = statusHandoffJs.slice(bootstrapStart, bootstrapEnd + 1);
 
     assert.ok(
       bootstrapBody.includes("checkOnboardingGate"),
