@@ -7761,16 +7761,16 @@ Object.assign(window.JobBoredApp.core, {
     lastResumeGenerationSession = value;
   },
   getAtsScorecardState() {
-    return atsScorecardState;
+    return window.JobBoredApp.materialsState.getAtsScorecardState();
   },
   setAtsScorecardState(next) {
-    return setAtsScorecardState(next);
+    return window.JobBoredApp.materialsState.setAtsScorecardState(next);
   },
   getGeneratedDraftLibraryCache() {
-    return generatedDraftLibraryCache;
+    return window.JobBoredApp.materialsState.getGeneratedDraftLibraryCache();
   },
   setGeneratedDraftLibraryCache(next) {
-    generatedDraftLibraryCache = next;
+    return window.JobBoredApp.materialsState.setGeneratedDraftLibraryCache(next);
   },
   getCandidateProfileMatchCache() {
     return window.JobBoredApp.keywordMatch.getCandidateProfileMatchCache();
@@ -11637,234 +11637,86 @@ let onboardingResumePath = null;
 const ONBOARDING_TOTAL_STEPS = 4;
 let lastResumeGenerationSession = null;
 let pendingDraftNotesRequest = null;
-// candidateProfileMatchCache now owned by keyword-profile-match.js
-// (window.JobBoredApp.keywordMatch); core bridge accessors delegate there.
-let generatedDraftLibraryCache = {
-  loaded: false,
-  byId: new Map(),
-  byJobKey: new Map(),
-  byJobFeature: new Map(),
-};
-let atsScorecardState = {
-  cacheKey: "",
-  status: "idle", // idle | loading | success | error
-  result: null,
-  error: "",
-  payload: null,
-};
+// candidateProfileMatchCache → keyword-profile-match.js; draft/ATS state → materials-state.js
 let resumeGenerateAtsRefreshTimer = null;
 
+function getAtsScorecardState() {
+  return window.JobBoredApp.materialsState.getAtsScorecardState();
+}
+
+function getGeneratedDraftLibraryCache() {
+  return window.JobBoredApp.materialsState.getGeneratedDraftLibraryCache();
+}
+
 function setAtsScorecardState(next) {
-  atsScorecardState = next;
-  dispatchAtsState();
+  return window.JobBoredApp.materialsState.setAtsScorecardState(next);
 }
-
-function dispatchAtsState() {
-  const detail = {
-    jobKey: atsScorecardState.cacheKey || null,
-    status: atsScorecardState.status,
-    result: atsScorecardState.result || null,
-    error: atsScorecardState.error || null,
-  };
-  window.dispatchEvent(new CustomEvent("jb:ats:state", { detail }));
-  document.dispatchEvent(new CustomEvent("jb:ats:state", { detail }));
-}
-
-window.addEventListener("jb:ats:state:request", (e) => {
-  const wantKey = e?.detail?.jobKey;
-  if (!wantKey || wantKey === atsScorecardState.cacheKey) dispatchAtsState();
-});
 
 function getUserContent() {
-  return window.CommandCenterUserContent;
+  return window.JobBoredApp.materialsState.getUserContent();
 }
 
 function getResumeBundle() {
-  return window.CommandCenterResumeBundle;
+  return window.JobBoredApp.materialsState.getResumeBundle();
 }
 
 function getResumeGenerate() {
-  return window.CommandCenterResumeGenerate;
+  return window.JobBoredApp.materialsState.getResumeGenerate();
 }
 
 function getResumeIngest() {
-  return window.CommandCenterResumeIngest;
+  return window.JobBoredApp.materialsState.getResumeIngest();
 }
 
-/**
- * Async variant of getResumeIngest that waits up to ~3s for the resume-ingest
- * module + its CDN-loaded dependencies (pdf.js, mammoth) to be ready.
- *
- * Why this exists: pdf.js and mammoth are pulled from CDNs in <script> tags
- * without async/defer. On most loads they're synchronously ready before
- * DOMContentLoaded, but on cold caches or slow links they can finish a few
- * hundred ms later. The onboarding file-input change handler used to call
- * the sync getter directly and fail with "Resume reader didn't load" on the
- * first pick — which the user reported as "I have to refresh the page in
- * order for the file selector to successfully put the file visibly into the
- * UX". Waiting briefly fixes that without a refresh.
- *
- * Retries every 100ms (~30 polls) before giving up; immediate-resolve when
- * ready so the common fast path adds zero latency.
- */
 async function getResumeIngestReady(maxWaitMs) {
-  const limitMs = typeof maxWaitMs === "number" ? maxWaitMs : 3000;
-  const stepMs = 100;
-  const start = Date.now();
-  let ingest = window.CommandCenterResumeIngest;
-  while (!ingest && Date.now() - start < limitMs) {
-    await new Promise((resolve) => setTimeout(resolve, stepMs));
-    ingest = window.CommandCenterResumeIngest;
-  }
-  return ingest || null;
+  return window.JobBoredApp.materialsState.getResumeIngestReady(maxWaitMs);
 }
 
 function getJobOpportunityKey(job) {
-  const UC = getUserContent();
-  if (UC && typeof UC.makeJobOpportunityKey === "function") {
-    return UC.makeJobOpportunityKey(job);
-  }
-  const o = job && typeof job === "object" ? job : {};
-  return [
-    String(o.link || o.url || "")
-      .trim()
-      .toLowerCase() ||
-      [
-        String(o.company || "")
-          .trim()
-          .toLowerCase(),
-        String(o.title || "")
-          .trim()
-          .toLowerCase(),
-        String(o.location || "")
-          .trim()
-          .toLowerCase(),
-      ].join("::"),
-  ].join("");
+  return window.JobBoredApp.materialsState.getJobOpportunityKey(job);
 }
 
 function getDraftFeatureLabel(feature) {
-  return feature === "resume_update" ? "Resume" : "Cover letter";
+  return window.JobBoredApp.materialsState.getDraftFeatureLabel(feature);
 }
 
 function getDraftModeLabel(mode) {
-  return mode === "refine" ? "Refined" : "Initial";
+  return window.JobBoredApp.materialsState.getDraftModeLabel(mode);
 }
 
 function formatDraftSavedAt(iso) {
-  if (!iso) return "Saved";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "Saved";
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return window.JobBoredApp.materialsState.formatDraftSavedAt(iso);
 }
 
 function rebuildGeneratedDraftLibraryCache(rows) {
-  const byId = new Map();
-  const byJobKey = new Map();
-  const byJobFeature = new Map();
-  (rows || []).forEach((draft) => {
-    byId.set(draft.id, draft);
-    const jobArr = byJobKey.get(draft.jobKey) || [];
-    jobArr.push(draft);
-    byJobKey.set(draft.jobKey, jobArr);
-    const featureKey = `${draft.jobKey}::${draft.feature}`;
-    const featureArr = byJobFeature.get(featureKey) || [];
-    featureArr.push(draft);
-    byJobFeature.set(featureKey, featureArr);
-  });
-  byJobKey.forEach((arr, key) => {
-    arr.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-    byJobKey.set(key, arr);
-  });
-  byJobFeature.forEach((arr, key) => {
-    arr.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-    byJobFeature.set(key, arr);
-  });
-  generatedDraftLibraryCache = {
-    loaded: true,
-    byId,
-    byJobKey,
-    byJobFeature,
-  };
-  return generatedDraftLibraryCache;
+  return window.JobBoredApp.materialsState.rebuildGeneratedDraftLibraryCache(
+    rows,
+  );
 }
 
 async function refreshGeneratedDraftLibraryCache() {
-  const UC = getUserContent();
-  if (!UC || typeof UC.listGeneratedDrafts !== "function") {
-    return rebuildGeneratedDraftLibraryCache([]);
-  }
-  try {
-    await UC.openDb();
-    const drafts = await UC.listGeneratedDrafts();
-    return rebuildGeneratedDraftLibraryCache(drafts);
-  } catch (err) {
-    console.warn("[JobBored] generated drafts:", err);
-    return rebuildGeneratedDraftLibraryCache([]);
-  }
+  return window.JobBoredApp.materialsState.refreshGeneratedDraftLibraryCache();
 }
 
 function scheduleGeneratedDraftLibraryRefresh(shouldRender) {
-  void refreshGeneratedDraftLibraryCache().then(() => {
-    if (!shouldRender) return;
-    renderPipeline();
-    if (activeDetailKey >= 0) refreshDrawerIfOpen(activeDetailKey);
-  });
+  return window.JobBoredApp.materialsState.scheduleGeneratedDraftLibraryRefresh(
+    shouldRender,
+  );
 }
 
 function getDraftsForJob(job, feature) {
-  const jobKey = getJobOpportunityKey(job);
-  if (!jobKey) return [];
-  if (feature) {
-    return (
-      generatedDraftLibraryCache.byJobFeature.get(`${jobKey}::${feature}`) || []
-    );
-  }
-  return generatedDraftLibraryCache.byJobKey.get(jobKey) || [];
+  return window.JobBoredApp.materialsState.getDraftsForJob(job, feature);
 }
 
 function getDraftByIdFromCache(id) {
-  return generatedDraftLibraryCache.byId.get(id) || null;
+  return window.JobBoredApp.materialsState.getDraftByIdFromCache(id);
 }
 
 async function buildCandidateProfileExcerpt(UC, maxChars) {
-  const hardMax =
-    Number.isFinite(maxChars) && maxChars > 0 ? Math.floor(maxChars) : 14000;
-  const active = await UC.getActiveResume();
-  const linkedIn =
-    typeof UC.getLinkedInProfile === "function"
-      ? await UC.getLinkedInProfile()
-      : { text: "", updatedAt: "" };
-  const additional =
-    typeof UC.getAdditionalContext === "function"
-      ? await UC.getAdditionalContext()
-      : { text: "", updatedAt: "" };
-  const resumeText =
-    active && active.extractedText ? String(active.extractedText).trim() : "";
-  const linkedInText =
-    linkedIn && linkedIn.text ? String(linkedIn.text).trim() : "";
-  const additionalText =
-    additional && additional.text ? String(additional.text).trim() : "";
-
-  const sections = [];
-  if (resumeText) {
-    sections.push(`Resume text:\n${resumeText}`);
-  }
-  if (linkedInText) {
-    sections.push(`LinkedIn / online profile text:\n${linkedInText}`);
-  }
-  if (additionalText) {
-    sections.push(`AI context dump (professional notes):\n${additionalText}`);
-  }
-  if (!sections.length) return "";
-  const joined = sections.join("\n\n");
-  if (joined.length <= hardMax) return joined;
-  return joined.slice(0, hardMax);
+  return window.JobBoredApp.materialsState.buildCandidateProfileExcerpt(
+    UC,
+    maxChars,
+  );
 }
 
 // --- Keyword / profile-match (extracted to keyword-profile-match.js) ---
@@ -11900,7 +11752,7 @@ function scheduleCandidateProfileMatchRefresh(shouldRender) {
 }
 
 function renderDraftDeckPanel(job, feature) {
-  if (!generatedDraftLibraryCache.loaded) {
+  if (!getGeneratedDraftLibraryCache().loaded) {
     return `<p class="draft-deck__empty">…</p>`;
   }
   const drafts = getDraftsForJob(job, feature)
@@ -11954,17 +11806,17 @@ function renderDraftDeckPanel(job, feature) {
 }
 
 function renderDraftLibraryCardHtml(job, dataIndex) {
-  const clDrafts = generatedDraftLibraryCache.loaded
+  const clDrafts = getGeneratedDraftLibraryCache().loaded
     ? getDraftsForJob(job, "cover_letter")
     : [];
-  const reDrafts = generatedDraftLibraryCache.loaded
+  const reDrafts = getGeneratedDraftLibraryCache().loaded
     ? getDraftsForJob(job, "resume_update")
     : [];
   const clCount = clDrafts.length;
   const reCount = reDrafts.length;
   const total = clCount + reCount;
   const countBadge =
-    generatedDraftLibraryCache.loaded && total
+    getGeneratedDraftLibraryCache().loaded && total
       ? `<span class="draft-deck__count">${total}</span>`
       : "";
   return `<section class="draft-deck" data-index="${dataIndex}">
@@ -14513,14 +14365,14 @@ function formatAtsDimensionSummary(scorecard) {
 let dossierAtsModalKeydownHandler = null;
 
 function renderDossierAtsModalBodyHtml() {
-  if (atsScorecardState.status === "loading") {
+  if (getAtsScorecardState().status === "loading") {
     return `<section class="doc-insight-card"><div class="doc-insight-card__head"><div><p class="doc-insight-card__kicker">ATS match</p><h4 class="doc-insight-card__title">Full scorecard</h4></div><strong class="doc-insight-card__score">...</strong></div><p class="doc-insight-card__summary">Analyzing this draft against the role with structured LLM scoring...</p><p class="doc-insight-card__hint">Scoring the latest text in the editor after generate or refine finishes.</p><div class="doc-insight-card__groups"></div></section>`;
   }
-  if (atsScorecardState.status === "error") {
-    return `<section class="doc-insight-card"><div class="doc-insight-card__head"><div><p class="doc-insight-card__kicker">ATS match</p><h4 class="doc-insight-card__title">Full scorecard</h4></div><strong class="doc-insight-card__score">--</strong></div><p class="doc-insight-card__summary">Could not analyze this draft with ATS scorecard right now.</p><p class="doc-insight-card__hint">${escapeHtml(atsScorecardState.error || "Unknown error")}</p><div class="doc-insight-card__groups"></div></section>`;
+  if (getAtsScorecardState().status === "error") {
+    return `<section class="doc-insight-card"><div class="doc-insight-card__head"><div><p class="doc-insight-card__kicker">ATS match</p><h4 class="doc-insight-card__title">Full scorecard</h4></div><strong class="doc-insight-card__score">--</strong></div><p class="doc-insight-card__summary">Could not analyze this draft with ATS scorecard right now.</p><p class="doc-insight-card__hint">${escapeHtml(getAtsScorecardState().error || "Unknown error")}</p><div class="doc-insight-card__groups"></div></section>`;
   }
-  if (atsScorecardState.status === "success" && atsScorecardState.result) {
-    const scorecard = atsScorecardState.result;
+  if (getAtsScorecardState().status === "success" && getAtsScorecardState().result) {
+    const scorecard = getAtsScorecardState().result;
     const conf = Math.round(Number(scorecard.confidence || 0) * 100);
     const topGap = scorecard.criticalGaps && scorecard.criticalGaps[0];
     const hint = topGap
@@ -14564,11 +14416,11 @@ function getDossierAtsModal() {
 
 function openDossierAtsModal(jobKey) {
   const wantKey = jobKey ? String(jobKey) : "";
-  if (wantKey && wantKey !== atsScorecardState.cacheKey) return;
+  if (wantKey && wantKey !== getAtsScorecardState().cacheKey) return;
   const modal = getDossierAtsModal();
   const body = modal.querySelector("[data-dossier-ats-modal-body]");
   if (body) body.innerHTML = renderDossierAtsModalBodyHtml();
-  modal.dataset.jobKey = atsScorecardState.cacheKey || "";
+  modal.dataset.jobKey = getAtsScorecardState().cacheKey || "";
   modal.hidden = false;
   modal.style.display = "flex";
   if (!dossierAtsModalKeydownHandler) {
@@ -14597,7 +14449,7 @@ window.addEventListener("jb:ats:modal:open", (e) => {
 
 function startAtsScorecardAnalysis(cacheKey, payload) {
   setAtsScorecardState({
-    ...atsScorecardState,
+    ...getAtsScorecardState(),
     cacheKey,
     status: "loading",
     result: null,
@@ -14607,17 +14459,17 @@ function startAtsScorecardAnalysis(cacheKey, payload) {
   void (async () => {
     try {
       const result = await fetchAtsScorecard(payload);
-      if (atsScorecardState.cacheKey !== cacheKey) return;
+      if (getAtsScorecardState().cacheKey !== cacheKey) return;
       setAtsScorecardState({
-        ...atsScorecardState,
+        ...getAtsScorecardState(),
         status: "success",
         result,
         error: "",
       });
     } catch (err) {
-      if (atsScorecardState.cacheKey !== cacheKey) return;
+      if (getAtsScorecardState().cacheKey !== cacheKey) return;
       setAtsScorecardState({
-        ...atsScorecardState,
+        ...getAtsScorecardState(),
         status: "error",
         result: null,
         error:
@@ -14712,10 +14564,10 @@ function renderResumeGenerateInsights(bodyText, job) {
     ) {
       atsCard.hidden = true;
     } else {
-      if (atsScorecardState.cacheKey !== cacheKey) {
+      if (getAtsScorecardState().cacheKey !== cacheKey) {
         startAtsScorecardAnalysis(cacheKey, atsPayload);
       }
-      if (atsScorecardState.status === "loading") {
+      if (getAtsScorecardState().status === "loading") {
         if (atsScore) atsScore.textContent = "…";
         if (atsSummary) {
           atsSummary.textContent =
@@ -14728,10 +14580,10 @@ function renderResumeGenerateInsights(bodyText, job) {
         }
         if (atsGroups) atsGroups.innerHTML = "";
       } else if (
-        atsScorecardState.status === "success" &&
-        atsScorecardState.result
+        getAtsScorecardState().status === "success" &&
+        getAtsScorecardState().result
       ) {
-        const scorecard = atsScorecardState.result;
+        const scorecard = getAtsScorecardState().result;
         if (atsScore) atsScore.textContent = `${scorecard.overallScore}%`;
         if (atsSummary) {
           const conf = Math.round(Number(scorecard.confidence || 0) * 100);
@@ -14749,7 +14601,7 @@ function renderResumeGenerateInsights(bodyText, job) {
         if (atsGroups) {
           atsGroups.innerHTML = renderAtsScorecardGroupsHtml(scorecard);
         }
-      } else if (atsScorecardState.status === "error") {
+      } else if (getAtsScorecardState().status === "error") {
         if (atsScore) atsScore.textContent = "—";
         if (atsSummary) {
           atsSummary.textContent =
@@ -14757,7 +14609,7 @@ function renderResumeGenerateInsights(bodyText, job) {
         }
         if (atsHint) {
           atsHint.hidden = false;
-          atsHint.textContent = atsScorecardState.error || "Unknown error";
+          atsHint.textContent = getAtsScorecardState().error || "Unknown error";
         }
         if (atsGroups) {
           atsGroups.innerHTML =

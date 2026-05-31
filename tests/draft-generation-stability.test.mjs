@@ -6,6 +6,10 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const materialsStateJs = readFileSync(
+  join(repoRoot, "materials-state.js"),
+  "utf8",
+);
 const userContentStoreJs = readFileSync(
   join(repoRoot, "user-content-store.js"),
   "utf8",
@@ -437,9 +441,14 @@ describe("Posting enrichment flows into draft and ATS context", () => {
 
 describe("Draft version history survives reload", () => {
   it("generatedDraftLibraryCache is rebuilt from IndexedDB on refresh", () => {
-    const fnStart = appJs.indexOf("async function refreshGeneratedDraftLibraryCache");
-    const fnEnd = appJs.indexOf("function scheduleGeneratedDraftLibraryRefresh", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = materialsStateJs.indexOf(
+      "async function refreshGeneratedDraftLibraryCache",
+    );
+    const fnEnd = materialsStateJs.indexOf(
+      "function scheduleGeneratedDraftLibraryRefresh",
+      fnStart,
+    );
+    const fnBody = materialsStateJs.slice(fnStart, fnEnd);
 
     // Should call listGeneratedDrafts to reload from IndexedDB
     assert.ok(
@@ -449,9 +458,11 @@ describe("Draft version history survives reload", () => {
   });
 
   it("scheduleGeneratedDraftLibraryRefresh schedules a render after cache refresh", () => {
-    const fnStart = appJs.indexOf("function scheduleGeneratedDraftLibraryRefresh");
-    const fnEnd = appJs.indexOf("function getDraftsForJob", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = materialsStateJs.indexOf(
+      "function scheduleGeneratedDraftLibraryRefresh",
+    );
+    const fnEnd = materialsStateJs.indexOf("function getDraftsForJob", fnStart);
+    const fnBody = materialsStateJs.slice(fnStart, fnEnd);
 
     // Should call refreshGeneratedDraftLibraryCache
     assert.ok(
@@ -485,7 +496,9 @@ describe("ATS scoring stays coupled to active draft and current job context", ()
 
     // Should store payload in atsScorecardState for debugging
     assert.ok(
-      fnBody.includes("atsScorecardState") && fnBody.includes("payload"),
+      (fnBody.includes("atsScorecardState") ||
+        fnBody.includes("getAtsScorecardState()")) &&
+        fnBody.includes("payload"),
       "startAtsScorecardAnalysis should store payload in state",
     );
   });
@@ -498,7 +511,8 @@ describe("ATS scoring stays coupled to active draft and current job context", ()
     // Should check if cacheKey matches before updating state
     assert.ok(
       fnBody.includes("cacheKey") &&
-        fnBody.includes("atsScorecardState.cacheKey") &&
+        (fnBody.includes("atsScorecardState.cacheKey") ||
+          fnBody.includes("getAtsScorecardState().cacheKey")) &&
         fnBody.includes("return"),
       "startAtsScorecardAnalysis should check cacheKey before applying results to prevent stale overwrites",
     );
