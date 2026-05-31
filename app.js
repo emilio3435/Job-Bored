@@ -2650,6 +2650,15 @@ function updateDiscoveryWizardRuntime(patch = {}) {
   return discoveryWizardRuntime;
 }
 
+function clearDiscoveryWizardRuntime() {
+  discoveryWizardRuntime = null;
+}
+
+function setDiscoveryWizardRuntime(runtime) {
+  discoveryWizardRuntime = runtime;
+  return discoveryWizardRuntime;
+}
+
 function createWizardNode(tag, className, text) {
   const el = document.createElement(tag);
   if (className) el.className = className;
@@ -4670,12 +4679,12 @@ async function renderDiscoverySetupWizard() {
     },
     onClose: () => {
       // Restore onboarding if it was showing when discovery wizard opened
-      const runtime = discoveryWizardRuntime;
+      const runtime = getDiscoveryWizardRuntime();
       const shouldRestoreOnboarding =
         runtime &&
         runtime.state &&
         runtime.state._onboardingWasHiddenByDiscovery;
-      discoveryWizardRuntime = null;
+      clearDiscoveryWizardRuntime();
       void refreshDiscoveryReadinessSnapshot({ force: true });
       if (shouldRestoreOnboarding) {
         showOnboardingWizard();
@@ -4782,7 +4791,7 @@ async function openDiscoverySetupWizard(options = {}) {
   const mergedCompleted = [
     ...new Set([...savedCompleted, ...implicitlyCompleted]),
   ];
-  discoveryWizardRuntime = createDiscoveryWizardRuntime({
+  setDiscoveryWizardRuntime(createDiscoveryWizardRuntime({
     entryPoint: options.entryPoint || "manual",
     snapshot,
     state: {
@@ -4800,9 +4809,9 @@ async function openDiscoverySetupWizard(options = {}) {
         ? options.drafts
         : {}),
     },
-  });
+  }));
   await persistDiscoveryWizardState({
-    ...discoveryWizardRuntime.state,
+    ...getDiscoveryWizardRuntime().state,
     flow: initialFlow,
     currentStep: initialStep,
     completedSteps: mergedCompleted,
@@ -10361,6 +10370,47 @@ window.JobBoredDiscovery = Object.assign(window.JobBoredDiscovery || {}, {
   },
   buildPayload: buildDiscoveryWebhookPayload,
 });
+
+// Discovery setup-wizard UI bridge. discovery-wizard-ui.js loads BEFORE app.js,
+// so it cannot capture these references at its own load time — app.js publishes
+// them here (after every helper is hoisted) and the UI file reads
+// `window.JobBoredDiscoveryWizard.ui.host` lazily inside each function.
+window.JobBoredDiscoveryWizard = window.JobBoredDiscoveryWizard || {};
+window.JobBoredDiscoveryWizard.ui = window.JobBoredDiscoveryWizard.ui || {};
+window.JobBoredDiscoveryWizard.ui.host = {
+  showToast,
+  refreshDiscoveryReadinessSnapshot,
+  getDiscoveryWizardRuntime,
+  updateDiscoveryWizardRuntime,
+  createDiscoveryWizardRuntime,
+  clearDiscoveryWizardRuntime,
+  persistDiscoveryWizardState,
+  triggerDiscoveryRun,
+  isOnboardingWizardVisible,
+  hideOnboardingWizard,
+  showOnboardingWizard,
+  isSettingsModalOpen,
+  closeCommandCenterSettingsModal,
+  openCommandCenterSettingsModal,
+  installKeepAliveOnce,
+  handleAppsScriptBrowserCorsFailure,
+  diagnoseDownstreamChain,
+  copyTextToClipboard,
+  getSettingsSheetIdValue,
+  isLocalDashboardOrigin,
+  normalizeDiscoveryWebhookIdentity,
+  mapDiscoveryWizardFlow,
+  getDiscoveryWizardStepIds,
+  getDiscoveryWizardStepsBefore,
+  getDiscoveryWizardDefaultDrafts,
+  getDiscoveryReadinessSnapshot,
+  escapeHtml,
+  getDiscoveryWizardShellApi,
+  getDiscoveryWizardProbesApi,
+  getDiscoveryWizardLocalApi,
+  getDiscoveryWizardRelayApi,
+  getDiscoveryWizardVerifyApi,
+};
 
 /**
  * POST a test payload from the Settings form (same shape as Run discovery).
