@@ -10,6 +10,7 @@ const materialsStateJs = readFileSync(
   join(repoRoot, "materials-state.js"),
   "utf8",
 );
+const atsScorecardJs = readFileSync(join(repoRoot, "ats-scorecard.js"), "utf8");
 const userContentStoreJs = readFileSync(
   join(repoRoot, "user-content-store.js"),
   "utf8",
@@ -172,9 +173,9 @@ describe("ATS analysis follows draft modal lifecycle", () => {
   });
 
   it("buildAtsScorecardRequestPayload uses session bundle job context over raw job", () => {
-    const fnStart = appJs.indexOf("function buildAtsScorecardRequestPayload");
-    const fnEnd = appJs.indexOf("async function fetchAtsScorecard", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = atsScorecardJs.indexOf("function buildAtsScorecardRequestPayload");
+    const fnEnd = atsScorecardJs.indexOf("async function fetchAtsScorecard", fnStart);
+    const fnBody = atsScorecardJs.slice(fnStart, fnEnd);
 
     // Should prefer bundle.job over raw job parameter
     assert.ok(
@@ -190,9 +191,9 @@ describe("ATS analysis follows draft modal lifecycle", () => {
   });
 
   it("ATS payload includes docText clipped to 18000 chars for the provider limit", () => {
-    const fnStart = appJs.indexOf("function buildAtsScorecardRequestPayload");
-    const fnEnd = appJs.indexOf("async function fetchAtsScorecard", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = atsScorecardJs.indexOf("function buildAtsScorecardRequestPayload");
+    const fnEnd = atsScorecardJs.indexOf("async function fetchAtsScorecard", fnStart);
+    const fnBody = atsScorecardJs.slice(fnStart, fnEnd);
 
     // docText should be clipped
     assert.ok(
@@ -226,9 +227,9 @@ describe("ATS analysis follows draft modal lifecycle", () => {
   });
 
   it("ATS analysis is keyed on the active draft text and current job context", () => {
-    const fnStart = appJs.indexOf("function computeAtsScorecardCacheKey");
-    const fnEnd = appJs.indexOf("function renderDocMatchGroupHtml", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = atsScorecardJs.indexOf("function computeAtsScorecardCacheKey");
+    const fnEnd = atsScorecardJs.indexOf("function normalizeAtsScorecardResult", fnStart);
+    const fnBody = atsScorecardJs.slice(fnStart, fnEnd);
 
     // Should include draft text hash in cache key
     assert.ok(
@@ -238,7 +239,9 @@ describe("ATS analysis follows draft modal lifecycle", () => {
 
     // Should include job key
     assert.ok(
-      fnBody.includes("getJobOpportunityKey") || fnBody.includes("jobKey"),
+      fnBody.includes("getJobOpportunityKey") ||
+        fnBody.includes("host().getJobOpportunityKey") ||
+        fnBody.includes("jobKey"),
       "computeAtsScorecardCacheKey should include job key",
     );
 
@@ -404,9 +407,9 @@ describe("Posting enrichment flows into draft and ATS context", () => {
   });
 
   it("buildAtsScorecardRequestPayload prefers bundle job postingEnrichment over job._postingEnrichment", () => {
-    const fnStart = appJs.indexOf("function buildAtsScorecardRequestPayload");
-    const fnEnd = appJs.indexOf("async function fetchAtsScorecard", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = atsScorecardJs.indexOf("function buildAtsScorecardRequestPayload");
+    const fnEnd = atsScorecardJs.indexOf("async function fetchAtsScorecard", fnStart);
+    const fnBody = atsScorecardJs.slice(fnStart, fnEnd);
 
     // Should check bundle.job.postingEnrichment first
     assert.ok(
@@ -484,9 +487,9 @@ describe("Draft version history survives reload", () => {
 
 describe("ATS scoring stays coupled to active draft and current job context", () => {
   it("startAtsScorecardAnalysis uses the provided payload with current draft text", () => {
-    const fnStart = appJs.indexOf("function startAtsScorecardAnalysis");
-    const fnEnd = appJs.indexOf("function formatAtsDimensionSummary", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = atsScorecardJs.indexOf("function startAtsScorecardAnalysis");
+    const fnEnd = atsScorecardJs.indexOf("Object.assign(ats", fnStart);
+    const fnBody = atsScorecardJs.slice(fnStart, fnEnd);
 
     // Should accept payload parameter with the current draft context
     assert.ok(
@@ -504,9 +507,9 @@ describe("ATS scoring stays coupled to active draft and current job context", ()
   });
 
   it("cache key comparison prevents stale ATS results from overwriting current ones", () => {
-    const fnStart = appJs.indexOf("function startAtsScorecardAnalysis");
-    const fnEnd = appJs.indexOf("function formatAtsDimensionSummary", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = atsScorecardJs.indexOf("function startAtsScorecardAnalysis");
+    const fnEnd = atsScorecardJs.indexOf("Object.assign(ats", fnStart);
+    const fnBody = atsScorecardJs.slice(fnStart, fnEnd);
 
     // Should check if cacheKey matches before updating state
     assert.ok(

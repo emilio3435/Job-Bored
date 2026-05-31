@@ -11,6 +11,7 @@ const materialsStateJs = readFileSync(
   join(repoRoot, "materials-state.js"),
   "utf8",
 );
+const atsScorecardJs = readFileSync(join(repoRoot, "ats-scorecard.js"), "utf8");
 
 function extractAtsStateBusSource(src) {
   const start = src.indexOf("let atsScorecardState = {");
@@ -25,7 +26,7 @@ function extractAtsModalHarnessSource(src) {
   const start = src.indexOf("function renderAtsBulletGroupHtml");
   const openIdx = src.indexOf('window.addEventListener("jb:ats:modal:open"', start);
   if (start === -1 || openIdx === -1) {
-    throw new Error("Could not extract ATS modal harness from app.js");
+    throw new Error("Could not extract ATS modal harness from ats-scorecard.js");
   }
   const end = src.indexOf("});", openIdx) + 3;
   return src.slice(start, end);
@@ -168,8 +169,8 @@ function loadAtsStateBus(options = {}) {
     context,
   );
   if (withModalHarness) {
-    vm.runInContext(extractAtsModalHarnessSource(appJs), context, {
-      filename: "app.js",
+    vm.runInContext(extractAtsModalHarnessSource(atsScorecardJs), context, {
+      filename: "ats-scorecard.js",
     });
   }
   return { context, document, window };
