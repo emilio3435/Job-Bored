@@ -542,6 +542,12 @@ function initOnboardingWizard(...args) {
 function isSettingsModalOpen(...args) {
   return window.JobBoredApp.settings.isSettingsModalOpen(...args);
 }
+function fillDocumentTemplateSelect(...args) {
+  return window.JobBoredApp.settings.fillDocumentTemplateSelect(...args);
+}
+function fillVisualThemeSelect(...args) {
+  return window.JobBoredApp.settings.fillVisualThemeSelect(...args);
+}
 function fillOneResumeModelSelect(...args) {
   return window.JobBoredApp.settings.fillOneResumeModelSelect(...args);
 }
