@@ -259,7 +259,16 @@ class DraftRunner:
 
         tail = tail_text(log_path, start_offset=log_offset)
         classification = classify_error(tail)
-        if returncode == 0 and classification == "fatal" and not looks_like_hermes_error(tail):
+        if returncode == 0:
+            if looks_like_hermes_error(tail) or classification in {"model_not_found", "unauthorized"}:
+                return DraftResult(
+                    ok=False,
+                    returncode=returncode,
+                    provider=provider,
+                    model=model,
+                    log_path=log_path,
+                    error_summary=compact_summary(tail),
+                )
             return DraftResult(ok=True, returncode=returncode, provider=provider, model=model, log_path=log_path)
         return DraftResult(
             ok=False,

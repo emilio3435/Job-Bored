@@ -20,7 +20,6 @@ from .manifest import (
     PendingParseError,
     PendingRequest,
     PendingValidationError,
-    TERMINAL_PHASES,
     archive_pending,
     load_dotenv,
     load_env_file,
@@ -41,6 +40,10 @@ RENDERING_MESSAGE = "Polishing the PDFs…"
 VERIFYING_MESSAGE = "Double-checking the outputs…"
 COMPLETE_MESSAGE = "Done! Files synced to dobby."
 MISSING_JD_MESSAGE = "Missing job-description.md — drop it in the folder and re-click."
+
+# `complete` is written before pending.json is archived; if the watcher dies in that
+# window the file must be finalized on the next startup rather than skipped forever.
+STARTUP_SKIP_PHASES = {"failed"}
 
 
 class Notifier(Protocol):
@@ -225,6 +228,15 @@ class MaterialsWatcher:
             elif existing_progress.get("attempt"):
                 attempt = int(existing_progress.get("attempt") or 1)
             started_at = existing_progress.get("started_at") or started_at
+            if existing_progress.get("phase") == "complete":
+                self._finalize_successful_pending(
+                    pending_path,
+                    request,
+                    started_at=started_at,
+                    attempt=attempt,
+                    start_fingerprint=start_fingerprint,
+                )
+                return
         except PendingParseError as exc:
             summary = str(exc)
             write_pending_error(app_dir, summary=summary)
@@ -296,18 +308,6 @@ class MaterialsWatcher:
         ok, missing = verify_outputs(app_dir, request.feature)
         draft_error_path = app_dir / "draft_error.txt"
         if result.ok and ok and not draft_error_path.exists():
-            resume_page_check = check_resume_page_count(app_dir, result.log_path)
-            if result.fallback_used:
-                write_pending_error(
-                    app_dir,
-                    summary="xAI unavailable, used MiniMax",
-                    details=result.fallback_note,
-                    log_path=result.log_path,
-                    fallback_note=result.fallback_note,
-                    request=request,
-                )
-            else:
-                clear_pending_error(app_dir)
             update_progress(
                 pending_path,
                 phase="complete",
@@ -316,20 +316,14 @@ class MaterialsWatcher:
                 attempt=attempt,
             )
             time.sleep(2)
-            if start_fingerprint is not None and pending_path.exists():
-                current = pending_fingerprint(pending_path)
-                if current != start_fingerprint:
-                    self.logger.info("Pending request changed during run for %s; leaving pending.json for next pass", request.slug)
-                    return
-            done_path = archive_pending(pending_path)
-            notify_result = self.notifier.send_success(
+            self._finalize_successful_pending(
+                pending_path,
                 request,
-                app_dir,
-                provider=result.provider,
-                model=result.model,
-                resume_pages=resume_page_check.page_count,
+                started_at=started_at,
+                attempt=attempt,
+                start_fingerprint=start_fingerprint,
+                result=result,
             )
-            self.logger.info("Completed %s; archived %s; Telegram result=%s", request.slug, done_path, notify_result)
             return
 
         summary = failure_summary(result, missing, draft_error_path)
@@ -343,6 +337,93 @@ class MaterialsWatcher:
         write_pending_error(app_dir, summary=summary, details=result.error_summary, log_path=result.log_path, request=request)
         notify_result = self.notifier.send_failure(request, app_dir, summary)
         self.logger.warning("Failed %s: %s; Telegram result=%s", request.slug, summary, notify_result)
+
+    def _finalize_successful_pending(
+        self,
+        pending_path: Path,
+        request: PendingRequest,
+        *,
+        started_at: str,
+        attempt: int,
+        start_fingerprint: str | None,
+        result: DraftResult | None = None,
+    ) -> None:
+        app_dir = pending_path.parent
+        draft_error_path = app_dir / "draft_error.txt"
+        ok, missing = verify_outputs(app_dir, request.feature)
+        if not ok or draft_error_path.exists():
+            summary = failure_summary(
+                result
+                or DraftResult(
+                    ok=False,
+                    returncode=1,
+                    provider=self.runner.config.provider,
+                    model=self.runner.config.model,
+                    log_path=app_dir / ".draft.log",
+                ),
+                missing,
+                draft_error_path,
+            )
+            update_progress(
+                pending_path,
+                phase="failed",
+                message=summary[:300],
+                started_at=started_at,
+                attempt=attempt,
+            )
+            write_pending_error(app_dir, summary=summary, request=request)
+            self.notifier.send_failure(request, app_dir, summary)
+            return
+
+        if start_fingerprint is not None and pending_path.exists():
+            current = pending_fingerprint(pending_path)
+            if current != start_fingerprint:
+                self.logger.info(
+                    "Pending request changed before finalize for %s; leaving pending.json for next pass",
+                    request.slug,
+                )
+                return
+
+        draft_result = result or DraftResult(
+            ok=True,
+            returncode=0,
+            provider=self.runner.config.provider,
+            model=self.runner.config.model,
+            log_path=app_dir / ".draft.log",
+        )
+        resume_page_check = check_resume_page_count(app_dir, draft_result.log_path)
+        if draft_result.fallback_used:
+            write_pending_error(
+                app_dir,
+                summary="xAI unavailable, used MiniMax",
+                details=draft_result.fallback_note,
+                log_path=draft_result.log_path,
+                fallback_note=draft_result.fallback_note,
+                request=request,
+            )
+        else:
+            clear_pending_error(app_dir)
+        update_progress(
+            pending_path,
+            phase="complete",
+            message=COMPLETE_MESSAGE,
+            started_at=started_at,
+            attempt=attempt,
+        )
+        done_path = archive_pending(pending_path)
+        notify_result = self.notifier.send_success(
+            request,
+            app_dir,
+            provider=draft_result.provider,
+            model=draft_result.model,
+            resume_pages=resume_page_check.page_count,
+        )
+        self.logger.info(
+            "Finalized %s; archived %s; Telegram result=%s",
+            request.slug,
+            done_path,
+            notify_result,
+        )
 
     def _reset_nonterminal(self, pending_path: Path) -> None:
         try:
@@ -368,7 +449,7 @@ class MaterialsWatcher:
             return False
         progress = raw.get("progress") if isinstance(raw, dict) else None
         phase = progress.get("phase") if isinstance(progress, dict) else None
-        return phase in TERMINAL_PHASES
+        return phase in STARTUP_SKIP_PHASES
 
 
 def drafting_message_for(feature: str) -> str:
