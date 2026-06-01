@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.jobbored.materials-watcher</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>WorkingDirectory</key>
+  <string>/Users/emiliong/.hermes/job-hunt</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/emiliong/.local/bin:/Users/emiliong/.cargo/bin</string>
+    <key>PYTHONPATH</key>
+    <string>/Users/emiliong/.hermes/job-hunt/scripts</string>
+    <key>SSL_CERT_FILE</key>
+    <string>/opt/homebrew/etc/openssl@3/cert.pem</string>
+  </dict>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/emiliong/.hermes/job-hunt/.venv/bin/python3</string>
+    <string>-m</string>
+    <string>materials_watcher</string>
+  </array>
+  <key>StandardOutPath</key>
+  <string>/Users/emiliong/.hermes/job-hunt/logs/materials-watcher.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/emiliong/.hermes/job-hunt/logs/materials-watcher.err.log</string>
+</dict>
+</plist>
