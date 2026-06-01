@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-05-31 (session 6 — Phase 5 cut #1).
+> Orchestrator ledger. **Last updated:** 2026-05-31 (session 7 — branch ownership split + B merge).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -28,6 +28,24 @@
 | Worktree ops | `shell` | composer-2.5-fast | idle |
 | Debug / repair | `debugger` | claude-opus-4-8-thinking-high | idle |
 
+## Parallel refactor coordination (session 7)
+
+Integration checkout is orchestrator-only. Dirty mixed work found on
+`refactor/app-js-decompose` was preserved as
+`stash@{0}: orchestrator mixed integration WIP before owner branch split`, then
+replayed onto owner branches.
+
+| Order | Track | Branch | Worktree | Status | Verification |
+|---|---|---|---|---|---|
+| 1 | B — index.html decompose | `refactor/index-html-decompose` | `/Users/emilionunezgarcia/Job-Bored-worktrees/index-html-decompose` | **MERGED** `a432bd2` | `npm test` = **894 pass / 0 fail** after `npm install --prefix server` |
+| 2 | C — style.css split | `refactor/style-css-split` | `/Users/emilionunezgarcia/Job-Bored-worktrees/style-css-split` | **PENDING / not merge-ready** `37bbc37` | Preserved legacy CSS files only; still needs `style.css` trim, `index.html` head links after B, and full `npm test` before merge |
+| 3 | A — app.js follow-up | `refactor/app-js-decompose-app-config-core-followup` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-config-core-followup` | **PENDING** `61628cd` | Targeted `npm test -- tests/settings-sheet-id-validation.test.mjs` = **3 pass / 0 fail**; needs full `npm test` before merge |
+
+Shared-file rule in force: `index.html` structural changes landed with B first;
+C may edit only `<head>` CSS links next; A may edit only script tags or its
+owned `app.js` follow-up files after C unless the orchestrator confirms a
+non-overlap.
+
 ## Integration commits (merged to `refactor/app-js-decompose`)
 
 | Commit | Module | app.js delta (approx) | Tests |
@@ -49,6 +67,7 @@
 | `c4d529b` | `sheets-read-load.js` | −~545 LOC | green |
 | `576782d` | `pipeline-render.js` | −~1,432 LOC | green |
 | *(this commit)* | `discovery-run-tracker.js` | −~330 LOC body | green (892 pass) |
+| `a432bd2` | `index.html` discovery partials | N/A | green (894 pass) |
 
 ## Extraction order progress
 
@@ -79,6 +98,9 @@
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-sheets-writeback` | `refactor/app-js-decompose-sheets-writeback` | Phase 4 writeback | merged `95657ad` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-sheets-read-load` | `refactor/app-js-decompose-sheets-read-load` | Phase 4 read-load | merged `c4d529b` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-render` | `refactor/app-js-decompose-pipeline-render` | Phase 4 pipeline | merged `576782d` |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/index-html-decompose` | `refactor/index-html-decompose` | Track B index decomposition | merged `a432bd2` |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/style-css-split` | `refactor/style-css-split` | Track C CSS split | pending; not merge-ready |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-config-core-followup` | `refactor/app-js-decompose-app-config-core-followup` | Track A config-core follow-up | pending; targeted tests green |
 
 Worktree create (orchestrator or shell subagent):
 
@@ -109,6 +131,7 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 | 3 | Materials / ATS / onboarding / settings / logo / feature init | **DONE** |
 | 4 | Pipeline / Sheets | **DONE** (`95657ad`, `c4d529b`, `576782d`; **892 pass**) |
 | 5 | Discovery remainder | **in progress** (cut #1 done) |
+| 5b | Index decomposition guardrail | **DONE** (`a432bd2`; **894 pass**) |
 | 6 | Auth / config / core collapse | pending |
 
 ## Blockers / hygiene
@@ -116,6 +139,7 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 1. **Discovery autofill WIP** — stashed as `discovery autofill WIP (post-phase4)` (`fb7c653`); breaks 4 discovery tests until finished; keep out of module-cut commits.
 2. Phase 2 leaf cuts committed: `5cd73d6`, `51f97e4`, `cf1c654`.
 3. **Plan LOC table** — re-derive ranges from **12,456** LOC `app.js` before each cut.
+4. **Mixed integration WIP backup** — `stash@{0}` is retained only as a recovery snapshot after replaying files to owner branches.
 
 ## Next actions (orchestrator)
 
@@ -124,7 +148,8 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 2. ~~Phase 3 + parallel batch~~ **done** (`11b6d86`, `c5748db`, `6facfc2` integrated; **892 pass**).
 3. ~~Phase 4~~ **done** — writeback, read-load, pipeline-render integrated; **892 pass** at **13,140** LOC.
 4. Phase 5 cut #1 **done** — `discovery-run-tracker.js`; **892 pass** at **12,456** LOC.
-5. Next: Phase 5 cut #2 — `config-overrides.js` per PLAN §D.
+5. Track B index decomposition **merged** — `a432bd2`; **894 pass**.
+6. Next merge order: **C (`refactor/style-css-split`) → A (`refactor/app-js-decompose-app-config-core-followup`)**. Do not merge either until it has a clean worktree and full `npm test` pass on its owner branch.
 
 ## `index.html` script order (post Phase 5 cut #1)
 
