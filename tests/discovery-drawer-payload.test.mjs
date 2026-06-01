@@ -321,6 +321,8 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
     assert.match(candidateSource, /h\("getCloudflareRelayTargetInfo"\)/);
     assert.match(candidateSource, /h\("buildDiscoveryTunnelTargetUrl"/);
     assert.match(candidateSource, /source:\s*"configured"/);
+    assert.match(candidateSource, /source:\s*"live_worker"/);
+    assert.match(resolverSource, /fetchLocalDiscoveryRuntimeHints\(/);
     assert.match(resolverSource, /scoreDiscoveryRunWebhookCandidates\(/);
 
     assert.match(

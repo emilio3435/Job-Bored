@@ -32,8 +32,10 @@ function generateDiscoveryVariationKey() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
-function getDiscoveryRunWebhookUrlCandidates(snapshot) {
+function getDiscoveryRunWebhookUrlCandidates(snapshot, runtimeHints) {
   const state = snapshot && typeof snapshot === "object" ? snapshot : {};
+  const hints =
+    runtimeHints && typeof runtimeHints === "object" ? runtimeHints : null;
   const transport = h("getDiscoveryTransportSetupState");
   const relayInfo = h("getCloudflareRelayTargetInfo");
   const snapshotTunnelTargetUrl = h("buildDiscoveryTunnelTargetUrl",
@@ -48,8 +50,9 @@ function getDiscoveryRunWebhookUrlCandidates(snapshot) {
     h("isLocalDashboardOrigin") &&
     (state.savedWebhookKind === "local_http" ||
       state.localWebhookReady === true ||
-      !!transport.localWebhookUrl);
-  return [
+      !!transport.localWebhookUrl ||
+      !!(hints && hints.workerUp));
+  const candidates = [
     { url: h("getDiscoveryWebhookUrl"), source: "configured" },
     { url: state.savedWebhookUrl, source: "snapshot_saved" },
     { url: snapshotTunnelTargetUrl, source: "snapshot_tunnel_target" },
@@ -65,6 +68,19 @@ function getDiscoveryRunWebhookUrlCandidates(snapshot) {
       source: "transport_local",
     },
   ];
+  if (hints && hints.localWebhookUrl) {
+    candidates.unshift({
+      url: hints.localWebhookUrl,
+      source: "live_worker",
+    });
+  }
+  if (hints && hints.liveNgrokWebhookUrl) {
+    candidates.push({
+      url: hints.liveNgrokWebhookUrl,
+      source: "live_ngrok",
+    });
+  }
+  return candidates;
 }
 
 function isLocalWebhookCandidateUrl(raw) {
@@ -81,8 +97,10 @@ function isLocalWebhookCandidateUrl(raw) {
   }
 }
 
-function getDiscoveryRunWebhookCandidateProbe(candidate, snapshot) {
+function getDiscoveryRunWebhookCandidateProbe(candidate, snapshot, runtimeHints) {
   const src = candidate && typeof candidate === "object" ? candidate : {};
+  const hints =
+    runtimeHints && typeof runtimeHints === "object" ? runtimeHints : null;
   const url = h("normalizeDiscoveryWebhookIdentity", src.url || candidate);
   if (!url) {
     return { ok: false, url: "", source: src.source || "", score: -1 };
@@ -121,9 +139,11 @@ function getDiscoveryRunWebhookCandidateProbe(candidate, snapshot) {
   }
 
   if (source.includes("local") && local && state.localWebhookReady) score += 90;
+  else if (source === "live_worker" && local && hints && hints.workerUp) score += 200;
   else if (source.includes("local") && local) score += 20;
   if (source === "configured") score += 35;
   if (source === "snapshot_saved") score += 25;
+  if (source === "live_ngrok" && hints && hints.liveNgrokWebhookUrl) score += 70;
   if (worker) score += h("isLocalDashboardOrigin") ? 45 : 80;
   else if (hostedHttps) score += h("isLocalDashboardOrigin") ? 35 : 65;
   if (source.includes("relay")) score += 20;
@@ -143,6 +163,23 @@ function getDiscoveryRunWebhookCandidateProbe(candidate, snapshot) {
   ) {
     score -= 120;
   }
+  if (
+    hints &&
+    hints.workerUp &&
+    h("isLocalDashboardOrigin") &&
+    h("isLikelyNgrokWebhookUrl", url) &&
+    (source === "configured" || source === "snapshot_saved")
+  ) {
+    score -= 90;
+  }
+  if (
+    hints &&
+    hints.liveNgrokWebhookUrl &&
+    h("isLikelyNgrokWebhookUrl", url) &&
+    !h("sameDiscoveryUrlOrigin", url, hints.liveNgrokWebhookUrl)
+  ) {
+    score -= 110;
+  }
   if (!h("isLocalDashboardOrigin") && (worker || hostedHttps)) {
     score += 20;
   }
@@ -150,11 +187,51 @@ function getDiscoveryRunWebhookCandidateProbe(candidate, snapshot) {
   return { ok: true, url, source, score };
 }
 
-async function scoreDiscoveryRunWebhookCandidates(candidates, snapshot) {
+async function fetchLocalDiscoveryRuntimeHints() {
+  if (!h("isLocalDashboardOrigin")) return null;
+  try {
+    const resp = await fetch("/__proxy/discovery-state", {
+      method: "GET",
+      cache: "no-store",
+    });
+    const state = await resp.json().catch(() => null);
+    if (!resp.ok || !state || state.ok !== true) return null;
+    const worker = state.worker && typeof state.worker === "object" ? state.worker : {};
+    const workerPort = Number.parseInt(String(worker.port || ""), 10);
+    const port =
+      Number.isInteger(workerPort) && workerPort > 0 && workerPort < 65536
+        ? workerPort
+        : 8644;
+    const workerUp = worker.up === true;
+    const liveNgrokUrl =
+      state.ngrok && typeof state.ngrok.url === "string"
+        ? state.ngrok.url.trim()
+        : "";
+    const liveNgrokWebhookUrl = liveNgrokUrl
+      ? String(liveNgrokUrl).replace(/\/+$/, "") + "/webhook"
+      : "";
+    return {
+      workerUp,
+      workerPort: port,
+      localWebhookUrl: workerUp ? `http://127.0.0.1:${port}/webhook` : "",
+      liveNgrokUrl,
+      liveNgrokWebhookUrl,
+      recommendation: String(state.recommendation || "").trim(),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+async function scoreDiscoveryRunWebhookCandidates(candidates, snapshot, runtimeHints) {
   const seen = new Set();
   const scored = [];
   for (const candidate of candidates || []) {
-    const probe = getDiscoveryRunWebhookCandidateProbe(candidate, snapshot);
+    const probe = getDiscoveryRunWebhookCandidateProbe(
+      candidate,
+      snapshot,
+      runtimeHints,
+    );
     if (!probe.ok || !probe.url || seen.has(probe.url)) continue;
     seen.add(probe.url);
     scored.push(probe);
@@ -182,9 +259,11 @@ async function resolveDiscoveryRunWebhookUrl() {
     console.warn("[JobBored] discovery run readiness:", err);
   }
 
+  const runtimeHints = await fetchLocalDiscoveryRuntimeHints();
   const scored = await scoreDiscoveryRunWebhookCandidates(
-    getDiscoveryRunWebhookUrlCandidates(snapshot),
+    getDiscoveryRunWebhookUrlCandidates(snapshot, runtimeHints),
     snapshot,
+    runtimeHints,
   );
   return scored.length ? scored[0].url : "";
 }

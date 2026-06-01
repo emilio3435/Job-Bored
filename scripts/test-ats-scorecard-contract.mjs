@@ -28,7 +28,7 @@ function extractFunctionSource(src, functionName) {
   const anchor = `function ${functionName}(`;
   const start = src.indexOf(anchor);
   if (start === -1) {
-    throw new Error(`Could not find ${functionName}() in app.js`);
+    throw new Error(`Could not find ${functionName}() in ATS scorecard source`);
   }
   const braceStart = src.indexOf("{", start);
   if (braceStart === -1) {
@@ -111,7 +111,7 @@ if (!requestValidate) {
 }
 
 const buildAtsScorecardRequestPayload = loadAtsRequestBuilder(
-  readFileSync(join(repoRoot, "app.js"), "utf8"),
+  readFileSync(join(repoRoot, "ats-scorecard.js"), "utf8"),
 );
 
 const fullPayload = buildAtsScorecardRequestPayload(
@@ -177,7 +177,7 @@ const fullPayload = buildAtsScorecardRequestPayload(
   },
 );
 validateOrExit(requestValidate, fullPayload, "live ATS builder (full bundle)");
-console.log("OK app.js ATS request builder matches schema for full bundle payload");
+console.log("OK ats-scorecard.js request builder matches schema for full bundle payload");
 
 const sparsePayload = buildAtsScorecardRequestPayload(
   "This resume update draft still contains enough text to trigger ATS validation.",
@@ -191,4 +191,4 @@ const sparsePayload = buildAtsScorecardRequestPayload(
   },
 );
 validateOrExit(requestValidate, sparsePayload, "live ATS builder (sparse payload)");
-console.log("OK app.js ATS request builder matches schema for sparse payload");
+console.log("OK ats-scorecard.js request builder matches schema for sparse payload");
