@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-05-31 (session 8 — Track C CSS merge).
+> Orchestrator ledger. **Last updated:** 2026-05-31 (session 9 — Track A config follow-up merge).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -12,7 +12,7 @@
 | Pre-existing dirty files | `M app.js` (1-line discovery webhook candidate — **do not mix into module cuts**), `M package-lock.json`, untracked `docs/refactor/*` |
 | Node / npm | v24.13.0 / 11.13.0 ✓ |
 | Baseline `npm test` | **892 pass / 0 fail / 0 skip** (188 suites, ~7.6s) |
-| `app.js` LOC (current) | **12,456** (post Phase 5 cut #1; was 13,140 post Phase 4) |
+| `app.js` LOC (current) | **10,484** (post Track A config follow-up; was 12,456 post Phase 5 cut #1) |
 | `SetActiveBranch` | `refactor/app-js-decompose` ✓ |
 | Swarm model | Cursor Task subagents per [PROMPT-app-js-remainder-cursor-swarm-orchestrator.md](./PROMPT-app-js-remainder-cursor-swarm-orchestrator.md) |
 
@@ -39,12 +39,12 @@ replayed onto owner branches.
 |---|---|---|---|---|---|
 | 1 | B — index.html decompose | `refactor/index-html-decompose` | `/Users/emilionunezgarcia/Job-Bored-worktrees/index-html-decompose` | **MERGED** `a432bd2` | `npm test` = **894 pass / 0 fail** after `npm install --prefix server` |
 | 2 | C — style.css split | `refactor/style-css-split` | `/Users/emilionunezgarcia/Job-Bored-worktrees/style-css-split` | **MERGED** `37241c6` | Branch gate `npm test` = **894 pass / 0 fail**; post-merge integration `npm test` = **894 pass / 0 fail**; `style.css` = **1,872 LOC** |
-| 3 | A — app.js follow-up | `refactor/app-js-decompose-app-config-core-followup` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-config-core-followup` | **PENDING** `366b4a9` | Full branch `npm test` previously **894 pass / 0 fail**; rebase onto post-C integration and rerun full `npm test` before merge |
+| 3 | A — app.js follow-up | `refactor/app-js-decompose-app-config-core-followup` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-config-core-followup` | **MERGED** `d2d5224` | Branch gate after rebase `npm test` = **894 pass / 0 fail**; post-merge integration `npm test` = **894 pass / 0 fail**; `git diff --check` clean; exact conflict-marker scan clean |
 
 Shared-file rule in force: `index.html` structural changes landed with B first,
-and legacy CSS `<head>` links landed with C. A may now edit only its owned
-`app.js` follow-up files and matching tests unless the orchestrator confirms a
-non-overlap.
+legacy CSS `<head>` links landed with C, and the scoped A config follow-up landed
+after rebasing onto post-C integration. New app-js work must start from current
+integration tip `d2d5224` or later in a named worktree/branch.
 
 Follow-up Cursor prompts are staged in
 [FOLLOWUP-CURSOR-SWARM-2026-05-31.md](./FOLLOWUP-CURSOR-SWARM-2026-05-31.md).
@@ -72,6 +72,7 @@ Use those prompts instead of a broad "keep refactoring until <1000 LOC" request.
 | `576782d` | `pipeline-render.js` | −~1,432 LOC | green |
 | *(this commit)* | `discovery-run-tracker.js` | −~330 LOC body | green (892 pass) |
 | `a432bd2` | `index.html` discovery partials | N/A | green (894 pass) |
+| `d2d5224` | config-core follow-up merge | −~21 LOC in `app.js` | green (894 pass) |
 
 ## Extraction order progress
 
@@ -104,7 +105,7 @@ Use those prompts instead of a broad "keep refactoring until <1000 LOC" request.
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-render` | `refactor/app-js-decompose-pipeline-render` | Phase 4 pipeline | merged `576782d` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/index-html-decompose` | `refactor/index-html-decompose` | Track B index decomposition | merged `a432bd2` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/style-css-split` | `refactor/style-css-split` | Track C CSS split | merged `37241c6` |
-| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-config-core-followup` | `refactor/app-js-decompose-app-config-core-followup` | Track A config-core follow-up | pending; rebase after C |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-config-core-followup` | `refactor/app-js-decompose-app-config-core-followup` | Track A config-core follow-up | merged `d2d5224` |
 
 Worktree create (orchestrator or shell subagent):
 
@@ -136,7 +137,7 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 | 4 | Pipeline / Sheets | **DONE** (`95657ad`, `c4d529b`, `576782d`; **892 pass**) |
 | 5 | Discovery remainder | **in progress** (cut #1 done) |
 | 5b | Index decomposition guardrail | **DONE** (`a432bd2`; **894 pass**) |
-| 6 | Auth / config / core collapse | pending |
+| 6 | Auth / config / core collapse | in progress; config-core follow-up merged |
 
 ## Blockers / hygiene
 
@@ -154,7 +155,8 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 4. Phase 5 cut #1 **done** — `discovery-run-tracker.js`; **892 pass** at **12,456** LOC.
 5. Track B index decomposition **merged** — `a432bd2`; **894 pass**.
 6. Track C CSS split **merged** — `37241c6`; branch and integration **894 pass**.
-7. Next merge order: **A (`refactor/app-js-decompose-app-config-core-followup`)**, then fresh app-js `-v2` lanes. Do not merge A until it rebases onto `37241c6` or later and reruns full `npm test`.
+7. Track A config follow-up **merged** — `d2d5224`; branch and integration **894 pass**.
+8. Next merge order: audit stale/dirty worker branches first, then start fresh app-js `-v2` lanes from `d2d5224` or later. Do not reuse stale branches that still point at `62e6f30` unless the owner first rebases and proves the diff is still unique.
 
 ## `index.html` script order (post Phase 5 cut #1)
 
