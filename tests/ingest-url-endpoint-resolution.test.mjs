@@ -8,6 +8,7 @@ import { readIndexHtml } from "../scripts/lib/expand-index-includes.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
 const statusHandoffJs = readFileSync(
   join(repoRoot, "discovery-status-handoff.js"),
   "utf8",
@@ -198,9 +199,9 @@ describe("Add job from URL endpoint resolution", () => {
 
   it("keeps the run resolver wired to bootstrap, readiness, relay, tunnel, and local fallbacks", () => {
     assert.match(
-      appJs,
+      appCompatJs,
       /async function resolveDiscoveryRunWebhookUrl\(/,
-      "app.js must keep a thin resolveDiscoveryRunWebhookUrl wrapper",
+      "app-compat.js must keep a thin resolveDiscoveryRunWebhookUrl wrapper",
     );
     const resolverSource = readAsyncFunctionSource(
       "resolveDiscoveryRunWebhookUrl",
@@ -277,7 +278,7 @@ describe("Add job from URL endpoint resolution", () => {
     );
     const authFailureSource = readFunctionSource(
       "isIngestSheetAuthFailure",
-      "\n}\n\nfunction getDiscoveryEngineStateFromVerificationResult",
+      "\n}\n\n// Discovery verification-state",
     );
     const submitSource = readIngestAsyncFunctionSource(
       "handleIngestUrlSubmit",
@@ -439,7 +440,7 @@ describe("Add job from URL endpoint resolution", () => {
       completeFunction(
         readFunctionSource(
           "isIngestSheetAuthFailure",
-          "\n}\n\nfunction getDiscoveryEngineStateFromVerificationResult",
+          "\n}\n\n// Discovery verification-state",
         ),
       ),
     ].join("\n");
@@ -548,7 +549,7 @@ describe("Add job from URL endpoint resolution", () => {
       completeFunction(
         readFunctionSource(
           "isIngestSheetAuthFailure",
-          "\n}\n\nfunction getDiscoveryEngineStateFromVerificationResult",
+          "\n}\n\n// Discovery verification-state",
         ),
       ),
     ].join("\n");

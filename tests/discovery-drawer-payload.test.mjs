@@ -20,10 +20,11 @@ import { readIndexHtml } from "../scripts/lib/expand-index-includes.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
 const bootstrapJs = readFileSync(join(repoRoot, "app-bootstrap.js"), "utf8");
 const drawerJs = readFileSync(join(repoRoot, "discovery-drawer.js"), "utf8");
-/** Drawer implementation lives in discovery-drawer.js; app.js keeps thin wrappers. */
-const drawerSource = `${appJs}\n${drawerJs}`;
+/** Drawer implementation lives in discovery-drawer.js; app-compat.js keeps thin wrappers. */
+const drawerSource = `${appCompatJs}\n${drawerJs}`;
 const indexHtml = readIndexHtml(repoRoot);
 const userContentStoreJs = readFileSync(
   join(repoRoot, "user-content-store.js"),
@@ -192,19 +193,19 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
   });
 
   it("declares openDiscoveryDrawer / initDiscoveryDrawer as the entry points", () => {
-    assert.match(appJs, /function openDiscoveryDrawer\(/);
-    assert.match(appJs, /function initDiscoveryDrawer\(/);
+    assert.match(appCompatJs, /function openDiscoveryDrawer\(/);
+    assert.match(appCompatJs, /function initDiscoveryDrawer\(/);
     assert.match(drawerJs, /window\.JobBoredDiscovery\.drawer/);
     assert.match(drawerJs, /Object\.assign\(drawer,/);
     assert.match(drawerJs, /window\.JobBoredDiscoveryDrawerSubtabs\s*=/);
     assert.match(drawerJs, /setActiveSubtab:\s*setDiscoveryDrawerSubtab/);
     assert.match(drawerJs, /window\.openDiscoveryDrawer\s*=\s*openDiscoveryDrawer/);
     assert.ok(
-      !/function openDiscoveryPrefsModal\(/.test(appJs),
+      !/function openDiscoveryPrefsModal\(/.test(`${appJs}\n${appCompatJs}`),
       "legacy modal entry point must be removed",
     );
     assert.ok(
-      !/function initDiscoveryPrefsModal\(/.test(appJs),
+      !/function initDiscoveryPrefsModal\(/.test(`${appJs}\n${appCompatJs}`),
       "legacy modal init must be removed",
     );
   });
@@ -240,7 +241,11 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
   });
 
   it("wires the discovery drawer before the no-sheet early return", () => {
-    assert.match(appJs, /function init\(/, "app.js must keep a thin init wrapper");
+    assert.match(
+      appCompatJs,
+      /function init\(/,
+      "app-compat.js must keep a thin init wrapper",
+    );
     const initStart = bootstrapJs.indexOf("function init()");
     assert.notEqual(initStart, -1, "init implementation must live in app-bootstrap.js");
     const initEnd = bootstrapJs.indexOf(
@@ -276,9 +281,9 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
 
   it("starts runs through the resolved discovery transport, not the setup wizard autodetect shortcut", () => {
     assert.match(
-      appJs,
+      appCompatJs,
       /async function resolveDiscoveryRunWebhookUrl\(/,
-      "app.js must keep a thin resolveDiscoveryRunWebhookUrl wrapper",
+      "app-compat.js must keep a thin resolveDiscoveryRunWebhookUrl wrapper",
     );
     const resolverStart = runOrchJs.indexOf(
       "async function resolveDiscoveryRunWebhookUrl()",
@@ -319,9 +324,9 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
     assert.match(resolverSource, /scoreDiscoveryRunWebhookCandidates\(/);
 
     assert.match(
-      appJs,
+      appCompatJs,
       /async function triggerDiscoveryRun\(/,
-      "app.js must keep a thin triggerDiscoveryRun wrapper",
+      "app-compat.js must keep a thin triggerDiscoveryRun wrapper",
     );
     const triggerStart = runOrchJs.indexOf("async function triggerDiscoveryRun(");
     assert.notEqual(triggerStart, -1, "triggerDiscoveryRun must exist");
@@ -367,7 +372,7 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
       "manual and scheduled callers should share triggerDiscoveryRun with an explicit trigger label",
     );
     assert.match(
-      appJs,
+      appCompatJs,
       /refreshDiscoveryWebhookSecretFromBootstrapForEndpoint/,
       "local secret mismatch recovery should refresh the bootstrap secret instead of only asking for a reload",
     );
@@ -420,7 +425,7 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
     const openSource = drawerJs.slice(openStart, openEnd);
     assert.match(openSource, /refreshDiscoveryDrawerSourceReadiness\(\)/);
 
-    const triggerStart = appJs.indexOf("async function triggerDiscoveryRun(");
+    const triggerStart = appCompatJs.indexOf("async function triggerDiscoveryRun(");
     assert.notEqual(triggerStart, -1, "triggerDiscoveryRun must exist");
     const runTriggerStart = runOrchJs.indexOf("async function triggerDiscoveryRun(");
     assert.notEqual(runTriggerStart, -1, "triggerDiscoveryRun implementation must exist");
@@ -437,9 +442,9 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
 describe("buildDiscoveryWebhookPayload — companyAllowlist / companyBlocklist", () => {
   it("delegates browser Run discovery payloads to the shared payload builder", () => {
     assert.match(
-      appJs,
+      appCompatJs,
       /async function buildDiscoveryWebhookPayload\(/,
-      "app.js must keep a thin buildDiscoveryWebhookPayload wrapper",
+      "app-compat.js must keep a thin buildDiscoveryWebhookPayload wrapper",
     );
     assert.match(readinessJs, /window\.JobBoredDiscoveryPayload/);
     assert.match(readinessJs, /sharedBuilder\.buildDiscoveryWebhookPayload/);

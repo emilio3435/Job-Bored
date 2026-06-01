@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
 const sheetsWriteJs = readFileSync(join(repoRoot, "sheets-writeback.js"), "utf8");
 const pipelineRenderJs = readFileSync(
   join(repoRoot, "pipeline-render.js"),
@@ -13,7 +14,7 @@ const pipelineRenderJs = readFileSync(
 );
 
 /**
- * Extract a function body from app.js or pipeline-render.js source
+ * Extract a function body from a browser script source.
  */
 function extractFunctionBody(source, functionName) {
   // Match function definition - handle both function name() and async function name()
@@ -56,8 +57,8 @@ describe("Drawer CRM sync", () => {
     it("updateJobNotes function exists", () => {
       assert.ok(body !== null, "updateJobNotes function should exist");
       assert.ok(
-        extractFunctionBody(appJs, "updateJobNotes") !== null,
-        "updateJobNotes wrapper should exist in app.js",
+        extractFunctionBody(appCompatJs, "updateJobNotes") !== null,
+        "updateJobNotes wrapper should exist in app-compat.js",
       );
     });
     it("calls refreshDrawerIfOpen after successful save", () => {
@@ -73,8 +74,8 @@ describe("Drawer CRM sync", () => {
     it("updateFollowUpDate function exists", () => {
       assert.ok(body !== null, "updateFollowUpDate function should exist");
       assert.ok(
-        extractFunctionBody(appJs, "updateFollowUpDate") !== null,
-        "updateFollowUpDate wrapper should exist in app.js",
+        extractFunctionBody(appCompatJs, "updateFollowUpDate") !== null,
+        "updateFollowUpDate wrapper should exist in app-compat.js",
       );
     });
     it("calls refreshDrawerIfOpen after successful save", () => {
@@ -90,8 +91,8 @@ describe("Drawer CRM sync", () => {
     it("updateLastHeardFrom function exists", () => {
       assert.ok(body !== null, "updateLastHeardFrom function should exist");
       assert.ok(
-        extractFunctionBody(appJs, "updateLastHeardFrom") !== null,
-        "updateLastHeardFrom wrapper should exist in app.js",
+        extractFunctionBody(appCompatJs, "updateLastHeardFrom") !== null,
+        "updateLastHeardFrom wrapper should exist in app-compat.js",
       );
     });
     it("calls refreshDrawerIfOpen after successful save", () => {
@@ -107,8 +108,8 @@ describe("Drawer CRM sync", () => {
     it("updateJobResponseFlag function exists", () => {
       assert.ok(body !== null, "updateJobResponseFlag function should exist");
       assert.ok(
-        extractFunctionBody(appJs, "updateJobResponseFlag") !== null,
-        "updateJobResponseFlag wrapper should exist in app.js",
+        extractFunctionBody(appCompatJs, "updateJobResponseFlag") !== null,
+        "updateJobResponseFlag wrapper should exist in app-compat.js",
       );
     });
     it("calls refreshDrawerIfOpen after successful save", () => {
