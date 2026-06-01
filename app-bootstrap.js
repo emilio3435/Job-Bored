@@ -26,6 +26,13 @@
     }
   }
 
+  function releaseAuthPrepaintGuard(reason) {
+    const rootEl = document.documentElement;
+    if (!rootEl.classList.contains("auth-prepaint-dashboard")) return;
+    rootEl.classList.remove("auth-prepaint-dashboard");
+    startupLog("bootstrap:auth-prepaint-released", { reason });
+  }
+
   const missingHostWarnings = new Set();
 
   function h(name, ...args) {
@@ -113,6 +120,7 @@
       readyState: document.readyState,
       hasHost: !!bootstrap.host,
     });
+    releaseAuthPrepaintGuard("init-start");
 
     // Check config
     const configuredSheetId = h("getSheetId");
@@ -277,7 +285,16 @@
     // file upload. Calling it again here would double-bind every listener
     // (addEventListener doesn't dedupe), so don't.
 
-    h("loadAllData");
+    const shouldDeferDataLoadToAuth =
+      (hasRuntimeToken || hasPersistedSession) && !h("getAccessToken");
+    if (shouldDeferDataLoadToAuth) {
+      startupLog("bootstrap:init:data-load-deferred-to-auth", {
+        hasRuntimeToken,
+        hasPersistedSession,
+      });
+    } else {
+      h("loadAllData");
+    }
 
     setInterval(() => h("loadAllData"), REFRESH_INTERVAL);
     startupLog("bootstrap:init:complete");

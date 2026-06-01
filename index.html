@@ -101,6 +101,14 @@
           if (target.tagName === "LINK") {
             return target.href || target.getAttribute("href") || "link";
           }
+          if (target.tagName === "IMG") {
+            return (
+              target.currentSrc ||
+              target.src ||
+              target.getAttribute("src") ||
+              "IMG"
+            );
+          }
           return target.tagName || "";
         }
 

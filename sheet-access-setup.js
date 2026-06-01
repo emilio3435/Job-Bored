@@ -30,6 +30,13 @@
     }
   }
 
+  function releaseAuthPrepaintGuard(reason) {
+    const rootEl = document.documentElement;
+    if (!rootEl.classList.contains("auth-prepaint-dashboard")) return;
+    rootEl.classList.remove("auth-prepaint-dashboard");
+    startupLog("sheet-access:auth-prepaint-released", { reason });
+  }
+
   function accessStateForLog() {
     try {
       const currentHost = host();
@@ -292,6 +299,7 @@
   }
 
   function showSheetAccessGate(mode) {
+    releaseAuthPrepaintGuard("show-gate");
     const screen = document.getElementById("sheetAccessGateScreen");
     const dashboard = document.getElementById("dashboard");
     const setupScreen = document.getElementById("setupScreen");
@@ -479,6 +487,7 @@
 
   /** Show the starter Pipeline setup screen before the guided wizard takes over. */
   function revealPipelineSetupStepsScreen() {
+    releaseAuthPrepaintGuard("reveal-starter-setup");
     const setupScreen = document.getElementById("setupScreen");
     const dashboard = document.getElementById("dashboard");
     startupLog(
@@ -503,6 +512,7 @@
   }
 
   function revealDashboardShell() {
+    releaseAuthPrepaintGuard("reveal-dashboard");
     const setupScreen = document.getElementById("setupScreen");
     const screen = document.getElementById("sheetAccessGateScreen");
     const dashboard = document.getElementById("dashboard");

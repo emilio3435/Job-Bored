@@ -18,12 +18,15 @@ describe("startup diagnostics", () => {
     assert.match(source, /window:error/);
     assert.match(source, /window:unhandledrejection/);
     assert.match(source, /blank shell detected/);
+    assert.match(source, /target\.tagName === "IMG"/);
   });
 
   it("reports missing bootstrap host functions before startup stalls silently", () => {
     const source = readRepoFile("app-bootstrap.js");
 
     assert.match(source, /bootstrap missing host function/);
+    assert.match(source, /bootstrap:auth-prepaint-released/);
+    assert.match(source, /bootstrap:init:data-load-deferred-to-auth/);
     assert.match(source, /bootstrap:init:no-sheet-id/);
     assert.match(source, /bootstrap:init:complete/);
   });
@@ -32,6 +35,7 @@ describe("startup diagnostics", () => {
     const source = readRepoFile("sheet-access-setup.js");
 
     assert.match(source, /sheet-access:missing-required-dom/);
+    assert.match(source, /sheet-access:auth-prepaint-released/);
     assert.match(source, /sheet-access:gate-visible/);
     assert.match(source, /sheet-access:reveal-dashboard/);
   });
