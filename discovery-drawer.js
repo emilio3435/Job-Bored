@@ -1578,6 +1578,11 @@ function initDiscoveryButton() {
     generateDiscoverySuggestions,
     normalizeStratum,
     applyStratumToDrawer,
+    parseJsonSafeForSuggestions,
+    resolveGeminiModel,
+    callDiscoveryAiGemini,
+    callDiscoveryAiOpenAI,
+    callDiscoveryAiAnthropic,
     setDiscoveryDrawerSubtab,
     getActiveDiscoverySubtab() {
       return activeDiscoverySubtab;

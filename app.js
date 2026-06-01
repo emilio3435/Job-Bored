@@ -1481,10 +1481,18 @@ window.JobBoredDiscovery.drawer.host = {
   getJobPostingScrapeUrl,
   getUserContent,
   buildCandidateProfileExcerpt,
-  callDiscoveryAiGemini,
-  callDiscoveryAiOpenAI,
-  callDiscoveryAiAnthropic,
-  parseJsonSafeForSuggestions,
+  callDiscoveryAiGemini(...args) {
+    return window.JobBoredDiscovery.drawer.callDiscoveryAiGemini(...args);
+  },
+  callDiscoveryAiOpenAI(...args) {
+    return window.JobBoredDiscovery.drawer.callDiscoveryAiOpenAI(...args);
+  },
+  callDiscoveryAiAnthropic(...args) {
+    return window.JobBoredDiscovery.drawer.callDiscoveryAiAnthropic(...args);
+  },
+  parseJsonSafeForSuggestions(...args) {
+    return window.JobBoredDiscovery.drawer.parseJsonSafeForSuggestions(...args);
+  },
   openSettingsForDiscoveryWebhook,
   syncDiscoveryButtonState,
 };
@@ -1819,13 +1827,13 @@ window.JobBoredApp.core.host = {
     return mergeStoredConfigOverridePatch(...args);
   },
   resolveGeminiModel(...args) {
-    return resolveGeminiModel(...args);
+    return window.JobBoredDiscovery.drawer.resolveGeminiModel(...args);
   },
   callDiscoveryAiGemini(...args) {
-    return callDiscoveryAiGemini(...args);
+    return window.JobBoredDiscovery.drawer.callDiscoveryAiGemini(...args);
   },
   parseJsonSafeForSuggestions(...args) {
-    return parseJsonSafeForSuggestions(...args);
+    return window.JobBoredDiscovery.drawer.parseJsonSafeForSuggestions(...args);
   },
   resumePendingDiscoverySetupIfNeeded(...args) {
     return resumePendingDiscoverySetupIfNeeded(...args);
