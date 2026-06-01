@@ -96,8 +96,9 @@ Use those prompts instead of a broad "keep refactoring until <1000 LOC" request.
 
 ## Active pane dispatch (session 15)
 
-All implementation work starts from integration tip `6f6b93a`. The integration
-checkout remains orchestrator-only for merges and ledger commits.
+All implementation worktrees were created from `6f6b93a`, then rebased to the
+session dispatch ledger tip `e996c8f`. The integration checkout remains
+orchestrator-only for merges and ledger commits.
 
 | Pane | Role | Branch | Worktree | Status | Stop condition |
 |---|---|---|---|---|---|
@@ -212,7 +213,7 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 10. Discovery engine state **merged** — `7f9a2ee`; branch and integration **894 pass**.
 11. Discovery status handoff **merged** — `942248c`; branch and integration **894 pass**.
 12. Session 14 Apps Script deploy lane **merged** — `07186fc`; branch and integration **894 pass** at **7,898** LOC.
-13. Session 15 v2 branches created at integration tip `6f6b93a`: `discovery-drawer-v2`, `ingest-url-flow-v2`, `core-collapse-survey`, and `qa-review`.
+13. Session 15 v2 branches created at integration tip `6f6b93a`, then rebased to dispatch ledger tip `e996c8f`: `discovery-drawer-v2`, `ingest-url-flow-v2`, `core-collapse-survey`, and `qa-review`.
 14. Merge order for active implementation lanes: **discovery-drawer-v2 → ingest-url-flow-v2**. Each branch must start from the latest integration tip and pass `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, `node --check` for touched JS, and full `npm test` before merge.
 15. Use the Phase 6 survey output to choose the next major implementation lane after drawer and ingest are inspected.
 16. After each future merge, update this status doc with the branch gate, post-merge gate, commit SHA, and new `app.js` LOC.
