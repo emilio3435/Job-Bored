@@ -6,15 +6,15 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
-const AUTH_SECTION_START = appJs.indexOf("let accessToken = null;");
-const AUTH_SECTION_END = appJs.indexOf(
+const authSessionJs = readFileSync(join(repoRoot, "auth-session.js"), "utf8");
+const AUTH_SECTION_START = authSessionJs.indexOf("let accessToken = null;");
+const AUTH_SECTION_END = authSessionJs.indexOf(
   "// ============================================\n// TOAST SYSTEM",
 );
-const AUTH_GIS_SECTION_START = appJs.indexOf(
+const AUTH_GIS_SECTION_START = authSessionJs.indexOf(
   "// ============================================\n// AUTH — Google Identity Services",
 );
-const AUTH_GIS_SECTION_END = appJs.indexOf(
+const AUTH_GIS_SECTION_END = authSessionJs.indexOf(
   "function setupAuthUI",
   AUTH_GIS_SECTION_START,
 );
@@ -25,14 +25,57 @@ if (
   AUTH_GIS_SECTION_START === -1 ||
   AUTH_GIS_SECTION_END === -1
 ) {
-  throw new Error("Could not isolate the auth session section from app.js");
+  throw new Error(
+    "Could not isolate the auth session section from auth-session.js",
+  );
 }
 
-const authSectionSource = appJs.slice(AUTH_SECTION_START, AUTH_SECTION_END);
+const authSectionSource = authSessionJs.slice(
+  AUTH_SECTION_START,
+  AUTH_SECTION_END,
+);
 const authInteractiveSource = [
   authSectionSource,
-  appJs.slice(AUTH_GIS_SECTION_START, AUTH_GIS_SECTION_END),
+  authSessionJs.slice(AUTH_GIS_SECTION_START, AUTH_GIS_SECTION_END),
 ].join("\n");
+
+/** VM preamble: host()/sheetId() helpers the extracted module expects at runtime. */
+const authVmPreamble = `
+function sheetId() {
+  return String(SHEET_ID || "").trim();
+}
+function host() {
+  return {
+    getOAuthClientId,
+    getSHEET_ID: () => SHEET_ID,
+    getSheetId: () => SHEET_ID,
+    setPendingSetupStarterSheetCreate(value) {
+      pendingSetupStarterSheetCreate = !!value;
+    },
+    getPendingSetupStarterSheetCreate() {
+      return pendingSetupStarterSheetCreate;
+    },
+    loadAllData,
+    revealDashboardShell() {},
+    revealSetupScreenAfterAuth,
+    showSheetAccessGate,
+    showToast,
+    maybeSyncSettingsModalModeAfterAuth,
+    renderSetupStarterSheetUi() {},
+    renderAppsScriptDeployUi() {},
+    recordSheetAccessError() {},
+    renderPipeline() {},
+    setPipelineRawRows() {},
+    setPipelineData() {},
+    setDashboardDataHydrated() {},
+    setInitialSheetAccessResolved() {},
+    handleSetupCreateStarterSheet() {},
+    escapeHtml(value) {
+      return String(value);
+    },
+  };
+}
+`;
 const OAUTH_SESSION_STORAGE_KEY = "command_center_oauth_session";
 const OAUTH_RUNTIME_SESSION_STORAGE_KEY = "command_center_oauth_runtime";
 const GOOGLE_SIGNIN_SCOPES = [
@@ -115,10 +158,11 @@ function createAuthHarness({
   });
 
   vm.runInContext(
-    includeInteractive ? authInteractiveSource : authSectionSource,
+    authVmPreamble +
+      (includeInteractive ? authInteractiveSource : authSectionSource),
     context,
     {
-      filename: "app.js#auth-session-boundary",
+      filename: "auth-session.js#auth-session-boundary",
     },
   );
 

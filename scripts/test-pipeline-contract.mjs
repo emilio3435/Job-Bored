@@ -13,7 +13,7 @@ const repoRoot = join(root, "..");
 const PIPELINE_SCHEMA = "schemas/pipeline-row.v1.json";
 const README = "README.md";
 const SETUP = "SETUP.md";
-const APP = "app.js";
+const APP_CONFIG_CORE = "app-config-core.js";
 const SETUP_DOCTOR = "setup-doctor.js";
 
 function loadJson(rel) {
@@ -98,8 +98,8 @@ function parseReadmePipelineHeaders(readme) {
 }
 
 function extractStarterHeadersFromAppJs(appJs) {
-  const m = /const STARTER_PIPELINE_HEADERS = \[([\s\S]*?)\n\];/.exec(appJs);
-  if (!m) throw new Error("STARTER_PIPELINE_HEADERS array not found in app.js");
+  const m = /const STARTER_PIPELINE_HEADERS = \[([\s\S]*?)\n\s*\];/.exec(appJs);
+  if (!m) throw new Error("STARTER_PIPELINE_HEADERS array not found in app-config-core.js");
   // Strip single-line comments before extracting strings, so inline comments
   // containing words like "Approved" do not get mistakenly parsed as header values.
   const cleanContent = m[1].replace(/\/\/.*$/gm, "");
@@ -110,7 +110,7 @@ function extractStarterHeadersFromAppJs(appJs) {
     out.push(JSON.parse(`"${s[1]}"`));
   }
   if (out.length === 0) {
-    throw new Error("no starter pipeline headers parsed from app.js");
+    throw new Error("no starter pipeline headers parsed from app-config-core.js");
   }
   return out;
 }
@@ -148,7 +148,11 @@ function col(schema, id) {
 }
 
 const schema = loadJson(PIPELINE_SCHEMA);
-const appJs = readFileSync(join(repoRoot, APP), "utf8");
+const configCoreJs = readFileSync(join(repoRoot, APP_CONFIG_CORE), "utf8");
+const pipelineRenderJs = readFileSync(
+  join(repoRoot, "pipeline-render.js"),
+  "utf8",
+);
 const readme = readFileSync(join(repoRoot, README), "utf8");
 const setup = readFileSync(join(repoRoot, SETUP), "utf8");
 const setupDoctor = readFileSync(join(repoRoot, SETUP_DOCTOR), "utf8");
@@ -179,10 +183,10 @@ if (!sameOrdered(schema.headerRow, schema.columns.map((c) => c.headerLabel))) {
   process.exit(1);
 }
 
-const starterHeaders = extractStarterHeadersFromAppJs(appJs);
+const starterHeaders = extractStarterHeadersFromAppJs(configCoreJs);
 if (!sameOrdered(starterHeaders, schema.headerRow)) {
-  console.error("STARTER_PIPELINE_HEADERS in app.js must match pipeline-row headerRow.");
-  console.error("  app.js:", starterHeaders.join(", "));
+  console.error("STARTER_PIPELINE_HEADERS in app-config-core.js must match pipeline-row headerRow.");
+  console.error("  app-config-core.js:", starterHeaders.join(", "));
   console.error("  schema:", schema.headerRow.join(", "));
   process.exit(1);
 }
@@ -203,11 +207,11 @@ for (let i = 0; i < schema.columns.length; i++) {
   }
 }
 
-const appStatuses = extractStatusesFromAppJs(appJs);
+const appStatuses = extractStatusesFromAppJs(pipelineRenderJs);
 const schemaStatusEnum = col(schema, "status").enum;
 if (!sameOrdered(appStatuses, schemaStatusEnum)) {
-  console.error("app.js statuses array must match pipeline-row status enum (same order).");
-  console.error("  app.js:", appStatuses.join(", "));
+  console.error("pipeline-render.js statuses array must match pipeline-row status enum (same order).");
+  console.error("  pipeline-render.js:", appStatuses.join(", "));
   console.error("  schema:", schemaStatusEnum.join(", "));
   process.exit(1);
 }
@@ -226,7 +230,7 @@ for (const status of schemaStatusEnum) {
   }
 }
 
-const appPriorityKeys = extractPriorityKeysFromAppJs(appJs);
+const appPriorityKeys = extractPriorityKeysFromAppJs(pipelineRenderJs);
 const schemaPriEnum = col(schema, "priority").enum;
 if (
   !sameOrdered(
@@ -234,14 +238,14 @@ if (
     [...schemaPriEnum].sort(),
   )
 ) {
-  console.error("priority keys in app.js must match pipeline-row priority enum.");
-  console.error("  app.js:", appPriorityKeys.join(", "));
+  console.error("priority keys in pipeline-render.js must match pipeline-row priority enum.");
+  console.error("  pipeline-render.js:", appPriorityKeys.join(", "));
   console.error("  schema:", schemaPriEnum.join(", "));
   process.exit(1);
 }
 if (!sameOrdered(appPriorityKeys, schemaPriEnum)) {
   console.error(
-    "priority order in app.js objects must match pipeline-row enum order (🔥 ⚡ — ↓).",
+    "priority order in pipeline-render.js objects must match pipeline-row enum order (🔥 ⚡ — ↓).",
   );
   console.error("  app.js:", appPriorityKeys.join(", "));
   console.error("  schema:", schemaPriEnum.join(", "));
@@ -255,4 +259,6 @@ if (!sameOrdered(schemaReplyEnum, expectedReply)) {
   process.exit(1);
 }
 
-console.log(`OK ${PIPELINE_SCHEMA} ↔ ${README} ↔ ${APP}`);
+console.log(
+  `OK ${PIPELINE_SCHEMA} ↔ ${README} ↔ ${APP_CONFIG_CORE} ↔ pipeline-render.js`,
+);

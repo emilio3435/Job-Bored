@@ -23,6 +23,15 @@ import { describe, it } from "node:test";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const ingestUrlFlowJs = readFileSync(join(repoRoot, "ingest-url-flow.js"), "utf8");
+const postingEnrichmentJs = readFileSync(
+  join(repoRoot, "posting-enrichment.js"),
+  "utf8",
+);
+const pipelineRenderJs = readFileSync(
+  join(repoRoot, "pipeline-render.js"),
+  "utf8",
+);
 const insightsJs = readFileSync(join(repoRoot, "job-posting-insights.js"), "utf8");
 const resumeGenJs = readFileSync(join(repoRoot, "resume-generate.js"), "utf8");
 
@@ -31,19 +40,22 @@ const resumeGenJs = readFileSync(join(repoRoot, "resume-generate.js"), "utf8");
    but not including, the next top-level `async function` block.
    This is what we'll grep for forbidden user-friction patterns. */
 function enrichmentFlowSlice() {
-  const start = appJs.indexOf("async function fetchJobPostingEnrichment");
+  const start = postingEnrichmentJs.indexOf("async function fetchJobPostingEnrichment");
   assert.ok(start >= 0, "fetchJobPostingEnrichment must exist");
   // walk forward to the start of the legacy fallback helper, which
   // is the next thing in source order
-  const end = appJs.indexOf("async function fallbackEnrichmentFromSheetOnly", start);
+  const end = postingEnrichmentJs.indexOf(
+    "async function fallbackEnrichmentFromSheetOnly",
+    start,
+  );
   assert.ok(end > start, "fallbackEnrichmentFromSheetOnly compat shim must follow");
-  return appJs.slice(start, end);
+  return postingEnrichmentJs.slice(start, end);
 }
 
 describe("enrichment pipeline — single self-healing path", () => {
   it("declares the canonical Gemini-missing toast as a single source of truth", () => {
     assert.match(
-      appJs,
+      postingEnrichmentJs,
       /const\s+GEMINI_KEY_MISSING_TOAST\s*=\s*["'`][^"'`]*Gemini API key[^"'`]*Settings[^"'`]*["'`]/i,
       "GEMINI_KEY_MISSING_TOAST must exist and mention Gemini + Settings",
     );
@@ -87,19 +99,19 @@ describe("enrichment pipeline — single self-healing path", () => {
 
   it("classifies Gemini errors (401 / 429 / safety) into reason-specific toasts", () => {
     assert.ok(
-      /function\s+_toastForLlmError/.test(appJs),
+      /function\s+_toastForLlmError/.test(postingEnrichmentJs),
       "_toastForLlmError helper must exist",
     );
     assert.ok(
-      /API key not valid|invalid api key|unauthorized/i.test(appJs),
+      /API key not valid|invalid api key|unauthorized/i.test(postingEnrichmentJs),
       "Gemini 401/key-invalid must be classified",
     );
     assert.ok(
-      /RESOURCE_EXHAUSTED|quota|429/i.test(appJs),
+      /RESOURCE_EXHAUSTED|quota|429/i.test(postingEnrichmentJs),
       "Gemini quota/429 must be classified",
     );
     assert.ok(
-      /safety|blockReason/i.test(appJs),
+      /safety|blockReason/i.test(postingEnrichmentJs),
       "Gemini safety-filter blocks must be classified",
     );
   });
@@ -107,9 +119,9 @@ describe("enrichment pipeline — single self-healing path", () => {
   it("uses an 8s scrape timeout, not the legacy 30s", () => {
     const slice = enrichmentFlowSlice();
     /* The new helper _tryScrape lives just above; pull a window */
-    const tryScrapeIdx = appJs.indexOf("async function _tryScrape");
+    const tryScrapeIdx = postingEnrichmentJs.indexOf("async function _tryScrape");
     assert.ok(tryScrapeIdx > 0, "_tryScrape helper must exist");
-    const scrapeBody = appJs.slice(tryScrapeIdx, tryScrapeIdx + 1500);
+    const scrapeBody = postingEnrichmentJs.slice(tryScrapeIdx, tryScrapeIdx + 1500);
     assert.match(scrapeBody, /8_?000/, "scrape timeout must be 8s (8000ms)");
     assert.ok(
       !/30_?000/.test(scrapeBody),
@@ -119,8 +131,8 @@ describe("enrichment pipeline — single self-healing path", () => {
   });
 
   it("treats empty scraper bodies as failures (routes to LLM-only)", () => {
-    const tryScrapeIdx = appJs.indexOf("async function _tryScrape");
-    const scrapeBody = appJs.slice(tryScrapeIdx, tryScrapeIdx + 1500);
+    const tryScrapeIdx = postingEnrichmentJs.indexOf("async function _tryScrape");
+    const scrapeBody = postingEnrichmentJs.slice(tryScrapeIdx, tryScrapeIdx + 1500);
     assert.match(
       scrapeBody,
       /hasDescription|hasRequirements|empty/i,
@@ -139,18 +151,20 @@ describe("enrichment pipeline — single self-healing path", () => {
 
   it("uses only success-shaped enrichments as cache hits so Gemini failures remain retryable", () => {
     assert.match(
-      appJs,
+      postingEnrichmentJs,
       /function\s+isUsableCachedEnrichment\s*\(\s*enrichment\s*\)/,
       "cache hit predicate must be centralized",
     );
     assert.match(
-      appJs,
+      postingEnrichmentJs,
       /enrichment\.scrapedAt\s*&&\s*!enrichment\.llmError/,
       "cache hits must exclude partial LLM failures with llmError",
     );
-    const listenerIdx = appJs.indexOf('window.addEventListener("jb:role:opened"');
+    const listenerIdx = postingEnrichmentJs.indexOf(
+      'window.addEventListener("jb:role:opened"',
+    );
     assert.ok(listenerIdx > 0, "jb:role:opened listener must exist");
-    const listener = appJs.slice(listenerIdx, listenerIdx + 1000);
+    const listener = postingEnrichmentJs.slice(listenerIdx, listenerIdx + 1000);
     assert.match(
       listener,
       /isUsableCachedEnrichment\s*\(\s*job\._postingEnrichment\s*\)/,
@@ -183,20 +197,20 @@ describe("enrichment pipeline — single self-healing path", () => {
     assert.match(cacheBranch, /job\._postingEnrichment\s*=\s*cached/);
     assert.match(cacheBranch, /status:\s*"ready"/);
     assert.match(cacheBranch, /cached:\s*true/);
-    assert.match(cacheBranch, /renderPipeline\s*\(\s*\)/);
+    assert.match(cacheBranch, /renderPipeline\s*\(/);
     assert.match(cacheBranch, /return\s*;/);
   });
 
   it("stores no-url role enrichments by stable identity so reload can hydrate them", () => {
     assert.match(
-      appJs,
+      postingEnrichmentJs,
       /function\s+getEnrichmentCacheIdentityKey\s*\(\s*job\s*\)/,
       "cache must have a title/company/location identity key for rows without URLs",
     );
-    const cacheIdx = appJs.indexOf("function cacheEnrichment");
-    const cacheFn = appJs.slice(
+    const cacheIdx = postingEnrichmentJs.indexOf("function cacheEnrichment");
+    const cacheFn = postingEnrichmentJs.slice(
       cacheIdx,
-      appJs.indexOf("function getCachedEnrichmentForJob", cacheIdx),
+      postingEnrichmentJs.indexOf("function getCachedEnrichmentForJob", cacheIdx),
     );
     assert.match(cacheFn, /getEnrichmentCacheWriteKeys\s*\(\s*jobOrUrl\s*\)/);
     assert.match(
@@ -205,8 +219,11 @@ describe("enrichment pipeline — single self-healing path", () => {
       "cache writes must persist every lookup key, including no-url identity keys",
     );
 
-    const applyIdx = appJs.indexOf("function applyEnrichmentCache");
-    const applyFn = appJs.slice(applyIdx, appJs.indexOf("function markJobViewed", applyIdx));
+    const applyIdx = postingEnrichmentJs.indexOf("function applyEnrichmentCache");
+    const applyFn = postingEnrichmentJs.slice(
+      applyIdx,
+      postingEnrichmentJs.indexOf("/* ============================================================", applyIdx),
+    );
     assert.doesNotMatch(
       applyFn,
       /!job\.link/,
@@ -229,7 +246,7 @@ describe("enrichment pipeline — single self-healing path", () => {
       "the LLM-only success toast must be 'AI insights ready…'",
     );
     // None of the toasts inside the flow may mention "scraper" or "Cheerio":
-    const userVisibleStrings = slice.match(/showToast\([^)]*\)/g) || [];
+    const userVisibleStrings = slice.match(/(?:host\(\)\.)?showToast\([^)]*\)/g) || [];
     for (const callsite of userVisibleStrings) {
       assert.ok(
         !/scraper|Cheerio/i.test(callsite),
@@ -335,9 +352,11 @@ describe("jb:role:opened auto-enrich — no scraper-URL gate", () => {
     /* The listener used to early-return when getJobPostingScrapeUrl()
        was empty. The new self-heal pipeline handles empty-URL silently,
        so the gate must be removed. */
-    const listenerIdx = appJs.indexOf('window.addEventListener("jb:role:opened"');
+    const listenerIdx = postingEnrichmentJs.indexOf(
+      'window.addEventListener("jb:role:opened"',
+    );
     assert.ok(listenerIdx > 0, "jb:role:opened listener must exist");
-    const listener = appJs.slice(listenerIdx, listenerIdx + 1000);
+    const listener = postingEnrichmentJs.slice(listenerIdx, listenerIdx + 1000);
     assert.ok(
       !/if\s*\([^)]*getJobPostingScrapeUrl\s*\(\s*\)\s*[^)]*\)\s*return/.test(listener),
       "the scraper-URL gate must be removed from the auto-enrich listener",
@@ -345,11 +364,11 @@ describe("jb:role:opened auto-enrich — no scraper-URL gate", () => {
   });
 
   it("does NOT short-circuit URL-ingested rows on missing scraper URL", () => {
-    const start = appJs.indexOf("async function autoEnrichIngestedRow");
+    const start = ingestUrlFlowJs.indexOf("async function autoEnrichIngestedRow");
     assert.ok(start > 0, "autoEnrichIngestedRow must exist");
-    const end = appJs.indexOf("function handleIngestUrlResponse", start);
+    const end = ingestUrlFlowJs.indexOf("function handleIngestUrlResponse", start);
     assert.ok(end > start, "handleIngestUrlResponse must follow autoEnrichIngestedRow");
-    const slice = appJs.slice(start, end);
+    const slice = ingestUrlFlowJs.slice(start, end);
     assert.ok(
       !/auto-enrich skipped: no scraper URL configured/.test(slice) &&
         !/if\s*\([^)]*getJobPostingScrapeUrl\s*\(\s*\)\s*[^)]*\)\s*return/.test(slice),
@@ -416,18 +435,19 @@ describe("LLM prompt — preserves quality when scrape fails", () => {
   });
 
   it("fetchJobPostingEnrichment promotes ATS score fields onto card data attrs", () => {
-    assert.match(appJs, /atsFitScore:\s*llm\.atsFitScore/);
-    assert.match(appJs, /atsFitRationale:\s*llm\.atsFitRationale/);
-    assert.match(appJs, /data-ats-fit-score/);
-    assert.match(appJs, /data-ats-fit-rationale/);
+    assert.match(postingEnrichmentJs, /atsFitScore:\s*llm\.atsFitScore/);
+    assert.match(postingEnrichmentJs, /atsFitRationale:\s*llm\.atsFitRationale/);
+    assert.match(pipelineRenderJs, /data-ats-fit-score/);
+    assert.match(pipelineRenderJs, /data-ats-fit-rationale/);
   });
 });
 
 describe("isFetchNetworkError recognizes aborts", () => {
   it("classifies AbortError as a network error (timeout-friendly)", () => {
-    const idx = appJs.indexOf("function isFetchNetworkError");
+    const scraperAtsJs = readFileSync(join(repoRoot, "scraper-ats-config.js"), "utf8");
+    const idx = scraperAtsJs.indexOf("function isFetchNetworkError");
     assert.ok(idx > 0);
-    const body = appJs.slice(idx, idx + 600);
+    const body = scraperAtsJs.slice(idx, idx + 600);
     assert.match(body, /AbortError/, "AbortError must be in the network-error set");
     assert.match(body, /aborted/, "messages containing 'aborted' must classify too");
   });
@@ -449,7 +469,7 @@ describe("enrichment pipeline — loading-state propagation", () => {
   it("calls renderPipeline AFTER _enrichmentLoading = true and BEFORE the first await", () => {
     const slice = enrichmentFlowSlice();
     const setLoadingIdx = slice.indexOf("job._enrichmentLoading = true");
-    const renderPipelineIdx = slice.indexOf("renderPipeline()", setLoadingIdx);
+    const renderPipelineIdx = slice.indexOf("renderPipeline(", setLoadingIdx);
     const firstAwaitIdx = slice.indexOf("await _tryScrape", setLoadingIdx);
     assert.ok(setLoadingIdx > 0, "must set job._enrichmentLoading = true");
     assert.ok(renderPipelineIdx > setLoadingIdx, "renderPipeline() must run after loading flag is set");
@@ -476,15 +496,15 @@ describe("enrichment pipeline — loading-state propagation", () => {
     assert.ok(catchIdx > 0, "URL Context error branch must exist");
     const branch = slice.slice(catchIdx, slice.indexOf("return;", catchIdx) + 80);
     assert.match(branch, /delete\s+job\._enrichmentLoading/);
-    assert.match(branch, /renderPipeline\s*\(\s*\)/);
+    assert.match(branch, /renderPipeline\s*\(/);
     assert.match(branch, /status:\s*"error"/);
     assert.match(branch, /jb:role:enriched/);
   });
 
   it("serializes loading ahead of stale scrapedAt and only marks complete enrichments ready", () => {
-    const statusIdx = appJs.indexOf('"data-enrichment-status"');
+    const statusIdx = pipelineRenderJs.indexOf('"data-enrichment-status"');
     assert.ok(statusIdx > 0, "data-enrichment-status attr must be serialized");
-    const block = appJs.slice(statusIdx, statusIdx + 500);
+    const block = pipelineRenderJs.slice(statusIdx, statusIdx + 500);
     const loadingIdx = block.indexOf('job && job._enrichmentLoading');
     const readyIdx = block.indexOf('_enr.scrapedAt');
     assert.ok(loadingIdx > 0, "loading state must be represented");
@@ -496,7 +516,7 @@ describe("enrichment pipeline — loading-state propagation", () => {
     const slice = enrichmentFlowSlice();
     const successIdx = slice.indexOf("job._postingEnrichment = merged");
     const deleteIdx = slice.indexOf("delete job._enrichmentLoading", successIdx);
-    const renderIdx = slice.indexOf("renderPipeline()", successIdx);
+    const renderIdx = slice.indexOf("renderPipeline(", successIdx);
     const statusIdx = slice.indexOf('status: llmFailed ? "error" : "ready"', successIdx);
     assert.ok(successIdx > 0, "success assignment must exist");
     assert.ok(deleteIdx > successIdx, "success path must clear _enrichmentLoading");

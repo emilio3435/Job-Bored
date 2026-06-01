@@ -7,13 +7,28 @@ import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const materialsStateJs = readFileSync(
+  join(repoRoot, "materials-state.js"),
+  "utf8",
+);
+const atsScorecardJs = readFileSync(join(repoRoot, "ats-scorecard.js"), "utf8");
 
 function extractAtsStateBusSource(src) {
   const start = src.indexOf("let atsScorecardState = {");
-  const end = src.indexOf("function getResumeGenerateDraftTextForInsights", start);
+  const end = src.indexOf("function getJobOpportunityKey", start);
   if (start === -1 || end === -1) {
-    throw new Error("Could not extract ATS state bus source from app.js");
+    throw new Error("Could not extract ATS state bus source from materials-state.js");
   }
+  return src.slice(start, end);
+}
+
+function extractAtsModalHarnessSource(src) {
+  const start = src.indexOf("function renderAtsBulletGroupHtml");
+  const openIdx = src.indexOf('window.addEventListener("jb:ats:modal:open"', start);
+  if (start === -1 || openIdx === -1) {
+    throw new Error("Could not extract ATS modal harness from ats-scorecard.js");
+  }
+  const end = src.indexOf("});", openIdx) + 3;
   return src.slice(start, end);
 }
 
@@ -133,7 +148,8 @@ function escapeHtml(str) {
     .replace(/'/g, "&#39;");
 }
 
-function loadAtsStateBus() {
+function loadAtsStateBus(options = {}) {
+  const { withModalHarness = false } = options;
   const window = addEventTargetMethods({});
   const document = createDocument();
   const context = vm.createContext({
@@ -145,9 +161,18 @@ function loadAtsStateBus() {
     setTimeout,
     window,
   });
-  vm.runInContext(extractAtsStateBusSource(appJs), context, {
-    filename: "app.js",
+  vm.runInContext(extractAtsStateBusSource(materialsStateJs), context, {
+    filename: "materials-state.js",
   });
+  vm.runInContext(
+    "function getAtsScorecardState() { return atsScorecardState; }",
+    context,
+  );
+  if (withModalHarness) {
+    vm.runInContext(extractAtsModalHarnessSource(atsScorecardJs), context, {
+      filename: "ats-scorecard.js",
+    });
+  }
   return { context, document, window };
 }
 
@@ -266,7 +291,7 @@ describe("ATS state bus", () => {
   });
 
   it("jb:ats:modal:open opens the full scorecard modal and close paths hide it", () => {
-    const { context, document, window } = loadAtsStateBus();
+    const { context, document, window } = loadAtsStateBus({ withModalHarness: true });
     setScorecardState(context, {
       cacheKey: "ats:cover_letter:job-1:abc",
       status: "success",

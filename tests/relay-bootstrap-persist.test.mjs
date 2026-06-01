@@ -19,7 +19,12 @@ const deployScript = readFileSync(
   join(repoRoot, "scripts", "deploy-cloudflare-relay.mjs"),
   "utf8",
 );
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
+const configOverridesJs = readFileSync(join(repoRoot, "config-overrides.js"), "utf8");
+const discoveryWizardUi = readFileSync(
+  join(repoRoot, "discovery-wizard-ui.js"),
+  "utf8",
+);
 
 describe("scripts/deploy-cloudflare-relay.mjs — bootstrap persistence", () => {
   it("contains the persist fence comment", () => {
@@ -88,20 +93,24 @@ describe("scripts/deploy-cloudflare-relay.mjs — bootstrap persistence", () => 
   });
 });
 
-describe("app.js — autofillDiscoveryWebhookUrlFromBootstrap", () => {
+describe("config-overrides.js — autofillDiscoveryWebhookUrlFromBootstrap", () => {
   it("autofill helper exists with the expected name", () => {
     assert.ok(
-      appJs.includes("function autofillDiscoveryWebhookUrlFromBootstrap"),
+      configOverridesJs.includes("function autofillDiscoveryWebhookUrlFromBootstrap"),
       "autofill function must exist",
+    );
+    assert.ok(
+      appCompatJs.includes("function autofillDiscoveryWebhookUrlFromBootstrap"),
+      "app-compat.js must keep the legacy autofill wrapper",
     );
   });
 
   it("reads data.relay.workerUrl", () => {
-    const fnStart = appJs.indexOf(
+    const fnStart = configOverridesJs.indexOf(
       "function autofillDiscoveryWebhookUrlFromBootstrap",
     );
-    const fnEnd = appJs.indexOf("\n}\n", fnStart);
-    const fn = appJs.slice(fnStart, fnEnd);
+    const fnEnd = configOverridesJs.indexOf("\n}\n", fnStart);
+    const fn = configOverridesJs.slice(fnStart, fnEnd);
     assert.ok(
       /data\.relay/.test(fn),
       "autofill must read from data.relay",
@@ -113,11 +122,11 @@ describe("app.js — autofillDiscoveryWebhookUrlFromBootstrap", () => {
   });
 
   it("never overwrites a user-saved webhook URL", () => {
-    const fnStart = appJs.indexOf(
+    const fnStart = configOverridesJs.indexOf(
       "function autofillDiscoveryWebhookUrlFromBootstrap",
     );
-    const fnEnd = appJs.indexOf("\n}\n", fnStart);
-    const fn = appJs.slice(fnStart, fnEnd);
+    const fnEnd = configOverridesJs.indexOf("\n}\n", fnStart);
+    const fn = configOverridesJs.slice(fnStart, fnEnd);
     assert.ok(
       /getDiscoveryWebhookUrl\(\)/.test(fn),
       "must check existing saved value first",
@@ -129,11 +138,11 @@ describe("app.js — autofillDiscoveryWebhookUrlFromBootstrap", () => {
   });
 
   it("only accepts http(s) URLs (defense against malformed bootstrap files)", () => {
-    const fnStart = appJs.indexOf(
+    const fnStart = configOverridesJs.indexOf(
       "function autofillDiscoveryWebhookUrlFromBootstrap",
     );
-    const fnEnd = appJs.indexOf("\n}\n", fnStart);
-    const fn = appJs.slice(fnStart, fnEnd);
+    const fnEnd = configOverridesJs.indexOf("\n}\n", fnStart);
+    const fn = configOverridesJs.slice(fnStart, fnEnd);
     assert.ok(
       /\/\^https\?:\\\/\\\//i.test(fn) || /^https?:\\\/\\\//.test(fn),
       "must validate the URL is http(s) before writing",
@@ -141,11 +150,11 @@ describe("app.js — autofillDiscoveryWebhookUrlFromBootstrap", () => {
   });
 
   it("hydrate function calls the new autofill alongside the existing secret autofill", () => {
-    const hydStart = appJs.indexOf(
+    const hydStart = configOverridesJs.indexOf(
       "async function hydrateDiscoveryTransportSetupFromLocalBootstrap",
     );
-    const hydEnd = appJs.indexOf("\n}\n", hydStart);
-    const fn = appJs.slice(hydStart, hydEnd);
+    const hydEnd = configOverridesJs.indexOf("\n}\n", hydStart);
+    const fn = configOverridesJs.slice(hydStart, hydEnd);
     assert.ok(
       fn.includes("autofillDiscoveryWebhookSecretFromBootstrap(data"),
       "secret autofill still wired",
@@ -232,23 +241,26 @@ describe("app.js — autofillDiscoveryWebhookUrlFromBootstrap", () => {
   });
 });
 
-describe("app.js — keep-alive auto-install on autodetect ready", () => {
+// openDiscoverySetupWizard (with its autodetect-recover lane) was extracted to
+// discovery-wizard-ui.js; the keep-alive contract lives there now and reaches
+// installKeepAliveOnce through the ui.host bridge.
+describe("discovery-wizard-ui.js — keep-alive auto-install on autodetect ready", () => {
   it("autodetect-ready branch calls installKeepAliveOnce", () => {
-    const fenceStart = appJs.indexOf(
+    const fenceStart = discoveryWizardUi.indexOf(
       "[discovery-autodetect lane: silent recover]",
     );
-    const fenceEnd = appJs.indexOf(
+    const fenceEnd = discoveryWizardUi.indexOf(
       "[/discovery-autodetect lane]",
       fenceStart,
     );
     assert.ok(fenceStart !== -1 && fenceEnd > fenceStart, "lane fence pair");
-    const block = appJs.slice(fenceStart, fenceEnd);
+    const block = discoveryWizardUi.slice(fenceStart, fenceEnd);
     assert.ok(
-      block.includes("installKeepAliveOnce"),
+      block.includes("host().installKeepAliveOnce"),
       "ready-verdict branch must install keep-alive so the next ngrok rotation auto-heals",
     );
     assert.ok(
-      /typeof installKeepAliveOnce === ["']function["']/.test(block),
+      /typeof host\(\)\.installKeepAliveOnce === ["']function["']/.test(block),
       "must guard the call with a typeof check (graceful fallback)",
     );
   });

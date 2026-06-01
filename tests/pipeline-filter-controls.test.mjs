@@ -6,6 +6,12 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
+const ingestUrlFlowJs = readFileSync(join(repoRoot, "ingest-url-flow.js"), "utf8");
+const pipelineControllerJs = readFileSync(
+  join(repoRoot, "pipeline-controller.js"),
+  "utf8",
+);
 const latticeJs = readFileSync(join(repoRoot, "lattice.js"), "utf8");
 const latticeCss = readFileSync(join(repoRoot, "lattice.css"), "utf8");
 const pipelineJs = readFileSync(join(repoRoot, "pipeline.js"), "utf8");
@@ -171,10 +177,10 @@ describe("v2 pipeline filter controls", () => {
       pipelineJs.indexOf('document.addEventListener("jb:write:failed"'),
     );
     assert.ok(
-      appJs.includes("function applyPipelineStageWrite(jobKey, statusLabel)") &&
-        appJs.includes("pipelineData[idx].status = nextStatus;") &&
+      appCompatJs.includes("function applyPipelineStageWrite(jobKey, statusLabel)") &&
+        pipelineControllerJs.includes("pipelineData[idx].status = nextStatus;") &&
         appJs.includes("window.JobBored.applyPipelineStageWrite = applyPipelineStageWrite;"),
-      "app.js should expose a local stage-sync hook so v2 drag writes update the model used by search renders",
+      "app-compat.js should keep the local stage-sync hook and app.js should expose it to v2 surfaces",
     );
     assert.ok(
       pipelineJs.includes('document.addEventListener("jb:write:succeeded"') &&
@@ -207,11 +213,12 @@ describe("v2 pipeline filter controls", () => {
     );
     assert.ok(
       appJs.includes("window.JobBored.ingestJobUrl = ingestJobUrl;") &&
-        appJs.includes("async function ingestJobUrl(url, options = {})") &&
-        appJs.includes("handleIngestUrlResponse(data, value, {") &&
-        appJs.includes("awaitAutoEnrich: true") &&
-        appJs.includes("reportIngestProgress(onProgress"),
-      "app.js should expose the existing ingest worker and enrichment flow through a progress-aware API",
+        appCompatJs.includes("async function ingestJobUrl(...args)") &&
+        ingestUrlFlowJs.includes("async function ingestJobUrl(url, options = {})") &&
+        ingestUrlFlowJs.includes("handleIngestUrlResponse(data, value, {") &&
+        ingestUrlFlowJs.includes("awaitAutoEnrich: true") &&
+        ingestUrlFlowJs.includes("reportIngestProgress(onProgress"),
+      "app.js should expose the app-compat ingest worker and enrichment flow through a progress-aware API",
     );
   });
 

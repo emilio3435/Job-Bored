@@ -1,0 +1,201 @@
+    <!-- Assisted LinkedIn capture -->
+    <div
+      class="modal-overlay profile-overlay profile-overlay--capture"
+      id="linkedInCaptureModal"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="linkedInCaptureTitle"
+    >
+      <div class="modal-card profile-modal profile-modal--capture">
+        <header class="profile-modal__header">
+          <div class="profile-modal__headline">
+            <h3 id="linkedInCaptureTitle" class="profile-modal__title">
+              Capture from LinkedIn (assisted)
+            </h3>
+            <p class="profile-modal__subtitle">
+              We do not auto-scrape LinkedIn. Use this guided capture to copy
+              your latest sections and save them in your local profile.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="profile-modal__close-x"
+            id="linkedInCaptureCloseX"
+            aria-label="Close"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </header>
+        <div class="profile-modal__body profile-modal__body--capture">
+          <div class="linkedincap-guide">
+            <a
+              class="profile-btn-secondary linkedincap-open"
+              id="linkedInCaptureOpenProfile"
+              href="https://www.linkedin.com/in/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open LinkedIn profile
+            </a>
+            <p class="linkedincap-guide__hint">
+              Copy each section from LinkedIn, then paste it below. Use “Paste
+              from clipboard” to speed up.
+            </p>
+          </div>
+          <div class="linkedincap-grid">
+            <div class="linkedincap-field">
+              <label class="profile-field-label" for="linkedInCaptureHeadline"
+                >Headline</label
+              >
+              <textarea
+                id="linkedInCaptureHeadline"
+                class="profile-textarea profile-textarea--xs"
+                rows="2"
+                placeholder="e.g. Senior Product Manager | AI Automation"
+              ></textarea>
+              <button
+                type="button"
+                class="profile-btn-secondary linkedincap-paste"
+                data-li-clipboard-target="linkedInCaptureHeadline"
+              >
+                Paste from clipboard
+              </button>
+            </div>
+            <div class="linkedincap-field">
+              <label class="profile-field-label" for="linkedInCaptureAbout"
+                >About</label
+              >
+              <textarea
+                id="linkedInCaptureAbout"
+                class="profile-textarea profile-textarea--sm"
+                rows="4"
+                placeholder="Paste your LinkedIn About section"
+              ></textarea>
+              <button
+                type="button"
+                class="profile-btn-secondary linkedincap-paste"
+                data-li-clipboard-target="linkedInCaptureAbout"
+              >
+                Paste from clipboard
+              </button>
+            </div>
+            <div class="linkedincap-field">
+              <label class="profile-field-label" for="linkedInCaptureExperience"
+                >Experience</label
+              >
+              <textarea
+                id="linkedInCaptureExperience"
+                class="profile-textarea profile-textarea--sm"
+                rows="5"
+                placeholder="Paste recent/current role details and accomplishments"
+              ></textarea>
+              <button
+                type="button"
+                class="profile-btn-secondary linkedincap-paste"
+                data-li-clipboard-target="linkedInCaptureExperience"
+              >
+                Paste from clipboard
+              </button>
+            </div>
+            <div class="linkedincap-field">
+              <label class="profile-field-label" for="linkedInCaptureSkills"
+                >Skills</label
+              >
+              <textarea
+                id="linkedInCaptureSkills"
+                class="profile-textarea profile-textarea--xs"
+                rows="3"
+                placeholder="Paste top skills, tools, and domains"
+              ></textarea>
+              <button
+                type="button"
+                class="profile-btn-secondary linkedincap-paste"
+                data-li-clipboard-target="linkedInCaptureSkills"
+              >
+                Paste from clipboard
+              </button>
+            </div>
+            <div class="linkedincap-field">
+              <label class="profile-field-label" for="linkedInCaptureEducation"
+                >Education / certifications</label
+              >
+              <textarea
+                id="linkedInCaptureEducation"
+                class="profile-textarea profile-textarea--xs"
+                rows="3"
+                placeholder="Paste education, certs, and notable credentials"
+              ></textarea>
+              <button
+                type="button"
+                class="profile-btn-secondary linkedincap-paste"
+                data-li-clipboard-target="linkedInCaptureEducation"
+              >
+                Paste from clipboard
+              </button>
+            </div>
+            <div class="linkedincap-field linkedincap-field--full">
+              <label class="profile-field-label" for="linkedInCaptureExtras"
+                >Extra highlights (optional)</label
+              >
+              <textarea
+                id="linkedInCaptureExtras"
+                class="profile-textarea profile-textarea--xs"
+                rows="3"
+                placeholder="Awards, publications, volunteering, or anything else relevant"
+              ></textarea>
+              <button
+                type="button"
+                class="profile-btn-secondary linkedincap-paste"
+                data-li-clipboard-target="linkedInCaptureExtras"
+              >
+                Paste from clipboard
+              </button>
+            </div>
+          </div>
+          <div class="linkedincap-preview">
+            <label class="profile-field-label" for="linkedInCapturePreview"
+              >Saved text preview</label
+            >
+            <p
+              id="linkedInCaptureQuality"
+              class="linkedincap-quality"
+              aria-live="polite"
+            ></p>
+            <textarea
+              id="linkedInCapturePreview"
+              class="profile-textarea profile-textarea--sm"
+              rows="6"
+              readonly
+            ></textarea>
+          </div>
+        </div>
+        <footer class="profile-modal__footer">
+          <button
+            type="button"
+            class="profile-btn-reset"
+            id="linkedInCaptureClose"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn-modal-primary profile-btn-done"
+            id="linkedInCaptureSaveBtn"
+          >
+            Save to profile
+          </button>
+        </footer>
+      </div>
+    </div>

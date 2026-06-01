@@ -6,7 +6,16 @@ import { fileURLToPath } from "node:url";
 import { buildCorsHeaders } from "../integrations/browser-use-discovery/src/http/origin-guard.ts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
+const bootstrapJs = readFileSync(join(repoRoot, "app-bootstrap.js"), "utf8");
+const runOrchJs = readFileSync(
+  join(repoRoot, "discovery-run-orchestration.js"),
+  "utf8",
+);
+const statusHandoffJs = readFileSync(
+  join(repoRoot, "discovery-status-handoff.js"),
+  "utf8",
+);
 const workerTemplate = readFileSync(
   join(repoRoot, "templates", "cloudflare-worker", "worker.js"),
   "utf8",
@@ -14,35 +23,35 @@ const workerTemplate = readFileSync(
 
 describe("discovery run status polling", () => {
   it("polls the local browser-use worker on localhost instead of the public ngrok URL", () => {
-    const resolverStart = appJs.indexOf(
+    const resolverStart = statusHandoffJs.indexOf(
       "function getDiscoveryStatusPollingWebhookUrl(",
     );
     assert.notEqual(resolverStart, -1, "status polling resolver must exist");
-    const resolverEnd = appJs.indexOf(
+    const resolverEnd = statusHandoffJs.indexOf(
       "\n}\n\nfunction buildDiscoveryStatusPollHeaders",
       resolverStart,
     );
     assert.notEqual(resolverEnd, -1, "resolver body must be readable");
-    const resolverSource = appJs.slice(resolverStart, resolverEnd);
+    const resolverSource = statusHandoffJs.slice(resolverStart, resolverEnd);
 
-    assert.match(resolverSource, /isLocalDashboardOrigin\(\)/);
-    assert.match(resolverSource, /normalizeDiscoveryLocalWebhookUrl\(/);
+    assert.match(resolverSource, /host\(\)\.isLocalDashboardOrigin\(\)/);
+    assert.match(resolverSource, /host\(\)\.normalizeDiscoveryLocalWebhookUrl\(/);
     assert.match(resolverSource, /browser_use_worker/);
-    assert.match(resolverSource, /buildDiscoveryTunnelTargetUrl\(/);
-    assert.match(resolverSource, /isLikelyCloudflareWorkerUrl\(/);
+    assert.match(resolverSource, /host\(\)\.buildDiscoveryTunnelTargetUrl\(/);
+    assert.match(resolverSource, /host\(\)\.isLikelyCloudflareWorkerUrl\(/);
   });
 
   it("uses the status polling resolver before each poll loop starts", () => {
-    const pollingStart = appJs.indexOf(
+    const pollingStart = statusHandoffJs.indexOf(
       "async function startDiscoveryStatusPolling(",
     );
     assert.notEqual(pollingStart, -1, "polling loop must exist");
-    const pollingEnd = appJs.indexOf(
+    const pollingEnd = statusHandoffJs.indexOf(
       "\n}\n\n/** Stop any active polling loop",
       pollingStart,
     );
     assert.notEqual(pollingEnd, -1, "polling body must be readable");
-    const pollingSource = appJs.slice(pollingStart, pollingEnd);
+    const pollingSource = statusHandoffJs.slice(pollingStart, pollingEnd);
 
     assert.match(
       pollingSource,
@@ -65,63 +74,65 @@ describe("discovery run status polling", () => {
   });
 
   it("refreshes Pipeline data after a successful async discovery terminal status", () => {
-    const pollingStart = appJs.indexOf(
+    const pollingStart = statusHandoffJs.indexOf(
       "async function startDiscoveryStatusPolling(",
     );
     assert.notEqual(pollingStart, -1, "polling loop must exist");
-    const pollingEnd = appJs.indexOf(
+    const pollingEnd = statusHandoffJs.indexOf(
       "\n}\n\n/** Stop any active polling loop",
       pollingStart,
     );
     assert.notEqual(pollingEnd, -1, "polling body must be readable");
-    const pollingSource = appJs.slice(pollingStart, pollingEnd);
+    const pollingSource = statusHandoffJs.slice(pollingStart, pollingEnd);
 
-    const refreshStart = appJs.indexOf(
+    const refreshStart = statusHandoffJs.indexOf(
       "async function refreshPipelineAfterDiscoveryRun(",
     );
     assert.notEqual(refreshStart, -1, "post-discovery refresh helper must exist");
-    const refreshEnd = appJs.indexOf(
-      "\n}\n\n/**\n * Main polling loop",
+    const refreshEnd = statusHandoffJs.indexOf(
+      "\n}\n\nconst PRE_FILTER_REASON_LABELS",
       refreshStart,
     );
     assert.notEqual(refreshEnd, -1, "post-discovery refresh helper must be readable");
-    const refreshSource = appJs.slice(refreshStart, refreshEnd);
+    const refreshSource = statusHandoffJs.slice(refreshStart, refreshEnd);
 
     assert.match(pollingSource, /await refreshPipelineAfterDiscoveryRun\(updated\)/);
     assert.match(refreshSource, /shouldRefreshPipelineAfterDiscoveryRun\(state\)/);
-    assert.match(refreshSource, /await loadAllData\(\)/);
-    assert.match(appJs, /status === "completed"/);
-    assert.match(appJs, /status === "partial"/);
+    assert.match(refreshSource, /host\(\)\.loadAllData\(\)/);
+    assert.match(statusHandoffJs, /status === "completed"/);
+    assert.match(statusHandoffJs, /status === "partial"/);
   });
 
   it("synthesizes /runs/:id for accepted async responses from known worker endpoints", () => {
-    assert.match(appJs, /function resolveAcceptedRunStatusPath\(/);
-    assert.match(appJs, /canSynthesizeRunStatusPath\(webhookUrl\)/);
-    assert.match(appJs, /"\/runs\/" \+ encodeURIComponent\(runId\)/);
+    assert.match(statusHandoffJs, /function resolveAcceptedRunStatusPath\(/);
+    assert.match(statusHandoffJs, /canSynthesizeRunStatusPath\(webhookUrl\)/);
+    assert.match(statusHandoffJs, /"\/runs\/" \+ encodeURIComponent\(runId\)/);
 
-    const triggerStart = appJs.indexOf("async function triggerDiscoveryRun(");
+    const triggerStart = appCompatJs.indexOf("async function triggerDiscoveryRun(");
     assert.notEqual(triggerStart, -1, "triggerDiscoveryRun must exist");
-    const triggerEnd = appJs.indexOf(
-      "\n}\n\n/**\n * POST a test payload",
-      triggerStart,
+    const runTriggerStart = runOrchJs.indexOf("async function triggerDiscoveryRun(");
+    assert.notEqual(runTriggerStart, -1, "triggerDiscoveryRun implementation must exist");
+    const triggerEnd = runOrchJs.indexOf(
+      "\n}\n\n  Object.assign(runOrchestration",
+      runTriggerStart,
     );
-    const triggerSource = appJs.slice(triggerStart, triggerEnd);
-    assert.match(triggerSource, /resolveAcceptedRunStatusPath\(result, webhookUrl\)/);
+    const triggerSource = runOrchJs.slice(runTriggerStart, triggerEnd);
+    assert.match(triggerSource, /statusApi\.resolveAcceptedRunStatusPath\(result, webhookUrl\)/);
     assert.match(triggerSource, /statusUnavailable:\s*!statusPath/);
-    assert.match(triggerSource, /if \(statusPath\) \{\s*void startDiscoveryStatusPolling\(webhookUrl\);/);
+    assert.match(triggerSource, /if \(statusPath\) \{\s*void statusApi\.startDiscoveryStatusPolling\(webhookUrl\);/);
   });
 
   it("does not synthesize tokenless hosted run status URLs when statusPath is omitted", () => {
-    const resolverStart = appJs.indexOf(
+    const resolverStart = statusHandoffJs.indexOf(
       "function resolveAcceptedRunStatusPath(",
     );
     assert.notEqual(resolverStart, -1, "accepted run resolver must exist");
-    const resolverEnd = appJs.indexOf(
+    const resolverEnd = statusHandoffJs.indexOf(
       "\n}\n\nfunction isLikelyNgrokUrl",
       resolverStart,
     );
     assert.notEqual(resolverEnd, -1, "accepted run resolver body must be readable");
-    const resolverSource = appJs.slice(resolverStart, resolverEnd);
+    const resolverSource = statusHandoffJs.slice(resolverStart, resolverEnd);
 
     assert.match(
       resolverSource,
@@ -129,14 +140,14 @@ describe("discovery run status polling", () => {
       "the dashboard must preserve a returned statusPath exactly, including statusToken",
     );
 
-    const synthStart = appJs.indexOf("function canSynthesizeRunStatusPath(");
+    const synthStart = statusHandoffJs.indexOf("function canSynthesizeRunStatusPath(");
     assert.notEqual(synthStart, -1, "status-path synthesis allowlist must exist");
-    const synthEnd = appJs.indexOf(
+    const synthEnd = statusHandoffJs.indexOf(
       "\n}\n\nfunction resolveAcceptedRunStatusPath",
       synthStart,
     );
     assert.notEqual(synthEnd, -1, "status-path synthesis allowlist body must be readable");
-    const synthSource = appJs.slice(synthStart, synthEnd);
+    const synthSource = statusHandoffJs.slice(synthStart, synthEnd);
 
     assert.doesNotMatch(
       synthSource,
@@ -151,22 +162,22 @@ describe("discovery run status polling", () => {
   });
 
   it("retries persisted failures caused by status polling after reload", () => {
-    assert.match(appJs, /resumeFromStatusPollingFailure\(\)/);
-    assert.match(appJs, /function resumeDiscoveryStatusPollingIfNeeded\(\)/);
+    assert.match(statusHandoffJs, /resumeFromStatusPollingFailure\(\)/);
+    assert.match(statusHandoffJs, /function resumeDiscoveryStatusPollingIfNeeded\(\)/);
 
-    const resumeStart = appJs.indexOf(
+    const resumeStart = statusHandoffJs.indexOf(
       "function resumeDiscoveryStatusPollingIfNeeded()",
     );
     assert.notEqual(resumeStart, -1, "resume helper must exist");
-    const resumeEnd = appJs.indexOf(
+    const resumeEnd = statusHandoffJs.indexOf(
       "\n}\n\n/**\n * Render current run status",
       resumeStart,
     );
     assert.notEqual(resumeEnd, -1, "resume helper body must be readable");
-    const resumeSource = appJs.slice(resumeStart, resumeEnd);
+    const resumeSource = statusHandoffJs.slice(resumeStart, resumeEnd);
 
     assert.match(resumeSource, /resumeFromStatusPollingFailure\(\)/);
-    assert.match(resumeSource, /discoveryRunTracker\.isActive\(\)/);
+    assert.match(resumeSource, /runTracker\(\)\.isActive\(\)/);
     assert.match(resumeSource, /startDiscoveryStatusPolling\(/);
     assert.doesNotMatch(
       resumeSource,
@@ -174,28 +185,29 @@ describe("discovery run status polling", () => {
       "getState() returns a plain object, not tracker methods",
     );
     assert.match(
-      appJs,
-      /preloadDiscoveryUiState\(\);\s*resumeDiscoveryStatusPollingIfNeeded\(\);/,
+      bootstrapJs,
+      /void h\("preloadDiscoveryUiState"\);\s*h\("resumeDiscoveryStatusPollingIfNeeded"\);/,
+      "init must preload discovery UI state before resuming status polling after reload",
     );
   });
 
   it("can bypass ngrok's browser warning when a browser must poll ngrok directly", () => {
-    const headersStart = appJs.indexOf(
+    const headersStart = statusHandoffJs.indexOf(
       "function buildDiscoveryStatusPollHeaders(",
     );
     assert.notEqual(headersStart, -1, "poll header helper must exist");
-    const headersEnd = appJs.indexOf(
+    const headersEnd = statusHandoffJs.indexOf(
       "\n}\n\n/**\n * Fetch and process",
       headersStart,
     );
     assert.notEqual(headersEnd, -1, "poll header helper body must be readable");
-    const headersSource = appJs.slice(headersStart, headersEnd);
+    const headersSource = statusHandoffJs.slice(headersStart, headersEnd);
 
     assert.match(headersSource, /Accept:\s*"application\/json"/);
     assert.match(headersSource, /isLikelyNgrokUrl\(statusUrl\)/);
     assert.match(headersSource, /"ngrok-skip-browser-warning":\s*"true"/);
     assert.match(
-      appJs,
+      statusHandoffJs,
       /headers:\s*buildDiscoveryStatusPollHeaders\(statusUrl\)/,
     );
   });

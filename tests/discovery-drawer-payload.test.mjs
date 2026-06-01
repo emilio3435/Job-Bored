@@ -16,16 +16,30 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { readIndexHtml } from "../scripts/lib/expand-index-includes.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
-const indexHtml = readFileSync(join(repoRoot, "index.html"), "utf8");
+const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
+const bootstrapJs = readFileSync(join(repoRoot, "app-bootstrap.js"), "utf8");
+const drawerJs = readFileSync(join(repoRoot, "discovery-drawer.js"), "utf8");
+/** Drawer implementation lives in discovery-drawer.js; app-compat.js keeps thin wrappers. */
+const drawerSource = `${appCompatJs}\n${drawerJs}`;
+const indexHtml = readIndexHtml(repoRoot);
 const userContentStoreJs = readFileSync(
   join(repoRoot, "user-content-store.js"),
   "utf8",
 );
 const discoveryPayloadJs = readFileSync(
   join(repoRoot, "discovery-payload.js"),
+  "utf8",
+);
+const runOrchJs = readFileSync(
+  join(repoRoot, "discovery-run-orchestration.js"),
+  "utf8",
+);
+const readinessJs = readFileSync(
+  join(repoRoot, "discovery-readiness.js"),
   "utf8",
 );
 
@@ -179,24 +193,29 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
   });
 
   it("declares openDiscoveryDrawer / initDiscoveryDrawer as the entry points", () => {
-    assert.match(appJs, /function openDiscoveryDrawer\(/);
-    assert.match(appJs, /function initDiscoveryDrawer\(/);
+    assert.match(appCompatJs, /function openDiscoveryDrawer\(/);
+    assert.match(appCompatJs, /function initDiscoveryDrawer\(/);
+    assert.match(drawerJs, /window\.JobBoredDiscovery\.drawer/);
+    assert.match(drawerJs, /Object\.assign\(drawer,/);
+    assert.match(drawerJs, /window\.JobBoredDiscoveryDrawerSubtabs\s*=/);
+    assert.match(drawerJs, /setActiveSubtab:\s*setDiscoveryDrawerSubtab/);
+    assert.match(drawerJs, /window\.openDiscoveryDrawer\s*=\s*openDiscoveryDrawer/);
     assert.ok(
-      !/function openDiscoveryPrefsModal\(/.test(appJs),
+      !/function openDiscoveryPrefsModal\(/.test(`${appJs}\n${appCompatJs}`),
       "legacy modal entry point must be removed",
     );
     assert.ok(
-      !/function initDiscoveryPrefsModal\(/.test(appJs),
+      !/function initDiscoveryPrefsModal\(/.test(`${appJs}\n${appCompatJs}`),
       "legacy modal init must be removed",
     );
   });
 
   it("Run discovery opens the tailoring drawer from the header click", () => {
-    const initButtonStart = appJs.indexOf("function initDiscoveryButton()");
+    const initButtonStart = drawerJs.indexOf("function initDiscoveryButton()");
     assert.notEqual(initButtonStart, -1, "initDiscoveryButton must exist");
-    const initButtonEnd = appJs.indexOf("\n  if (closeBtn)", initButtonStart);
+    const initButtonEnd = drawerJs.indexOf("\n  if (closeBtn)", initButtonStart);
     assert.notEqual(initButtonEnd, -1, "click handler section must be readable");
-    const handlerSource = appJs.slice(initButtonStart, initButtonEnd);
+    const handlerSource = drawerJs.slice(initButtonStart, initButtonEnd);
     assert.match(handlerSource, /openBtn\.addEventListener\("click"/);
     assert.match(handlerSource, /openDiscoveryDrawer\(\)/);
     assert.doesNotMatch(
@@ -222,78 +241,103 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
   });
 
   it("wires the discovery drawer before the no-sheet early return", () => {
-    const initStart = appJs.indexOf("function init()");
-    assert.notEqual(initStart, -1, "init must exist");
-    const initEnd = appJs.indexOf("\n}\n\n/**", initStart);
+    assert.match(
+      appCompatJs,
+      /function init\(/,
+      "app-compat.js must keep a thin init wrapper",
+    );
+    const initStart = bootstrapJs.indexOf("function init()");
+    assert.notEqual(initStart, -1, "init implementation must live in app-bootstrap.js");
+    const initEnd = bootstrapJs.indexOf(
+      '\n  }\n\n  document.addEventListener("DOMContentLoaded"',
+      initStart,
+    );
     assert.notEqual(initEnd, -1, "init body must be readable");
-    const initSource = appJs.slice(initStart, initEnd);
-    const noSheetGate = initSource.indexOf("if (!SHEET_ID)");
+    const initSource = bootstrapJs.slice(initStart, initEnd);
+    assert.doesNotMatch(
+      bootstrapJs,
+      /h\("[^"]+"\)\(\)|h\("[^"]+",\s*\)/,
+      "bootstrap host helper must not invoke returned host values or pass empty args",
+    );
+    const noSheetGate = initSource.indexOf('if (!h("getSHEET_ID"))');
     assert.ok(noSheetGate > 0, "init should still have a no-sheet gate");
+    const drawerInit = initSource.indexOf('h("initDiscoveryDrawer")');
     assert.ok(
-      initSource.indexOf("initDiscoveryDrawer()") > 0 &&
-        initSource.indexOf("initDiscoveryDrawer()") < noSheetGate,
+      drawerInit > 0 && drawerInit < noSheetGate,
       "drawer listeners must be registered before the no-sheet gate",
     );
+    const buttonInit = initSource.indexOf('h("initDiscoveryButton")');
     assert.ok(
-      initSource.indexOf("initDiscoveryButton()") > 0 &&
-        initSource.indexOf("initDiscoveryButton()") < noSheetGate,
+      buttonInit > 0 && buttonInit < noSheetGate,
       "header button listener must be registered before the no-sheet gate",
     );
     // The no-webhook run path still routes through setup after the user
     // has had a chance to tailor and save the drawer fields.
     assert.match(
-      appJs,
-      /requestDiscoverySetup\(\{\s*entryPoint:\s*"run_discovery"/,
+      runOrchJs,
+      /h\("requestDiscoverySetup", \{\s*entryPoint:\s*"run_discovery"/,
     );
   });
 
   it("starts runs through the resolved discovery transport, not the setup wizard autodetect shortcut", () => {
-    const resolverStart = appJs.indexOf(
+    assert.match(
+      appCompatJs,
+      /async function resolveDiscoveryRunWebhookUrl\(/,
+      "app-compat.js must keep a thin resolveDiscoveryRunWebhookUrl wrapper",
+    );
+    const resolverStart = runOrchJs.indexOf(
       "async function resolveDiscoveryRunWebhookUrl()",
     );
     assert.notEqual(resolverStart, -1, "run transport resolver must exist");
-    const resolverEnd = appJs.indexOf(
+    const resolverEnd = runOrchJs.indexOf(
       "\n}\n\n/** Notify automation",
       resolverStart,
     );
     assert.notEqual(resolverEnd, -1, "resolver body must be readable");
-    const resolverSource = appJs.slice(resolverStart, resolverEnd);
+    const resolverSource = runOrchJs.slice(resolverStart, resolverEnd);
     assert.match(
       resolverSource,
-      /hydrateDiscoveryTransportSetupFromLocalBootstrap\(\)/,
+      /h\("hydrateDiscoveryTransportSetupFromLocalBootstrap"\)/,
       "run should hydrate local bootstrap state before declaring setup missing",
     );
     assert.match(
       resolverSource,
-      /refreshDiscoveryReadinessSnapshot\(\{\s*force:\s*true,\s*rerender:\s*false,\s*\}\)/,
+      /h\("refreshDiscoveryReadinessSnapshot", \{\s*force:\s*true,\s*rerender:\s*false,\s*\}\)/,
       "run should refresh readiness so live tunnel/bootstrap URLs can be used",
     );
 
-    const candidateStart = appJs.indexOf(
+    const candidateStart = runOrchJs.indexOf(
       "function getDiscoveryRunWebhookUrlCandidates(",
     );
     assert.notEqual(candidateStart, -1, "candidate resolver must exist");
-    const candidateEnd = appJs.indexOf(
+    const candidateEnd = runOrchJs.indexOf(
       "\n}\n\nasync function resolveDiscoveryRunWebhookUrl",
       candidateStart,
     );
     assert.notEqual(candidateEnd, -1, "candidate resolver body must be readable");
-    const candidateSource = appJs.slice(candidateStart, candidateEnd);
+    const candidateSource = runOrchJs.slice(candidateStart, candidateEnd);
     assert.match(candidateSource, /state\.relayTargetUrl/);
     assert.match(candidateSource, /snapshot_tunnel_target/);
-    assert.match(candidateSource, /getCloudflareRelayTargetInfo\(\)/);
-    assert.match(candidateSource, /buildDiscoveryTunnelTargetUrl\(/);
+    assert.match(candidateSource, /h\("getCloudflareRelayTargetInfo"\)/);
+    assert.match(candidateSource, /h\("buildDiscoveryTunnelTargetUrl"/);
     assert.match(candidateSource, /source:\s*"configured"/);
+    assert.match(candidateSource, /source:\s*"live_worker"/);
+    assert.match(resolverSource, /fetchLocalDiscoveryRuntimeHints\(/);
     assert.match(resolverSource, /scoreDiscoveryRunWebhookCandidates\(/);
 
-    const triggerStart = appJs.indexOf("async function triggerDiscoveryRun(");
+    assert.match(
+      appCompatJs,
+      /async function triggerDiscoveryRun\(/,
+      "app-compat.js must keep a thin triggerDiscoveryRun wrapper",
+    );
+    const triggerStart = runOrchJs.indexOf("async function triggerDiscoveryRun(");
     assert.notEqual(triggerStart, -1, "triggerDiscoveryRun must exist");
-    const triggerEnd = appJs.indexOf(
-      "\n}\n\nwindow.JobBoredDiscovery",
+    const triggerEnd = runOrchJs.indexOf(
+      "\n}\n\n  Object.assign(runOrchestration",
       triggerStart,
     );
     assert.notEqual(triggerEnd, -1, "triggerDiscoveryRun body must be readable");
-    const triggerSource = appJs.slice(triggerStart, triggerEnd);
+    const triggerSource = runOrchJs.slice(triggerStart, triggerEnd);
     assert.match(
       triggerSource,
       /let hook = await resolveDiscoveryRunWebhookUrl\(\);/,
@@ -310,7 +354,7 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
       "run should validate local setup before selecting a local webhook URL",
     );
     assert.match(
-      appJs,
+      runOrchJs,
       /async function ensureLocalDiscoveryAutoSetupForRun\(\)[\s\S]*\/__proxy\/discovery-state[\s\S]*\/__proxy\/fix-setup/,
       "local automatic setup should probe readiness before using the setup proxy",
     );
@@ -330,14 +374,14 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
       "manual and scheduled callers should share triggerDiscoveryRun with an explicit trigger label",
     );
     assert.match(
-      appJs,
+      appCompatJs,
       /refreshDiscoveryWebhookSecretFromBootstrapForEndpoint/,
       "local secret mismatch recovery should refresh the bootstrap secret instead of only asking for a reload",
     );
   });
 
   it("surfaces missing local worker source config before opening/running discovery", () => {
-    const readinessStart = appJs.indexOf(
+    const readinessStart = drawerJs.indexOf(
       "async function fetchLocalDiscoveryWorkerSourceReadiness()",
     );
     assert.notEqual(
@@ -345,7 +389,7 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
       -1,
       "fetchLocalDiscoveryWorkerSourceReadiness must exist",
     );
-    const readinessEnd = appJs.indexOf(
+    const readinessEnd = drawerJs.indexOf(
       "\n}\n\nfunction getDiscoverySourceReadinessIssues",
       readinessStart,
     );
@@ -354,10 +398,10 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
       -1,
       "fetchLocalDiscoveryWorkerSourceReadiness body must be readable",
     );
-    const readinessSource = appJs.slice(readinessStart, readinessEnd);
+    const readinessSource = drawerJs.slice(readinessStart, readinessEnd);
     assert.match(
-      appJs,
-      /function getLocalDiscoveryWorkerHealthUrlForSources\([\s\S]*getDiscoveryLocalWebhookHealthUrl\(localWebhookUrl\)/,
+      drawerSource,
+      /function getLocalDiscoveryWorkerHealthUrlForSources\([\s\S]*h\("getDiscoveryLocalWebhookHealthUrl",\s*localWebhookUrl\)/,
       "source readiness should resolve the local worker /health endpoint",
     );
     assert.match(
@@ -366,39 +410,46 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
       "drawer source readiness should read the local worker /health endpoint",
     );
     assert.match(
-      appJs,
+      drawerSource,
       /function getDiscoverySourceReadinessIssues\([\s\S]*groundedWeb[\s\S]*Gemini API key[\s\S]*serpApiGoogleJobs[\s\S]*SerpApi key/,
       "source readiness should call out missing Gemini and SerpApi config",
     );
     assert.match(
-      appJs,
+      drawerSource,
       /function renderDiscoveryDrawerSourceReadiness\([\s\S]*discoveryDrawerLastRun[\s\S]*Source config missing/,
       "drawer header should show missing source config instead of hiding it in a later partial run",
     );
 
-    const openStart = appJs.indexOf("function openDiscoveryDrawer()");
+    const openStart = drawerJs.indexOf("function openDiscoveryDrawer()");
     assert.notEqual(openStart, -1, "openDiscoveryDrawer must exist");
-    const openEnd = appJs.indexOf("\n}\n\nfunction closeDiscoveryDrawer", openStart);
+    const openEnd = drawerJs.indexOf("\n}\n\nfunction closeDiscoveryDrawer", openStart);
     assert.notEqual(openEnd, -1, "openDiscoveryDrawer body must be readable");
-    const openSource = appJs.slice(openStart, openEnd);
+    const openSource = drawerJs.slice(openStart, openEnd);
     assert.match(openSource, /refreshDiscoveryDrawerSourceReadiness\(\)/);
 
-    const triggerStart = appJs.indexOf("async function triggerDiscoveryRun(");
+    const triggerStart = appCompatJs.indexOf("async function triggerDiscoveryRun(");
     assert.notEqual(triggerStart, -1, "triggerDiscoveryRun must exist");
-    const triggerEnd = appJs.indexOf(
-      "\n}\n\nwindow.JobBoredDiscovery",
-      triggerStart,
+    const runTriggerStart = runOrchJs.indexOf("async function triggerDiscoveryRun(");
+    assert.notEqual(runTriggerStart, -1, "triggerDiscoveryRun implementation must exist");
+    const triggerEnd = runOrchJs.indexOf(
+      "\n}\n\n  Object.assign(runOrchestration",
+      runTriggerStart,
     );
     assert.notEqual(triggerEnd, -1, "triggerDiscoveryRun body must be readable");
-    const triggerSource = appJs.slice(triggerStart, triggerEnd);
-    assert.match(triggerSource, /warnDiscoverySourceReadinessBeforeRun\(\)/);
+    const triggerSource = runOrchJs.slice(runTriggerStart, triggerEnd);
+    assert.match(triggerSource, /h\("warnDiscoverySourceReadinessBeforeRun"\)/);
   });
 });
 
 describe("buildDiscoveryWebhookPayload — companyAllowlist / companyBlocklist", () => {
   it("delegates browser Run discovery payloads to the shared payload builder", () => {
-    assert.match(appJs, /window\.JobBoredDiscoveryPayload/);
-    assert.match(appJs, /sharedBuilder\.buildDiscoveryWebhookPayload/);
+    assert.match(
+      appCompatJs,
+      /async function buildDiscoveryWebhookPayload\(/,
+      "app-compat.js must keep a thin buildDiscoveryWebhookPayload wrapper",
+    );
+    assert.match(readinessJs, /window\.JobBoredDiscoveryPayload/);
+    assert.match(readinessJs, /sharedBuilder\.buildDiscoveryWebhookPayload/);
   });
 
   it("includes companyAllowlist and companyBlocklist as top-level fields", () => {
@@ -475,9 +526,9 @@ describe("user-content-store — companyAllowlist / companyBlocklist persistence
 
 describe("AI ideation generates Safe/Adjacent/Stretch strata", () => {
   it("generateDiscoverySuggestions returns { safe, adjacent, stretch }", () => {
-    const sigStart = appJs.indexOf("async function generateDiscoverySuggestions(");
+    const sigStart = drawerJs.indexOf("async function generateDiscoverySuggestions(");
     assert.ok(sigStart !== -1, "generateDiscoverySuggestions must exist");
-    const slice = appJs.slice(sigStart, sigStart + 6000);
+    const slice = drawerJs.slice(sigStart, sigStart + 6000);
     assert.match(slice, /safe:\s*normalizeStratum/);
     assert.match(slice, /adjacent:\s*normalizeStratum/);
     assert.match(slice, /stretch:\s*normalizeStratum/);
@@ -485,14 +536,14 @@ describe("AI ideation generates Safe/Adjacent/Stretch strata", () => {
 
   it("normalizeStratum coerces companyAllowlist via the sanitizer", () => {
     assert.match(
-      appJs,
+      drawerSource,
       /function normalizeStratum\([\s\S]*?companyAllowlist:\s*sanitizeCompanyEntries/,
     );
   });
 
   it("applyStratumToDrawer overwrites the allowlist (auto-include companies by default)", () => {
     assert.match(
-      appJs,
+      drawerSource,
       /function applyStratumToDrawer\([\s\S]*?discoveryDrawerState\.allow\s*=\s*sanitizeCompanyEntries/,
     );
   });
@@ -501,9 +552,9 @@ describe("AI ideation generates Safe/Adjacent/Stretch strata", () => {
 describe("Run guard: blank intent without AI strata still blocks the run", () => {
   it("the drawer Run handler shows a warning when both targetRoles and keywordsInclude are blank", () => {
     // The handler is inside initDiscoveryDrawer.
-    const initStart = appJs.indexOf("function initDiscoveryDrawer(");
+    const initStart = drawerJs.indexOf("function initDiscoveryDrawer(");
     assert.ok(initStart !== -1);
-    const slice = appJs.slice(initStart, initStart + 8000);
+    const slice = drawerJs.slice(initStart, initStart + 8000);
     assert.match(
       slice,
       /Add target roles or keywords, or pick an AI idea above/,

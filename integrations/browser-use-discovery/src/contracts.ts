@@ -497,6 +497,7 @@ export type IngestUrlResponseV1 =
       // Add URL handling rejects placeholder-only extracts before writing.
       strategy:
         | "ats_api"
+        | "gemini_url_context"
         | "jsonld"
         | "cheerio_dom"
         | "manual_fill"

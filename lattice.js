@@ -823,6 +823,23 @@
     state.focusStage = normalizeStage(stage);
     render();
     refocus(dataIndex);
+    if (isOn()) {
+      var flowing = window.JobBoredFlowing && window.JobBoredFlowing.openRole;
+      if (flowing && typeof flowing.set === "function") {
+        flowing.set(dataIndex);
+      }
+      var roleRegion = document.querySelector('[data-region="role"]');
+      if (roleRegion && roleRegion.scrollIntoView) {
+        var reduce = window.matchMedia
+          && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        try {
+          roleRegion.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+        } catch (_) {
+          roleRegion.scrollIntoView();
+        }
+      }
+      return;
+    }
     if (typeof window.openJobDetail === "function") {
       window.openJobDetail(dataIndex);
     }
@@ -870,9 +887,14 @@
 
   // ---- write-back via setStage (delegates to existing updateJobStatus) --
 
-  function setStage(dataIndex, newStage) {
+  function setStage(dataIndex, newStage, prevStage) {
     if (typeof window.updateJobStatus === "function") {
-      return window.updateJobStatus(dataIndex, newStage);
+      // Pass prevStage explicitly: handleStageChange has already mutated
+      // job.status optimistically, so updateJobStatus can no longer read the
+      // true previous status off the shared pipeline object. Without this the
+      // jb:write:succeeded event reports fromStage === toStage and the
+      // Discovered -> Researching auto-draft trigger never fires.
+      return window.updateJobStatus(dataIndex, newStage, prevStage);
     }
     return Promise.resolve(false);
   }
@@ -898,7 +920,7 @@
     render();
     refocus(dataIndex);
     announce("Moved to " + toStage);
-    var p = setStage(dataIndex, toStage);
+    var p = setStage(dataIndex, toStage, prevStatus);
     if (p && typeof p.then === "function") {
       p.then(function (ok) {
         if (!ok) {

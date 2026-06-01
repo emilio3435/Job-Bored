@@ -1,0 +1,198 @@
+    <!-- Job scraper setup (Cheerio local server) -->
+    <div
+      class="modal-overlay scraper-setup-overlay"
+      id="scraperSetupModal"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="scraperSetupTitle"
+    >
+      <div class="modal-card modal-card--wide scraper-setup-card">
+        <div class="settings-modal-head">
+          <h3 id="scraperSetupTitle">Set up the job posting scraper</h3>
+          <button
+            type="button"
+            class="settings-modal-close"
+            id="scraperSetupModalClose"
+            aria-label="Close"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <p class="modal-lede scraper-setup-lede">
+          Cheerio runs <strong>on your machine</strong> (Node.js) so this page
+          can read job descriptions that aren&rsquo;t available from the browser
+          alone. From the repo root, <strong>one command</strong> starts both
+          the dashboard and the scraper.
+        </p>
+
+        <div class="scraper-setup-callout" role="note">
+          <strong>Plug and play:</strong> in the project folder (where
+          <code class="modal-code">package.json</code> lives), run
+          <code class="modal-code">npm install</code> once, then
+          <code class="modal-code">npm start</code> every time. That installs
+          server dependencies automatically and starts the UI on
+          <code class="modal-code">http://localhost:8080</code> plus the scraper
+          on <code class="modal-code">127.0.0.1:3847</code>.
+        </div>
+
+        <div
+          class="scraper-setup-callout scraper-setup-callout--muted"
+          role="note"
+        >
+          <strong>GitHub Pages (HTTPS):</strong> the dashboard is served over
+          HTTPS, so the browser will <strong>not</strong> call
+          <code class="modal-code">http://127.0.0.1</code> on your laptop (mixed
+          content). For <strong>Fetch posting</strong> from Pages, deploy the
+          <code class="modal-code">server/</code> app to Render, Fly, Railway,
+          etc., paste the <strong>HTTPS</strong> base URL in Settings, or run
+          the UI locally with <code class="modal-code">npm start</code> on
+          <code class="modal-code">http://localhost</code>. See
+          <code class="modal-code">DEPLOY-SCRAPER.md</code>.
+        </div>
+
+        <ol class="scraper-setup-steps">
+          <li class="scraper-setup-step">
+            <div class="scraper-setup-step__title">
+              Install Node.js (if needed)
+            </div>
+            <p class="scraper-setup-step__body">
+              Download the LTS build from
+              <a
+                href="https://nodejs.org/"
+                target="_blank"
+                rel="noopener noreferrer"
+                >nodejs.org</a
+              >. Then confirm in a terminal:
+            </p>
+            <div class="scraper-setup-copyrow">
+              <pre class="scraper-setup-code" id="scraperCmdNodev">node -v</pre>
+              <button
+                type="button"
+                class="btn-copy-scraper"
+                data-copy-text="node -v"
+              >
+                Copy
+              </button>
+            </div>
+          </li>
+          <li class="scraper-setup-step">
+            <div class="scraper-setup-step__title">
+              Start dashboard + scraper (project root)
+            </div>
+            <p class="scraper-setup-step__body">
+              Terminal / PowerShell in the project folder — first time installs
+              everything (including the <code class="modal-code">server</code>
+              package):
+            </p>
+            <div class="scraper-setup-copyrow">
+              <pre class="scraper-setup-code" id="scraperCmdRoot">
+npm install
+npm start</pre
+              >
+              <button
+                type="button"
+                class="btn-copy-scraper"
+                data-copy-text="npm install&#10;npm start"
+              >
+                Copy
+              </button>
+            </div>
+            <p class="settings-field-hint scraper-setup-hint">
+              Leave this running. Logs should show the web server on port
+              <strong>8080</strong> and
+              <code class="modal-code">[job-scraper] http://127.0.0.1:3847</code
+              >.
+            </p>
+            <details class="scraper-setup-advanced">
+              <summary>Scraper only (no dashboard)</summary>
+              <p class="scraper-setup-step__body">
+                <code class="modal-code"
+                  >cd server && npm install && npm start</code
+                >
+                — same API on port 3847.
+              </p>
+            </details>
+          </li>
+          <li class="scraper-setup-step">
+            <div class="scraper-setup-step__title">
+              Confirm the URL in Settings
+            </div>
+            <p class="scraper-setup-step__body">
+              You can leave the scraper URL blank on
+              <code class="modal-code">localhost</code> — the app uses
+              <strong>http://127.0.0.1:3847</strong> automatically. Otherwise
+              paste your URL below, then click
+              <strong>Save &amp; reload</strong>
+              in Settings.
+            </p>
+            <div class="scraper-setup-copyrow">
+              <pre class="scraper-setup-code" id="scraperUrlDefault">
+http://127.0.0.1:3847</pre
+              >
+              <button
+                type="button"
+                class="btn-copy-scraper"
+                data-copy-text="http://127.0.0.1:3847"
+              >
+                Copy
+              </button>
+            </div>
+            <div class="scraper-setup-testrow">
+              <button
+                type="button"
+                class="btn-modal-secondary"
+                id="scraperTestConnectionBtn"
+              >
+                Test connection
+              </button>
+              <span
+                class="scraper-test-result"
+                id="scraperTestResult"
+                aria-live="polite"
+              ></span>
+            </div>
+          </li>
+          <li class="scraper-setup-step">
+            <div class="scraper-setup-step__title">Use it on a job card</div>
+            <p class="scraper-setup-step__body">
+              Open a role with a <strong>Link</strong>, expand the card, and
+              click <strong>Fetch posting</strong>. With a Gemini key, you also
+              get AI fit angle and talking points from the scraped text.
+            </p>
+          </li>
+        </ol>
+
+        <p class="scraper-setup-troubleshoot">
+          <strong>Connection refused / Failed to fetch?</strong> The scraper
+          isn&rsquo;t running. In a terminal:
+          <code class="modal-code">cd server</code> then
+          <code class="modal-code">npm start</code> and leave that window open.
+          <strong>HTTPS dashboard?</strong> Browsers may block
+          <code class="modal-code">http://127.0.0.1</code> from a secure site —
+          use plain HTTP locally or deploy the scraper with HTTPS.
+          <strong>Blocked job page?</strong> Some sites block bots; try an
+          employer career page. See <code class="modal-code">SETUP.md</code>.
+        </p>
+
+        <div class="modal-actions scraper-setup-actions">
+          <button
+            type="button"
+            class="btn-modal-primary"
+            id="scraperSetupDoneBtn"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>

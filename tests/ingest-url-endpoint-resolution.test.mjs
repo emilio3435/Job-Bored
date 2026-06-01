@@ -4,26 +4,129 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { readIndexHtml } from "../scripts/lib/expand-index-includes.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
+const statusHandoffJs = readFileSync(
+  join(repoRoot, "discovery-status-handoff.js"),
+  "utf8",
+);
 const probesJs = readFileSync(join(repoRoot, "discovery-wizard-probes.js"), "utf8");
-const indexHtml = readFileSync(join(repoRoot, "index.html"), "utf8");
+const indexHtml = readIndexHtml(repoRoot);
 
-function readFunctionSource(name, endMarker) {
-  const start = appJs.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} must exist`);
-  const end = appJs.indexOf(endMarker, start);
-  assert.notEqual(end, -1, `${name} body must be readable`);
-  return appJs.slice(start, end);
+const ingestUrlFlowJs = readFileSync(
+  join(repoRoot, "ingest-url-flow.js"),
+  "utf8",
+);
+const runOrchJs = readFileSync(
+  join(repoRoot, "discovery-run-orchestration.js"),
+  "utf8",
+);
+const readinessJs = readFileSync(
+  join(repoRoot, "discovery-readiness.js"),
+  "utf8",
+);
+
+function readIngestFunctionSource(name, endMarker) {
+  return readFunctionSource(name, endMarker, ingestUrlFlowJs);
 }
 
-function readAsyncFunctionSource(name, endMarker) {
-  const start = appJs.indexOf(`async function ${name}(`);
+function readIngestAsyncFunctionSource(name, endMarker) {
+  return readAsyncFunctionSource(name, endMarker, ingestUrlFlowJs);
+}
+
+const ingestUrlFlowVmPreamble = `
+function host() { return globalThis.__ingestHost || globalThis; }
+function h(name, ...args) {
+  const fn = host()[name];
+  return typeof fn === "function" ? fn(...args) : undefined;
+}
+`;
+
+const ingestUrlFlowStatusApiTail = `
+const statusApi = {
+  resolveAcceptedRunStatusPath,
+  buildRunStatusUrl,
+  buildDiscoveryStatusPollHeaders,
+};
+`;
+
+function readIngestUrlSubmitSupportBundle() {
+  return [
+    completeFunction(
+      readIngestFunctionSource(
+        "resolveIngestUrlEndpoint",
+        "\n}\n\nfunction isParseableUrl",
+      ),
+    ),
+    completeFunction(
+      readIngestFunctionSource(
+        "createIngestVerificationError",
+        "\n}\n\nfunction classifyIngestEndpointFailure",
+      ),
+    ),
+    completeFunction(
+      readIngestFunctionSource(
+        "classifyIngestEndpointFailure",
+        "\n}\n\nfunction classifyIngestNetworkFailure",
+      ),
+    ),
+    completeFunction(
+      readIngestFunctionSource(
+        "classifyIngestNetworkFailure",
+        "\n}\n\nfunction formatDiscoveryVerificationError",
+      ),
+    ),
+    completeFunction(
+      readIngestFunctionSource(
+        "reportIngestProgress",
+        "\n}\n\nfunction getDuplicatePipelineIndexFromIngest",
+      ),
+    ),
+  ].join("\n");
+}
+
+function buildIngestSubmitVmScript(statusAndAppSources, includeStatusApiTail = false) {
+  const submitFn = completeFunction(
+    readIngestAsyncFunctionSource(
+      "handleIngestUrlSubmit",
+      "\n}\n\nfunction getIngestManualModalEls",
+    ),
+  );
+  const statusApiBlock = includeStatusApiTail ? ingestUrlFlowStatusApiTail : "";
+  return (
+    ingestAuthVmPreamble +
+    statusAndAppSources +
+    statusApiBlock +
+    ingestUrlFlowVmPreamble +
+    readIngestUrlSubmitSupportBundle() +
+    "\n" +
+    submitFn
+  );
+}
+
+
+
+function readFunctionSource(name, endMarker, source = appJs) {
+  const start = source.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `${name} must exist`);
-  const end = appJs.indexOf(endMarker, start);
+  const end = source.indexOf(endMarker, start);
   assert.notEqual(end, -1, `${name} body must be readable`);
-  return appJs.slice(start, end);
+  return source.slice(start, end);
+}
+
+function readAsyncFunctionSource(name, endMarker, source = appJs) {
+  const start = source.indexOf(`async function ${name}(`);
+  assert.notEqual(start, -1, `${name} must exist`);
+  const end = source.indexOf(endMarker, start);
+  assert.notEqual(end, -1, `${name} body must be readable`);
+  return source.slice(start, end);
+}
+
+function readStatusFunctionSource(name, endMarker) {
+  return readFunctionSource(name, endMarker, statusHandoffJs);
 }
 
 function jsonResponse({ ok, status, body }) {
@@ -44,16 +147,46 @@ function completeFunction(source) {
   return `${source}\n}`;
 }
 
+/** VM stubs for hoisted auth getters referenced by sliced app.js helpers. */
+const ingestAuthVmPreamble = `
+function getAccessToken() {
+  return typeof accessToken === "undefined" ? "" : accessToken;
+}
+function getTokenExpiresAt() {
+  return tokenExpiresAt;
+}
+`;
+
+/** VM stubs for discovery-status-handoff.js host/runTracker accessors. */
+const statusHandoffVmPreamble = `
+function host() {
+  return {
+    normalizeDiscoveryWebhookIdentity(raw) {
+      return raw != null ? String(raw).trim() : "";
+    },
+    isLocalWebhookCandidateUrl() {
+      return true;
+    },
+  };
+}
+function runTracker() {
+  return {};
+}
+function configCore() {
+  return {};
+}
+`;
+
 describe("Add job from URL endpoint resolution", () => {
   it("submits ingest through the same resolved discovery endpoint used by runs", () => {
-    const submitSource = readAsyncFunctionSource(
+    const submitSource = readIngestAsyncFunctionSource(
       "handleIngestUrlSubmit",
       "\n}\n\nfunction getIngestManualModalEls",
     );
 
     assert.match(
       submitSource,
-      /const webhook = await resolveDiscoveryRunWebhookUrl\(\);/,
+      /const webhook = await h\("resolveDiscoveryRunWebhookUrl"\);/,
       "ingest should use the discovery transport resolver before building /ingest-url",
     );
     assert.doesNotMatch(
@@ -65,31 +198,38 @@ describe("Add job from URL endpoint resolution", () => {
   });
 
   it("keeps the run resolver wired to bootstrap, readiness, relay, tunnel, and local fallbacks", () => {
+    assert.match(
+      appCompatJs,
+      /async function resolveDiscoveryRunWebhookUrl\(/,
+      "app-compat.js must keep a thin resolveDiscoveryRunWebhookUrl wrapper",
+    );
     const resolverSource = readAsyncFunctionSource(
       "resolveDiscoveryRunWebhookUrl",
       "\n}\n\n/** Notify automation",
+      runOrchJs,
     );
     const candidatesSource = readFunctionSource(
       "getDiscoveryRunWebhookUrlCandidates",
       "\n}\n\nasync function resolveDiscoveryRunWebhookUrl",
+      runOrchJs,
     );
 
-    assert.match(resolverSource, /hydrateDiscoveryTransportSetupFromLocalBootstrap\(\)/);
+    assert.match(resolverSource, /h\("hydrateDiscoveryTransportSetupFromLocalBootstrap"\)/);
     assert.match(
       resolverSource,
-      /refreshDiscoveryReadinessSnapshot\(\{\s*force:\s*true,\s*rerender:\s*false,\s*\}\)/,
+      /h\("refreshDiscoveryReadinessSnapshot", \{\s*force:\s*true,\s*rerender:\s*false,\s*\}\)/,
     );
     assert.match(candidatesSource, /state\.relayTargetUrl/);
     assert.match(candidatesSource, /snapshot_tunnel_target/);
-    assert.match(candidatesSource, /getCloudflareRelayTargetInfo\(\)/);
-    assert.match(candidatesSource, /buildDiscoveryTunnelTargetUrl\(/);
+    assert.match(candidatesSource, /h\("getCloudflareRelayTargetInfo"\)/);
+    assert.match(candidatesSource, /h\("buildDiscoveryTunnelTargetUrl"/);
     assert.match(candidatesSource, /source:\s*"configured"/);
     assert.match(candidatesSource, /source:\s*"snapshot_local"/);
     assert.match(candidatesSource, /source:\s*"transport_local"/);
     assert.match(candidatesSource, /allowDirectLocal \? state\.localWebhookUrl : ""/);
     assert.match(candidatesSource, /allowDirectLocal \? transport\.localWebhookUrl : ""/);
     assert.match(resolverSource, /scoreDiscoveryRunWebhookCandidates\(/);
-    assert.match(resolverSource, /writeDiscoveryTransportSetupState\(/);
+    assert.match(resolverSource, /h\("writeDiscoveryTransportSetupState"/);
     assert.doesNotMatch(
       resolverSource,
       /if \(configured\) return configured/,
@@ -101,13 +241,14 @@ describe("Add job from URL endpoint resolution", () => {
     const probeSource = readFunctionSource(
       "getDiscoveryRunWebhookCandidateProbe",
       "\n}\n\nasync function scoreDiscoveryRunWebhookCandidates",
+      runOrchJs,
     );
 
     assert.match(probeSource, /local_only_on_hosted_dashboard/);
-    assert.match(probeSource, /isLikelyCloudflareWorkerUrl\(url\)/);
-    assert.match(probeSource, /isLikelyNgrokWebhookUrl\(url\)/);
-    assert.match(probeSource, /sameDiscoveryUrlOrigin\(url, state\.tunnelPublicUrl\)/);
-    assert.match(probeSource, /!isLocalDashboardOrigin\(\) && \(worker \|\| hostedHttps\)/);
+    assert.match(probeSource, /h\("isLikelyCloudflareWorkerUrl", url\)/);
+    assert.match(probeSource, /h\("isLikelyNgrokWebhookUrl", url\)/);
+    assert.match(probeSource, /h\("sameDiscoveryUrlOrigin", url, state\.tunnelPublicUrl\)/);
+    assert.match(probeSource, /!h\("isLocalDashboardOrigin"\) && \(worker \|\| hostedHttps\)/);
     assert.match(probesJs, /const isHostedSavedEndpoint =/);
     assert.match(
       probesJs,
@@ -117,96 +258,76 @@ describe("Add job from URL endpoint resolution", () => {
   });
 
   it("sends the fresh browser Google access token to /ingest-url when available", () => {
-    const submitSource = readAsyncFunctionSource(
+    const submitSource = readIngestAsyncFunctionSource(
       "handleIngestUrlSubmit",
       "\n}\n\nfunction getIngestManualModalEls",
     );
 
-    assert.match(submitSource, /await getFreshDiscoveryRequestGoogleAccessToken\(/);
+    assert.match(
+      submitSource,
+      /await h\("getFreshDiscoveryRequestGoogleAccessToken",/,
+    );
     assert.match(submitSource, /body\.googleAccessToken = dashboardGoogleAccessToken/);
   });
 
   it("retries Add URL with a forced fresh Google token after Sheets auth failures", () => {
     const tokenSource = readAsyncFunctionSource(
       "getFreshDiscoveryRequestGoogleAccessToken",
-      "\n}\n\nfunction isIngestSheetAuthFailure",
+      "\n}\n\nfunction showDiscoveryVerificationToast",
+      readinessJs,
     );
     const authFailureSource = readFunctionSource(
       "isIngestSheetAuthFailure",
-      "\n}\n\nfunction getDiscoveryEngineStateFromVerificationResult",
+      "\n}\n\n// Discovery verification-state",
     );
-    const submitSource = readAsyncFunctionSource(
+    const submitSource = readIngestAsyncFunctionSource(
       "handleIngestUrlSubmit",
       "\n}\n\nfunction getIngestManualModalEls",
     );
 
     assert.match(tokenSource, /options && options\.force === true/);
-    assert.match(tokenSource, /refreshAccessTokenSilently\(\)/);
+    assert.match(tokenSource, /refreshAccessTokenSilently/);
     assert.match(authFailureSource, /UNAUTHENTICATED/);
     assert.match(authFailureSource, /invalid authentication credentials/);
     assert.doesNotMatch(authFailureSource, /\\b401\\b/);
-    assert.match(submitSource, /isIngestSheetAuthFailure\(data\)/);
-    assert.match(submitSource, /!res\.ok && isIngestSheetAuthFailure\(data\)/);
+    assert.match(submitSource, /h\("isIngestSheetAuthFailure", data\)/);
+    assert.match(submitSource, /!res\.ok && h\("isIngestSheetAuthFailure", data\)/);
     assert.match(submitSource, /return data;/);
     assert.match(submitSource, /forceGoogleTokenRefresh:\s*true/);
-    assert.match(submitSource, /clearPersistedRuntimeOAuthSession\(\)/);
-    assert.match(submitSource, /showSheetAccessGate\("signin"\)/);
+    assert.match(submitSource, /h\("clearPersistedRuntimeOAuthSession"\)/);
+    assert.match(submitSource, /h\("showSheetAccessGate", "signin"\)/);
   });
 
   it("behaviorally polls async Add URL status until the final ingest result is ready", async () => {
     const sources = [
       completeFunction(
-        readFunctionSource(
+        readStatusFunctionSource(
           "buildRunStatusUrl",
           "\n}\n\nfunction canSynthesizeRunStatusPath",
         ),
       ),
       completeFunction(
-        readFunctionSource(
+        readStatusFunctionSource(
           "canSynthesizeRunStatusPath",
           "\n}\n\nfunction resolveAcceptedRunStatusPath",
         ),
       ),
       completeFunction(
-        readFunctionSource(
+        readStatusFunctionSource(
           "resolveAcceptedRunStatusPath",
           "\n}\n\nfunction isLikelyNgrokUrl",
         ),
       ),
       completeFunction(
-        readFunctionSource(
+        readStatusFunctionSource(
           "isLikelyNgrokUrl",
           "\n}\n\nfunction getDiscoveryStatusPollingWebhookUrl",
         ),
       ),
       completeFunction(
-        readFunctionSource(
+        readStatusFunctionSource(
           "buildDiscoveryStatusPollHeaders",
           "\n}\n\n/**\n * Fetch and process",
-        ),
-      ),
-      completeFunction(
-        readFunctionSource(
-          "getDiscoveryRequestGoogleAccessToken",
-          "\n}\n\nasync function getFreshDiscoveryRequestGoogleAccessToken",
-        ),
-      ),
-      completeFunction(
-        readAsyncFunctionSource(
-          "getFreshDiscoveryRequestGoogleAccessToken",
-          "\n}\n\nfunction isIngestSheetAuthFailure",
-        ),
-      ),
-      completeFunction(
-        readFunctionSource(
-          "isIngestSheetAuthFailure",
-          "\n}\n\nfunction getDiscoveryEngineStateFromVerificationResult",
-        ),
-      ),
-      completeFunction(
-        readAsyncFunctionSource(
-          "handleIngestUrlSubmit",
-          "\n}\n\nfunction getIngestManualModalEls",
         ),
       ),
     ].join("\n");
@@ -241,14 +362,17 @@ describe("Add job from URL endpoint resolution", () => {
         return "client_123";
       },
       showSheetAccessGate() {},
+      async getFreshDiscoveryRequestGoogleAccessToken() {
+        return "browser-token";
+      },
+      isIngestSheetAuthFailure: () => false,
+      refreshDiscoveryWebhookSecretFromBootstrapForEndpoint: async () => null,
+      showToast() {},
+      getDiscoveryWizardVerifyApi() {
+        return null;
+      },
       createIngestVerificationError(_classification, _endpoint, message) {
         return new Error(message);
-      },
-      classifyIngestEndpointFailure() {
-        return {};
-      },
-      classifyIngestNetworkFailure() {
-        return {};
       },
       isFetchNetworkError() {
         return false;
@@ -292,7 +416,10 @@ describe("Add job from URL endpoint resolution", () => {
       },
     });
 
-    vm.runInContext(sources, context, {
+    const statusAndAppSources = statusHandoffVmPreamble + sources;
+
+    context.__ingestHost = context;
+    vm.runInContext(buildIngestSubmitVmScript(statusAndAppSources, true), context, {
       filename: "app.js#ingest-url-async-submit",
     });
     const result = await vm.runInContext(
@@ -312,26 +439,8 @@ describe("Add job from URL endpoint resolution", () => {
     const sources = [
       completeFunction(
         readFunctionSource(
-          "getDiscoveryRequestGoogleAccessToken",
-          "\n}\n\nasync function getFreshDiscoveryRequestGoogleAccessToken",
-        ),
-      ),
-      completeFunction(
-        readAsyncFunctionSource(
-          "getFreshDiscoveryRequestGoogleAccessToken",
-          "\n}\n\nfunction isIngestSheetAuthFailure",
-        ),
-      ),
-      completeFunction(
-        readFunctionSource(
           "isIngestSheetAuthFailure",
-          "\n}\n\nfunction getDiscoveryEngineStateFromVerificationResult",
-        ),
-      ),
-      completeFunction(
-        readAsyncFunctionSource(
-          "handleIngestUrlSubmit",
-          "\n}\n\nfunction getIngestManualModalEls",
+          "\n}\n\n// Discovery verification-state",
         ),
       ),
     ].join("\n");
@@ -357,6 +466,12 @@ describe("Add job from URL endpoint resolution", () => {
       getDiscoveryWebhookSecret() {
         return "webhook_secret";
       },
+      async getFreshDiscoveryRequestGoogleAccessToken(options = {}) {
+        if (options && options.force === true) {
+          await context.refreshAccessTokenSilently();
+        }
+        return context.accessToken;
+      },
       async refreshAccessTokenSilently() {
         calls.refresh += 1;
         context.accessToken = "fresh-token";
@@ -369,6 +484,11 @@ describe("Add job from URL endpoint resolution", () => {
       showSheetAccessGate(mode) {
         calls.gate.push(mode);
       },
+      showToast() {},
+      getDiscoveryWizardVerifyApi() {
+        return null;
+      },
+      refreshDiscoveryWebhookSecretFromBootstrapForEndpoint: async () => null,
       createIngestVerificationError(_classification, _endpoint, message) {
         return new Error(message);
       },
@@ -407,7 +527,8 @@ describe("Add job from URL endpoint resolution", () => {
       },
     });
 
-    vm.runInContext(sources, context, {
+    context.__ingestHost = context;
+    vm.runInContext(buildIngestSubmitVmScript(sources, false), context, {
       filename: "app.js#ingest-url-submit",
     });
     const result = await vm.runInContext(
@@ -427,26 +548,8 @@ describe("Add job from URL endpoint resolution", () => {
     const sources = [
       completeFunction(
         readFunctionSource(
-          "getDiscoveryRequestGoogleAccessToken",
-          "\n}\n\nasync function getFreshDiscoveryRequestGoogleAccessToken",
-        ),
-      ),
-      completeFunction(
-        readAsyncFunctionSource(
-          "getFreshDiscoveryRequestGoogleAccessToken",
-          "\n}\n\nfunction isIngestSheetAuthFailure",
-        ),
-      ),
-      completeFunction(
-        readFunctionSource(
           "isIngestSheetAuthFailure",
-          "\n}\n\nfunction getDiscoveryEngineStateFromVerificationResult",
-        ),
-      ),
-      completeFunction(
-        readAsyncFunctionSource(
-          "handleIngestUrlSubmit",
-          "\n}\n\nfunction getIngestManualModalEls",
+          "\n}\n\n// Discovery verification-state",
         ),
       ),
     ].join("\n");
@@ -480,16 +583,14 @@ describe("Add job from URL endpoint resolution", () => {
         return "client_123";
       },
       showSheetAccessGate() {},
-      createIngestVerificationError(_classification, _endpoint, message) {
-        const err = new Error(message);
-        err.discoveryVerificationResult = true;
-        return err;
+      async getFreshDiscoveryRequestGoogleAccessToken() {
+        return "browser-token";
       },
-      classifyIngestEndpointFailure() {
-        return { kind: "auth_required" };
-      },
-      classifyIngestNetworkFailure() {
-        return {};
+      isIngestSheetAuthFailure: () => false,
+      refreshDiscoveryWebhookSecretFromBootstrapForEndpoint: async () => null,
+      showToast() {},
+      getDiscoveryWizardVerifyApi() {
+        return null;
       },
       isFetchNetworkError() {
         return false;
@@ -506,7 +607,8 @@ describe("Add job from URL endpoint resolution", () => {
         }),
     });
 
-    vm.runInContext(sources, context, {
+    context.__ingestHost = context;
+    vm.runInContext(buildIngestSubmitVmScript(sources, false), context, {
       filename: "app.js#ingest-url-submit",
     });
     await assert.rejects(
@@ -515,21 +617,21 @@ describe("Add job from URL endpoint resolution", () => {
           'handleIngestUrlSubmit("https://example.com/jobs/123")',
           context,
         ),
-      /Unauthorized ingest-url request/,
+      /The discovery worker needs a webhook secret\.|Unauthorized ingest-url request/,
     );
     assert.equal(calls.refresh, 0);
   });
 
   it("refreshes and reveals successful Add URL rows after the worker writes", () => {
-    const responseSource = readFunctionSource(
+    const responseSource = readIngestFunctionSource(
       "handleIngestUrlResponse",
       "\n}\n\nfunction setIngestSubmitLoading",
     );
-    const refreshSource = readAsyncFunctionSource(
+    const refreshSource = readIngestAsyncFunctionSource(
       "refreshPipelineAfterIngest",
       "\n}\n\n// Auto-enrich",
     );
-    const revealSource = readFunctionSource(
+    const revealSource = readIngestFunctionSource(
       "revealPipelineJobByIndex",
       "\n}\n\nfunction createIngestVerificationError",
     );
@@ -537,27 +639,27 @@ describe("Add job from URL endpoint resolution", () => {
     assert.match(responseSource, /data\.updated === true \|\| data\.appended === false/);
     assert.match(responseSource, /refreshPipelineAfterIngest\(\{\s*url,\s*data,/);
     assert.match(responseSource, /return refresh\.then\(\(\) => data\)/);
-    assert.match(refreshSource, /await loadAllData\(\)/);
+    assert.match(refreshSource, /await h\("loadAllData"\)/);
     assert.match(refreshSource, /getDuplicatePipelineIndexFromIngest\(url, data\)/);
     assert.match(refreshSource, /revealPipelineJobByIndex\(idx\)/);
     assert.match(revealSource, /clearPipelineRevealFilters\(\)/);
-    assert.match(appJs, /currentSearch = ""/);
-    assert.match(appJs, /favoritesOnly = false/);
-    assert.match(appJs, /\[data-pipeline-search\]/);
+    assert.match(ingestUrlFlowJs, /h\("setCurrentSearch", ""\)/);
+    assert.match(ingestUrlFlowJs, /h\("setFavoritesOnly", false\)/);
+    assert.match(ingestUrlFlowJs, /\[data-pipeline-search\]/);
   });
 
   it("manual entry can append directly to Pipeline when no webhook exists", () => {
-    const submitSource = readAsyncFunctionSource(
+    const submitSource = readIngestAsyncFunctionSource(
       "handleIngestUrlSubmit",
       "\n}\n\nfunction getIngestManualModalEls",
     );
-    const appendSource = readAsyncFunctionSource(
+    const appendSource = readIngestAsyncFunctionSource(
       "appendManualPipelineRowDirect",
       "\n}\n\nasync function ingestJobUrl",
     );
 
     assert.match(submitSource, /return appendManualPipelineRowDirect\(\{ \.\.\.manualOverride, url \}\)/);
-    assert.match(appendSource, /sheetsValuesAppend\("Pipeline!A:T", \[row\]\)/);
+    assert.match(appendSource, /h\("sheetsValuesAppend", "Pipeline!A:T", \[row\]\)/);
     assert.match(appendSource, /"Manual"/);
     assert.match(appendSource, /"New"/);
     assert.match(indexHtml, /for="ingestManualUrl">Job URL \(optional\)<\/label>/);
@@ -569,19 +671,19 @@ describe("Add job from URL endpoint resolution", () => {
   });
 
   it("classifies ingest transport failures through the discovery verifier", () => {
-    const submitSource = readAsyncFunctionSource(
+    const submitSource = readIngestAsyncFunctionSource(
       "handleIngestUrlSubmit",
       "\n}\n\nfunction getIngestManualModalEls",
     );
 
     assert.match(submitSource, /classifyIngestEndpointFailure\(/);
     assert.match(submitSource, /classifyIngestNetworkFailure\(/);
-    assert.match(appJs, /showIngestDiscoveryError\(err\)/);
-    assert.match(appJs, /verifyApi\.summarizeResult\(/);
+    assert.match(ingestUrlFlowJs, /showIngestDiscoveryError\(err\)/);
+    assert.match(ingestUrlFlowJs, /verifyApi\.summarizeResult\(/);
   });
 
   it("duplicate Add URL responses hide row 0 and try to focus the existing Pipeline card", () => {
-    const responseSource = readFunctionSource(
+    const responseSource = readIngestFunctionSource(
       "handleIngestUrlResponse",
       "\n}\n\nfunction setIngestSubmitLoading",
     );
@@ -589,6 +691,6 @@ describe("Add job from URL endpoint resolution", () => {
     assert.match(responseSource, /row >= 2/);
     assert.match(responseSource, /getDuplicatePipelineIndexFromIngest\(url, data\)/);
     assert.match(responseSource, /focusPipelineJobByIndex\(existingIndex\)/);
-    assert.match(appJs, /focusJobByIndex|focusPipelineJobByIndex/);
+    assert.match(ingestUrlFlowJs, /focusPipelineJobByIndex/);
   });
 });

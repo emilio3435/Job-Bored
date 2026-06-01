@@ -6,6 +6,11 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const materialsStateJs = readFileSync(
+  join(repoRoot, "materials-state.js"),
+  "utf8",
+);
+const atsScorecardJs = readFileSync(join(repoRoot, "ats-scorecard.js"), "utf8");
 const userContentStoreJs = readFileSync(
   join(repoRoot, "user-content-store.js"),
   "utf8",
@@ -15,6 +20,10 @@ const resumeGenerateJs = readFileSync(
   "utf8",
 );
 const resumeBundleJs = readFileSync(join(repoRoot, "resume-bundle.js"), "utf8");
+const resumeGenerationJs = readFileSync(
+  join(repoRoot, "resume-generation.js"),
+  "utf8",
+);
 
 // ============================================================
 // Tests: Draft Version History — Refinement Creates New Versions
@@ -22,9 +31,14 @@ const resumeBundleJs = readFileSync(join(repoRoot, "resume-bundle.js"), "utf8");
 
 describe("Draft version history — refinement creates new versions", () => {
   it("refineLastResumeGeneration creates a new draft with incremented versionNumber", () => {
-    const fnStart = appJs.indexOf("async function refineLastResumeGeneration");
-    const fnEnd = appJs.indexOf("async function openSavedDraftVersion", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = resumeGenerationJs.indexOf(
+      "async function refineLastResumeGeneration",
+    );
+    const fnEnd = resumeGenerationJs.indexOf(
+      "async function openSavedDraftVersion",
+      fnStart,
+    );
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
 
     // Should call saveGeneratedDraft with mode: "refine"
     assert.ok(
@@ -82,9 +96,12 @@ describe("Draft version history — refinement creates new versions", () => {
 
 describe("Saved snapshot reopen — reload persistence", () => {
   it("openSavedDraftVersion restores draft text from the stored snapshot", () => {
-    const fnStart = appJs.indexOf("async function openSavedDraftVersion");
-    const fnEnd = appJs.indexOf("async function openLatestSavedDraftForJob", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = resumeGenerationJs.indexOf("async function openSavedDraftVersion");
+    const fnEnd = resumeGenerationJs.indexOf(
+      "async function openLatestSavedDraftForJob",
+      fnStart,
+    );
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
 
     // Should get draft from cache or store
     assert.ok(
@@ -100,9 +117,12 @@ describe("Saved snapshot reopen — reload persistence", () => {
   });
 
   it("openSavedDraftVersion builds a fresh bundle from the current job context", () => {
-    const fnStart = appJs.indexOf("async function openSavedDraftVersion");
-    const fnEnd = appJs.indexOf("async function openLatestSavedDraftForJob", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = resumeGenerationJs.indexOf("async function openSavedDraftVersion");
+    const fnEnd = resumeGenerationJs.indexOf(
+      "async function openLatestSavedDraftForJob",
+      fnStart,
+    );
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
 
     // Should call buildResumeContextBundle to create a new bundle
     assert.ok(
@@ -150,9 +170,9 @@ describe("Saved snapshot reopen — reload persistence", () => {
 
 describe("ATS analysis follows draft modal lifecycle", () => {
   it("renderResumeGenerateInsights is called after modal opens with bodyText and job", () => {
-    const fnStart = appJs.indexOf("async function openResumeGenerateModal");
-    const fnEnd = appJs.indexOf("function closeResumeGenerateModal", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = resumeGenerationJs.indexOf("async function openResumeGenerateModal");
+    const fnEnd = resumeGenerationJs.indexOf("function closeResumeGenerateModal", fnStart);
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
 
     // After modal is shown with bodyText, renderResumeGenerateInsights should be called
     assert.ok(
@@ -168,9 +188,9 @@ describe("ATS analysis follows draft modal lifecycle", () => {
   });
 
   it("buildAtsScorecardRequestPayload uses session bundle job context over raw job", () => {
-    const fnStart = appJs.indexOf("function buildAtsScorecardRequestPayload");
-    const fnEnd = appJs.indexOf("async function fetchAtsScorecard", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = atsScorecardJs.indexOf("function buildAtsScorecardRequestPayload");
+    const fnEnd = atsScorecardJs.indexOf("async function fetchAtsScorecard", fnStart);
+    const fnBody = atsScorecardJs.slice(fnStart, fnEnd);
 
     // Should prefer bundle.job over raw job parameter
     assert.ok(
@@ -186,9 +206,9 @@ describe("ATS analysis follows draft modal lifecycle", () => {
   });
 
   it("ATS payload includes docText clipped to 18000 chars for the provider limit", () => {
-    const fnStart = appJs.indexOf("function buildAtsScorecardRequestPayload");
-    const fnEnd = appJs.indexOf("async function fetchAtsScorecard", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = atsScorecardJs.indexOf("function buildAtsScorecardRequestPayload");
+    const fnEnd = atsScorecardJs.indexOf("async function fetchAtsScorecard", fnStart);
+    const fnBody = atsScorecardJs.slice(fnStart, fnEnd);
 
     // docText should be clipped
     assert.ok(
@@ -204,9 +224,9 @@ describe("ATS analysis follows draft modal lifecycle", () => {
   });
 
   it("ATS scorecard state is reset when modal opens in loading state", () => {
-    const fnStart = appJs.indexOf("async function openResumeGenerateModal");
-    const fnEnd = appJs.indexOf("function closeResumeGenerateModal", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = resumeGenerationJs.indexOf("async function openResumeGenerateModal");
+    const fnEnd = resumeGenerationJs.indexOf("function closeResumeGenerateModal", fnStart);
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
     const loadingStart = fnBody.indexOf("if (isLoading)");
     const loadingEnd = fnBody.indexOf("} else {", loadingStart);
     const loadingBody = fnBody.slice(loadingStart, loadingEnd);
@@ -222,9 +242,9 @@ describe("ATS analysis follows draft modal lifecycle", () => {
   });
 
   it("ATS analysis is keyed on the active draft text and current job context", () => {
-    const fnStart = appJs.indexOf("function computeAtsScorecardCacheKey");
-    const fnEnd = appJs.indexOf("function renderDocMatchGroupHtml", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = atsScorecardJs.indexOf("function computeAtsScorecardCacheKey");
+    const fnEnd = atsScorecardJs.indexOf("function normalizeAtsScorecardResult", fnStart);
+    const fnBody = atsScorecardJs.slice(fnStart, fnEnd);
 
     // Should include draft text hash in cache key
     assert.ok(
@@ -234,7 +254,9 @@ describe("ATS analysis follows draft modal lifecycle", () => {
 
     // Should include job key
     assert.ok(
-      fnBody.includes("getJobOpportunityKey") || fnBody.includes("jobKey"),
+      fnBody.includes("getJobOpportunityKey") ||
+        fnBody.includes("host().getJobOpportunityKey") ||
+        fnBody.includes("jobKey"),
       "computeAtsScorecardCacheKey should include job key",
     );
 
@@ -246,13 +268,13 @@ describe("ATS analysis follows draft modal lifecycle", () => {
   });
 
   it("retry-ats-scorecard button uses current active draft text", () => {
-    const handlersStart = appJs.indexOf(
+    const handlersStart = resumeGenerationJs.indexOf(
       'const atsGroups = document.getElementById("resumeGenerateAtsGroups")',
     );
     assert.notEqual(handlersStart, -1, "ATS retry handler block must exist");
-    const handlerEnd = appJs.indexOf("if (draftNotesModal)", handlersStart);
+    const handlerEnd = resumeGenerationJs.indexOf("if (draftNotesModal)", handlersStart);
     assert.notEqual(handlerEnd, -1, "ATS retry handler block must be readable");
-    const handlerBody = appJs.slice(handlersStart, handlerEnd);
+    const handlerBody = resumeGenerationJs.slice(handlersStart, handlerEnd);
 
     // Should use getResumeGenerateDraftTextForInsights to get current text OR read from ta.value
     assert.ok(
@@ -400,9 +422,9 @@ describe("Posting enrichment flows into draft and ATS context", () => {
   });
 
   it("buildAtsScorecardRequestPayload prefers bundle job postingEnrichment over job._postingEnrichment", () => {
-    const fnStart = appJs.indexOf("function buildAtsScorecardRequestPayload");
-    const fnEnd = appJs.indexOf("async function fetchAtsScorecard", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = atsScorecardJs.indexOf("function buildAtsScorecardRequestPayload");
+    const fnEnd = atsScorecardJs.indexOf("async function fetchAtsScorecard", fnStart);
+    const fnBody = atsScorecardJs.slice(fnStart, fnEnd);
 
     // Should check bundle.job.postingEnrichment first
     assert.ok(
@@ -437,9 +459,14 @@ describe("Posting enrichment flows into draft and ATS context", () => {
 
 describe("Draft version history survives reload", () => {
   it("generatedDraftLibraryCache is rebuilt from IndexedDB on refresh", () => {
-    const fnStart = appJs.indexOf("async function refreshGeneratedDraftLibraryCache");
-    const fnEnd = appJs.indexOf("function scheduleGeneratedDraftLibraryRefresh", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = materialsStateJs.indexOf(
+      "async function refreshGeneratedDraftLibraryCache",
+    );
+    const fnEnd = materialsStateJs.indexOf(
+      "function scheduleGeneratedDraftLibraryRefresh",
+      fnStart,
+    );
+    const fnBody = materialsStateJs.slice(fnStart, fnEnd);
 
     // Should call listGeneratedDrafts to reload from IndexedDB
     assert.ok(
@@ -449,9 +476,11 @@ describe("Draft version history survives reload", () => {
   });
 
   it("scheduleGeneratedDraftLibraryRefresh schedules a render after cache refresh", () => {
-    const fnStart = appJs.indexOf("function scheduleGeneratedDraftLibraryRefresh");
-    const fnEnd = appJs.indexOf("function getDraftsForJob", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = materialsStateJs.indexOf(
+      "function scheduleGeneratedDraftLibraryRefresh",
+    );
+    const fnEnd = materialsStateJs.indexOf("function getDraftsForJob", fnStart);
+    const fnBody = materialsStateJs.slice(fnStart, fnEnd);
 
     // Should call refreshGeneratedDraftLibraryCache
     assert.ok(
@@ -473,9 +502,9 @@ describe("Draft version history survives reload", () => {
 
 describe("ATS scoring stays coupled to active draft and current job context", () => {
   it("startAtsScorecardAnalysis uses the provided payload with current draft text", () => {
-    const fnStart = appJs.indexOf("function startAtsScorecardAnalysis");
-    const fnEnd = appJs.indexOf("function formatAtsDimensionSummary", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = atsScorecardJs.indexOf("function startAtsScorecardAnalysis");
+    const fnEnd = atsScorecardJs.indexOf("Object.assign(ats", fnStart);
+    const fnBody = atsScorecardJs.slice(fnStart, fnEnd);
 
     // Should accept payload parameter with the current draft context
     assert.ok(
@@ -485,29 +514,37 @@ describe("ATS scoring stays coupled to active draft and current job context", ()
 
     // Should store payload in atsScorecardState for debugging
     assert.ok(
-      fnBody.includes("atsScorecardState") && fnBody.includes("payload"),
+      (fnBody.includes("atsScorecardState") ||
+        fnBody.includes("getAtsScorecardState()")) &&
+        fnBody.includes("payload"),
       "startAtsScorecardAnalysis should store payload in state",
     );
   });
 
   it("cache key comparison prevents stale ATS results from overwriting current ones", () => {
-    const fnStart = appJs.indexOf("function startAtsScorecardAnalysis");
-    const fnEnd = appJs.indexOf("function formatAtsDimensionSummary", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = atsScorecardJs.indexOf("function startAtsScorecardAnalysis");
+    const fnEnd = atsScorecardJs.indexOf("Object.assign(ats", fnStart);
+    const fnBody = atsScorecardJs.slice(fnStart, fnEnd);
 
     // Should check if cacheKey matches before updating state
     assert.ok(
       fnBody.includes("cacheKey") &&
-        fnBody.includes("atsScorecardState.cacheKey") &&
+        (fnBody.includes("atsScorecardState.cacheKey") ||
+          fnBody.includes("getAtsScorecardState().cacheKey")) &&
         fnBody.includes("return"),
       "startAtsScorecardAnalysis should check cacheKey before applying results to prevent stale overwrites",
     );
   });
 
   it("renderResumeGenerateInsights uses current textarea text via getResumeGenerateDraftTextForInsights", () => {
-    const fnStart = appJs.indexOf("function getResumeGenerateDraftTextForInsights");
-    const fnEnd = appJs.indexOf("function scheduleResumeGenerateAtsRefresh", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = resumeGenerationJs.indexOf(
+      "function getResumeGenerateDraftTextForInsights",
+    );
+    const fnEnd = resumeGenerationJs.indexOf(
+      "function scheduleResumeGenerateAtsRefresh",
+      fnStart,
+    );
+    const fnBody = resumeGenerationJs.slice(fnStart, fnEnd);
 
     // Should read from textarea when modal is open
     assert.ok(

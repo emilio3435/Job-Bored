@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
+import { expandIndexIncludes } from "./scripts/lib/expand-index-includes.mjs";
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -392,9 +393,23 @@ async function serveStatic(urlPath, res) {
     return;
   }
   try {
-    const data = await readFile(filePath);
     const ext = extname(filePath).toLowerCase();
     const ct = MIME[ext] || "application/octet-stream";
+    // Only HTML needs string processing (for <!-- @include --> directives).
+    // Everything else — including binary assets like images and fonts — must
+    // be served as raw bytes. Reading binary files with "utf8" replaces every
+    // non-UTF-8 byte with U+FFFD and corrupts the payload on re-encode, which
+    // breaks .webp/.png/.ico/.woff* assets even though they exist on disk.
+    if (ext === ".html") {
+      let data = await readFile(filePath, "utf8");
+      if (/<!--\s*@include\s+/.test(data)) {
+        data = expandIndexIncludes(data, ROOT);
+      }
+      res.writeHead(200, { "content-type": ct, "cache-control": "no-cache" });
+      res.end(data);
+      return;
+    }
+    const data = await readFile(filePath);
     res.writeHead(200, { "content-type": ct, "cache-control": "no-cache" });
     res.end(data);
   } catch {

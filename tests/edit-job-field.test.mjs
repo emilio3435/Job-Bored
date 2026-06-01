@@ -34,6 +34,7 @@ import { describe, it } from "node:test";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const sheetsWriteJs = readFileSync(join(repoRoot, "sheets-writeback.js"), "utf8");
 
 /* Column map mirrors STARTER_PIPELINE_HEADERS (app.js ~line 861):
    Title=B, Company=C, Location=D, Salary=G. Edit Lock=Y. */
@@ -46,18 +47,18 @@ const FIELD_COLUMN = { title: "B", company: "C", location: "D", salary: "G" };
    it standalone. */
 function sliceEditFieldBlock() {
   const opener = "const EDIT_FIELD_COLUMN";
-  const start = appJs.indexOf(opener);
-  assert.ok(start >= 0, "EDIT_FIELD_COLUMN constant must exist in app.js");
+  const start = sheetsWriteJs.indexOf(opener);
+  assert.ok(start >= 0, "EDIT_FIELD_COLUMN constant must exist in sheets-writeback.js");
   assert.ok(
-    appJs.indexOf("async function editJobField", start) > start,
+    sheetsWriteJs.indexOf("async function editJobField", start) > start,
     "editJobField must follow the EDIT_FIELD_COLUMN constant in source order",
   );
   // Walk forward from the end of editJobField to the next top-level decl.
-  const fnStart = appJs.indexOf("async function editJobField", start);
+  const fnStart = sheetsWriteJs.indexOf("async function editJobField", start);
   const after = fnStart + "async function editJobField".length;
-  const nextFn = appJs.slice(after).search(/\n(?:async function|function|const|let) [A-Za-z_]/);
+  const nextFn = sheetsWriteJs.slice(after).search(/\n(?:async function|function|const|let) [A-Za-z_]/);
   assert.ok(nextFn >= 0, "could not find the end of editJobField");
-  return appJs.slice(start, after + nextFn);
+  return sheetsWriteJs.slice(start, after + nextFn);
 }
 
 /* Build a fresh sandbox for each test. The sandbox exposes editJobField
@@ -78,34 +79,34 @@ function makeHarness({ jobs, accessToken = "test-token", writeOk = true } = {}) 
     return job._rawIndex + 2;
   };
 
+  const host = () => ({
+    getAccessToken: () => accessToken,
+    getPipelineData: () => jobs,
+    renderPipeline: () => {
+      renderCalls.push(true);
+    },
+    showToast: (msg, kind) => {
+      toasts.push({ msg, kind });
+    },
+    showSheetAccessGate: (mode) => {
+      gateCalls.push(mode);
+    },
+  });
+
   const factory = new Function(
-    "pipelineData",
-    "accessToken",
+    "host",
     "getSheetRow",
     "updateMultipleCells",
-    "renderPipeline",
-    "showToast",
-    "showSheetAccessGate",
     "console",
     `${editFieldBlock}\nreturn editJobField;`,
   );
 
   const editJobField = factory(
-    jobs,
-    accessToken,
+    host,
     getSheetRow,
     async (updates) => {
       updateCalls.push(updates);
       return writeOk;
-    },
-    () => {
-      renderCalls.push(true);
-    },
-    (msg, kind) => {
-      toasts.push({ msg, kind });
-    },
-    (mode) => {
-      gateCalls.push(mode);
     },
     { error() {}, warn() {}, log() {} },
   );

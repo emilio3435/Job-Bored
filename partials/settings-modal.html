@@ -1,0 +1,552 @@
+    <!-- Settings: localStorage overrides (no manual config.js editing) -->
+    <div
+      class="modal-overlay"
+      id="settingsModal"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settingsModalTitle"
+    >
+      <div
+        class="modal-card modal-card--wide settings-modal settings-modal--tabbed"
+      >
+        <div class="settings-modal-head">
+          <h3 id="settingsModalTitle">JobBored settings</h3>
+          <button
+            type="button"
+            class="settings-modal-close"
+            id="settingsModalClose"
+            aria-label="Close"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <p class="modal-lede settings-modal-lede settings-modal__full">
+          Saved only in this browser; overrides
+          <code class="modal-code">config.js</code>.
+        </p>
+        <p class="modal-lede settings-modal-lede settings-modal__oauth-only">
+          Add your Google OAuth Web Client ID and save. After you sign in with
+          Google, the rest of the settings (sheet, discovery, AI) load here.
+        </p>
+        <p
+          class="settings-form-error"
+          id="settingsFormError"
+          style="display: none"
+          role="alert"
+        ></p>
+
+        <!-- ── Tabbed layout ──────────────────────────────────────── -->
+        <div class="settings-tabs-layout settings-modal__full">
+          <div
+            class="settings-tablist"
+            role="tablist"
+            aria-label="Settings tabs"
+            aria-orientation="vertical"
+          >
+            <button
+              type="button"
+              role="tab"
+              class="settings-tablist__btn"
+              id="settings-tab-setup"
+              data-tab-id="setup"
+              aria-controls="settings-panel-setup"
+              aria-selected="true"
+              tabindex="0"
+            >
+              Setup
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="settings-tablist__btn"
+              id="settings-tab-fit-profile"
+              data-tab-id="fit_profile"
+              aria-controls="settings-panel-fit-profile"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              Fit Profile
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="settings-tablist__btn"
+              id="settings-tab-sheet"
+              data-tab-id="sheet"
+              aria-controls="settings-panel-sheet"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              Sheet
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="settings-tablist__btn"
+              id="settings-tab-scraping"
+              data-tab-id="scraping"
+              aria-controls="settings-panel-scraping"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              Scraping
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="settings-tablist__btn"
+              id="settings-tab-ats-scoring"
+              data-tab-id="ats_scoring"
+              aria-controls="settings-panel-ats-scoring"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              ATS Scoring
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="settings-tablist__btn"
+              id="settings-tab-ai-providers"
+              data-tab-id="ai_providers"
+              aria-controls="settings-panel-ai-providers"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              AI Providers
+            </button>
+          </div>
+
+          <div class="settings-tab-panels">
+            <!-- ── Setup tab ──────────────────────────────────────── -->
+            <div
+              role="tabpanel"
+              id="settings-panel-setup"
+              class="settings-tab-panel"
+              aria-labelledby="settings-tab-setup"
+            >
+              <h4 class="settings-tab-panel__title">Setup</h4>
+              <p class="settings-tab-panel__lede">
+                OAuth credentials and dashboard housekeeping.
+              </p>
+
+              <label
+                class="field-label"
+                for="settingsOAuthClientId"
+                id="settingsOAuthClientIdLabel"
+                >OAuth Client ID (optional)</label
+              >
+              <input
+                type="text"
+                id="settingsOAuthClientId"
+                class="modal-input"
+                placeholder="xxxxx.apps.googleusercontent.com"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <p class="settings-field-hint settings-field-hint--compact">
+                For Sheets access and Apps Script deploy from here.
+              </p>
+
+              <div class="settings-setup-block">
+                <p class="settings-setup-block__title">Onboarding</p>
+                <div
+                  class="settings-setup-wizard-row"
+                  role="region"
+                  aria-label="Setup wizard"
+                >
+                  <button
+                    type="button"
+                    class="btn-modal-secondary settings-setup-wizard-row__btn"
+                    id="profileResetWizardBtn"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
+                      />
+                      <path d="M3 3v5h5" />
+                    </svg>
+                    Redo onboarding wizard
+                  </button>
+                  <p
+                    class="settings-field-hint settings-setup-wizard-row__hint"
+                  >
+                    Run the welcome flow again. Your saved resume and profile
+                    stay until you finish.
+                  </p>
+                </div>
+              </div>
+
+              <div class="settings-setup-block">
+                <p class="settings-setup-block__title">v2 redesign (preview)</p>
+                <div class="jb-v2-toggle-row" role="group" aria-labelledby="settingsJbV2ToggleLabel">
+                  <label class="jb-v2-switch" for="settingsJbV2Toggle">
+                    <input
+                      type="checkbox"
+                      id="settingsJbV2Toggle"
+                      class="jb-v2-switch__input"
+                      role="switch"
+                      aria-checked="false"
+                    />
+                    <span class="jb-v2-switch__track" aria-hidden="true">
+                      <span class="jb-v2-switch__thumb"></span>
+                    </span>
+                    <span class="jb-v2-switch__label" id="settingsJbV2ToggleLabel">
+                      Enable v2 redesign
+                    </span>
+                  </label>
+                  <p
+                    class="settings-field-hint settings-field-hint--compact"
+                    id="settingsJbV2ToggleHint"
+                  >
+                    Switches Daily Brief, Pipeline, Scorecard, and Onboarding to
+                    the new visual language. Off by default; toggle anytime.
+                  </p>
+                </div>
+              </div>
+
+              <div class="settings-setup-block settings-setup-block--danger">
+                <p class="settings-setup-block__title">Reset</p>
+                <button
+                  type="button"
+                  class="btn-modal-secondary"
+                  id="settingsClearBtn"
+                >
+                  Clear saved settings
+                </button>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Removes all localStorage overrides. You can re-enter them
+                  anytime.
+                </p>
+                <div
+                  id="settingsClearConfirmBar"
+                  class="settings-clear-confirm"
+                  hidden
+                  role="region"
+                  aria-label="Confirm clearing saved settings"
+                >
+                  <p class="settings-clear-confirm__text">
+                    Remove saved settings from this browser? You can enter them
+                    again anytime.
+                  </p>
+                  <div class="settings-clear-confirm__actions">
+                    <button
+                      type="button"
+                      class="btn-modal-secondary"
+                      id="settingsClearConfirmCancel"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-modal-primary"
+                      id="settingsClearConfirmYes"
+                    >
+                      Remove saved settings
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ── Fit Profile tab (Task #4 — rendered by fit-profile-editor.js) ── -->
+            <div
+              role="tabpanel"
+              id="settings-panel-fit-profile"
+              class="settings-tab-panel"
+              aria-labelledby="settings-tab-fit-profile"
+              hidden
+            >
+              <!-- Editor mounts here on DOMContentLoaded. Loading state until JS attaches. -->
+              <p class="settings-tab-panel__lede">Loading your Fit Profile…</p>
+            </div>
+
+            <!-- ── Sheet tab ──────────────────────────────────────── -->
+            <div
+              role="tabpanel"
+              id="settings-panel-sheet"
+              class="settings-tab-panel"
+              aria-labelledby="settings-tab-sheet"
+              hidden
+            >
+              <h4 class="settings-tab-panel__title">Sheet &amp; dashboard</h4>
+              <p class="settings-tab-panel__lede">
+                Connect your pipeline spreadsheet and how the app is titled.
+              </p>
+
+              <label class="field-label" for="settingsSheetId"
+                >Spreadsheet URL or Sheet ID</label
+              >
+              <input
+                type="text"
+                id="settingsSheetId"
+                class="modal-input"
+                placeholder="Paste full URL, e.g. https://docs.google.com/spreadsheets/d/…/edit"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <p class="settings-field-hint settings-field-hint--compact">
+                Paste the open-in-browser link or the raw ID.
+              </p>
+
+              <label class="field-label" for="settingsTitle"
+                >Dashboard title</label
+              >
+              <input
+                type="text"
+                id="settingsTitle"
+                class="modal-input"
+                placeholder="JobBored"
+              />
+            </div>
+
+            <!-- ── Scraping tab ───────────────────────────────────── -->
+            <div
+              role="tabpanel"
+              id="settings-panel-scraping"
+              class="settings-tab-panel"
+              aria-labelledby="settings-tab-scraping"
+              hidden
+            >
+              <h4 class="settings-tab-panel__title">Scraping</h4>
+              <p class="settings-tab-panel__lede">
+                Job posting scraper for reading full descriptions.
+              </p>
+
+              <label class="field-label" for="settingsJobPostingScrapeUrl"
+                >Job posting scraper URL (optional)</label
+              >
+              <input
+                type="url"
+                id="settingsJobPostingScrapeUrl"
+                class="modal-input"
+                placeholder="https://your-scraper.onrender.com or leave blank on localhost"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <p class="settings-field-hint settings-field-hint--row">
+                <span
+                  ><code class="modal-code">localhost</code>: blank uses
+                  <code class="modal-code">http://127.0.0.1:3847</code> with
+                  <code class="modal-code">npm start</code>. GitHub Pages needs
+                  a deployed HTTPS URL. No trailing slash.</span
+                >
+                <button
+                  type="button"
+                  class="btn-setup-scraper-link"
+                  id="openScraperSetupFromSettings"
+                >
+                  Scraper setup
+                </button>
+              </p>
+            </div>
+
+            <!-- ── ATS Scoring tab ────────────────────────────────── -->
+            <div
+              role="tabpanel"
+              id="settings-panel-ats-scoring"
+              class="settings-tab-panel"
+              aria-labelledby="settings-tab-ats-scoring"
+              hidden
+            >
+              <h4 class="settings-tab-panel__title">ATS Scoring</h4>
+              <p class="settings-tab-panel__lede">
+                Scorecard endpoint for resume-to-posting match scoring.
+              </p>
+
+              <label class="field-label" for="settingsAtsScoringMode"
+                >ATS scorecard mode</label
+              >
+              <select
+                id="settingsAtsScoringMode"
+                class="status-select settings-select"
+              >
+                <option value="server">Local/server endpoint</option>
+                <option value="webhook">Webhook endpoint</option>
+              </select>
+              <label class="field-label" for="settingsAtsScoringServerUrl"
+                >ATS scorecard server URL (optional)</label
+              >
+              <input
+                type="url"
+                id="settingsAtsScoringServerUrl"
+                class="modal-input"
+                placeholder="http://127.0.0.1:3847/api/ats-scorecard"
+                autocomplete="off"
+              />
+              <label class="field-label" for="settingsAtsScoringWebhookUrl"
+                >ATS scorecard webhook URL (optional)</label
+              >
+              <input
+                type="url"
+                id="settingsAtsScoringWebhookUrl"
+                class="modal-input"
+                placeholder="https://…"
+                autocomplete="off"
+              />
+              <p class="settings-field-hint">
+                Server mode defaults to
+                <code class="modal-code"
+                  >http://127.0.0.1:3847/api/ats-scorecard</code
+                >
+                on localhost. Webhook mode posts the same ATS payload shape to
+                your endpoint.
+              </p>
+            </div>
+
+            <!-- ── AI Providers tab ───────────────────────────────── -->
+            <div
+              role="tabpanel"
+              id="settings-panel-ai-providers"
+              class="settings-tab-panel"
+              aria-labelledby="settings-tab-ai-providers"
+              hidden
+            >
+              <h4 class="settings-tab-panel__title">AI Providers</h4>
+              <p class="settings-tab-panel__lede">
+                Cover letters and tailored resumes. API keys stay in this
+                browser.
+              </p>
+
+              <label class="field-label" for="settingsResumeProvider"
+                >Provider</label
+              >
+              <select
+                id="settingsResumeProvider"
+                class="status-select settings-select"
+              >
+                <option value="gemini">Google Gemini</option>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic (Claude)</option>
+                <option value="webhook">My server (webhook)</option>
+              </select>
+
+              <div id="settingsPanelGemini" class="settings-provider-panel">
+                <label class="field-label" for="settingsResumeGeminiApiKey"
+                  >Gemini API key</label
+                >
+                <input
+                  type="password"
+                  id="settingsResumeGeminiApiKey"
+                  class="modal-input"
+                  placeholder="From Google AI Studio"
+                  autocomplete="off"
+                />
+                <label class="field-label" for="settingsResumeGeminiModel"
+                  >Model</label
+                >
+                <select
+                  id="settingsResumeGeminiModel"
+                  class="status-select settings-select settings-model-select"
+                ></select>
+              </div>
+
+              <div
+                id="settingsPanelOpenAI"
+                class="settings-provider-panel"
+                style="display: none"
+              >
+                <label class="field-label" for="settingsResumeOpenAIApiKey"
+                  >OpenAI API key</label
+                >
+                <input
+                  type="password"
+                  id="settingsResumeOpenAIApiKey"
+                  class="modal-input"
+                  autocomplete="off"
+                />
+                <label class="field-label" for="settingsResumeOpenAIModel"
+                  >Model</label
+                >
+                <select
+                  id="settingsResumeOpenAIModel"
+                  class="status-select settings-select settings-model-select"
+                ></select>
+              </div>
+
+              <div
+                id="settingsPanelAnthropic"
+                class="settings-provider-panel"
+                style="display: none"
+              >
+                <label class="field-label" for="settingsResumeAnthropicApiKey"
+                  >Anthropic API key</label
+                >
+                <input
+                  type="password"
+                  id="settingsResumeAnthropicApiKey"
+                  class="modal-input"
+                  placeholder="From Anthropic Console"
+                  autocomplete="off"
+                />
+                <label class="field-label" for="settingsResumeAnthropicModel"
+                  >Model</label
+                >
+                <select
+                  id="settingsResumeAnthropicModel"
+                  class="status-select settings-select settings-model-select"
+                ></select>
+                <p class="settings-field-hint">
+                  Direct browser calls may be blocked by CORS; if so, use Gemini
+                  or a webhook.
+                </p>
+              </div>
+
+              <div
+                id="settingsPanelWebhook"
+                class="settings-provider-panel"
+                style="display: none"
+              >
+                <label
+                  class="field-label"
+                  for="settingsResumeGenerationWebhookUrl"
+                  >Resume generation webhook URL</label
+                >
+                <input
+                  type="url"
+                  id="settingsResumeGenerationWebhookUrl"
+                  class="modal-input"
+                  placeholder="https://…"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- OAuth-only fallback: just shows the OAuth field when full settings aren't unlocked -->
+        <div class="settings-modal__oauth-only">
+          <label class="field-label" for="settingsOAuthClientId"
+            >OAuth Client ID</label
+          >
+          <p class="settings-field-hint settings-field-hint--compact">
+            Web application OAuth Client ID from Google Cloud Console →
+            Credentials (same project as the Sheets API).
+          </p>
+        </div>
+
+        <div class="modal-actions settings-modal-actions">
+          <button type="button" class="btn-modal-primary" id="settingsSaveBtn">
+            Save &amp; reload
+          </button>
+        </div>
+      </div>
+    </div>

@@ -6,9 +6,15 @@ import { describe, it } from "node:test";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
+const sheetsWriteJs = readFileSync(join(repoRoot, "sheets-writeback.js"), "utf8");
+const pipelineRenderJs = readFileSync(
+  join(repoRoot, "pipeline-render.js"),
+  "utf8",
+);
 
 /**
- * Extract a function body from app.js source
+ * Extract a function body from a browser script source.
  */
 function extractFunctionBody(source, functionName) {
   // Match function definition - handle both function name() and async function name()
@@ -32,6 +38,12 @@ function extractFunctionBody(source, functionName) {
   return source.slice(start, end - 1);
 }
 
+function extractPipelineFunctionBody(functionName) {
+  const body = extractFunctionBody(pipelineRenderJs, functionName);
+  if (body !== null) return body;
+  return extractFunctionBody(appJs, functionName);
+}
+
 /**
  * Check if a function body contains a call to refreshDrawerIfOpen
  */
@@ -41,9 +53,13 @@ function callsRefreshDrawer(body) {
 
 describe("Drawer CRM sync", () => {
   describe("updateJobNotes calls refreshDrawerIfOpen", () => {
-    const body = extractFunctionBody(appJs, "updateJobNotes");
+    const body = extractFunctionBody(sheetsWriteJs, "updateJobNotes");
     it("updateJobNotes function exists", () => {
       assert.ok(body !== null, "updateJobNotes function should exist");
+      assert.ok(
+        extractFunctionBody(appCompatJs, "updateJobNotes") !== null,
+        "updateJobNotes wrapper should exist in app-compat.js",
+      );
     });
     it("calls refreshDrawerIfOpen after successful save", () => {
       assert.ok(
@@ -54,9 +70,13 @@ describe("Drawer CRM sync", () => {
   });
 
   describe("updateFollowUpDate calls refreshDrawerIfOpen", () => {
-    const body = extractFunctionBody(appJs, "updateFollowUpDate");
+    const body = extractFunctionBody(sheetsWriteJs, "updateFollowUpDate");
     it("updateFollowUpDate function exists", () => {
       assert.ok(body !== null, "updateFollowUpDate function should exist");
+      assert.ok(
+        extractFunctionBody(appCompatJs, "updateFollowUpDate") !== null,
+        "updateFollowUpDate wrapper should exist in app-compat.js",
+      );
     });
     it("calls refreshDrawerIfOpen after successful save", () => {
       assert.ok(
@@ -67,9 +87,13 @@ describe("Drawer CRM sync", () => {
   });
 
   describe("updateLastHeardFrom calls refreshDrawerIfOpen", () => {
-    const body = extractFunctionBody(appJs, "updateLastHeardFrom");
+    const body = extractFunctionBody(sheetsWriteJs, "updateLastHeardFrom");
     it("updateLastHeardFrom function exists", () => {
       assert.ok(body !== null, "updateLastHeardFrom function should exist");
+      assert.ok(
+        extractFunctionBody(appCompatJs, "updateLastHeardFrom") !== null,
+        "updateLastHeardFrom wrapper should exist in app-compat.js",
+      );
     });
     it("calls refreshDrawerIfOpen after successful save", () => {
       assert.ok(
@@ -80,9 +104,13 @@ describe("Drawer CRM sync", () => {
   });
 
   describe("updateJobResponseFlag calls refreshDrawerIfOpen", () => {
-    const body = extractFunctionBody(appJs, "updateJobResponseFlag");
+    const body = extractFunctionBody(sheetsWriteJs, "updateJobResponseFlag");
     it("updateJobResponseFlag function exists", () => {
       assert.ok(body !== null, "updateJobResponseFlag function should exist");
+      assert.ok(
+        extractFunctionBody(appCompatJs, "updateJobResponseFlag") !== null,
+        "updateJobResponseFlag wrapper should exist in app-compat.js",
+      );
     });
     it("calls refreshDrawerIfOpen after successful save", () => {
       assert.ok(
@@ -96,14 +124,14 @@ describe("Drawer CRM sync", () => {
     it("status-select change handler refreshes drawer after status change", () => {
       // The status-select handler is in attachCardListeners
       // It should call refreshDrawerIfOpen after updateJobStatus succeeds
-      const handlerStart = appJs.indexOf(
+      const handlerStart = pipelineRenderJs.indexOf(
         "// Pipeline stage select",
       );
-      const handlerEnd = appJs.indexOf(
+      const handlerEnd = pipelineRenderJs.indexOf(
         "// Stage stepper clicks",
         handlerStart,
       );
-      const statusSelectSection = appJs.slice(handlerStart, handlerEnd);
+      const statusSelectSection = pipelineRenderJs.slice(handlerStart, handlerEnd);
 
       assert.ok(
         statusSelectSection.includes("refreshDrawerIfOpen"),
@@ -113,8 +141,8 @@ describe("Drawer CRM sync", () => {
   });
 
   describe("updateJobStatus emits the confirmed move event", () => {
-    const body = extractFunctionBody(appJs, "updateJobStatus");
-    const emitBody = extractFunctionBody(appJs, "emitPipelineMoveSucceeded");
+    const body = extractFunctionBody(sheetsWriteJs, "updateJobStatus");
+    const emitBody = extractFunctionBody(sheetsWriteJs, "emitPipelineMoveSucceeded");
 
     it("has a dedicated confirmed move event helper", () => {
       assert.ok(
@@ -128,9 +156,17 @@ describe("Drawer CRM sync", () => {
     });
 
     it("captures the previous stage before local mutation", () => {
+      // Callers that optimistically mutate job.status before the write (the
+      // Lattice board) pass the true source stage via prevStatusOverride.
+      // Other callers (status-select dropdown, stage-step) omit it and fall
+      // back to job.status, which is still the source stage at that point.
       assert.ok(
-        body && body.includes("const prevStatus = job ? job.status : \"\";"),
-        "updateJobStatus should keep the source stage before applying local status changes",
+        body && body.includes("prevStatusOverride"),
+        "updateJobStatus should accept an explicit previous-stage override",
+      );
+      assert.ok(
+        body && body.includes("job.status"),
+        "updateJobStatus should fall back to job.status when no override is passed",
       );
     });
 
@@ -143,7 +179,7 @@ describe("Drawer CRM sync", () => {
   });
 
   describe("refreshDrawerIfOpen function exists and is called", () => {
-    const body = extractFunctionBody(appJs, "refreshDrawerIfOpen");
+    const body = extractPipelineFunctionBody("refreshDrawerIfOpen");
     it("refreshDrawerIfOpen function exists", () => {
       assert.ok(
         body !== null,
@@ -152,7 +188,7 @@ describe("Drawer CRM sync", () => {
     });
     it("checks activeDetailKey matches dataIndex before refreshing", () => {
       assert.ok(
-        body && body.includes("activeDetailKey !== dataIndex"),
+        body && body.includes("core().getActiveDetailKey() !== dataIndex"),
         "refreshDrawerIfOpen should guard against refreshing wrong job",
       );
     });
@@ -165,8 +201,8 @@ describe("Drawer CRM sync", () => {
   });
 
   describe("openJobDetail and closeJobDetail", () => {
-    const openBody = extractFunctionBody(appJs, "openJobDetail");
-    const closeBody = extractFunctionBody(appJs, "closeJobDetail");
+    const openBody = extractPipelineFunctionBody("openJobDetail");
+    const closeBody = extractPipelineFunctionBody("closeJobDetail");
 
     it("openJobDetail function exists", () => {
       assert.ok(openBody !== null, "openJobDetail function should exist");
@@ -176,13 +212,13 @@ describe("Drawer CRM sync", () => {
     });
     it("openJobDetail sets activeDetailKey", () => {
       assert.ok(
-        openBody && openBody.includes("activeDetailKey = stableKey"),
+        openBody && openBody.includes("core().setActiveDetailKey(stableKey)"),
         "openJobDetail should set activeDetailKey",
       );
     });
     it("closeJobDetail resets activeDetailKey to -1", () => {
       assert.ok(
-        closeBody && closeBody.includes("activeDetailKey = -1"),
+        closeBody && closeBody.includes("core().setActiveDetailKey(-1)"),
         "closeJobDetail should reset activeDetailKey to -1",
       );
     });

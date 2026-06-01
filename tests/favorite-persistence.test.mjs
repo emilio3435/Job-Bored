@@ -24,9 +24,9 @@
        cache into freshly-parsed jobs, so the favorite survives a
        refresh regardless of how the Sheet write went.
 
-   These are static-analysis tests against app.js — they don't
-   spin up a browser. The point is to prevent the rollback
-   regression from creeping back in.
+   These are static-analysis tests against the app shell and its
+   compatibility forwarders — they don't spin up a browser. The
+   point is to prevent the rollback regression from creeping back in.
    ============================================================ */
 
 import assert from "node:assert/strict";
@@ -36,20 +36,22 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
+const sheetsWriteJs = readFileSync(join(repoRoot, "sheets-writeback.js"), "utf8");
+const sheetsReadJs = readFileSync(join(repoRoot, "sheets-read-load.js"), "utf8");
 
 function sliceToggleFavorite() {
-  const start = appJs.indexOf("async function toggleFavorite");
-  assert.ok(start >= 0, "toggleFavorite must exist");
-  const end = appJs.indexOf("async function dismissJob", start);
+  const start = sheetsWriteJs.indexOf("async function toggleFavorite");
+  assert.ok(start >= 0, "toggleFavorite must exist in sheets-writeback.js");
+  const end = sheetsWriteJs.indexOf("async function dismissJob", start);
   assert.ok(end > start, "dismissJob must follow toggleFavorite in source order");
-  return appJs.slice(start, end);
+  return sheetsWriteJs.slice(start, end);
 }
 
 describe("favorite toggle persists across refresh", () => {
   it("declares a versioned localStorage key for pending favorites", () => {
     assert.match(
-      appJs,
+      sheetsReadJs,
       /const\s+PENDING_FAVORITES_STORAGE_KEY\s*=\s*"jobbored\.favorites\.pending"/,
       "PENDING_FAVORITES_STORAGE_KEY must exist under a clearly-namespaced " +
         "non-secret-shaped localStorage path",
@@ -58,27 +60,30 @@ describe("favorite toggle persists across refresh", () => {
 
   it("exposes a stable cache-key derivation from job link with a synthetic fallback", () => {
     assert.match(
-      appJs,
+      sheetsReadJs,
       /function\s+favoriteCacheKeyForJob\s*\(/,
       "favoriteCacheKeyForJob must exist",
     );
     // job.link is the primary key (stable across sheet row reordering); the
     // synthetic key keeps link-less manually-added rows persistable.
-    assert.match(appJs, /const\s+link\s*=\s*job\.link[\s\S]*?return\s+link/);
-    assert.match(appJs, /return\s+`synthetic::\$\{company\}::\$\{title\}`/);
+    assert.match(sheetsReadJs, /const\s+link\s*=\s*job\.link[\s\S]*?return\s+link/);
+    assert.match(sheetsReadJs, /return\s+`synthetic::\$\{company\}::\$\{title\}`/);
   });
 
   it("layers cached favorites into freshly-parsed pipelineData after CSV parse", () => {
     assert.match(
-      appJs,
+      appCompatJs,
       /function\s+applyFavoriteCache\s*\(/,
-      "applyFavoriteCache must exist",
+      "applyFavoriteCache wrapper must exist in app-compat.js",
     );
-    // The function is wired into the load path right after the existing
-    // enrichment cache hydration so the user's favorites land on first paint.
     assert.match(
-      appJs,
-      /pipelineData = parsePipelineCSV\(pipelineRows\);\s*\n\s*applyEnrichmentCache\(pipelineData\);\s*\n\s*applyFavoriteCache\(pipelineData\);/,
+      sheetsReadJs,
+      /function\s+applyFavoriteCache\s*\(/,
+      "applyFavoriteCache implementation must exist in sheets-read-load.js",
+    );
+    assert.match(
+      sheetsReadJs,
+      /parsePipelineCSV\(pipelineRows\);\s*\n\s*h\.applyEnrichmentCache\(pipelineData\);\s*\n\s*applyFavoriteCache\(pipelineData\);/,
     );
   });
 
@@ -86,10 +91,9 @@ describe("favorite toggle persists across refresh", () => {
     const fn = sliceToggleFavorite();
     // The local mutation + cache write happen up front.
     assert.match(fn, /job\.favorite\s*=\s*next;/);
-    assert.match(fn, /if\s*\(cacheKey\)\s*setPendingFavorite\(cacheKey,\s*next\);/);
-    // The cache write must occur BEFORE the accessToken check.
+    assert.match(fn, /if\s*\(cacheKey\)\s*read\.setPendingFavorite\(cacheKey,\s*next\);/);
     const cacheWriteIdx = fn.search(/setPendingFavorite\(cacheKey,\s*next\)/);
-    const authCheckIdx = fn.search(/if\s*\(!accessToken\)/);
+    const authCheckIdx = fn.search(/if\s*\(!host\(\)\.getAccessToken\(\)\)/);
     assert.ok(
       cacheWriteIdx >= 0 && authCheckIdx > cacheWriteIdx,
       "favorite cache must be written before the auth gate so the user's " +
@@ -113,7 +117,7 @@ describe("favorite toggle persists across refresh", () => {
   it("clears the cache entry only when the Sheet write actually succeeded", () => {
     const fn = sliceToggleFavorite();
     // The success branch is the only place that calls clearPendingFavorite.
-    assert.match(fn, /if\s*\(ok\)\s*\{[\s\S]*?clearPendingFavorite\(cacheKey\)/);
+    assert.match(fn, /if\s*\(ok\)\s*\{[\s\S]*?read\.clearPendingFavorite\(cacheKey\)/);
     // The failure branch leaves the cache entry in place.
     const failBranch = fn.slice(fn.indexOf("if (ok)"));
     assert.doesNotMatch(

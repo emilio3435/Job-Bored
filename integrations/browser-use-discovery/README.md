@@ -140,12 +140,12 @@ Environment variables:
 - `BROWSER_USE_DISCOVERY_WORKER_ENV` / `BROWSER_USE_DISCOVERY_ENV_FILE`: path to the ignored local env file, defaults to `~/.jobbored/browser-use-discovery/.env`
 - `BROWSER_USE_DISCOVERY_STATE_DB_PATH`: path to the worker state database
 - `BROWSER_USE_DISCOVERY_BROWSER_COMMAND`: optional browser automation command; when unset, the worker first tries the bundled `integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs` wrapper if it exists, then falls back to plain `browser-use`, and finally falls back to direct fetch on command failure
-- `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`: optional Gemini key for grounded Google Search expansion
-- `BROWSER_USE_DISCOVERY_GEMINI_MODEL`: Gemini model for grounded search, defaults to `gemini-3.5-flash`
+- `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`: optional Gemini key for grounded Google Search expansion and the Add URL `gemini_url_context` ingest tier
+- `BROWSER_USE_DISCOVERY_GEMINI_MODEL`: Gemini model for grounded search and Add URL context extraction, defaults to `gemini-3.5-flash`
 - `BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_RESULTS_PER_COMPANY`: candidate links to keep per company, defaults to `6`
 - `BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_PAGES_PER_COMPANY`: grounded pages to expand per company, defaults to `4`
 - `SERPAPI_API_KEY` (also read as `BROWSER_USE_DISCOVERY_SERPAPI_API_KEY` or `DISCOVERY_SERPAPI_API_KEY`): **strongly recommended.** Enables the `serpapi_google_jobs` source lane which queries Google Jobs directly — structured `title/company/location/description/apply_url` data with no scraping step. Free tier: 100 searches/month (~20 discovery runs). Developer tier: $50/mo for 5K. Lane is feature-gated: skips gracefully when unset. Get a key at https://serpapi.com/
-- `BROWSER_USE_API_KEY`: optional Browser Use Cloud API key for Add job from URL fallback. Used only after ATS/Cheerio extraction is blocked, fails, or returns weak content.
+- `BROWSER_USE_API_KEY`: optional Browser Use Cloud API key for Add job from URL fallback. Used only after ATS, Gemini URL context, and Cheerio extraction are blocked, fail, or return weak content.
 - `BROWSER_USE_PROFILE_ID`: optional Browser Use Cloud profile id for authenticated Add job from URL extraction. Browser Use profiles preserve cookies/local storage across sessions; create or sync a profile that is already signed in to the target job board, then set this id. The worker passes it to Browser Use Cloud, but still rejects source-gated or placeholder output instead of writing junk rows.
 - `BROWSER_USE_DISCOVERY_GOOGLE_ACCESS_TOKEN`: optional bearer token for Sheets API
 - `BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_JSON`: optional inline service-account JSON
@@ -273,7 +273,14 @@ Hosted mode uses the same code path and contract. The difference is infrastructu
 
 ### POST /ingest-url
 
-`POST /ingest-url` accepts a single pasted job URL and attempts a tiered ingest strategy that writes one normalized Pipeline row: ATS public API first (when parsable), then JSON-LD/DOM extraction via the shared Cheerio scraper, then Browser Use Cloud for blocked, failed, or weak extraction. If the worker cannot extract a real title, company, and posting body, it rejects the add instead of landing a placeholder Kanban card.
+`POST /ingest-url` accepts a single pasted job URL and attempts a tiered ingest strategy that writes one normalized Pipeline row, falling through each tier only when the prior one cannot return a complete posting:
+
+1. **ATS public API** (`ats_api`) — when the URL parses to a known Greenhouse/Lever/Ashby posting.
+2. **Gemini URL context** (`gemini_url_context`) — Gemini reads the live page with the `url_context` tool and returns structured job fields. Requires `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`; uses `BROWSER_USE_DISCOVERY_GEMINI_MODEL` (default `gemini-3.5-flash`). Skipped when the key is unset, and weak/low-confidence output falls through to Cheerio.
+3. **JSON-LD / DOM scrape** (`jsonld` / `cheerio_dom`) — via the shared Cheerio scraper.
+4. **Browser Use Cloud** (`browser_use_cloud`) — fallback for blocked aggregators, failed scrapes, or weak extraction.
+
+If the worker cannot extract a real title, company, and posting body, it rejects the add instead of landing a placeholder Kanban card.
 
 ```ts
 POST /ingest-url
@@ -297,7 +304,7 @@ Body IngestUrlRequestV1:
 
 Response IngestUrlResponseV1 (HTTP 200 unless server-side 5xx):
   | { ok: true, kind: "accepted_async", runId: string, statusPath: string, pollAfterMs: number, message: string }
-  | { ok: true, strategy: "ats_api"|"jsonld"|"cheerio_dom"|"manual_fill"|"url_only"|"browser_use_cloud", lead: NormalizedLead, appended: boolean, rowNumber?: number }
+  | { ok: true, strategy: "ats_api"|"gemini_url_context"|"jsonld"|"cheerio_dom"|"manual_fill"|"url_only"|"browser_use_cloud", lead: NormalizedLead, appended: boolean, rowNumber?: number }
   | { ok: false, reason: "invalid_url", message: string }
   | { ok: false, reason: "private_network", message: string }
   | { ok: false, reason: "blocked_aggregator", host: string, message: string, hint: string }

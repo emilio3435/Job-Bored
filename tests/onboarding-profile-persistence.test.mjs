@@ -3,11 +3,31 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { readIndexHtml } from "../scripts/lib/expand-index-includes.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
-const indexHtml = readFileSync(join(repoRoot, "index.html"), "utf8");
-const styleCss = readFileSync(join(repoRoot, "style.css"), "utf8");
+const configOverridesJs = readFileSync(
+  join(repoRoot, "config-overrides.js"),
+  "utf8",
+);
+const settingsModalJs = readFileSync(
+  join(repoRoot, "settings-modal.js"),
+  "utf8",
+);
+const materialsFeatureJs = readFileSync(
+  join(repoRoot, "materials-feature.js"),
+  "utf8",
+);
+const onboardingWizardJs = readFileSync(
+  join(repoRoot, "onboarding-wizard.js"),
+  "utf8",
+);
+const indexHtml = readIndexHtml(repoRoot);
+const legacyOnboardingCss = readFileSync(
+  join(repoRoot, "css", "legacy-onboarding.css"),
+  "utf8",
+);
 const userContentStoreJs = readFileSync(
   join(repoRoot, "user-content-store.js"),
   "utf8",
@@ -24,9 +44,14 @@ describe("Clear settings boundary", () => {
     // returning user starts from a clean slate. Tests previously asserted
     // the opposite; the boundary moved deliberately when greenfield reset
     // semantics were locked in.
-    const clearStart = appJs.indexOf("function performSettingsClearOverrides");
-    const clearEnd = appJs.indexOf("function initCommandCenterSettings", clearStart);
-    const clearBody = appJs.slice(clearStart, clearEnd);
+    const clearStart = settingsModalJs.indexOf(
+      "function performSettingsClearOverrides",
+    );
+    const clearEnd = settingsModalJs.indexOf(
+      "function initCommandCenterSettings",
+      clearStart,
+    );
+    const clearBody = settingsModalJs.slice(clearStart, clearEnd);
 
     assert.ok(
       clearBody.includes("localStorage.removeItem"),
@@ -39,9 +64,9 @@ describe("Clear settings boundary", () => {
   });
 
   it("config overrides use localStorage, not IndexedDB", () => {
-    const configStart = appJs.indexOf("function readStoredConfigOverrides");
-    const configEnd = appJs.indexOf("function applyStoredConfigOverrides");
-    const configBody = appJs.slice(configStart, configEnd);
+    const configStart = configOverridesJs.indexOf("function readStoredConfigOverrides");
+    const configEnd = configOverridesJs.indexOf("function applyStoredConfigOverrides");
+    const configBody = configOverridesJs.slice(configStart, configEnd);
 
     assert.ok(
       configBody.includes("localStorage.getItem"),
@@ -73,24 +98,31 @@ describe("Onboarding mascot poses", () => {
       "onboarding wizard should expose a swappable mascot image",
     );
     assert.match(
-      styleCss,
+      legacyOnboardingCss,
       /onboarding-wizard__mascot-frame/,
       "onboarding wizard should frame the mascot asset",
     );
     assert.match(
-      appJs,
-      /const ONBOARDING_MASCOT_POSES = \{/,
-      "app should map onboarding steps to mascot poses",
+      indexHtml,
+      /onboarding-wizard\.js/,
+      "index.html should load onboarding-wizard.js before app.js",
     );
     assert.match(
-      appJs,
+      onboardingWizardJs,
+      /const ONBOARDING_MASCOT_POSES = \{/,
+      "onboarding module should map onboarding steps to mascot poses",
+    );
+    assert.match(
+      onboardingWizardJs,
       /updateOnboardingMascotPose\(step\)/,
       "setOnboardingStep should update the mascot pose",
     );
 
     for (const posePath of posePaths) {
       assert.ok(
-        appJs.includes(posePath) || indexHtml.includes(posePath),
+        onboardingWizardJs.includes(posePath) ||
+          appJs.includes(posePath) ||
+          indexHtml.includes(posePath),
         `${posePath} should be referenced by onboarding`,
       );
       assert.ok(
@@ -183,7 +215,7 @@ describe("Onboarding reset preserves data", () => {
   });
 
   it("profileResetWizardBtn handler preserves data before showing wizard", () => {
-    const resetHandlerStart = appJs.indexOf(
+    const resetHandlerStart = materialsFeatureJs.indexOf(
       'profileResetWizardBtn.addEventListener("click"',
     );
     assert.ok(
@@ -192,11 +224,11 @@ describe("Onboarding reset preserves data", () => {
     );
 
     // Find the handler body
-    const handlerEnd = appJs.indexOf(
+    const handlerEnd = materialsFeatureJs.indexOf(
       "});",
       resetHandlerStart,
     );
-    const handlerBody = appJs.slice(resetHandlerStart, handlerEnd + 3);
+    const handlerBody = materialsFeatureJs.slice(resetHandlerStart, handlerEnd + 3);
 
     // Should call resetOnboardingCompletion
     assert.ok(
@@ -216,11 +248,11 @@ describe("Onboarding reset preserves data", () => {
   });
 
   it("confirm dialog text mentions data is preserved", () => {
-    const resetHandlerStart = appJs.indexOf(
+    const resetHandlerStart = materialsFeatureJs.indexOf(
       'profileResetWizardBtn.addEventListener("click"',
     );
-    const handlerEnd = appJs.indexOf("});", resetHandlerStart);
-    const handlerBody = appJs.slice(resetHandlerStart, handlerEnd + 3);
+    const handlerEnd = materialsFeatureJs.indexOf("});", resetHandlerStart);
+    const handlerBody = materialsFeatureJs.slice(resetHandlerStart, handlerEnd + 3);
 
     assert.ok(
       handlerBody.includes("Your resume and profile stay saved"),
@@ -235,12 +267,16 @@ describe("Onboarding reset preserves data", () => {
 
 describe("Profile source minimums for generation", () => {
   it("resume generation requires at least one profile source", () => {
-    const genStart = appJs.indexOf("async function runResumeGeneration");
-    const genEnd = appJs.indexOf(
-      "async function openResumeGenerateModal",
+    const resumeGenerationJs = readFileSync(
+      join(repoRoot, "resume-generation.js"),
+      "utf8",
+    );
+    const genStart = resumeGenerationJs.indexOf("async function runResumeGeneration");
+    const genEnd = resumeGenerationJs.indexOf(
+      "async function refineLastResumeGeneration",
       genStart,
     );
-    const genBody = appJs.slice(genStart, genEnd);
+    const genBody = resumeGenerationJs.slice(genStart, genEnd);
 
     // Should check hasResume, hasLinkedIn, hasAdditional
     assert.ok(
@@ -354,9 +390,14 @@ describe("Profile source minimums for generation", () => {
 
 describe("Resume capture validation", () => {
   it("onboarding step 2 requires resume before advancing", () => {
-    const fnStart = appJs.indexOf("function updateOnboardingContinue2Enabled");
-    const fnEnd = appJs.indexOf("}", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd + 1);
+    const fnStart = onboardingWizardJs.indexOf(
+      "function updateOnboardingContinue2Enabled",
+    );
+    const fnEnd = onboardingWizardJs.indexOf(
+      "function updateOnboardingNext3Enabled",
+      fnStart,
+    );
+    const fnBody = onboardingWizardJs.slice(fnStart, fnEnd);
 
     assert.ok(
       fnBody.includes("btn.disabled = !hasDraft"),
@@ -370,9 +411,11 @@ describe("Resume capture validation", () => {
   });
 
   it("onboarding step 3 requires paste or draft before advancing", () => {
-    const fnStart = appJs.indexOf("function updateOnboardingNext3Enabled");
-    const fnEnd = appJs.indexOf("}", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd + 1);
+    const fnStart = onboardingWizardJs.indexOf(
+      "function updateOnboardingNext3Enabled",
+    );
+    const fnEnd = onboardingWizardJs.indexOf("async function checkOnboardingGate", fnStart);
+    const fnBody = onboardingWizardJs.slice(fnStart, fnEnd);
 
     assert.ok(
       fnBody.includes("onboardingResumeDraft") &&
@@ -387,9 +430,11 @@ describe("Resume capture validation", () => {
   });
 
   it("ensureResumeDraftFromPasteStep shows error for empty paste", () => {
-    const fnStart = appJs.indexOf("function ensureResumeDraftFromPasteStep");
-    const fnEnd = appJs.indexOf("function initOnboardingWizard", fnStart);
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = onboardingWizardJs.indexOf(
+      "function ensureResumeDraftFromPasteStep",
+    );
+    const fnEnd = onboardingWizardJs.indexOf("function initOnboardingWizard", fnStart);
+    const fnBody = onboardingWizardJs.slice(fnStart, fnEnd);
 
     assert.ok(
       fnBody.includes('status.textContent = "Paste your resume to continue."'),
@@ -405,9 +450,12 @@ describe("Resume capture validation", () => {
     // Verify step navigation requires valid input
     // The Continue2 button handler validates resume before advancing
     // We need to search within initOnboardingWizard function to find the correct handler
-    const initStart = appJs.indexOf("function initOnboardingWizard");
-    const initEnd = appJs.indexOf("function initResumeMaterialsFeature");
-    const initBody = appJs.slice(initStart, initEnd);
+    const initStart = onboardingWizardJs.indexOf("function initOnboardingWizard");
+    const initEnd = onboardingWizardJs.indexOf(
+      "\n  Object.assign(onboarding",
+      initStart,
+    );
+    const initBody = onboardingWizardJs.slice(initStart, initEnd);
 
     const continue2Start = initBody.indexOf('getElementById("onboardingContinue2")');
     const clickHandlerStart = initBody.indexOf("?.addEventListener", continue2Start);
@@ -429,9 +477,11 @@ describe("Resume capture validation", () => {
 
 describe("Onboarding gate behavior", () => {
   it("checkOnboardingGate shows wizard only when onboarding is incomplete", () => {
-    const fnStart = appJs.indexOf("async function checkOnboardingGate");
-    const fnEnd = appJs.indexOf("function ensureResumeDraftFromPasteStep");
-    const fnBody = appJs.slice(fnStart, fnEnd);
+    const fnStart = onboardingWizardJs.indexOf("async function checkOnboardingGate");
+    const fnEnd = onboardingWizardJs.indexOf(
+      "function ensureResumeDraftFromPasteStep",
+    );
+    const fnBody = onboardingWizardJs.slice(fnStart, fnEnd);
 
     assert.ok(
       fnBody.includes("migrateOnboardingState"),
@@ -457,11 +507,18 @@ describe("Onboarding gate behavior", () => {
   });
 
   it("onboarding is checked after access is resolved", () => {
-    const bootstrapStart = appJs.indexOf(
+    const statusHandoffJs = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "..", "discovery-status-handoff.js"),
+      "utf8",
+    );
+    const bootstrapStart = statusHandoffJs.indexOf(
       "function runPostAccessBootstrapOnce",
     );
-    const bootstrapEnd = appJs.indexOf("}", appJs.indexOf("{", bootstrapStart) + 1);
-    const bootstrapBody = appJs.slice(bootstrapStart, bootstrapEnd + 1);
+    const bootstrapEnd = statusHandoffJs.indexOf(
+      "}",
+      statusHandoffJs.indexOf("{", bootstrapStart) + 1,
+    );
+    const bootstrapBody = statusHandoffJs.slice(bootstrapStart, bootstrapEnd + 1);
 
     assert.ok(
       bootstrapBody.includes("checkOnboardingGate"),

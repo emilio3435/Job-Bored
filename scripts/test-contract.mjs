@@ -142,25 +142,28 @@ for (const rel of DISCOVERY_EXAMPLES) {
   console.log(`OK schema: ${rel}`);
 }
 
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
-if (appJs.includes("sharedBuilder.buildDiscoveryWebhookPayload")) {
-  const sharedBuilderJs = readFileSync(join(repoRoot, "discovery-payload.js"), "utf8");
-  const missing = expectedKeys.filter(
-    (key) => !new RegExp(`\\b${key}\\b`).test(sharedBuilderJs),
-  );
-  if (missing.length) {
-    console.error("discovery-payload.js does not mention every schema property.");
-    console.error("  missing:", missing.join(", "));
-    process.exit(1);
-  }
-  console.log("OK discovery-payload.js covers schema properties", SCHEMA);
-} else {
-  const payloadKeys = extractDiscoveryPayloadKeys(appJs).sort();
-  if (!sameSet(payloadKeys, expectedKeys)) {
-    console.error("app.js triggerDiscoveryRun payload keys do not match schema properties.");
-    console.error("  app.js:", payloadKeys.join(", "));
-    console.error("  schema:", expectedKeys.join(", "));
-    process.exit(1);
-  }
-  console.log("OK app.js discovery payload keys match", SCHEMA);
+const discoveryPayloadJs = readFileSync(
+  join(repoRoot, "discovery-payload.js"),
+  "utf8",
+);
+const missingPayloadKeys = expectedKeys.filter(
+  (key) => !new RegExp(`\\b${key}\\b`).test(discoveryPayloadJs),
+);
+if (missingPayloadKeys.length) {
+  console.error("discovery-payload.js does not mention every schema property.");
+  console.error("  missing:", missingPayloadKeys.join(", "));
+  process.exit(1);
 }
+console.log("OK discovery-payload.js covers schema properties", SCHEMA);
+
+const discoveryReadinessJs = readFileSync(
+  join(repoRoot, "discovery-readiness.js"),
+  "utf8",
+);
+if (!discoveryReadinessJs.includes("sharedBuilder.buildDiscoveryWebhookPayload")) {
+  console.error(
+    "discovery-readiness.js must delegate payload construction to discovery-payload.js",
+  );
+  process.exit(1);
+}
+console.log("OK discovery-readiness.js delegates to discovery-payload.js");

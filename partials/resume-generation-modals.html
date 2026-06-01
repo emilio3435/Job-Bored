@@ -1,0 +1,315 @@
+    <!-- Generated cover letter / resume output -->
+    <div
+      class="modal-overlay doc-output-modal"
+      id="resumeGenerateModal"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="resumeGenerateTitle"
+      aria-busy="false"
+    >
+      <div class="modal-card modal-card--doc doc-output-card">
+        <header class="doc-output-header">
+          <div class="doc-output-header__icon" aria-hidden="true">
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+            >
+              <path
+                d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+              />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+              <line x1="10" y1="9" x2="8" y2="9" />
+            </svg>
+          </div>
+          <div class="doc-output-header__text">
+            <p class="doc-output-kicker" id="resumeGenerateKicker">Draft</p>
+            <h3 id="resumeGenerateTitle" class="doc-output-title">Output</h3>
+            <p class="doc-output-meta" id="resumeGenerateMeta"></p>
+            <div
+              class="doc-output-context"
+              id="resumeGenerateContextUsed"
+              hidden
+            ></div>
+          </div>
+          <button
+            type="button"
+            class="doc-output-header__close"
+            id="resumeGenerateClose"
+            aria-label="Close"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </header>
+
+        <p
+          class="doc-output-status"
+          id="resumeGenerateStatus"
+          style="display: none"
+          role="status"
+        ></p>
+
+        <div class="doc-output-scroll">
+          <div class="doc-paper" id="resumeGeneratePage">
+            <div
+              class="doc-skeleton"
+              id="resumeGenerateSkeleton"
+              hidden
+              aria-hidden="true"
+            >
+              <div class="doc-skeleton__line doc-skeleton__line--lg"></div>
+              <div class="doc-skeleton__line doc-skeleton__line--md"></div>
+              <div class="doc-skeleton__line doc-skeleton__line--full"></div>
+              <div class="doc-skeleton__line doc-skeleton__line--full"></div>
+              <div class="doc-skeleton__line doc-skeleton__line--short"></div>
+            </div>
+            <article
+              class="doc-preview"
+              id="resumeGeneratePreview"
+              hidden
+              aria-label="Generated document preview"
+              aria-live="polite"
+            ></article>
+          </div>
+          <div
+            class="doc-output-insights"
+            id="resumeGenerateInsights"
+            hidden
+            aria-live="polite"
+          >
+            <section class="doc-insight-card" id="resumeGenerateAtsCard" hidden>
+              <div class="doc-insight-card__head">
+                <div>
+                  <p class="doc-insight-card__kicker">ATS match</p>
+                  <h4 class="doc-insight-card__title">
+                    LLM alignment scorecard
+                  </h4>
+                </div>
+                <div
+                  class="doc-insight-card__score"
+                  id="resumeGenerateAtsScore"
+                >
+                  0%
+                </div>
+              </div>
+              <p
+                class="doc-insight-card__summary"
+                id="resumeGenerateAtsSummary"
+              ></p>
+              <p
+                class="doc-insight-card__hint"
+                id="resumeGenerateAtsHint"
+                hidden
+              ></p>
+              <div
+                class="doc-insight-card__groups"
+                id="resumeGenerateAtsGroups"
+              ></div>
+            </section>
+            <section
+              class="doc-insight-card"
+              id="resumeGenerateHistoryCard"
+              hidden
+            >
+              <div class="doc-insight-card__head">
+                <div>
+                  <p class="doc-insight-card__kicker">Version history</p>
+                  <h4 class="doc-insight-card__title">
+                    Saved drafts for this role
+                  </h4>
+                </div>
+                <div
+                  class="doc-insight-card__count"
+                  id="resumeGenerateHistoryCount"
+                ></div>
+              </div>
+              <p
+                class="doc-insight-card__summary"
+                id="resumeGenerateHistorySummary"
+              ></p>
+              <div
+                class="doc-insight-card__groups"
+                id="resumeGenerateHistoryList"
+              ></div>
+            </section>
+          </div>
+        </div>
+
+        <textarea
+          id="resumeGenerateOutput"
+          class="doc-output-hidden-ta"
+          readonly
+          tabindex="-1"
+          aria-hidden="true"
+        ></textarea>
+
+        <footer class="doc-output-footer">
+          <div class="doc-output-footer__row">
+            <span class="doc-output-footer__hint"
+              >Copy uses plain text · Use Print to save as PDF</span
+            >
+            <div class="doc-output-footer__appearance">
+              <label
+                class="doc-output-footer__appearance-label"
+                for="resumeGenerateVisualTheme"
+                >Appearance</label
+              >
+              <select
+                id="resumeGenerateVisualTheme"
+                class="doc-output-footer__appearance-select"
+                aria-label="Preview appearance theme"
+              ></select>
+            </div>
+          </div>
+          <div class="doc-output-footer__refine">
+            <label
+              class="doc-output-footer__refine-label"
+              for="resumeGenerateFeedback"
+              >Refine this draft</label
+            >
+            <div class="doc-output-footer__refine-controls">
+              <textarea
+                id="resumeGenerateFeedback"
+                class="doc-output-footer__refine-input"
+                rows="2"
+                placeholder="Make the opening more specific, emphasize Python, cut this to 250 words..."
+              ></textarea>
+              <button
+                type="button"
+                class="btn-doc-secondary"
+                id="resumeGenerateRefine"
+              >
+                Refine
+              </button>
+            </div>
+          </div>
+          <div class="doc-output-footer__actions">
+            <button
+              type="button"
+              class="btn-doc-secondary"
+              id="resumeGeneratePrint"
+              title="Opens print dialog — choose Save as PDF"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                aria-hidden="true"
+              >
+                <polyline points="6 9 6 2 18 2 18 9" />
+                <path
+                  d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"
+                />
+                <rect x="6" y="14" width="12" height="8" />
+              </svg>
+              Print / PDF
+            </button>
+            <button
+              type="button"
+              class="btn-doc-secondary"
+              id="resumeGenerateCopy"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                aria-hidden="true"
+              >
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path
+                  d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                />
+              </svg>
+              Copy text
+            </button>
+            <button
+              type="button"
+              class="btn-doc-primary"
+              id="resumeGenerateDone"
+            >
+              Done
+            </button>
+          </div>
+        </footer>
+      </div>
+    </div>
+
+    <div
+      class="modal-overlay"
+      id="draftNotesModal"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="draftNotesTitle"
+    >
+      <div class="modal-card modal-card--draft-notes">
+        <div class="settings-modal-head">
+          <div>
+            <h3 id="draftNotesTitle">Notes for this draft</h3>
+            <p class="modal-lede draft-notes-modal__lede">
+              Optional context for this specific application. These notes take
+              priority over general preferences for the next draft only.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="settings-modal-close"
+            id="draftNotesModalClose"
+            aria-label="Close"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <p class="draft-notes-modal__target" id="draftNotesTarget"></p>
+        <textarea
+          id="draftNotesInput"
+          class="modal-input modal-textarea draft-notes-modal__input"
+          rows="5"
+          placeholder="Examples: Referred by Sarah Kim. Emphasize my ML platform work. This is a career pivot, so lead with transferable stakeholder-facing projects."
+        ></textarea>
+        <div class="modal-actions">
+          <button type="button" class="btn-modal-secondary" id="draftNotesSkip">
+            Continue without notes
+          </button>
+          <button
+            type="button"
+            class="btn-modal-primary"
+            id="draftNotesGenerate"
+          >
+            Generate draft
+          </button>
+        </div>
+      </div>
+    </div>

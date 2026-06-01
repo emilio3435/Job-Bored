@@ -8,11 +8,12 @@ import { normalizeAtsRequestPayload } from "../server/ats-request-payload.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const atsScorecardJs = readFileSync(join(repoRoot, "ats-scorecard.js"), "utf8");
 
 function extractFunctionSource(src, functionName) {
   const anchor = `function ${functionName}(`;
   const start = src.indexOf(anchor);
-  if (start === -1) throw new Error(`Could not find ${functionName}() in app.js`);
+  if (start === -1) throw new Error(`Could not find ${functionName}() in ats-scorecard.js`);
   const braceStart = src.indexOf("{", start);
   if (braceStart === -1) {
     throw new Error(`Could not find opening brace for ${functionName}()`);
@@ -58,7 +59,7 @@ function extractFunctionSource(src, functionName) {
 }
 
 const buildAtsScorecardRequestPayload = (0, eval)(
-  `(${extractFunctionSource(appJs, "buildAtsScorecardRequestPayload")})`,
+  `(${extractFunctionSource(atsScorecardJs, "buildAtsScorecardRequestPayload")})`,
 );
 
 function buildFullPayload() {
