@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 import vm from "node:vm";
 
+import { readIndexHtml } from "../scripts/lib/expand-index-includes.mjs";
 import { repoRoot } from "../scripts/lib/schedule.mjs";
 
 function loadReviewApi() {
@@ -75,7 +76,7 @@ test("expired review queue treats cleanup review notes as immediate review items
 });
 
 test("expired review UI is a single navbar action with one modal surface", () => {
-  const index = readFileSync(join(repoRoot, "index.html"), "utf8");
+  const index = readIndexHtml(repoRoot);
   const chrome = readFileSync(join(repoRoot, "flowing-chrome.js"), "utf8");
 
   assert.match(index, /id="expiredReviewBtn"/);

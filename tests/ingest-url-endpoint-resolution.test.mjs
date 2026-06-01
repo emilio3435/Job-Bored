@@ -4,11 +4,12 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { readIndexHtml } from "../scripts/lib/expand-index-includes.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
 const probesJs = readFileSync(join(repoRoot, "discovery-wizard-probes.js"), "utf8");
-const indexHtml = readFileSync(join(repoRoot, "index.html"), "utf8");
+const indexHtml = readIndexHtml(repoRoot);
 
 function readFunctionSource(name, endMarker) {
   const start = appJs.indexOf(`function ${name}(`);

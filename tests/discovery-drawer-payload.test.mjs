@@ -16,10 +16,11 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { readIndexHtml } from "../scripts/lib/expand-index-includes.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
-const indexHtml = readFileSync(join(repoRoot, "index.html"), "utf8");
+const indexHtml = readIndexHtml(repoRoot);
 const userContentStoreJs = readFileSync(
   join(repoRoot, "user-content-store.js"),
   "utf8",

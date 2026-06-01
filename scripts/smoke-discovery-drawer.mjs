@@ -13,6 +13,11 @@ import { spawn } from "node:child_process";
 import { setTimeout as wait } from "node:timers/promises";
 import fs from "node:fs/promises";
 import http from "node:http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { readIndexHtml } from "./lib/expand-index-includes.mjs";
+
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const URL = "http://localhost:8080/index.html";
@@ -76,7 +81,7 @@ async function runStaticFallback(reason) {
     console.log(
       `[smoke] dev-server fetch unavailable (${err.code || err.message}); reading index.html.`,
     );
-    html = await fs.readFile(new globalThis.URL("../index.html", import.meta.url), "utf8");
+    html = readIndexHtml(REPO_ROOT);
   }
   const appJs = await fs.readFile(new globalThis.URL("../app.js", import.meta.url), "utf8");
   const legacyDiscoveryPanelId = ["settings", "panel", "discovery"].join("-");

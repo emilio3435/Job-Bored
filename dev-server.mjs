@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
+import { expandIndexIncludes } from "./scripts/lib/expand-index-includes.mjs";
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -392,8 +393,11 @@ async function serveStatic(urlPath, res) {
     return;
   }
   try {
-    const data = await readFile(filePath);
+    let data = await readFile(filePath, "utf8");
     const ext = extname(filePath).toLowerCase();
+    if (ext === ".html" && /<!--\s*@include\s+/.test(data)) {
+      data = expandIndexIncludes(data, ROOT);
+    }
     const ct = MIME[ext] || "application/octet-stream";
     res.writeHead(200, { "content-type": ct, "cache-control": "no-cache" });
     res.end(data);

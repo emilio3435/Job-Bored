@@ -54,7 +54,7 @@ describe("dev-server HTTPS surface", () => {
       const response = await fetchHttpsText(`https://localhost:${port}/`);
       assert.equal(response.statusCode, 200);
       assert.match(String(response.headers["content-type"] || ""), /text\/html/i);
-      assert.match(response.body, /Command Center/i);
+      assert.match(response.body, /JobBored/i);
     } finally {
       await closeServer(server);
     }
