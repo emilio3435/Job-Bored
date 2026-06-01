@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-05-31 (session 16 — C1 discovery run orchestration parked clean for handoff).
+> Orchestrator ledger. **Last updated:** 2026-05-31 (session 16 — C1 discovery run orchestration active in pane 2).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -120,19 +120,19 @@ the worker bootstrap and rebase ran in
 actual parked branch is `refactor/app-js-decompose-pane2-ready-ingest-url-flow`.
 The old Apps Script deploy worktree remains clean.
 
-## Parked pane dispatch (session 16)
+## Active pane dispatch (session 16)
 
 Parallelism rule from the Phase 6 survey remains in force: **one
-implementation worktree at a time**. The C1 worktree was created from the
-integration tip and is parked clean without implementation commits. Revive it
-explicitly before editing.
+implementation worktree at a time**. C1 is active in the lower-left Cursor pane;
+support panes stay read-only until the C1 implementation branch reports a commit
+SHA.
 
 | Pane | Role | Branch | Worktree | Status | Stop condition |
 |---|---|---|---|---|---|
-| 1 | C1 implementation — `discovery-run-orchestration.js` | `refactor/app-js-decompose-discovery-run-orchestration-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-run-orchestration-v2` | **PARKED CLEAN** `b05b645` | No implementation commit yet; branch equals the integration dispatch ledger; revive explicitly before editing |
-| 2 | C1 focused test/source audit | read-only until C1 commit | existing Cursor pane only | **READ-ONLY SUPPORT** | Report app.js source-text assertions and likely focused tests; no file edits |
+| 1 | Drawer repair pane | `refactor/app-js-decompose-pane1-done-discovery-drawer` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-drawer-v2` | **PARKED / STALE UI** | No new work; pane may still show old repair transcript |
+| 2 | C1 implementation — `discovery-run-orchestration.js` | `refactor/app-js-decompose-discovery-run-orchestration-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-run-orchestration-v2` | **ACTIVE DISPATCH** | Module extracted, branch clean and committed, branch gate green, report commit SHA + LOC |
 | 3 | C2 readiness prep | read-only until C1 merge | existing survey pane only | **READ-ONLY SUPPORT** | Keep C2 notes aligned with Phase 6 plan; no file edits |
-| 4 | C1 merge-readiness QA | read-only until C1 commit | existing QA pane only | **READ-ONLY SUPPORT** | Prepare to run the C1 gate checklist after pane 1 reports a commit; no file edits |
+| 4 | C1 merge-readiness QA | read-only until C1 commit | existing QA pane only | **READ-ONLY SUPPORT** | Prepare to run the C1 gate checklist after pane 2 reports a commit; no file edits |
 
 ## Extraction order progress
 
@@ -162,7 +162,7 @@ explicitly before editing.
 | 21 | `ingest-url-flow.js` | **DONE** | Cursor pane 2 | `appjs-ingest-url-flow-v2` | Branch `refactor/app-js-decompose-pane2-ready-ingest-url-flow`; `JobBoredDiscovery.ingestUrlFlow`; rebased to `37cc686`, merged as `ed11dff`; branch and post-merge integration gates green |
 | 22 | Phase 6 core collapse survey | **DONE** | Cursor pane 3 | `appjs-core-collapse-survey` | Branch `refactor/app-js-decompose-pane3-parked-core-collapse-survey`; `366822a`; drafted `docs/refactor/PLAN-app-js-core-collapse-next.md`; gate `git diff --check` clean; branch parked clean |
 | 23 | Session 15 QA checklist | **DONE** | Cursor pane 4 | `appjs-qa-review` | Branch `refactor/app-js-decompose-pane4-parked-qa-review`; `0209b81`; drafted `docs/refactor/QA-session-15-checklist.md`; branch parked clean |
-| 24 | `discovery-run-orchestration.js` | **PARKED CLEAN** | Cursor pane 1 | `appjs-discovery-run-orchestration-v2` | Fresh branch `refactor/app-js-decompose-discovery-run-orchestration-v2` fast-forwarded to the latest dispatch ledger before worker prompt; no implementation commit yet; revive explicitly before editing |
+| 24 | `discovery-run-orchestration.js` | **ACTIVE** | Cursor pane 2 | `appjs-discovery-run-orchestration-v2` | Fresh branch `refactor/app-js-decompose-discovery-run-orchestration-v2`; worker prompt sent from the lower-left Cursor pane; extract C1 run orchestration only |
 | 25+ | discovery remainder / core collapse | pending | — | — | Continue C2–C6 in the Phase 6 survey order after C1 is inspected and merged |
 
 ## Worktrees
@@ -187,7 +187,7 @@ explicitly before editing.
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-ingest-url-flow-v2` | `refactor/app-js-decompose-pane2-ready-ingest-url-flow` | Session 15 ingest URL flow | merged `ed11dff`; branch clean at `37cc686` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-core-collapse-survey` | `refactor/app-js-decompose-pane3-parked-core-collapse-survey` | Session 15 Phase 6 survey | done; parked clean at `366822a` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-qa-review` | `refactor/app-js-decompose-pane4-parked-qa-review` | Session 15 QA review | done; parked clean at `0209b81` |
-| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-run-orchestration-v2` | `refactor/app-js-decompose-discovery-run-orchestration-v2` | Session 16 C1 discovery run orchestration | parked clean at `b05b645`; no implementation commit |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-run-orchestration-v2` | `refactor/app-js-decompose-discovery-run-orchestration-v2` | Session 16 C1 discovery run orchestration | active in lower-left Cursor pane; implementation in progress |
 
 Worktree create (orchestrator or shell subagent):
 
@@ -248,8 +248,8 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 15. Session 15 Phase 6 survey complete — `366822a` on `appjs-core-collapse-survey`; branch parked clean as `refactor/app-js-decompose-pane3-parked-core-collapse-survey`. It recommends merging **drawer** and **ingest** first, then dispatching C1 `discovery-run-orchestration.js` from a fresh worktree at the new integration tip.
 16. Session 15 discovery drawer v2 **merged** — `a51d795`; branch and integration **894 pass** at **6,443** LOC.
 17. Session 15 ingest URL flow v2 **merged** — `ed11dff`; branch and integration **894 pass** at **5,237** LOC.
-18. C1 `discovery-run-orchestration.js` **parked clean after dispatch** — branch `refactor/app-js-decompose-discovery-run-orchestration-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-run-orchestration-v2`, base `b05b645`, no implementation commit yet.
-19. Revive, gate, and merge C1 before dispatching C2 readiness.
+18. C1 `discovery-run-orchestration.js` **active** — branch `refactor/app-js-decompose-discovery-run-orchestration-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-run-orchestration-v2`; worker prompt sent from the lower-left Cursor pane.
+19. Gate and merge C1 before dispatching C2 readiness.
 20. After each future merge, update this status doc with the branch gate, post-merge gate, commit SHA, and new `app.js` LOC.
 
 ## `index.html` script order (post Phase 5 cut #1)
