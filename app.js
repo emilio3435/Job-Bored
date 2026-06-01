@@ -2175,342 +2175,44 @@ async function updateJobResponseFlag(...args) {
 }
 
 
-function generateDiscoveryVariationKey() {
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    const bytes = new Uint8Array(8);
-    crypto.getRandomValues(bytes);
-    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  }
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+
+function generateDiscoveryVariationKey(...args) {
+  return window.JobBoredDiscovery.runOrchestration.generateDiscoveryVariationKey(...args);
 }
 
-function getDiscoveryRunWebhookUrlCandidates(snapshot) {
-  const state = snapshot && typeof snapshot === "object" ? snapshot : {};
-  const transport = getDiscoveryTransportSetupState();
-  const relayInfo = getCloudflareRelayTargetInfo();
-  const snapshotTunnelTargetUrl = buildDiscoveryTunnelTargetUrl(
-    state.localWebhookUrl,
-    state.tunnelPublicUrl,
-  );
-  const localTunnelTargetUrl = buildDiscoveryTunnelTargetUrl(
-    transport.localWebhookUrl,
-    transport.tunnelPublicUrl,
-  );
-  const allowDirectLocal =
-    isLocalDashboardOrigin() &&
-    (state.savedWebhookKind === "local_http" ||
-      state.localWebhookReady === true ||
-      !!transport.localWebhookUrl);
-  return [
-    { url: getDiscoveryWebhookUrl(), source: "configured" },
-    { url: state.savedWebhookUrl, source: "snapshot_saved" },
-    { url: snapshotTunnelTargetUrl, source: "snapshot_tunnel_target" },
-    { url: state.relayTargetUrl, source: "snapshot_relay_target" },
-    { url: relayInfo && relayInfo.url, source: "relay_info" },
-    { url: localTunnelTargetUrl, source: "local_tunnel_target" },
-    {
-      url: allowDirectLocal ? state.localWebhookUrl : "",
-      source: "snapshot_local",
-    },
-    {
-      url: allowDirectLocal ? transport.localWebhookUrl : "",
-      source: "transport_local",
-    },
-  ];
+function getDiscoveryRunWebhookUrlCandidates(...args) {
+  return window.JobBoredDiscovery.runOrchestration.getDiscoveryRunWebhookUrlCandidates(...args);
 }
 
-function isLocalWebhookCandidateUrl(raw) {
-  const normalized = normalizeDiscoveryWebhookIdentity(raw);
-  if (!normalized) return false;
-  try {
-    const url = new URL(normalized);
-    const host = String(url.hostname || "")
-      .replace(/^\[|\]$/g, "")
-      .toLowerCase();
-    return host === "localhost" || host === "127.0.0.1" || host === "::1";
-  } catch (_) {
-    return false;
-  }
+function isLocalWebhookCandidateUrl(...args) {
+  return window.JobBoredDiscovery.runOrchestration.isLocalWebhookCandidateUrl(...args);
 }
 
-function getDiscoveryRunWebhookCandidateProbe(candidate, snapshot) {
-  const src = candidate && typeof candidate === "object" ? candidate : {};
-  const url = normalizeDiscoveryWebhookIdentity(src.url || candidate);
-  if (!url) {
-    return { ok: false, url: "", source: src.source || "", score: -1 };
-  }
-
-  const verifyApi = getDiscoveryWizardVerifyApi();
-  if (verifyApi && typeof verifyApi.classifyEndpointInput === "function") {
-    const inputProblem = verifyApi.classifyEndpointInput(url);
-    if (inputProblem && inputProblem.kind === "invalid_endpoint") {
-      return {
-        ok: false,
-        url,
-        source: src.source || "",
-        score: -1,
-        reason: inputProblem.message || "invalid_endpoint",
-      };
-    }
-  }
-
-  const state = snapshot && typeof snapshot === "object" ? snapshot : {};
-  const local = isLocalWebhookCandidateUrl(url);
-  const worker = isLikelyCloudflareWorkerUrl(url);
-  const appsScript = isLikelyAppsScriptWebAppUrl(url);
-  const hostedHttps = /^https:\/\//i.test(url) && !local;
-  const source = String(src.source || "");
-  let score = 10;
-
-  if (local && !isLocalDashboardOrigin()) {
-    return {
-      ok: false,
-      url,
-      source,
-      score: -1,
-      reason: "local_only_on_hosted_dashboard",
-    };
-  }
-
-  if (source.includes("local") && local && state.localWebhookReady) score += 90;
-  else if (source.includes("local") && local) score += 20;
-  if (source === "configured") score += 35;
-  if (source === "snapshot_saved") score += 25;
-  if (worker) score += isLocalDashboardOrigin() ? 45 : 80;
-  else if (hostedHttps) score += isLocalDashboardOrigin() ? 35 : 65;
-  if (source.includes("relay")) score += 20;
-  if (source.includes("tunnel")) score += isLocalDashboardOrigin() ? 30 : 15;
-  if (source === "snapshot_tunnel_target" && state.tunnelLive) score += 45;
-  if (appsScript) score -= 20;
-
-  const recovery = String(state.localRecoveryState || "ok");
-  if (recovery !== "ok" && (local || source.includes("tunnel"))) {
-    score -= 60;
-  }
-  if (
-    state.tunnelLive &&
-    state.tunnelPublicUrl &&
-    isLikelyNgrokWebhookUrl(url) &&
-    !sameDiscoveryUrlOrigin(url, state.tunnelPublicUrl)
-  ) {
-    score -= 120;
-  }
-  if (!isLocalDashboardOrigin() && (worker || hostedHttps)) {
-    score += 20;
-  }
-
-  return { ok: true, url, source, score };
+function getDiscoveryRunWebhookCandidateProbe(...args) {
+  return window.JobBoredDiscovery.runOrchestration.getDiscoveryRunWebhookCandidateProbe(...args);
 }
 
-async function scoreDiscoveryRunWebhookCandidates(candidates, snapshot) {
-  const seen = new Set();
-  const scored = [];
-  for (const candidate of candidates || []) {
-    const probe = getDiscoveryRunWebhookCandidateProbe(candidate, snapshot);
-    if (!probe.ok || !probe.url || seen.has(probe.url)) continue;
-    seen.add(probe.url);
-    scored.push(probe);
-  }
-  scored.sort((a, b) => b.score - a.score);
-  return scored;
+async function scoreDiscoveryRunWebhookCandidates(...args) {
+  return window.JobBoredDiscovery.runOrchestration.scoreDiscoveryRunWebhookCandidates(...args);
 }
 
-async function resolveDiscoveryRunWebhookUrl() {
-  await hydrateDiscoveryTransportSetupFromLocalBootstrap();
-  let snapshot = getDiscoveryReadinessSnapshot();
-  try {
-    snapshot = await refreshDiscoveryReadinessSnapshot({
-      force: true,
-      rerender: false,
-    });
-    if (snapshot && snapshot.tunnelLive && snapshot.tunnelPublicUrl) {
-      const transportPatch = { tunnelPublicUrl: snapshot.tunnelPublicUrl };
-      if (snapshot.localWebhookUrl) {
-        transportPatch.localWebhookUrl = snapshot.localWebhookUrl;
-      }
-      writeDiscoveryTransportSetupState(transportPatch);
-    }
-  } catch (err) {
-    console.warn("[JobBored] discovery run readiness:", err);
-  }
-
-  const scored = await scoreDiscoveryRunWebhookCandidates(
-    getDiscoveryRunWebhookUrlCandidates(snapshot),
-    snapshot,
-  );
-  return scored.length ? scored[0].url : "";
+async function resolveDiscoveryRunWebhookUrl(...args) {
+  return window.JobBoredDiscovery.runOrchestration.resolveDiscoveryRunWebhookUrl(...args);
 }
 
-async function ensureLocalDiscoveryAutoSetupForRun() {
-  if (!isLocalDashboardOrigin()) return false;
-  let shouldRunSetup = true;
-  try {
-    const stateResp = await fetch("/__proxy/discovery-state", {
-      method: "GET",
-      cache: "no-store",
-    });
-    const state = await stateResp.json().catch(() => null);
-    if (
-      stateResp.ok &&
-      state &&
-      state.recommendation === "ready" &&
-      (!state.worker || state.worker.originAllowed !== false)
-    ) {
-      return true;
-    }
-    shouldRunSetup = !!(
-      state &&
-      (state.recommendation === "auto_recoverable" ||
-        state.recoverableHint === "origin_not_allowed" ||
-        (state.worker && state.worker.originAllowed === false))
-    );
-  } catch (_) {
-    shouldRunSetup = true;
-  }
-  if (!shouldRunSetup) return false;
-  setDiscoveryWizardMessage(
-    "Setting up local discovery from this dev server...",
-    "info",
-  );
-  showToast("Setting up local discovery...", "info");
-  try {
-    const resp = await fetch("/__proxy/fix-setup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
-    const body = await resp.json().catch(() => ({}));
-    if (!resp.ok || !body || !body.ok) {
-      return false;
-    }
-    await hydrateDiscoveryTransportSetupFromLocalBootstrap();
-    await refreshDiscoveryReadinessSnapshot({
-      force: true,
-      rerender: false,
-    });
-    showToast("Local discovery setup is ready.", "success");
-    return true;
-  } catch (err) {
-    console.warn("[JobBored] local discovery auto setup failed:", err);
-    return false;
-  }
+async function ensureLocalDiscoveryAutoSetupForRun(...args) {
+  return window.JobBoredDiscovery.runOrchestration.ensureLocalDiscoveryAutoSetupForRun(...args);
 }
 
 /** Notify automation (Hermes, n8n, etc.) to run another discovery pass (varied query). */
-async function triggerDiscoveryRun(options) {
-  const runOptions =
-    options && typeof options === "object" && !Array.isArray(options)
-      ? options
-      : {};
-  const runTrigger = String(runOptions.trigger || "manual").trim() || "manual";
-  if (isLocalDashboardOrigin()) {
-    await ensureLocalDiscoveryAutoSetupForRun();
-    await warnDiscoverySourceReadinessBeforeRun();
-  }
-  let hook = await resolveDiscoveryRunWebhookUrl();
-  if (!hook && (await ensureLocalDiscoveryAutoSetupForRun())) {
-    await warnDiscoverySourceReadinessBeforeRun();
-    hook = await resolveDiscoveryRunWebhookUrl();
-  }
-  if (!hook) {
-    void requestDiscoverySetup({
-      entryPoint: "run_discovery",
-      allowWhileOnboarding: true,
-      skipAutodetect: true,
-    });
-    return { ok: false, reason: "no_url" };
-  }
-  try {
-    const payload = await buildDiscoveryWebhookPayload(SHEET_ID, {
-      trigger: runTrigger,
-    });
-    // Guardrail: verify intent is present before sending webhook request
-    const profile = payload && payload.discoveryProfile;
-    const targetRoles = (profile && profile.targetRoles || "").trim();
-    const keywordsInclude = (profile && profile.keywordsInclude || "").trim();
-    if (!targetRoles && !keywordsInclude) {
-      showToast(
-        "Add target roles or keywords to include, or use the AI Suggest tab to generate them.",
-        "warning",
-        true,
-      );
-      return { ok: false, reason: "blank_intent" };
-    }
-    const result = await verifyDiscoveryWebhookWithSharedModel(hook, payload, {
-      context: "run_discovery",
-      sheetId: SHEET_ID || "",
-    });
-    if (result.ok) {
-      const engineState = getDiscoveryEngineStateFromVerificationResult(result);
-      if (engineState) {
-        await recordDiscoveryEngineState(hook, engineState, "run_discovery");
-      }
-      await refreshDiscoveryReadinessSnapshot({ force: true, rerender: false });
-      showDiscoveryVerificationToast(result, { context: "run_discovery" });
-
-      // Extract run tracking metadata from accepted_async responses and start polling
-      if (result.kind === "accepted_async" && result.runId) {
-        const webhookUrl = String(hook || "").trim();
-        const statusPath = resolveAcceptedRunStatusPath(result, webhookUrl);
-        discoveryRunTracker.beginTracking({
-          runId: result.runId,
-          statusPath,
-          pollAfterMs: Number.isFinite(result.pollAfterMs) ? result.pollAfterMs : 2000,
-          webhookUrl,
-          trigger: runTrigger,
-          variationKey: payload.variationKey || "",
-          requestedAt: payload.requestedAt || "",
-          statusUnavailable: !statusPath,
-        });
-        // Show initial pending feedback immediately
-        renderDiscoveryRunStatus();
-        // Start async polling — will update tracker state on each response
-        if (statusPath) {
-          void startDiscoveryStatusPolling(webhookUrl);
-        }
-      }
-
-      return { ok: true, kind: result.kind };
-    }
-    if (
-      (result.kind === "network_error" || result.kind === "invalid_endpoint") &&
-      (await handleAppsScriptBrowserCorsFailure(hook, result.kind))
-    ) {
-      // Apps Script stub is publicly accessible — CORS blocked the browser from
-      // reading the response, but the endpoint did receive the request.
-      // Classify as stub_only so the Run discovery path preserves wiring-only
-      // semantics and does not report full-connected success.
-      result.kind = "stub_only";
-      result.engineState = "stub_only";
-      showDiscoveryVerificationToast(result, {
-        context: "run_discovery",
-        endpointUrl: hook,
-      });
-      return { ok: false, kind: "stub_only" };
-    }
-    showDiscoveryVerificationToast(result, {
-      context: "run_discovery",
-      endpointUrl: hook,
-    });
-    return { ok: false, reason: result.kind || "http" };
-  } catch (err) {
-    console.error("[JobBored] Discovery webhook:", err);
-    showToast(String(err && err.message ? err.message : err), "error", true);
-    return { ok: false, reason: "error" };
-  }
+async function triggerDiscoveryRun(...args) {
+  return window.JobBoredDiscovery.runOrchestration.triggerDiscoveryRun(...args);
 }
 
 window.JobBoredDiscovery = Object.assign(window.JobBoredDiscovery || {}, {
-  triggerRun: triggerDiscoveryRun,
-  triggerScheduledRun(options) {
-    return triggerDiscoveryRun(
-      Object.assign({}, options || {}, {
-        trigger: (options && options.trigger) || "scheduled-browser",
-      }),
-    );
-  },
   buildPayload: buildDiscoveryWebhookPayload,
 });
+
 
 // Discovery engine state bridge. discovery-engine-state.js loads BEFORE app.js
 // and reads host lazily for settings getters and persistence side effects.
@@ -2600,6 +2302,40 @@ window.JobBoredDiscovery.appsScriptDeploy.host = {
       ? gisInitStartedAt
       : 0;
   },
+};
+
+// Discovery run orchestration bridge. discovery-run-orchestration.js loads BEFORE app.js.
+window.JobBoredDiscovery.runOrchestration =
+  window.JobBoredDiscovery.runOrchestration || {};
+window.JobBoredDiscovery.runOrchestration.host = {
+  getDiscoveryTransportSetupState,
+  getCloudflareRelayTargetInfo,
+  buildDiscoveryTunnelTargetUrl,
+  isLocalDashboardOrigin,
+  getDiscoveryWebhookUrl,
+  normalizeDiscoveryWebhookIdentity,
+  getDiscoveryWizardVerifyApi,
+  isLikelyCloudflareWorkerUrl,
+  isLikelyAppsScriptWebAppUrl,
+  isLikelyNgrokWebhookUrl,
+  sameDiscoveryUrlOrigin,
+  hydrateDiscoveryTransportSetupFromLocalBootstrap,
+  getDiscoveryReadinessSnapshot,
+  refreshDiscoveryReadinessSnapshot,
+  writeDiscoveryTransportSetupState,
+  setDiscoveryWizardMessage,
+  showToast,
+  warnDiscoverySourceReadinessBeforeRun,
+  requestDiscoverySetup,
+  buildDiscoveryWebhookPayload,
+  getSHEET_ID() {
+    return SHEET_ID;
+  },
+  verifyDiscoveryWebhookWithSharedModel,
+  getDiscoveryEngineStateFromVerificationResult,
+  recordDiscoveryEngineState,
+  showDiscoveryVerificationToast,
+  handleAppsScriptBrowserCorsFailure,
 };
 
 // Discovery drawer bridge. discovery-drawer.js loads BEFORE app.js.

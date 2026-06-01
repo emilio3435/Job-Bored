@@ -32,6 +32,10 @@ const discoveryPayloadJs = readFileSync(
   join(repoRoot, "discovery-payload.js"),
   "utf8",
 );
+const runOrchJs = readFileSync(
+  join(repoRoot, "discovery-run-orchestration.js"),
+  "utf8",
+);
 
 describe("Discovery drawer markup + open/close lifecycle", () => {
   it("has a #discoveryDrawer element using the shared detail-overlay/detail-drawer classes", () => {
@@ -251,58 +255,68 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
     // The no-webhook run path still routes through setup after the user
     // has had a chance to tailor and save the drawer fields.
     assert.match(
-      appJs,
-      /requestDiscoverySetup\(\{\s*entryPoint:\s*"run_discovery"/,
+      runOrchJs,
+      /h\("requestDiscoverySetup", \{\s*entryPoint:\s*"run_discovery"/,
     );
   });
 
   it("starts runs through the resolved discovery transport, not the setup wizard autodetect shortcut", () => {
-    const resolverStart = appJs.indexOf(
+    assert.match(
+      appJs,
+      /async function resolveDiscoveryRunWebhookUrl\(/,
+      "app.js must keep a thin resolveDiscoveryRunWebhookUrl wrapper",
+    );
+    const resolverStart = runOrchJs.indexOf(
       "async function resolveDiscoveryRunWebhookUrl()",
     );
     assert.notEqual(resolverStart, -1, "run transport resolver must exist");
-    const resolverEnd = appJs.indexOf(
+    const resolverEnd = runOrchJs.indexOf(
       "\n}\n\n/** Notify automation",
       resolverStart,
     );
     assert.notEqual(resolverEnd, -1, "resolver body must be readable");
-    const resolverSource = appJs.slice(resolverStart, resolverEnd);
+    const resolverSource = runOrchJs.slice(resolverStart, resolverEnd);
     assert.match(
       resolverSource,
-      /hydrateDiscoveryTransportSetupFromLocalBootstrap\(\)/,
+      /h\("hydrateDiscoveryTransportSetupFromLocalBootstrap"\)/,
       "run should hydrate local bootstrap state before declaring setup missing",
     );
     assert.match(
       resolverSource,
-      /refreshDiscoveryReadinessSnapshot\(\{\s*force:\s*true,\s*rerender:\s*false,\s*\}\)/,
+      /h\("refreshDiscoveryReadinessSnapshot", \{\s*force:\s*true,\s*rerender:\s*false,\s*\}\)/,
       "run should refresh readiness so live tunnel/bootstrap URLs can be used",
     );
 
-    const candidateStart = appJs.indexOf(
+    const candidateStart = runOrchJs.indexOf(
       "function getDiscoveryRunWebhookUrlCandidates(",
     );
     assert.notEqual(candidateStart, -1, "candidate resolver must exist");
-    const candidateEnd = appJs.indexOf(
+    const candidateEnd = runOrchJs.indexOf(
       "\n}\n\nasync function resolveDiscoveryRunWebhookUrl",
       candidateStart,
     );
     assert.notEqual(candidateEnd, -1, "candidate resolver body must be readable");
-    const candidateSource = appJs.slice(candidateStart, candidateEnd);
+    const candidateSource = runOrchJs.slice(candidateStart, candidateEnd);
     assert.match(candidateSource, /state\.relayTargetUrl/);
     assert.match(candidateSource, /snapshot_tunnel_target/);
-    assert.match(candidateSource, /getCloudflareRelayTargetInfo\(\)/);
-    assert.match(candidateSource, /buildDiscoveryTunnelTargetUrl\(/);
+    assert.match(candidateSource, /h\("getCloudflareRelayTargetInfo"\)/);
+    assert.match(candidateSource, /h\("buildDiscoveryTunnelTargetUrl"/);
     assert.match(candidateSource, /source:\s*"configured"/);
     assert.match(resolverSource, /scoreDiscoveryRunWebhookCandidates\(/);
 
-    const triggerStart = appJs.indexOf("async function triggerDiscoveryRun(");
+    assert.match(
+      appJs,
+      /async function triggerDiscoveryRun\(/,
+      "app.js must keep a thin triggerDiscoveryRun wrapper",
+    );
+    const triggerStart = runOrchJs.indexOf("async function triggerDiscoveryRun(");
     assert.notEqual(triggerStart, -1, "triggerDiscoveryRun must exist");
-    const triggerEnd = appJs.indexOf(
-      "\n}\n\nwindow.JobBoredDiscovery",
+    const triggerEnd = runOrchJs.indexOf(
+      "\n}\n\n  Object.assign(runOrchestration",
       triggerStart,
     );
     assert.notEqual(triggerEnd, -1, "triggerDiscoveryRun body must be readable");
-    const triggerSource = appJs.slice(triggerStart, triggerEnd);
+    const triggerSource = runOrchJs.slice(triggerStart, triggerEnd);
     assert.match(
       triggerSource,
       /let hook = await resolveDiscoveryRunWebhookUrl\(\);/,
@@ -319,7 +333,7 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
       "run should validate local setup before selecting a local webhook URL",
     );
     assert.match(
-      appJs,
+      runOrchJs,
       /async function ensureLocalDiscoveryAutoSetupForRun\(\)[\s\S]*\/__proxy\/discovery-state[\s\S]*\/__proxy\/fix-setup/,
       "local automatic setup should probe readiness before using the setup proxy",
     );
@@ -394,13 +408,15 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
 
     const triggerStart = appJs.indexOf("async function triggerDiscoveryRun(");
     assert.notEqual(triggerStart, -1, "triggerDiscoveryRun must exist");
-    const triggerEnd = appJs.indexOf(
-      "\n}\n\nwindow.JobBoredDiscovery",
-      triggerStart,
+    const runTriggerStart = runOrchJs.indexOf("async function triggerDiscoveryRun(");
+    assert.notEqual(runTriggerStart, -1, "triggerDiscoveryRun implementation must exist");
+    const triggerEnd = runOrchJs.indexOf(
+      "\n}\n\n  Object.assign(runOrchestration",
+      runTriggerStart,
     );
     assert.notEqual(triggerEnd, -1, "triggerDiscoveryRun body must be readable");
-    const triggerSource = appJs.slice(triggerStart, triggerEnd);
-    assert.match(triggerSource, /warnDiscoverySourceReadinessBeforeRun\(\)/);
+    const triggerSource = runOrchJs.slice(runTriggerStart, triggerEnd);
+    assert.match(triggerSource, /h\("warnDiscoverySourceReadinessBeforeRun"\)/);
   });
 });
 
