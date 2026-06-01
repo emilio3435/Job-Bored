@@ -15,9 +15,9 @@
     return readiness.host || {};
   }
 
-  function h(name, ...args) {
+  function h(name) {
     const fn = host()[name];
-    return typeof fn === "function" ? fn(...args) : undefined;
+    return typeof fn === "function" ? fn : () => undefined;
   }
 
   function cc() {
