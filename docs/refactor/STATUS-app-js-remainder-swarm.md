@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-05-31 (session 11 — scraper ATS config merge).
+> Orchestrator ledger. **Last updated:** 2026-05-31 (session 12 — discovery engine state merge).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -12,7 +12,7 @@
 | Pre-existing dirty files | `M app.js` (1-line discovery webhook candidate — **do not mix into module cuts**), `M package-lock.json`, untracked `docs/refactor/*` |
 | Node / npm | v24.13.0 / 11.13.0 ✓ |
 | Baseline `npm test` | **892 pass / 0 fail / 0 skip** (188 suites, ~7.6s) |
-| `app.js` LOC (current) | **10,015** (post scraper ATS config; was 12,456 post Phase 5 cut #1) |
+| `app.js` LOC (current) | **9,838** (post discovery engine state; was 12,456 post Phase 5 cut #1) |
 | `SetActiveBranch` | `refactor/app-js-decompose` ✓ |
 | Swarm model | Cursor Task subagents per [PROMPT-app-js-remainder-cursor-swarm-orchestrator.md](./PROMPT-app-js-remainder-cursor-swarm-orchestrator.md) |
 
@@ -42,13 +42,15 @@ replayed onto owner branches.
 | 3 | A — app.js follow-up | `refactor/app-js-decompose-app-config-core-followup` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-config-core-followup` | **MERGED** `d2d5224` | Branch gate after rebase `npm test` = **894 pass / 0 fail**; post-merge integration `npm test` = **894 pass / 0 fail**; `git diff --check` clean; exact conflict-marker scan clean |
 | 4 | A — apps-script relay helpers | `refactor/app-js-decompose-apps-script-relay-helpers` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-apps-script-relay-helpers` | **MERGED** `a2a970d` | Branch gate after rebase `npm test` = **894 pass / 0 fail**; post-merge integration `npm test` = **894 pass / 0 fail**; `app.js` = **10,194 LOC** |
 | 5 | A — scraper ATS config | `refactor/app-js-decompose-scraper-ats-config` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-scraper-ats-config` | **MERGED** `2a3fcb5` | Branch gate after rebase `npm test` = **894 pass / 0 fail**; post-merge integration `npm test` = **894 pass / 0 fail**; `git diff --check` clean; exact conflict-marker scan clean; `app.js` = **10,015 LOC** |
+| 6 | A — discovery engine state | `refactor/app-js-decompose-discovery-engine-state` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-engine-state` | **MERGED** `7f9a2ee` | Branch gate after rebase `npm test` = **894 pass / 0 fail**; post-merge integration `npm test` = **894 pass / 0 fail**; `git diff --check` clean; exact conflict-marker scan clean; `app.js` = **9,838 LOC** |
 
 Shared-file rule in force: `index.html` structural changes landed with B first,
 legacy CSS `<head>` links landed with C, and the scoped A config follow-up landed
 after rebasing onto post-C integration. The first Phase 7 app-js lane
 (`apps-script-relay-helpers.js`) landed next from a rebased worker branch, then
-`scraper-ats-config.js` landed from a rebased worker branch. New app-js work
-must start from current integration tip `2a3fcb5` or later in a named
+`scraper-ats-config.js` landed from a rebased worker branch, then
+`discovery-engine-state.js` landed from a rebased worker branch. New app-js
+work must start from current integration tip `7f9a2ee` or later in a named
 worktree/branch.
 
 Follow-up Cursor prompts are staged in
@@ -80,6 +82,7 @@ Use those prompts instead of a broad "keep refactoring until <1000 LOC" request.
 | `d2d5224` | config-core follow-up merge | −~21 LOC in `app.js` | green (894 pass) |
 | `a2a970d` | `apps-script-relay-helpers.js` | −~290 LOC in `app.js` | green (894 pass) |
 | `2a3fcb5` | `scraper-ats-config.js` | −179 LOC in `app.js` | green (894 pass) |
+| `7f9a2ee` | `discovery-engine-state.js` | −177 LOC in `app.js` | green (894 pass) |
 
 ## Extraction order progress
 
@@ -102,7 +105,8 @@ Use those prompts instead of a broad "keep refactoring until <1000 LOC" request.
 | 14 | `discovery-run-tracker.js` | **DONE** | backend-developer | primary | `JobBoredDiscovery.runTracker`; **348** LOC module; thin wrappers in app.js |
 | 15 | `apps-script-relay-helpers.js` | **DONE** | Cursor worker | `appjs-apps-script-relay-helpers` | `JobBoredDiscovery.relayHelpers`; rebased to `eb2d7ed`, merged as `a2a970d` |
 | 16 | `scraper-ats-config.js` | **DONE** | Cursor worker | `appjs-scraper-ats-config` | `JobBoredDiscovery.scraperAtsConfig`; rebased to `2429f3a`, merged as `2a3fcb5` |
-| 17+ | discovery remainder | pending | — | — | Next queued: `discovery-engine-state.js`, then `discovery-status-handoff.js` after rebase/fix |
+| 17 | `discovery-engine-state.js` | **DONE** | Cursor worker | `appjs-discovery-engine-state` | `JobBoredDiscovery.engineState`; rebased to `453c97f`, merged as `7f9a2ee` |
+| 18+ | discovery remainder | pending | — | — | Next queued: `discovery-status-handoff.js` after rebase/fix |
 
 ## Worktrees
 
@@ -117,6 +121,7 @@ Use those prompts instead of a broad "keep refactoring until <1000 LOC" request.
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-config-core-followup` | `refactor/app-js-decompose-app-config-core-followup` | Track A config-core follow-up | merged `d2d5224` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-apps-script-relay-helpers` | `refactor/app-js-decompose-apps-script-relay-helpers` | Phase 7 relay helpers | merged `a2a970d` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-scraper-ats-config` | `refactor/app-js-decompose-scraper-ats-config` | Phase 7 scraper ATS config | merged `2a3fcb5` |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-engine-state` | `refactor/app-js-decompose-discovery-engine-state` | Phase 7 discovery engine state | merged `7f9a2ee` |
 
 Worktree create (orchestrator or shell subagent):
 
@@ -146,7 +151,7 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 | 2 | Leaf modules: keyword → profile → expired UI → enrichment | **DONE** |
 | 3 | Materials / ATS / onboarding / settings / logo / feature init | **DONE** |
 | 4 | Pipeline / Sheets | **DONE** (`95657ad`, `c4d529b`, `576782d`; **892 pass**) |
-| 5 | Discovery remainder | **in progress** (run tracker + relay helpers + scraper ATS config done) |
+| 5 | Discovery remainder | **in progress** (run tracker + relay helpers + scraper ATS config + engine state done) |
 | 5b | Index decomposition guardrail | **DONE** (`a432bd2`; **894 pass**) |
 | 6 | Auth / config / core collapse | in progress; config-core follow-up merged |
 
@@ -154,7 +159,7 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 
 1. **Discovery autofill WIP** — stashed as `discovery autofill WIP (post-phase4)` (`fb7c653`); breaks 4 discovery tests until finished; keep out of module-cut commits.
 2. Phase 2 leaf cuts committed: `5cd73d6`, `51f97e4`, `cf1c654`.
-3. **Plan LOC table** — re-derive ranges from **10,015** LOC `app.js` before each cut.
+3. **Plan LOC table** — re-derive ranges from **9,838** LOC `app.js` before each cut.
 4. **Mixed integration WIP backup** — `stash@{0}` is retained only as a recovery snapshot after replaying files to owner branches.
 
 ## Next actions (orchestrator)
@@ -169,12 +174,13 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 7. Track A config follow-up **merged** — `d2d5224`; branch and integration **894 pass**.
 8. Apps Script relay helpers **merged** — `a2a970d`; branch and integration **894 pass**.
 9. Scraper ATS config **merged** — `2a3fcb5`; branch and integration **894 pass**.
-10. Next merge order: `discovery-engine-state.js` → `discovery-status-handoff.js`, each rebased onto the latest integration tip and tested before merge. Park stale dirty `core-host` / `keyword-profile-match` worktrees until their owners decide whether to preserve or discard their old uncommitted diffs.
+10. Discovery engine state **merged** — `7f9a2ee`; branch and integration **894 pass**.
+11. Next merge order: `discovery-status-handoff.js`, rebased onto the latest integration tip and tested before merge. Park stale dirty `core-host` / `keyword-profile-match` worktrees until their owners decide whether to preserve or discard their old uncommitted diffs.
 
 ## `index.html` script order (post Phase 5 cut #1)
 
 ```
-… → sheets-writeback → sheets-read-load → pipeline-render → discovery-run-tracker → sheet-access-setup → apps-script-relay-helpers → scraper-ats-config → app.js?v=30
+… → sheets-writeback → sheets-read-load → pipeline-render → discovery-run-tracker → sheet-access-setup → apps-script-relay-helpers → scraper-ats-config → discovery-engine-state → app.js?v=30
 ```
 
 ## Owner-only risks (unchanged)
