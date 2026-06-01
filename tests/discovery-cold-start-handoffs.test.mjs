@@ -6,22 +6,30 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const statusHandoffJs = readFileSync(
+  join(repoRoot, "discovery-status-handoff.js"),
+  "utf8",
+);
 const setupJs = readFileSync(join(repoRoot, "sheet-access-setup.js"), "utf8");
 
-const HANDOFF_SECTION_START = appJs.indexOf(
+const HANDOFF_SECTION_START = statusHandoffJs.indexOf(
   'const PENDING_DISCOVERY_SETUP_KEY = "pendingDiscoverySetup";',
 );
-const HANDOFF_SECTION_END = appJs.indexOf(
-  "function getJobPostingScrapeUrl()",
+const HANDOFF_SECTION_END = statusHandoffJs.indexOf(
+  "function resetPostAccessBootstrap()",
   HANDOFF_SECTION_START,
 );
 
 if (HANDOFF_SECTION_START === -1 || HANDOFF_SECTION_END === -1) {
-  throw new Error("Could not isolate the discovery handoff section from app.js");
+  throw new Error(
+    "Could not isolate the discovery handoff section from discovery-status-handoff.js",
+  );
 }
 
-const handoffSource = appJs.slice(HANDOFF_SECTION_START, HANDOFF_SECTION_END);
+const handoffSource = statusHandoffJs.slice(
+  HANDOFF_SECTION_START,
+  HANDOFF_SECTION_END,
+);
 
 function createStorage() {
   const values = new Map();
@@ -94,8 +102,45 @@ function createHandoffHarness({
     },
   });
 
-  vm.runInContext(handoffSource, context, {
-    filename: "app.js#discovery-cold-start-handoffs",
+  context.__hostApi = {
+    isOnboardingWizardVisible() {
+      return context.__onboardingVisible;
+    },
+    openDiscoverySetupWizard(options) {
+      openCalls.push(options);
+    },
+    getDiscoveryWizardRecommendedFlow() {
+      return "local_agent";
+    },
+    getDiscoveryReadinessSnapshot() {
+      return { recommendedFlow: "local_agent" };
+    },
+    checkOnboardingGate() {
+      return context.checkOnboardingGate();
+    },
+  };
+
+  const handoffPreamble = `
+function host() {
+  return __hostApi;
+}
+function runTracker() {
+  return {
+    getState() {
+      return {};
+    },
+    isActive() {
+      return false;
+    },
+  };
+}
+function configCore() {
+  return {};
+}
+`;
+
+  vm.runInContext(handoffPreamble + handoffSource, context, {
+    filename: "discovery-status-handoff.js#discovery-cold-start-handoffs",
   });
 
   return {
