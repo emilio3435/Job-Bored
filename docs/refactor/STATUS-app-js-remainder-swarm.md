@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-05-31 (session 7 — branch ownership split + B merge).
+> Orchestrator ledger. **Last updated:** 2026-05-31 (session 8 — Track C CSS merge).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -38,12 +38,12 @@ replayed onto owner branches.
 | Order | Track | Branch | Worktree | Status | Verification |
 |---|---|---|---|---|---|
 | 1 | B — index.html decompose | `refactor/index-html-decompose` | `/Users/emilionunezgarcia/Job-Bored-worktrees/index-html-decompose` | **MERGED** `a432bd2` | `npm test` = **894 pass / 0 fail** after `npm install --prefix server` |
-| 2 | C — style.css split | `refactor/style-css-split` | `/Users/emilionunezgarcia/Job-Bored-worktrees/style-css-split` | **PENDING / not merge-ready** `37bbc37` | Preserved legacy CSS files only; still needs `style.css` trim, `index.html` head links after B, and full `npm test` before merge |
-| 3 | A — app.js follow-up | `refactor/app-js-decompose-app-config-core-followup` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-config-core-followup` | **PENDING** `61628cd` | Targeted `npm test -- tests/settings-sheet-id-validation.test.mjs` = **3 pass / 0 fail**; needs full `npm test` before merge |
+| 2 | C — style.css split | `refactor/style-css-split` | `/Users/emilionunezgarcia/Job-Bored-worktrees/style-css-split` | **MERGED** `37241c6` | Branch gate `npm test` = **894 pass / 0 fail**; post-merge integration `npm test` = **894 pass / 0 fail**; `style.css` = **1,872 LOC** |
+| 3 | A — app.js follow-up | `refactor/app-js-decompose-app-config-core-followup` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-config-core-followup` | **PENDING** `366b4a9` | Full branch `npm test` previously **894 pass / 0 fail**; rebase onto post-C integration and rerun full `npm test` before merge |
 
-Shared-file rule in force: `index.html` structural changes landed with B first;
-C may edit only `<head>` CSS links next; A may edit only script tags or its
-owned `app.js` follow-up files after C unless the orchestrator confirms a
+Shared-file rule in force: `index.html` structural changes landed with B first,
+and legacy CSS `<head>` links landed with C. A may now edit only its owned
+`app.js` follow-up files and matching tests unless the orchestrator confirms a
 non-overlap.
 
 Follow-up Cursor prompts are staged in
@@ -103,8 +103,8 @@ Use those prompts instead of a broad "keep refactoring until <1000 LOC" request.
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-sheets-read-load` | `refactor/app-js-decompose-sheets-read-load` | Phase 4 read-load | merged `c4d529b` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-render` | `refactor/app-js-decompose-pipeline-render` | Phase 4 pipeline | merged `576782d` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/index-html-decompose` | `refactor/index-html-decompose` | Track B index decomposition | merged `a432bd2` |
-| `/Users/emilionunezgarcia/Job-Bored-worktrees/style-css-split` | `refactor/style-css-split` | Track C CSS split | pending; not merge-ready |
-| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-config-core-followup` | `refactor/app-js-decompose-app-config-core-followup` | Track A config-core follow-up | pending; targeted tests green |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/style-css-split` | `refactor/style-css-split` | Track C CSS split | merged `37241c6` |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-config-core-followup` | `refactor/app-js-decompose-app-config-core-followup` | Track A config-core follow-up | pending; rebase after C |
 
 Worktree create (orchestrator or shell subagent):
 
@@ -153,7 +153,8 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 3. ~~Phase 4~~ **done** — writeback, read-load, pipeline-render integrated; **892 pass** at **13,140** LOC.
 4. Phase 5 cut #1 **done** — `discovery-run-tracker.js`; **892 pass** at **12,456** LOC.
 5. Track B index decomposition **merged** — `a432bd2`; **894 pass**.
-6. Next merge order: **C (`refactor/style-css-split`) → A (`refactor/app-js-decompose-app-config-core-followup`)**. Do not merge either until it has a clean worktree and full `npm test` pass on its owner branch.
+6. Track C CSS split **merged** — `37241c6`; branch and integration **894 pass**.
+7. Next merge order: **A (`refactor/app-js-decompose-app-config-core-followup`)**, then fresh app-js `-v2` lanes. Do not merge A until it rebases onto `37241c6` or later and reruns full `npm test`.
 
 ## `index.html` script order (post Phase 5 cut #1)
 
