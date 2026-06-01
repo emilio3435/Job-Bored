@@ -7,6 +7,10 @@ import { readIndexHtml } from "../scripts/lib/expand-index-includes.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const configOverridesJs = readFileSync(
+  join(repoRoot, "config-overrides.js"),
+  "utf8",
+);
 const settingsModalJs = readFileSync(
   join(repoRoot, "settings-modal.js"),
   "utf8",
@@ -60,9 +64,9 @@ describe("Clear settings boundary", () => {
   });
 
   it("config overrides use localStorage, not IndexedDB", () => {
-    const configStart = appJs.indexOf("function readStoredConfigOverrides");
-    const configEnd = appJs.indexOf("function applyStoredConfigOverrides");
-    const configBody = appJs.slice(configStart, configEnd);
+    const configStart = configOverridesJs.indexOf("function readStoredConfigOverrides");
+    const configEnd = configOverridesJs.indexOf("function applyStoredConfigOverrides");
+    const configBody = configOverridesJs.slice(configStart, configEnd);
 
     assert.ok(
       configBody.includes("localStorage.getItem"),

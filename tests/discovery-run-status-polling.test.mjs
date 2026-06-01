@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { buildCorsHeaders } from "../integrations/browser-use-discovery/src/http/origin-guard.ts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
 const bootstrapJs = readFileSync(join(repoRoot, "app-bootstrap.js"), "utf8");
 const runOrchJs = readFileSync(
   join(repoRoot, "discovery-run-orchestration.js"),
@@ -108,7 +108,7 @@ describe("discovery run status polling", () => {
     assert.match(statusHandoffJs, /canSynthesizeRunStatusPath\(webhookUrl\)/);
     assert.match(statusHandoffJs, /"\/runs\/" \+ encodeURIComponent\(runId\)/);
 
-    const triggerStart = appJs.indexOf("async function triggerDiscoveryRun(");
+    const triggerStart = appCompatJs.indexOf("async function triggerDiscoveryRun(");
     assert.notEqual(triggerStart, -1, "triggerDiscoveryRun must exist");
     const runTriggerStart = runOrchJs.indexOf("async function triggerDiscoveryRun(");
     assert.notEqual(runTriggerStart, -1, "triggerDiscoveryRun implementation must exist");

@@ -1,6 +1,6 @@
 /**
  * Regression tests for the discovery webhook payload sanitization in
- * buildDiscoveryWebhookPayload (discovery-readiness.js; thin wrapper in app.js).
+ * buildDiscoveryWebhookPayload (discovery-readiness.js; thin wrapper in app-compat.js).
  *
  * Bug being prevented:
  *   Step 7 wizard "Run test" → worker rejects with
@@ -29,7 +29,7 @@ const readinessJs = readFileSync(
   join(repoRoot, "discovery-readiness.js"),
   "utf8",
 );
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
 
 describe("buildDiscoveryWebhookPayload — sourcePreset sanitization", () => {
   it("contains the sanitization fence comment", () => {
@@ -38,9 +38,9 @@ describe("buildDiscoveryWebhookPayload — sourcePreset sanitization", () => {
       "sanitization fence comment should be present in discovery-readiness.js",
     );
     assert.match(
-      appJs,
+      appCompatJs,
       /async function buildDiscoveryWebhookPayload\(/,
-      "app.js must keep a thin buildDiscoveryWebhookPayload wrapper",
+      "app-compat.js must keep a thin buildDiscoveryWebhookPayload wrapper",
     );
   });
 

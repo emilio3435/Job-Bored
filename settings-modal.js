@@ -713,6 +713,8 @@ function initCommandCenterSettings() {
 
   Object.assign(settings, {
     isSettingsModalOpen,
+    fillDocumentTemplateSelect,
+    fillVisualThemeSelect,
     fillOneResumeModelSelect,
     fillResumeModelSelectsFromConfig,
     populateDiscoveryProfileIntoSettingsForm,
