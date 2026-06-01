@@ -1,0 +1,126 @@
+/* ── Fit Profile overlay (Task #5) ──────────────────────────────────────── */
+.fit-profile-empty-banner {
+  background: var(--surface-warning, #fff4e0);
+  border-radius: var(--radius-md, 8px);
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--text-sm);
+  border: 1px solid rgba(201, 122, 0, 0.18);
+}
+
+.fit-profile-empty-banner__text {
+  color: var(--text, #2a2a2a);
+}
+
+.fit-profile-empty-banner__cta {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--accent, #c97a00);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  font-size: var(--text-xs);
+}
+
+.fit-profile-empty-banner__cta:hover {
+  filter: brightness(1.08);
+}
+
+.fit-profile-run-override-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 6px;
+  min-height: 18px;
+}
+
+.fit-profile-run-override-badge {
+  font-size: 11px;
+  color: var(--text-muted, #888);
+  margin-left: 0;
+  visibility: hidden;
+}
+
+.fit-profile-run-override-badge.is-modified {
+  visibility: visible;
+  color: var(--accent, #c97a00);
+}
+
+.fit-profile-run-override-reset {
+  background: none;
+  border: none;
+  color: var(--text-muted, #888);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.fit-profile-run-override-reset:hover {
+  color: var(--text, #2a2a2a);
+}
+
+.fit-profile-tuning-section {
+  border: 1px solid var(--border, #e8e8e8);
+  border-radius: var(--radius-md, 8px);
+  padding: 12px;
+  margin-top: 12px;
+  background: var(--surface, #fff);
+}
+
+.fit-profile-tuning-section > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text, #2a2a2a);
+  list-style: none;
+}
+
+.fit-profile-tuning-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.fit-profile-tuning-section > summary::before {
+  content: "▸ ";
+  font-size: 10px;
+  color: var(--text-muted, #888);
+}
+
+.fit-profile-tuning-section[open] > summary::before {
+  content: "▾ ";
+}
+
+.fit-profile-tuning-section__lede {
+  margin: 8px 0 12px;
+  font-size: var(--text-xs);
+  color: var(--text-muted, #888);
+  line-height: 1.4;
+}
+
+.discovery-drawer__footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 640px) {
+  .detail-overlay--discovery .detail-drawer--discovery {
+    width: 100vw;
+  }
+  .dp-strata-grid {
+    grid-template-columns: 1fr;
+  }
+}
