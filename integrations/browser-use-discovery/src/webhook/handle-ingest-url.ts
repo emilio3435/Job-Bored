@@ -26,6 +26,10 @@ import {
   extractJobWithBrowserUseCloud,
   type BrowserUseCloudExtractor,
 } from "../sources/browser-use-cloud-extractor.ts";
+import {
+  extractJobWithGeminiUrlContext,
+  type GeminiUrlContextExtractor,
+} from "../sources/gemini-url-context-extractor.ts";
 import { classifyIngestUrl } from "../sources/ingest-url-router.ts";
 import {
   hasValidWebhookSecret,
@@ -53,6 +57,7 @@ type PipelineWriterLike = {
 
 type IngestUrlStrategy =
   | "ats_api"
+  | "gemini_url_context"
   | "jsonld"
   | "cheerio_dom"
   | "manual_fill"
@@ -71,6 +76,7 @@ export type HandleIngestUrlDependencies = {
   fetchAshbyJob?: typeof fetchAshbyJob;
   scrapeJobPosting?: (url: string) => Promise<ScrapeResult>;
   extractWithBrowserUseCloud?: BrowserUseCloudExtractor;
+  extractWithGeminiUrlContext?: GeminiUrlContextExtractor;
   runStatusPathForRun?(runId: string): string;
   runStatusStore?: DiscoveryRunStatusStore;
   includeRunStatusToken?: boolean;
@@ -291,6 +297,24 @@ export async function handleIngestUrlWebhook(
       }
     }
 
+    // Tier 2: Gemini URL context. Runs after ATS public API and before the
+    // Cheerio/JSON-LD scrape. Gemini reads the live page and returns structured
+    // job fields, which handles JS-rendered or awkward employer HTML that the
+    // Cheerio scraper struggles with. Weak/failed extraction falls through to
+    // Cheerio; aggregators are handled by the Browser Use path above.
+    if (!rawListing) {
+      const geminiResult = await tryGeminiUrlContextExtraction({
+        url: ingestRequest.url,
+        runId,
+        host: safeHost(ingestRequest.url),
+        dependencies: effectiveDependencies,
+      });
+      if (geminiResult.ok) {
+        rawListing = geminiResult.rawListing;
+        strategy = "gemini_url_context";
+      }
+    }
+
     if (!rawListing) {
       const scraped = await scrapeToRawListing(
         ingestRequest.url,
@@ -434,7 +458,11 @@ async function acceptAsyncIngestUrl(input: {
   const runningStatus = buildRunningRunStatus(acceptedStatus, startedAt);
   input.dependencies.runStatusStore?.put(runningStatus);
 
-  const { async: _asyncRequested, ...syncRequest } = input.ingestRequest;
+  const {
+    async: _asyncRequested,
+    googleAccessToken: _requestGoogleAccessToken,
+    ...syncRequest
+  } = input.ingestRequest;
   void handleIngestUrlWebhook(
     {
       ...input.request,
@@ -877,6 +905,51 @@ async function writeLeadAndRespond(input: {
     lead: input.lead,
     appended: writeResult.appended > 0,
   } satisfies IngestUrlResponseV1);
+}
+
+async function tryGeminiUrlContextExtraction(input: {
+  url: string;
+  runId: string;
+  host: string;
+  dependencies: HandleIngestUrlDependencies;
+}): Promise<
+  | { ok: true; rawListing: RawListing }
+  | { ok: false; reason: string; message: string }
+> {
+  const extractor =
+    input.dependencies.extractWithGeminiUrlContext ||
+    extractJobWithGeminiUrlContext;
+  try {
+    const result = await extractor({
+      url: input.url,
+      runId: input.runId,
+      runtimeConfig: input.dependencies.runtimeConfig,
+    });
+    if (result.ok) {
+      input.dependencies.log?.("discovery.run.ingest_url_gemini_completed", {
+        runId: input.runId,
+        host: input.host,
+        confidence: result.confidence,
+      });
+      return { ok: true, rawListing: result.rawListing };
+    }
+    input.dependencies.log?.("discovery.run.ingest_url_gemini_skipped", {
+      runId: input.runId,
+      host: input.host,
+      reason: result.reason,
+      message: result.message,
+      hasApiKey: !!String(input.dependencies.runtimeConfig.geminiApiKey || "").trim(),
+    });
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    input.dependencies.log?.("discovery.run.ingest_url_gemini_failed", {
+      runId: input.runId,
+      host: input.host,
+      message,
+    });
+    return { ok: false, reason: "extract_failed", message };
+  }
 }
 
 async function tryBrowserUseCloudExtraction(input: {

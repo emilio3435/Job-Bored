@@ -770,6 +770,180 @@ test("handleIngestUrlWebhook current Greenhouse host uses ATS API details", asyn
   assert.equal(browserUseCalls, 0);
 });
 
+test("handleIngestUrlWebhook uses Gemini URL context tier before Cheerio", async () => {
+  let geminiCalls = 0;
+  let scraperCalls = 0;
+  let browserUseCalls = 0;
+  let capturedLead: Record<string, unknown> | null = null;
+  const logs: Array<{ event: string }> = [];
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "https://careers.example.com/roles/product-marketing-manager",
+    }),
+    makeDependencies({
+      runtimeConfig: makeRuntimeConfig({
+        geminiApiKey: "AIza-test-key",
+        browserUseApiKey: "bu_test_key",
+      }),
+      extractWithGeminiUrlContext: async (input) => {
+        geminiCalls += 1;
+        return {
+          ok: true as const,
+          confidence: 0.88,
+          rawListing: {
+            sourceId: "ingest_url_gemini",
+            sourceLabel: "Gemini URL context",
+            sourceLane: "grounded_web",
+            title: "Product Marketing Manager",
+            company: "Example Co",
+            location: "Remote",
+            url: input.url,
+            canonicalUrl: input.url,
+            finalUrl: input.url,
+            descriptionText:
+              "Own product marketing strategy and go-to-market launches.",
+            metadata: {
+              sourceQuery: `gemini_url_context:${input.url}`,
+              geminiConfidence: 0.88,
+            },
+          },
+        };
+      },
+      scrapeJobPosting: async () => {
+        scraperCalls += 1;
+        throw new Error("Cheerio should not run after Gemini success");
+      },
+      extractWithBrowserUseCloud: async () => {
+        browserUseCalls += 1;
+        throw new Error("Browser Use should not run after Gemini success");
+      },
+      log: (event: string) => {
+        logs.push({ event });
+      },
+      pipelineWriter: {
+        write: async (_sheetId: string, leads: unknown[]) => {
+          capturedLead = leads[0] as Record<string, unknown>;
+          return {
+            sheetId: "sheet_123",
+            appended: 1,
+            updated: 0,
+            skippedDuplicates: 0,
+            skippedBlacklist: 0,
+            warnings: [],
+          };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.strategy, "gemini_url_context");
+  assert.equal(geminiCalls, 1);
+  assert.equal(scraperCalls, 0);
+  assert.equal(browserUseCalls, 0);
+  assert.equal(capturedLead?.title, "Product Marketing Manager");
+  assert.equal(capturedLead?.company, "Example Co");
+  assert.ok(
+    logs.some(
+      (entry) => entry.event === "discovery.run.ingest_url_gemini_completed",
+    ),
+  );
+  assert.doesNotMatch(response.body, /AIza-test-key/);
+});
+
+test("handleIngestUrlWebhook falls through to Cheerio when Gemini URL context is weak", async () => {
+  let geminiCalls = 0;
+  let scraperCalls = 0;
+  const logs: Array<{ event: string }> = [];
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "https://careers.example.com/roles/growth-product-manager",
+    }),
+    makeDependencies({
+      runtimeConfig: makeRuntimeConfig({ geminiApiKey: "AIza-test-key" }),
+      extractWithGeminiUrlContext: async () => {
+        geminiCalls += 1;
+        return {
+          ok: false as const,
+          reason: "low_quality_extraction",
+          message: "Gemini could not extract enough real job details.",
+        };
+      },
+      scrapeJobPosting: async () => {
+        scraperCalls += 1;
+        return {
+          url: "https://careers.example.com/roles/growth-product-manager",
+          title: "Growth Product Manager",
+          description: "Own growth product strategy and run experiments.",
+          method: "cheerio",
+        };
+      },
+      log: (event: string) => {
+        logs.push({ event });
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.strategy, "cheerio_dom");
+  assert.equal(geminiCalls, 1);
+  assert.equal(scraperCalls, 1);
+  assert.ok(
+    logs.some(
+      (entry) => entry.event === "discovery.run.ingest_url_gemini_skipped",
+    ),
+  );
+});
+
+test("handleIngestUrlWebhook skips Gemini URL context after ATS success", async () => {
+  let geminiCalls = 0;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({ url: "https://boards.greenhouse.io/plaid/jobs/4728292004" }),
+    makeDependencies({
+      runtimeConfig: makeRuntimeConfig({ geminiApiKey: "AIza-test-key" }),
+      extractWithGeminiUrlContext: async () => {
+        geminiCalls += 1;
+        throw new Error("Gemini should not run after ATS success");
+      },
+      fetchGreenhouseJob: async () => ({
+        ok: true as const,
+        rawListing: {
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          providerType: "greenhouse",
+          sourceLane: "company_surface",
+          title: "Senior Product Manager",
+          company: "Plaid",
+          location: "Remote",
+          url: "https://boards.greenhouse.io/plaid/jobs/4728292004",
+          canonicalUrl: "https://boards.greenhouse.io/plaid/jobs/4728292004",
+          descriptionText: "Drive product outcomes.",
+        },
+      }),
+      pipelineWriter: {
+        write: async () => ({
+          sheetId: "sheet_123",
+          appended: 1,
+          updated: 0,
+          skippedDuplicates: 0,
+          skippedBlacklist: 0,
+          warnings: [],
+        }),
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.strategy, "ats_api");
+  assert.equal(geminiCalls, 0);
+});
+
 test("handleIngestUrlWebhook manual-fill happy path", async () => {
   let scraperCalls = 0;
   const response = await handleIngestUrlWebhook(
@@ -858,6 +1032,76 @@ test("handleIngestUrlWebhook returns duplicate when writer reports skipped dupli
   const body = JSON.parse(response.body);
   assert.equal(body.ok, false);
   assert.equal(body.reason, "duplicate");
+});
+
+test("handleIngestUrlWebhook generic_https uses Gemini URL context before Cheerio", async () => {
+  let geminiCalls = 0;
+  let scraperCalls = 0;
+  let writerCalls = 0;
+  let capturedLead: Record<string, unknown> | null = null;
+
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "https://careers.example.com/roles/principal-engineer-payments",
+    }),
+    makeDependencies({
+      runtimeConfig: makeRuntimeConfig({
+        geminiApiKey: "test-gemini-key",
+        geminiModel: "gemini-3.5-flash",
+      }),
+      extractWithGeminiUrlContext: async (input) => {
+        geminiCalls += 1;
+        return {
+          ok: true as const,
+          confidence: 0.88,
+          rawListing: {
+            sourceId: "ingest_url_gemini",
+            sourceLabel: "Gemini URL context",
+            sourceLane: "grounded_web",
+            title: "Principal Engineer, Payments",
+            company: "Example Co",
+            location: "Remote",
+            url: input.url,
+            canonicalUrl: input.url,
+            finalUrl: input.url,
+            descriptionText:
+              "Lead payment platform architecture and partner integrations.",
+            metadata: {
+              sourceQuery: `gemini_url_context:${input.url}`,
+            },
+          },
+        };
+      },
+      scrapeJobPosting: async () => {
+        scraperCalls += 1;
+        throw new Error("Cheerio should not run when Gemini succeeds");
+      },
+      pipelineWriter: {
+        write: async (_sheetId, leads) => {
+          writerCalls += 1;
+          capturedLead = leads[0] as unknown as Record<string, unknown>;
+          return {
+            sheetId: "sheet_123",
+            appended: 1,
+            updated: 0,
+            skippedDuplicates: 0,
+            skippedBlacklist: 0,
+            warnings: [],
+          };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.strategy, "gemini_url_context");
+  assert.equal(geminiCalls, 1);
+  assert.equal(scraperCalls, 0);
+  assert.equal(writerCalls, 1);
+  assert.equal(capturedLead?.title, "Principal Engineer, Payments");
+  assert.equal(capturedLead?.company, "Example Co");
 });
 
 test("handleIngestUrlWebhook generic_https scrape failure rejects without writing", async () => {
