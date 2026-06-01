@@ -6,27 +6,20 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
-const CONFIG_SECTION_START = appJs.indexOf(
-  "// ============================================\n// CONFIG VALIDATION",
-);
-const CONFIG_SECTION_END = appJs.indexOf(
-  "function getConfig()",
-  CONFIG_SECTION_START,
-);
-
-if (CONFIG_SECTION_START === -1 || CONFIG_SECTION_END === -1) {
-  throw new Error("Could not isolate the sheet-id validation section from app.js");
-}
-
-const configSectionSource = appJs.slice(CONFIG_SECTION_START, CONFIG_SECTION_END);
+const configCoreJs = readFileSync(join(repoRoot, "app-config-core.js"), "utf8");
 
 function runParseGoogleSheetId(raw) {
-  const context = vm.createContext({ console });
-  vm.runInContext(configSectionSource, context, {
-    filename: "app.js#sheet-id-validation",
+  const context = vm.createContext({
+    console,
+    window: { JobBoredApp: {} },
   });
-  return vm.runInContext(`parseGoogleSheetId(${JSON.stringify(raw)})`, context);
+  vm.runInContext(configCoreJs, context, {
+    filename: "app-config-core.js#sheet-id-validation",
+  });
+  return vm.runInContext(
+    `window.JobBoredApp.configCore.parseGoogleSheetId(${JSON.stringify(raw)})`,
+    context,
+  );
 }
 
 describe("Sheet ID validation", () => {

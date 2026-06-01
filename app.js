@@ -177,32 +177,12 @@ async function hydrateDiscoveryTransportSetupFromLocalBootstrap() {
 // CONFIG VALIDATION
 // ============================================
 
-/**
- * Extract a Google Sheet ID from a full spreadsheet URL or a raw ID paste.
- * Accepts e.g. https://docs.google.com/spreadsheets/d/SHEET_ID/edit?gid=0…
- */
-const MIN_PLAUSIBLE_GOOGLE_SHEET_ID_LENGTH = 20;
-
-function isPlausibleGoogleSheetId(value) {
-  return (
-    typeof value === "string" &&
-    /^[a-zA-Z0-9_-]+$/.test(value) &&
-    value.length >= MIN_PLAUSIBLE_GOOGLE_SHEET_ID_LENGTH &&
-    value !== "YOUR_SHEET_ID_HERE"
-  );
+function isPlausibleGoogleSheetId(...args) {
+  return window.JobBoredApp.configCore.isPlausibleGoogleSheetId(...args);
 }
 
-function parseGoogleSheetId(raw) {
-  if (raw == null || typeof raw !== "string") return null;
-  const s = raw.trim();
-  if (!s) return null;
-  const fromPath = s.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)(?:\/|$|\?|#)/);
-  if (fromPath && isPlausibleGoogleSheetId(fromPath[1])) return fromPath[1];
-  const compact = s.replace(/\s/g, "");
-  if (isPlausibleGoogleSheetId(compact)) {
-    return compact;
-  }
-  return null;
+function parseGoogleSheetId(...args) {
+  return window.JobBoredApp.configCore.parseGoogleSheetId(...args);
 }
 
 /** Default dashboard label; legacy templates used "Command Center". */
@@ -5391,8 +5371,11 @@ window.JobBoredApp.core.host = {
   setPendingSetupStarterSheetCreate(value) {
     pendingSetupStarterSheetCreate = !!value;
   },
-  getLastSheetAccessError() {
-    return lastSheetAccessError;
+  getLastSheetAccessError(...args) {
+    return window.JobBoredApp.setup.getLastSheetAccessError(...args);
+  },
+  maybeSyncSettingsModalModeAfterAuth(...args) {
+    return window.JobBoredApp.settings.maybeSyncSettingsModalModeAfterAuth(...args);
   },
   refreshPersonalPreferencesPanel(...args) {
     return refreshPersonalPreferencesPanel(...args);
@@ -5500,7 +5483,7 @@ window.JobBoredApp.core.host = {
     return normalizeDashboardTitle(...args);
   },
   parseGoogleSheetId(...args) {
-    return parseGoogleSheetId(...args);
+    return window.JobBoredApp.configCore.parseGoogleSheetId(...args);
   },
   writeStoredConfigOverrides(...args) {
     return writeStoredConfigOverrides(...args);
