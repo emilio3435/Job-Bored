@@ -20,7 +20,10 @@ const onboardingWizardJs = readFileSync(
   "utf8",
 );
 const indexHtml = readIndexHtml(repoRoot);
-const styleCss = readFileSync(join(repoRoot, "style.css"), "utf8");
+const legacyOnboardingCss = readFileSync(
+  join(repoRoot, "css", "legacy-onboarding.css"),
+  "utf8",
+);
 const userContentStoreJs = readFileSync(
   join(repoRoot, "user-content-store.js"),
   "utf8",
@@ -91,7 +94,7 @@ describe("Onboarding mascot poses", () => {
       "onboarding wizard should expose a swappable mascot image",
     );
     assert.match(
-      styleCss,
+      legacyOnboardingCss,
       /onboarding-wizard__mascot-frame/,
       "onboarding wizard should frame the mascot asset",
     );
