@@ -262,7 +262,7 @@ are stale C3/hotfix contexts.
 | 30 | Discovery AI host bridge hotfix | **DONE** | orchestrator hotfix lane | `appjs-discovery-ai-host-hotfix` | Branch `refactor/app-js-decompose-discovery-ai-host-hotfix`; commit `f2bb57c`, merged as `57d4ec9`; fixed `callDiscoveryAiGemini` load-time ReferenceError by routing host bridge calls through exported `JobBoredDiscovery.drawer` helpers |
 | 31 | `pipeline-controller.js` | **DONE** | worker lane | `appjs-pipeline-controller-v2` | Branch `refactor/app-js-decompose-pipeline-controller-v2`; rebased to `b931d48`, merged as `e246351`; branch and post-merge integration gates green |
 | 32 | Discovery readiness host bridge hotfix | **DONE** | orchestrator hotfix lane | `appjs-discovery-readiness-host-hotfix` | Branch `refactor/app-js-decompose-discovery-readiness-host-hotfix`; commit `716cc7f`, merged as `5579a6c`; branch and post-merge gates green |
-| 33 | `app-bootstrap.js` | **ACTIVE** | Cursor pane `bacf3f3e-041c-4ace-8bc5-ed9068be6abdv` | `appjs-app-bootstrap-v2` | Branch `refactor/app-js-decompose-app-bootstrap-v2`; created from integration tip `6df8725`; extract C5 only |
+| 33 | `app-bootstrap.js` | **ACTIVE** | Cursor pane `bacf3f3e-041c-4ace-8bc5-ed9068be6abdv` | `appjs-app-bootstrap-v2` | Branch `refactor/app-js-decompose-app-bootstrap-v2`; fast-forwarded to integration dispatch tip `7e6227a`; extract C5 only |
 | 34+ | bridge registry core collapse | pending | — | — | Continue C6 in the Phase 6 survey order from a fresh worktree at the current integration tip |
 
 ## Worktrees
@@ -294,7 +294,7 @@ are stale C3/hotfix contexts.
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-setup-modals-v2` | `refactor/app-js-decompose-discovery-setup-modals-v2` | Session 20 C3 discovery setup modals | merged `b0952ea`; branch clean at `2d43e3e` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-controller-v2` | `refactor/app-js-decompose-pipeline-controller-v2` | Session 22 C4 pipeline controller | merged `e246351`; branch clean at `b931d48` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-readiness-host-hotfix` | `refactor/app-js-decompose-discovery-readiness-host-hotfix` | Session 25 discovery readiness host bridge hotfix | merged `5579a6c`; branch clean at `716cc7f` |
-| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-bootstrap-v2` | `refactor/app-js-decompose-app-bootstrap-v2` | Session 25 C5 app bootstrap | active; created from integration tip `6df8725` |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-bootstrap-v2` | `refactor/app-js-decompose-app-bootstrap-v2` | Session 25 C5 app bootstrap | active; fast-forwarded to dispatch tip `7e6227a` |
 
 Worktree create (orchestrator or shell subagent):
 
@@ -364,7 +364,7 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 24. C4 `pipeline-controller.js` **merged** — branch `refactor/app-js-decompose-pipeline-controller-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-controller-v2`, worker commit `b931d48`, merge `e246351`; current pane remains orchestrator-only on integration.
 25. C4 gate **complete** — branch gate passed `node --check app.js && node --check pipeline-controller.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused C4 tests **96 pass / 0 fail**, and full `npm test` **896 pass / 0 fail**; post-merge integration gate also **896 pass / 0 fail**.
 26. Discovery readiness host bridge hotfix **merged** — branch `refactor/app-js-decompose-discovery-readiness-host-hotfix`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-readiness-host-hotfix`, worker commit `716cc7f`, merge `5579a6c`; branch gate passed `node --check app.js && node --check discovery-readiness.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused readiness/related tests **42 pass / 0 fail**, and full `npm test` **897 pass / 0 fail**; post-merge integration gate also **897 pass / 0 fail**.
-27. C5 `app-bootstrap.js` **dispatched** — branch `refactor/app-js-decompose-app-bootstrap-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-bootstrap-v2`, base `6df8725`; candidate pane id `bacf3f3e-041c-4ace-8bc5-ed9068be6abdv`; worker prompt must begin with branch/path preflight and keep all edits in the C5 worktree.
+27. C5 `app-bootstrap.js` **dispatched** — branch `refactor/app-js-decompose-app-bootstrap-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-bootstrap-v2`, base `7e6227a`; candidate pane id `bacf3f3e-041c-4ace-8bc5-ed9068be6abdv`; worker prompt must begin with branch/path preflight and keep all edits in the C5 worktree.
 28. After each future merge, update this status doc with the branch gate, post-merge gate, commit SHA, and new `app.js` LOC.
 
 ## `index.html` script order (post Phase 5 cut #1)
