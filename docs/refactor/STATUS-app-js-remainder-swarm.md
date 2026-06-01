@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-06-01 (session 25 — C5 app bootstrap merged after readiness host hotfix).
+> Orchestrator ledger. **Last updated:** 2026-06-01 (session 26 — C6 bridge registry dispatched after C5 inspection).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -229,6 +229,21 @@ visible pane contexts were stale C3/hotfix contexts.
 | candidate pane `bacf3f3e-041c-4ace-8bc5-ed9068be6abdv` | C5 implementation — `app-bootstrap.js` | `refactor/app-js-decompose-app-bootstrap-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-bootstrap-v2` | **MERGED** `a2b8bfe` | Branch clean at `d22980e`; branch and post-merge gates passed |
 | QA gate | C5 gate checklist | read-only support | orchestrator shell | **LOCAL GATE COMPLETE** | Branch and post-merge gates passed; stop here for C5 inspection before dispatching C6 |
 
+## Pane dispatch (session 26)
+
+Parallelism rule remains in force: **one editable implementation worktree at a
+time**. C6 bridge registry/core-collapse is the only implementation lane. The
+other three panes are support-only and have their own current-tip worktrees so
+any accidental edits stay isolated from the writer and integration checkouts.
+
+| Pane | Role | Branch | Worktree | Status | Stop condition |
+|---|---|---|---|---|---|
+| current pane | Orchestrator / ledger / merge controller | `refactor/app-js-decompose` | `/Users/emilionunezgarcia/Job-Bored` | **ACTIVE — INTEGRATION ONLY** | Maintain ledger and merge docs; leave local `AGENTS.md`, `CLAUDE.md`, and `package-lock.json` unstaged |
+| writer pane | C6 implementation — `bridge-registry.js` | `refactor/app-js-decompose-bridge-registry-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-v2` | **DISPATCH READY** | Extract bridge publication only; branch must pass full C6 gate before merge |
+| boundary pane | C6 boundary review | `refactor/app-js-decompose-bridge-registry-boundary-review` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-boundary-review` | **READ-ONLY SUPPORT** | Report bridge scope risks and required source-text test updates; commit nothing unless explicitly reassigned |
+| source-audit pane | C6 app.js/source-text audit | `refactor/app-js-decompose-bridge-registry-source-audit` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-source-audit` | **READ-ONLY SUPPORT** | Report tests that grep bridge host blocks or `app.js` symbols; commit nothing unless explicitly reassigned |
+| QA gate pane | C6 gate checklist | `refactor/app-js-decompose-bridge-registry-qa` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-qa` | **READ-ONLY SUPPORT** | Prepare exact branch/post-merge gate commands; run verification after writer reports a commit |
+
 ## Extraction order progress
 
 | Plan step | Module | Status | Worker | Worktree / branch | Notes |
@@ -267,7 +282,8 @@ visible pane contexts were stale C3/hotfix contexts.
 | 31 | `pipeline-controller.js` | **DONE** | worker lane | `appjs-pipeline-controller-v2` | Branch `refactor/app-js-decompose-pipeline-controller-v2`; rebased to `b931d48`, merged as `e246351`; branch and post-merge integration gates green |
 | 32 | Discovery readiness host bridge hotfix | **DONE** | orchestrator hotfix lane | `appjs-discovery-readiness-host-hotfix` | Branch `refactor/app-js-decompose-discovery-readiness-host-hotfix`; commit `716cc7f`, merged as `5579a6c`; branch and post-merge gates green |
 | 33 | `app-bootstrap.js` | **DONE** | Cursor pane `bacf3f3e-041c-4ace-8bc5-ed9068be6abdv` + orchestrator review | `appjs-app-bootstrap-v2` | Branch `refactor/app-js-decompose-app-bootstrap-v2`; worker commit `d22980e`, merged as `a2b8bfe`; branch and post-merge integration gates green |
-| 34+ | bridge registry core collapse | pending | — | — | Continue C6 in the Phase 6 survey order from a fresh worktree at the current integration tip |
+| 34 | `bridge-registry.js` | **ACTIVE** | C6 writer pane | `appjs-bridge-registry-v2` | Branch `refactor/app-js-decompose-bridge-registry-v2`; created from integration tip `33d29ac`; extract bridge publication only |
+| 35+ | thin-wrapper collapse | pending | — | — | Continue after C6 inspection; remove one-line delegates only when source-text tests no longer require symbols in `app.js` |
 
 ## Worktrees
 
@@ -299,6 +315,10 @@ visible pane contexts were stale C3/hotfix contexts.
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-controller-v2` | `refactor/app-js-decompose-pipeline-controller-v2` | Session 22 C4 pipeline controller | merged `e246351`; branch clean at `b931d48` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-readiness-host-hotfix` | `refactor/app-js-decompose-discovery-readiness-host-hotfix` | Session 25 discovery readiness host bridge hotfix | merged `5579a6c`; branch clean at `716cc7f` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-bootstrap-v2` | `refactor/app-js-decompose-app-bootstrap-v2` | Session 25 C5 app bootstrap | merged `a2b8bfe`; branch clean at `d22980e` |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-v2` | `refactor/app-js-decompose-bridge-registry-v2` | Session 26 C6 bridge registry writer | active; created from `33d29ac` |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-boundary-review` | `refactor/app-js-decompose-bridge-registry-boundary-review` | Session 26 C6 boundary review | read-only support; created from `33d29ac` |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-source-audit` | `refactor/app-js-decompose-bridge-registry-source-audit` | Session 26 C6 source-text audit | read-only support; created from `33d29ac` |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-qa` | `refactor/app-js-decompose-bridge-registry-qa` | Session 26 C6 QA gate | read-only support; created from `33d29ac` |
 
 Worktree create (orchestrator or shell subagent):
 
@@ -369,7 +389,8 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 25. C4 gate **complete** — branch gate passed `node --check app.js && node --check pipeline-controller.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused C4 tests **96 pass / 0 fail**, and full `npm test` **896 pass / 0 fail**; post-merge integration gate also **896 pass / 0 fail**.
 26. Discovery readiness host bridge hotfix **merged** — branch `refactor/app-js-decompose-discovery-readiness-host-hotfix`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-readiness-host-hotfix`, worker commit `716cc7f`, merge `5579a6c`; branch gate passed `node --check app.js && node --check discovery-readiness.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused readiness/related tests **42 pass / 0 fail**, and full `npm test` **897 pass / 0 fail**; post-merge integration gate also **897 pass / 0 fail**.
 27. C5 `app-bootstrap.js` **merged** — branch `refactor/app-js-decompose-app-bootstrap-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-bootstrap-v2`, worker commit `d22980e`, merge `a2b8bfe`; branch gate passed `node --check app.js && node --check app-bootstrap.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused C5 tests **65 pass / 0 fail**, and full `npm test` **897 pass / 0 fail**; post-merge integration gate also **897 pass / 0 fail**; `app.js` **3,041 LOC**, `app-bootstrap.js` **252 LOC**.
-28. Stop here for C5 inspection. Next implementation lane is C6 bridge registry/core-collapse from a fresh worktree at integration tip `a2b8bfe`; keep integration checkout orchestrator-only and update this status doc after the next merge.
+28. C6 `bridge-registry.js` **dispatched** — writer branch `refactor/app-js-decompose-bridge-registry-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-v2`, created from integration tip `33d29ac`. Support branches created from the same tip: boundary review, source-text audit, and QA gate. Keep C6 scope to bridge publication: `JobBoredDiscovery.*.host`, `JobBoredApp.*.host`, `JobBoredApp.core.host`, and `Object.assign(window.JobBoredApp.core, ...)`.
+29. Before C6 merge, run `node --check app.js && node --check bridge-registry.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, full `npm test`, and report `wc -l app.js bridge-registry.js`.
 
 ## `index.html` script order (post Phase 5 cut #1)
 
@@ -377,7 +398,7 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 … → sheets-writeback → sheets-read-load → pipeline-render → pipeline-controller → discovery-run-tracker → sheet-access-setup → apps-script-relay-helpers → scraper-ats-config → discovery-engine-state → discovery-readiness → discovery-status-handoff → apps-script-deploy → discovery-setup-modals → discovery-drawer → ingest-url-flow → discovery-run-orchestration → app-bootstrap.js → app.js?v=30
 ```
 
-Next planned implementation lane: C6 bridge registry/core-collapse per the Phase
+Active implementation lane: C6 `bridge-registry.js` core-collapse per the Phase
 6 survey order.
 
 ## Owner-only risks (unchanged)
