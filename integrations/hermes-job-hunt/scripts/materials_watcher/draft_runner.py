@@ -114,6 +114,22 @@ class ResumePageCheck:
     warning: str | None = None
 
 
+def format_fallback_note(
+    *,
+    primary_provider: str,
+    primary_model: str,
+    fallback_provider: str,
+    fallback_model: str,
+    primary_error: str,
+) -> str:
+    """Human-readable note when the primary Hermes provider fails and fallback runs."""
+    return (
+        f"Primary provider unavailable ({primary_provider}/{primary_model}); "
+        f"used fallback {fallback_provider}/{fallback_model}: "
+        f"{compact_summary(primary_error)}"
+    )
+
+
 class DraftRunner:
     def __init__(self, config: RunnerConfig, template_path: Path | None = None):
         self.config = config
@@ -166,7 +182,13 @@ class DraftRunner:
 
             classification = classify_error(result.error_summary)
             if attempt == 1 and classification in {"model_not_found", "unauthorized"}:
-                fallback_note = f"xAI unavailable, used MiniMax: {compact_summary(result.error_summary)}"
+                fallback_note = format_fallback_note(
+                    primary_provider=self.config.provider,
+                    primary_model=self.config.model,
+                    fallback_provider=self.config.fallback_provider,
+                    fallback_model=self.config.fallback_model,
+                    primary_error=result.error_summary,
+                )
                 fallback = self._run_once(
                     request=request,
                     prompt=prompt,

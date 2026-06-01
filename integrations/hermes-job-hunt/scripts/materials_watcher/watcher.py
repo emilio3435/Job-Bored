@@ -297,17 +297,10 @@ class MaterialsWatcher:
         draft_error_path = app_dir / "draft_error.txt"
         if result.ok and ok and not draft_error_path.exists():
             resume_page_check = check_resume_page_count(app_dir, result.log_path)
-            if result.fallback_used:
-                write_pending_error(
-                    app_dir,
-                    summary="xAI unavailable, used MiniMax",
-                    details=result.fallback_note,
-                    log_path=result.log_path,
-                    fallback_note=result.fallback_note,
-                    request=request,
-                )
-            else:
-                clear_pending_error(app_dir)
+            # Successful runs must not leave pending_error.json behind. JobBored
+            # treats that file as a terminal failure when pending.json is archived,
+            # even for benign fallback notes. Fallback detail stays in .draft.log.
+            clear_pending_error(app_dir)
             update_progress(
                 pending_path,
                 phase="complete",
