@@ -31,6 +31,8 @@ describe("startup diagnostics", () => {
     assert.match(source, /bootstrap:init:no-sheet-id/);
     assert.match(source, /bootstrap:init:complete/);
     assert.match(bridgeSource, /getAccessToken: host\.getAccessToken/);
+    assert.match(bridgeSource, /getSHEET_ID: host\.getSHEET_ID/);
+    assert.match(bridgeSource, /setSHEET_ID: host\.setSHEET_ID/);
   });
 
   it("reports Sheets load progress after auth restore", () => {
@@ -39,6 +41,13 @@ describe("startup diagnostics", () => {
     assert.match(source, /sheets-read:load:start/);
     assert.match(source, /sheets-read:load:parsed/);
     assert.match(source, /sheets-read:load:complete/);
+  });
+
+  it("falls back to the resolved Sheet ID when the live bridge is not ready", () => {
+    const source = readRepoFile("app-config-core.js");
+
+    assert.match(source, /function getActiveSheetId\(\)/);
+    assert.match(source, /return getSheetId\(\);/);
   });
 
   it("reports missing sheet access DOM instead of returning silently", () => {

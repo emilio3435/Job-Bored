@@ -77,7 +77,11 @@
   // app.js publishes SHEET_ID accessors.
   function getActiveSheetId() {
     const h = host();
-    return h && typeof h.getSHEET_ID === "function" ? h.getSHEET_ID() : null;
+    if (h && typeof h.getSHEET_ID === "function") {
+      const activeSheetId = h.getSHEET_ID();
+      if (activeSheetId) return activeSheetId;
+    }
+    return getSheetId();
   }
 
   function getOAuthClientId() {

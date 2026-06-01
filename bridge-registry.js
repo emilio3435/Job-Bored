@@ -433,6 +433,8 @@
       },
       getConfig: host.getConfig,
       getSheetId: host.getSheetId,
+      getSHEET_ID: host.getSHEET_ID,
+      setSHEET_ID: host.setSHEET_ID,
       getActiveSheetId: host.getActiveSheetId,
       getAccessToken: host.getAccessToken,
       getUserEmail: host.getUserEmailFromAuth,
