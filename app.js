@@ -774,150 +774,95 @@ function initScraperSetupGuide() {
 let SHEET_ID = null;
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
-let pipelineData = [];
-let pipelineRawRows = []; // Keep raw rows for row index mapping
-let currentSort = "fit";
-let currentSearch = "";
-let favoritesOnly = false;
-let showDismissed = false;
 let dataLoadFailed = false;
 let dashboardDataHydrated = false;
 let initialSheetAccessResolved = false;
 let pendingSetupStarterSheetCreate = false;
 
-/** Pipeline indices with expanded detail panel — preserved across re-renders */
-const expandedJobKeys = new Set();
-
-/** Stable keys that have been opened in the detail drawer — persisted to localStorage */
-const viewedJobKeys = new Set(
-  JSON.parse(localStorage.getItem("jb_viewedKeys") || "[]").map(Number),
-);
-
+// Pipeline controller — extracted to pipeline-controller.js
+function pipelineController() {
+  return window.JobBoredApp.pipelineController;
+}
+function getPipelineData() {
+  return pipelineController().getPipelineData();
+}
+function setPipelineData(data) {
+  return pipelineController().setPipelineData(data);
+}
+function getPipelineRawRows() {
+  return pipelineController().getPipelineRawRows();
+}
+function setPipelineRawRows(rows) {
+  return pipelineController().setPipelineRawRows(rows);
+}
+function getCurrentSort() {
+  return pipelineController().getCurrentSort();
+}
+function setCurrentSort(value) {
+  return pipelineController().setCurrentSort(value);
+}
+function getCurrentSearch() {
+  return pipelineController().getCurrentSearch();
+}
+function setCurrentSearch(value) {
+  return pipelineController().setCurrentSearch(value);
+}
+function getFavoritesOnly() {
+  return pipelineController().getFavoritesOnly();
+}
+function setFavoritesOnly(value) {
+  return pipelineController().setFavoritesOnly(value);
+}
+function getShowDismissed() {
+  return pipelineController().getShowDismissed();
+}
+function setShowDismissed(value) {
+  return pipelineController().setShowDismissed(value);
+}
+function getActiveDetailKey() {
+  return pipelineController().getActiveDetailKey();
+}
+function setActiveDetailKey(value) {
+  return pipelineController().setActiveDetailKey(value);
+}
+function getViewedJobKeys() {
+  return pipelineController().getViewedJobKeys();
+}
+function getExpandedJobKeys() {
+  return pipelineController().getExpandedJobKeys();
+}
+function getExpandedStages() {
+  return pipelineController().getExpandedStages();
+}
+function getStageOrder() {
+  return pipelineController().getStageOrder();
+}
+function getStageArchive() {
+  return pipelineController().getStageArchive();
+}
 function markJobViewed(stableKey) {
-  if (viewedJobKeys.has(stableKey)) return;
-  viewedJobKeys.add(stableKey);
-  try {
-    localStorage.setItem("jb_viewedKeys", JSON.stringify([...viewedJobKeys]));
-  } catch (_) {}
-  // Live-update any visible kanban card without a full re-render
-  const el = document.querySelector(
-    `.kanban-card[data-stable-key="${stableKey}"]`,
-  );
-  if (el) el.classList.add("kanban-card--viewed");
+  return pipelineController().markJobViewed(stableKey);
 }
-
-// ---- Pipeline Board ----
-const STAGE_ORDER = [
-  "New",
-  "Researching",
-  "Applied",
-  "Phone Screen",
-  "Interviewing",
-  "Offer",
-  "Rejected",
-  "Passed",
-  "Expired",
-];
-const STAGE_ARCHIVE = new Set(["Rejected", "Passed", "Expired"]);
-/** Which stage lanes are expanded; defaults to active (non-archive) stages */
-const expandedStages = new Set(
-  STAGE_ORDER.filter((s) => !STAGE_ARCHIVE.has(s)),
-);
-/** Stable key of the job currently shown in the detail drawer, or -1 */
-let activeDetailKey = -1;
-
 function getPipelineViewFilters() {
-  return {
-    favoritesOnly,
-    showDismissed,
-  };
+  return pipelineController().getPipelineViewFilters();
 }
-
 function syncPipelineFilterControls() {
-  if (typeof document === "undefined") return;
-  const favChip = document.getElementById("favoritesOnlyChip");
-  if (favChip) {
-    favChip.classList.toggle("active", favoritesOnly);
-    favChip.setAttribute("aria-pressed", String(favoritesOnly));
-  }
-  const dismissedChip = document.getElementById("showDismissedChip");
-  if (dismissedChip) {
-    dismissedChip.classList.toggle("active", showDismissed);
-    dismissedChip.setAttribute("aria-pressed", String(showDismissed));
-  }
+  return pipelineController().syncPipelineFilterControls();
 }
-
 function notifyPipelineFiltersChanged() {
-  try {
-    if (typeof document === "undefined" || typeof CustomEvent !== "function") {
-      return;
-    }
-    document.dispatchEvent(
-      new CustomEvent("jb:pipeline:filters-changed", {
-        detail: getPipelineViewFilters(),
-      }),
-    );
-  } catch (_) {
-    /* Filter notifications are best-effort for optional v2 surfaces. */
-  }
+  return pipelineController().notifyPipelineFiltersChanged();
 }
-
 function notifyPipelineRendered() {
-  try {
-    if (typeof document === "undefined" || typeof CustomEvent !== "function") {
-      return;
-    }
-    document.dispatchEvent(new CustomEvent("jb:pipeline:rendered"));
-  } catch (_) {
-    /* Render notifications are best-effort for optional v2 surfaces. */
-  }
+  return pipelineController().notifyPipelineRendered();
 }
-
 function setPipelineViewFilters(nextFilters = {}) {
-  let changed = false;
-  if (Object.prototype.hasOwnProperty.call(nextFilters, "favoritesOnly")) {
-    const next = !!nextFilters.favoritesOnly;
-    if (favoritesOnly !== next) {
-      favoritesOnly = next;
-      changed = true;
-    }
-  }
-  if (Object.prototype.hasOwnProperty.call(nextFilters, "showDismissed")) {
-    const next = !!nextFilters.showDismissed;
-    if (showDismissed !== next) {
-      showDismissed = next;
-      changed = true;
-    }
-  }
-  syncPipelineFilterControls();
-  if (changed) {
-    renderPipeline();
-    notifyPipelineFiltersChanged();
-  }
-  return getPipelineViewFilters();
+  return pipelineController().setPipelineViewFilters(nextFilters);
 }
-
 function applyPipelineStageWrite(jobKey, statusLabel) {
-  const idx = Number(jobKey);
-  if (!Number.isInteger(idx) || idx < 0 || !pipelineData[idx]) return false;
-  const nextStatus = String(statusLabel || "").trim();
-  if (!nextStatus) return false;
-  pipelineData[idx].status = nextStatus;
-  renderPipeline();
-  renderStats();
-  renderBrief();
-  refreshDrawerIfOpen(idx);
-  return true;
+  return pipelineController().applyPipelineStageWrite(jobKey, statusLabel);
 }
-
 function applyPipelineNotesWrite(jobKey, body) {
-  const idx = Number(jobKey);
-  if (!Number.isInteger(idx) || idx < 0 || !pipelineData[idx]) return false;
-  pipelineData[idx].notes = body == null ? "" : String(body);
-  renderPipeline();
-  renderBrief();
-  refreshDrawerIfOpen(idx);
-  return true;
+  return pipelineController().applyPipelineNotesWrite(jobKey, body);
 }
 
 // Auth session — extracted to auth-session.js (JobBoredApp.auth)
@@ -1051,7 +996,7 @@ if (typeof window !== "undefined") {
     return getSheetRow(idx);
   };
   window.JobBored.getPipelineJobs = function () {
-    return pipelineData;
+    return getPipelineData();
   };
   window.JobBored.getPipelineViewFilters = getPipelineViewFilters;
   window.JobBored.setPipelineViewFilters = setPipelineViewFilters;
@@ -1502,19 +1447,19 @@ window.JobBoredDiscovery.ingestUrlFlow =
   window.JobBoredDiscovery.ingestUrlFlow || {};
 window.JobBoredDiscovery.ingestUrlFlow.host = {
   getPipelineData() {
-    return pipelineData;
+    return getPipelineData();
   },
   getCurrentSearch() {
-    return currentSearch;
+    return getCurrentSearch();
   },
   setCurrentSearch(value) {
-    currentSearch = value;
+    setCurrentSearch(value);
   },
   getFavoritesOnly() {
-    return favoritesOnly;
+    return getFavoritesOnly();
   },
   setFavoritesOnly(value) {
-    favoritesOnly = value;
+    setFavoritesOnly(value);
   },
   getSHEET_ID() {
     return SHEET_ID;
@@ -1618,11 +1563,21 @@ window.JobBoredApp.brief.host = {
     return window.JobBoredApp.utils.escapeHtml(...args);
   },
   getPipelineData() {
-    return pipelineData;
+    return getPipelineData();
   },
   normalizeResponseFlag,
   responseLabelForDisplay,
   openJobDetail,
+};
+
+// Pipeline controller bridge. pipeline-controller.js loads BEFORE app.js.
+window.JobBoredApp.pipelineController =
+  window.JobBoredApp.pipelineController || {};
+window.JobBoredApp.pipelineController.host = {
+  renderPipeline,
+  renderStats,
+  renderBrief,
+  refreshDrawerIfOpen,
 };
 
 // Core bridge for extracted modules — host delegates + mutable-state accessors (Phase 1; no body moves).
@@ -1659,16 +1614,16 @@ window.JobBoredApp.core.host = {
     return refreshAccessTokenSilently();
   },
   getPipelineData() {
-    return pipelineData;
+    return getPipelineData();
   },
   setPipelineData(data) {
-    pipelineData = data;
+    setPipelineData(data);
   },
   getPipelineRawRows() {
-    return pipelineRawRows;
+    return getPipelineRawRows();
   },
   setPipelineRawRows(rows) {
-    pipelineRawRows = rows;
+    setPipelineRawRows(rows);
   },
   getPipelineViewFilters() {
     return getPipelineViewFilters();
@@ -2047,16 +2002,16 @@ Object.assign(window.JobBoredApp.core, {
     SHEET_ID = value;
   },
   getPipelineData() {
-    return pipelineData;
+    return getPipelineData();
   },
   setPipelineData(data) {
-    pipelineData = data;
+    setPipelineData(data);
   },
   getPipelineRawRows() {
-    return pipelineRawRows;
+    return getPipelineRawRows();
   },
   setPipelineRawRows(rows) {
-    pipelineRawRows = rows;
+    setPipelineRawRows(rows);
   },
   getAccessToken() {
     return getAccessToken();
@@ -2095,40 +2050,40 @@ Object.assign(window.JobBoredApp.core, {
     pendingSetupStarterSheetCreate = value;
   },
   getCurrentSort() {
-    return currentSort;
+    return getCurrentSort();
   },
   setCurrentSort(value) {
-    currentSort = value;
+    setCurrentSort(value);
   },
   getCurrentSearch() {
-    return currentSearch;
+    return getCurrentSearch();
   },
   setCurrentSearch(value) {
-    currentSearch = value;
+    setCurrentSearch(value);
   },
   getFavoritesOnly() {
-    return favoritesOnly;
+    return getFavoritesOnly();
   },
   setFavoritesOnly(value) {
-    favoritesOnly = value;
+    setFavoritesOnly(value);
   },
   getShowDismissed() {
-    return showDismissed;
+    return getShowDismissed();
   },
   setShowDismissed(value) {
-    showDismissed = value;
+    setShowDismissed(value);
   },
   getActiveDetailKey() {
-    return activeDetailKey;
+    return getActiveDetailKey();
   },
   setActiveDetailKey(value) {
-    activeDetailKey = value;
+    setActiveDetailKey(value);
   },
   getViewedJobKeys() {
-    return viewedJobKeys;
+    return getViewedJobKeys();
   },
   getExpandedStages() {
-    return expandedStages;
+    return getExpandedStages();
   },
   getDataLoadFailed() {
     return dataLoadFailed;
@@ -2609,7 +2564,7 @@ if (typeof window !== "undefined") {
   window.getPipelineJobByIndex = function (idx) {
     var n = Number(idx);
     if (!Number.isFinite(n)) return null;
-    return pipelineData[n] || null;
+    return getPipelineData()[n] || null;
   };
   window.runResumeGeneration = runResumeGeneration;
   window.buildDraftNotesPrefill = buildDraftNotesPrefill;
@@ -2903,9 +2858,10 @@ function initPipelineEmptyAndBriefActions() {
       if (rangeBtn) {
         window.JobBoredApp.brief.setBriefActivityRange(rangeBtn.dataset.range);
         const el = document.getElementById("briefInsights");
-        if (el && pipelineData.length)
+        const data = getPipelineData();
+        if (el && data.length)
           el.innerHTML = renderAreaWidget(
-            pipelineData,
+            data,
             window.JobBoredApp.brief.getBriefActivityRange(),
           );
         return;
@@ -3038,7 +2994,7 @@ function init() {
 
   // Sort
   document.getElementById("sortSelect").addEventListener("change", (e) => {
-    currentSort = e.target.value;
+    setCurrentSort(e.target.value);
     renderPipeline();
   });
 
@@ -3047,7 +3003,7 @@ function init() {
   document.getElementById("searchInput").addEventListener("input", (e) => {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
-      currentSearch = e.target.value.trim();
+      setCurrentSearch(e.target.value.trim());
       renderPipeline();
     }, 200);
   });
@@ -3056,13 +3012,13 @@ function init() {
   const favChip = document.getElementById("favoritesOnlyChip");
   if (favChip) {
     favChip.addEventListener("click", () => {
-      setPipelineViewFilters({ favoritesOnly: !favoritesOnly });
+      setPipelineViewFilters({ favoritesOnly: !getFavoritesOnly() });
     });
   }
   const dismissedChip = document.getElementById("showDismissedChip");
   if (dismissedChip) {
     dismissedChip.addEventListener("click", () => {
-      setPipelineViewFilters({ showDismissed: !showDismissed });
+      setPipelineViewFilters({ showDismissed: !getShowDismissed() });
     });
   }
   syncPipelineFilterControls();
