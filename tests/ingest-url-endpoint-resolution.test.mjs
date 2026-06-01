@@ -19,6 +19,10 @@ const ingestUrlFlowJs = readFileSync(
   join(repoRoot, "ingest-url-flow.js"),
   "utf8",
 );
+const runOrchJs = readFileSync(
+  join(repoRoot, "discovery-run-orchestration.js"),
+  "utf8",
+);
 
 function readIngestFunctionSource(name, endMarker) {
   return readFunctionSource(name, endMarker, ingestUrlFlowJs);
@@ -189,31 +193,38 @@ describe("Add job from URL endpoint resolution", () => {
   });
 
   it("keeps the run resolver wired to bootstrap, readiness, relay, tunnel, and local fallbacks", () => {
+    assert.match(
+      appJs,
+      /async function resolveDiscoveryRunWebhookUrl\(/,
+      "app.js must keep a thin resolveDiscoveryRunWebhookUrl wrapper",
+    );
     const resolverSource = readAsyncFunctionSource(
       "resolveDiscoveryRunWebhookUrl",
       "\n}\n\n/** Notify automation",
+      runOrchJs,
     );
     const candidatesSource = readFunctionSource(
       "getDiscoveryRunWebhookUrlCandidates",
       "\n}\n\nasync function resolveDiscoveryRunWebhookUrl",
+      runOrchJs,
     );
 
-    assert.match(resolverSource, /hydrateDiscoveryTransportSetupFromLocalBootstrap\(\)/);
+    assert.match(resolverSource, /h\("hydrateDiscoveryTransportSetupFromLocalBootstrap"\)/);
     assert.match(
       resolverSource,
-      /refreshDiscoveryReadinessSnapshot\(\{\s*force:\s*true,\s*rerender:\s*false,\s*\}\)/,
+      /h\("refreshDiscoveryReadinessSnapshot", \{\s*force:\s*true,\s*rerender:\s*false,\s*\}\)/,
     );
     assert.match(candidatesSource, /state\.relayTargetUrl/);
     assert.match(candidatesSource, /snapshot_tunnel_target/);
-    assert.match(candidatesSource, /getCloudflareRelayTargetInfo\(\)/);
-    assert.match(candidatesSource, /buildDiscoveryTunnelTargetUrl\(/);
+    assert.match(candidatesSource, /h\("getCloudflareRelayTargetInfo"\)/);
+    assert.match(candidatesSource, /h\("buildDiscoveryTunnelTargetUrl"/);
     assert.match(candidatesSource, /source:\s*"configured"/);
     assert.match(candidatesSource, /source:\s*"snapshot_local"/);
     assert.match(candidatesSource, /source:\s*"transport_local"/);
     assert.match(candidatesSource, /allowDirectLocal \? state\.localWebhookUrl : ""/);
     assert.match(candidatesSource, /allowDirectLocal \? transport\.localWebhookUrl : ""/);
     assert.match(resolverSource, /scoreDiscoveryRunWebhookCandidates\(/);
-    assert.match(resolverSource, /writeDiscoveryTransportSetupState\(/);
+    assert.match(resolverSource, /h\("writeDiscoveryTransportSetupState"/);
     assert.doesNotMatch(
       resolverSource,
       /if \(configured\) return configured/,
@@ -225,13 +236,14 @@ describe("Add job from URL endpoint resolution", () => {
     const probeSource = readFunctionSource(
       "getDiscoveryRunWebhookCandidateProbe",
       "\n}\n\nasync function scoreDiscoveryRunWebhookCandidates",
+      runOrchJs,
     );
 
     assert.match(probeSource, /local_only_on_hosted_dashboard/);
-    assert.match(probeSource, /isLikelyCloudflareWorkerUrl\(url\)/);
-    assert.match(probeSource, /isLikelyNgrokWebhookUrl\(url\)/);
-    assert.match(probeSource, /sameDiscoveryUrlOrigin\(url, state\.tunnelPublicUrl\)/);
-    assert.match(probeSource, /!isLocalDashboardOrigin\(\) && \(worker \|\| hostedHttps\)/);
+    assert.match(probeSource, /h\("isLikelyCloudflareWorkerUrl", url\)/);
+    assert.match(probeSource, /h\("isLikelyNgrokWebhookUrl", url\)/);
+    assert.match(probeSource, /h\("sameDiscoveryUrlOrigin", url, state\.tunnelPublicUrl\)/);
+    assert.match(probeSource, /!h\("isLocalDashboardOrigin"\) && \(worker \|\| hostedHttps\)/);
     assert.match(probesJs, /const isHostedSavedEndpoint =/);
     assert.match(
       probesJs,

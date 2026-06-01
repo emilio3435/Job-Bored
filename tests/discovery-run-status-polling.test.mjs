@@ -7,6 +7,10 @@ import { buildCorsHeaders } from "../integrations/browser-use-discovery/src/http
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const runOrchJs = readFileSync(
+  join(repoRoot, "discovery-run-orchestration.js"),
+  "utf8",
+);
 const statusHandoffJs = readFileSync(
   join(repoRoot, "discovery-status-handoff.js"),
   "utf8",
@@ -105,14 +109,16 @@ describe("discovery run status polling", () => {
 
     const triggerStart = appJs.indexOf("async function triggerDiscoveryRun(");
     assert.notEqual(triggerStart, -1, "triggerDiscoveryRun must exist");
-    const triggerEnd = appJs.indexOf(
-      "\n}\n\n/**\n * POST a test payload",
-      triggerStart,
+    const runTriggerStart = runOrchJs.indexOf("async function triggerDiscoveryRun(");
+    assert.notEqual(runTriggerStart, -1, "triggerDiscoveryRun implementation must exist");
+    const triggerEnd = runOrchJs.indexOf(
+      "\n}\n\n  Object.assign(runOrchestration",
+      runTriggerStart,
     );
-    const triggerSource = appJs.slice(triggerStart, triggerEnd);
-    assert.match(triggerSource, /resolveAcceptedRunStatusPath\(result, webhookUrl\)/);
+    const triggerSource = runOrchJs.slice(runTriggerStart, triggerEnd);
+    assert.match(triggerSource, /statusApi\.resolveAcceptedRunStatusPath\(result, webhookUrl\)/);
     assert.match(triggerSource, /statusUnavailable:\s*!statusPath/);
-    assert.match(triggerSource, /if \(statusPath\) \{\s*void startDiscoveryStatusPolling\(webhookUrl\);/);
+    assert.match(triggerSource, /if \(statusPath\) \{\s*void statusApi\.startDiscoveryStatusPolling\(webhookUrl\);/);
   });
 
   it("does not synthesize tokenless hosted run status URLs when statusPath is omitted", () => {
