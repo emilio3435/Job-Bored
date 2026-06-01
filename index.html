@@ -4,6 +4,173 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>JobBored — Streamline the Search</title>
+    <script>
+      (function () {
+        var events = [];
+        var MAX_EVENTS = 120;
+        var PREFIX = "[JobBored startup]";
+
+        function sanitizeError(value) {
+          if (!value) return null;
+          if (typeof value === "string") return { message: value };
+          return {
+            name: value.name || "",
+            message: value.message || String(value),
+          };
+        }
+
+        function sheetIdState(raw) {
+          if (raw == null) return "missing";
+          var value = String(raw).trim();
+          if (
+            !value ||
+            value === "null" ||
+            value === "undefined" ||
+            value === "YOUR_SHEET_ID_HERE"
+          ) {
+            return "missing";
+          }
+          return "present";
+        }
+
+        function configSheetIdState() {
+          try {
+            return sheetIdState(
+              window.COMMAND_CENTER_CONFIG &&
+                window.COMMAND_CENTER_CONFIG.sheetId,
+            );
+          } catch (_) {
+            return "unknown";
+          }
+        }
+
+        function screenState(id) {
+          var el = document.getElementById(id);
+          if (!el) return { exists: false };
+          var computedDisplay = "";
+          try {
+            computedDisplay = window.getComputedStyle(el).display;
+          } catch (_) {
+            computedDisplay = "";
+          }
+          return {
+            exists: true,
+            hidden: !!el.hidden,
+            inlineDisplay: el.style && el.style.display ? el.style.display : "",
+            computedDisplay: computedDisplay,
+            className: el.className || "",
+          };
+        }
+
+        function snapshot() {
+          var app = window.JobBoredApp || {};
+          return {
+            readyState: document.readyState,
+            sheetIdState: configSheetIdState(),
+            hasJobBoredApp: !!window.JobBoredApp,
+            hasCoreHost: !!(app.core && app.core.host),
+            hasBootstrapHost: !!(app.bootstrap && app.bootstrap.host),
+            hasSetupApi: !!app.setup,
+            screens: {
+              dashboard: screenState("dashboard"),
+              setupScreen: screenState("setupScreen"),
+              sheetAccessGateScreen: screenState("sheetAccessGateScreen"),
+            },
+          };
+        }
+
+        function mark(label, detail, level) {
+          var entry = {
+            atMs: Math.round(performance.now()),
+            label: label,
+            detail: detail || null,
+          };
+          events.push(entry);
+          if (events.length > MAX_EVENTS) events.shift();
+          var method = level === "error" ? "error" : level === "warn" ? "warn" : "info";
+          if (window.console && typeof console[method] === "function") {
+            console[method](PREFIX, label, detail || "");
+          }
+        }
+
+        function resourceTarget(target) {
+          if (!target || target === window) return "";
+          if (target.tagName === "SCRIPT") {
+            return target.src || target.getAttribute("src") || "inline-script";
+          }
+          if (target.tagName === "LINK") {
+            return target.href || target.getAttribute("href") || "link";
+          }
+          return target.tagName || "";
+        }
+
+        function blankShellDetected(snap) {
+          var screens = snap && snap.screens ? snap.screens : {};
+          return ["dashboard", "setupScreen", "sheetAccessGateScreen"].every(
+            function (id) {
+              var state = screens[id];
+              if (!state || !state.exists) return true;
+              return (
+                state.hidden ||
+                state.inlineDisplay === "none" ||
+                state.computedDisplay === "none"
+              );
+            },
+          );
+        }
+
+        window.JobBoredStartupLog = {
+          events: events,
+          mark: mark,
+          snapshot: snapshot,
+        };
+
+        window.addEventListener(
+          "error",
+          function (event) {
+            var target = resourceTarget(event.target);
+            var detail = target
+              ? { kind: "resource", target: target }
+              : {
+                  kind: "runtime",
+                  message: event.message || "",
+                  filename: event.filename || "",
+                  lineno: event.lineno || 0,
+                  colno: event.colno || 0,
+                  error: sanitizeError(event.error),
+                };
+            mark("window:error", detail, "error");
+          },
+          true,
+        );
+
+        window.addEventListener("unhandledrejection", function (event) {
+          mark(
+            "window:unhandledrejection",
+            { reason: sanitizeError(event.reason) },
+            "error",
+          );
+        });
+
+        document.addEventListener("DOMContentLoaded", function () {
+          mark("domcontentloaded", snapshot());
+          setTimeout(function () {
+            var snap = snapshot();
+            if (blankShellDetected(snap)) {
+              mark(
+                "blank shell detected",
+                { snapshot: snap, recentEvents: events.slice(-30) },
+                "error",
+              );
+            }
+          }, 2000);
+        });
+
+        window.addEventListener("load", function () {
+          mark("window:load", snapshot());
+        });
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="https://fonts.gstatic.com/s/geist/v4/gyByhwUxId8gMEwcGFWNOITd.woff2" />

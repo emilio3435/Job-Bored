@@ -14,9 +14,39 @@
     return bootstrap.host || {};
   }
 
+  function startupLog(label, detail, level = "info") {
+    const logger = window.JobBoredStartupLog;
+    if (logger && typeof logger.mark === "function") {
+      logger.mark(label, detail, level);
+      return;
+    }
+    const method = level === "error" ? "error" : level === "warn" ? "warn" : "info";
+    if (window.console && typeof console[method] === "function") {
+      console[method]("[JobBored startup]", label, detail || "");
+    }
+  }
+
+  const missingHostWarnings = new Set();
+
   function h(name, ...args) {
-    const fn = host()[name];
-    return typeof fn === "function" ? fn(...args) : undefined;
+    const currentHost = host();
+    const fn = currentHost[name];
+    if (typeof fn !== "function") {
+      if (!missingHostWarnings.has(name)) {
+        missingHostWarnings.add(name);
+        startupLog(
+          "bootstrap missing host function",
+          {
+            name,
+            hasHost: !!bootstrap.host,
+            hostKeys: Object.keys(currentHost).slice(0, 40),
+          },
+          "warn",
+        );
+      }
+      return undefined;
+    }
+    return fn(...args);
   }
 
   const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -79,8 +109,14 @@
   }
 
   function init() {
+    startupLog("bootstrap:init:start", {
+      readyState: document.readyState,
+      hasHost: !!bootstrap.host,
+    });
+
     // Check config
-    h("setSHEET_ID", h("getSheetId"));
+    const configuredSheetId = h("getSheetId");
+    h("setSHEET_ID", configuredSheetId);
     h("setInitialSheetAccessResolved", false);
     h("resetPostAccessBootstrap");
     h("initAuthUserMenu");
@@ -105,6 +141,10 @@
     h("initDiscoveryButton");
 
     if (!h("getSHEET_ID")) {
+      startupLog("bootstrap:init:no-sheet-id", {
+        configuredSheetIdState: configuredSheetId ? "present" : "missing",
+        hasOAuthClientId: !!h("getOAuthClientId"),
+      });
       // Login gate first; onboarding (blank sheet steps) appears after Google sign-in.
       document.getElementById("dashboard").style.display = "none";
       document.getElementById("setupScreen").style.display = "none";
@@ -115,6 +155,9 @@
       }
       h("initAuth");
       h("renderSetupStarterSheetUi");
+      startupLog("bootstrap:init:early-return", {
+        reason: "missing-sheet-id",
+      });
       return;
     }
 
@@ -136,6 +179,10 @@
        initAuth/handleTokenResponse open the gate with the right mode. */
     const hasRuntimeToken = !!h("loadPersistedRuntimeOAuthSession");
     const hasPersistedSession = !!h("loadPersistedOAuthSession");
+    startupLog("bootstrap:init:session-state", {
+      hasRuntimeToken,
+      hasPersistedSession,
+    });
     if (hasRuntimeToken) {
       /* Eager reveal — silent-restore will finish in <500ms, then
          loadAllData repaints. Until then the dashboard shell is visible
@@ -222,6 +269,7 @@
       });
 
     // Init auth
+    startupLog("bootstrap:init:auth-and-data-load");
     h("initAuth");
 
     // initResumeMaterialsFeature was hoisted above the no-SHEET_ID early
@@ -232,9 +280,14 @@
     h("loadAllData");
 
     setInterval(() => h("loadAllData"), REFRESH_INTERVAL);
+    startupLog("bootstrap:init:complete");
   }
 
   document.addEventListener("DOMContentLoaded", () => {
+    startupLog("bootstrap:domcontentloaded", {
+      readyState: document.readyState,
+      hasHost: !!bootstrap.host,
+    });
     h("initCommandCenterSettings");
     h("initSetupAndSheetAccessActions");
     h("initScraperSetupGuide");
@@ -242,6 +295,9 @@
     initPipelineEmptyAndBriefActions();
     h("initIngestUrlFlow");
     init();
+    startupLog("bootstrap:domcontentloaded:complete", {
+      hasHost: !!bootstrap.host,
+    });
   });
 
   Object.assign(bootstrap, {

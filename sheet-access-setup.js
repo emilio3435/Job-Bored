@@ -18,6 +18,45 @@
     return window.JobBoredApp.core;
   }
 
+  function startupLog(label, detail, level = "info") {
+    const logger = window.JobBoredStartupLog;
+    if (logger && typeof logger.mark === "function") {
+      logger.mark(label, detail, level);
+      return;
+    }
+    const method = level === "error" ? "error" : level === "warn" ? "warn" : "info";
+    if (window.console && typeof console[method] === "function") {
+      console[method]("[JobBored startup]", label, detail || "");
+    }
+  }
+
+  function accessStateForLog() {
+    try {
+      const currentHost = host();
+      const rawSheetId =
+        currentHost && typeof currentHost.getSheetId === "function"
+          ? currentHost.getSheetId()
+          : "";
+      return {
+        sheetIdState: rawSheetId ? "present" : "missing",
+        hasAccessToken: !!(
+          currentHost &&
+          typeof currentHost.getAccessToken === "function" &&
+          currentHost.getAccessToken()
+        ),
+        hasOAuthClientId: !!(
+          currentHost &&
+          typeof currentHost.getOAuthClientId === "function" &&
+          currentHost.getOAuthClientId()
+        ),
+      };
+    } catch (err) {
+      return {
+        hostError: err && err.message ? err.message : String(err),
+      };
+    }
+  }
+
   /** Last raw error string the sheet/auth pipeline saw — fed into SetupDoctor. */
   let lastSheetAccessError = "";
 
@@ -256,13 +295,35 @@
     const screen = document.getElementById("sheetAccessGateScreen");
     const dashboard = document.getElementById("dashboard");
     const setupScreen = document.getElementById("setupScreen");
-    if (!screen || !dashboard) return;
+    if (!screen || !dashboard) {
+      startupLog(
+        "sheet-access:missing-required-dom",
+        {
+          mode,
+          hasGateScreen: !!screen,
+          hasDashboard: !!dashboard,
+          hasSetupScreen: !!setupScreen,
+        },
+        "error",
+      );
+      return;
+    }
+
+    startupLog("sheet-access:show-gate", {
+      mode,
+      hasSetupScreen: !!setupScreen,
+      access: accessStateForLog(),
+    });
 
     if (
       !host().getSheetId() &&
       host().getAccessToken() &&
       mode !== "no-oauth"
     ) {
+      startupLog("sheet-access:route-to-starter-setup", {
+        mode,
+        access: accessStateForLog(),
+      });
       revealPipelineSetupStepsScreen();
       return;
     }
@@ -372,6 +433,12 @@
     if (setupScreen) setupScreen.style.display = "none";
     dashboard.style.display = "none";
     screen.style.display = "flex";
+    startupLog("sheet-access:gate-visible", {
+      mode,
+      gateDisplay: screen.style.display,
+      dashboardDisplay: dashboard.style.display,
+      setupDisplay: setupScreen ? setupScreen.style.display : "",
+    });
 
     const doctorHost = document.getElementById("sheetAccessGateDoctorPanel");
     if (
@@ -414,6 +481,15 @@
   function revealPipelineSetupStepsScreen() {
     const setupScreen = document.getElementById("setupScreen");
     const dashboard = document.getElementById("dashboard");
+    startupLog(
+      "sheet-access:reveal-starter-setup",
+      {
+        hasSetupScreen: !!setupScreen,
+        hasDashboard: !!dashboard,
+        access: accessStateForLog(),
+      },
+      !setupScreen || !dashboard ? "warn" : "info",
+    );
     hideSheetAccessGate();
     if (setupScreen) setupScreen.style.display = "flex";
     if (dashboard) dashboard.style.display = "none";
@@ -430,6 +506,16 @@
     const setupScreen = document.getElementById("setupScreen");
     const screen = document.getElementById("sheetAccessGateScreen");
     const dashboard = document.getElementById("dashboard");
+    startupLog(
+      "sheet-access:reveal-dashboard",
+      {
+        hasSetupScreen: !!setupScreen,
+        hasGateScreen: !!screen,
+        hasDashboard: !!dashboard,
+        access: accessStateForLog(),
+      },
+      dashboard ? "info" : "warn",
+    );
     if (setupScreen) setupScreen.style.display = "none";
     if (screen) screen.style.display = "none";
     if (dashboard) dashboard.style.display = "block";
