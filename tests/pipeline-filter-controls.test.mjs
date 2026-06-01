@@ -7,6 +7,10 @@ import { fileURLToPath } from "node:url";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
 const ingestUrlFlowJs = readFileSync(join(repoRoot, "ingest-url-flow.js"), "utf8");
+const pipelineControllerJs = readFileSync(
+  join(repoRoot, "pipeline-controller.js"),
+  "utf8",
+);
 const latticeJs = readFileSync(join(repoRoot, "lattice.js"), "utf8");
 const latticeCss = readFileSync(join(repoRoot, "lattice.css"), "utf8");
 const pipelineJs = readFileSync(join(repoRoot, "pipeline.js"), "utf8");
@@ -173,7 +177,7 @@ describe("v2 pipeline filter controls", () => {
     );
     assert.ok(
       appJs.includes("function applyPipelineStageWrite(jobKey, statusLabel)") &&
-        appJs.includes("pipelineData[idx].status = nextStatus;") &&
+        pipelineControllerJs.includes("pipelineData[idx].status = nextStatus;") &&
         appJs.includes("window.JobBored.applyPipelineStageWrite = applyPipelineStageWrite;"),
       "app.js should expose a local stage-sync hook so v2 drag writes update the model used by search renders",
     );
