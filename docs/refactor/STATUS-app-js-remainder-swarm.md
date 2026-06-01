@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-05-31 (session 14 — next discovery lanes assigned).
+> Orchestrator ledger. **Last updated:** 2026-05-31 (session 14 — Apps Script deploy merged).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -44,7 +44,7 @@ replayed onto owner branches.
 | 5 | A — scraper ATS config | `refactor/app-js-decompose-scraper-ats-config` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-scraper-ats-config` | **MERGED** `2a3fcb5` | Branch gate after rebase `npm test` = **894 pass / 0 fail**; post-merge integration `npm test` = **894 pass / 0 fail**; `git diff --check` clean; exact conflict-marker scan clean; `app.js` = **10,015 LOC** |
 | 6 | A — discovery engine state | `refactor/app-js-decompose-discovery-engine-state` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-engine-state` | **MERGED** `7f9a2ee` | Branch gate after rebase `npm test` = **894 pass / 0 fail**; post-merge integration `npm test` = **894 pass / 0 fail**; `git diff --check` clean; exact conflict-marker scan clean; `app.js` = **9,838 LOC** |
 | 7 | A — discovery status handoff | `refactor/app-js-decompose-discovery-status-handoff` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-status-handoff` | **MERGED** `942248c` | Branch gate after rebase `npm test` = **894 pass / 0 fail**; post-merge integration `npm test` = **894 pass / 0 fail**; `node --check` clean; `git diff --check` clean; exact conflict-marker scan clean; `app.js` = **9,143 LOC** |
-| 8 | A — Apps Script deploy UI | `refactor/app-js-decompose-apps-script-deploy` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-apps-script-deploy` | **IN FLIGHT** | Merge first among session 14 lanes; owns `apps-script-deploy.js`, thin `app.js` wrappers/bridge, one `index.html` script tag |
+| 8 | A — Apps Script deploy UI | `refactor/app-js-decompose-apps-script-deploy` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-apps-script-deploy` | **MERGED** `07186fc` | Branch gate `node --check app.js`, `node --check apps-script-deploy.js`, `git diff --check`, exact conflict-marker scan, and `npm test` = **894 pass / 0 fail**; post-merge integration gate also **894 pass / 0 fail**; `app.js` = **7,898 LOC** |
 | 9 | A — discovery drawer | `refactor/app-js-decompose-discovery-drawer` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-drawer` | **IN FLIGHT** | Merge after Apps Script deploy UI; owns `discovery-drawer.js`, thin `app.js` wrappers/bridge, one `index.html` script tag |
 | 10 | A — ingest URL flow | `refactor/app-js-decompose-ingest-url-flow` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-ingest-url-flow` | **IN FLIGHT** | Merge after discovery drawer; owns `ingest-url-flow.js`, thin `app.js` wrappers/bridge, one `index.html` script tag |
 
@@ -55,8 +55,9 @@ after rebasing onto post-C integration. The first Phase 7 app-js lane
 `scraper-ats-config.js` landed from a rebased worker branch, then
 `discovery-engine-state.js` landed from a rebased worker branch, then
 `discovery-status-handoff.js` landed from a rebased worker branch. Session 14
-created three fresh app-js lanes from integration tip `0250251`; merge order is
-**apps-script-deploy → discovery-drawer → ingest-url-flow**.
+created three fresh app-js lanes from integration tip `0250251`; Apps Script
+deploy landed first from a clean worker branch. Remaining merge order is
+**discovery-drawer → ingest-url-flow**.
 
 Follow-up Cursor prompts are staged in
 [FOLLOWUP-CURSOR-SWARM-2026-05-31.md](./FOLLOWUP-CURSOR-SWARM-2026-05-31.md).
@@ -89,6 +90,7 @@ Use those prompts instead of a broad "keep refactoring until <1000 LOC" request.
 | `2a3fcb5` | `scraper-ats-config.js` | −179 LOC in `app.js` | green (894 pass) |
 | `7f9a2ee` | `discovery-engine-state.js` | −177 LOC in `app.js` | green (894 pass) |
 | `942248c` | `discovery-status-handoff.js` | −695 LOC in `app.js` | green (894 pass) |
+| `07186fc` | `apps-script-deploy.js` | −1,245 LOC in `app.js` | green (894 pass) |
 
 ## Extraction order progress
 
@@ -113,7 +115,7 @@ Use those prompts instead of a broad "keep refactoring until <1000 LOC" request.
 | 16 | `scraper-ats-config.js` | **DONE** | Cursor worker | `appjs-scraper-ats-config` | `JobBoredDiscovery.scraperAtsConfig`; rebased to `2429f3a`, merged as `2a3fcb5` |
 | 17 | `discovery-engine-state.js` | **DONE** | Cursor worker | `appjs-discovery-engine-state` | `JobBoredDiscovery.engineState`; rebased to `453c97f`, merged as `7f9a2ee` |
 | 18 | `discovery-status-handoff.js` | **DONE** | Cursor worker + orchestrator conflict fix | `appjs-discovery-status-handoff` | `JobBoredDiscovery.status`; rebased to `03b5bc3`, merged as `942248c` |
-| 19 | `apps-script-deploy.js` | **IN FLIGHT** | Cursor pane | `appjs-apps-script-deploy` | Extract Apps Script stub deploy/public-access UI and helpers from the discovery setup region |
+| 19 | `apps-script-deploy.js` | **DONE** | Cursor pane | `appjs-apps-script-deploy` | `JobBoredDiscovery.appsScriptDeploy`; merged as `07186fc`; branch and post-merge integration gates green |
 | 20 | `discovery-drawer.js` | **IN FLIGHT** | Cursor pane | `appjs-discovery-drawer` | Extract discovery drawer, per-run profile tuning, source readiness, and AI suggestion helpers |
 | 21 | `ingest-url-flow.js` | **IN FLIGHT** | Cursor pane | `appjs-ingest-url-flow` | Extract paste-a-job URL ingest, manual fallback modal, async status polling, and auto-enrich flow |
 | 22+ | discovery remainder / core collapse | pending | — | — | Re-scan `app.js` after the three session 14 merges and choose the next cohesive lane |
@@ -133,7 +135,7 @@ Use those prompts instead of a broad "keep refactoring until <1000 LOC" request.
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-scraper-ats-config` | `refactor/app-js-decompose-scraper-ats-config` | Phase 7 scraper ATS config | merged `2a3fcb5` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-engine-state` | `refactor/app-js-decompose-discovery-engine-state` | Phase 7 discovery engine state | merged `7f9a2ee` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-status-handoff` | `refactor/app-js-decompose-discovery-status-handoff` | Phase 7 discovery status handoff | merged `942248c` |
-| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-apps-script-deploy` | `refactor/app-js-decompose-apps-script-deploy` | Session 14 Apps Script deploy UI | in flight |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-apps-script-deploy` | `refactor/app-js-decompose-apps-script-deploy` | Session 14 Apps Script deploy UI | merged `07186fc` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-drawer` | `refactor/app-js-decompose-discovery-drawer` | Session 14 discovery drawer | in flight |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-ingest-url-flow` | `refactor/app-js-decompose-ingest-url-flow` | Session 14 ingest URL flow | in flight |
 
@@ -165,7 +167,7 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 | 2 | Leaf modules: keyword → profile → expired UI → enrichment | **DONE** |
 | 3 | Materials / ATS / onboarding / settings / logo / feature init | **DONE** |
 | 4 | Pipeline / Sheets | **DONE** (`95657ad`, `c4d529b`, `576782d`; **892 pass**) |
-| 5 | Discovery remainder | **in progress** (run tracker + relay helpers + scraper ATS config + engine state + status handoff done) |
+| 5 | Discovery remainder | **in progress** (run tracker + relay helpers + scraper ATS config + engine state + status handoff + Apps Script deploy done) |
 | 5b | Index decomposition guardrail | **DONE** (`a432bd2`; **894 pass**) |
 | 6 | Auth / config / core collapse | in progress; config-core follow-up merged |
 
@@ -190,14 +192,14 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 9. Scraper ATS config **merged** — `2a3fcb5`; branch and integration **894 pass**.
 10. Discovery engine state **merged** — `7f9a2ee`; branch and integration **894 pass**.
 11. Discovery status handoff **merged** — `942248c`; branch and integration **894 pass**.
-12. Session 14 lanes created at integration tip `0250251`: `apps-script-deploy`, `discovery-drawer`, and `ingest-url-flow`.
-13. Merge order for session 14: **apps-script-deploy → discovery-drawer → ingest-url-flow**. Each branch must pass `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, `node --check` for touched JS, and full `npm test` before merge.
+12. Session 14 Apps Script deploy lane **merged** — `07186fc`; branch and integration **894 pass** at **7,898** LOC.
+13. Remaining merge order for session 14: **discovery-drawer → ingest-url-flow**. Each branch must pass `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, `node --check` for touched JS, and full `npm test` before merge.
 14. After each merge, update this status doc with the branch gate, post-merge gate, commit SHA, and new `app.js` LOC.
 
 ## `index.html` script order (post Phase 5 cut #1)
 
 ```
-… → sheets-writeback → sheets-read-load → pipeline-render → discovery-run-tracker → sheet-access-setup → apps-script-relay-helpers → scraper-ats-config → discovery-engine-state → discovery-status-handoff → [apps-script-deploy] → [discovery-drawer] → [ingest-url-flow] → app.js?v=30
+… → sheets-writeback → sheets-read-load → pipeline-render → discovery-run-tracker → sheet-access-setup → apps-script-relay-helpers → scraper-ats-config → discovery-engine-state → discovery-status-handoff → apps-script-deploy → [discovery-drawer] → [ingest-url-flow] → app.js?v=30
 ```
 
 ## Owner-only risks (unchanged)
