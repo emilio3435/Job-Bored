@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-05-31 (session 23 — discovery AI host bridge hotfix merged; C4 remains active).
+> Orchestrator ledger. **Last updated:** 2026-05-31 (session 24 — C4 pipeline controller merged; stopped for inspection before C5).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -12,7 +12,7 @@
 | Current dirty files | `M AGENTS.md`, `M CLAUDE.md`, `M package-lock.json` (unstaged local edits/metadata; do not mix into refactor commits) |
 | Node / npm | v24.13.0 / 11.13.0 ✓ |
 | Baseline `npm test` | **892 pass / 0 fail / 0 skip** (188 suites, ~7.6s) |
-| `app.js` LOC (current) | **3,241** (post discovery AI host bridge hotfix; was 12,456 post Phase 5 cut #1) |
+| `app.js` LOC (current) | **3,197** (post C4 pipeline controller merge; was 12,456 post Phase 5 cut #1) |
 | `SetActiveBranch` | `refactor/app-js-decompose` ✓ |
 | Swarm model | Cursor Task subagents per [PROMPT-app-js-remainder-cursor-swarm-orchestrator.md](./PROMPT-app-js-remainder-cursor-swarm-orchestrator.md) |
 
@@ -55,7 +55,7 @@ replayed onto owner branches.
 | 16 | Stale WIP — keyword profile match | `refactor/app-js-decompose-keyword-profile-match` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-keyword-profile-match` | **PARKED CLEAN** `0a9f354` | Live Cursor audit found dirty `app.js`, `index.html`, and new `keyword-profile-match.js` edits on a branch 69 commits behind integration. Preserved as WIP only. Minimal parking checks passed: `node --check app.js && node --check keyword-profile-match.js`, `git diff --check`, exact conflict-marker scan on touched files, and pre-commit staged JS syntax. Blocker: duplicates/overlaps already-landed `keyword-profile-match.js` (`f215a33`) and lacks rebase/full `npm test`; do not merge without fresh review or discard if redundant |
 | 17 | C3 — discovery setup modals | `refactor/app-js-decompose-discovery-setup-modals-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-setup-modals-v2` | **MERGED** `b0952ea` | Branch gate at `2d43e3e`: `node --check app.js && node --check discovery-setup-modals.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, and full `npm test` = **894 pass / 0 fail**; post-merge integration gate also **894 pass / 0 fail**; `app.js` = **3,233 LOC**, `discovery-setup-modals.js` = **998 LOC** |
 | 18 | Hotfix — discovery AI host bridge | `refactor/app-js-decompose-discovery-ai-host-hotfix` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-ai-host-hotfix` | **MERGED** `57d4ec9` | Runtime blocker: `Uncaught ReferenceError: callDiscoveryAiGemini is not defined` at `app.js?v=30:1484`. Branch commit `f2bb57c` restored lazy host bridge wrappers to `JobBoredDiscovery.drawer` exports. Branch gate and post-merge gate passed: `node --check app.js && node --check discovery-drawer.js`, `git diff --check`, exact conflict-marker scan, and full `npm test` = **896 pass / 0 fail** |
-| 19 | C4 — pipeline controller | `refactor/app-js-decompose-pipeline-controller-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-controller-v2` | **ACTIVE** | Scope: extract pipeline view state, filter setters/sync/event dispatch, viewed-job tracking, and pipeline stage/notes write appliers into `pipeline-controller.js`; must pass `node --check app.js && node --check pipeline-controller.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused C4 tests, and full `npm test` before merge |
+| 19 | C4 — pipeline controller | `refactor/app-js-decompose-pipeline-controller-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-controller-v2` | **MERGED** `e246351` | Branch gate at rebased commit `b931d48`: `node --check app.js && node --check pipeline-controller.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused C4 tests = **96 pass / 0 fail**, and full `npm test` = **896 pass / 0 fail** after `npm ci --prefix server`; post-merge integration gate also **896 pass / 0 fail**; `app.js` = **3,197 LOC**, `pipeline-controller.js` = **276 LOC** |
 
 Shared-file rule in force: `index.html` structural changes landed with B first,
 legacy CSS `<head>` links landed with C, and the scoped A config follow-up landed
@@ -73,7 +73,8 @@ landed from a rebased worker branch, then C2 `discovery-readiness.js` landed
 from a clean worker branch, then C3 `discovery-setup-modals.js` landed from a
 clean worker branch. Session 23 landed the discovery AI host bridge hotfix from
 its own worktree before any C4 merge, restoring the extracted drawer AI helpers
-as exported lazy host bridge calls. Session 18 live Cursor audit also found
+as exported lazy host bridge calls. C4 `pipeline-controller.js` then landed from
+a worker branch rebased onto that hotfix. Session 18 live Cursor audit also found
 two stale dirty WIP worktrees (`appjs-core-host` and
 `appjs-keyword-profile-match`) from the older Phase 1/keyword lanes. Both are
 now committed and clean on their owner branches, but are explicitly parked and
@@ -118,6 +119,7 @@ Use those prompts instead of a broad "keep refactoring until <1000 LOC" request.
 | `f630725` | `discovery-readiness.js` | −922 LOC in `app.js` | green (894 pass) |
 | `b0952ea` | `discovery-setup-modals.js` | −818 LOC in `app.js` | green (894 pass) |
 | `57d4ec9` | discovery AI host bridge hotfix | +8 LOC in `app.js` | green (896 pass) |
+| `e246351` | `pipeline-controller.js` | −44 LOC in `app.js` | green (896 pass) |
 
 ## Active pane dispatch (session 15)
 
@@ -187,18 +189,19 @@ orchestrator ran independent branch and post-merge gates.
 ## Pane dispatch (session 22)
 
 Parallelism rule from the Phase 6 survey remains in force: **one
-implementation worktree at a time**. C4 owns the only editable refactor lane.
+implementation worktree at a time**. C4 has landed; no C5 implementation work
+starts until inspection/dispatch from the latest integration tip.
 The integration checkout remains ledger/merge-only and must not receive
 implementation edits. Session 23 used a separate hotfix worktree to resolve the
-runtime `callDiscoveryAiGemini` host bridge regression before C4 lands.
+runtime `callDiscoveryAiGemini` host bridge regression before C4 landed.
 
 | Pane | Role | Branch | Worktree | Status | Stop condition |
 |---|---|---|---|---|---|
-| current pane | Orchestrator / ledger / merge controller | `refactor/app-js-decompose` | `/Users/emilionunezgarcia/Job-Bored` | **ACTIVE — INTEGRATION ONLY** | Maintain ledger, run merge gates, and stop for C4 inspection after landing |
+| current pane | Orchestrator / ledger / merge controller | `refactor/app-js-decompose` | `/Users/emilionunezgarcia/Job-Bored` | **ACTIVE — INTEGRATION ONLY** | Maintain ledger and merge docs; stop for C4 inspection before C5 dispatch |
 | hotfix lane | Discovery AI host bridge repair | `refactor/app-js-decompose-discovery-ai-host-hotfix` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-ai-host-hotfix` | **MERGED** `57d4ec9` | Branch clean at `f2bb57c`; branch and post-merge gates passed |
-| worker lane | C4 implementation — `pipeline-controller.js` | `refactor/app-js-decompose-pipeline-controller-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-controller-v2` | **DISPATCHED** | Stop after a clean branch commit with `node --check`, `git diff --check`, exact conflict-marker scan, focused C4 tests, and full `npm test` |
-| support reviewer | C4 boundary review | read-only support | current parked survey/QA panes or orchestrator shell | **READ-ONLY SUPPORT** | Check scope against the Phase 6 survey; no file edits |
-| QA gate | C4 gate checklist | read-only support | current parked QA pane or orchestrator shell | **READ-ONLY SUPPORT** | Prepare exact gate commands and report blockers; no file edits |
+| worker lane | C4 implementation — `pipeline-controller.js` | `refactor/app-js-decompose-pipeline-controller-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-controller-v2` | **MERGED** `e246351` | Branch clean at `b931d48`; branch and post-merge gates passed |
+| support reviewer | C4 boundary review | read-only support | orchestrator shell | **LOCAL REVIEW COMPLETE** | Scope checked against the Phase 6 survey; no support edits |
+| QA gate | C4 gate checklist | read-only support | orchestrator shell | **LOCAL GATE COMPLETE** | Orchestrator ran branch and post-merge gates locally |
 
 ## Extraction order progress
 
@@ -235,8 +238,9 @@ runtime `callDiscoveryAiGemini` host bridge regression before C4 lands.
 | 28 | Stale keyword profile match WIP | **PARKED CLEAN** | live audit | `appjs-keyword-profile-match` | Branch `refactor/app-js-decompose-keyword-profile-match`; commit `0a9f354`; blocker: 69 commits behind and overlaps landed keyword module commit `f215a33`; do not merge without rebase/review |
 | 29 | `discovery-setup-modals.js` | **DONE** | Cursor worker lane | `appjs-discovery-setup-modals-v2` | Branch `refactor/app-js-decompose-discovery-setup-modals-v2`; commit `2d43e3e`, merged as `b0952ea`; branch and post-merge integration gates green |
 | 30 | Discovery AI host bridge hotfix | **DONE** | orchestrator hotfix lane | `appjs-discovery-ai-host-hotfix` | Branch `refactor/app-js-decompose-discovery-ai-host-hotfix`; commit `f2bb57c`, merged as `57d4ec9`; fixed `callDiscoveryAiGemini` load-time ReferenceError by routing host bridge calls through exported `JobBoredDiscovery.drawer` helpers |
-| 31 | `pipeline-controller.js` | **ACTIVE** | worker lane | `appjs-pipeline-controller-v2` | Branch `refactor/app-js-decompose-pipeline-controller-v2`; extract Lane C4 only, then run full branch gate before merge |
-| 32+ | app bootstrap / bridge registry core collapse | pending | — | — | Continue C5–C6 in the Phase 6 survey order from fresh worktrees at the current integration tip |
+| 31 | `pipeline-controller.js` | **DONE** | worker lane | `appjs-pipeline-controller-v2` | Branch `refactor/app-js-decompose-pipeline-controller-v2`; rebased to `b931d48`, merged as `e246351`; branch and post-merge integration gates green |
+| 32 | `app-bootstrap.js` | pending | — | — | Next lane per Phase 6 survey order; create a fresh worktree from the current integration tip only after C4 inspection |
+| 33+ | bridge registry core collapse | pending | — | — | Continue C6 in the Phase 6 survey order from a fresh worktree at the current integration tip |
 
 ## Worktrees
 
@@ -265,7 +269,7 @@ runtime `callDiscoveryAiGemini` host bridge regression before C4 lands.
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-run-orchestration-v2` | `refactor/app-js-decompose-discovery-run-orchestration-v2` | Session 16 C1 discovery run orchestration | merged `e60b4fa`; branch clean at `6a02f62` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-readiness-v2` | `refactor/app-js-decompose-discovery-readiness-v2` | Session 17 C2 discovery readiness | merged `f630725`; branch clean at `e01da2c` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-setup-modals-v2` | `refactor/app-js-decompose-discovery-setup-modals-v2` | Session 20 C3 discovery setup modals | merged `b0952ea`; branch clean at `2d43e3e` |
-| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-controller-v2` | `refactor/app-js-decompose-pipeline-controller-v2` | Session 22 C4 pipeline controller | active; fresh worker lane for `pipeline-controller.js` |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-controller-v2` | `refactor/app-js-decompose-pipeline-controller-v2` | Session 22 C4 pipeline controller | merged `e246351`; branch clean at `b931d48` |
 
 Worktree create (orchestrator or shell subagent):
 
@@ -297,13 +301,13 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 | 4 | Pipeline / Sheets | **DONE** (`95657ad`, `c4d529b`, `576782d`; **892 pass**) |
 | 5 | Discovery remainder | **in progress** (run tracker + relay helpers + scraper ATS config + engine state + status handoff + Apps Script deploy + discovery drawer + ingest URL flow + run orchestration + readiness + setup modals done) |
 | 5b | Index decomposition guardrail | **DONE** (`a432bd2`; **894 pass**) |
-| 6 | Auth / config / core collapse | in progress; config-core follow-up merged |
+| 6 | Auth / config / core collapse | in progress; config-core follow-up and C4 pipeline-controller merged |
 
 ## Blockers / hygiene
 
 1. **Discovery autofill WIP** — stashed as `discovery autofill WIP (post-phase4)` (`fb7c653`); breaks 4 discovery tests until finished; keep out of module-cut commits.
 2. Phase 2 leaf cuts committed: `5cd73d6`, `51f97e4`, `cf1c654`.
-3. **Plan LOC table** — re-derive ranges from **3,233** LOC `app.js` before each cut.
+3. **Plan LOC table** — re-derive ranges from **3,197** LOC `app.js` before each cut.
 4. **Mixed integration WIP backup** — `stash@{0}` is retained only as a recovery snapshot after replaying files to owner branches.
 
 ## Next actions (orchestrator)
@@ -332,18 +336,19 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 21. Session 18 live Cursor audit parked stale dirty worktrees: `appjs-core-host` at `5158a7f` and `appjs-keyword-profile-match` at `0a9f354`. Both parse and are clean, but neither is merge-ready because both are 69 commits behind integration and overlap already-landed work.
 22. C3 `discovery-setup-modals.js` **merged** — branch `refactor/app-js-decompose-discovery-setup-modals-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-setup-modals-v2`, worker commit `2d43e3e`, merge `b0952ea`; current pane remains orchestrator-only on integration.
 23. C3 gate **complete** — branch gate passed `node --check app.js && node --check discovery-setup-modals.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, and full `npm test` **894 pass / 0 fail**; post-merge integration gate also **894 pass / 0 fail**.
-24. C4 `pipeline-controller.js` **dispatched** — branch `refactor/app-js-decompose-pipeline-controller-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-controller-v2`; current pane remains orchestrator-only on integration.
-25. Before merging C4, run branch gate: `node --check app.js && node --check pipeline-controller.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused C4 tests, and full `npm test`.
-26. After each future merge, update this status doc with the branch gate, post-merge gate, commit SHA, and new `app.js` LOC.
+24. C4 `pipeline-controller.js` **merged** — branch `refactor/app-js-decompose-pipeline-controller-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-controller-v2`, worker commit `b931d48`, merge `e246351`; current pane remains orchestrator-only on integration.
+25. C4 gate **complete** — branch gate passed `node --check app.js && node --check pipeline-controller.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused C4 tests **96 pass / 0 fail**, and full `npm test` **896 pass / 0 fail**; post-merge integration gate also **896 pass / 0 fail**.
+26. Stop for C4 inspection. Next editable lane is C5 `app-bootstrap.js`, from a fresh worktree at the current integration tip after inspection/dispatch.
+27. After each future merge, update this status doc with the branch gate, post-merge gate, commit SHA, and new `app.js` LOC.
 
 ## `index.html` script order (post Phase 5 cut #1)
 
 ```
-… → sheets-writeback → sheets-read-load → pipeline-render → discovery-run-tracker → sheet-access-setup → apps-script-relay-helpers → scraper-ats-config → discovery-engine-state → discovery-readiness → discovery-status-handoff → apps-script-deploy → discovery-setup-modals → discovery-drawer → ingest-url-flow → discovery-run-orchestration → app.js?v=30
+… → sheets-writeback → sheets-read-load → pipeline-render → pipeline-controller → discovery-run-tracker → sheet-access-setup → apps-script-relay-helpers → scraper-ats-config → discovery-engine-state → discovery-readiness → discovery-status-handoff → apps-script-deploy → discovery-setup-modals → discovery-drawer → ingest-url-flow → discovery-run-orchestration → app.js?v=30
 ```
 
-Next planned insertion: `pipeline-controller.js` per Lane C4 in the Phase 6
-survey order.
+Next planned insertion: `app-bootstrap.js` per Lane C5 in the Phase 6 survey
+order.
 
 ## Owner-only risks (unchanged)
 
