@@ -23,6 +23,10 @@ const runOrchJs = readFileSync(
   join(repoRoot, "discovery-run-orchestration.js"),
   "utf8",
 );
+const readinessJs = readFileSync(
+  join(repoRoot, "discovery-readiness.js"),
+  "utf8",
+);
 
 function readIngestFunctionSource(name, endMarker) {
   return readFunctionSource(name, endMarker, ingestUrlFlowJs);
@@ -268,7 +272,8 @@ describe("Add job from URL endpoint resolution", () => {
   it("retries Add URL with a forced fresh Google token after Sheets auth failures", () => {
     const tokenSource = readAsyncFunctionSource(
       "getFreshDiscoveryRequestGoogleAccessToken",
-      "\n}\n\nfunction isIngestSheetAuthFailure",
+      "\n}\n\nfunction showDiscoveryVerificationToast",
+      readinessJs,
     );
     const authFailureSource = readFunctionSource(
       "isIngestSheetAuthFailure",
@@ -280,7 +285,7 @@ describe("Add job from URL endpoint resolution", () => {
     );
 
     assert.match(tokenSource, /options && options\.force === true/);
-    assert.match(tokenSource, /refreshAccessTokenSilently\(\)/);
+    assert.match(tokenSource, /refreshAccessTokenSilently/);
     assert.match(authFailureSource, /UNAUTHENTICATED/);
     assert.match(authFailureSource, /invalid authentication credentials/);
     assert.doesNotMatch(authFailureSource, /\\b401\\b/);
