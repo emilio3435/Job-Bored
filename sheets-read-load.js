@@ -155,11 +155,28 @@
     return rows;
   }
 
+  function normalizeActiveSheetId(raw) {
+    const value = raw == null ? "" : String(raw).trim();
+    if (
+      !value ||
+      value === "null" ||
+      value === "undefined" ||
+      value === "YOUR_SHEET_ID_HERE"
+    ) {
+      return "";
+    }
+    return value;
+  }
+
   let _jsonpCounter = 0;
 
   function fetchSheetJSONP(sheetName) {
     return new Promise((resolve, reject) => {
-      const sheetId = host().getActiveSheetId();
+      const sheetId = normalizeActiveSheetId(host().getActiveSheetId());
+      if (!sheetId) {
+        reject(new Error(`No Sheet ID configured for ${sheetName}`));
+        return;
+      }
       const callbackName = `__commandCenter_cb_${++_jsonpCounter}`;
       const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json;responseHandler:${callbackName}&sheet=${encodeURIComponent(sheetName)}`;
 
@@ -232,7 +249,7 @@
   async function fetchSheetViaSheetsAPI(sheetName, isRetry) {
     const h = host();
     const accessToken = h.getAccessToken();
-    const sheetId = h.getActiveSheetId();
+    const sheetId = normalizeActiveSheetId(h.getActiveSheetId());
     if (!accessToken || !sheetId) return null;
     const name = String(sheetName);
     const needsQuote = /[^A-Za-z0-9_]/.test(name) || /^\d/.test(name);
@@ -269,7 +286,7 @@
   async function fetchSheetCSV(sheetName) {
     const h = host();
     const accessToken = h.getAccessToken();
-    const sheetId = h.getActiveSheetId();
+    const sheetId = normalizeActiveSheetId(h.getActiveSheetId());
 
     if (accessToken) {
       try {
@@ -280,6 +297,13 @@
       } catch (e) {
         console.warn("[JobBored] Sheets API read:", e);
       }
+    }
+
+    if (!sheetId) {
+      console.warn(
+        `[JobBored] No Sheet ID configured; skipping ${sheetName} fetch`,
+      );
+      return null;
     }
 
     try {
@@ -434,6 +458,23 @@
       h.setPipelineData([]);
       h.setDashboardDataHydrated(false);
       h.showSheetAccessGate("signin");
+      return false;
+    }
+
+    if (!normalizeActiveSheetId(h.getActiveSheetId())) {
+      h.setPipelineRawRows(null);
+      h.setPipelineData([]);
+      h.setDashboardDataHydrated(false);
+      h.setDataLoadFailed(false);
+      if (!h.getInitialSheetAccessResolved()) {
+        if (h.getAccessToken() && h.getOAuthClientId()) {
+          h.revealSetupScreenAfterAuth();
+        } else if (h.getOAuthClientId()) {
+          h.showSheetAccessGate("signin");
+        } else {
+          h.showSheetAccessGate("no-oauth");
+        }
+      }
       return false;
     }
 
