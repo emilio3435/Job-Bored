@@ -9,9 +9,9 @@
  *      new Title input and Version Notes textarea, and wires the
  *      compose actions (generate, advanced). The Suggest button has
  *      been removed.
- *   3. app.js's runResumeGeneration accepts tone/maxWords/silent/
- *      title options and is exported on window so letter.js can call
- *      it.
+ *   3. resume-generation.js's runResumeGeneration accepts tone/maxWords/
+ *      silent/title options and app-compat.js exports it on window so
+ *      letter.js can call it.
  *   4. letter.css scopes the .jb-letter-compose styles under the v2
  *      region selector and reuses v2 tokens.
  *   5. The live render produces a usable compose section with default
@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
 const resumeGenerationJs = readFileSync(
   join(repoRoot, "resume-generation.js"),
   "utf8",
@@ -128,7 +128,7 @@ describe("Workshop compose panel — markup contract", () => {
   });
 });
 
-describe("Workshop compose panel — app.js options pass-through", () => {
+describe("Workshop compose panel — compatibility options pass-through", () => {
   it("runResumeGeneration accepts tone/maxWords/silent options", () => {
     const fnStart = resumeGenerationJs.indexOf("async function runResumeGeneration");
     const fnEnd = resumeGenerationJs.indexOf(
@@ -151,16 +151,16 @@ describe("Workshop compose panel — app.js options pass-through", () => {
 
   it("exports compose-friendly helpers on window", () => {
     assert.ok(
-      /window\.runResumeGeneration\s*=\s*runResumeGeneration/.test(appJs),
-      "app.js must expose window.runResumeGeneration for letter.js",
+      /window\.runResumeGeneration\s*=\s*runResumeGeneration/.test(appCompatJs),
+      "app-compat.js must expose window.runResumeGeneration for letter.js",
     );
     assert.ok(
-      /window\.buildDraftNotesPrefill\s*=\s*buildDraftNotesPrefill/.test(appJs),
-      "app.js must expose window.buildDraftNotesPrefill for letter.js",
+      /window\.buildDraftNotesPrefill\s*=\s*buildDraftNotesPrefill/.test(appCompatJs),
+      "app-compat.js must expose window.buildDraftNotesPrefill for letter.js",
     );
     assert.ok(
-      /window\.getWorkshopProfileSummary\s*=/.test(appJs),
-      "app.js must expose window.getWorkshopProfileSummary for compose-panel source dots",
+      /window\.getWorkshopProfileSummary\s*=/.test(appCompatJs),
+      "app-compat.js must expose window.getWorkshopProfileSummary for compose-panel source dots",
     );
   });
 });
