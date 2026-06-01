@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-06-01 (session 31 — final shell reduction merged; original app.js refactor plan complete for inspection).
+> Orchestrator ledger. **Last updated:** 2026-06-01 (session 32 — post-final-shell missing Sheet ID guard landed).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -147,6 +147,7 @@ Use those prompts instead of a broad "keep refactoring until <1000 LOC" request.
 | `2a087e1` | `bridge-registry.js` | −694 LOC in `app.js` | green (897 pass) |
 | `402106f` | `app-compat.js` thin-wrapper collapse | −603 LOC in `app.js` | green (897 pass) |
 | `41d1a79` | final shell reduction / `app-compat.js` completion | −1,157 LOC in `app.js` | green (897 pass) |
+| `b3d82d4` | `sheets-read-load.js` missing active Sheet ID guard | no `app.js` LOC change | green (898 pass) |
 
 ## Active pane dispatch (session 15)
 
@@ -425,6 +426,7 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 32. Session 30 settings select compatibility edits **folded into final shell / parked clean** — branch `refactor/app-js-decompose-settings-select-compat-parked`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-settings-select-compat-parked`, commit `302f05b`; branch gate passed `node --check app-compat.js && node --check settings-modal.js`, `git diff --check`, exact conflict-marker scan on touched files, pre-commit staged JS syntax, and full `npm test` **897 pass / 0 fail** after `npm ci --prefix server`. Public-global audit confirmed the settings selectors are required by `registerBridgeHosts()`, so the fix was cherry-picked into final shell as `728642a`.
 33. Session 31 final shell reduction **merged** — writer branch `refactor/app-js-decompose-final-shell-reduction-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-final-shell-reduction-v2`, worker commits `728642a` and `e22b9a8`, merge `41d1a79`; moved safe remaining compatibility forwarders into `app-compat.js`, kept true shell state/bridge context in `app.js`, and updated source-text tests.
 34. Session 31 final shell gate **complete** — branch gate passed touched JS syntax, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, and full `npm test` **897 pass / 0 fail**; post-merge integration gate passed touched JS syntax, merge diff whitespace check, exact conflict-marker scan, and full `npm test` **897 pass / 0 fail**; `app.js` **587 LOC**, `app-compat.js` **1,762 LOC**, `settings-modal.js` **738 LOC**. Active implementation lanes are complete; stop here for inspection.
+35. Session 32 missing active Sheet ID guard **landed** — hotfix commit `b3d82d4` keeps `sheets-read-load.js` from building `docs.google.com/spreadsheets/d/null/...` URLs when a persisted OAuth session exists but no active Sheet ID is configured. Added `tests/sheets-read-load-missing-sheet.test.mjs`. Gate passed: `node --check sheets-read-load.js && node --check tests/sheets-read-load-missing-sheet.test.mjs`, `git diff --check`, exact conflict-marker scan, focused regression test **1 pass / 0 fail**, and full `npm test` **898 pass / 0 fail**.
 
 ## `index.html` script order (post Phase 5 cut #1)
 
