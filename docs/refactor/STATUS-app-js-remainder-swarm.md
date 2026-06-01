@@ -32,8 +32,10 @@
 
 Integration checkout is orchestrator-only. Dirty mixed work found on
 `refactor/app-js-decompose` was preserved as
-`stash@{0}: orchestrator mixed integration WIP before owner branch split`, then
-replayed onto owner branches.
+`stash@{1}: orchestrator mixed integration WIP before owner branch split`, then
+replayed onto owner branches. `stash@{0}` is now the later settings-select
+compatibility rescue snapshot, retained only as a backup after that code was
+parked and folded into final shell.
 
 | Order | Track | Branch | Worktree | Status | Verification |
 |---|---|---|---|---|---|
@@ -383,7 +385,8 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 1. **Discovery autofill WIP** — stashed as `discovery autofill WIP (post-phase4)` (`fb7c653`); breaks 4 discovery tests until finished; keep out of module-cut commits.
 2. Phase 2 leaf cuts committed: `5cd73d6`, `51f97e4`, `cf1c654`.
 3. **Plan LOC table** — re-derive ranges from **1,744** LOC `app.js` before each cut.
-4. **Mixed integration WIP backup** — `stash@{0}` is retained only as a recovery snapshot after replaying files to owner branches.
+4. **Settings select compatibility backup** — `stash@{0}` is retained only as a recovery snapshot after parking the branch and folding the fix into final shell.
+5. **Mixed integration WIP backup** — `stash@{1}` is retained only as a recovery snapshot after replaying files to owner branches.
 
 ## Next actions (orchestrator)
 
