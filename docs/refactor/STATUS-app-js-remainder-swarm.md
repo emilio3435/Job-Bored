@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-05-31 (session 17 — C2 discovery readiness dispatched from current integration tip).
+> Orchestrator ledger. **Last updated:** 2026-05-31 (session 18 — live Cursor audit parked stale WIP lanes).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -51,6 +51,8 @@ replayed onto owner branches.
 | 12 | A — pane 2 ingest URL flow | `refactor/app-js-decompose-pane2-ready-ingest-url-flow` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-ingest-url-flow-v2` | **MERGED** `ed11dff` | Renamed from `refactor/app-js-decompose-ingest-url-flow-v2`; branch gate after rebase on `a51d795`: `node --check app.js`, `node --check ingest-url-flow.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, and `npm test` = **894 pass / 0 fail**; post-merge integration gate also **894 pass / 0 fail**; `app.js` = **5,237 LOC** |
 | 13 | C1 — discovery run orchestration | `refactor/app-js-decompose-discovery-run-orchestration-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-run-orchestration-v2` | **MERGED** `e60b4fa` | Branch gate after rebase on `8c43cc3`: `node --check app.js`, `node --check discovery-run-orchestration.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, and `npm test` = **894 pass / 0 fail** after `npm install --prefix server`; post-merge integration gate also **894 pass / 0 fail**; `app.js` = **4,973 LOC** |
 | 14 | C2 — discovery readiness | `refactor/app-js-decompose-discovery-readiness-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-readiness-v2` | **ACTIVE** | Created from integration tip `3433e12`, then fast-forwarded to the latest dispatch ledger before work; scope: `discovery-readiness.js`, thin `app.js` wrappers/host bridge, one `index.html` script tag, focused tests as needed; must pass branch gate before merge |
+| 15 | Stale WIP — core host bridge | `refactor/app-js-decompose-core-host` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-core-host` | **PARKED CLEAN** `5158a7f` | Live Cursor audit found dirty `app.js` edits on a branch 69 commits behind integration. Preserved as WIP only. Minimal parking checks passed: `node --check app.js`, `git diff --check`, exact conflict-marker scan on `app.js`, and pre-commit staged JS syntax. Blocker: overlaps the already-landed `JobBoredApp.core.host` bridge (`9112a65`) and lacks rebase/full `npm test`; do not merge without fresh review or discard if redundant |
+| 16 | Stale WIP — keyword profile match | `refactor/app-js-decompose-keyword-profile-match` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-keyword-profile-match` | **PARKED CLEAN** `0a9f354` | Live Cursor audit found dirty `app.js`, `index.html`, and new `keyword-profile-match.js` edits on a branch 69 commits behind integration. Preserved as WIP only. Minimal parking checks passed: `node --check app.js && node --check keyword-profile-match.js`, `git diff --check`, exact conflict-marker scan on touched files, and pre-commit staged JS syntax. Blocker: duplicates/overlaps already-landed `keyword-profile-match.js` (`f215a33`) and lacks rebase/full `npm test`; do not merge without fresh review or discard if redundant |
 
 Shared-file rule in force: `index.html` structural changes landed with B first,
 legacy CSS `<head>` links landed with C, and the scoped A config follow-up landed
@@ -66,7 +68,12 @@ URL branches contain no extraction work and are parked clean. Session 15
 by `pane2-ready-ingest-url-flow`, then C1 `discovery-run-orchestration.js`
 landed from a rebased worker branch. C2 `discovery-readiness.js` is now active in
 its own worktree from integration tip `3433e12`; keep support panes read-only
-until the C2 worker reports a commit.
+until the C2 worker reports a commit. Session 18 live Cursor audit also found
+two stale dirty WIP worktrees (`appjs-core-host` and
+`appjs-keyword-profile-match`) from the older Phase 1/keyword lanes. Both are
+now committed and clean on their owner branches, but are explicitly parked and
+not merge candidates without a fresh rebase/review because the equivalent
+integration work already landed earlier.
 
 Follow-up Cursor prompts are staged in
 [FOLLOWUP-CURSOR-SWARM-2026-05-31.md](./FOLLOWUP-CURSOR-SWARM-2026-05-31.md).
@@ -181,7 +188,9 @@ implementation worktree at a time**. C2 owns the only editable refactor lane.
 | 24 | Drawer AI host follow-up | **PARKED CLEAN** | Cursor pane 1 | `appjs-discovery-drawer-v2` | Branch `refactor/app-js-decompose-pane1-parked-drawer-ai-followup`; commit `2936b44`; branch gate green; blocker: needs rebase/review against integration tip before merge |
 | 25 | `discovery-run-orchestration.js` | **DONE** | Cursor pane 2 | `appjs-discovery-run-orchestration-v2` | Branch `refactor/app-js-decompose-discovery-run-orchestration-v2`; rebased to `6a02f62`, merged as `e60b4fa`; branch and post-merge integration gates green |
 | 26 | `discovery-readiness.js` | **ACTIVE** | Cursor pane 2 | `appjs-discovery-readiness-v2` | Branch `refactor/app-js-decompose-discovery-readiness-v2`; created from integration tip `3433e12`; scope follows Lane C2 in `PLAN-app-js-core-collapse-next.md` |
-| 27+ | discovery remainder / core collapse | pending | — | — | Continue C3–C6 in the Phase 6 survey order after C2 lands or parks clean |
+| 27 | Stale core host bridge WIP | **PARKED CLEAN** | live audit | `appjs-core-host` | Branch `refactor/app-js-decompose-core-host`; commit `5158a7f`; blocker: 69 commits behind and overlaps landed bridge commit `9112a65`; do not merge without rebase/review |
+| 28 | Stale keyword profile match WIP | **PARKED CLEAN** | live audit | `appjs-keyword-profile-match` | Branch `refactor/app-js-decompose-keyword-profile-match`; commit `0a9f354`; blocker: 69 commits behind and overlaps landed keyword module commit `f215a33`; do not merge without rebase/review |
+| 29+ | discovery remainder / core collapse | pending | — | — | Continue C3–C6 in the Phase 6 survey order after C2 lands or parks clean |
 
 ## Worktrees
 
@@ -191,6 +200,8 @@ implementation worktree at a time**. C2 owns the only editable refactor lane.
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-sheets-writeback` | `refactor/app-js-decompose-sheets-writeback` | Phase 4 writeback | merged `95657ad` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-sheets-read-load` | `refactor/app-js-decompose-sheets-read-load` | Phase 4 read-load | merged `c4d529b` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-pipeline-render` | `refactor/app-js-decompose-pipeline-render` | Phase 4 pipeline | merged `576782d` |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-core-host` | `refactor/app-js-decompose-core-host` | Stale Phase 1 core host bridge WIP | parked clean `5158a7f`; 69 commits behind integration; overlaps landed bridge `9112a65`; no full gate on current integration |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-keyword-profile-match` | `refactor/app-js-decompose-keyword-profile-match` | Stale keyword profile match WIP | parked clean `0a9f354`; 69 commits behind integration; overlaps landed keyword module `f215a33`; no full gate on current integration |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/index-html-decompose` | `refactor/index-html-decompose` | Track B index decomposition | merged `a432bd2` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/style-css-split` | `refactor/style-css-split` | Track C CSS split | merged `37241c6` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-config-core-followup` | `refactor/app-js-decompose-app-config-core-followup` | Track A config-core follow-up | merged `d2d5224` |
@@ -271,7 +282,8 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 19. C1 `discovery-run-orchestration.js` **merged** — `e60b4fa`; branch and integration **894 pass** at **4,973** LOC.
 20. C2 `discovery-readiness.js` **dispatched** — branch `refactor/app-js-decompose-discovery-readiness-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-readiness-v2`, created from `3433e12` and fast-forwarded to the latest dispatch ledger before work.
 21. Before merging C2, run branch gate: `node --check app.js && node --check discovery-readiness.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, and full `npm test`.
-22. After each future merge, update this status doc with the branch gate, post-merge gate, commit SHA, and new `app.js` LOC.
+22. Session 18 live Cursor audit parked stale dirty worktrees: `appjs-core-host` at `5158a7f` and `appjs-keyword-profile-match` at `0a9f354`. Both parse and are clean, but neither is merge-ready because both are 69 commits behind integration and overlap already-landed work.
+23. After each future merge, update this status doc with the branch gate, post-merge gate, commit SHA, and new `app.js` LOC.
 
 ## `index.html` script order (post Phase 5 cut #1)
 
