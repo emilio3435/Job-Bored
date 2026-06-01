@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-05-31 (session 16 — C1 active in pane 2; drawer follow-up parked clean).
+> Orchestrator ledger. **Last updated:** 2026-05-31 (session 16 — C1 discovery run orchestration merged; drawer follow-up parked clean).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -12,7 +12,7 @@
 | Current dirty files | `M package-lock.json` only (unstaged local npm metadata; do not mix into refactor commits) |
 | Node / npm | v24.13.0 / 11.13.0 ✓ |
 | Baseline `npm test` | **892 pass / 0 fail / 0 skip** (188 suites, ~7.6s) |
-| `app.js` LOC (current) | **5,237** (post ingest URL flow merge; was 12,456 post Phase 5 cut #1) |
+| `app.js` LOC (current) | **4,973** (post C1 discovery run orchestration merge; was 12,456 post Phase 5 cut #1) |
 | `SetActiveBranch` | `refactor/app-js-decompose` ✓ |
 | Swarm model | Cursor Task subagents per [PROMPT-app-js-remainder-cursor-swarm-orchestrator.md](./PROMPT-app-js-remainder-cursor-swarm-orchestrator.md) |
 
@@ -49,6 +49,7 @@ replayed onto owner branches.
 | 10 | A — ingest URL flow | `refactor/app-js-decompose-ingest-url-flow` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-ingest-url-flow` | **PARKED CLEAN** | Blocker: no extraction commit exists; `git diff --name-only refactor/app-js-decompose...HEAD` is empty; branch is 0 commits ahead / 4 behind current integration; no `ingest-url-flow.js` gate to run |
 | 11 | A — pane 1 done: discovery drawer | `refactor/app-js-decompose-pane1-done-discovery-drawer` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-drawer-v2` | **MERGED** `a51d795` | Renamed from `refactor/app-js-decompose-discovery-drawer-v2`; branch gate after rebase: `node --check app.js`, `node --check discovery-drawer.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, and `npm test` = **894 pass / 0 fail**; post-merge integration gate also **894 pass / 0 fail**; `app.js` = **6,443 LOC** |
 | 12 | A — pane 2 ingest URL flow | `refactor/app-js-decompose-pane2-ready-ingest-url-flow` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-ingest-url-flow-v2` | **MERGED** `ed11dff` | Renamed from `refactor/app-js-decompose-ingest-url-flow-v2`; branch gate after rebase on `a51d795`: `node --check app.js`, `node --check ingest-url-flow.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, and `npm test` = **894 pass / 0 fail**; post-merge integration gate also **894 pass / 0 fail**; `app.js` = **5,237 LOC** |
+| 13 | C1 — discovery run orchestration | `refactor/app-js-decompose-discovery-run-orchestration-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-run-orchestration-v2` | **MERGED** `e60b4fa` | Branch gate after rebase on `8c43cc3`: `node --check app.js`, `node --check discovery-run-orchestration.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, and `npm test` = **894 pass / 0 fail** after `npm install --prefix server`; post-merge integration gate also **894 pass / 0 fail**; `app.js` = **4,973 LOC** |
 
 Shared-file rule in force: `index.html` structural changes landed with B first,
 legacy CSS `<head>` links landed with C, and the scoped A config follow-up landed
@@ -61,9 +62,10 @@ created three fresh app-js lanes from integration tip `0250251`; Apps Script
 deploy landed first from a clean worker branch. The discovery drawer and ingest
 URL branches contain no extraction work and are parked clean. Session 15
 `pane1-done-discovery-drawer` landed next from a rebased worker branch, followed
-by `pane2-ready-ingest-url-flow`. The next implementation lane is **C1
-`discovery-run-orchestration.js`** from a fresh worktree at the new integration
-tip.
+by `pane2-ready-ingest-url-flow`, then C1 `discovery-run-orchestration.js`
+landed from a rebased worker branch. The next implementation lane is C2 from the
+Phase 6 survey; do not dispatch it until the target worktree/branch is created
+from the current integration tip.
 
 Follow-up Cursor prompts are staged in
 [FOLLOWUP-CURSOR-SWARM-2026-05-31.md](./FOLLOWUP-CURSOR-SWARM-2026-05-31.md).
@@ -99,6 +101,7 @@ Use those prompts instead of a broad "keep refactoring until <1000 LOC" request.
 | `07186fc` | `apps-script-deploy.js` | −1,245 LOC in `app.js` | green (894 pass) |
 | `a51d795` | `discovery-drawer.js` | −1,455 LOC in `app.js` | green (894 pass) |
 | `ed11dff` | `ingest-url-flow.js` | −1,206 LOC in `app.js` | green (894 pass) |
+| `e60b4fa` | `discovery-run-orchestration.js` | −264 LOC in `app.js` | green (894 pass) |
 
 ## Active pane dispatch (session 15)
 
@@ -121,19 +124,18 @@ the worker bootstrap and rebase ran in
 actual parked branch is `refactor/app-js-decompose-pane2-ready-ingest-url-flow`.
 The old Apps Script deploy worktree remains clean.
 
-## Active pane dispatch (session 16)
+## Pane dispatch (session 16)
 
 Parallelism rule from the Phase 6 survey remains in force: **one
-implementation worktree at a time**. C1 is active in the lower-left Cursor pane;
-support panes stay read-only until the C1 implementation branch reports a commit
-SHA.
+implementation worktree at a time**. C1 has landed. The drawer follow-up branch
+is parked clean and C2 has not been dispatched.
 
 | Pane | Role | Branch | Worktree | Status | Stop condition |
 |---|---|---|---|---|---|
 | 1 | Drawer repair pane | `refactor/app-js-decompose-pane1-parked-drawer-ai-followup` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-drawer-v2` | **PARKED CLEAN** `2936b44` | Branch gate green; blocker: not merged, needs rebase/review against integration tip before landing |
-| 2 | C1 implementation — `discovery-run-orchestration.js` | `refactor/app-js-decompose-discovery-run-orchestration-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-run-orchestration-v2` | **ACTIVE DISPATCH** | Module extracted, branch clean and committed, branch gate green, report commit SHA + LOC |
-| 3 | C2 readiness prep | read-only until C1 merge | existing survey pane only | **READ-ONLY SUPPORT** | Keep C2 notes aligned with Phase 6 plan; no file edits |
-| 4 | C1 merge-readiness QA | read-only until C1 commit | existing QA pane only | **READ-ONLY SUPPORT** | Prepare to run the C1 gate checklist after pane 2 reports a commit; no file edits |
+| 2 | C1 implementation — `discovery-run-orchestration.js` | `refactor/app-js-decompose-discovery-run-orchestration-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-run-orchestration-v2` | **MERGED** `e60b4fa` | Branch parked clean at `6a02f62`; branch and post-merge gates passed |
+| 3 | C2 readiness prep | read-only until C2 dispatch | existing survey pane only | **READ-ONLY SUPPORT** | Keep C2 notes aligned with Phase 6 plan; no file edits |
+| 4 | QA / merge-readiness review | read-only until next implementation commit | existing QA pane only | **READ-ONLY SUPPORT** | Prepare to run the next gate checklist after a worker reports a commit; no file edits |
 
 ## Extraction order progress
 
@@ -164,8 +166,8 @@ SHA.
 | 22 | Phase 6 core collapse survey | **DONE** | Cursor pane 3 | `appjs-core-collapse-survey` | Branch `refactor/app-js-decompose-pane3-parked-core-collapse-survey`; `366822a`; drafted `docs/refactor/PLAN-app-js-core-collapse-next.md`; gate `git diff --check` clean; branch parked clean |
 | 23 | Session 15 QA checklist | **DONE** | Cursor pane 4 | `appjs-qa-review` | Branch `refactor/app-js-decompose-pane4-parked-qa-review`; `0209b81`; drafted `docs/refactor/QA-session-15-checklist.md`; branch parked clean |
 | 24 | Drawer AI host follow-up | **PARKED CLEAN** | Cursor pane 1 | `appjs-discovery-drawer-v2` | Branch `refactor/app-js-decompose-pane1-parked-drawer-ai-followup`; commit `2936b44`; branch gate green; blocker: needs rebase/review against integration tip before merge |
-| 25 | `discovery-run-orchestration.js` | **ACTIVE** | Cursor pane 2 | `appjs-discovery-run-orchestration-v2` | Fresh branch `refactor/app-js-decompose-discovery-run-orchestration-v2`; worker prompt sent from the lower-left Cursor pane; extract C1 run orchestration only |
-| 26+ | discovery remainder / core collapse | pending | — | — | Continue C2–C6 in the Phase 6 survey order after C1 is inspected and merged |
+| 25 | `discovery-run-orchestration.js` | **DONE** | Cursor pane 2 | `appjs-discovery-run-orchestration-v2` | Branch `refactor/app-js-decompose-discovery-run-orchestration-v2`; rebased to `6a02f62`, merged as `e60b4fa`; branch and post-merge integration gates green |
+| 26+ | discovery remainder / core collapse | pending | — | — | Continue C2–C6 in the Phase 6 survey order from a fresh worktree at the current integration tip |
 
 ## Worktrees
 
@@ -189,7 +191,7 @@ SHA.
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-ingest-url-flow-v2` | `refactor/app-js-decompose-pane2-ready-ingest-url-flow` | Session 15 ingest URL flow | merged `ed11dff`; branch clean at `37cc686` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-core-collapse-survey` | `refactor/app-js-decompose-pane3-parked-core-collapse-survey` | Session 15 Phase 6 survey | done; parked clean at `366822a` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-qa-review` | `refactor/app-js-decompose-pane4-parked-qa-review` | Session 15 QA review | done; parked clean at `0209b81` |
-| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-run-orchestration-v2` | `refactor/app-js-decompose-discovery-run-orchestration-v2` | Session 16 C1 discovery run orchestration | active in lower-left Cursor pane; implementation in progress |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-run-orchestration-v2` | `refactor/app-js-decompose-discovery-run-orchestration-v2` | Session 16 C1 discovery run orchestration | merged `e60b4fa`; branch clean at `6a02f62` |
 
 Worktree create (orchestrator or shell subagent):
 
@@ -219,7 +221,7 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 | 2 | Leaf modules: keyword → profile → expired UI → enrichment | **DONE** |
 | 3 | Materials / ATS / onboarding / settings / logo / feature init | **DONE** |
 | 4 | Pipeline / Sheets | **DONE** (`95657ad`, `c4d529b`, `576782d`; **892 pass**) |
-| 5 | Discovery remainder | **in progress** (run tracker + relay helpers + scraper ATS config + engine state + status handoff + Apps Script deploy + discovery drawer + ingest URL flow done) |
+| 5 | Discovery remainder | **in progress** (run tracker + relay helpers + scraper ATS config + engine state + status handoff + Apps Script deploy + discovery drawer + ingest URL flow + run orchestration done) |
 | 5b | Index decomposition guardrail | **DONE** (`a432bd2`; **894 pass**) |
 | 6 | Auth / config / core collapse | in progress; config-core follow-up merged |
 
@@ -227,7 +229,7 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 
 1. **Discovery autofill WIP** — stashed as `discovery autofill WIP (post-phase4)` (`fb7c653`); breaks 4 discovery tests until finished; keep out of module-cut commits.
 2. Phase 2 leaf cuts committed: `5cd73d6`, `51f97e4`, `cf1c654`.
-3. **Plan LOC table** — re-derive ranges from **5,237** LOC `app.js` before each cut.
+3. **Plan LOC table** — re-derive ranges from **4,973** LOC `app.js` before each cut.
 4. **Mixed integration WIP backup** — `stash@{0}` is retained only as a recovery snapshot after replaying files to owner branches.
 
 ## Next actions (orchestrator)
@@ -251,14 +253,14 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 16. Session 15 discovery drawer v2 **merged** — `a51d795`; branch and integration **894 pass** at **6,443** LOC.
 17. Session 15 ingest URL flow v2 **merged** — `ed11dff`; branch and integration **894 pass** at **5,237** LOC.
 18. Drawer AI host follow-up **parked clean** — branch `refactor/app-js-decompose-pane1-parked-drawer-ai-followup`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-drawer-v2`, commit `2936b44`, branch gate **894 pass / 0 fail**. Blocker: not merged; rebase/review against integration tip before landing.
-19. C1 `discovery-run-orchestration.js` **active** — branch `refactor/app-js-decompose-discovery-run-orchestration-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-run-orchestration-v2`; worker prompt sent from the lower-left Cursor pane.
-20. Gate and merge C1 before dispatching C2 readiness.
+19. C1 `discovery-run-orchestration.js` **merged** — `e60b4fa`; branch and integration **894 pass** at **4,973** LOC.
+20. Dispatch C2 from a fresh worktree at the current integration tip; keep support panes read-only until a worker reports a commit.
 21. After each future merge, update this status doc with the branch gate, post-merge gate, commit SHA, and new `app.js` LOC.
 
 ## `index.html` script order (post Phase 5 cut #1)
 
 ```
-… → sheets-writeback → sheets-read-load → pipeline-render → discovery-run-tracker → sheet-access-setup → apps-script-relay-helpers → scraper-ats-config → discovery-engine-state → discovery-status-handoff → apps-script-deploy → discovery-drawer → ingest-url-flow → app.js?v=30
+… → sheets-writeback → sheets-read-load → pipeline-render → discovery-run-tracker → sheet-access-setup → apps-script-relay-helpers → scraper-ats-config → discovery-engine-state → discovery-status-handoff → apps-script-deploy → discovery-drawer → ingest-url-flow → discovery-run-orchestration → app.js?v=30
 ```
 
 ## Owner-only risks (unchanged)
