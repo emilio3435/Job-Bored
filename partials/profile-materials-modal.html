@@ -1,0 +1,705 @@
+    <!-- Profile: resume, samples, AI context, preferences (IndexedDB) -->
+    <div
+      class="modal-overlay profile-overlay"
+      id="materialsModal"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="materialsModalTitle"
+    >
+      <div class="modal-card profile-modal">
+        <header class="profile-modal__header">
+          <div class="profile-modal__headline">
+            <h3 id="materialsModalTitle" class="profile-modal__title">
+              Portfolio
+            </h3>
+            <p class="profile-modal__subtitle">
+              Resume, samples, AI context, and writing preferences — all saved
+              in this browser.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="profile-modal__close-x"
+            id="materialsModalCloseX"
+            aria-label="Close"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </header>
+
+        <div class="profile-modal__body">
+          <!-- ========== THREE SOURCE CARDS ========== -->
+          <div class="profile-source-grid">
+            <!-- ── Card 1 · Resume ── -->
+            <section
+              class="profile-source-card"
+              aria-labelledby="profileResumeHeading"
+            >
+              <div class="profile-source-card__head">
+                <div
+                  class="profile-source-card__icon profile-source-card__icon--resume"
+                  aria-hidden="true"
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                  >
+                    <path
+                      d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                    />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                  </svg>
+                </div>
+                <div class="profile-source-card__titles">
+                  <h4
+                    id="profileResumeHeading"
+                    class="profile-source-card__title"
+                  >
+                    Resume
+                  </h4>
+                  <p class="profile-source-card__tagline">
+                    Your base document for every draft
+                  </p>
+                </div>
+              </div>
+
+              <div
+                class="profile-dropzone profile-dropzone--resume"
+                id="profileResumeDropzone"
+                role="group"
+                aria-label="Drop or choose your resume file"
+              >
+                <div class="profile-dropzone__inner">
+                  <div
+                    class="profile-dropzone__hero"
+                    id="profileResumeDropHero"
+                  >
+                    <svg
+                      class="profile-dropzone__glyph"
+                      width="36"
+                      height="36"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      aria-hidden="true"
+                    >
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    <p class="profile-dropzone__title">Drop your resume here</p>
+                    <p class="profile-dropzone__hint">
+                      PDF, Word, or plain text
+                    </p>
+                    <button
+                      type="button"
+                      class="profile-dropzone__browse"
+                      id="profileResumeBrowseBtn"
+                    >
+                      Browse files
+                    </button>
+                  </div>
+                  <div
+                    class="profile-dropzone__status"
+                    id="profileResumeStatusWrap"
+                    hidden
+                  >
+                    <p
+                      class="profile-dropzone__meta"
+                      id="materialsResumeMeta"
+                    ></p>
+                    <p class="profile-dropzone__replace-hint">
+                      Drop a new file or Browse to replace
+                    </p>
+                  </div>
+                </div>
+                <input
+                  type="file"
+                  id="materialsFileInput"
+                  class="sr-only"
+                  tabindex="-1"
+                  accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                />
+              </div>
+
+              <details class="profile-disclosure">
+                <summary>Paste text instead</summary>
+                <textarea
+                  id="materialsPasteText"
+                  class="profile-textarea profile-textarea--sm"
+                  placeholder="Paste full resume…"
+                  rows="3"
+                ></textarea>
+                <button
+                  type="button"
+                  class="profile-btn-secondary"
+                  id="materialsPasteBtn"
+                >
+                  Save paste
+                </button>
+              </details>
+
+              <details class="profile-disclosure">
+                <summary>Add LinkedIn profile text</summary>
+                <p class="profile-disclosure__hint">
+                  Paste your LinkedIn highlights so drafts stay current even if
+                  your uploaded resume is out of date.
+                </p>
+                <textarea
+                  id="materialsLinkedInText"
+                  class="profile-textarea profile-textarea--sm"
+                  placeholder="Paste About, experience highlights, and current role updates…"
+                  rows="4"
+                ></textarea>
+                <p
+                  id="materialsLinkedInMeta"
+                  class="profile-disclosure__meta"
+                  aria-live="polite"
+                ></p>
+                <div class="profile-disclosure__actions">
+                  <button
+                    type="button"
+                    class="profile-btn-secondary"
+                    id="materialsLinkedInAssistBtn"
+                  >
+                    Guided capture
+                  </button>
+                  <button
+                    type="button"
+                    class="profile-btn-secondary"
+                    id="materialsLinkedInSaveBtn"
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    class="profile-btn-secondary"
+                    id="materialsLinkedInClearBtn"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </details>
+            </section>
+
+            <!-- ── Card 2 · Writing Samples ── -->
+            <section
+              class="profile-source-card"
+              aria-labelledby="profileSamplesHeading"
+            >
+              <div class="profile-source-card__head">
+                <div
+                  class="profile-source-card__icon profile-source-card__icon--samples"
+                  aria-hidden="true"
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                  >
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                    <path
+                      d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"
+                    />
+                  </svg>
+                </div>
+                <div class="profile-source-card__titles">
+                  <h4
+                    id="profileSamplesHeading"
+                    class="profile-source-card__title"
+                  >
+                    Writing Samples
+                  </h4>
+                  <p class="profile-source-card__tagline">
+                    Teach the AI your voice and style
+                  </p>
+                </div>
+              </div>
+
+              <div
+                class="profile-dropzone profile-dropzone--samples"
+                id="profileSamplesDropzone"
+                role="group"
+                aria-label="Drop writing samples or cover letters"
+              >
+                <div class="profile-dropzone__inner">
+                  <div
+                    class="profile-dropzone__hero profile-dropzone__hero--samples"
+                  >
+                    <svg
+                      class="profile-dropzone__glyph"
+                      width="36"
+                      height="36"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      aria-hidden="true"
+                    >
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    <p class="profile-dropzone__title">
+                      Drop samples or cover letters
+                    </p>
+                    <p class="profile-dropzone__hint">
+                      PDF, Word, or text — add several at once
+                    </p>
+                    <button
+                      type="button"
+                      class="profile-dropzone__browse"
+                      id="profileSamplesBrowseBtn"
+                    >
+                      Browse files
+                    </button>
+                  </div>
+                </div>
+                <input
+                  type="file"
+                  id="materialsSamplesFileInput"
+                  class="sr-only"
+                  tabindex="-1"
+                  multiple
+                  accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                />
+              </div>
+              <div
+                id="materialsSamplesList"
+                class="profile-samples-list profile-samples-list--compact"
+              ></div>
+
+              <details class="profile-disclosure">
+                <summary>Add a sample manually</summary>
+                <div class="profile-add-sample profile-add-sample--tight">
+                  <div class="profile-add-sample__row">
+                    <input
+                      type="text"
+                      id="sampleTitle"
+                      class="profile-input"
+                      placeholder="Title"
+                    />
+                    <input
+                      type="text"
+                      id="sampleTags"
+                      class="profile-input"
+                      placeholder="Tags (optional)"
+                    />
+                  </div>
+                  <textarea
+                    id="sampleText"
+                    class="profile-textarea profile-textarea--xs"
+                    placeholder="Paste excerpt…"
+                    rows="2"
+                  ></textarea>
+                  <button
+                    type="button"
+                    class="profile-btn-secondary"
+                    id="sampleAddBtn"
+                  >
+                    Add sample
+                  </button>
+                </div>
+              </details>
+            </section>
+
+            <!-- ── Card 3 · AI Context ── -->
+            <section
+              class="profile-source-card profile-source-card--wide"
+              aria-labelledby="profileAiContextHeading"
+            >
+              <div class="profile-source-card__head">
+                <div
+                  class="profile-source-card__icon profile-source-card__icon--ai"
+                  aria-hidden="true"
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                  >
+                    <path
+                      d="M12 2a4 4 0 0 1 4 4v1h1a3 3 0 0 1 3 3v1a3 3 0 0 1-3 3h-1v4a4 4 0 0 1-8 0v-4H7a3 3 0 0 1-3-3v-1a3 3 0 0 1 3-3h1V6a4 4 0 0 1 4-4z"
+                    />
+                    <circle cx="9" cy="10" r="1" />
+                    <circle cx="15" cy="10" r="1" />
+                  </svg>
+                </div>
+                <div class="profile-source-card__titles">
+                  <h4
+                    id="profileAiContextHeading"
+                    class="profile-source-card__title"
+                  >
+                    AI Context
+                  </h4>
+                  <p class="profile-source-card__tagline">
+                    Let your chatbot fill in the gaps your resume misses
+                  </p>
+                </div>
+              </div>
+
+              <div class="profile-ai-guide">
+                <p class="profile-ai-guide__intro">
+                  Your favorite chatbot (ChatGPT, Gemini, Claude) already knows
+                  a lot about your career from past conversations. Ask it to
+                  summarize everything relevant and paste the result here.
+                </p>
+
+                <ol class="profile-ai-steps">
+                  <li class="profile-ai-step">
+                    <span class="profile-ai-step__num">1</span>
+                    <div class="profile-ai-step__body">
+                      <strong>Copy this prompt</strong>
+                      <p>
+                        One click copies a ready-made prompt to your clipboard.
+                      </p>
+                      <button
+                        type="button"
+                        class="profile-ai-copy-btn"
+                        id="materialsAiDumpCopyPromptBtn"
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          aria-hidden="true"
+                        >
+                          <rect x="9" y="9" width="13" height="13" rx="2" />
+                          <path
+                            d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                          />
+                        </svg>
+                        Copy prompt to clipboard
+                      </button>
+                      <textarea
+                        id="materialsAiDumpPrompt"
+                        class="sr-only"
+                        aria-hidden="true"
+                        tabindex="-1"
+                        readonly
+                      >
+Create a professionally relevant profile dossier for resume and cover-letter drafting. Focus only on career-relevant information and avoid personal/sensitive details.
+
+Include:
+1) Current target role(s)
+2) Career summary (3-5 bullets)
+3) Experience highlights by company/role with dates (if known)
+4) Top achievements with measurable outcomes
+5) Core skills, tools, domains, and industries
+6) Leadership, collaboration, and stakeholder examples
+7) Notable projects, publications, certifications, education
+8) Suggested keywords for ATS and recruiter search
+9) Potential weak spots/gaps to address carefully
+
+Output requirements:
+- Return Markdown only.
+- Use section headings and concise bullets.
+- Do not fabricate facts.
+- Add a short "Confidence / unknowns" section.
+
+Then provide a final single Markdown block I can save as career-context.md and upload/paste into my resume tooling.</textarea
+                      >
+                    </div>
+                  </li>
+                  <li class="profile-ai-step">
+                    <span class="profile-ai-step__num">2</span>
+                    <div class="profile-ai-step__body">
+                      <strong>Paste it into your chatbot</strong>
+                      <p>
+                        Open ChatGPT, Gemini, or Claude and send the prompt. It
+                        will generate a career summary based on everything it
+                        knows about you.
+                      </p>
+                    </div>
+                  </li>
+                  <li class="profile-ai-step">
+                    <span class="profile-ai-step__num">3</span>
+                    <div class="profile-ai-step__body">
+                      <strong>Bring the result back here</strong>
+                      <p>
+                        Paste the chatbot's response below, or save it as a
+                        <code>.md</code> / <code>.txt</code> file and upload it.
+                      </p>
+                    </div>
+                  </li>
+                </ol>
+
+                <div class="profile-ai-input">
+                  <textarea
+                    id="materialsAiDumpText"
+                    class="profile-textarea profile-textarea--sm"
+                    placeholder="Paste the chatbot's career summary here…"
+                    rows="5"
+                  ></textarea>
+                  <p
+                    id="materialsAiDumpMeta"
+                    class="profile-disclosure__meta"
+                    aria-live="polite"
+                  ></p>
+                  <div class="profile-disclosure__actions">
+                    <label
+                      class="profile-btn-secondary profile-btn-secondary--upload"
+                      for="materialsAiDumpFile"
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        aria-hidden="true"
+                      >
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                      </svg>
+                      Upload .md / .txt
+                    </label>
+                    <input
+                      type="file"
+                      id="materialsAiDumpFile"
+                      class="sr-only"
+                      tabindex="-1"
+                      accept=".md,.txt,text/plain,text/markdown"
+                    />
+                    <button
+                      type="button"
+                      class="profile-btn-secondary"
+                      id="materialsAiDumpSaveBtn"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      class="profile-btn-secondary"
+                      id="materialsAiDumpClearBtn"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- ── Card 4 · Style & Voice ── -->
+            <section
+              class="profile-source-card profile-source-card--wide"
+              aria-labelledby="profileStyleHeading"
+            >
+              <div class="profile-source-card__head">
+                <div
+                  class="profile-source-card__icon profile-source-card__icon--style"
+                  aria-hidden="true"
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                  >
+                    <path d="M12 20h9" />
+                    <path
+                      d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"
+                    />
+                  </svg>
+                </div>
+                <div class="profile-source-card__titles">
+                  <h4
+                    id="profileStyleHeading"
+                    class="profile-source-card__title"
+                  >
+                    Style &amp; Voice
+                  </h4>
+                  <p class="profile-source-card__tagline">
+                    Tone, templates, and how drafts should sound
+                  </p>
+                </div>
+              </div>
+
+              <section
+                class="profile-settings"
+                aria-labelledby="profileStyleHeading"
+              >
+                <details class="profile-settings-group" open>
+                  <summary class="profile-settings-group__summary">
+                    Style &amp; tone
+                  </summary>
+                  <div class="profile-settings-group__fields">
+                    <div class="profile-field-inline">
+                      <div>
+                        <label class="profile-field-label" for="prefTone"
+                          >Tone</label
+                        >
+                        <select id="prefTone" class="profile-select">
+                          <option value="direct">Direct</option>
+                          <option value="warm">Warm</option>
+                          <option value="formal">Formal</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="profile-field-label" for="prefMaxWords"
+                          >Max words</label
+                        >
+                        <input
+                          type="number"
+                          id="prefMaxWords"
+                          class="profile-input profile-input--num"
+                          min="100"
+                          max="2000"
+                          step="50"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label
+                        class="profile-field-label"
+                        for="prefMergePreference"
+                        >Profile merge</label
+                      >
+                      <select id="prefMergePreference" class="profile-select">
+                        <option value="merge">Merge resume + LinkedIn</option>
+                        <option value="prefer_resume">
+                          Prefer resume when conflicting
+                        </option>
+                        <option value="prefer_linkedin">
+                          Prefer LinkedIn when conflicting
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                </details>
+
+                <details class="profile-settings-group">
+                  <summary class="profile-settings-group__summary">
+                    Templates &amp; appearance
+                  </summary>
+                  <div class="profile-settings-group__fields">
+                    <div>
+                      <label
+                        class="profile-field-label"
+                        for="prefCoverLetterTemplate"
+                        >Cover letter layout</label
+                      >
+                      <select
+                        id="prefCoverLetterTemplate"
+                        class="profile-select"
+                      ></select>
+                    </div>
+                    <div>
+                      <label
+                        class="profile-field-label"
+                        for="prefResumeTemplate"
+                        >Resume layout</label
+                      >
+                      <select
+                        id="prefResumeTemplate"
+                        class="profile-select"
+                      ></select>
+                    </div>
+                    <div>
+                      <label class="profile-field-label" for="prefVisualTheme"
+                        >Preview appearance</label
+                      >
+                      <select
+                        id="prefVisualTheme"
+                        class="profile-select"
+                      ></select>
+                    </div>
+                  </div>
+                </details>
+
+                <details class="profile-settings-group">
+                  <summary class="profile-settings-group__summary">
+                    Voice &amp; targeting
+                  </summary>
+                  <div class="profile-settings-group__fields">
+                    <div>
+                      <label class="profile-field-label" for="prefIndustries"
+                        >Industries</label
+                      >
+                      <input
+                        type="text"
+                        id="prefIndustries"
+                        class="profile-input"
+                        placeholder="e.g. B2B SaaS"
+                      />
+                    </div>
+                    <div>
+                      <label class="profile-field-label" for="prefAvoid"
+                        >Avoid saying</label
+                      >
+                      <input
+                        type="text"
+                        id="prefAvoid"
+                        class="profile-input"
+                        placeholder="Optional"
+                      />
+                    </div>
+                    <div class="profile-settings-group__full">
+                      <label class="profile-field-label" for="prefVoice"
+                        >Voice notes</label
+                      >
+                      <textarea
+                        id="prefVoice"
+                        class="profile-textarea profile-textarea--xs"
+                        placeholder="How you want to sound…"
+                        rows="2"
+                      ></textarea>
+                    </div>
+                  </div>
+                </details>
+
+                <button
+                  type="button"
+                  class="profile-btn-save"
+                  id="materialsSavePrefsBtn"
+                >
+                  Save preferences
+                </button>
+              </section>
+            </section>
+          </div>
+        </div>
+
+        <footer class="profile-modal__footer">
+          <button
+            type="button"
+            class="btn-modal-primary profile-btn-done"
+            id="materialsModalClose"
+          >
+            Done
+          </button>
+        </footer>
+      </div>
+    </div>

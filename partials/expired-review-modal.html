@@ -1,0 +1,63 @@
+    <div
+      class="modal-overlay expired-review-modal"
+      id="expiredReviewModal"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="expiredReviewModalTitle"
+    >
+      <div class="modal-card modal-card--wide expired-review-card">
+        <div class="expired-review-card__head">
+          <div>
+            <p class="expired-review-card__kicker">Pipeline review</p>
+            <h3 id="expiredReviewModalTitle">Check aging postings</h3>
+          </div>
+          <button
+            type="button"
+            class="settings-modal-close"
+            id="expiredReviewModalClose"
+            aria-label="Close"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <p class="expired-review-card__lede" id="expiredReviewModalSummary">
+          Active New and Researching roles that may need an availability check.
+        </p>
+        <div class="expired-review-card__toolbar">
+          <button
+            type="button"
+            class="expired-review-card__run"
+            id="expiredReviewRunCleanup"
+            title="Re-run the availability check now"
+          >
+            <span class="expired-review-card__run-label">Run cleanup now</span>
+            <span class="expired-review-card__run-spinner" aria-hidden="true" hidden></span>
+          </button>
+          <span class="expired-review-card__hint" id="expiredReviewRunCleanupHint" hidden></span>
+        </div>
+        <div class="expired-review-bulkbar" id="expiredReviewBulkbar" hidden>
+          <label class="expired-review-bulkbar__select">
+            <input type="checkbox" id="expiredReviewSelectAll" />
+            <span id="expiredReviewSelectAllLabel">Select all</span>
+          </label>
+          <span class="expired-review-bulkbar__count" id="expiredReviewSelectedCount">0 selected</span>
+          <div class="expired-review-bulkbar__actions">
+            <button type="button" data-bulk-action="expire" disabled>Mark Expired</button>
+            <button type="button" data-bulk-action="dismiss" disabled>Dismiss</button>
+            <button type="button" data-bulk-action="researching" disabled>Set Researching</button>
+          </div>
+        </div>
+        <div class="expired-review-list" id="expiredReviewList"></div>
+      </div>
+    </div>
