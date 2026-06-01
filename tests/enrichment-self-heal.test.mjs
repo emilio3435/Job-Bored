@@ -23,6 +23,7 @@ import { describe, it } from "node:test";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const ingestUrlFlowJs = readFileSync(join(repoRoot, "ingest-url-flow.js"), "utf8");
 const postingEnrichmentJs = readFileSync(
   join(repoRoot, "posting-enrichment.js"),
   "utf8",
@@ -363,11 +364,11 @@ describe("jb:role:opened auto-enrich — no scraper-URL gate", () => {
   });
 
   it("does NOT short-circuit URL-ingested rows on missing scraper URL", () => {
-    const start = appJs.indexOf("async function autoEnrichIngestedRow");
+    const start = ingestUrlFlowJs.indexOf("async function autoEnrichIngestedRow");
     assert.ok(start > 0, "autoEnrichIngestedRow must exist");
-    const end = appJs.indexOf("function handleIngestUrlResponse", start);
+    const end = ingestUrlFlowJs.indexOf("function handleIngestUrlResponse", start);
     assert.ok(end > start, "handleIngestUrlResponse must follow autoEnrichIngestedRow");
-    const slice = appJs.slice(start, end);
+    const slice = ingestUrlFlowJs.slice(start, end);
     assert.ok(
       !/auto-enrich skipped: no scraper URL configured/.test(slice) &&
         !/if\s*\([^)]*getJobPostingScrapeUrl\s*\(\s*\)\s*[^)]*\)\s*return/.test(slice),
