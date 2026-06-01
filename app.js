@@ -1191,989 +1191,295 @@ async function triggerDiscoveryRun(...args) {
   return window.JobBoredDiscovery.runOrchestration.triggerDiscoveryRun(...args);
 }
 
-window.JobBoredDiscovery = Object.assign(window.JobBoredDiscovery || {}, {
-  buildPayload: buildDiscoveryWebhookPayload,
-});
+function registerBridgeHosts() {
+  window.JobBoredApp.bridgeRegistry.registerAllBridges({
+    COMMAND_CENTER_CONFIG_OVERRIDE_KEY,
+    DISCOVERY_TRANSPORT_SETUP_KEY,
+    DISCOVERY_RUN_TRACKER_KEY,
+    FORCE_CONSENT_PROMPT_KEY,
+    DISCOVERY_ENGINE_STATE_NONE,
+    DISCOVERY_ENGINE_STATE_STUB_ONLY,
+    DISCOVERY_ENGINE_STATE_UNVERIFIED,
+    GOOGLE_SHEETS_SCOPE,
+    STARTER_PIPELINE_HEADERS,
+    STARTER_PIPELINE_HEADER_RANGE,
+    getConfigCore() {
+      return configCore;
+    },
+    getSHEET_ID() {
+      return SHEET_ID;
+    },
+    setSHEET_ID(value) {
+      SHEET_ID = value;
+    },
+    getDashboardDataHydrated() {
+      return dashboardDataHydrated;
+    },
+    setDashboardDataHydrated(value) {
+      dashboardDataHydrated = value;
+    },
+    getInitialSheetAccessResolved() {
+      return initialSheetAccessResolved;
+    },
+    setInitialSheetAccessResolved(value) {
+      initialSheetAccessResolved = value;
+    },
+    getDataLoadFailed() {
+      return dataLoadFailed;
+    },
+    setDataLoadFailed(value) {
+      dataLoadFailed = value;
+    },
+    getPendingSetupStarterSheetCreate() {
+      return pendingSetupStarterSheetCreate;
+    },
+    setPendingSetupStarterSheetCreate(value) {
+      pendingSetupStarterSheetCreate = !!value;
+    },
+    setPendingSetupStarterSheetCreateRaw(value) {
+      pendingSetupStarterSheetCreate = value;
+    },
+    getGisInitStartedAt() {
+      return typeof gisInitStartedAt !== "undefined" && gisInitStartedAt
+        ? gisInitStartedAt
+        : 0;
+    },
+    applyOAuthClientChange,
+    buildCandidateProfileExcerpt,
+    buildCloudflareRelayAgentPrompt,
+    buildCloudflareRelayCorsSnippet,
+    buildDiscoveryRelayDeployCommandForTarget,
+    buildDiscoveryTunnelTargetUrl,
+    buildDiscoveryWebhookPayload,
+    cacheEnrichment,
+    canUseLocalStorage,
+    checkOnboardingGate,
+    clearDiscoveryWizardRuntime,
+    clearPersistedOAuthSession,
+    clearPersistedRuntimeOAuthSession,
+    clearSessionAuthState,
+    closeAuthUserMenu,
+    closeCommandCenterSettingsModal,
+    closeDiscoverySetupGuideModal,
+    closeMaterialsModal,
+    closeScraperSetupModal,
+    copyTextToClipboard,
+    createDiscoveryRelayCopyCommandToastAction,
+    createDiscoveryWizardRuntime,
+    deployAppsScriptStubFromSettings,
+    diagnoseDownstreamChain,
+    dismissJob,
+    escapeHtml,
+    fetchJobPostingEnrichment,
+    fillDocumentTemplateSelect,
+    fillVisualThemeSelect,
+    focusDiscoveryWebhookFieldInSettings,
+    getAccessToken,
+    getActiveDetailKey,
+    getActiveSheetId,
+    getAtsScorecardApiUrl,
+    getAtsScoringConfig,
+    getCachedEnrichmentForJob,
+    getCloudflareRelayTargetInfo,
+    getConfig,
+    getCurrentSearch,
+    getCurrentSort,
+    getDiscoveryEngineStateFromVerificationResult,
+    getDiscoveryLocalEngineKind,
+    getDiscoveryLocalEngineLabel,
+    getDiscoveryLocalEngineSummary,
+    getDiscoveryLocalWebhookHealthUrl,
+    getDiscoveryReadinessSnapshot,
+    getDiscoveryRecoveryCopy,
+    getDiscoveryRelaySuggestedOrigin,
+    getDiscoveryRelayWorkerName,
+    getDiscoverySettingsView,
+    getDiscoveryTransportSetupState,
+    getDiscoveryWebhookSecret,
+    getDiscoveryWebhookUrl,
+    getDiscoveryWizardDefaultDrafts,
+    getDiscoveryWizardLocalApi,
+    getDiscoveryWizardProbesApi,
+    getDiscoveryWizardRecommendedFlow,
+    getDiscoveryWizardRelayApi,
+    getDiscoveryWizardRoot,
+    getDiscoveryWizardRuntime,
+    getDiscoveryWizardShellApi,
+    getDiscoveryWizardStepIds,
+    getDiscoveryWizardStepsBefore,
+    getDiscoveryWizardVerifyApi,
+    getDraftsForJob,
+    getEffectiveFitProfileFields,
+    getFavoritesOnly,
+    getFreshDiscoveryRequestGoogleAccessToken,
+    getGisLoaded,
+    getJobOpportunityKey,
+    getJobPostingScrapeUrl,
+    getManagedAppsScriptWebhookIdentity,
+    getOAuthClientId,
+    getPipelineData,
+    getPipelineRawRows,
+    getPipelineViewFilters,
+    getResumeBundle,
+    getResumeGenerate,
+    getResumeIngest,
+    getResumeIngestReady,
+    getSavedDiscoveryEngineStateForUrl,
+    getSettingsFieldValue,
+    getSettingsOAuthClientIdValue,
+    getSettingsSheetIdValue,
+    getSheetId,
+    getSheetRow,
+    getShowDismissed,
+    getSuggestedCloudflareRelayWorkerName,
+    getTokenClient,
+    getTokenExpiresAt,
+    getUserContent,
+    getUserEmailFromAuth,
+    getViewedJobKeys,
+    getExpandedStages,
+    handleAppsScriptBrowserCorsFailure,
+    handleSetupCreateStarterSheet,
+    hasGrantedOauthScope,
+    hasPendingDiscoverySetup,
+    hasUnsavedOAuthClientIdChange,
+    hideOnboardingWizard,
+    hideSettingsClearConfirmBar,
+    hydrateDiscoveryTransportSetupFromLocalBootstrap,
+    inferCloudflareWorkerNameFromOpenWorkerUrl,
+    inferLocalWebhookPort,
+    initAuth,
+    initAuthUserMenu,
+    initCommandCenterSettings,
+    initDiscoveryButton,
+    initDiscoveryDrawer,
+    initDiscoverySetupGuide,
+    initDiscoverySubtabs,
+    initExpiredReviewUi,
+    initIngestUrlFlow,
+    initResumeMaterialsFeature,
+    initScraperSetupGuide,
+    initSetupAndSheetAccessActions,
+    installDoctor,
+    installKeepAliveOnce,
+    isAppsScriptPublicAccessReady,
+    isAuthUserMenuOpen,
+    isFetchNetworkError,
+    isIngestSheetAuthFailure,
+    isLikelyAppsScriptWebAppUrl,
+    isLikelyCloudflareWorkerUrl,
+    isLikelyNgrokWebhookUrl,
+    isLocalDashboardOrigin,
+    isLocalWebhookCandidateUrl,
+    isManagedAppsScriptDeployState,
+    isOnboardingWizardVisible,
+    isPlaceholderLogoUrl,
+    isScraperUrlBlockedOnThisPage,
+    isSettingsModalOpen,
+    isSignedIn,
+    loadAllData,
+    loadPersistedOAuthSession,
+    loadPersistedRuntimeOAuthSession,
+    mapDiscoveryWizardFlow,
+    markJobViewed,
+    maybeAutoOpenExpiredReviewModal,
+    mergeStoredConfigOverridePatch,
+    normalizeDashboardTitle,
+    normalizeDiscoveryLocalWebhookUrl,
+    normalizeDiscoveryTunnelPublicUrl,
+    normalizeDiscoveryWebhookIdentity,
+    normalizeLeadUrlClient,
+    normalizeProfileTextInput,
+    normalizeResponseFlag,
+    notifyPipelineFiltersChanged,
+    notifyPipelineRendered,
+    openCommandCenterSettingsModal,
+    openDiscoveryPathsModal,
+    openDiscoverySetupWizard,
+    openJobDetail,
+    openMaterialsModal,
+    openSettingsForDiscoveryWebhook,
+    parseGoogleSheetId,
+    persistDiscoveryWizardState,
+    populateAppsScriptDeployStateIntoSettingsForm,
+    preloadDiscoveryUiState,
+    probeNgrokFromLocalApi,
+    probeTunnelStaleBadge,
+    readStoredConfigOverrides,
+    recheckAppsScriptPublicAccessFromSettings,
+    recordDiscoveryEngineState,
+    refreshAccessTokenSilently,
+    refreshDiscoveryReadinessSnapshot,
+    refreshDiscoveryUiState,
+    refreshDiscoveryWebhookSecretFromBootstrapForEndpoint,
+    refreshDrawerIfOpen,
+    refreshGeneratedDraftLibraryCache,
+    refreshPersonalPreferencesPanel,
+    renderAreaWidget,
+    renderAppsScriptDeployUi,
+    renderBrief,
+    renderDiscoveryEngineStatusUi,
+    renderDiscoverySetupWizard,
+    renderExpiredReviewButton,
+    renderPipeline,
+    renderPipelineDailyBrief,
+    renderResumeGenerateInsights,
+    renderSetupStarterSheetUi,
+    renderStats,
+    requestDiscoverySetup,
+    resolveCompanyLogoUrl,
+    resolveDiscoveryRunWebhookUrl,
+    responseLabelForDisplay,
+    restoreJob,
+    resumeDiscoveryStatusPollingIfNeeded,
+    resumePendingDiscoverySetupIfNeeded,
+    revealSetupScreenAfterAuth,
+    runPostAccessBootstrapOnce,
+    sameDiscoveryUrlOrigin,
+    selectedResponseSheetValue,
+    setActiveDetailKey,
+    setCurrentSearch,
+    setCurrentSort,
+    setDiscoveryWizardMessage,
+    setDiscoveryWizardRuntime,
+    setFavoritesOnly,
+    setPipelineData,
+    setPipelineRawRows,
+    setPipelineViewFilters,
+    setShowDismissed,
+    setDashboardSheetLinks,
+    sheetsBatchUpdate,
+    sheetsValuesAppend,
+    sheetsValuesGet,
+    sheetsValuesUpdate,
+    showDiscoveryVerificationToast,
+    showAppsScriptPublicAccessRemediationFromState,
+    showOnboardingWizard,
+    showSheetAccessGate,
+    showToast,
+    signIn,
+    syncDiscoveryButtonState,
+    syncPipelineFilterControls,
+    toggleFavorite,
+    triggerDiscoveryRun,
+    updateDiscoveryWizardRuntime,
+    updateFollowUpDate,
+    updateJobNotes,
+    updateJobResponseFlag,
+    updateJobStatus,
+    updateLastHeardFrom,
+    updateLastRefresh,
+    updateMultipleCells,
+    updateSheetCell,
+    verifyDiscoveryWebhookWithSharedModel,
+    warnDiscoverySourceReadinessBeforeRun,
+    writeDiscoveryTransportSetupState,
+    writeStoredConfigOverrides,
+    applyEnrichmentCache,
+  });
+}
 
-
-// Discovery readiness bridge. discovery-readiness.js loads BEFORE app.js.
-window.JobBoredDiscovery.readiness = window.JobBoredDiscovery.readiness || {};
-window.JobBoredDiscovery.readiness.host = {
-  getSHEET_ID() {
-    return SHEET_ID;
-  },
-  getDashboardDataHydrated() {
-    return dashboardDataHydrated;
-  },
-  parseGoogleSheetId,
-  getDiscoveryWebhookUrl,
-  getDiscoveryTransportSetupState,
-  normalizeDiscoveryLocalWebhookUrl,
-  normalizeDiscoveryTunnelPublicUrl,
-  isLocalDashboardOrigin,
-  isLikelyAppsScriptWebAppUrl,
-  isLikelyCloudflareWorkerUrl,
-  isAppsScriptPublicAccessReady,
-  isManagedAppsScriptDeployState,
-  syncDiscoveryButtonState,
-  renderDiscoveryEngineStatusUi,
-  renderDiscoverySetupWizard,
-  renderPipelineDailyBrief,
-  renderPipeline,
-  getAccessToken,
-  getTokenExpiresAt,
-  refreshAccessTokenSilently,
-  getEffectiveFitProfileFields,
-  generateDiscoveryVariationKey(...args) {
-    return window.JobBoredDiscovery.runOrchestration.generateDiscoveryVariationKey(
-      ...args,
-    );
-  },
-  getDiscoveryWebhookSecret,
-  refreshDiscoveryWebhookSecretFromBootstrapForEndpoint,
-  showToast,
-  copyTextToClipboard,
-  requestDiscoverySetup,
-};
-
-// Discovery engine state bridge. discovery-engine-state.js loads BEFORE app.js
-// and reads host lazily for settings getters and persistence side effects.
-window.JobBoredDiscovery = window.JobBoredDiscovery || {};
-window.JobBoredDiscovery.engineState = window.JobBoredDiscovery.engineState || {};
-window.JobBoredDiscovery.engineState.host = {
-  parseGoogleSheetId,
-  getOAuthClientId,
-  getDiscoveryWebhookUrl,
-  refreshDiscoveryUiState,
-  refreshDiscoveryReadinessSnapshot,
-};
-
-// Discovery status handoff bridge. discovery-status-handoff.js loads BEFORE app.js.
-window.JobBoredDiscovery.status = window.JobBoredDiscovery.status || {};
-window.JobBoredDiscovery.status.host = {
-  getConfigCore() {
-    return configCore;
-  },
-  getDiscoveryWizardProbesApi,
-  getDiscoveryWizardRelayApi,
-  buildDiscoveryTunnelTargetUrl,
-  inferCloudflareWorkerNameFromOpenWorkerUrl,
-  getSuggestedCloudflareRelayWorkerName,
-  getSettingsSheetIdValue,
-  getDiscoveryWebhookUrl,
-  buildDiscoveryRelayDeployCommandForTarget,
-  getDiscoveryRelaySuggestedOrigin,
-  isOnboardingWizardVisible,
-  openDiscoverySetupWizard,
-  getDiscoveryWizardRecommendedFlow,
-  getDiscoveryReadinessSnapshot,
-  checkOnboardingGate,
-  normalizeDiscoveryWebhookIdentity,
-  isLocalWebhookCandidateUrl,
-  isLocalDashboardOrigin,
-  getDiscoveryTransportSetupState,
-  normalizeDiscoveryLocalWebhookUrl,
-  getDiscoveryLocalEngineKind,
-  isLikelyCloudflareWorkerUrl,
-  loadAllData,
-  renderAppsScriptDeployUi,
-  showToast,
-};
-
-// Config overrides bridge. config-overrides.js loads BEFORE app.js and reads
-// host lazily for bootstrap hydration helpers that depend on later app.js defs.
-window.JobBoredApp.configOverrides = window.JobBoredApp.configOverrides || {};
-window.JobBoredApp.configOverrides.host = {
-  getDiscoveryWebhookUrl,
-  getDiscoveryWebhookSecret,
-  normalizeDiscoveryWebhookIdentity,
-  isLocalWebhookCandidateUrl,
-  buildDiscoveryTunnelTargetUrl,
-  inferCloudflareWorkerNameFromOpenWorkerUrl,
-};
-
-// Apps Script / relay helpers bridge. apps-script-relay-helpers.js loads BEFORE
-// app.js; settings/webhook deps are published here after hoisted wrappers exist.
-window.JobBoredDiscovery.relayHelpers =
-  window.JobBoredDiscovery.relayHelpers || {};
-window.JobBoredDiscovery.relayHelpers.host = {
-  copyTextToClipboard,
-  getSettingsSheetIdValue,
-  getSettingsFieldValue,
-  getDiscoveryWebhookUrl,
-  normalizeDiscoveryWebhookIdentity,
-};
-
-// Apps Script deploy bridge. apps-script-deploy.js loads BEFORE app.js.
-window.JobBoredDiscovery.appsScriptDeploy =
-  window.JobBoredDiscovery.appsScriptDeploy || {};
-window.JobBoredDiscovery.appsScriptDeploy.host = {
-  getSettingsOAuthClientIdValue,
-  hasUnsavedOAuthClientIdChange,
-  getGisLoaded,
-  getUserEmailFromAuth,
-  getSettingsSheetIdValue,
-  isFetchNetworkError,
-  mergeStoredConfigOverridePatch,
-  recordDiscoveryEngineState,
-  syncDiscoveryButtonState,
-  renderDiscoveryEngineStatusUi,
-  getDiscoveryReadinessSnapshot,
-  getGisInitStartedAt() {
-    return typeof gisInitStartedAt !== "undefined" && gisInitStartedAt
-      ? gisInitStartedAt
-      : 0;
-  },
-};
-
-// Discovery setup modals bridge. discovery-setup-modals.js loads BEFORE app.js.
-window.JobBoredDiscovery.setupModals =
-  window.JobBoredDiscovery.setupModals || {};
-window.JobBoredDiscovery.setupModals.host = {
-  normalizeDiscoveryWebhookIdentity,
-  parseGoogleSheetId,
-  showToast,
-  buildDiscoveryWebhookPayload,
-  verifyDiscoveryWebhookWithSharedModel,
-  getDiscoveryEngineStateFromVerificationResult,
-  recordDiscoveryEngineState,
-  refreshDiscoveryReadinessSnapshot,
-  showDiscoveryVerificationToast,
-  refreshDiscoveryUiState,
-  normalizeDiscoveryLocalWebhookUrl,
-  normalizeDiscoveryTunnelPublicUrl,
-  buildDiscoveryTunnelTargetUrl,
-  getDiscoveryLocalWebhookHealthUrl,
-  inferLocalWebhookPort,
-  getDiscoveryTransportSetupState,
-  hydrateDiscoveryTransportSetupFromLocalBootstrap,
-  isLocalDashboardOrigin,
-  writeDiscoveryTransportSetupState,
-  buildDiscoveryRelayDeployCommandForTarget,
-  createDiscoveryRelayCopyCommandToastAction,
-  getSettingsFieldValue,
-  getDiscoveryWebhookUrl,
-  getDiscoveryRelaySuggestedOrigin,
-  getDiscoveryRelayWorkerName,
-  getSettingsSheetIdValue,
-  isLikelyCloudflareWorkerUrl,
-  isLikelyAppsScriptWebAppUrl,
-  buildCloudflareRelayAgentPrompt,
-  buildCloudflareRelayCorsSnippet,
-  showAppsScriptPublicAccessRemediationFromState,
-  isSettingsModalOpen,
-  openCommandCenterSettingsModal,
-  isManagedAppsScriptDeployState,
-  isAppsScriptPublicAccessReady,
-  requestDiscoverySetup,
-  copyTextToClipboard,
-  mergeStoredConfigOverridePatch,
-  syncDiscoveryButtonState,
-  focusDiscoveryWebhookFieldInSettings,
-  getConfigCore() {
-    return configCore;
-  },
-};
-
-// App bootstrap bridge. app-bootstrap.js loads BEFORE app.js.
-window.JobBoredApp.bootstrap = window.JobBoredApp.bootstrap || {};
-window.JobBoredApp.bootstrap.host = {
-  requestDiscoverySetup,
-  triggerDiscoveryRun,
-  getPipelineData,
-  renderAreaWidget,
-  openJobDetail,
-  openDiscoveryPathsModal,
-  getSheetId,
-  setSHEET_ID(value) {
-    SHEET_ID = value;
-  },
-  getSHEET_ID() {
-    return SHEET_ID;
-  },
-  setInitialSheetAccessResolved(value) {
-    initialSheetAccessResolved = value;
-  },
-  resetPostAccessBootstrap() {
-    return window.JobBoredDiscovery.status.resetPostAccessBootstrap();
-  },
-  initAuthUserMenu,
-  initResumeMaterialsFeature,
-  initDiscoveryDrawer,
-  initDiscoverySubtabs,
-  initDiscoveryButton,
-  getOAuthClientId,
-  showSheetAccessGate,
-  initAuth,
-  renderSetupStarterSheetUi,
-  loadPersistedRuntimeOAuthSession,
-  loadPersistedOAuthSession,
-  getConfig,
-  setDashboardSheetLinks,
-  preloadDiscoveryUiState,
-  resumeDiscoveryStatusPollingIfNeeded,
-  setCurrentSort,
-  renderPipeline,
-  setCurrentSearch,
-  setPipelineViewFilters,
-  getFavoritesOnly,
-  getShowDismissed,
-  syncPipelineFilterControls,
-  initExpiredReviewUi,
-  loadAllData,
-  closeAuthUserMenu,
-  closeMaterialsModal,
-  closeCommandCenterSettingsModal,
-  initCommandCenterSettings,
-  initSetupAndSheetAccessActions,
-  initScraperSetupGuide,
-  initDiscoverySetupGuide,
-  initIngestUrlFlow,
-};
-
-// Discovery run orchestration bridge. discovery-run-orchestration.js loads BEFORE app.js.
-window.JobBoredDiscovery.runOrchestration =
-  window.JobBoredDiscovery.runOrchestration || {};
-window.JobBoredDiscovery.runOrchestration.host = {
-  getDiscoveryTransportSetupState,
-  getCloudflareRelayTargetInfo,
-  buildDiscoveryTunnelTargetUrl,
-  isLocalDashboardOrigin,
-  getDiscoveryWebhookUrl,
-  normalizeDiscoveryWebhookIdentity,
-  getDiscoveryWizardVerifyApi,
-  isLikelyCloudflareWorkerUrl,
-  isLikelyAppsScriptWebAppUrl,
-  isLikelyNgrokWebhookUrl,
-  sameDiscoveryUrlOrigin,
-  hydrateDiscoveryTransportSetupFromLocalBootstrap,
-  getDiscoveryReadinessSnapshot,
-  refreshDiscoveryReadinessSnapshot,
-  writeDiscoveryTransportSetupState,
-  setDiscoveryWizardMessage,
-  showToast,
-  warnDiscoverySourceReadinessBeforeRun,
-  requestDiscoverySetup,
-  buildDiscoveryWebhookPayload,
-  getSHEET_ID() {
-    return SHEET_ID;
-  },
-  verifyDiscoveryWebhookWithSharedModel,
-  getDiscoveryEngineStateFromVerificationResult,
-  recordDiscoveryEngineState,
-  showDiscoveryVerificationToast,
-  handleAppsScriptBrowserCorsFailure,
-};
-
-// Discovery drawer bridge. discovery-drawer.js loads BEFORE app.js.
-window.JobBoredDiscovery.drawer = window.JobBoredDiscovery.drawer || {};
-window.JobBoredDiscovery.drawer.host = {
-  getDiscoveryReadinessSnapshot,
-  getDiscoverySettingsView,
-  getDiscoveryWebhookUrl,
-  isLocalDashboardOrigin,
-  getDiscoveryTransportSetupState,
-  hydrateDiscoveryTransportSetupFromLocalBootstrap,
-  getDiscoveryLocalWebhookHealthUrl,
-  isLocalWebhookCandidateUrl,
-  showToast,
-  triggerDiscoveryRun,
-  getJobPostingScrapeUrl,
-  getUserContent,
-  buildCandidateProfileExcerpt,
-  callDiscoveryAiGemini(...args) {
-    return window.JobBoredDiscovery.drawer.callDiscoveryAiGemini(...args);
-  },
-  callDiscoveryAiOpenAI(...args) {
-    return window.JobBoredDiscovery.drawer.callDiscoveryAiOpenAI(...args);
-  },
-  callDiscoveryAiAnthropic(...args) {
-    return window.JobBoredDiscovery.drawer.callDiscoveryAiAnthropic(...args);
-  },
-  parseJsonSafeForSuggestions(...args) {
-    return window.JobBoredDiscovery.drawer.parseJsonSafeForSuggestions(...args);
-  },
-  openSettingsForDiscoveryWebhook,
-  syncDiscoveryButtonState,
-};
-
-// Ingest URL flow bridge. ingest-url-flow.js loads BEFORE app.js.
-window.JobBoredDiscovery.ingestUrlFlow =
-  window.JobBoredDiscovery.ingestUrlFlow || {};
-window.JobBoredDiscovery.ingestUrlFlow.host = {
-  getPipelineData() {
-    return getPipelineData();
-  },
-  getCurrentSearch() {
-    return getCurrentSearch();
-  },
-  setCurrentSearch(value) {
-    setCurrentSearch(value);
-  },
-  getFavoritesOnly() {
-    return getFavoritesOnly();
-  },
-  setFavoritesOnly(value) {
-    setFavoritesOnly(value);
-  },
-  getSHEET_ID() {
-    return SHEET_ID;
-  },
-  getAccessToken,
-  getOAuthClientId,
-  getSheetId,
-  getDiscoveryWebhookSecret,
-  showSheetAccessGate,
-  clearPersistedRuntimeOAuthSession,
-  getFreshDiscoveryRequestGoogleAccessToken,
-  refreshDiscoveryWebhookSecretFromBootstrapForEndpoint,
-  resolveDiscoveryRunWebhookUrl,
-  isFetchNetworkError,
-  getDiscoveryWizardVerifyApi,
-  showDiscoveryVerificationToast,
-  showToast,
-  sheetsValuesAppend,
-  loadAllData,
-  updateMultipleCells,
-  normalizeLeadUrlClient,
-  getSheetRow,
-  syncPipelineFilterControls,
-  notifyPipelineFiltersChanged,
-  renderPipeline,
-  fetchJobPostingEnrichment,
-  resolveCompanyLogoUrl,
-  isPlaceholderLogoUrl,
-  isIngestSheetAuthFailure,
-};
-
-// Discovery setup-wizard UI bridge. discovery-wizard-ui.js loads BEFORE app.js,
-// so it cannot capture these references at its own load time — app.js publishes
-// them here (after every helper is hoisted) and the UI file reads
-// `window.JobBoredDiscoveryWizard.ui.host` lazily inside each function.
-window.JobBoredDiscoveryWizard = window.JobBoredDiscoveryWizard || {};
-window.JobBoredDiscoveryWizard.ui = window.JobBoredDiscoveryWizard.ui || {};
-window.JobBoredDiscoveryWizard.ui.host = {
-  showToast,
-  refreshDiscoveryReadinessSnapshot,
-  getDiscoveryWizardRuntime,
-  updateDiscoveryWizardRuntime,
-  createDiscoveryWizardRuntime,
-  clearDiscoveryWizardRuntime,
-  persistDiscoveryWizardState,
-  triggerDiscoveryRun,
-  isOnboardingWizardVisible,
-  hideOnboardingWizard,
-  showOnboardingWizard,
-  isSettingsModalOpen,
-  closeCommandCenterSettingsModal,
-  openCommandCenterSettingsModal,
-  installKeepAliveOnce,
-  handleAppsScriptBrowserCorsFailure,
-  diagnoseDownstreamChain,
-  copyTextToClipboard,
-  getSettingsSheetIdValue,
-  isLocalDashboardOrigin,
-  normalizeDiscoveryWebhookIdentity,
-  mapDiscoveryWizardFlow,
-  getDiscoveryWizardStepIds,
-  getDiscoveryWizardStepsBefore,
-  getDiscoveryWizardDefaultDrafts,
-  getDiscoveryReadinessSnapshot,
-  escapeHtml,
-  getDiscoveryWizardShellApi,
-  getDiscoveryWizardProbesApi,
-  getDiscoveryWizardLocalApi,
-  getDiscoveryWizardRelayApi,
-  getDiscoveryWizardVerifyApi,
-  inferLocalWebhookPort,
-  getDiscoveryLocalEngineKind,
-  getDiscoveryLocalEngineLabel,
-  getDiscoveryLocalEngineSummary,
-  getDiscoveryRecoveryCopy,
-  getDiscoverySettingsView,
-  isLikelyCloudflareWorkerUrl,
-  probeNgrokFromLocalApi,
-  // Phase 1b: orchestration-layer deps (render/open/handle moved into the UI file).
-  closeDiscoverySetupGuideModal,
-  showDiscoveryVerificationToast,
-  buildDiscoveryWebhookPayload,
-  verifyDiscoveryWebhookWithSharedModel,
-  getDiscoveryEngineStateFromVerificationResult,
-  recordDiscoveryEngineState,
-  mergeStoredConfigOverridePatch,
-  getDiscoveryWebhookUrl,
-  writeDiscoveryTransportSetupState,
-  createDiscoveryRelayCopyCommandToastAction,
-  setDiscoveryWizardRuntime,
-  getActiveSheetId,
-  DISCOVERY_ENGINE_STATE_STUB_ONLY,
-  DISCOVERY_ENGINE_STATE_UNVERIFIED,
-};
-
-// Daily Brief bridge. daily-brief.js loads BEFORE app.js and reads host lazily.
-window.JobBoredApp = window.JobBoredApp || {};
-window.JobBoredApp.brief = window.JobBoredApp.brief || {};
-window.JobBoredApp.brief.host = {
-  escapeHtml(...args) {
-    return window.JobBoredApp.utils.escapeHtml(...args);
-  },
-  getPipelineData() {
-    return getPipelineData();
-  },
-  normalizeResponseFlag,
-  responseLabelForDisplay,
-  openJobDetail,
-};
-
-// Pipeline controller bridge. pipeline-controller.js loads BEFORE app.js.
-window.JobBoredApp.pipelineController =
-  window.JobBoredApp.pipelineController || {};
-window.JobBoredApp.pipelineController.host = {
-  renderPipeline,
-  renderStats,
-  renderBrief,
-  refreshDrawerIfOpen,
-};
-
-// Core bridge for extracted modules — host delegates + mutable-state accessors (Phase 1; no body moves).
-window.JobBoredApp.core = window.JobBoredApp.core || {};
-window.JobBoredApp.core.host = {
-  showToast(...args) {
-    return showToast(...args);
-  },
-  escapeHtml(...args) {
-    return window.JobBoredApp.utils.escapeHtml(...args);
-  },
-  safeHref(...args) {
-    return window.JobBoredApp.utils.safeHref(...args);
-  },
-  getConfig() {
-    return getConfig();
-  },
-  getSheetId() {
-    return getSheetId();
-  },
-  getActiveSheetId() {
-    return getActiveSheetId();
-  },
-  getAccessToken() {
-    return getAccessToken();
-  },
-  getUserEmail() {
-    return getUserEmailFromAuth();
-  },
-  isSignedIn() {
-    return isSignedIn();
-  },
-  refreshAccessTokenSilently() {
-    return refreshAccessTokenSilently();
-  },
-  getPipelineData() {
-    return getPipelineData();
-  },
-  setPipelineData(data) {
-    setPipelineData(data);
-  },
-  getPipelineRawRows() {
-    return getPipelineRawRows();
-  },
-  setPipelineRawRows(rows) {
-    setPipelineRawRows(rows);
-  },
-  getPipelineViewFilters() {
-    return getPipelineViewFilters();
-  },
-  setPipelineViewFilters(next) {
-    return setPipelineViewFilters(next);
-  },
-  renderPipeline() {
-    return renderPipeline();
-  },
-  renderBrief(...args) {
-    return renderBrief(...args);
-  },
-  renderStats(...args) {
-    return renderStats(...args);
-  },
-  renderExpiredReviewButton(...args) {
-    return renderExpiredReviewButton(...args);
-  },
-  refreshDrawerIfOpen(...args) {
-    return refreshDrawerIfOpen(...args);
-  },
-  loadAllData() {
-    return loadAllData();
-  },
-  updateSheetCell(...args) {
-    return updateSheetCell(...args);
-  },
-  updateMultipleCells(...args) {
-    return updateMultipleCells(...args);
-  },
-  sheetsValuesAppend(...args) {
-    return sheetsValuesAppend(...args);
-  },
-  sheetsValuesGet(...args) {
-    return sheetsValuesGet(...args);
-  },
-  sheetsValuesUpdate(...args) {
-    return sheetsValuesUpdate(...args);
-  },
-  sheetsBatchUpdate(...args) {
-    return sheetsBatchUpdate(...args);
-  },
-  showSheetAccessGate(...args) {
-    return window.JobBoredApp.setup.showSheetAccessGate(...args);
-  },
-  revealSetupScreenAfterAuth(...args) {
-    return revealSetupScreenAfterAuth(...args);
-  },
-  renderSetupStarterSheetUi(...args) {
-    return renderSetupStarterSheetUi(...args);
-  },
-  handleSetupCreateStarterSheet(...args) {
-    return handleSetupCreateStarterSheet(...args);
-  },
-  getPendingSetupStarterSheetCreate() {
-    return pendingSetupStarterSheetCreate;
-  },
-  setPendingSetupStarterSheetCreate(value) {
-    pendingSetupStarterSheetCreate = !!value;
-  },
-  getLastSheetAccessError(...args) {
-    return window.JobBoredApp.setup.getLastSheetAccessError(...args);
-  },
-  maybeSyncSettingsModalModeAfterAuth(...args) {
-    return window.JobBoredApp.settings.maybeSyncSettingsModalModeAfterAuth(...args);
-  },
-  refreshPersonalPreferencesPanel(...args) {
-    return refreshPersonalPreferencesPanel(...args);
-  },
-  showOnboardingWizard(...args) {
-    return showOnboardingWizard(...args);
-  },
-  openCommandCenterSettingsModal(...args) {
-    return window.JobBoredApp.settings.openCommandCenterSettingsModal(...args);
-  },
-  closeCommandCenterSettingsModal(...args) {
-    return window.JobBoredApp.settings.closeCommandCenterSettingsModal(...args);
-  },
-  getUserContent() {
-    return getUserContent();
-  },
-  getResumeBundle() {
-    return getResumeBundle();
-  },
-  getResumeGenerate() {
-    return getResumeGenerate();
-  },
-  getResumeIngest() {
-    return getResumeIngest();
-  },
-  closeAuthUserMenu() {
-    return closeAuthUserMenu();
-  },
-  fillDocumentTemplateSelect(...args) {
-    return fillDocumentTemplateSelect(...args);
-  },
-  fillVisualThemeSelect(...args) {
-    return fillVisualThemeSelect(...args);
-  },
-  dismissJob(...args) {
-    return dismissJob(...args);
-  },
-  getSheetRow(...args) {
-    return getSheetRow(...args);
-  },
-  getJobPostingScrapeUrl() {
-    return getJobPostingScrapeUrl();
-  },
-  isScraperUrlBlockedOnThisPage(...args) {
-    return isScraperUrlBlockedOnThisPage(...args);
-  },
-  buildCandidateProfileExcerpt(...args) {
-    return buildCandidateProfileExcerpt(...args);
-  },
-  getCachedEnrichmentForJob(...args) {
-    return getCachedEnrichmentForJob(...args);
-  },
-  cacheEnrichment(...args) {
-    return cacheEnrichment(...args);
-  },
-  applyEnrichmentCache(...args) {
-    return applyEnrichmentCache(...args);
-  },
-  getDraftsForJob(...args) {
-    return getDraftsForJob(...args);
-  },
-  refreshGeneratedDraftLibraryCache(...args) {
-    return refreshGeneratedDraftLibraryCache(...args);
-  },
-  getAtsScoringConfig() {
-    return getAtsScoringConfig();
-  },
-  getAtsScorecardApiUrl() {
-    return getAtsScorecardApiUrl();
-  },
-  renderResumeGenerateInsights(...args) {
-    return renderResumeGenerateInsights(...args);
-  },
-  getJobOpportunityKey(...args) {
-    return getJobOpportunityKey(...args);
-  },
-  openMaterialsModal(...args) {
-    return openMaterialsModal(...args);
-  },
-  getResumeIngestReady(...args) {
-    return getResumeIngestReady(...args);
-  },
-  normalizeProfileTextInput(...args) {
-    return normalizeProfileTextInput(...args);
-  },
-  readStoredConfigOverrides() {
-    return readStoredConfigOverrides();
-  },
-  mergeStoredConfigOverridePatch(...args) {
-    return mergeStoredConfigOverridePatch(...args);
-  },
-  resolveGeminiModel(...args) {
-    return window.JobBoredDiscovery.drawer.resolveGeminiModel(...args);
-  },
-  callDiscoveryAiGemini(...args) {
-    return window.JobBoredDiscovery.drawer.callDiscoveryAiGemini(...args);
-  },
-  parseJsonSafeForSuggestions(...args) {
-    return window.JobBoredDiscovery.drawer.parseJsonSafeForSuggestions(...args);
-  },
-  resumePendingDiscoverySetupIfNeeded(...args) {
-    return resumePendingDiscoverySetupIfNeeded(...args);
-  },
-  normalizeDashboardTitle(...args) {
-    return normalizeDashboardTitle(...args);
-  },
-  parseGoogleSheetId(...args) {
-    return window.JobBoredApp.configCore.parseGoogleSheetId(...args);
-  },
-  writeStoredConfigOverrides(...args) {
-    return writeStoredConfigOverrides(...args);
-  },
-  canUseLocalStorage() {
-    return canUseLocalStorage();
-  },
-  applyOAuthClientChange(...args) {
-    return applyOAuthClientChange(...args);
-  },
-  syncDiscoveryButtonState() {
-    return syncDiscoveryButtonState();
-  },
-  setDashboardSheetLinks() {
-    return window.JobBoredApp.setup.setDashboardSheetLinks();
-  },
-  setSHEET_ID(value) {
-    SHEET_ID = value;
-  },
-  normalizeDiscoveryWebhookIdentity(...args) {
-    return normalizeDiscoveryWebhookIdentity(...args);
-  },
-  recordDiscoveryEngineState(...args) {
-    return recordDiscoveryEngineState(...args);
-  },
-  getManagedAppsScriptWebhookIdentity() {
-    return getManagedAppsScriptWebhookIdentity();
-  },
-  getSavedDiscoveryEngineStateForUrl(...args) {
-    return getSavedDiscoveryEngineStateForUrl(...args);
-  },
-  getDiscoveryEngineStateNone() {
-    return DISCOVERY_ENGINE_STATE_NONE;
-  },
-  getDiscoveryEngineStateStubOnly() {
-    return DISCOVERY_ENGINE_STATE_STUB_ONLY;
-  },
-  getDiscoveryEngineStateUnverified() {
-    return DISCOVERY_ENGINE_STATE_UNVERIFIED;
-  },
-  clearSessionAuthState() {
-    return clearSessionAuthState();
-  },
-  clearPersistedOAuthSession() {
-    return clearPersistedOAuthSession();
-  },
-  clearPersistedRuntimeOAuthSession() {
-    return clearPersistedRuntimeOAuthSession();
-  },
-  getCommandCenterConfigOverrideKey() {
-    return COMMAND_CENTER_CONFIG_OVERRIDE_KEY;
-  },
-  getDiscoveryTransportSetupKey() {
-    return DISCOVERY_TRANSPORT_SETUP_KEY;
-  },
-  getDiscoveryRunTrackerKey() {
-    return DISCOVERY_RUN_TRACKER_KEY;
-  },
-  getForceConsentPromptKey() {
-    return FORCE_CONSENT_PROMPT_KEY;
-  },
-  populateAppsScriptDeployStateIntoSettingsForm() {
-    return populateAppsScriptDeployStateIntoSettingsForm();
-  },
-  renderAppsScriptDeployUi() {
-    return renderAppsScriptDeployUi();
-  },
-  renderDiscoveryEngineStatusUi() {
-    return renderDiscoveryEngineStatusUi();
-  },
-  deployAppsScriptStubFromSettings() {
-    return deployAppsScriptStubFromSettings();
-  },
-  recheckAppsScriptPublicAccessFromSettings() {
-    return recheckAppsScriptPublicAccessFromSettings();
-  },
-  copyTextToClipboard(...args) {
-    return copyTextToClipboard(...args);
-  },
-  probeTunnelStaleBadge() {
-    return probeTunnelStaleBadge();
-  },
-  requestDiscoverySetup(...args) {
-    return requestDiscoverySetup(...args);
-  },
-  resetAppsScriptDeployModalState() {
-    configCore.appsScriptDeployStatus = null;
-    configCore.appsScriptDeployStateCache = null;
-  },
-  getAppsScriptDeployStateCache() {
-    return configCore.appsScriptDeployStateCache;
-  },
-  clearAppsScriptDeployStatusIfIdle() {
-    if (!configCore.appsScriptDeployBusy) configCore.appsScriptDeployStatus = null;
-  },
-  isAuthUserMenuOpen() {
-    return isAuthUserMenuOpen();
-  },
-  closeScraperSetupModal() {
-    return closeScraperSetupModal();
-  },
-  hideSettingsClearConfirmBar() {
-    return hideSettingsClearConfirmBar();
-  },
-  getOAuthClientId() {
-    return getOAuthClientId();
-  },
-  recordSheetAccessError(...args) {
-    return window.JobBoredApp.setup.recordSheetAccessError(...args);
-  },
-  hasGrantedOauthScope(...args) {
-    return hasGrantedOauthScope(...args);
-  },
-  getGoogleSheetsScope() {
-    return GOOGLE_SHEETS_SCOPE;
-  },
-  getStarterPipelineHeaders() {
-    return STARTER_PIPELINE_HEADERS;
-  },
-  getStarterPipelineHeaderRange() {
-    return STARTER_PIPELINE_HEADER_RANGE;
-  },
-  installDoctor() {
-    return installDoctor();
-  },
-  hasPendingDiscoverySetup() {
-    return hasPendingDiscoverySetup();
-  },
-  getDataLoadFailed() {
-    return dataLoadFailed;
-  },
-  setDataLoadFailed(value) {
-    dataLoadFailed = value;
-  },
-  getDashboardDataHydrated() {
-    return dashboardDataHydrated;
-  },
-  setDashboardDataHydrated(value) {
-    dashboardDataHydrated = value;
-  },
-  getInitialSheetAccessResolved() {
-    return initialSheetAccessResolved;
-  },
-  setInitialSheetAccessResolved(value) {
-    initialSheetAccessResolved = value;
-  },
-  updateLastRefresh() {
-    return updateLastRefresh();
-  },
-  maybeAutoOpenExpiredReviewModal(...args) {
-    return maybeAutoOpenExpiredReviewModal(...args);
-  },
-  revealDashboardShell() {
-    return window.JobBoredApp.setup.revealDashboardShell();
-  },
-  runPostAccessBootstrapOnce() {
-    return runPostAccessBootstrapOnce();
-  },
-  markJobViewed(...args) {
-    return markJobViewed(...args);
-  },
-  notifyPipelineRendered(...args) {
-    return notifyPipelineRendered(...args);
-  },
-  toggleFavorite(...args) {
-    return toggleFavorite(...args);
-  },
-  restoreJob(...args) {
-    return restoreJob(...args);
-  },
-  updateJobStatus(...args) {
-    return updateJobStatus(...args);
-  },
-  updateJobNotes(...args) {
-    return updateJobNotes(...args);
-  },
-  updateFollowUpDate(...args) {
-    return updateFollowUpDate(...args);
-  },
-  updateLastHeardFrom(...args) {
-    return updateLastHeardFrom(...args);
-  },
-  updateJobResponseFlag(...args) {
-    return updateJobResponseFlag(...args);
-  },
-  signIn(...args) {
-    return signIn(...args);
-  },
-  selectedResponseSheetValue(...args) {
-    return selectedResponseSheetValue(...args);
-  },
-  fetchJobPostingEnrichment(...args) {
-    return fetchJobPostingEnrichment(...args);
-  },
-};
-
-Object.assign(window.JobBoredApp.core, {
-  getSHEET_ID() {
-    return SHEET_ID;
-  },
-  setSHEET_ID(value) {
-    SHEET_ID = value;
-  },
-  getPipelineData() {
-    return getPipelineData();
-  },
-  setPipelineData(data) {
-    setPipelineData(data);
-  },
-  getPipelineRawRows() {
-    return getPipelineRawRows();
-  },
-  setPipelineRawRows(rows) {
-    setPipelineRawRows(rows);
-  },
-  getAccessToken() {
-    return getAccessToken();
-  },
-  setAccessToken(value) {
-    return window.JobBoredApp.auth.setAccessToken(value);
-  },
-  getUserEmail() {
-    return getUserEmailFromAuth();
-  },
-  setUserEmail(value) {
-    return window.JobBoredApp.auth.setUserEmail(value);
-  },
-  getTokenExpiresAt() {
-    return getTokenExpiresAt();
-  },
-  setTokenExpiresAt(value) {
-    return window.JobBoredApp.auth.setTokenExpiresAt(value);
-  },
-  getTokenClient() {
-    return getTokenClient();
-  },
-  setTokenClient(value) {
-    return window.JobBoredApp.auth.setTokenClient(value);
-  },
-  getGisLoaded() {
-    return getGisLoaded();
-  },
-  setGisLoaded(value) {
-    return window.JobBoredApp.auth.setGisLoaded(value);
-  },
-  getPendingSetupStarterSheetCreate() {
-    return pendingSetupStarterSheetCreate;
-  },
-  setPendingSetupStarterSheetCreate(value) {
-    pendingSetupStarterSheetCreate = value;
-  },
-  getCurrentSort() {
-    return getCurrentSort();
-  },
-  setCurrentSort(value) {
-    setCurrentSort(value);
-  },
-  getCurrentSearch() {
-    return getCurrentSearch();
-  },
-  setCurrentSearch(value) {
-    setCurrentSearch(value);
-  },
-  getFavoritesOnly() {
-    return getFavoritesOnly();
-  },
-  setFavoritesOnly(value) {
-    setFavoritesOnly(value);
-  },
-  getShowDismissed() {
-    return getShowDismissed();
-  },
-  setShowDismissed(value) {
-    setShowDismissed(value);
-  },
-  getActiveDetailKey() {
-    return getActiveDetailKey();
-  },
-  setActiveDetailKey(value) {
-    setActiveDetailKey(value);
-  },
-  getViewedJobKeys() {
-    return getViewedJobKeys();
-  },
-  getExpandedStages() {
-    return getExpandedStages();
-  },
-  getDataLoadFailed() {
-    return dataLoadFailed;
-  },
-  getBriefActivityRange() {
-    return window.JobBoredApp.brief.getBriefActivityRange();
-  },
-  setBriefActivityRange(range) {
-    return window.JobBoredApp.brief.setBriefActivityRange(range);
-  },
-  getLastResumeGenerationSession() {
-    return window.JobBoredApp.resumeGeneration.getLastResumeGenerationSession();
-  },
-  setLastResumeGenerationSession(value) {
-    return window.JobBoredApp.resumeGeneration.setLastResumeGenerationSession(value);
-  },
-  getAtsScorecardState() {
-    return window.JobBoredApp.materialsState.getAtsScorecardState();
-  },
-  setAtsScorecardState(next) {
-    return window.JobBoredApp.materialsState.setAtsScorecardState(next);
-  },
-  getGeneratedDraftLibraryCache() {
-    return window.JobBoredApp.materialsState.getGeneratedDraftLibraryCache();
-  },
-  setGeneratedDraftLibraryCache(next) {
-    return window.JobBoredApp.materialsState.setGeneratedDraftLibraryCache(next);
-  },
-  getCandidateProfileMatchCache() {
-    return window.JobBoredApp.keywordMatch.getCandidateProfileMatchCache();
-  },
-  setCandidateProfileMatchCache(next) {
-    return window.JobBoredApp.keywordMatch.setCandidateProfileMatchCache(next);
-  },
-});
+registerBridgeHosts();
 
 // Thin delegating wrappers for wizard functions that now live in
 // discovery-wizard-ui.js but are still called by bare name from app.js code
