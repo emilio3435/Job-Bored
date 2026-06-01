@@ -20,6 +20,9 @@ import { readIndexHtml } from "../scripts/lib/expand-index-includes.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const drawerJs = readFileSync(join(repoRoot, "discovery-drawer.js"), "utf8");
+/** Drawer implementation lives in discovery-drawer.js; app.js keeps thin wrappers. */
+const drawerSource = `${appJs}\n${drawerJs}`;
 const indexHtml = readIndexHtml(repoRoot);
 const userContentStoreJs = readFileSync(
   join(repoRoot, "user-content-store.js"),
@@ -182,6 +185,11 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
   it("declares openDiscoveryDrawer / initDiscoveryDrawer as the entry points", () => {
     assert.match(appJs, /function openDiscoveryDrawer\(/);
     assert.match(appJs, /function initDiscoveryDrawer\(/);
+    assert.match(drawerJs, /window\.JobBoredDiscovery\.drawer/);
+    assert.match(drawerJs, /Object\.assign\(drawer,/);
+    assert.match(drawerJs, /window\.JobBoredDiscoveryDrawerSubtabs\s*=/);
+    assert.match(drawerJs, /setActiveSubtab:\s*setDiscoveryDrawerSubtab/);
+    assert.match(drawerJs, /window\.openDiscoveryDrawer\s*=\s*openDiscoveryDrawer/);
     assert.ok(
       !/function openDiscoveryPrefsModal\(/.test(appJs),
       "legacy modal entry point must be removed",
@@ -193,11 +201,11 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
   });
 
   it("Run discovery opens the tailoring drawer from the header click", () => {
-    const initButtonStart = appJs.indexOf("function initDiscoveryButton()");
+    const initButtonStart = drawerJs.indexOf("function initDiscoveryButton()");
     assert.notEqual(initButtonStart, -1, "initDiscoveryButton must exist");
-    const initButtonEnd = appJs.indexOf("\n  if (closeBtn)", initButtonStart);
+    const initButtonEnd = drawerJs.indexOf("\n  if (closeBtn)", initButtonStart);
     assert.notEqual(initButtonEnd, -1, "click handler section must be readable");
-    const handlerSource = appJs.slice(initButtonStart, initButtonEnd);
+    const handlerSource = drawerJs.slice(initButtonStart, initButtonEnd);
     assert.match(handlerSource, /openBtn\.addEventListener\("click"/);
     assert.match(handlerSource, /openDiscoveryDrawer\(\)/);
     assert.doesNotMatch(
@@ -338,7 +346,7 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
   });
 
   it("surfaces missing local worker source config before opening/running discovery", () => {
-    const readinessStart = appJs.indexOf(
+    const readinessStart = drawerJs.indexOf(
       "async function fetchLocalDiscoveryWorkerSourceReadiness()",
     );
     assert.notEqual(
@@ -346,7 +354,7 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
       -1,
       "fetchLocalDiscoveryWorkerSourceReadiness must exist",
     );
-    const readinessEnd = appJs.indexOf(
+    const readinessEnd = drawerJs.indexOf(
       "\n}\n\nfunction getDiscoverySourceReadinessIssues",
       readinessStart,
     );
@@ -355,10 +363,10 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
       -1,
       "fetchLocalDiscoveryWorkerSourceReadiness body must be readable",
     );
-    const readinessSource = appJs.slice(readinessStart, readinessEnd);
+    const readinessSource = drawerJs.slice(readinessStart, readinessEnd);
     assert.match(
-      appJs,
-      /function getLocalDiscoveryWorkerHealthUrlForSources\([\s\S]*getDiscoveryLocalWebhookHealthUrl\(localWebhookUrl\)/,
+      drawerSource,
+      /function getLocalDiscoveryWorkerHealthUrlForSources\([\s\S]*h\("getDiscoveryLocalWebhookHealthUrl",\s*localWebhookUrl\)/,
       "source readiness should resolve the local worker /health endpoint",
     );
     assert.match(
@@ -367,21 +375,21 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
       "drawer source readiness should read the local worker /health endpoint",
     );
     assert.match(
-      appJs,
+      drawerSource,
       /function getDiscoverySourceReadinessIssues\([\s\S]*groundedWeb[\s\S]*Gemini API key[\s\S]*serpApiGoogleJobs[\s\S]*SerpApi key/,
       "source readiness should call out missing Gemini and SerpApi config",
     );
     assert.match(
-      appJs,
+      drawerSource,
       /function renderDiscoveryDrawerSourceReadiness\([\s\S]*discoveryDrawerLastRun[\s\S]*Source config missing/,
       "drawer header should show missing source config instead of hiding it in a later partial run",
     );
 
-    const openStart = appJs.indexOf("function openDiscoveryDrawer()");
+    const openStart = drawerJs.indexOf("function openDiscoveryDrawer()");
     assert.notEqual(openStart, -1, "openDiscoveryDrawer must exist");
-    const openEnd = appJs.indexOf("\n}\n\nfunction closeDiscoveryDrawer", openStart);
+    const openEnd = drawerJs.indexOf("\n}\n\nfunction closeDiscoveryDrawer", openStart);
     assert.notEqual(openEnd, -1, "openDiscoveryDrawer body must be readable");
-    const openSource = appJs.slice(openStart, openEnd);
+    const openSource = drawerJs.slice(openStart, openEnd);
     assert.match(openSource, /refreshDiscoveryDrawerSourceReadiness\(\)/);
 
     const triggerStart = appJs.indexOf("async function triggerDiscoveryRun(");
@@ -476,9 +484,9 @@ describe("user-content-store — companyAllowlist / companyBlocklist persistence
 
 describe("AI ideation generates Safe/Adjacent/Stretch strata", () => {
   it("generateDiscoverySuggestions returns { safe, adjacent, stretch }", () => {
-    const sigStart = appJs.indexOf("async function generateDiscoverySuggestions(");
+    const sigStart = drawerJs.indexOf("async function generateDiscoverySuggestions(");
     assert.ok(sigStart !== -1, "generateDiscoverySuggestions must exist");
-    const slice = appJs.slice(sigStart, sigStart + 6000);
+    const slice = drawerJs.slice(sigStart, sigStart + 6000);
     assert.match(slice, /safe:\s*normalizeStratum/);
     assert.match(slice, /adjacent:\s*normalizeStratum/);
     assert.match(slice, /stretch:\s*normalizeStratum/);
@@ -486,14 +494,14 @@ describe("AI ideation generates Safe/Adjacent/Stretch strata", () => {
 
   it("normalizeStratum coerces companyAllowlist via the sanitizer", () => {
     assert.match(
-      appJs,
+      drawerSource,
       /function normalizeStratum\([\s\S]*?companyAllowlist:\s*sanitizeCompanyEntries/,
     );
   });
 
   it("applyStratumToDrawer overwrites the allowlist (auto-include companies by default)", () => {
     assert.match(
-      appJs,
+      drawerSource,
       /function applyStratumToDrawer\([\s\S]*?discoveryDrawerState\.allow\s*=\s*sanitizeCompanyEntries/,
     );
   });
@@ -502,9 +510,9 @@ describe("AI ideation generates Safe/Adjacent/Stretch strata", () => {
 describe("Run guard: blank intent without AI strata still blocks the run", () => {
   it("the drawer Run handler shows a warning when both targetRoles and keywordsInclude are blank", () => {
     // The handler is inside initDiscoveryDrawer.
-    const initStart = appJs.indexOf("function initDiscoveryDrawer(");
+    const initStart = drawerJs.indexOf("function initDiscoveryDrawer(");
     assert.ok(initStart !== -1);
-    const slice = appJs.slice(initStart, initStart + 8000);
+    const slice = drawerJs.slice(initStart, initStart + 8000);
     assert.match(
       slice,
       /Add target roles or keywords, or pick an AI idea above/,

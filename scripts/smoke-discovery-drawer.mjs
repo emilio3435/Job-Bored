@@ -84,6 +84,8 @@ async function runStaticFallback(reason) {
     html = readIndexHtml(REPO_ROOT);
   }
   const appJs = await fs.readFile(new globalThis.URL("../app.js", import.meta.url), "utf8");
+  const drawerJs = await fs.readFile(new globalThis.URL("../discovery-drawer.js", import.meta.url), "utf8");
+  const drawerSource = `${appJs}\n${drawerJs}`;
   const legacyDiscoveryPanelId = ["settings", "panel", "discovery"].join("-");
   const legacyProfilePanelId = ["settings", "panel", "profile"].join("-");
   const legacyProfileTabId = ["settings", "tab", "profile"].join("-");
@@ -109,10 +111,10 @@ async function runStaticFallback(reason) {
     "openDiscoveryDrawer is a function",
     /function\s+openDiscoveryDrawer\s*\(/.test(appJs),
   );
-  staticCheck("open path shows drawer", /drawer\.hidden\s*=\s*false/.test(appJs));
+  staticCheck("open path shows drawer", /drawer\.hidden\s*=\s*false/.test(drawerSource));
   staticCheck(
     "open path uses flex display",
-    /drawer\.style\.display\s*=\s*"flex"/.test(appJs),
+    /drawer\.style\.display\s*=\s*"flex"/.test(drawerSource),
   );
   staticCheck("dd-tab-automation present", hasId(html, "dd-tab-automation"));
   staticCheck("webhook URL field reachable", hasId(html, "settingsDiscoveryWebhookUrl"));
@@ -120,8 +122,8 @@ async function runStaticFallback(reason) {
   staticCheck("Apps Script details reachable", hasId(html, "settingsAppsScriptDetails"));
   staticCheck(
     "close path hides drawer",
-    /function\s+closeDiscoveryDrawer\s*\(/.test(appJs) &&
-      /drawer\.hidden\s*=\s*true/.test(appJs),
+    /function\s+closeDiscoveryDrawer\s*\(/.test(drawerSource) &&
+      /drawer\.hidden\s*=\s*true/.test(drawerSource),
   );
 
   let pass = 0, fail = 0;
