@@ -1,6 +1,6 @@
 /**
  * Regression tests for the discovery webhook payload sanitization in
- * buildDiscoveryWebhookPayload (app.js).
+ * buildDiscoveryWebhookPayload (discovery-readiness.js; thin wrapper in app.js).
  *
  * Bug being prevented:
  *   Step 7 wizard "Run test" → worker rejects with
@@ -25,13 +25,22 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const readinessJs = readFileSync(
+  join(repoRoot, "discovery-readiness.js"),
+  "utf8",
+);
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
 
 describe("buildDiscoveryWebhookPayload — sourcePreset sanitization", () => {
   it("contains the sanitization fence comment", () => {
     assert.ok(
-      appJs.includes("[discovery-autodetect lane: contract sanitization]"),
-      "sanitization fence comment should be present in app.js",
+      readinessJs.includes("[discovery-autodetect lane: contract sanitization]"),
+      "sanitization fence comment should be present in discovery-readiness.js",
+    );
+    assert.match(
+      appJs,
+      /async function buildDiscoveryWebhookPayload\(/,
+      "app.js must keep a thin buildDiscoveryWebhookPayload wrapper",
     );
   });
 
@@ -39,15 +48,15 @@ describe("buildDiscoveryWebhookPayload — sourcePreset sanitization", () => {
     // We can't load app.js directly (it expects browser globals), so we
     // assert via static analysis that the sanitization block performs the
     // delete operation.
-    const fenceStart = appJs.indexOf(
+    const fenceStart = readinessJs.indexOf(
       "[discovery-autodetect lane: contract sanitization]",
     );
-    const fenceEnd = appJs.indexOf(
+    const fenceEnd = readinessJs.indexOf(
       "[/discovery-autodetect lane]",
       fenceStart,
     );
     assert.ok(fenceStart !== -1 && fenceEnd > fenceStart, "fence pair found");
-    const block = appJs.slice(fenceStart, fenceEnd);
+    const block = readinessJs.slice(fenceStart, fenceEnd);
     assert.ok(
       block.includes("delete sanitized.sourcePreset"),
       "must delete empty sourcePreset before send",
@@ -65,14 +74,14 @@ describe("buildDiscoveryWebhookPayload — sourcePreset sanitization", () => {
   });
 
   it("does not mutate the stored discovery profile (clones first)", () => {
-    const fenceStart = appJs.indexOf(
+    const fenceStart = readinessJs.indexOf(
       "[discovery-autodetect lane: contract sanitization]",
     );
-    const fenceEnd = appJs.indexOf(
+    const fenceEnd = readinessJs.indexOf(
       "[/discovery-autodetect lane]",
       fenceStart,
     );
-    const block = appJs.slice(fenceStart, fenceEnd);
+    const block = readinessJs.slice(fenceStart, fenceEnd);
     assert.ok(
       block.includes("...discoveryProfile"),
       "must spread-clone before mutating to avoid IndexedDB write-through",

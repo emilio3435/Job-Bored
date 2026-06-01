@@ -470,24 +470,6 @@ function buildDiscoveryStatusActions(status) {
   return window.JobBoredDiscovery.engineState.buildDiscoveryStatusActions(status);
 }
 
-function refreshDiscoveryUiState() {
-  syncDiscoveryButtonState();
-  renderDiscoveryEngineStatusUi();
-  if (configCore.discoveryWizardRuntime) {
-    updateDiscoveryWizardRuntime({
-      snapshot: getDiscoveryReadinessSnapshot(),
-    });
-    void renderDiscoverySetupWizard();
-  }
-  if (!dashboardDataHydrated) return;
-  if (document.getElementById("briefInsights")) {
-    renderPipelineDailyBrief();
-  }
-  if (document.getElementById("jobCards")) {
-    renderPipeline();
-  }
-}
-
 async function saveDiscoveryEngineStatePatch(patch) {
   return window.JobBoredDiscovery.engineState.saveDiscoveryEngineStatePatch(
     patch,
@@ -502,775 +484,110 @@ async function recordDiscoveryEngineState(rawUrl, state, source) {
   );
 }
 
-async function preloadDiscoveryUiState() {
-  const appsScriptStore = getAppsScriptDeployStateStore();
-  if (appsScriptStore) {
-    try {
-      configCore.appsScriptDeployStateCache =
-        await appsScriptStore.getAppsScriptDeployState();
-    } catch (err) {
-      console.warn("[JobBored] Apps Script deploy state preload:", err);
-    }
-  }
-  await window.JobBoredDiscovery.engineState.preloadDiscoveryEngineState();
-  await refreshDiscoveryReadinessSnapshot({ force: true, rerender: false });
-  refreshDiscoveryUiState();
+// --- Discovery readiness (extracted to discovery-readiness.js) ---
+
+function refreshDiscoveryUiState(...args) {
+  return window.JobBoredDiscovery.readiness.refreshDiscoveryUiState(...args);
 }
 
-
-function inferLocalWebhookPort(raw) {
-  const normalized = normalizeDiscoveryLocalWebhookUrl(raw);
-  if (!normalized) return "8644";
-  try {
-    const url = new URL(normalized);
-    if (url.port) return url.port;
-    return url.protocol === "https:" ? "443" : "80";
-  } catch (_) {
-    return "8644";
-  }
+function inferLocalWebhookPort(...args) {
+  return window.JobBoredDiscovery.readiness.inferLocalWebhookPort(...args);
 }
-
-function buildDiscoveryTunnelTargetUrl(localWebhookUrl, tunnelPublicUrl) {
-  const local = normalizeDiscoveryLocalWebhookUrl(localWebhookUrl);
-  const tunnel = normalizeDiscoveryTunnelPublicUrl(tunnelPublicUrl);
-  if (!local || !tunnel) return "";
-  try {
-    const localUrl = new URL(local);
-    const tunnelUrl = new URL(tunnel);
-    if (/\/webhooks\/[^/]+/i.test(tunnelUrl.pathname)) {
-      tunnelUrl.search = "";
-      tunnelUrl.hash = "";
-      return tunnelUrl.toString();
-    }
-    tunnelUrl.pathname = localUrl.pathname || "/";
-    tunnelUrl.search = "";
-    tunnelUrl.hash = "";
-    return tunnelUrl.toString();
-  } catch (_) {
-    return "";
-  }
+function buildDiscoveryTunnelTargetUrl(...args) {
+  return window.JobBoredDiscovery.readiness.buildDiscoveryTunnelTargetUrl(...args);
 }
-
-function getDiscoveryLocalWebhookHealthUrl(localWebhookUrl) {
-  const local = normalizeDiscoveryLocalWebhookUrl(localWebhookUrl);
-  if (!local) return "";
-  try {
-    const url = new URL(local);
-    url.pathname = "/health";
-    url.search = "";
-    url.hash = "";
-    return url.toString();
-  } catch (_) {
-    return "";
-  }
+function getDiscoveryLocalWebhookHealthUrl(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryLocalWebhookHealthUrl(...args);
 }
-
-function getCloudflareRelayTargetInfo() {
-  const currentWebhookUrl =
-    getSettingsFieldValue("settingsDiscoveryWebhookUrl").trim() ||
-    getDiscoveryWebhookUrl();
-  const transportSetup = getDiscoveryTransportSetupState();
-  const localTunnelTargetUrl = buildDiscoveryTunnelTargetUrl(
-    transportSetup.localWebhookUrl,
-    transportSetup.tunnelPublicUrl,
-  );
-  const managedWebAppUrl =
-    isAppsScriptPublicAccessReady(configCore.appsScriptDeployStateCache) &&
-    configCore.appsScriptDeployStateCache &&
-    typeof configCore.appsScriptDeployStateCache.webAppUrl === "string"
-      ? configCore.appsScriptDeployStateCache.webAppUrl.trim()
-      : "";
-
-  if (isLikelyAppsScriptWebAppUrl(currentWebhookUrl)) {
-    return { url: currentWebhookUrl, source: "settings" };
-  }
-  if (isLikelyCloudflareWorkerUrl(currentWebhookUrl) && localTunnelTargetUrl) {
-    return {
-      url: localTunnelTargetUrl,
-      source: "local_tunnel",
-      localWebhookUrl: transportSetup.localWebhookUrl,
-      tunnelPublicUrl: transportSetup.tunnelPublicUrl,
-    };
-  }
-  if (currentWebhookUrl && !isLikelyCloudflareWorkerUrl(currentWebhookUrl)) {
-    return { url: currentWebhookUrl, source: "settings" };
-  }
-  if (localTunnelTargetUrl) {
-    return {
-      url: localTunnelTargetUrl,
-      source: "local_tunnel",
-      localWebhookUrl: transportSetup.localWebhookUrl,
-      tunnelPublicUrl: transportSetup.tunnelPublicUrl,
-    };
-  }
-  if (isLikelyAppsScriptWebAppUrl(managedWebAppUrl)) {
-    return { url: managedWebAppUrl, source: "managed" };
-  }
-  if (currentWebhookUrl) return { url: currentWebhookUrl, source: "settings" };
-  if (managedWebAppUrl) return { url: managedWebAppUrl, source: "managed" };
-  return { url: "", source: "" };
+function getCloudflareRelayTargetInfo(...args) {
+  return window.JobBoredDiscovery.readiness.getCloudflareRelayTargetInfo(...args);
 }
-
-function getDiscoveryWizardRoot() {
-  return window.JobBoredDiscoveryWizard || null;
+function getDiscoveryWizardRoot(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryWizardRoot(...args);
 }
-
-function getDiscoveryWizardShellApi() {
-  const root = getDiscoveryWizardRoot();
-  return root && root.shell ? root.shell : null;
+function getDiscoveryWizardShellApi(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryWizardShellApi(...args);
 }
-
-function getDiscoveryWizardProbesApi() {
-  const root = getDiscoveryWizardRoot();
-  return root && root.probes ? root.probes : null;
+function getDiscoveryWizardProbesApi(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryWizardProbesApi(...args);
 }
-
-function getDiscoveryWizardLocalApi() {
-  const root = getDiscoveryWizardRoot();
-  const backup =
-    typeof window !== "undefined" ? window.__JobBoredDiscoveryLocalApi : null;
-  if (backup && typeof backup.runLocalWizardAction === "function") {
-    if (root) {
-      root.local = backup;
-    }
-    return backup;
-  }
-  if (
-    root &&
-    root.local &&
-    typeof root.local.runLocalWizardAction === "function"
-  ) {
-    return root.local;
-  }
-  return null;
+function getDiscoveryWizardLocalApi(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryWizardLocalApi(...args);
 }
-
-function getDiscoveryWizardRelayApi() {
-  const root = getDiscoveryWizardRoot();
-  return root && root.relay ? root.relay : null;
+function getDiscoveryWizardRelayApi(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryWizardRelayApi(...args);
 }
-
-function getDiscoveryWizardVerifyApi() {
-  const root = getDiscoveryWizardRoot();
-  return root && root.verify ? root.verify : null;
+function getDiscoveryWizardVerifyApi(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryWizardVerifyApi(...args);
 }
-
-function mapDiscoveryWizardFlow(rawFlow) {
-  const flow = String(rawFlow || "").trim();
-  if (flow === "existing_endpoint" || flow === "external_endpoint") {
-    return "external_endpoint";
-  }
-  if (flow === "no_webhook") return "no_webhook";
-  if (flow === "stub_only") return "stub_only";
-  return "local_agent";
+function mapDiscoveryWizardFlow(...args) {
+  return window.JobBoredDiscovery.readiness.mapDiscoveryWizardFlow(...args);
 }
-
-function getFallbackAppsScriptState() {
-  if (!configCore.appsScriptDeployStateCache) return "none";
-  if (
-    isManagedAppsScriptDeployState(configCore.appsScriptDeployStateCache) &&
-    isAppsScriptPublicAccessReady(configCore.appsScriptDeployStateCache)
-  ) {
-    return "stub_only";
-  }
-  return isManagedAppsScriptDeployState(configCore.appsScriptDeployStateCache)
-    ? "unverified"
-    : "none";
+function getDiscoveryLocalEngineKind(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryLocalEngineKind(...args);
 }
-
-function classifySavedWebhookKindForFallback(rawUrl) {
-  const probes = getDiscoveryWizardProbesApi();
-  if (probes && typeof probes.classifySavedWebhookKind === "function") {
-    return probes.classifySavedWebhookKind(rawUrl);
-  }
-  const url = normalizeDiscoveryWebhookIdentity(rawUrl);
-  if (!url) return "none";
-  if (
-    normalizeDiscoveryLocalWebhookUrl(url) &&
-    /^https?:\/\//i.test(normalizeDiscoveryLocalWebhookUrl(url))
-  ) {
-    return "local_http";
-  }
-  if (isLikelyAppsScriptWebAppUrl(url)) return "apps_script_stub";
-  if (isLikelyCloudflareWorkerUrl(url)) return "worker";
-  return /^https?:\/\//i.test(url) ? "generic_https" : "none";
+function getDiscoveryLocalEngineLabel(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryLocalEngineLabel(...args);
 }
-
-function getDiscoveryLocalEngineKind(snapshot) {
-  const state = snapshot && typeof snapshot === "object" ? snapshot : {};
-  const explicit = String(state.localEngineKind || "")
-    .trim()
-    .toLowerCase();
-  if (explicit === "browser_use_worker") return "browser_use_worker";
-  if (explicit === "hermes") return "hermes";
-  if (explicit === "other") return "other";
-
-  const localWebhookUrl = normalizeDiscoveryLocalWebhookUrl(
-    state.localWebhookUrl || "",
-  );
-  if (/\/webhook\/?$/i.test(localWebhookUrl)) return "browser_use_worker";
-  if (/\/webhooks\/[^/]+/i.test(localWebhookUrl)) return "hermes";
-  return localWebhookUrl ? "other" : "none";
+function getDiscoveryLocalEngineSummary(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryLocalEngineSummary(...args);
 }
-
-function getDiscoveryLocalEngineLabel(snapshot) {
-  const kind = getDiscoveryLocalEngineKind(snapshot);
-  if (kind === "browser_use_worker") return "Browser-use worker";
-  if (kind === "hermes") return "Hermes route";
-  if (kind === "other") return "Local discovery service";
-  return "";
+function getDiscoveryRecoveryCopy(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryRecoveryCopy(...args);
 }
-
-function getDiscoveryLocalEngineSummary(snapshot) {
-  const state = snapshot && typeof snapshot === "object" ? snapshot : {};
-  const label = getDiscoveryLocalEngineLabel(state);
-  if (!label) return "not confirmed";
-  if (state.localWebhookUrl) return `${label} (${state.localWebhookUrl})`;
-  return label;
+function getDiscoveryReadinessSnapshot(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryReadinessSnapshot(...args);
 }
-
-function getDiscoveryRecoveryCopy(snapshot) {
-  const probesApi =
-    window.JobBoredDiscoveryWizard && window.JobBoredDiscoveryWizard.probes;
-  if (probesApi && typeof probesApi.buildRecoveryCopy === "function") {
-    return probesApi.buildRecoveryCopy(snapshot);
-  }
-  const recovery = String((snapshot && snapshot.localRecoveryState) || "ok");
-  const detailMap = {
-    needs_full_restart:
-      "Your computer restarted, so the local worker and tunnel need to be brought back up.",
-    worker_down:
-      "The local discovery worker is not responding. It may need to be restarted.",
-    tunnel_down:
-      "The public ngrok tunnel is not running, so the saved Worker URL cannot reach your local worker right now.",
-    tunnel_rotated:
-      "ngrok gave your local setup a new public URL, so the relay behind your saved Worker URL needs to be redeployed.",
-  };
-  const detail =
-    detailMap[recovery] ||
-    "Part of the local discovery chain is down after a restart.";
-  return {
-    title:
-      recovery === "tunnel_rotated"
-        ? "Public tunnel changed"
-        : "Local setup needs recovery",
-    detail,
-    compactDetail: detail,
-    actionHint:
-      "Click Fix setup to restart what is down and redeploy the relay if needed.",
-    detectBody: [detail],
-  };
+function getDiscoverySettingsView(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoverySettingsView(...args);
 }
-
-function buildFallbackSettingsDiscoveryView(snapshot) {
-  const status = getEffectiveDiscoveryEngineStatus(snapshot.savedWebhookUrl);
-  const kind = String(snapshot.savedWebhookKind || "none");
-  const appsScriptState = String(snapshot.appsScriptState || "none");
-  const recovery = snapshot.localRecoveryState || "ok";
-  const recoveryCopy = getDiscoveryRecoveryCopy(snapshot);
-  const hasSavedExternalEndpoint =
-    kind === "worker" || kind === "generic_https";
-  const stubCurrent =
-    status.state === DISCOVERY_ENGINE_STATE_STUB_ONLY ||
-    kind === "apps_script_stub";
-
-  if (
-    recovery !== "ok" &&
-    (status.state === DISCOVERY_ENGINE_STATE_CONNECTED ||
-      hasSavedExternalEndpoint)
-  ) {
-    return {
-      tone: "warning",
-      title: recoveryCopy.title,
-      detail: recoveryCopy.compactDetail,
-      chipLabel: "Needs recovery",
-      chipTone: "warning",
-      runDiscoveryEnabled: false,
-      primaryActionLabel: "Fix setup",
-      primaryActionHint: recoveryCopy.actionHint,
-    };
-  }
-
-  if (
-    status.state === DISCOVERY_ENGINE_STATE_CONNECTED ||
-    status.state === DISCOVERY_ENGINE_STATE_UNVERIFIED ||
-    hasSavedExternalEndpoint
-  ) {
-    const verified = status.state === DISCOVERY_ENGINE_STATE_CONNECTED;
-    return {
-      tone: verified ? "success" : "warning",
-      title: verified ? "Discovery is connected" : "Discovery endpoint saved",
-      detail: verified
-        ? "Run discovery will POST to the public endpoint already saved in JobBored."
-        : "A public webhook is already saved. Test it if you changed the service.",
-      chipLabel: verified ? "Connected" : "Ready to test",
-      chipTone: verified ? "success" : "warning",
-      runDiscoveryEnabled: true,
-      primaryActionLabel: "Open discovery setup",
-      primaryActionHint:
-        "Use the wizard to review or change your discovery path.",
-    };
-  }
-
-  if (kind === "local_http") {
-    const engineLabel = getDiscoveryLocalEngineLabel(snapshot);
-    return {
-      tone: "info",
-      title: engineLabel
-        ? `${engineLabel} detected`
-        : "Local receiver detected",
-      detail: engineLabel
-        ? `Complete the local server, tunnel, and relay steps to finish setup for ${engineLabel}.`
-        : "Complete the server, tunnel, and relay steps to finish setup.",
-      chipLabel: "Local path",
-      chipTone: "info",
-      runDiscoveryEnabled: false,
-      primaryActionLabel: "Open discovery setup",
-      primaryActionHint: "Continue the local setup path.",
-    };
-  }
-
-  if (stubCurrent || appsScriptState === "stub_only") {
-    return {
-      tone: "warning",
-      title: "Apps Script stub wired",
-      detail:
-        "This path can smoke-test webhook wiring, but it is not your real discovery engine.",
-      chipLabel: "Stub only",
-      chipTone: "warning",
-      runDiscoveryEnabled: false,
-      primaryActionLabel: "Open discovery setup",
-      primaryActionHint: "Switch to a real webhook if you want Run discovery.",
-    };
-  }
-
-  return {
-    tone: "info",
-    title: "No discovery webhook configured",
-    detail:
-      "Pipeline works without discovery. Use the wizard only if you want automated runs.",
-    chipLabel: "No webhook",
-    chipTone: "info",
-    runDiscoveryEnabled: false,
-    primaryActionLabel: "Open discovery setup",
-    primaryActionHint:
-      "Use the wizard to review or change your discovery path.",
-  };
+function getDiscoveryEmptyStateView(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryEmptyStateView(...args);
 }
-
-function buildFallbackEmptyStateDiscoveryView(snapshot) {
-  const status = getEffectiveDiscoveryEngineStatus(snapshot.savedWebhookUrl);
-  const kind = String(snapshot.savedWebhookKind || "none");
-  const appsScriptState = String(snapshot.appsScriptState || "none");
-  const recovery = snapshot.localRecoveryState || "ok";
-  const recoveryCopy = getDiscoveryRecoveryCopy(snapshot);
-  const hasSavedExternalEndpoint =
-    kind === "worker" || kind === "generic_https";
-  const stubCurrent =
-    status.state === DISCOVERY_ENGINE_STATE_STUB_ONLY ||
-    kind === "apps_script_stub";
-
-  if (
-    recovery !== "ok" &&
-    (status.state === DISCOVERY_ENGINE_STATE_CONNECTED ||
-      hasSavedExternalEndpoint)
-  ) {
-    return {
-      title: recoveryCopy.title,
-      body: `${recoveryCopy.compactDetail} Use Fix setup to recover it.`,
-      ctaLabel: "Fix setup",
-      ctaAction: "open_setup",
-    };
-  }
-
-  if (status.state === DISCOVERY_ENGINE_STATE_CONNECTED) {
-    return {
-      title: "Pipeline is ready",
-      body: "No roles yet. When your automation runs, new rows will appear here. You can also run discovery on demand.",
-      ctaLabel: "Run discovery now",
-      ctaAction: "run_discovery",
-    };
-  }
-  if (
-    status.state === DISCOVERY_ENGINE_STATE_UNVERIFIED ||
-    hasSavedExternalEndpoint
-  ) {
-    return {
-      title: "Endpoint saved, verification pending",
-      body: "A public webhook is already saved, but JobBored has not confirmed the full end-to-end path yet.",
-      ctaLabel: "Open discovery setup",
-      ctaAction: "open_setup",
-    };
-  }
-  if (kind === "local_http") {
-    const engineLabel = getDiscoveryLocalEngineLabel(snapshot);
-    return {
-      title: engineLabel
-        ? `${engineLabel} not finished`
-        : "Local discovery path not finished",
-      body: engineLabel
-        ? `${engineLabel} is known, but the public tunnel or Worker URL still needs to be finished.`
-        : "Your local receiver is known, but the public tunnel or Worker URL still needs to be finished.",
-      ctaLabel: "Continue setup",
-      ctaAction: "open_setup",
-    };
-  }
-  if (stubCurrent || appsScriptState === "stub_only") {
-    return {
-      title: "Stub-only wiring detected",
-      body: "The current webhook confirms wiring only. Connect a real discovery engine before expecting new job leads.",
-      ctaLabel: "Connect real discovery",
-      ctaAction: "open_setup",
-    };
-  }
-  return {
-    title: "Pipeline is empty",
-    body: "Pipeline works without discovery, but you can use the wizard if you want Run discovery or guided setup.",
-    ctaLabel: "Open discovery setup",
-    ctaAction: "open_setup",
-  };
+async function refreshDiscoveryReadinessSnapshot(...args) {
+  return window.JobBoredDiscovery.readiness.refreshDiscoveryReadinessSnapshot(...args);
 }
-
-function buildFallbackReadinessSnapshot() {
-  const transport = getDiscoveryTransportSetupState();
-  const savedWebhookUrl = normalizeDiscoveryWebhookIdentity(
-    getDiscoveryWebhookUrl(),
-  );
-  const savedWebhookKind = classifySavedWebhookKindForFallback(savedWebhookUrl);
-  const relayTargetUrl = buildDiscoveryTunnelTargetUrl(
-    transport.localWebhookUrl,
-    transport.tunnelPublicUrl,
-  );
-  const engineStatus = getEffectiveDiscoveryEngineStatus(savedWebhookUrl);
-  const appsScriptState = getFallbackAppsScriptState();
-  const hasSavedExternalEndpoint =
-    savedWebhookKind === "worker" || savedWebhookKind === "generic_https";
-  const hasSavedStubEndpoint = savedWebhookKind === "apps_script_stub";
-  const hasLocalPathSignals =
-    savedWebhookKind === "local_http" ||
-    !!transport.localWebhookUrl ||
-    !!transport.tunnelPublicUrl;
-  let recommendedFlow = "local_agent";
-  let recommendedReason =
-    "No public webhook is saved yet, so start with the path you want to use.";
-  if (
-    hasSavedExternalEndpoint ||
-    engineStatus.state === DISCOVERY_ENGINE_STATE_CONNECTED
-  ) {
-    recommendedFlow = "existing_endpoint";
-    recommendedReason =
-      savedWebhookKind === "worker"
-        ? "A Cloudflare Worker URL is already saved."
-        : "A public HTTPS webhook is already saved.";
-  } else if (hasLocalPathSignals) {
-    recommendedFlow = "local_agent";
-    recommendedReason =
-      getDiscoveryLocalEngineKind({
-        localWebhookUrl: transport.localWebhookUrl || "",
-      }) === "hermes"
-        ? "A local Hermes route was detected on this machine. It can work, but the browser-use worker is the recommended default."
-        : "A local browser-use worker or local discovery path was detected on this machine.";
-  } else if (hasSavedStubEndpoint) {
-    recommendedFlow = "stub_only";
-    recommendedReason =
-      "Only the Apps Script stub is saved — good for testing.";
-  } else if (appsScriptState === "stub_only") {
-    recommendedFlow = "local_agent";
-    recommendedReason =
-      "An Apps Script stub exists, but it's not your main discovery path.";
-  }
-  const snapshot = {
-    sheetConfigured: !!SHEET_ID,
-    savedWebhookUrl,
-    savedWebhookKind,
-    localBootstrapAvailable: false,
-    localWebhookUrl: transport.localWebhookUrl || "",
-    localWebhookReady: false,
-    tunnelPublicUrl: transport.tunnelPublicUrl || "",
-    tunnelLive: false,
-    tunnelReady: false,
-    tunnelStale: false,
-    relayTargetUrl,
-    relayReady: savedWebhookKind === "worker",
-    engineState: engineStatus.state,
-    appsScriptState,
-    recommendedFlow,
-    recommendedReason,
-    blockingIssue: !SHEET_ID
-      ? "missing_sheet"
-      : hasSavedStubEndpoint
-        ? "stub_only"
-        : "",
-    localRecoveryState:
-      !(hasSavedExternalEndpoint && !isLocalDashboardOrigin()) &&
-      (hasLocalPathSignals ||
-        (savedWebhookKind === "worker" && isLocalDashboardOrigin()))
-        ? "needs_full_restart"
-        : "ok",
-  };
-  return {
-    ...snapshot,
-    views: {
-      settings: buildFallbackSettingsDiscoveryView(snapshot),
-      emptyState: buildFallbackEmptyStateDiscoveryView(snapshot),
-    },
-    wizardState: null,
-  };
+async function buildDiscoveryWebhookPayload(...args) {
+  return window.JobBoredDiscovery.readiness.buildDiscoveryWebhookPayload(...args);
 }
-
-function getDiscoveryReadinessSnapshot() {
-  return configCore.discoveryReadinessSnapshotCache || buildFallbackReadinessSnapshot();
+function getDiscoveryRequestGoogleAccessToken(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryRequestGoogleAccessToken(...args);
 }
-
-function getDiscoverySettingsView(snapshot) {
-  const state =
-    snapshot && typeof snapshot === "object"
-      ? snapshot
-      : getDiscoveryReadinessSnapshot();
-  if (
-    state.views &&
-    state.views.settings &&
-    typeof state.views.settings === "object"
-  ) {
-    return state.views.settings;
-  }
-  const probes = getDiscoveryWizardProbesApi();
-  if (probes && typeof probes.buildSettingsDiscoveryView === "function") {
-    return probes.buildSettingsDiscoveryView(state);
-  }
-  return buildFallbackSettingsDiscoveryView(state);
+async function getFreshDiscoveryRequestGoogleAccessToken(...args) {
+  return window.JobBoredDiscovery.readiness.getFreshDiscoveryRequestGoogleAccessToken(...args);
 }
-
-function getDiscoveryEmptyStateView(snapshot) {
-  const state =
-    snapshot && typeof snapshot === "object"
-      ? snapshot
-      : getDiscoveryReadinessSnapshot();
-  if (
-    state.views &&
-    state.views.emptyState &&
-    typeof state.views.emptyState === "object"
-  ) {
-    return state.views.emptyState;
-  }
-  const probes = getDiscoveryWizardProbesApi();
-  if (probes && typeof probes.buildEmptyStateDiscoveryView === "function") {
-    return probes.buildEmptyStateDiscoveryView(state);
-  }
-  return buildFallbackEmptyStateDiscoveryView(state);
+function showDiscoveryVerificationToast(...args) {
+  return window.JobBoredDiscovery.readiness.showDiscoveryVerificationToast(...args);
 }
-
-async function refreshDiscoveryReadinessSnapshot(options = {}) {
-  if (configCore.discoveryReadinessSnapshotPromise && !options.force) {
-    return configCore.discoveryReadinessSnapshotPromise;
-  }
-  const buildFallback = () => buildFallbackReadinessSnapshot();
-  const probes = getDiscoveryWizardProbesApi();
-  configCore.discoveryReadinessSnapshotPromise = Promise.resolve()
-    .then(async () => {
-      if (probes && typeof probes.buildReadinessSnapshot === "function") {
-        return probes.buildReadinessSnapshot();
-      }
-      return buildFallback();
-    })
-    .then((snapshot) => {
-      configCore.discoveryReadinessSnapshotCache =
-        snapshot && typeof snapshot === "object" ? snapshot : buildFallback();
-      return configCore.discoveryReadinessSnapshotCache;
-    })
-    .catch((err) => {
-      console.warn("[JobBored] discovery readiness snapshot:", err);
-      configCore.discoveryReadinessSnapshotCache = buildFallback();
-      return configCore.discoveryReadinessSnapshotCache;
-    })
-    .finally(() => {
-      configCore.discoveryReadinessSnapshotPromise = null;
-    });
-  const next = await configCore.discoveryReadinessSnapshotPromise;
-  if (options.rerender !== false) {
-    refreshDiscoveryUiState();
-  }
-  return next;
+async function verifyDiscoveryWebhookWithSharedModel(...args) {
+  return window.JobBoredDiscovery.readiness.verifyDiscoveryWebhookWithSharedModel(...args);
 }
-
-function readDiscoveryScheduleStateForPayload(storageKey) {
-  try {
-    const raw = localStorage.getItem(storageKey);
-    const parsed = raw ? JSON.parse(raw) : null;
-    if (!parsed || typeof parsed !== "object") return {};
-    return {
-      enabled: parsed.enabled === true,
-      hour: Number.isInteger(parsed.hour) ? parsed.hour : undefined,
-      minute: Number.isInteger(parsed.minute) ? parsed.minute : undefined,
-    };
-  } catch (_) {
-    return {};
-  }
+function getDiscoveryWizardDefaultDrafts(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryWizardDefaultDrafts(...args);
 }
-
-function readDiscoveryScheduleContextForPayload() {
-  return {
-    local: readDiscoveryScheduleStateForPayload("settings_profile_schedule_local"),
-    github: readDiscoveryScheduleStateForPayload("settings_profile_schedule_cloud"),
-  };
+function createDiscoveryWizardRuntime(...args) {
+  return window.JobBoredDiscovery.readiness.createDiscoveryWizardRuntime(...args);
 }
-
-async function buildDiscoveryWebhookPayload(sheetIdOverride, options) {
-  const payloadOptions =
-    options && typeof options === "object" && !Array.isArray(options)
-      ? options
-      : {};
-  const trigger = String(payloadOptions.trigger || "manual").trim() || "manual";
-  const resolvedSheetId =
-    parseGoogleSheetId(String(sheetIdOverride || "")) || SHEET_ID || "";
-  let discoveryProfile = {};
-  let activeResume = null;
-  let preferences = null;
-  try {
-    const UC = window.CommandCenterUserContent;
-    if (UC && typeof UC.openDb === "function") {
-      await UC.openDb();
-    }
-    if (UC) {
-      if (typeof UC.getDiscoveryProfile === "function") {
-        discoveryProfile = await UC.getDiscoveryProfile();
-      }
-      if (typeof UC.getActiveResume === "function") {
-        activeResume = await UC.getActiveResume();
-      }
-      if (typeof UC.getPreferences === "function") {
-        preferences = await UC.getPreferences();
-      }
-    }
-  } catch (e) {
-    console.warn("[JobBored] discovery profile:", e);
-  }
-  // Hand the user's existing GIS access token to the worker so it can write
-  // to Google Sheets without holding any persistent credential of its own.
-  // This is the "no hoops" path: if the user is signed in to the dashboard,
-  // discovery just works — no service account, no .env wiring, no Hermes
-  // archaeology. The worker treats this token as the highest-precedence
-  // credential and falls back to its env config if it's absent or stale.
-  // We declare the key unconditionally so JSON.stringify drops it when
-  // empty (keeps the contract scanner happy and the wire format unchanged).
-  const dashboardGoogleAccessToken =
-    await getFreshDiscoveryRequestGoogleAccessToken();
-  const requestedAt = new Date().toISOString();
-
-  // ====== [discovery-autodetect lane: contract sanitization] ======
-  // Per the discovery webhook contract, sourcePreset must either be omitted or
-  // be one of the enum values. Fresh greenfield profiles can contain
-  // sourcePreset:""; strip that key before the payload reaches the worker.
-  if (
-    discoveryProfile &&
-    typeof discoveryProfile === "object" &&
-    Object.prototype.hasOwnProperty.call(discoveryProfile, "sourcePreset")
-  ) {
-    const sp = discoveryProfile.sourcePreset;
-    const trimmed = typeof sp === "string" ? sp.trim() : sp;
-    if (trimmed === "" || trimmed == null || typeof trimmed !== "string") {
-      const sanitized = { ...discoveryProfile };
-      delete sanitized.sourcePreset;
-      discoveryProfile = sanitized;
-    } else if (trimmed !== sp) {
-      discoveryProfile = { ...discoveryProfile, sourcePreset: trimmed };
-    }
-  }
-  // ====== [/discovery-autodetect lane] ======
-
-  // Compose `mergedUserProfile` — the run-time view of the master Fit Profile
-  // with per-run drawer overrides applied. Tasks #3 and #6 consume this field;
-  // the legacy `discoveryProfile` keeps working in parallel.
-  const mergedUserProfile = buildMergedUserProfileForPayload();
-
-  const sharedBuilder = window.JobBoredDiscoveryPayload;
-  if (
-    sharedBuilder &&
-    typeof sharedBuilder.buildDiscoveryWebhookPayload === "function"
-  ) {
-    const built = sharedBuilder.buildDiscoveryWebhookPayload({
-      sheetId: resolvedSheetId,
-      discoveryProfile,
-      resume: activeResume,
-      preferences,
-      schedule: readDiscoveryScheduleContextForPayload(),
-      requestedAt,
-      variationKey: payloadOptions.variationKey || generateDiscoveryVariationKey(),
-      trigger,
-      googleAccessToken: dashboardGoogleAccessToken || "",
-    });
-    if (built && typeof built === "object") {
-      built.mergedUserProfile = mergedUserProfile;
-    }
-    return built;
-  }
-
-  return {
-    event: "command-center.discovery",
-    schemaVersion: 1,
-    sheetId: resolvedSheetId,
-    variationKey: payloadOptions.variationKey || generateDiscoveryVariationKey(),
-    requestedAt,
-    trigger,
-    discoveryProfile,
-    mergedUserProfile,
-    googleAccessToken: dashboardGoogleAccessToken || undefined,
-  };
+function getDiscoveryWizardRuntime(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryWizardRuntime(...args);
 }
-
-/**
- * Deep-clone the loaded master Fit Profile and apply per-run drawer overrides.
- * Returns null when no master profile is loaded — Task #3/#6 consumers should
- * fall back to `discoveryProfile` in that case.
- */
-function buildMergedUserProfileForPayload() {
-  const baseProfile = window.JobBoredDiscovery.drawer.getDiscoveryRunProfileState().baseProfile;
-  if (!baseProfile) return null;
-  const merged = JSON.parse(JSON.stringify(baseProfile));
-  const eff = getEffectiveFitProfileFields();
-  if (!eff) return merged;
-  merged.identity = merged.identity || {};
-  merged.hardConstraints = merged.hardConstraints || {};
-  if (eff.targetRoles) merged.identity.targetRoles = eff.targetRoles;
-  if (eff.targetSeniority)
-    merged.identity.targetSeniority = eff.targetSeniority;
-  if (eff.workMode) merged.hardConstraints.workMode = eff.workMode;
-  if (eff.acceptableLocations)
-    merged.hardConstraints.acceptableLocations = eff.acceptableLocations;
-  if (eff.wants) merged.wants = eff.wants;
-  if (eff.avoids) merged.avoids = eff.avoids;
-  return merged;
+function updateDiscoveryWizardRuntime(...args) {
+  return window.JobBoredDiscovery.readiness.updateDiscoveryWizardRuntime(...args);
 }
-
-/**
- * Returns the dashboard's current Google access token IFF the user is signed
- * in AND the token has at least 60 seconds of lifetime left. Anything less
- * isn't worth sending — discovery runs typically take 20–60s and a token that
- * expires mid-run will fail at the Sheets write step.
- */
-function getDiscoveryRequestGoogleAccessToken() {
-  if (!getAccessToken() || typeof getAccessToken() !== "string") return "";
-  const trimmed = getAccessToken().trim();
-  if (!trimmed) return "";
-  if (Number.isFinite(getTokenExpiresAt())) {
-    const remainingMs = Number(getTokenExpiresAt()) - Date.now();
-    if (remainingMs < 60_000) return "";
-  }
-  return trimmed;
+function clearDiscoveryWizardRuntime(...args) {
+  return window.JobBoredDiscovery.readiness.clearDiscoveryWizardRuntime(...args);
 }
-
-async function getFreshDiscoveryRequestGoogleAccessToken(options = {}) {
-  if (options && options.force === true) {
-    const refreshed = await refreshAccessTokenSilently().catch(() => false);
-    return refreshed ? getDiscoveryRequestGoogleAccessToken() : "";
-  }
-  const current = getDiscoveryRequestGoogleAccessToken();
-  if (current) return current;
-  if (!getAccessToken() || !Number.isFinite(getTokenExpiresAt())) return "";
-  const remainingMs = Number(getTokenExpiresAt()) - Date.now();
-  if (remainingMs >= 60_000) return "";
-  const refreshed = await refreshAccessTokenSilently().catch(() => false);
-  return refreshed ? getDiscoveryRequestGoogleAccessToken() : "";
+function setDiscoveryWizardRuntime(...args) {
+  return window.JobBoredDiscovery.readiness.setDiscoveryWizardRuntime(...args);
+}
+function getDiscoveryWizardStepIds(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryWizardStepIds(...args);
+}
+function getDiscoveryWizardStepsBefore(...args) {
+  return window.JobBoredDiscovery.readiness.getDiscoveryWizardStepsBefore(...args);
+}
+async function persistDiscoveryWizardState(...args) {
+  return window.JobBoredDiscovery.readiness.persistDiscoveryWizardState(...args);
 }
 
 function isIngestSheetAuthFailure(data) {
@@ -1294,299 +611,20 @@ function getDiscoveryEngineStateFromVerificationResult(result) {
   );
 }
 
-function showDiscoveryVerificationToast(result, options = {}) {
-  if (!result || typeof result !== "object") return;
-  const context = String(options.context || "test_webhook").trim();
-  const isRun = context === "run_discovery";
-  let type = "info";
-  let persistent = false;
-  if (result.ok) {
-    if (result.kind === "stub_only") {
-      type = "info";
-      persistent = true;
-    } else {
-      type = "success";
-    }
-  } else {
-    type = "error";
-    persistent = true;
-  }
-  const detail =
-    !result.ok && result.detail && result.detail !== result.message
-      ? ` ${result.detail}`
-      : "";
-  const fallback = isRun
-    ? "Discovery verification finished."
-    : "Webhook verification finished.";
 
-  let action;
-  if (!result.ok && result.kind === "auth_required") {
-    // The browser-use worker fail-closed because the secret is missing or
-    // wrong. The fix is "run bootstrap and reload" — give the user a copy
-    // button for the command so they don't have to retype it.
-    action = {
-      label: "Copy bootstrap command",
-      onClick: () => {
-        copyTextToClipboard(
-          result.suggestedCommand || "npm run discovery:bootstrap-local",
-        );
-      },
-    };
-  } else if (!result.ok && isLocalDashboardOrigin()) {
-    const hasLocalTunnel = !!getDiscoveryTransportSetupState().tunnelPublicUrl;
-    const endpointUrl = options.endpointUrl || "";
-    const isTunnelFailure =
-      result.layer === "downstream" ||
-      (result.kind === "network_error" &&
-        isLikelyCloudflareWorkerUrl(endpointUrl)) ||
-      (result.kind === "network_error" && hasLocalTunnel) ||
-      (/ngrok|tunnel|offline/i.test(result.detail || "") && hasLocalTunnel);
-    if (isTunnelFailure) {
-      action = {
-        label: "Fix tunnel",
-        onClick: () => {
-          void requestDiscoverySetup({
-            entryPoint: "settings",
-            flow: "local_agent",
-            startStep: "tunnel",
-            allowWhileOnboarding: true,
-          });
-        },
-      };
-    }
-  }
-
-  showToast(
-    `${result.message || fallback}${detail}`.trim(),
-    type,
-    persistent,
-    action,
-  );
-}
-
-async function verifyDiscoveryWebhookWithSharedModel(
-  url,
-  payload,
-  options = {},
-) {
-  const verifyApi = getDiscoveryWizardVerifyApi();
-  const initialSecret =
-    typeof options.secret === "string" && options.secret.trim()
-      ? options.secret.trim()
-      : getDiscoveryWebhookSecret();
-  if (verifyApi && typeof verifyApi.verifyDiscoveryEndpoint === "function") {
-    const runVerification = (secret) =>
-      verifyApi.verifyDiscoveryEndpoint(url, {
-        payload,
-        context: options.context || "test_webhook",
-        sheetId: options.sheetId || "",
-        timeoutMs: options.timeoutMs || 15000,
-        secret,
-      });
-
-    const result = await runVerification(initialSecret);
-    if (!result || result.ok || result.kind !== "auth_required") {
-      return result;
-    }
-
-    const refreshedSecret =
-      await refreshDiscoveryWebhookSecretFromBootstrapForEndpoint(url);
-    if (!refreshedSecret || refreshedSecret === initialSecret) {
-      return result;
-    }
-
-    return runVerification(refreshedSecret);
-  }
-  return {
-    ok: false,
-    kind: "invalid_endpoint",
-    engineState: "none",
-    httpStatus: 0,
-    message: "Discovery verifier is not available.",
-    detail: "Reload the page and try again.",
-    layer: "browser",
-  };
-}
-
-function getDiscoveryWizardDefaultDrafts(snapshot) {
-  const state =
-    snapshot && typeof snapshot === "object"
-      ? snapshot
-      : getDiscoveryReadinessSnapshot();
-  return {
-    endpointUrl: state.savedWebhookUrl || getDiscoveryWebhookUrl() || "",
-    workerUrl: isLikelyCloudflareWorkerUrl(state.savedWebhookUrl)
-      ? state.savedWebhookUrl
-      : "",
-  };
-}
-
-function createDiscoveryWizardRuntime(patch = {}) {
-  const next = {
-    entryPoint: "manual",
-    snapshot: getDiscoveryReadinessSnapshot(),
-    state: {
-      version: 1,
-      flow: "local_agent",
-      currentStep: "detect",
-      completedSteps: [],
-      transportMode: "",
-      lastProbeAt: "",
-      lastVerifiedAt: "",
-      result: "none",
-      dismissedStubWarning: false,
-    },
-    activeStepId: "detect",
-    drafts: getDiscoveryWizardDefaultDrafts(getDiscoveryReadinessSnapshot()),
-    lastLocalResult: null,
-    lastRelayResult: null,
-    lastRelayModel: null,
-    lastVerificationResult: null,
-    lastDownstreamDiagnosis: null,
-    lastWizardMessage: "",
-    lastWizardMessageTone: "info",
-    localBootstrapState: null,
-    flowProgressCache: {},
-    ...patch,
-  };
-  next.state = {
-    ...(next.state || {}),
-    flow: mapDiscoveryWizardFlow(next.state && next.state.flow),
-  };
-  next.activeStepId = next.activeStepId || next.state.currentStep || "detect";
-  next.drafts = {
-    ...getDiscoveryWizardDefaultDrafts(next.snapshot),
-    ...(patch.drafts && typeof patch.drafts === "object" ? patch.drafts : {}),
-  };
-  return next;
-}
-
-function getDiscoveryWizardRuntime() {
-  if (!configCore.discoveryWizardRuntime) {
-    configCore.discoveryWizardRuntime = createDiscoveryWizardRuntime();
-  }
-  return configCore.discoveryWizardRuntime;
-}
-
-function updateDiscoveryWizardRuntime(patch = {}) {
-  const current = getDiscoveryWizardRuntime();
-  configCore.discoveryWizardRuntime = createDiscoveryWizardRuntime({
-    ...current,
-    ...patch,
-    state: {
-      ...(current.state || {}),
-      ...(patch.state && typeof patch.state === "object" ? patch.state : {}),
-    },
-    drafts: {
-      ...(current.drafts || {}),
-      ...(patch.drafts && typeof patch.drafts === "object" ? patch.drafts : {}),
-    },
-    flowProgressCache: {
-      ...(current.flowProgressCache || {}),
-      ...(patch.flowProgressCache && typeof patch.flowProgressCache === "object"
-        ? patch.flowProgressCache
-        : {}),
-    },
-  });
-  return configCore.discoveryWizardRuntime;
-}
-
-function clearDiscoveryWizardRuntime() {
-  configCore.discoveryWizardRuntime = null;
-}
-
-function setDiscoveryWizardRuntime(runtime) {
-  configCore.discoveryWizardRuntime = runtime;
-  return configCore.discoveryWizardRuntime;
-}
-
-/**
- * Resolve the user's local repo root from bootstrap state. Returns "" if
- * unknown — callers should fall back gracefully (e.g. omit the cd prefix).
- */
-/**
- * Build a "cd <repo> && <cmd>" combined command so the user can paste it into
- * any Terminal window — no need to navigate to the repo first. Quotes the
- * path to handle spaces. Returns the bare command if repoRoot is unknown.
- */
-/**
- * Trigger a download of a macOS .command script that opens Terminal in the
- * repo and runs the given command. macOS-only delight: double-click and go.
- * On other OSes the file just won't open (Terminal-specific extension).
- */
-/**
- * Append a "run-in-terminal" block: combined cd+command with a Copy button
- * AND (on capable browsers) a "Download .command" delight button that opens
- * Terminal in the repo and runs the command on double-click. Includes an
- * inline instruction so users know what to do — addresses the "copy buttons
- * with no context" feedback.
- */
-/**
- * Heuristic: classify a suggested URL so we can render a context-rich action
- * instead of a bare "Copy URL". We look at the result.kind first (set by the
- * worker code paths that create these results), then fall back to URL shape.
- */
-/**
- * Render a recovery cluster after a failed step action: Try again + Copy AI
- * prompt + Skip. Only appended when the latest result for this step failed.
- * Skip writes the wizard state to "skipped" for the step and advances.
- */
-function getDiscoveryWizardStepIds(flow) {
-  const normalizedFlow = mapDiscoveryWizardFlow(flow);
-  if (normalizedFlow === "external_endpoint") {
-    return ["detect", "path_select", "existing_endpoint", "verify", "ready"];
-  }
-  if (normalizedFlow === "no_webhook") {
-    return ["detect", "path_select", "no_webhook", "ready"];
-  }
-  if (normalizedFlow === "stub_only") {
-    return ["detect", "path_select", "stub_only", "ready"];
-  }
-  const localApi = getDiscoveryWizardLocalApi();
-  if (localApi && typeof localApi.getLocalStepIds === "function") {
-    return localApi.getLocalStepIds();
-  }
-  return [
-    "detect",
-    "path_select",
-    "bootstrap",
-    "local_health",
-    "tunnel",
-    "relay_deploy",
-    "verify",
-    "ready",
-  ];
-}
-
-function getDiscoveryWizardStepsBefore(flow, targetStep) {
-  const ids = getDiscoveryWizardStepIds(flow);
-  const idx = ids.indexOf(targetStep);
-  return idx > 0 ? ids.slice(0, idx) : [];
-}
-
-async function persistDiscoveryWizardState(patch = {}) {
-  const probes = getDiscoveryWizardProbesApi();
-  const current = getDiscoveryWizardRuntime();
-  const next = {
-    ...(current.state || {}),
-    ...(patch && typeof patch === "object" ? patch : {}),
-    flow: mapDiscoveryWizardFlow(
-      patch && Object.prototype.hasOwnProperty.call(patch, "flow")
-        ? patch.flow
-        : current.state.flow,
-    ),
-  };
-  if (probes && typeof probes.saveDiscoverySetupWizardState === "function") {
+async function preloadDiscoveryUiState() {
+  const appsScriptStore = getAppsScriptDeployStateStore();
+  if (appsScriptStore) {
     try {
-      const saved = await probes.saveDiscoverySetupWizardState(next);
-      updateDiscoveryWizardRuntime({ state: saved });
-      return saved;
+      configCore.appsScriptDeployStateCache =
+        await appsScriptStore.getAppsScriptDeployState();
     } catch (err) {
-      console.warn("[JobBored] discovery wizard state:", err);
+      console.warn("[JobBored] Apps Script deploy state preload:", err);
     }
   }
-  updateDiscoveryWizardRuntime({ state: next });
-  return next;
+  await window.JobBoredDiscovery.engineState.preloadDiscoveryEngineState();
+  await refreshDiscoveryReadinessSnapshot({ force: true, rerender: false });
+  refreshDiscoveryUiState();
 }
 
 
@@ -2213,6 +1251,46 @@ window.JobBoredDiscovery = Object.assign(window.JobBoredDiscovery || {}, {
   buildPayload: buildDiscoveryWebhookPayload,
 });
 
+
+// Discovery readiness bridge. discovery-readiness.js loads BEFORE app.js.
+window.JobBoredDiscovery.readiness = window.JobBoredDiscovery.readiness || {};
+window.JobBoredDiscovery.readiness.host = {
+  getSHEET_ID() {
+    return SHEET_ID;
+  },
+  getDashboardDataHydrated() {
+    return dashboardDataHydrated;
+  },
+  parseGoogleSheetId,
+  getDiscoveryWebhookUrl,
+  getDiscoveryTransportSetupState,
+  normalizeDiscoveryLocalWebhookUrl,
+  normalizeDiscoveryTunnelPublicUrl,
+  isLocalDashboardOrigin,
+  isLikelyAppsScriptWebAppUrl,
+  isLikelyCloudflareWorkerUrl,
+  isAppsScriptPublicAccessReady,
+  isManagedAppsScriptDeployState,
+  syncDiscoveryButtonState,
+  renderDiscoveryEngineStatusUi,
+  renderDiscoverySetupWizard,
+  renderPipelineDailyBrief,
+  renderPipeline,
+  getAccessToken,
+  getTokenExpiresAt,
+  refreshAccessTokenSilently,
+  getEffectiveFitProfileFields,
+  generateDiscoveryVariationKey(...args) {
+    return window.JobBoredDiscovery.runOrchestration.generateDiscoveryVariationKey(
+      ...args,
+    );
+  },
+  getDiscoveryWebhookSecret,
+  refreshDiscoveryWebhookSecretFromBootstrapForEndpoint,
+  showToast,
+  copyTextToClipboard,
+  requestDiscoverySetup,
+};
 
 // Discovery engine state bridge. discovery-engine-state.js loads BEFORE app.js
 // and reads host lazily for settings getters and persistence side effects.

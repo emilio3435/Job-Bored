@@ -36,6 +36,10 @@ const runOrchJs = readFileSync(
   join(repoRoot, "discovery-run-orchestration.js"),
   "utf8",
 );
+const readinessJs = readFileSync(
+  join(repoRoot, "discovery-readiness.js"),
+  "utf8",
+);
 
 describe("Discovery drawer markup + open/close lifecycle", () => {
   it("has a #discoveryDrawer element using the shared detail-overlay/detail-drawer classes", () => {
@@ -422,8 +426,13 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
 
 describe("buildDiscoveryWebhookPayload — companyAllowlist / companyBlocklist", () => {
   it("delegates browser Run discovery payloads to the shared payload builder", () => {
-    assert.match(appJs, /window\.JobBoredDiscoveryPayload/);
-    assert.match(appJs, /sharedBuilder\.buildDiscoveryWebhookPayload/);
+    assert.match(
+      appJs,
+      /async function buildDiscoveryWebhookPayload\(/,
+      "app.js must keep a thin buildDiscoveryWebhookPayload wrapper",
+    );
+    assert.match(readinessJs, /window\.JobBoredDiscoveryPayload/);
+    assert.match(readinessJs, /sharedBuilder\.buildDiscoveryWebhookPayload/);
   });
 
   it("includes companyAllowlist and companyBlocklist as top-level fields", () => {
