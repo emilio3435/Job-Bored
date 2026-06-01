@@ -7,6 +7,7 @@ import { buildCorsHeaders } from "../integrations/browser-use-discovery/src/http
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const bootstrapJs = readFileSync(join(repoRoot, "app-bootstrap.js"), "utf8");
 const runOrchJs = readFileSync(
   join(repoRoot, "discovery-run-orchestration.js"),
   "utf8",
@@ -184,8 +185,9 @@ describe("discovery run status polling", () => {
       "getState() returns a plain object, not tracker methods",
     );
     assert.match(
-      appJs,
-      /preloadDiscoveryUiState\(\);\s*resumeDiscoveryStatusPollingIfNeeded\(\);/,
+      bootstrapJs,
+      /void h\("preloadDiscoveryUiState"\);\s*h\("resumeDiscoveryStatusPollingIfNeeded"\);/,
+      "init must preload discovery UI state before resuming status polling after reload",
     );
   });
 

@@ -20,6 +20,7 @@ import { readIndexHtml } from "../scripts/lib/expand-index-includes.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const bootstrapJs = readFileSync(join(repoRoot, "app-bootstrap.js"), "utf8");
 const drawerJs = readFileSync(join(repoRoot, "discovery-drawer.js"), "utf8");
 /** Drawer implementation lives in discovery-drawer.js; app.js keeps thin wrappers. */
 const drawerSource = `${appJs}\n${drawerJs}`;
@@ -239,21 +240,30 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
   });
 
   it("wires the discovery drawer before the no-sheet early return", () => {
-    const initStart = appJs.indexOf("function init()");
-    assert.notEqual(initStart, -1, "init must exist");
-    const initEnd = appJs.indexOf("\n}\n\n/**", initStart);
+    assert.match(appJs, /function init\(/, "app.js must keep a thin init wrapper");
+    const initStart = bootstrapJs.indexOf("function init()");
+    assert.notEqual(initStart, -1, "init implementation must live in app-bootstrap.js");
+    const initEnd = bootstrapJs.indexOf(
+      '\n  }\n\n  document.addEventListener("DOMContentLoaded"',
+      initStart,
+    );
     assert.notEqual(initEnd, -1, "init body must be readable");
-    const initSource = appJs.slice(initStart, initEnd);
-    const noSheetGate = initSource.indexOf("if (!SHEET_ID)");
+    const initSource = bootstrapJs.slice(initStart, initEnd);
+    assert.doesNotMatch(
+      bootstrapJs,
+      /h\("[^"]+"\)\(\)|h\("[^"]+",\s*\)/,
+      "bootstrap host helper must not invoke returned host values or pass empty args",
+    );
+    const noSheetGate = initSource.indexOf('if (!h("getSHEET_ID"))');
     assert.ok(noSheetGate > 0, "init should still have a no-sheet gate");
+    const drawerInit = initSource.indexOf('h("initDiscoveryDrawer")');
     assert.ok(
-      initSource.indexOf("initDiscoveryDrawer()") > 0 &&
-        initSource.indexOf("initDiscoveryDrawer()") < noSheetGate,
+      drawerInit > 0 && drawerInit < noSheetGate,
       "drawer listeners must be registered before the no-sheet gate",
     );
+    const buttonInit = initSource.indexOf('h("initDiscoveryButton")');
     assert.ok(
-      initSource.indexOf("initDiscoveryButton()") > 0 &&
-        initSource.indexOf("initDiscoveryButton()") < noSheetGate,
+      buttonInit > 0 && buttonInit < noSheetGate,
       "header button listener must be registered before the no-sheet gate",
     );
     // The no-webhook run path still routes through setup after the user
