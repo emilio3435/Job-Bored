@@ -14,6 +14,27 @@ describe("index.html decomposition", () => {
     assert.ok(lines < 2000, `index.html is ${lines} lines; target is <2000`);
   });
 
+  it("loads decomposed discovery styles in cascade order", () => {
+    const source = readFileSync(join(repoRoot, "index.html"), "utf8");
+    const links = [
+      "css/legacy-discovery-setup-wizard.css",
+      "css/legacy-profile-modal.css",
+      "css/legacy-settings-profile.css",
+      "css/legacy-discovery-runs.css",
+      "css/legacy-discovery-drawer.css",
+      "css/legacy-fit-profile-overlay.css",
+      "css/legacy-discovery-coachmark.css",
+    ];
+    assert.equal(source.includes("css/legacy-discovery.css"), false);
+    let previous = -1;
+    for (const href of links) {
+      const index = source.indexOf(`href="${href}"`);
+      assert.notEqual(index, -1, `${href} link should exist`);
+      assert.ok(index > previous, `${href} should preserve discovery CSS order`);
+      previous = index;
+    }
+  });
+
   it("expands partial includes into full dashboard markup", () => {
     const expanded = expandIndexIncludes(
       readFileSync(join(repoRoot, "index.html"), "utf8"),
