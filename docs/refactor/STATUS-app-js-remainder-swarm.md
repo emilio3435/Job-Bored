@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-06-01 (session 28 — C7 thin-wrapper collapse dispatched after C6 inspection).
+> Orchestrator ledger. **Last updated:** 2026-06-01 (session 29 — C7 thin-wrapper collapse merged; stop for inspection).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -12,7 +12,7 @@
 | Current dirty files | `M AGENTS.md`, `M CLAUDE.md`, `M package-lock.json` (unstaged local edits/metadata; do not mix into refactor commits) |
 | Node / npm | v24.13.0 / 11.13.0 ✓ |
 | Baseline `npm test` | **892 pass / 0 fail / 0 skip** (188 suites, ~7.6s) |
-| `app.js` LOC (current) | **2,347** (post C6 bridge registry merge; was 12,456 post Phase 5 cut #1) |
+| `app.js` LOC (current) | **1,744** (post C7 thin-wrapper collapse; `app-compat.js` = **607** LOC; was 12,456 post Phase 5 cut #1) |
 | `SetActiveBranch` | `refactor/app-js-decompose` ✓ |
 | Swarm model | Cursor Task subagents per [PROMPT-app-js-remainder-cursor-swarm-orchestrator.md](./PROMPT-app-js-remainder-cursor-swarm-orchestrator.md) |
 
@@ -59,6 +59,7 @@ replayed onto owner branches.
 | 20 | Hotfix — discovery readiness host bridge | `refactor/app-js-decompose-discovery-readiness-host-hotfix` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-discovery-readiness-host-hotfix` | **MERGED** `5579a6c` | Branch commit `716cc7f` restored lazy host function lookup for readiness fallback helpers after the host is wired. Branch gate: `node --check app.js && node --check discovery-readiness.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused readiness/related tests = **42 pass / 0 fail**, and full `npm test` = **897 pass / 0 fail**; post-merge integration gate also **897 pass / 0 fail** |
 | 21 | C5 — app bootstrap | `refactor/app-js-decompose-app-bootstrap-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-bootstrap-v2` | **MERGED** `a2b8bfe` | Worker commit `d22980e` extracted `app-bootstrap.js`, the thin `app.js` bootstrap bridge, one `index.html` script tag, and focused tests. Branch gate: `node --check app.js && node --check app-bootstrap.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused C5 tests = **65 pass / 0 fail**, and full `npm test` = **897 pass / 0 fail**; post-merge integration gate also **897 pass / 0 fail**; `app.js` = **3,041 LOC**, `app-bootstrap.js` = **252 LOC** |
 | 22 | C6 — bridge registry | `refactor/app-js-decompose-bridge-registry-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-v2` | **MERGED** `2a087e1` | Worker commit `539f83a` extracted `bridge-registry.js`, the thin `app.js` bridge registration context, one `index.html` script tag, and updated the drawer AI host source-text guard. Branch gate: `node --check app.js && node --check bridge-registry.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, and full `npm test` = **897 pass / 0 fail**; post-merge integration gate also **897 pass / 0 fail**; `app.js` = **2,347 LOC**, `bridge-registry.js` = **711 LOC** |
+| 23 | C7 — thin-wrapper collapse | `refactor/app-js-decompose-thin-wrapper-collapse-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-collapse-v2` | **MERGED** `402106f` | Worker commit `718c870` extracted `app-compat.js`, moved compatibility delegates out of `app.js`, added one `index.html` script tag, and updated source-text tests to assert `app-compat.js` ownership. Branch gate: `node --check app.js && node --check app-compat.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused source tests = **123 pass / 0 fail**, and full `npm test` = **897 pass / 0 fail** after `npm ci --prefix server`; post-merge integration gate also **897 pass / 0 fail**; `app.js` = **1,744 LOC**, `app-compat.js` = **607 LOC** |
 
 Shared-file rule in force: `index.html` structural changes landed with B first,
 legacy CSS `<head>` links landed with C, and the scoped A config follow-up landed
@@ -84,8 +85,10 @@ lazy readiness helper lookup after `app.js` wires the host. C5
 Cursor pane's worker branch after an orchestrator repair to the extracted host
 helper call sites and a focused regression guard. C6 `bridge-registry.js` then
 landed from the writer worktree, moving bridge publication out of `app.js` while
-leaving thin delegates in place for the next inspection boundary. Session 18 live
-Cursor audit also found
+leaving thin delegates in place for the next inspection boundary. C7
+`app-compat.js` then landed from the thin-wrapper writer worktree, moving the
+already-extracted compatibility delegates out of `app.js` while preserving
+browser globals and source-text tests. Session 18 live Cursor audit also found
 two stale dirty WIP worktrees (`appjs-core-host` and
 `appjs-keyword-profile-match`) from the older Phase 1/keyword lanes. Both are
 now committed and clean on their owner branches, but are explicitly parked and
@@ -134,6 +137,7 @@ Use those prompts instead of a broad "keep refactoring until <1000 LOC" request.
 | `5579a6c` | discovery readiness host bridge hotfix | no `app.js` LOC change | green (897 pass) |
 | `a2b8bfe` | `app-bootstrap.js` | −156 LOC in `app.js` | green (897 pass) |
 | `2a087e1` | `bridge-registry.js` | −694 LOC in `app.js` | green (897 pass) |
+| `402106f` | `app-compat.js` thin-wrapper collapse | −603 LOC in `app.js` | green (897 pass) |
 
 ## Active pane dispatch (session 15)
 
@@ -287,7 +291,7 @@ any accidental edits stay isolated from the writer and integration checkouts.
 | 32 | Discovery readiness host bridge hotfix | **DONE** | orchestrator hotfix lane | `appjs-discovery-readiness-host-hotfix` | Branch `refactor/app-js-decompose-discovery-readiness-host-hotfix`; commit `716cc7f`, merged as `5579a6c`; branch and post-merge gates green |
 | 33 | `app-bootstrap.js` | **DONE** | Cursor pane `bacf3f3e-041c-4ace-8bc5-ed9068be6abdv` + orchestrator review | `appjs-app-bootstrap-v2` | Branch `refactor/app-js-decompose-app-bootstrap-v2`; worker commit `d22980e`, merged as `a2b8bfe`; branch and post-merge integration gates green |
 | 34 | `bridge-registry.js` | **DONE** | C6 writer pane | `appjs-bridge-registry-v2` | Branch `refactor/app-js-decompose-bridge-registry-v2`; worker commit `539f83a`, merged as `2a087e1`; branch and post-merge integration gates green; `app.js` = **2,347 LOC**, `bridge-registry.js` = **711 LOC** |
-| 35 | C7 thin-wrapper collapse | **ACTIVE** | writer pane | `appjs-thin-wrapper-collapse-v2` | Branch `refactor/app-js-decompose-thin-wrapper-collapse-v2`; remove one-line delegates from `app.js`, preserve compatibility through extracted modules or a dedicated forwarder surface, and update source-text tests to assert the owning module instead of `app.js` |
+| 35 | C7 thin-wrapper collapse / `app-compat.js` | **DONE** | writer pane | `appjs-thin-wrapper-collapse-v2` | Branch `refactor/app-js-decompose-thin-wrapper-collapse-v2`; worker commit `718c870`, merged as `402106f`; moved one-line delegates from `app.js` into `app-compat.js`, preserved compatibility globals, and updated source-text tests to assert the compatibility module |
 | 36+ | final shell reduction | pending | — | — | Continue after C7 inspection; target `<1,000` LOC only after source-text tests and public globals are fully mapped |
 
 ## Worktrees
@@ -324,7 +328,7 @@ any accidental edits stay isolated from the writer and integration checkouts.
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-boundary-review` | `refactor/app-js-decompose-bridge-registry-boundary-review` | Session 26 C6 boundary review | read-only support; fast-forward to latest session 26 dispatch ledger tip before review |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-source-audit` | `refactor/app-js-decompose-bridge-registry-source-audit` | Session 26 C6 source-text audit | read-only support; fast-forward to latest session 26 dispatch ledger tip before review |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-qa` | `refactor/app-js-decompose-bridge-registry-qa` | Session 26 C6 QA gate | read-only support; fast-forward to latest session 26 dispatch ledger tip before verification |
-| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-collapse-v2` | `refactor/app-js-decompose-thin-wrapper-collapse-v2` | Session 28 C7 thin-wrapper collapse writer | active; created from the latest session 28 dispatch ledger tip |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-collapse-v2` | `refactor/app-js-decompose-thin-wrapper-collapse-v2` | Session 28 C7 thin-wrapper collapse writer | merged `402106f`; branch clean at `718c870` |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-boundary-review` | `refactor/app-js-decompose-thin-wrapper-boundary-review` | Session 28 C7 boundary review | read-only support; created from the latest session 28 dispatch ledger tip |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-source-audit` | `refactor/app-js-decompose-thin-wrapper-source-audit` | Session 28 C7 source-text audit | read-only support; created from the latest session 28 dispatch ledger tip |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-qa` | `refactor/app-js-decompose-thin-wrapper-qa` | Session 28 C7 QA gate | read-only support; created from the latest session 28 dispatch ledger tip |
@@ -359,13 +363,13 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 | 4 | Pipeline / Sheets | **DONE** (`95657ad`, `c4d529b`, `576782d`; **892 pass**) |
 | 5 | Discovery remainder | **in progress** (run tracker + relay helpers + scraper ATS config + engine state + status handoff + Apps Script deploy + discovery drawer + ingest URL flow + run orchestration + readiness + setup modals done) |
 | 5b | Index decomposition guardrail | **DONE** (`a432bd2`; **894 pass**) |
-| 6 | Auth / config / core collapse | in progress; config-core follow-up, C4 pipeline-controller, C5 app-bootstrap, and C6 bridge-registry merged; stop for C6 inspection before thin-wrapper collapse |
+| 6 | Auth / config / core collapse | in progress; config-core follow-up, C4 pipeline-controller, C5 app-bootstrap, C6 bridge-registry, and C7 app-compat merged; stop for C7 inspection before final shell reduction |
 
 ## Blockers / hygiene
 
 1. **Discovery autofill WIP** — stashed as `discovery autofill WIP (post-phase4)` (`fb7c653`); breaks 4 discovery tests until finished; keep out of module-cut commits.
 2. Phase 2 leaf cuts committed: `5cd73d6`, `51f97e4`, `cf1c654`.
-3. **Plan LOC table** — re-derive ranges from **3,041** LOC `app.js` before each cut.
+3. **Plan LOC table** — re-derive ranges from **1,744** LOC `app.js` before each cut.
 4. **Mixed integration WIP backup** — `stash@{0}` is retained only as a recovery snapshot after replaying files to owner branches.
 
 ## Next actions (orchestrator)
@@ -400,22 +404,21 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 27. C5 `app-bootstrap.js` **merged** — branch `refactor/app-js-decompose-app-bootstrap-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-bootstrap-v2`, worker commit `d22980e`, merge `a2b8bfe`; branch gate passed `node --check app.js && node --check app-bootstrap.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused C5 tests **65 pass / 0 fail**, and full `npm test` **897 pass / 0 fail**; post-merge integration gate also **897 pass / 0 fail**; `app.js` **3,041 LOC**, `app-bootstrap.js` **252 LOC**.
 28. C6 `bridge-registry.js` **merged** — writer branch `refactor/app-js-decompose-bridge-registry-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-v2`, worker commit `539f83a`, merge `2a087e1`; scope stayed to bridge publication: `JobBoredDiscovery.*.host`, `JobBoredApp.*.host`, `JobBoredApp.core.host`, and `Object.assign(window.JobBoredApp.core, ...)`.
 29. C6 gate **complete** — branch gate passed `node --check app.js && node --check bridge-registry.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, and full `npm test` **897 pass / 0 fail**; post-merge integration gate passed `node --check app.js && node --check bridge-registry.js`, merge diff whitespace check, exact conflict-marker scan, and full `npm test` **897 pass / 0 fail**; `app.js` **2,347 LOC**, `bridge-registry.js` **711 LOC**.
+30. C7 `app-compat.js` thin-wrapper collapse **merged** — writer branch `refactor/app-js-decompose-thin-wrapper-collapse-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-collapse-v2`, worker commit `718c870`, merge `402106f`; scope stayed to already-extracted compatibility delegates, one `index.html` script tag, and source-text tests.
+31. C7 gate **complete** — branch gate passed `node --check app.js && node --check app-compat.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused source-text tests **123 pass / 0 fail**, and full `npm test` **897 pass / 0 fail** after `npm ci --prefix server`; post-merge integration gate passed `node --check app.js && node --check app-compat.js`, merge diff whitespace check, exact conflict-marker scan, and full `npm test` **897 pass / 0 fail**; `app.js` **1,744 LOC**, `app-compat.js` **607 LOC**.
 
 ## `index.html` script order (post Phase 5 cut #1)
 
 ```
-… → sheets-writeback → sheets-read-load → pipeline-render → pipeline-controller → discovery-run-tracker → sheet-access-setup → apps-script-relay-helpers → scraper-ats-config → discovery-engine-state → discovery-readiness → discovery-status-handoff → apps-script-deploy → discovery-setup-modals → discovery-drawer → ingest-url-flow → discovery-run-orchestration → app-bootstrap.js → bridge-registry.js → app.js?v=30
+… → sheets-writeback → sheets-read-load → pipeline-render → pipeline-controller → discovery-run-tracker → sheet-access-setup → apps-script-relay-helpers → scraper-ats-config → discovery-engine-state → discovery-readiness → discovery-status-handoff → apps-script-deploy → discovery-setup-modals → discovery-drawer → ingest-url-flow → discovery-run-orchestration → app-bootstrap.js → app-compat.js → bridge-registry.js → app.js?v=30
 ```
 
-Active implementation lane: C7 thin-wrapper collapse. One writable worktree only:
-`/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-collapse-v2`
-on `refactor/app-js-decompose-thin-wrapper-collapse-v2`. Support lanes are
-read-only unless explicitly reassigned. Gate before merge: `node --check app.js`
-plus any new/changed JS module, `git diff --check refactor/app-js-decompose...HEAD`,
-exact conflict-marker scan, focused source-text tests, full `npm test`, and
-`wc -l app.js` plus any new compatibility module.
+Active implementation lane: none. C7 is merged and post-merge gates are green.
+Stop here for C7 inspection before dispatching final shell reduction from the
+latest integration tip. Existing C7 support lanes remain read-only unless
+explicitly reassigned.
 
-## C7 thin-wrapper collapse dispatch
+## C7 thin-wrapper collapse result
 
 Goal: Collapse one-line compatibility delegates out of `app.js` after the C6
 bridge-registry merge while preserving browser globals and existing module
@@ -433,8 +436,9 @@ Success means:
   `JobBoredDiscovery.*`, and existing DOM startup behavior remain intact.
 - The branch passes the full C7 gate before merge.
 
-Stop when: C7 is merged with the ledger updated and committed, or the branch is
-parked clean with exact blockers and failing output recorded.
+Result: C7 merged as `402106f` from worker commit `718c870`. Branch and
+post-merge gates passed, `app.js` is **1,744** LOC, and `app-compat.js` is
+**607** LOC. Stop here for inspection before final shell reduction.
 
 ## Owner-only risks (unchanged)
 
