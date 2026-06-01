@@ -678,14 +678,25 @@ function emitPipelineMoveSucceeded(jobKey, fromStage, toStage) {
   }
 }
 
-async function updateJobStatus(dataIndex, newStatus) {
+async function updateJobStatus(dataIndex, newStatus, prevStatusOverride) {
   const sheetRow = getSheetRow(dataIndex);
   if (!sheetRow) {
     return false;
   }
 
   const job = host().getPipelineData()[dataIndex];
-  const prevStatus = job ? job.status : "";
+  // Callers that optimistically mutate job.status before invoking this
+  // function (e.g. the Lattice board's drag/keyboard move) must pass the
+  // real previous status through prevStatusOverride. Otherwise job.status
+  // has already been clobbered to newStatus and the jb:write:succeeded event
+  // would report fromStage === toStage, which breaks the Discovered ->
+  // Researching auto-draft trigger in role-materials.js.
+  const prevStatus =
+    prevStatusOverride != null && prevStatusOverride !== undefined
+      ? prevStatusOverride
+      : job
+        ? job.status
+        : "";
   const { updates, localUpdates } = getStatusSideEffects(
     newStatus,
     job,

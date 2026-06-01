@@ -32,6 +32,16 @@ Build a short evidence pack before writing:
 
 Use verified facts only. When a metric, client name, title, date, certification status, launch status, or project URL is uncertain, either omit it or mark it as a caveat in `qa-report.md`.
 
+## Visual Assets (optional polish)
+
+When the template includes company/project logo marks, prefer to keep them:
+
+- Copy `resume-template/assets/` into `<slug>/assets/` when those files are available locally.
+- Preserve the template's `<img>` marks (Audacy `company-mark`, Elio/Hormiga `project-mark`, JobBored `project-mark-wide`, masthead wordmark) and use relative `assets/...` paths when you do.
+- Do not change layout, fonts, palette, or ornamental CSS when tailoring copy.
+
+Missing logos or `assets/` files are not a failure — deliver the resume, cover letter, job analysis, and QA report anyway. Note omitted marks in `qa-report.md` only when you had the files but skipped them.
+
 ## Resume Shape
 
 Choose one target:

@@ -793,6 +793,40 @@
 
   /* -------------------- network -------------------- */
 
+  function isMaterialsNetworkError(err) {
+    if (!err) return false;
+    if (err.status === 0) return true;
+    var helper = root.isFetchNetworkError;
+    if (typeof helper === "function") {
+      try {
+        if (helper(err)) return true;
+      } catch (e) { /* fall through */ }
+    }
+    var msg = String((err && err.message) || err || "");
+    var name = err && err.name ? String(err.name) : "";
+    return (
+      name === "TypeError" ||
+      msg === "Failed to fetch" ||
+      /NetworkError|Network request failed|Load failed|CONNECTION_REFUSED|ECONNREFUSED|aborted/i.test(msg)
+    );
+  }
+
+  function formatMaterialsFetchError(err, baseUrl) {
+    var base = String(baseUrl || getBaseUrl() || "").replace(/\/+$/, "");
+    var blocked = root.isScraperUrlBlockedOnThisPage;
+    if (typeof blocked === "function" && base) {
+      try {
+        if (blocked(base)) {
+          return "This HTTPS page cannot reach a local HTTP materials server (browser mixed-content block). Run the dashboard at http://localhost:8080 with npm start, or deploy the scraper to HTTPS and set Job posting scrape URL in Settings.";
+        }
+      } catch (e) { /* fall through */ }
+    }
+    if (isMaterialsNetworkError(err)) {
+      return "Local materials server is not reachable. From the repo root run npm start (dashboard :8080 + materials API :3847) and keep that terminal open.";
+    }
+    return (err && err.message) || "Could not load application materials.";
+  }
+
   function fetchJson(url) {
     if (typeof fetch !== "function") {
       return Promise.reject(new Error("fetch unavailable"));
@@ -804,6 +838,12 @@
         throw err;
       }
       return res.json();
+    }).catch(function (err) {
+      if (err && err.status) throw err;
+      var wrapped = new Error(formatMaterialsFetchError(err, url));
+      wrapped.status = 0;
+      wrapped.cause = err;
+      throw wrapped;
     });
   }
 
@@ -831,6 +871,12 @@
         }
         return parsed || {};
       });
+    }).catch(function (err) {
+      if (err && err.status) throw err;
+      var wrapped = new Error(formatMaterialsFetchError(err, url));
+      wrapped.status = 0;
+      wrapped.cause = err;
+      throw wrapped;
     });
   }
 
@@ -1079,6 +1125,43 @@
     return mergeMaterialsJob(vmJob, pipelineJob);
   }
 
+  /* Build a request context synchronously so dossier CTAs work as soon as
+     the role opens — don't wait for the async applications/manifest fetch. */
+  function buildMaterialsContext(jobKey) {
+    var base = getBaseUrl();
+    if (!base) return null;
+    var job = getMaterialsJob(jobKey);
+    if (!hasJobIdentity(job)) return null;
+    return {
+      jobKey: jobKey,
+      slug: buildCandidateSlug(job),
+      company: String(job.company || ""),
+      title: String(job.role || job.title || ""),
+      jobUrl: pickPostingUrl(job),
+      base: base,
+      cachedJobDescription: pickCachedJobDescription(job),
+    };
+  }
+
+  function resolveMaterialsContext(jobKeyHint) {
+    var jobKey = jobKeyHint;
+    if (jobKey == null || jobKey === "") {
+      jobKey = root.JobBoredFlowing
+        && root.JobBoredFlowing.openRole
+        && root.JobBoredFlowing.openRole.get
+        && root.JobBoredFlowing.openRole.get();
+    }
+    if (jobKey == null || jobKey === "") return null;
+    if (
+      currentContext
+      && String(currentContext.jobKey) === String(jobKey)
+      && currentContext.base
+    ) {
+      return currentContext;
+    }
+    return buildMaterialsContext(jobKey);
+  }
+
   function loadForOpenRole(jobKey) {
     if (!shouldRun()) return;
     var region = document.querySelector(REGION_SELECTOR);
@@ -1096,25 +1179,20 @@
       return;
     }
 
+    currentContext = buildMaterialsContext(jobKey);
+
     getApplications(base).then(function (apps) {
       return pickApplicationWithRefresh(base, job, apps);
     }).then(function (resolved) {
       var apps = resolved.applications || [];
       var picked = resolved.picked;
       var slug = picked ? picked.slug : buildCandidateSlug(job);
-      currentContext = {
-        jobKey: jobKey,
-        slug: slug,
-        company: String(job.company || ""),
-        title: String(job.role || job.title || ""),
-        jobUrl: pickPostingUrl(job),
-        base: base,
-        /* JD text held in browser memory from a prior posting scrape,
-           if any. First step of the JD fallback chain — we send this
-           up before kicking off Hermes so the watcher never refuses
-           on a missing job-description.md. */
-        cachedJobDescription: pickCachedJobDescription(job),
-      };
+      if (currentContext && String(currentContext.jobKey) === String(jobKey)) {
+        currentContext.slug = slug;
+      } else {
+        currentContext = buildMaterialsContext(jobKey);
+        if (currentContext) currentContext.slug = slug;
+      }
       if (!picked) {
         if (root.console && root.console.info) {
           root.console.info(
@@ -1139,8 +1217,8 @@
         });
     }).catch(function (err) {
       var msg = err && err.status === 0
-        ? "Local materials server is unreachable."
-        : (err && err.message) || "Could not load application materials.";
+        ? formatMaterialsFetchError(err, base)
+        : formatMaterialsFetchError(err, base);
       renderError(brief, msg);
     });
   }
@@ -1163,8 +1241,9 @@
   function isAutoDraftMove(detail) {
     if (!detail || detail.kind !== "pipeline:move") return false;
     var fromStage = normalizeStageKey(detail.fromStage);
+    var toStage = normalizeStageKey(detail.toStage || detail.status);
     return (fromStage === "new" || fromStage === "")
-      && normalizeStageKey(detail.toStage) === "researching";
+      && toStage === "researching";
   }
 
   var AUTO_DRAFT_SNAPSHOT_STORAGE_KEY = "jobBored:autoDraftStageSnapshot:v1";
@@ -1606,17 +1685,26 @@
      If the request fires successfully, swap the materials section to
      a pending state and start polling. If it fails, surface the
      error inline (no toast framework wired in yet). */
-  function handleDraftRequest(feature) {
+  function handleDraftRequest(feature, jobKeyHint) {
     if (!shouldRun()) return;
-    if (!currentContext) {
-      if (root.console && root.console.warn) {
+    var ctx = resolveMaterialsContext(jobKeyHint);
+    var region = document.querySelector(REGION_SELECTOR);
+    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    if (!ctx) {
+      if (brief) {
+        var base = getBaseUrl();
+        renderError(
+          brief,
+          !base
+            ? "Run npm start so the local materials server is available."
+            : "Open a role with a company or title before requesting materials.",
+        );
+      } else if (root.console && root.console.warn) {
         root.console.warn("[role-materials] no open role context for request");
       }
       return;
     }
-    var ctx = currentContext;
-    var region = document.querySelector(REGION_SELECTOR);
-    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    currentContext = ctx;
     if (!brief) return;
 
     showNotesForm(feature, function (notes) {
@@ -1876,9 +1964,9 @@
     lastActionTuple = tuple;
     lastActionAt = now;
     if (detail.action === "resume-cover") {
-      handleDraftRequest("cover_letter");
+      handleDraftRequest("cover_letter", detail.jobKey);
     } else {
-      handleDraftRequest("resume");
+      handleDraftRequest("resume", detail.jobKey);
     }
   }
 

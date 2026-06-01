@@ -156,9 +156,17 @@ describe("Drawer CRM sync", () => {
     });
 
     it("captures the previous stage before local mutation", () => {
+      // Callers that optimistically mutate job.status before the write (the
+      // Lattice board) pass the true source stage via prevStatusOverride.
+      // Other callers (status-select dropdown, stage-step) omit it and fall
+      // back to job.status, which is still the source stage at that point.
       assert.ok(
-        body && body.includes("const prevStatus = job ? job.status : \"\";"),
-        "updateJobStatus should keep the source stage before applying local status changes",
+        body && body.includes("prevStatusOverride"),
+        "updateJobStatus should accept an explicit previous-stage override",
+      );
+      assert.ok(
+        body && body.includes("job.status"),
+        "updateJobStatus should fall back to job.status when no override is passed",
       );
     });
 

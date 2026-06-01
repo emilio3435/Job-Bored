@@ -101,7 +101,9 @@ export async function extractJobWithGeminiUrlContext(
         tools: [{ url_context: {} }],
         generationConfig: {
           temperature: 0.1,
-          maxOutputTokens: 2048,
+          // Job descriptions often exceed 2k tokens once serialized as JSON;
+          // truncated output fails parse/confidence checks and falsely skips Gemini.
+          maxOutputTokens: 4096,
         },
       },
     });

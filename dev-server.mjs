@@ -393,12 +393,23 @@ async function serveStatic(urlPath, res) {
     return;
   }
   try {
-    let data = await readFile(filePath, "utf8");
     const ext = extname(filePath).toLowerCase();
-    if (ext === ".html" && /<!--\s*@include\s+/.test(data)) {
-      data = expandIndexIncludes(data, ROOT);
-    }
     const ct = MIME[ext] || "application/octet-stream";
+    // Only HTML needs string processing (for <!-- @include --> directives).
+    // Everything else — including binary assets like images and fonts — must
+    // be served as raw bytes. Reading binary files with "utf8" replaces every
+    // non-UTF-8 byte with U+FFFD and corrupts the payload on re-encode, which
+    // breaks .webp/.png/.ico/.woff* assets even though they exist on disk.
+    if (ext === ".html") {
+      let data = await readFile(filePath, "utf8");
+      if (/<!--\s*@include\s+/.test(data)) {
+        data = expandIndexIncludes(data, ROOT);
+      }
+      res.writeHead(200, { "content-type": ct, "cache-control": "no-cache" });
+      res.end(data);
+      return;
+    }
+    const data = await readFile(filePath);
     res.writeHead(200, { "content-type": ct, "cache-control": "no-cache" });
     res.end(data);
   } catch {
