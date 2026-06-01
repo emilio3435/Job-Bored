@@ -772,7 +772,6 @@ function initScraperSetupGuide() {
 // ============================================
 
 let SHEET_ID = null;
-const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
 let dataLoadFailed = false;
 let dashboardDataHydrated = false;
@@ -1374,6 +1373,62 @@ window.JobBoredDiscovery.setupModals.host = {
   getConfigCore() {
     return configCore;
   },
+};
+
+// App bootstrap bridge. app-bootstrap.js loads BEFORE app.js.
+window.JobBoredApp.bootstrap = window.JobBoredApp.bootstrap || {};
+window.JobBoredApp.bootstrap.host = {
+  requestDiscoverySetup,
+  triggerDiscoveryRun,
+  getPipelineData,
+  renderAreaWidget,
+  openJobDetail,
+  openDiscoveryPathsModal,
+  getSheetId,
+  setSHEET_ID(value) {
+    SHEET_ID = value;
+  },
+  getSHEET_ID() {
+    return SHEET_ID;
+  },
+  setInitialSheetAccessResolved(value) {
+    initialSheetAccessResolved = value;
+  },
+  resetPostAccessBootstrap() {
+    return window.JobBoredDiscovery.status.resetPostAccessBootstrap();
+  },
+  initAuthUserMenu,
+  initResumeMaterialsFeature,
+  initDiscoveryDrawer,
+  initDiscoverySubtabs,
+  initDiscoveryButton,
+  getOAuthClientId,
+  showSheetAccessGate,
+  initAuth,
+  renderSetupStarterSheetUi,
+  loadPersistedRuntimeOAuthSession,
+  loadPersistedOAuthSession,
+  getConfig,
+  setDashboardSheetLinks,
+  preloadDiscoveryUiState,
+  resumeDiscoveryStatusPollingIfNeeded,
+  setCurrentSort,
+  renderPipeline,
+  setCurrentSearch,
+  setPipelineViewFilters,
+  getFavoritesOnly,
+  getShowDismissed,
+  syncPipelineFilterControls,
+  initExpiredReviewUi,
+  loadAllData,
+  closeAuthUserMenu,
+  closeMaterialsModal,
+  closeCommandCenterSettingsModal,
+  initCommandCenterSettings,
+  initSetupAndSheetAccessActions,
+  initScraperSetupGuide,
+  initDiscoverySetupGuide,
+  initIngestUrlFlow,
 };
 
 // Discovery run orchestration bridge. discovery-run-orchestration.js loads BEFORE app.js.
@@ -2834,61 +2889,11 @@ function initSetupAndSheetAccessActions(...args) {
   return window.JobBoredApp.setup.initSetupAndSheetAccessActions(...args);
 }
 
-function initPipelineEmptyAndBriefActions() {
-  document
-    .getElementById("emptyStateActions")
-    ?.addEventListener("click", (e) => {
-      const b = e.target.closest("[data-empty-action]");
-      if (!b) return;
-      const a = b.getAttribute("data-empty-action");
-      if (a === "settings" || a === "open_setup") {
-        void requestDiscoverySetup({
-          entryPoint: "empty_state",
-          allowWhileOnboarding: true,
-        });
-      }
-      if (a === "run_discovery") {
-        void triggerDiscoveryRun();
-      }
-    });
-  document
-    .querySelector(".daily-brief-panel")
-    ?.addEventListener("click", (e) => {
-      const rangeBtn = e.target.closest("[data-range]");
-      if (rangeBtn) {
-        window.JobBoredApp.brief.setBriefActivityRange(rangeBtn.dataset.range);
-        const el = document.getElementById("briefInsights");
-        const data = getPipelineData();
-        if (el && data.length)
-          el.innerHTML = renderAreaWidget(
-            data,
-            window.JobBoredApp.brief.getBriefActivityRange(),
-          );
-        return;
-      }
-      const feedItem = e.target.closest(
-        '[data-action="open-detail"][data-stable-key]',
-      );
-      if (feedItem) {
-        const key = parseInt(feedItem.dataset.stableKey, 10);
-        if (!Number.isNaN(key)) openJobDetail(key);
-        return;
-      }
-      const b = e.target.closest("[data-brief-action]");
-      if (!b) return;
-      const a = b.getAttribute("data-brief-action");
-      if (a === "settings" || a === "open_setup") {
-        void requestDiscoverySetup({
-          entryPoint: "brief",
-          allowWhileOnboarding: true,
-        });
-      }
-      if (a === "run_discovery") {
-        void triggerDiscoveryRun();
-      }
-      if (a === "agent" || a === "paths") openDiscoveryPathsModal();
-    });
+// --- App bootstrap (extracted to app-bootstrap.js) ---
+function initPipelineEmptyAndBriefActions(...args) {
+  return window.JobBoredApp.bootstrap.initPipelineEmptyAndBriefActions(...args);
 }
+
 
 function initResumeMaterialsFeature(...args) {
   return window.JobBoredApp.materials.initResumeMaterialsFeature(...args);
@@ -2898,161 +2903,10 @@ function initResumeMaterialsFeature(...args) {
 // INITIALIZATION
 // ============================================
 
-function init() {
-  // Check config
-  SHEET_ID = getSheetId();
-  initialSheetAccessResolved = false;
-  window.JobBoredDiscovery.status.resetPostAccessBootstrap();
-  initAuthUserMenu();
-
-  // Wire the onboarding wizard + resume materials handlers UNCONDITIONALLY,
-  // BEFORE the no-SHEET_ID early return below.
-  //
-  // Why: greenfield first-time users land here with no SHEET_ID, see the
-  // onboarding modal, drop a resume — but until this call ran, the
-  // file-input change listener wasn't bound, so the upload silently did
-  // nothing. The user experienced this as "I have to refresh the page in
-  // order for the file selector to put the file visibly into the UX" —
-  // because by the time they refreshed, sign-in had set SHEET_ID and the
-  // listener finally got bound on the second pass.
-  //
-  // initResumeMaterialsFeature is internally idempotent and has no sheet
-  // dependency: it opens IndexedDB and wires modal/file listeners. Safe
-  // to run pre-SHEET_ID.
-  initResumeMaterialsFeature();
-  initDiscoveryDrawer();
-  initDiscoverySubtabs();
-  initDiscoveryButton();
-
-  if (!SHEET_ID) {
-    // Login gate first; onboarding (blank sheet steps) appears after Google sign-in.
-    document.getElementById("dashboard").style.display = "none";
-    document.getElementById("setupScreen").style.display = "none";
-    if (!getOAuthClientId()) {
-      showSheetAccessGate("no-oauth");
-    } else {
-      showSheetAccessGate("loading");
-    }
-    initAuth();
-    renderSetupStarterSheetUi();
-    return;
-  }
-
-  document.getElementById("setupScreen").style.display = "none";
-  /* Refresh flicker fix:
-     - If we have a valid runtime token cached in localStorage, the
-       dashboard is going to render in milliseconds. Show it RIGHT NOW
-       (not after silent-restore + data load) so the page doesn't go
-       blank between paint and revealDashboardShell(). The dashboard
-       briefly shows whatever was last rendered/empty until loadAllData
-       repaints — far less jarring than a flash of the login gate or
-       a flash of nothing at all.
-     - If we only have METADATA persisted (no valid runtime token),
-       silent-restore is about to fire; still skip the gate "loading"
-       splash so we don't flicker the login illustration on refresh.
-     - If we have nothing persisted, show the gate "loading" splash
-       so the user has something to look at on a true cold start.
-     If silent-restore fails downstream, the error paths in
-     initAuth/handleTokenResponse open the gate with the right mode. */
-  const hasRuntimeToken = !!loadPersistedRuntimeOAuthSession();
-  const hasPersistedSession = !!loadPersistedOAuthSession();
-  if (hasRuntimeToken) {
-    /* Eager reveal — silent-restore will finish in <500ms, then
-       loadAllData repaints. Until then the dashboard shell is visible
-       with last-known DOM state (or its first-paint defaults). */
-    document.getElementById("dashboard").style.display = "block";
-  } else {
-    document.getElementById("dashboard").style.display = "none";
-    if (!hasPersistedSession) {
-      showSheetAccessGate("loading");
-    }
-  }
-
-  // Dashboard wordmark vs custom title
-  const cfg = getConfig();
-  if (cfg) {
-    const effectiveTitle = cfg.title;
-    document.title = effectiveTitle + " — Job Search Dashboard";
-    const logoEl = document.getElementById("logoHorizontal");
-    const titleEl = document.getElementById("dashboardTitle");
-    const defaultTitle = "JobBored";
-    if (effectiveTitle === defaultTitle) {
-      logoEl?.removeAttribute("hidden");
-      titleEl?.setAttribute("hidden", "");
-    } else {
-      logoEl?.setAttribute("hidden", "");
-      titleEl?.removeAttribute("hidden");
-      if (titleEl) titleEl.textContent = effectiveTitle;
-    }
-  }
-
-  // Set sheet links
-  setDashboardSheetLinks();
-
-  void preloadDiscoveryUiState();
-  resumeDiscoveryStatusPollingIfNeeded();
-
-  // Sort
-  document.getElementById("sortSelect").addEventListener("change", (e) => {
-    setCurrentSort(e.target.value);
-    renderPipeline();
-  });
-
-  // Search
-  let searchTimeout;
-  document.getElementById("searchInput").addEventListener("input", (e) => {
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => {
-      setCurrentSearch(e.target.value.trim());
-      renderPipeline();
-    }, 200);
-  });
-
-  // Pipeline filter chips — favorites-only + show-dismissed
-  const favChip = document.getElementById("favoritesOnlyChip");
-  if (favChip) {
-    favChip.addEventListener("click", () => {
-      setPipelineViewFilters({ favoritesOnly: !getFavoritesOnly() });
-    });
-  }
-  const dismissedChip = document.getElementById("showDismissedChip");
-  if (dismissedChip) {
-    dismissedChip.addEventListener("click", () => {
-      setPipelineViewFilters({ showDismissed: !getShowDismissed() });
-    });
-  }
-  syncPipelineFilterControls();
-  initExpiredReviewUi();
-
-  // Refresh
-  document.getElementById("refreshBtn")?.addEventListener("click", () => {
-    loadAllData();
-  });
-
-  document
-    .getElementById("onboardingWizardBtn")
-    ?.addEventListener("click", () => {
-      closeAuthUserMenu();
-      closeMaterialsModal();
-      closeCommandCenterSettingsModal();
-      void requestDiscoverySetup({
-        entryPoint: "toolbar",
-        allowWhileOnboarding: true,
-      });
-    });
-
-  // Init auth
-  initAuth();
-
-  // initResumeMaterialsFeature was hoisted above the no-SHEET_ID early
-  // return so greenfield users can actually use the onboarding wizard's
-  // file upload. Calling it again here would double-bind every listener
-  // (addEventListener doesn't dedupe), so don't.
-
-  loadAllData();
-
-  setInterval(loadAllData, REFRESH_INTERVAL);
+function init(...args) {
+  return window.JobBoredApp.bootstrap.init(...args);
 }
+
 
 /**
  * Normalize a source preset value to a valid enum string or empty.
@@ -3185,13 +3039,3 @@ async function ingestJobUrl(...args) {
 function initIngestUrlFlow(...args) {
   return window.JobBoredDiscovery.ingestUrlFlow.initIngestUrlFlow(...args);
 }
-
-document.addEventListener("DOMContentLoaded", () => {
-  initCommandCenterSettings();
-  initSetupAndSheetAccessActions();
-  initScraperSetupGuide();
-  initDiscoverySetupGuide();
-  initPipelineEmptyAndBriefActions();
-  initIngestUrlFlow();
-  init();
-});
