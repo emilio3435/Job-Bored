@@ -206,6 +206,7 @@
       initDiscoverySubtabs: host.initDiscoverySubtabs,
       initDiscoveryButton: host.initDiscoveryButton,
       getOAuthClientId: host.getOAuthClientId,
+      getAccessToken: host.getAccessToken,
       showSheetAccessGate: host.showSheetAccessGate,
       initAuth: host.initAuth,
       renderSetupStarterSheetUi: host.renderSetupStarterSheetUi,

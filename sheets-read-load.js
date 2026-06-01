@@ -14,6 +14,18 @@
     return window.JobBoredApp.core.host;
   }
 
+  function startupLog(label, detail, level = "info") {
+    const logger = window.JobBoredStartupLog;
+    if (logger && typeof logger.mark === "function") {
+      logger.mark(label, detail, level);
+      return;
+    }
+    const method = level === "error" ? "error" : level === "warn" ? "warn" : "info";
+    if (window.console && typeof console[method] === "function") {
+      console[method]("[JobBored startup]", label, detail || "");
+    }
+  }
+
   // localStorage-backed pending favorites map. Keyed by the job link (or by a
   // link-less synthetic key built from title|company so manually-entered rows
   // without a link still persist). Survives across refresh so a user who
@@ -453,7 +465,18 @@
 
   async function loadAllData() {
     const h = host();
+    startupLog("sheets-read:load:start", {
+      hasOAuthClientId: !!h.getOAuthClientId(),
+      hasAccessToken: !!h.getAccessToken(),
+      sheetIdState: normalizeActiveSheetId(h.getActiveSheetId())
+        ? "present"
+        : "missing",
+      initialAccessResolved: !!h.getInitialSheetAccessResolved(),
+    });
     if (h.getOAuthClientId() && !h.getAccessToken()) {
+      startupLog("sheets-read:load:signed-out", {
+        hasOAuthClientId: true,
+      }, "warn");
       h.setPipelineRawRows(null);
       h.setPipelineData([]);
       h.setDashboardDataHydrated(false);
@@ -462,6 +485,10 @@
     }
 
     if (!normalizeActiveSheetId(h.getActiveSheetId())) {
+      startupLog("sheets-read:load:missing-sheet-id", {
+        hasAccessToken: !!h.getAccessToken(),
+        hasOAuthClientId: !!h.getOAuthClientId(),
+      }, "warn");
       h.setPipelineRawRows(null);
       h.setPipelineData([]);
       h.setDashboardDataHydrated(false);
@@ -485,6 +512,10 @@
       const pipelineRows = await fetchSheetCSV("Pipeline");
 
       if (!pipelineRows) {
+        startupLog("sheets-read:load:fetch-failed", {
+          initialAccessResolved: !!h.getInitialSheetAccessResolved(),
+          hasAccessToken: !!h.getAccessToken(),
+        }, "error");
         if (!h.getInitialSheetAccessResolved()) {
           if (!h.getAccessToken() && h.getOAuthClientId()) {
             h.showSheetAccessGate("signin");
@@ -509,6 +540,10 @@
       applyFavoriteCache(pipelineData);
       h.setPipelineData(pipelineData);
       console.log(`[JobBored] Pipeline: ${pipelineData.length} jobs`);
+      startupLog("sheets-read:load:parsed", {
+        rowCount: Array.isArray(pipelineRows) ? pipelineRows.length : 0,
+        jobCount: pipelineData.length,
+      });
 
       h.setDashboardDataHydrated(true);
       h.renderPipeline();
@@ -527,9 +562,18 @@
         h.revealDashboardShell();
         h.runPostAccessBootstrapOnce();
       }
+      startupLog("sheets-read:load:complete", {
+        jobCount: pipelineData.length,
+        dashboardHydrated: true,
+      });
       return true;
     } catch (err) {
       console.error("[JobBored] Error loading data:", err);
+      startupLog(
+        "sheets-read:load:error",
+        { message: err && err.message ? err.message : String(err) },
+        "error",
+      );
       if (!h.getInitialSheetAccessResolved()) {
         h.showSheetAccessGate(
           !h.getAccessToken() && h.getOAuthClientId() ? "signin" : "error",

@@ -23,12 +23,22 @@ describe("startup diagnostics", () => {
 
   it("reports missing bootstrap host functions before startup stalls silently", () => {
     const source = readRepoFile("app-bootstrap.js");
+    const bridgeSource = readRepoFile("bridge-registry.js");
 
     assert.match(source, /bootstrap missing host function/);
     assert.match(source, /bootstrap:auth-prepaint-released/);
     assert.match(source, /bootstrap:init:data-load-deferred-to-auth/);
     assert.match(source, /bootstrap:init:no-sheet-id/);
     assert.match(source, /bootstrap:init:complete/);
+    assert.match(bridgeSource, /getAccessToken: host\.getAccessToken/);
+  });
+
+  it("reports Sheets load progress after auth restore", () => {
+    const source = readRepoFile("sheets-read-load.js");
+
+    assert.match(source, /sheets-read:load:start/);
+    assert.match(source, /sheets-read:load:parsed/);
+    assert.match(source, /sheets-read:load:complete/);
   });
 
   it("reports missing sheet access DOM instead of returning silently", () => {
