@@ -2,13 +2,13 @@
  * tests/letter-draft-folder.test.mjs
  *
  * Wiring contract for the Part 04 "draft folder" strip added to the v2
- * letter region. Drafts saved by app.js's runResumeGeneration must surface
- * in letter.js's `[data-region="letter"]` without the user opening the
- * legacy resume-generate modal.
+ * letter region. Drafts saved by resume-generation.js's runResumeGeneration
+ * must surface in letter.js's `[data-region="letter"]` without the user
+ * opening the legacy resume-generate modal.
  *
- * Failure messages point at the specific seam (app.js bridge / event
- * dispatch / letter.js folder render / click handler) so regressions can
- * be diagnosed quickly.
+ * Failure messages point at the specific seam (compatibility bridge / event
+ * dispatch / letter.js folder render / click handler) so regressions can be
+ * diagnosed quickly.
  */
 
 import assert from "node:assert/strict";
@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
 const resumeGenerationJs = readFileSync(
   join(repoRoot, "resume-generation.js"),
   "utf8",
@@ -27,32 +27,32 @@ const resumeGenerationJs = readFileSync(
 const letterJs = readFileSync(join(repoRoot, "letter.js"), "utf8");
 const letterCss = readFileSync(join(repoRoot, "letter.css"), "utf8");
 
-describe("Letter region — draft folder bridge (app.js exports)", () => {
+describe("Letter region — draft folder bridge (compat exports)", () => {
   it("exposes window.getDraftsForJob so letter.js can list saved drafts", () => {
     assert.ok(
-      /window\.getDraftsForJob\s*=\s*getDraftsForJob/.test(appJs),
-      "app.js must assign window.getDraftsForJob = getDraftsForJob so letter.js can read the cache",
+      /window\.getDraftsForJob\s*=\s*getDraftsForJob/.test(appCompatJs),
+      "app-compat.js must assign window.getDraftsForJob = getDraftsForJob so letter.js can read the cache",
     );
   });
 
   it("exposes window.openSavedDraftVersion for the fullscreen ⤢ affordance", () => {
     assert.ok(
-      /window\.openSavedDraftVersion\s*=\s*openSavedDraftVersion/.test(appJs),
-      "app.js must expose openSavedDraftVersion so the folder card ⤢ button opens the legacy modal",
+      /window\.openSavedDraftVersion\s*=\s*openSavedDraftVersion/.test(appCompatJs),
+      "app-compat.js must expose openSavedDraftVersion so the folder card ⤢ button opens the legacy modal",
     );
   });
 
   it("exposes window.getPipelineJobByIndex so letter.js can map stableKey → job object", () => {
     assert.ok(
-      /window\.getPipelineJobByIndex\s*=\s*function/.test(appJs),
-      "app.js must expose getPipelineJobByIndex(idx) → pipelineData[idx] for the v2 letter region",
+      /window\.getPipelineJobByIndex\s*=\s*function/.test(appCompatJs),
+      "app-compat.js must expose getPipelineJobByIndex(idx) → pipelineData[idx] for the v2 letter region",
     );
   });
 
   it("exposes reviseLetterDraftForJob so letter.js can run in-page AI revisions", () => {
     assert.ok(
-      /window\.reviseLetterDraftForJob\s*=\s*reviseLetterDraftForJob/.test(appJs),
-      "app.js must expose reviseLetterDraftForJob for the letter region one-click tools",
+      /window\.reviseLetterDraftForJob\s*=\s*reviseLetterDraftForJob/.test(appCompatJs),
+      "app-compat.js must expose reviseLetterDraftForJob for the letter region one-click tools",
     );
   });
 });
@@ -254,7 +254,7 @@ describe("Letter region — click delegation (letter.js)", () => {
   });
 });
 
-describe("Letter region — AI revision bridge (app.js)", () => {
+describe("Letter region — AI revision bridge (resume-generation.js)", () => {
 
   it("the app bridge saves AI revisions as generated draft refine versions", () => {
     const fnStart = resumeGenerationJs.indexOf("async function reviseLetterDraftForJob");

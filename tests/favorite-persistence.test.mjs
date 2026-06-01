@@ -24,9 +24,9 @@
        cache into freshly-parsed jobs, so the favorite survives a
        refresh regardless of how the Sheet write went.
 
-   These are static-analysis tests against app.js — they don't
-   spin up a browser. The point is to prevent the rollback
-   regression from creeping back in.
+   These are static-analysis tests against the app shell and its
+   compatibility forwarders — they don't spin up a browser. The
+   point is to prevent the rollback regression from creeping back in.
    ============================================================ */
 
 import assert from "node:assert/strict";
@@ -36,7 +36,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
 const sheetsWriteJs = readFileSync(join(repoRoot, "sheets-writeback.js"), "utf8");
 const sheetsReadJs = readFileSync(join(repoRoot, "sheets-read-load.js"), "utf8");
 
@@ -72,9 +72,9 @@ describe("favorite toggle persists across refresh", () => {
 
   it("layers cached favorites into freshly-parsed pipelineData after CSV parse", () => {
     assert.match(
-      appJs,
+      appCompatJs,
       /function\s+applyFavoriteCache\s*\(/,
-      "applyFavoriteCache wrapper must exist in app.js",
+      "applyFavoriteCache wrapper must exist in app-compat.js",
     );
     assert.match(
       sheetsReadJs,
