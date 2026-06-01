@@ -46,6 +46,10 @@ C may edit only `<head>` CSS links next; A may edit only script tags or its
 owned `app.js` follow-up files after C unless the orchestrator confirms a
 non-overlap.
 
+Follow-up Cursor prompts are staged in
+[FOLLOWUP-CURSOR-SWARM-2026-05-31.md](./FOLLOWUP-CURSOR-SWARM-2026-05-31.md).
+Use those prompts instead of a broad "keep refactoring until <1000 LOC" request.
+
 ## Integration commits (merged to `refactor/app-js-decompose`)
 
 | Commit | Module | app.js delta (approx) | Tests |
