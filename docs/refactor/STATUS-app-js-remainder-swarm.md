@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-06-01 (session 29 — C7 thin-wrapper collapse merged; stop for inspection).
+> Orchestrator ledger. **Last updated:** 2026-06-01 (session 30 — final shell reduction dispatched; settings select compatibility edits parked clean).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -60,6 +60,8 @@ replayed onto owner branches.
 | 21 | C5 — app bootstrap | `refactor/app-js-decompose-app-bootstrap-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-app-bootstrap-v2` | **MERGED** `a2b8bfe` | Worker commit `d22980e` extracted `app-bootstrap.js`, the thin `app.js` bootstrap bridge, one `index.html` script tag, and focused tests. Branch gate: `node --check app.js && node --check app-bootstrap.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused C5 tests = **65 pass / 0 fail**, and full `npm test` = **897 pass / 0 fail**; post-merge integration gate also **897 pass / 0 fail**; `app.js` = **3,041 LOC**, `app-bootstrap.js` = **252 LOC** |
 | 22 | C6 — bridge registry | `refactor/app-js-decompose-bridge-registry-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-v2` | **MERGED** `2a087e1` | Worker commit `539f83a` extracted `bridge-registry.js`, the thin `app.js` bridge registration context, one `index.html` script tag, and updated the drawer AI host source-text guard. Branch gate: `node --check app.js && node --check bridge-registry.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, and full `npm test` = **897 pass / 0 fail**; post-merge integration gate also **897 pass / 0 fail**; `app.js` = **2,347 LOC**, `bridge-registry.js` = **711 LOC** |
 | 23 | C7 — thin-wrapper collapse | `refactor/app-js-decompose-thin-wrapper-collapse-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-collapse-v2` | **MERGED** `402106f` | Worker commit `718c870` extracted `app-compat.js`, moved compatibility delegates out of `app.js`, added one `index.html` script tag, and updated source-text tests to assert `app-compat.js` ownership. Branch gate: `node --check app.js && node --check app-compat.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused source tests = **123 pass / 0 fail**, and full `npm test` = **897 pass / 0 fail** after `npm ci --prefix server`; post-merge integration gate also **897 pass / 0 fail**; `app.js` = **1,744 LOC**, `app-compat.js` = **607 LOC** |
+| 24 | Parked — settings select compatibility exports | `refactor/app-js-decompose-settings-select-compat-parked` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-settings-select-compat-parked` | **PARKED CLEAN** `302f05b` | Preserved unexpected integration dirty edits before final-shell dispatch. Minimal gate passed: `node --check app-compat.js && node --check settings-modal.js`, `git diff --check`, exact conflict-marker scan on touched files, pre-commit staged JS syntax, and full `npm test` = **897 pass / 0 fail** after `npm ci --prefix server`. Blocker: unplanned branch; review or fold into final-shell only if the public-global audit proves these settings selectors are required |
+| 25 | Final shell reduction | `refactor/app-js-decompose-final-shell-reduction-v2` | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-final-shell-reduction-v2` | **DISPATCHED** | Base from this session 30 ledger dispatch. Target: reduce `app.js` below **1,000 LOC** by moving safe remaining compatibility forwarders while preserving true shell state, bridge context, and public globals |
 
 Shared-file rule in force: `index.html` structural changes landed with B first,
 legacy CSS `<head>` links landed with C, and the scoped A config follow-up landed
@@ -292,7 +294,8 @@ any accidental edits stay isolated from the writer and integration checkouts.
 | 33 | `app-bootstrap.js` | **DONE** | Cursor pane `bacf3f3e-041c-4ace-8bc5-ed9068be6abdv` + orchestrator review | `appjs-app-bootstrap-v2` | Branch `refactor/app-js-decompose-app-bootstrap-v2`; worker commit `d22980e`, merged as `a2b8bfe`; branch and post-merge integration gates green |
 | 34 | `bridge-registry.js` | **DONE** | C6 writer pane | `appjs-bridge-registry-v2` | Branch `refactor/app-js-decompose-bridge-registry-v2`; worker commit `539f83a`, merged as `2a087e1`; branch and post-merge integration gates green; `app.js` = **2,347 LOC**, `bridge-registry.js` = **711 LOC** |
 | 35 | C7 thin-wrapper collapse / `app-compat.js` | **DONE** | writer pane | `appjs-thin-wrapper-collapse-v2` | Branch `refactor/app-js-decompose-thin-wrapper-collapse-v2`; worker commit `718c870`, merged as `402106f`; moved one-line delegates from `app.js` into `app-compat.js`, preserved compatibility globals, and updated source-text tests to assert the compatibility module |
-| 36+ | final shell reduction | pending | — | — | Continue after C7 inspection; target `<1,000` LOC only after source-text tests and public globals are fully mapped |
+| 36 | Settings select compatibility exports | **PARKED CLEAN** | orchestrator rescue | `appjs-settings-select-compat-parked` | Branch `refactor/app-js-decompose-settings-select-compat-parked`; commit `302f05b`; unexpected integration dirty code preserved and verified; merge only after final-shell public-global audit confirms ownership |
+| 37 | final shell reduction | **ACTIVE** | writer pane | `appjs-final-shell-reduction-v2` | Dispatch from latest integration tip; target `<1,000` LOC only after source-text tests and public globals are fully mapped |
 
 ## Worktrees
 
@@ -332,6 +335,11 @@ any accidental edits stay isolated from the writer and integration checkouts.
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-boundary-review` | `refactor/app-js-decompose-thin-wrapper-boundary-review` | Session 28 C7 boundary review | read-only support; created from the latest session 28 dispatch ledger tip |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-source-audit` | `refactor/app-js-decompose-thin-wrapper-source-audit` | Session 28 C7 source-text audit | read-only support; created from the latest session 28 dispatch ledger tip |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-qa` | `refactor/app-js-decompose-thin-wrapper-qa` | Session 28 C7 QA gate | read-only support; created from the latest session 28 dispatch ledger tip |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-settings-select-compat-parked` | `refactor/app-js-decompose-settings-select-compat-parked` | Session 30 settings select compatibility rescue | parked clean `302f05b`; merge blocker: unplanned integration dirty code, review with final-shell public-global audit |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-final-shell-reduction-v2` | `refactor/app-js-decompose-final-shell-reduction-v2` | Session 30 final shell writer | dispatch from latest session 30 ledger tip |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-final-shell-boundary-review` | `refactor/app-js-decompose-final-shell-boundary-review` | Session 30 final shell boundary review | read-only support; create from latest session 30 dispatch ledger tip |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-final-shell-source-audit` | `refactor/app-js-decompose-final-shell-source-audit` | Session 30 final shell source-text audit | read-only support; create from latest session 30 dispatch ledger tip |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-final-shell-qa` | `refactor/app-js-decompose-final-shell-qa` | Session 30 final shell QA gate | read-only support; create from latest session 30 dispatch ledger tip |
 
 Worktree create (orchestrator or shell subagent):
 
@@ -363,7 +371,7 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 | 4 | Pipeline / Sheets | **DONE** (`95657ad`, `c4d529b`, `576782d`; **892 pass**) |
 | 5 | Discovery remainder | **in progress** (run tracker + relay helpers + scraper ATS config + engine state + status handoff + Apps Script deploy + discovery drawer + ingest URL flow + run orchestration + readiness + setup modals done) |
 | 5b | Index decomposition guardrail | **DONE** (`a432bd2`; **894 pass**) |
-| 6 | Auth / config / core collapse | in progress; config-core follow-up, C4 pipeline-controller, C5 app-bootstrap, C6 bridge-registry, and C7 app-compat merged; stop for C7 inspection before final shell reduction |
+| 6 | Auth / config / core collapse | final shell reduction dispatched after C7 inspection; target `app.js` below 1,000 LOC with source-text and public-global audit |
 
 ## Blockers / hygiene
 
@@ -406,6 +414,8 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 29. C6 gate **complete** — branch gate passed `node --check app.js && node --check bridge-registry.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, and full `npm test` **897 pass / 0 fail**; post-merge integration gate passed `node --check app.js && node --check bridge-registry.js`, merge diff whitespace check, exact conflict-marker scan, and full `npm test` **897 pass / 0 fail**; `app.js` **2,347 LOC**, `bridge-registry.js` **711 LOC**.
 30. C7 `app-compat.js` thin-wrapper collapse **merged** — writer branch `refactor/app-js-decompose-thin-wrapper-collapse-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-collapse-v2`, worker commit `718c870`, merge `402106f`; scope stayed to already-extracted compatibility delegates, one `index.html` script tag, and source-text tests.
 31. C7 gate **complete** — branch gate passed `node --check app.js && node --check app-compat.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact conflict-marker scan, focused source-text tests **123 pass / 0 fail**, and full `npm test` **897 pass / 0 fail** after `npm ci --prefix server`; post-merge integration gate passed `node --check app.js && node --check app-compat.js`, merge diff whitespace check, exact conflict-marker scan, and full `npm test` **897 pass / 0 fail**; `app.js` **1,744 LOC**, `app-compat.js` **607 LOC**.
+32. Session 30 settings select compatibility edits **parked clean** — branch `refactor/app-js-decompose-settings-select-compat-parked`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-settings-select-compat-parked`, commit `302f05b`; branch gate passed `node --check app-compat.js && node --check settings-modal.js`, `git diff --check`, exact conflict-marker scan on touched files, pre-commit staged JS syntax, and full `npm test` **897 pass / 0 fail** after `npm ci --prefix server`. Blocker: unplanned integration dirty code; merge only after final-shell public-global audit confirms ownership.
+33. Session 30 final shell reduction **dispatched** — writer branch `refactor/app-js-decompose-final-shell-reduction-v2`, worktree `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-final-shell-reduction-v2`; support lanes are `appjs-final-shell-boundary-review`, `appjs-final-shell-source-audit`, and `appjs-final-shell-qa`.
 
 ## `index.html` script order (post Phase 5 cut #1)
 
@@ -413,10 +423,10 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 … → sheets-writeback → sheets-read-load → pipeline-render → pipeline-controller → discovery-run-tracker → sheet-access-setup → apps-script-relay-helpers → scraper-ats-config → discovery-engine-state → discovery-readiness → discovery-status-handoff → apps-script-deploy → discovery-setup-modals → discovery-drawer → ingest-url-flow → discovery-run-orchestration → app-bootstrap.js → app-compat.js → bridge-registry.js → app.js?v=30
 ```
 
-Active implementation lane: none. C7 is merged and post-merge gates are green.
-Stop here for C7 inspection before dispatching final shell reduction from the
-latest integration tip. Existing C7 support lanes remain read-only unless
-explicitly reassigned.
+Active implementation lane: final shell reduction writer
+`refactor/app-js-decompose-final-shell-reduction-v2` at
+`/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-final-shell-reduction-v2`.
+Existing C7 support lanes remain read-only unless explicitly reassigned.
 
 ## C7 thin-wrapper collapse result
 
@@ -439,6 +449,43 @@ Success means:
 Result: C7 merged as `402106f` from worker commit `718c870`. Branch and
 post-merge gates passed, `app.js` is **1,744** LOC, and `app-compat.js` is
 **607** LOC. Stop here for inspection before final shell reduction.
+
+## Final shell reduction dispatch
+
+Goal: Reduce `app.js` below 1,000 LOC by moving remaining safe compatibility
+forwarders out of `app.js` while preserving shell-owned state and bridge
+registration context.
+
+Success means:
+
+- `app.js` is below **1,000 LOC**.
+- Remaining app-owned lexical state, bridge registration context, and startup
+  behavior stay in `app.js`.
+- Moved compatibility forwarders live in `app-compat.js` or their owning module
+  and keep the current public browser globals available.
+- Source-text tests assert the owning module or compatibility surface for moved
+  symbols.
+- Branch gates pass before merge: `node --check app.js && node --check
+  app-compat.js`, `git diff --check refactor/app-js-decompose...HEAD`, exact
+  conflict-marker scan, focused source-text tests, full `npm test`, and LOC
+  report.
+- Post-merge integration gates pass and this ledger is updated and committed.
+
+Stop when: Final shell reduction is merged with the ledger updated and
+committed, or the worker branch is parked clean with exact blockers and failing
+output recorded.
+
+Pane assignments:
+
+- Writer pane: edit only
+  `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-final-shell-reduction-v2`
+  on `refactor/app-js-decompose-final-shell-reduction-v2`.
+- Boundary review pane: read-only review in
+  `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-final-shell-boundary-review`.
+- Source-text audit pane: read-only audit in
+  `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-final-shell-source-audit`.
+- QA pane: read-only verification in
+  `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-final-shell-qa`.
 
 ## Owner-only risks (unchanged)
 
