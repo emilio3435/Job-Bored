@@ -1,6 +1,6 @@
 # STATUS — app.js Remainder Teardown Swarm
 
-> Orchestrator ledger. **Last updated:** 2026-06-01 (session 27 — C6 bridge registry merged; stop for inspection before thin-wrapper collapse).
+> Orchestrator ledger. **Last updated:** 2026-06-01 (session 28 — C7 thin-wrapper collapse dispatched after C6 inspection).
 > Branch: `refactor/app-js-decompose` · Integration checkout: `/Users/emilionunezgarcia/Job-Bored`
 > Orchestrator surface: **Cursor Agent (Composer 2.5 Fast)** + **Task subagents** + **git worktrees** (no cmux)
 
@@ -287,7 +287,8 @@ any accidental edits stay isolated from the writer and integration checkouts.
 | 32 | Discovery readiness host bridge hotfix | **DONE** | orchestrator hotfix lane | `appjs-discovery-readiness-host-hotfix` | Branch `refactor/app-js-decompose-discovery-readiness-host-hotfix`; commit `716cc7f`, merged as `5579a6c`; branch and post-merge gates green |
 | 33 | `app-bootstrap.js` | **DONE** | Cursor pane `bacf3f3e-041c-4ace-8bc5-ed9068be6abdv` + orchestrator review | `appjs-app-bootstrap-v2` | Branch `refactor/app-js-decompose-app-bootstrap-v2`; worker commit `d22980e`, merged as `a2b8bfe`; branch and post-merge integration gates green |
 | 34 | `bridge-registry.js` | **DONE** | C6 writer pane | `appjs-bridge-registry-v2` | Branch `refactor/app-js-decompose-bridge-registry-v2`; worker commit `539f83a`, merged as `2a087e1`; branch and post-merge integration gates green; `app.js` = **2,347 LOC**, `bridge-registry.js` = **711 LOC** |
-| 35+ | thin-wrapper collapse | pending | — | — | Continue after C6 inspection; remove one-line delegates only when source-text tests no longer require symbols in `app.js` |
+| 35 | C7 thin-wrapper collapse | **ACTIVE** | writer pane | `appjs-thin-wrapper-collapse-v2` | Branch `refactor/app-js-decompose-thin-wrapper-collapse-v2`; remove one-line delegates from `app.js`, preserve compatibility through extracted modules or a dedicated forwarder surface, and update source-text tests to assert the owning module instead of `app.js` |
+| 36+ | final shell reduction | pending | — | — | Continue after C7 inspection; target `<1,000` LOC only after source-text tests and public globals are fully mapped |
 
 ## Worktrees
 
@@ -323,6 +324,10 @@ any accidental edits stay isolated from the writer and integration checkouts.
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-boundary-review` | `refactor/app-js-decompose-bridge-registry-boundary-review` | Session 26 C6 boundary review | read-only support; fast-forward to latest session 26 dispatch ledger tip before review |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-source-audit` | `refactor/app-js-decompose-bridge-registry-source-audit` | Session 26 C6 source-text audit | read-only support; fast-forward to latest session 26 dispatch ledger tip before review |
 | `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-bridge-registry-qa` | `refactor/app-js-decompose-bridge-registry-qa` | Session 26 C6 QA gate | read-only support; fast-forward to latest session 26 dispatch ledger tip before verification |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-collapse-v2` | `refactor/app-js-decompose-thin-wrapper-collapse-v2` | Session 28 C7 thin-wrapper collapse writer | active; created from the latest session 28 dispatch ledger tip |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-boundary-review` | `refactor/app-js-decompose-thin-wrapper-boundary-review` | Session 28 C7 boundary review | read-only support; created from the latest session 28 dispatch ledger tip |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-source-audit` | `refactor/app-js-decompose-thin-wrapper-source-audit` | Session 28 C7 source-text audit | read-only support; created from the latest session 28 dispatch ledger tip |
+| `/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-qa` | `refactor/app-js-decompose-thin-wrapper-qa` | Session 28 C7 QA gate | read-only support; created from the latest session 28 dispatch ledger tip |
 
 Worktree create (orchestrator or shell subagent):
 
@@ -402,8 +407,34 @@ git worktree add /Users/emilionunezgarcia/Job-Bored-worktrees/appjs-<module-slug
 … → sheets-writeback → sheets-read-load → pipeline-render → pipeline-controller → discovery-run-tracker → sheet-access-setup → apps-script-relay-helpers → scraper-ats-config → discovery-engine-state → discovery-readiness → discovery-status-handoff → apps-script-deploy → discovery-setup-modals → discovery-drawer → ingest-url-flow → discovery-run-orchestration → app-bootstrap.js → bridge-registry.js → app.js?v=30
 ```
 
-Active implementation lane: none. Stop for C6 inspection before dispatching the
-next Phase 6 thin-wrapper collapse lane.
+Active implementation lane: C7 thin-wrapper collapse. One writable worktree only:
+`/Users/emilionunezgarcia/Job-Bored-worktrees/appjs-thin-wrapper-collapse-v2`
+on `refactor/app-js-decompose-thin-wrapper-collapse-v2`. Support lanes are
+read-only unless explicitly reassigned. Gate before merge: `node --check app.js`
+plus any new/changed JS module, `git diff --check refactor/app-js-decompose...HEAD`,
+exact conflict-marker scan, focused source-text tests, full `npm test`, and
+`wc -l app.js` plus any new compatibility module.
+
+## C7 thin-wrapper collapse dispatch
+
+Goal: Collapse one-line compatibility delegates out of `app.js` after the C6
+bridge-registry merge while preserving browser globals and existing module
+entry points.
+
+Success means:
+
+- `app.js` keeps only true shell state, bridge registration context, and any
+  wrapper that still needs `app.js` lexical state.
+- Moved wrappers live in an extracted compatibility surface or are replaced by
+  direct owning-module assertions.
+- Source-text tests read the owning module or compatibility module for moved
+  symbols instead of requiring those symbols in `app.js`.
+- Public browser surfaces such as `window.JobBored.*`,
+  `JobBoredDiscovery.*`, and existing DOM startup behavior remain intact.
+- The branch passes the full C7 gate before merge.
+
+Stop when: C7 is merged with the ledger updated and committed, or the branch is
+parked clean with exact blockers and failing output recorded.
 
 ## Owner-only risks (unchanged)
 
