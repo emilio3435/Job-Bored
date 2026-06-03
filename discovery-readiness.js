@@ -920,7 +920,7 @@ function getDiscoveryWizardDefaultDrafts(snapshot) {
       ? snapshot
       : getDiscoveryReadinessSnapshot();
   return {
-    endpointUrl: state.savedWebhookUrl || h("getDiscoveryWebhookUrl")() || "",
+    endpointUrl: h("getDiscoveryWebhookUrl")() || state.savedWebhookUrl || "",
     workerUrl: h("isLikelyCloudflareWorkerUrl")(state.savedWebhookUrl)
       ? state.savedWebhookUrl
       : "",
