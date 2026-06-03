@@ -624,7 +624,11 @@ function shouldRefreshPipelineAfterDiscoveryRun(state) {
   return (
     status === "completed" ||
     status === "partial" ||
-    Number((state && state.leadsWritten) || 0) > 0
+    Number((state && state.leadsWritten) || 0) > 0 ||
+    // Leads written as UPDATES (appended:0, updated:N) are still lead-bearing —
+    // reload even if the run-status poll never landed a terminal state (common
+    // on local/tunnel transports), otherwise the board stays stale at 0.
+    Number((state && state.leadsUpdated) || 0) > 0
   );
 }
 
