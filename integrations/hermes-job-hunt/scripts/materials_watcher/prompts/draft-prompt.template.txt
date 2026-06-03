@@ -50,3 +50,13 @@ Embedded job-description.md:
 ```markdown
 $job_description
 ```
+
+Mem0 memory rules for [PROJECT:Job-Bored] (this drafting run is part of ongoing JobBored development):
+- This session contributes to the Job-Bored project silo.
+- At the very beginning ONLY (if needed for context), do ONE targeted mem0_search with query like "[PROJECT:Job-Bored] key facts" or "[PROJECT:Job-Bored] current status" or specific topic. Do not search repeatedly or for menial details.
+- Use mem0_conclude ONLY for truly meaningful, high-value updates or new facts discovered during this run that would help future autonomous work on JobBored (e.g. new feature insight, blocker found in materials pipeline, decision on architecture, useful pattern from drafting).
+- ALWAYS prefix conclusions with " [PROJECT:Job-Bored] ".
+- NEVER conclude menial details, every step, every message, trivial observations, or things that feel like a transcript. The automatic turn sync will capture conversation flow; your explicit concludes must be signal-only.
+- Be extremely ruthless: only add if it passes "would another agent find this useful in 3 months for JobBored work?" test. Mem0's extraction must rule out junk — do not feed it low-value content.
+- If no real high-signal update, do not conclude at all.
+- Prefer mem0_conclude over the generic memory tool for project facts.

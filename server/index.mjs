@@ -30,6 +30,14 @@ import {
   normalizeRequestBody,
   spawnMaterialsRequest,
 } from "./materials-request.mjs";
+import {
+  assertAllowedUploadName,
+  listLogos,
+  parseMultipartFile,
+  refreshLogosFromProfile,
+  runResolver,
+  saveUpload,
+} from "./brand-logos.mjs";
 import { buildRepairRequestPayload } from "./materials-repair.mjs";
 import {
   buildStarterTemplate,
@@ -248,7 +256,23 @@ app.post("/profile", async (req, res) => {
   }
   try {
     const { updatedAt } = await writeProfileAtomic(candidate);
-    return res.json({ ok: true, updatedAt });
+    try {
+      await refreshLogosFromProfile(candidate);
+    } catch (logoErr) {
+      console.warn(
+        "[brand-logos] profile save succeeded but logo refresh failed:",
+        logoErr && logoErr.message ? logoErr.message : logoErr,
+      );
+      return res.json({
+        ok: true,
+        updatedAt,
+        logoRefresh: {
+          ok: false,
+          error: logoErr && logoErr.message ? String(logoErr.message) : "logo refresh failed",
+        },
+      });
+    }
+    return res.json({ ok: true, updatedAt, logoRefresh: { ok: true } });
   } catch (err) {
     if (err && err.code === "INVALID_PROFILE") {
       return res.status(400).json({
@@ -262,6 +286,35 @@ app.post("/profile", async (req, res) => {
       reason: "write_failed",
       detail: err && err.message ? String(err.message) : "write failed",
     });
+  }
+});
+
+app.get("/api/brand-logos", async (_req, res) => {
+  try {
+    const result = await listLogos();
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+app.post("/api/brand-logos/resolve", async (req, res) => {
+  try {
+    const result = await runResolver({ force: !!(req.body && req.body.force) });
+    res.json({ ok: true, logos: result });
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+app.post("/api/brand-logos/:slug", async (req, res) => {
+  try {
+    const upload = await parseMultipartFile(req);
+    assertAllowedUploadName(upload.filename);
+    const result = await saveUpload(req.params.slug, upload.buffer);
+    res.json(result);
+  } catch (e) {
+    sendAppError(res, e);
   }
 });
 

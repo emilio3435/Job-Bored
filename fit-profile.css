@@ -527,6 +527,197 @@
   color: #ef9b9b;
 }
 
+.fp-brand-logos__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fp-brand-logos__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fp-brand-logos__empty {
+  margin: 0;
+  color: var(--text-muted, #98a0ad);
+  font-size: var(--text-xs, 12px);
+  line-height: 1.5;
+}
+
+.fp-brand-logo-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 150px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--divider, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  background: var(--surface, rgba(255, 255, 255, 0.02));
+}
+
+.fp-brand-logo-row__thumb {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--divider, rgba(255, 255, 255, 0.08));
+}
+
+.fp-brand-logo-row__main {
+  min-width: 0;
+}
+
+.fp-brand-logo-row__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.fp-brand-logo-row__label {
+  font-weight: 700;
+  font-size: var(--text-sm, 13px);
+}
+
+.fp-brand-logo-row__meta {
+  color: var(--text-muted, #98a0ad);
+  font-size: var(--text-xs, 12px);
+}
+
+.fp-brand-logo-row__domain {
+  width: 100%;
+}
+
+.fp-brand-logo-row__field {
+  display: block;
+}
+
+.fp-brand-logo-row__field-label {
+  display: block;
+  font-size: var(--text-xs, 12px);
+  color: var(--text-muted, #98a0ad);
+  margin-bottom: 4px;
+}
+
+/* Polished inputs scoped to the brand-logos panel (no plain boxes). */
+.fp-brand-logos .fp-field__control {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--divider, rgba(255, 255, 255, 0.14));
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  color: var(--text, #e8ebf0);
+  font-size: var(--text-sm, 13px);
+  box-sizing: border-box;
+}
+
+.fp-brand-logos .fp-field__control:focus {
+  outline: none;
+  border-color: var(--accent, #6aa3ff);
+  box-shadow: 0 0 0 2px rgba(106, 163, 255, 0.25);
+}
+
+.fp-brand-logos .fp-field__control::placeholder {
+  color: var(--text-muted, #98a0ad);
+}
+
+/* Drag-and-drop logo upload zone. */
+.fp-logo-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 150px;
+  min-height: 66px;
+  padding: 10px;
+  border: 1.5px dashed var(--divider, rgba(255, 255, 255, 0.22));
+  border-radius: 8px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+  color: var(--text-muted, #98a0ad);
+  font-size: var(--text-xs, 12px);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.fp-logo-drop:hover,
+.fp-logo-drop:focus-visible {
+  border-color: var(--accent, #6aa3ff);
+  background: rgba(106, 163, 255, 0.08);
+  color: var(--text, #e8ebf0);
+  outline: none;
+}
+
+.fp-logo-drop.is-drag {
+  border-style: solid;
+  border-color: var(--accent, #6aa3ff);
+  background: rgba(106, 163, 255, 0.16);
+  color: var(--text, #e8ebf0);
+}
+
+.fp-logo-drop__icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.fp-logo-drop__text {
+  line-height: 1.3;
+}
+
+.fp-brand-logos__add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 10px;
+  border: 1px dashed var(--divider, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  background: var(--surface, rgba(255, 255, 255, 0.02));
+}
+
+.fp-brand-logos__add-label {
+  margin: 0;
+}
+
+.fp-brand-logos__add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.fp-brand-logos__offline-actions {
+  grid-template-columns: auto;
+  justify-content: start;
+}
+
+@media (max-width: 680px) {
+  .fp-brand-logo-row {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .fp-brand-logo-row > .fp-logo-drop {
+    grid-column: 1 / -1;
+    width: 100%;
+    flex-direction: row;
+    min-height: 52px;
+  }
+
+  .fp-brand-logos__add-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fp-brand-logos__add-row > .fp-btn {
+    justify-self: start;
+  }
+}
+
 /* ── Hidden helper for the rescore slot (Task #6 fills it in) ── */
 #fit-profile-rescore-slot:empty {
   display: none;

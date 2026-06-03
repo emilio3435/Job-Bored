@@ -231,6 +231,8 @@
       strengths: [],
       wants: [],
       avoids: [],
+      experiences: [],
+      projects: [],
       hardConstraints: {
         workMode: "any",
         acceptableLocations: [],
@@ -293,6 +295,12 @@
       .map(function (w) { return String(w || "").trim(); })
       .filter(function (w) { return w.length > 0; });
     if (avoids.length) p.avoids = avoids;
+    if (Array.isArray(state.experiences) && state.experiences.length) {
+      p.experiences = state.experiences;
+    }
+    if (Array.isArray(state.projects) && state.projects.length) {
+      p.projects = state.projects;
+    }
     // Hard constraints
     var hc = state.hardConstraints || {};
     var locations = (hc.acceptableLocations || [])
@@ -1286,6 +1294,10 @@
     }
     state.wants = Array.isArray(profile.wants) ? profile.wants.slice() : [];
     state.avoids = Array.isArray(profile.avoids) ? profile.avoids.slice() : [];
+    state.experiences = Array.isArray(profile.experiences)
+      ? profile.experiences.slice()
+      : [];
+    state.projects = Array.isArray(profile.projects) ? profile.projects.slice() : [];
     if (profile.hardConstraints) {
       var hc = profile.hardConstraints;
       state.hardConstraints = {

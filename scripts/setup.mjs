@@ -304,6 +304,27 @@ async function setupHermes({
     { cwd: repoRoot, env },
   );
   steps.push(step("ok", "hermes deps", "Installed Hermes Python requirements."));
+
+  // Resolve resume logo marks (assets/logo-<slug>.png) from logos.json:
+  // uploaded file > favicon (by domain) > omitted. Non-fatal — a missing or
+  // blocked logo must never break setup; unresolved marks are simply dropped.
+  const logoResolver = join(paths.hermesJobHuntHome, "scripts", "logo_resolver.py");
+  if (existsSync(logoResolver)) {
+    const logos = await runner(
+      venvPython,
+      [logoResolver, "--template-dir", join(paths.hermesJobHuntHome, "resume-template")],
+      { cwd: repoRoot, env },
+    );
+    steps.push(
+      step(
+        logos.status === 0 ? "ok" : "warn",
+        "resume logos",
+        logos.status === 0
+          ? "Resolved resume logo marks (assets/logo-*.png)."
+          : "Some resume logos unresolved; the resume still renders (unavailable marks are dropped).",
+      ),
+    );
+  }
   return dashboard;
 }
 

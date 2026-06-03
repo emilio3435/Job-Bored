@@ -7,6 +7,7 @@
 
   const SETTINGS_TAB_IDS = Object.freeze({
     SETUP: "setup",
+    FIT_PROFILE: "fit_profile",
     SHEET: "sheet",
     SCRAPING: "scraping",
     ATS_SCORING: "ats_scoring",
@@ -15,6 +16,7 @@
 
   const TAB_ORDER = [
     SETTINGS_TAB_IDS.SETUP,
+    SETTINGS_TAB_IDS.FIT_PROFILE,
     SETTINGS_TAB_IDS.SHEET,
     SETTINGS_TAB_IDS.SCRAPING,
     SETTINGS_TAB_IDS.ATS_SCORING,
@@ -33,6 +35,12 @@
       label: "Sheet",
       panelId: "settings-panel-sheet",
       buttonId: "settings-tab-sheet",
+    },
+    [SETTINGS_TAB_IDS.FIT_PROFILE]: {
+      id: SETTINGS_TAB_IDS.FIT_PROFILE,
+      label: "Fit Profile",
+      panelId: "settings-panel-fit-profile",
+      buttonId: "settings-tab-fit-profile",
     },
     [SETTINGS_TAB_IDS.SCRAPING]: {
       id: SETTINGS_TAB_IDS.SCRAPING,
@@ -71,6 +79,11 @@
     // Sheet
     settingsSheetId: SETTINGS_TAB_IDS.SHEET,
     settingsTitle: SETTINGS_TAB_IDS.SHEET,
+
+    // Fit Profile
+    fitProfileOpenWizardBtn: SETTINGS_TAB_IDS.FIT_PROFILE,
+    fitProfileEditorContainer: SETTINGS_TAB_IDS.FIT_PROFILE,
+    fitProfileSaveBtn: SETTINGS_TAB_IDS.FIT_PROFILE,
 
     // Profile-driven discovery now lives entirely behind the portfolio /
     // briefcase nav icon. Its IDs (settingsProfile* + schedule controls)

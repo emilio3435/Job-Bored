@@ -6,14 +6,29 @@
   /** Curated model ids for Settings dropdowns (see provider docs for the latest). */
   window.CommandCenterResumeModelOptions = {
     gemini: [
-      { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash" },
-      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-      { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite" },
-      { value: "gemini-3-flash-preview", label: "Gemini 3 Flash (Preview)" },
-      { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (Preview)" },
+      {
+        value: "gemini-3.1-pro-preview",
+        label: "Gemini 3.1 Pro · Preview",
+        description:
+          "Advanced intelligence for complex problem-solving, agentic flows, and vibe coding. Pro: strongest reasoning. Con: higher latency/cost.",
+      },
+      {
+        value: "gemini-3.5-flash",
+        label: "Gemini 3.5 Flash · Stable",
+        description:
+          "Most intelligent model for sustained frontier performance on agentic and coding tasks. Pro: dependable default. Con: less experimental than preview models.",
+      },
+      {
+        value: "gemini-3-flash-preview",
+        label: "Gemini 3 Flash · Preview",
+        description:
+          "Frontier-class performance rivaling larger models at lower cost. Pro: fast and economical. Con: preview stability.",
+      },
       {
         value: "gemini-3.1-flash-lite-preview",
-        label: "Gemini 3.1 Flash-Lite (Preview)",
+        label: "Gemini 3.1 Flash-Lite · Preview",
+        description:
+          "Lightweight frontier model at a fraction of the cost. Pro: cheapest/fastest option. Con: weaker on complex reasoning.",
       },
     ],
     openai: [
