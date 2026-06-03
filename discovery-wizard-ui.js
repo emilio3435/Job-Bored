@@ -1716,8 +1716,9 @@ function buildDiscoveryWizardSteps(runtime) {
     steps.push({
       id: "existing_endpoint",
       label: "Endpoint",
-      title: "Enter your webhook URL.",
-      description: "Paste the public HTTPS URL you want JobBored to call.",
+      title: "Connect a stable URL (Tailscale).",
+      description:
+        "Set up Tailscale below and paste its stable URL — or any public HTTPS endpoint you already control.",
       body: () =>
         buildDiscoveryExistingEndpointBody(host().getDiscoveryWizardRuntime()),
       actions: [

@@ -42,8 +42,9 @@
     {
       id: "existing_endpoint",
       label: "Endpoint",
-      title: "Enter your webhook URL.",
-      description: "Paste a public HTTPS endpoint you already control.",
+      title: "Connect a stable URL (Tailscale).",
+      description:
+        "Set up Tailscale below and paste its stable URL — or any public HTTPS endpoint you already control.",
       tone: "info",
     },
     {
