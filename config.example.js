@@ -44,6 +44,13 @@ window.COMMAND_CENTER_CONFIG = {
   // On GitHub Pages (HTTPS), leave empty unless you deploy the scraper — see DEPLOY-SCRAPER.md.
   jobPostingScrapeUrl: "",
 
+  // Base URL of the local API server (server/index.mjs, default :3847) that
+  // serves /profile and /api/* (brand logos, materials). Leave empty on
+  // http://localhost (defaults to the same scraper origin). Set it only if the
+  // dashboard runs on a different origin than the API — e.g.
+  // "http://localhost:3847". Falls back to jobPostingScrapeUrl when empty.
+  jobBoredApiUrl: "",
+
   // Optional: company logos on job cards (from the job Link column — no extra scraping).
   // Logos try several public CDNs in order; add Logo.dev for higher-quality marks when you have a token.
   // logoUrlTemplate: "https://your-proxy.example.com/logo?d={{domain}}",

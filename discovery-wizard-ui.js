@@ -660,7 +660,7 @@ function getDiscoveryWizardRecommendedFlow(snapshot) {
 }
 
 function getDiscoveryWizardFlowLabel(flow) {
-  if (flow === "external_endpoint") return "My own webhook";
+  if (flow === "external_endpoint") return "Stable URL (Tailscale)";
   if (flow === "no_webhook") return "Manual / no webhook";
   if (flow === "stub_only") return "Stub only (testing)";
   return "Local worker (this computer)";
@@ -728,13 +728,13 @@ function getDiscoveryWizardOptionDetails(flow) {
   const normalizedFlow = host().mapDiscoveryWizardFlow(flow);
   if (normalizedFlow === "external_endpoint") {
     return {
-      title: "My own webhook URL",
-      bestWhen: "You already have a public HTTPS endpoint.",
-      setupTime: "~2 min",
+      title: "Stable URL · Tailscale (recommended)",
+      bestWhen: "You want a permanent, private URL to your discovery worker.",
+      setupTime: "~3 min",
       effort: "Low",
-      pro: "Fastest — just paste and verify.",
+      pro: "Tailscale gives a stable URL that never rotates — private, no public exposure, no relay to maintain.",
       tradeoff:
-        "You own that endpoint. Any hosting cost comes from your provider, not from JobBored.",
+        "Install Tailscale (free) on each device. Or paste any public HTTPS endpoint you already have.",
     };
   }
   if (normalizedFlow === "no_webhook") {
@@ -765,7 +765,7 @@ function getDiscoveryWizardOptionDetails(flow) {
     effort: "Medium",
     pro: "Best local path for real discovery.",
     tradeoff:
-      "Needs a local worker + ngrok + relay. Hermes/OpenClaw remains an advanced custom path.",
+      "Full local stack with ngrok + relay. For a simpler, durable URL, prefer the Tailscale (stable URL) option above.",
   };
 }
 
@@ -903,15 +903,25 @@ function buildDiscoveryExistingEndpointBody(runtime) {
   const container = createWizardNode("div", "discovery-wizard-step-body");
   appendWizardParagraph(
     container,
-    "Paste your public HTTPS webhook URL below.",
+    "Recommended: Tailscale gives your worker a stable, private URL that never rotates — no public exposure, no relay.",
+  );
+  appendWizardList(container, [
+    "Install Tailscale on this machine + each device you'll use, signed in to the same account.",
+    "On the machine running the worker, expose port 8644:",
+  ]);
+  appendWizardCodeBlock(container, "tailscale serve --bg 8644", "Copy command");
+  appendWizardParagraph(
+    container,
+    "Paste the resulting https://<machine>.<tailnet>.ts.net URL below — the wizard appends /webhook. Set your webhook secret in config.js (discoveryWebhookSecret); see docs/SELF-HOSTING.md. Already have a public HTTPS endpoint? Paste that instead.",
+    "settings-field-hint settings-field-hint--compact",
   );
   appendWizardInput(container, {
     id: "discoveryWizardExistingEndpointInput",
-    label: "Webhook URL",
+    label: "Worker URL (Tailscale, or your own HTTPS endpoint)",
     type: "url",
     value: runtime.drafts.endpointUrl || "",
-    placeholder: "https://your-endpoint.example/webhook",
-    hint: "Must be a public HTTPS URL — localhost won't work here.",
+    placeholder: "https://your-machine.tailXXXX.ts.net",
+    hint: "A stable HTTPS URL. A bare localhost address won't reach other devices.",
     onInput(value) {
       host().updateDiscoveryWizardRuntime({ drafts: { endpointUrl: value } });
     },
@@ -1804,7 +1814,7 @@ function buildDiscoveryWizardSteps(runtime) {
       id: "tunnel",
       label: "Tunnel",
       title: "Connect ngrok tunnel.",
-      description: "ngrok makes your local server reachable from the internet.",
+      description: "ngrok makes your local server reachable, but its free URL rotates on restart — the Tailscale (stable URL) option avoids that.",
       body: () => buildDiscoveryTunnelBody(host().getDiscoveryWizardRuntime()),
       actions: [
         {

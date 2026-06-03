@@ -11,9 +11,12 @@ server/.env
 !assets/chrome/jobbored-mascot-rocket@2x.png
 !assets/chrome/jobbored-mascot-thinking.png
 !assets/chrome/jobbored-mascot-thinking@2x.png
-# Brand-logo upload sources travel with the repo (own brands, no public domain);
-# resolver regenerates resume-template/assets/ so those stay ignored/generated.
-!integrations/hermes-job-hunt/resume-template/uploads/*.png
+# Personal brand-logo uploads stay LOCAL — do not ship your own marks.
+# (The blanket *.png rule above already ignores them.) The logo resolver
+# auto-fetches marks by company name/domain, so a fresh clone needs no uploads.
+# Track only the neutral sample placeholders so the example renders.
+!integrations/hermes-job-hunt/resume-template/uploads/logo-sample.png
+!integrations/hermes-job-hunt/resume-template/uploads/logo-sample-co.png
 .gstack/
 discovery-local-bootstrap.json
 integrations/browser-use-discovery/state/*
@@ -22,6 +25,7 @@ integrations/browser-use-discovery/state/*
 integrations/browser-use-discovery/worker.log
 integrations/browser-use-discovery/.env
 integrations/browser-use-discovery/.env.*
+!integrations/browser-use-discovery/.env.example
 integrations/browser-use-discovery/service-account-key.json
 # Root package-lock owns the worker package; ignore accidental nested locks.
 integrations/browser-use-discovery/package-lock.json
@@ -35,6 +39,23 @@ integrations/hermes-job-hunt/state/
 integrations/hermes-job-hunt/evidence/
 integrations/hermes-job-hunt/.env
 integrations/hermes-job-hunt/.env.*
+!integrations/hermes-job-hunt/.env.example
+# Personal candidate data stays LOCAL — only the *.example.md templates ship.
+integrations/hermes-job-hunt/profile/profile.md
+integrations/hermes-job-hunt/profile/voice.md
+integrations/hermes-job-hunt/profile/resume-bullets.md
+integrations/hermes-job-hunt/profile/job-preferences.md
+integrations/hermes-job-hunt/profile/materials-quality.md
+integrations/hermes-job-hunt/profile/MERGE_REPORT.md
+integrations/hermes-job-hunt/profile/PROFILE-SOURCES-NEEDED.md
+integrations/hermes-job-hunt/profile/*.zip
+# Ignore source files inside sources/ but keep the empty-dir .keep markers so the
+# folder structure ships. Re-include the dirs first, then ignore their contents.
+integrations/hermes-job-hunt/profile/sources/*
+!integrations/hermes-job-hunt/profile/sources/.keep
+!integrations/hermes-job-hunt/profile/sources/resumes/
+integrations/hermes-job-hunt/profile/sources/resumes/*
+!integrations/hermes-job-hunt/profile/sources/resumes/.keep
 __pycache__/
 *.pyc
 integrations/hermes-job-hunt/tests/tmp-app/

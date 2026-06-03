@@ -1,0 +1,14 @@
+{
+  "$comment": "Template for logos.json. Copy this to logos.json and edit. Resolved by scripts/logo_resolver.py into assets/logo-<slug>.png. Priority per entry: upload (a file in uploads/) > favicon (auto-fetched from `domain`, or from `label` alone via Clearbit name->domain) > monogram (generated initials, never fails). Most entries need only `label` + `domain` — the resolver fetches the logo automatically, so uploads/ is just the fallback for private brands with no findable logo. The <slug> must match the resume.html <img src=\"assets/logo-<slug>.png\"> marks.",
+  "logos": [
+    {
+      "slug": "audacy",
+      "label": "Audacy",
+      "domain": "audacy.com"
+    },
+    {
+      "slug": "sample-co",
+      "label": "Sample Co"
+    }
+  ]
+}
