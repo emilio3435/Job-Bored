@@ -912,7 +912,7 @@ function buildDiscoveryExistingEndpointBody(runtime) {
   appendWizardCodeBlock(container, "tailscale serve --bg 8644", "Copy command");
   appendWizardParagraph(
     container,
-    "Paste the resulting https://<machine>.<tailnet>.ts.net URL below — the wizard appends /webhook. Set your webhook secret in config.js (discoveryWebhookSecret); see docs/SELF-HOSTING.md. Already have a public HTTPS endpoint? Paste that instead.",
+    "Paste the full URL below INCLUDING the /webhook path — e.g. https://<machine>.<tailnet>.ts.net/webhook. Set your webhook secret in config.js (discoveryWebhookSecret); see docs/SELF-HOSTING.md. Already have a public HTTPS endpoint? Paste that instead.",
     "settings-field-hint settings-field-hint--compact",
   );
   appendWizardInput(container, {
@@ -920,7 +920,7 @@ function buildDiscoveryExistingEndpointBody(runtime) {
     label: "Worker URL (Tailscale, or your own HTTPS endpoint)",
     type: "url",
     value: runtime.drafts.endpointUrl || "",
-    placeholder: "https://your-machine.tailXXXX.ts.net",
+    placeholder: "https://your-machine.tailXXXX.ts.net/webhook",
     hint: "A stable HTTPS URL. A bare localhost address won't reach other devices.",
     onInput(value) {
       host().updateDiscoveryWizardRuntime({ drafts: { endpointUrl: value } });
