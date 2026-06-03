@@ -78,6 +78,69 @@
       "maxItems": 12,
       "description": "Soft 'please skip' signals. Free-form English (e.g., 'pure people management', 'enterprise sales')."
     },
+    "experiences": {
+      "type": "array",
+      "maxItems": 24,
+      "description": "Optional work history entries used by resume material generation. Logo fields are consumed by the resume brand-logo manifest writer.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,127}$",
+            "description": "Kebab-case key used by resume marks such as assets/logo-<slug>.png."
+          },
+          "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "company": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "logoDomain": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 160,
+            "description": "Company domain used for favicon fallback."
+          },
+          "logoUpload": {
+            "oneOf": [
+              { "type": "boolean" },
+              { "type": "string", "minLength": 1, "maxLength": 200 }
+            ],
+            "description": "True or a filename/path when the user uploaded a curated mark."
+          }
+        }
+      }
+    },
+    "projects": {
+      "type": "array",
+      "maxItems": 24,
+      "description": "Optional portfolio/project entries used by resume material generation. Logo fields are consumed by the resume brand-logo manifest writer.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,127}$",
+            "description": "Kebab-case key used by resume marks such as assets/logo-<slug>.png."
+          },
+          "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "logoDomain": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 160,
+            "description": "Project/company domain used for favicon fallback."
+          },
+          "logoUpload": {
+            "oneOf": [
+              { "type": "boolean" },
+              { "type": "string", "minLength": 1, "maxLength": 200 }
+            ],
+            "description": "True or a filename/path when the user uploaded a curated mark."
+          }
+        }
+      }
+    },
     "hardConstraints": {
       "type": "object",
       "additionalProperties": false,

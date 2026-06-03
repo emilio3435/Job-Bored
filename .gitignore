@@ -11,6 +11,9 @@ server/.env
 !assets/chrome/jobbored-mascot-rocket@2x.png
 !assets/chrome/jobbored-mascot-thinking.png
 !assets/chrome/jobbored-mascot-thinking@2x.png
+# Brand-logo upload sources travel with the repo (own brands, no public domain);
+# resolver regenerates resume-template/assets/ so those stay ignored/generated.
+!integrations/hermes-job-hunt/resume-template/uploads/*.png
 .gstack/
 discovery-local-bootstrap.json
 integrations/browser-use-discovery/state/*

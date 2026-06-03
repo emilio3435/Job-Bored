@@ -62,14 +62,16 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
       ? String(currentValue).trim()
       : "";
   const values = new Set(opts.map((o) => o.value));
+  const isGeminiSelect = selectId === "settingsResumeGeminiModel";
   sel.innerHTML = "";
   opts.forEach((o) => {
     const opt = document.createElement("option");
     opt.value = o.value;
     opt.textContent = o.label;
+    if (o.description) opt.title = o.description;
     sel.appendChild(opt);
   });
-  if (v && !values.has(v)) {
+  if (v && !values.has(v) && !isGeminiSelect) {
     const opt = document.createElement("option");
     opt.value = v;
     opt.textContent = `${v} (saved)`;
@@ -80,6 +82,31 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
   } else if (opts[0]) {
     sel.value = opts[0].value;
   }
+  updateModelSelectTooltip(sel, opts);
+  if (sel.dataset.modelTooltipBound !== "true") {
+    sel.dataset.modelTooltipBound = "true";
+    sel.addEventListener("change", () => {
+      const latestOptions =
+        window.CommandCenterResumeModelOptions &&
+        window.CommandCenterResumeModelOptions[
+          selectId === "settingsResumeGeminiModel"
+            ? "gemini"
+            : selectId === "settingsResumeOpenAIModel"
+              ? "openai"
+              : "anthropic"
+        ];
+      updateModelSelectTooltip(sel, latestOptions || opts);
+    });
+  }
+}
+
+function updateModelSelectTooltip(sel, optionList) {
+  if (!sel) return;
+  const options = Array.isArray(optionList) ? optionList : [];
+  const selected = options.find((o) => o.value === sel.value);
+  const title = selected && selected.description ? selected.description : "";
+  if (title) sel.title = title;
+  else sel.removeAttribute("title");
 }
 
 /**

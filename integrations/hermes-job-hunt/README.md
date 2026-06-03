@@ -31,10 +31,36 @@ npm run setup:hermes
 npm run doctor:hermes
 ```
 
-`setup:hermes` creates/uses `~/.hermes/job-hunt/.venv` and installs
-`requirements.txt`. Keep Google tokens, worker secrets, and service-account
-paths in ignored local env/token files only. Doctor output reports whether a
-secret is configured without printing the value.
+`setup:hermes` creates/uses `~/.hermes/job-hunt/.venv`, installs
+`requirements.txt`, and resolves the resume logo marks (see below). Keep Google
+tokens, worker secrets, and service-account paths in ignored local env/token
+files only. Doctor output reports whether a secret is configured without
+printing the value.
+
+### Resume logos
+
+`resume-template/resume.html` references brand marks by filename
+(`assets/logo-<slug>.png`). Those PNGs are **generated, not committed** — on a
+fresh clone `setup:hermes` runs `scripts/logo_resolver.py`, which fills
+`resume-template/assets/` from `resume-template/logos.json`, resolving each entry
+**uploaded file → favicon → omitted**, where the favicon is auto-fetched from
+the company's `domain` *or from the company name alone* (Clearbit autocomplete
+resolves name→domain, then Google s2 fetches the icon). A mark that can't be
+resolved is dropped via `onerror`, never shown as a broken image — so logos are
+**automatic by default; uploading is only the fallback** for private brands with
+no findable logo. Re-run manually anytime:
+
+```bash
+# from ~/.hermes/job-hunt (or the repo's integrations/hermes-job-hunt)
+.venv/bin/python3 scripts/logo_resolver.py --template-dir resume-template          # fill gaps
+.venv/bin/python3 scripts/logo_resolver.py --template-dir resume-template --force  # re-resolve all
+.venv/bin/python3 scripts/logo_resolver.py --template-dir resume-template --offline  # skip network
+```
+
+Each `logos.json` entry needs only a `label` (the company/project name) — that
+alone auto-resolves a favicon. Add a `domain` to pin the exact site, or an
+`upload` (a file in `resume-template/uploads/`) for private brands with no
+findable logo. Full backend/UI plan: `HANDOFF-brand-logos.md` (repo root).
 
 ## Current strategy (2026-05-27)
 

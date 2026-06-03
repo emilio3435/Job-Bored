@@ -45,6 +45,7 @@ before(async () => {
       ...process.env,
       PORT: String(PORT),
       JOBBORED_PROFILE_PATH: profilePath,
+      HERMES_RESUME_TEMPLATE_DIR: join(tmpDir, "resume-template"),
       LISTEN_HOST: "127.0.0.1",
       // Redirect the home dir so filesystem resume lookups are hermetic. The
       // /profile/from-resume route reads ~/.jobbored/resume.txt and

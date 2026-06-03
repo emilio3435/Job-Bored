@@ -40,6 +40,7 @@ test.beforeAll(async () => {
       PORT: String(PORT),
       LISTEN_HOST: "127.0.0.1",
       JOBBORED_PROFILE_PATH: profilePath,
+      HERMES_RESUME_TEMPLATE_DIR: join(tmpDir, "resume-template"),
       JOBBORED_SERVE_STATIC: "1",
       JOBBORED_STATIC_ROOT: REPO_ROOT,
     },
