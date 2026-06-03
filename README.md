@@ -4,6 +4,49 @@ A beautiful, open-source job search dashboard powered by Google Sheets. Track ap
 
 ![Command Center](https://img.shields.io/badge/license-MIT-blue) ![No Backend](https://img.shields.io/badge/backend-none-green) ![Pure JS](https://img.shields.io/badge/vanilla-JS-yellow)
 
+## Quick start
+
+JobBored is a local-first job-search dashboard: track your pipeline in your own
+Google Sheet, draft tailored resumes/cover letters, and optionally run automated
+job discovery.
+
+**Prerequisites**
+
+- **Node.js 24.x** and **npm 11.x** (see `.nvmrc` / `.node-version`). With nvm:
+  `nvm use` from the repo root.
+- **Python 3** (only for the optional Hermes materials workflow).
+- **macOS:** [Homebrew](https://brew.sh) makes installing Node/Python easy.
+  Linux and Windows (WSL) work too.
+
+**Get running**
+
+```bash
+npm install                       # install dashboard + server deps
+npm run setup                     # creates config.js from config.example.js
+cp config.example.js config.js    # (only if you skipped setup; then edit it)
+npm run dev                       # dashboard + scraper + local discovery worker
+```
+
+Then open **http://localhost:8080**, add your Google Sheet ID and OAuth Client
+ID in **Settings**, and sign in with Google. (Prefer the dashboard alone? Use
+`npm run web-only` instead of `npm run dev`.)
+
+**Edit `config.js`** with your keys. A few keys worth knowing:
+
+- `discoveryWebhookUrl` — where the **Run discovery** button POSTs (default the
+  local worker at `http://127.0.0.1:8644/webhook`).
+- `discoveryWebhookSecret` — shared secret sent as `x-discovery-secret`; must
+  match the worker's `BROWSER_USE_DISCOVERY_WEBHOOK_SECRET`.
+- `jobPostingScrapeUrl` / `atsScoringServerUrl` — leave blank on localhost; the
+  app auto-targets the bundled server at `http://127.0.0.1:3847`.
+
+**Want it reachable from your phone or another device?** Expose the discovery
+worker with Tailscale (recommended), ngrok, or Cloudflare — see
+**[docs/SELF-HOSTING.md](docs/SELF-HOSTING.md)**.
+
+For the full walkthrough (Sheet setup, OAuth, deployment paths, Hermes), keep
+reading below.
+
 ## Features
 
 - **Pipeline tracker** — job cards with fit scores, priority badges, tags, and status tracking

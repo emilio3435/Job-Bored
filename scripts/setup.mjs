@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -286,6 +286,38 @@ async function setupHermes({
       `Created/verified ${displayPath(paths.hermesApplicationsDir)}, state, and evidence folders.`,
     ),
   );
+
+  // Seed profile inputs from their *.example.md templates on a fresh install,
+  // without overwriting a user's real files (mirrors config.example.js -> config.js).
+  // The materials drafter reads profile.md / voice.md / resume-bullets.md /
+  // job-preferences.md / materials-quality.md; the real files are gitignored, so a
+  // fresh clone only ships the templates.
+  const profileDir = join(paths.hermesJobHuntHome, "profile");
+  try {
+    const entries = existsSync(profileDir) ? await readdir(profileDir) : [];
+    let seeded = 0;
+    for (const name of entries) {
+      if (!name.endsWith(".example.md")) continue;
+      const realPath = join(profileDir, name.replace(/\.example\.md$/, ".md"));
+      if (!existsSync(realPath)) {
+        await cp(join(profileDir, name), realPath, { force: false, errorOnExist: false });
+        seeded += 1;
+      }
+    }
+    steps.push(
+      step(
+        "ok",
+        "profile seed",
+        seeded
+          ? `Seeded ${seeded} profile file(s) from *.example.md — edit them with your details.`
+          : "Profile files already present; left them untouched.",
+      ),
+    );
+  } catch {
+    steps.push(
+      step("warn", "profile seed", "Could not seed profile templates; copy profile/*.example.md → *.md manually."),
+    );
+  }
 
   const venvPython = join(paths.hermesJobHuntHome, ".venv", "bin", "python");
   if (!existsSync(venvPython)) {
