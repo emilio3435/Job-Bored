@@ -729,22 +729,33 @@ function getDiscoveryWizardOptionDetails(flow) {
   if (normalizedFlow === "external_endpoint") {
     return {
       title: "Stable URL · Tailscale (recommended)",
-      bestWhen: "You want a permanent, private URL to your discovery worker.",
+      bestWhen: "A permanent, private URL straight to your worker.",
       setupTime: "~3 min",
       effort: "Low",
-      pro: "Tailscale gives a stable URL that never rotates — private, no public exposure, no relay to maintain.",
-      tradeoff:
-        "Install Tailscale (free) on each device. Or paste any public HTTPS endpoint you already have.",
+      pros: [
+        "Stable URL that never rotates — survives restarts and sleep",
+        "Private: no public internet exposure, no relay to deploy or babysit",
+        "Fewest moving parts of any option",
+      ],
+      cons: [
+        "Install Tailscale (free) once per device",
+        "(Or paste any public HTTPS endpoint you already control)",
+      ],
     };
   }
   if (normalizedFlow === "no_webhook") {
     return {
       title: "No webhook (manual)",
-      bestWhen: "You use cron, GitHub Actions, or n8n to run discovery.",
-      setupTime: "~1 min",
-      effort: "Low",
-      pro: "No endpoint to maintain.",
-      tradeoff: "No on-demand Run discovery button.",
+      bestWhen:
+        "You'll trigger discovery yourself from cron, GitHub Actions, or n8n.",
+      setupTime: "Instant here",
+      effort: "High (you build the runner)",
+      pros: ["Nothing for JobBored to host or keep alive"],
+      cons: [
+        "No “Run discovery” button — every run is yours to trigger",
+        "You build & maintain the trigger, auth, and scheduling outside JobBored",
+        "Quick to pick here, but real engineering work to actually run discovery",
+      ],
     };
   }
   if (normalizedFlow === "stub_only") {
@@ -753,19 +764,24 @@ function getDiscoveryWizardOptionDetails(flow) {
       bestWhen: "You just want to confirm webhook delivery works.",
       setupTime: "~2 min",
       effort: "Low",
-      pro: "Quick wiring test.",
-      tradeoff: "No real job results.",
+      pros: ["Quick wiring test"],
+      cons: ["No real job results — smoke test only"],
     };
   }
   return {
     title: "Local discovery worker",
-    bestWhen:
-      "You want the recommended browser-use discovery worker on this machine.",
+    bestWhen: "Run the worker on this machine and keep discovery fully local.",
     setupTime: "~10 min",
-    effort: "Medium",
-    pro: "Best local path for real discovery.",
-    tradeoff:
-      "Full local stack with ngrok + relay. For a simpler, durable URL, prefer the Tailscale (stable URL) option above.",
+    effort: "Medium–High",
+    pros: [
+      "Real discovery, entirely on your own hardware",
+      "No third-party service in the request path",
+    ],
+    cons: [
+      "You run and keep the worker alive yourself",
+      "To reach it from the dashboard you need a public tunnel (ngrok) AND a Cloudflare relay — extra moving parts that break when the tunnel rotates or the machine sleeps",
+      "The most to set up and maintain — prefer Tailscale above for a simpler, durable URL",
+    ],
   };
 }
 
@@ -776,13 +792,13 @@ function buildDiscoveryWizardOptionCard(flow, snapshot) {
   if (recommended) {
     body.push(getDiscoveryWizardRecommendationReason(snapshot));
   }
+  body.push(`Best when: ${option.bestWhen}`);
+  body.push(`Setup ${option.setupTime} · ${option.effort} effort`);
   body.push({
     type: "list",
     items: [
-      `${option.bestWhen}`,
-      `${option.setupTime} · ${option.effort} effort`,
-      `${option.pro}`,
-      `${option.tradeoff}`,
+      ...(option.pros || []).map((p) => `✓ ${p}`),
+      ...(option.cons || []).map((c) => `✗ ${c}`),
     ],
   });
   return {
