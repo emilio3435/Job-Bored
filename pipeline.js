@@ -1338,13 +1338,10 @@
         // graceful fallback
         location.hash = "#role=" + encodeURIComponent(key);
       }
-      var roleRegion = document.querySelector('[data-region="role"]');
-      if (roleRegion) {
-        var prefersReduced = root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        try {
-          roleRegion.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth", block: "start" });
-        } catch (e) { roleRegion.scrollIntoView(); }
-      }
+      // No auto-scroll: clicking a card expands it in place (data-selected
+      // reveals the detail/foot pills) and the dossier lazy-renders below.
+      // Jumping the viewport to the dossier was jarring; the "Dossier"/"Letter"
+      // nav pills remain for intentional jumps.
     }
     region.__pipeOpenRole = openRoleAndScroll;
 
