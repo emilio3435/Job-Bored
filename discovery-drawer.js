@@ -565,6 +565,25 @@ function getLocalDiscoveryWorkerHealthUrlForSources() {
 }
 
 async function fetchLocalDiscoveryWorkerSourceReadiness() {
+  // Source readiness reflects THIS machine's local worker. When the configured
+  // run target is a remote endpoint (e.g. a Tailscale *.ts.net worker), the
+  // local worker's grounded-web / SerpApi readiness is irrelevant to the run —
+  // probing it produces a false "missing Gemini API key" warning even though
+  // the remote worker that runs the job has the key. Skip it for remote targets.
+  const runTarget = h("getDiscoveryWebhookUrl") || "";
+  if (runTarget) {
+    let remoteHost = false;
+    try {
+      const host = new URL(runTarget).hostname;
+      remoteHost = !(
+        host === "127.0.0.1" ||
+        host === "localhost" ||
+        host === "[::1]" ||
+        host === "::1"
+      );
+    } catch (_) {}
+    if (remoteHost) return null;
+  }
   if (h("isLocalDashboardOrigin", )) {
     await h("hydrateDiscoveryTransportSetupFromLocalBootstrap", );
   }
