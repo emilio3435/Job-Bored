@@ -895,9 +895,12 @@
       }
     }
 
-    let recommendedFlow = "local_agent";
+    // Default to the stable-URL (Tailscale) path — it's the recommended way to
+    // reach the worker reliably and is the OSS default. The local-agent path is
+    // still available as an option, just not the recommendation.
+    let recommendedFlow = "existing_endpoint";
     let recommendedReason =
-      "No public webhook is saved yet, so start by choosing the path you want to use.";
+      "Connect a stable public URL — Tailscale is the recommended way to reach your worker reliably.";
     if (
       hasSavedExternalEndpoint ||
       engineState === DISCOVERY_ENGINE_STATE_CONNECTED
@@ -907,22 +910,10 @@
         savedWebhookKind === SAVED_WEBHOOK_KIND_WORKER
           ? "JobBored already has a Cloudflare Worker URL saved as the browser-facing webhook."
           : "JobBored already has a public HTTPS webhook saved.";
-    } else if (hasLocalPathSignals) {
-      recommendedFlow = "local_agent";
-      recommendedReason =
-        localEngineKind === LOCAL_ENGINE_BROWSER_USE
-          ? "A local browser-use worker was found on this machine, so the local path is the best match."
-          : localEngineKind === LOCAL_ENGINE_HERMES
-            ? "A local Hermes route was found on this machine. It can work, but the browser-use worker is the recommended default."
-            : "Local discovery signals were found on this machine, so the local path is the best match.";
     } else if (hasSavedStubEndpoint) {
       recommendedFlow = "stub_only";
       recommendedReason =
         "The only saved browser-facing webhook is the Apps Script stub, which is fine for smoke tests only.";
-    } else if (appsScriptState === "stub_only") {
-      recommendedFlow = "local_agent";
-      recommendedReason =
-        "An Apps Script stub exists, but it is not being treated as your main discovery path.";
     }
 
     let blockingIssue = "";
@@ -946,8 +937,28 @@
       blockingIssue = "relay_missing";
     }
 
+    // A saved HTTPS endpoint with a non-local hostname (e.g. a Tailscale
+    // *.ts.net URL or a Cloudflare Worker) is a genuinely remote endpoint even
+    // when the dashboard itself is served from localhost. Without this, a
+    // localhost dashboard treats its own local worker signals as the setup and
+    // masks the healthy remote endpoint: ngrok-recovery banner, local-flow
+    // default, and a greyed "Run discovery" button despite a green endpoint.
+    const savedEndpointIsRemoteHost = (() => {
+      try {
+        const host = new URL(savedWebhookUrl).hostname;
+        return !(
+          host === "127.0.0.1" ||
+          host === "localhost" ||
+          host === "[::1]" ||
+          host === "::1"
+        );
+      } catch (_) {
+        return false;
+      }
+    })();
     const isHostedSavedEndpoint =
-      hasSavedExternalEndpoint && !isLocalDashboardOrigin();
+      hasSavedExternalEndpoint &&
+      (!isLocalDashboardOrigin() || savedEndpointIsRemoteHost);
     const isLocalSetup = sim
       ? sim.isLocalSetup
       : !isHostedSavedEndpoint &&
