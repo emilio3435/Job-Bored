@@ -90,3 +90,22 @@ body.jb-v2 .jb-mono {
     animation-duration: 0.01ms !important;
   }
 }
+
+/* Applied-age badge — lightly surfaces how long ago a role was applied to,
+   colored worse the longer it's been (fresh -> aging -> stale -> cold).
+   Shared, unscoped class so both v2 boards (pipeline + lattice) reuse it. */
+.jb-applied-age {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  padding: 0 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+.jb-applied-age[data-age="fresh"] { color: #15803d; background: rgba(34, 197, 94, 0.13); }
+.jb-applied-age[data-age="aging"] { color: #a16207; background: rgba(234, 179, 8, 0.16); }
+.jb-applied-age[data-age="stale"] { color: #c2410c; background: rgba(249, 115, 22, 0.16); }
+.jb-applied-age[data-age="cold"]  { color: #b91c1c; background: rgba(239, 68, 68, 0.16); }
