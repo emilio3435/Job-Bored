@@ -2146,9 +2146,26 @@ function determineLifecycleState(
   normalizedLeadCount: number,
   warnings: string[],
 ): DiscoveryLifecycleState {
-  if (warnings.length > 0) return "partial";
-  if (normalizedLeadCount === 0) return "empty";
-  return "completed";
+  if (normalizedLeadCount === 0) {
+    // No leads written: preserve existing semantics — any warning => partial,
+    // otherwise empty. We only relax the rule once a run actually produced leads.
+    return warnings.length > 0 ? "partial" : "empty";
+  }
+  // Leads were written: informational warnings don't make the run "partial" —
+  // a source the preset deliberately excluded never ran by design, and "no
+  // companies configured" is expected for ATS-only presets. Only real
+  // degradations downgrade a lead-writing run.
+  const significantWarnings = warnings.filter(
+    (warning) => !isInformationalLifecycleWarning(warning),
+  );
+  return significantWarnings.length > 0 ? "partial" : "completed";
+}
+
+function isInformationalLifecycleWarning(warning: string): boolean {
+  return (
+    /was excluded by preset '.*' and did not execute\.$/i.test(warning) ||
+    /^No companies are configured for this discovery run\.$/i.test(warning)
+  );
 }
 
 function isRunDegradingExtractionWarning(

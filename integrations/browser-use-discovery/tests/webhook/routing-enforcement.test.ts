@@ -336,8 +336,10 @@ test("runDiscovery with ats_only preset excludes grounded_web (VAL-ROUTE-002)", 
   assert.ok(greenhouseEntry, "greenhouse should be in sourceSummary");
   assert.equal(greenhouseEntry.leadsSeen, 1);
 
-  // State is 'partial' because leads were found but normalized lead count matches
-  assert.equal(result.lifecycle.state, "partial");
+  // State is 'completed': leads were written and the only warning is the
+  // preset deliberately excluding grounded_web — an informational skip, not a
+  // degradation. (Previously asserted 'partial', which rendered as a failure.)
+  assert.equal(result.lifecycle.state, "completed");
 });
 
 test("runDiscovery with browser_plus_ats executes both families (VAL-ROUTE-003)", async () => {
