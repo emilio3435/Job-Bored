@@ -828,16 +828,8 @@
       if (flowing && typeof flowing.set === "function") {
         flowing.set(dataIndex);
       }
-      var roleRegion = document.querySelector('[data-region="role"]');
-      if (roleRegion && roleRegion.scrollIntoView) {
-        var reduce = window.matchMedia
-          && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        try {
-          roleRegion.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
-        } catch (_) {
-          roleRegion.scrollIntoView();
-        }
-      }
+      // No auto-scroll: the card expands in place (data-selected) and the
+      // dossier lazy-renders below; jumping the viewport was jarring.
       return;
     }
     if (typeof window.openJobDetail === "function") {
