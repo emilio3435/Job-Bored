@@ -759,6 +759,10 @@ async function startDiscoveryStatusPolling(webhookUrl) {
         tracker.markStatusConnectionLost(
           "Lost the status connection after multiple attempts. The discovery run may still be running.",
         );
+        // A lead-bearing run can finish on the worker while status polling dies
+        // (common on Tailscale/local transports). Reload when we already saw writes
+        // even though we never got a terminal poll ack.
+        await refreshPipelineAfterDiscoveryRun(tracker.getState());
         renderDiscoveryRunStatus();
         return;
       }

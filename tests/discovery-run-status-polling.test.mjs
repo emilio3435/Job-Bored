@@ -71,6 +71,11 @@ describe("discovery run status polling", () => {
       "polling transport loss must not mark the worker run as failed",
     );
     assert.match(pollingSource, /Lost the status connection/);
+    assert.match(
+      pollingSource,
+      /await refreshPipelineAfterDiscoveryRun\(tracker\.getState\(\)\)/,
+      "lead-bearing runs must reload Pipeline when status polling is lost",
+    );
   });
 
   it("refreshes Pipeline data after a successful async discovery terminal status", () => {
@@ -101,6 +106,11 @@ describe("discovery run status polling", () => {
     assert.match(refreshSource, /host\(\)\.loadAllData\(\)/);
     assert.match(statusHandoffJs, /status === "completed"/);
     assert.match(statusHandoffJs, /status === "partial"/);
+    assert.match(
+      statusHandoffJs,
+      /leadsUpdated/,
+      "update-only writes must count as lead-bearing for post-run refresh",
+    );
   });
 
   it("synthesizes /runs/:id for accepted async responses from known worker endpoints", () => {
