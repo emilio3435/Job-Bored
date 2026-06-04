@@ -743,6 +743,18 @@
 
     openBtn.addEventListener("click", openModal);
     if (closeBtn) closeBtn.addEventListener("click", closeModal);
+    var setupBtn = document.getElementById("runsOpenSetupBtn");
+    if (setupBtn) {
+      setupBtn.addEventListener("click", function () {
+        closeModal();
+        if (typeof window.requestDiscoverySetup === "function") {
+          window.requestDiscoverySetup({
+            entryPoint: "runs_history",
+            allowWhileOnboarding: true,
+          });
+        }
+      });
+    }
     if (refreshBtn) refreshBtn.addEventListener("click", function () { loadRuns(); });
     modal.addEventListener("click", function (event) {
       if (event.target === modal) closeModal();
