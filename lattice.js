@@ -140,6 +140,28 @@
     return Math.floor(m / 12) + "y";
   }
 
+  /* Applied-age badge: lightly surfaces how long ago an Applied role was
+     submitted, colored worse the longer it's been. Returns null unless the
+     role is in the Applied stage with a parseable Applied Date. */
+  function appliedAgeBadge(job) {
+    if (!job) return null;
+    if (String(job.status || "").toLowerCase().indexOf("applied") === -1) return null;
+    var t = Date.parse(job.appliedDate);
+    if (isNaN(t)) return null;
+    var days = Math.floor((Date.now() - t) / 86400000);
+    if (days < 0) days = 0;
+    var bucket = days <= 6 ? "fresh" : days <= 13 ? "aging" : days <= 29 ? "stale" : "cold";
+    var rel = days === 0 ? "today" : days + "d";
+    var dateLabel;
+    try { dateLabel = new Date(t).toLocaleDateString(); } catch (e) { dateLabel = String(job.appliedDate); }
+    return el("span", {
+      class: "jb-applied-age",
+      "data-age": bucket,
+      title: "Applied " + dateLabel + (days === 0 ? " (today)" : " (" + days + " days ago)"),
+      text: "Applied " + rel,
+    });
+  }
+
   function normalizeStage(raw) {
     var s = safeText(raw).trim();
     if (!s) return "New";
@@ -441,6 +463,7 @@
           ? el("p", { class: "jb-lat__hook", text: hookText })
           : null,
         el("div", { class: "jb-lat__meta" }, [
+          appliedAgeBadge(job),
           job.location ? el("span", { class: "jb-lat__loc", text: safeText(job.location) }) : null,
           job.salary ? el("span", { class: "jb-lat__comp", text: safeText(job.salary) }) : null,
           empType ? el("span", { class: "jb-lat__tag jb-lat__tag--employment", text: empType }) : null,

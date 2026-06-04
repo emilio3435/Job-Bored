@@ -245,6 +245,24 @@
     return '<span class="pipe-sticker__docs" aria-label="Application materials">' + parts.join("") + '</span>';
   }
 
+  /* Applied-age badge: lightly surfaces how long ago an Applied role was
+     submitted, colored worse the longer it's been (fresh/aging/stale/cold).
+     Returns '' unless the role is in the Applied stage with a parseable date. */
+  function appliedAgeBadgeHtml(job) {
+    if (!job) return "";
+    if (String(job.status || "").toLowerCase().indexOf("applied") === -1) return "";
+    var t = Date.parse(job.appliedDate);
+    if (isNaN(t)) return "";
+    var days = Math.floor((Date.now() - t) / 86400000);
+    if (days < 0) days = 0;
+    var bucket = days <= 6 ? "fresh" : days <= 13 ? "aging" : days <= 29 ? "stale" : "cold";
+    var rel = days === 0 ? "today" : days + "d";
+    var dateLabel;
+    try { dateLabel = new Date(t).toLocaleDateString(); } catch (e) { dateLabel = String(job.appliedDate); }
+    var title = "Applied " + dateLabel + (days === 0 ? " (today)" : " (" + days + " days ago)");
+    return '<span class="jb-applied-age" data-age="' + bucket + '" title="' + escapeHtml(title) + '">Applied ' + escapeHtml(rel) + '</span>';
+  }
+
   function urgencyWeight(card) {
     // Higher = more urgent. Flag bias + fit fallback.
     var f = card.flag;
@@ -895,6 +913,7 @@
       " — open letter";
     el.setAttribute("aria-label", ariaLabel);
 
+    var appliedAgeHtml = appliedAgeBadgeHtml(job);
     el.innerHTML = [
       flag
         ? '<span class="pipe-sticker__flag" data-flag="' + escapeHtml(flag) + '">' + escapeHtml(flag) + '</span>'
@@ -938,9 +957,10 @@
             tags.map(function (tag) { return '<span>' + escapeHtml(tag) + '</span>'; }).join("") +
           '</div>'
         : '',
-      (salary || note) ? '<footer class="pipe-sticker__foot">' +
+      (salary || note || appliedAgeHtml) ? '<footer class="pipe-sticker__foot">' +
         (salary ? '<span class="pipe-sticker__salary jb-data">' + escapeHtml(salary) + '</span>' : '') +
         (note ? '<span class="pipe-sticker__note">' + escapeHtml(note) + '</span>' : '') +
+        appliedAgeHtml +
         '</footer>' : '',
     ].join("");
 
