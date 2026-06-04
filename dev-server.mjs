@@ -89,11 +89,22 @@ function proxyRequest(target, _req, res) {
     upRes.pipe(res);
   });
   upstream.on("error", () => {
+    // If the upstream response already began piping, headers are sent; writing
+    // them again throws ERR_HTTP_HEADERS_SENT and crashes the dev stack
+    // (concurrently -k then kills web/scrape/discovery). Just end the response.
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
     res.writeHead(502, { "content-type": "application/json", "access-control-allow-origin": "*" });
     res.end(JSON.stringify({ error: "upstream_unreachable" }));
   });
   upstream.on("timeout", () => {
     upstream.destroy();
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
     res.writeHead(504, { "content-type": "application/json", "access-control-allow-origin": "*" });
     res.end(JSON.stringify({ error: "upstream_timeout" }));
   });
@@ -1344,7 +1355,11 @@ async function handleDiscoveryState(req, res, options = {}) {
   if (workerUp && !workerOriginAllowed) {
     recommendation = "auto_recoverable";
     recoverableHint = "origin_not_allowed";
-  } else if (workerUp && ngrokUp && !ngrokRotated) {
+  } else if (workerUp) {
+    // ngrok is retired: the dashboard reaches the worker over Tailscale or
+    // directly, so worker-up + origin-allowed is "ready". A missing/rotated
+    // tunnel is no longer a recovery condition and must not force setup or
+    // intercept runs (which caused the "Setting up local discovery…" popup).
     recommendation = "ready";
   } else if (
     workerHealth &&
@@ -1354,16 +1369,9 @@ async function handleDiscoveryState(req, res, options = {}) {
   ) {
     recommendation = "needs_human";
     recoverableHint = workerHealth.reason;
-  } else if (ngrokInfo && ngrokInfo.reason === "no_matching_tunnel") {
-    recommendation = "needs_human";
-    recoverableHint = "ngrok_wrong_port";
-  } else if (!workerUp || !ngrokUp || ngrokRotated) {
-    recommendation = "auto_recoverable";
-    if (!workerUp) recoverableHint = "worker_down";
-    else if (!ngrokUp) recoverableHint = "ngrok_down";
-    else if (ngrokRotated) recoverableHint = "ngrok_rotated";
   } else {
-    recommendation = "needs_human";
+    recommendation = "auto_recoverable";
+    recoverableHint = "worker_down";
   }
 
   const body = {

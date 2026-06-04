@@ -177,7 +177,7 @@ describe("GET /__proxy/discovery-state", () => {
     }
   });
 
-  it("returns auto_recoverable when ngrok is down", async () => {
+  it("returns ready when the worker is up even if ngrok is down (Tailscale-era)", async () => {
     const restore = installFetchMock({
       workerUp: true,
       ngrokUp: false,
@@ -188,10 +188,11 @@ describe("GET /__proxy/discovery-state", () => {
           headers: { Origin: "http://localhost:8080" },
         });
         const body = await resp.json();
-        assert.equal(body.recommendation, "auto_recoverable");
-        assert.equal(body.recoverableHint, "ngrok_down");
+        // ngrok is retired: discovery reaches the worker over Tailscale or
+        // directly, so worker-up + origin-allowed is "ready" with no tunnel.
+        assert.equal(body.recommendation, "ready");
+        assert.equal(body.recoverableHint, undefined);
         assert.equal(body.ngrok.up, false);
-        assert.equal(body.relay.reachable, false);
       });
     } finally {
       restore();
