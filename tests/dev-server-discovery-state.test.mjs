@@ -58,6 +58,20 @@ function installFetchMock({ workerUp, workerBody, ngrokUp, ngrokUrl, ngrokAddr =
         { status: 200, headers: { "content-type": "application/json" } },
       );
     }
+    if (u === "http://127.0.0.1:8644/webhook") {
+      // CORS preflight probe (probeDiscoveryWorkerCors). Without mocking this,
+      // the tests fell through to a real fetch on :8644 — green locally when a
+      // dev worker happens to be running, red in CI where none is. Return a
+      // permissive preflight when the worker is "up" so workerOriginAllowed is
+      // deterministic and independent of any live worker.
+      if (!workerUp) {
+        throw new TypeError("connect ECONNREFUSED 127.0.0.1:8644");
+      }
+      return new Response(null, {
+        status: 204,
+        headers: { "access-control-allow-origin": "*" },
+      });
+    }
     if (u === "http://127.0.0.1:4040/api/tunnels") {
       if (!ngrokUp) {
         throw new TypeError("connect ECONNREFUSED 127.0.0.1:4040");
