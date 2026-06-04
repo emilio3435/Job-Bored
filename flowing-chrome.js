@@ -381,6 +381,13 @@
 
   function scrollToRegion(id) {
     var node = findRegion(id);
+    if (id === "letter" && !node) {
+      // The standalone letter region was removed; "Letter" now jumps to the
+      // Application Materials panel inside the role dossier (loaded async),
+      // falling back to the dossier itself before materials finish loading.
+      node = document.querySelector('[data-region="role"] .brief-materials')
+        || document.querySelector('[data-region="role"]');
+    }
     if (!node) return;
     var prefersReduced = root.matchMedia
       ? root.matchMedia("(prefers-reduced-motion: reduce)").matches
