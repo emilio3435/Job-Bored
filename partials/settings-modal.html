@@ -197,6 +197,41 @@
               </div>
 
               <div class="settings-setup-block">
+                <p class="settings-setup-block__title">Discovery</p>
+                <div
+                  class="settings-setup-wizard-row"
+                  role="region"
+                  aria-label="Discovery setup"
+                >
+                  <button
+                    type="button"
+                    class="btn-modal-secondary settings-setup-wizard-row__btn"
+                    id="settingsDiscoverySetupBtn"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      aria-hidden="true"
+                    >
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="M21 21l-4.3-4.3" />
+                    </svg>
+                    Discovery setup
+                  </button>
+                  <p
+                    class="settings-field-hint settings-setup-wizard-row__hint"
+                  >
+                    Connect or change the worker that finds new roles
+                    (Tailscale or any public HTTPS webhook).
+                  </p>
+                </div>
+              </div>
+
+              <div class="settings-setup-block">
                 <p class="settings-setup-block__title">v2 redesign (preview)</p>
                 <div class="jb-v2-toggle-row" role="group" aria-labelledby="settingsJbV2ToggleLabel">
                   <label class="jb-v2-switch" for="settingsJbV2Toggle">

@@ -245,6 +245,21 @@
     });
   }
 
+  const settingsDiscoverySetupBtn = document.getElementById(
+    "settingsDiscoverySetupBtn",
+  );
+  if (settingsDiscoverySetupBtn) {
+    settingsDiscoverySetupBtn.addEventListener("click", () => {
+      closeCommandCenterSettingsModal();
+      if (typeof window.requestDiscoverySetup === "function") {
+        void window.requestDiscoverySetup({
+          entryPoint: "settings",
+          allowWhileOnboarding: true,
+        });
+      }
+    });
+  }
+
   if (profileResumeBrowseBtn && fileInput) {
     profileResumeBrowseBtn.addEventListener("click", (e) => {
       e.preventDefault();
