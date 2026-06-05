@@ -179,7 +179,7 @@
           </div>
         </div>
 
-        <!-- Step 3: Choose AI provider (controls added in a later step) -->
+        <!-- Step 3: Choose AI provider -->
         <div
           class="first-run-panel"
           id="firstRunPanelProvider"
@@ -187,9 +187,118 @@
         >
           <h3 class="first-run-step-title">Choose your AI provider</h3>
           <p class="first-run-hint">
-            Pick how JobBored drafts your resumes and cover letters.
+            Pick how JobBored drafts your resumes and cover letters. The free
+            option needs no credit card.
           </p>
-          <p class="first-run-status" id="firstRunProviderStatus"></p>
+
+          <fieldset class="first-run-provider-choice" id="firstRunProviderChoice">
+            <legend class="first-run-sr-only">AI provider</legend>
+            <label class="first-run-provider-option">
+              <input
+                type="radio"
+                name="firstRunProvider"
+                value="openrouter"
+                id="firstRunProviderOpenRouter"
+                checked
+              />
+              <span class="first-run-provider-option__body">
+                <span class="first-run-provider-option__title"
+                  >OpenRouter — free</span
+                >
+                <span class="first-run-provider-option__desc"
+                  >Hosted open models on the free tier. No credit card,
+                  recommended to start.</span
+                >
+              </span>
+            </label>
+            <label class="first-run-provider-option">
+              <input
+                type="radio"
+                name="firstRunProvider"
+                value="local"
+                id="firstRunProviderLocal"
+              />
+              <span class="first-run-provider-option__body">
+                <span class="first-run-provider-option__title"
+                  >Local — on your machine</span
+                >
+                <span class="first-run-provider-option__desc"
+                  >Run a model offline with Ollama. Fully private, no key.</span
+                >
+              </span>
+            </label>
+          </fieldset>
+
+          <!-- OpenRouter sub-panel: inline free-key paste -->
+          <div
+            class="first-run-provider-panel"
+            id="firstRunProviderPanelOpenRouter"
+          >
+            <label
+              class="first-run-field-label"
+              for="firstRunOpenRouterKeyInput"
+            >
+              Paste a free OpenRouter key
+            </label>
+            <div class="first-run-key-row">
+              <input
+                type="password"
+                id="firstRunOpenRouterKeyInput"
+                class="first-run-input"
+                placeholder="sk-or-v1-…"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button
+                type="button"
+                class="btn-modal-secondary first-run-key-save"
+                id="firstRunOpenRouterKeySaveBtn"
+              >
+                Save key
+              </button>
+            </div>
+            <p class="first-run-hint first-run-hint--compact">
+              Free models need no paid plan.
+              <a
+                href="https://openrouter.ai/keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                >Get a free key</a
+              >.
+            </p>
+            <p
+              class="first-run-status"
+              id="firstRunOpenRouterKeyStatus"
+              aria-live="polite"
+              hidden
+            ></p>
+          </div>
+
+          <!-- Local sub-panel: model select + Download-model control -->
+          <div
+            class="first-run-provider-panel"
+            id="firstRunProviderPanelLocal"
+            style="display: none"
+          >
+            <label class="first-run-field-label" for="firstRunLocalModelSelect">
+              Local model
+            </label>
+            <select
+              id="firstRunLocalModelSelect"
+              class="status-select settings-select first-run-input"
+            ></select>
+            <div
+              id="firstRunLocalDownloadControl"
+              class="first-run-local-download"
+              data-role="download-model-container"
+            ></div>
+            <p class="first-run-hint first-run-hint--compact">
+              Pulls the model into your local Ollama (no terminal needed).
+              Requires Ollama running on 127.0.0.1:11434.
+            </p>
+          </div>
+
+          <p class="first-run-status" id="firstRunProviderStatus" aria-live="polite"></p>
           <div class="first-run-actions first-run-actions--split">
             <button
               type="button"
@@ -202,13 +311,14 @@
               type="button"
               class="btn-modal-primary"
               id="firstRunProviderNext"
+              disabled
             >
               Continue
             </button>
           </div>
         </div>
 
-        <!-- Step 4: Generate first draft (controls added in a later step) -->
+        <!-- Step 4: Generate first draft -->
         <div
           class="first-run-panel"
           id="firstRunPanelDraft"
@@ -216,9 +326,21 @@
         >
           <h3 class="first-run-step-title">Generate your first draft</h3>
           <p class="first-run-hint">
-            Create one tailored draft to finish setting up.
+            Create one tailored draft to finish setting up. We'll use the first
+            role in your connected sheet.
           </p>
-          <p class="first-run-status" id="firstRunDraftStatus"></p>
+          <button
+            type="button"
+            class="btn-modal-primary first-run-btn-block"
+            id="firstRunGenerateDraftBtn"
+          >
+            Generate first draft
+          </button>
+          <p class="first-run-status" id="firstRunDraftStatus" aria-live="polite"></p>
+          <div class="first-run-draft-result" id="firstRunDraftResult" hidden>
+            <div class="first-run-draft-insights" id="firstRunDraftInsights"></div>
+            <pre class="first-run-draft-text" id="firstRunDraftText"></pre>
+          </div>
           <div class="first-run-actions first-run-actions--split">
             <button
               type="button"

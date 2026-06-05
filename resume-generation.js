@@ -949,6 +949,8 @@ async function runResumeGeneration(dataIndex, feature, options) {
     }
     return {
       text,
+      insights,
+      insightsError,
       draftId: savedDraft ? savedDraft.id : null,
       feature,
       mode: "initial",

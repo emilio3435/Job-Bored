@@ -483,6 +483,7 @@ function registerBridgeHosts() {
     resumePendingDiscoverySetupIfNeeded,
     revealSetupScreenAfterAuth,
     runPostAccessBootstrapOnce,
+    runResumeGeneration,
     sameDiscoveryUrlOrigin,
     selectedResponseSheetValue,
     setActiveDetailKey,

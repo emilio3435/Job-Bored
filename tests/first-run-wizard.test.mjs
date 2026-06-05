@@ -20,6 +20,11 @@ const firstRunWizardJs = readFileSync(
   "utf8",
 );
 const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
+const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+const resumeGenerationJs = readFileSync(
+  join(repoRoot, "resume-generation.js"),
+  "utf8",
+);
 const bridgeRegistryJs = readFileSync(
   join(repoRoot, "bridge-registry.js"),
   "utf8",
@@ -364,5 +369,225 @@ describe("first-run wizard markup + wiring", () => {
       appBootstrapJs.includes("checkInfraSetupGate"),
       "app-bootstrap.js should invoke the infra gate on the cold-start path",
     );
+  });
+});
+
+describe("first-run wizard — provider + draft steps", () => {
+  const providerHost = (over) => ({
+    getSheetId: () => "sheet",
+    isSignedIn: () => true,
+    getOAuthClientId: () => "cid.apps.googleusercontent.com",
+    getResumeGenerate: () => ({
+      isResumeGenerationConfigured: () => false,
+      getResumeGenerationConfig: () => ({
+        provider: "openrouter",
+        resumeOpenRouterApiKey: "",
+        resumeLocalModel: "gemma4:e2b",
+      }),
+    }),
+    ...over,
+  });
+
+  it("exposes the provider/draft step API surface", () => {
+    const { api } = loadWizard(providerHost());
+    for (const fn of [
+      "firstRunProviderStepComplete",
+      "firstRunDraftStepComplete",
+      "firstRunSaveOpenRouterKey",
+      "firstRunSelectProvider",
+      "firstRunCanFinish",
+    ]) {
+      assert.equal(
+        typeof api[fn],
+        "function",
+        `firstRunWizard.${fn} should be a function`,
+      );
+    }
+  });
+
+  it("provider-step completion reflects isResumeGenerationConfigured()", () => {
+    let configured = false;
+    const { api } = loadWizard(
+      providerHost({
+        getResumeGenerate: () => ({
+          isResumeGenerationConfigured: () => configured,
+          getResumeGenerationConfig: () => ({ provider: "openrouter" }),
+        }),
+      }),
+    );
+    assert.equal(api.firstRunProviderStepComplete(), false);
+    configured = true;
+    assert.equal(api.firstRunProviderStepComplete(), true);
+  });
+
+  it("computeFirstRunStartStep caps at 3 until the provider is configured, then reaches 4", () => {
+    let configured = false;
+    const { api } = loadWizard(
+      providerHost({
+        getResumeGenerate: () => ({
+          isResumeGenerationConfigured: () => configured,
+          getResumeGenerationConfig: () => ({ provider: "openrouter" }),
+        }),
+      }),
+    );
+    assert.equal(api.computeFirstRunStartStep(), 3);
+    configured = true;
+    assert.equal(api.computeFirstRunStartStep(), 4);
+  });
+
+  it("saving a valid OpenRouter key persists it via mergeStoredConfigOverridePatch and the live config", () => {
+    const patches = [];
+    const { api, window } = loadWizard(
+      providerHost({
+        mergeStoredConfigOverridePatch: (patch) => patches.push(patch),
+      }),
+    );
+    window.COMMAND_CENTER_CONFIG = {};
+    const result = api.firstRunSaveOpenRouterKey("sk-or-v1-abcdef0123456789");
+    assert.equal(result.ok, true);
+    assert.equal(patches.length, 1);
+    assert.equal(
+      patches[0].resumeOpenRouterApiKey,
+      "sk-or-v1-abcdef0123456789",
+    );
+    assert.equal(
+      window.COMMAND_CENTER_CONFIG.resumeOpenRouterApiKey,
+      "sk-or-v1-abcdef0123456789",
+    );
+  });
+
+  it("rejects an OpenRouter key with the wrong shape without persisting", () => {
+    const patches = [];
+    const { api, window } = loadWizard(
+      providerHost({
+        mergeStoredConfigOverridePatch: (patch) => patches.push(patch),
+      }),
+    );
+    window.COMMAND_CENTER_CONFIG = {};
+    const result = api.firstRunSaveOpenRouterKey("not-a-key");
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "shape");
+    assert.equal(patches.length, 0);
+  });
+
+  it("selecting a provider persists resumeProvider via mergeStoredConfigOverridePatch and live config", () => {
+    const patches = [];
+    const { api, window } = loadWizard(
+      providerHost({
+        mergeStoredConfigOverridePatch: (patch) => patches.push(patch),
+      }),
+    );
+    window.COMMAND_CENTER_CONFIG = {};
+    api.firstRunSelectProvider("local");
+    assert.equal(patches.length >= 1, true);
+    assert.equal(patches[0].resumeProvider, "local");
+    assert.equal(window.COMMAND_CENTER_CONFIG.resumeProvider, "local");
+  });
+
+  it("cannot finish until sheet, sign-in, provider and a produced draft are all satisfied", () => {
+    let configured = false;
+    const { api } = loadWizard(
+      providerHost({
+        getResumeGenerate: () => ({
+          isResumeGenerationConfigured: () => configured,
+          getResumeGenerationConfig: () => ({ provider: "openrouter" }),
+        }),
+      }),
+    );
+    assert.equal(api.firstRunCanFinish(), false);
+    configured = true;
+    // provider now configured but no draft produced yet
+    assert.equal(api.firstRunCanFinish(), false);
+  });
+
+  it("mirrors the onboarding key-save pattern (mergeStoredConfigOverridePatch + live config) and reuses runResumeGeneration", () => {
+    assert.ok(
+      firstRunWizardJs.includes("mergeStoredConfigOverridePatch"),
+      "wizard should persist the key via mergeStoredConfigOverridePatch",
+    );
+    assert.ok(
+      /COMMAND_CENTER_CONFIG\.resumeOpenRouterApiKey\s*=/.test(firstRunWizardJs),
+      "wizard should apply the pasted key to the live config object",
+    );
+    assert.ok(
+      firstRunWizardJs.includes("runResumeGeneration"),
+      "draft step should reuse runResumeGeneration",
+    );
+    assert.ok(
+      firstRunWizardJs.includes("completeInfraSetup"),
+      "finish should mark infra setup complete",
+    );
+  });
+});
+
+describe("runResumeGeneration surfaces insights for reuse", () => {
+  it("returns insights + insightsError alongside the draft text", () => {
+    const start = resumeGenerationJs.indexOf(
+      "async function runResumeGeneration",
+    );
+    const end = resumeGenerationJs.indexOf(
+      "async function refineLastResumeGeneration",
+      start,
+    );
+    const body = resumeGenerationJs.slice(start, end);
+    const returnIdx = body.indexOf("return {");
+    assert.ok(returnIdx >= 0, "runResumeGeneration must return an object");
+    const returnBlock = body.slice(returnIdx, returnIdx + 220);
+    assert.ok(
+      /\binsights\b/.test(returnBlock),
+      "the success return must include insights so the wizard can render them",
+    );
+    assert.ok(
+      /\binsightsError\b/.test(returnBlock),
+      "the success return must include insightsError",
+    );
+  });
+});
+
+describe("runResumeGeneration is reachable from the wizard host", () => {
+  it("app.js registers runResumeGeneration on the host literal", () => {
+    assert.match(
+      appJs,
+      /\n\s*runResumeGeneration,/,
+      "app.js host literal should include runResumeGeneration",
+    );
+  });
+
+  it("bridge-registry maps runResumeGeneration onto app.core.host", () => {
+    assert.ok(
+      bridgeRegistryJs.includes(
+        "runResumeGeneration: host.runResumeGeneration",
+      ),
+      "bridge-registry.js should expose runResumeGeneration on app.core.host",
+    );
+  });
+});
+
+describe("first-run wizard markup — provider + draft controls", () => {
+  it("provider step presents OpenRouter (checked) and local options", () => {
+    assert.ok(firstRunPartial.includes('value="openrouter"'));
+    assert.ok(firstRunPartial.includes('value="local"'));
+    assert.ok(
+      /value="openrouter"[^>]*checked|checked[^>]*value="openrouter"/.test(
+        firstRunPartial,
+      ),
+      "the OpenRouter option should be preselected",
+    );
+  });
+
+  it("provider step has an inline OpenRouter key field and a get-a-free-key link", () => {
+    assert.ok(firstRunPartial.includes('id="firstRunOpenRouterKeyInput"'));
+    assert.ok(firstRunPartial.includes("openrouter.ai/keys"));
+  });
+
+  it("provider step surfaces the local model select and the download-model control container", () => {
+    assert.ok(firstRunPartial.includes('id="firstRunLocalModelSelect"'));
+    assert.ok(firstRunPartial.includes('id="firstRunLocalDownloadControl"'));
+  });
+
+  it("draft step has a generate control and an inline draft + insights region", () => {
+    assert.ok(firstRunPartial.includes('id="firstRunGenerateDraftBtn"'));
+    assert.ok(firstRunPartial.includes('id="firstRunDraftText"'));
+    assert.ok(firstRunPartial.includes('id="firstRunDraftInsights"'));
   });
 });

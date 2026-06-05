@@ -488,6 +488,7 @@
       getUserContent: host.getUserContent,
       getResumeBundle: host.getResumeBundle,
       getResumeGenerate: host.getResumeGenerate,
+      runResumeGeneration: host.runResumeGeneration,
       getResumeIngest: host.getResumeIngest,
       closeAuthUserMenu: host.closeAuthUserMenu,
       fillDocumentTemplateSelect: host.fillDocumentTemplateSelect,
