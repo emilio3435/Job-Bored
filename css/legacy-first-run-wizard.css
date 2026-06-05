@@ -16,6 +16,7 @@
 }
 
 .first-run-wizard__inner {
+  position: relative;
   width: 100%;
   max-width: 460px;
   max-height: min(92vh, 880px);
@@ -27,6 +28,13 @@
   box-shadow:
     var(--shadow-lg),
     0 24px 48px rgba(15, 23, 42, 0.06);
+}
+
+.first-run-wizard__close {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  z-index: 1;
 }
 
 .first-run-wizard__brand {

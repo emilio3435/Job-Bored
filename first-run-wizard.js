@@ -763,6 +763,17 @@
     getEl("firstRunDraftFinish")?.addEventListener("click", () => {
       void handleFirstRunFinish();
     });
+
+    // The wizard is a fixed full-viewport overlay; without a dismiss path it
+    // would permanently intercept clicks over the dashboard nav/Settings.
+    getEl("firstRunWizardClose")?.addEventListener("click", () => {
+      hideFirstRunWizard();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && isFirstRunWizardVisible()) {
+        hideFirstRunWizard();
+      }
+    });
   }
 
   if (typeof document !== "undefined") {

@@ -50,6 +50,10 @@ const firstRunPartial = readFileSync(
   join(repoRoot, "partials", "first-run-wizard.html"),
   "utf8",
 );
+const firstRunWizardCss = readFileSync(
+  join(repoRoot, "css", "legacy-first-run-wizard.css"),
+  "utf8",
+);
 const indexHtml = readIndexHtml(repoRoot);
 
 // --- Minimal DOM stubs so the IIFE can wire listeners under vm ---
@@ -781,6 +785,180 @@ describe("Settings provider switch persists across reload (VAL-CROSS-004)", () =
       s2.window.COMMAND_CENTER_CONFIG.resumeOpenRouterApiKey,
       "sk-or-keep",
       "existing provider keys must be preserved",
+    );
+  });
+});
+
+// --- VAL-WIZ-011: the wizard is a dismissible modal, never a permanent trap ---
+
+describe("first-run wizard — dismissible modal, no stuck overlay (VAL-WIZ-011)", () => {
+  // A DOM stub that records event listeners so we can fire the wizard's own
+  // close-button click and the document-level Escape handler, then assert the
+  // overlay is actually torn down (display none) with no body scroll-lock left.
+  function makeRecordingEl(id) {
+    const listeners = {};
+    return {
+      id,
+      style: {},
+      dataset: {},
+      hidden: false,
+      disabled: false,
+      value: "",
+      textContent: "",
+      className: "",
+      checked: false,
+      innerHTML: "",
+      classList: {
+        add() {},
+        remove() {},
+        toggle() {},
+        contains() {
+          return false;
+        },
+      },
+      addEventListener(type, fn) {
+        (listeners[type] = listeners[type] || []).push(fn);
+      },
+      removeEventListener() {},
+      setAttribute() {},
+      removeAttribute() {},
+      getAttribute() {
+        return null;
+      },
+      appendChild() {},
+      querySelector() {
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+      closest() {
+        return null;
+      },
+      focus() {},
+      __fire(type, ev) {
+        (listeners[type] || []).forEach((fn) => fn(ev || {}));
+      },
+    };
+  }
+
+  function makeRecordingDoc() {
+    const els = new Map();
+    const docListeners = {};
+    const body = makeRecordingEl("body");
+    return {
+      readyState: "complete",
+      body,
+      getElementById(id) {
+        if (!els.has(id)) els.set(id, makeRecordingEl(id));
+        return els.get(id);
+      },
+      querySelector() {
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+      addEventListener(type, fn) {
+        (docListeners[type] = docListeners[type] || []).push(fn);
+      },
+      createElement() {
+        return makeRecordingEl("created");
+      },
+      __fireDoc(type, ev) {
+        (docListeners[type] || []).forEach((fn) => fn(ev || {}));
+      },
+    };
+  }
+
+  function loadWizardWithDom(hostStub) {
+    const window = {
+      JobBoredApp: { core: { host: hostStub || {} } },
+      COMMAND_CENTER_CONFIG: {},
+    };
+    const document = makeRecordingDoc();
+    // Deliberately omit setInterval so the 700ms refresh loop is a no-op here.
+    const ctx = {
+      window,
+      document,
+      console,
+      setTimeout,
+      requestAnimationFrame: (fn) => fn(),
+    };
+    vm.createContext(ctx);
+    vm.runInContext(firstRunWizardJs, ctx, { filename: "first-run-wizard.js" });
+    return { api: window.JobBoredApp.firstRunWizard, window, document };
+  }
+
+  const allCompleteHost = () => ({
+    getSheetId: () => "sheet-keep",
+    isSignedIn: () => true,
+    getOAuthClientId: () => "cid.apps.googleusercontent.com",
+    getResumeGenerate: () => ({
+      isResumeGenerationConfigured: () => true,
+      getResumeGenerationConfig: () => ({
+        provider: "openrouter",
+        resumeOpenRouterApiKey: "sk-or-keep",
+      }),
+    }),
+  });
+
+  it("the partial exposes a labeled close/dismiss control on the wizard card", () => {
+    assert.ok(
+      firstRunPartial.includes('id="firstRunWizardClose"'),
+      "the wizard must offer a close control so it is never a permanent overlay",
+    );
+    assert.match(
+      firstRunPartial,
+      /id="firstRunWizardClose"[\s\S]*?aria-label="[^"]+"/,
+      "the close control must be accessibly labeled",
+    );
+    assert.match(
+      firstRunWizardCss,
+      /\.first-run-wizard__close/,
+      "the close control must be positioned via CSS",
+    );
+  });
+
+  it("clicking the close control tears down the overlay (display none), restoring the page", () => {
+    const { api, document } = loadWizardWithDom(allCompleteHost());
+    api.reopenFirstRunWizard();
+    const wiz = document.getElementById("firstRunWizard");
+    assert.equal(wiz.style.display, "flex", "reopen should show the overlay");
+    assert.equal(api.isFirstRunWizardVisible(), true);
+
+    document.getElementById("firstRunWizardClose").__fire("click", {});
+
+    assert.equal(
+      wiz.style.display,
+      "none",
+      "the close control must hide the fixed overlay so clicks reach the dashboard again",
+    );
+    assert.equal(api.isFirstRunWizardVisible(), false);
+  });
+
+  it("Escape dismisses the wizard (it is the topmost overlay)", () => {
+    const { api, document } = loadWizardWithDom(allCompleteHost());
+    api.reopenFirstRunWizard();
+    assert.equal(api.isFirstRunWizardVisible(), true);
+
+    document.__fireDoc("keydown", { key: "Escape" });
+
+    assert.equal(
+      api.isFirstRunWizardVisible(),
+      false,
+      "pressing Escape over the wizard must dismiss it, not trap the user",
+    );
+  });
+
+  it("opening then hiding the wizard leaves no body scroll-lock / modal-open state behind", () => {
+    const { api, document } = loadWizardWithDom(allCompleteHost());
+    api.reopenFirstRunWizard();
+    api.hideFirstRunWizard();
+    assert.equal(api.isFirstRunWizardVisible(), false);
+    assert.ok(
+      !document.body.style.overflow,
+      "the wizard must never lock body scroll (no leftover overflow:hidden)",
     );
   });
 });
