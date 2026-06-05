@@ -95,12 +95,72 @@ function clipText(text, max) {
   return s.length > max ? `${s.slice(0, max)}\n… [truncated]` : s;
 }
 
+// Scan for the first balanced {…} / […] embedded in surrounding text and parse
+// it. Lets a valid scorecard be recovered when the provider wraps its JSON in
+// conversational prose (no code fence). Returns undefined if nothing parses.
+function tryParseEmbeddedJson(raw) {
+  for (let start = 0; start < raw.length; start += 1) {
+    const opener = raw[start];
+    if (opener !== "{" && opener !== "[") continue;
+    const stack = [opener];
+    let inString = false;
+    let escaped = false;
+    for (let i = start + 1; i < raw.length; i += 1) {
+      const ch = raw[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\" && inString) {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch === "{" || ch === "[") {
+        stack.push(ch);
+        continue;
+      }
+      if (ch !== "}" && ch !== "]") continue;
+      const expected = stack[stack.length - 1];
+      const matches =
+        (expected === "{" && ch === "}") || (expected === "[" && ch === "]");
+      if (!matches) break;
+      stack.pop();
+      if (stack.length) continue;
+      const candidate = raw.slice(start, i + 1).trim();
+      try {
+        return JSON.parse(candidate);
+      } catch {
+        break;
+      }
+    }
+  }
+  return undefined;
+}
+
 function parseJsonSafe(text) {
   const raw = String(text || "").trim();
   if (!raw) throw new Error("Empty JSON payload");
   const fenced = /^```(?:json)?\s*([\s\S]*?)```$/m.exec(raw);
   const cleaned = fenced ? fenced[1].trim() : raw;
-  return JSON.parse(cleaned);
+  try {
+    return JSON.parse(cleaned);
+  } catch (error) {
+    // Provider sometimes returns the JSON wrapped in prose with no code fence.
+    // Recover by extracting the first balanced JSON value so a valid scorecard
+    // succeeds on the first attempt instead of burning a retry. Only attempt
+    // this when the text isn't already a JSON root — a malformed object that
+    // starts with {/[ should still throw and let the retry path handle it.
+    if (!(cleaned.startsWith("{") || cleaned.startsWith("["))) {
+      const embedded = tryParseEmbeddedJson(cleaned);
+      if (embedded !== undefined) return embedded;
+    }
+    throw error;
+  }
 }
 
 function isMalformedProviderJsonError(error) {

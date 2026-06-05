@@ -74,7 +74,69 @@ function buildGeminiSuccessResponse(text) {
   );
 }
 
+function buildValidScorecard() {
+  return {
+    schemaVersion: 1,
+    overallScore: 78,
+    dimensionScores: {
+      requirementsCoverage: 70,
+      experienceRelevance: 80,
+      impactClarity: 75,
+      atsParseability: 88,
+      toneFit: 82,
+    },
+    topStrengths: ["Strong React fit"],
+    criticalGaps: [
+      {
+        gap: "Missing impact metric",
+        whyItMatters: "Quantified outcomes improve ATS relevance.",
+        severity: "medium",
+      },
+    ],
+    evidence: [
+      {
+        claim: "Candidate shipped React features.",
+        sourceSnippet: "Built React growth surfaces.",
+        sourceType: "resume",
+      },
+    ],
+    rewriteSuggestions: [
+      {
+        targetSection: "Opening",
+        before: "Built product features.",
+        after: "Built React product features with measurable impact.",
+        rationale: "Adds React keyword and impact framing.",
+      },
+    ],
+    confidence: 0.86,
+    model: "gemini-test",
+  };
+}
+
 describe("analyzeAtsScorecard provider parsing", () => {
+  it("recovers a valid scorecard from JSON wrapped in provider prose on the first attempt", async () => {
+    const restoreEnv = setTestProviderEnv();
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      return buildGeminiSuccessResponse(
+        `Here is the ATS scorecard JSON you requested:\n${JSON.stringify(buildValidScorecard())}\nUse this to render the grouped findings in the UI.`,
+      );
+    };
+
+    try {
+      const scorecard = await analyzeAtsScorecard(buildPayload());
+      assert.equal(calls, 1);
+      assert.equal(scorecard.overallScore, 78);
+      assert.equal(scorecard.model, "gemini-test");
+      assert.deepEqual(scorecard.topStrengths, ["Strong React fit"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      restoreEnv();
+    }
+  });
+
   it("retries once when Gemini returns malformed JSON and succeeds on the second attempt", async () => {
     const restoreEnv = setTestProviderEnv();
     const originalFetch = globalThis.fetch;
