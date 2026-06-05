@@ -479,6 +479,7 @@
       },
       refreshPersonalPreferencesPanel: host.refreshPersonalPreferencesPanel,
       showOnboardingWizard: host.showOnboardingWizard,
+      checkOnboardingGate: host.checkOnboardingGate,
       openCommandCenterSettingsModal(...args) {
         return app.settings.openCommandCenterSettingsModal(...args);
       },

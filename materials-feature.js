@@ -35,6 +35,10 @@
     return window.JobBoredApp.onboarding;
   }
 
+  function firstRunWizardMod() {
+    return window.JobBoredApp.firstRunWizard;
+  }
+
   function getUserContent() {
     return materialsStateMod().getUserContent();
   }
@@ -241,6 +245,32 @@
       } catch (err) {
         console.error(err);
         showToast(err.message || "Could not reset wizard", "error");
+      }
+    });
+  }
+
+  const infraResetWizardBtn = document.getElementById("infraResetWizardBtn");
+  if (infraResetWizardBtn) {
+    infraResetWizardBtn.addEventListener("click", async () => {
+      const ok = window.confirm(
+        "Run the setup wizard again? Your connected Sheet, keys, and provider choice stay saved.",
+      );
+      if (!ok) return;
+      if (!UC) return;
+      try {
+        await UC.openDb();
+        await UC.resetInfraSetupCompletion();
+        closeMaterialsModal();
+        closeCommandCenterSettingsModal();
+        closeAuthUserMenu();
+        const frw = firstRunWizardMod();
+        if (frw && typeof frw.reopenFirstRunWizard === "function") {
+          frw.reopenFirstRunWizard();
+        }
+        showToast("Setup wizard reopened. Your saved config is preserved.", "info");
+      } catch (err) {
+        console.error(err);
+        showToast(err.message || "Could not reopen setup wizard", "error");
       }
     });
   }

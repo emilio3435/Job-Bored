@@ -576,6 +576,16 @@
         /* board re-render is best-effort */
       }
     }
+    // Hand off to the existing profile onboarding wizard. The gate surfaces it
+    // only while profile onboarding is still incomplete, so a fully-onboarded
+    // user lands straight on the dashboard.
+    if (typeof h.checkOnboardingGate === "function") {
+      try {
+        await h.checkOnboardingGate();
+      } catch (_) {
+        /* profile-wizard handoff is best-effort */
+      }
+    }
   }
 
   // --- Step 1: Sheet ------------------------------------------------------
@@ -647,6 +657,18 @@
       return;
     }
     if (typeof h.signIn === "function") h.signIn();
+  }
+
+  /**
+   * Settings "Run setup again": reopen the wizard from step 1. Only the
+   * caller's reset of the infraSetupComplete flag changes state — the saved
+   * Sheet, provider keys, and provider selection are left intact, so this
+   * re-entry never corrupts existing config.
+   */
+  function reopenFirstRunWizard() {
+    draftProduced = false;
+    showFirstRunWizard();
+    setFirstRunStep(1);
   }
 
   // --- Cold-start gate ----------------------------------------------------
@@ -756,6 +778,7 @@
     FIRST_RUN_TOTAL_STEPS,
     isFirstRunWizardVisible,
     showFirstRunWizard,
+    reopenFirstRunWizard,
     hideFirstRunWizard,
     setFirstRunStep,
     refreshFirstRunWizard,

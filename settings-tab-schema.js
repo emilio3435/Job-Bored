@@ -68,6 +68,7 @@
     settingsOAuthClientId: SETTINGS_TAB_IDS.SETUP,
     settingsOAuthClientIdLabel: SETTINGS_TAB_IDS.SETUP,
     profileResetWizardBtn: SETTINGS_TAB_IDS.SETUP,
+    infraResetWizardBtn: SETTINGS_TAB_IDS.SETUP,
     settingsClearConfirmBar: SETTINGS_TAB_IDS.SETUP,
     settingsClearBtn: SETTINGS_TAB_IDS.SETUP,
     settingsClearConfirmCancel: SETTINGS_TAB_IDS.SETUP,

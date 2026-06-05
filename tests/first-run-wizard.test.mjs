@@ -30,6 +30,22 @@ const bridgeRegistryJs = readFileSync(
   "utf8",
 );
 const appBootstrapJs = readFileSync(join(repoRoot, "app-bootstrap.js"), "utf8");
+const configOverridesJs = readFileSync(
+  join(repoRoot, "config-overrides.js"),
+  "utf8",
+);
+const materialsFeatureJs = readFileSync(
+  join(repoRoot, "materials-feature.js"),
+  "utf8",
+);
+const settingsTabSchemaJs = readFileSync(
+  join(repoRoot, "settings-tab-schema.js"),
+  "utf8",
+);
+const settingsModalHtml = readFileSync(
+  join(repoRoot, "partials", "settings-modal.html"),
+  "utf8",
+);
 const firstRunPartial = readFileSync(
   join(repoRoot, "partials", "first-run-wizard.html"),
   "utf8",
@@ -589,5 +605,182 @@ describe("first-run wizard markup — provider + draft controls", () => {
     assert.ok(firstRunPartial.includes('id="firstRunGenerateDraftBtn"'));
     assert.ok(firstRunPartial.includes('id="firstRunDraftText"'));
     assert.ok(firstRunPartial.includes('id="firstRunDraftInsights"'));
+  });
+});
+
+// --- M3: persistence, profile-wizard handoff, Settings re-entry ---------
+
+describe("first-run wizard — finish hands off to the profile wizard (VAL-WIZ-009)", () => {
+  it("handleFirstRunFinish marks infra complete THEN runs the profile onboarding gate", () => {
+    const start = firstRunWizardJs.indexOf(
+      "async function handleFirstRunFinish",
+    );
+    const end = firstRunWizardJs.indexOf("// --- Step 1: Sheet", start);
+    assert.ok(start !== -1 && end !== -1, "should isolate handleFirstRunFinish");
+    const body = firstRunWizardJs.slice(start, end);
+    const completeIdx = body.indexOf("completeInfraSetup");
+    const gateIdx = body.indexOf("checkOnboardingGate");
+    assert.ok(completeIdx !== -1, "finish must persist infraSetupComplete");
+    assert.ok(
+      gateIdx !== -1,
+      "finish must hand off to the profile onboarding gate (checkOnboardingGate)",
+    );
+    assert.ok(
+      completeIdx < gateIdx,
+      "infra completion must be persisted before handing off to the profile wizard",
+    );
+  });
+
+  it("checkOnboardingGate is reachable from the wizard host (app.core.host)", () => {
+    const start = bridgeRegistryJs.indexOf("app.core.host = {");
+    const end = bridgeRegistryJs.indexOf("Object.assign(app.core", start);
+    assert.ok(start !== -1 && end !== -1, "should isolate app.core.host literal");
+    const coreHost = bridgeRegistryJs.slice(start, end);
+    assert.ok(
+      coreHost.includes("checkOnboardingGate: host.checkOnboardingGate"),
+      "app.core.host should expose checkOnboardingGate so the wizard can hand off",
+    );
+  });
+});
+
+describe("first-run wizard — Settings 'Run setup again' re-entry (VAL-WIZ-010)", () => {
+  const allCompleteHost = (over) => ({
+    getSheetId: () => "sheet-keep",
+    isSignedIn: () => true,
+    getOAuthClientId: () => "cid.apps.googleusercontent.com",
+    getResumeGenerate: () => ({
+      isResumeGenerationConfigured: () => true,
+      getResumeGenerationConfig: () => ({
+        provider: "openrouter",
+        resumeOpenRouterApiKey: "sk-or-keep",
+      }),
+    }),
+    ...over,
+  });
+
+  it("exposes reopenFirstRunWizard on the module surface", () => {
+    const { api } = loadWizard(allCompleteHost());
+    assert.equal(typeof api.reopenFirstRunWizard, "function");
+  });
+
+  it("reopens at step 1 even when every prerequisite is already satisfied", () => {
+    const { api, window, document } = loadWizard(allCompleteHost());
+    window.COMMAND_CENTER_CONFIG = {
+      resumeProvider: "openrouter",
+      resumeOpenRouterApiKey: "sk-or-keep",
+      sheetId: "sheet-keep",
+    };
+    api.reopenFirstRunWizard();
+    assert.equal(api.isFirstRunWizardVisible(), true, "wizard should be shown");
+    assert.equal(
+      document.getElementById("firstRunPanelSheet").style.display,
+      "block",
+      "re-entry should land on step 1 (Sheet panel), not the furthest step",
+    );
+  });
+
+  it("Settings markup exposes an infra 'Run setup again' control next to the profile reset", () => {
+    assert.ok(
+      settingsModalHtml.includes('id="infraResetWizardBtn"'),
+      "settings-modal.html should define #infraResetWizardBtn",
+    );
+    assert.ok(
+      settingsModalHtml.includes('id="profileResetWizardBtn"'),
+      "the infra control should sit alongside the existing profile reset",
+    );
+  });
+
+  it("maps infraResetWizardBtn to the SETUP settings tab", () => {
+    assert.match(
+      settingsTabSchemaJs,
+      /infraResetWizardBtn:\s*SETTINGS_TAB_IDS\.SETUP/,
+      "infraResetWizardBtn should resolve to the SETUP tab",
+    );
+  });
+
+  it("materials-feature wires the infra reset to resetInfraSetupCompletion + reopen", () => {
+    assert.ok(
+      materialsFeatureJs.includes("infraResetWizardBtn"),
+      "materials-feature should bind the infra reset button",
+    );
+    assert.ok(
+      materialsFeatureJs.includes("resetInfraSetupCompletion"),
+      "the handler should reset the infraSetupComplete flag",
+    );
+    assert.ok(
+      materialsFeatureJs.includes("reopenFirstRunWizard"),
+      "the handler should reopen the first-run infra wizard",
+    );
+  });
+});
+
+describe("Settings provider switch persists across reload (VAL-CROSS-004)", () => {
+  function loadConfigOverrides(initialStore = {}) {
+    const store = new Map(Object.entries(initialStore));
+    const localStorage = {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    };
+    const window = { JobBoredApp: {}, COMMAND_CENTER_CONFIG: {} };
+    const ctx = {
+      window,
+      localStorage,
+      console,
+      document: { getElementById: () => null },
+    };
+    vm.createContext(ctx);
+    vm.runInContext(configOverridesJs, ctx, { filename: "config-overrides.js" });
+    return { api: window.JobBoredApp.configOverrides, window, store };
+  }
+
+  it("resumeProvider is on the override allowlist alongside the resume keys", () => {
+    const { api } = loadConfigOverrides();
+    for (const key of [
+      "resumeProvider",
+      "resumeOpenRouterApiKey",
+      "resumeLocalModel",
+      "resumeLocalBaseUrl",
+    ]) {
+      assert.ok(
+        api.COMMAND_CENTER_OVERRIDE_KEYS.includes(key),
+        `${key} must be on the allowlist or Settings values drop on save`,
+      );
+    }
+  });
+
+  it("a provider switch saved in Settings survives a reload and preserves existing config", () => {
+    const s1 = loadConfigOverrides();
+    s1.api.writeStoredConfigOverrides({
+      sheetId: "sheet-123",
+      resumeProvider: "local",
+      resumeLocalModel: "gemma4:e2b",
+      resumeLocalBaseUrl: "http://127.0.0.1:11434/v1",
+      resumeOpenRouterApiKey: "sk-or-keep",
+    });
+    assert.equal(
+      s1.window.COMMAND_CENTER_CONFIG.resumeProvider,
+      "local",
+      "the live config should honor the switch same-tick",
+    );
+
+    // Hard reload = a fresh window + module load reading the SAME localStorage.
+    const s2 = loadConfigOverrides(Object.fromEntries(s1.store));
+    assert.equal(
+      s2.window.COMMAND_CENTER_CONFIG.resumeProvider,
+      "local",
+      "the persisted provider switch should be honored after reload",
+    );
+    assert.equal(s2.window.COMMAND_CENTER_CONFIG.resumeLocalModel, "gemma4:e2b");
+    assert.equal(
+      s2.window.COMMAND_CENTER_CONFIG.sheetId,
+      "sheet-123",
+      "existing sheetId must not be corrupted by the switch",
+    );
+    assert.equal(
+      s2.window.COMMAND_CENTER_CONFIG.resumeOpenRouterApiKey,
+      "sk-or-keep",
+      "existing provider keys must be preserved",
+    );
   });
 });
