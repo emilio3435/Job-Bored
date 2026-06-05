@@ -312,23 +312,103 @@ export function classifyCareerSurfaceSourcePolicy(url: string): CareerSurfaceSou
   return "extractable";
 }
 
-export function isPrivateOrLoopbackHost(hostname: string): boolean {
-  if (!hostname) return true;
-  if (hostname === "localhost" || hostname.endsWith(".localhost")) return true;
-  // IPv6 loopback "::1" or link-local "fe80::" come in as "[::1]" or "[fe80::...]"
-  // after URL parsing, .hostname strips the brackets, so match the bare form.
-  if (hostname === "::1" || hostname.startsWith("fe80:") || hostname.startsWith("fc") || hostname.startsWith("fd")) {
+function isPrivateIpv4Literal(ip: string): boolean {
+  const parts = ip.split(".").map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
     return true;
   }
-  const ipv4 = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!ipv4) return false;
-  const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
-  if (a === 10) return true;                       // 10.0.0.0/8
-  if (a === 127) return true;                      // 127.0.0.0/8 loopback
-  if (a === 0) return true;                        // 0.0.0.0/8
-  if (a === 169 && b === 254) return true;         // 169.254.0.0/16 link-local + cloud metadata
+  const [a, b] = parts;
+  if (a === 0) return true; // 0.0.0.0/8
+  if (a === 10) return true; // 10.0.0.0/8
+  if (a === 127) return true; // 127.0.0.0/8 loopback
+  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 CGNAT
+  if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local + cloud metadata
   if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-  if (a === 192 && b === 168) return true;         // 192.168.0.0/16
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16
+  if (a >= 224) return true; // multicast/reserved
+  return false;
+}
+
+// Expand an IPv6 literal into eight 16-bit groups, or null if unparseable.
+function expandIpv6(value: string): number[] | null {
+  let text = value;
+  const lastColon = text.lastIndexOf(":");
+  // Handle IPv4-embedded forms like ::ffff:127.0.0.1
+  if (lastColon >= 0 && text.slice(lastColon + 1).includes(".")) {
+    const ipv4 = text.slice(lastColon + 1);
+    const octets = ipv4.split(".").map((n) => Number(n));
+    if (octets.length !== 4 || octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+      return null;
+    }
+    const hi = ((octets[0] << 8) | octets[1]).toString(16);
+    const lo = ((octets[2] << 8) | octets[3]).toString(16);
+    text = `${text.slice(0, lastColon + 1)}${hi}:${lo}`;
+  }
+  const halves = text.split("::");
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const rest = halves.length === 2 ? (halves[1] ? halves[1].split(":") : []) : null;
+  let groups: string[];
+  if (rest === null) {
+    groups = head;
+  } else {
+    const missing = 8 - head.length - rest.length;
+    if (missing < 0) return null;
+    groups = [...head, ...new Array(missing).fill("0"), ...rest];
+  }
+  if (groups.length !== 8) return null;
+  const numeric = groups.map((g) => parseInt(g || "0", 16));
+  if (numeric.some((n) => Number.isNaN(n) || n < 0 || n > 0xffff)) return null;
+  return numeric;
+}
+
+function isPrivateIpv6Literal(value: string): boolean {
+  const groups = expandIpv6(value);
+  if (!groups) return true; // fail closed on anything we cannot parse
+  if (groups.slice(0, 7).every((g) => g === 0) && (groups[7] === 1 || groups[7] === 0)) {
+    return true; // ::1 loopback and :: unspecified
+  }
+  // IPv4-mapped (::ffff:a.b.c.d) / compatible — check the embedded IPv4
+  if (groups.slice(0, 5).every((g) => g === 0) && (groups[5] === 0xffff || groups[5] === 0)) {
+    const a = groups[6] >> 8;
+    const b = groups[6] & 0xff;
+    const c = groups[7] >> 8;
+    const d = groups[7] & 0xff;
+    return isPrivateIpv4Literal(`${a}.${b}.${c}.${d}`);
+  }
+  const first = groups[0];
+  if (first >= 0xfc00 && first <= 0xfdff) return true; // fc00::/7 unique-local
+  if (first >= 0xfe80 && first <= 0xfebf) return true; // fe80::/10 link-local
+  return false;
+}
+
+export function isPrivateOrLoopbackHost(hostname: string): boolean {
+  if (!hostname) return true;
+  // URL.hostname keeps brackets for IPv6 literals (e.g. "[::1]"); strip them.
+  // Also drop a single FQDN trailing dot ("localhost." resolves to loopback
+  // but would otherwise bypass the equality/suffix checks below).
+  const host = hostname
+    .replace(/^\[(.*)\]$/, "$1")
+    .toLowerCase()
+    .replace(/\.$/, "");
+  if (!host) return true;
+  if (
+    host === "localhost" ||
+    host === "0.0.0.0" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal")
+  ) {
+    return true;
+  }
+  // IPv6 literals contain a colon; canonical/encoded IPv4 is already
+  // normalized to dotted-quad by the WHATWG URL parser before reaching here.
+  if (host.includes(":")) {
+    return isPrivateIpv6Literal(host);
+  }
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+    return isPrivateIpv4Literal(host);
+  }
   return false;
 }
 

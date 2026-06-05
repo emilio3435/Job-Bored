@@ -430,6 +430,11 @@
         : {}),
       ...(allow.length ? { companyAllowlist: allow } : {}),
       ...(block.length ? { companyBlocklist: block } : {}),
+      // Optional non-secret master Fit Profile merged with per-run overrides.
+      // Passed through verbatim; the worker re-validates it via ajv.
+      ...(source.mergedUserProfile && typeof source.mergedUserProfile === "object"
+        ? { mergedUserProfile: source.mergedUserProfile }
+        : {}),
     };
   }
 

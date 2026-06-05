@@ -99,6 +99,7 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 | `companyAllowlist`  | string[] | Optional. Per-run company subset selected from the dashboard. Omitted or empty means use the stored company list exactly as before. Capped at 500 entries. |
 | `companyBlocklist`  | string[] | Optional. Non-empty array of trimmed company names/keys to suppress from results. Capped at 50 unique entries.                                          |
 | `googleAccessToken` | string   | Optional. Short-lived dashboard Google OAuth token for this run only; receivers must not persist it.                                                    |
+| `mergedUserProfile` | object   | Optional. Master Fit Profile merged with per-run overrides (non-secret; no raw resume text). Validated via ajv; invalid payloads are ignored and the worker falls back to its disk profile. Never persisted.                       |
 
 **`discoveryProfile` fields (all optional):**
 
@@ -116,7 +117,7 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 
 `companyAllowlist` is ephemeral. It restricts only the current run to matching stored company/history entries after skipped-company filtering; unknown keys are ignored, and the worker never writes this field back to `worker-config.json`.
 
-Older automations that ignore `schemaVersion`, `discoveryProfile`, `companyAllowlist`, and `googleAccessToken` keep working if they only read `event`, `sheetId`, `variationKey`, and `requestedAt`.
+Older automations that ignore `schemaVersion`, `discoveryProfile`, `companyAllowlist`, `mergedUserProfile`, and `googleAccessToken` keep working if they only read `event`, `sheetId`, `variationKey`, and `requestedAt`.
 
 ### Evolving this contract
 

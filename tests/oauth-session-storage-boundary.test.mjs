@@ -211,13 +211,36 @@ describe("OAuth session storage boundary", () => {
     assert.equal(stored.accessToken, undefined);
     assert.equal(stored.userEmail, "user@example.com");
 
+    // Security invariant: the bearer token is per-tab/ephemeral in
+    // sessionStorage and must NEVER be written to durable localStorage.
     const runtimeStored = JSON.parse(
-      harness.localStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY),
+      harness.sessionStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY),
     );
     assert.equal(runtimeStored.accessToken, "opaque-session-123");
     assert.equal(runtimeStored.oauthClientId, "client_123");
     assert.equal(
-      harness.sessionStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY),
+      harness.localStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY),
+      null,
+    );
+  });
+
+  it("purges any legacy token left in localStorage instead of reusing it", () => {
+    const harness = createAuthHarness();
+    harness.localStorage.setItem(
+      OAUTH_RUNTIME_SESSION_STORAGE_KEY,
+      JSON.stringify({
+        hasOauthSession: true,
+        accessToken: "legacy-durable-token",
+        expiresAt: Date.now() + 60_000,
+        oauthClientId: "client_123",
+      }),
+    );
+
+    const loaded = harness.run("loadPersistedRuntimeOAuthSession()");
+
+    assert.equal(loaded, null);
+    assert.equal(
+      harness.localStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY),
       null,
     );
   });

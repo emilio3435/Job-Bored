@@ -205,6 +205,7 @@ function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
 
   for (let index = 0; index < COLUMN_COUNT; index += 1) {
     if (
+      index === 0 || // Date Found: keep the original discovery date on re-discovery
       index === 11 ||
       index === 12 ||
       index === 13 ||
@@ -219,6 +220,8 @@ function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
     if (leadRow[index]) merged[index] = leadRow[index];
   }
 
+  // Backfill Date Found only when the existing row never had one (legacy rows).
+  if (!merged[0]) merged[0] = leadRow[0];
   if (!merged[11]) merged[11] = leadRow[11];
   if (!merged[12]) merged[12] = leadRow[12] || "New";
   if (!merged[16]) merged[16] = leadRow[16];
@@ -609,12 +612,22 @@ export function createPipelineWriter(
       sheetName,
       headerValues,
     );
+    // A missing blacklist tab is normal (HTTP 400 "Unable to parse range") and
+    // means "no blacklist". Any other error (429/5xx/network) is transient and
+    // must NOT silently disable blacklist filtering — fail loud so suppressed
+    // URLs are never written just because a read blipped.
     const blacklistRows = await getSheetValues(
       sheetId,
       `${DEFAULT_BLACKLIST_SHEET_NAME}!A2:A`,
       accessToken,
       fetchImpl,
-    ).catch(() => []);
+    ).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/HTTP 400\b/.test(message) || /Unable to parse range/i.test(message)) {
+        return [] as string[][];
+      }
+      throw error;
+    });
     const blacklistedUrls = new Set<string>(
       blacklistRows
         .map((row) => normalizeLeadUrl(row[0] || ""))

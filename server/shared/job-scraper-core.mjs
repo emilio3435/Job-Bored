@@ -4,7 +4,7 @@
  * is stripped before text extraction.
  */
 import * as cheerio from "cheerio";
-import { validateScrapeTarget } from "../security-boundaries.mjs";
+import { validateScrapeTarget, safeFetch } from "../security-boundaries.mjs";
 
 const FETCH_TIMEOUT_MS = 18000;
 const MAX_HTML_BYTES = 4 * 1024 * 1024;
@@ -677,16 +677,19 @@ export async function scrapeJobPosting(url, options = {}) {
   const t = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   let html;
   try {
-    const res = await fetchImpl(target.url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": UA,
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
+    const res = await safeFetch(
+      target.url,
+      {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": UA,
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
       },
-      redirect: "follow",
-    });
+      { fetchImpl },
+    );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buf = await res.arrayBuffer();
     if (buf.byteLength > MAX_HTML_BYTES) {

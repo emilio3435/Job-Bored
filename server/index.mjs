@@ -6,13 +6,14 @@
 import "dotenv/config";
 import express from "express";
 import { createReadStream } from "node:fs";
+import { timingSafeEqual } from "node:crypto";
 import { normalizeAtsRequestPayload } from "./ats-request-payload.mjs";
 import { analyzeAtsScorecard, getAtsConfigStatus } from "./ats-scorecard.mjs";
 import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
 import {
   normalizeAllowedBrowserOrigins,
   resolveAllowedBrowserOrigin,
-  validateScrapeTarget,
+  validateScrapeTargetWithDns,
 } from "./security-boundaries.mjs";
 import {
   buildManifest,
@@ -68,6 +69,39 @@ const ALLOWED_BROWSER_ORIGINS = normalizeAllowedBrowserOrigins(
   },
 );
 const app = express();
+
+// When the service binds to a non-loopback host (Render/Fly/Docker), the
+// expensive scrape/LLM endpoints must not be open: require a shared token.
+const LOOPBACK_LISTEN_HOSTS = new Set(["", "127.0.0.1", "localhost", "::1"]);
+const REQUIRE_API_AUTH = !LOOPBACK_LISTEN_HOSTS.has(String(HOST).toLowerCase());
+const API_ACCESS_TOKEN = String(
+  process.env.JOBBORED_API_TOKEN || process.env.API_ACCESS_TOKEN || "",
+).trim();
+
+function tokensMatch(provided, expected) {
+  if (!provided || !expected) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function requireApiAuth(req, res, next) {
+  if (!REQUIRE_API_AUTH) return next();
+  if (!API_ACCESS_TOKEN) {
+    return res.status(503).json({
+      error:
+        "This endpoint requires JOBBORED_API_TOKEN to be set when the server is bound to a non-loopback host.",
+    });
+  }
+  const provided = String(req.get("x-api-token") || req.get("authorization") || "")
+    .replace(/^Bearer\s+/i, "")
+    .trim();
+  if (!tokensMatch(provided, API_ACCESS_TOKEN)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  return next();
+}
 
 function getAtsProviderErrorMetadata(error) {
   if (!error || typeof error !== "object") return null;
@@ -156,13 +190,13 @@ app.get("/health", (_req, res) => {
   });
 });
 
-app.post("/api/scrape-job", async (req, res) => {
+app.post("/api/scrape-job", requireApiAuth, async (req, res) => {
   try {
     const raw = req.body && req.body.url;
     if (!raw || typeof raw !== "string") {
       return res.status(400).json({ error: "Body must include { url: string }" });
     }
-    const target = validateScrapeTarget(raw);
+    const target = await validateScrapeTargetWithDns(raw);
     if (!target.ok) {
       return res.status(400).json({ error: target.error });
     }
@@ -177,7 +211,7 @@ app.post("/api/scrape-job", async (req, res) => {
   }
 });
 
-app.post("/api/ats-scorecard", async (req, res) => {
+app.post("/api/ats-scorecard", requireApiAuth, async (req, res) => {
   const requestId = `ats_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   try {
     const ats = getAtsConfigStatus();
@@ -647,7 +681,7 @@ app.put("/api/applications/:slug/job-description", async (req, res) => {
  * after a page reload). Reuses the existing scrapeJobPosting() so we
  * don't duplicate scraping logic. Returns the scraped description
  * text, which the browser then PUTs back via /job-description. */
-app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
+app.post("/api/applications/:slug/scrape-job-description", requireApiAuth, async (req, res) => {
   try {
     const slug = req.params.slug;
     if (!isValidSlug(slug)) {
@@ -661,7 +695,11 @@ app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
       res.status(400).json({ ok: false, error: "jobUrl required" });
       return;
     }
-    const target = validateScrapeTarget(url);
+    const target = await validateScrapeTargetWithDns(url);
+    if (!target.ok) {
+      res.status(400).json({ ok: false, error: target.error });
+      return;
+    }
     const scraped = await scrapeJobPosting(target.url, {
       title: typeof req.body.title === "string" ? req.body.title : "",
       company: typeof req.body.company === "string" ? req.body.company : "",

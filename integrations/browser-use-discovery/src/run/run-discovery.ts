@@ -42,6 +42,7 @@ import {
   collectSerpApiGoogleJobsListings,
   SERPAPI_GOOGLE_JOBS_SOURCE_ID,
 } from "../sources/serpapi-google-jobs.ts";
+import { classifyCareerSurfaceSourcePolicy } from "../discovery/career-surface-resolver.ts";
 import {
   normalizeLeadWithDiagnostics,
   type LeadNormalizationRejection,
@@ -799,7 +800,24 @@ export async function runDiscovery(
         });
         extractionResult.warnings.push(...serpResult.warnings);
         extractionResult.stats.leadsSeen = serpResult.rawListings.length;
+        let serpHintOnlySkipped = 0;
         for (const rawListing of serpResult.rawListings) {
+          // Enforce the hint-only invariant on the SerpApi lane: only direct
+          // employer/ATS URLs may be written. Third-party boards/aggregators
+          // and Google share links (hint_only/blocked) are never written
+          // directly to the sheet, matching the grounded lane's policy.
+          const sourcePolicy = classifyCareerSurfaceSourcePolicy(
+            String(rawListing.url || ""),
+          );
+          if (sourcePolicy !== "extractable") {
+            serpHintOnlySkipped += 1;
+            dependencies.log?.("discovery.run.serpapi_non_extractable_skipped", {
+              runId,
+              url: rawListing.url,
+              sourcePolicy,
+            });
+            continue;
+          }
           const normalized = await normalizeRawListing(rawListing, run, {
             dependencies,
             matchingState,
@@ -822,6 +840,11 @@ export async function runDiscovery(
           normalizedLeads.push(normalized.lead);
           extractionResult.leads.push(normalized.lead);
           extractionResult.stats.leadsAccepted += 1;
+        }
+        if (serpHintOnlySkipped > 0) {
+          extractionResult.warnings.push(
+            `serpapi_google_jobs: skipped ${serpHintOnlySkipped} non-extractable (hint-only/blocked) URL(s) to preserve the direct-write invariant.`,
+          );
         }
         listingCount += serpResult.rawListings.length;
       } catch (error) {

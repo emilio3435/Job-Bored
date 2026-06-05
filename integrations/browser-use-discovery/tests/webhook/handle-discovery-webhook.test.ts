@@ -834,14 +834,14 @@ test("handleDiscoveryWebhook does not let late async success overwrite timeout t
   const timedOut = dependencies.runStatusStore.get("run_queued");
   assert.equal(timedOut.status, "partial");
   assert.equal(timedOut.terminal, true);
-  assert.match(timedOut.message, /force-terminalized/i);
+  assert.match(timedOut.message, /exceeded its maximum duration/i);
 
   releaseRun();
   await backgroundRun;
   await new Promise((resolve) => setTimeout(resolve, 0));
   const afterLateSuccess = dependencies.runStatusStore.get("run_queued");
   assert.equal(afterLateSuccess.status, "partial");
-  assert.match(afterLateSuccess.message, /force-terminalized/i);
+  assert.match(afterLateSuccess.message, /exceeded its maximum duration/i);
 });
 
 test("VAL-LOOP-CROSS-006: handleDiscoveryWebhook async zero-lead browser_only runs do not fail with canonicalUrl is required", async () => {
