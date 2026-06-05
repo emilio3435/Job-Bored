@@ -1,0 +1,241 @@
+    <!-- First-run infrastructure wizard. Runs BEFORE the profile onboarding
+         wizard. Ordered steps: connect/create Sheet → Google sign-in →
+         choose AI provider → generate a draft. Each active step shows only
+         its own controls. -->
+    <div
+      class="first-run-wizard"
+      id="firstRunWizard"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="firstRunWizardTitle"
+    >
+      <div class="first-run-wizard__inner">
+        <div class="first-run-wizard__brand">
+          <img
+            class="first-run-wizard__logo"
+            src="jobbored.svg"
+            width="64"
+            height="64"
+            alt=""
+            decoding="async"
+            aria-hidden="true"
+          />
+          <h2 id="firstRunWizardTitle" class="first-run-wizard__title">
+            Set up JobBored
+          </h2>
+          <p class="first-run-wizard__subtitle">
+            A few quick steps to connect your workspace.
+          </p>
+        </div>
+
+        <div class="first-run-progress-wrap" aria-live="polite">
+          <span class="first-run-step-label" id="firstRunStepLabel"
+            >Step 1 of 4</span
+          >
+          <ol class="first-run-steps" id="firstRunStepIndicator">
+            <li class="first-run-steps__item" data-step-index="1">Sheet</li>
+            <li class="first-run-steps__item" data-step-index="2">Sign in</li>
+            <li class="first-run-steps__item" data-step-index="3">Provider</li>
+            <li class="first-run-steps__item" data-step-index="4">Draft</li>
+          </ol>
+          <div
+            class="first-run-progress-bar"
+            role="progressbar"
+            aria-valuemin="1"
+            aria-valuemax="4"
+            aria-valuenow="1"
+            id="firstRunProgressBar"
+          >
+            <div
+              class="first-run-progress-bar__fill"
+              id="firstRunProgressBarFill"
+              style="width: 25%"
+            ></div>
+          </div>
+        </div>
+
+        <!-- Step 1: Connect or create a Google Sheet -->
+        <div class="first-run-panel" id="firstRunPanelSheet">
+          <h3 class="first-run-step-title">Connect your Google Sheet</h3>
+          <p class="first-run-hint">
+            JobBored keeps your pipeline in a Google Sheet you own. Create a
+            fresh starter sheet, or connect one you already have.
+          </p>
+          <div class="first-run-sheet-create">
+            <button
+              type="button"
+              class="btn-modal-primary first-run-btn-block"
+              id="firstRunCreateSheetBtn"
+            >
+              Create a starter sheet
+            </button>
+          </div>
+          <details class="first-run-paste">
+            <summary class="first-run-link">
+              or connect an existing sheet
+            </summary>
+            <label class="first-run-field-label" for="firstRunSheetIdInput">
+              Paste a Google Sheet link or ID
+            </label>
+            <input
+              type="text"
+              id="firstRunSheetIdInput"
+              class="first-run-input"
+              placeholder="https://docs.google.com/spreadsheets/d/…"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button
+              type="button"
+              class="btn-modal-secondary first-run-sheet-connect"
+              id="firstRunSheetIdSaveBtn"
+            >
+              Connect this sheet
+            </button>
+            <p
+              class="first-run-status"
+              id="firstRunSheetStatus"
+              aria-live="polite"
+              hidden
+            ></p>
+          </details>
+          <p class="first-run-connected" id="firstRunSheetConnected" hidden>
+            ✓ Sheet connected
+          </p>
+          <div class="first-run-actions first-run-actions--full">
+            <button
+              type="button"
+              class="btn-modal-primary first-run-btn-block"
+              id="firstRunSheetNext"
+              disabled
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 2: Google sign-in -->
+        <div
+          class="first-run-panel"
+          id="firstRunPanelSignin"
+          style="display: none"
+        >
+          <h3 class="first-run-step-title">Sign in with Google</h3>
+          <p class="first-run-hint">
+            Sign in so JobBored can read and write your sheet. Your data stays
+            in your Google account.
+          </p>
+          <button
+            type="button"
+            class="login-gate__btn-google first-run-signin-btn"
+            id="firstRunSignInBtn"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="#4285F4"
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+              />
+              <path
+                fill="#34A853"
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+              />
+            </svg>
+            Sign in with Google
+          </button>
+          <p class="first-run-connected" id="firstRunSignedIn" hidden>
+            ✓ Signed in
+          </p>
+          <p
+            class="first-run-status first-run-status--error"
+            id="firstRunSigninMessage"
+            aria-live="polite"
+            hidden
+          ></p>
+          <div class="first-run-actions first-run-actions--split">
+            <button
+              type="button"
+              class="btn-modal-secondary"
+              id="firstRunSigninBack"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              class="btn-modal-primary"
+              id="firstRunSigninNext"
+              disabled
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 3: Choose AI provider (controls added in a later step) -->
+        <div
+          class="first-run-panel"
+          id="firstRunPanelProvider"
+          style="display: none"
+        >
+          <h3 class="first-run-step-title">Choose your AI provider</h3>
+          <p class="first-run-hint">
+            Pick how JobBored drafts your resumes and cover letters.
+          </p>
+          <p class="first-run-status" id="firstRunProviderStatus"></p>
+          <div class="first-run-actions first-run-actions--split">
+            <button
+              type="button"
+              class="btn-modal-secondary"
+              id="firstRunProviderBack"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              class="btn-modal-primary"
+              id="firstRunProviderNext"
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 4: Generate first draft (controls added in a later step) -->
+        <div
+          class="first-run-panel"
+          id="firstRunPanelDraft"
+          style="display: none"
+        >
+          <h3 class="first-run-step-title">Generate your first draft</h3>
+          <p class="first-run-hint">
+            Create one tailored draft to finish setting up.
+          </p>
+          <p class="first-run-status" id="firstRunDraftStatus"></p>
+          <div class="first-run-actions first-run-actions--split">
+            <button
+              type="button"
+              class="btn-modal-secondary"
+              id="firstRunDraftBack"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              class="btn-modal-primary"
+              id="firstRunDraftFinish"
+              disabled
+            >
+              Finish setup
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>

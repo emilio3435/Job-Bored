@@ -163,6 +163,10 @@
       }
       h("initAuth");
       h("renderSetupStarterSheetUi");
+      // First-run infra wizard owns the cold-start surface (no sheet yet): it
+      // runs ahead of the profile onboarding wizard and drives the Sheet +
+      // sign-in steps over the login gate.
+      void h("checkInfraSetupGate");
       startupLog("bootstrap:init:early-return", {
         reason: "missing-sheet-id",
       });

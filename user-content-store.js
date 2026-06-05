@@ -692,6 +692,19 @@
     await setSetting("onboardingComplete", false);
   }
 
+  async function isInfraSetupComplete() {
+    return !!(await getSetting("infraSetupComplete"));
+  }
+
+  async function completeInfraSetup() {
+    await setSetting("infraSetupComplete", true);
+  }
+
+  /** Clears the flag so the first-run infra wizard shows again ("Run setup again"). */
+  async function resetInfraSetupCompletion() {
+    await setSetting("infraSetupComplete", false);
+  }
+
   /**
    * Mark onboarding done for users who already had resume data before this feature.
    * Consolidate legacy multi-version rows into {@link PRIMARY_RESUME_ID}.
@@ -1038,6 +1051,9 @@
     isOnboardingComplete,
     completeOnboarding,
     resetOnboardingCompletion,
+    isInfraSetupComplete,
+    completeInfraSetup,
+    resetInfraSetupCompletion,
     migrateOnboardingState,
     addResumeVersion,
     setActiveResumeId,

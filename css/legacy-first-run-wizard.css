@@ -1,0 +1,227 @@
+/* ============================================
+   First-run infrastructure wizard (blocking overlay)
+   Runs before the profile onboarding wizard.
+   ============================================ */
+
+.first-run-wizard {
+  position: fixed;
+  inset: 0;
+  z-index: 100001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(248, 250, 252, 0.96);
+  backdrop-filter: blur(8px);
+}
+
+.first-run-wizard__inner {
+  width: 100%;
+  max-width: 460px;
+  max-height: min(92vh, 880px);
+  overflow-y: auto;
+  padding: var(--space-8) var(--space-6);
+  background: var(--surface);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-xl);
+  box-shadow:
+    var(--shadow-lg),
+    0 24px 48px rgba(15, 23, 42, 0.06);
+}
+
+.first-run-wizard__brand {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  text-align: center;
+  margin-bottom: var(--space-5);
+}
+
+.first-run-wizard__logo {
+  display: block;
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+}
+
+.first-run-wizard__title {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.first-run-wizard__subtitle {
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+
+.first-run-progress-wrap {
+  margin-bottom: var(--space-6);
+}
+
+.first-run-step-label {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: var(--space-2);
+}
+
+.first-run-steps {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  padding: 0;
+}
+
+.first-run-steps__item {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-faint);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.first-run-steps__item--current {
+  color: var(--surface);
+  background: var(--accent);
+}
+
+.first-run-steps__item--done {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.first-run-progress-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.first-run-progress-bar__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.35s var(--ease);
+}
+
+.first-run-panel {
+  animation: firstRunPanelIn 0.24s var(--ease) both;
+}
+
+@keyframes firstRunPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.first-run-step-title {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: var(--space-2);
+}
+
+.first-run-hint {
+  font-size: var(--text-sm);
+  color: var(--text-soft, var(--text-faint));
+  margin-bottom: var(--space-4);
+  line-height: 1.5;
+}
+
+.first-run-btn-block {
+  display: block;
+  width: 100%;
+}
+
+.first-run-paste {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.first-run-link {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.first-run-field-label {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-faint);
+  margin: var(--space-3) 0 var(--space-1);
+}
+
+.first-run-input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.first-run-sheet-connect {
+  margin-top: var(--space-2);
+}
+
+.first-run-status {
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+  margin-top: var(--space-2);
+}
+
+.first-run-status--error {
+  color: var(--danger, #c0392b);
+}
+
+.first-run-connected {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--accent);
+  margin-top: var(--space-3);
+}
+
+.first-run-signin-btn {
+  margin-top: var(--space-1);
+}
+
+.first-run-actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+}
+
+.first-run-actions--full {
+  display: block;
+}
+
+.first-run-actions--split {
+  justify-content: space-between;
+}
+
+.first-run-actions--split .btn-modal-primary,
+.first-run-actions--split .btn-modal-secondary {
+  flex: 1;
+}
+
+@media (max-width: 640px) {
+  .first-run-wizard__inner {
+    padding: var(--space-6) var(--space-4);
+  }
+}
