@@ -56,7 +56,9 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
             ? "openai"
             : selectId === "settingsResumeOpenRouterModel"
               ? "openrouter"
-              : "anthropic"
+              : selectId === "settingsResumeLocalModel"
+                ? "local"
+                : "anthropic"
       ]);
   if (!sel || sel.tagName !== "SELECT" || !Array.isArray(opts)) return;
   const v =
@@ -97,7 +99,9 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
               ? "openai"
               : selectId === "settingsResumeOpenRouterModel"
                 ? "openrouter"
-                : "anthropic"
+                : selectId === "settingsResumeLocalModel"
+                  ? "local"
+                  : "anthropic"
         ];
       updateModelSelectTooltip(sel, latestOptions || opts);
     });
@@ -199,6 +203,11 @@ function fillResumeModelSelectsFromConfig(cfg) {
     m.openrouter,
     cfg.resumeOpenRouterModel,
   );
+  fillOneResumeModelSelect(
+    "settingsResumeLocalModel",
+    m.local,
+    cfg.resumeLocalModel,
+  );
 }
 
 async function populateDiscoveryProfileIntoSettingsForm() {
@@ -250,6 +259,7 @@ function populateCommandCenterSettingsForm() {
       "anthropic",
       "webhook",
       "openrouter",
+      "local",
     ].includes(prov)
       ? prov
       : "gemini";
@@ -260,6 +270,8 @@ function populateCommandCenterSettingsForm() {
   set("settingsResumeOpenAIApiKey", cfg.resumeOpenAIApiKey);
   set("settingsResumeAnthropicApiKey", cfg.resumeAnthropicApiKey);
   set("settingsResumeOpenRouterApiKey", cfg.resumeOpenRouterApiKey);
+  set("settingsResumeLocalBaseUrl", cfg.resumeLocalBaseUrl);
+  set("settingsResumeLocalApiKey", cfg.resumeLocalApiKey);
   set("settingsResumeGenerationWebhookUrl", cfg.resumeGenerationWebhookUrl);
   const err = document.getElementById("settingsFormError");
   if (err) {
@@ -277,11 +289,13 @@ function updateSettingsProviderPanels() {
   const ant = document.getElementById("settingsPanelAnthropic");
   const hook = document.getElementById("settingsPanelWebhook");
   const orouter = document.getElementById("settingsPanelOpenRouter");
+  const local = document.getElementById("settingsPanelLocal");
   if (gem) gem.style.display = v === "gemini" ? "block" : "none";
   if (oai) oai.style.display = v === "openai" ? "block" : "none";
   if (ant) ant.style.display = v === "anthropic" ? "block" : "none";
   if (hook) hook.style.display = v === "webhook" ? "block" : "none";
   if (orouter) orouter.style.display = v === "openrouter" ? "block" : "none";
+  if (local) local.style.display = v === "local" ? "block" : "none";
 }
 
 /** Default OAuth Web Client ID for phased Settings (before Google sign-in unlocks full settings). */
@@ -463,9 +477,14 @@ async function saveCommandCenterSettingsFromForm() {
   const provEl = document.getElementById("settingsResumeProvider");
   const provider =
     provEl &&
-    ["gemini", "openai", "anthropic", "webhook", "openrouter"].includes(
-      provEl.value,
-    )
+    [
+      "gemini",
+      "openai",
+      "anthropic",
+      "webhook",
+      "openrouter",
+      "local",
+    ].includes(provEl.value)
       ? provEl.value
       : "gemini";
   const payload = {
@@ -492,6 +511,10 @@ async function saveCommandCenterSettingsFromForm() {
     resumeOpenRouterApiKey: val("settingsResumeOpenRouterApiKey"),
     resumeOpenRouterModel:
       val("settingsResumeOpenRouterModel") || "openai/gpt-oss-120b:free",
+    resumeLocalBaseUrl:
+      val("settingsResumeLocalBaseUrl") || "http://127.0.0.1:11434/v1",
+    resumeLocalModel: val("settingsResumeLocalModel") || "gemma4:e2b",
+    resumeLocalApiKey: val("settingsResumeLocalApiKey"),
     resumeGenerationWebhookUrl: val("settingsResumeGenerationWebhookUrl"),
   };
 

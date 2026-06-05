@@ -470,6 +470,7 @@
                 class="status-select settings-select"
               >
                 <option value="openrouter">OpenRouter (free)</option>
+                <option value="local">Local (Ollama / OpenAI-compatible)</option>
                 <option value="gemini">Google Gemini</option>
                 <option value="openai">OpenAI</option>
                 <option value="anthropic">Anthropic (Claude)</option>
@@ -507,6 +508,45 @@
                   id="settingsResumeOpenRouterModel"
                   class="status-select settings-select settings-model-select"
                 ></select>
+              </div>
+
+              <div
+                id="settingsPanelLocal"
+                class="settings-provider-panel"
+                style="display: none"
+              >
+                <label class="field-label" for="settingsResumeLocalBaseUrl"
+                  >Local server base URL</label
+                >
+                <input
+                  type="url"
+                  id="settingsResumeLocalBaseUrl"
+                  class="modal-input"
+                  placeholder="http://127.0.0.1:11434/v1"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <p class="settings-field-hint settings-field-hint--compact">
+                  OpenAI-compatible local server (e.g. Ollama). Runs offline, no
+                  key required.
+                </p>
+                <label class="field-label" for="settingsResumeLocalModel"
+                  >Model</label
+                >
+                <select
+                  id="settingsResumeLocalModel"
+                  class="status-select settings-select settings-model-select"
+                ></select>
+                <label class="field-label" for="settingsResumeLocalApiKey"
+                  >API key (optional)</label
+                >
+                <input
+                  type="password"
+                  id="settingsResumeLocalApiKey"
+                  class="modal-input"
+                  placeholder="Leave blank for Ollama"
+                  autocomplete="off"
+                />
               </div>
 
               <div id="settingsPanelGemini" class="settings-provider-panel">

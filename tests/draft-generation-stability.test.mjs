@@ -324,6 +324,12 @@ describe("Provider routing follows selected transport", () => {
         fnBody.includes("callAnthropic"),
       "generateFromBundle should have routes for all supported providers",
     );
+
+    // Should also route the new OpenAI-compatible providers (openrouter, local)
+    assert.ok(
+      fnBody.includes("callOpenRouter") && fnBody.includes("callLocal"),
+      "generateFromBundle should route openrouter and local providers",
+    );
   });
 
   it("isResumeGenerationConfigured returns true only when required credentials exist", () => {

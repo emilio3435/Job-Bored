@@ -74,12 +74,14 @@ window.COMMAND_CENTER_CONFIG = {
   // For "Draft cover letter" and "Tailor resume" on job cards you must configure ONE of:
   // - OpenRouter (default, free tier): resumeProvider "openrouter" + a FREE resumeOpenRouterApiKey
   //   from https://openrouter.ai/keys — no paid plan needed. CORS-friendly from the browser.
+  // - Local: resumeProvider "local" + resumeLocalBaseUrl (e.g. Ollama on http://127.0.0.1:11434/v1)
+  //   + resumeLocalModel (e.g. gemma4:e2b) — fully offline, no key required.
   // - Gemini: resumeProvider "gemini" + resumeGeminiApiKey from https://aistudio.google.com/
   // - OpenAI: resumeProvider "openai" + resumeOpenAIApiKey (CORS may block on some hosts)
   // - Anthropic: resumeProvider "anthropic" + resumeAnthropicApiKey (CORS may block; use webhook if needed)
   // - Webhook: resumeProvider "webhook" + resumeGenerationWebhookUrl (your server calls the LLM)
   //
-  // Provider: "openrouter" (default, free), "gemini", "openai", "anthropic", or "webhook"
+  // Provider: "openrouter" (default, free), "local", "gemini", "openai", "anthropic", or "webhook"
   resumeProvider: "openrouter",
   // OpenRouter free-tier key (browser-safe; paste a FREE key, do not commit real keys to public repos).
   // Get one at https://openrouter.ai/keys. Free models work without any paid plan.
@@ -88,6 +90,15 @@ window.COMMAND_CENTER_CONFIG = {
   resumeOpenRouterModel: "openai/gpt-oss-120b:free",
   // OpenRouter OpenAI-compatible base URL (no trailing slash). Rarely changed.
   resumeOpenRouterBaseUrl: "https://openrouter.ai/api/v1",
+  // Local OpenAI-compatible server (e.g. Ollama). resumeProvider "local" runs
+  // fully offline with no key. Pull a model first (e.g. `ollama pull gemma4:e2b`).
+  // Base URL of the local server (no trailing slash). Ollama default shown.
+  resumeLocalBaseUrl: "http://127.0.0.1:11434/v1",
+  // Local model id. Offered in Settings: "gemma4:e2b" (default) and
+  // "gemma4:e2b-mlx" (Apple Silicon, text-only).
+  resumeLocalModel: "gemma4:e2b",
+  // Optional local API key — sent as Authorization only when set. Ollama ignores it.
+  resumeLocalApiKey: "",
   // Google AI Studio API key (browser-safe; do not commit real keys to public repos)
   resumeGeminiApiKey: "",
   resumeGeminiModel: "gemini-3.5-flash",

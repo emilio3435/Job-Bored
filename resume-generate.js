@@ -75,6 +75,20 @@
           "Meta Llama 3.3 70B on the free tier. Pro: solid instruction following. Con: shared free-tier limits.",
       },
     ],
+    local: [
+      {
+        value: "gemma4:e2b",
+        label: "Gemma 4 E2B · GGUF (default)",
+        description:
+          "Google Gemma 4 E2B quantized GGUF, served locally by Ollama. Pro: fully local, no key, cross-platform. Con: needs the model pulled first.",
+      },
+      {
+        value: "gemma4:e2b-mlx",
+        label: "Gemma 4 E2B · MLX (Apple Silicon)",
+        description:
+          "Gemma 4 E2B in MLX format for Apple Silicon (text-only). Pro: fast on M-series Macs. Con: Apple Silicon only.",
+      },
+    ],
   };
 
   function getConfig() {
@@ -89,7 +103,8 @@
       raw === "openai" ||
       raw === "webhook" ||
       raw === "anthropic" ||
-      raw === "openrouter"
+      raw === "openrouter" ||
+      raw === "local"
         ? raw
         : "gemini";
     /* Accept a generic *ApiKey as fallback for the resume-specific
@@ -113,6 +128,10 @@
         c.resumeOpenRouterModel || "openai/gpt-oss-120b:free",
       resumeOpenRouterBaseUrl:
         c.resumeOpenRouterBaseUrl || "https://openrouter.ai/api/v1",
+      resumeLocalBaseUrl:
+        c.resumeLocalBaseUrl || "http://127.0.0.1:11434/v1",
+      resumeLocalModel: c.resumeLocalModel || "gemma4:e2b",
+      resumeLocalApiKey: c.resumeLocalApiKey || "",
       resumeGenerationWebhookUrl: (c.resumeGenerationWebhookUrl || "").trim(),
     };
   }
@@ -401,6 +420,64 @@
     return extractInsights(text);
   }
 
+  /**
+   * Local OpenAI-compatible server (default: Ollama on 127.0.0.1:11434).
+   * Reuses the OpenAI chat-completions request shape parameterized by base URL,
+   * with max_tokens (not max_completion_tokens). Authorization is sent only when
+   * resumeLocalApiKey is set (Ollama ignores it). A connection failure surfaces
+   * actionable guidance to start the local server rather than a bare
+   * "Failed to fetch".
+   */
+  async function callLocal(bundle, apiKey, model, baseUrl) {
+    const base = String(baseUrl || "http://127.0.0.1:11434/v1").replace(
+      /\/+$/,
+      "",
+    );
+    const system = buildSystemPrompt(bundle);
+    const user = buildUserPayload(bundle);
+    const body = {
+      model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: 0.7,
+      max_tokens: 8000,
+    };
+    const headers = { "Content-Type": "application/json" };
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+    let resp;
+    try {
+      resp = await fetch(`${base}/chat/completions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      const m = e && e.message ? String(e.message) : "";
+      if (e && e.name === "TypeError" && /fail|fetch|network/i.test(m)) {
+        let serverHost = "127.0.0.1:11434";
+        try {
+          serverHost = new URL(base).host || serverHost;
+        } catch (_) {
+          /* keep default host hint */
+        }
+        throw new Error(
+          `Could not reach the local model server at ${base}. Start your local model server, e.g. Ollama on ${serverHost}, then try again.`,
+        );
+      }
+      throw e instanceof Error ? e : new Error(String(e));
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const msg = data.error?.message || `HTTP ${resp.status}`;
+      throw new Error(msg);
+    }
+    const text = data.choices?.[0]?.message?.content || "";
+    if (!text.trim()) throw new Error("Empty response from the local model server.");
+    return extractInsights(text);
+  }
+
   async function callAnthropic(bundle, apiKey, model) {
     const system = buildSystemPrompt(bundle);
     const user = buildUserPayload(bundle);
@@ -490,6 +567,9 @@
     if (g.provider === "openrouter") {
       return !!g.resumeOpenRouterApiKey;
     }
+    if (g.provider === "local") {
+      return !!(g.resumeLocalBaseUrl && g.resumeLocalModel);
+    }
     return !!g.resumeGeminiApiKey;
   }
 
@@ -540,6 +620,20 @@
         g.resumeOpenRouterApiKey,
         g.resumeOpenRouterModel,
         g.resumeOpenRouterBaseUrl,
+      );
+    }
+
+    if (g.provider === "local") {
+      if (!g.resumeLocalBaseUrl || !g.resumeLocalModel) {
+        throw new Error(
+          "Set resumeLocalBaseUrl and resumeLocalModel in config.js for the local provider (default Ollama: http://127.0.0.1:11434/v1, gemma4:e2b).",
+        );
+      }
+      return callLocal(
+        bundle,
+        g.resumeLocalApiKey,
+        g.resumeLocalModel,
+        g.resumeLocalBaseUrl,
       );
     }
 
