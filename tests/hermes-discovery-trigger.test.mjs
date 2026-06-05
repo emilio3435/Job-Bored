@@ -19,6 +19,19 @@ test("Hermes discovery trigger remains valid bash", () => {
   execFileSync("bash", ["-n", scriptPath], { stdio: "pipe" });
 });
 
+test("Hermes discovery trigger reloads webhook secret after worker restart", () => {
+  assert.match(
+    script,
+    /restart_worker_after_secret_mismatch[\s\S]*read_webhook_secret_from_env[\s\S]*post_webhook/,
+    "401 recovery must re-read .env before retrying the webhook",
+  );
+  assert.match(
+    script,
+    /grep -E '\^BROWSER_USE_DISCOVERY_WEBHOOK_SECRET=' "\$WORKER_ENV" \| tail -1/,
+    "webhook secret must match the worker env parser (last duplicate wins)",
+  );
+});
+
 test("Hermes discovery trigger self-heals stale webhook secrets once", () => {
   assert.match(
     script,

@@ -61,15 +61,18 @@ if [ -z "$SHEET_ID" ]; then
   exit 1
 fi
 
-# Read webhook secret from .env
-WEBHOOK_SECRET=""
-if [ -f "$WORKER_ENV" ]; then
-  WEBHOOK_SECRET=$(grep -E '^BROWSER_USE_DISCOVERY_WEBHOOK_SECRET=' "$WORKER_ENV" | head -1 | cut -d'=' -f2- | tr -d '"' || true)
-fi
-if [ -z "$WEBHOOK_SECRET" ]; then
-  echo "ERROR: No webhook secret found in $WORKER_ENV"
-  exit 1
-fi
+read_webhook_secret_from_env() {
+  WEBHOOK_SECRET=""
+  if [ -f "$WORKER_ENV" ]; then
+    WEBHOOK_SECRET=$(grep -E '^BROWSER_USE_DISCOVERY_WEBHOOK_SECRET=' "$WORKER_ENV" | tail -1 | cut -d'=' -f2- | tr -d '"' || true)
+  fi
+  if [ -z "$WEBHOOK_SECRET" ]; then
+    echo "ERROR: No webhook secret found in $WORKER_ENV"
+    exit 1
+  fi
+}
+
+read_webhook_secret_from_env
 
 # ─── Ensure worker is running ───────────────────────────────────────────
 wait_for_worker() {
@@ -220,6 +223,7 @@ post_webhook
 
 if [ "$HTTP_STATUS" = "401" ]; then
   restart_worker_after_secret_mismatch
+  read_webhook_secret_from_env
   : > "$RESPONSE_BODY"
   : > "$CURL_ERROR"
   post_webhook

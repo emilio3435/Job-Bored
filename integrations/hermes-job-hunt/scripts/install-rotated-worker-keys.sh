@@ -24,7 +24,15 @@ else
     KEY_DIR="$HOME/Downloads/$ROTATED_KEYS_DIR_NAME"
   fi
 fi
-JOBBORED_REPO="${JOBBORED_REPO:-$HOME/GitHub/emilio3435/Job-Bored}"
+if [ -z "${JOBBORED_REPO:-}" ]; then
+  if [ -d "$HOME/Job-Bored" ]; then
+    JOBBORED_REPO="$HOME/Job-Bored"
+  elif [ -d "$HOME/GitHub/emilio3435/Job-Bored" ]; then
+    JOBBORED_REPO="$HOME/GitHub/emilio3435/Job-Bored"
+  else
+    JOBBORED_REPO="$HOME/Job-Bored"
+  fi
+fi
 WORKER_DIR="${BROWSER_USE_DISCOVERY_WORKER_DIR:-$JOBBORED_REPO/integrations/browser-use-discovery}"
 ENV_FILE="${BROWSER_USE_DISCOVERY_WORKER_ENV:-$WORKER_DIR/.env}"
 ROTATED_ENV="$KEY_DIR/private/browser-use-discovery.env"

@@ -86,6 +86,66 @@ test("rotated worker key installer merges secrets without printing them", async 
   assert.equal(backups.length, 1);
 });
 
+test("rotated worker key installer resolves JOBBORED_REPO like discovery trigger", () => {
+  const script = readFileSync(scriptPath, "utf8");
+  assert.match(
+    script,
+    /if \[ -z "\$\{JOBBORED_REPO:-\}" \]; then[\s\S]*\$HOME\/Job-Bored[\s\S]*\$HOME\/GitHub\/emilio3435\/Job-Bored/,
+    "installer must target the same checkout discovery-trigger uses",
+  );
+});
+
+test("rotated worker key installer prefers ~/Job-Bored when both checkouts exist", async () => {
+  const root = mkdtempSync(join(tmpdir(), "jobbored-key-installer-dual-repo-"));
+  const homeDir = join(root, "home");
+  const preferredRepo = join(homeDir, "Job-Bored");
+  const secondaryRepo = join(homeDir, "GitHub", "emilio3435", "Job-Bored");
+  const keyDir = join(homeDir, "Downloads", "Jobbored-Rotated-Keys-2026-05-27");
+  const privateDir = join(keyDir, "private");
+
+  for (const repoDir of [preferredRepo, secondaryRepo]) {
+    const workerDir = join(repoDir, "integrations", "browser-use-discovery");
+    await mkdir(workerDir, { recursive: true });
+    writeFileSync(
+      join(workerDir, ".env"),
+      "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET=unchanged\n",
+    );
+  }
+
+  await mkdir(privateDir, { recursive: true });
+  writeFileSync(
+    join(privateDir, "browser-use-discovery.env"),
+    [
+      "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET=preferred-checkout-secret",
+      "BROWSER_USE_DISCOVERY_GEMINI_API_KEY=preferred-gemini",
+      "SERPAPI_API_KEY=preferred-serpapi",
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(join(privateDir, "service-account-key.json"), '{"preferred":true}\n');
+
+  execFileSync("bash", [scriptPath], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      HOME: homeDir,
+    },
+    stdio: "pipe",
+  });
+
+  const preferredEnv = await readFile(
+    join(preferredRepo, "integrations", "browser-use-discovery", ".env"),
+    "utf8",
+  );
+  const secondaryEnv = await readFile(
+    join(secondaryRepo, "integrations", "browser-use-discovery", ".env"),
+    "utf8",
+  );
+
+  assert.match(preferredEnv, /BROWSER_USE_DISCOVERY_WEBHOOK_SECRET=preferred-checkout-secret/);
+  assert.match(secondaryEnv, /BROWSER_USE_DISCOVERY_WEBHOOK_SECRET=unchanged/);
+});
+
 test("rotated worker key installer auto-detects HOME Downloads bundle", async () => {
   const root = mkdtempSync(join(tmpdir(), "jobbored-key-installer-home-"));
   const homeDir = join(root, "home");
