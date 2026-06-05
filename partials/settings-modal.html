@@ -469,11 +469,45 @@
                 id="settingsResumeProvider"
                 class="status-select settings-select"
               >
+                <option value="openrouter">OpenRouter (free)</option>
                 <option value="gemini">Google Gemini</option>
                 <option value="openai">OpenAI</option>
                 <option value="anthropic">Anthropic (Claude)</option>
                 <option value="webhook">My server (webhook)</option>
               </select>
+
+              <div
+                id="settingsPanelOpenRouter"
+                class="settings-provider-panel"
+                style="display: none"
+              >
+                <label class="field-label" for="settingsResumeOpenRouterApiKey"
+                  >OpenRouter API key</label
+                >
+                <input
+                  type="password"
+                  id="settingsResumeOpenRouterApiKey"
+                  class="modal-input"
+                  placeholder="Free key, e.g. sk-or-v1-…"
+                  autocomplete="off"
+                />
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Free models need no paid plan.
+                  <a
+                    href="https://openrouter.ai/keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >Get a free key</a
+                  >.
+                </p>
+                <label class="field-label" for="settingsResumeOpenRouterModel"
+                  >Model</label
+                >
+                <select
+                  id="settingsResumeOpenRouterModel"
+                  class="status-select settings-select settings-model-select"
+                ></select>
+              </div>
 
               <div id="settingsPanelGemini" class="settings-provider-panel">
                 <label class="field-label" for="settingsResumeGeminiApiKey"

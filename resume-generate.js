@@ -49,6 +49,32 @@
       { value: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet" },
       { value: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku" },
     ],
+    openrouter: [
+      {
+        value: "openai/gpt-oss-120b:free",
+        label: "GPT-OSS 120B · free",
+        description:
+          "OpenAI open-weight 120B on OpenRouter's free tier. Pro: strong general quality, no cost. Con: shared free-tier rate limits.",
+      },
+      {
+        value: "openai/gpt-oss-20b:free",
+        label: "GPT-OSS 20B · free",
+        description:
+          "Smaller OpenAI open-weight model. Pro: faster, lighter free option. Con: weaker on long, complex drafts.",
+      },
+      {
+        value: "deepseek/deepseek-chat-v3-0324:free",
+        label: "DeepSeek V3 · free",
+        description:
+          "DeepSeek V3 chat on the free tier. Pro: capable general writer. Con: availability can change.",
+      },
+      {
+        value: "meta-llama/llama-3.3-70b-instruct:free",
+        label: "Llama 3.3 70B Instruct · free",
+        description:
+          "Meta Llama 3.3 70B on the free tier. Pro: solid instruction following. Con: shared free-tier limits.",
+      },
+    ],
   };
 
   function getConfig() {
@@ -60,7 +86,10 @@
     const c = getConfig();
     const raw = (c.resumeProvider || "gemini").toLowerCase();
     const provider =
-      raw === "openai" || raw === "webhook" || raw === "anthropic"
+      raw === "openai" ||
+      raw === "webhook" ||
+      raw === "anthropic" ||
+      raw === "openrouter"
         ? raw
         : "gemini";
     /* Accept a generic *ApiKey as fallback for the resume-specific
@@ -76,9 +105,14 @@
         c.resumeOpenAIApiKey || c.openAIApiKey || c.openaiApiKey || "",
       resumeAnthropicApiKey:
         c.resumeAnthropicApiKey || c.anthropicApiKey || "",
+      resumeOpenRouterApiKey: c.resumeOpenRouterApiKey || "",
       resumeGeminiModel: c.resumeGeminiModel || "gemini-3.5-flash",
       resumeOpenAIModel: c.resumeOpenAIModel || "gpt-4o-mini",
       resumeAnthropicModel: c.resumeAnthropicModel || "claude-sonnet-4-6",
+      resumeOpenRouterModel:
+        c.resumeOpenRouterModel || "openai/gpt-oss-120b:free",
+      resumeOpenRouterBaseUrl:
+        c.resumeOpenRouterBaseUrl || "https://openrouter.ai/api/v1",
       resumeGenerationWebhookUrl: (c.resumeGenerationWebhookUrl || "").trim(),
     };
   }
@@ -251,7 +285,12 @@
     return false;
   }
 
-  async function callOpenAI(bundle, apiKey, model) {
+  async function callOpenAI(
+    bundle,
+    apiKey,
+    model,
+    baseUrl = "https://api.openai.com/v1",
+  ) {
     const system = buildSystemPrompt(bundle);
     const user = buildUserPayload(bundle);
     const limitKey = openAIUsesMaxCompletionTokens(model)
@@ -266,9 +305,10 @@
       temperature: 0.7,
       [limitKey]: 8192,
     };
+    const url = `${String(baseUrl).replace(/\/+$/, "")}/chat/completions`;
     let resp;
     try {
-      resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      resp = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -286,6 +326,78 @@
     }
     const text = data.choices?.[0]?.message?.content || "";
     if (!text.trim()) throw new Error("Empty response from OpenAI");
+    return extractInsights(text);
+  }
+
+  /**
+   * OpenRouter free-tier returns { error: { code, message } } with HTTP == code.
+   * Map the common statuses to distinct, actionable guidance. Retry-After is NOT
+   * readable cross-origin, so 429 carries a fixed ~60s backoff hint instead of
+   * reading any header.
+   */
+  function mapOpenRouterErrorMessage(status, data) {
+    const apiMsg =
+      data && data.error && data.error.message
+        ? String(data.error.message)
+        : "";
+    if (status === 401) {
+      return "Your OpenRouter API key is invalid. Paste a valid free key from https://openrouter.ai/keys.";
+    }
+    if (status === 402) {
+      return "Your OpenRouter balance is negative — free models are paused until you top up at https://openrouter.ai/credits.";
+    }
+    if (status === 429) {
+      return "OpenRouter free-tier rate limit reached (20 requests/min; 50/day under 10 credits, 1,000/day at 10+ credits). Wait about 60 seconds before retrying, or add credits at https://openrouter.ai/credits to raise the limit.";
+    }
+    if (status === 400) {
+      return "That free model ID isn't available anymore — pick another :free model in Settings.";
+    }
+    return apiMsg || `OpenRouter request failed (HTTP ${status}).`;
+  }
+
+  async function callOpenRouter(bundle, apiKey, model, baseUrl) {
+    const base = String(baseUrl || "https://openrouter.ai/api/v1").replace(
+      /\/+$/,
+      "",
+    );
+    const system = buildSystemPrompt(bundle);
+    const user = buildUserPayload(bundle);
+    const body = {
+      model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: 0.7,
+      max_tokens: 8000,
+    };
+
+    async function requestOnce() {
+      let resp;
+      try {
+        resp = await fetch(`${base}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(body),
+        });
+      } catch (e) {
+        throw wrapFetchFailure(e, "OpenRouter", false);
+      }
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(mapOpenRouterErrorMessage(resp.status, data));
+      }
+      return data.choices?.[0]?.message?.content || "";
+    }
+
+    let text = await requestOnce();
+    if (!text.trim()) {
+      text = await requestOnce();
+    }
+    if (!text.trim()) throw new Error("Empty response from OpenRouter");
     return extractInsights(text);
   }
 
@@ -375,6 +487,9 @@
     if (g.provider === "anthropic") {
       return !!g.resumeAnthropicApiKey;
     }
+    if (g.provider === "openrouter") {
+      return !!g.resumeOpenRouterApiKey;
+    }
     return !!g.resumeGeminiApiKey;
   }
 
@@ -411,6 +526,20 @@
         bundle,
         g.resumeAnthropicApiKey,
         g.resumeAnthropicModel,
+      );
+    }
+
+    if (g.provider === "openrouter") {
+      if (!g.resumeOpenRouterApiKey) {
+        throw new Error(
+          "Add a free OpenRouter key in Settings (get one at https://openrouter.ai/keys) or switch resumeProvider.",
+        );
+      }
+      return callOpenRouter(
+        bundle,
+        g.resumeOpenRouterApiKey,
+        g.resumeOpenRouterModel,
+        g.resumeOpenRouterBaseUrl,
       );
     }
 

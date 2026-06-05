@@ -54,7 +54,9 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
           ? "gemini"
           : selectId === "settingsResumeOpenAIModel"
             ? "openai"
-            : "anthropic"
+            : selectId === "settingsResumeOpenRouterModel"
+              ? "openrouter"
+              : "anthropic"
       ]);
   if (!sel || sel.tagName !== "SELECT" || !Array.isArray(opts)) return;
   const v =
@@ -93,7 +95,9 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
             ? "gemini"
             : selectId === "settingsResumeOpenAIModel"
               ? "openai"
-              : "anthropic"
+              : selectId === "settingsResumeOpenRouterModel"
+                ? "openrouter"
+                : "anthropic"
         ];
       updateModelSelectTooltip(sel, latestOptions || opts);
     });
@@ -190,6 +194,11 @@ function fillResumeModelSelectsFromConfig(cfg) {
     m.anthropic,
     cfg.resumeAnthropicModel,
   );
+  fillOneResumeModelSelect(
+    "settingsResumeOpenRouterModel",
+    m.openrouter,
+    cfg.resumeOpenRouterModel,
+  );
 }
 
 async function populateDiscoveryProfileIntoSettingsForm() {
@@ -235,7 +244,13 @@ function populateCommandCenterSettingsForm() {
   const prov = String(cfg.resumeProvider || "gemini").toLowerCase();
   const sel = document.getElementById("settingsResumeProvider");
   if (sel) {
-    const pv = ["gemini", "openai", "anthropic", "webhook"].includes(prov)
+    const pv = [
+      "gemini",
+      "openai",
+      "anthropic",
+      "webhook",
+      "openrouter",
+    ].includes(prov)
       ? prov
       : "gemini";
     sel.value = pv;
@@ -244,6 +259,7 @@ function populateCommandCenterSettingsForm() {
   set("settingsResumeGeminiApiKey", cfg.resumeGeminiApiKey);
   set("settingsResumeOpenAIApiKey", cfg.resumeOpenAIApiKey);
   set("settingsResumeAnthropicApiKey", cfg.resumeAnthropicApiKey);
+  set("settingsResumeOpenRouterApiKey", cfg.resumeOpenRouterApiKey);
   set("settingsResumeGenerationWebhookUrl", cfg.resumeGenerationWebhookUrl);
   const err = document.getElementById("settingsFormError");
   if (err) {
@@ -260,10 +276,12 @@ function updateSettingsProviderPanels() {
   const oai = document.getElementById("settingsPanelOpenAI");
   const ant = document.getElementById("settingsPanelAnthropic");
   const hook = document.getElementById("settingsPanelWebhook");
+  const orouter = document.getElementById("settingsPanelOpenRouter");
   if (gem) gem.style.display = v === "gemini" ? "block" : "none";
   if (oai) oai.style.display = v === "openai" ? "block" : "none";
   if (ant) ant.style.display = v === "anthropic" ? "block" : "none";
   if (hook) hook.style.display = v === "webhook" ? "block" : "none";
+  if (orouter) orouter.style.display = v === "openrouter" ? "block" : "none";
 }
 
 /** Default OAuth Web Client ID for phased Settings (before Google sign-in unlocks full settings). */
@@ -445,7 +463,9 @@ async function saveCommandCenterSettingsFromForm() {
   const provEl = document.getElementById("settingsResumeProvider");
   const provider =
     provEl &&
-    ["gemini", "openai", "anthropic", "webhook"].includes(provEl.value)
+    ["gemini", "openai", "anthropic", "webhook", "openrouter"].includes(
+      provEl.value,
+    )
       ? provEl.value
       : "gemini";
   const payload = {
@@ -469,6 +489,9 @@ async function saveCommandCenterSettingsFromForm() {
     resumeAnthropicApiKey: val("settingsResumeAnthropicApiKey"),
     resumeAnthropicModel:
       val("settingsResumeAnthropicModel") || "claude-sonnet-4-6",
+    resumeOpenRouterApiKey: val("settingsResumeOpenRouterApiKey"),
+    resumeOpenRouterModel:
+      val("settingsResumeOpenRouterModel") || "openai/gpt-oss-120b:free",
     resumeGenerationWebhookUrl: val("settingsResumeGenerationWebhookUrl"),
   };
 
