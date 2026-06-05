@@ -590,13 +590,48 @@
 
   // --- Step 1: Sheet ------------------------------------------------------
 
+  /**
+   * Stay in the wizard after a successful create and move forward from the
+   * Sheet step to the next incomplete step (sign-in/provider). Never hand off
+   * to the dashboard. Used as the create primitive's onCreated callback so the
+   * advance also fires on the post-sign-in resume.
+   */
+  function advanceFirstRunAfterSheetCreate() {
+    setFirstRunStep(Math.max(2, computeFirstRunStartStep()));
+  }
+
   function handleFirstRunCreateSheet() {
     const h = host();
-    if (typeof h.handleSetupCreateStarterSheet === "function") {
-      void Promise.resolve(h.handleSetupCreateStarterSheet()).finally(() => {
+    if (typeof h.handleSetupCreateStarterSheet !== "function") return;
+    const btn = getEl("firstRunCreateSheetBtn");
+    const originalLabel = btn ? btn.textContent : "";
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Creating…";
+    }
+    const restore = () => {
+      if (!btn) return;
+      btn.disabled = false;
+      btn.textContent = originalLabel || "Create a new Sheet";
+    };
+    // Pass a wizard context so the create primitive skips the dashboard
+    // handoff (revealDashboardShell/loadAllData/discovery) and instead advances
+    // the wizard via onCreated.
+    void Promise.resolve(
+      h.handleSetupCreateStarterSheet({
+        context: "wizard",
+        onCreated: () => {
+          advanceFirstRunAfterSheetCreate();
+        },
+      }),
+    )
+      .catch((err) => {
+        console.warn("[JobBored] first-run create sheet:", err);
+      })
+      .finally(() => {
+        restore();
         refreshFirstRunWizard();
       });
-    }
   }
 
   function handleFirstRunPasteSheet() {

@@ -67,6 +67,12 @@
   /** Last raw error string the sheet/auth pipeline saw — fed into SetupDoctor. */
   let lastSheetAccessError = "";
 
+  // Remembers the create context (wizard vs. onboarding) across a sign-in
+  // resume: the auth layer re-invokes handleSetupCreateStarterSheet() with no
+  // args after sign-in, so a wizard-initiated create has no other way to know
+  // it must stay in the wizard rather than hand off to the dashboard.
+  let pendingStarterSheetCreateOptions = null;
+
   /** Rotating hero tips on the login gate (left panel). */
   const LOGIN_GATE_TIPS = [
     {
@@ -695,8 +701,19 @@
     }
   }
 
-  async function handleSetupCreateStarterSheet() {
+  async function handleSetupCreateStarterSheet(options) {
+    // The post-sign-in resume re-invokes this with no args; recover the
+    // context captured before sign-in so a wizard-initiated create resumes in
+    // the wizard. A non-wizard call always passes an explicit options object.
+    const opts =
+      options && typeof options === "object"
+        ? options
+        : pendingStarterSheetCreateOptions || {};
+    const skipDashboardHandoff =
+      opts.context === "wizard" || opts.skipDashboardHandoff === true;
+
     if (!host().getOAuthClientId()) {
+      pendingStarterSheetCreateOptions = null;
       host().showToast(
         "Save a Google OAuth client in Settings first, then come back and create the sheet.",
         "error",
@@ -706,6 +723,7 @@
       return;
     }
     if (!core().getGisLoaded() || !core().getTokenClient()) {
+      pendingStarterSheetCreateOptions = null;
       host().showToast(
         "Google sign-in is not ready yet. Save the OAuth client, reload, then try again.",
         "error",
@@ -717,6 +735,9 @@
       !host().getAccessToken() ||
       !host().hasGrantedOauthScope(host().getGoogleSheetsScope())
     ) {
+      // Sheet step precedes the explicit sign-in step in the wizard: remember
+      // the context so the resumed create stays in the wizard.
+      pendingStarterSheetCreateOptions = opts;
       core().setPendingSetupStarterSheetCreate(true);
       host().signIn({
         prompt: host().getAccessToken() ? "consent" : "",
@@ -724,6 +745,9 @@
       return;
     }
 
+    // Committed to creating now: keep the context so a silent re-auth inside
+    // createBlankStarterSheet also resumes with the right handoff behavior.
+    pendingStarterSheetCreateOptions = opts;
     const btn = document.getElementById("setupCreateStarterSheetBtn");
     if (btn) {
       btn.disabled = true;
@@ -733,10 +757,26 @@
     renderSetupStarterSheetUi();
     if (!created) return;
 
+    pendingStarterSheetCreateOptions = null;
     host().mergeStoredConfigOverridePatch({ sheetId: created.spreadsheetId });
     core().setSHEET_ID(created.spreadsheetId);
     host().setInitialSheetAccessResolved(true);
     setDashboardSheetLinks();
+
+    if (skipDashboardHandoff) {
+      // Wizard create: connect the Sheet but stay in the wizard. The caller's
+      // onCreated callback advances the wizard step; it runs on the direct
+      // path and on the post-sign-in resume (GIS never reloads the page).
+      if (typeof opts.onCreated === "function") {
+        try {
+          opts.onCreated(created);
+        } catch (err) {
+          console.warn("[JobBored] wizard starter sheet onCreated:", err);
+        }
+      }
+      return;
+    }
+
     revealDashboardShell();
     const hadDiscoveryDeepLink =
       new URLSearchParams(window.location.search).get("setup") === "discovery";
@@ -760,7 +800,7 @@
     document
       .getElementById("setupCreateStarterSheetBtn")
       ?.addEventListener("click", () => {
-        void handleSetupCreateStarterSheet();
+        void handleSetupCreateStarterSheet({ context: "onboarding" });
       });
     document
       .getElementById("sheetAccessGateSignInBtn")
