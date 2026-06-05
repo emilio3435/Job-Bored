@@ -298,6 +298,30 @@ function updateSettingsProviderPanels() {
   if (local) local.style.display = v === "local" ? "block" : "none";
 }
 
+/**
+ * Mount the reusable Download-model control into the local provider panel.
+ * Reads the base URL + selected model lazily so the live form values are used.
+ * Idempotent — the control no-ops if already bound.
+ */
+function mountLocalDownloadModelControl() {
+  const MD = window.CommandCenterModelDownload;
+  const container = document.getElementById("settingsLocalDownloadControl");
+  if (!MD || !container || typeof MD.mountDownloadModelControl !== "function") {
+    return;
+  }
+  MD.mountDownloadModelControl({
+    container,
+    getBaseUrl: () => {
+      const el = document.getElementById("settingsResumeLocalBaseUrl");
+      return (el && el.value.trim()) || "http://127.0.0.1:11434/v1";
+    },
+    getModel: () => {
+      const el = document.getElementById("settingsResumeLocalModel");
+      return (el && el.value.trim()) || "gemma4:e2b";
+    },
+  });
+}
+
 /** Default OAuth Web Client ID for phased Settings (before Google sign-in unlocks full settings). */
 const DEFAULT_OAUTH_CLIENT_ID_FOR_PHASED_SETTINGS =
   "555157387171-o05ofv6ihjh3brknkvsm2hr7nup7e88a.apps.googleusercontent.com";
@@ -713,6 +737,7 @@ function initCommandCenterSettings() {
     ?.addEventListener("change", () => {
       updateSettingsProviderPanels();
     });
+  mountLocalDownloadModelControl();
   document.getElementById("settingsSaveBtn")?.addEventListener("click", () => {
     void saveCommandCenterSettingsFromForm();
   });

@@ -778,7 +778,23 @@ async function generateDiscoverySuggestions(scrapedJob) {
     throw new Error("Resume generation module not loaded.");
   }
   const g = RG.getResumeGenerationConfig();
-  const provider = g.provider || "gemini";
+  let provider = g.provider || "gemini";
+
+  // AI discovery suggestions only have transports for the BYO chat providers
+  // (gemini/openai/anthropic). The local/OpenRouter resume providers have no
+  // transport in this switch, so degrade gracefully instead of throwing an
+  // opaque error: reuse whichever BYO key is configured, else surface a clear,
+  // actionable message naming the keys this feature needs.
+  if (provider !== "gemini" && provider !== "openai" && provider !== "anthropic") {
+    if (g.resumeGeminiApiKey) provider = "gemini";
+    else if (g.resumeOpenAIApiKey) provider = "openai";
+    else if (g.resumeAnthropicApiKey) provider = "anthropic";
+    else {
+      throw new Error(
+        "AI discovery suggestions need a Gemini, OpenAI, or Anthropic key. Add one in Settings — the local and OpenRouter resume providers don't support this feature.",
+      );
+    }
+  }
 
   const UC = h("getUserContent", );
   if (!UC) throw new Error("User content store not available.");
