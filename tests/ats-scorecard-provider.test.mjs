@@ -114,6 +114,29 @@ function buildValidScorecard() {
 }
 
 describe("analyzeAtsScorecard provider parsing", () => {
+  it("prefers the full scorecard when provider prose includes an earlier JSON stub", async () => {
+    const restoreEnv = setTestProviderEnv();
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    const decoy = { schemaVersion: 1, overallScore: 1 };
+    globalThis.fetch = async () => {
+      calls += 1;
+      return buildGeminiSuccessResponse(
+        `Example stub: ${JSON.stringify(decoy)} Full scorecard: ${JSON.stringify(buildValidScorecard())}`,
+      );
+    };
+
+    try {
+      const scorecard = await analyzeAtsScorecard(buildPayload());
+      assert.equal(calls, 1);
+      assert.equal(scorecard.overallScore, 78);
+      assert.deepEqual(scorecard.topStrengths, ["Strong React fit"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      restoreEnv();
+    }
+  });
+
   it("recovers a valid scorecard from JSON wrapped in provider prose on the first attempt", async () => {
     const restoreEnv = setTestProviderEnv();
     const originalFetch = globalThis.fetch;

@@ -95,10 +95,41 @@ function clipText(text, max) {
   return s.length > max ? `${s.slice(0, max)}\n… [truncated]` : s;
 }
 
-// Scan for the first balanced {…} / […] embedded in surrounding text and parse
-// it. Lets a valid scorecard be recovered when the provider wraps its JSON in
-// conversational prose (no code fence). Returns undefined if nothing parses.
+function scorecardParsePriority(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
+  let score = 0;
+  if (typeof value.schemaVersion === "number") score += 2;
+  if (typeof value.overallScore === "number") score += 4;
+  if (value.dimensionScores && typeof value.dimensionScores === "object") score += 4;
+  if (Array.isArray(value.topStrengths)) score += 1;
+  if (Array.isArray(value.criticalGaps)) score += 1;
+  if (Array.isArray(value.evidence)) score += 1;
+  if (Array.isArray(value.rewriteSuggestions)) score += 1;
+  return score;
+}
+
+function pickBestEmbeddedJsonCandidate(candidates) {
+  if (!candidates.length) return undefined;
+  let best = candidates[0];
+  let bestScore = scorecardParsePriority(best);
+  for (let i = 1; i < candidates.length; i += 1) {
+    const candidate = candidates[i];
+    const score = scorecardParsePriority(candidate);
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+// Scan for balanced {…} / […] values embedded in surrounding text and parse
+// them. Lets a valid scorecard be recovered when the provider wraps its JSON in
+// conversational prose (no code fence). When multiple JSON values appear in the
+// prose (e.g. an example stub before the real scorecard), prefer the value that
+// best matches the ATS scorecard shape. Returns undefined if nothing parses.
 function tryParseEmbeddedJson(raw) {
+  const candidates = [];
   for (let start = 0; start < raw.length; start += 1) {
     const opener = raw[start];
     if (opener !== "{" && opener !== "[") continue;
@@ -133,13 +164,14 @@ function tryParseEmbeddedJson(raw) {
       if (stack.length) continue;
       const candidate = raw.slice(start, i + 1).trim();
       try {
-        return JSON.parse(candidate);
+        candidates.push(JSON.parse(candidate));
       } catch {
         break;
       }
+      break;
     }
   }
-  return undefined;
+  return pickBestEmbeddedJsonCandidate(candidates);
 }
 
 function parseJsonSafe(text) {
