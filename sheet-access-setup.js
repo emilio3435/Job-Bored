@@ -18,6 +18,23 @@
     return window.JobBoredApp.core;
   }
 
+  // Synchronous chokepoint signal: true while the first-run infra wizard owns
+  // the surface (infra setup incomplete). Read directly off the sibling module
+  // so every dashboard-reveal entry point can defer without a host round-trip.
+  function firstRunWizardOwnsSurface() {
+    try {
+      const wizard =
+        window.JobBoredApp && window.JobBoredApp.firstRunWizard;
+      return !!(
+        wizard &&
+        typeof wizard.isFirstRunWizardActive === "function" &&
+        wizard.isFirstRunWizardActive()
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
   function startupLog(label, detail, level = "info") {
     const logger = window.JobBoredStartupLog;
     if (logger && typeof logger.mark === "function") {
@@ -518,6 +535,17 @@
   }
 
   function revealDashboardShell() {
+    // Authoritative gate: while the first-run wizard owns the surface (infra
+    // setup incomplete), NO reveal entry point (this fn, sign-in-success,
+    // restoreOAuthSession, sheets-read-load) may surface the dashboard or tear
+    // the wizard down. The wizard's finish path reveals it once it relinquishes.
+    if (firstRunWizardOwnsSurface()) {
+      startupLog("sheet-access:reveal-dashboard-deferred", {
+        reason: "first-run-wizard-active",
+        access: accessStateForLog(),
+      });
+      return;
+    }
     releaseAuthPrepaintGuard("reveal-dashboard");
     const setupScreen = document.getElementById("setupScreen");
     const screen = document.getElementById("sheetAccessGateScreen");

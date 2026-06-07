@@ -136,6 +136,19 @@
     return !!(w && w.style.display === "flex");
   }
 
+  /**
+   * Synchronous "the first-run wizard owns the surface" signal for the
+   * dashboard-reveal chokepoint in sheet-access-setup.js. While this is true,
+   * no dashboard-reveal entry point (revealDashboardShell, sign-in-success,
+   * restoreOAuthSession, sheets-read-load) may reveal the dashboard or tear the
+   * wizard down underneath the user. It is visibility-based so that finishing
+   * or dismissing the wizard immediately releases the surface (no async
+   * IndexedDB read, no risk of a permanent dashboard lock-out — VAL-WIZ-011).
+   */
+  function isFirstRunWizardActive() {
+    return isFirstRunWizardVisible();
+  }
+
   function startRefreshLoop() {
     if (refreshTimer || typeof setInterval !== "function") return;
     refreshTimer = setInterval(() => {
@@ -569,6 +582,17 @@
       console.warn("[JobBored] complete infra setup:", e);
     }
     hideFirstRunWizard();
+    // The dashboard-reveal chokepoint suppresses reveals while the wizard owns
+    // the surface; now that the wizard is closed, reveal the dashboard shell so
+    // the connected Pipeline is shown (the auth/load reveal paths were no-ops
+    // while the wizard was up).
+    if (typeof h.revealDashboardShell === "function") {
+      try {
+        h.revealDashboardShell();
+      } catch (_) {
+        /* dashboard reveal is best-effort */
+      }
+    }
     if (typeof h.renderPipeline === "function") {
       try {
         h.renderPipeline();
@@ -823,6 +847,7 @@
     FIRST_RUN_STEPS,
     FIRST_RUN_TOTAL_STEPS,
     isFirstRunWizardVisible,
+    isFirstRunWizardActive,
     showFirstRunWizard,
     reopenFirstRunWizard,
     hideFirstRunWizard,
