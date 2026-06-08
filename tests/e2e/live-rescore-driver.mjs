@@ -3,13 +3,13 @@
  *
  * Drives a LIVE rescore against the user's actual Pipeline sheet.
  * - Writes a sample profile to a temp file (does NOT touch ~/.jobbored)
- * - Spawns server with real Gemini API key
+ * - Spawns server with the configured profile-rescore provider
  * - Hits /profile/rescore?dryRun=true to surface the row count
  * - Optionally hits the live SSE rescore (gated by RUN_LIVE=true)
  *
  * Usage:
- *   GEMINI_API_KEY=... node tests/e2e/live-rescore-driver.mjs
- *   GEMINI_API_KEY=... RUN_LIVE=true node tests/e2e/live-rescore-driver.mjs
+ *   PROFILE_RESCORE_PROVIDER=openrouter OPENROUTER_API_KEY=... node tests/e2e/live-rescore-driver.mjs
+ *   PROFILE_RESCORE_PROVIDER=openrouter OPENROUTER_API_KEY=... RUN_LIVE=true node tests/e2e/live-rescore-driver.mjs
  */
 
 import { spawn } from "node:child_process";
@@ -17,19 +17,27 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import {
+  getProfileRescoreProviderConfigFromEnv,
+  getProfileRescoreProviderStatus,
+} from "../../server/profile-rescore-worker.mjs";
 
 const PORT = 38600 + Math.floor(Math.random() * 100);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const RUN_LIVE = String(process.env.RUN_LIVE || "").toLowerCase() === "true";
+const RUN_DRIVER = String(process.env.RUN_PROFILE_RESCORE_DRIVER || "").toLowerCase() === "true";
 
-const GEMINI_KEY = (
-  process.env.ATS_GEMINI_API_KEY ||
-  process.env.GEMINI_API_KEY ||
-  ""
-).trim();
+if (process.env.npm_lifecycle_event === "test" && !RUN_DRIVER && !RUN_LIVE) {
+  console.log(
+    "[skip] live-rescore-driver is credentialed/manual; set RUN_PROFILE_RESCORE_DRIVER=true to execute it under npm test.",
+  );
+  process.exit(0);
+}
 
-if (!GEMINI_KEY) {
-  console.error("[fatal] Set GEMINI_API_KEY (or ATS_GEMINI_API_KEY) before running.");
+const providerConfig = getProfileRescoreProviderConfigFromEnv();
+const providerStatus = getProfileRescoreProviderStatus(providerConfig);
+if (RUN_LIVE && !providerStatus.configured) {
+  console.error(`[fatal] ${providerStatus.detail}`);
   process.exit(2);
 }
 
@@ -80,8 +88,6 @@ const server = spawn("node", ["index.mjs"], {
     PORT: String(PORT),
     LISTEN_HOST: "127.0.0.1",
     JOBBORED_PROFILE_PATH: profilePath,
-    GEMINI_API_KEY: GEMINI_KEY,
-    ATS_GEMINI_API_KEY: GEMINI_KEY,
   },
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -148,7 +154,7 @@ async function liveRescore() {
         const evt = JSON.parse(json);
         events += 1;
         if (evt.kind === "progress") {
-          if (evt.status === "scored") scored += 1;
+          if (evt.status === "rescored" || evt.status === "scored") scored += 1;
           else if (evt.status === "skipped") skipped += 1;
           else if (evt.status === "failed") failed += 1;
           if (events <= 5 || events % 25 === 0) {
