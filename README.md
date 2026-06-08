@@ -246,6 +246,29 @@ npm run dev
 python3 -m http.server 8080
 ```
 
+### Going live — two independent axes
+
+There are two separate "going live" decisions, and only one of them ever needs
+[Tailscale](https://tailscale.com), [ngrok](https://ngrok.com), or
+[Cloudflare](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/):
+
+- **(A) Host the dashboard** (axis A) — pick any static host from the list
+  above (GitHub Pages, Vercel, Netlify, Cloudflare Pages, or just open
+  `index.html` locally). This is just static files; no transport setup is
+  needed. **Single-machine users can stop here** — `npm run web-only` on the
+  same machine as the worker is fully functional with no extra steps.
+- **(B) Expose the discovery worker beyond `localhost`** (axis B) — only
+  relevant if you want the **Run discovery** button to work from a *different*
+  device than the one running the worker, or you deployed the dashboard to
+  GitHub Pages but the worker is still on your laptop. This is the
+  [Tailscale](https://tailscale.com) (recommended), ngrok, or Cloudflare path.
+  **The default single-machine flow does not need any of this.**
+
+The transport guide for axis B lives in
+**[docs/SELF-HOSTING.md](docs/SELF-HOSTING.md)** (canonical — the only place
+that documents the transport options in full). For a short "am I going live
+or staying local?" checklist, see **[QUICKSTART.md](QUICKSTART.md)**.
+
 ## Sheet Structure
 
 The dashboard reads the **Pipeline** tab (and ignores other tabs).

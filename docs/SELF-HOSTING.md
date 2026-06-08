@@ -1,5 +1,13 @@
 # Self-hosting JobBored
 
+> **Scope: this guide is the canonical transport reference for the
+> *discovery worker* (axis B).** It is *not* about hosting the dashboard —
+> for that, see the **Deploy** section in
+> **[README.md](../README.md#4-deploy)** (GitHub Pages / Vercel / Netlify /
+> Cloudflare Pages / open `index.html` locally). The dashboard is static
+> files; the only "going live" piece that ever needs a transport is the
+> worker, and that's what this document covers.
+
 JobBored runs entirely on your own machine. The dashboard (`http://localhost:8080`),
 the local server (`http://127.0.0.1:3847`), and the discovery worker
 (`http://127.0.0.1:8644`) all start with `npm run dev`.
@@ -12,8 +20,10 @@ can't be reached at `127.0.0.1:8644`, for example:
 - You deploy the dashboard to GitHub Pages (HTTPS) but run the worker on your laptop.
 - You want to trigger discovery from your phone or another device.
 
-If you only ever use JobBored on one machine, you can skip all of this — the
-default localhost setup already works.
+If you only ever use JobBored on one machine, **you can skip this entire
+document** — the default localhost setup already works, and you do not need
+Tailscale, ngrok, or Cloudflare. A short "am I going live or staying local?"
+checklist lives in **[QUICKSTART.md](../QUICKSTART.md)**.
 
 This guide covers the transport options from **simplest** to **most flexible**.
 

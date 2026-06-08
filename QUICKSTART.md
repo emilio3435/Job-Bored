@@ -33,9 +33,16 @@ Open `http://localhost:8080` and let the **first-run wizard** guide you:
 
 Move a card between stages by dragging it or using the stage control on the card. Every change writes straight back to your Sheet — the Sheet stays the source of truth.
 
+For the full product overview, hosting options, and the rest of the
+walkthrough, see **[README.md](README.md)**.
+
 ### Want job discovery to fill the Sheet for you?
 
 Discovery is optional and **you own the runner** — there is no maintainer-hosted service. Start with the in-app **Discovery drawer → Connection** and pick a path (Apps Script, GitHub Actions, local worker, or another endpoint). Full walkthrough: [SETUP.md](SETUP.md) and [docs/DISCOVERY-PATHS.md](docs/DISCOVERY-PATHS.md).
+
+**Single-machine use?** You don't need any of this — `npm run web-only` plus the local worker on the same laptop is fully functional with no extra setup.
+
+**Multi-device or hosted discovery (e.g. dashboard on GitHub Pages, worker on a laptop)?** That's when you need a transport (Tailscale is the recommended option): see [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md). The dashboard itself is just static files; the transport is only for the discovery worker.
 
 ---
 
