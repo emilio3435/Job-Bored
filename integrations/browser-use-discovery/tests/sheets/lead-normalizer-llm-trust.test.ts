@@ -6,6 +6,7 @@ import {
   DISCOVERY_WEBHOOK_SCHEMA_VERSION,
 } from "../../src/contracts.ts";
 import { normalizeLead } from "../../src/normalize/lead-normalizer.ts";
+import { scoreListingWithLlm } from "../../src/normalize/profile-aware-scorer.ts";
 import type { LlmFitScoreResult } from "../../src/contracts/user-profile.ts";
 
 function makeCannedCache(canned: LlmFitScoreResult) {
@@ -118,3 +119,145 @@ test(
     assert.equal(lead?.fitScore, 9, "LLM's 9 must round-trip exactly.");
   },
 );
+
+test("scoreListingWithLlm uses OpenRouter chat completions without Gemini", async () => {
+  let requestUrl = "";
+  let requestHeaders: Record<string, string> = {};
+  let requestBody: Record<string, unknown> = {};
+  const fetchImpl: typeof globalThis.fetch = async (input, init) => {
+    requestUrl = String(input || "");
+    requestHeaders = init?.headers as Record<string, string>;
+    requestBody = JSON.parse(String(init?.body || "{}")) as Record<string, unknown>;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                fitScore: 8,
+                band: "Strong",
+                perStrength: [
+                  {
+                    name: "backend systems",
+                    score: 8,
+                    rationale: "Strong backend platform fit.",
+                  },
+                ],
+                concerns: ["Some domain uncertainty."],
+                matches: ["Remote role", "TypeScript systems"],
+                rationale: "Strong but not perfect.",
+                leadAngle: "Lead with platform automation experience.",
+              }),
+            },
+          },
+        ],
+      }),
+      text: async () => "",
+    } as Response;
+  };
+  const run = makeRunWithProfile({
+    fitScore: 8,
+    band: "Strong",
+    perStrength: [],
+    concerns: [],
+    matches: [],
+    rationale: "",
+  });
+
+  const result = await scoreListingWithLlm(
+    HIGH_KEYWORD_LISTING,
+    run.config.userProfile,
+    {
+      runtimeConfig: {
+        geminiApiKey: "",
+        geminiModel: "",
+        llmProvider: "openrouter",
+        openRouterApiKey: "or-test-key",
+        openRouterModel: "openai/gpt-4.1-mini",
+      },
+      fetchImpl,
+    },
+  );
+
+  assert.equal(requestUrl, "https://openrouter.ai/api/v1/chat/completions");
+  assert.equal(requestHeaders.authorization, "Bearer or-test-key");
+  assert.equal(requestHeaders["x-goog-api-key"], undefined);
+  assert.equal(requestBody.model, "openai/gpt-4.1-mini");
+  assert.equal(requestBody.temperature, 0.2);
+  assert.equal(requestBody.max_tokens, 2048);
+  assert.ok(Array.isArray(requestBody.messages));
+  assert.equal(result.fitScore, 8);
+  assert.equal(result.band, "Strong");
+  assert.equal(result.leadAngle, "Lead with platform automation experience.");
+});
+
+test("scoreListingWithLlm supports local OpenAI-compatible base URL without auth", async () => {
+  let requestUrl = "";
+  let requestHeaders: Record<string, string> = {};
+  let requestBody: Record<string, unknown> = {};
+  const fetchImpl: typeof globalThis.fetch = async (input, init) => {
+    requestUrl = String(input || "");
+    requestHeaders = init?.headers as Record<string, string>;
+    requestBody = JSON.parse(String(init?.body || "{}")) as Record<string, unknown>;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                fitScore: 7,
+                band: "Interesting",
+                perStrength: [
+                  {
+                    name: "backend systems",
+                    score: 7,
+                    rationale: "Useful platform overlap.",
+                  },
+                ],
+                concerns: [],
+                matches: ["Local model scored the role."],
+                rationale: "Interesting fit.",
+              }),
+            },
+          },
+        ],
+      }),
+      text: async () => "",
+    } as Response;
+  };
+  const run = makeRunWithProfile({
+    fitScore: 7,
+    band: "Interesting",
+    perStrength: [],
+    concerns: [],
+    matches: [],
+    rationale: "",
+  });
+
+  const result = await scoreListingWithLlm(
+    HIGH_KEYWORD_LISTING,
+    run.config.userProfile,
+    {
+      runtimeConfig: {
+        geminiApiKey: "",
+        geminiModel: "",
+        llmProvider: "local",
+        llmBaseUrl: "http://127.0.0.1:1234/v1",
+        llmModel: "local-json-model",
+      },
+      fetchImpl,
+    },
+  );
+
+  assert.equal(requestUrl, "http://127.0.0.1:1234/v1/chat/completions");
+  assert.equal(requestHeaders.authorization, undefined);
+  assert.equal(requestHeaders["x-goog-api-key"], undefined);
+  assert.equal(requestBody.model, "local-json-model");
+  assert.equal(requestBody.max_tokens, 2048);
+  assert.equal(result.fitScore, 7);
+  assert.equal(result.band, "Interesting");
+});

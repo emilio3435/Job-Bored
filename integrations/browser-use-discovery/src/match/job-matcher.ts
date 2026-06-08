@@ -1,5 +1,9 @@
 import type { WorkerRuntimeConfig } from "../config.ts";
 import type { DiscoveryRun, RawListing } from "../contracts.ts";
+import {
+  callWorkerChatProvider,
+  resolveWorkerChatProvider,
+} from "../ai/chat-provider.ts";
 import { toPlainText } from "../browser/selectors/shared.ts";
 
 type AnyRecord = Record<string, unknown>;
@@ -284,66 +288,43 @@ export function shouldUseAiMatcher(
   return false;
 }
 
-export function createGeminiMatchClient(
+export function createWorkerChatMatchClient(
   runtimeConfig: WorkerRuntimeConfig,
   dependencies: { fetchImpl?: FetchImpl } = {},
 ): DiscoveryMatchClient {
   const fetchImpl = dependencies.fetchImpl || globalThis.fetch;
   return {
     async evaluate({ rawListing, run, baseline }) {
-      const apiKey = String(runtimeConfig.geminiApiKey || "").trim();
-      if (!apiKey) return baseline;
+      const provider = resolveWorkerChatProvider(runtimeConfig);
+      if (!provider) return baseline;
 
       try {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || "gemini-3.5-flash")}:generateContent`;
-        const response = await fetchImpl(endpoint, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-goog-api-key": apiKey,
-          },
-          body: JSON.stringify({
-            systemInstruction: {
-              parts: [
-                {
-                  text: [
-                    "You score job-posting relevance for a job discovery pipeline.",
-                    "Be conservative and high precision.",
-                    "Return strict JSON only.",
-                    'Use this shape: {"decision":"accept|reject|uncertain","overallScore":0.0,"confidence":0.0,"hardRejectReason":"","reasons":["..."],"componentScores":{"role":0.0,"location":0.0,"remote":0.0,"seniority":0.0,"negative":0.0}}.',
-                    "Reject obvious mismatches and explicit excluded roles.",
-                    "Do not reject solely because a keyword appears in generic boilerplate unless the title itself conflicts.",
-                  ].join(" "),
-                },
-              ],
+        const result = await callWorkerChatProvider({
+          provider,
+          fetchImpl,
+          temperature: 0.1,
+          maxTokens: 1024,
+          messages: [
+            {
+              role: "system",
+              content: [
+                "You score job-posting relevance for a job discovery pipeline.",
+                "Be conservative and high precision.",
+                "Return strict JSON only.",
+                'Use this shape: {"decision":"accept|reject|uncertain","overallScore":0.0,"confidence":0.0,"hardRejectReason":"","reasons":["..."],"componentScores":{"role":0.0,"location":0.0,"remote":0.0,"seniority":0.0,"negative":0.0}}.',
+                "Reject obvious mismatches and explicit excluded roles.",
+                "Do not reject solely because a keyword appears in generic boilerplate unless the title itself conflicts.",
+              ].join(" "),
             },
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    text: buildAiMatchPrompt(rawListing, run, baseline),
-                  },
-                ],
-              },
-            ],
-            generationConfig: {
-              temperature: 0.1,
-              maxOutputTokens: 1024,
+            {
+              role: "user",
+              content: buildAiMatchPrompt(rawListing, run, baseline),
             },
-          }),
+          ],
         });
 
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          return annotateFallbackDecision(
-            baseline,
-            `AI matcher HTTP ${response.status}: ${objectString(payload, "error", "message") || "request failed"}.`,
-          );
-        }
-
-        const parsed = parseLooseJson(extractModelText(payload));
-        const normalized = normalizeAiDecision(parsed, baseline, runtimeConfig.geminiModel);
+        const parsed = parseLooseJson(result.text);
+        const normalized = normalizeAiDecision(parsed, baseline, provider.model);
         return normalized || annotateFallbackDecision(baseline, "AI matcher returned invalid JSON.");
       } catch (error) {
         return annotateFallbackDecision(
@@ -353,6 +334,13 @@ export function createGeminiMatchClient(
       }
     },
   };
+}
+
+export function createGeminiMatchClient(
+  runtimeConfig: WorkerRuntimeConfig,
+  dependencies: { fetchImpl?: FetchImpl } = {},
+): DiscoveryMatchClient {
+  return createWorkerChatMatchClient(runtimeConfig, dependencies);
 }
 
 function buildTargetProfile(run: DiscoveryRun): TargetProfile {
@@ -832,30 +820,6 @@ function extractJsonArray(input: string): string {
   const start = input.indexOf("[");
   const end = input.lastIndexOf("]");
   return start !== -1 && end > start ? input.slice(start, end + 1) : "";
-}
-
-function extractModelText(payload: unknown): string {
-  if (!isPlainRecord(payload) || !Array.isArray(payload.candidates)) return "";
-  const candidate = payload.candidates.find((entry) => isPlainRecord(entry));
-  if (!isPlainRecord(candidate) || !isPlainRecord(candidate.content)) return "";
-  const parts = Array.isArray(candidate.content.parts) ? candidate.content.parts : [];
-  return parts
-    .map((entry) => (isPlainRecord(entry) ? cleanText(entry.text) : ""))
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-}
-
-function objectString(
-  input: unknown,
-  ...path: string[]
-): string {
-  let cursor = input;
-  for (const key of path) {
-    if (!isPlainRecord(cursor)) return "";
-    cursor = cursor[key];
-  }
-  return cleanText(cursor);
 }
 
 function readNumber(input: unknown, fallback = 0): number {

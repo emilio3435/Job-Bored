@@ -1,8 +1,8 @@
 /**
  * Feature B / Layer 5 — profile-driven company discovery.
  *
- * Two Gemini calls. Both use responseSchema without tools so Gemini 2.5 Flash
- * enforces the structure strictly.
+ * Profile extraction uses the configured chat JSON provider. Company discovery
+ * remains a Gemini Google Search tool lane.
  *
  *  1. `extractCandidateProfile` — takes raw resume text and/or a form payload,
  *     returns a normalized {@link CandidateProfile}.
@@ -21,6 +21,11 @@ import type {
   ProfileFormInput,
 } from "../contracts.ts";
 import type { WorkerRuntimeConfig } from "../config.ts";
+import {
+  callWorkerChatProvider,
+  resolveWorkerChatProvider,
+  type WorkerChatProviderConfig,
+} from "../ai/chat-provider.ts";
 import { collectSerpApiGoogleJobsListings } from "../sources/serpapi-google-jobs.ts";
 
 type FetchImpl = typeof globalThis.fetch;
@@ -155,14 +160,7 @@ const ATS_HOST_HINTS = [
   "personio.de",
 ];
 
-type CompanyJudgeProviderName = "gemini" | "openai" | "anthropic";
-
-type CompanyJudgeProviderConfig = {
-  provider: CompanyJudgeProviderName;
-  model: string;
-  endpoint: string;
-  apiKey: string;
-};
+type CompanyJudgeProviderName = WorkerChatProviderConfig["provider"];
 
 type CompanyJudgeScore = {
   companyKey: string;
@@ -353,108 +351,6 @@ async function callGemini(request: GeminiGenerationRequest): Promise<unknown> {
   return response.json().catch(() => null);
 }
 
-async function callOpenAi(request: {
-  endpoint: string;
-  apiKey: string;
-  fetchImpl: FetchImpl;
-  body: Record<string, unknown>;
-  signal?: AbortSignal;
-}): Promise<unknown> {
-  const response = await request.fetchImpl(request.endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${request.apiKey}`,
-    },
-    signal: request.signal,
-    body: JSON.stringify(request.body),
-  });
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    throw new Error(
-      `OpenAI HTTP ${response.status}${errorText ? `: ${errorText.slice(0, 200)}` : ""}`,
-    );
-  }
-  return response.json().catch(() => null);
-}
-
-async function callAnthropic(request: {
-  endpoint: string;
-  apiKey: string;
-  fetchImpl: FetchImpl;
-  body: Record<string, unknown>;
-  signal?: AbortSignal;
-}): Promise<unknown> {
-  const response = await request.fetchImpl(request.endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": request.apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    signal: request.signal,
-    body: JSON.stringify(request.body),
-  });
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    throw new Error(
-      `Anthropic HTTP ${response.status}${errorText ? `: ${errorText.slice(0, 200)}` : ""}`,
-    );
-  }
-  return response.json().catch(() => null);
-}
-
-function extractOpenAiText(payload: unknown): string {
-  if (!isPlainRecord(payload)) return "";
-  const choices = Array.isArray(payload.choices) ? payload.choices : [];
-  for (const choice of choices) {
-    if (!isPlainRecord(choice)) continue;
-    const message = isPlainRecord(choice.message) ? choice.message : null;
-    const content = message?.content;
-    if (typeof content === "string" && content.trim()) return content.trim();
-    if (Array.isArray(content)) {
-      const text = content
-        .map((part) => {
-          if (typeof part === "string") return part;
-          if (isPlainRecord(part) && typeof part.text === "string") return part.text;
-          return "";
-        })
-        .filter(Boolean)
-        .join("\n")
-        .trim();
-      if (text) return text;
-    }
-  }
-
-  const output = Array.isArray(payload.output) ? payload.output : [];
-  for (const block of output) {
-    if (!isPlainRecord(block)) continue;
-    const content = Array.isArray(block.content) ? block.content : [];
-    const text = content
-      .map((part) =>
-        isPlainRecord(part) && typeof part.text === "string" ? part.text : "",
-      )
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-    if (text) return text;
-  }
-  return "";
-}
-
-function extractAnthropicText(payload: unknown): string {
-  if (!isPlainRecord(payload)) return "";
-  const content = Array.isArray(payload.content) ? payload.content : [];
-  const text = content
-    .map((part) =>
-      isPlainRecord(part) && typeof part.text === "string" ? part.text : "",
-    )
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-  return text;
-}
-
 function composeProfileUserPrompt(input: {
   resumeText?: string;
   form?: ProfileFormInput;
@@ -544,15 +440,33 @@ export async function extractCandidateProfile(
     );
   }
 
-  const apiKey = String(dependencies.runtimeConfig.geminiApiKey || "").trim();
-  if (!apiKey) {
+  const provider = resolveWorkerChatProvider(dependencies.runtimeConfig, {
+    providerKeys: [
+      "profileExtractionProvider",
+      "profileLlmProvider",
+      "llmProvider",
+      "chatProvider",
+      "modelProvider",
+    ],
+    apiKeyKeys: [
+      "profileExtractionApiKey",
+      "profileLlmApiKey",
+    ],
+    modelKeys: [
+      "profileExtractionModel",
+      "profileLlmModel",
+    ],
+    baseUrlKeys: [
+      "profileExtractionBaseUrl",
+      "profileLlmBaseUrl",
+    ],
+  });
+  if (!provider) {
     throw new Error(
-      "extractCandidateProfile: Gemini API key is not configured (BROWSER_USE_DISCOVERY_GEMINI_API_KEY).",
+      "extractCandidateProfile: chat LLM provider is not configured.",
     );
   }
   const fetchImpl = dependencies.fetchImpl || globalThis.fetch;
-  const model = dependencies.runtimeConfig.geminiModel || "gemini-3.5-flash";
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
   const resumeLength = input.resumeText ? input.resumeText.length : 0;
   const formFieldCount = input.form
@@ -565,35 +479,33 @@ export async function extractCandidateProfile(
     formFieldCount,
   });
 
-  const body = {
-    systemInstruction: {
-      parts: [{ text: PROFILE_EXTRACTION_SYSTEM_PROMPT }],
-    },
-    contents: [
+  const startedAt = Date.now();
+  const result = await callWorkerChatProvider({
+    provider,
+    fetchImpl,
+    signal: dependencies.signal,
+    temperature: 0.1,
+    maxTokens: 1024,
+    responseSchema: CANDIDATE_PROFILE_SCHEMA,
+    messages: [
+      {
+        role: "system",
+        content: [
+          PROFILE_EXTRACTION_SYSTEM_PROMPT,
+          "",
+          "Return strict JSON only. The JSON schema is:",
+          JSON.stringify(CANDIDATE_PROFILE_SCHEMA),
+        ].join("\n"),
+      },
       {
         role: "user",
-        parts: [{ text: composeProfileUserPrompt(input) }],
+        content: composeProfileUserPrompt(input),
       },
     ],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 1024,
-      responseMimeType: "application/json",
-      responseSchema: CANDIDATE_PROFILE_SCHEMA,
-    },
-  };
-
-  const startedAt = Date.now();
-  const payload = await callGemini({
-    endpoint,
-    apiKey,
-    fetchImpl,
-    body,
-    signal: dependencies.signal,
   });
   const durationMs = Date.now() - startedAt;
 
-  const text = extractGenerationText(payload);
+  const text = result.text;
   const parsed = parseFirstJsonBlock(text);
   const profile = normalizeCandidateProfile(parsed);
 
@@ -1073,102 +985,30 @@ function computeDeterministicCompanyScores(
   };
 }
 
-function readRuntimeConfigString(
-  runtimeConfig: WorkerRuntimeConfig,
-  keys: string[],
-): string {
-  const source = runtimeConfig as Record<string, unknown>;
-  for (const key of keys) {
-    const value = source[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return "";
-}
-
-function normalizeProviderName(raw: string): CompanyJudgeProviderName | "" {
-  const value = raw.trim().toLowerCase();
-  if (value === "gemini") return "gemini";
-  if (value === "openai" || value === "open_ai" || value === "open-ai") return "openai";
-  if (value === "anthropic") return "anthropic";
-  return "";
-}
-
 function resolveCompanyJudgeProvider(
   runtimeConfig: WorkerRuntimeConfig,
-): CompanyJudgeProviderConfig | null {
-  const preferred = normalizeProviderName(
-    readRuntimeConfigString(runtimeConfig, [
+): WorkerChatProviderConfig | null {
+  return resolveWorkerChatProvider(runtimeConfig, {
+    providerKeys: [
       "companyJudgeProvider",
       "companyScoringProvider",
       "discoveryCompanyProvider",
       "llmProvider",
       "modelProvider",
-    ]),
-  );
-  const providers: Record<CompanyJudgeProviderName, CompanyJudgeProviderConfig | null> = {
-    gemini: null,
-    openai: null,
-    anthropic: null,
-  };
-
-  const geminiApiKey = readRuntimeConfigString(runtimeConfig, ["geminiApiKey"]);
-  if (geminiApiKey) {
-    const model =
-      readRuntimeConfigString(runtimeConfig, [
-        "companyJudgeGeminiModel",
-        "companyScoringGeminiModel",
-        "geminiModel",
-      ]) || "gemini-3.5-flash";
-    providers.gemini = {
-      provider: "gemini",
-      model,
-      endpoint: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-      apiKey: geminiApiKey,
-    };
-  }
-
-  const openAiApiKey = readRuntimeConfigString(runtimeConfig, [
-    "openaiApiKey",
-    "openAiApiKey",
-    "openAIApiKey",
-  ]);
-  if (openAiApiKey) {
-    const model =
-      readRuntimeConfigString(runtimeConfig, [
-        "companyJudgeOpenAiModel",
-        "companyScoringOpenAiModel",
-        "openaiModel",
-        "openAiModel",
-      ]) || "gpt-4.1-mini";
-    providers.openai = {
-      provider: "openai",
-      model,
-      endpoint: "https://api.openai.com/v1/chat/completions",
-      apiKey: openAiApiKey,
-    };
-  }
-
-  const anthropicApiKey = readRuntimeConfigString(runtimeConfig, [
-    "anthropicApiKey",
-    "anthropicKey",
-  ]);
-  if (anthropicApiKey) {
-    const model =
-      readRuntimeConfigString(runtimeConfig, [
-        "companyJudgeAnthropicModel",
-        "companyScoringAnthropicModel",
-        "anthropicModel",
-      ]) || "claude-3-5-haiku-latest";
-    providers.anthropic = {
-      provider: "anthropic",
-      model,
-      endpoint: "https://api.anthropic.com/v1/messages",
-      apiKey: anthropicApiKey,
-    };
-  }
-
-  if (preferred && providers[preferred]) return providers[preferred];
-  return providers.gemini || providers.openai || providers.anthropic || null;
+    ],
+    apiKeyKeys: [
+      "companyJudgeApiKey",
+      "companyScoringApiKey",
+    ],
+    modelKeys: [
+      "companyJudgeModel",
+      "companyScoringModel",
+    ],
+    baseUrlKeys: [
+      "companyJudgeBaseUrl",
+      "companyScoringBaseUrl",
+    ],
+  });
 }
 
 function buildCompanyJudgePrompt(
@@ -1230,7 +1070,7 @@ function normalizeCompanyJudgeScores(
 }
 
 async function scoreCompaniesWithLlm(input: {
-  provider: CompanyJudgeProviderConfig;
+  provider: WorkerChatProviderConfig;
   profile: CandidateProfile;
   companies: CompanyTarget[];
   fetchImpl: FetchImpl;
@@ -1242,77 +1082,28 @@ async function scoreCompaniesWithLlm(input: {
     ),
   );
   const prompt = buildCompanyJudgePrompt(input.profile, input.companies);
-  let payload: unknown = null;
-
-  if (input.provider.provider === "gemini") {
-    payload = await callGemini({
-      endpoint: input.provider.endpoint,
-      apiKey: input.provider.apiKey,
-      fetchImpl: input.fetchImpl,
-      signal: input.signal,
-      body: {
-        systemInstruction: {
-          parts: [{ text: COMPANY_CANDIDATE_JUDGE_SYSTEM_PROMPT }],
-        },
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 2048,
-          responseMimeType: "application/json",
-          responseSchema: COMPANY_CANDIDATE_JUDGE_SCHEMA,
-        },
-      },
-    });
-    return normalizeCompanyJudgeScores(
-      parseFirstJsonBlock(extractGenerationText(payload)),
-      knownCompanyKeys,
-    );
-  }
-
-  if (input.provider.provider === "openai") {
-    payload = await callOpenAi({
-      endpoint: input.provider.endpoint,
-      apiKey: input.provider.apiKey,
-      fetchImpl: input.fetchImpl,
-      signal: input.signal,
-      body: {
-        model: input.provider.model,
-        temperature: 0.1,
-        messages: [
-          { role: "system", content: COMPANY_CANDIDATE_JUDGE_SYSTEM_PROMPT },
-          { role: "user", content: prompt },
-        ],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "company_candidate_scores",
-            strict: true,
-            schema: COMPANY_CANDIDATE_JUDGE_SCHEMA,
-          },
-        },
-      },
-    });
-    return normalizeCompanyJudgeScores(
-      parseFirstJsonBlock(extractOpenAiText(payload)),
-      knownCompanyKeys,
-    );
-  }
-
-  payload = await callAnthropic({
-    endpoint: input.provider.endpoint,
-    apiKey: input.provider.apiKey,
+  const result = await callWorkerChatProvider({
+    provider: input.provider,
     fetchImpl: input.fetchImpl,
     signal: input.signal,
-    body: {
-      model: input.provider.model,
-      max_tokens: 2048,
-      temperature: 0.1,
-      system: COMPANY_CANDIDATE_JUDGE_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: prompt }],
-    },
+    temperature: 0.1,
+    maxTokens: 2048,
+    responseSchema: COMPANY_CANDIDATE_JUDGE_SCHEMA,
+    messages: [
+      {
+        role: "system",
+        content: [
+          COMPANY_CANDIDATE_JUDGE_SYSTEM_PROMPT,
+          "",
+          "Return strict JSON only. The JSON schema is:",
+          JSON.stringify(COMPANY_CANDIDATE_JUDGE_SCHEMA),
+        ].join("\n"),
+      },
+      { role: "user", content: prompt },
+    ],
   });
   return normalizeCompanyJudgeScores(
-    parseFirstJsonBlock(extractAnthropicText(payload)),
+    parseFirstJsonBlock(result.text),
     knownCompanyKeys,
   );
 }

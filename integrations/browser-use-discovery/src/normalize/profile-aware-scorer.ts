@@ -6,8 +6,8 @@
  *   1. NEW — UserProfile-driven, two-stage:
  *      a. runPreFilter(rawListing, profile): cheap deterministic gate that
  *         rejects on hardConstraints before any LLM call.
- *      b. scoreListingWithLlm(rawListing, profile, ...): Gemini call that
- *         returns a structured LlmFitScoreResult per-strength.
+ *      b. scoreListingWithLlm(rawListing, profile, ...): chat provider call
+ *         that returns a structured LlmFitScoreResult per-strength.
  *      Orchestrator: scoreListingForProfile(...) handles caching + fallbacks.
  *
  *   2. LEGACY — heuristic dimension scorer, kept at the bottom of the file.
@@ -20,6 +20,10 @@
 import { createHash } from "node:crypto";
 import type { RawListing } from "../contracts.ts";
 import { toPlainText } from "../browser/selectors/shared.ts";
+import {
+  callWorkerChatProvider,
+  resolveWorkerChatProvider,
+} from "../ai/chat-provider.ts";
 import {
   type UserProfile,
   type PreFilterResult,
@@ -166,8 +170,9 @@ export function parseSalaryMax(text: string): number | null {
 type FetchImpl = typeof fetch;
 
 type LlmScorerRuntimeConfig = {
-  geminiApiKey: string;
-  geminiModel: string;
+  geminiApiKey?: string;
+  geminiModel?: string;
+  [key: string]: unknown;
 };
 
 export type ScoreListingForProfileOptions = {
@@ -273,27 +278,8 @@ function deriveBand(score: number): FitBand {
   return "Low";
 }
 
-function extractGeminiText(payload: unknown): string {
-  if (!payload || typeof payload !== "object") return "";
-  const candidates = (payload as { candidates?: unknown[] }).candidates;
-  if (!Array.isArray(candidates) || candidates.length === 0) return "";
-  const first = candidates[0];
-  if (!first || typeof first !== "object") return "";
-  const content = (first as { content?: unknown }).content;
-  if (!content || typeof content !== "object") return "";
-  const parts = (content as { parts?: unknown[] }).parts;
-  if (!Array.isArray(parts)) return "";
-  const buf: string[] = [];
-  for (const part of parts) {
-    if (part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string") {
-      buf.push((part as { text: string }).text);
-    }
-  }
-  return buf.join("");
-}
-
 /**
- * Call Gemini in JSON mode with the per-profile schema. Throws on any error
+ * Call the configured chat provider with the per-profile schema. Throws on any error
  * (HTTP, invalid JSON, unknown response shape). Callers handle.
  */
 export async function scoreListingWithLlm(
@@ -303,47 +289,35 @@ export async function scoreListingWithLlm(
 ): Promise<LlmFitScoreResult> {
   const { runtimeConfig, signal } = opts;
   const fetchImpl = opts.fetchImpl ?? fetch;
-  const apiKey = String(runtimeConfig.geminiApiKey || "").trim();
-  if (!apiKey) {
-    throw new Error("scoreListingWithLlm: missing geminiApiKey.");
+  const provider = resolveWorkerChatProvider(runtimeConfig);
+  if (!provider) {
+    throw new Error("scoreListingWithLlm: missing chat LLM provider config.");
   }
-  const model = runtimeConfig.geminiModel || "gemini-3.5-flash";
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
-  const systemPrompt = buildSystemPrompt(profile);
   const userPrompt = buildUserPrompt(rawListing);
   const responseSchema = buildResponseSchema(profile);
+  const systemPrompt = [
+    buildSystemPrompt(profile),
+    "",
+    "Return strict JSON only. The JSON schema is:",
+    JSON.stringify(responseSchema),
+  ].join("\n");
 
-  const response = await fetchImpl(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-goog-api-key": apiKey,
-    },
+  const result = await callWorkerChatProvider({
+    provider,
+    fetchImpl,
     signal,
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 2048,
-        responseMimeType: "application/json",
-        responseSchema,
-      },
-    }),
+    temperature: 0.2,
+    maxTokens: 2048,
+    responseSchema,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
   });
-
-  if (!response.ok) {
-    const errText = await response.text().catch(() => "");
-    throw new Error(
-      `scoreListingWithLlm: Gemini HTTP ${response.status} ${response.statusText} — ${errText.slice(0, 240)}`,
-    );
-  }
-
-  const payload = await response.json().catch(() => null);
-  const text = extractGeminiText(payload);
+  const text = result.text;
   if (!text) {
-    throw new Error("scoreListingWithLlm: empty Gemini response.");
+    throw new Error(`scoreListingWithLlm: empty ${provider.provider} response.`);
   }
 
   let parsed: unknown;
@@ -438,7 +412,10 @@ export async function scoreListingForProfile(
 
   const canonicalUrl = rawListing.canonicalUrl || rawListing.url || "";
   const cacheKey = buildCacheKey(canonicalUrl, profile);
-  const modelId = opts.runtimeConfig.geminiModel || "gemini-3.5-flash";
+  const modelId =
+    resolveWorkerChatProvider(opts.runtimeConfig)?.model ||
+    opts.runtimeConfig.geminiModel ||
+    "unconfigured-chat-provider";
 
   if (opts.cache) {
     const hit = opts.cache.get(cacheKey);
