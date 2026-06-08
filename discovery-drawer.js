@@ -1196,6 +1196,16 @@ async function callDiscoveryAiLocal(system, user, apiKey, model, baseUrl, opts) 
  * that points the user back to Settings rather than a per-feature key gate.
  */
 async function callConfiguredAi(system, user, opts) {
+  const shared =
+    window.CommandCenterBrowserAiProvider || window.CommandCenterResumeGenerate;
+  if (
+    shared &&
+    typeof shared.callConfiguredAi === "function" &&
+    shared.callConfiguredAi !== callConfiguredAi
+  ) {
+    return shared.callConfiguredAi(system, user, opts);
+  }
+
   const gen = window.CommandCenterResumeGenerate;
   const g =
     gen && typeof gen.getResumeGenerationConfig === "function"
