@@ -23,7 +23,8 @@ Agent 17 was launched in cmux `workspace:34` from `openrouter-compat/agent-17-te
 | `npm run typecheck:repo` | PASS | Root browser scripts, scripts, and server modules passed `node --check` |
 | `npm run test:contract:all` | PASS | Discovery webhook schema, ATS scorecard contract, Pipeline contract, and skill lint passed |
 | `npm run test:browser-use-discovery` | PASS | 610 pass / 0 fail |
-| `npm run test:repo` | PASS | Contract suite, root tests, and discovery worker suite passed; auxiliary root wrapper summary showed 1097 pass / 0 fail |
+| `npm test -- tests/install-repo-runner-normalization.test.mjs` | PASS | 5 pass / 0 fail after merging current `main` (`e5b9d52`) |
+| `npm run test:repo` | PASS | Contract suite, root tests, and discovery worker suite passed after merging current `main`; auxiliary root wrapper summary before the merge showed 1097 pass / 0 fail |
 | `npm run dev` smoke | PASS with alternate ports | Default `8080/3847/8644` ports were occupied by the root worktree dev stack. Integration smoke used web `8090`, scraper `3947`, worker `8744`; web served the dashboard, scraper `/health` reported `atsProvider=openrouter` and `atsConfigured=true`, worker `/health` reported `llm.provider=openrouter`, `llm.ready=true`, and Gemini Google tools advisory-only. Smoke sessions were terminated and alternate ports cleared. |
 
 ## Regression Notes
@@ -31,6 +32,7 @@ Agent 17 was launched in cmux `workspace:34` from `openrouter-compat/agent-17-te
 - The first worker run-path test attempt failed before dependency install with missing packages. After `npm ci`, the suite ran and exposed a real `runtimeConfig` regression.
 - Commit `54c46bd` resolved that regression by attaching worker `runtimeConfig` to run config only for explicit merged-profile payloads, preserving legacy behavior for ambient disk profiles.
 - `54c46bd` also resolved the Agent 15 and Agent 16 blockers: local/OpenAI-compatible ATS no-key readiness, generic worker matcher construction, and blank local startup template fields.
+- Merge commit `f941bd0` brought in current `main` at `e5b9d52`; the affected setup-runner test, `typecheck:repo`, and `test:repo` were rerun after that merge.
 
 ## Owner Status
 

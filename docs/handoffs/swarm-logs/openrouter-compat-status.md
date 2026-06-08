@@ -24,7 +24,7 @@ Current state:
 - Integration branch merged all implementation and inspector lanes.
 - Integration blocker fix committed as `54c46bd` on `openrouter-compat/integration`.
 - Agent 17 final test/regression inspection completed; report committed from integration after the inspector workspace stalled during report patching.
-- Base note: root `main` advanced during swarm execution from the original `1e3bf8e` base to `fa57bfe` (`fix(discovery): route generateDiscoverySuggestions through callConfiguredAi (VAL-PROV-011)`) and then `0e2b1c1` (`docs(quickstart): clarify OpenRouter free default needs a free key`). Integration builds on current `main`, not the original worktree base.
+- Base note: root `main` advanced during swarm execution from the original `1e3bf8e` base to `fa57bfe` (`fix(discovery): route generateDiscoverySuggestions through callConfiguredAi (VAL-PROV-011)`), `0e2b1c1` (`docs(quickstart): clarify OpenRouter free default needs a free key`), and then `e5b9d52` (`fix(setup): normalize installRepo runner result to accept both numeric and {status} contracts (VAL-DOC-001)`). Integration includes current `main` via merge commit `f941bd0`.
 
 ## Cmux Workspace Map
 
@@ -121,5 +121,6 @@ Current state:
 | `npm run typecheck:repo` | PASS | Syntax checks passed across root browser scripts, scripts, and server modules |
 | `npm run test:contract:all` | PASS | Discovery webhook, ATS scorecard, Pipeline contract, and skill lint all passed |
 | `npm run test:browser-use-discovery` | PASS | 610 pass / 0 fail |
-| `npm run test:repo` | PASS | Contract suite, root tests, and discovery worker suite passed |
+| `npm test -- tests/install-repo-runner-normalization.test.mjs` | PASS | 5 pass / 0 fail after merging current `main` (`e5b9d52`) |
+| `npm run test:repo` | PASS | Contract suite, root tests, and discovery worker suite passed after merging current `main` |
 | `npm run dev` smoke | PASS with alternate ports | Default ports were occupied by the root worktree dev stack. Integration smoke used web `8090`, scraper `3947`, worker `8744`; web served 251708 bytes, scraper `/health` returned `atsProvider=openrouter` and `atsConfigured=true`, worker `/health` returned `llm.provider=openrouter`, `llm.ready=true`, and Gemini Google tools advisory-only. Smoke sessions were terminated and alternate ports cleared. |
