@@ -94,6 +94,15 @@
 
   function getAccessToken() {
     const w = getWin();
+    // The OAuth access token is module-scoped in auth-session.js and exposed
+    // via window.JobBoredApp.auth.getAccessToken() — there is no
+    // window.accessToken. Reading the latter left the auto-heal checks
+    // permanently disabled (always saw an empty token).
+    const auth = w && w.JobBoredApp && w.JobBoredApp.auth;
+    if (auth && typeof auth.getAccessToken === "function") {
+      const token = auth.getAccessToken();
+      if (typeof token === "string") return token;
+    }
     return w && typeof w.accessToken === "string" ? w.accessToken : "";
   }
 

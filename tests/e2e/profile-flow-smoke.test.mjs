@@ -25,28 +25,117 @@
 import { test, before, after } from "node:test";
 import { strict as assert } from "node:assert";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 const PORT = 38470 + Math.floor(Math.random() * 100);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 let tmpDir = "";
 let profilePath = "";
+let workerConfigPath = "";
 let serverProcess = null;
+let openRouterMockServer = null;
+let openRouterBaseUrl = "";
+const openRouterRequests = [];
+
+function readRequestBody(req) {
+  return new Promise((resolveBody) => {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", () => resolveBody(body));
+  });
+}
+
+function buildProfileDraft() {
+  return {
+    version: 1,
+    starterTemplate: "custom",
+    identity: {
+      targetRoles: ["Platform Engineer", "Backend Engineer"],
+      targetSeniority: "ic_senior",
+      yearsRelevantExperience: 8,
+      primaryNarrative:
+        "I'm a backend platform engineer focused on reliable services, developer tooling, and practical AI integrations.",
+    },
+    strengths: [
+      {
+        name: "backend platforms",
+        rank: 1,
+        evidence: "Built internal APIs and automation.",
+        keywords: ["Node.js", "APIs", "automation"],
+      },
+    ],
+    wants: [],
+    avoids: [],
+    hardConstraints: {
+      workMode: "any",
+      salaryRequired: false,
+      acceptableLocations: [],
+      workAuth: "us_authorized",
+    },
+  };
+}
+
+async function startOpenRouterMock() {
+  openRouterMockServer = createServer(async (req, res) => {
+    const body = await readRequestBody(req);
+    openRouterRequests.push({
+      method: req.method,
+      url: req.url,
+      headers: req.headers,
+      body,
+    });
+    if (req.method !== "POST" || req.url !== "/v1/chat/completions") {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "not found" } }));
+      return;
+    }
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify(buildProfileDraft()),
+            },
+          },
+        ],
+      }),
+    );
+  });
+  await new Promise((resolveListen) => {
+    openRouterMockServer.listen(0, "127.0.0.1", resolveListen);
+  });
+  const address = openRouterMockServer.address();
+  openRouterBaseUrl = `http://127.0.0.1:${address.port}/v1`;
+}
 
 before(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), "jobbored-e2e-"));
   profilePath = join(tmpDir, "profile.json");
+  workerConfigPath = join(tmpDir, "worker-config.json");
+  await startOpenRouterMock();
   serverProcess = spawn("node", ["index.mjs"], {
     cwd: resolve("server"),
     env: {
       ...process.env,
       PORT: String(PORT),
       JOBBORED_PROFILE_PATH: profilePath,
+      BROWSER_USE_DISCOVERY_CONFIG_PATH: workerConfigPath,
       HERMES_RESUME_TEMPLATE_DIR: join(tmpDir, "resume-template"),
       LISTEN_HOST: "127.0.0.1",
+      PROFILE_PROVIDER: "openrouter",
+      PROFILE_OPENROUTER_API_KEY: "sk-or-profile-test",
+      PROFILE_OPENROUTER_BASE_URL: openRouterBaseUrl,
+      PROFILE_OPENROUTER_MODEL: "openrouter/profile-test",
+      ATS_GEMINI_API_KEY: "",
+      GEMINI_API_KEY: "",
       // Redirect the home dir so filesystem resume lookups are hermetic. The
       // /profile/from-resume route reads ~/.jobbored/resume.txt and
       // ~/.hermes/job-hunt/profile/resume*.md via os.homedir() with no env
@@ -78,6 +167,7 @@ before(async () => {
 
 after(() => {
   if (serverProcess && !serverProcess.killed) serverProcess.kill();
+  if (openRouterMockServer) openRouterMockServer.close();
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -222,4 +312,46 @@ test("POST /profile/from-resume returns 404 when no resume is stored", async () 
   const data = await r.json();
   assert.equal(data.ok, false);
   assert.equal(data.reason, "no_resume_stored");
+});
+
+test("POST /profile/from-resume drafts a profile through OpenRouter chat JSON with no Gemini key", async () => {
+  mkdirSync(dirname(workerConfigPath), { recursive: true });
+  writeFileSync(
+    workerConfigPath,
+    JSON.stringify({
+      candidateProfile: {
+        resumeText:
+          "Senior backend engineer with Node.js APIs, automation, platform tooling, and AI integration experience.",
+      },
+    }),
+  );
+  openRouterRequests.length = 0;
+
+  const r = await fetch(`${BASE_URL}/profile/from-resume`, { method: "POST" });
+  assert.equal(r.status, 200);
+  const data = await r.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.source, "worker_config");
+  assert.equal(data.profile.version, 1);
+  assert.equal(data.profile.identity.targetSeniority, "ic_senior");
+  assert.deepEqual(data.profile.identity.targetRoles.slice(0, 2), [
+    "Platform Engineer",
+    "Backend Engineer",
+  ]);
+  assert.equal(data.profile.strengths[0].rank, 1);
+
+  assert.equal(openRouterRequests.length, 1);
+  const request = openRouterRequests[0];
+  assert.equal(request.method, "POST");
+  assert.equal(request.url, "/v1/chat/completions");
+  assert.equal(request.headers.authorization, "Bearer sk-or-profile-test");
+  const body = JSON.parse(request.body);
+  assert.equal(body.model, "openrouter/profile-test");
+  assert.equal(body.temperature, 0.2);
+  assert.equal(body.max_tokens, 3500);
+  assert.equal(body.messages[0].role, "system");
+  assert.equal(body.messages[1].role, "user");
+  assert.match(body.messages[0].content, /strict JSON object/);
+  assert.match(body.messages[1].content, /Senior backend engineer/);
+  assert.doesNotMatch(request.body, /responseSchema|systemInstruction|generateContent/);
 });

@@ -33,6 +33,12 @@ export function openListingScoreCache(databasePath?: string): ListingScoreCache 
   }
 
   const database = new DatabaseSync(resolvedPath);
+  if (resolvedPath !== ":memory:") {
+    database.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA busy_timeout = 5000;
+    `);
+  }
   database.exec(`
     CREATE TABLE IF NOT EXISTS listing_score_cache (
       cache_key TEXT PRIMARY KEY,

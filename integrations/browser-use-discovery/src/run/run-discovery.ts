@@ -42,6 +42,7 @@ import {
   collectSerpApiGoogleJobsListings,
   SERPAPI_GOOGLE_JOBS_SOURCE_ID,
 } from "../sources/serpapi-google-jobs.ts";
+import { classifyCareerSurfaceSourcePolicy } from "../discovery/career-surface-resolver.ts";
 import {
   normalizeLeadWithDiagnostics,
   type LeadNormalizationRejection,
@@ -220,6 +221,9 @@ export async function runDiscovery(
     }
   }
   config.userProfile = resolvedUserProfile || undefined;
+  if (request.mergedUserProfile && resolvedUserProfile) {
+    config.runtimeConfig = dependencies.runtimeConfig;
+  }
 
   const runId = dependencies.runId || dependencies.randomId("run");
   const run: DiscoveryRun = {
@@ -799,7 +803,24 @@ export async function runDiscovery(
         });
         extractionResult.warnings.push(...serpResult.warnings);
         extractionResult.stats.leadsSeen = serpResult.rawListings.length;
+        let serpHintOnlySkipped = 0;
         for (const rawListing of serpResult.rawListings) {
+          // Enforce the hint-only invariant on the SerpApi lane: only direct
+          // employer/ATS URLs may be written. Third-party boards/aggregators
+          // and Google share links (hint_only/blocked) are never written
+          // directly to the sheet, matching the grounded lane's policy.
+          const sourcePolicy = classifyCareerSurfaceSourcePolicy(
+            String(rawListing.url || ""),
+          );
+          if (sourcePolicy !== "extractable") {
+            serpHintOnlySkipped += 1;
+            dependencies.log?.("discovery.run.serpapi_non_extractable_skipped", {
+              runId,
+              url: rawListing.url,
+              sourcePolicy,
+            });
+            continue;
+          }
           const normalized = await normalizeRawListing(rawListing, run, {
             dependencies,
             matchingState,
@@ -822,6 +843,11 @@ export async function runDiscovery(
           normalizedLeads.push(normalized.lead);
           extractionResult.leads.push(normalized.lead);
           extractionResult.stats.leadsAccepted += 1;
+        }
+        if (serpHintOnlySkipped > 0) {
+          extractionResult.warnings.push(
+            `serpapi_google_jobs: skipped ${serpHintOnlySkipped} non-extractable (hint-only/blocked) URL(s) to preserve the direct-write invariant.`,
+          );
         }
         listingCount += serpResult.rawListings.length;
       } catch (error) {
@@ -1861,10 +1887,16 @@ async function runGroundedWebDiscovery(
   let listingCount = 0;
 
   if (!dependencies.groundedSearchClient) {
-    const message = dependencies.runtimeConfig.geminiApiKey
-      ? "Grounded web source is enabled but the grounded search client is unavailable."
-      : "Grounded web source is enabled but BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.";
+    const message = formatGroundedGoogleSearchUnavailableWarning(
+      dependencies.runtimeConfig,
+    );
     extractionResult.warnings.push(message);
+    extractionResult.diagnostics = [
+      ...(extractionResult.diagnostics || []),
+      {
+        context: message,
+      },
+    ];
     warnings.push(message);
     return {
       extractionResult,
@@ -2164,7 +2196,22 @@ function determineLifecycleState(
 function isInformationalLifecycleWarning(warning: string): boolean {
   return (
     /was excluded by preset '.*' and did not execute\.$/i.test(warning) ||
-    /^No companies are configured for this discovery run\.$/i.test(warning)
+    /^No companies are configured for this discovery run\.$/i.test(warning) ||
+    isOptionalGoogleToolUnavailableWarning(warning)
+  );
+}
+
+function formatGroundedGoogleSearchUnavailableWarning(
+  runtimeConfig: WorkerRuntimeConfig,
+): string {
+  return runtimeConfig.geminiApiKey
+    ? "Grounded web Google Search is enabled but the Gemini google_search client is unavailable."
+    : "Grounded web Google Search skipped: optional Gemini google_search tool is unavailable because BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.";
+}
+
+function isOptionalGoogleToolUnavailableWarning(warning: string): boolean {
+  return /optional Gemini (?:google_search|url_context) tool is unavailable/i.test(
+    warning,
   );
 }
 
@@ -2176,7 +2223,8 @@ function isRunDegradingExtractionWarning(
   if (
     writtenLeadCount > 0 &&
     extractionResult.sourceId === "grounded_web" &&
-    (isGroundedNoCandidateWarning(warning) ||
+    (isOptionalGoogleToolUnavailableWarning(warning) ||
+      isGroundedNoCandidateWarning(warning) ||
       isGroundedRecoveredRegexFallbackWarning(warning))
   ) {
     return false;
@@ -2576,6 +2624,8 @@ function classifyFailureReason(
   const browserOperationalFailure = warnings.some(
     (w) =>
       w.includes("Grounded web source is enabled but the Browser Use session manager is unavailable") ||
+      w.includes("Grounded web Google Search is enabled but the Gemini google_search client is unavailable") ||
+      w.includes("optional Gemini google_search tool is unavailable") ||
       w.includes("Grounded search upstream failure") ||
       w.includes("Grounded web discovery timed out") ||
       w.includes("Gemini grounded search request failed") ||

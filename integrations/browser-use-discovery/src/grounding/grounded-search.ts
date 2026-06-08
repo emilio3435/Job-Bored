@@ -15,6 +15,7 @@ import {
   classifyCareerSurfacePageType,
   classifyCareerSurfaceSourcePolicy,
   detectCareerSurfaceCandidatesFromHtml,
+  isPrivateOrLoopbackHost,
   isEmployerCareerSurface,
   isKnownAtsCareerSurface,
   isLikelyThirdPartyJobHost as isThirdPartyCareerSurface,
@@ -2169,6 +2170,8 @@ async function resolveVertexRedirectsInCandidates(input: {
   return deduped;
 }
 
+const MAX_PREFLIGHT_REDIRECTS = 5;
+
 async function fetchTextWithTimeout(
   url: string,
   fetchImpl: FetchImpl,
@@ -2181,15 +2184,32 @@ async function fetchTextWithTimeout(
   abortSignal?.addEventListener("abort", abortHandler, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetchImpl(url, {
-      headers: {
-        accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
-      },
-      redirect: "follow",
-      signal: controller.signal,
-    });
-    const text = await response.text();
-    return { response, text };
+    // Re-validate every redirect hop so a public seed cannot 302 us into a
+    // private/loopback/metadata target before the body is ever read (SSRF).
+    let currentUrl = url;
+    for (let hop = 0; hop <= MAX_PREFLIGHT_REDIRECTS; hop += 1) {
+      const hopHost = safeHostname(currentUrl);
+      if (!hopHost || isPrivateOrLoopbackHost(hopHost)) {
+        throw new Error(`Blocked redirect to private or invalid host: ${currentUrl}`);
+      }
+      const response = await fetchImpl(currentUrl, {
+        headers: {
+          accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
+        },
+        redirect: "manual",
+        signal: controller.signal,
+      });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location") || "";
+        const next = cleanAbsoluteUrl(new URL(location, currentUrl).href);
+        if (!next) return { response, text: "" };
+        currentUrl = next;
+        continue;
+      }
+      const text = await response.text();
+      return { response, text };
+    }
+    throw new Error(`Too many redirects while preflighting ${url}`);
   } finally {
     clearTimeout(timer);
     abortSignal?.removeEventListener("abort", abortHandler);

@@ -49,6 +49,46 @@
       { value: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet" },
       { value: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku" },
     ],
+    openrouter: [
+      {
+        value: "openai/gpt-oss-120b:free",
+        label: "GPT-OSS 120B · free",
+        description:
+          "OpenAI open-weight 120B on OpenRouter's free tier. Pro: strong general quality, no cost. Con: shared free-tier rate limits.",
+      },
+      {
+        value: "openai/gpt-oss-20b:free",
+        label: "GPT-OSS 20B · free",
+        description:
+          "Smaller OpenAI open-weight model. Pro: faster, lighter free option. Con: weaker on long, complex drafts.",
+      },
+      {
+        value: "deepseek/deepseek-chat-v3-0324:free",
+        label: "DeepSeek V3 · free",
+        description:
+          "DeepSeek V3 chat on the free tier. Pro: capable general writer. Con: availability can change.",
+      },
+      {
+        value: "meta-llama/llama-3.3-70b-instruct:free",
+        label: "Llama 3.3 70B Instruct · free",
+        description:
+          "Meta Llama 3.3 70B on the free tier. Pro: solid instruction following. Con: shared free-tier limits.",
+      },
+    ],
+    local: [
+      {
+        value: "gemma4:e2b",
+        label: "Gemma 4 E2B · GGUF (default)",
+        description:
+          "Google Gemma 4 E2B quantized GGUF, served locally by Ollama. Pro: fully local, no key, cross-platform. Con: needs the model pulled first.",
+      },
+      {
+        value: "gemma4:e2b-mlx",
+        label: "Gemma 4 E2B · MLX (Apple Silicon)",
+        description:
+          "Gemma 4 E2B in MLX format for Apple Silicon (text-only). Pro: fast on M-series Macs. Con: Apple Silicon only.",
+      },
+    ],
   };
 
   function getConfig() {
@@ -60,7 +100,11 @@
     const c = getConfig();
     const raw = (c.resumeProvider || "gemini").toLowerCase();
     const provider =
-      raw === "openai" || raw === "webhook" || raw === "anthropic"
+      raw === "openai" ||
+      raw === "webhook" ||
+      raw === "anthropic" ||
+      raw === "openrouter" ||
+      raw === "local"
         ? raw
         : "gemini";
     /* Accept a generic *ApiKey as fallback for the resume-specific
@@ -76,9 +120,18 @@
         c.resumeOpenAIApiKey || c.openAIApiKey || c.openaiApiKey || "",
       resumeAnthropicApiKey:
         c.resumeAnthropicApiKey || c.anthropicApiKey || "",
+      resumeOpenRouterApiKey: c.resumeOpenRouterApiKey || "",
       resumeGeminiModel: c.resumeGeminiModel || "gemini-3.5-flash",
       resumeOpenAIModel: c.resumeOpenAIModel || "gpt-4o-mini",
       resumeAnthropicModel: c.resumeAnthropicModel || "claude-sonnet-4-6",
+      resumeOpenRouterModel:
+        c.resumeOpenRouterModel || "openai/gpt-oss-120b:free",
+      resumeOpenRouterBaseUrl:
+        c.resumeOpenRouterBaseUrl || "https://openrouter.ai/api/v1",
+      resumeLocalBaseUrl:
+        c.resumeLocalBaseUrl || "http://127.0.0.1:11434/v1",
+      resumeLocalModel: c.resumeLocalModel || "gemma4:e2b",
+      resumeLocalApiKey: c.resumeLocalApiKey || "",
       resumeGenerationWebhookUrl: (c.resumeGenerationWebhookUrl || "").trim(),
     };
   }
@@ -100,7 +153,7 @@
       "\n\nIf instructions.refinementFeedback is non-empty, revise the draft to address that feedback directly while keeping every claim factual. If instructions.previousDraft is non-empty, use it as the current draft you are improving rather than starting from zero.";
     base +=
       feature === "cover_letter"
-        ? "\n\nQuality contract:\nGoal: Return a role-specific cover letter that can fit one polished page.\nSuccess means:\n- Use 325-450 words unless instructions.maxWords is lower.\n- Name the role/company and include one compact candidate proof point from Audacy plus one compact AI-builder or systems proof point when relevant.\n- Use only facts present in the profile or job JSON.\nStop when the letter has a clear hook, evidence paragraph, and direct fit-check close."
+        ? "\n\nQuality contract:\nGoal: Return a role-specific cover letter that can fit one polished page.\nSuccess means:\n- Use 325-450 words unless instructions.maxWords is lower.\n- Name the role and company, and include the candidate's two most relevant proof points drawn from their profile.\n- Use only facts present in the profile or job JSON.\nStop when the letter has a clear hook, evidence paragraph, and direct fit-check close."
         : "\n\nQuality contract:\nGoal: Return a section-balanced resume update with the strongest relevant evidence preserved.\nSuccess means:\n- Choose a one-page-style draft for narrow roles and a two-page-style draft for senior or hybrid roles with enough evidence.\n- Include SUMMARY, EXPERIENCE, EDUCATION, and SKILLS/CAPABILITIES when source material supports them.\n- Keep older roles shorter than recent roles and map bullets to the job through channel, tool, scope, metric, leadership, or product-building relevance.\n- Use only facts present in the profile or job JSON.\nStop when the draft is dense, scannable, and free of sparse filler sections.";
     const instr =
       bundle &&
@@ -251,7 +304,268 @@
     return false;
   }
 
-  async function callOpenAI(bundle, apiKey, model) {
+  function wantsParsedJson(opts) {
+    return !!(
+      opts &&
+      (opts.parseJson || opts.returnJson || opts.response === "json")
+    );
+  }
+
+  function wantsJsonResponse(opts) {
+    return !!(opts && (opts.json || wantsParsedJson(opts)));
+  }
+
+  function parseConfiguredAiJson(raw) {
+    const s = String(raw || "").trim();
+    const fenceMatch = s.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const body = fenceMatch ? fenceMatch[1].trim() : s;
+    try {
+      return JSON.parse(body);
+    } catch (_) {
+      const braceStart = body.indexOf("{");
+      const braceEnd = body.lastIndexOf("}");
+      if (braceStart !== -1 && braceEnd > braceStart) {
+        try {
+          return JSON.parse(body.slice(braceStart, braceEnd + 1));
+        } catch (__) {}
+      }
+    }
+    throw new Error("AI provider returned invalid JSON.");
+  }
+
+  async function callOpenAICompatibleChat(
+    label,
+    baseUrl,
+    system,
+    user,
+    apiKey,
+    model,
+    opts,
+  ) {
+    const base = String(baseUrl).replace(/\/+$/, "");
+    const wantJson = wantsJsonResponse(opts);
+    const body = {
+      model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: 0.5,
+      max_tokens: wantJson ? 4096 : 2048,
+    };
+    const headers = { "Content-Type": "application/json" };
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+    let resp;
+    try {
+      resp = await fetch(`${base}/chat/completions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      if (label === "local") {
+        let serverHost = "127.0.0.1:11434";
+        try {
+          serverHost = new URL(base).host || serverHost;
+        } catch (_) {
+          /* keep default host hint */
+        }
+        throw new Error(
+          `Could not reach the local model server at ${base}. Start your local model server, e.g. Ollama on ${serverHost}, then try again.`,
+        );
+      }
+      throw wrapFetchFailure(e, label, false);
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      if (label === "OpenRouter") {
+        throw new Error(mapOpenRouterErrorMessage(resp.status, data));
+      }
+      throw new Error(data.error?.message || `AI provider HTTP ${resp.status}`);
+    }
+    const text = data.choices?.[0]?.message?.content || "";
+    if (!text.trim()) throw new Error("Empty response from the AI provider");
+    return text.trim();
+  }
+
+  async function callConfiguredAiOpenAI(system, user, apiKey, model, opts) {
+    const m = model || "gpt-4o-mini";
+    const limitKey = openAIUsesMaxCompletionTokens(m)
+      ? "max_completion_tokens"
+      : "max_tokens";
+    const body = {
+      model: m,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: 0.5,
+      [limitKey]: wantsJsonResponse(opts) ? 4096 : 2048,
+    };
+    let resp;
+    try {
+      resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      throw wrapFetchFailure(e, "OpenAI", true);
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok)
+      throw new Error(data.error?.message || `OpenAI HTTP ${resp.status}`);
+    const text = data.choices?.[0]?.message?.content || "";
+    if (!text.trim()) throw new Error("Empty response from OpenAI");
+    return text.trim();
+  }
+
+  async function callConfiguredAiAnthropic(system, user, apiKey, model, opts) {
+    let resp;
+    try {
+      resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model: model || "claude-sonnet-4-6",
+          max_tokens: wantsJsonResponse(opts) ? 4096 : 2048,
+          system,
+          messages: [{ role: "user", content: user }],
+        }),
+      });
+    } catch (e) {
+      throw wrapFetchFailure(e, "Anthropic", true);
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok)
+      throw new Error(data.error?.message || `Anthropic HTTP ${resp.status}`);
+    const text = Array.isArray(data.content)
+      ? data.content
+          .filter((b) => b.type === "text")
+          .map((b) => b.text || "")
+          .join("")
+      : "";
+    if (!text.trim()) throw new Error("Empty response from Anthropic");
+    return text.trim();
+  }
+
+  async function callConfiguredAiGemini(system, user, apiKey, model, opts) {
+    const resolvedModel = model || "gemini-3.5-flash";
+    const wantJson = wantsJsonResponse(opts);
+    const isThinkingModel = /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(
+      resolvedModel,
+    );
+    const generationConfig = {
+      maxOutputTokens: isThinkingModel || wantJson ? 8192 : 2048,
+      temperature: 0.5,
+    };
+    if (wantJson) generationConfig.responseMimeType = "application/json";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    let resp;
+    try {
+      resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: "user", parts: [{ text: user }] }],
+          generationConfig,
+        }),
+      });
+    } catch (e) {
+      throw wrapFetchFailure(e, "Gemini", false);
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok)
+      throw new Error(data.error?.message || `Gemini HTTP ${resp.status}`);
+    const candidate = data.candidates?.[0];
+    const text =
+      candidate?.content?.parts?.map((p) => p.text || "").join("") || "";
+    if (!text.trim()) {
+      const reason = candidate?.finishReason || data.promptFeedback?.blockReason;
+      if (reason) throw new Error(`Gemini returned no text (${reason}).`);
+      throw new Error("Empty response from Gemini");
+    }
+    return text.trim();
+  }
+
+  async function callConfiguredAi(system, user, opts) {
+    const g = getResumeGenerationConfig();
+    const provider = g.provider || "gemini";
+    const needKey = (label) => {
+      throw new Error(`Add your ${label} key in Settings to use AI suggestions.`);
+    };
+    let text;
+    if (provider === "openrouter") {
+      if (!g.resumeOpenRouterApiKey) needKey("OpenRouter");
+      text = await callOpenAICompatibleChat(
+        "OpenRouter",
+        g.resumeOpenRouterBaseUrl || "https://openrouter.ai/api/v1",
+        system,
+        user,
+        g.resumeOpenRouterApiKey,
+        g.resumeOpenRouterModel || "openai/gpt-oss-120b:free",
+        opts,
+      );
+    } else if (provider === "local") {
+      text = await callOpenAICompatibleChat(
+        "local",
+        g.resumeLocalBaseUrl || "http://127.0.0.1:11434/v1",
+        system,
+        user,
+        g.resumeLocalApiKey,
+        g.resumeLocalModel || "gemma4:e2b",
+        opts,
+      );
+    } else if (provider === "openai") {
+      if (!g.resumeOpenAIApiKey) needKey("OpenAI");
+      text = await callConfiguredAiOpenAI(
+        system,
+        user,
+        g.resumeOpenAIApiKey,
+        g.resumeOpenAIModel,
+        opts,
+      );
+    } else if (provider === "anthropic") {
+      if (!g.resumeAnthropicApiKey) needKey("Anthropic");
+      text = await callConfiguredAiAnthropic(
+        system,
+        user,
+        g.resumeAnthropicApiKey,
+        g.resumeAnthropicModel,
+        opts,
+      );
+    } else if (provider === "webhook") {
+      throw new Error(
+        "Your AI provider is set to a custom webhook, which doesn't support inline suggestions. Switch to OpenRouter, Gemini, OpenAI, Anthropic, or local in Settings.",
+      );
+    } else {
+      if (!g.resumeGeminiApiKey) needKey("Gemini");
+      text = await callConfiguredAiGemini(
+        system,
+        user,
+        g.resumeGeminiApiKey,
+        g.resumeGeminiModel,
+        opts,
+      );
+    }
+    return wantsParsedJson(opts) ? parseConfiguredAiJson(text) : text;
+  }
+
+  async function callOpenAI(
+    bundle,
+    apiKey,
+    model,
+    baseUrl = "https://api.openai.com/v1",
+  ) {
     const system = buildSystemPrompt(bundle);
     const user = buildUserPayload(bundle);
     const limitKey = openAIUsesMaxCompletionTokens(model)
@@ -266,9 +580,10 @@
       temperature: 0.7,
       [limitKey]: 8192,
     };
+    const url = `${String(baseUrl).replace(/\/+$/, "")}/chat/completions`;
     let resp;
     try {
-      resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      resp = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -286,6 +601,136 @@
     }
     const text = data.choices?.[0]?.message?.content || "";
     if (!text.trim()) throw new Error("Empty response from OpenAI");
+    return extractInsights(text);
+  }
+
+  /**
+   * OpenRouter free-tier returns { error: { code, message } } with HTTP == code.
+   * Map the common statuses to distinct, actionable guidance. Retry-After is NOT
+   * readable cross-origin, so 429 carries a fixed ~60s backoff hint instead of
+   * reading any header.
+   */
+  function mapOpenRouterErrorMessage(status, data) {
+    const apiMsg =
+      data && data.error && data.error.message
+        ? String(data.error.message)
+        : "";
+    if (status === 401) {
+      return "Your OpenRouter API key is invalid. Paste a valid free key from https://openrouter.ai/keys.";
+    }
+    if (status === 402) {
+      return "Your OpenRouter balance is negative — free models are paused until you top up at https://openrouter.ai/credits.";
+    }
+    if (status === 429) {
+      return "OpenRouter free-tier rate limit reached (20 requests/min; 50/day under 10 credits, 1,000/day at 10+ credits). Wait about 60 seconds before retrying, or add credits at https://openrouter.ai/credits to raise the limit.";
+    }
+    if (status === 400) {
+      return "That free model ID isn't available anymore — pick another :free model in Settings.";
+    }
+    return apiMsg || `OpenRouter request failed (HTTP ${status}).`;
+  }
+
+  async function callOpenRouter(bundle, apiKey, model, baseUrl) {
+    const base = String(baseUrl || "https://openrouter.ai/api/v1").replace(
+      /\/+$/,
+      "",
+    );
+    const system = buildSystemPrompt(bundle);
+    const user = buildUserPayload(bundle);
+    const body = {
+      model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: 0.7,
+      max_tokens: 8000,
+    };
+
+    async function requestOnce() {
+      let resp;
+      try {
+        resp = await fetch(`${base}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(body),
+        });
+      } catch (e) {
+        throw wrapFetchFailure(e, "OpenRouter", false);
+      }
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(mapOpenRouterErrorMessage(resp.status, data));
+      }
+      return data.choices?.[0]?.message?.content || "";
+    }
+
+    let text = await requestOnce();
+    if (!text.trim()) {
+      text = await requestOnce();
+    }
+    if (!text.trim()) throw new Error("Empty response from OpenRouter");
+    return extractInsights(text);
+  }
+
+  /**
+   * Local OpenAI-compatible server (default: Ollama on 127.0.0.1:11434).
+   * Reuses the OpenAI chat-completions request shape parameterized by base URL,
+   * with max_tokens (not max_completion_tokens). Authorization is sent only when
+   * resumeLocalApiKey is set (Ollama ignores it). A connection failure surfaces
+   * actionable guidance to start the local server rather than a bare
+   * "Failed to fetch".
+   */
+  async function callLocal(bundle, apiKey, model, baseUrl) {
+    const base = String(baseUrl || "http://127.0.0.1:11434/v1").replace(
+      /\/+$/,
+      "",
+    );
+    const system = buildSystemPrompt(bundle);
+    const user = buildUserPayload(bundle);
+    const body = {
+      model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: 0.7,
+      max_tokens: 8000,
+    };
+    const headers = { "Content-Type": "application/json" };
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+    let resp;
+    try {
+      resp = await fetch(`${base}/chat/completions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      const m = e && e.message ? String(e.message) : "";
+      if (e && e.name === "TypeError" && /fail|fetch|network/i.test(m)) {
+        let serverHost = "127.0.0.1:11434";
+        try {
+          serverHost = new URL(base).host || serverHost;
+        } catch (_) {
+          /* keep default host hint */
+        }
+        throw new Error(
+          `Could not reach the local model server at ${base}. Start your local model server, e.g. Ollama on ${serverHost}, then try again.`,
+        );
+      }
+      throw e instanceof Error ? e : new Error(String(e));
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const msg = data.error?.message || `HTTP ${resp.status}`;
+      throw new Error(msg);
+    }
+    const text = data.choices?.[0]?.message?.content || "";
+    if (!text.trim()) throw new Error("Empty response from the local model server.");
     return extractInsights(text);
   }
 
@@ -375,6 +820,12 @@
     if (g.provider === "anthropic") {
       return !!g.resumeAnthropicApiKey;
     }
+    if (g.provider === "openrouter") {
+      return !!g.resumeOpenRouterApiKey;
+    }
+    if (g.provider === "local") {
+      return !!(g.resumeLocalBaseUrl && g.resumeLocalModel);
+    }
     return !!g.resumeGeminiApiKey;
   }
 
@@ -414,6 +865,34 @@
       );
     }
 
+    if (g.provider === "openrouter") {
+      if (!g.resumeOpenRouterApiKey) {
+        throw new Error(
+          "Add a free OpenRouter key in Settings (get one at https://openrouter.ai/keys) or switch resumeProvider.",
+        );
+      }
+      return callOpenRouter(
+        bundle,
+        g.resumeOpenRouterApiKey,
+        g.resumeOpenRouterModel,
+        g.resumeOpenRouterBaseUrl,
+      );
+    }
+
+    if (g.provider === "local") {
+      if (!g.resumeLocalBaseUrl || !g.resumeLocalModel) {
+        throw new Error(
+          "Set resumeLocalBaseUrl and resumeLocalModel in config.js for the local provider (default Ollama: http://127.0.0.1:11434/v1, gemma4:e2b).",
+        );
+      }
+      return callLocal(
+        bundle,
+        g.resumeLocalApiKey,
+        g.resumeLocalModel,
+        g.resumeLocalBaseUrl,
+      );
+    }
+
     if (!g.resumeGeminiApiKey) {
       throw new Error(
         "Set resumeGeminiApiKey in config.js for Gemini (or switch resumeProvider).",
@@ -422,11 +901,20 @@
     return callGemini(bundle, g.resumeGeminiApiKey, g.resumeGeminiModel);
   }
 
+  const browserAiProvider = {
+    getResumeGenerationConfig,
+    callConfiguredAi,
+    parseConfiguredAiJson,
+  };
+
+  window.CommandCenterBrowserAiProvider = browserAiProvider;
   window.CommandCenterResumeGenerate = {
     getResumeGenerationConfig,
     generateFromBundle,
     buildSystemPrompt,
     extractInsights,
     isResumeGenerationConfigured,
+    callConfiguredAi,
+    parseConfiguredAiJson,
   };
 })();

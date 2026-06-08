@@ -110,12 +110,15 @@ function persistOAuthSession() {
 }
 
 function persistRuntimeOAuthSession() {
-  // Runtime session (access token + expiry) lives in localStorage so it
-  // survives hard refresh. Token is short-lived (~1h) and auto-expires via
-  // the loadPersistedRuntimeOAuthSession expiry check below.
-  if (!canUseLocalStorage() || !tokenExpiresAt || !accessToken) {
+  // Runtime session (access token + expiry) lives in sessionStorage, NOT
+  // localStorage: the bearer token is scoped to all of the user's Sheets, so we
+  // keep it per-tab and ephemeral (cleared when the tab closes, never shared
+  // across tabs or browser restarts) to shrink the XSS/exfiltration window.
+  // It still survives a hard refresh within the tab; a new tab silently
+  // re-acquires via GIS prompt:"none" using the localStorage identity marker.
+  if (!canUseSessionStorage() || !tokenExpiresAt || !accessToken) {
     console.info(
-      `[JobBored][auth] persist: skipped (ls=${canUseLocalStorage()} exp=${!!tokenExpiresAt} tok=${!!accessToken})`,
+      `[JobBored][auth] persist: skipped (ss=${canUseSessionStorage()} exp=${!!tokenExpiresAt} tok=${!!accessToken})`,
     );
     return;
   }
@@ -125,7 +128,7 @@ function persistRuntimeOAuthSession() {
     return;
   }
   try {
-    localStorage.setItem(
+    sessionStorage.setItem(
       OAUTH_RUNTIME_SESSION_STORAGE_KEY,
       JSON.stringify({
         accessToken,
@@ -143,10 +146,11 @@ function persistRuntimeOAuthSession() {
   } catch (e) {
     console.warn("[JobBored][auth] persist: exception", e);
   }
-  // Best-effort cleanup of legacy sessionStorage entry from earlier versions.
-  if (canUseSessionStorage()) {
+  // Purge any durable token written by an older build (the token must never
+  // live in localStorage).
+  if (canUseLocalStorage()) {
     try {
-      sessionStorage.removeItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
+      localStorage.removeItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
     } catch (e) {
       /* ignore */
     }
@@ -224,8 +228,8 @@ function loadPersistedOAuthSession() {
 }
 
 function loadPersistedRuntimeOAuthSession() {
-  if (!canUseLocalStorage()) {
-    console.info("[JobBored][auth] restore: localStorage unavailable");
+  if (!canUseSessionStorage()) {
+    console.info("[JobBored][auth] restore: sessionStorage unavailable");
     return null;
   }
   const cid = host().getOAuthClientId();
@@ -234,16 +238,14 @@ function loadPersistedRuntimeOAuthSession() {
     return null;
   }
   try {
-    let raw = localStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
-    // Migration from v<12: read any legacy sessionStorage entry, promote it
-    // to localStorage on the fly so the first refresh after upgrade Just Works.
-    if (!raw && canUseSessionStorage()) {
+    let raw = sessionStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
+    // An older build durably persisted the token to localStorage. Never read it
+    // back into use; delete it so the token stops living on disk.
+    if (canUseLocalStorage()) {
       try {
-        raw = sessionStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
-        if (raw) {
-          localStorage.setItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY, raw);
-          sessionStorage.removeItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
-          console.info("[JobBored][auth] restore: promoted legacy sessionStorage entry");
+        if (localStorage.getItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY)) {
+          localStorage.removeItem(OAUTH_RUNTIME_SESSION_STORAGE_KEY);
+          console.info("[JobBored][auth] restore: purged legacy localStorage token");
         }
       } catch (e) {
         /* ignore */
@@ -818,9 +820,18 @@ async function toggleAuthUserMenu() {
   const toggle = document.getElementById("authMenuToggle");
   if (!menu || !toggle) return;
   const willOpen = !!menu.hidden;
-  if (willOpen) await host().refreshPersonalPreferencesPanel();
   menu.hidden = !willOpen;
   toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+  if (willOpen) {
+    // Refresh AFTER opening: the panel reads the user-content IndexedDB, and
+    // a wedged DB (blocked "Clear settings" delete in another tab) must
+    // never keep the menu from opening.
+    try {
+      await host().refreshPersonalPreferencesPanel();
+    } catch (e) {
+      console.warn("[JobBored] preferences panel refresh failed:", e);
+    }
+  }
 }
 
 let authUserMenuInitialized = false;

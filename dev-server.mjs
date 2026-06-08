@@ -7,6 +7,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
 import { expandIndexIncludes } from "./scripts/lib/expand-index-includes.mjs";
+import { applyDiscoveryWorkerLlmAliases } from "./scripts/lib/llm-env.mjs";
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -327,7 +328,7 @@ export function buildDiscoveryWorkerEnv(port, baseEnv = process.env) {
   } else {
     delete env.BROWSER_USE_DISCOVERY_GEMINI_API_KEY;
   }
-  return env;
+  return applyDiscoveryWorkerLlmAliases(env);
 }
 
 async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {

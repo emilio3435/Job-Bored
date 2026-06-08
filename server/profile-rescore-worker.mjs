@@ -14,9 +14,9 @@
  * worker-config + service-account file shared with the discovery worker is
  * the single source of truth.
  *
- * Concurrency: capped at 3 in-flight Gemini calls. With Gemini 2.x flash
- * quotas in the free tier sitting around 15 RPM, three concurrent requests
- * leaves headroom for short delays + retries without manual rate limiting.
+ * Concurrency: capped at 3 in-flight LLM calls. Three concurrent requests
+ * leaves headroom for short delays + retries without manual rate limiting on
+ * common free-tier providers.
  *
  * SSE contract (consumed by fit-profile-backcompat.js):
  *   event: progress  data: { row, total, status, fitScore?, reason? }
@@ -43,10 +43,153 @@ const READ_RANGE = `${PIPELINE_SHEET_NAME}!A2:X`;
 const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 
-const MAX_CONCURRENT_GEMINI = 3;
-const GEMINI_MIN_GAP_MS = 250;
+const MAX_CONCURRENT_LLM = 3;
+const LLM_MIN_GAP_MS = 250;
 // Hard cap so a runaway sheet doesn't blow through the quota silently.
 const MAX_ROWS = 500;
+
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
+const DEFAULT_OPENROUTER_MODEL = "openai/gpt-oss-120b:free";
+const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const DEFAULT_LOCAL_MODEL = "gemma4:e2b";
+const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:11434/v1";
+const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6";
+const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
+
+const PROVIDER_DEFINITIONS = Object.freeze({
+  gemini: {
+    displayName: "Gemini",
+    defaultModel: DEFAULT_GEMINI_MODEL,
+    requiresApiKey: true,
+    apiKeyEnvVars: [
+      "PROFILE_RESCORE_GEMINI_API_KEY",
+      "ATS_GEMINI_API_KEY",
+      "GEMINI_API_KEY",
+      "BROWSER_USE_DISCOVERY_GEMINI_API_KEY",
+    ],
+    modelEnvVars: [
+      "PROFILE_RESCORE_GEMINI_MODEL",
+      "ATS_GEMINI_MODEL",
+      "GEMINI_MODEL",
+      "BROWSER_USE_DISCOVERY_GEMINI_MODEL",
+    ],
+  },
+  openrouter: {
+    displayName: "OpenRouter",
+    defaultModel: DEFAULT_OPENROUTER_MODEL,
+    defaultBaseUrl: DEFAULT_OPENROUTER_BASE_URL,
+    requiresApiKey: true,
+    apiKeyEnvVars: [
+      "PROFILE_RESCORE_OPENROUTER_API_KEY",
+      "ATS_OPENROUTER_API_KEY",
+      "OPENROUTER_API_KEY",
+    ],
+    modelEnvVars: [
+      "PROFILE_RESCORE_OPENROUTER_MODEL",
+      "ATS_OPENROUTER_MODEL",
+      "OPENROUTER_MODEL",
+    ],
+    baseUrlEnvVars: [
+      "PROFILE_RESCORE_OPENROUTER_BASE_URL",
+      "ATS_OPENROUTER_BASE_URL",
+      "OPENROUTER_BASE_URL",
+    ],
+  },
+  local: {
+    displayName: "local OpenAI-compatible",
+    defaultModel: DEFAULT_LOCAL_MODEL,
+    defaultBaseUrl: DEFAULT_LOCAL_BASE_URL,
+    requiresApiKey: false,
+    apiKeyEnvVars: [
+      "PROFILE_RESCORE_LOCAL_API_KEY",
+      "PROFILE_RESCORE_OPENAI_COMPATIBLE_API_KEY",
+      "ATS_OPENAI_COMPATIBLE_API_KEY",
+      "LOCAL_AI_API_KEY",
+    ],
+    modelEnvVars: [
+      "PROFILE_RESCORE_LOCAL_MODEL",
+      "PROFILE_RESCORE_OPENAI_COMPATIBLE_MODEL",
+      "ATS_OPENAI_COMPATIBLE_MODEL",
+      "LOCAL_AI_MODEL",
+    ],
+    baseUrlEnvVars: [
+      "PROFILE_RESCORE_LOCAL_BASE_URL",
+      "PROFILE_RESCORE_OPENAI_COMPATIBLE_BASE_URL",
+      "ATS_OPENAI_COMPATIBLE_BASE_URL",
+      "LOCAL_AI_BASE_URL",
+    ],
+  },
+  openai_compatible: {
+    displayName: "OpenAI-compatible",
+    defaultModel: DEFAULT_LOCAL_MODEL,
+    defaultBaseUrl: DEFAULT_LOCAL_BASE_URL,
+    requiresApiKey: false,
+    apiKeyEnvVars: [
+      "PROFILE_RESCORE_LOCAL_API_KEY",
+      "PROFILE_RESCORE_OPENAI_COMPATIBLE_API_KEY",
+      "ATS_OPENAI_COMPATIBLE_API_KEY",
+      "LOCAL_AI_API_KEY",
+    ],
+    modelEnvVars: [
+      "PROFILE_RESCORE_LOCAL_MODEL",
+      "PROFILE_RESCORE_OPENAI_COMPATIBLE_MODEL",
+      "ATS_OPENAI_COMPATIBLE_MODEL",
+      "LOCAL_AI_MODEL",
+    ],
+    baseUrlEnvVars: [
+      "PROFILE_RESCORE_LOCAL_BASE_URL",
+      "PROFILE_RESCORE_OPENAI_COMPATIBLE_BASE_URL",
+      "ATS_OPENAI_COMPATIBLE_BASE_URL",
+      "LOCAL_AI_BASE_URL",
+    ],
+  },
+  openai: {
+    displayName: "OpenAI",
+    defaultModel: DEFAULT_OPENAI_MODEL,
+    defaultBaseUrl: DEFAULT_OPENAI_BASE_URL,
+    requiresApiKey: true,
+    apiKeyEnvVars: [
+      "PROFILE_RESCORE_OPENAI_API_KEY",
+      "ATS_OPENAI_API_KEY",
+      "OPENAI_API_KEY",
+    ],
+    modelEnvVars: [
+      "PROFILE_RESCORE_OPENAI_MODEL",
+      "ATS_OPENAI_MODEL",
+      "OPENAI_MODEL",
+    ],
+    baseUrlEnvVars: [
+      "PROFILE_RESCORE_OPENAI_BASE_URL",
+      "ATS_OPENAI_BASE_URL",
+      "OPENAI_BASE_URL",
+    ],
+  },
+  anthropic: {
+    displayName: "Anthropic",
+    defaultModel: DEFAULT_ANTHROPIC_MODEL,
+    defaultBaseUrl: DEFAULT_ANTHROPIC_BASE_URL,
+    requiresApiKey: true,
+    apiKeyEnvVars: [
+      "PROFILE_RESCORE_ANTHROPIC_API_KEY",
+      "ATS_ANTHROPIC_API_KEY",
+      "ANTHROPIC_API_KEY",
+    ],
+    modelEnvVars: [
+      "PROFILE_RESCORE_ANTHROPIC_MODEL",
+      "ATS_ANTHROPIC_MODEL",
+      "ANTHROPIC_MODEL",
+    ],
+    baseUrlEnvVars: [
+      "PROFILE_RESCORE_ANTHROPIC_BASE_URL",
+      "ATS_ANTHROPIC_BASE_URL",
+      "ANTHROPIC_BASE_URL",
+    ],
+  },
+});
+
+const SUPPORTED_CHAT_PROVIDERS = new Set(Object.keys(PROVIDER_DEFINITIONS));
 
 // Column indices (0-based within the row array, matching PIPELINE_HEADER_ROW).
 const COL = {
@@ -303,7 +446,165 @@ async function writeRowScoreCells({
   }
 }
 
-/* ─── Gemini prompt + response handling (mirrors profile-aware-scorer.ts) ─ */
+/* ─── Chat provider config ─────────────────────────────────────────────── */
+
+function firstNonEmpty(values) {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function firstEnv(env, names) {
+  return firstNonEmpty(names.map((name) => env[name]));
+}
+
+function normalizeProviderName(value) {
+  const raw = String(value || "gemini")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  if (raw === "openai_compatible" || raw === "openai_compat") {
+    return "openai_compatible";
+  }
+  if (raw === "ollama") return "local";
+  return raw || "gemini";
+}
+
+function getProviderDefinition(provider) {
+  return PROVIDER_DEFINITIONS[provider] || null;
+}
+
+function providerDisplayName(provider) {
+  const definition = getProviderDefinition(provider);
+  if (definition) return definition.displayName;
+  return provider || "LLM provider";
+}
+
+function stripTrailingSlash(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function defaultModelForProvider(provider) {
+  return getProviderDefinition(provider)?.defaultModel || "";
+}
+
+function defaultBaseUrlForProvider(provider) {
+  return getProviderDefinition(provider)?.defaultBaseUrl || "";
+}
+
+function normalizeProfileRescoreProviderConfig(input = {}) {
+  const provider = normalizeProviderName(input.provider);
+  const apiKey = firstNonEmpty([
+    input.apiKey,
+    input.geminiApiKey,
+    input.openRouterApiKey,
+    input.openAIApiKey,
+    input.anthropicApiKey,
+  ]);
+  const model =
+    firstNonEmpty([input.model, input.geminiModel]) ||
+    defaultModelForProvider(provider);
+  const baseUrl = stripTrailingSlash(
+    input.baseUrl || defaultBaseUrlForProvider(provider),
+  );
+  return {
+    provider,
+    apiKey,
+    model,
+    baseUrl,
+    requiredEnvVars: Array.isArray(input.requiredEnvVars)
+      ? input.requiredEnvVars.map(String)
+      : [],
+  };
+}
+
+export function getProfileRescoreProviderConfigFromEnv(env = process.env) {
+  const provider = normalizeProviderName(
+    firstEnv(env, [
+      "PROFILE_RESCORE_PROVIDER",
+      "JOBBORED_PROFILE_RESCORE_PROVIDER",
+      "ATS_PROFILE_RESCORE_PROVIDER",
+      "ATS_PROVIDER",
+    ]) || "gemini",
+  );
+  const definition = getProviderDefinition(provider);
+  if (!definition) return normalizeProfileRescoreProviderConfig({ provider });
+  const requiredEnvVars = definition.requiresApiKey
+    ? definition.apiKeyEnvVars
+    : definition.baseUrlEnvVars || [];
+  return normalizeProfileRescoreProviderConfig({
+    provider,
+    apiKey: firstEnv(env, definition.apiKeyEnvVars || []),
+    model: firstEnv(env, definition.modelEnvVars || []) || definition.defaultModel,
+    baseUrl:
+      firstEnv(env, definition.baseUrlEnvVars || []) || definition.defaultBaseUrl,
+    requiredEnvVars,
+  });
+}
+
+export function getProfileRescoreProviderStatus(
+  config = getProfileRescoreProviderConfigFromEnv(),
+) {
+  const cfg = normalizeProfileRescoreProviderConfig(config);
+  const definition = getProviderDefinition(cfg.provider);
+  if (!definition) {
+    return {
+      configured: false,
+      provider: cfg.provider,
+      reason: "unsupported_provider",
+      detail: `Unsupported profile rescore provider "${cfg.provider}". Supported providers: ${[
+        ...SUPPORTED_CHAT_PROVIDERS,
+      ].join(", ")}.`,
+    };
+  }
+  if (!cfg.model) {
+    return {
+      configured: false,
+      provider: cfg.provider,
+      reason: "missing_model",
+      detail: `Missing ${providerDisplayName(cfg.provider)} model for profile rescore.`,
+    };
+  }
+  if (
+    (cfg.provider === "local" ||
+      cfg.provider === "openai_compatible" ||
+      cfg.provider === "openrouter" ||
+      cfg.provider === "openai") &&
+    !cfg.baseUrl
+  ) {
+    return {
+      configured: false,
+      provider: cfg.provider,
+      reason: "missing_base_url",
+      detail: `Missing ${providerDisplayName(cfg.provider)} base URL for profile rescore.`,
+      requiredEnvVars: cfg.requiredEnvVars,
+    };
+  }
+  if (definition.requiresApiKey && !cfg.apiKey) {
+    const requiredEnvVars = cfg.requiredEnvVars.length
+      ? cfg.requiredEnvVars
+      : definition.apiKeyEnvVars;
+    return {
+      configured: false,
+      provider: cfg.provider,
+      reason: "missing_api_key",
+      detail: `Missing ${providerDisplayName(
+        cfg.provider,
+      )} API key for profile rescore. Set one of: ${requiredEnvVars.join(", ")}.`,
+      requiredEnvVars,
+    };
+  }
+  return {
+    configured: true,
+    provider: cfg.provider,
+    reason: "",
+    detail: "",
+  };
+}
+
+/* ─── Prompt + response handling (mirrors profile-aware-scorer.ts) ─────── */
 
 function buildSystemPrompt(profile) {
   const lines = [];
@@ -412,8 +713,99 @@ function extractGeminiText(payload) {
     .join("");
 }
 
+function tryParseEmbeddedJson(raw) {
+  for (let start = 0; start < raw.length; start += 1) {
+    const opener = raw[start];
+    if (opener !== "{" && opener !== "[") continue;
+    const stack = [opener];
+    let inString = false;
+    let escaped = false;
+    for (let i = start + 1; i < raw.length; i += 1) {
+      const ch = raw[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\" && inString) {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch === "{" || ch === "[") {
+        stack.push(ch);
+        continue;
+      }
+      if (ch !== "}" && ch !== "]") continue;
+      const expected = stack[stack.length - 1];
+      const matches =
+        (expected === "{" && ch === "}") || (expected === "[" && ch === "]");
+      if (!matches) break;
+      stack.pop();
+      if (stack.length) continue;
+      try {
+        return JSON.parse(raw.slice(start, i + 1).trim());
+      } catch {
+        break;
+      }
+    }
+  }
+  return undefined;
+}
+
+function parseJsonFromProviderText(text, providerLabel) {
+  const raw = String(text || "").trim();
+  if (!raw) throw new Error(`${providerLabel} returned empty content`);
+  const fenced = /^```(?:json)?\s*([\s\S]*?)```$/m.exec(raw);
+  const cleaned = fenced ? fenced[1].trim() : raw;
+  try {
+    return JSON.parse(cleaned);
+  } catch (err) {
+    if (!(cleaned.startsWith("{") || cleaned.startsWith("["))) {
+      const embedded = tryParseEmbeddedJson(cleaned);
+      if (embedded !== undefined) return embedded;
+    }
+    throw new Error(`${providerLabel} returned invalid JSON: ${err.message}`);
+  }
+}
+
+function normalizeScoreResponse(parsed, providerLabel) {
+  const rawScore =
+    typeof parsed.fitScore === "number" ? parsed.fitScore : Number(parsed.fitScore);
+  if (!Number.isFinite(rawScore)) {
+    throw new Error(`${providerLabel} response missing numeric fitScore`);
+  }
+  const fitScore = Math.max(1, Math.min(10, Math.round(rawScore)));
+  const band = deriveBand(fitScore);
+  return {
+    fitScore,
+    band,
+    perStrength: Array.isArray(parsed.perStrength) ? parsed.perStrength : [],
+    concerns: Array.isArray(parsed.concerns) ? parsed.concerns.filter(Boolean) : [],
+    matches: Array.isArray(parsed.matches) ? parsed.matches.filter(Boolean) : [],
+    rationale: String(parsed.rationale || ""),
+    leadAngle:
+      typeof parsed.leadAngle === "string" && parsed.leadAngle.trim()
+        ? parsed.leadAngle.trim()
+        : "",
+  };
+}
+
+function buildChatJsonSystemPrompt(profile) {
+  return [
+    buildSystemPrompt(profile),
+    "",
+    "Return ONLY a JSON object. Do not wrap it in markdown.",
+    "JSON schema:",
+    JSON.stringify(buildResponseSchema(profile)),
+  ].join("\n");
+}
+
 async function scoreOneWithGemini({ profile, rawListing, geminiApiKey, geminiModel }) {
-  const model = geminiModel || "gemini-3.5-flash";
+  const model = geminiModel || DEFAULT_GEMINI_MODEL;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
   const body = {
     systemInstruction: { parts: [{ text: buildSystemPrompt(profile) }] },
@@ -437,31 +829,83 @@ async function scoreOneWithGemini({ profile, rawListing, geminiApiKey, geminiMod
   const json = await resp.json().catch(() => null);
   const text = extractGeminiText(json);
   if (!text) throw new Error("Gemini returned empty content");
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch (e) {
-    throw new Error(`Gemini returned invalid JSON: ${e.message}`);
-  }
-  const rawScore =
-    typeof parsed.fitScore === "number" ? parsed.fitScore : Number(parsed.fitScore);
-  if (!Number.isFinite(rawScore)) {
-    throw new Error("Gemini response missing numeric fitScore");
-  }
-  const fitScore = Math.max(1, Math.min(10, Math.round(rawScore)));
-  const band = deriveBand(fitScore);
-  return {
-    fitScore,
-    band,
-    perStrength: Array.isArray(parsed.perStrength) ? parsed.perStrength : [],
-    concerns: Array.isArray(parsed.concerns) ? parsed.concerns.filter(Boolean) : [],
-    matches: Array.isArray(parsed.matches) ? parsed.matches.filter(Boolean) : [],
-    rationale: String(parsed.rationale || ""),
-    leadAngle:
-      typeof parsed.leadAngle === "string" && parsed.leadAngle.trim()
-        ? parsed.leadAngle.trim()
-        : "",
+  return normalizeScoreResponse(parseJsonFromProviderText(text, "Gemini"), "Gemini");
+}
+
+async function scoreOneWithChatCompletions({ profile, rawListing, providerConfig }) {
+  const cfg = normalizeProfileRescoreProviderConfig(providerConfig);
+  const label = providerDisplayName(cfg.provider);
+  const body = {
+    model: cfg.model,
+    messages: [
+      { role: "system", content: buildChatJsonSystemPrompt(profile) },
+      { role: "user", content: buildUserPrompt(rawListing) },
+    ],
+    temperature: 0.2,
+    max_tokens: 2048,
   };
+  const headers = { "Content-Type": "application/json" };
+  if (cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`;
+  const resp = await fetch(`${cfg.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const errBody = await resp.text().catch(() => "");
+    throw new Error(`${label} HTTP ${resp.status}: ${errBody.slice(0, 240)}`);
+  }
+  const json = await resp.json().catch(() => null);
+  const text = String(json?.choices?.[0]?.message?.content || "");
+  return normalizeScoreResponse(parseJsonFromProviderText(text, label), label);
+}
+
+async function scoreOneWithAnthropic({ profile, rawListing, providerConfig }) {
+  const cfg = normalizeProfileRescoreProviderConfig(providerConfig);
+  const body = {
+    model: cfg.model,
+    max_tokens: 2048,
+    temperature: 0.2,
+    system: buildChatJsonSystemPrompt(profile),
+    messages: [{ role: "user", content: buildUserPrompt(rawListing) }],
+  };
+  const resp = await fetch(`${cfg.baseUrl}/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": cfg.apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const errBody = await resp.text().catch(() => "");
+    throw new Error(`Anthropic HTTP ${resp.status}: ${errBody.slice(0, 240)}`);
+  }
+  const json = await resp.json().catch(() => null);
+  const text = Array.isArray(json?.content)
+    ? json.content
+        .filter((part) => part && part.type === "text")
+        .map((part) => part.text || "")
+        .join("")
+    : "";
+  return normalizeScoreResponse(parseJsonFromProviderText(text, "Anthropic"), "Anthropic");
+}
+
+async function scoreOneWithProvider({ profile, rawListing, providerConfig }) {
+  const cfg = normalizeProfileRescoreProviderConfig(providerConfig);
+  if (cfg.provider === "gemini") {
+    return scoreOneWithGemini({
+      profile,
+      rawListing,
+      geminiApiKey: cfg.apiKey,
+      geminiModel: cfg.model,
+    });
+  }
+  if (cfg.provider === "anthropic") {
+    return scoreOneWithAnthropic({ profile, rawListing, providerConfig: cfg });
+  }
+  return scoreOneWithChatCompletions({ profile, rawListing, providerConfig: cfg });
 }
 
 /* ─── Per-row pipeline: build RawListing → score → format cells ──────────── */
@@ -557,11 +1001,12 @@ function classifyRowForRescore(row) {
  * @param {object} args
  * @param {object} args.profile - the canonical UserProfile JSON
  * @param {string} args.sheetId - target Google Sheet ID
- * @param {string} args.geminiApiKey - Gemini API key
- * @param {string} [args.geminiModel] - Gemini model (default gemini-3.5-flash)
+ * @param {object} [args.providerConfig] - selected chat provider config
+ * @param {string} [args.geminiApiKey] - legacy Gemini API key
+ * @param {string} [args.geminiModel] - legacy Gemini model
  * @param {string} [args.overrideToken] - explicit Sheets access token (for tests)
  * @param {boolean} [args.dryRun] - if true, returns the rescorable row count
- *                                  without calling Gemini or writing anything.
+ *                                  without calling an LLM or writing anything.
  * @param {(evt: object) => void} [args.onProgress] - per-row + terminal events
  * @param {AbortSignal} [args.signal] - early abort
  * @returns {Promise<{rescored:number, skipped:number, failed:number, total:number}>}
@@ -569,6 +1014,7 @@ function classifyRowForRescore(row) {
 export async function rescoreAllPipelineRows({
   profile,
   sheetId,
+  providerConfig,
   geminiApiKey,
   geminiModel,
   overrideToken,
@@ -629,15 +1075,23 @@ export async function rescoreAllPipelineRows({
     return result;
   }
 
-  if (!geminiApiKey || !String(geminiApiKey).trim()) {
-    throw new Error("rescoreAllPipelineRows: geminiApiKey is required for non-dryRun");
+  const chatProviderConfig = normalizeProfileRescoreProviderConfig(
+    providerConfig || {
+      provider: "gemini",
+      apiKey: geminiApiKey,
+      model: geminiModel,
+    },
+  );
+  const providerStatus = getProfileRescoreProviderStatus(chatProviderConfig);
+  if (!providerStatus.configured) {
+    throw new Error(`rescoreAllPipelineRows: ${providerStatus.detail}`);
   }
 
   let rescored = 0;
   let failed = 0;
   let lastCallEnd = 0;
 
-  await runWithConcurrency(candidates, MAX_CONCURRENT_GEMINI, async ({ rowNumber, row }) => {
+  await runWithConcurrency(candidates, MAX_CONCURRENT_LLM, async ({ rowNumber, row }) => {
     if (signal && signal.aborted) {
       failed += 1;
       emit({ kind: "progress", row: rowNumber, status: "failed", reason: "aborted" });
@@ -645,8 +1099,8 @@ export async function rescoreAllPipelineRows({
     }
     // Soft global gap so we don't fire three calls in the same millisecond.
     const gap = Date.now() - lastCallEnd;
-    if (gap < GEMINI_MIN_GAP_MS) {
-      await new Promise((r) => setTimeout(r, GEMINI_MIN_GAP_MS - gap));
+    if (gap < LLM_MIN_GAP_MS) {
+      await new Promise((r) => setTimeout(r, LLM_MIN_GAP_MS - gap));
     }
 
     try {
@@ -661,11 +1115,10 @@ export async function rescoreAllPipelineRows({
           status: "no_description",
         });
       }
-      const score = await scoreOneWithGemini({
+      const score = await scoreOneWithProvider({
         profile,
         rawListing,
-        geminiApiKey,
-        geminiModel,
+        providerConfig: chatProviderConfig,
       });
       await writeRowScoreCells({
         sheetId,

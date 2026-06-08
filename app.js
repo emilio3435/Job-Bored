@@ -299,6 +299,7 @@ function registerBridgeHosts() {
     buildDiscoveryWebhookPayload,
     cacheEnrichment,
     canUseLocalStorage,
+    checkInfraSetupGate,
     checkOnboardingGate,
     clearDiscoveryWizardRuntime,
     clearPersistedOAuthSession,
@@ -414,6 +415,7 @@ function registerBridgeHosts() {
     isIngestSheetAuthFailure,
     isLikelyAppsScriptWebAppUrl,
     isLikelyCloudflareWorkerUrl,
+    isFirstRunWizardVisible,
     isLikelyNgrokWebhookUrl,
     isLocalDashboardOrigin,
     isLocalWebhookCandidateUrl,
@@ -481,6 +483,7 @@ function registerBridgeHosts() {
     resumePendingDiscoverySetupIfNeeded,
     revealSetupScreenAfterAuth,
     runPostAccessBootstrapOnce,
+    runResumeGeneration,
     sameDiscoveryUrlOrigin,
     selectedResponseSheetValue,
     setActiveDetailKey,
@@ -521,6 +524,7 @@ function registerBridgeHosts() {
     warnDiscoverySourceReadinessBeforeRun,
     writeDiscoveryTransportSetupState,
     writeStoredConfigOverrides,
+    buildGreenfieldOverrideMask,
     applyEnrichmentCache,
   });
 }

@@ -538,6 +538,18 @@ function initOnboardingWizard(...args) {
 }
 
 
+// --- First-run infra wizard (extracted to first-run-wizard.js) ---
+function isFirstRunWizardVisible(...args) {
+  return window.JobBoredApp.firstRunWizard.isFirstRunWizardVisible(...args);
+}
+function showFirstRunWizard(...args) {
+  return window.JobBoredApp.firstRunWizard.showFirstRunWizard(...args);
+}
+async function checkInfraSetupGate(...args) {
+  return window.JobBoredApp.firstRunWizard.checkInfraSetupGate(...args);
+}
+
+
 // --- Settings modal (extracted to settings-modal.js) ---
 function isSettingsModalOpen(...args) {
   return window.JobBoredApp.settings.isSettingsModalOpen(...args);
@@ -810,6 +822,10 @@ function mergeStoredConfigOverridePatch(patch) {
   return window.JobBoredApp.configOverrides.mergeStoredConfigOverridePatch(
     patch,
   );
+}
+
+function buildGreenfieldOverrideMask() {
+  return window.JobBoredApp.configOverrides.buildGreenfieldOverrideMask();
 }
 
 /** Merge values saved in this browser (localStorage) onto config from config.js. */

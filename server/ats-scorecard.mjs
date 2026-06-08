@@ -82,6 +82,9 @@ const ATS_RESPONSE_SCHEMA = {
 const SYSTEM_PROMPT =
   "You are an ATS and recruiter scorecard evaluator. Score ONLY from provided text, cite evidence snippets, and never fabricate claims. Output strict JSON matching the schema. Use concise, actionable rewrite suggestions.";
 
+const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
+const OPENROUTER_DEFAULT_MODEL = "openai/gpt-oss-120b:free";
+
 function normalizeSpace(s) {
   return String(s || "")
     .replace(/\r\n/g, "\n")
@@ -247,6 +250,8 @@ function extractProviderErrorDetails(payload) {
 }
 
 function providerDisplayName(provider) {
+  if (provider === "openrouter") return "OpenRouter";
+  if (provider === "openai_compatible") return "OpenAI-compatible";
   if (provider === "openai") return "OpenAI";
   if (provider === "anthropic") return "Anthropic";
   return "Gemini";
@@ -341,6 +346,13 @@ function openAISupportsStrictSchema(model) {
     m.startsWith("o3") ||
     m.startsWith("o4")
   );
+}
+
+function buildChatCompletionsUrl(baseUrl) {
+  const base = String(baseUrl || "").trim().replace(/\/+$/, "");
+  if (!base) return "";
+  if (/\/chat\/completions$/i.test(base)) return base;
+  return `${base}/chat/completions`;
 }
 
 function normalizeScore(v) {
@@ -561,6 +573,51 @@ async function callOpenAIJson(userPrompt, apiKey, model) {
   });
 }
 
+async function callOpenAICompatibleJson({
+  provider,
+  userPrompt,
+  apiKey,
+  baseUrl,
+  model,
+}) {
+  const label = providerDisplayName(provider);
+  const body = {
+    model,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userPrompt },
+    ],
+    temperature: 0.15,
+    max_tokens: 3500,
+  };
+  return withMalformedJsonRetry(label, async () => {
+    let resp;
+    try {
+      const headers = { "Content-Type": "application/json" };
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+      resp = await fetch(buildChatCompletionsUrl(baseUrl), {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      throw buildProviderRequestError(provider, error);
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw buildProviderHttpError({
+        provider,
+        upstreamStatus: resp.status,
+        payload: data,
+        fallbackMessage: `${label} HTTP ${resp.status}`,
+      });
+    }
+    const raw = data.choices?.[0]?.message?.content || "";
+    if (!raw.trim()) throw new Error(`${label} returned empty content`);
+    return parseJsonSafe(raw);
+  });
+}
+
 async function callAnthropicJson(userPrompt, apiKey, model) {
   const body = {
     model,
@@ -609,10 +666,24 @@ async function callAnthropicJson(userPrompt, apiKey, model) {
   });
 }
 
+function normalizeAtsProvider(value) {
+  const raw = String(value || "gemini")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (
+    raw === "openai" ||
+    raw === "anthropic" ||
+    raw === "openrouter" ||
+    raw === "openai_compatible"
+  ) {
+    return raw;
+  }
+  return "gemini";
+}
+
 export function getProviderConfigFromEnv() {
-  const providerRaw = String(process.env.ATS_PROVIDER || "gemini").toLowerCase();
-  const provider =
-    providerRaw === "openai" || providerRaw === "anthropic" ? providerRaw : "gemini";
+  const provider = normalizeAtsProvider(process.env.ATS_PROVIDER || "gemini");
   return {
     provider,
     geminiApiKey: String(
@@ -624,9 +695,42 @@ export function getProviderConfigFromEnv() {
     anthropicApiKey: String(
       process.env.ATS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || "",
     ).trim(),
+    openRouterApiKey: String(
+      process.env.ATS_OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY || "",
+    ).trim(),
+    openAICompatibleApiKey: String(
+      process.env.ATS_OPENAI_COMPATIBLE_API_KEY ||
+        process.env.ATS_OPENAI_COMPAT_API_KEY ||
+        process.env.OPENAI_COMPATIBLE_API_KEY ||
+        process.env.OPENAI_API_KEY ||
+        "",
+    ).trim(),
     geminiModel: String(process.env.ATS_GEMINI_MODEL || "gemini-3.5-flash").trim(),
     openAIModel: String(process.env.ATS_OPENAI_MODEL || "gpt-5.4-mini").trim(),
     anthropicModel: String(process.env.ATS_ANTHROPIC_MODEL || "claude-sonnet-4-6").trim(),
+    openRouterModel: String(
+      process.env.ATS_OPENROUTER_MODEL ||
+        process.env.OPENROUTER_MODEL ||
+        OPENROUTER_DEFAULT_MODEL,
+    ).trim(),
+    openRouterBaseUrl: String(
+      process.env.ATS_OPENROUTER_BASE_URL ||
+        process.env.OPENROUTER_BASE_URL ||
+        OPENROUTER_DEFAULT_BASE_URL,
+    ).trim(),
+    openAICompatibleModel: String(
+      process.env.ATS_OPENAI_COMPATIBLE_MODEL ||
+        process.env.ATS_OPENAI_COMPAT_MODEL ||
+        process.env.OPENAI_COMPATIBLE_MODEL ||
+        "",
+    ).trim(),
+    openAICompatibleBaseUrl: String(
+      process.env.ATS_OPENAI_COMPATIBLE_BASE_URL ||
+        process.env.ATS_OPENAI_COMPAT_BASE_URL ||
+        process.env.OPENAI_COMPATIBLE_BASE_URL ||
+        process.env.OPENAI_BASE_URL ||
+        "",
+    ).trim(),
   };
 }
 
@@ -650,6 +754,31 @@ export function getAtsConfigStatus() {
         provider: cfg.provider,
         reason:
           "Missing API key: set ATS_ANTHROPIC_API_KEY or ANTHROPIC_API_KEY when ATS_PROVIDER=anthropic.",
+      };
+    }
+    return { configured: true, provider: cfg.provider, reason: "" };
+  }
+  if (cfg.provider === "openrouter") {
+    if (!cfg.openRouterApiKey) {
+      return {
+        configured: false,
+        provider: cfg.provider,
+        reason:
+          "Missing API key: set ATS_OPENROUTER_API_KEY or OPENROUTER_API_KEY when ATS_PROVIDER=openrouter.",
+      };
+    }
+    return { configured: true, provider: cfg.provider, reason: "" };
+  }
+  if (cfg.provider === "openai_compatible") {
+    if (
+      !cfg.openAICompatibleBaseUrl ||
+      !cfg.openAICompatibleModel
+    ) {
+      return {
+        configured: false,
+        provider: cfg.provider,
+        reason:
+          "Missing OpenAI-compatible ATS config: set ATS_OPENAI_COMPATIBLE_BASE_URL and ATS_OPENAI_COMPATIBLE_MODEL when ATS_PROVIDER=openai_compatible. ATS_OPENAI_COMPATIBLE_API_KEY is optional for local servers.",
       };
     }
     return { configured: true, provider: cfg.provider, reason: "" };
@@ -682,6 +811,28 @@ export async function analyzeAtsScorecard(payload) {
   if (cfg.provider === "anthropic") {
     const model = cfg.anthropicModel;
     const parsed = await callAnthropicJson(userPrompt, cfg.anthropicApiKey, model);
+    return normalizeScorecard(parsed, model);
+  }
+  if (cfg.provider === "openrouter") {
+    const model = cfg.openRouterModel;
+    const parsed = await callOpenAICompatibleJson({
+      provider: cfg.provider,
+      userPrompt,
+      apiKey: cfg.openRouterApiKey,
+      baseUrl: cfg.openRouterBaseUrl,
+      model,
+    });
+    return normalizeScorecard(parsed, model);
+  }
+  if (cfg.provider === "openai_compatible") {
+    const model = cfg.openAICompatibleModel;
+    const parsed = await callOpenAICompatibleJson({
+      provider: cfg.provider,
+      userPrompt,
+      apiKey: cfg.openAICompatibleApiKey,
+      baseUrl: cfg.openAICompatibleBaseUrl,
+      model,
+    });
     return normalizeScorecard(parsed, model);
   }
   const model = cfg.geminiModel;

@@ -1,0 +1,251 @@
+/* ============================================
+   COMMAND CENTER v2 — "What's next" dashboard banner
+
+   Classic-global IIFE under window.JobBoredApp.whatsNextBanner — NOT an
+   ES module. Loaded AFTER first-run-wizard.js, BEFORE app.js. Owns the
+   dismissible progressive-disclosure banner that surfaces the two
+   OPTIONAL "what's next" steps after the first-run infra wizard is
+   finished (VAL-SIGN-001 / VAL-SIGN-002).
+
+   Visibility rule (VAL-SIGN-002): the banner renders ONLY when
+   infraSetupComplete is true AND whatsNextDismissed is false AND
+   UC.isOnboardingComplete() is true. The third gate ensures the banner
+   never competes with the separate profile wizard
+   (onboarding-wizard.js), which takes the full-viewport surface after
+   the infra wizard finishes.
+
+   The two CTA buttons share their handlers with the in-wizard terminal
+   #firstRunPanelDone so the destinations stay consistent across
+   surfaces. Dismiss writes the persisted flag and hides the section
+   permanently; the flag survives reloads via user-content-store.js's
+   settings store.
+   ============================================ */
+(() => {
+  const root = window.JobBoredApp || (window.JobBoredApp = {});
+  const banner = root.whatsNextBanner || (root.whatsNextBanner = {});
+
+  const REGION_SELECTOR = '[data-region="whats-next"]';
+
+  function getEl(id) {
+    return typeof document !== "undefined" ? document.getElementById(id) : null;
+  }
+
+  function getRegion() {
+    if (typeof document === "undefined") return null;
+    if (typeof document.querySelector !== "function") return null;
+    return document.querySelector(REGION_SELECTOR);
+  }
+
+  function hideBanner() {
+    const region = getRegion();
+    if (!region) return;
+    region.setAttribute("hidden", "hidden");
+    region.setAttribute("aria-hidden", "true");
+  }
+
+  function showBanner() {
+    const region = getRegion();
+    if (!region) return;
+    region.removeAttribute("hidden");
+    region.setAttribute("aria-hidden", "false");
+  }
+
+  function isBannerVisible() {
+    const region = getRegion();
+    if (!region) return false;
+    return !region.hasAttribute("hidden");
+  }
+
+  /**
+   * Read the gating state from the user content store. Returns null when
+   * the store is unavailable (treat as "do not render" — the banner is
+   * an opt-in signpost, never a hard requirement).
+   */
+  async function readGateState() {
+    const host =
+      (window.JobBoredApp && window.JobBoredApp.core && window.JobBoredApp.core.host) ||
+      null;
+    const UC = host && typeof host.getUserContent === "function"
+      ? host.getUserContent()
+      : null;
+    if (!UC) return null;
+    try {
+      if (typeof UC.openDb === "function") await UC.openDb();
+    } catch (_) {
+      // openDb's 5s watchdog will reject on a wedged DB; we treat that as
+      // "unknown" and stay hidden — the banner is non-critical.
+      return null;
+    }
+    const out = {
+      infraComplete: false,
+      dismissed: false,
+      onboardingComplete: false,
+    };
+    try {
+      out.infraComplete = !!(typeof UC.isInfraSetupComplete === "function"
+        ? await UC.isInfraSetupComplete()
+        : false);
+    } catch (_) {
+      out.infraComplete = false;
+    }
+    try {
+      out.dismissed = !!(typeof UC.getWhatsNextDismissed === "function"
+        ? await UC.getWhatsNextDismissed()
+        : false);
+    } catch (_) {
+      out.dismissed = false;
+    }
+    try {
+      out.onboardingComplete = !!(typeof UC.isOnboardingComplete === "function"
+        ? await UC.isOnboardingComplete()
+        : false);
+    } catch (_) {
+      out.onboardingComplete = false;
+    }
+    return out;
+  }
+
+  function shouldRenderBanner(state) {
+    if (!state) return false;
+    return (
+      state.infraComplete === true &&
+      state.dismissed === false &&
+      state.onboardingComplete === true
+    );
+  }
+
+  /**
+   * Re-evaluate the gating and apply visibility. Safe to call multiple
+   * times; cheap when the state hasn't changed. Used by init to set the
+   * initial visibility and by re-render hooks (e.g. after the profile
+   * wizard finishes — the onboardingComplete gate flips then).
+   */
+  async function refreshBanner() {
+    const state = await readGateState();
+    if (shouldRenderBanner(state)) {
+      showBanner();
+    } else {
+      hideBanner();
+    }
+    return state;
+  }
+
+  /**
+   * Dismiss handler — writes the persisted flag (so reloads stay clean)
+   * and hides the banner immediately. The IndexedDB write is fire-and-
+   * forget: the banner is already hidden in the DOM, so a slow write
+   * never blocks the user's UI.
+   */
+  async function handleDismiss() {
+    hideBanner();
+    try {
+      const host =
+        (window.JobBoredApp && window.JobBoredApp.core && window.JobBoredApp.core.host) ||
+        null;
+      const UC = host && typeof host.getUserContent === "function"
+        ? host.getUserContent()
+        : null;
+      if (
+        UC &&
+        typeof UC.openDb === "function" &&
+        typeof UC.setWhatsNextDismissed === "function"
+      ) {
+        await UC.openDb();
+        await UC.setWhatsNextDismissed(true);
+      }
+    } catch (e) {
+      console.warn("[JobBored] whats-next dismiss:", e);
+    }
+  }
+
+  /**
+   * "Turn on job discovery" CTA — opens the guided discovery setup
+   * wizard via the shared host.requestDiscoverySetup. Both wizards are
+   * already closed on the dashboard path (no deferral race), so a plain
+   * call is correct here.
+   */
+  function handleOpenDiscovery() {
+    const host =
+      (window.JobBoredApp && window.JobBoredApp.core && window.JobBoredApp.core.host) ||
+      null;
+    if (host && typeof host.requestDiscoverySetup === "function") {
+      try {
+        void host.requestDiscoverySetup({ entryPoint: "whats_next" });
+        return;
+      } catch (e) {
+        console.warn("[JobBored] whats-next discovery:", e);
+      }
+    }
+    if (typeof window.requestDiscoverySetup === "function") {
+      try {
+        void window.requestDiscoverySetup({ entryPoint: "whats_next" });
+      } catch (e) {
+        console.warn("[JobBored] whats-next discovery (global):", e);
+      }
+    }
+  }
+
+  /**
+   * "Use JobBored on other devices" CTA — opens the self-hosting / go-live
+   * guide (docs/SELF-HOSTING.md) in a new tab. The banner stays on screen
+   * so the user can still dismiss it or click the other CTA.
+   */
+  function handleOpenSelfHosting() {
+    try {
+      if (typeof window.open === "function") {
+        window.open("docs/SELF-HOSTING.md", "_blank", "noopener");
+      }
+    } catch (e) {
+      console.warn("[JobBored] whats-next self-hosting:", e);
+    }
+  }
+
+  /**
+   * Wire the three buttons (discovery / self-hosting / dismiss). One-shot
+   * guard mirrors the first-run wizard's pattern: re-init never doubles up.
+   */
+  let listenersWired = false;
+  function wireListeners() {
+    if (listenersWired || typeof document === "undefined") return;
+    const region = getRegion();
+    if (!region) return;
+    listenersWired = true;
+    getEl("whatsNextOpenDiscovery")?.addEventListener("click", () => {
+      handleOpenDiscovery();
+    });
+    getEl("whatsNextOpenSelfHosting")?.addEventListener("click", () => {
+      handleOpenSelfHosting();
+    });
+    getEl("whatsNextDismiss")?.addEventListener("click", () => {
+      void handleDismiss();
+    });
+  }
+
+  function init() {
+    wireListeners();
+    // Always re-evaluate on init; the gating is read fresh each time
+    // (infraComplete / dismissed / onboardingComplete all come from the
+    // IndexedDB-backed user content store). The async work is bounded by
+    // openDb's 5s watchdog.
+    void refreshBanner();
+  }
+
+  if (typeof document !== "undefined") {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", init);
+    } else {
+      init();
+    }
+  }
+
+  Object.assign(banner, {
+    init,
+    refreshBanner,
+    showBanner,
+    hideBanner,
+    isBannerVisible,
+    handleDismiss,
+    handleOpenDiscovery,
+    handleOpenSelfHosting,
+  });
+})();

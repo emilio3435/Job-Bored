@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { createSourceAdapterRegistry } from "./browser/source-adapters.ts";
 import {
   formatBrowserRuntimeReadinessWarning,
+  validateLlmRuntimeReadiness,
   validateBrowserRuntimeReadiness,
 } from "./browser/runtime-readiness.ts";
 import {
@@ -18,7 +19,7 @@ import {
 } from "./discovery/company-planner.ts";
 import { createGroundedSearchClient } from "./grounding/grounded-search.ts";
 import { buildCorsHeaders, isOriginAllowed } from "./http/origin-guard.ts";
-import { createGeminiMatchClient } from "./match/job-matcher.ts";
+import { createWorkerChatMatchClient } from "./match/job-matcher.ts";
 import { runDiscovery } from "./run/run-discovery.ts";
 import {
   formatSheetsCredentialReadinessWarning,
@@ -47,9 +48,7 @@ const sessionManager = createBrowserUseSessionManager(runtimeConfig);
 const groundedSearchClient = runtimeConfig.geminiApiKey
   ? createGroundedSearchClient(runtimeConfig, { log: logEvent })
   : null;
-const matchClient = runtimeConfig.geminiApiKey
-  ? createGeminiMatchClient(runtimeConfig)
-  : null;
+const matchClient = createWorkerChatMatchClient(runtimeConfig);
 const sourceAdapterRegistry = createSourceAdapterRegistry(sessionManager);
 const rawDiscoveryMemoryStore = createDiscoveryMemoryStore(
   runtimeConfig.stateDatabasePath,
@@ -646,6 +645,7 @@ async function buildHealthPayload() {
   // VAL-OBS-001: Check browser runtime readiness
   const browserRuntimeReadiness =
     await validateBrowserRuntimeReadiness(runtimeConfig);
+  const llmRuntimeReadiness = validateLlmRuntimeReadiness(runtimeConfig);
   const browserUseCloudConfigured =
     !!String(runtimeConfig.browserUseApiKey || "").trim();
   const browserUseProfileConfigured =
@@ -681,9 +681,9 @@ async function buildHealthPayload() {
   // VAL-OBS-002: Grounded-web readiness cause when enabled but not ready
   if (groundedWebEnabled && !groundedSearchClient) {
     const groundedWebCause = runtimeConfig.geminiApiKey
-      ? "Grounded web source is enabled but the grounded search client is unavailable."
-      : "Grounded web source is enabled but BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.";
-    blockingWarnings.push(groundedWebCause);
+      ? "Grounded web Google Search is enabled but the Gemini google_search client is unavailable."
+      : "Grounded web Google Search skipped: optional Gemini google_search tool is unavailable because BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.";
+    advisoryWarnings.push(groundedWebCause);
   }
 
   return {
@@ -777,6 +777,29 @@ async function buildHealthPayload() {
           ? { remediation: browserRuntimeReadiness.remediation }
           : {}),
       },
+      llm: {
+        provider: llmRuntimeReadiness.provider || null,
+        configured: llmRuntimeReadiness.configured,
+        ready: llmRuntimeReadiness.ready,
+        ...(llmRuntimeReadiness.model
+          ? { model: llmRuntimeReadiness.model }
+          : {}),
+        ...(llmRuntimeReadiness.baseUrl
+          ? { baseUrl: llmRuntimeReadiness.baseUrl }
+          : {}),
+        ...(typeof llmRuntimeReadiness.requiresApiKey === "boolean"
+          ? { requiresApiKey: llmRuntimeReadiness.requiresApiKey }
+          : {}),
+        ...(!llmRuntimeReadiness.ready && llmRuntimeReadiness.message
+          ? { message: llmRuntimeReadiness.message }
+          : {}),
+        ...(!llmRuntimeReadiness.ready && llmRuntimeReadiness.detail
+          ? { detail: llmRuntimeReadiness.detail }
+          : {}),
+        ...(!llmRuntimeReadiness.ready && llmRuntimeReadiness.remediation
+          ? { remediation: llmRuntimeReadiness.remediation }
+          : {}),
+      },
       browserUseCloud: {
         configured: browserUseCloudConfigured,
         profileConfigured: browserUseProfileConfigured,
@@ -800,16 +823,53 @@ async function buildHealthPayload() {
       groundedWeb: {
         enabled: groundedWebEnabled,
         ready: !groundedWebEnabled || !!groundedSearchClient,
+        provider: "gemini",
+        tool: "google_search",
+        optional: true,
         ...(groundedWebEnabled && !groundedSearchClient
           ? {
               cause: runtimeConfig.geminiApiKey
-                ? "Grounded search client unavailable despite API key configured."
-                : "GEMINI_API_KEY not configured.",
+                ? "Gemini google_search client unavailable despite API key configured."
+                : "BROWSER_USE_DISCOVERY_GEMINI_API_KEY not configured for optional Gemini google_search.",
               remediation: runtimeConfig.geminiApiKey
                 ? "Check that the Gemini API key is valid and the service is accessible."
-                : "Set BROWSER_USE_DISCOVERY_GEMINI_API_KEY to a valid API key.",
+                : "Set BROWSER_USE_DISCOVERY_GEMINI_API_KEY to enable grounded web Google Search, or leave it unset to use non-Google discovery lanes only.",
             }
           : {}),
+      },
+      googleTools: {
+        provider: "gemini",
+        capabilities: ["google_search", "url_context"],
+        configured: !!String(runtimeConfig.geminiApiKey || "").trim(),
+        ready: !!String(runtimeConfig.geminiApiKey || "").trim(),
+        model: runtimeConfig.geminiModel,
+        geminiConfigured: !!String(runtimeConfig.geminiApiKey || "").trim(),
+        urlContext: {
+          provider: "gemini",
+          tool: "url_context",
+          optional: true,
+          ready: !!String(runtimeConfig.geminiApiKey || "").trim(),
+          ...(!String(runtimeConfig.geminiApiKey || "").trim()
+            ? {
+                cause:
+                  "BROWSER_USE_DISCOVERY_GEMINI_API_KEY not configured for optional Gemini url_context.",
+              }
+            : {}),
+        },
+        googleSearch: {
+          provider: "gemini",
+          tool: "google_search",
+          optional: true,
+          enabled: groundedWebEnabled,
+          ready: !groundedWebEnabled || !!groundedSearchClient,
+          ...(groundedWebEnabled && !groundedSearchClient
+            ? {
+                cause: runtimeConfig.geminiApiKey
+                  ? "Gemini google_search client unavailable despite API key configured."
+                  : "BROWSER_USE_DISCOVERY_GEMINI_API_KEY not configured for optional Gemini google_search.",
+              }
+            : {}),
+        },
       },
       // Layer 5 Tier 1: SerpApi Google Jobs lane — highest-recall source
       // in the worker. "enabled" means it's in enabledSources; "configured"

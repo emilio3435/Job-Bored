@@ -60,16 +60,69 @@
     };
   }
 
+  // Memoized decision for an off-config ?sheet= override so the resolver stays
+  // cheap and only prompts once per session per target id.
+  let urlSheetOverrideDecision;
+
+  function isUrlSheetOverrideAllowed(urlSheetId, configuredSheetId) {
+    // No configured sheet yet (first-run / shared setup link) → honor the URL.
+    if (!configuredSheetId) return true;
+    // Matches the user's own configured sheet → always fine.
+    if (urlSheetId === configuredSheetId) return true;
+    if (urlSheetOverrideDecision && urlSheetOverrideDecision.id === urlSheetId) {
+      return urlSheetOverrideDecision.allowed;
+    }
+    const storageKey = `command_center_url_sheet_ok:${urlSheetId}`;
+    try {
+      if (
+        typeof sessionStorage !== "undefined" &&
+        sessionStorage.getItem(storageKey) === "1"
+      ) {
+        urlSheetOverrideDecision = { id: urlSheetId, allowed: true };
+        return true;
+      }
+    } catch (e) {
+      /* ignore storage access errors */
+    }
+    // A link is asking the signed-in user to point the dashboard (incl.
+    // write-back) at a DIFFERENT sheet than they configured. Confirm first so
+    // a crafted ?sheet= link cannot silently redirect reads/writes.
+    let allowed = false;
+    try {
+      allowed =
+        typeof window !== "undefined" &&
+        typeof window.confirm === "function" &&
+        window.confirm(
+          "This link wants to open a different Google Sheet than the one you configured.\n\n" +
+            "Only continue if you trust it — the dashboard will read and write to that sheet using your account.\n\n" +
+            "Open the linked sheet?",
+        );
+    } catch (e) {
+      allowed = false;
+    }
+    urlSheetOverrideDecision = { id: urlSheetId, allowed };
+    if (allowed) {
+      try {
+        if (typeof sessionStorage !== "undefined") {
+          sessionStorage.setItem(storageKey, "1");
+        }
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    return allowed;
+  }
+
   function getSheetId() {
     const params = new URLSearchParams(window.location.search);
     const urlSheet = params.get("sheet");
+    const cfg = getConfig();
+    const configuredSheetId = cfg ? cfg.sheetId : null;
     if (urlSheet) {
       const id = parseGoogleSheetId(urlSheet);
-      if (id) return id;
+      if (id && isUrlSheetOverrideAllowed(id, configuredSheetId)) return id;
     }
-
-    const cfg = getConfig();
-    return cfg ? cfg.sheetId : null;
+    return configuredSheetId;
   }
 
   // Live read of the resolved SHEET_ID module var (distinct from getSheetId,

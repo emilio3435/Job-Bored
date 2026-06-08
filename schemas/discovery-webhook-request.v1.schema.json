@@ -113,6 +113,11 @@
       },
       "maxItems": 50,
       "uniqueItems": true
+    },
+    "mergedUserProfile": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Optional. The dashboard's master Fit Profile merged with any per-run drawer overrides (non-secret; raw resume text is not included). When present, the worker prefers this profile over its disk-loaded one for this run only, after validating it via ajv against the UserProfile schema. Invalid payloads are ignored with a warning. Never persisted."
     }
   }
 }

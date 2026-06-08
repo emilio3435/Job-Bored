@@ -314,8 +314,12 @@ export async function handleDiscoveryWebhook(
   let safetyTimer: ReturnType<typeof setTimeout> | null = null;
   let terminalStatusWritten = false;
 
-  // Safety terminalization: if the run doesn't complete within maxRunDurationMs,
-  // force terminalize with partial status and a timeout warning.
+  // Safety backstop for the run STATUS. The run itself is bounded by the
+  // in-loop budget tracker (also keyed to maxRunDurationMs) and per-source
+  // timeouts; this timer only guarantees the status row becomes terminal so
+  // pollers never hang if a late `.then`/`.catch` is delayed. It does not
+  // cancel in-flight work (there is no run-wide AbortSignal yet), so the
+  // message intentionally avoids claiming a forcible cancellation.
   const scheduleSafetyTerminalization = () => {
     safetyTimer = setTimeout(() => {
       if (!terminalStatusWritten) {
@@ -327,12 +331,12 @@ export async function handleDiscoveryWebhook(
           status: "partial",
           terminal: true,
           message:
-            "Discovery run exceeded maximum duration and was force-terminalized.",
+            "Discovery run exceeded its maximum duration; reporting partial results.",
           completedAt: now().toISOString(),
           updatedAt: now().toISOString(),
           warnings: [
             ...(currentStatus.warnings || []),
-            `Run force-terminalized after ${maxRunDurationMs}ms timeout. Some sources may not have completed.`,
+            `Run marked terminal after ${maxRunDurationMs}ms. Sources still finishing in the background are bounded by the run budget and per-source timeouts.`,
           ],
         });
         dependencies.log?.("discovery.run.force_terminalized", {

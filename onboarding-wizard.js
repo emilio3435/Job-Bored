@@ -38,20 +38,21 @@
     return host().normalizeProfileTextInput(...args);
   }
 
-  function readStoredConfigOverrides() {
-    return host().readStoredConfigOverrides();
+  // Provider-agnostic completion: routes to whatever AI provider the user
+  // configured in the first-run wizard / Settings (OpenRouter, local, Gemini,
+  // OpenAI, Anthropic). Onboarding's AI suggestions no longer hardcode Gemini.
+  async function callConfiguredAi(system, user, opts) {
+    return host().callConfiguredAi(system, user, opts);
   }
 
-  function mergeStoredConfigOverridePatch(patch) {
-    return host().mergeStoredConfigOverridePatch(patch);
-  }
-
-  function resolveGeminiModel(explicit) {
-    return host().resolveGeminiModel(explicit);
-  }
-
-  async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
-    return host().callDiscoveryAiGemini(system, user, apiKey, model, opts);
+  function isResumeGenerationConfigured() {
+    const gen =
+      typeof window !== "undefined" && window.CommandCenterResumeGenerate;
+    return !!(
+      gen &&
+      typeof gen.isResumeGenerationConfigured === "function" &&
+      gen.isResumeGenerationConfigured()
+    );
   }
 
   function parseJsonSafeForSuggestions(raw) {
@@ -73,7 +74,7 @@ let onboardingResumeDraft = null;
 /** How user supplied resume: "upload" | "paste" (for Back navigation from tone step). */
 let onboardingResumePath = null;
 
-// 4 steps: 1=resume, 2=role chips (Gemini-suggested), 3=AI context, 4=tone.
+// 4 steps: 1=resume, 2=role chips (AI-suggested), 3=AI context, 4=tone.
 const ONBOARDING_TOTAL_STEPS = 4;
 
 function isOnboardingWizardVisible() {
@@ -109,7 +110,7 @@ function showOnboardingWizard() {
     statusUp.classList.remove("onboarding-status--ok");
   }
   if (fileIn) fileIn.value = "";
-  // Reset the Gemini-suggested careers panel so re-entry starts clean.
+  // Reset the AI-suggested careers panel so re-entry starts clean.
   // (Avoids stale chips/loading state if the user reopens the wizard.)
   try {
     onboardingResetSuggestState();
@@ -117,9 +118,6 @@ function showOnboardingWizard() {
     onboardingSuggestSetStatus("", null);
     const addInput = document.getElementById("onboardingSuggestAddInput");
     if (addInput) addInput.value = "";
-    const keyInput = document.getElementById("onboardingSuggestKeyInput");
-    if (keyInput) keyInput.value = "";
-    onboardingSuggestShowKeyGate(false);
   } catch (_) {
     /* defensive — function is defined below */
   }
@@ -246,9 +244,9 @@ function setOnboardingStep(step) {
   updateOnboardingProgressUI(step);
   if (step === 1) updateOnboardingContinue2Enabled();
   if (step === 2) {
-    // Lazy-load suggestions the first time we land on this step. Gemini-only
-    // by design (per onboarding consultation) — if it's not configured we
-    // surface a clear message and let the user free-add their own roles.
+    // Lazy-load suggestions the first time we land on this step. Uses the
+    // AI provider configured upstream (per onboarding consultation) — if it's
+    // not configured we surface a clear message and let the user free-add roles.
     void onboardingSuggestEnsureLoaded();
   }
 
@@ -334,14 +332,14 @@ function ensureResumeDraftFromPasteStep() {
 }
 
 // ============================================
-// Onboarding step 2: Suggested careers (Gemini-backed)
+// Onboarding step 2: Suggested careers (AI-backed via the configured provider)
 // ============================================
 
 // Per-session state for the suggestions panel. Lives in module scope (not
 // localStorage) — suggestions are cheap to regenerate and we don't want stale
 // chips surviving a wizard re-entry.
 let onboardingSuggestState = {
-  loaded: false, // true after first successful Gemini call
+  loaded: false, // true after first successful AI call
   loading: false, // in-flight guard (prevents double Show me more clicks)
   error: null, // last error string, surfaced in status line
   generation: 0, // monotonic counter so re-rolls can dedupe vs prior batch
@@ -453,7 +451,7 @@ function onboardingSuggestSetLoading(loading) {
   if (reroll) reroll.disabled = loading;
   if (loading) {
     onboardingSuggestSetStatus(
-      "Asking Gemini for adjacent + lateral roles…",
+      "Finding adjacent + lateral roles…",
       "loading",
     );
   }
@@ -488,34 +486,21 @@ async function onboardingSuggestLoad({ append }) {
     return;
   }
 
-  // Pull provider config the same way the rest of the AI surfaces do.
-  // Model name comes from the central resolver — never inline a model
-  // string here, or the next deprecation will silently break onboarding
-  // again. (See resolveGeminiModel for the resolution order.)
-  const cfg = window.COMMAND_CENTER_CONFIG || {};
-  const overrides = readStoredConfigOverrides();
-  const apiKey =
-    overrides.resumeGeminiApiKey || cfg.resumeGeminiApiKey || "";
-  const model = resolveGeminiModel();
-
-  if (!apiKey) {
-    // Reveal the inline "get a free key" panel above the chips. Friendlier
-    // than a red error toast and doesn't punt the user into Settings.
-    onboardingSuggestShowKeyGate(true);
+  // The AI provider + key are configured upstream in the first-run wizard's
+  // Provider step, so we no longer ask for a Gemini key here. If somehow no
+  // provider is configured, fall back to manual role entry instead of blocking.
+  if (!isResumeGenerationConfigured()) {
     onboardingSuggestSetStatus(
-      "Add a free Gemini key above to see role suggestions — or type your own roles below.",
+      "Configure your AI provider in Settings to see role suggestions — or type your own roles below.",
       null,
     );
     onboardingSuggestState.loaded = true; // unblock the panel; user can free-add
     onboardingSuggestRenderChips();
     return;
   }
-  // Key exists: make sure the gate is hidden (covers the case where the
-  // user just saved a key and we re-entered the load path).
-  onboardingSuggestShowKeyGate(false);
 
   if (!append) {
-    // Initial load: clear gemini-sourced chips but preserve any custom ones.
+    // Initial load: clear AI-sourced chips but preserve any custom ones.
     const customs = Array.from(onboardingSuggestState.byKey.values()).filter(
       (v) => v.source === "custom",
     );
@@ -527,7 +512,7 @@ async function onboardingSuggestLoad({ append }) {
   onboardingSuggestSetLoading(true);
   onboardingSuggestState.generation += 1;
   const gen = onboardingSuggestState.generation;
-  // Already-shown labels: tell Gemini to avoid these on re-roll.
+  // Already-shown labels: tell the model to avoid these on re-roll.
   const alreadyShown = Array.from(onboardingSuggestState.byKey.values()).map(
     (v) => v.label,
   );
@@ -571,19 +556,18 @@ async function onboardingSuggestLoad({ append }) {
 
   let raw;
   try {
-    // json:true → tells the resolver to set responseMimeType=application/json
-    // AND raise the output-token cap for 2.5-family thinking models. Without
-    // these two flags the model silently truncates with finishReason=MAX_TOKENS
-    // before any roles are emitted, which surfaces as "no suggestions".
-    raw = await callDiscoveryAiGemini(systemPrompt, userPrompt, apiKey, model, {
-      json: true,
-    });
+    // json:true → for Gemini, set responseMimeType=application/json and raise
+    // the output-token cap (thinking models otherwise truncate with
+    // finishReason=MAX_TOKENS before any roles emit); for OpenAI-compatible
+    // providers it bumps max_tokens. callConfiguredAi routes to the configured
+    // provider's endpoint/key/model.
+    raw = await callConfiguredAi(systemPrompt, userPrompt, { json: true });
   } catch (err) {
     if (gen !== onboardingSuggestState.generation) return; // superseded
     onboardingSuggestSetLoading(false);
     onboardingSuggestState.loaded = true;
     onboardingSuggestState.error =
-      (err && err.message) || "Could not reach Gemini.";
+      (err && err.message) || "Could not reach the AI provider.";
     onboardingSuggestSetStatus(
       `Suggestions failed: ${onboardingSuggestState.error}. Type a role below to add it manually.`,
       "error",
@@ -599,10 +583,10 @@ async function onboardingSuggestLoad({ append }) {
   // Diagnostic — when the model returns text but no roles[] (bad shape,
   // empty array, or off-spec output) we want the failure visible in the
   // console instead of just a vague status string. This is the only path
-  // that lets us debug a "Gemini returned no suggestions" report from a
+  // that lets us debug an "AI returned no suggestions" report from a
   // user without asking them to open devtools and screenshot.
   if (!roles.length) {
-    console.warn("[onboarding/suggest] Gemini parsed payload had no roles", {
+    console.warn("[onboarding/suggest] AI parsed payload had no roles", {
       rawLength: String(raw || "").length,
       rawPreview: String(raw || "").slice(0, 400),
       parsedKeys: parsed && typeof parsed === "object" ? Object.keys(parsed) : null,
@@ -632,10 +616,10 @@ async function onboardingSuggestLoad({ append }) {
     const hadRawBytes = !!String(raw || "").trim();
     const parsedHadStructure = parsed && typeof parsed === "object";
     const message = !hadRawBytes
-      ? "Gemini returned an empty response — try Show me more, or paste a longer resume so the model has more to work with."
+      ? "The AI returned an empty response — try Show me more, or paste a longer resume so the model has more to work with."
       : !parsedHadStructure
-        ? "Gemini replied but the response wasn't valid JSON. Try Show me more — if it keeps failing, switch models in Settings."
-        : "Gemini returned an empty role list — try Show me more, or type a role below to add it manually.";
+        ? "The AI replied but the response wasn't valid JSON. Try Show me more — if it keeps failing, switch models in Settings."
+        : "The AI returned an empty role list — try Show me more, or type a role below to add it manually.";
     onboardingSuggestSetStatus(message, "error");
   } else if (added === 0) {
     onboardingSuggestSetStatus(
@@ -654,7 +638,7 @@ async function onboardingSuggestLoad({ append }) {
 
 /**
  * Step 3 "Want our take?" — read the user's resume text + chip-selected
- * roles, ask Gemini for 2–3 distinctive edges (specific accomplishments,
+ * roles, ask the configured AI for 2-3 distinctive edges (specific accomplishments,
  * unusual skill combos, things that aren't generic resume filler), then
  * insert the result into the superpower textarea so the user can edit on
  * top of it.
@@ -664,13 +648,13 @@ async function onboardingSuggestLoad({ append }) {
  * keyword stuffing. We want the 2–3 things that would survive being
  * shrunk to a single tweet.
  *
- * Uses the same central resolveGeminiModel + responseMimeType=JSON path
+ * Uses the same provider-agnostic completion path
  * as the chip suggestions so a model swap stays one-line. Failures
  * surface inline in #onboardingEdgeTakeStatus rather than a toast — the
  * user is mid-flow and shouldn't have their attention pulled to a
  * floating popup.
  */
-async function onboardingFillEdgeFromGemini() {
+async function onboardingFillEdgeFromAi() {
   const btn = document.getElementById("onboardingEdgeTakeBtn");
   const status = document.getElementById("onboardingEdgeTakeStatus");
   const strengthEl = document.getElementById("onboardingAiStrength");
@@ -688,16 +672,10 @@ async function onboardingFillEdgeFromGemini() {
 
   if (!strengthEl) return;
 
-  const cfg = window.COMMAND_CENTER_CONFIG || {};
-  const overrides =
-    typeof readStoredConfigOverrides === "function"
-      ? readStoredConfigOverrides()
-      : {};
-  const apiKey =
-    overrides.resumeGeminiApiKey || cfg.resumeGeminiApiKey || "";
-  if (!apiKey) {
+  // Provider + key are configured upstream (first-run wizard's Provider step).
+  if (!isResumeGenerationConfigured()) {
     setStatus(
-      "Add a free Gemini key on Step 2 first — we use it to read your resume.",
+      "Configure your AI provider in Settings first — we use it to read your resume.",
       "error",
     );
     return;
@@ -714,7 +692,7 @@ async function onboardingFillEdgeFromGemini() {
     return;
   }
 
-  // Chips give Gemini context for which direction to tailor the edges in.
+  // Chips give the model context for which direction to tailor the edges in.
   // (e.g. if the user picked Forward Deployed Engineer roles, frame edges
   // for that audience rather than a generic "what makes them special".)
   const chipRoles = onboardingGetSelectedRoles().slice(0, 12);
@@ -726,7 +704,7 @@ async function onboardingFillEdgeFromGemini() {
   }
   setStatus("Reading your resume…", "loading");
 
-  // Trim resume to a reasonable budget — enough for Gemini to find
+  // Trim resume to a reasonable budget — enough for the model to find
   // distinctive details without burning tokens on long appendices.
   const resumeForPrompt =
     resumeText.length > 5000
@@ -753,12 +731,10 @@ async function onboardingFillEdgeFromGemini() {
 
   let raw;
   try {
-    raw = await callDiscoveryAiGemini(systemPrompt, userPrompt, apiKey, null, {
-      json: true,
-    });
+    raw = await callConfiguredAi(systemPrompt, userPrompt, { json: true });
   } catch (err) {
     setStatus(
-      `Gemini failed: ${(err && err.message) || "unknown error"}. Type your edges by hand below.`,
+      `AI failed: ${(err && err.message) || "unknown error"}. Type your edges by hand below.`,
       "error",
     );
     if (btn) {
@@ -776,12 +752,12 @@ async function onboardingFillEdgeFromGemini() {
     : [];
 
   if (!edges.length) {
-    console.warn("[onboarding/edge] Gemini returned no edges", {
+    console.warn("[onboarding/edge] AI returned no edges", {
       rawLength: String(raw || "").length,
       rawPreview: String(raw || "").slice(0, 400),
     });
     setStatus(
-      "Gemini didn't return anything usable — try again, or type your edges by hand.",
+      "The AI didn't return anything usable — try again, or type your edges by hand.",
       "error",
     );
     if (btn) {
@@ -834,61 +810,10 @@ function onboardingSuggestAddCustom(rawLabel) {
   return true;
 }
 
-/**
- * Show or hide the inline "Get a free Gemini key" panel that lives at the
- * top of Step 2. Called by the suggest loader when no key is configured,
- * and again (with false) once a key gets saved.
- */
-function onboardingSuggestShowKeyGate(show) {
-  const gate = document.getElementById("onboardingSuggestKeyGate");
-  if (!gate) return;
-  gate.hidden = !show;
-  if (show) {
-    // Disable Show me more while the gate is up — it can't do anything
-    // useful without a key.
-    const reroll = document.getElementById("onboardingSuggestReroll");
-    if (reroll) reroll.disabled = true;
-    // Focus the input so the user can paste immediately.
-    requestAnimationFrame(() => {
-      document.getElementById("onboardingSuggestKeyInput")?.focus();
-    });
-  }
-}
-
-/**
- * Validate, persist, and use a pasted Gemini API key. Same shape as the
- * existing Settings flow — writes to localStorage overrides via
- * mergeStoredConfigOverridePatch so the key survives reloads, and pokes the
- * runtime config so the very next API call uses it without a page refresh.
- */
-async function onboardingSuggestSaveKey(rawKey) {
-  const key = String(rawKey || "").trim();
-  // Cheap shape check — Google AI Studio keys start with "AIza" and are
-  // ~39 chars. Reject obviously bad pastes so the user gets immediate
-  // feedback instead of a confusing 400 from the API.
-  if (!key) return { ok: false, reason: "empty" };
-  if (!/^AIza[0-9A-Za-z\-_]{20,}$/.test(key)) {
-    return { ok: false, reason: "shape" };
-  }
-  try {
-    mergeStoredConfigOverridePatch({ resumeGeminiApiKey: key });
-  } catch (err) {
-    console.warn("[JobBored] save Gemini key failed:", err);
-    return { ok: false, reason: "storage" };
-  }
-  // Apply to the live config object so the next call sees it without reload.
-  if (window.COMMAND_CENTER_CONFIG) {
-    window.COMMAND_CENTER_CONFIG.resumeGeminiApiKey = key;
-  }
-  return { ok: true };
-}
-
 function initOnboardingSuggestPanel() {
   const reroll = document.getElementById("onboardingSuggestReroll");
   const addInput = document.getElementById("onboardingSuggestAddInput");
   const addBtn = document.getElementById("onboardingSuggestAddBtn");
-  const keyInput = document.getElementById("onboardingSuggestKeyInput");
-  const keySaveBtn = document.getElementById("onboardingSuggestKeySaveBtn");
 
   if (reroll) {
     reroll.addEventListener("click", () => {
@@ -908,40 +833,6 @@ function initOnboardingSuggestPanel() {
       if (e.key === "Enter") {
         e.preventDefault();
         submit();
-      }
-    });
-  }
-
-  if (keyInput && keySaveBtn) {
-    const submitKey = async () => {
-      const result = await onboardingSuggestSaveKey(keyInput.value);
-      if (!result.ok) {
-        if (result.reason === "shape") {
-          showToast(
-            "That doesn't look like a Gemini key — they start with “AIza”. Double-check from AI Studio.",
-            "error",
-          );
-        } else if (result.reason === "storage") {
-          showToast(
-            "Couldn't save key to local storage. Disable private mode or quota-clear and retry.",
-            "error",
-          );
-        }
-        return;
-      }
-      // Success — hide the gate, clear the input, and (re)load suggestions.
-      keyInput.value = "";
-      onboardingSuggestShowKeyGate(false);
-      showToast("Gemini key saved. Loading role suggestions…", "success");
-      // Reset state so the load is treated as fresh, not a re-roll.
-      onboardingResetSuggestState();
-      void onboardingSuggestLoad({ append: false });
-    };
-    keySaveBtn.addEventListener("click", () => void submitKey());
-    keyInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        void submitKey();
       }
     });
   }
@@ -996,14 +887,14 @@ function initOnboardingWizard() {
   });
 
   // "Want our take?" — Step 3 superpower assist. Reads the user's resume
-  // text + chip selections and asks Gemini for 2–3 distinctive edges. The
+  // text + chip selections and asks the configured AI for 2-3 distinctive edges. The
   // result is INSERTED into the textarea (not replacing user-typed text)
-  // so the user can iterate on top of it. See onboardingFillEdgeFromGemini
+  // so the user can iterate on top of it. See onboardingFillEdgeFromAi
   // for the prompt + response handling.
   document
     .getElementById("onboardingEdgeTakeBtn")
     ?.addEventListener("click", () => {
-      void onboardingFillEdgeFromGemini();
+      void onboardingFillEdgeFromAi();
     });
 
   // Panel 4 (tone & finish) back arrow

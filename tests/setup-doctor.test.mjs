@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach } from "node:test";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { runSetup } from "../scripts/setup.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const moduleSource = readFileSync(
@@ -121,6 +123,55 @@ describe("SetupDoctor.diagnose", () => {
     const contract = await api._loadPipelineContract();
     assert.deepEqual(contract.headerRow, pipelineSchema.headerRow);
     assert.ok(contract.statuses.includes("Expired"));
+  });
+});
+
+describe("scripts/setup discovery env", () => {
+  it("seeds blank OpenRouter/local worker keys while keeping Gemini for Google tools", async () => {
+    const tmpRoot = mkdtempSync(join(tmpdir(), "jobbored-setup-"));
+    try {
+      const repoRoot = join(tmpRoot, "repo");
+      const jobBoredHome = join(tmpRoot, ".jobbored");
+      mkdirSync(repoRoot, { recursive: true });
+      writeFileSync(
+        join(repoRoot, "config.example.js"),
+        "window.COMMAND_CENTER_CONFIG = {};\n",
+        "utf8",
+      );
+
+      const report = await runSetup({
+        mode: "discovery",
+        repoRoot,
+        env: {
+          JOBBORED_HOME: jobBoredHome,
+          BROWSER_USE_DISCOVERY_WORKER_DIR: join(
+            repoRoot,
+            "integrations",
+            "browser-use-discovery",
+          ),
+        },
+        skipInstall: true,
+      });
+      const workerEnv = readFileSync(report.paths.workerEnv, "utf8");
+
+      assert.match(workerEnv, /^BROWSER_USE_DISCOVERY_LLM_PROVIDER=$/m);
+      assert.match(workerEnv, /^BROWSER_USE_DISCOVERY_LLM_API_KEY=$/m);
+      assert.match(workerEnv, /^BROWSER_USE_DISCOVERY_OPENROUTER_API_KEY=$/m);
+      assert.match(
+        workerEnv,
+        /^BROWSER_USE_DISCOVERY_OPENROUTER_MODEL=openai\/gpt-oss-120b:free$/m,
+      );
+      assert.match(
+        workerEnv,
+        /^BROWSER_USE_DISCOVERY_OPENROUTER_BASE_URL=https:\/\/openrouter\.ai\/api\/v1$/m,
+      );
+      assert.match(workerEnv, /^BROWSER_USE_DISCOVERY_LOCAL_API_KEY=$/m);
+      assert.match(workerEnv, /^BROWSER_USE_DISCOVERY_LOCAL_MODEL=$/m);
+      assert.match(workerEnv, /^BROWSER_USE_DISCOVERY_LOCAL_BASE_URL=$/m);
+      assert.match(workerEnv, /^BROWSER_USE_DISCOVERY_GEMINI_API_KEY=$/m);
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
   });
 });
 

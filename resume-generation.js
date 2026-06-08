@@ -536,7 +536,7 @@ async function reviseLetterDraftForJob(dataIndex, options) {
     !Gen.isResumeGenerationConfigured()
   ) {
     throw new Error(
-      'Set resumeGeminiApiKey in config.js for Gemini, or switch resumeProvider to "openai", "anthropic", or "webhook" (see SETUP.md).',
+      "Configure your selected AI provider in Settings: add an OpenRouter key, local model, Gemini/OpenAI/Anthropic key, or webhook URL (see SETUP.md).",
     );
   }
 
@@ -798,7 +798,7 @@ async function runResumeGeneration(dataIndex, feature, options) {
     !Gen.isResumeGenerationConfigured()
   ) {
     host().showToast(
-      'Set resumeGeminiApiKey in config.js for Gemini, or switch resumeProvider to "openai", "anthropic", or "webhook" (see SETUP.md).',
+      "Configure your selected AI provider in Settings: add an OpenRouter key, local model, Gemini/OpenAI/Anthropic key, or webhook URL (see SETUP.md).",
       "error",
       true,
     );
@@ -949,6 +949,8 @@ async function runResumeGeneration(dataIndex, feature, options) {
     }
     return {
       text,
+      insights,
+      insightsError,
       draftId: savedDraft ? savedDraft.id : null,
       feature,
       mode: "initial",

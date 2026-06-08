@@ -451,7 +451,10 @@ async function requestDiscoverySetup(options = {}) {
     allowWhileOnboarding = false,
     ...wizardOptions
   } = options;
-  if (host().isOnboardingWizardVisible() && !allowWhileOnboarding) {
+  if (
+    (host().isOnboardingWizardVisible() || host().isFirstRunWizardVisible()) &&
+    !allowWhileOnboarding
+  ) {
     queuePendingDiscoverySetup();
     if (stripSetupParam) {
       stripSetupDiscoveryParam();
@@ -929,7 +932,10 @@ function runPostAccessBootstrapOnce() {
   if (postAccessBootstrapDone) return postAccessBootstrapPromise;
   postAccessBootstrapDone = true;
   postAccessBootstrapPromise = (async () => {
-    await host().checkOnboardingGate();
+    const infraHandled = await host().checkInfraSetupGate();
+    if (!infraHandled) {
+      await host().checkOnboardingGate();
+    }
     await handleDiscoverySetupDeepLink();
   })();
   return postAccessBootstrapPromise;

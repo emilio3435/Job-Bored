@@ -21,8 +21,50 @@
     if (dbPromise) return dbPromise;
     dbPromise = new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
-      req.onerror = () => reject(req.error);
-      req.onsuccess = () => resolve(req.result);
+      // Fail loud instead of hanging forever: a pending deleteDatabase
+      // ("Clear settings" with another JobBored tab holding a connection)
+      // queues this open indefinitely, which silently froze every UI path
+      // that awaited a read before touching the DOM.
+      let timedOut = false;
+      const watchdog = setTimeout(() => {
+        timedOut = true;
+        dbPromise = null;
+        reject(
+          new Error(
+            "User content DB open timed out — another JobBored tab may be " +
+              "blocking a pending delete. Close other JobBored tabs and retry.",
+          ),
+        );
+      }, 5000);
+      req.onerror = () => {
+        clearTimeout(watchdog);
+        dbPromise = null;
+        reject(req.error);
+      };
+      req.onsuccess = () => {
+        clearTimeout(watchdog);
+        const db = req.result;
+        // Release the connection when another tab deletes/upgrades the DB,
+        // so "Clear settings" can never strand other tabs' opens.
+        db.onversionchange = () => {
+          try {
+            db.close();
+          } catch (_) {
+            /* already closing */
+          }
+          dbPromise = null;
+        };
+        if (timedOut) {
+          // The open outlived the watchdog; don't hold a dangling connection.
+          try {
+            db.close();
+          } catch (_) {
+            /* ignore */
+          }
+          return;
+        }
+        resolve(db);
+      };
       req.onupgradeneeded = (ev) => {
         const db = ev.target.result;
         if (!db.objectStoreNames.contains(STORE_RESUMES)) {
@@ -564,6 +606,21 @@
     await setSetting("agentSetupDismissed", !!v);
   }
 
+  /**
+   * Persistent "what's next" dashboard banner dismiss flag (VAL-SIGN-002).
+   * Mirrors getAgentSetupDismissed/setAgentSetupDismissed: stored under the
+   * settings object store, returned as a strict boolean, and written via
+   * setSetting so it survives reloads. The dashboard banner checks this and
+   * hides itself permanently once set.
+   */
+  async function getWhatsNextDismissed() {
+    return !!(await getSetting("whatsNextDismissed"));
+  }
+
+  async function setWhatsNextDismissed(v) {
+    await setSetting("whatsNextDismissed", !!v);
+  }
+
   async function getSetting(key) {
     const db = await openDb();
     return new Promise((resolve, reject) => {
@@ -690,6 +747,19 @@
   /** Clears completion flag so the wizard shows again (Profile "Redo setup"). */
   async function resetOnboardingCompletion() {
     await setSetting("onboardingComplete", false);
+  }
+
+  async function isInfraSetupComplete() {
+    return !!(await getSetting("infraSetupComplete"));
+  }
+
+  async function completeInfraSetup() {
+    await setSetting("infraSetupComplete", true);
+  }
+
+  /** Clears the flag so the first-run infra wizard shows again ("Run setup again"). */
+  async function resetInfraSetupCompletion() {
+    await setSetting("infraSetupComplete", false);
   }
 
   /**
@@ -1038,6 +1108,9 @@
     isOnboardingComplete,
     completeOnboarding,
     resetOnboardingCompletion,
+    isInfraSetupComplete,
+    completeInfraSetup,
+    resetInfraSetupCompletion,
     migrateOnboardingState,
     addResumeVersion,
     setActiveResumeId,
@@ -1091,5 +1164,7 @@
     normalizeDiscoverySetupWizardState,
     getAgentSetupDismissed,
     setAgentSetupDismissed,
+    getWhatsNextDismissed,
+    setWhatsNextDismissed,
   };
 })();

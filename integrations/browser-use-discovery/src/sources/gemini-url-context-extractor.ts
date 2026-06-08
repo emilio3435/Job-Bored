@@ -68,7 +68,8 @@ export async function extractJobWithGeminiUrlContext(
     return {
       ok: false,
       reason: "missing_api_key",
-      message: "Gemini API key is not configured (BROWSER_USE_DISCOVERY_GEMINI_API_KEY).",
+      message:
+        "Gemini URL Context skipped: optional Gemini url_context tool is unavailable because BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.",
     };
   }
 
@@ -121,7 +122,11 @@ export async function extractJobWithGeminiUrlContext(
       };
     }
 
-    const finalUrl = firstValidUrl([fields.finalUrl, fields.applyUrl, url], url);
+    // The model can hallucinate or be prompt-injected into claiming an
+    // off-site finalUrl/applyUrl. The user asked us to ingest THIS page, so
+    // only accept a model URL that stays on the same registrable domain;
+    // otherwise fall back to the input URL.
+    const finalUrl = firstValidUrlOnSameSite([fields.finalUrl, fields.applyUrl], url);
 
     return {
       ok: true,
@@ -333,17 +338,50 @@ function isPlaceholderDescription(value: string): boolean {
   );
 }
 
-function firstValidUrl(candidates: string[], fallback: string): string {
+// Common multi-label public suffixes where the naive "last two labels" rule
+// is too loose (it would treat attacker.co.uk and victim.co.uk as same-site,
+// or two unrelated *.github.io owners as same-site). Not a full PSL, but it
+// covers the cases most likely to appear in job/career URLs. When the suffix
+// is multi-label we keep three labels (registrant + suffix).
+const MULTI_LABEL_PUBLIC_SUFFIXES = new Set([
+  "co.uk", "org.uk", "ac.uk", "gov.uk", "me.uk",
+  "com.au", "net.au", "org.au", "gov.au", "edu.au",
+  "co.nz", "co.za", "co.jp", "co.in", "co.kr",
+  "com.br", "com.mx", "com.sg", "com.hk",
+  "github.io", "gitlab.io", "pages.dev", "workers.dev",
+  "vercel.app", "netlify.app", "web.app", "firebaseapp.com",
+]);
+
+function registrableDomain(hostname: string): string {
+  const labels = hostname.toLowerCase().split(".").filter(Boolean);
+  if (labels.length <= 2) return labels.join(".");
+  const lastTwo = labels.slice(-2).join(".");
+  if (MULTI_LABEL_PUBLIC_SUFFIXES.has(lastTwo)) {
+    return labels.slice(-3).join(".");
+  }
+  return lastTwo;
+}
+
+function firstValidUrlOnSameSite(candidates: string[], inputUrl: string): string {
+  let inputDomain = "";
+  try {
+    inputDomain = registrableDomain(new URL(inputUrl).hostname);
+  } catch {
+    return inputUrl;
+  }
   for (const candidate of candidates) {
     const trimmed = String(candidate || "").trim();
     if (!trimmed) continue;
     try {
-      return new URL(trimmed).toString();
+      const parsed = new URL(trimmed);
+      if (registrableDomain(parsed.hostname) === inputDomain) {
+        return parsed.toString();
+      }
     } catch {
-      // Keep looking for a valid URL.
+      // Keep looking for a same-site URL.
     }
   }
-  return fallback;
+  return inputUrl;
 }
 
 function cleanString(value: unknown): string {

@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   formatBrowserRuntimeReadinessWarning,
+  validateLlmRuntimeReadiness,
   validateBrowserRuntimeReadiness,
 } from "../../src/browser/runtime-readiness.ts";
 
@@ -13,6 +14,10 @@ const baseRuntimeConfig = {
   stateDatabasePath: "",
   workerConfigPath: "",
   browserUseCommand: "",
+  llmProvider: "" as const,
+  llmApiKey: "",
+  llmModel: "",
+  llmBaseUrl: "",
   geminiApiKey: "",
   geminiModel: "gemini-2.5-flash",
   groundedSearchMaxResultsPerCompany: 6,
@@ -126,4 +131,61 @@ test("formatBrowserRuntimeReadinessWarning returns message when not available", 
 
   const warning = formatBrowserRuntimeReadinessWarning(readiness);
   assert.ok(warning.includes("Browser command not found"));
+});
+
+test("validateLlmRuntimeReadiness returns ready for OpenRouter without Gemini tools", () => {
+  const readiness = validateLlmRuntimeReadiness({
+    ...baseRuntimeConfig,
+    llmProvider: "openrouter",
+    llmApiKey: "or_test_key",
+    llmModel: "openai/gpt-4.1-mini",
+    llmBaseUrl: "https://openrouter.ai/api/v1",
+    geminiApiKey: "",
+  });
+
+  assert.equal(readiness.provider, "openrouter");
+  assert.equal(readiness.configured, true);
+  assert.equal(readiness.ready, true);
+  assert.equal(readiness.requiresApiKey, true);
+});
+
+test("validateLlmRuntimeReadiness reports OpenRouter missing API key separately from Gemini", () => {
+  const readiness = validateLlmRuntimeReadiness({
+    ...baseRuntimeConfig,
+    llmProvider: "openrouter",
+    llmApiKey: "",
+    llmModel: "openai/gpt-4.1-mini",
+    llmBaseUrl: "https://openrouter.ai/api/v1",
+    geminiApiKey: "gemini_tool_key",
+  });
+
+  assert.equal(readiness.provider, "openrouter");
+  assert.equal(readiness.configured, true);
+  assert.equal(readiness.ready, false);
+  assert.match(readiness.message || "", /missing an API key/i);
+  assert.match(readiness.detail || "", /separate from Gemini Google-tool readiness/i);
+});
+
+test("validateLlmRuntimeReadiness returns ready for local provider without API key", () => {
+  const readiness = validateLlmRuntimeReadiness({
+    ...baseRuntimeConfig,
+    llmProvider: "local",
+    llmApiKey: "",
+    llmModel: "qwen3-coder",
+    llmBaseUrl: "http://127.0.0.1:11434/v1",
+  });
+
+  assert.equal(readiness.provider, "local");
+  assert.equal(readiness.configured, true);
+  assert.equal(readiness.ready, true);
+  assert.equal(readiness.requiresApiKey, false);
+});
+
+test("validateLlmRuntimeReadiness treats absent chat provider as not configured", () => {
+  const readiness = validateLlmRuntimeReadiness(baseRuntimeConfig);
+
+  assert.equal(readiness.provider, "");
+  assert.equal(readiness.configured, false);
+  assert.equal(readiness.ready, false);
+  assert.match(readiness.message || "", /not configured/i);
 });

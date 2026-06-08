@@ -83,6 +83,8 @@
         host.getDiscoveryWizardRecommendedFlow,
       getDiscoveryReadinessSnapshot: host.getDiscoveryReadinessSnapshot,
       checkOnboardingGate: host.checkOnboardingGate,
+      checkInfraSetupGate: host.checkInfraSetupGate,
+      isFirstRunWizardVisible: host.isFirstRunWizardVisible,
       normalizeDiscoveryWebhookIdentity: host.normalizeDiscoveryWebhookIdentity,
       isLocalWebhookCandidateUrl: host.isLocalWebhookCandidateUrl,
       isLocalDashboardOrigin: host.isLocalDashboardOrigin,
@@ -209,6 +211,7 @@
       getAccessToken: host.getAccessToken,
       showSheetAccessGate: host.showSheetAccessGate,
       initAuth: host.initAuth,
+      checkInfraSetupGate: host.checkInfraSetupGate,
       renderSetupStarterSheetUi: host.renderSetupStarterSheetUi,
       loadPersistedRuntimeOAuthSession: host.loadPersistedRuntimeOAuthSession,
       loadPersistedOAuthSession: host.loadPersistedOAuthSession,
@@ -295,6 +298,9 @@
       },
       callDiscoveryAiAnthropic(...args) {
         return discovery.drawer.callDiscoveryAiAnthropic(...args);
+      },
+      callConfiguredAi(...args) {
+        return discovery.drawer.callConfiguredAi(...args);
       },
       parseJsonSafeForSuggestions(...args) {
         return discovery.drawer.parseJsonSafeForSuggestions(...args);
@@ -476,6 +482,7 @@
       },
       refreshPersonalPreferencesPanel: host.refreshPersonalPreferencesPanel,
       showOnboardingWizard: host.showOnboardingWizard,
+      checkOnboardingGate: host.checkOnboardingGate,
       openCommandCenterSettingsModal(...args) {
         return app.settings.openCommandCenterSettingsModal(...args);
       },
@@ -485,6 +492,7 @@
       getUserContent: host.getUserContent,
       getResumeBundle: host.getResumeBundle,
       getResumeGenerate: host.getResumeGenerate,
+      runResumeGeneration: host.runResumeGeneration,
       getResumeIngest: host.getResumeIngest,
       closeAuthUserMenu: host.closeAuthUserMenu,
       fillDocumentTemplateSelect: host.fillDocumentTemplateSelect,
@@ -515,6 +523,15 @@
       callDiscoveryAiGemini(...args) {
         return discovery.drawer.callDiscoveryAiGemini(...args);
       },
+      callConfiguredAi(...args) {
+        const provider =
+          window.CommandCenterBrowserAiProvider ||
+          window.CommandCenterResumeGenerate;
+        if (provider && typeof provider.callConfiguredAi === "function") {
+          return provider.callConfiguredAi(...args);
+        }
+        return discovery.drawer.callConfiguredAi(...args);
+      },
       parseJsonSafeForSuggestions(...args) {
         return discovery.drawer.parseJsonSafeForSuggestions(...args);
       },
@@ -525,6 +542,7 @@
         return app.configCore.parseGoogleSheetId(...args);
       },
       writeStoredConfigOverrides: host.writeStoredConfigOverrides,
+      buildGreenfieldOverrideMask: host.buildGreenfieldOverrideMask,
       canUseLocalStorage: host.canUseLocalStorage,
       applyOAuthClientChange: host.applyOAuthClientChange,
       syncDiscoveryButtonState: host.syncDiscoveryButtonState,

@@ -85,6 +85,9 @@ function createHandoffHarness({
     isOnboardingWizardVisible() {
       return context.__onboardingVisible;
     },
+    isFirstRunWizardVisible() {
+      return false;
+    },
     async openDiscoverySetupWizard(options) {
       openCalls.push(options);
     },
@@ -93,6 +96,9 @@ function createHandoffHarness({
     },
     getDiscoveryReadinessSnapshot() {
       return { recommendedFlow: "local_agent" };
+    },
+    async checkInfraSetupGate() {
+      return false;
     },
     async checkOnboardingGate() {
       context.__checkOnboardingGateCalls += 1;
@@ -106,6 +112,9 @@ function createHandoffHarness({
     isOnboardingWizardVisible() {
       return context.__onboardingVisible;
     },
+    isFirstRunWizardVisible() {
+      return context.isFirstRunWizardVisible();
+    },
     openDiscoverySetupWizard(options) {
       openCalls.push(options);
     },
@@ -114,6 +123,9 @@ function createHandoffHarness({
     },
     getDiscoveryReadinessSnapshot() {
       return { recommendedFlow: "local_agent" };
+    },
+    checkInfraSetupGate() {
+      return context.checkInfraSetupGate();
     },
     checkOnboardingGate() {
       return context.checkOnboardingGate();

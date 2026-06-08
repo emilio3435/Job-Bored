@@ -586,6 +586,15 @@ export function createDiscoveryMemoryStore(
   }
 
   const database = new DatabaseSync(resolvedPath);
+  if (resolvedPath !== ":memory:") {
+    // WAL lets readers and a writer coexist; busy_timeout makes concurrent
+    // writers wait briefly instead of failing immediately with SQLITE_BUSY
+    // when multiple runs touch the same on-disk store.
+    database.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA busy_timeout = 5000;
+    `);
+  }
   database.exec(`
     PRAGMA foreign_keys = ON;
 

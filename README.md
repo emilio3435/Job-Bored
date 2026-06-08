@@ -56,11 +56,25 @@ reading below.
 - **Pipeline filters** — scan active stages, archive Rejected / Passed / Expired roles, and keep dismissed roles out of view unless requested
 - **Run discovery** — optional webhook in `config.js` so your agent (Hermes, n8n, etc.) runs another pass; POST includes `schemaVersion`, optional `discoveryProfile` from **Discovery drawer → Search**, and optional per-run company filters ([AGENT_CONTRACT.md](AGENT_CONTRACT.md))
 - **ATS LLM scorecard** — generated drafts now include structured ATS analysis (score, strengths, gaps, rewrite suggestions) via local server endpoint or webhook
+- **Resume & cover-letter generation** — drafts default to the **OpenRouter free tier** (paste a free key from [openrouter.ai/keys](https://openrouter.ai/keys), no paid plan), with optional **fully local** (Ollama), **BYO** (Gemini / OpenAI / Anthropic + your key), or **webhook** paths. Your resume and profile text never leave the browser unless you pick webhook mode. See [QUICKSTART.md](QUICKSTART.md) and [SETUP.md](SETUP.md) for the full walkthrough.
 - **Last contact & reply** — optional columns R–S editable on each card when signed in
 - **Filter & search** — stage filters plus priority, sort by fit score/date/company, free-text search
 - **Google OAuth** — sign in with Google to enable write actions (read works without sign-in)
 - **No backend** — pure HTML/CSS/JS, deploys anywhere static files are served
 - **Reproducible** — bring your own Sheet + OAuth credentials, share with anyone
+
+### Resume & cover-letter generation
+
+Draft generation defaults to a free-tier model and also supports a fully local model path plus BYO and webhook options. Pick the path that fits you — your resume and profile text only travel to the provider you choose:
+
+| Path | What to set in Settings |
+| --- | --- |
+| **Free default (OpenRouter)** | Paste a free OpenRouter key ([openrouter.ai/keys](https://openrouter.ai/keys)) — no paid plan |
+| **Local (Ollama)** | Provider `Local`, base URL (e.g. `http://127.0.0.1:11434/v1`), model `gemma4:e2b` |
+| **BYO (Gemini / OpenAI / Anthropic)** | Provider `Gemini` / `OpenAI` / `Anthropic` + your API key |
+| **Webhook** | Provider `Webhook` + your endpoint URL |
+
+See [QUICKSTART.md](QUICKSTART.md) for the short path-by-path walkthrough and [SETUP.md](SETUP.md#resume-updater--cover-letter-writer-optional) for the full provider reference.
 
 ## Quick Start
 
@@ -133,7 +147,7 @@ npm start
 
 Then open **http://localhost:8080**. This installs dependencies for `server/` automatically and runs the UI plus **http://127.0.0.1:3847** together. You can leave **`jobPostingScrapeUrl`** empty in `config.js` on localhost — the app defaults to the local scraper.
 The same local server now also provides **`POST /api/ats-scorecard`** when ATS mode is set to `server`.
-For persistent ATS provider config in server mode, copy `server/ats-env.example` to `server/.env` and set your API key there.
+For persistent ATS provider config in server mode, copy `server/ats-env.example` to `server/.env` and set the API key for the provider you choose. OpenRouter/OpenAI-compatible settings cover generic scorecards; Gemini is optional unless you explicitly choose it.
 
 For **GitHub Pages** (HTTPS), the browser cannot call a scraper on your laptop at `http://127.0.0.1`. Use **Fetch posting** by either running the dashboard locally (`npm start` → `http://localhost:8080`) or deploying the `server/` app and pasting its **HTTPS** base URL in Settings — see **[DEPLOY-SCRAPER.md](DEPLOY-SCRAPER.md)**.
 
@@ -312,7 +326,7 @@ When the worker accepts an async run, it may return `statusPath` for `/runs/:run
 
 **Recommended: enable the SerpApi Google Jobs source for high-quality matches.** The discovery worker ships with three source lanes. One of them — `serpapi_google_jobs` — reads Google Jobs directly. Google has already indexed every `JobPosting` schema markup on the web (every Greenhouse, Lever, Ashby, Workday, iCIMS, SmartRecruiters board), so this one source replaces brittle page-by-page scraping with clean structured job data.
 
-**Why you want it:** without SerpApi, the worker falls back to Gemini-grounded web search + browser-use agent traversal. Those lanes work but produce far fewer clean matches per run for most candidates — especially when your target companies are on enterprise ATS systems (Workday, iCIMS) that block scrapers. With SerpApi enabled, a typical daily refresh produces 10–40 high-quality pipeline rows per run.
+**Why you want it:** without SerpApi, the worker leans on ATS adapters and browser-use traversal, and can also use the optional Gemini Grounded Search lane when you provide a Gemini key. Those lanes work but produce far fewer clean matches per run for most candidates — especially when your target companies are on enterprise ATS systems (Workday, iCIMS) that block scrapers. With SerpApi enabled, a typical daily refresh produces 10–40 high-quality pipeline rows per run.
 
 **How to enable it (takes ~2 minutes):**
 
@@ -463,8 +477,9 @@ into Command Center is unchanged — only the upstream secret gets rotated.
 - **Repository contents** — only placeholders (`YOUR_SHEET_ID_HERE`, empty API keys). The public template Sheet ID in links is not a secret.
 - OAuth access tokens are held **in memory only** (not localStorage)
 - Local discovery may receive a per-run `googleAccessToken` so it can write to your Sheet for that request. The worker strips it from persisted run config/state and must not log the raw token.
-- Gemini/OpenAI keys from Settings live in **this browser’s localStorage**; they are not sent to Command Center’s authors
+- The OpenRouter free key (and any optional Gemini/OpenAI/Anthropic key you paste in Settings) lives in **this browser’s localStorage** (or in the gitignored `config.js`); it is never sent to Command Center’s authors. The `local` provider is fully offline and needs no key.
 - Draft generation calls your chosen AI provider directly from the browser unless you select webhook mode
+- OpenRouter is the first generic AI path for drafts, AI suggestions, posting summaries, scorecards, and plain JSON scoring. Gemini is only required when you choose Gemini as the active provider or enable optional Google-tool lanes such as URL Context and Grounded Search.
 - ATS scorecard can run through your own server (`/api/ats-scorecard`) or your own webhook URL; no maintainer-hosted ATS service is used
 
 See [SECURITY.md](SECURITY.md) for maintainers and leak response.

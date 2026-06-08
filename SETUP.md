@@ -244,12 +244,16 @@ The bootstrap exposes your local worker through one of three transports. Pick wi
 - Open a job card’s **Details** to use **Draft cover letter** or **Tailor resume**. The app combines the Pipeline row with your resume and samples, then calls your chosen provider.
 - In **Profile → AI draft preferences**, choose **Cover letter layout** and **Résumé layout** to steer structure (paragraphs vs bullets, section order, and similar). Those choices are saved in IndexedDB and are merged into the model’s system prompt as “Template requirements,” and appear on webhook payloads as `template`.
 - **Preview appearance** (Profile, and **Appearance** in the draft modal) only changes how the generated text is styled on screen and in **Print / PDF** — fonts, spacing, and accent colors. It does **not** change the model output or webhook JSON (no `visualThemeId` on the generation payload). Layout templates above still control what the model writes.
-- **Gemini** (default): get an API key from [Google AI Studio](https://aistudio.google.com/) and set `resumeGeminiApiKey` in `config.js`. Do not commit real keys to a public repository.
-- **OpenAI**: set `resumeProvider` to `"openai"` and add `resumeOpenAIApiKey`. **This dashboard runs in the browser** — OpenAI’s API does **not** allow direct `fetch` from web pages (CORS), so cover letter / resume generation will fail with a network error. Use **Gemini** here, or **Webhook** and call OpenAI from your server.
-- **Anthropic (Claude)**: same **CORS** limitation as OpenAI for in-browser apps. Use **Gemini** or **Webhook** unless you proxy requests server-side.
+- **OpenRouter (free default)**: shipped with `resumeProvider: "openrouter"`. Paste a free key from [https://openrouter.ai/keys](https://openrouter.ai/keys) into `resumeOpenRouterApiKey` (or Settings) — no paid plan needed. The free model `openai/gpt-oss-120b:free` is the default; pick another `:free` model id in Settings. OpenRouter is CORS-friendly from the browser.
+- **Local**: set `resumeProvider` to `"local"` for a fully offline path. Defaults: `resumeLocalBaseUrl: "http://127.0.0.1:11434/v1"` (Ollama), `resumeLocalModel: "gemma4:e2b"`. Settings also offers `gemma4:e2b-mlx` (Apple Silicon, text-only). `resumeLocalApiKey` is optional — Ollama ignores it; it is only sent as `Authorization` when set. Pull the model first (e.g. `ollama pull gemma4:e2b`) or use the in-app **Download model** control in Settings → Resume.
+- **Gemini**: set `resumeProvider` to `"gemini"` and add an API key from [Google AI Studio](https://aistudio.google.com/) as `resumeGeminiApiKey`. Do not commit real keys to a public repository.
+- **OpenAI**: set `resumeProvider` to `"openai"` and add `resumeOpenAIApiKey`. **This dashboard runs in the browser** — OpenAI’s API does **not** allow direct `fetch` from web pages (CORS), so cover letter / resume generation will fail with a network error. Use **OpenRouter**, **Gemini**, **Local**, or **Webhook** and call OpenAI from your own server.
+- **Anthropic (Claude)**: same **CORS** limitation as OpenAI for in-browser apps. Use **OpenRouter**, **Gemini**, **Local**, or **Webhook** unless you proxy requests server-side.
 - **Webhook**: set `resumeProvider` to `"webhook"` and `resumeGenerationWebhookUrl` to your HTTPS endpoint. Your server runs the LLM and returns the draft text.
 - **ATS scorecard transport**: set `atsScoringMode` to `"server"` (default) to call `POST /api/ats-scorecard` on your local/deployed server, or set `"webhook"` + `atsScoringWebhookUrl` to send the ATS payload to your endpoint.
-- **Permanent ATS env setup (server mode)**: server now auto-loads `server/.env` via `dotenv`. Use `server/ats-env.example` as a template (copy to `server/.env`) so ATS provider keys persist across terminal sessions and `npm run dev` restarts.
+- **Permanent ATS env setup (server mode)**: server now auto-loads `server/.env` via `dotenv`. Use `server/ats-env.example` as a template (copy to `server/.env`) so ATS provider keys persist across terminal sessions and `npm run dev` restarts. OpenRouter/OpenAI-compatible settings cover generic scorecards; Gemini is needed only when you explicitly choose Gemini for that generic provider path.
+
+OpenRouter is the first generic AI path for browser drafts, inline discovery ideas, posting summaries, scorecards, and plain JSON scoring tasks. You do **not** need a Gemini key for those generic AI flows when OpenRouter or Local is configured. Keep Gemini only if you select Gemini as the provider, or if you want optional Google-tool lanes: **URL Context** for reading a job page through Google's fetcher and **Grounded Search** for Google Search-grounded discovery.
 
 See `config.example.js` for all keys. For the POST body your webhook receives, see [Resume generation webhook](#resume-generation-webhook) below.
 
@@ -272,7 +276,7 @@ Leave **`jobPostingScrapeUrl`** empty in `config.js` when you open the app on **
 **Scraper only:** `cd server && npm install && npm start` (API only, same port — see `server/index.mjs`).
 
 1. On a job card, use **Fetch posting**. The server fetches the page, parses **JSON-LD `JobPosting`** when present, then falls back to common description selectors and bullet lists. It merges **skills** into the chip row and shows **description** + **requirements** excerpts.
-2. If **`resumeGeminiApiKey`** is set (same Gemini setup as cover letters), the app also asks Gemini for **fit angle**, **talking points**, and **extra keywords** from the scraped text plus your resume from Profile.
+2. If your selected AI provider is configured, the app also asks it for **fit angle**, **talking points**, and **extra keywords** from the scraped text plus your resume from Profile. OpenRouter and Local cover this generic summary path; Gemini URL Context is only an optional fallback when Gemini is selected and the local scraper cannot read the page.
 
 **Limits:** Some employers (e.g. LinkedIn) block server-side fetches or return login walls; those URLs may fail. **GitHub Pages** serves the UI over **HTTPS**; the browser will not allow it to call **`http://127.0.0.1`** on your machine. For Fetch posting from Pages, **deploy** the scraper (see **`DEPLOY-SCRAPER.md`**) and paste its **HTTPS** URL in Settings, or use the dashboard locally with `npm start`.
 
@@ -524,7 +528,7 @@ command-center/
 ├── user-content-store.js   # IndexedDB: resumes, samples, preferences
 ├── resume-ingest.js        # PDF/DOCX/text extraction
 ├── resume-bundle.js        # Context bundle for generation
-├── resume-generate.js      # Gemini / OpenAI / webhook calls
+├── resume-generate.js      # OpenRouter (free default) / Local (Ollama) / Gemini / OpenAI / Anthropic / webhook calls
 ├── config.js               # User configuration (edit this)
 ├── AGENT_CONTRACT.md       # Webhook + Pipeline contract for automation
 └── SETUP.md                # This file

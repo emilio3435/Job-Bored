@@ -160,10 +160,13 @@ export function spawnMaterialsRequest(payload, options = {}) {
       if (code === 0) {
         return resolveFn(parsed || { ok: true });
       }
-      /* Legacy: older versions of the Python script could exit 2 on
-       * Telegram failure. Treat as success too — Hermes will still
-       * draft because pending.json was written. */
-      if (code === 2 && parsed) {
+      /* Legacy: older versions of the Python script could exit 2 *only*
+       * when Telegram delivery failed but pending.json was still written.
+       * Require both positive signals (a parsed `telegram_error` and a
+       * `pending_path`) before treating exit 2 as success, so an exit 2
+       * from any other failure surfaces as an error instead of being
+       * silently swallowed into ok:true. */
+      if (code === 2 && parsed && parsed.telegram_error && parsed.pending_path) {
         parsed.ok = true;
         return resolveFn(parsed);
       }

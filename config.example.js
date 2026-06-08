@@ -59,7 +59,8 @@ window.COMMAND_CENTER_CONFIG = {
 
   // --- Resume Updater & Cover Letter Writer (optional) ---
   // Materials (resume, samples, preferences) are stored locally in IndexedDB.
-  // Generation sends text to ONE of: Gemini, OpenAI, Anthropic, or your webhook — never to our servers.
+  // Generation sends text to ONE of: OpenRouter (free default), Gemini, OpenAI,
+  // Anthropic, or your webhook — never to our servers.
   //
   // ATS scorecard mode:
   // - "server" (default): POST /api/ats-scorecard on your local/deployed server
@@ -71,13 +72,33 @@ window.COMMAND_CENTER_CONFIG = {
   atsScoringWebhookUrl: "",
   //
   // For "Draft cover letter" and "Tailor resume" on job cards you must configure ONE of:
-  // - Gemini (default): set resumeGeminiApiKey from https://aistudio.google.com/
+  // - OpenRouter (default, free tier): resumeProvider "openrouter" + a FREE resumeOpenRouterApiKey
+  //   from https://openrouter.ai/keys — no paid plan needed. CORS-friendly from the browser.
+  // - Local: resumeProvider "local" + resumeLocalBaseUrl (e.g. Ollama on http://127.0.0.1:11434/v1)
+  //   + resumeLocalModel (e.g. gemma4:e2b) — fully offline, no key required.
+  // - Gemini: resumeProvider "gemini" + resumeGeminiApiKey from https://aistudio.google.com/
   // - OpenAI: resumeProvider "openai" + resumeOpenAIApiKey (CORS may block on some hosts)
   // - Anthropic: resumeProvider "anthropic" + resumeAnthropicApiKey (CORS may block; use webhook if needed)
   // - Webhook: resumeProvider "webhook" + resumeGenerationWebhookUrl (your server calls the LLM)
   //
-  // Provider: "gemini" (default), "openai", "anthropic", or "webhook"
-  resumeProvider: "gemini",
+  // Provider: "openrouter" (default, free), "local", "gemini", "openai", "anthropic", or "webhook"
+  resumeProvider: "openrouter",
+  // OpenRouter free-tier key (browser-safe; paste a FREE key, do not commit real keys to public repos).
+  // Get one at https://openrouter.ai/keys. Free models work without any paid plan.
+  resumeOpenRouterApiKey: "",
+  // Default free model. Pick another ":free" model id in Settings if this one is retired.
+  resumeOpenRouterModel: "openai/gpt-oss-120b:free",
+  // OpenRouter OpenAI-compatible base URL (no trailing slash). Rarely changed.
+  resumeOpenRouterBaseUrl: "https://openrouter.ai/api/v1",
+  // Local OpenAI-compatible server (e.g. Ollama). resumeProvider "local" runs
+  // fully offline with no key. Pull a model first (e.g. `ollama pull gemma4:e2b`).
+  // Base URL of the local server (no trailing slash). Ollama default shown.
+  resumeLocalBaseUrl: "http://127.0.0.1:11434/v1",
+  // Local model id. Offered in Settings: "gemma4:e2b" (default) and
+  // "gemma4:e2b-mlx" (Apple Silicon, text-only).
+  resumeLocalModel: "gemma4:e2b",
+  // Optional local API key — sent as Authorization only when set. Ollama ignores it.
+  resumeLocalApiKey: "",
   // Google AI Studio API key (browser-safe; do not commit real keys to public repos)
   resumeGeminiApiKey: "",
   resumeGeminiModel: "gemini-3.5-flash",

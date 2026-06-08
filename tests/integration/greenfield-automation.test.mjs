@@ -73,14 +73,13 @@ async function requestJson(baseUrl, path, { method = "POST", body = {} } = {}) {
   return { response, json, text };
 }
 
-function isPhase0Stub(response, json) {
-  return response.status === 501 && json && json.reason === "not_implemented";
-}
-
-function assertPhase0Stub(response, json, endpoint) {
-  assert.equal(response.status, 501, `${endpoint} stub should return HTTP 501`);
-  assert.equal(json.ok, false);
-  assert.equal(json.reason, "not_implemented");
+function assertNotPhase0Stub(response, json, endpoint) {
+  // These endpoints are implemented; a regression back to the Phase 0
+  // "not_implemented" stub must fail the suite rather than be tolerated.
+  assert.ok(
+    !(response.status === 501 && json && json.reason === "not_implemented"),
+    `${endpoint} regressed to a Phase 0 not_implemented stub`,
+  );
 }
 
 async function writeExecutable(path, source) {
@@ -229,11 +228,7 @@ describe("greenfield automation endpoint contracts", () => {
             body: { projectId: "qa-project", applicationName: "JobBored QA" },
           });
 
-          if (isPhase0Stub(response, json)) {
-            assertPhase0Stub(response, json, "/__proxy/oauth-bootstrap");
-            assert.match(json.actionable, /OAuth bootstrap not yet implemented/i);
-            return;
-          }
+          assertNotPhase0Stub(response, json, "/__proxy/oauth-bootstrap");
 
           assert.equal(response.status, 200);
           assert.equal(json.ok, true);
@@ -258,10 +253,7 @@ describe("greenfield automation endpoint contracts", () => {
             body: { projectId: "qa-project", applicationName: "JobBored QA" },
           });
 
-          if (isPhase0Stub(response, json)) {
-            assertPhase0Stub(response, json, "/__proxy/oauth-bootstrap");
-            return;
-          }
+          assertNotPhase0Stub(response, json, "/__proxy/oauth-bootstrap");
 
           assert.equal(response.status, 200);
           assert.equal(json.ok, false);
@@ -283,11 +275,7 @@ describe("greenfield automation endpoint contracts", () => {
         await withEnv({ PATH: missingTools.bin }, async () => {
           const { response, json } = await requestJson(baseUrl, "/__proxy/install-doctor");
 
-          if (isPhase0Stub(response, json)) {
-            assertPhase0Stub(response, json, "/__proxy/install-doctor");
-            assert.ok(Array.isArray(json.missing));
-            return;
-          }
+          assertNotPhase0Stub(response, json, "/__proxy/install-doctor");
 
           assert.equal(response.status, 200);
           assert.equal(json.ok, false);
@@ -301,10 +289,7 @@ describe("greenfield automation endpoint contracts", () => {
         await withEnv({ PATH: presentTools.path }, async () => {
           const { response, json } = await requestJson(baseUrl, "/__proxy/install-doctor");
 
-          if (isPhase0Stub(response, json)) {
-            assertPhase0Stub(response, json, "/__proxy/install-doctor");
-            return;
-          }
+          assertNotPhase0Stub(response, json, "/__proxy/install-doctor");
 
           assert.equal(response.status, 200);
           assert.equal(json.ok, true);
@@ -339,10 +324,7 @@ describe("greenfield automation endpoint contracts", () => {
               body: { schedule: "macos_launchd" },
             });
 
-            if (isPhase0Stub(install.response, install.json)) {
-              assertPhase0Stub(install.response, install.json, "/__proxy/install-keep-alive");
-              return;
-            }
+            assertNotPhase0Stub(install.response, install.json, "/__proxy/install-keep-alive");
 
             if (install.json && install.json.reason === "unsupported_platform") {
               assert.notEqual(process.platform, "darwin");

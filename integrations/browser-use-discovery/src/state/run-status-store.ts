@@ -129,6 +129,14 @@ export function createDiscoveryRunStatusStore(
   }
 
   const database = new DatabaseSync(resolvedPath);
+  if (resolvedPath !== ":memory:") {
+    // WAL + busy_timeout: the status store is written by the run loop while
+    // pollers read concurrently; this avoids SQLITE_BUSY under contention.
+    database.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA busy_timeout = 5000;
+    `);
+  }
   database.exec(`
     CREATE TABLE IF NOT EXISTS discovery_run_status (
       run_id TEXT PRIMARY KEY,

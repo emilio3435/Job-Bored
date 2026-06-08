@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
+import { applyAtsProviderAliases } from "./lib/llm-env.mjs";
 
 const repoRoot = process.cwd();
 const envFilePaths = [
@@ -65,7 +66,7 @@ function resolveRuntimeEnv() {
   if (!String(runtimeEnv.GEMINI_API_KEY || "").trim() && fallbackGemini) {
     runtimeEnv.GEMINI_API_KEY = fallbackGemini;
   }
-  return runtimeEnv;
+  return applyAtsProviderAliases(runtimeEnv);
 }
 
 function main() {

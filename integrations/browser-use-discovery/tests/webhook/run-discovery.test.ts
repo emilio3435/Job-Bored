@@ -2001,11 +2001,145 @@ test("runDiscovery marks grounded source readiness problems as partial outcomes 
   assert.equal(result.sourceSummary[0].sourceId, "grounded_web");
   assert.match(
     result.sourceSummary[0].warnings.join(" | "),
-    /GEMINI_API_KEY is not configured/i,
+    /optional Gemini google_search tool is unavailable/i,
   );
   assert.match(
     result.warnings.join(" | "),
-    /Grounded web source is enabled/i,
+    /Grounded web Google Search skipped/i,
+  );
+  assert.ok(
+    result.sourceSummary[0].diagnostics?.some((diagnostic) =>
+      diagnostic.context.includes("optional Gemini google_search tool"),
+    ),
+  );
+});
+
+test("runDiscovery treats missing optional Google Search as advisory when another lane writes leads", async () => {
+  const writtenLeads: Array<Record<string, unknown>> = [];
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 5,
+      groundedSearchMaxPagesPerCompany: 2,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted" as const,
+      asyncAckByDefault: true,
+      useStructuredExtraction: false,
+    },
+    sourceAdapterRegistry: {
+      adapters: [
+        {
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          detect: async () => null,
+          listJobs: async () => [
+            {
+              sourceId: "greenhouse",
+              sourceLabel: "Greenhouse",
+              title: "Senior Backend Engineer",
+              company: "Acme",
+              location: "Remote",
+              url: "https://jobs.example.com/backend-engineer",
+              descriptionText:
+                "Build provider-compatible discovery services for a remote team.",
+              tags: ["typescript"],
+              metadata: {
+                sourceQuery: "greenhouse board",
+              },
+            },
+          ],
+          normalize: async () => null,
+        },
+      ],
+      detectBoards: async ({ company }: any) => [
+        {
+          matched: true,
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          boardUrl: `https://boards.greenhouse.io/${company.name.toLowerCase()}`,
+          confidence: 1,
+          warnings: [],
+        },
+      ],
+      collectListings: async () => [],
+    },
+    pipelineWriter: {
+      write: async (sheetId: string, leads: Array<Record<string, unknown>>) => {
+        writtenLeads.push(...leads);
+        return {
+          sheetId,
+          appended: leads.length,
+          updated: 0,
+          skippedDuplicates: 0,
+          skippedBlacklist: 0,
+          warnings: [],
+        };
+      },
+    },
+    loadStoredWorkerConfig: async (sheetId: string) => ({
+      sheetId,
+      mode: "hosted" as const,
+      timezone: "UTC",
+      companies: [{ name: "Acme" }],
+      atsCompanies: [{ name: "Acme" }],
+      includeKeywords: ["typescript"],
+      excludeKeywords: [],
+      targetRoles: ["Backend Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+      seniority: "senior",
+      maxLeadsPerRun: 5,
+      enabledSources: ["greenhouse", "grounded_web"] as const,
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored: any, request: any) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "browser_plus_ats" as const,
+      effectiveSources: ["greenhouse", "grounded_web"] as const,
+    }),
+    now: (() => {
+      let index = 0;
+      const dates = [
+        new Date("2026-04-09T12:00:00.000Z"),
+        new Date("2026-04-09T12:00:01.000Z"),
+      ];
+      return () => dates[Math.min(index++, dates.length - 1)];
+    })(),
+    randomId: (prefix: string) => `${prefix}_optional_google_tool`,
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+
+  assert.equal(writtenLeads.length, 1);
+  assert.equal(result.lifecycle.state, "completed");
+  assert.ok(
+    result.warnings.some((warning) =>
+      warning.includes("optional Gemini google_search tool is unavailable"),
+    ),
+  );
+  const groundedSummary = result.sourceSummary.find(
+    (entry) => entry.sourceId === "grounded_web",
+  );
+  assert.ok(groundedSummary);
+  assert.ok(
+    groundedSummary.warnings.some((warning) =>
+      warning.includes("optional Gemini google_search tool is unavailable"),
+    ),
   );
 });
 

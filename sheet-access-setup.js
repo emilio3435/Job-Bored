@@ -18,6 +18,23 @@
     return window.JobBoredApp.core;
   }
 
+  // Synchronous chokepoint signal: true while the first-run infra wizard owns
+  // the surface (infra setup incomplete). Read directly off the sibling module
+  // so every dashboard-reveal entry point can defer without a host round-trip.
+  function firstRunWizardOwnsSurface() {
+    try {
+      const wizard =
+        window.JobBoredApp && window.JobBoredApp.firstRunWizard;
+      return !!(
+        wizard &&
+        typeof wizard.isFirstRunWizardActive === "function" &&
+        wizard.isFirstRunWizardActive()
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
   function startupLog(label, detail, level = "info") {
     const logger = window.JobBoredStartupLog;
     if (logger && typeof logger.mark === "function") {
@@ -66,6 +83,12 @@
 
   /** Last raw error string the sheet/auth pipeline saw — fed into SetupDoctor. */
   let lastSheetAccessError = "";
+
+  // Remembers the create context (wizard vs. onboarding) across a sign-in
+  // resume: the auth layer re-invokes handleSetupCreateStarterSheet() with no
+  // args after sign-in, so a wizard-initiated create has no other way to know
+  // it must stay in the wizard rather than hand off to the dashboard.
+  let pendingStarterSheetCreateOptions = null;
 
   /** Rotating hero tips on the login gate (left panel). */
   const LOGIN_GATE_TIPS = [
@@ -323,6 +346,25 @@
       access: accessStateForLog(),
     });
 
+    // While the first-run wizard owns the surface, do NOT strand a gate
+    // overlay in front of the wizard. The wizard's own sign-in step handles
+    // the sign-in case, and revealDashboardShell / handleSetupCreateStarterSheet
+    // will re-show the gate (or skip it) once the wizard is dismissed or
+    // finished. This prevents transient showSheetAccessGate calls — from
+    // auth-session.js's sign-in-success path, the loadAllData interval, or a
+    // restoreOAuthSession race — from silently swallowing clicks on the
+    // wizard's Sheet-step buttons (VAL-WIZ-013). The requested mode is still
+    // recorded on dataset.gateMode so the gate resumes with the right state
+    // once the wizard releases the surface.
+    if (firstRunWizardOwnsSurface()) {
+      startupLog("sheet-access:show-gate-deferred", {
+        reason: "first-run-wizard-active",
+        mode,
+      });
+      screen.dataset.gateMode = mode;
+      return;
+    }
+
     if (
       !host().getSheetId() &&
       host().getAccessToken() &&
@@ -487,6 +529,17 @@
 
   /** Show the starter Pipeline setup screen before the guided wizard takes over. */
   function revealPipelineSetupStepsScreen() {
+    // Same wizard-owns-surface guard as showSheetAccessGate / revealDashboardShell:
+    // a stray starter-setup reveal (e.g. from a sign-in-success resume or a
+    // loadAllData branch that decided to route to the setup screen) must NOT
+    // strand a setup overlay in front of the wizard, where it would swallow
+    // clicks on the Sheet-step buttons (VAL-WIZ-013).
+    if (firstRunWizardOwnsSurface()) {
+      startupLog("sheet-access:reveal-starter-setup-deferred", {
+        reason: "first-run-wizard-active",
+      });
+      return;
+    }
     releaseAuthPrepaintGuard("reveal-starter-setup");
     const setupScreen = document.getElementById("setupScreen");
     const dashboard = document.getElementById("dashboard");
@@ -505,13 +558,38 @@
     renderSetupStarterSheetUi();
   }
 
-  /** No Sheet ID yet: after Google sign-in, show the starter-sheet setup steps. */
+  /** No Sheet ID yet: after Google sign-in, hand off to the first-run wizard. */
   function revealSetupScreenAfterAuth() {
     if (host().getSheetId()) return;
+    // Signed in with no sheet yet: the first-run wizard (Sheet → Provider) now
+    // owns this surface. Its checkInfraSetupGate requires a signed-in session
+    // (true here) and an incomplete infra flag; if it declines (infra already
+    // complete or the wizard is unavailable), fall back to the legacy
+    // standalone setup screen so the user is never stranded.
+    const wizard = window.JobBoredApp && window.JobBoredApp.firstRunWizard;
+    if (wizard && typeof wizard.checkInfraSetupGate === "function") {
+      Promise.resolve(wizard.checkInfraSetupGate())
+        .then((shown) => {
+          if (!shown) revealPipelineSetupStepsScreen();
+        })
+        .catch(() => revealPipelineSetupStepsScreen());
+      return;
+    }
     revealPipelineSetupStepsScreen();
   }
 
   function revealDashboardShell() {
+    // Authoritative gate: while the first-run wizard owns the surface (infra
+    // setup incomplete), NO reveal entry point (this fn, sign-in-success,
+    // restoreOAuthSession, sheets-read-load) may surface the dashboard or tear
+    // the wizard down. The wizard's finish path reveals it once it relinquishes.
+    if (firstRunWizardOwnsSurface()) {
+      startupLog("sheet-access:reveal-dashboard-deferred", {
+        reason: "first-run-wizard-active",
+        access: accessStateForLog(),
+      });
+      return;
+    }
     releaseAuthPrepaintGuard("reveal-dashboard");
     const setupScreen = document.getElementById("setupScreen");
     const screen = document.getElementById("sheetAccessGateScreen");
@@ -695,8 +773,25 @@
     }
   }
 
-  async function handleSetupCreateStarterSheet() {
+  async function handleSetupCreateStarterSheet(options) {
+    // The post-sign-in resume re-invokes this with no args; recover the
+    // context captured before sign-in so a wizard-initiated create resumes in
+    // the wizard. A non-wizard call always passes an explicit options object.
+    const resumed = !(options && typeof options === "object");
+    const opts = resumed ? pendingStarterSheetCreateOptions || {} : options;
+    const skipDashboardHandoff =
+      opts.context === "wizard" || opts.skipDashboardHandoff === true;
+    const notify = (message, isError) => {
+      if (typeof opts.onStatus !== "function") return;
+      try {
+        opts.onStatus(message, isError);
+      } catch (_) {
+        /* status line is cosmetic — never block the create */
+      }
+    };
+
     if (!host().getOAuthClientId()) {
+      pendingStarterSheetCreateOptions = null;
       host().showToast(
         "Save a Google OAuth client in Settings first, then come back and create the sheet.",
         "error",
@@ -706,6 +801,7 @@
       return;
     }
     if (!core().getGisLoaded() || !core().getTokenClient()) {
+      pendingStarterSheetCreateOptions = null;
       host().showToast(
         "Google sign-in is not ready yet. Save the OAuth client, reload, then try again.",
         "error",
@@ -717,26 +813,80 @@
       !host().getAccessToken() ||
       !host().hasGrantedOauthScope(host().getGoogleSheetsScope())
     ) {
+      if (resumed) {
+        // Post-sign-in resume and the token still lacks the Sheets scope: the
+        // user left Google's granular-consent checkbox unchecked. Do NOT call
+        // signIn() here — we're inside the GIS callback, not a user gesture,
+        // so the consent popup gets popup-blocked and the flow dies silently.
+        // Surface the fix and let the next click (a real gesture) open consent.
+        pendingStarterSheetCreateOptions = null;
+        const message =
+          "Google signed you in but didn't grant Sheets access. Click the " +
+          "create button again and check the box allowing JobBored to manage " +
+          "your Google Sheets.";
+        notify(message, true);
+        host().showToast(message, "error", true);
+        renderSetupStarterSheetUi();
+        return;
+      }
+      // Sheet step precedes the explicit sign-in step in the wizard: remember
+      // the context so the resumed create stays in the wizard.
+      pendingStarterSheetCreateOptions = opts;
       core().setPendingSetupStarterSheetCreate(true);
+      notify(
+        "Finish Google sign-in in the popup window — your starter sheet will " +
+          "be created right after. If the popup closed, click again to retry.",
+      );
       host().signIn({
         prompt: host().getAccessToken() ? "consent" : "",
       });
       return;
     }
 
+    // Committed to creating now: keep the context so a silent re-auth inside
+    // createBlankStarterSheet also resumes with the right handoff behavior.
+    pendingStarterSheetCreateOptions = opts;
     const btn = document.getElementById("setupCreateStarterSheetBtn");
     if (btn) {
       btn.disabled = true;
       btn.textContent = "Creating starter sheet…";
     }
+    notify("Creating your starter sheet…");
     const created = await createBlankStarterSheet(false);
     renderSetupStarterSheetUi();
-    if (!created) return;
+    if (!created) {
+      notify(
+        "Could not create the starter sheet. Check the error message and try again.",
+        true,
+      );
+      return;
+    }
 
+    pendingStarterSheetCreateOptions = null;
     host().mergeStoredConfigOverridePatch({ sheetId: created.spreadsheetId });
     core().setSHEET_ID(created.spreadsheetId);
     host().setInitialSheetAccessResolved(true);
     setDashboardSheetLinks();
+
+    if (skipDashboardHandoff) {
+      // Wizard create: connect the Sheet, open it in a new tab (the wizard
+      // stays put in this tab), then advance via the caller's onCreated. It
+      // runs on the direct path and on the post-sign-in resume (GIS never
+      // reloads the page).
+      notify("Starter sheet created — opening it in a new tab.");
+      if (created.spreadsheetUrl) {
+        window.open(created.spreadsheetUrl, "_blank", "noopener");
+      }
+      if (typeof opts.onCreated === "function") {
+        try {
+          opts.onCreated(created);
+        } catch (err) {
+          console.warn("[JobBored] wizard starter sheet onCreated:", err);
+        }
+      }
+      return;
+    }
+
     revealDashboardShell();
     const hadDiscoveryDeepLink =
       new URLSearchParams(window.location.search).get("setup") === "discovery";
@@ -760,7 +910,7 @@
     document
       .getElementById("setupCreateStarterSheetBtn")
       ?.addEventListener("click", () => {
-        void handleSetupCreateStarterSheet();
+        void handleSetupCreateStarterSheet({ context: "onboarding" });
       });
     document
       .getElementById("sheetAccessGateSignInBtn")

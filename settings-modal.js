@@ -54,7 +54,11 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
           ? "gemini"
           : selectId === "settingsResumeOpenAIModel"
             ? "openai"
-            : "anthropic"
+            : selectId === "settingsResumeOpenRouterModel"
+              ? "openrouter"
+              : selectId === "settingsResumeLocalModel"
+                ? "local"
+                : "anthropic"
       ]);
   if (!sel || sel.tagName !== "SELECT" || !Array.isArray(opts)) return;
   const v =
@@ -93,7 +97,11 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
             ? "gemini"
             : selectId === "settingsResumeOpenAIModel"
               ? "openai"
-              : "anthropic"
+              : selectId === "settingsResumeOpenRouterModel"
+                ? "openrouter"
+                : selectId === "settingsResumeLocalModel"
+                  ? "local"
+                  : "anthropic"
         ];
       updateModelSelectTooltip(sel, latestOptions || opts);
     });
@@ -190,6 +198,16 @@ function fillResumeModelSelectsFromConfig(cfg) {
     m.anthropic,
     cfg.resumeAnthropicModel,
   );
+  fillOneResumeModelSelect(
+    "settingsResumeOpenRouterModel",
+    m.openrouter,
+    cfg.resumeOpenRouterModel,
+  );
+  fillOneResumeModelSelect(
+    "settingsResumeLocalModel",
+    m.local,
+    cfg.resumeLocalModel,
+  );
 }
 
 async function populateDiscoveryProfileIntoSettingsForm() {
@@ -235,7 +253,14 @@ function populateCommandCenterSettingsForm() {
   const prov = String(cfg.resumeProvider || "gemini").toLowerCase();
   const sel = document.getElementById("settingsResumeProvider");
   if (sel) {
-    const pv = ["gemini", "openai", "anthropic", "webhook"].includes(prov)
+    const pv = [
+      "gemini",
+      "openai",
+      "anthropic",
+      "webhook",
+      "openrouter",
+      "local",
+    ].includes(prov)
       ? prov
       : "gemini";
     sel.value = pv;
@@ -244,6 +269,9 @@ function populateCommandCenterSettingsForm() {
   set("settingsResumeGeminiApiKey", cfg.resumeGeminiApiKey);
   set("settingsResumeOpenAIApiKey", cfg.resumeOpenAIApiKey);
   set("settingsResumeAnthropicApiKey", cfg.resumeAnthropicApiKey);
+  set("settingsResumeOpenRouterApiKey", cfg.resumeOpenRouterApiKey);
+  set("settingsResumeLocalBaseUrl", cfg.resumeLocalBaseUrl);
+  set("settingsResumeLocalApiKey", cfg.resumeLocalApiKey);
   set("settingsResumeGenerationWebhookUrl", cfg.resumeGenerationWebhookUrl);
   const err = document.getElementById("settingsFormError");
   if (err) {
@@ -260,10 +288,38 @@ function updateSettingsProviderPanels() {
   const oai = document.getElementById("settingsPanelOpenAI");
   const ant = document.getElementById("settingsPanelAnthropic");
   const hook = document.getElementById("settingsPanelWebhook");
+  const orouter = document.getElementById("settingsPanelOpenRouter");
+  const local = document.getElementById("settingsPanelLocal");
   if (gem) gem.style.display = v === "gemini" ? "block" : "none";
   if (oai) oai.style.display = v === "openai" ? "block" : "none";
   if (ant) ant.style.display = v === "anthropic" ? "block" : "none";
   if (hook) hook.style.display = v === "webhook" ? "block" : "none";
+  if (orouter) orouter.style.display = v === "openrouter" ? "block" : "none";
+  if (local) local.style.display = v === "local" ? "block" : "none";
+}
+
+/**
+ * Mount the reusable Download-model control into the local provider panel.
+ * Reads the base URL + selected model lazily so the live form values are used.
+ * Idempotent — the control no-ops if already bound.
+ */
+function mountLocalDownloadModelControl() {
+  const MD = window.CommandCenterModelDownload;
+  const container = document.getElementById("settingsLocalDownloadControl");
+  if (!MD || !container || typeof MD.mountDownloadModelControl !== "function") {
+    return;
+  }
+  MD.mountDownloadModelControl({
+    container,
+    getBaseUrl: () => {
+      const el = document.getElementById("settingsResumeLocalBaseUrl");
+      return (el && el.value.trim()) || "http://127.0.0.1:11434/v1";
+    },
+    getModel: () => {
+      const el = document.getElementById("settingsResumeLocalModel");
+      return (el && el.value.trim()) || "gemma4:e2b";
+    },
+  });
 }
 
 /** Default OAuth Web Client ID for phased Settings (before Google sign-in unlocks full settings). */
@@ -312,10 +368,6 @@ async function openCommandCenterSettingsModal(opts) {
   hideSettingsClearConfirmBar();
   populateCommandCenterSettingsForm();
   maybeApplyPhasedSettingsDefaultOAuthClientId();
-  if (isSettingsFullExperienceUnlocked()) {
-    await populateDiscoveryProfileIntoSettingsForm();
-    await host().populateAppsScriptDeployStateIntoSettingsForm();
-  }
   updateSettingsProviderPanels();
   syncSettingsModalMode();
   const modal = document.getElementById("settingsModal");
@@ -328,6 +380,17 @@ async function openCommandCenterSettingsModal(opts) {
     Tabs.initSettingsTabs(modal, { defaultTab: defaultTab });
   }
   void host().probeTunnelStaleBadge();
+  // Hydrate async-sourced fields AFTER the modal is visible: these read the
+  // user-content IndexedDB, and a wedged DB (e.g. a "Clear settings" delete
+  // blocked by another tab) must never keep the modal from opening.
+  if (isSettingsFullExperienceUnlocked()) {
+    try {
+      await populateDiscoveryProfileIntoSettingsForm();
+      await host().populateAppsScriptDeployStateIntoSettingsForm();
+    } catch (e) {
+      console.warn("[JobBored] settings modal hydration failed:", e);
+    }
+  }
 }
 
 function hideSettingsClearConfirmBar() {
@@ -445,7 +508,14 @@ async function saveCommandCenterSettingsFromForm() {
   const provEl = document.getElementById("settingsResumeProvider");
   const provider =
     provEl &&
-    ["gemini", "openai", "anthropic", "webhook"].includes(provEl.value)
+    [
+      "gemini",
+      "openai",
+      "anthropic",
+      "webhook",
+      "openrouter",
+      "local",
+    ].includes(provEl.value)
       ? provEl.value
       : "gemini";
   const payload = {
@@ -469,6 +539,13 @@ async function saveCommandCenterSettingsFromForm() {
     resumeAnthropicApiKey: val("settingsResumeAnthropicApiKey"),
     resumeAnthropicModel:
       val("settingsResumeAnthropicModel") || "claude-sonnet-4-6",
+    resumeOpenRouterApiKey: val("settingsResumeOpenRouterApiKey"),
+    resumeOpenRouterModel:
+      val("settingsResumeOpenRouterModel") || "openai/gpt-oss-120b:free",
+    resumeLocalBaseUrl:
+      val("settingsResumeLocalBaseUrl") || "http://127.0.0.1:11434/v1",
+    resumeLocalModel: val("settingsResumeLocalModel") || "gemma4:e2b",
+    resumeLocalApiKey: val("settingsResumeLocalApiKey"),
     resumeGenerationWebhookUrl: val("settingsResumeGenerationWebhookUrl"),
   };
 
@@ -574,9 +651,27 @@ async function performSettingsClearOverrides() {
   } catch (_) {}
 
   // 3) Clear stored config overrides (sheet ID, OAuth client ID, webhook URL,
-  //    discovery profile, etc.).
+  //    discovery profile, etc.), then write an explicit greenfield mask.
+  //
+  //    The mask matters when config.js bakes in credentials (sheetId,
+  //    oauthClientId, AI provider keys, discovery webhook, etc.): overrides are
+  //    merged ON TOP of the file config, so merely removing them lets the
+  //    file's values flow right back on reload — the app boots "configured",
+  //    sign-in is one silent grant away, the sheet data reappears, AND the
+  //    onboarding's provider/discovery steps show pre-filled (so you can't
+  //    dogfood a true first run). Explicit empty-string overrides out-merge the
+  //    file values across ALL credential keys: getConfig() treats the install
+  //    as unconfigured, getOAuthClientId() returns null, and
+  //    isResumeGenerationConfigured() returns false, so the app lands in the
+  //    true cold-start path (login gate in no-oauth mode + first-run wizard)
+  //    with every onboarding step re-armed. Connecting a sheet / re-entering a
+  //    key later overwrites the mask via mergeStoredConfigOverridePatch.
   try {
     localStorage.removeItem(host().getCommandCenterConfigOverrideKey());
+    localStorage.setItem(
+      host().getCommandCenterConfigOverrideKey(),
+      JSON.stringify(host().buildGreenfieldOverrideMask()),
+    );
   } catch (_) {
     showToast("Could not clear saved settings (storage error).", "error", true);
     return;
@@ -667,6 +762,7 @@ function initCommandCenterSettings() {
     ?.addEventListener("change", () => {
       updateSettingsProviderPanels();
     });
+  mountLocalDownloadModelControl();
   document.getElementById("settingsSaveBtn")?.addEventListener("click", () => {
     void saveCommandCenterSettingsFromForm();
   });

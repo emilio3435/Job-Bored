@@ -357,6 +357,17 @@ test("VAL-LOOP-BROWSER-001: classifyCareerSurfaceSourcePolicy is deterministic -
     // Employer domains - extractable
     { url: "https://www.notion.so/careers", expected: "extractable" },
     { url: "https://acme.com/jobs/123", expected: "extractable" },
+    // SSRF guard - private/loopback/metadata targets are blocked
+    { url: "http://127.0.0.1/careers", expected: "blocked" },
+    { url: "http://169.254.169.254/latest/meta-data", expected: "blocked" },
+    { url: "http://10.0.0.5/jobs", expected: "blocked" },
+    { url: "http://192.168.1.10/jobs", expected: "blocked" },
+    { url: "http://100.64.0.1/jobs", expected: "blocked" },
+    { url: "http://2130706433/jobs", expected: "blocked" }, // encoded 127.0.0.1
+    { url: "http://[::1]/careers", expected: "blocked" }, // IPv6 loopback
+    { url: "http://[::ffff:127.0.0.1]/careers", expected: "blocked" }, // IPv4-mapped loopback
+    { url: "http://[::ffff:169.254.169.254]/meta", expected: "blocked" }, // IPv4-mapped metadata
+    { url: "http://[fd00::1]/careers", expected: "blocked" }, // unique-local
   ];
 
   for (const { url, expected } of testCases) {

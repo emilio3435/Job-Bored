@@ -887,6 +887,20 @@ test("mergeExistingRow with empty/absent Edit Lock overwrites identity fields ex
   assert.equal(mergedB[IDX.salary], "$111k", "absent Y must overwrite salary");
 });
 
+test("mergeExistingRow preserves the original Date Found on re-discovery", async () => {
+  // Re-discovery must not reset column A to today's date; the applied-age /
+  // discovered-age UI depends on the original discovery date surviving updates.
+  const existingRow = existingMatchRow({ 24: "" }); // index 0 = "2026-04-01"
+  const merged = await mergedRowFor(existingRow, rediscoveredLead());
+  assert.equal(merged[0], "2026-04-01", "Date Found must keep the original discovery date");
+});
+
+test("mergeExistingRow backfills Date Found when the legacy row had none", async () => {
+  const existingRow = existingMatchRow({ 0: "" });
+  const merged = await mergedRowFor(existingRow, rediscoveredLead());
+  assert.ok(merged[0], "an empty legacy Date Found must be backfilled with the discovery date");
+});
+
 test("buildLeadRow emits COLUMN_COUNT (25) cells with a trailing empty Edit Lock", async () => {
   // buildLeadRow is private; we observe its output via the append path (a
   // brand-new lead with no existing match). The appended row must be exactly

@@ -198,6 +198,7 @@
     <link rel="stylesheet" href="css/legacy-cards-drawer.css" />
     <link rel="stylesheet" href="css/legacy-materials.css" />
     <link rel="stylesheet" href="css/legacy-onboarding.css" />
+    <link rel="stylesheet" href="css/legacy-first-run-wizard.css" />
     <link rel="stylesheet" href="css/legacy-discovery-setup-wizard.css" />
     <link rel="stylesheet" href="css/legacy-profile-modal.css" />
     <link rel="stylesheet" href="css/legacy-settings-profile.css" />
@@ -328,6 +329,64 @@
          Empty queue collapses entirely via the hidden attribute. -->
     <section data-region="materials-queue" aria-label="Materials drafting queue" hidden></section>
     <!-- region:materials-queue:end -->
+
+    <!-- region:whats-next:start
+         Progressive-disclosure "what's next" dashboard banner (VAL-SIGN-001
+         / VAL-SIGN-002). Mounted as a top-level body child adjacent to the
+         materials-queue region; mirrors materials-queue.js's hidden-when-
+         -empty pattern (the hidden attribute hides the section when the
+         banner is not relevant) and the login-gate__callout (kicker+body)
+         styling. Renders ONLY when infraSetupComplete is true AND
+         whatsNextDismissed is false AND isOnboardingComplete() is true
+         (so it never competes with the separate profile wizard). Dismiss
+         writes the flag and hides the section permanently; the flag
+         survives reloads via user-content-store.js's settings store. The
+         two CTA buttons share their handlers with the in-wizard terminal
+         #firstRunPanelDone so the destinations stay consistent between
+         surfaces. -->
+    <section
+      data-region="whats-next"
+      class="whats-next-banner"
+      aria-label="What's next"
+      hidden
+    >
+      <div class="whats-next-banner__inner">
+        <p class="whats-next-banner__kicker">What's next</p>
+        <h3 class="whats-next-banner__title">Try the next step</h3>
+        <p class="whats-next-banner__body">
+          You're connected and your AI provider is ready. Two optional next
+          steps when you want them — or just keep using your pipeline.
+        </p>
+        <div class="whats-next-banner__actions">
+          <button
+            type="button"
+            class="btn-modal-secondary whats-next-banner__cta"
+            id="whatsNextOpenDiscovery"
+            data-whats-next-action="discovery"
+          >
+            Turn on job discovery
+          </button>
+          <button
+            type="button"
+            class="btn-modal-secondary whats-next-banner__cta"
+            id="whatsNextOpenSelfHosting"
+            data-whats-next-action="self_hosting"
+          >
+            Use JobBored on other devices
+          </button>
+          <button
+            type="button"
+            class="login-gate__text-btn whats-next-banner__dismiss"
+            id="whatsNextDismiss"
+            data-whats-next-action="dismiss"
+            aria-label="Dismiss what's-next banner"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    </section>
+    <!-- region:whats-next:end -->
 
     <!-- region:pipeline:start -->
     <section data-region="pipeline" aria-label="Pipeline (v2)"></section>
@@ -1346,6 +1405,7 @@
       </footer>
     </div>
 
+<!-- @include partials/first-run-wizard.html -->
 <!-- @include partials/onboarding-wizard.html -->
 <!-- @include partials/discovery-runs-modal.html -->
 <!-- @include partials/expired-review-modal.html -->
@@ -1410,7 +1470,10 @@
     <script src="ats-scorecard.js?v=1"></script>
     <script src="resume-generation.js?v=1"></script>
     <script src="onboarding-wizard.js?v=1"></script>
+    <script src="first-run-wizard.js?v=1"></script>
+    <script src="whats-next-banner.js?v=1"></script>
     <script src="company-logo.js?v=1"></script>
+    <script src="model-download.js?v=1"></script>
     <script src="settings-modal.js?v=1"></script>
     <script src="materials-feature.js?v=1"></script>
     <script src="sheets-writeback.js?v=1"></script>

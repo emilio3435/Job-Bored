@@ -725,10 +725,8 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride, options) {
       variationKey: payloadOptions.variationKey || h("generateDiscoveryVariationKey")(),
       trigger,
       googleAccessToken: dashboardGoogleAccessToken || "",
+      mergedUserProfile,
     });
-    if (built && typeof built === "object") {
-      built.mergedUserProfile = mergedUserProfile;
-    }
     return built;
   }
 
