@@ -671,6 +671,16 @@ function initDiscoverySetupGuide() {
       });
     });
   document
+    .getElementById("settingsDiscoveryTailscaleBtn")
+    ?.addEventListener("click", () => {
+      void h("requestDiscoverySetup", {
+        entryPoint: "settings",
+        flow: "external_endpoint",
+        startStep: "existing_endpoint",
+        allowWhileOnboarding: true,
+      });
+    });
+  document
     .getElementById("settingsDiscoveryPathsBtn")
     ?.addEventListener("click", () => {
       openDiscoveryPathsModal();
