@@ -23,7 +23,7 @@ Current state:
 - Inspectors 13-16 completed.
 - Integration branch merged all implementation and inspector lanes.
 - Integration blocker fix committed as `54c46bd` on `openrouter-compat/integration`.
-- Agent 17 final test/regression inspector is queued from the integrated branch.
+- Agent 17 final test/regression inspection completed; report committed from integration after the inspector workspace stalled during report patching.
 - Base note: root `main` advanced during swarm execution from the original `1e3bf8e` base to `fa57bfe` (`fix(discovery): route generateDiscoverySuggestions through callConfiguredAi (VAL-PROV-011)`) and then `0e2b1c1` (`docs(quickstart): clarify OpenRouter free default needs a free key`). Integration builds on current `main`, not the original worktree base.
 
 ## Cmux Workspace Map
@@ -46,6 +46,7 @@ Current state:
 | Agent 14 - Browser Provider Inspector | `workspace:29` | `/private/tmp/jobbored-openrouter-swarm/agent-14-browser-inspector` |
 | Agent 15 - Server Provider Inspector | `workspace:30` | `/private/tmp/jobbored-openrouter-swarm/agent-15-server-inspector` |
 | Agent 16 - Worker Provider Inspector | `workspace:31` | `/private/tmp/jobbored-openrouter-swarm/agent-16-worker-inspector` |
+| Agent 17 - Test And Regression Inspector | `workspace:34` (closed after evidence capture) | `/private/tmp/jobbored-openrouter-swarm/agent-17-test-regression-inspector` |
 
 ## Branch Names
 
@@ -68,6 +69,7 @@ Current state:
 | Agent 14 - Browser Provider Inspector | `openrouter-compat/agent-14-browser-inspector` |
 | Agent 15 - Server Provider Inspector | `openrouter-compat/agent-15-server-inspector` |
 | Agent 16 - Worker Provider Inspector | `openrouter-compat/agent-16-worker-inspector` |
+| Agent 17 - Test And Regression Inspector | `openrouter-compat/agent-17-test-regression-inspector` |
 
 ## Lane Ledger
 
@@ -103,7 +105,7 @@ Current state:
 | Agent 14 | Browser provider lanes | Completed: `cce21bb` | `docs/handoffs/swarm-logs/agent-14-browser-provider-inspection.md` |
 | Agent 15 | Server provider lanes | Completed with blocker: `63d08b8` | `docs/handoffs/swarm-logs/agent-15-server-provider-inspection.md`; blocker resolved by `54c46bd`: OpenAI-compatible/local ATS no longer requires an API key when base URL/model are set |
 | Agent 16 | Worker provider lanes | Completed with blockers: `9c61090` | `docs/handoffs/swarm-logs/agent-16-worker-provider-inspection.md`; blockers resolved by `54c46bd`: worker matcher uses generic chat provider, readiness conflicts are merged, and startup-local template fields are blank unless selected |
-| Agent 17 | Test and regression | Queued | Pending integrated docs/tests |
+| Agent 17 | Test and regression | Completed | `docs/handoffs/swarm-logs/agent-17-test-regression-inspection.md` |
 
 ## Final Verification Ledger
 
