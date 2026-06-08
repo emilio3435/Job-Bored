@@ -14,7 +14,11 @@ Authoritative env-var and runtime configuration matrix per surface. For setup wa
 | `discoveryWebhookSecret` | Optional bearer token |
 | `jobPostingScrapeUrl` | Scraper server base URL |
 | `atsBaseUrl` | ATS scorecard endpoint |
-| `byok.gemini.apiKey` / `byok.openai.apiKey` / `byok.anthropic.apiKey` | BYOK LLM keys |
+| `resumeProvider` | Generic AI provider: `openrouter` (default), `local`, `gemini`, `openai`, `anthropic`, or `webhook` |
+| `resumeOpenRouterApiKey` / `resumeOpenRouterModel` / `resumeOpenRouterBaseUrl` | OpenRouter generic AI path |
+| `resumeLocalBaseUrl` / `resumeLocalModel` / `resumeLocalApiKey` | Local OpenAI-compatible generic AI path |
+| `resumeGeminiApiKey` / `resumeGeminiModel` | Gemini provider key/model; also enables optional URL Context when Gemini is selected |
+| `resumeOpenAIApiKey` / `resumeAnthropicApiKey` | Direct provider keys; browser CORS may require OpenRouter, Gemini, Local, or Webhook instead |
 | `jbV2` | Force v2 chrome on (`true` / `false`) |
 
 `?jb-v2=1` / `?jb-v2=0` URL parameters override `jbV2` and persist to `localStorage`.
@@ -37,10 +41,11 @@ Authoritative env-var and runtime configuration matrix per surface. For setup wa
 | `PORT` | `3847` | Bind port |
 | `COMMAND_CENTER_ALLOWED_ORIGINS` | derived | CORS allow-list |
 | `CORS_ALLOWED_ORIGINS` / `ALLOWED_ORIGINS` | derived | Aliases |
-| `OPENAI_API_KEY` | none | ATS lane |
-| `ANTHROPIC_API_KEY` | none | ATS lane |
-| `GEMINI_API_KEY` | none | ATS lane / profile-from-resume |
-| `ATS_PROVIDER` | auto | Override provider selection |
+| `ATS_PROVIDER` | auto | Override generic scorecard provider selection |
+| `ATS_OPENROUTER_API_KEY` / `ATS_OPENROUTER_MODEL` / `ATS_OPENROUTER_BASE_URL` | OpenRouter scorecard provider |
+| `OPENAI_API_KEY` | none | OpenAI scorecard provider |
+| `ANTHROPIC_API_KEY` | none | Anthropic scorecard provider |
+| `GEMINI_API_KEY` | none | Gemini scorecard provider only when selected |
 | `JOBBORED_PROFILE_PATH` | `~/.jobbored/profile.json` | UserProfile location |
 | `HERMES_APPLICATIONS_DIR` | `~/.hermes/job-hunt/applications` | Materials root |
 
@@ -59,8 +64,11 @@ Template: `server/ats-env.example`.
 | `BROWSER_USE_DISCOVERY_SERVICE_ACCOUNT_FILE` | none | Service account path |
 | `BROWSER_USE_DISCOVERY_OAUTH_TOKEN_JSON` | none | OAuth token inline |
 | `BROWSER_USE_DISCOVERY_OAUTH_TOKEN_FILE` | none | OAuth token path |
-| `BROWSER_USE_DISCOVERY_GEMINI_API_KEY` | none | Gemini key |
-| `BROWSER_USE_DISCOVERY_GEMINI_MODEL` | `gemini-3.5-flash` | Default model |
+| `BROWSER_USE_DISCOVERY_LLM_PROVIDER` | `openrouter` | Generic worker chat/JSON provider |
+| `BROWSER_USE_DISCOVERY_OPENROUTER_API_KEY` / `BROWSER_USE_DISCOVERY_OPENROUTER_MODEL` / `BROWSER_USE_DISCOVERY_OPENROUTER_BASE_URL` | OpenRouter worker chat/JSON provider |
+| `BROWSER_USE_DISCOVERY_LLM_API_KEY` / `BROWSER_USE_DISCOVERY_LLM_MODEL` / `BROWSER_USE_DISCOVERY_LLM_BASE_URL` | Provider-neutral worker chat/JSON aliases |
+| `BROWSER_USE_DISCOVERY_GEMINI_API_KEY` | none | Optional Google-tool key for Grounded Search and URL Context |
+| `BROWSER_USE_DISCOVERY_GEMINI_MODEL` | `gemini-3.5-flash` | Optional Google-tool model |
 | `BROWSER_USE_API_KEY` | none | Browser Use cloud |
 | `BROWSER_USE_PROFILE_ID` | none | Cloud profile |
 | `SERPAPI_API_KEY` (or `BROWSER_USE_DISCOVERY_SERPAPI_API_KEY`, `DISCOVERY_SERPAPI_API_KEY`) | none | SerpApi lane |

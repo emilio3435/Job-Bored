@@ -4,7 +4,7 @@ Active contributors: emilio3435
 
 ## Purpose
 
-`integrations/browser-use-discovery/` is the bundled user-owned discovery worker. It accepts the `command-center.discovery` webhook, runs a scout → score → exploit → learn loop across ATS providers, Gemini-grounded web search, and SerpApi Google Jobs, normalizes leads, dedupes against the Pipeline sheet, and writes new rows back. It runs in two modes: `local` (default, on the user's laptop, `127.0.0.1:8644`) and `hosted` (server deployment with per-run `googleAccessToken` from the dashboard).
+`integrations/browser-use-discovery/` is the bundled user-owned discovery worker. It accepts the `command-center.discovery` webhook, runs a scout → score → exploit → learn loop across ATS providers, optional Gemini Grounded Search, and SerpApi Google Jobs, normalizes leads, dedupes against the Pipeline sheet, and writes new rows back. It runs in two modes: `local` (default, on the user's laptop, `127.0.0.1:8644`) and `hosted` (server deployment with per-run `googleAccessToken` from the dashboard).
 
 This is the largest TypeScript surface in the repo (~36k LOC across `src/`).
 
@@ -14,7 +14,7 @@ This is the largest TypeScript surface in the repo (~36k LOC across `src/`).
 | --- | --- |
 | [HTTP server](http-server.md) | Routes (`/health`, `/discovery`, `/runs/:runId`, `/discovery-profile`, `/ingest-url`, `/cleanup-expired`), method/auth/order invariants |
 | [Run loop](run-loop.md) | `run-discovery.ts` scout / score / exploit / learn, frontier scorer, budget tracker |
-| [Source lanes](source-lanes.md) | ATS providers, grounded web (Gemini + Browser Use), SerpApi Google Jobs, ingest-url router |
+| [Source lanes](source-lanes.md) | ATS providers, optional grounded web (Gemini + Browser Use), SerpApi Google Jobs, ingest-url router |
 | [State and memory](state-and-memory.md) | SQLite memory store, run-status store, listing-score cache, dead-link tracking |
 | [Sheets writer](sheets-writer.md) | Pipeline writer, dedupe, optional column upgrades, DiscoveryRuns logger, Blacklist tab |
 
@@ -131,7 +131,8 @@ The security/order invariant in `handle-discovery-webhook.ts` is non-negotiable:
   2. `BROWSER_USE_DISCOVERY_GOOGLE_ACCESS_TOKEN`
   3. Service account (`..._SERVICE_ACCOUNT_JSON` / `_FILE`) — recommended for unattended cron
   4. OAuth token (`..._OAUTH_TOKEN_JSON` / `_FILE`)
-- **Gemini** — `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`, default model `gemini-3.5-flash`.
+- **Generic worker AI** — OpenRouter-first chat/JSON tasks use `BROWSER_USE_DISCOVERY_LLM_PROVIDER=openrouter`, `BROWSER_USE_DISCOVERY_OPENROUTER_API_KEY`, and optional model/base URL overrides.
+- **Gemini Google tools** — `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`, default model `gemini-3.5-flash`, is optional and only powers Grounded Search (`google_search`) plus Add URL Context (`url_context`).
 - **Browser Use** — `BROWSER_USE_API_KEY` + `BROWSER_USE_PROFILE_ID` for cloud, or the bundled CLI wrapper at `integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs` falling back to plain `browser-use` falling back to direct fetch.
 - **SerpApi** — `SERPAPI_API_KEY` (also accepted as `BROWSER_USE_DISCOVERY_SERPAPI_API_KEY`, `DISCOVERY_SERPAPI_API_KEY`). Lane skips silently when unset.
 - **SQLite** — memory store at `BROWSER_USE_DISCOVERY_STATE_DB_PATH` (defaults under `~/.jobbored/browser-use-discovery/state/`).

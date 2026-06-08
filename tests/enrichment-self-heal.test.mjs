@@ -109,8 +109,13 @@ describe("enrichment pipeline — single self-healing path", () => {
   it("declares the canonical AI-provider-missing toast as a single source of truth", () => {
     assert.match(
       postingEnrichmentJs,
-      /const\s+AI_PROVIDER_CONFIG_MISSING_TOAST\s*=\s*["'`][^"'`]*AI provider[^"'`]*Settings[^"'`]*["'`]/i,
-      "AI_PROVIDER_CONFIG_MISSING_TOAST must exist and mention AI provider + Settings",
+      /const\s+AI_PROVIDER_CONFIG_MISSING_TOAST\s*=\s*["'`][^"'`]*AI provider[^"'`]*Settings[^"'`]*AI Providers[^"'`]*["'`]/i,
+      "AI_PROVIDER_CONFIG_MISSING_TOAST must exist and point users to Settings AI Providers",
+    );
+    assert.doesNotMatch(
+      postingEnrichmentJs,
+      /Add a Gemini API key in Settings/i,
+      "generic posting insights must not require Gemini in user-facing copy",
     );
   });
 
@@ -158,14 +163,15 @@ describe("enrichment pipeline — single self-healing path", () => {
     assert.ok(
       /API key not valid|invalid api key|unauthorized/i.test(postingEnrichmentJs),
       "AI provider 401/key-invalid must be classified",
+      "provider 401/key-invalid must be classified",
     );
     assert.ok(
       /RESOURCE_EXHAUSTED|quota|429/i.test(postingEnrichmentJs),
-      "AI provider quota/429 must be classified",
+      "provider quota/429 must be classified",
     );
     assert.ok(
       /safety|blockReason/i.test(postingEnrichmentJs),
-      "AI provider safety-filter blocks must be classified",
+      "provider safety-filter blocks must be classified",
     );
   });
 
@@ -193,7 +199,7 @@ describe("enrichment pipeline — single self-healing path", () => {
     );
   });
 
-  it("never caches partial-failure enrichments (Gemini error → user can retry)", () => {
+  it("never caches partial-failure enrichments (AI error -> user can retry)", () => {
     const slice = enrichmentFlowSlice();
     assert.match(
       slice,
@@ -202,7 +208,7 @@ describe("enrichment pipeline — single self-healing path", () => {
     );
   });
 
-  it("uses only success-shaped enrichments as cache hits so Gemini failures remain retryable", () => {
+  it("uses only success-shaped enrichments as cache hits so AI failures remain retryable", () => {
     assert.match(
       postingEnrichmentJs,
       /function\s+isUsableCachedEnrichment\s*\(\s*enrichment\s*\)/,
@@ -225,7 +231,7 @@ describe("enrichment pipeline — single self-healing path", () => {
     );
   });
 
-  it("checks the enrichment cache before setting loading state or calling Gemini again", () => {
+  it("checks the enrichment cache before setting loading state or calling AI again", () => {
     const slice = enrichmentFlowSlice();
     const cacheIdx = slice.indexOf("getCachedEnrichmentForJob(job)");
     const loadingIdx = slice.indexOf("job._enrichmentLoading = true");
@@ -569,11 +575,11 @@ describe("LLM prompt — preserves quality when scrape fails", () => {
     );
   });
 
-  it("buildUserPrompt explicitly tells Gemini to be conservative when scrape failed", () => {
+  it("buildUserPrompt explicitly tells the model to be conservative when scrape failed", () => {
     assert.match(
       insightsJs,
       /could not be scraped[^]*conservative/i,
-      "the prompt must instruct Gemini to be conservative on scrape-fail",
+      "the prompt must instruct the model to be conservative on scrape-fail",
     );
   });
 
@@ -582,7 +588,7 @@ describe("LLM prompt — preserves quality when scrape fails", () => {
     assert.match(insightsJs, /scrapeFallbackReason:\s*scraped\._scrapeFallbackReason/);
   });
 
-  it("Gemini enrichment schema includes a real ATS fit score and rationale", () => {
+  it("AI enrichment schema includes a real ATS fit score and rationale", () => {
     assert.match(insightsJs, /atsFitScore/);
     assert.match(insightsJs, /atsFitRationale/);
     assert.match(

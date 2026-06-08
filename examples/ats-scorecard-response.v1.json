@@ -45,5 +45,5 @@
     }
   ],
   "confidence": 0.86,
-  "model": "gemini-2.5-flash"
+  "model": "openai/gpt-oss-120b:free"
 }
