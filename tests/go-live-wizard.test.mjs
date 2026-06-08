@@ -346,8 +346,8 @@ describe("go-live wizard — path select", () => {
 describe("go-live wizard — Tailscale path automation", () => {
   it("choosing the Tailscale card probes /__proxy/tailscale-state + /__proxy/install-doctor and navigates to the tailscale step", async () => {
     const fetched = [];
-    const fetchImpl = async (url) => {
-      fetched.push(url);
+    const fetchImpl = async (url, init) => {
+      fetched.push({ url, method: (init && init.method) || "GET" });
       if (url === "/__proxy/tailscale-state") {
         return {
           ok: true,
@@ -378,13 +378,20 @@ describe("go-live wizard — Tailscale path automation", () => {
     const { api, shell } = loadGoLive({ fetchImpl });
     await api.openGoLiveSetupWizard();
     await api.handleAction("wizard_choose_path_tailscale");
+    // tailscale-state is a GET endpoint; install-doctor is POST-only on the
+    // dev-server. The wizard must match each method or the probe 404s and the
+    // cloud path silently falls back to "couldn't reach backend".
     assert.ok(
-      fetched.includes("/__proxy/tailscale-state"),
-      "must probe tailscale-state",
+      fetched.some(
+        (f) => f.url === "/__proxy/tailscale-state" && f.method === "GET",
+      ),
+      "must GET tailscale-state",
     );
     assert.ok(
-      fetched.includes("/__proxy/install-doctor"),
-      "must probe install-doctor",
+      fetched.some(
+        (f) => f.url === "/__proxy/install-doctor" && f.method === "POST",
+      ),
+      "must POST install-doctor (dev-server route is POST-only)",
     );
     assert.equal(shell.lastRender.input.activeStepId, "tailscale");
   });
