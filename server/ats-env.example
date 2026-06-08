@@ -1,18 +1,26 @@
-ATS_PROVIDER=gemini
+# Generic AI provider for ATS scorecards. OpenRouter is the setup default.
+# Alternatives: openai_compatible (local/custom), openai, anthropic, gemini.
+# Copying this file makes OpenRouter explicit; with no ATS_PROVIDER set at all,
+# the server's bare runtime fallback is still Gemini (backwards compatibility).
+ATS_PROVIDER=openrouter
+
 ATS_OPENROUTER_API_KEY=
 ATS_OPENROUTER_MODEL=openai/gpt-oss-120b:free
 ATS_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+
+# Local/custom OpenAI-compatible server. A key is optional for Ollama/LM Studio.
 ATS_OPENAI_COMPATIBLE_API_KEY=
 ATS_OPENAI_COMPATIBLE_MODEL=gemma4:e2b
 ATS_OPENAI_COMPATIBLE_BASE_URL=http://127.0.0.1:11434/v1
+
+# Gemini is only needed when ATS_PROVIDER=gemini.
 ATS_GEMINI_API_KEY=
 ATS_GEMINI_MODEL=gemini-3.5-flash
-ATS_OPENROUTER_API_KEY=
-ATS_OPENROUTER_MODEL=openai/gpt-oss-120b:free
-ATS_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-ATS_OPENAI_COMPATIBLE_API_KEY=
-ATS_OPENAI_COMPATIBLE_MODEL=
-ATS_OPENAI_COMPATIBLE_BASE_URL=
+
+ATS_OPENAI_API_KEY=
+ATS_OPENAI_MODEL=gpt-4o-mini
+ATS_ANTHROPIC_API_KEY=
+ATS_ANTHROPIC_MODEL=claude-sonnet-4-6
 
 # Optional aliases (supported):
 # OPENROUTER_API_KEY=
@@ -25,6 +33,5 @@ ATS_OPENAI_COMPATIBLE_BASE_URL=
 # LLM_MODEL=
 # LLM_BASE_URL=
 # GEMINI_API_KEY=
-# OPENROUTER_API_KEY=
 # OPENAI_API_KEY=
 # ANTHROPIC_API_KEY=

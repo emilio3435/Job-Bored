@@ -411,13 +411,13 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
     );
     assert.match(
       drawerSource,
-      /function getDiscoverySourceReadinessIssues\([\s\S]*groundedWeb[\s\S]*Gemini API key[\s\S]*serpApiGoogleJobs[\s\S]*SerpApi key/,
-      "source readiness should call out missing Gemini and SerpApi config",
+      /function getDiscoverySourceReadinessIssues\([\s\S]*groundedWeb[\s\S]*optional\.push\("Gemini Google Search"\)[\s\S]*serpApiGoogleJobs[\s\S]*required\.push\("SerpApi key"\)[\s\S]*return \{ required, optional \}/,
+      "source readiness must SPLIT the optional Gemini Google Search upgrade (→ optional[]) from genuinely missing required config like SerpApi (→ required[]). Bundling the optional Gemini upgrade into the required list is the provider-split bug — it tells OpenRouter users they are 'missing' Gemini when they are not.",
     );
     assert.match(
       drawerSource,
-      /function renderDiscoveryDrawerSourceReadiness\([\s\S]*discoveryDrawerLastRun[\s\S]*Source config missing/,
-      "drawer header should show missing source config instead of hiding it in a later partial run",
+      /function renderDiscoveryDrawerSourceReadiness\([\s\S]*discoveryDrawerLastRun[\s\S]*Missing source config[\s\S]*Optional: add a Gemini key[\s\S]*Source config missing/,
+      "render must surface required gaps as 'Missing source config' but the optional Gemini upgrade under a separate 'Optional: add a Gemini key … grounding' line, and only flag the chip 'Source config missing' for required gaps — never for the optional upgrade alone",
     );
 
     const openStart = drawerJs.indexOf("function openDiscoveryDrawer()");

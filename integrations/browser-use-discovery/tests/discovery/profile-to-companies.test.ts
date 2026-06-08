@@ -116,6 +116,52 @@ function logSink() {
   };
 }
 
+test("profile extraction missing provider message is provider-agnostic", async () => {
+  await assert.rejects(
+    () =>
+      extractCandidateProfile(
+        { resumeText: "Senior growth marketer with SEO experience." },
+        {
+          runtimeConfig: {
+            ...makeRuntimeConfig(),
+            geminiApiKey: "",
+          },
+        },
+      ),
+    (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(
+        error.message,
+        /Configure any AI provider \(OpenRouter, local, OpenAI, Anthropic, or Gemini\)/,
+      );
+      assert.doesNotMatch(error.message, /Gemini API key/);
+      return true;
+    },
+  );
+});
+
+test("company discovery missing Google-tool key points to SerpApi seeds and ATS first", async () => {
+  await assert.rejects(
+    () =>
+      discoverCompaniesForProfile(PROFILE, {
+        runtimeConfig: {
+          ...makeRuntimeConfig(),
+          geminiApiKey: "",
+          serpApiKey: "",
+        },
+      }),
+    (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /SerpApi/);
+      assert.match(error.message, /company seeds/);
+      assert.match(error.message, /ATS companies/);
+      assert.match(error.message, /optional Gemini google_search/);
+      assert.match(error.message, /BROWSER_USE_DISCOVERY_GEMINI_API_KEY/);
+      return true;
+    },
+  );
+});
+
 test("thin-result retry fires when the first pass returns fewer than 15 companies", async () => {
   const firstPass = JSON.stringify({
     companies: buildCompanyEntries([

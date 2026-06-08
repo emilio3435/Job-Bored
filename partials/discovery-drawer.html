@@ -340,9 +340,11 @@
             hidden
           >
             <p class="discovery-drawer__lede">
-              Pick where discovery looks. ATS providers find jobs through
-              Greenhouse/Lever/Ashby. Grounded web search adds open-web
-              postings. SerpApi taps Google Jobs.
+              Pick where discovery looks. SerpApi taps Google Jobs for the
+              highest-recall postings. ATS providers find jobs through
+              Greenhouse/Lever/Ashby. Grounded web search is an
+              <strong>optional Gemini Google Search upgrade</strong> that
+              adds extra open-web hits — discovery still runs without it.
             </p>
 
             <fieldset class="dp-source-preset" id="dpSourcePresetGroup">
@@ -356,7 +358,7 @@
                     id="dpPresetBrowserOnly"
                   />
                   <span class="dp-preset-label">Web only</span>
-                  <span class="dp-preset-hint">Grounded web search</span>
+                  <span class="dp-preset-hint">Gemini Google Search (optional)</span>
                 </label>
                 <label class="dp-source-preset-option" data-preset="ats_only">
                   <input
@@ -384,11 +386,13 @@
 
             <label class="field-label field-label--checkbox">
               <input type="checkbox" id="dpGroundedWeb" checked />
-              Enable grounded web search
+              Enable grounded web search (optional, requires a Gemini key)
             </label>
             <p class="modal-field-hint">
-              When enabled, the automation will also search the web for jobs
-              beyond ATS listings.
+              Optional <strong>Gemini Google Search</strong> upgrade. Adds
+              open-web hits beyond ATS + SerpApi; requires a Gemini API key.
+              Leave it on without a key and discovery skips this source
+              cleanly — your other enabled sources (SerpApi, ATS) still run.
             </p>
 
             <div
