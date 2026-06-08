@@ -7,7 +7,7 @@ Goal: Go from a fresh clone to a live dashboard — searching jobs, moving cards
 Success means:
 - The dashboard opens at `http://localhost:8080`.
 - Your `Pipeline` Sheet rows render as cards you can move between stages.
-- "Tailor resume" produces a draft using the free default model, with no paid API key.
+- "Tailor resume" produces a draft using the free default model, with a free OpenRouter key — no paid plan needed.
 
 Stop when: You have generated one resume draft and moved one card to a new stage.
 
@@ -28,7 +28,7 @@ Open `http://localhost:8080` and let the **first-run wizard** guide you:
 
 1. **Connect your Sheet** — create a fresh starter Sheet from the wizard, or paste the ID of one you already have.
 2. **Sign in with Google** — this unlocks write-back so you can update statuses, mark jobs applied, and edit notes from the dashboard.
-3. **Pick your resume model** — keep the **free default** to start (no key needed), or switch to your own provider later in Settings.
+3. **Pick your resume model** — keep the **free default** to start (paste a free OpenRouter key from openrouter.ai/keys — no paid plan), or switch to your own provider later in Settings.
 4. **Tailor your first resume** — open any card, click **Tailor resume**, and review the draft plus its fit insights.
 
 Move a card between stages by dragging it or using the stage control on the card. Every change writes straight back to your Sheet — the Sheet stays the source of truth.
@@ -45,7 +45,7 @@ The tailorer sends your profile and the job posting to **one** model of your cho
 
 | Path | Best for | What to set in Settings |
 | --- | --- | --- |
-| **Free default** | First-time users, no setup | Nothing — it works out of the box |
+| **Free default** | First-time users, no paid plan | Paste a free OpenRouter key (openrouter.ai/keys) — no paid plan |
 | **Local model** | Privacy, offline, zero cost | Provider `Local`, base URL (e.g. Ollama `http://127.0.0.1:11434/v1`), model name |
 | **Bring your own key** | Highest quality | Provider `Gemini` / `OpenAI` / `Anthropic` + your API key |
 | **Webhook** | Your own server calls the model | Provider `Webhook` + your endpoint URL |
