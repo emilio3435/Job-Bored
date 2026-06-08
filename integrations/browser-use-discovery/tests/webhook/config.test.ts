@@ -124,6 +124,63 @@ test("loadRuntimeConfig recognizes Browser Use Cloud API key and profile id", ()
   assert.equal(result.browserUseProfileId, "profile_123");
 });
 
+test("loadRuntimeConfig supports OpenRouter chat aliases without Gemini tools", () => {
+  const result = loadRuntimeConfig({
+    BROWSER_USE_DISCOVERY_LLM_PROVIDER: "openrouter",
+    BROWSER_USE_DISCOVERY_OPENROUTER_API_KEY: "or_test_key",
+    BROWSER_USE_DISCOVERY_OPENROUTER_MODEL: "openai/gpt-4.1-mini",
+    BROWSER_USE_DISCOVERY_OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
+  });
+
+  assert.equal(result.llmProvider, "openrouter");
+  assert.equal(result.llmApiKey, "or_test_key");
+  assert.equal(result.llmModel, "openai/gpt-4.1-mini");
+  assert.equal(result.llmBaseUrl, "https://openrouter.ai/api/v1");
+  assert.equal(result.geminiApiKey, "");
+  assert.equal(result.geminiModel, "gemini-3.5-flash");
+});
+
+test("loadRuntimeConfig keeps chat provider config separate from Gemini Google tools", () => {
+  const result = loadRuntimeConfig({
+    BROWSER_USE_DISCOVERY_LLM_PROVIDER: "openrouter",
+    BROWSER_USE_DISCOVERY_OPENROUTER_API_KEY: "or_test_key",
+    BROWSER_USE_DISCOVERY_OPENROUTER_MODEL: "anthropic/claude-3.5-haiku",
+    BROWSER_USE_DISCOVERY_GEMINI_API_KEY: "gemini_tool_key",
+    BROWSER_USE_DISCOVERY_GEMINI_MODEL: "gemini-2.5-flash",
+  });
+
+  assert.equal(result.llmProvider, "openrouter");
+  assert.equal(result.llmApiKey, "or_test_key");
+  assert.equal(result.llmModel, "anthropic/claude-3.5-haiku");
+  assert.equal(result.geminiApiKey, "gemini_tool_key");
+  assert.equal(result.geminiModel, "gemini-2.5-flash");
+});
+
+test("loadRuntimeConfig infers OpenRouter from unprefixed env aliases", () => {
+  const result = loadRuntimeConfig({
+    OPENROUTER_API_KEY: "or_alias_key",
+    OPENROUTER_MODEL: "openai/gpt-4.1-mini",
+  });
+
+  assert.equal(result.llmProvider, "openrouter");
+  assert.equal(result.llmApiKey, "or_alias_key");
+  assert.equal(result.llmModel, "openai/gpt-4.1-mini");
+  assert.equal(result.llmBaseUrl, "https://openrouter.ai/api/v1");
+});
+
+test("loadRuntimeConfig supports local OpenAI-compatible chat without an API key", () => {
+  const result = loadRuntimeConfig({
+    BROWSER_USE_DISCOVERY_LLM_PROVIDER: "local",
+    BROWSER_USE_DISCOVERY_LOCAL_LLM_MODEL: "qwen3-coder",
+    BROWSER_USE_DISCOVERY_LOCAL_LLM_BASE_URL: "http://127.0.0.1:11434/v1",
+  });
+
+  assert.equal(result.llmProvider, "local");
+  assert.equal(result.llmApiKey, "");
+  assert.equal(result.llmModel, "qwen3-coder");
+  assert.equal(result.llmBaseUrl, "http://127.0.0.1:11434/v1");
+});
+
 test("loadRuntimeConfig fails closed for hosted workers without explicit browser origins", () => {
   const result = loadRuntimeConfig({
     BROWSER_USE_DISCOVERY_RUN_MODE: "hosted",

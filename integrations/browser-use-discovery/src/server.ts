@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { createSourceAdapterRegistry } from "./browser/source-adapters.ts";
 import {
   formatBrowserRuntimeReadinessWarning,
+  validateLlmRuntimeReadiness,
   validateBrowserRuntimeReadiness,
 } from "./browser/runtime-readiness.ts";
 import {
@@ -646,6 +647,7 @@ async function buildHealthPayload() {
   // VAL-OBS-001: Check browser runtime readiness
   const browserRuntimeReadiness =
     await validateBrowserRuntimeReadiness(runtimeConfig);
+  const llmRuntimeReadiness = validateLlmRuntimeReadiness(runtimeConfig);
   const browserUseCloudConfigured =
     !!String(runtimeConfig.browserUseApiKey || "").trim();
   const browserUseProfileConfigured =
@@ -683,7 +685,7 @@ async function buildHealthPayload() {
     const groundedWebCause = runtimeConfig.geminiApiKey
       ? "Grounded web source is enabled but the grounded search client is unavailable."
       : "Grounded web source is enabled but BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.";
-    blockingWarnings.push(groundedWebCause);
+    advisoryWarnings.push(groundedWebCause);
   }
 
   return {
@@ -777,6 +779,43 @@ async function buildHealthPayload() {
           ? { remediation: browserRuntimeReadiness.remediation }
           : {}),
       },
+      llm: {
+        provider: llmRuntimeReadiness.provider || null,
+        configured: llmRuntimeReadiness.configured,
+        ready: llmRuntimeReadiness.ready,
+        ...(llmRuntimeReadiness.model
+          ? { model: llmRuntimeReadiness.model }
+          : {}),
+        ...(llmRuntimeReadiness.baseUrl
+          ? { baseUrl: llmRuntimeReadiness.baseUrl }
+          : {}),
+        ...(typeof llmRuntimeReadiness.requiresApiKey === "boolean"
+          ? { requiresApiKey: llmRuntimeReadiness.requiresApiKey }
+          : {}),
+        ...(!llmRuntimeReadiness.ready && llmRuntimeReadiness.message
+          ? { message: llmRuntimeReadiness.message }
+          : {}),
+        ...(!llmRuntimeReadiness.ready && llmRuntimeReadiness.detail
+          ? { detail: llmRuntimeReadiness.detail }
+          : {}),
+        ...(!llmRuntimeReadiness.ready && llmRuntimeReadiness.remediation
+          ? { remediation: llmRuntimeReadiness.remediation }
+          : {}),
+      },
+      googleTools: {
+        provider: "gemini",
+        capabilities: ["google_search", "url_context"],
+        configured: !!String(runtimeConfig.geminiApiKey || "").trim(),
+        ready: !!String(runtimeConfig.geminiApiKey || "").trim(),
+        model: runtimeConfig.geminiModel,
+        ...(!String(runtimeConfig.geminiApiKey || "").trim()
+          ? {
+              cause: "BROWSER_USE_DISCOVERY_GEMINI_API_KEY not configured.",
+              remediation:
+                "Set BROWSER_USE_DISCOVERY_GEMINI_API_KEY to enable Gemini google_search and url_context lanes.",
+            }
+          : {}),
+      },
       browserUseCloud: {
         configured: browserUseCloudConfigured,
         profileConfigured: browserUseProfileConfigured,
@@ -804,7 +843,7 @@ async function buildHealthPayload() {
           ? {
               cause: runtimeConfig.geminiApiKey
                 ? "Grounded search client unavailable despite API key configured."
-                : "GEMINI_API_KEY not configured.",
+                : "BROWSER_USE_DISCOVERY_GEMINI_API_KEY not configured.",
               remediation: runtimeConfig.geminiApiKey
                 ? "Check that the Gemini API key is valid and the service is accessible."
                 : "Set BROWSER_USE_DISCOVERY_GEMINI_API_KEY to a valid API key.",
