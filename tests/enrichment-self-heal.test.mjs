@@ -4,7 +4,7 @@
    Locks down the user-facing contract for the job-posting
    enrichment pipeline:
 
-     "As long as a Gemini API key is configured, the user never
+     "As long as the selected AI provider is configured, the user never
       sees a scraper-setup modal, a 'run npm start' instruction,
       or any other triage step. Every scraper failure mode
       silently self-heals to the LLM-only path."
@@ -20,6 +20,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
+import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
@@ -34,6 +35,58 @@ const pipelineRenderJs = readFileSync(
 );
 const insightsJs = readFileSync(join(repoRoot, "job-posting-insights.js"), "utf8");
 const resumeGenJs = readFileSync(join(repoRoot, "resume-generate.js"), "utf8");
+
+function loadPostingInsights({ config = {}, fetchImpl } = {}) {
+  const ctx = {
+    window: {
+      CommandCenterResumeGenerate: {
+        getResumeGenerationConfig: () => config,
+      },
+    },
+    fetch: fetchImpl,
+    URL,
+    console: { log() {}, warn() {}, error() {} },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(insightsJs, ctx, { filename: "job-posting-insights.js" });
+  return ctx.window.CommandCenterJobPostingInsights;
+}
+
+function makePostingFetchStub(responder) {
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    return responder({ url, options, callIndex: calls.length - 1 });
+  };
+  return { fetchImpl, calls };
+}
+
+const VALID_POSTING_INSIGHTS = {
+  inferredTitle: "Senior Media Strategist",
+  inferredCompany: "Acme Media",
+  inferredLocation: "Remote",
+  postingSummary: "Own strategy for high-growth media accounts.",
+  roleInOneLine: "Senior strategist on the growth team.",
+  mustHaves: ["Paid media strategy", "Client communication"],
+  responsibilities: ["Build plans", "Report performance"],
+  niceToHaves: ["Agency experience"],
+  toolsAndStack: ["Google Ads", "Looker"],
+  atsFitScore: 82,
+  atsFitRationale: "Strong media strategy evidence with analytics uncertainty.",
+  fitAngle: "Lead with cross-channel strategy work.",
+  talkingPoints: ["Scaled campaigns", "Improved reporting"],
+  extraKeywords: ["media", "strategy", "analytics"],
+};
+
+function okChatResponse(content = VALID_POSTING_INSIGHTS) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      choices: [{ message: { content: JSON.stringify(content) } }],
+    }),
+  };
+}
 
 /* Slice the enrichment-flow region: from the
    `async function fetchJobPostingEnrichment` declaration up to,
@@ -53,11 +106,11 @@ function enrichmentFlowSlice() {
 }
 
 describe("enrichment pipeline — single self-healing path", () => {
-  it("declares the canonical Gemini-missing toast as a single source of truth", () => {
+  it("declares the canonical AI-provider-missing toast as a single source of truth", () => {
     assert.match(
       postingEnrichmentJs,
-      /const\s+GEMINI_KEY_MISSING_TOAST\s*=\s*["'`][^"'`]*Gemini API key[^"'`]*Settings[^"'`]*["'`]/i,
-      "GEMINI_KEY_MISSING_TOAST must exist and mention Gemini + Settings",
+      /const\s+AI_PROVIDER_CONFIG_MISSING_TOAST\s*=\s*["'`][^"'`]*AI provider[^"'`]*Settings[^"'`]*["'`]/i,
+      "AI_PROVIDER_CONFIG_MISSING_TOAST must exist and mention AI provider + Settings",
     );
   });
 
@@ -97,22 +150,22 @@ describe("enrichment pipeline — single self-healing path", () => {
     );
   });
 
-  it("classifies Gemini errors (401 / 429 / safety) into reason-specific toasts", () => {
+  it("classifies AI provider errors (401 / 429 / safety) into reason-specific toasts", () => {
     assert.ok(
       /function\s+_toastForLlmError/.test(postingEnrichmentJs),
       "_toastForLlmError helper must exist",
     );
     assert.ok(
       /API key not valid|invalid api key|unauthorized/i.test(postingEnrichmentJs),
-      "Gemini 401/key-invalid must be classified",
+      "AI provider 401/key-invalid must be classified",
     );
     assert.ok(
       /RESOURCE_EXHAUSTED|quota|429/i.test(postingEnrichmentJs),
-      "Gemini quota/429 must be classified",
+      "AI provider quota/429 must be classified",
     );
     assert.ok(
       /safety|blockReason/i.test(postingEnrichmentJs),
-      "Gemini safety-filter blocks must be classified",
+      "AI provider safety-filter blocks must be classified",
     );
   });
 
@@ -267,6 +320,116 @@ describe("enrichment pipeline — single self-healing path", () => {
     /* The fallback stub records why scrape was skipped */
     assert.match(slice, /no-url/);
     assert.match(slice, /url-context-and-scraper-unavailable/);
+  });
+});
+
+describe("posting insights — OpenRouter/local provider routing", () => {
+  const scraped = {
+    url: "https://jobs.example/roles/123",
+    title: "Senior Media Strategist",
+    description: "Lead paid media strategy, reporting, and client planning.",
+    requirements: ["Paid media", "Client communication"],
+    skills: ["Google Ads", "Looker"],
+  };
+  const job = { title: "Senior Media Strategist", company: "Acme Media" };
+
+  it("OpenRouter structured insights use the OpenAI-compatible chat JSON path", async () => {
+    const { fetchImpl, calls } = makePostingFetchStub(() => okChatResponse());
+    const api = loadPostingInsights({
+      config: {
+        provider: "openrouter",
+        resumeOpenRouterApiKey: "sk-or-test",
+        resumeOpenRouterModel: "vendor/model:free",
+        resumeOpenRouterBaseUrl: "https://router.example/api/v1",
+      },
+      fetchImpl,
+    });
+
+    assert.equal(api.canEnrichWithLLM(), true);
+    const out = await api.enrichFromScrape(scraped, job, "Paid media profile");
+
+    assert.equal(out.inferredTitle, "Senior Media Strategist");
+    assert.equal(out.atsFitScore, 82);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "https://router.example/api/v1/chat/completions");
+    assert.equal(calls[0].options.method, "POST");
+    assert.equal(calls[0].options.headers.Authorization, "Bearer sk-or-test");
+    const body = JSON.parse(calls[0].options.body);
+    assert.equal(body.model, "vendor/model:free");
+    assert.equal(body.max_tokens, 3500);
+    assert.ok(!("response_format" in body), "OpenRouter/local path stays provider-compatible");
+    assert.match(body.messages[0].content, /Return only a valid JSON object/);
+    assert.match(body.messages[1].content, /Posting URL: https:\/\/jobs\.example\/roles\/123/);
+    assert.match(body.messages[1].content, /Candidate profile excerpt/);
+  });
+
+  it("local structured insights use chat/completions without Authorization when no key is set", async () => {
+    const { fetchImpl, calls } = makePostingFetchStub(() => okChatResponse());
+    const api = loadPostingInsights({
+      config: {
+        provider: "local",
+        resumeLocalBaseUrl: "http://127.0.0.1:11434/v1",
+        resumeLocalModel: "gemma4:e2b",
+      },
+      fetchImpl,
+    });
+
+    assert.equal(api.canEnrichWithLLM(), true);
+    await api.enrichFromScrape(scraped, job, "");
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "http://127.0.0.1:11434/v1/chat/completions");
+    assert.ok(!("Authorization" in calls[0].options.headers));
+    const body = JSON.parse(calls[0].options.body);
+    assert.equal(body.model, "gemma4:e2b");
+    assert.equal(body.max_tokens, 3500);
+  });
+
+  it("canEnrichWithLLM checks the selected provider's required config", () => {
+    assert.equal(
+      loadPostingInsights({
+        config: { provider: "openrouter", resumeOpenRouterApiKey: "" },
+      }).canEnrichWithLLM(),
+      false,
+    );
+    assert.equal(
+      loadPostingInsights({
+        config: { provider: "local", resumeLocalBaseUrl: "http://host/v1", resumeLocalModel: "" },
+      }).canEnrichWithLLM(),
+      false,
+    );
+    assert.equal(
+      loadPostingInsights({
+        config: { provider: "webhook", resumeGenerationWebhookUrl: "https://hook.example" },
+      }).canEnrichWithLLM(),
+      false,
+    );
+    assert.equal(
+      loadPostingInsights({
+        config: { provider: "gemini", resumeGeminiApiKey: "gemini-key" },
+      }).canEnrichWithLLM(),
+      true,
+    );
+  });
+
+  it("OpenRouter skips Gemini URL Context without requiring a Gemini key", async () => {
+    const { fetchImpl, calls } = makePostingFetchStub(() => {
+      throw new Error("URL Context should not fetch for OpenRouter");
+    });
+    const api = loadPostingInsights({
+      config: {
+        provider: "openrouter",
+        resumeOpenRouterApiKey: "sk-or-test",
+        resumeOpenRouterModel: "vendor/model:free",
+        resumeOpenRouterBaseUrl: "https://router.example/api/v1",
+      },
+      fetchImpl,
+    });
+
+    const out = await api.fetchViaGeminiUrlContext("https://jobs.example/roles/123");
+
+    assert.equal(out, null);
+    assert.equal(calls.length, 0);
   });
 });
 

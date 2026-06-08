@@ -1,6 +1,7 @@
 /* Job posting enrichment — ONE LLM call per Fetch posting (cheap):
    summary, must-haves, responsibilities, fit angle, talking points, tags.
-   Provider matches Settings (Gemini / OpenAI / Anthropic; not webhook).
+   Provider matches Settings (Gemini / OpenAI / Anthropic / OpenRouter / local;
+   not webhook).
    Uses structured/schema-enforced output on every provider so the response
    is always valid JSON — no regex hacks or repair paths needed in the
    common case; repairTruncatedJson() is kept as a last-resort fallback.
@@ -440,6 +441,42 @@
     return normalizeEnrichmentJson(parseJsonSafe(rawText));
   }
 
+  function buildJsonOnlySystemPrompt() {
+    return `${SYSTEM}\nReturn only a valid JSON object with these fields: ${ENRICHMENT_SCHEMA.required.join(", ")}. Do not wrap it in markdown. Use empty strings or empty arrays when evidence is missing.`;
+  }
+
+  async function callOpenAICompatibleJson(userPrompt, apiKey, model, baseUrl, label) {
+    const base = String(baseUrl || "").replace(/\/+$/, "");
+    const headers = { "Content-Type": "application/json" };
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+    const body = {
+      model,
+      messages: [
+        { role: "system", content: buildJsonOnlySystemPrompt() },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.3,
+      max_tokens: 3500,
+    };
+    let resp;
+    try {
+      resp = await fetch(`${base}/chat/completions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      throw wrapFetchFailure(e, label, false);
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(data.error?.message || `HTTP ${resp.status}`);
+    }
+    const rawText = data.choices?.[0]?.message?.content || "";
+    if (!rawText.trim()) throw new Error(`Empty response from ${label}`);
+    return normalizeEnrichmentJson(parseJsonSafe(rawText));
+  }
+
   async function callAnthropicJson(userPrompt, apiKey, model) {
     // Claude Haiku 4.5+ / Sonnet 4.5+ / Opus 4.5+ support native JSON schema
     // structured output via output_config.format — cleaner than tool_use.
@@ -525,9 +562,35 @@
         g.resumeAnthropicModel,
       );
     }
+    if (g.provider === "openrouter") {
+      if (!g.resumeOpenRouterApiKey) {
+        throw new Error("Set resumeOpenRouterApiKey for AI posting summary.");
+      }
+      return callOpenAICompatibleJson(
+        userPrompt,
+        g.resumeOpenRouterApiKey,
+        g.resumeOpenRouterModel,
+        g.resumeOpenRouterBaseUrl || "https://openrouter.ai/api/v1",
+        "OpenRouter",
+      );
+    }
+    if (g.provider === "local") {
+      if (!g.resumeLocalBaseUrl || !g.resumeLocalModel) {
+        throw new Error(
+          "Set resumeLocalBaseUrl and resumeLocalModel for AI posting summary.",
+        );
+      }
+      return callOpenAICompatibleJson(
+        userPrompt,
+        g.resumeLocalApiKey || "",
+        g.resumeLocalModel,
+        g.resumeLocalBaseUrl || "http://127.0.0.1:11434/v1",
+        "local model server",
+      );
+    }
     if (g.provider === "webhook") {
       throw new Error(
-        "Structured posting summary needs a direct LLM provider. Switch to Gemini, OpenAI, or Anthropic in Settings.",
+        "Structured posting summary needs a direct LLM provider. Switch to OpenRouter, local, Gemini, OpenAI, or Anthropic in Settings.",
       );
     }
     if (!g.resumeGeminiApiKey)
@@ -540,10 +603,26 @@
   }
 
   function canEnrichWithLLM() {
-    if (!window.CommandCenterResumeGenerate.isResumeGenerationConfigured())
+    const gen = window.CommandCenterResumeGenerate;
+    if (!gen || typeof gen.getResumeGenerationConfig !== "function") {
       return false;
-    const g = getGenConfig();
-    return g.provider !== "webhook";
+    }
+    const g = gen.getResumeGenerationConfig();
+    switch (g.provider) {
+      case "openai":
+        return !!g.resumeOpenAIApiKey;
+      case "anthropic":
+        return !!g.resumeAnthropicApiKey;
+      case "openrouter":
+        return !!g.resumeOpenRouterApiKey;
+      case "local":
+        return !!(g.resumeLocalBaseUrl && g.resumeLocalModel);
+      case "webhook":
+        return false;
+      case "gemini":
+      default:
+        return !!g.resumeGeminiApiKey;
+    }
   }
 
   /* ============================================================
