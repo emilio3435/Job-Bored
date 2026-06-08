@@ -26,6 +26,28 @@ function createWizardNode(tag, className, text) {
   return el;
 }
 
+// Normalize a user-pasted discovery webhook URL. Auto-append `/webhook`
+// when the URL has no path (e.g. the bare ts.net origin that
+// `tailscale serve --bg 8644` prints) so the saved config always
+// points at the worker's webhook route. The hosted helper
+// `normalizeDiscoveryWebhookIdentity` is the source of truth for
+// host-validation; this is a thin /webhook-appender that preserves
+// any other path the user might have entered.
+function ensureDiscoveryWebhookUrl(raw) {
+  const s = typeof raw === "string" ? raw.trim().replace(/\/+$/, "") : "";
+  if (!s) return "";
+  try {
+    const u = new URL(s);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+    if (u.pathname === "" || u.pathname === "/") {
+      u.pathname = "/webhook";
+    }
+    return u.toString().replace(/\/$/, "");
+  } catch (_) {
+    return s;
+  }
+}
+
 function appendWizardParagraph(
   parent,
   text,
@@ -926,11 +948,24 @@ function buildDiscoveryExistingEndpointBody(runtime) {
     "On the machine running the worker, expose port 8644:",
   ]);
   appendWizardCodeBlock(container, "tailscale serve --bg 8644", "Copy command");
-  appendWizardParagraph(
-    container,
-    "Paste the full URL below INCLUDING the /webhook path — e.g. https://<machine>.<tailnet>.ts.net/webhook. Set your webhook secret in config.js (discoveryWebhookSecret); see docs/SELF-HOSTING.md. Already have a public HTTPS endpoint? Paste that instead.",
-    "settings-field-hint settings-field-hint--compact",
+  const link = createWizardNode("p", "settings-field-hint settings-field-hint--compact");
+  link.appendChild(
+    document.createTextNode(
+      "Paste the full URL below INCLUDING the /webhook path — e.g. https://<machine>.<tailnet>.ts.net/webhook. The worker fail-closes on an empty secret when exposed, so set the matching shared secret in the second field (or in config.js → discoveryWebhookSecret). Full setup walkthrough: ",
+    ),
   );
+  const selfHostingAnchor = createWizardNode("a", "");
+  selfHostingAnchor.href = "docs/SELF-HOSTING.md";
+  selfHostingAnchor.target = "_blank";
+  selfHostingAnchor.rel = "noopener";
+  selfHostingAnchor.textContent = "docs/SELF-HOSTING.md";
+  link.appendChild(selfHostingAnchor);
+  link.appendChild(
+    document.createTextNode(
+      ". Already have a public HTTPS endpoint? Paste that instead.",
+    ),
+  );
+  container.appendChild(link);
   appendWizardInput(container, {
     id: "discoveryWizardExistingEndpointInput",
     label: "Worker URL (Tailscale, or your own HTTPS endpoint)",
@@ -940,6 +975,20 @@ function buildDiscoveryExistingEndpointBody(runtime) {
     hint: "A stable HTTPS URL. A bare localhost address won't reach other devices.",
     onInput(value) {
       host().updateDiscoveryWizardRuntime({ drafts: { endpointUrl: value } });
+    },
+  });
+  appendWizardInput(container, {
+    id: "discoveryWizardExistingEndpointSecretInput",
+    label: "Discovery webhook shared secret",
+    type: "password",
+    value: runtime.drafts.endpointSecret || "",
+    placeholder: "Paste the same secret as the worker's BROWSER_USE_DISCOVERY_WEBHOOK_SECRET",
+    hint:
+      "Sent as x-discovery-secret. Leave blank to keep an existing saved secret (or to skip secret auth for an Apps Script stub). The worker fail-closes on an empty secret when exposed, so set it whenever the URL is reachable from outside this machine.",
+    onInput(value) {
+      host().updateDiscoveryWizardRuntime({
+        drafts: { endpointSecret: value },
+      });
     },
   });
   if (runtime.lastVerificationResult) {
@@ -2219,7 +2268,30 @@ async function handleDiscoveryWizardVerification(url, context) {
       );
     }
     if (url) {
-      host().mergeStoredConfigOverridePatch({ discoveryWebhookUrl: url });
+      // VAL-SIGN-004: persist the URL AND any secret draft the user
+      // pasted in the guided Tailscale / stable-URL flow. The worker
+      // fail-closes on an empty secret when exposed, so silently saving
+      // only the URL half-configures the worker. We auto-append
+      // `/webhook` when the pasted ts.net URL omits the path (the
+      // Tailscale CLI prints the bare origin, not the worker path).
+      const runtime = host().getDiscoveryWizardRuntime() || {};
+      const drafts = (runtime.drafts && typeof runtime.drafts === "object")
+        ? runtime.drafts
+        : {};
+      const normalizedUrl = ensureDiscoveryWebhookUrl(url);
+      const secretDraft = typeof drafts.endpointSecret === "string"
+        ? drafts.endpointSecret.trim()
+        : "";
+      if (secretDraft) {
+        host().mergeStoredConfigOverridePatch({
+          discoveryWebhookUrl: normalizedUrl,
+          discoveryWebhookSecret: secretDraft,
+        });
+      } else {
+        host().mergeStoredConfigOverridePatch({
+          discoveryWebhookUrl: normalizedUrl,
+        });
+      }
     }
     await host().refreshDiscoveryReadinessSnapshot({ force: true, rerender: false });
     const snapshot = host().getDiscoveryReadinessSnapshot();

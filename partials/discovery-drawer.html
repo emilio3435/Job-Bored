@@ -767,6 +767,50 @@
               stubs and other public webhooks don't need a secret.
             </p>
 
+            <div
+              class="settings-discovery-callout settings-discovery-callout--tailscale"
+              id="settingsDiscoveryTailscaleCallout"
+              data-configured="unknown"
+              role="note"
+            >
+              <div class="settings-discovery-callout__head">
+                <span
+                  class="settings-discovery-callout__icon"
+                  aria-hidden="true"
+                  >⚡</span
+                >
+                <strong>Tailscale (recommended) — stable URL for multi-device</strong>
+                <span
+                  class="settings-discovery-callout__status"
+                  id="settingsDiscoveryTailscaleCalloutStatus"
+                  aria-live="polite"
+                  >Multi-device ready</span
+                >
+              </div>
+              <p class="settings-field-hint">
+                Tailscale gives your worker a private, stable HTTPS URL
+                (e.g. <code class="modal-code">https://&lt;machine&gt;.tailXXXX.ts.net/webhook</code>)
+                that <strong>never rotates</strong> — no ngrok URL churn, no
+                public Cloudflare tunnel. The wizard walks you through
+                <code class="modal-code">tailscale serve --bg 8644</code> and
+                saves the URL + shared secret together so the worker fail-closes
+                on a real secret when exposed. Read the full setup in
+                <a
+                  href="docs/SELF-HOSTING.md"
+                  target="_blank"
+                  rel="noopener"
+                  >docs/SELF-HOSTING.md</a
+                >.
+              </p>
+              <p
+                class="settings-field-hint settings-field-hint--compact settings-discovery-callout__reminder"
+              >
+                Single-machine only? You can skip Tailscale and stick with
+                localhost. Click <strong>Stable URL / Tailscale</strong> below
+                to start the guided setup.
+              </p>
+            </div>
+
             <p class="settings-field-hint settings-field-hint--compact">
               <strong>Google Sheets credential:</strong> if you're signed in
               to JobBored above, your sign-in is sent to the worker
@@ -824,6 +868,14 @@
                 id="settingsDiscoveryRelayBtn"
               >
                 Cloudflare relay
+              </button>
+              <button
+                type="button"
+                class="btn-discovery-setup btn-discovery-setup--secondary"
+                id="settingsDiscoveryTailscaleBtn"
+                title="Guided Tailscale / stable HTTPS endpoint setup (writes URL + secret together)"
+              >
+                Stable URL / Tailscale
               </button>
               <button
                 type="button"
