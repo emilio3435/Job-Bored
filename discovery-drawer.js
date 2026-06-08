@@ -777,24 +777,6 @@ async function generateDiscoverySuggestions(scrapedJob) {
   if (!RG || typeof RG.getResumeGenerationConfig !== "function") {
     throw new Error("Resume generation module not loaded.");
   }
-  const g = RG.getResumeGenerationConfig();
-  let provider = g.provider || "gemini";
-
-  // AI discovery suggestions only have transports for the BYO chat providers
-  // (gemini/openai/anthropic). The local/OpenRouter resume providers have no
-  // transport in this switch, so degrade gracefully instead of throwing an
-  // opaque error: reuse whichever BYO key is configured, else surface a clear,
-  // actionable message naming the keys this feature needs.
-  if (provider !== "gemini" && provider !== "openai" && provider !== "anthropic") {
-    if (g.resumeGeminiApiKey) provider = "gemini";
-    else if (g.resumeOpenAIApiKey) provider = "openai";
-    else if (g.resumeAnthropicApiKey) provider = "anthropic";
-    else {
-      throw new Error(
-        "AI discovery suggestions need a Gemini, OpenAI, or Anthropic key. Add one in Settings — the local and OpenRouter resume providers don't support this feature.",
-      );
-    }
-  }
 
   const UC = h("getUserContent", );
   if (!UC) throw new Error("User content store not available.");
@@ -874,40 +856,7 @@ async function generateDiscoverySuggestions(scrapedJob) {
 
   const userPrompt = userParts.join("\n");
 
-  let text;
-  if (provider === "gemini") {
-    if (!g.resumeGeminiApiKey)
-      throw new Error("Set a Gemini API key in Settings.");
-    text = await h("callDiscoveryAiGemini",
-      systemPrompt,
-      userPrompt,
-      g.resumeGeminiApiKey,
-      g.resumeGeminiModel,
-      { json: true },
-    );
-  } else if (provider === "openai") {
-    if (!g.resumeOpenAIApiKey)
-      throw new Error("Set an OpenAI API key in Settings.");
-    text = await h("callDiscoveryAiOpenAI",
-      systemPrompt,
-      userPrompt,
-      g.resumeOpenAIApiKey,
-      g.resumeOpenAIModel,
-    );
-  } else if (provider === "anthropic") {
-    if (!g.resumeAnthropicApiKey)
-      throw new Error("Set an Anthropic API key in Settings.");
-    text = await h("callDiscoveryAiAnthropic",
-      systemPrompt,
-      userPrompt,
-      g.resumeAnthropicApiKey,
-      g.resumeAnthropicModel,
-    );
-  } else {
-    throw new Error(
-      "Switch to Gemini, OpenAI, or Anthropic in Settings for AI suggestions.",
-    );
-  }
+  const text = await callConfiguredAi(systemPrompt, userPrompt, { json: true });
 
   const parsed = h("parseJsonSafeForSuggestions", text);
   return {

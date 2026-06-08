@@ -12,13 +12,18 @@ const drawerJs = readFileSync(join(repoRoot, "discovery-drawer.js"), "utf8");
  * Load discovery-drawer.js (a browser-global IIFE) in an isolated vm context
  * and return the drawer namespace plus hooks to drive its provider switch.
  * generateDiscoverySuggestions reaches the resume-generation config via
- * window.CommandCenterResumeGenerate and its collaborators via the lazy
- * drawer.host bridge — both stubbed here.
+ * window.CommandCenterResumeGenerate, routes through callConfiguredAi(), and
+ * reaches profile helpers via the lazy drawer.host bridge.
  */
-function loadDrawer({ genConfig, aiCalls }) {
+function loadDrawer({ genConfig, fetchImpl }) {
+  const fetchCalls = [];
   const ctx = {
     window: {},
     console: { log() {}, warn() {}, error() {} },
+    fetch: async (url, init) => {
+      fetchCalls.push({ url, init });
+      return fetchImpl(url, init);
+    },
   };
   vm.createContext(ctx);
   vm.runInContext(drawerJs, ctx, { filename: "discovery-drawer.js" });
@@ -35,117 +40,146 @@ function loadDrawer({ genConfig, aiCalls }) {
     },
   };
 
-  const strataJson = JSON.stringify({
-    safe: { targetRoles: "SRE" },
-    adjacent: { targetRoles: "Platform Engineer" },
-    stretch: { targetRoles: "Staff SRE" },
-  });
-
   drawer.host = {
     getUserContent: () => UC,
     buildCandidateProfileExcerpt: async () => "CANDIDATE PROFILE EXCERPT",
     parseJsonSafeForSuggestions: (t) => JSON.parse(t),
-    callDiscoveryAiGemini: async (...args) => {
-      aiCalls.push({ provider: "gemini", args });
-      return strataJson;
-    },
-    callDiscoveryAiOpenAI: async (...args) => {
-      aiCalls.push({ provider: "openai", args });
-      return strataJson;
-    },
-    callDiscoveryAiAnthropic: async (...args) => {
-      aiCalls.push({ provider: "anthropic", args });
-      return strataJson;
-    },
   };
 
-  return { drawer, ctx };
+  return { drawer, ctx, fetchCalls };
 }
+
+const okOpenAiCompatibleJson = (text) => ({
+  status: 200,
+  ok: true,
+  json: async () => ({
+    choices: [{ message: { content: text } }],
+  }),
+});
+
+const okGeminiJson = (text) => ({
+  status: 200,
+  ok: true,
+  json: async () => ({
+    candidates: [{ content: { parts: [{ text }] }, finishReason: "STOP" }],
+  }),
+});
 
 const BASE_CONFIG = {
   provider: "gemini",
   resumeGeminiApiKey: "",
   resumeOpenAIApiKey: "",
   resumeAnthropicApiKey: "",
+  resumeOpenRouterApiKey: "",
+  resumeOpenRouterModel: "openai/gpt-oss-120b:free",
+  resumeOpenRouterBaseUrl: "https://openrouter.ai/api/v1",
+  resumeLocalApiKey: "",
+  resumeLocalModel: "gemma4:e2b",
+  resumeLocalBaseUrl: "http://127.0.0.1:11434/v1",
   resumeGeminiModel: "gemini-3.5-flash",
   resumeOpenAIModel: "gpt-4o-mini",
   resumeAnthropicModel: "claude-sonnet-4-6",
 };
 
 describe("discovery-drawer generateDiscoverySuggestions — provider guard (VAL-PROV-011)", () => {
-  it("local provider with a Gemini key degrades to the Gemini path (no throw)", async () => {
-    const aiCalls = [];
-    const { drawer } = loadDrawer({
-      genConfig: { ...BASE_CONFIG, provider: "local", resumeGeminiApiKey: "g-key" },
-      aiCalls,
+  it("openrouter provider routes directly through OpenRouter chat/completions", async () => {
+    const { drawer, fetchCalls } = loadDrawer({
+      genConfig: {
+        ...BASE_CONFIG,
+        provider: "openrouter",
+        resumeOpenRouterApiKey: "sk-or-test",
+      },
+      fetchImpl: async () => okOpenAiCompatibleJson(JSON.stringify({
+        safe: { targetRoles: "SRE" },
+        adjacent: { targetRoles: "Platform Engineer" },
+        stretch: { targetRoles: "Staff SRE" },
+      })),
     });
     const out = await drawer.generateDiscoverySuggestions(null);
-    assert.equal(aiCalls.length, 1);
-    assert.equal(aiCalls[0].provider, "gemini", "falls back to the Gemini transport");
-    assert.equal(aiCalls[0].args[2], "g-key", "passes the configured Gemini key");
+    assert.equal(fetchCalls.length, 1);
+    assert.equal(
+      fetchCalls[0].url,
+      "https://openrouter.ai/api/v1/chat/completions",
+    );
+    assert.equal(fetchCalls[0].init.headers.Authorization, "Bearer sk-or-test");
+    const body = JSON.parse(fetchCalls[0].init.body);
+    assert.equal(body.model, "openai/gpt-oss-120b:free");
+    assert.ok(body.max_tokens >= 4096, "json:true should raise max_tokens");
     assert.ok(out.safe && out.adjacent && out.stretch, "returns normalized strata");
   });
 
-  it("openrouter provider with a Gemini key degrades to the Gemini path (no throw)", async () => {
-    const aiCalls = [];
+  it("local provider routes directly through the local OpenAI-compatible endpoint", async () => {
+    const { drawer, fetchCalls } = loadDrawer({
+      genConfig: {
+        ...BASE_CONFIG,
+        provider: "local",
+        resumeLocalApiKey: "",
+      },
+      fetchImpl: async () => okOpenAiCompatibleJson(JSON.stringify({
+        safe: { targetRoles: "SRE" },
+        adjacent: { targetRoles: "Platform Engineer" },
+        stretch: { targetRoles: "Staff SRE" },
+      })),
+    });
+    const out = await drawer.generateDiscoverySuggestions(null);
+    assert.equal(fetchCalls.length, 1);
+    assert.equal(
+      fetchCalls[0].url,
+      "http://127.0.0.1:11434/v1/chat/completions",
+    );
+    assert.equal(fetchCalls[0].init.headers.Authorization, undefined);
+    const body = JSON.parse(fetchCalls[0].init.body);
+    assert.equal(body.model, "gemma4:e2b");
+    assert.ok(out.safe && out.adjacent && out.stretch);
+  });
+
+  it("openrouter provider with no OpenRouter key does not fall back to a Gemini key", async () => {
     const { drawer } = loadDrawer({
       genConfig: {
         ...BASE_CONFIG,
         provider: "openrouter",
+        resumeOpenRouterApiKey: "",
         resumeGeminiApiKey: "g-key",
       },
-      aiCalls,
+      fetchImpl: async () => okOpenAiCompatibleJson("{}"),
     });
-    const out = await drawer.generateDiscoverySuggestions(null);
-    assert.equal(aiCalls.length, 1);
-    assert.equal(aiCalls[0].provider, "gemini");
-    assert.ok(out.safe && out.adjacent && out.stretch);
+    await assert.rejects(
+      () => drawer.generateDiscoverySuggestions(null),
+      /Add your OpenRouter key in Settings/,
+    );
   });
 
-  it("local provider with only an OpenAI key falls back to the OpenAI path", async () => {
-    const aiCalls = [];
+  it("webhook provider surfaces the inline-suggestions message without fetch", async () => {
+    let fetchCalled = false;
     const { drawer } = loadDrawer({
-      genConfig: {
-        ...BASE_CONFIG,
-        provider: "local",
-        resumeOpenAIApiKey: "o-key",
+      genConfig: { ...BASE_CONFIG, provider: "webhook" },
+      fetchImpl: async () => {
+        fetchCalled = true;
+        return okOpenAiCompatibleJson("{}");
       },
-      aiCalls,
     });
-    await drawer.generateDiscoverySuggestions(null);
-    assert.equal(aiCalls.length, 1);
-    assert.equal(aiCalls[0].provider, "openai");
-  });
-
-  it("a new provider with no BYO key surfaces a clear, actionable message (not an opaque throw)", async () => {
-    const aiCalls = [];
-    const { drawer } = loadDrawer({
-      genConfig: { ...BASE_CONFIG, provider: "openrouter" },
-      aiCalls,
-    });
-    let caught;
-    try {
-      await drawer.generateDiscoverySuggestions(null);
-    } catch (e) {
-      caught = e;
-    }
-    assert.ok(caught, "must surface a message when no BYO key is configured");
-    assert.equal(aiCalls.length, 0, "no AI transport is invoked without a key");
-    assert.match(caught.message, /Gemini/i);
-    assert.match(caught.message, /OpenAI/i);
-    assert.match(caught.message, /Anthropic/i);
-    assert.match(caught.message, /key/i);
+    await assert.rejects(
+      () => drawer.generateDiscoverySuggestions(null),
+      /doesn't support inline suggestions/i,
+    );
+    assert.equal(fetchCalled, false);
   });
 
   it("does not regress the existing gemini path", async () => {
-    const aiCalls = [];
-    const { drawer } = loadDrawer({
+    const { drawer, fetchCalls } = loadDrawer({
       genConfig: { ...BASE_CONFIG, provider: "gemini", resumeGeminiApiKey: "g-key" },
-      aiCalls,
+      fetchImpl: async () => okGeminiJson(JSON.stringify({
+        safe: { targetRoles: "SRE" },
+        adjacent: { targetRoles: "Platform Engineer" },
+        stretch: { targetRoles: "Staff SRE" },
+      })),
     });
     const out = await drawer.generateDiscoverySuggestions(null);
-    assert.equal(aiCalls.length, 1);
-    assert.equal(aiCalls[0].provider, "gemini");
+    assert.equal(fetchCalls.length, 1);
+    assert.match(
+      fetchCalls[0].url,
+      /^https:\/\/generativelanguage\.googleapis\.com\//,
+    );
     assert.ok(out.safe && out.adjacent && out.stretch);
   });
 });
