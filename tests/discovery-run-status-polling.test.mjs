@@ -97,6 +97,26 @@ describe("discovery run status polling", () => {
     const refreshSource = statusHandoffJs.slice(refreshStart, refreshEnd);
 
     assert.match(pollingSource, /await refreshPipelineAfterDiscoveryRun\(updated\)/);
+    assert.match(
+      pollingSource,
+      /await refreshPipelineAfterDiscoveryRun\(tracker\.getState\(\)\)/,
+      "exhausted status polling must still reload Pipeline in case the worker finished",
+    );
+    const shouldRefreshStart = statusHandoffJs.indexOf(
+      "function shouldRefreshPipelineAfterDiscoveryRun(",
+    );
+    assert.notEqual(shouldRefreshStart, -1, "refresh gate helper must exist");
+    const shouldRefreshEnd = statusHandoffJs.indexOf(
+      "\n}\n\nasync function refreshPipelineAfterDiscoveryRun",
+      shouldRefreshStart,
+    );
+    assert.notEqual(shouldRefreshEnd, -1, "refresh gate helper must be readable");
+    const shouldRefreshSource = statusHandoffJs.slice(
+      shouldRefreshStart,
+      shouldRefreshEnd,
+    );
+    assert.match(shouldRefreshSource, /status === "polling_error"/);
+    assert.match(shouldRefreshSource, /pollErrorCount.*MAX_POLL_ERRORS/s);
     assert.match(refreshSource, /shouldRefreshPipelineAfterDiscoveryRun\(state\)/);
     assert.match(refreshSource, /host\(\)\.loadAllData\(\)/);
     assert.match(statusHandoffJs, /status === "completed"/);

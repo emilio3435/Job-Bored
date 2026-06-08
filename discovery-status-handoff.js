@@ -624,6 +624,15 @@ function retryDiscoveryStatusConnection() {
 
 function shouldRefreshPipelineAfterDiscoveryRun(state) {
   const status = String((state && state.status) || "").toLowerCase();
+  if (
+    status === "polling_error" &&
+    Number((state && state.pollErrorCount) || 0) >= MAX_POLL_ERRORS &&
+    String((state && state.runId) || "").trim()
+  ) {
+    // Status polling died before we saw a terminal payload, but the worker may
+    // have finished writing Pipeline rows anyway (common on local/tunnel paths).
+    return true;
+  }
   return (
     status === "completed" ||
     status === "partial" ||
@@ -762,6 +771,7 @@ async function startDiscoveryStatusPolling(webhookUrl) {
         tracker.markStatusConnectionLost(
           "Lost the status connection after multiple attempts. The discovery run may still be running.",
         );
+        await refreshPipelineAfterDiscoveryRun(tracker.getState());
         renderDiscoveryRunStatus();
         return;
       }
