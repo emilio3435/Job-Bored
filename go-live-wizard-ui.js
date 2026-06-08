@@ -120,7 +120,12 @@
 
   async function probeInstallDoctor() {
     try {
+      // The dev-server routes /__proxy/install-doctor as POST-only; a GET 404s
+      // and the cloud path silently degrades to "couldn't reach backend".
       const r = await fetchWithTimeout("/__proxy/install-doctor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
         cache: "no-store",
       });
       if (!r || !r.ok) return null;
