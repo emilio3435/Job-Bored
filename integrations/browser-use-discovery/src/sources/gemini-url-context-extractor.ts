@@ -68,7 +68,8 @@ export async function extractJobWithGeminiUrlContext(
     return {
       ok: false,
       reason: "missing_api_key",
-      message: "Gemini API key is not configured (BROWSER_USE_DISCOVERY_GEMINI_API_KEY).",
+      message:
+        "Gemini URL Context skipped: optional Gemini url_context tool is unavailable because BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.",
     };
   }
 

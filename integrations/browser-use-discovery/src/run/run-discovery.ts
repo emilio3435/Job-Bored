@@ -1884,10 +1884,16 @@ async function runGroundedWebDiscovery(
   let listingCount = 0;
 
   if (!dependencies.groundedSearchClient) {
-    const message = dependencies.runtimeConfig.geminiApiKey
-      ? "Grounded web source is enabled but the grounded search client is unavailable."
-      : "Grounded web source is enabled but BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.";
+    const message = formatGroundedGoogleSearchUnavailableWarning(
+      dependencies.runtimeConfig,
+    );
     extractionResult.warnings.push(message);
+    extractionResult.diagnostics = [
+      ...(extractionResult.diagnostics || []),
+      {
+        context: message,
+      },
+    ];
     warnings.push(message);
     return {
       extractionResult,
@@ -2187,7 +2193,22 @@ function determineLifecycleState(
 function isInformationalLifecycleWarning(warning: string): boolean {
   return (
     /was excluded by preset '.*' and did not execute\.$/i.test(warning) ||
-    /^No companies are configured for this discovery run\.$/i.test(warning)
+    /^No companies are configured for this discovery run\.$/i.test(warning) ||
+    isOptionalGoogleToolUnavailableWarning(warning)
+  );
+}
+
+function formatGroundedGoogleSearchUnavailableWarning(
+  runtimeConfig: WorkerRuntimeConfig,
+): string {
+  return runtimeConfig.geminiApiKey
+    ? "Grounded web Google Search is enabled but the Gemini google_search client is unavailable."
+    : "Grounded web Google Search skipped: optional Gemini google_search tool is unavailable because BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.";
+}
+
+function isOptionalGoogleToolUnavailableWarning(warning: string): boolean {
+  return /optional Gemini (?:google_search|url_context) tool is unavailable/i.test(
+    warning,
   );
 }
 
@@ -2199,7 +2220,8 @@ function isRunDegradingExtractionWarning(
   if (
     writtenLeadCount > 0 &&
     extractionResult.sourceId === "grounded_web" &&
-    (isGroundedNoCandidateWarning(warning) ||
+    (isOptionalGoogleToolUnavailableWarning(warning) ||
+      isGroundedNoCandidateWarning(warning) ||
       isGroundedRecoveredRegexFallbackWarning(warning))
   ) {
     return false;
@@ -2599,6 +2621,8 @@ function classifyFailureReason(
   const browserOperationalFailure = warnings.some(
     (w) =>
       w.includes("Grounded web source is enabled but the Browser Use session manager is unavailable") ||
+      w.includes("Grounded web Google Search is enabled but the Gemini google_search client is unavailable") ||
+      w.includes("optional Gemini google_search tool is unavailable") ||
       w.includes("Grounded search upstream failure") ||
       w.includes("Grounded web discovery timed out") ||
       w.includes("Gemini grounded search request failed") ||

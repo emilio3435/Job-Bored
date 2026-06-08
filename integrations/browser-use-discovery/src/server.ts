@@ -683,8 +683,8 @@ async function buildHealthPayload() {
   // VAL-OBS-002: Grounded-web readiness cause when enabled but not ready
   if (groundedWebEnabled && !groundedSearchClient) {
     const groundedWebCause = runtimeConfig.geminiApiKey
-      ? "Grounded web source is enabled but the grounded search client is unavailable."
-      : "Grounded web source is enabled but BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.";
+      ? "Grounded web Google Search is enabled but the Gemini google_search client is unavailable."
+      : "Grounded web Google Search skipped: optional Gemini google_search tool is unavailable because BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.";
     advisoryWarnings.push(groundedWebCause);
   }
 
@@ -802,20 +802,6 @@ async function buildHealthPayload() {
           ? { remediation: llmRuntimeReadiness.remediation }
           : {}),
       },
-      googleTools: {
-        provider: "gemini",
-        capabilities: ["google_search", "url_context"],
-        configured: !!String(runtimeConfig.geminiApiKey || "").trim(),
-        ready: !!String(runtimeConfig.geminiApiKey || "").trim(),
-        model: runtimeConfig.geminiModel,
-        ...(!String(runtimeConfig.geminiApiKey || "").trim()
-          ? {
-              cause: "BROWSER_USE_DISCOVERY_GEMINI_API_KEY not configured.",
-              remediation:
-                "Set BROWSER_USE_DISCOVERY_GEMINI_API_KEY to enable Gemini google_search and url_context lanes.",
-            }
-          : {}),
-      },
       browserUseCloud: {
         configured: browserUseCloudConfigured,
         profileConfigured: browserUseProfileConfigured,
@@ -839,16 +825,53 @@ async function buildHealthPayload() {
       groundedWeb: {
         enabled: groundedWebEnabled,
         ready: !groundedWebEnabled || !!groundedSearchClient,
+        provider: "gemini",
+        tool: "google_search",
+        optional: true,
         ...(groundedWebEnabled && !groundedSearchClient
           ? {
               cause: runtimeConfig.geminiApiKey
-                ? "Grounded search client unavailable despite API key configured."
-                : "BROWSER_USE_DISCOVERY_GEMINI_API_KEY not configured.",
+                ? "Gemini google_search client unavailable despite API key configured."
+                : "BROWSER_USE_DISCOVERY_GEMINI_API_KEY not configured for optional Gemini google_search.",
               remediation: runtimeConfig.geminiApiKey
                 ? "Check that the Gemini API key is valid and the service is accessible."
-                : "Set BROWSER_USE_DISCOVERY_GEMINI_API_KEY to a valid API key.",
+                : "Set BROWSER_USE_DISCOVERY_GEMINI_API_KEY to enable grounded web Google Search, or leave it unset to use non-Google discovery lanes only.",
             }
           : {}),
+      },
+      googleTools: {
+        provider: "gemini",
+        capabilities: ["google_search", "url_context"],
+        configured: !!String(runtimeConfig.geminiApiKey || "").trim(),
+        ready: !!String(runtimeConfig.geminiApiKey || "").trim(),
+        model: runtimeConfig.geminiModel,
+        geminiConfigured: !!String(runtimeConfig.geminiApiKey || "").trim(),
+        urlContext: {
+          provider: "gemini",
+          tool: "url_context",
+          optional: true,
+          ready: !!String(runtimeConfig.geminiApiKey || "").trim(),
+          ...(!String(runtimeConfig.geminiApiKey || "").trim()
+            ? {
+                cause:
+                  "BROWSER_USE_DISCOVERY_GEMINI_API_KEY not configured for optional Gemini url_context.",
+              }
+            : {}),
+        },
+        googleSearch: {
+          provider: "gemini",
+          tool: "google_search",
+          optional: true,
+          enabled: groundedWebEnabled,
+          ready: !groundedWebEnabled || !!groundedSearchClient,
+          ...(groundedWebEnabled && !groundedSearchClient
+            ? {
+                cause: runtimeConfig.geminiApiKey
+                  ? "Gemini google_search client unavailable despite API key configured."
+                  : "BROWSER_USE_DISCOVERY_GEMINI_API_KEY not configured for optional Gemini google_search.",
+              }
+            : {}),
+        },
       },
       // Layer 5 Tier 1: SerpApi Google Jobs lane — highest-recall source
       // in the worker. "enabled" means it's in enabledSources; "configured"
