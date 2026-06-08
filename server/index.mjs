@@ -52,6 +52,8 @@ import {
   getStoredResumeText,
 } from "./profile-from-resume.mjs";
 import {
+  getProfileRescoreProviderConfigFromEnv,
+  getProfileRescoreProviderStatus,
   loadWorkerConfig,
   rescoreAllPipelineRows,
 } from "./profile-rescore-worker.mjs";
@@ -450,7 +452,7 @@ app.post("/profile/migrate", async (_req, res) => {
  * POST /profile/rescore[?dryRun=true]
  *
  * Walks the Pipeline sheet and re-scores every eligible row against the
- * current saved Fit Profile using gemini-3.5-flash. Streams per-row progress
+ * current saved Fit Profile using the configured server chat provider. Streams per-row progress
  * as Server-Sent Events; the final event carries totals.
  *
  * Query params:
@@ -475,21 +477,19 @@ app.post("/profile/rescore", async (req, res) => {
       .json({ ok: false, reason: "no_profile", detail: profileResult.reason });
   }
 
-  // Resolve sheet id + Gemini key. The rescore worker reads its own
-  // worker-config.json for the sheet id; we just need the Gemini key here
-  // so we can fail fast with a helpful error before opening the SSE stream.
-  const geminiApiKey = String(
-    process.env.ATS_GEMINI_API_KEY ||
-      process.env.GEMINI_API_KEY ||
-      process.env.BROWSER_USE_DISCOVERY_GEMINI_API_KEY ||
-      "",
-  ).trim();
-  if (!geminiApiKey && !dryRun) {
+  // Resolve chat provider config before opening the SSE stream. Dry runs still
+  // avoid LLM validation because they only count rows.
+  const providerConfig = getProfileRescoreProviderConfigFromEnv();
+  const providerStatus = getProfileRescoreProviderStatus(providerConfig);
+  if (!providerStatus.configured && !dryRun) {
     return res.status(503).json({
       ok: false,
-      reason: "gemini_not_configured",
-      detail:
-        "Set ATS_GEMINI_API_KEY (or GEMINI_API_KEY) in the server env before running a rescore.",
+      reason: "llm_not_configured",
+      provider: providerStatus.provider,
+      detail: providerStatus.detail,
+      ...(providerStatus.requiredEnvVars
+        ? { requiredEnvVars: providerStatus.requiredEnvVars }
+        : {}),
     });
   }
 
@@ -512,7 +512,6 @@ app.post("/profile/rescore", async (req, res) => {
       const summary = await rescoreAllPipelineRows({
         profile: profileResult.profile,
         sheetId,
-        geminiApiKey: "",
         dryRun: true,
       });
       return res.json({ ok: true, dryRun: true, ...summary });
@@ -542,7 +541,7 @@ app.post("/profile/rescore", async (req, res) => {
     const summary = await rescoreAllPipelineRows({
       profile: profileResult.profile,
       sheetId,
-      geminiApiKey,
+      providerConfig,
       onProgress: sendEvent,
       signal: ac.signal,
       maxRows,
