@@ -520,6 +520,9 @@
       callDiscoveryAiGemini(...args) {
         return discovery.drawer.callDiscoveryAiGemini(...args);
       },
+      callConfiguredAi(...args) {
+        return discovery.drawer.callConfiguredAi(...args);
+      },
       parseJsonSafeForSuggestions(...args) {
         return discovery.drawer.parseJsonSafeForSuggestions(...args);
       },

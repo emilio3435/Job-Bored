@@ -1115,6 +1115,151 @@ async function callDiscoveryAiAnthropic(system, user, apiKey, model) {
 }
 
 /**
+ * Shared OpenAI-compatible chat/completions call (OpenRouter, local Ollama, and
+ * any other /v1/chat/completions endpoint). Authorization is sent only when a
+ * key is provided (Ollama ignores it). opts.json bumps the output cap so a
+ * longer JSON response isn't truncated.
+ */
+async function callDiscoveryAiOpenAICompatible(endpoint, system, user, apiKey, model, opts) {
+  const wantJson = !!(opts && opts.json);
+  const body = {
+    model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+    temperature: 0.5,
+    max_tokens: wantJson ? 4096 : 2048,
+  };
+  const headers = { "Content-Type": "application/json" };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  let resp;
+  try {
+    resp = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    throw new Error(
+      "Couldn't reach the AI provider. Check your connection (or that your local model server is running).",
+    );
+  }
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    throw new Error(data.error?.message || `AI provider HTTP ${resp.status}`);
+  }
+  const text = data.choices?.[0]?.message?.content || "";
+  if (!text.trim()) throw new Error("Empty response from the AI provider");
+  return text.trim();
+}
+
+async function callDiscoveryAiOpenRouter(system, user, apiKey, model, baseUrl, opts) {
+  const base = String(baseUrl || "https://openrouter.ai/api/v1").replace(
+    /\/+$/,
+    "",
+  );
+  return callDiscoveryAiOpenAICompatible(
+    `${base}/chat/completions`,
+    system,
+    user,
+    apiKey,
+    model || "openai/gpt-oss-120b:free",
+    opts,
+  );
+}
+
+async function callDiscoveryAiLocal(system, user, apiKey, model, baseUrl, opts) {
+  const base = String(baseUrl || "http://127.0.0.1:11434/v1").replace(
+    /\/+$/,
+    "",
+  );
+  return callDiscoveryAiOpenAICompatible(
+    `${base}/chat/completions`,
+    system,
+    user,
+    apiKey || "",
+    model || "gemma4:e2b",
+    opts,
+  );
+}
+
+/**
+ * Provider-agnostic completion: routes a system+user prompt to whichever AI
+ * provider the user configured in the first-run wizard / Settings, using that
+ * provider's key + model. Returns raw text (callers parse JSON themselves).
+ *
+ * This is what lets onboarding role suggestions / "edges" and discovery strata
+ * work with OpenRouter (the cold-start default), local Ollama, Gemini, OpenAI,
+ * or Anthropic without each feature hardcoding Gemini. The key is guaranteed by
+ * the first-run wizard's Provider step, so a missing key here is an edge case
+ * that points the user back to Settings rather than a per-feature key gate.
+ */
+async function callConfiguredAi(system, user, opts) {
+  const gen = window.CommandCenterResumeGenerate;
+  const g =
+    gen && typeof gen.getResumeGenerationConfig === "function"
+      ? gen.getResumeGenerationConfig()
+      : {};
+  const provider = g.provider || "gemini";
+  const needKey = (label) => {
+    throw new Error(`Add your ${label} key in Settings to use AI suggestions.`);
+  };
+  switch (provider) {
+    case "openrouter":
+      if (!g.resumeOpenRouterApiKey) needKey("OpenRouter");
+      return callDiscoveryAiOpenRouter(
+        system,
+        user,
+        g.resumeOpenRouterApiKey,
+        g.resumeOpenRouterModel,
+        g.resumeOpenRouterBaseUrl,
+        opts,
+      );
+    case "local":
+      // Local servers (Ollama) usually need no key — base URL + model suffice.
+      return callDiscoveryAiLocal(
+        system,
+        user,
+        g.resumeLocalApiKey,
+        g.resumeLocalModel,
+        g.resumeLocalBaseUrl,
+        opts,
+      );
+    case "openai":
+      if (!g.resumeOpenAIApiKey) needKey("OpenAI");
+      return callDiscoveryAiOpenAI(
+        system,
+        user,
+        g.resumeOpenAIApiKey,
+        g.resumeOpenAIModel,
+      );
+    case "anthropic":
+      if (!g.resumeAnthropicApiKey) needKey("Anthropic");
+      return callDiscoveryAiAnthropic(
+        system,
+        user,
+        g.resumeAnthropicApiKey,
+        g.resumeAnthropicModel,
+      );
+    case "webhook":
+      throw new Error(
+        "Your AI provider is set to a custom webhook, which doesn't support inline suggestions. Switch to OpenRouter, Gemini, OpenAI, Anthropic, or local in Settings.",
+      );
+    case "gemini":
+    default:
+      if (!g.resumeGeminiApiKey) needKey("Gemini");
+      return callDiscoveryAiGemini(
+        system,
+        user,
+        g.resumeGeminiApiKey,
+        g.resumeGeminiModel,
+        opts,
+      );
+  }
+}
+
+/**
  * Discovery drawer sub-tab controller. Mirrors the WAI-ARIA tabs pattern
  * used by settings-tabs.js but scoped to the drawer (Search · Sources ·
  * Automation · Connection · History).
@@ -1618,6 +1763,9 @@ function initDiscoveryButton() {
     callDiscoveryAiGemini,
     callDiscoveryAiOpenAI,
     callDiscoveryAiAnthropic,
+    callDiscoveryAiOpenRouter,
+    callDiscoveryAiLocal,
+    callConfiguredAi,
     setDiscoveryDrawerSubtab,
     getActiveDiscoverySubtab() {
       return activeDiscoverySubtab;
