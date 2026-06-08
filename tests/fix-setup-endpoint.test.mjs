@@ -5,6 +5,7 @@ import {
   killFullBootStalePorts,
   startDevServer,
 } from "../dev-server.mjs";
+import { applyAtsProviderAliases } from "../scripts/lib/llm-env.mjs";
 
 const SILENT_LOGGER = {
   log() {},
@@ -62,6 +63,40 @@ describe("/__proxy/start-discovery-worker endpoint", () => {
     assert.equal(env.BROWSER_USE_DISCOVERY_GEMINI_API_KEY, "ats-gemini-key");
   });
 
+  it("propagates OpenRouter worker chat env without enabling Gemini tools", () => {
+    const env = buildDiscoveryWorkerEnv(8644, {
+      BROWSER_USE_DISCOVERY_LLM_PROVIDER: "openrouter",
+      OPENROUTER_API_KEY: "sk-or-test",
+      OPENROUTER_MODEL: "vendor/model:free",
+      OPENROUTER_BASE_URL: "https://router.example/api/v1",
+    });
+    assert.equal(env.BROWSER_USE_DISCOVERY_LLM_PROVIDER, "openrouter");
+    assert.equal(env.BROWSER_USE_DISCOVERY_LLM_API_KEY, "sk-or-test");
+    assert.equal(env.BROWSER_USE_DISCOVERY_OPENROUTER_API_KEY, "sk-or-test");
+    assert.equal(env.BROWSER_USE_DISCOVERY_LLM_MODEL, "vendor/model:free");
+    assert.equal(env.BROWSER_USE_DISCOVERY_OPENROUTER_MODEL, "vendor/model:free");
+    assert.equal(env.BROWSER_USE_DISCOVERY_LLM_BASE_URL, "https://router.example/api/v1");
+    assert.equal(
+      env.BROWSER_USE_DISCOVERY_OPENROUTER_BASE_URL,
+      "https://router.example/api/v1",
+    );
+    assert.equal(Object.hasOwn(env, "BROWSER_USE_DISCOVERY_GEMINI_API_KEY"), false);
+  });
+
+  it("derives worker OpenRouter chat env from ATS aliases", () => {
+    const env = buildDiscoveryWorkerEnv(8644, {
+      ATS_PROVIDER: "openrouter",
+      ATS_OPENROUTER_API_KEY: "ats-or-key",
+      ATS_OPENROUTER_MODEL: "vendor/ats-model",
+      ATS_OPENROUTER_BASE_URL: "https://ats-router.example/v1",
+    });
+    assert.equal(env.BROWSER_USE_DISCOVERY_LLM_PROVIDER, "openrouter");
+    assert.equal(env.BROWSER_USE_DISCOVERY_LLM_API_KEY, "ats-or-key");
+    assert.equal(env.BROWSER_USE_DISCOVERY_OPENROUTER_API_KEY, "ats-or-key");
+    assert.equal(env.BROWSER_USE_DISCOVERY_LLM_MODEL, "vendor/ats-model");
+    assert.equal(env.BROWSER_USE_DISCOVERY_LLM_BASE_URL, "https://ats-router.example/v1");
+  });
+
   it("responds to OPTIONS with CORS headers", async () => {
     const server = await startDevServer({ port: 0, logger: SILENT_LOGGER });
     const port = server.address().port;
@@ -100,6 +135,36 @@ describe("/__proxy/start-discovery-worker endpoint", () => {
     } finally {
       await closeServer(server);
     }
+  });
+});
+
+describe("local startup LLM env aliasing", () => {
+  it("normalizes ATS OpenRouter aliases for scraper startup", () => {
+    const env = applyAtsProviderAliases({
+      ATS_PROVIDER: "openrouter",
+      OPENROUTER_API_KEY: "sk-or-test",
+      OPENROUTER_MODEL: "vendor/model:free",
+      OPENROUTER_BASE_URL: "https://router.example/api/v1",
+    });
+    assert.equal(env.ATS_PROVIDER, "openrouter");
+    assert.equal(env.ATS_OPENROUTER_API_KEY, "sk-or-test");
+    assert.equal(env.ATS_OPENROUTER_MODEL, "vendor/model:free");
+    assert.equal(env.ATS_OPENROUTER_BASE_URL, "https://router.example/api/v1");
+  });
+
+  it("normalizes local OpenAI-compatible aliases for scraper startup", () => {
+    const env = applyAtsProviderAliases({
+      ATS_PROVIDER: "local",
+      BROWSER_USE_DISCOVERY_LOCAL_MODEL: "gemma4:e2b-mlx",
+      BROWSER_USE_DISCOVERY_LOCAL_BASE_URL: "http://127.0.0.1:11434/v1",
+    });
+    assert.equal(env.ATS_PROVIDER, "openai_compatible");
+    assert.equal(env.ATS_OPENAI_COMPATIBLE_MODEL, "gemma4:e2b-mlx");
+    assert.equal(
+      env.ATS_OPENAI_COMPATIBLE_BASE_URL,
+      "http://127.0.0.1:11434/v1",
+    );
+    assert.equal(Object.hasOwn(env, "ATS_GEMINI_API_KEY"), false);
   });
 });
 

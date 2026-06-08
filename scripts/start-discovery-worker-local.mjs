@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { resolveJobBoredPaths } from "./lib/paths.mjs";
+import { applyDiscoveryWorkerLlmAliases } from "./lib/llm-env.mjs";
 
 const repoRoot = process.cwd();
 const initialPaths = resolveJobBoredPaths({ env: process.env, repoRoot });
@@ -60,7 +61,7 @@ function resolveRuntimeEnv() {
     String(env.BROWSER_USE_DISCOVERY_GEMINI_API_KEY || "").trim() ||
     String(env.ATS_GEMINI_API_KEY || "").trim() ||
     String(env.GEMINI_API_KEY || "").trim();
-  return {
+  const runtimeEnv = {
     ...env,
     BROWSER_USE_DISCOVERY_RUN_MODE:
       String(env.BROWSER_USE_DISCOVERY_RUN_MODE || "").trim() || "local",
@@ -98,6 +99,7 @@ function resolveRuntimeEnv() {
       ),
     BROWSER_USE_DISCOVERY_GEMINI_API_KEY: fallbackGemini,
   };
+  return applyDiscoveryWorkerLlmAliases(runtimeEnv);
 }
 
 function createTimeoutSignal(ms) {
