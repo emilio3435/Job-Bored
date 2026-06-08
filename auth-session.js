@@ -820,9 +820,18 @@ async function toggleAuthUserMenu() {
   const toggle = document.getElementById("authMenuToggle");
   if (!menu || !toggle) return;
   const willOpen = !!menu.hidden;
-  if (willOpen) await host().refreshPersonalPreferencesPanel();
   menu.hidden = !willOpen;
   toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+  if (willOpen) {
+    // Refresh AFTER opening: the panel reads the user-content IndexedDB, and
+    // a wedged DB (blocked "Clear settings" delete in another tab) must
+    // never keep the menu from opening.
+    try {
+      await host().refreshPersonalPreferencesPanel();
+    } catch (e) {
+      console.warn("[JobBored] preferences panel refresh failed:", e);
+    }
+  }
 }
 
 let authUserMenuInitialized = false;

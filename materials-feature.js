@@ -240,6 +240,12 @@
         closeMaterialsModal();
         closeCommandCenterSettingsModal();
         closeAuthUserMenu();
+        // The first-run wizard sits at a higher z-index (100001 vs 100000);
+        // left open it buries the onboarding wizard and the click looks dead.
+        const frw = firstRunWizardMod();
+        if (frw && typeof frw.hideFirstRunWizard === "function") {
+          frw.hideFirstRunWizard();
+        }
         showOnboardingWizard();
         showToast("Continue the steps below to finish setup.", "info");
       } catch (err) {
@@ -263,6 +269,11 @@
         closeMaterialsModal();
         closeCommandCenterSettingsModal();
         closeAuthUserMenu();
+        // Mirror of the profile-reset path: never stack the two wizards.
+        const ob = onboardingMod();
+        if (ob && typeof ob.hideOnboardingWizard === "function") {
+          ob.hideOnboardingWizard();
+        }
         const frw = firstRunWizardMod();
         if (frw && typeof frw.reopenFirstRunWizard === "function") {
           frw.reopenFirstRunWizard();

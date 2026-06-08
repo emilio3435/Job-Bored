@@ -368,10 +368,6 @@ async function openCommandCenterSettingsModal(opts) {
   hideSettingsClearConfirmBar();
   populateCommandCenterSettingsForm();
   maybeApplyPhasedSettingsDefaultOAuthClientId();
-  if (isSettingsFullExperienceUnlocked()) {
-    await populateDiscoveryProfileIntoSettingsForm();
-    await host().populateAppsScriptDeployStateIntoSettingsForm();
-  }
   updateSettingsProviderPanels();
   syncSettingsModalMode();
   const modal = document.getElementById("settingsModal");
@@ -384,6 +380,17 @@ async function openCommandCenterSettingsModal(opts) {
     Tabs.initSettingsTabs(modal, { defaultTab: defaultTab });
   }
   void host().probeTunnelStaleBadge();
+  // Hydrate async-sourced fields AFTER the modal is visible: these read the
+  // user-content IndexedDB, and a wedged DB (e.g. a "Clear settings" delete
+  // blocked by another tab) must never keep the modal from opening.
+  if (isSettingsFullExperienceUnlocked()) {
+    try {
+      await populateDiscoveryProfileIntoSettingsForm();
+      await host().populateAppsScriptDeployStateIntoSettingsForm();
+    } catch (e) {
+      console.warn("[JobBored] settings modal hydration failed:", e);
+    }
+  }
 }
 
 function hideSettingsClearConfirmBar() {
@@ -644,9 +651,24 @@ async function performSettingsClearOverrides() {
   } catch (_) {}
 
   // 3) Clear stored config overrides (sheet ID, OAuth client ID, webhook URL,
-  //    discovery profile, etc.).
+  //    discovery profile, etc.), then write an explicit greenfield mask.
+  //
+  //    The mask matters when config.js bakes in a sheetId / oauthClientId:
+  //    overrides are merged ON TOP of the file config, so merely removing
+  //    them lets the file's values flow right back on reload — the app boots
+  //    in "configured" mode, sign-in is one silent grant away, and the sheet
+  //    data reappears. Explicit empty-string overrides out-merge the file
+  //    values: getConfig() treats the install as unconfigured and
+  //    getOAuthClientId() returns null, so the app lands in the true
+  //    cold-start path (login gate in no-oauth mode + first-run wizard) with
+  //    no instant re-sign-in possible. Connecting a sheet or re-entering a
+  //    client ID later overwrites the mask via mergeStoredConfigOverridePatch.
   try {
     localStorage.removeItem(host().getCommandCenterConfigOverrideKey());
+    localStorage.setItem(
+      host().getCommandCenterConfigOverrideKey(),
+      JSON.stringify({ sheetId: "", oauthClientId: "" }),
+    );
   } catch (_) {
     showToast("Could not clear saved settings (storage error).", "error", true);
     return;
