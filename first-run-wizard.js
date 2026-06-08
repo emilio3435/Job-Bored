@@ -120,6 +120,24 @@
   }
 
   /**
+   * True while the terminal "You're all set" confirmation (#firstRunPanelDone)
+   * is on top of the wizard (VAL-SIGN-001). NOT a member of FIRST_RUN_STEPS
+   * (the wizard stays a 2-step flow); the done panel is shown after Finish
+   * setup persists infraSetupComplete and is dismissed by the "Go to
+   * dashboard" CTA which finally hands off to the dashboard. The progress
+   * wrap and the sheet/provider panels are hidden while this is true.
+   */
+  function isFirstRunDonePanelVisible() {
+    const panel = getEl("firstRunPanelDone");
+    if (!panel) return false;
+    if (panel.style.display === "none") return false;
+    // Defensive: if the panel element is hidden via a parent, treat as
+    // not-visible. computeFirstRunStartStep / refreshFirstRunWizard rely on
+    // this when deciding whether to touch panel visibility.
+    return isFirstRunWizardVisible();
+  }
+
+  /**
    * Synchronous "the first-run wizard owns the surface" signal for the
    * dashboard-reveal chokepoint in sheet-access-setup.js. While this is true,
    * no dashboard-reveal entry point (revealDashboardShell, sign-in-success,
@@ -214,6 +232,12 @@
 
   /** Re-evaluate completion state and reflect it in the active step's UI. */
   function refreshFirstRunWizard() {
+    // While the terminal "You're all set" panel is up, the wizard is in a
+    // post-finish state. The 700ms refresh loop must not re-show the
+    // provider panel over the done panel, and gating text on the provider
+    // step is meaningless here. Leave the panel + progress state alone.
+    if (isFirstRunDonePanelVisible()) return;
+
     const sheetDone = firstRunSheetStepComplete();
 
     const sheetConnected = getEl("firstRunSheetConnected");
@@ -425,6 +449,17 @@
 
   // --- Finish -------------------------------------------------------------
 
+  /**
+   * Persist infraSetupComplete FIRST so the wizard doesn't reappear on reload
+   * (VAL-WIZ-009), then transition the wizard to the terminal "You're all
+   * set" confirmation (#firstRunPanelDone) instead of immediately handing off
+   * to the dashboard (VAL-SIGN-001). The dashboard handoff itself is owned
+   * by the done panel's "Go to dashboard" button (handleFirstRunDoneToDashboard);
+   * while the done panel is up, the wizard overlay stays visible so
+   * isFirstRunWizardActive() returns true and the dashboard-reveal chokepoint
+   * keeps deferring. The "Step N of 2" indicator is hidden with the done
+   * panel — it is NOT a numbered wizard step (FIRST_RUN_TOTAL_STEPS stays 2).
+   */
   async function handleFirstRunFinish() {
     if (!firstRunCanFinish()) {
       const statusEl = getEl("firstRunProviderStatus");
@@ -448,11 +483,64 @@
     } catch (e) {
       console.warn("[JobBored] complete infra setup:", e);
     }
+    showFirstRunDonePanel();
+  }
+
+  /**
+   * Switch the wizard from its numbered steps to the terminal "You're all
+   * set" confirmation. Hides the step indicator + sheet/provider panels and
+   * reveals #firstRunPanelDone. The wizard overlay itself stays visible so
+   * isFirstRunWizardActive() returns true — that is the surface-ownership
+   * invariant the dashboard-reveal chokepoint relies on (VAL-WIZ-011/013).
+   */
+  function showFirstRunDonePanel() {
+    // Hide every numbered panel + the progress wrap (step pill / progress
+    // bar). The done panel is NOT a numbered step, so the indicator must
+    // not read "Step 2 of 2" while it is up.
+    FIRST_RUN_STEPS.forEach((def) => {
+      const panel = getEl(def.panelId);
+      if (panel) panel.style.display = "none";
+    });
+    const progressWrap = getEl("firstRunProgressWrap");
+    if (progressWrap) progressWrap.style.display = "none";
+    const done = getEl("firstRunPanelDone");
+    if (done) {
+      done.style.display = "block";
+      done.setAttribute("aria-hidden", "false");
+    }
+    // The wizard is still visible (#firstRunWizard display:flex) so the
+    // 700ms refresh loop is still active; refreshFirstRunWizard now
+    // short-circuits on isFirstRunDonePanelVisible() and leaves the
+    // panel/progress state alone.
+    if (!refreshTimer) startRefreshLoop();
+  }
+
+  /**
+   * Reverse showFirstRunDonePanel — used by handleFirstRunDoneToDashboard
+   * (after the dashboard handoff) and by any future "back" affordance from
+   * the done panel. Restores the progress wrap so a subsequent show of the
+   * wizard lands on a normal numbered step.
+   */
+  function hideFirstRunDonePanel() {
+    const done = getEl("firstRunPanelDone");
+    if (done) {
+      done.style.display = "none";
+      done.setAttribute("aria-hidden", "true");
+    }
+    const progressWrap = getEl("firstRunProgressWrap");
+    if (progressWrap) progressWrap.style.display = "";
+  }
+
+  /**
+   * Done-panel "Go to dashboard" CTA — finally hands off to the dashboard
+   * (VAL-SIGN-001). Order matters: persist infraSetupComplete has already
+   * happened in handleFirstRunFinish; we now hide the wizard so the
+   * dashboard-reveal chokepoint releases, then reveal+render+gate.
+   */
+  function handleFirstRunDoneToDashboard() {
+    hideFirstRunDonePanel();
     hideFirstRunWizard();
-    // The dashboard-reveal chokepoint suppresses reveals while the wizard owns
-    // the surface; now that the wizard is closed, reveal the dashboard shell so
-    // the connected Pipeline is shown (the auth/load reveal paths were no-ops
-    // while the wizard was up).
+    const h = host();
     if (typeof h.revealDashboardShell === "function") {
       try {
         h.revealDashboardShell();
@@ -467,15 +555,65 @@
         /* board re-render is best-effort */
       }
     }
-    // Hand off to the existing profile onboarding wizard. The gate surfaces it
-    // only while profile onboarding is still incomplete, so a fully-onboarded
-    // user lands straight on the dashboard.
     if (typeof h.checkOnboardingGate === "function") {
       try {
-        await h.checkOnboardingGate();
+        // Fire-and-forget; the gate is async but the user has already
+        // moved past the wizard.
+        h.checkOnboardingGate().catch(() => {});
       } catch (_) {
         /* profile-wizard handoff is best-effort */
       }
+    }
+  }
+
+  /**
+   * Done-panel "Turn on job discovery" CTA. The wizard is still visible at
+   * this point, so a plain requestDiscoverySetup() would be QUEUED
+   * (requestDiscoverySetup defers while the wizard is visible). Pass
+   * allowWhileOnboarding:true so the guided discovery setup wizard opens
+   * immediately (VAL-SIGN-002). The wizard overlay is torn down by the
+   * openDiscoverySetupWizard call path, and the user's prior state
+   * (infraSetupComplete=true) is already persisted, so a refresh lands on
+   * the dashboard with discovery open.
+   */
+  function handleFirstRunDoneOpenDiscovery() {
+    const h = host();
+    if (typeof h.requestDiscoverySetup === "function") {
+      try {
+        h.requestDiscoverySetup({
+          entryPoint: "whats_next",
+          allowWhileOnboarding: true,
+        });
+      } catch (e) {
+        console.warn("[JobBored] open discovery from whats-next:", e);
+      }
+      return;
+    }
+    if (typeof window.requestDiscoverySetup === "function") {
+      try {
+        window.requestDiscoverySetup({
+          entryPoint: "whats_next",
+          allowWhileOnboarding: true,
+        });
+      } catch (e) {
+        console.warn("[JobBored] open discovery from whats-next (global):", e);
+      }
+    }
+  }
+
+  /**
+   * Done-panel "Use JobBored on other devices" CTA — opens the self-hosting
+   * / go-live guide (docs/SELF-HOSTING.md) in a new tab. The wizard stays
+   * visible so the user can keep interacting with it (e.g. go back to
+   * "Go to dashboard" from the still-open overlay).
+   */
+  function handleFirstRunDoneOpenSelfHosting() {
+    try {
+      if (typeof window.open === "function") {
+        window.open("docs/SELF-HOSTING.md", "_blank", "noopener");
+      }
+    } catch (e) {
+      console.warn("[JobBored] open self-hosting doc:", e);
     }
   }
 
@@ -681,13 +819,30 @@
       void handleFirstRunFinish();
     });
 
+    // Terminal "You're all set" confirmation CTAs (VAL-SIGN-001).
+    // Wired inside the listenersWired guard so a re-init never doubles
+    // them up. The "Go to dashboard" button owns the dashboard handoff
+    // (the same chain handleFirstRunFinish used to own inline); the two
+    // OPTIONAL CTAs are clearly secondary so they never read as required.
+    getEl("firstRunDoneToDashboard")?.addEventListener("click", () => {
+      handleFirstRunDoneToDashboard();
+    });
+    getEl("firstRunDoneOpenDiscovery")?.addEventListener("click", () => {
+      handleFirstRunDoneOpenDiscovery();
+    });
+    getEl("firstRunDoneOpenSelfHosting")?.addEventListener("click", () => {
+      handleFirstRunDoneOpenSelfHosting();
+    });
+
     // The wizard is a fixed full-viewport overlay; without a dismiss path it
     // would permanently intercept clicks over the dashboard nav/Settings.
     getEl("firstRunWizardClose")?.addEventListener("click", () => {
+      hideFirstRunDonePanel();
       hideFirstRunWizard();
     });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && isFirstRunWizardVisible()) {
+        hideFirstRunDonePanel();
         hideFirstRunWizard();
       }
     });
@@ -706,9 +861,12 @@
     FIRST_RUN_TOTAL_STEPS,
     isFirstRunWizardVisible,
     isFirstRunWizardActive,
+    isFirstRunDonePanelVisible,
     showFirstRunWizard,
     reopenFirstRunWizard,
     hideFirstRunWizard,
+    showFirstRunDonePanel,
+    hideFirstRunDonePanel,
     setFirstRunStep,
     refreshFirstRunWizard,
     firstRunSheetStepComplete,
@@ -717,6 +875,10 @@
     firstRunCanFinish,
     firstRunSaveOpenRouterKey,
     firstRunSelectProvider,
+    handleFirstRunFinish,
+    handleFirstRunDoneToDashboard,
+    handleFirstRunDoneOpenDiscovery,
+    handleFirstRunDoneOpenSelfHosting,
     computeFirstRunStartStep,
     checkInfraSetupGate,
     initFirstRunWizard,

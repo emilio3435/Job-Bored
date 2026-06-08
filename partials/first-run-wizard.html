@@ -49,7 +49,11 @@
           </p>
         </div>
 
-        <div class="first-run-progress-wrap" aria-live="polite">
+        <div
+          class="first-run-progress-wrap"
+          id="firstRunProgressWrap"
+          aria-live="polite"
+        >
           <span class="first-run-step-label" id="firstRunStepLabel"
             >Step 1 of 2</span
           >
@@ -275,6 +279,59 @@
               disabled
             >
               Finish setup
+            </button>
+          </div>
+        </div>
+
+        <!-- Terminal "You're all set" confirmation (VAL-SIGN-001).
+             Shown after Finish setup persists infraSetupComplete; it is NOT
+             a wizard step (not in FIRST_RUN_STEPS — FIRST_RUN_TOTAL_STEPS
+             stays 2) and is rendered as a sibling of #firstRunPanelProvider
+             with its progress bar/indicator hidden. The primary "Go to
+             dashboard" CTA owns the dashboard handoff that the old finish
+             did inline; while this panel is up the wizard overlay stays
+             visible so isFirstRunWizardActive() keeps the dashboard-reveal
+             chokepoint deferred. The two OPTIONAL CTAs mirror the same
+             buttons on the dashboard #whats-next banner. -->
+        <div
+          class="first-run-panel"
+          id="firstRunPanelDone"
+          data-first-run-done="true"
+          style="display: none"
+          aria-hidden="true"
+        >
+          <h3 class="first-run-step-title">You’re all set</h3>
+          <p class="first-run-hint">
+            Your workspace is connected and your AI provider is ready. Jump
+            straight to your pipeline, or try one of the optional next
+            steps below.
+          </p>
+          <div class="first-run-actions first-run-actions--full">
+            <button
+              type="button"
+              class="btn-modal-primary first-run-btn-block"
+              id="firstRunDoneToDashboard"
+            >
+              Go to dashboard
+            </button>
+          </div>
+          <div class="first-run-done-secondary">
+            <p class="first-run-hint first-run-hint--compact first-run-done-secondary__heading">
+              Optional next steps
+            </p>
+            <button
+              type="button"
+              class="btn-modal-secondary first-run-btn-block first-run-done-secondary__cta"
+              id="firstRunDoneOpenDiscovery"
+            >
+              Turn on job discovery
+            </button>
+            <button
+              type="button"
+              class="btn-modal-secondary first-run-btn-block first-run-done-secondary__cta"
+              id="firstRunDoneOpenSelfHosting"
+            >
+              Use JobBored on other devices
             </button>
           </div>
         </div>

@@ -606,6 +606,21 @@
     await setSetting("agentSetupDismissed", !!v);
   }
 
+  /**
+   * Persistent "what's next" dashboard banner dismiss flag (VAL-SIGN-002).
+   * Mirrors getAgentSetupDismissed/setAgentSetupDismissed: stored under the
+   * settings object store, returned as a strict boolean, and written via
+   * setSetting so it survives reloads. The dashboard banner checks this and
+   * hides itself permanently once set.
+   */
+  async function getWhatsNextDismissed() {
+    return !!(await getSetting("whatsNextDismissed"));
+  }
+
+  async function setWhatsNextDismissed(v) {
+    await setSetting("whatsNextDismissed", !!v);
+  }
+
   async function getSetting(key) {
     const db = await openDb();
     return new Promise((resolve, reject) => {
@@ -1149,5 +1164,7 @@
     normalizeDiscoverySetupWizardState,
     getAgentSetupDismissed,
     setAgentSetupDismissed,
+    getWhatsNextDismissed,
+    setWhatsNextDismissed,
   };
 })();
