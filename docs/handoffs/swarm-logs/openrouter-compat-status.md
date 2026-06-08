@@ -116,7 +116,8 @@ Current state:
 | `node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/handle-ingest-url.test.ts integrations/browser-use-discovery/tests/webhook/run-discovery.test.ts` | PASS | 72 pass / 0 fail after `npm ci`; first attempt failed before dependency install, then exposed and fixed the `runtimeConfig` legacy-scoring regression |
 | `npm test -- tests/resume-generate-openrouter.test.mjs tests/resume-generate-local.test.mjs tests/discovery-ai-call-configured-routing.test.mjs tests/discovery-drawer-provider-guard.test.mjs tests/enrichment-self-heal.test.mjs tests/ats-scorecard-provider.test.mjs tests/first-run-wizard.test.mjs` | PASS | 177 pass / 0 fail |
 | `git diff --check` | PASS | Clean before `54c46bd` |
-| `npm run typecheck:repo` | Not run | Pending integration |
-| `npm run test:contract:all` | Not run | Pending integration |
-| `npm run test:browser-use-discovery` | Not run | Pending integration |
-| `npm run test:repo` | Not run | Pending integration |
+| `npm run typecheck:repo` | PASS | Syntax checks passed across root browser scripts, scripts, and server modules |
+| `npm run test:contract:all` | PASS | Discovery webhook, ATS scorecard, Pipeline contract, and skill lint all passed |
+| `npm run test:browser-use-discovery` | PASS | 610 pass / 0 fail |
+| `npm run test:repo` | PASS | Contract suite, root tests, and discovery worker suite passed |
+| `npm run dev` smoke | PASS with alternate ports | Default ports were occupied by the root worktree dev stack. Integration smoke used web `8090`, scraper `3947`, worker `8744`; web served 251708 bytes, scraper `/health` returned `atsProvider=openrouter` and `atsConfigured=true`, worker `/health` returned `llm.provider=openrouter`, `llm.ready=true`, and Gemini Google tools advisory-only. Smoke sessions were terminated and alternate ports cleared. |
