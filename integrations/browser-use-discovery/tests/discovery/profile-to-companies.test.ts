@@ -3,9 +3,12 @@ import test from "node:test";
 
 import type {
   CandidateProfile,
-  WorkerRuntimeConfig,
 } from "../../src/contracts.ts";
-import { discoverCompaniesForProfile } from "../../src/discovery/profile-to-companies.ts";
+import type { WorkerRuntimeConfig } from "../../src/config.ts";
+import {
+  discoverCompaniesForProfile,
+  extractCandidateProfile,
+} from "../../src/discovery/profile-to-companies.ts";
 
 function makeRuntimeConfig(): WorkerRuntimeConfig {
   return {
@@ -70,6 +73,23 @@ function makeGeminiResponse(text: string): Response {
     status: 200,
     json: async () => makeGeminiPayload(text),
     text: async () => JSON.stringify(makeGeminiPayload(text)),
+  } as Response;
+}
+
+function makeOpenRouterResponse(text: string): Response {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      choices: [
+        {
+          message: {
+            content: text,
+          },
+        },
+      ],
+    }),
+    text: async () => text,
   } as Response;
 }
 
@@ -215,6 +235,138 @@ test("SerpApi company discovery returns companies without waiting on Gemini", as
       return (
         event === "discovery.profile.companies_completed" &&
         details.source === "serpapi_google_jobs"
+      );
+    }),
+  );
+});
+
+test("profile extraction uses OpenRouter chat completions without a Gemini key", async () => {
+  let requestUrl = "";
+  let requestHeaders: Record<string, string> = {};
+  let requestBody: Record<string, unknown> = {};
+  const fetchImpl: typeof globalThis.fetch = async (input, init) => {
+    requestUrl = String(input || "");
+    requestHeaders = init?.headers as Record<string, string>;
+    requestBody = JSON.parse(String(init?.body || "{}")) as Record<string, unknown>;
+    return makeOpenRouterResponse(JSON.stringify({
+      targetRoles: ["Growth Marketing Manager"],
+      skills: ["SEO", "AI automation"],
+      seniority: "senior",
+      yearsOfExperience: 7,
+      locations: ["Remote"],
+      remotePolicy: "remote",
+      industries: ["B2B SaaS"],
+    }));
+  };
+
+  const profile = await extractCandidateProfile(
+    {
+      resumeText: "Senior growth marketer with SEO and AI automation experience.",
+    },
+    {
+      runtimeConfig: {
+        ...makeRuntimeConfig(),
+        geminiApiKey: "",
+        llmProvider: "openrouter",
+        openRouterApiKey: "or-test-key",
+        openRouterModel: "openai/gpt-4.1-mini",
+        openRouterBaseUrl: "https://openrouter.ai/api/v1",
+      } as WorkerRuntimeConfig,
+      fetchImpl,
+    },
+  );
+
+  assert.equal(requestUrl, "https://openrouter.ai/api/v1/chat/completions");
+  assert.equal(requestHeaders.authorization, "Bearer or-test-key");
+  assert.equal(requestHeaders["x-goog-api-key"], undefined);
+  assert.equal(requestBody.model, "openai/gpt-4.1-mini");
+  assert.equal(requestBody.temperature, 0.1);
+  assert.equal(requestBody.max_tokens, 1024);
+  assert.ok(Array.isArray(requestBody.messages));
+  assert.deepEqual(profile.targetRoles, ["Growth Marketing Manager"]);
+  assert.deepEqual(profile.skills, ["SEO", "AI automation"]);
+  assert.equal(profile.remotePolicy, "remote");
+});
+
+test("SerpApi company candidates can be scored by OpenRouter without Gemini", async () => {
+  const logs = logSink();
+  const openRouterBodies: Array<Record<string, unknown>> = [];
+  const fetchImpl: typeof globalThis.fetch = async (input, init) => {
+    const url = String(input || "");
+    if (url.includes("serpapi.com")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          jobs_results: [
+            {
+              title: "Senior Growth Marketing Manager",
+              company_name: "Klaviyo",
+              location: "Remote",
+              apply_options: [{ link: "https://www.klaviyo.com/careers/job-1" }],
+            },
+            {
+              title: "Product Marketing Manager",
+              company_name: "HubSpot",
+              location: "United States",
+              apply_options: [{ link: "https://www.hubspot.com/careers/job-2" }],
+            },
+          ],
+        }),
+        text: async () => "",
+      } as Response;
+    }
+
+    assert.equal(url, "https://openrouter.ai/api/v1/chat/completions");
+    assert.equal((init?.headers as Record<string, string>).authorization, "Bearer or-test-key");
+    assert.equal((init?.headers as Record<string, string>)["x-goog-api-key"], undefined);
+    const body = JSON.parse(String(init?.body || "{}")) as Record<string, unknown>;
+    openRouterBodies.push(body);
+    return makeOpenRouterResponse(JSON.stringify({
+      scores: [
+        {
+          companyKey: "klaviyo",
+          relevanceScore: 92,
+          breadthScore: 80,
+          reason: "Strong lifecycle marketing fit.",
+        },
+        {
+          companyKey: "hubspot",
+          relevanceScore: 88,
+          breadthScore: 76,
+          reason: "Good B2B SaaS marketing fit.",
+        },
+      ],
+    }));
+  };
+
+  const companies = await discoverCompaniesForProfile(PROFILE, {
+    runtimeConfig: {
+      ...makeRuntimeConfig(),
+      geminiApiKey: "",
+      serpApiKey: "test-serpapi-key",
+      llmProvider: "openrouter",
+      openRouterApiKey: "or-test-key",
+      openRouterModel: "openai/gpt-4.1-mini",
+    } as WorkerRuntimeConfig,
+    fetchImpl,
+    log: logs.log,
+  });
+
+  assert.deepEqual(companies.map((company) => company.companyKey).sort(), [
+    "hubspot",
+    "klaviyo",
+  ]);
+  assert.equal(openRouterBodies.length, 1);
+  assert.equal(openRouterBodies[0].model, "openai/gpt-4.1-mini");
+  assert.ok(Array.isArray(openRouterBodies[0].messages));
+  assert.ok(
+    logs.events.some(([event, details]) => {
+      return (
+        event === "discovery.profile.company_scoring_completed" &&
+        details.provider === "openrouter" &&
+        details.llmUsed === true &&
+        details.llmScoredCount === 2
       );
     }),
   );

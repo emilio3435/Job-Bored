@@ -21,6 +21,11 @@ import {
   DISCOVERY_WEBHOOK_SCHEMA_VERSION,
 } from "../../src/contracts.ts";
 import { normalizeLead } from "../../src/normalize/lead-normalizer.ts";
+import {
+  createWorkerChatMatchClient,
+  scoreListingMatch,
+} from "../../src/match/job-matcher.ts";
+import type { WorkerRuntimeConfig } from "../../src/config.ts";
 import type { LlmFitScoreResult } from "../../src/contracts/user-profile.ts";
 
 function makeCannedCache(canned: LlmFitScoreResult) {
@@ -179,3 +184,120 @@ test(
     assert.equal(lead?.fitScore, 1, "LLM's 1 should be the final fitScore.");
   },
 );
+
+test("worker match client uses OpenRouter chat completions without Gemini", async () => {
+  let requestUrl = "";
+  let requestHeaders: Record<string, string> = {};
+  let requestBody: Record<string, unknown> = {};
+  const fetchImpl: typeof globalThis.fetch = async (input, init) => {
+    requestUrl = String(input || "");
+    requestHeaders = init?.headers as Record<string, string>;
+    requestBody = JSON.parse(String(init?.body || "{}")) as Record<string, unknown>;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                decision: "accept",
+                overallScore: 0.82,
+                confidence: 0.79,
+                hardRejectReason: "",
+                reasons: ["Strong AI platform fit."],
+                componentScores: {
+                  role: 0.9,
+                  location: 0.8,
+                  remote: 1,
+                  seniority: 0.75,
+                  negative: 1,
+                },
+              }),
+            },
+          },
+        ],
+      }),
+      text: async () => "",
+    } as Response;
+  };
+  const listing = {
+    sourceId: "greenhouse",
+    sourceLabel: "Greenhouse",
+    title: "Senior AI Platform Engineer",
+    company: "Acme",
+    location: "Remote",
+    url: "https://jobs.example.com/ai-platform-engineer",
+    descriptionText: "Build AI automation systems for a senior platform team.",
+  };
+  const run = makeRunMaxKeywordsWithProfile({
+    fitScore: 8,
+    band: "Strong",
+    perStrength: [],
+    concerns: [],
+    matches: [],
+    rationale: "",
+  });
+  const baseline = scoreListingMatch(listing, run);
+  const client = createWorkerChatMatchClient(
+    {
+      geminiApiKey: "",
+      geminiModel: "",
+      llmProvider: "openrouter",
+      openRouterApiKey: "or-test-key",
+      openRouterModel: "openai/gpt-4.1-mini",
+    } as WorkerRuntimeConfig,
+    { fetchImpl },
+  );
+
+  const result = await client.evaluate({ rawListing: listing, run, baseline });
+
+  assert.equal(requestUrl, "https://openrouter.ai/api/v1/chat/completions");
+  assert.equal(requestHeaders.authorization, "Bearer or-test-key");
+  assert.equal(requestHeaders["x-goog-api-key"], undefined);
+  assert.equal(requestBody.model, "openai/gpt-4.1-mini");
+  assert.equal(requestBody.temperature, 0.1);
+  assert.equal(requestBody.max_tokens, 1024);
+  assert.ok(Array.isArray(requestBody.messages));
+  assert.equal(result.decision, "accept");
+  assert.equal(result.modelVersion, "openai/gpt-4.1-mini");
+});
+
+test("worker match client returns baseline when no chat provider is configured", async () => {
+  let fetchCalled = false;
+  const listing = {
+    sourceId: "greenhouse",
+    sourceLabel: "Greenhouse",
+    title: "Senior AI Platform Engineer",
+    company: "Acme",
+    location: "Remote",
+    url: "https://jobs.example.com/ai-platform-engineer",
+    descriptionText: "Build AI automation systems for a senior platform team.",
+  };
+  const run = makeRunMaxKeywordsWithProfile({
+    fitScore: 8,
+    band: "Strong",
+    perStrength: [],
+    concerns: [],
+    matches: [],
+    rationale: "",
+  });
+  const baseline = scoreListingMatch(listing, run);
+  const client = createWorkerChatMatchClient(
+    {
+      geminiApiKey: "",
+      geminiModel: "",
+    } as WorkerRuntimeConfig,
+    {
+      fetchImpl: async () => {
+        fetchCalled = true;
+        throw new Error("fetch should not be called without a chat provider");
+      },
+    },
+  );
+
+  const result = await client.evaluate({ rawListing: listing, run, baseline });
+
+  assert.equal(fetchCalled, false);
+  assert.deepEqual(result, baseline);
+});
