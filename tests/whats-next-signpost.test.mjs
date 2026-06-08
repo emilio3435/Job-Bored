@@ -365,13 +365,23 @@ describe("first-run wizard — finish shows terminal panel (VAL-SIGN-001)", () =
 
   it("handleFirstRunDoneToDashboard tears down the wizard THEN runs the dashboard handoff chain", () => {
     const order = [];
-    const { api } = loadWizardWithRecordingDom(
+    const refreshCalls = [];
+    const { api, window } = loadWizardWithRecordingDom(
       allCompleteHost({
         revealDashboardShell: () => order.push("revealDashboardShell"),
         renderPipeline: () => order.push("renderPipeline"),
         checkOnboardingGate: async () => order.push("checkOnboardingGate"),
       }),
     );
+    // Stub the banner so we can observe the same-session refresh hook
+    // (VAL-SIGN-001/002) — without it the banner only re-evaluates on
+    // the next reload.
+    window.JobBoredApp.whatsNextBanner = {
+      refreshBanner: () => {
+        refreshCalls.push("refresh");
+        return Promise.resolve();
+      },
+    };
     api.reopenFirstRunWizard();
     api.showFirstRunDonePanel();
     api.handleFirstRunDoneToDashboard();
@@ -384,25 +394,85 @@ describe("first-run wizard — finish shows terminal panel (VAL-SIGN-001)", () =
       "renderPipeline",
       "checkOnboardingGate",
     ]);
+    // The same-session banner refresh MUST have been invoked so the
+    // banner re-evaluates its gate (infra + !dismissed + onboarding) for
+    // the just-revealed dashboard render (VAL-SIGN-001/002).
+    assert.equal(
+      refreshCalls.length,
+      1,
+      "handleFirstRunDoneToDashboard must invoke whatsNextBanner.refreshBanner() so the dashboard banner re-evaluates its gate in the same session",
+    );
   });
 
-  it("handleFirstRunDoneOpenDiscovery calls requestDiscoverySetup with allowWhileOnboarding:true (wizard still visible)", () => {
+  it("handleFirstRunDoneToDashboard safely no-ops when the banner module is not on the window", () => {
+    // The typeof-guard means a missing whats-next-banner module never
+    // throws the dashboard handoff. Reflect the absent module on the
+    // window before invoking.
+    const { api, window } = loadWizardWithRecordingDom(allCompleteHost());
+    delete window.JobBoredApp.whatsNextBanner;
+    api.reopenFirstRunWizard();
+    api.showFirstRunDonePanel();
+    assert.doesNotThrow(() => api.handleFirstRunDoneToDashboard());
+    assert.equal(api.isFirstRunWizardActive(), false);
+  });
+
+  it("handleFirstRunDoneOpenDiscovery releases the first-run surface BEFORE calling requestDiscoverySetup, and still passes allowWhileOnboarding:true", () => {
+    const order = [];
     const calls = [];
     const { api } = loadWizardWithRecordingDom(
       allCompleteHost({
-        requestDiscoverySetup: (opts) => calls.push(opts),
+        requestDiscoverySetup: (opts) => {
+          // Snapshot the wizard's surface-ownership state at the moment
+          // requestDiscoverySetup is called: the first-run wizard MUST
+          // already be torn down so the guided discovery wizard renders
+          // on top, not behind the first-run overlay (VAL-SIGN-002).
+          order.push({
+            entry: opts.entryPoint,
+            allow: !!opts.allowWhileOnboarding,
+            wizardVisible: api.isFirstRunWizardVisible(),
+            wizardActive: api.isFirstRunWizardActive(),
+          });
+          calls.push(opts);
+        },
       }),
     );
     api.reopenFirstRunWizard();
     api.showFirstRunDonePanel();
+    assert.equal(
+      api.isFirstRunWizardVisible(),
+      true,
+      "pre-condition: wizard is up before the CTA",
+    );
     api.handleFirstRunDoneOpenDiscovery();
     assert.equal(calls.length, 1);
     assert.equal(calls[0].entryPoint, "whats_next");
     assert.equal(
       calls[0].allowWhileOnboarding,
       true,
-      "the in-wizard terminal discovery CTA must pass allowWhileOnboarding:true so it is not silently queued while the wizard is visible",
+      "the in-wizard terminal discovery CTA must still pass allowWhileOnboarding:true (in case the profile/onboarding wizard becomes the active surface after release)",
     );
+    // The CTA must have released the wizard surface BEFORE the discovery
+    // call — the discovery wizard must not render behind the first-run
+    // overlay (VAL-SIGN-002).
+    assert.equal(order.length, 1);
+    assert.equal(
+      order[0].wizardVisible,
+      false,
+      "the first-run wizard must be hidden BEFORE requestDiscoverySetup is invoked, so the discovery wizard renders on top",
+    );
+    assert.equal(
+      order[0].wizardActive,
+      false,
+      "isFirstRunWizardActive() must be false at the moment requestDiscoverySetup runs, so the dashboard-reveal chokepoint no longer defers",
+    );
+    assert.equal(
+      order[0].allow,
+      true,
+      "allowWhileOnboarding must still be true (in case the profile/onboarding wizard becomes the active surface after release)",
+    );
+    // Post-condition: the wizard stays torn down.
+    assert.equal(api.isFirstRunWizardVisible(), false);
+    assert.equal(api.isFirstRunWizardActive(), false);
   });
 
   it("handleFirstRunDoneOpenSelfHosting opens docs/SELF-HOSTING.md in a new tab", () => {

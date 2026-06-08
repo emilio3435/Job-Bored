@@ -1150,6 +1150,22 @@ function initOnboardingWizard() {
         await UC.completeOnboarding();
         hideOnboardingWizard();
         void resumePendingDiscoverySetupIfNeeded();
+        // The "what's next" dashboard banner is gated on
+        // UC.isOnboardingComplete()===true. Without this hook the banner
+        // would only re-evaluate on the next dashboard render / full
+        // reload, defeating the same-session signpost. The call is
+        // typeof-guarded and fire-and-forget so a missing/older
+        // whats-next-banner module never blocks the onboarding handoff
+        // (VAL-SIGN-001/002).
+        try {
+          const banner =
+            window.JobBoredApp && window.JobBoredApp.whatsNextBanner;
+          if (banner && typeof banner.refreshBanner === "function") {
+            void Promise.resolve(banner.refreshBanner()).catch(() => {});
+          }
+        } catch (_) {
+          /* banner refresh is best-effort */
+        }
         showToast(
           "You're all set — open Profile anytime to update.",
           "success",

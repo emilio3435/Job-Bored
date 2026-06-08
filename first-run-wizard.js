@@ -535,7 +535,15 @@
    * Done-panel "Go to dashboard" CTA — finally hands off to the dashboard
    * (VAL-SIGN-001). Order matters: persist infraSetupComplete has already
    * happened in handleFirstRunFinish; we now hide the wizard so the
-   * dashboard-reveal chokepoint releases, then reveal+render+gate.
+   * dashboard-reveal chokepoint releases, then reveal+render+gate. We
+   * also fire-and-forget refresh the "what's next" signpost banner so it
+   * re-evaluates its gate (infraComplete + !dismissed + onboardingComplete)
+   * for the same-session dashboard render (VAL-SIGN-001/002): the banner's
+   * init() only ran on DOMContentLoaded, so without this hook the banner
+   * would stay hidden until a full reload. The call is guarded by typeof
+   * (best-effort) and the banner is gated on onboardingComplete, so the
+   * common "profile wizard opens right after finish" path leaves the
+   * banner hidden until onboarding finishes.
    */
   function handleFirstRunDoneToDashboard() {
     hideFirstRunDonePanel();
@@ -564,19 +572,38 @@
         /* profile-wizard handoff is best-effort */
       }
     }
+    // Same-session banner re-evaluation (VAL-SIGN-001/002). The banner
+    // module is loaded after this one in index.html, so by the time the
+    // user clicks "Go to dashboard" the module is on the window — but
+    // guard with typeof in case the script order ever changes.
+    try {
+      const banner = window.JobBoredApp && window.JobBoredApp.whatsNextBanner;
+      if (banner && typeof banner.refreshBanner === "function") {
+        void Promise.resolve(banner.refreshBanner()).catch(() => {});
+      }
+    } catch (_) {
+      /* banner refresh is best-effort */
+    }
   }
 
   /**
-   * Done-panel "Turn on job discovery" CTA. The wizard is still visible at
-   * this point, so a plain requestDiscoverySetup() would be QUEUED
-   * (requestDiscoverySetup defers while the wizard is visible). Pass
-   * allowWhileOnboarding:true so the guided discovery setup wizard opens
-   * immediately (VAL-SIGN-002). The wizard overlay is torn down by the
-   * openDiscoverySetupWizard call path, and the user's prior state
-   * (infraSetupComplete=true) is already persisted, so a refresh lands on
-   * the dashboard with discovery open.
+   * Done-panel "Turn on job discovery" CTA. The wizard overlay sits at
+   * z-index ~100001 and isFirstRunWizardActive() is the signal the
+   * dashboard-reveal chokepoint uses to defer — so we MUST release the
+   * first-run surface (hideFirstRunDonePanel + hideFirstRunWizard) BEFORE
+   * calling requestDiscoverySetup, otherwise the guided discovery wizard
+   * renders BEHIND the first-run overlay and the user can't see or
+   * interact with it (VAL-SIGN-002). infraSetupComplete is already
+   * persisted, so tearing the wizard down is safe (a reload would land
+   * on the dashboard anyway). allowWhileOnboarding:true is preserved in
+   * case the profile/onboarding wizard becomes the active surface after
+   * release — the discovery wizard must still open immediately.
    */
   function handleFirstRunDoneOpenDiscovery() {
+    // Release the first-run surface FIRST so the discovery wizard can
+    // open on top (mirrors handleFirstRunDoneToDashboard's release).
+    hideFirstRunDonePanel();
+    hideFirstRunWizard();
     const h = host();
     if (typeof h.requestDiscoverySetup === "function") {
       try {
