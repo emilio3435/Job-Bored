@@ -524,6 +524,12 @@
         return discovery.drawer.callDiscoveryAiGemini(...args);
       },
       callConfiguredAi(...args) {
+        const provider =
+          window.CommandCenterBrowserAiProvider ||
+          window.CommandCenterResumeGenerate;
+        if (provider && typeof provider.callConfiguredAi === "function") {
+          return provider.callConfiguredAi(...args);
+        }
         return discovery.drawer.callConfiguredAi(...args);
       },
       parseJsonSafeForSuggestions(...args) {

@@ -32,7 +32,31 @@ import vm from "node:vm";
    ============================================================ */
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const resumeGenerateJs = readFileSync(join(repoRoot, "resume-generate.js"), "utf8");
 const drawerJs = readFileSync(join(repoRoot, "discovery-drawer.js"), "utf8");
+
+function loadSharedProvider({ config, fetchImpl }) {
+  const calls = [];
+  const fetchStub = async (url, init) => {
+    calls.push({ url, init });
+    return fetchImpl(url, init);
+  };
+  const ctx = {
+    window: {
+      COMMAND_CENTER_CONFIG: config,
+    },
+    console: { log() {}, warn() {}, error() {} },
+    fetch: fetchStub,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(resumeGenerateJs, ctx, { filename: "resume-generate.js" });
+  return {
+    provider: ctx.window.CommandCenterBrowserAiProvider,
+    resumeGenerate: ctx.window.CommandCenterResumeGenerate,
+    calls,
+    ctx,
+  };
+}
 
 function loadRouter({ genConfig, fetchImpl }) {
   const calls = [];
@@ -110,6 +134,66 @@ const BASE_CONFIG = {
 };
 
 describe("discovery-drawer callConfiguredAi — provider-agnostic routing (VAL-PROV-011)", () => {
+  it("shared browser provider returns raw text by default and parsed JSON when requested", async () => {
+    const fetchImpl = async () => okJson('```json\n{"answer":42}\n```');
+    const { provider, resumeGenerate, calls } = loadSharedProvider({
+      config: {
+        resumeProvider: "openrouter",
+        resumeOpenRouterApiKey: "sk-or-test",
+        resumeOpenRouterBaseUrl: "https://router.test/api/v1",
+        resumeOpenRouterModel: "",
+      },
+      fetchImpl,
+    });
+
+    assert.ok(provider, "shared browser provider should be exported");
+    assert.equal(
+      resumeGenerate.callConfiguredAi,
+      provider.callConfiguredAi,
+      "resume module and shared provider should expose the same call API",
+    );
+
+    const raw = await provider.callConfiguredAi("sys", "user");
+    assert.equal(raw, '```json\n{"answer":42}\n```');
+
+    const parsed = await provider.callConfiguredAi("sys", "user", {
+      parseJson: true,
+    });
+    assert.equal(parsed.answer, 42);
+
+    assert.equal(
+      calls[0].url,
+      "https://router.test/api/v1/chat/completions",
+      "shared provider should use the configured OpenRouter-compatible base URL",
+    );
+    const parsedBody = JSON.parse(calls[1].init.body);
+    assert.equal(parsedBody.model, "openai/gpt-oss-120b:free");
+    assert.ok(
+      parsedBody.max_tokens >= 4096,
+      "parseJson should request a JSON-friendly output budget",
+    );
+  });
+
+  it("drawer callConfiguredAi delegates to the shared browser provider when it is loaded", async () => {
+    const fetchImpl = async () => okJson('{"ok":true}');
+    const loaded = loadSharedProvider({
+      config: {
+        resumeProvider: "openrouter",
+        resumeOpenRouterApiKey: "sk-or-test",
+      },
+      fetchImpl,
+    });
+    vm.runInContext(drawerJs, loaded.ctx, { filename: "discovery-drawer.js" });
+
+    const parsed = await loaded.ctx.window.JobBoredDiscovery.drawer.callConfiguredAi(
+      "sys",
+      "user",
+      { parseJson: true },
+    );
+    assert.equal(parsed.ok, true);
+    assert.equal(loaded.calls.length, 1);
+  });
+
   it("openrouter branch POSTs to https://openrouter.ai/api/v1/chat/completions with bearer auth", async () => {
     const fetchImpl = async () => okJson("ok");
     const { drawer, calls } = loadRouter({

@@ -304,6 +304,262 @@
     return false;
   }
 
+  function wantsParsedJson(opts) {
+    return !!(
+      opts &&
+      (opts.parseJson || opts.returnJson || opts.response === "json")
+    );
+  }
+
+  function wantsJsonResponse(opts) {
+    return !!(opts && (opts.json || wantsParsedJson(opts)));
+  }
+
+  function parseConfiguredAiJson(raw) {
+    const s = String(raw || "").trim();
+    const fenceMatch = s.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const body = fenceMatch ? fenceMatch[1].trim() : s;
+    try {
+      return JSON.parse(body);
+    } catch (_) {
+      const braceStart = body.indexOf("{");
+      const braceEnd = body.lastIndexOf("}");
+      if (braceStart !== -1 && braceEnd > braceStart) {
+        try {
+          return JSON.parse(body.slice(braceStart, braceEnd + 1));
+        } catch (__) {}
+      }
+    }
+    throw new Error("AI provider returned invalid JSON.");
+  }
+
+  async function callOpenAICompatibleChat(
+    label,
+    baseUrl,
+    system,
+    user,
+    apiKey,
+    model,
+    opts,
+  ) {
+    const base = String(baseUrl).replace(/\/+$/, "");
+    const wantJson = wantsJsonResponse(opts);
+    const body = {
+      model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: 0.5,
+      max_tokens: wantJson ? 4096 : 2048,
+    };
+    const headers = { "Content-Type": "application/json" };
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+    let resp;
+    try {
+      resp = await fetch(`${base}/chat/completions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      if (label === "local") {
+        let serverHost = "127.0.0.1:11434";
+        try {
+          serverHost = new URL(base).host || serverHost;
+        } catch (_) {
+          /* keep default host hint */
+        }
+        throw new Error(
+          `Could not reach the local model server at ${base}. Start your local model server, e.g. Ollama on ${serverHost}, then try again.`,
+        );
+      }
+      throw wrapFetchFailure(e, label, false);
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      if (label === "OpenRouter") {
+        throw new Error(mapOpenRouterErrorMessage(resp.status, data));
+      }
+      throw new Error(data.error?.message || `AI provider HTTP ${resp.status}`);
+    }
+    const text = data.choices?.[0]?.message?.content || "";
+    if (!text.trim()) throw new Error("Empty response from the AI provider");
+    return text.trim();
+  }
+
+  async function callConfiguredAiOpenAI(system, user, apiKey, model, opts) {
+    const m = model || "gpt-4o-mini";
+    const limitKey = openAIUsesMaxCompletionTokens(m)
+      ? "max_completion_tokens"
+      : "max_tokens";
+    const body = {
+      model: m,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: 0.5,
+      [limitKey]: wantsJsonResponse(opts) ? 4096 : 2048,
+    };
+    let resp;
+    try {
+      resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      throw wrapFetchFailure(e, "OpenAI", true);
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok)
+      throw new Error(data.error?.message || `OpenAI HTTP ${resp.status}`);
+    const text = data.choices?.[0]?.message?.content || "";
+    if (!text.trim()) throw new Error("Empty response from OpenAI");
+    return text.trim();
+  }
+
+  async function callConfiguredAiAnthropic(system, user, apiKey, model, opts) {
+    let resp;
+    try {
+      resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model: model || "claude-sonnet-4-6",
+          max_tokens: wantsJsonResponse(opts) ? 4096 : 2048,
+          system,
+          messages: [{ role: "user", content: user }],
+        }),
+      });
+    } catch (e) {
+      throw wrapFetchFailure(e, "Anthropic", true);
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok)
+      throw new Error(data.error?.message || `Anthropic HTTP ${resp.status}`);
+    const text = Array.isArray(data.content)
+      ? data.content
+          .filter((b) => b.type === "text")
+          .map((b) => b.text || "")
+          .join("")
+      : "";
+    if (!text.trim()) throw new Error("Empty response from Anthropic");
+    return text.trim();
+  }
+
+  async function callConfiguredAiGemini(system, user, apiKey, model, opts) {
+    const resolvedModel = model || "gemini-3.5-flash";
+    const wantJson = wantsJsonResponse(opts);
+    const isThinkingModel = /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(
+      resolvedModel,
+    );
+    const generationConfig = {
+      maxOutputTokens: isThinkingModel || wantJson ? 8192 : 2048,
+      temperature: 0.5,
+    };
+    if (wantJson) generationConfig.responseMimeType = "application/json";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    let resp;
+    try {
+      resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: "user", parts: [{ text: user }] }],
+          generationConfig,
+        }),
+      });
+    } catch (e) {
+      throw wrapFetchFailure(e, "Gemini", false);
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok)
+      throw new Error(data.error?.message || `Gemini HTTP ${resp.status}`);
+    const candidate = data.candidates?.[0];
+    const text =
+      candidate?.content?.parts?.map((p) => p.text || "").join("") || "";
+    if (!text.trim()) {
+      const reason = candidate?.finishReason || data.promptFeedback?.blockReason;
+      if (reason) throw new Error(`Gemini returned no text (${reason}).`);
+      throw new Error("Empty response from Gemini");
+    }
+    return text.trim();
+  }
+
+  async function callConfiguredAi(system, user, opts) {
+    const g = getResumeGenerationConfig();
+    const provider = g.provider || "gemini";
+    const needKey = (label) => {
+      throw new Error(`Add your ${label} key in Settings to use AI suggestions.`);
+    };
+    let text;
+    if (provider === "openrouter") {
+      if (!g.resumeOpenRouterApiKey) needKey("OpenRouter");
+      text = await callOpenAICompatibleChat(
+        "OpenRouter",
+        g.resumeOpenRouterBaseUrl || "https://openrouter.ai/api/v1",
+        system,
+        user,
+        g.resumeOpenRouterApiKey,
+        g.resumeOpenRouterModel || "openai/gpt-oss-120b:free",
+        opts,
+      );
+    } else if (provider === "local") {
+      text = await callOpenAICompatibleChat(
+        "local",
+        g.resumeLocalBaseUrl || "http://127.0.0.1:11434/v1",
+        system,
+        user,
+        g.resumeLocalApiKey,
+        g.resumeLocalModel || "gemma4:e2b",
+        opts,
+      );
+    } else if (provider === "openai") {
+      if (!g.resumeOpenAIApiKey) needKey("OpenAI");
+      text = await callConfiguredAiOpenAI(
+        system,
+        user,
+        g.resumeOpenAIApiKey,
+        g.resumeOpenAIModel,
+        opts,
+      );
+    } else if (provider === "anthropic") {
+      if (!g.resumeAnthropicApiKey) needKey("Anthropic");
+      text = await callConfiguredAiAnthropic(
+        system,
+        user,
+        g.resumeAnthropicApiKey,
+        g.resumeAnthropicModel,
+        opts,
+      );
+    } else if (provider === "webhook") {
+      throw new Error(
+        "Your AI provider is set to a custom webhook, which doesn't support inline suggestions. Switch to OpenRouter, Gemini, OpenAI, Anthropic, or local in Settings.",
+      );
+    } else {
+      if (!g.resumeGeminiApiKey) needKey("Gemini");
+      text = await callConfiguredAiGemini(
+        system,
+        user,
+        g.resumeGeminiApiKey,
+        g.resumeGeminiModel,
+        opts,
+      );
+    }
+    return wantsParsedJson(opts) ? parseConfiguredAiJson(text) : text;
+  }
+
   async function callOpenAI(
     bundle,
     apiKey,
@@ -645,11 +901,20 @@
     return callGemini(bundle, g.resumeGeminiApiKey, g.resumeGeminiModel);
   }
 
+  const browserAiProvider = {
+    getResumeGenerationConfig,
+    callConfiguredAi,
+    parseConfiguredAiJson,
+  };
+
+  window.CommandCenterBrowserAiProvider = browserAiProvider;
   window.CommandCenterResumeGenerate = {
     getResumeGenerationConfig,
     generateFromBundle,
     buildSystemPrompt,
     extractInsights,
     isResumeGenerationConfigured,
+    callConfiguredAi,
+    parseConfiguredAiJson,
   };
 })();
