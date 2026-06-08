@@ -2243,15 +2243,42 @@ async function handleDiscoveryWizardFlowSelection(flow) {
 }
 
 async function handleDiscoveryWizardVerification(url, context) {
+  // VAL-SIGN-003 / VAL-SIGN-004: probe the NORMALIZED `/webhook` URL and
+  // thread the user-pasted secret into the verifier so the verification
+  // call itself can succeed against an exposed worker that fail-closes
+  // on an empty `x-discovery-secret` (and against a bare ts.net origin
+  // that the worker's webhook route isn't mounted under). These are the
+  // same values the post-success persistence branch uses — we read them
+  // once here so verify, engine-state recording, and persistence all
+  // agree on the canonical values (was: verify used the raw pasted URL
+  // and no secret, which caused verify to 401 on the exact path the
+  // persistence branch was about to save).
+  const earlyRuntime = host().getDiscoveryWizardRuntime() || {};
+  const earlyDrafts =
+    earlyRuntime.drafts && typeof earlyRuntime.drafts === "object"
+      ? earlyRuntime.drafts
+      : {};
+  const normalizedVerifyUrl = ensureDiscoveryWebhookUrl(url);
+  const verifyUrl = normalizedVerifyUrl || String(url || "").trim();
+  const verifySecret =
+    typeof earlyDrafts.endpointSecret === "string"
+      ? earlyDrafts.endpointSecret.trim()
+      : "";
+
   const payload = await host().buildDiscoveryWebhookPayload(
     context === "run_discovery"
       ? host().getActiveSheetId()
       : host().getSettingsSheetIdValue() || host().getActiveSheetId(),
   );
-  const result = await host().verifyDiscoveryWebhookWithSharedModel(url, payload, {
-    context,
-    sheetId: host().getSettingsSheetIdValue() || host().getActiveSheetId() || "",
-  });
+  const result = await host().verifyDiscoveryWebhookWithSharedModel(
+    verifyUrl,
+    payload,
+    {
+      context,
+      sheetId: host().getSettingsSheetIdValue() || host().getActiveSheetId() || "",
+      ...(verifySecret ? { secret: verifySecret } : {}),
+    },
+  );
   host().updateDiscoveryWizardRuntime({
     lastVerificationResult: result,
     lastDownstreamDiagnosis: null,
@@ -2260,36 +2287,38 @@ async function handleDiscoveryWizardVerification(url, context) {
     const engineState = host().getDiscoveryEngineStateFromVerificationResult(result);
     if (engineState) {
       await host().recordDiscoveryEngineState(
-        url,
+        verifyUrl,
         engineState,
         context === "run_discovery"
           ? "wizard_run_discovery"
           : "wizard_verify_endpoint",
       );
     }
-    if (url) {
+    if (verifyUrl) {
       // VAL-SIGN-004: persist the URL AND any secret draft the user
       // pasted in the guided Tailscale / stable-URL flow. The worker
       // fail-closes on an empty secret when exposed, so silently saving
       // only the URL half-configures the worker. We auto-append
       // `/webhook` when the pasted ts.net URL omits the path (the
       // Tailscale CLI prints the bare origin, not the worker path).
+      // We re-read the draft here in case it was set after the verify
+      // call (e.g. autofill from a successful secret-refresh retry), but
+      // we still use the SAME normalized URL we just verified.
       const runtime = host().getDiscoveryWizardRuntime() || {};
       const drafts = (runtime.drafts && typeof runtime.drafts === "object")
         ? runtime.drafts
         : {};
-      const normalizedUrl = ensureDiscoveryWebhookUrl(url);
       const secretDraft = typeof drafts.endpointSecret === "string"
         ? drafts.endpointSecret.trim()
-        : "";
+        : verifySecret;
       if (secretDraft) {
         host().mergeStoredConfigOverridePatch({
-          discoveryWebhookUrl: normalizedUrl,
+          discoveryWebhookUrl: verifyUrl,
           discoveryWebhookSecret: secretDraft,
         });
       } else {
         host().mergeStoredConfigOverridePatch({
-          discoveryWebhookUrl: normalizedUrl,
+          discoveryWebhookUrl: verifyUrl,
         });
       }
     }

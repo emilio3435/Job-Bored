@@ -578,3 +578,382 @@ describe("config-overrides.js — both url + secret survive a reload read (VAL-S
     );
   });
 });
+
+// ============================================================
+// VAL-SIGN-003 / VAL-SIGN-004 (hardening) — the verification
+// call must probe the NORMALIZED `/webhook` URL and thread the
+// user-pasted secret into the verify options. The persistence
+// branch already saves both; the verify call that runs FIRST
+// must agree with the persistence branch or an exposed Tailscale
+// worker fail-closes on a missing `x-discovery-secret` before
+// the save can happen. Source-shape gates (regex) PLUS a
+// behavioral vm run (host bridge stubbed) assert the args.
+// ============================================================
+
+function isolateHandleDiscoveryWizardVerification() {
+  const fnStart = discoveryWizardUiJs.indexOf(
+    "async function handleDiscoveryWizardVerification(",
+  );
+  assert.ok(fnStart !== -1, "handleDiscoveryWizardVerification must exist");
+  const fnEnd = discoveryWizardUiJs.indexOf("\nasync function ", fnStart + 1);
+  return discoveryWizardUiJs.slice(
+    fnStart,
+    fnEnd === -1 ? discoveryWizardUiJs.length : fnEnd,
+  );
+}
+
+describe(
+  "discovery-wizard-ui.js — verify call threads the normalized URL + draft secret (VAL-SIGN-003 / VAL-SIGN-004)",
+  () => {
+    it("the verify call uses a variable derived from ensureDiscoveryWebhookUrl(url) — not the raw url", () => {
+      const fn = isolateHandleDiscoveryWizardVerification();
+      // The fix MUST derive a `verifyUrl` (or equivalent) from
+      // ensureDiscoveryWebhookUrl(url) BEFORE calling the verifier,
+      // and pass that normalized variable to
+      // verifyDiscoveryWebhookWithSharedModel.
+      assert.match(
+        fn,
+        /ensureDiscoveryWebhookUrl\(\s*url\s*\)/,
+        "the function must call ensureDiscoveryWebhookUrl(url) to normalize the verification URL",
+      );
+      assert.match(
+        fn,
+        /verifyDiscoveryWebhookWithSharedModel\(\s*verifyUrl\b/,
+        "the verify call must be invoked with the normalized verifyUrl variable (not the raw `url` argument)",
+      );
+    });
+
+    it("the verify call options spread `secret: <draft>` when a secret draft is set", () => {
+      const fn = isolateHandleDiscoveryWizardVerification();
+      // The fix must read runtime.drafts.endpointSecret (trimmed) and
+      // spread it into the verify options as `secret`. We accept any
+      // of the equivalent shapes (ternary, if/else, direct
+      // conditional spread).
+      assert.match(
+        fn,
+        /drafts\.endpointSecret/,
+        "the function must read runtime.drafts.endpointSecret (trimmed) before the verify call",
+      );
+      assert.match(
+        fn,
+        /verifySecret\s*\?\s*\{\s*secret:\s*verifySecret\s*\}\s*:\s*\{\}/,
+        "the verify options must spread `{ secret: verifySecret }` only when a secret is drafted, and {} otherwise (URL-only flow stays auth-header-free)",
+      );
+    });
+
+    it("recordDiscoveryEngineState is called with the normalized url, not the raw url", () => {
+      const fn = isolateHandleDiscoveryWizardVerification();
+      // The success-path engine-state write must use the SAME
+      // normalized URL the verifier probed, so the saved engine
+      // state references the path the worker actually serves.
+      assert.match(
+        fn,
+        /recordDiscoveryEngineState\(\s*verifyUrl\s*,/,
+        "the recordDiscoveryEngineState call must use the normalized verifyUrl as the url argument",
+      );
+      // Negative: it must NOT pass the raw `url` argument.
+      assert.doesNotMatch(
+        fn,
+        /recordDiscoveryEngineState\(\s*url\s*,/,
+        "the recordDiscoveryEngineState call must not pass the raw `url` argument (use the normalized variable)",
+      );
+    });
+
+    it("the existing dual url+secret persistence branch still saves the normalized url + draft secret", () => {
+      // This is a re-assertion of the VAL-SIGN-004 invariant: even
+      // after the verify-path hardening, the persistence branch
+      // must save BOTH keys (normalized url + secret) via
+      // mergeStoredConfigOverridePatch.
+      const fn = isolateHandleDiscoveryWizardVerification();
+      assert.match(
+        fn,
+        /mergeStoredConfigOverridePatch\(\s*\{[\s\S]{0,200}?discoveryWebhookUrl:\s*verifyUrl[\s\S]{0,80}?,\s*discoveryWebhookSecret:[\s\S]{0,80}?\}\s*\)/,
+        "the save path must call mergeStoredConfigOverridePatch with BOTH discoveryWebhookUrl: verifyUrl AND discoveryWebhookSecret",
+      );
+    });
+  },
+);
+
+// ============================================================
+// Behavioral vm run: load discovery-wizard-ui.js into a vm
+// context with a stubbed host bridge, then drive
+// handleDiscoveryWizardVerification with a bare ts.net URL +
+// draft secret. Assert the verifier was called with the
+// NORMALIZED url AND the secret, the engine-state write used
+// the normalized url, and the persistence branch saved both.
+// Also assert URL-only (no secret draft) keeps the call
+// auth-header-free (no `secret` key in options).
+// ============================================================
+
+function buildVerifyHarness() {
+  // The wizard UI IIFE does not expose handleDiscoveryWizardVerification
+  // on `ui`. We inject a single test-only line right before the IIFE
+  // closes so the inner function reference is hoisted to the outer
+  // (vm) scope for the test. The injection is mechanical and does not
+  // change production wiring.
+  const injection = `window.__test_handleDiscoveryWizardVerification = handleDiscoveryWizardVerification;`;
+  const lastClose = discoveryWizardUiJs.lastIndexOf("})();");
+  assert.ok(lastClose !== -1, "IIFE close must exist in the source");
+  const source = `${discoveryWizardUiJs.slice(0, lastClose)}${injection}\n${discoveryWizardUiJs.slice(lastClose)}`;
+
+  const calls = {
+    verify: [],
+    record: [],
+    merge: [],
+    payload: [],
+    refresh: [],
+    persist: [],
+    runtimeUpdates: [],
+    toast: [],
+    moveStep: [],
+    engineStateFromResult: null,
+  };
+
+  const runtime = {
+    snapshot: { savedWebhookUrl: "" },
+    state: {
+      flow: "external_endpoint",
+      currentStep: "verify",
+      completedSteps: [],
+    },
+    activeStepId: "verify",
+    drafts: {},
+  };
+
+  // Capture-bearing stubs. We list ONLY the methods the
+  // handleDiscoveryWizardVerification happy path actually calls
+  // (verify, record, merge, build payload, refresh, persist, toast,
+  // runtime getters/setters); the rest of the host bridge is fulfilled
+  // by a tolerant defaultFn Proxy so the moveDiscoveryWizardToStep ->
+  // renderDiscoverySetupWizard downstream chain (which reads many
+  // host methods) doesn't throw during the success-path render.
+  const capturedHost = {
+    getDiscoveryWizardRuntime: () => runtime,
+    updateDiscoveryWizardRuntime: (patch) => {
+      calls.runtimeUpdates.push(patch);
+      if (patch && patch.drafts) {
+        runtime.drafts = { ...runtime.drafts, ...patch.drafts };
+      }
+      if (patch && patch.state) {
+        runtime.state = { ...runtime.state, ...patch.state };
+      }
+      if (patch && patch.snapshot) {
+        runtime.snapshot = patch.snapshot;
+      }
+      return runtime;
+    },
+    getSettingsSheetIdValue: () => "sheet_test_id",
+    getActiveSheetId: () => "sheet_test_id",
+    buildDiscoveryWebhookPayload: async (sheetId) => {
+      calls.payload.push(sheetId);
+      return { event: "command-center.discovery", sheetId: sheetId || "" };
+    },
+    verifyDiscoveryWebhookWithSharedModel: async (url, payload, options) => {
+      calls.verify.push({ url, payload, options });
+      return {
+        ok: true,
+        kind: "connected_ok",
+        engineState: "connected",
+        httpStatus: 200,
+        message: "Connected — webhook is working.",
+        detail: "ok",
+        layer: "upstream",
+      };
+    },
+    getDiscoveryEngineStateFromVerificationResult: () => "connected",
+    recordDiscoveryEngineState: async (url, engineState, source) => {
+      calls.record.push({ url, engineState, source });
+    },
+    mergeStoredConfigOverridePatch: (patch) => {
+      calls.merge.push(patch);
+      return patch;
+    },
+    refreshDiscoveryReadinessSnapshot: async () => {
+      calls.refresh.push(true);
+      return { savedWebhookUrl: runtime.snapshot.savedWebhookUrl || "" };
+    },
+    getDiscoveryReadinessSnapshot: () => runtime.snapshot,
+    mapDiscoveryWizardFlow: (flow) => String(flow || "external_endpoint"),
+    persistDiscoveryWizardState: async (patch) => {
+      calls.persist.push(patch);
+      return { ...runtime.state, ...patch };
+    },
+    showDiscoveryVerificationToast: (result, opts) => {
+      calls.toast.push({ result, opts });
+    },
+  };
+  // Tolerant host Proxy: any method/property not explicitly captured
+  // returns a no-op async function (so awaited host calls resolve
+  // cleanly) or a sensible default (object -> {}, array -> [], string
+  // -> ""). This is test plumbing only — production host is real.
+  const defaultFn = () => async () => undefined;
+  const host = new Proxy(capturedHost, {
+    get(target, prop) {
+      if (prop in target) return target[prop];
+      if (prop === "DISCOVERY_ENGINE_STATE_STUB_ONLY") return "stub_only";
+      if (prop === "DISCOVERY_ENGINE_STATE_UNVERIFIED") return "unverified";
+      return defaultFn();
+    },
+  });
+
+  const documentStub = {
+    getElementById: () => null,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    createElement: () => ({
+      style: {},
+      classList: { add: () => {}, remove: () => {} },
+      setAttribute: () => {},
+      appendChild: () => {},
+      addEventListener: () => {},
+    }),
+  };
+  const windowStub = {
+    JobBoredDiscoveryWizard: { ui: { host } },
+    setTimeout,
+    clearTimeout,
+  };
+  const ctx = {
+    window: windowStub,
+    document: documentStub,
+    console,
+    setTimeout,
+    clearTimeout,
+    // CRITICAL: discovery-wizard-ui.js calls `new URL(...)` inside
+    // ensureDiscoveryWebhookUrl. In a node vm context the WHATWG URL
+    // constructor is NOT auto-exposed; without this the helper falls
+    // into its catch block and returns the raw string, masking the
+    // /webhook normalization. The browser exposes URL as a global
+    // — this brings the vm in line with that.
+    URL,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(source, ctx, { filename: "discovery-wizard-ui.js" });
+  return {
+    handle: ctx.window.__test_handleDiscoveryWizardVerification,
+    calls,
+    host,
+    runtime,
+    ctx,
+  };
+}
+
+describe(
+  "discovery-wizard-ui.js — handleDiscoveryWizardVerification (behavioral vm run, VAL-SIGN-003/004)",
+  () => {
+    it("threads the NORMALIZED '/webhook' url + draft secret into the verifier for a bare ts.net input", async () => {
+      const harness = buildVerifyHarness();
+      harness.runtime.drafts.endpointSecret = "tailscale-shared-secret-xyz";
+      const handle = harness.handle;
+      assert.equal(
+        typeof handle,
+        "function",
+        "handleDiscoveryWizardVerification must be exposed on the test window for behavioral testing",
+      );
+      await handle("https://mybox.tailabc.ts.net", "test_webhook");
+      assert.equal(harness.calls.verify.length, 1);
+      const verifyCall = harness.calls.verify[0];
+      assert.equal(
+        verifyCall.url,
+        "https://mybox.tailabc.ts.net/webhook",
+        "verifier must be called with the NORMALIZED /webhook URL even when the user pastes a bare ts.net origin",
+      );
+      assert.equal(
+        verifyCall.options.secret,
+        "tailscale-shared-secret-xyz",
+        "verifier must receive the user-pasted secret in options so the exposed worker verifies green",
+      );
+      assert.equal(verifyCall.options.context, "test_webhook");
+      assert.equal(verifyCall.options.sheetId, "sheet_test_id");
+      // The recordDiscoveryEngineState call must use the normalized URL.
+      assert.equal(harness.calls.record.length, 1);
+      assert.equal(
+        harness.calls.record[0].url,
+        "https://mybox.tailabc.ts.net/webhook",
+        "engine-state write must use the normalized url (not the raw ts.net origin)",
+      );
+      assert.equal(harness.calls.record[0].engineState, "connected");
+      // The persistence branch must save BOTH keys.
+      const mergeCall = harness.calls.merge.find(
+        (m) => m && m.discoveryWebhookSecret,
+      );
+      assert.ok(mergeCall, "mergeStoredConfigOverridePatch must be called with a secret payload");
+      assert.equal(
+        mergeCall.discoveryWebhookUrl,
+        "https://mybox.tailabc.ts.net/webhook",
+        "the persisted URL must end in /webhook (normalized)",
+      );
+      assert.equal(
+        mergeCall.discoveryWebhookSecret,
+        "tailscale-shared-secret-xyz",
+        "the persisted secret must match the draft",
+      );
+    });
+
+    it("URL-only (no draft secret) keeps the verify call auth-header-free (no `secret` key in options)", async () => {
+      // When the user pastes a URL-only local endpoint with no secret,
+      // the verifier must not silently smuggle a `secret: undefined` or
+      // `secret: ""` into the options — the local probe should go
+      // through cleanly without an Authorization-shaped header.
+      const harness = buildVerifyHarness();
+      harness.runtime.drafts.endpointSecret = "";
+      await harness.handle(
+        "http://127.0.0.1:8644/webhook",
+        "test_webhook",
+      );
+      assert.equal(harness.calls.verify.length, 1);
+      const verifyCall = harness.calls.verify[0];
+      assert.equal(
+        verifyCall.url,
+        "http://127.0.0.1:8644/webhook",
+        "URL with explicit /webhook path must be preserved (no double-append, no rewrite)",
+      );
+      assert.ok(
+        !Object.prototype.hasOwnProperty.call(
+          verifyCall.options,
+          "secret",
+        ),
+        "URL-only flow must not pass a `secret` key in verify options (keep the local probe auth-header-free)",
+      );
+      // Engine-state write and URL-only persistence still run.
+      assert.equal(harness.calls.record.length, 1);
+      assert.equal(
+        harness.calls.record[0].url,
+        "http://127.0.0.1:8644/webhook",
+      );
+      const urlOnlyMerge = harness.calls.merge.find(
+        (m) => m && m.discoveryWebhookUrl && !m.discoveryWebhookSecret,
+      );
+      assert.ok(
+        urlOnlyMerge,
+        "URL-only persistence must call mergeStoredConfigOverridePatch with just the url (no secret key)",
+      );
+      assert.equal(
+        urlOnlyMerge.discoveryWebhookUrl,
+        "http://127.0.0.1:8644/webhook",
+      );
+    });
+
+    it("trailing-slash bare ts.net origin is also normalized to '/webhook' (no double slash, no path rewrite)", async () => {
+      const harness = buildVerifyHarness();
+      harness.runtime.drafts.endpointSecret = "another-secret";
+      await harness.handle(
+        "https://mybox.tailabc.ts.net/",
+        "test_webhook",
+      );
+      const verifyCall = harness.calls.verify[0];
+      assert.equal(
+        verifyCall.url,
+        "https://mybox.tailabc.ts.net/webhook",
+        "trailing-slash ts.net origin must collapse to a single '/webhook' path",
+      );
+      assert.equal(
+        verifyCall.options.secret,
+        "another-secret",
+      );
+    });
+  },
+);
+
