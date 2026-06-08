@@ -606,43 +606,66 @@ async function fetchLocalDiscoveryWorkerSourceReadiness() {
 }
 
 function getDiscoverySourceReadinessIssues(readiness) {
-  if (!readiness || typeof readiness !== "object") return [];
-  const issues = [];
+  if (!readiness || typeof readiness !== "object") {
+    return { required: [], optional: [] };
+  }
+  const required = [];
+  const optional = [];
+  // groundedWeb is the OPTIONAL Gemini Google Search upgrade — never required
+  // config. Bundling it with required gaps would wrongly signal that OpenRouter
+  // users are "missing" Gemini, so it goes in `optional`, surfaced separately.
   const groundedWeb = readiness.groundedWeb;
   if (
     groundedWeb &&
     groundedWeb.enabled &&
     groundedWeb.ready === false
   ) {
-    issues.push("Gemini API key");
+    optional.push("Gemini Google Search");
   }
+  // SerpApi is a genuine required-config gap for the Google Jobs source.
   const serpApi = readiness.serpApiGoogleJobs;
   if (
     serpApi &&
     serpApi.enabled &&
     (serpApi.configured === false || serpApi.ready === false)
   ) {
-    issues.push("SerpApi key");
+    required.push("SerpApi key");
   }
-  return issues;
+  return { required, optional };
 }
 
 function renderDiscoveryDrawerSourceReadiness(issues) {
   const notice = document.getElementById("discoveryDrawerLastRun");
   if (!notice) return;
-  if (!issues.length) {
+  const required = (issues && issues.required) || [];
+  const optional = (issues && issues.optional) || [];
+  if (!required.length && !optional.length) {
     notice.hidden = true;
     notice.textContent = "";
     return;
   }
-  setDiscoveryReadinessChip("partial", "Source config missing");
+  const parts = [];
+  if (required.length) {
+    parts.push(`Missing source config: ${required.join(", ")}.`);
+  }
+  if (optional.length) {
+    parts.push(
+      `Optional: add a Gemini key to enable ${optional.join(", ")} grounding.`,
+    );
+  }
+  parts.push("Discovery can still run with fewer sources.");
+  // Only a genuine required gap flags the chip as "Source config missing"; an
+  // optional Gemini upgrade alone must not look like a required-setup problem.
+  if (required.length) {
+    setDiscoveryReadinessChip("partial", "Source config missing");
+  }
   notice.hidden = false;
-  notice.textContent = `Missing source config: ${issues.join(", ")}. Discovery can still run with fewer sources.`;
+  notice.textContent = parts.join(" ");
 }
 
 async function refreshDiscoveryDrawerSourceReadiness() {
   const readiness = await fetchLocalDiscoveryWorkerSourceReadiness();
-  if (!readiness) return [];
+  if (!readiness) return { required: [], optional: [] };
   const issues = getDiscoverySourceReadinessIssues(readiness);
   renderDiscoveryDrawerSourceReadiness(issues);
   return issues;
@@ -650,11 +673,13 @@ async function refreshDiscoveryDrawerSourceReadiness() {
 
 async function warnDiscoverySourceReadinessBeforeRun() {
   const readiness = await fetchLocalDiscoveryWorkerSourceReadiness();
-  if (!readiness) return [];
+  if (!readiness) return { required: [], optional: [] };
   const issues = getDiscoverySourceReadinessIssues(readiness);
-  if (issues.length) {
+  // Only warn about genuine required gaps (e.g. SerpApi). The optional Gemini
+  // Google Search upgrade is covered by the drawer hint and must not nag here.
+  if (issues.required.length) {
     h("showToast",
-      `Discovery is missing ${issues.join(", ")}. This run will continue with fewer sources.`,
+      `Discovery is missing ${issues.required.join(", ")}. This run will continue with fewer sources.`,
       "warning",
       true,
     );

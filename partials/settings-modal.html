@@ -592,6 +592,13 @@
               </div>
 
               <div id="settingsPanelGemini" class="settings-provider-panel">
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Optional. Drafts and suggestions already work with
+                  OpenRouter / Local / OpenAI / Anthropic / webhook — pick
+                  Gemini here only if you want it as your generic AI
+                  provider, or to unlock the optional Google Search
+                  grounding and URL Context fallback in discovery.
+                </p>
                 <label class="field-label" for="settingsResumeGeminiApiKey"
                   >Gemini API key</label
                 >
@@ -632,6 +639,11 @@
                   id="settingsResumeOpenAIModel"
                   class="status-select settings-select settings-model-select"
                 ></select>
+                <p class="settings-field-hint">
+                  Direct browser calls may be blocked by CORS; if so, switch
+                  to OpenRouter, Local (Ollama), or a webhook — all CORS-free
+                  generic-AI paths. (Gemini also works, but it isn't required.)
+                </p>
               </div>
 
               <div
@@ -657,8 +669,9 @@
                   class="status-select settings-select settings-model-select"
                 ></select>
                 <p class="settings-field-hint">
-                  Direct browser calls may be blocked by CORS; if so, use Gemini
-                  or a webhook.
+                  Direct browser calls may be blocked by CORS; if so, switch
+                  to OpenRouter, Local (Ollama), or a webhook — all CORS-free
+                  generic-AI paths. (Gemini also works, but it isn't required.)
                 </p>
               </div>
 
