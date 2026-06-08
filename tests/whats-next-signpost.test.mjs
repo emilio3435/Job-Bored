@@ -416,17 +416,21 @@ describe("first-run wizard — finish shows terminal panel (VAL-SIGN-001)", () =
     assert.equal(api.isFirstRunWizardActive(), false);
   });
 
-  it("handleFirstRunDoneOpenDiscovery releases the first-run surface BEFORE calling requestDiscoverySetup, and still passes allowWhileOnboarding:true", () => {
+  it("handleFirstRunDoneOpenDiscovery hands off to the dashboard BEFORE opening discovery (so a short-circuiting/closed discovery wizard lands on the dashboard, not the login gate)", () => {
     const order = [];
     const calls = [];
     const { api } = loadWizardWithRecordingDom(
       allCompleteHost({
+        revealDashboardShell: () => order.push("revealDashboardShell"),
+        renderPipeline: () => order.push("renderPipeline"),
+        checkOnboardingGate: async () => order.push("checkOnboardingGate"),
         requestDiscoverySetup: (opts) => {
           // Snapshot the wizard's surface-ownership state at the moment
           // requestDiscoverySetup is called: the first-run wizard MUST
           // already be torn down so the guided discovery wizard renders
           // on top, not behind the first-run overlay (VAL-SIGN-002).
           order.push({
+            marker: "requestDiscoverySetup",
             entry: opts.entryPoint,
             allow: !!opts.allowWhileOnboarding,
             wizardVisible: api.isFirstRunWizardVisible(),
@@ -451,22 +455,44 @@ describe("first-run wizard — finish shows terminal panel (VAL-SIGN-001)", () =
       true,
       "the in-wizard terminal discovery CTA must still pass allowWhileOnboarding:true (in case the profile/onboarding wizard becomes the active surface after release)",
     );
+
+    // The dashboard handoff MUST run BEFORE requestDiscoverySetup. During
+    // cold-start onboarding the surface underneath the first-run wizard is
+    // the login gate (#sheetAccessGateScreen) — the done panel defers the
+    // dashboard reveal to a CTA. Without revealing the dashboard first, a
+    // discovery wizard that short-circuits (autodetect "already set up"),
+    // errors, or is closed strands the user on the login screen instead of
+    // their dashboard. Mirrors the "Go to dashboard" handoff.
+    const revealIdx = order.indexOf("revealDashboardShell");
+    const discoveryIdx = order.findIndex(
+      (e) => e && typeof e === "object" && e.marker === "requestDiscoverySetup",
+    );
+    assert.ok(
+      revealIdx !== -1,
+      "revealDashboardShell must be called so the login gate is hidden under the discovery wizard",
+    );
+    assert.ok(discoveryIdx !== -1, "requestDiscoverySetup must be called");
+    assert.ok(
+      revealIdx < discoveryIdx,
+      "revealDashboardShell must run BEFORE requestDiscoverySetup (reveal the dashboard, then open discovery on top)",
+    );
+
     // The CTA must have released the wizard surface BEFORE the discovery
     // call — the discovery wizard must not render behind the first-run
     // overlay (VAL-SIGN-002).
-    assert.equal(order.length, 1);
+    const discoveryCall = order[discoveryIdx];
     assert.equal(
-      order[0].wizardVisible,
+      discoveryCall.wizardVisible,
       false,
       "the first-run wizard must be hidden BEFORE requestDiscoverySetup is invoked, so the discovery wizard renders on top",
     );
     assert.equal(
-      order[0].wizardActive,
+      discoveryCall.wizardActive,
       false,
       "isFirstRunWizardActive() must be false at the moment requestDiscoverySetup runs, so the dashboard-reveal chokepoint no longer defers",
     );
     assert.equal(
-      order[0].allow,
+      discoveryCall.allow,
       true,
       "allowWhileOnboarding must still be true (in case the profile/onboarding wizard becomes the active surface after release)",
     );
@@ -475,66 +501,121 @@ describe("first-run wizard — finish shows terminal panel (VAL-SIGN-001)", () =
     assert.equal(api.isFirstRunWizardActive(), false);
   });
 
-  it("handleFirstRunDoneOpenSelfHosting opens docs/SELF-HOSTING.md in a new tab", () => {
+  it("handleFirstRunDoneOpenSelfHosting hands off to the dashboard BEFORE launching the go-live wizard (mirrors discovery CTA; replaces the old window.open(SELF-HOSTING.md) path)", () => {
+    const order = [];
+    const calls = [];
+    const { api } = loadWizardWithRecordingDom(
+      allCompleteHost({
+        revealDashboardShell: () => order.push("revealDashboardShell"),
+        renderPipeline: () => order.push("renderPipeline"),
+        checkOnboardingGate: async () => order.push("checkOnboardingGate"),
+        requestGoLiveSetup: (opts) => {
+          // Snapshot surface-ownership state at the moment requestGoLiveSetup
+          // is invoked: the first-run wizard MUST be torn down so the
+          // go-live wizard renders on top of the dashboard (the same
+          // VAL-SIGN-002 invariant the discovery CTA enforces).
+          order.push({
+            marker: "requestGoLiveSetup",
+            entry: opts.entryPoint,
+            allow: !!opts.allowWhileOnboarding,
+            wizardVisible: api.isFirstRunWizardVisible(),
+            wizardActive: api.isFirstRunWizardActive(),
+          });
+          calls.push(opts);
+        },
+      }),
+    );
+    api.reopenFirstRunWizard();
+    api.showFirstRunDonePanel();
+    assert.equal(
+      api.isFirstRunWizardVisible(),
+      true,
+      "pre-condition: wizard is up before the CTA",
+    );
+    api.handleFirstRunDoneOpenSelfHosting();
+    assert.equal(calls.length, 1, "requestGoLiveSetup must be called exactly once");
+    assert.equal(calls[0].entryPoint, "whats_next");
+    assert.equal(
+      calls[0].allowWhileOnboarding,
+      true,
+      "the in-wizard terminal go-live CTA must pass allowWhileOnboarding:true so the wizard still opens when the profile/onboarding wizard becomes the active surface",
+    );
+
+    // Dashboard handoff MUST run BEFORE requestGoLiveSetup.
+    const revealIdx = order.indexOf("revealDashboardShell");
+    const goLiveIdx = order.findIndex(
+      (e) => e && typeof e === "object" && e.marker === "requestGoLiveSetup",
+    );
+    assert.ok(
+      revealIdx !== -1,
+      "revealDashboardShell must be called so the login gate is hidden under the go-live wizard",
+    );
+    assert.ok(goLiveIdx !== -1, "requestGoLiveSetup must be called");
+    assert.ok(
+      revealIdx < goLiveIdx,
+      "revealDashboardShell must run BEFORE requestGoLiveSetup (reveal the dashboard, then open go-live on top)",
+    );
+
+    // Surface released before the call.
+    const goLiveCall = order[goLiveIdx];
+    assert.equal(
+      goLiveCall.wizardVisible,
+      false,
+      "the first-run wizard must be hidden BEFORE requestGoLiveSetup is invoked",
+    );
+    assert.equal(
+      goLiveCall.wizardActive,
+      false,
+      "isFirstRunWizardActive() must be false at the moment requestGoLiveSetup runs (chokepoint released)",
+    );
+    assert.equal(
+      goLiveCall.allow,
+      true,
+      "allowWhileOnboarding must still be true at the call site",
+    );
+  });
+
+  it("handleFirstRunDoneOpenSelfHosting falls back to window.requestGoLiveSetup when the host bridge has no method (parity with the discovery CTA)", () => {
+    const calls = [];
+    const { api, window } = loadWizardWithRecordingDom(
+      allCompleteHost({
+        // host has no requestGoLiveSetup — fall through to window.
+        revealDashboardShell: () => {},
+        renderPipeline: () => {},
+        checkOnboardingGate: async () => {},
+      }),
+    );
+    window.requestGoLiveSetup = (opts) => calls.push(opts);
+    api.reopenFirstRunWizard();
+    api.showFirstRunDonePanel();
+    api.handleFirstRunDoneOpenSelfHosting();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].entryPoint, "whats_next");
+    assert.equal(calls[0].allowWhileOnboarding, true);
+  });
+
+  it("handleFirstRunDoneOpenSelfHosting no longer calls window.open(SELF-HOSTING.md) — the markdown deep-reference is now linked from inside the wizard, not the primary surface", () => {
     const opened = [];
-    const { window } = loadWizardWithRecordingDom(allCompleteHost());
+    const { api, window } = loadWizardWithRecordingDom(
+      allCompleteHost({
+        revealDashboardShell: () => {},
+        renderPipeline: () => {},
+        checkOnboardingGate: async () => {},
+        requestGoLiveSetup: () => {},
+      }),
+    );
     window.open = (url, target, features) => {
       opened.push({ url, target, features });
       return null;
     };
-    const { api } = (() => {
-      // re-execute with the patched window.open
-      const hostStub = allCompleteHost();
-      const listeners = new Map();
-      const els = new Map();
-      const makeEl = (id) => ({
-        id,
-        style: {},
-        dataset: {},
-        hidden: false,
-        disabled: false,
-        value: "",
-        textContent: "",
-        className: "",
-        checked: false,
-        innerHTML: "",
-        classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
-        addEventListener() {},
-        removeEventListener() {},
-        setAttribute() {},
-        removeAttribute() {},
-        getAttribute() { return null; },
-        appendChild() {},
-        querySelector() { return null; },
-        querySelectorAll() { return []; },
-        closest() { return null; },
-        focus() {},
-      });
-      const document = {
-        readyState: "complete",
-        body: makeEl("body"),
-        getElementById(id) { if (!els.has(id)) els.set(id, makeEl(id)); return els.get(id); },
-        querySelector() { return null; },
-        querySelectorAll() { return []; },
-        addEventListener() {},
-        createElement() { return makeEl("created"); },
-      };
-      const ctx = {
-        window: Object.assign({}, window, { open: window.open }),
-        document,
-        console,
-        setTimeout,
-        requestAnimationFrame: (fn) => fn(),
-      };
-      vm.createContext(ctx);
-      vm.runInContext(firstRunWizardJs, ctx, { filename: "first-run-wizard.js" });
-      return { api: ctx.window.JobBoredApp.firstRunWizard };
-    })();
+    api.reopenFirstRunWizard();
+    api.showFirstRunDonePanel();
     api.handleFirstRunDoneOpenSelfHosting();
-    assert.equal(opened.length, 1);
-    assert.match(opened[0].url, /docs\/SELF-HOSTING\.md/);
-    assert.equal(opened[0].target, "_blank");
-    assert.ok(/noopener/.test(opened[0].features || ""));
+    assert.equal(
+      opened.length,
+      0,
+      "the self-hosting CTA must NOT open the SELF-HOSTING.md markdown anymore — it launches the go-live wizard",
+    );
   });
 
   it("the wizard module exposes the new done-panel API surface", () => {
@@ -853,17 +934,260 @@ describe("whats-next-banner module — gating + dismiss persistence", () => {
     assert.equal(calls[0].entryPoint, "whats_next");
   });
 
-  it("handleOpenSelfHosting opens docs/SELF-HOSTING.md in a new tab", () => {
+  it("handleOpenSelfHosting calls host.requestGoLiveSetup with entryPoint=whats_next (no window.open SELF-HOSTING.md)", () => {
+    const calls = [];
     const opened = [];
     const { api, window } = loadBanner();
     window.open = (url, target, features) => {
       opened.push({ url, target, features });
       return null;
     };
+    window.JobBoredApp.core = {
+      host: {
+        getUserContent: () => gateStates.allTrue,
+        requestGoLiveSetup: (opts) => calls.push(opts),
+      },
+    };
     api.handleOpenSelfHosting();
-    assert.equal(opened.length, 1);
-    assert.match(opened[0].url, /docs\/SELF-HOSTING\.md/);
-    assert.equal(opened[0].target, "_blank");
-    assert.ok(/noopener/.test(opened[0].features || ""));
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].entryPoint, "whats_next");
+    assert.equal(
+      opened.length,
+      0,
+      "the banner's self-hosting CTA must NOT open the SELF-HOSTING.md markdown anymore — it launches the go-live wizard",
+    );
+  });
+
+  it("handleOpenSelfHosting falls back to window.requestGoLiveSetup when the host bridge has no method", () => {
+    const calls = [];
+    const { api, window } = loadBanner();
+    window.JobBoredApp.core = { host: { getUserContent: () => gateStates.allTrue } };
+    window.requestGoLiveSetup = (opts) => calls.push(opts);
+    api.handleOpenSelfHosting();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].entryPoint, "whats_next");
+  });
+});
+
+// ============================================================
+// FE-3: completion-aware banner. Both flags drive per-track CTA
+// visibility + the "recommended next" marker. When BOTH flags
+// are true the whole region hides so the dashboard stays clean.
+// ============================================================
+
+describe("whats-next-banner module — completion-awareness (FE-3)", () => {
+  /**
+   * Richer banner loader that tracks attribute changes per element so
+   * we can assert which CTAs were hidden / marked recommended. Mirrors
+   * loadBanner above; kept inline to avoid coupling completion-awareness
+   * tests to the simpler scaffold the gating tests use.
+   */
+  function loadCompletionBanner() {
+    const els = new Map();
+    const makeEl = (id) => {
+      const attrs = new Map();
+      const classes = new Set();
+      const node = {
+        id,
+        style: {},
+        dataset: {},
+        textContent: "",
+        innerHTML: "",
+        get hidden() {
+          return attrs.has("hidden");
+        },
+        classList: {
+          add(c) {
+            classes.add(c);
+          },
+          remove(c) {
+            classes.delete(c);
+          },
+          contains(c) {
+            return classes.has(c);
+          },
+          toggle(c) {
+            if (classes.has(c)) classes.delete(c);
+            else classes.add(c);
+          },
+        },
+        addEventListener() {},
+        removeEventListener() {},
+        setAttribute(name, value) {
+          attrs.set(name, value);
+        },
+        removeAttribute(name) {
+          attrs.delete(name);
+        },
+        getAttribute(name) {
+          return attrs.has(name) ? attrs.get(name) : null;
+        },
+        hasAttribute(name) {
+          return attrs.has(name);
+        },
+        appendChild() {},
+        querySelector() {
+          return null;
+        },
+        querySelectorAll() {
+          return [];
+        },
+        closest() {
+          return null;
+        },
+        focus() {},
+        __classes: classes,
+        __attrs: attrs,
+      };
+      return node;
+    };
+    const region = makeEl("whats-next-region");
+    const document = {
+      readyState: "complete",
+      body: makeEl("body"),
+      getElementById(id) {
+        if (!els.has(id)) els.set(id, makeEl(id));
+        return els.get(id);
+      },
+      querySelector(sel) {
+        if (sel === '[data-region="whats-next"]') return region;
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+      addEventListener() {},
+      createElement() {
+        return makeEl("created");
+      },
+    };
+    const window = { JobBoredApp: {}, COMMAND_CENTER_CONFIG: {} };
+    const ctx = {
+      window,
+      document,
+      console,
+      setTimeout,
+      requestAnimationFrame: (fn) => fn(),
+    };
+    vm.createContext(ctx);
+    vm.runInContext(whatsNextBannerJs, ctx, { filename: "whats-next-banner.js" });
+    return {
+      api: window.JobBoredApp.whatsNextBanner,
+      window,
+      document,
+      region,
+      getButton: (id) => document.getElementById(id),
+    };
+  }
+
+  function ucWith({ discoveryComplete = false, goLiveComplete = false } = {}) {
+    return {
+      openDb: async () => {},
+      isInfraSetupComplete: async () => true,
+      getWhatsNextDismissed: async () => false,
+      isOnboardingComplete: async () => true,
+      isDiscoverySetupComplete: async () => discoveryComplete,
+      isGoLiveSetupComplete: async () => goLiveComplete,
+    };
+  }
+
+  it("readGateState exposes discoveryComplete + goLiveComplete from UC", async () => {
+    const { api, window } = loadCompletionBanner();
+    window.JobBoredApp.core = {
+      host: { getUserContent: () => ucWith({ discoveryComplete: true, goLiveComplete: false }) },
+    };
+    const state = await api.refreshBanner();
+    assert.equal(state.discoveryComplete, true);
+    assert.equal(state.goLiveComplete, false);
+  });
+
+  it("hides the discovery CTA + promotes self-hosting as recommended when only discovery is done", async () => {
+    const { api, window, getButton, region } = loadCompletionBanner();
+    window.JobBoredApp.core = {
+      host: { getUserContent: () => ucWith({ discoveryComplete: true, goLiveComplete: false }) },
+    };
+    await api.refreshBanner();
+    assert.equal(api.isBannerVisible(), true, "one track still pending → banner stays visible");
+    assert.equal(
+      getButton("whatsNextOpenDiscovery").hasAttribute("hidden"),
+      true,
+      "discovery CTA must hide once discoverySetupComplete is true",
+    );
+    assert.equal(
+      getButton("whatsNextOpenSelfHosting").hasAttribute("hidden"),
+      false,
+      "self-hosting CTA stays visible as the recommended next step",
+    );
+    assert.equal(
+      getButton("whatsNextOpenSelfHosting").classList.contains(
+        "whats-next-banner__cta--recommended",
+      ),
+      true,
+      "the remaining CTA must be marked as the recommended next step",
+    );
+    assert.equal(
+      getButton("whatsNextOpenDiscovery").classList.contains(
+        "whats-next-banner__cta--recommended",
+      ),
+      false,
+      "the completed CTA must not carry the recommended marker",
+    );
+    // Region itself stays visible.
+    assert.equal(region.hasAttribute("hidden"), false);
+  });
+
+  it("hides the self-hosting CTA + promotes discovery as recommended when only go-live is done", async () => {
+    const { api, window, getButton } = loadCompletionBanner();
+    window.JobBoredApp.core = {
+      host: { getUserContent: () => ucWith({ discoveryComplete: false, goLiveComplete: true }) },
+    };
+    await api.refreshBanner();
+    assert.equal(api.isBannerVisible(), true);
+    assert.equal(getButton("whatsNextOpenSelfHosting").hasAttribute("hidden"), true);
+    assert.equal(getButton("whatsNextOpenDiscovery").hasAttribute("hidden"), false);
+    assert.equal(
+      getButton("whatsNextOpenDiscovery").classList.contains(
+        "whats-next-banner__cta--recommended",
+      ),
+      true,
+    );
+  });
+
+  it("hides the whole banner when BOTH discovery and go-live are complete (either order)", async () => {
+    const { api, window, region } = loadCompletionBanner();
+    window.JobBoredApp.core = {
+      host: { getUserContent: () => ucWith({ discoveryComplete: true, goLiveComplete: true }) },
+    };
+    await api.refreshBanner();
+    assert.equal(
+      api.isBannerVisible(),
+      false,
+      "both tracks complete → no more next-steps to recommend",
+    );
+    assert.equal(region.hasAttribute("hidden"), true);
+  });
+
+  it("when neither is complete, both CTAs stay visible and neither is the singular recommendation", async () => {
+    const { api, window, getButton } = loadCompletionBanner();
+    window.JobBoredApp.core = {
+      host: { getUserContent: () => ucWith({ discoveryComplete: false, goLiveComplete: false }) },
+    };
+    await api.refreshBanner();
+    assert.equal(api.isBannerVisible(), true);
+    assert.equal(getButton("whatsNextOpenDiscovery").hasAttribute("hidden"), false);
+    assert.equal(getButton("whatsNextOpenSelfHosting").hasAttribute("hidden"), false);
+    // Neither carries the recommended marker — the user gets to choose.
+    assert.equal(
+      getButton("whatsNextOpenDiscovery").classList.contains(
+        "whats-next-banner__cta--recommended",
+      ),
+      false,
+    );
+    assert.equal(
+      getButton("whatsNextOpenSelfHosting").classList.contains(
+        "whats-next-banner__cta--recommended",
+      ),
+      false,
+    );
   });
 });

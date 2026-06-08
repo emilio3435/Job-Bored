@@ -1,0 +1,483 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
+import vm from "node:vm";
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const shellSrc = readFileSync(
+  join(repoRoot, "discovery-wizard-shell.js"),
+  "utf8",
+);
+
+// =====================================================================
+// Minimal DOM stub. renderWizardShell builds and mounts a real element
+// tree, so the stub supports createElement, attribute storage, child
+// trees, classList, basic [attr] selectors, and event listener
+// tracking. requestAnimationFrame is a no-op so the focus pass skips —
+// these tests assert structure, not focus behavior.
+// =====================================================================
+
+class FakeClassList {
+  constructor() {
+    this.classes = new Set();
+  }
+  add(...c) {
+    for (const x of c) if (x) this.classes.add(x);
+  }
+  remove(...c) {
+    for (const x of c) this.classes.delete(x);
+  }
+  contains(c) {
+    return this.classes.has(c);
+  }
+  toggle(c, on) {
+    if (on === undefined) {
+      if (this.classes.has(c)) this.classes.delete(c);
+      else this.classes.add(c);
+      return !this.classes.has(c);
+    }
+    if (on) this.classes.add(c);
+    else this.classes.delete(c);
+    return on;
+  }
+}
+
+function matches(node, sel) {
+  if (!node || !sel) return false;
+  const attrMatch = sel.match(/^\[([^=\]]+)(?:="([^"]*)")?\]$/);
+  if (attrMatch) {
+    const [, name, val] = attrMatch;
+    // `id` is assigned as a property by createEl's `key in el` branch, so
+    // the attrs Map never sees it — fall back to the id property.
+    if (name === "id") {
+      return val === undefined ? !!node.id : node.id === val;
+    }
+    if (val === undefined) return node.attrs && node.attrs.has(name);
+    return node.attrs && node.attrs.get(name) === val;
+  }
+  if (sel.startsWith("#")) {
+    return node.id === sel.slice(1);
+  }
+  if (sel.startsWith(".")) {
+    return node.classList && node.classList.contains(sel.slice(1));
+  }
+  return false;
+}
+
+function findFirst(root, sel) {
+  if (matches(root, sel)) return root;
+  for (const c of root.children || []) {
+    const found = findFirst(c, sel);
+    if (found) return found;
+  }
+  return null;
+}
+
+function findAll(root, sel) {
+  const out = [];
+  if (matches(root, sel)) out.push(root);
+  for (const c of root.children || []) out.push(...findAll(c, sel));
+  return out;
+}
+
+class FakeEl {
+  constructor(tag = "div") {
+    this.tagName = tag.toUpperCase();
+    this.children = [];
+    this.parentNode = null;
+    this.attrs = new Map();
+    this.classList = new FakeClassList();
+    this.dataset = {};
+    this.style = {};
+    this.textContent = "";
+    this.id = "";
+    this.className = "";
+    this._listeners = new Map();
+    this.hidden = false;
+    this.disabled = false;
+    this.tabIndex = 0;
+    this.htmlFor = "";
+    this.type = "";
+    this.value = "";
+    this.placeholder = "";
+    this.rows = 0;
+  }
+  setAttribute(k, v) {
+    this.attrs.set(k, String(v));
+    if (k === "hidden") this.hidden = true;
+    if (k === "id") this.id = String(v);
+  }
+  getAttribute(k) {
+    return this.attrs.has(k) ? this.attrs.get(k) : null;
+  }
+  removeAttribute(k) {
+    this.attrs.delete(k);
+    if (k === "hidden") this.hidden = false;
+  }
+  hasAttribute(k) {
+    return this.attrs.has(k);
+  }
+  appendChild(child) {
+    if (child) {
+      this.children.push(child);
+      child.parentNode = this;
+    }
+    return child;
+  }
+  append(...kids) {
+    for (const c of kids) if (c) this.appendChild(c);
+  }
+  replaceChildren(...kids) {
+    this.children = [];
+    for (const c of kids) if (c) this.appendChild(c);
+  }
+  get firstElementChild() {
+    return this.children[0] || null;
+  }
+  get parentElement() {
+    return this.parentNode;
+  }
+  get offsetParent() {
+    return this.parentNode || null;
+  }
+  get offsetWidth() {
+    return 0;
+  }
+  scrollIntoView() {}
+  scrollBy() {}
+  focus() {}
+  contains(el) {
+    if (el === this) return true;
+    for (const c of this.children) if (c.contains && c.contains(el)) return true;
+    return false;
+  }
+  addEventListener(type, fn) {
+    if (!this._listeners.has(type)) this._listeners.set(type, []);
+    this._listeners.get(type).push(fn);
+  }
+  removeEventListener() {}
+  querySelector(sel) {
+    return findFirst(this, sel);
+  }
+  querySelectorAll(sel) {
+    return findAll(this, sel);
+  }
+  closest(sel) {
+    let node = this;
+    while (node) {
+      if (matches(node, sel)) return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
+}
+
+function makeFakeDocument() {
+  const elements = new Map();
+  const doc = {
+    activeElement: null,
+    body: new FakeEl("body"),
+    createElement(tag) {
+      return new FakeEl(tag);
+    },
+    getElementById(id) {
+      return elements.get(id) || null;
+    },
+    register(id) {
+      const el = new FakeEl("div");
+      el.id = id;
+      elements.set(id, el);
+      return el;
+    },
+    contains() {
+      return true;
+    },
+  };
+  return doc;
+}
+
+function loadShell() {
+  const doc = makeFakeDocument();
+  doc.register("discoverySetupWizardMount");
+  doc.register("goLiveSetupWizardMount");
+  const win = {};
+  const ctx = {
+    window: win,
+    document: doc,
+    console: { warn() {}, error() {}, log() {} },
+    setTimeout,
+    clearTimeout,
+    requestAnimationFrame: () => {},
+    Object,
+    Set,
+    Map,
+    Array,
+    Number,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(shellSrc, ctx, { filename: "discovery-wizard-shell.js" });
+  return {
+    window: win,
+    document: doc,
+    root: win.JobBoredDiscoveryWizard,
+    shell: win.JobBoredDiscoveryWizard.shell,
+  };
+}
+
+// =====================================================================
+// Discovery-unchanged regression lock (spec §9). A no-`mountId`/no-
+// `variant` `renderWizardShell` call must reproduce today's behavior
+// exactly: mount id, header title, normalization.
+// =====================================================================
+
+describe("renderWizardShell defaults — discovery-unchanged regression lock", () => {
+  it("root.mount.id is the discovery mount id", () => {
+    const { root } = loadShell();
+    assert.equal(root.mount.id, "discoverySetupWizardMount");
+    assert.equal(root.mount.shellClassName, "discovery-setup-wizard-root");
+  });
+
+  it("normalizeSnapshot with no variant returns discovery readiness defaults", () => {
+    const { shell } = loadShell();
+    const out = shell.normalizeSnapshot({});
+    // Discovery readiness fields must be filled in with documented defaults.
+    assert.equal(out.engineState, "none");
+    assert.equal(out.appsScriptState, "none");
+    assert.equal(out.recommendedFlow, "local_agent");
+    assert.equal(out.localRecoveryState, "ok");
+    assert.equal(out.sheetConfigured, false);
+    assert.equal(out.tunnelReady, false);
+  });
+
+  it("normalizeSnapshot coerces unknown enum values to discovery defaults", () => {
+    const { shell } = loadShell();
+    const out = shell.normalizeSnapshot({
+      engineState: "totally_made_up",
+      recommendedFlow: "not_a_flow",
+    });
+    assert.equal(out.engineState, "none");
+    assert.equal(out.recommendedFlow, "local_agent");
+  });
+
+  it("normalizeWizardState with no variant uses 'detect' currentStep + discovery flow default", () => {
+    const { shell } = loadShell();
+    const out = shell.normalizeWizardState({});
+    assert.equal(out.currentStep, "detect");
+    assert.equal(out.flow, "local_agent");
+    assert.equal(out.version, 1);
+  });
+
+  it("renderWizardShell with no mountId/variant renders into the discovery mount with 'Discovery setup' header", () => {
+    const { document, shell } = loadShell();
+    shell.renderWizardShell({
+      steps: [{ id: "detect", label: "Status", title: "T", description: "D" }],
+      state: { currentStep: "detect" },
+    });
+    const discoveryMount = document.getElementById("discoverySetupWizardMount");
+    const goLiveMount = document.getElementById("goLiveSetupWizardMount");
+    // Discovery mount was opened.
+    assert.equal(discoveryMount.hidden, false);
+    assert.equal(discoveryMount.getAttribute("aria-hidden"), "false");
+    // Go-live mount was NOT touched.
+    assert.equal(goLiveMount.children.length, 0);
+    // Header title is the discovery default.
+    const titleNode = discoveryMount.querySelector(
+      '[id="discoverySetupWizardTitle"]',
+    );
+    assert.ok(titleNode, "title h2 must be rendered");
+    assert.equal(titleNode.textContent, "Discovery setup");
+    // Context carries the headerTitle default and discovery variant.
+    assert.equal(shell.lastRender.context.headerTitle, "Discovery setup");
+    assert.equal(shell.lastRender.context.variant, "discovery");
+    assert.equal(shell.lastRender.context.mountId, "discoverySetupWizardMount");
+  });
+});
+
+// =====================================================================
+// Generic variant — second mount, custom header, no discovery coercion
+// =====================================================================
+
+describe("renderWizardShell variant:'generic' — second wizard on a second mount", () => {
+  it("normalizeSnapshot with variant 'generic' passes the input through unchanged", () => {
+    const { shell } = loadShell();
+    const input = {
+      engineState: "totally_made_up",
+      recommendedFlow: "not_a_flow",
+      tailscale: { installed: true, dnsName: "mac.tailnet.ts.net" },
+    };
+    const out = shell.normalizeSnapshot(input, "generic");
+    // No discovery defaults grafted on.
+    assert.equal(out.engineState, "totally_made_up");
+    assert.equal(out.recommendedFlow, "not_a_flow");
+    assert.deepEqual(out.tailscale, input.tailscale);
+    // Discovery-only fields must NOT have been filled with defaults.
+    assert.equal(out.sheetConfigured, undefined);
+    assert.equal(out.localRecoveryState, undefined);
+  });
+
+  it("normalizeWizardState with variant 'generic' preserves caller-provided flow + currentStep", () => {
+    const { shell } = loadShell();
+    const out = shell.normalizeWizardState(
+      { currentStep: "path_select", flow: "tailscale" },
+      "generic",
+    );
+    assert.equal(out.currentStep, "path_select");
+    assert.equal(out.flow, "tailscale");
+    assert.equal(out.version, 1);
+    // Discovery-only fields not present.
+    assert.equal(out.transportMode, undefined);
+    assert.equal(out.result, undefined);
+  });
+
+  it("renders into a second mount with a custom header and generic variant", () => {
+    const { document, shell } = loadShell();
+    shell.renderWizardShell({
+      mountId: "goLiveSetupWizardMount",
+      headerTitle: "Use JobBored on other devices",
+      variant: "generic",
+      steps: [
+        {
+          id: "path_select",
+          label: "Path",
+          title: "Pick a path",
+          description: "Tailscale mesh or cloud deploy.",
+        },
+      ],
+      state: { currentStep: "path_select" },
+      snapshot: { whatever: true },
+    });
+    const goLiveMount = document.getElementById("goLiveSetupWizardMount");
+    const discoveryMount = document.getElementById(
+      "discoverySetupWizardMount",
+    );
+    assert.equal(goLiveMount.hidden, false);
+    assert.equal(goLiveMount.getAttribute("aria-hidden"), "false");
+    // Discovery mount stays untouched (no children appended).
+    assert.equal(discoveryMount.children.length, 0);
+    // Header reflects the custom title.
+    const titleNode = goLiveMount.querySelector(
+      '[id="discoverySetupWizardTitle"]',
+    );
+    assert.ok(titleNode, "title h2 must be rendered");
+    assert.equal(titleNode.textContent, "Use JobBored on other devices");
+    // Context flags
+    assert.equal(shell.lastRender.context.variant, "generic");
+    assert.equal(shell.lastRender.context.mountId, "goLiveSetupWizardMount");
+    // Snapshot was NOT coerced into the discovery schema.
+    assert.equal(shell.lastRender.context.snapshot.whatever, true);
+    assert.equal(shell.lastRender.context.snapshot.localRecoveryState, undefined);
+  });
+
+  it("the shared CSS root class is applied to both mounts", () => {
+    const { document, shell } = loadShell();
+    shell.renderWizardShell({
+      steps: [{ id: "detect", label: "S" }],
+    });
+    shell.renderWizardShell({
+      mountId: "goLiveSetupWizardMount",
+      headerTitle: "Go live",
+      variant: "generic",
+      steps: [{ id: "path_select", label: "P" }],
+    });
+    const discoveryMount = document.getElementById(
+      "discoverySetupWizardMount",
+    );
+    const goLiveMount = document.getElementById("goLiveSetupWizardMount");
+    assert.ok(
+      discoveryMount.classList.contains("discovery-setup-wizard-root"),
+      "discovery mount must carry the shared root class",
+    );
+    assert.ok(
+      goLiveMount.classList.contains("discovery-setup-wizard-root"),
+      "go-live mount must carry the same shared root class so CSS applies",
+    );
+  });
+});
+
+// =====================================================================
+// Per-mount delegate binding — a second mount must receive its own
+// click + key delegate listeners. A boolean _delegatesBound flag (the
+// old shape) would skip-bind the second mount and silently break
+// every action in the new wizard.
+// =====================================================================
+
+describe("bindDelegatesOnce — per-mount registry, not a global boolean", () => {
+  it("each mount gets its own click + keydown listeners after render", () => {
+    const { document, shell } = loadShell();
+    shell.renderWizardShell({
+      steps: [{ id: "detect", label: "S" }],
+    });
+    shell.renderWizardShell({
+      mountId: "goLiveSetupWizardMount",
+      headerTitle: "Go live",
+      variant: "generic",
+      steps: [{ id: "path_select", label: "P" }],
+    });
+    const discoveryMount = document.getElementById(
+      "discoverySetupWizardMount",
+    );
+    const goLiveMount = document.getElementById("goLiveSetupWizardMount");
+    assert.equal(
+      (discoveryMount._listeners.get("click") || []).length,
+      1,
+      "discovery mount: exactly one click delegate",
+    );
+    assert.equal(
+      (discoveryMount._listeners.get("keydown") || []).length,
+      1,
+      "discovery mount: exactly one keydown delegate",
+    );
+    assert.equal(
+      (goLiveMount._listeners.get("click") || []).length,
+      1,
+      "go-live mount: must also get a click delegate (a boolean flag would skip this)",
+    );
+    assert.equal(
+      (goLiveMount._listeners.get("keydown") || []).length,
+      1,
+      "go-live mount: must also get a keydown delegate",
+    );
+    // Bound-mount registry tracks both mounts.
+    assert.ok(shell._boundMounts instanceof Set);
+    assert.equal(shell._boundMounts.size, 2);
+    assert.ok(shell._boundMounts.has(discoveryMount));
+    assert.ok(shell._boundMounts.has(goLiveMount));
+  });
+
+  it("rendering the same mount twice does not double-bind", () => {
+    const { document, shell } = loadShell();
+    shell.renderWizardShell({
+      steps: [{ id: "detect", label: "S" }],
+    });
+    shell.renderWizardShell({
+      steps: [{ id: "detect", label: "S" }],
+    });
+    const discoveryMount = document.getElementById(
+      "discoverySetupWizardMount",
+    );
+    assert.equal(
+      (discoveryMount._listeners.get("click") || []).length,
+      1,
+      "second render on the same mount must reuse the existing delegate",
+    );
+  });
+});
+
+// =====================================================================
+// Source-shape gate — the generic variant must bypass the discovery
+// option-grid `wizard_choose_flow_local/existing/no_webhook` mapping
+// and always use the `wizard_choose_flow_${item.flow}` fallback so
+// the new wizard's flows aren't silently remapped to discovery flows.
+// =====================================================================
+
+describe("option-grid action mapping — generic variant uses the fallback", () => {
+  it("the conditional skipping flowMap[] is wired in the shell source", () => {
+    assert.match(
+      shellSrc,
+      /context\.variant === "generic"[\s\S]*?wizard_choose_flow_\$\{item\.flow\}/,
+      "variant:'generic' must take the wizard_choose_flow_${flow} branch (skip the discovery flowMap)",
+    );
+  });
+});

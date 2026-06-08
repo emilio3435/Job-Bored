@@ -1604,6 +1604,16 @@ function setDiscoveryWizardMessage(...args) {
   return window.JobBoredDiscoveryWizard.ui.setDiscoveryWizardMessage(...args);
 }
 
+// --- Go-live wizard (extracted to go-live-wizard-ui.js) -------------------
+// Bare-name forwarders so app.js can register these on the bridge host
+// without importing the IIFE-published namespace directly.
+async function openGoLiveSetupWizard(options = {}) {
+  return window.JobBoredGoLive.openGoLiveSetupWizard(options);
+}
+async function requestGoLiveSetup(options = {}) {
+  return window.JobBoredGoLive.requestGoLiveSetup(options);
+}
+
 // --- Discovery setup modals (extracted to discovery-setup-modals.js) ---
 async function testDiscoveryWebhookFromSettings(...args) {
   return window.JobBoredDiscovery.setupModals.testDiscoveryWebhookFromSettings(

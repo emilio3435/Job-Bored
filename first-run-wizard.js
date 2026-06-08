@@ -590,20 +590,30 @@
    * Done-panel "Turn on job discovery" CTA. The wizard overlay sits at
    * z-index ~100001 and isFirstRunWizardActive() is the signal the
    * dashboard-reveal chokepoint uses to defer — so we MUST release the
-   * first-run surface (hideFirstRunDonePanel + hideFirstRunWizard) BEFORE
-   * calling requestDiscoverySetup, otherwise the guided discovery wizard
-   * renders BEHIND the first-run overlay and the user can't see or
-   * interact with it (VAL-SIGN-002). infraSetupComplete is already
-   * persisted, so tearing the wizard down is safe (a reload would land
-   * on the dashboard anyway). allowWhileOnboarding:true is preserved in
-   * case the profile/onboarding wizard becomes the active surface after
-   * release — the discovery wizard must still open immediately.
+   * first-run surface BEFORE calling requestDiscoverySetup, otherwise the
+   * guided discovery wizard renders BEHIND the first-run overlay and the
+   * user can't see or interact with it (VAL-SIGN-002).
+   *
+   * Critically, we run the FULL dashboard handoff first (the same chain as
+   * "Go to dashboard"), not just hide the wizard. During cold-start
+   * onboarding the surface underneath the first-run wizard is the login
+   * gate (#sheetAccessGateScreen) — the done panel deliberately defers the
+   * dashboard reveal to a CTA. If we only hid the wizard, that gate would
+   * be exposed, and a discovery wizard that short-circuits (autodetect
+   * "Discovery is already set up" → toast + return with NO wizard render),
+   * errors, or is simply closed would strand the user on the login screen
+   * instead of their dashboard. Revealing the dashboard first makes the
+   * discovery wizard a true overlay and matches the whats-next banner CTA,
+   * which works precisely because the dashboard is already revealed.
+   * allowWhileOnboarding:true is preserved because the dashboard handoff's
+   * checkOnboardingGate() may make the profile/onboarding wizard the active
+   * surface — the discovery wizard must still open on top.
    */
   function handleFirstRunDoneOpenDiscovery() {
-    // Release the first-run surface FIRST so the discovery wizard can
-    // open on top (mirrors handleFirstRunDoneToDashboard's release).
-    hideFirstRunDonePanel();
-    hideFirstRunWizard();
+    // Reveal + render the dashboard and release the first-run surface FIRST
+    // (hides the login gate, tears the wizard down) so the discovery wizard
+    // opens on top of the dashboard, not over the gate.
+    handleFirstRunDoneToDashboard();
     const h = host();
     if (typeof h.requestDiscoverySetup === "function") {
       try {
@@ -629,18 +639,36 @@
   }
 
   /**
-   * Done-panel "Use JobBored on other devices" CTA — opens the self-hosting
-   * / go-live guide (docs/SELF-HOSTING.md) in a new tab. The wizard stays
-   * visible so the user can keep interacting with it (e.g. go back to
-   * "Go to dashboard" from the still-open overlay).
+   * Done-panel "Use JobBored on other devices" CTA — launches the go-live
+   * wizard (the two-path Tailscale/cloud flow). Mirrors handleFirstRunDoneOpenDiscovery:
+   * runs the full dashboard handoff FIRST so the go-live wizard opens on top of
+   * the dashboard rather than the login gate underneath (VAL-SIGN-002), then
+   * calls requestGoLiveSetup with allowWhileOnboarding:true so the wizard can
+   * still open when the profile/onboarding wizard becomes the active surface.
    */
   function handleFirstRunDoneOpenSelfHosting() {
-    try {
-      if (typeof window.open === "function") {
-        window.open("docs/SELF-HOSTING.md", "_blank", "noopener");
+    handleFirstRunDoneToDashboard();
+    const h = host();
+    if (typeof h.requestGoLiveSetup === "function") {
+      try {
+        h.requestGoLiveSetup({
+          entryPoint: "whats_next",
+          allowWhileOnboarding: true,
+        });
+      } catch (e) {
+        console.warn("[JobBored] open go-live from whats-next:", e);
       }
-    } catch (e) {
-      console.warn("[JobBored] open self-hosting doc:", e);
+      return;
+    }
+    if (typeof window.requestGoLiveSetup === "function") {
+      try {
+        window.requestGoLiveSetup({
+          entryPoint: "whats_next",
+          allowWhileOnboarding: true,
+        });
+      } catch (e) {
+        console.warn("[JobBored] open go-live from whats-next (global):", e);
+      }
     }
   }
 

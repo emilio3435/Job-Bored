@@ -3,11 +3,16 @@ import { createServer as createHttpsServer } from "node:https";
 import { readFile, stat } from "node:fs/promises";
 import { join, extname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn, spawnSync } from "node:child_process";
+import childProcess, { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
 import { expandIndexIncludes } from "./scripts/lib/expand-index-includes.mjs";
 import { applyDiscoveryWorkerLlmAliases } from "./scripts/lib/llm-env.mjs";
+import {
+  detectTailscale,
+  deriveTailnetDashboardUrl,
+  runTailscaleServe,
+} from "./scripts/lib/tailscale.mjs";
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -17,6 +22,7 @@ const TLS_KEY_PATH = join(TLS_CACHE_DIR, "localhost-key.pem");
 const TLS_CERT_SUBJECT = "/CN=localhost";
 const TLS_CERT_SAN = "subjectAltName=DNS:localhost,IP:127.0.0.1";
 const DEFAULT_DISCOVERY_WORKER_PORT = 8644;
+const TAILSCALE_SERVE_PORTS = new Set([DEFAULT_PORT, DEFAULT_DISCOVERY_WORKER_PORT]);
 const EXPECTED_DISCOVERY_WORKER_SERVICE = "browser-use-discovery-worker";
 const DISCOVERY_WORKER_SCRIPT = join(
   ROOT,
@@ -1084,6 +1090,129 @@ async function handleInstallDoctor(req, res) {
   }
 }
 
+function runTailscaleStatus(args) {
+  try {
+    return childProcess.spawnSync("tailscale", args, {
+      encoding: "utf8",
+      env: { ...process.env, FORCE_COLOR: "0" },
+      windowsHide: true,
+    });
+  } catch (error) {
+    return { status: 1, stdout: "", stderr: "", error };
+  }
+}
+
+function parseJsonObject(raw) {
+  try {
+    const parsed = JSON.parse(String(raw || "").trim() || "null");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function valueMentionsTailscaleServePort(value, port) {
+  if (typeof value === "number") return value === port;
+  if (typeof value === "string") {
+    const text = value.trim();
+    return text === String(port) || text.includes(`:${port}`);
+  }
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) {
+    return value.some((item) => valueMentionsTailscaleServePort(item, port));
+  }
+  return Object.entries(value).some(([key, child]) => {
+    if (key === String(port) || key.includes(`:${port}`)) return true;
+    return valueMentionsTailscaleServePort(child, port);
+  });
+}
+
+function readTailscaleServeStatus(ports = [DEFAULT_PORT]) {
+  const serving = {};
+  for (const port of ports) {
+    if (TAILSCALE_SERVE_PORTS.has(port)) serving[String(port)] = false;
+  }
+
+  const result = runTailscaleStatus(["serve", "status", "--json"]);
+  if (result.error || result.status !== 0) return serving;
+
+  const parsed = parseJsonObject(result.stdout);
+  for (const key of Object.keys(serving)) {
+    const port = Number.parseInt(key, 10);
+    serving[key] = parsed
+      ? valueMentionsTailscaleServePort(parsed, port)
+      : valueMentionsTailscaleServePort(result.stdout, port);
+  }
+  return serving;
+}
+
+function tailscaleRecommendation(detection, serving) {
+  if (!detection.installed) return "needs_install";
+  if (!detection.loggedIn) return "needs_login";
+  if (!serving["8080"]) return "needs_serve";
+  return "ready";
+}
+
+async function handleTailscaleState(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+
+  const detection = detectTailscale({ spawnSync: childProcess.spawnSync });
+  const serving =
+    detection.installed && detection.loggedIn
+      ? readTailscaleServeStatus([DEFAULT_PORT])
+      : { "8080": false };
+  const body = {
+    installed: detection.installed,
+    loggedIn: detection.loggedIn,
+    version: detection.version,
+    dnsName: detection.dnsName,
+    dashboardUrl: deriveTailnetDashboardUrl(detection),
+    serving,
+    recommendation: tailscaleRecommendation(detection, serving),
+  };
+  res.writeHead(200, corsHeaders);
+  res.end(JSON.stringify(body));
+}
+
+async function handleTailscaleServe(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+
+  let body = {};
+  try {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    const parsed = raw ? JSON.parse(raw) : {};
+    body = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    body = {};
+  }
+  const port = Object.hasOwn(body, "port") ? body.port : DEFAULT_PORT;
+  const result = runTailscaleServe({
+    port,
+    spawnSync: childProcess.spawnSync,
+  });
+  res.writeHead(200, corsHeaders);
+  res.end(JSON.stringify(result));
+}
+
 // Owner: Backend Worker B
 async function handleInstallKeepAlive(req, res) {
   const corsHeaders = {
@@ -1771,6 +1900,45 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
         if (!res.headersSent) {
           res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
           res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "GET" && pathname === "/__proxy/tailscale-state") {
+      handleTailscaleState(req, res).catch((err) => {
+        logError("  Tailscale-state error:", err);
+        if (!res.headersSent) {
+          res.writeHead(200, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(
+            JSON.stringify({
+              installed: false,
+              loggedIn: false,
+              version: null,
+              dnsName: null,
+              dashboardUrl: null,
+              serving: { "8080": false },
+              recommendation: "needs_install",
+            }),
+          );
+        }
+      });
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/__proxy/tailscale-serve") {
+      handleTailscaleServe(req, res).catch((err) => {
+        logError("  Tailscale-serve error:", err);
+        if (!res.headersSent) {
+          res.writeHead(200, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.end(
+            JSON.stringify({
+              ok: false,
+              alreadyServing: false,
+              url: null,
+              error: "tailscale serve failed.",
+            }),
+          );
         }
       });
       return;
