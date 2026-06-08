@@ -899,6 +899,50 @@ test("handleIngestUrlWebhook falls through to Cheerio when Gemini URL context is
   );
 });
 
+test("handleIngestUrlWebhook skips Gemini URL context when the optional Google tool key is absent", async () => {
+  let geminiCalls = 0;
+  let scraperCalls = 0;
+  const logs: Array<{ event: string; details: Record<string, unknown> }> = [];
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "https://careers.example.com/roles/openrouter-compatible-role",
+    }),
+    makeDependencies({
+      runtimeConfig: makeRuntimeConfig({ geminiApiKey: "" }),
+      extractWithGeminiUrlContext: async () => {
+        geminiCalls += 1;
+        throw new Error("Gemini URL Context should not run without a Gemini key");
+      },
+      scrapeJobPosting: async () => {
+        scraperCalls += 1;
+        return {
+          url: "https://careers.example.com/roles/openrouter-compatible-role",
+          title: "OpenRouter Compatible Role",
+          description:
+            "Support provider-compatible discovery without optional Google tools.",
+          method: "cheerio",
+        };
+      },
+      log: (event: string, details: Record<string, unknown>) => {
+        logs.push({ event, details });
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.strategy, "cheerio_dom");
+  assert.equal(geminiCalls, 0);
+  assert.equal(scraperCalls, 1);
+  const skipLog = logs.find(
+    (entry) => entry.event === "discovery.run.ingest_url_gemini_skipped",
+  );
+  assert.equal(skipLog?.details.reason, "missing_api_key");
+  assert.equal(skipLog?.details.tool, "url_context");
+  assert.equal(skipLog?.details.optional, true);
+});
+
 test("handleIngestUrlWebhook skips Gemini URL context after ATS success", async () => {
   let geminiCalls = 0;
   const response = await handleIngestUrlWebhook(

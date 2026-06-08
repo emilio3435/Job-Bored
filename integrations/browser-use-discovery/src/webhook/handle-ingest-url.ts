@@ -916,6 +916,21 @@ async function tryGeminiUrlContextExtraction(input: {
   | { ok: true; rawListing: RawListing }
   | { ok: false; reason: string; message: string }
 > {
+  if (!String(input.dependencies.runtimeConfig.geminiApiKey || "").trim()) {
+    const message =
+      "Gemini URL Context skipped: optional Gemini url_context tool is unavailable because BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.";
+    input.dependencies.log?.("discovery.run.ingest_url_gemini_skipped", {
+      runId: input.runId,
+      host: input.host,
+      reason: "missing_api_key",
+      message,
+      provider: "gemini",
+      tool: "url_context",
+      optional: true,
+      hasApiKey: false,
+    });
+    return { ok: false, reason: "missing_api_key", message };
+  }
   const extractor =
     input.dependencies.extractWithGeminiUrlContext ||
     extractJobWithGeminiUrlContext;
