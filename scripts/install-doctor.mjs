@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Owner: Backend Worker A
 // Purpose: One-shot health check for greenfield install. Detects gcloud,
-// wrangler, ngrok, and node. Returns the locked install-doctor JSON shape.
+// wrangler, ngrok, tailscale, vercel, netlify, gh, and node. Returns the
+// locked install-doctor JSON shape.
 //
 // Locked contract — see dev-server.mjs handleInstallDoctor header.
 //
@@ -13,6 +14,10 @@
 //       wrangler:  "wrangler whoami" -> exit 0 means logged in
 //       ngrok:     check ~/.config/ngrok/ngrok.yml or
 //                  "ngrok config check" exit 0 means token present
+//       tailscale: "tailscale status --json" -> exit 0 means logged in
+//       vercel:    "vercel whoami" -> exit 0 means logged in
+//       netlify:   "netlify status" -> exit 0 means logged in
+//       gh:        "gh auth status" -> exit 0 means logged in
 //   - "missing" array contains human-readable next steps in priority order.
 //   - This file is meant to be runnable standalone (CLI) AND importable as
 //     a function for the dev-server handler.
@@ -20,6 +25,7 @@
 import childProcess from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { detectTailscale as detectTailscaleLib } from "./lib/tailscale.mjs";
 
 const REQUIRED_NODE_MAJOR = 24;
 
@@ -105,6 +111,44 @@ function detectNgrok() {
   };
 }
 
+function detectTailscale() {
+  const detected = detectTailscaleLib();
+  if (!detected.installed) {
+    return { installed: false };
+  }
+  return {
+    installed: true,
+    loggedIn: detected.loggedIn,
+    version: detected.version,
+    dnsName: detected.dnsName,
+  };
+}
+
+function detectLoginCli(command, versionArgs, loginArgs) {
+  const version = detectVersion(command, versionArgs);
+  if (!version.installed) {
+    return { installed: false };
+  }
+  const login = run(command, loginArgs);
+  return {
+    installed: true,
+    loggedIn: login.status === 0,
+    version: version.version || null,
+  };
+}
+
+function detectVercel() {
+  return detectLoginCli("vercel", ["--version"], ["whoami"]);
+}
+
+function detectNetlify() {
+  return detectLoginCli("netlify", ["--version"], ["status"]);
+}
+
+function detectGh() {
+  return detectLoginCli("gh", ["--version"], ["auth", "status"]);
+}
+
 function buildMissing(tools) {
   const missing = [];
   if (!tools.gcloud.installed) {
@@ -123,6 +167,30 @@ function buildMissing(tools) {
     missing.push("Install ngrok.");
   } else if (!tools.ngrok.hasAuthToken) {
     missing.push("Run `ngrok config add-authtoken <token>`.");
+  }
+
+  if (!tools.tailscale.installed) {
+    missing.push("Install Tailscale CLI (`tailscale`).");
+  } else if (!tools.tailscale.loggedIn) {
+    missing.push("Run `tailscale up`.");
+  }
+
+  if (!tools.vercel.installed) {
+    missing.push("Install Vercel CLI (`npm install -g vercel`).");
+  } else if (!tools.vercel.loggedIn) {
+    missing.push("Run `vercel login`.");
+  }
+
+  if (!tools.netlify.installed) {
+    missing.push("Install Netlify CLI (`npm install -g netlify-cli`).");
+  } else if (!tools.netlify.loggedIn) {
+    missing.push("Run `netlify login`.");
+  }
+
+  if (!tools.gh.installed) {
+    missing.push("Install GitHub CLI (`gh`).");
+  } else if (!tools.gh.loggedIn) {
+    missing.push("Run `gh auth login`.");
   }
 
   if (!tools.node.ok) {
@@ -147,6 +215,10 @@ export function runInstallDoctor() {
     gcloud: detectGcloud(),
     wrangler: detectWrangler(),
     ngrok: detectNgrok(),
+    tailscale: detectTailscale(),
+    vercel: detectVercel(),
+    netlify: detectNetlify(),
+    gh: detectGh(),
     node: detectNode(),
   };
   const missing = buildMissing(tools);

@@ -14,6 +14,12 @@
    (onboarding-wizard.js), which takes the full-viewport surface after
    the infra wizard finishes.
 
+   Completion-awareness (FE-3): the banner reads two more flags —
+   discoverySetupComplete and goLiveSetupComplete — and hides the
+   matching CTA once its track is done, marking the remaining one as
+   the recommended next step. When BOTH tracks are complete the banner
+   hides entirely, so finishing either order surfaces the other path.
+
    The two CTA buttons share their handlers with the in-wizard terminal
    #firstRunPanelDone so the destinations stay consistent across
    surfaces. Dismiss writes the persisted flag and hides the section
@@ -80,6 +86,8 @@
       infraComplete: false,
       dismissed: false,
       onboardingComplete: false,
+      discoveryComplete: false,
+      goLiveComplete: false,
     };
     try {
       out.infraComplete = !!(typeof UC.isInfraSetupComplete === "function"
@@ -102,16 +110,84 @@
     } catch (_) {
       out.onboardingComplete = false;
     }
+    try {
+      out.discoveryComplete = !!(typeof UC.isDiscoverySetupComplete === "function"
+        ? await UC.isDiscoverySetupComplete()
+        : false);
+    } catch (_) {
+      out.discoveryComplete = false;
+    }
+    try {
+      out.goLiveComplete = !!(typeof UC.isGoLiveSetupComplete === "function"
+        ? await UC.isGoLiveSetupComplete()
+        : false);
+    } catch (_) {
+      out.goLiveComplete = false;
+    }
     return out;
   }
 
   function shouldRenderBanner(state) {
     if (!state) return false;
-    return (
-      state.infraComplete === true &&
-      state.dismissed === false &&
-      state.onboardingComplete === true
-    );
+    if (
+      state.infraComplete !== true ||
+      state.dismissed !== false ||
+      state.onboardingComplete !== true
+    ) {
+      return false;
+    }
+    // Hide entirely when both tracks are complete — finishing either order
+    // leaves the other still surfaced until it's done too.
+    if (state.discoveryComplete === true && state.goLiveComplete === true) {
+      return false;
+    }
+    return true;
+  }
+
+  const RECOMMENDED_CTA_CLASS = "whats-next-banner__cta--recommended";
+
+  /**
+   * Toggle per-track CTA visibility + the "recommended next" marker.
+   * Done in-place on the existing buttons (FE-1 owns index.html; we
+   * never inject markup here) so absent IDs stay no-ops.
+   */
+  function applyCompletionPresentation(state) {
+    const discoveryBtn = getEl("whatsNextOpenDiscovery");
+    const selfHostingBtn = getEl("whatsNextOpenSelfHosting");
+    const discoveryDone = !!(state && state.discoveryComplete);
+    const goLiveDone = !!(state && state.goLiveComplete);
+
+    if (discoveryBtn) {
+      if (discoveryDone) {
+        discoveryBtn.setAttribute("hidden", "hidden");
+        discoveryBtn.setAttribute("aria-hidden", "true");
+      } else {
+        discoveryBtn.removeAttribute("hidden");
+        discoveryBtn.removeAttribute("aria-hidden");
+      }
+    }
+    if (selfHostingBtn) {
+      if (goLiveDone) {
+        selfHostingBtn.setAttribute("hidden", "hidden");
+        selfHostingBtn.setAttribute("aria-hidden", "true");
+      } else {
+        selfHostingBtn.removeAttribute("hidden");
+        selfHostingBtn.removeAttribute("aria-hidden");
+      }
+    }
+
+    // Only one track left → mark it as the recommended next step. When
+    // both are still pending or both are done the marker comes off (the
+    // region is hidden in the both-done case anyway).
+    const onlyDiscoveryLeft = !discoveryDone && goLiveDone;
+    const onlySelfHostingLeft = discoveryDone && !goLiveDone;
+    const toggleRecommended = (el, on) => {
+      if (!el || !el.classList) return;
+      if (on) el.classList.add(RECOMMENDED_CTA_CLASS);
+      else el.classList.remove(RECOMMENDED_CTA_CLASS);
+    };
+    toggleRecommended(discoveryBtn, onlyDiscoveryLeft);
+    toggleRecommended(selfHostingBtn, onlySelfHostingLeft);
   }
 
   /**
@@ -123,6 +199,7 @@
   async function refreshBanner() {
     const state = await readGateState();
     if (shouldRenderBanner(state)) {
+      applyCompletionPresentation(state);
       showBanner();
     } else {
       hideBanner();
@@ -186,17 +263,31 @@
   }
 
   /**
-   * "Use JobBored on other devices" CTA — opens the self-hosting / go-live
-   * guide (docs/SELF-HOSTING.md) in a new tab. The banner stays on screen
-   * so the user can still dismiss it or click the other CTA.
+   * "Use JobBored on other devices" CTA — launches the go-live wizard
+   * (the two-path Tailscale/cloud flow). The dashboard is already
+   * revealed when the banner is visible (its gate requires onboarding
+   * to be complete), so no surface-handoff is needed before the call.
+   * The banner stays on screen so the user can still dismiss it or
+   * pick the other CTA after the wizard finishes.
    */
   function handleOpenSelfHosting() {
-    try {
-      if (typeof window.open === "function") {
-        window.open("docs/SELF-HOSTING.md", "_blank", "noopener");
+    const host =
+      (window.JobBoredApp && window.JobBoredApp.core && window.JobBoredApp.core.host) ||
+      null;
+    if (host && typeof host.requestGoLiveSetup === "function") {
+      try {
+        void host.requestGoLiveSetup({ entryPoint: "whats_next" });
+        return;
+      } catch (e) {
+        console.warn("[JobBored] whats-next go-live:", e);
       }
-    } catch (e) {
-      console.warn("[JobBored] whats-next self-hosting:", e);
+    }
+    if (typeof window.requestGoLiveSetup === "function") {
+      try {
+        void window.requestGoLiveSetup({ entryPoint: "whats_next" });
+      } catch (e) {
+        console.warn("[JobBored] whats-next go-live (global):", e);
+      }
     }
   }
 

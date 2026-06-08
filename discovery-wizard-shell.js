@@ -266,8 +266,14 @@
     };
   }
 
-  function normalizeSnapshot(snapshot) {
+  function normalizeSnapshot(snapshot, variant) {
     const raw = snapshot && typeof snapshot === "object" ? snapshot : {};
+    if (variant === "generic") {
+      // Generic wizards (e.g. go-live) do not share discovery's readiness
+      // schema; pass the snapshot through unchanged so each wizard can
+      // define its own shape without colliding with discovery's enums.
+      return { ...raw };
+    }
     return {
       ...root.contract.readinessSnapshot,
       ...raw,
@@ -315,9 +321,20 @@
     };
   }
 
-  function normalizeWizardState(state) {
+  function normalizeWizardState(state, variant) {
     const raw = state && typeof state === "object" ? state : {};
     const completedSteps = uniqueStrings(raw.completedSteps);
+    if (variant === "generic") {
+      // Generic mode preserves caller-provided state shape; only the
+      // version stamp and completedSteps de-dupe are enforced. No
+      // discovery-flow enum coercion and no "detect" default.
+      return {
+        ...raw,
+        version: 1,
+        currentStep: asString(raw.currentStep),
+        completedSteps,
+      };
+    }
     return {
       ...root.contract.discoverySetupWizardState,
       ...raw,
@@ -607,8 +624,13 @@
   }
 
   function getWizardContext(input = {}) {
-    const snapshot = normalizeSnapshot(input.snapshot);
-    const state = normalizeWizardState(input.state);
+    const variant = normalizeEnum(
+      input.variant,
+      ["discovery", "generic"],
+      "discovery",
+    );
+    const snapshot = normalizeSnapshot(input.snapshot, variant);
+    const state = normalizeWizardState(input.state, variant);
     const steps = buildStepModel(
       toArray(input.steps).map((step, index) => normalizeStep(step, index)),
       state,
@@ -618,6 +640,9 @@
     return {
       title: asString(input.title, DEFAULT_TITLE),
       lede: asString(input.lede, DEFAULT_LEDE),
+      headerTitle: asString(input.headerTitle, "Discovery setup"),
+      variant,
+      mountId: asString(input.mountId, root.mount.id),
       snapshot,
       state,
       steps: steps.steps,
@@ -640,15 +665,15 @@
     };
   }
 
-  function ensureMount() {
-    const mount = document.getElementById(root.mount.id);
+  function ensureMount(mountId, shellClassName) {
+    const id = asString(mountId, root.mount.id);
+    const className = asString(shellClassName, root.mount.shellClassName);
+    const mount = document.getElementById(id);
     if (!mount) {
-      throw new Error(
-        `Discovery wizard mount #${root.mount.id} is missing from the page.`,
-      );
+      throw new Error(`Wizard mount #${id} is missing from the page.`);
     }
     if (mount.classList) {
-      mount.classList.add(root.mount.shellClassName);
+      mount.classList.add(className);
     }
     return mount;
   }
@@ -806,7 +831,9 @@
               no_webhook: "wizard_choose_flow_no_webhook",
             };
             const actionId =
-              flowMap[item.flow] || `wizard_choose_flow_${item.flow}`;
+              context.variant === "generic"
+                ? `wizard_choose_flow_${item.flow}`
+                : flowMap[item.flow] || `wizard_choose_flow_${item.flow}`;
             col.addEventListener("click", () => {
               grid
                 .querySelectorAll(".discovery-setup-wizard__option-col")
@@ -1314,7 +1341,7 @@
       "h2",
       "discovery-setup-wizard__title",
       { id: "discoverySetupWizardTitle" },
-      "Discovery setup",
+      context.headerTitle || "Discovery setup",
     );
     titleBlock.appendChild(title);
 
@@ -1457,7 +1484,12 @@
   }
 
   function bindDelegatesOnce(mount) {
-    if (shell._delegatesBound) return;
+    // Per-mount registry: a second wizard rendered into a different mount
+    // (e.g. #goLiveSetupWizardMount) must also receive click + key delegates.
+    // A boolean flag here would skip-bind everything after the first mount.
+    if (!shell._boundMounts) shell._boundMounts = new Set();
+    if (shell._boundMounts.has(mount)) return;
+    shell._boundMounts.add(mount);
     shell._delegatesBound = true;
 
     mount.addEventListener("click", (event) => {
@@ -1548,11 +1580,12 @@
     closeWizardShell("destroy");
     shell._mount = null;
     shell._delegatesBound = false;
+    if (shell._boundMounts) shell._boundMounts.clear();
   }
 
   function renderWizardShell(input = {}) {
-    const mount = ensureMount();
     const context = getWizardContext(input);
+    const mount = ensureMount(context.mountId);
     shell._mount = mount;
     shell.open = context.open;
     shell.lastFocus = document.activeElement;

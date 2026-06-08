@@ -12,6 +12,7 @@
       window.JobBoredDiscovery || {});
     const wizard = (window.JobBoredDiscoveryWizard =
       window.JobBoredDiscoveryWizard || {});
+    const goLive = (window.JobBoredGoLive = window.JobBoredGoLive || {});
 
     discovery.buildPayload = host.buildDiscoveryWebhookPayload;
 
@@ -79,6 +80,8 @@
       getDiscoveryRelaySuggestedOrigin: host.getDiscoveryRelaySuggestedOrigin,
       isOnboardingWizardVisible: host.isOnboardingWizardVisible,
       openDiscoverySetupWizard: host.openDiscoverySetupWizard,
+      openGoLiveSetupWizard: host.openGoLiveSetupWizard,
+      requestGoLiveSetup: host.requestGoLiveSetup,
       getDiscoveryWizardRecommendedFlow:
         host.getDiscoveryWizardRecommendedFlow,
       getDiscoveryReadinessSnapshot: host.getDiscoveryReadinessSnapshot,
@@ -407,6 +410,21 @@
       getActiveSheetId: host.getActiveSheetId,
       DISCOVERY_ENGINE_STATE_STUB_ONLY: host.DISCOVERY_ENGINE_STATE_STUB_ONLY,
       DISCOVERY_ENGINE_STATE_UNVERIFIED: host.DISCOVERY_ENGINE_STATE_UNVERIFIED,
+      requestGoLiveSetup: host.requestGoLiveSetup,
+      openGoLiveSetupWizard: host.openGoLiveSetupWizard,
+    };
+
+    // Go-live wizard host bridge. Mirrors wizard.ui.host but only carries
+    // what the go-live module needs (no discovery snapshot / runtime
+    // plumbing — it owns its own minimal runtime).
+    goLive.host = {
+      showToast: host.showToast,
+      copyTextToClipboard: host.copyTextToClipboard,
+      isOnboardingWizardVisible: host.isOnboardingWizardVisible,
+      isFirstRunWizardVisible: host.isFirstRunWizardVisible,
+      hideOnboardingWizard: host.hideOnboardingWizard,
+      showOnboardingWizard: host.showOnboardingWizard,
+      requestDiscoverySetup: host.requestDiscoverySetup,
     };
 
     app.brief = app.brief || {};
@@ -647,6 +665,8 @@
       signIn: host.signIn,
       selectedResponseSheetValue: host.selectedResponseSheetValue,
       fetchJobPostingEnrichment: host.fetchJobPostingEnrichment,
+      requestGoLiveSetup: host.requestGoLiveSetup,
+      openGoLiveSetupWizard: host.openGoLiveSetupWizard,
     };
 
     Object.assign(app.core, {

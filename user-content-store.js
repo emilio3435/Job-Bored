@@ -762,6 +762,32 @@
     await setSetting("infraSetupComplete", false);
   }
 
+  async function isGoLiveSetupComplete() {
+    return !!(await getSetting("goLiveSetupComplete"));
+  }
+
+  async function completeGoLiveSetup() {
+    await setSetting("goLiveSetupComplete", true);
+  }
+
+  /** Clears the flag so the go-live (use-on-other-devices) wizard recommends again. */
+  async function resetGoLiveSetupCompletion() {
+    await setSetting("goLiveSetupComplete", false);
+  }
+
+  async function isDiscoverySetupComplete() {
+    return !!(await getSetting("discoverySetupComplete"));
+  }
+
+  async function completeDiscoverySetup() {
+    await setSetting("discoverySetupComplete", true);
+  }
+
+  /** Clears the flag so the cross-rec re-recommends discovery setup. */
+  async function resetDiscoverySetupCompletion() {
+    await setSetting("discoverySetupComplete", false);
+  }
+
   /**
    * Mark onboarding done for users who already had resume data before this feature.
    * Consolidate legacy multi-version rows into {@link PRIMARY_RESUME_ID}.
@@ -1111,6 +1137,12 @@
     isInfraSetupComplete,
     completeInfraSetup,
     resetInfraSetupCompletion,
+    isGoLiveSetupComplete,
+    completeGoLiveSetup,
+    resetGoLiveSetupCompletion,
+    isDiscoverySetupComplete,
+    completeDiscoverySetup,
+    resetDiscoverySetupCompletion,
     migrateOnboardingState,
     addResumeVersion,
     setActiveResumeId,

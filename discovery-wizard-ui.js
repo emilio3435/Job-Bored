@@ -2025,20 +2025,94 @@ async function renderDiscoverySetupWizard() {
       host().updateDiscoveryWizardRuntime({ state });
       void host().persistDiscoveryWizardState(state);
     },
-    onClose: () => {
+    onClose: (reason, ctx) => {
       // Restore onboarding if it was showing when discovery wizard opened
       const runtime = host().getDiscoveryWizardRuntime();
       const shouldRestoreOnboarding =
         runtime &&
         runtime.state &&
         runtime.state._onboardingWasHiddenByDiscovery;
+
+      // Cross-rec (FE-3): a genuinely finished discovery run — reason
+      // "finish" AND the persisted result is "connected" — marks the
+      // discovery track complete and, when the go-live track is still
+      // open, refreshes the dashboard banner so it promotes go-live as
+      // the recommended next step. We DO NOT launch the go-live wizard
+      // from here (control flow stays unchanged); banner-refresh is the
+      // surfacing channel per spec §5.
+      const persistedResult =
+        ctx && ctx.state && typeof ctx.state.result === "string"
+          ? ctx.state.result
+          : null;
+      const finishedConnected =
+        reason === "finish" && persistedResult === "connected";
+
       host().clearDiscoveryWizardRuntime();
       void host().refreshDiscoveryReadinessSnapshot({ force: true });
+
+      if (finishedConnected) {
+        void recommendGoLiveAfterDiscoveryFinish();
+      }
+
       if (shouldRestoreOnboarding) {
         host().showOnboardingWizard();
       }
     },
   });
+}
+
+/**
+ * Persist `discoverySetupComplete` and — when go-live is still open —
+ * nudge the dashboard banner so it promotes go-live as the recommended
+ * next step. The UC + banner reads are both best-effort: a missing
+ * module never blocks the close handoff.
+ */
+async function recommendGoLiveAfterDiscoveryFinish() {
+  let UC = null;
+  try {
+    UC =
+      typeof host().getUserContent === "function"
+        ? host().getUserContent()
+        : null;
+  } catch (_) {
+    UC = null;
+  }
+  if (UC && typeof UC.openDb === "function") {
+    try {
+      await UC.openDb();
+    } catch (_) {
+      /* missing/locked store → skip both flag + banner */
+      return;
+    }
+  }
+  if (UC && typeof UC.completeDiscoverySetup === "function") {
+    try {
+      await UC.completeDiscoverySetup();
+    } catch (e) {
+      console.warn("[JobBored] completeDiscoverySetup:", e);
+    }
+  }
+  let goLiveDone = false;
+  if (UC && typeof UC.isGoLiveSetupComplete === "function") {
+    try {
+      goLiveDone = !!(await UC.isGoLiveSetupComplete());
+    } catch (_) {
+      goLiveDone = false;
+    }
+  }
+  if (!goLiveDone) {
+    try {
+      const banner =
+        typeof window !== "undefined" &&
+        window.JobBoredApp &&
+        window.JobBoredApp.whatsNextBanner;
+      if (banner && typeof banner.refreshBanner === "function") {
+        void Promise.resolve(banner.refreshBanner()).catch(() => {});
+      }
+    } catch (_) {
+      /* banner refresh is best-effort */
+    }
+  }
 }
 
 async function openDiscoverySetupWizard(options = {}) {
