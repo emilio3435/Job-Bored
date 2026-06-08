@@ -1,7 +1,7 @@
 /**
  * profile-from-resume.mjs
  *
- * Reads stored resume text, calls gemini-3.5-flash with structured output,
+ * Reads stored resume text, calls the configured profile AI provider,
  * returns a UserProfile JSON (does NOT save it — user reviews in the wizard).
  *
  * Wired into POST /profile/from-resume in server/index.mjs.
@@ -16,9 +16,8 @@
  *   2. ~/.jobbored/resume.txt
  *   3. ~/.hermes/job-hunt/profile/resume*.md (legacy)
  *
- * Gemini API key comes from the same env vars ats-scorecard.mjs uses:
- *   ATS_GEMINI_API_KEY, then GEMINI_API_KEY.
- * Model: ATS_GEMINI_MODEL or "gemini-3.5-flash".
+ * Provider config comes from PROFILE_* env vars first, then ATS_* aliases
+ * where those exist. Gemini remains the default provider for compatibility.
  */
 
 import { readFile, readdir } from "node:fs/promises";
@@ -40,6 +39,12 @@ const DEFAULT_WORKER_CONFIG_PATH = resolvePath(
 );
 
 const MAX_RESUME_INPUT_CHARS = 60_000;
+const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const DEFAULT_OPENROUTER_MODEL = "openai/gpt-oss-120b:free";
+const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_OPENAI_MODEL = "gpt-5.4-mini";
+const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:11434/v1";
+const DEFAULT_LOCAL_MODEL = "gemma4:e2b";
 
 /* ─── Storage lookup ───────────────────────────────────────────────────── */
 
@@ -148,20 +153,172 @@ export async function getStoredResumeText() {
   return null;
 }
 
-/* ─── Gemini call ──────────────────────────────────────────────────────── */
+/* ─── Provider config ──────────────────────────────────────────────────── */
+
+function readFirstEnv(keys, fallback = "") {
+  for (const key of keys) {
+    const value = String(process.env[key] || "").trim();
+    if (value) return value;
+  }
+  return fallback;
+}
+
+function normalizeProvider(value) {
+  const raw = String(value || "").trim().toLowerCase().replace(/-/g, "_");
+  if (raw === "openrouter") return "openrouter";
+  if (raw === "openai") return "openai";
+  if (raw === "openai_compatible" || raw === "compatible") {
+    return "openai_compatible";
+  }
+  if (raw === "local" || raw === "local_openai" || raw === "local_llm") {
+    return "local";
+  }
+  return "gemini";
+}
+
+function providerDisplayName(provider) {
+  if (provider === "openrouter") return "OpenRouter";
+  if (provider === "openai") return "OpenAI";
+  if (provider === "openai_compatible") return "OpenAI-compatible";
+  if (provider === "local") return "local OpenAI-compatible";
+  return "Gemini";
+}
 
 function getGeminiConfig() {
-  const apiKey = String(
-    process.env.ATS_GEMINI_API_KEY || process.env.GEMINI_API_KEY || "",
-  ).trim();
-  const model = String(
-    process.env.ATS_GEMINI_MODEL || "gemini-3.5-flash",
-  ).trim();
+  const apiKey = readFirstEnv([
+    "PROFILE_GEMINI_API_KEY",
+    "ATS_GEMINI_API_KEY",
+    "GEMINI_API_KEY",
+  ]);
+  const model = readFirstEnv(
+    ["PROFILE_GEMINI_MODEL", "ATS_GEMINI_MODEL", "GEMINI_MODEL"],
+    "gemini-3.5-flash",
+  );
   return { apiKey, model };
 }
 
+export function getProfileProviderConfig() {
+  const provider = normalizeProvider(
+    readFirstEnv(["PROFILE_PROVIDER", "PROFILE_LLM_PROVIDER", "ATS_PROVIDER"], "gemini"),
+  );
+  if (provider === "openrouter") {
+    return {
+      provider,
+      apiKey: readFirstEnv([
+        "PROFILE_OPENROUTER_API_KEY",
+        "ATS_OPENROUTER_API_KEY",
+        "OPENROUTER_API_KEY",
+      ]),
+      baseUrl: readFirstEnv(
+        ["PROFILE_OPENROUTER_BASE_URL", "ATS_OPENROUTER_BASE_URL", "OPENROUTER_BASE_URL"],
+        DEFAULT_OPENROUTER_BASE_URL,
+      ),
+      model: readFirstEnv(
+        ["PROFILE_OPENROUTER_MODEL", "ATS_OPENROUTER_MODEL", "OPENROUTER_MODEL"],
+        DEFAULT_OPENROUTER_MODEL,
+      ),
+    };
+  }
+  if (provider === "openai") {
+    return {
+      provider,
+      apiKey: readFirstEnv(["PROFILE_OPENAI_API_KEY", "ATS_OPENAI_API_KEY", "OPENAI_API_KEY"]),
+      baseUrl: readFirstEnv(
+        ["PROFILE_OPENAI_BASE_URL", "ATS_OPENAI_BASE_URL", "OPENAI_BASE_URL"],
+        DEFAULT_OPENAI_BASE_URL,
+      ),
+      model: readFirstEnv(
+        ["PROFILE_OPENAI_MODEL", "ATS_OPENAI_MODEL", "OPENAI_MODEL"],
+        DEFAULT_OPENAI_MODEL,
+      ),
+    };
+  }
+  if (provider === "openai_compatible" || provider === "local") {
+    return {
+      provider,
+      apiKey: readFirstEnv([
+        "PROFILE_OPENAI_COMPATIBLE_API_KEY",
+        "PROFILE_LOCAL_API_KEY",
+        "ATS_OPENAI_COMPATIBLE_API_KEY",
+        "LOCAL_LLM_API_KEY",
+      ]),
+      baseUrl: readFirstEnv(
+        [
+          "PROFILE_OPENAI_COMPATIBLE_BASE_URL",
+          "PROFILE_LOCAL_BASE_URL",
+          "ATS_OPENAI_COMPATIBLE_BASE_URL",
+          "LOCAL_LLM_BASE_URL",
+        ],
+        DEFAULT_LOCAL_BASE_URL,
+      ),
+      model: readFirstEnv(
+        [
+          "PROFILE_OPENAI_COMPATIBLE_MODEL",
+          "PROFILE_LOCAL_MODEL",
+          "ATS_OPENAI_COMPATIBLE_MODEL",
+          "LOCAL_LLM_MODEL",
+        ],
+        DEFAULT_LOCAL_MODEL,
+      ),
+    };
+  }
+  const gemini = getGeminiConfig();
+  return {
+    provider: "gemini",
+    apiKey: gemini.apiKey,
+    model: gemini.model,
+    baseUrl: "",
+  };
+}
+
+export function getProfileProviderConfigStatus(config = getProfileProviderConfig()) {
+  if (config.provider === "gemini") {
+    if (!config.apiKey) {
+      return {
+        configured: false,
+        provider: config.provider,
+        reason: "Missing Gemini API key: set PROFILE_GEMINI_API_KEY, ATS_GEMINI_API_KEY, or GEMINI_API_KEY.",
+      };
+    }
+    return { configured: true, provider: config.provider, reason: "" };
+  }
+  if ((config.provider === "openrouter" || config.provider === "openai") && !config.apiKey) {
+    const prefix = config.provider === "openrouter" ? "OPENROUTER" : "OPENAI";
+    return {
+      configured: false,
+      provider: config.provider,
+      reason:
+        `Missing ${providerDisplayName(config.provider)} API key: set PROFILE_${prefix}_API_KEY` +
+        ` or ATS_${prefix}_API_KEY when PROFILE_PROVIDER=${config.provider}.`,
+    };
+  }
+  if (!config.baseUrl || !config.model) {
+    return {
+      configured: false,
+      provider: config.provider,
+      reason:
+        `Missing ${providerDisplayName(config.provider)} model/base URL: set PROFILE_OPENAI_COMPATIBLE_MODEL and PROFILE_OPENAI_COMPATIBLE_BASE_URL.`,
+    };
+  }
+  return { configured: true, provider: config.provider, reason: "" };
+}
+
+function assertProfileProviderConfigured(config) {
+  const status = getProfileProviderConfigStatus(config);
+  if (status.configured) return;
+  const err = new Error(status.reason);
+  err.code =
+    status.provider === "gemini"
+      ? "GEMINI_NOT_CONFIGURED"
+      : "PROFILE_PROVIDER_NOT_CONFIGURED";
+  err.provider = status.provider;
+  throw err;
+}
+
+/* ─── Provider calls ───────────────────────────────────────────────────── */
+
 const SYSTEM_PROMPT = `You read resumes and emit a structured "Fit Profile" JSON used by a job-matching scorer.
-You return ONLY a JSON object that matches the provided responseSchema. No prose, no markdown fences.
+You return ONLY a strict JSON object that matches the UserProfile v1 shape below. No prose, no markdown fences.
 
 The shape — UserProfile v1 — captures who the candidate is, what they want next, and what hard rules
 apply when scoring listings. Sections:
@@ -267,13 +424,140 @@ const GEMINI_RESPONSE_SCHEMA = {
   required: ["version", "identity", "strengths", "hardConstraints"],
 };
 
+function trimTrailingSlashes(value) {
+  return String(value || "").trim().replace(/\/+$/g, "");
+}
+
+function buildChatCompletionsUrl(baseUrl) {
+  return `${trimTrailingSlashes(baseUrl)}/chat/completions`;
+}
+
+// Scan for the first balanced JSON object embedded in surrounding text and
+// parse it. This recovers valid provider output wrapped in short prose.
+function tryParseEmbeddedJson(raw) {
+  for (let start = 0; start < raw.length; start += 1) {
+    if (raw[start] !== "{") continue;
+    const stack = ["{"];
+    let inString = false;
+    let escaped = false;
+    for (let i = start + 1; i < raw.length; i += 1) {
+      const ch = raw[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\" && inString) {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch === "{") {
+        stack.push(ch);
+        continue;
+      }
+      if (ch !== "}") continue;
+      stack.pop();
+      if (stack.length) continue;
+      const candidate = raw.slice(start, i + 1).trim();
+      try {
+        return JSON.parse(candidate);
+      } catch {
+        break;
+      }
+    }
+  }
+  return undefined;
+}
+
+function parseJsonSafe(text) {
+  const raw = String(text || "").trim();
+  if (!raw) throw new Error("empty JSON payload");
+  const fenced = /^```(?:json)?\s*([\s\S]*?)```$/m.exec(raw);
+  const cleaned = fenced ? fenced[1].trim() : raw;
+  try {
+    return JSON.parse(cleaned);
+  } catch (error) {
+    if (!cleaned.startsWith("{")) {
+      const embedded = tryParseEmbeddedJson(cleaned);
+      if (embedded !== undefined) return embedded;
+    }
+    throw error;
+  }
+}
+
+async function callChatJsonForProfile(resumeText, config, opts = {}) {
+  assertProfileProviderConfigured(config);
+  const model = opts.model || config.model;
+  const body = {
+    model,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: buildUserPrompt(resumeText) },
+    ],
+    temperature: 0.2,
+    max_tokens: 3500,
+  };
+  const headers = { "Content-Type": "application/json" };
+  if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
+  let resp;
+  try {
+    resp = await fetch(buildChatCompletionsUrl(config.baseUrl), {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  } catch (cause) {
+    const err = new Error(
+      `${providerDisplayName(config.provider)} request failed: ${cause && cause.message ? cause.message : cause}`,
+    );
+    err.code = "PROFILE_PROVIDER_REQUEST_FAILED";
+    err.provider = config.provider;
+    err.cause = cause;
+    throw err;
+  }
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    const msg =
+      (data && data.error && data.error.message) ||
+      `${providerDisplayName(config.provider)} HTTP ${resp.status}`;
+    const err = new Error(msg);
+    err.code = "PROFILE_PROVIDER_HTTP_ERROR";
+    err.provider = config.provider;
+    err.upstreamStatus = resp.status;
+    throw err;
+  }
+  const raw = data.choices?.[0]?.message?.content || "";
+  if (!String(raw || "").trim()) {
+    const err = new Error(`${providerDisplayName(config.provider)} returned empty content`);
+    err.code = "PROFILE_PROVIDER_EMPTY_RESPONSE";
+    err.provider = config.provider;
+    throw err;
+  }
+  try {
+    return parseJsonSafe(raw);
+  } catch (cause) {
+    const err = new Error(
+      `${providerDisplayName(config.provider)} returned non-JSON content: ${cause.message}`,
+    );
+    err.code = "PROFILE_PROVIDER_PARSE_ERROR";
+    err.provider = config.provider;
+    err.rawSample = String(raw || "").slice(0, 400);
+    throw err;
+  }
+}
+
 async function callGeminiForProfile(resumeText, opts = {}) {
-  const cfg = getGeminiConfig();
+  const cfg = opts.config || getProfileProviderConfig();
   if (!cfg.apiKey) {
     const err = new Error(
-      "Missing Gemini API key: set ATS_GEMINI_API_KEY or GEMINI_API_KEY.",
+      "Missing Gemini API key: set PROFILE_GEMINI_API_KEY, ATS_GEMINI_API_KEY, or GEMINI_API_KEY.",
     );
     err.code = "GEMINI_NOT_CONFIGURED";
+    err.provider = "gemini";
     throw err;
   }
   const model = opts.model || cfg.model;
@@ -298,6 +582,7 @@ async function callGeminiForProfile(resumeText, opts = {}) {
   } catch (cause) {
     const err = new Error(`Gemini request failed: ${cause && cause.message ? cause.message : cause}`);
     err.code = "GEMINI_REQUEST_FAILED";
+    err.provider = "gemini";
     err.cause = cause;
     throw err;
   }
@@ -308,6 +593,7 @@ async function callGeminiForProfile(resumeText, opts = {}) {
       `Gemini HTTP ${resp.status}`;
     const err = new Error(msg);
     err.code = "GEMINI_HTTP_ERROR";
+    err.provider = "gemini";
     err.upstreamStatus = resp.status;
     throw err;
   }
@@ -316,6 +602,7 @@ async function callGeminiForProfile(resumeText, opts = {}) {
   if (!raw.trim()) {
     const err = new Error("Gemini returned empty content");
     err.code = "GEMINI_EMPTY_RESPONSE";
+    err.provider = "gemini";
     throw err;
   }
   let parsed;
@@ -324,6 +611,7 @@ async function callGeminiForProfile(resumeText, opts = {}) {
   } catch (cause) {
     const err = new Error(`Gemini returned non-JSON content: ${cause.message}`);
     err.code = "GEMINI_PARSE_ERROR";
+    err.provider = "gemini";
     err.rawSample = raw.slice(0, 400);
     throw err;
   }
@@ -393,7 +681,7 @@ function clampStrengths(value) {
 }
 
 /**
- * Clamp + safe-default the Gemini response into a valid v1 UserProfile.
+ * Clamp + safe-default the provider response into a valid v1 UserProfile.
  * Always returns a profile shape; never throws on missing fields.
  */
 function clampToUserProfile(raw) {
@@ -474,12 +762,13 @@ function clampToUserProfile(raw) {
 /* ─── Public API ──────────────────────────────────────────────────────── */
 
 /**
- * Call Gemini with the resume text and return a valid v1 UserProfile object.
- * Does NOT save the result — the wizard renders it and the user confirms.
+ * Call the configured profile provider with the resume text and return a valid
+ * v1 UserProfile object. Does NOT save the result — the wizard renders it and
+ * the user confirms.
  *
  * @param {string} resumeText
  * @param {object} [opts]
- * @param {string} [opts.model] — override default Gemini model.
+ * @param {string} [opts.model] — override default provider model.
  * @returns {Promise<object>} UserProfile
  */
 export async function analyzeResumeToProfile(resumeText, opts = {}) {
@@ -489,9 +778,20 @@ export async function analyzeResumeToProfile(resumeText, opts = {}) {
     err.code = "EMPTY_RESUME";
     throw err;
   }
-  const raw = await callGeminiForProfile(text, opts);
+  const config = opts.config || getProfileProviderConfig();
+  const raw =
+    config.provider === "gemini"
+      ? await callGeminiForProfile(text, { ...opts, config })
+      : await callChatJsonForProfile(text, config, opts);
   return clampToUserProfile(raw);
 }
 
 // Expose for tests/scratch only — not part of the documented surface.
-export const __test = { clampToUserProfile, resolveWorkerConfigPath };
+export const __test = {
+  buildChatCompletionsUrl,
+  clampToUserProfile,
+  getProfileProviderConfig,
+  getProfileProviderConfigStatus,
+  parseJsonSafe,
+  resolveWorkerConfigPath,
+};

@@ -369,12 +369,13 @@ app.post("/profile/template/:id", (req, res) => {
  * POST /profile/from-resume
  *
  * Reads the user's stored resume text from a known location (worker config,
- * ~/.jobbored/resume.txt, or legacy hermes), runs it through Gemini, and
- * returns a draft v1 UserProfile for the wizard to display. Does NOT save.
+ * ~/.jobbored/resume.txt, or legacy hermes), runs it through the configured
+ * profile AI provider, and returns a draft v1 UserProfile for the wizard to
+ * display. Does NOT save.
  *
  * 200 { ok: true, profile, source }   — got a draft profile
  * 404 { ok: false, reason: "no_resume_stored" }
- * 500 { ok: false, reason: "gemini_error", message }
+ * 500 { ok: false, reason: "profile_provider_error", message }
  */
 app.post("/profile/from-resume", async (_req, res) => {
   let stored;
@@ -402,10 +403,21 @@ app.post("/profile/from-resume", async (_req, res) => {
         message: err.message,
       });
     }
+    if (code === "PROFILE_PROVIDER_NOT_CONFIGURED") {
+      return res.status(500).json({
+        ok: false,
+        reason: "profile_provider_not_configured",
+        provider: typeof err.provider === "string" ? err.provider : undefined,
+        message: err.message,
+      });
+    }
+    const provider = err && typeof err.provider === "string" ? err.provider : "";
+    const isGeminiError = provider === "gemini" || code.startsWith("GEMINI_");
     return res.status(500).json({
       ok: false,
-      reason: "gemini_error",
-      message: err && err.message ? String(err.message) : "gemini failed",
+      reason: isGeminiError ? "gemini_error" : "profile_provider_error",
+      provider: provider || undefined,
+      message: err && err.message ? String(err.message) : "profile provider failed",
     });
   }
 });
