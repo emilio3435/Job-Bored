@@ -1,6 +1,6 @@
 # Browser Use Discovery Worker
 
-This package is a user-owned discovery worker for JobBored. It accepts the existing `command-center.discovery` webhook request, resolves jobs across Greenhouse, Lever, and Ashby, can widen into grounded web discovery through Gemini plus Browser Use, normalizes them into valid Pipeline rows, dedupes on column E `Link`, and writes directly to Google Sheets.
+This package is a user-owned discovery worker for JobBored. It accepts the existing `command-center.discovery` webhook request, resolves jobs across Greenhouse, Lever, and Ashby, can optionally widen into Gemini Google Search grounding plus Browser Use, normalizes them into valid Pipeline rows, dedupes on column E `Link`, and writes directly to Google Sheets.
 
 It is designed for both:
 
@@ -140,7 +140,13 @@ Environment variables:
 - `BROWSER_USE_DISCOVERY_WORKER_ENV` / `BROWSER_USE_DISCOVERY_ENV_FILE`: path to the ignored local env file, defaults to `~/.jobbored/browser-use-discovery/.env`
 - `BROWSER_USE_DISCOVERY_STATE_DB_PATH`: path to the worker state database
 - `BROWSER_USE_DISCOVERY_BROWSER_COMMAND`: optional browser automation command; when unset, the worker first tries the bundled `integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs` wrapper if it exists, then falls back to plain `browser-use`, and finally falls back to direct fetch on command failure
-- `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`: optional Gemini key for grounded Google Search expansion and the Add URL `gemini_url_context` ingest tier
+- `BROWSER_USE_DISCOVERY_LLM_PROVIDER`: generic chat/JSON LLM provider; use `openrouter` as the setup default, or select `local`, `openai`, `openai_compatible`, `anthropic`, or `gemini`
+- `BROWSER_USE_DISCOVERY_OPENROUTER_API_KEY` / `_MODEL` / `_BASE_URL`: OpenRouter generic LLM config
+- `BROWSER_USE_DISCOVERY_LOCAL_API_KEY` / `_MODEL` / `_BASE_URL`: local generic LLM config; API key is optional for Ollama-style servers
+- `BROWSER_USE_DISCOVERY_OPENAI_API_KEY` / `_MODEL` / `_BASE_URL`: OpenAI generic LLM config
+- `BROWSER_USE_DISCOVERY_ANTHROPIC_API_KEY` / `_MODEL` / `_BASE_URL`: Anthropic generic LLM config
+- `BROWSER_USE_DISCOVERY_LLM_GEMINI_API_KEY` / `_MODEL` / `_BASE_URL`: Gemini as the selected generic LLM provider
+- `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`: optional key for Gemini Google Search (grounded web) and URL Context; also accepted as a backwards-compatible Gemini LLM key when `LLM_PROVIDER=gemini` and the `LLM_GEMINI_API_KEY` alias is unset (prefer the alias)
 - `BROWSER_USE_DISCOVERY_GEMINI_MODEL`: Gemini model for grounded search and Add URL context extraction, defaults to `gemini-3.5-flash`
 - `BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_RESULTS_PER_COMPANY`: candidate links to keep per company, defaults to `6`
 - `BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_PAGES_PER_COMPANY`: grounded pages to expand per company, defaults to `4`
@@ -233,10 +239,14 @@ BROWSER_USE_DISCOVERY_WORKER_ENV="$HOME/.jobbored/browser-use-discovery/.env" \
 BROWSER_USE_DISCOVERY_CONFIG_PATH="$HOME/.jobbored/browser-use-discovery/worker-config.json" \
 BROWSER_USE_DISCOVERY_STATE_DB_PATH="$HOME/.jobbored/browser-use-discovery/worker-state.sqlite" \
 BROWSER_USE_DISCOVERY_BROWSER_COMMAND="$PWD/integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs" \
-BROWSER_USE_DISCOVERY_GEMINI_API_KEY="$GEMINI_API_KEY" \
+BROWSER_USE_DISCOVERY_LLM_PROVIDER=openrouter \
+BROWSER_USE_DISCOVERY_OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
 BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE="$PWD/service-account.json" \
 node --experimental-strip-types integrations/browser-use-discovery/src/server.ts
 ```
+
+Add `BROWSER_USE_DISCOVERY_GEMINI_API_KEY` only when you want the optional
+Gemini Google Search grounding or URL Context tiers.
 
 The repo-level `integrations/browser-use-discovery/package.json` is a script
 surface only; root `package-lock.json` owns dependency installation for the
@@ -276,7 +286,7 @@ Hosted mode uses the same code path and contract. The difference is infrastructu
 `POST /ingest-url` accepts a single pasted job URL and attempts a tiered ingest strategy that writes one normalized Pipeline row, falling through each tier only when the prior one cannot return a complete posting:
 
 1. **ATS public API** (`ats_api`) — when the URL parses to a known Greenhouse/Lever/Ashby posting.
-2. **Gemini URL context** (`gemini_url_context`) — Gemini reads the live page with the `url_context` tool and returns structured job fields. Requires `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`; uses `BROWSER_USE_DISCOVERY_GEMINI_MODEL` (default `gemini-3.5-flash`). Skipped when the key is unset, and weak/low-confidence output falls through to Cheerio.
+2. **Gemini URL context** (`gemini_url_context`) — optional Google-tool tier where Gemini reads the live page with the `url_context` tool and returns structured job fields. Uses `BROWSER_USE_DISCOVERY_GEMINI_API_KEY` and `BROWSER_USE_DISCOVERY_GEMINI_MODEL` (default `gemini-3.5-flash`) only when configured. Skipped when the key is unset, and weak/low-confidence output falls through to Cheerio.
 3. **JSON-LD / DOM scrape** (`jsonld` / `cheerio_dom`) — via the shared Cheerio scraper.
 4. **Browser Use Cloud** (`browser_use_cloud`) — fallback for blocked aggregators, failed scrapes, or weak extraction.
 

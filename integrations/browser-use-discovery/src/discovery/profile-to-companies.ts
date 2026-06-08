@@ -2,14 +2,14 @@
  * Feature B / Layer 5 — profile-driven company discovery.
  *
  * Profile extraction uses the configured chat JSON provider. Company discovery
- * remains a Gemini Google Search tool lane.
+ * uses SerpApi Google Jobs first, then the optional Gemini Google Search tool
+ * lane when configured.
  *
  *  1. `extractCandidateProfile` — takes raw resume text and/or a form payload,
  *     returns a normalized {@link CandidateProfile}.
- *  2. `discoverCompaniesForProfile` — takes the profile, asks Gemini (with
- *     google_search grounding) to list 20-30 companies currently hiring for the
- *     role mix, parses and validates via Layer 4's two-call pattern (Call A
- *     grounded, Call B schema-structured).
+ *  2. `discoverCompaniesForProfile` — takes the profile, checks SerpApi Google
+ *     Jobs for hiring signals, then optionally asks Gemini (with google_search
+ *     grounding) to broaden to 20-30 companies when that upgrade is configured.
  *
  * Privacy: raw resume text is NEVER logged, NEVER persisted. Only the derived
  * profile fields and the inferred company list land in observable state.
@@ -143,6 +143,10 @@ const COMPANY_DISCOVERY_MIN_ACCEPTABLE = 15;
 const MAX_GROUNDED_OUTPUT_CHARS = 12_000;
 const NOVELTY_BUCKET_MS = 24 * 60 * 60 * 1000;
 const NOVELTY_RING_SIZE = 29;
+const CHAT_PROVIDER_NOT_CONFIGURED_MESSAGE =
+  "extractCandidateProfile: no chat LLM provider is configured. Configure any AI provider (OpenRouter, local, OpenAI, Anthropic, or Gemini) for profile extraction.";
+const COMPANY_DISCOVERY_NO_SOURCE_MESSAGE =
+  "discoverCompaniesForProfile: no SerpApi company candidates were available and optional Gemini google_search is unavailable because BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured. Configure SerpApi, company seeds, or ATS companies first; Gemini google_search is only the optional Google-tool upgrade.";
 
 const ATS_HOST_HINTS = [
   "greenhouse.io",
@@ -462,9 +466,7 @@ export async function extractCandidateProfile(
     ],
   });
   if (!provider) {
-    throw new Error(
-      "extractCandidateProfile: chat LLM provider is not configured.",
-    );
+    throw new Error(CHAT_PROVIDER_NOT_CONFIGURED_MESSAGE);
   }
   const fetchImpl = dependencies.fetchImpl || globalThis.fetch;
 
@@ -1450,9 +1452,7 @@ export async function discoverCompaniesForProfile(
       });
       return rankedSerpApiCompanies;
     }
-    throw new Error(
-      "discoverCompaniesForProfile: Gemini API key is not configured (BROWSER_USE_DISCOVERY_GEMINI_API_KEY).",
-    );
+    throw new Error(COMPANY_DISCOVERY_NO_SOURCE_MESSAGE);
   }
   const model = dependencies.runtimeConfig.geminiModel || "gemini-3.5-flash";
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;

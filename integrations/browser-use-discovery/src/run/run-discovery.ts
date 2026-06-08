@@ -2640,7 +2640,7 @@ function classifyFailureReason(
   ) {
     return {
       reasonCode: "weak_browser_seed_quality",
-      reasonMessage: "Browser scout attempted discovery but produced no scorable candidates. Gemini URL recall may be weak, or profile companies may not be hiring currently.",
+      reasonMessage: "Browser scout attempted discovery but produced no scorable candidates. Browser recall may be weak, or profile companies may not be hiring currently.",
       failureClass: "weak_browser_seed_quality",
     };
   }

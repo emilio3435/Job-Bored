@@ -821,7 +821,7 @@ async function autoEnrichIngestedRow(url, persistedLead, options = {}) {
     reportIngestProgress(
       onProgress,
       70,
-      "Scraping the posting and asking Gemini for details",
+      "Scraping the posting and enriching with your AI provider",
       "enrich",
     );
 

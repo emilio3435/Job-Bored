@@ -939,6 +939,10 @@ test("handleIngestUrlWebhook skips Gemini URL context when the optional Google t
     (entry) => entry.event === "discovery.run.ingest_url_gemini_skipped",
   );
   assert.equal(skipLog?.details.reason, "missing_api_key");
+  assert.match(
+    String(skipLog?.details.message || ""),
+    /Gemini URL Context skipped: optional Gemini url_context tool is unavailable/,
+  );
   assert.equal(skipLog?.details.tool, "url_context");
   assert.equal(skipLog?.details.optional, true);
 });
