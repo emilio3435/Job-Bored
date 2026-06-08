@@ -346,6 +346,25 @@
       access: accessStateForLog(),
     });
 
+    // While the first-run wizard owns the surface, do NOT strand a gate
+    // overlay in front of the wizard. The wizard's own sign-in step handles
+    // the sign-in case, and revealDashboardShell / handleSetupCreateStarterSheet
+    // will re-show the gate (or skip it) once the wizard is dismissed or
+    // finished. This prevents transient showSheetAccessGate calls — from
+    // auth-session.js's sign-in-success path, the loadAllData interval, or a
+    // restoreOAuthSession race — from silently swallowing clicks on the
+    // wizard's Sheet-step buttons (VAL-WIZ-013). The requested mode is still
+    // recorded on dataset.gateMode so the gate resumes with the right state
+    // once the wizard releases the surface.
+    if (firstRunWizardOwnsSurface()) {
+      startupLog("sheet-access:show-gate-deferred", {
+        reason: "first-run-wizard-active",
+        mode,
+      });
+      screen.dataset.gateMode = mode;
+      return;
+    }
+
     if (
       !host().getSheetId() &&
       host().getAccessToken() &&
@@ -510,6 +529,17 @@
 
   /** Show the starter Pipeline setup screen before the guided wizard takes over. */
   function revealPipelineSetupStepsScreen() {
+    // Same wizard-owns-surface guard as showSheetAccessGate / revealDashboardShell:
+    // a stray starter-setup reveal (e.g. from a sign-in-success resume or a
+    // loadAllData branch that decided to route to the setup screen) must NOT
+    // strand a setup overlay in front of the wizard, where it would swallow
+    // clicks on the Sheet-step buttons (VAL-WIZ-013).
+    if (firstRunWizardOwnsSurface()) {
+      startupLog("sheet-access:reveal-starter-setup-deferred", {
+        reason: "first-run-wizard-active",
+      });
+      return;
+    }
     releaseAuthPrepaintGuard("reveal-starter-setup");
     const setupScreen = document.getElementById("setupScreen");
     const dashboard = document.getElementById("dashboard");
