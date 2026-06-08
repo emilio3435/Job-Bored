@@ -264,8 +264,8 @@ There are two separate "going live" decisions, and only one of them ever needs
 [Cloudflare](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/):
 
 - **(A) Host the dashboard** (axis A) — pick any static host from the list
-  above (GitHub Pages, Vercel, Netlify, Cloudflare Pages, or just open
-  `index.html` locally). This is just static files; no transport setup is
+  above (GitHub Pages, Vercel, Netlify, Cloudflare Pages, or run it locally
+  with `npm run web-only`). This is just static files; no transport setup is
   needed. **Single-machine users can stop here** — `npm run web-only` on the
   same machine as the worker is fully functional with no extra steps.
 - **(B) Expose the discovery worker beyond `localhost`** (axis B) — only

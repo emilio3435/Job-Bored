@@ -4,7 +4,7 @@
 > *discovery worker* (axis B).** It is *not* about hosting the dashboard —
 > for that, see the **Deploy** section in
 > **[README.md](../README.md#4-deploy)** (GitHub Pages / Vercel / Netlify /
-> Cloudflare Pages / open `index.html` locally). The dashboard is static
+> Cloudflare Pages / `npm run web-only` locally). The dashboard is static
 > files; the only "going live" piece that ever needs a transport is the
 > worker, and that's what this document covers.
 
