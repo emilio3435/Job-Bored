@@ -232,19 +232,30 @@ After deploying, add `config.js` with your credentials and add your Vercel URL t
 
 #### Just open it locally
 
+The dashboard is composed at request time from HTML partials under
+`partials/` (first-run wizard, discovery drawer, settings modal, etc.) via
+`<!-- @include -->` directives. Only the bundled dev server expands those
+includes — `file://` (`open index.html`) and naive static servers like
+`python3 -m http.server` do **not**, so the page renders half-empty and the
+first-run wizard never appears. Always start the dev server:
+
 ```bash
-# Clone and open
+# Clone and run
 git clone https://github.com/emilio3435/Job-Bored.git
 cd ~/Job-Bored
-cp config.example.js config.js
-# Edit config.js with your credentials
-open index.html
-# Or use any local server:
+npm run setup          # installs deps and creates config.js from config.example.js
+# Edit config.js with your credentials (Sheet ID, OAuth Client ID, etc.)
+npm run web-only       # → http://localhost:8080  (static dashboard only)
+# Or, for the full local stack (dashboard + scraper + local discovery worker):
 npm run dev
 # → http://localhost:8080  (static root + scraper + local discovery worker)
-# Or:
-python3 -m http.server 8080
 ```
+
+No-Node fallback: `python3 -m http.server 8080` is fine for browsing the
+markup, but it does **not** expand the `<!-- @include -->` partials, so the
+first-run wizard, discovery drawer, and settings modal will be missing. Use
+`npm run web-only` (or `npm run dev`) for a working full dashboard.
+
 
 ### Going live — two independent axes
 
