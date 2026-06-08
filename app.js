@@ -524,6 +524,7 @@ function registerBridgeHosts() {
     warnDiscoverySourceReadinessBeforeRun,
     writeDiscoveryTransportSetupState,
     writeStoredConfigOverrides,
+    buildGreenfieldOverrideMask,
     applyEnrichmentCache,
   });
 }

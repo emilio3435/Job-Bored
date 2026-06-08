@@ -824,6 +824,10 @@ function mergeStoredConfigOverridePatch(patch) {
   );
 }
 
+function buildGreenfieldOverrideMask() {
+  return window.JobBoredApp.configOverrides.buildGreenfieldOverrideMask();
+}
+
 /** Merge values saved in this browser (localStorage) onto config from config.js. */
 function applyStoredConfigOverrides() {
   return window.JobBoredApp.configOverrides.applyStoredConfigOverrides();

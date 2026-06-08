@@ -653,21 +653,24 @@ async function performSettingsClearOverrides() {
   // 3) Clear stored config overrides (sheet ID, OAuth client ID, webhook URL,
   //    discovery profile, etc.), then write an explicit greenfield mask.
   //
-  //    The mask matters when config.js bakes in a sheetId / oauthClientId:
-  //    overrides are merged ON TOP of the file config, so merely removing
-  //    them lets the file's values flow right back on reload — the app boots
-  //    in "configured" mode, sign-in is one silent grant away, and the sheet
-  //    data reappears. Explicit empty-string overrides out-merge the file
-  //    values: getConfig() treats the install as unconfigured and
-  //    getOAuthClientId() returns null, so the app lands in the true
-  //    cold-start path (login gate in no-oauth mode + first-run wizard) with
-  //    no instant re-sign-in possible. Connecting a sheet or re-entering a
-  //    client ID later overwrites the mask via mergeStoredConfigOverridePatch.
+  //    The mask matters when config.js bakes in credentials (sheetId,
+  //    oauthClientId, AI provider keys, discovery webhook, etc.): overrides are
+  //    merged ON TOP of the file config, so merely removing them lets the
+  //    file's values flow right back on reload — the app boots "configured",
+  //    sign-in is one silent grant away, the sheet data reappears, AND the
+  //    onboarding's provider/discovery steps show pre-filled (so you can't
+  //    dogfood a true first run). Explicit empty-string overrides out-merge the
+  //    file values across ALL credential keys: getConfig() treats the install
+  //    as unconfigured, getOAuthClientId() returns null, and
+  //    isResumeGenerationConfigured() returns false, so the app lands in the
+  //    true cold-start path (login gate in no-oauth mode + first-run wizard)
+  //    with every onboarding step re-armed. Connecting a sheet / re-entering a
+  //    key later overwrites the mask via mergeStoredConfigOverridePatch.
   try {
     localStorage.removeItem(host().getCommandCenterConfigOverrideKey());
     localStorage.setItem(
       host().getCommandCenterConfigOverrideKey(),
-      JSON.stringify({ sheetId: "", oauthClientId: "" }),
+      JSON.stringify(host().buildGreenfieldOverrideMask()),
     );
   } catch (_) {
     showToast("Could not clear saved settings (storage error).", "error", true);

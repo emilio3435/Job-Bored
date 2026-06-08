@@ -533,6 +533,7 @@
         return app.configCore.parseGoogleSheetId(...args);
       },
       writeStoredConfigOverrides: host.writeStoredConfigOverrides,
+      buildGreenfieldOverrideMask: host.buildGreenfieldOverrideMask,
       canUseLocalStorage: host.canUseLocalStorage,
       applyOAuthClientChange: host.applyOAuthClientChange,
       syncDiscoveryButtonState: host.syncDiscoveryButtonState,

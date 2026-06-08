@@ -45,6 +45,44 @@
     "atsScoringWebhookUrl",
   ];
 
+  // Credential + connection keys a "greenfield reset" must neutralize. These
+  // are the values that make an install look "configured" and gate the
+  // onboarding steps (sheet, sign-in, AI provider, discovery). Structural
+  // defaults — resumeProvider, model names, base URLs, atsScoringMode, title —
+  // are deliberately NOT here: blanking them would break post-onboarding
+  // generation (e.g. an empty model name) without affecting whether onboarding
+  // shows. isResumeGenerationConfigured() gates on the API key, not the model,
+  // so masking the key alone is enough to re-arm the provider step.
+  const GREENFIELD_CREDENTIAL_KEYS = [
+    "sheetId",
+    "oauthClientId",
+    "discoveryWebhookUrl",
+    "discoveryWebhookSecret",
+    "resumeGeminiApiKey",
+    "resumeOpenAIApiKey",
+    "resumeAnthropicApiKey",
+    "resumeOpenRouterApiKey",
+    "resumeLocalApiKey",
+    "resumeGenerationWebhookUrl",
+    "jobPostingScrapeUrl",
+    "atsScoringServerUrl",
+    "atsScoringWebhookUrl",
+  ];
+
+  /**
+   * Empty-string override mask that out-merges config.js bake-ins so the app
+   * boots cold-start (login gate in no-oauth mode + first-run wizard) with no
+   * saved credentials. Empty strings (not deletes) are required: merely
+   * removing overrides lets config.js's values flow back on reload. Connecting
+   * a sheet / entering a key later overwrites the mask via
+   * mergeStoredConfigOverridePatch.
+   */
+  function buildGreenfieldOverrideMask() {
+    const mask = {};
+    for (const k of GREENFIELD_CREDENTIAL_KEYS) mask[k] = "";
+    return mask;
+  }
+
   function readStoredConfigOverrides() {
     try {
       const raw = localStorage.getItem(COMMAND_CENTER_CONFIG_OVERRIDE_KEY);
@@ -397,6 +435,55 @@
     }
   }
 
+  /**
+   * Dev/dogfooding greenfield: `?greenfield=1` (aliases ?fresh=1, ?reset=1)
+   * forces a cold-start install in ANY browser — incognito, a fresh profile,
+   * or one whose config.js bakes in a sheetId / oauthClientId / API keys. The
+   * Clear-settings button can only mask localStorage in the browser it runs in;
+   * this param works cross-browser because it neutralizes config.js in-session.
+   *
+   * It clears JobBored's localStorage breadcrumbs, persists the greenfield mask
+   * (so reloads within the session stay cold-start without re-adding the param),
+   * and best-effort drops the IndexedDB user-content store. Runs BEFORE
+   * applyStoredConfigOverrides so the mask is what lands on COMMAND_CENTER_CONFIG.
+   */
+  function maybeApplyGreenfieldUrlReset() {
+    let on = false;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      on =
+        params.get("greenfield") === "1" ||
+        params.get("fresh") === "1" ||
+        params.get("reset") === "1";
+    } catch (_) {
+      return false;
+    }
+    if (!on) return false;
+    try {
+      localStorage.removeItem("command_center_oauth_session");
+      localStorage.removeItem("command_center_oauth_runtime");
+      localStorage.removeItem(DISCOVERY_TRANSPORT_SETUP_KEY);
+      localStorage.removeItem("command_center_discovery_run_tracker");
+      writeStoredConfigOverrides(buildGreenfieldOverrideMask());
+      // Force Google's consent screen on the next sign-in so a lingering grant
+      // can't silently re-auth past the greenfield gate.
+      localStorage.setItem("command_center_force_consent_prompt", "1");
+    } catch (_) {
+      // No localStorage (some incognito modes): still neutralize config.js for
+      // this session so onboarding shows, even if it can't persist.
+      applyConfigOverridesToWindowConfig(buildGreenfieldOverrideMask());
+    }
+    try {
+      if (window.indexedDB && typeof indexedDB.deleteDatabase === "function") {
+        indexedDB.deleteDatabase("command-center-user-content");
+      }
+    } catch (_) {
+      /* best-effort — openDb recreates an empty schema */
+    }
+    return true;
+  }
+
+  maybeApplyGreenfieldUrlReset();
   applyStoredConfigOverrides();
 
   Object.assign(configOverrides, {
@@ -404,6 +491,8 @@
     DISCOVERY_TRANSPORT_SETUP_KEY,
     DISCOVERY_LOCAL_BOOTSTRAP_STATE_PATH,
     COMMAND_CENTER_OVERRIDE_KEYS,
+    GREENFIELD_CREDENTIAL_KEYS,
+    buildGreenfieldOverrideMask,
     readStoredConfigOverrides,
     applyConfigOverridesToWindowConfig,
     writeStoredConfigOverrides,
