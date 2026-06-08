@@ -59,6 +59,26 @@ describe("scripts/lib/tailscale.mjs", () => {
     assert.equal(deriveTailnetDashboardUrl(result), "https://mac.tailnet.ts.net");
   });
 
+  it("parses object-form CurrentTailnet without stringifying it", () => {
+    const spawnSync = createSpawnSync({
+      "tailscale version": ok("1.84.0\n"),
+      "tailscale status --json": ok(
+        JSON.stringify({
+          Self: { DNSName: "mac.tailnet.ts.net." },
+          CurrentTailnet: { Name: "tailnet.ts.net." },
+        }),
+      ),
+    });
+
+    assert.deepEqual(detectTailscale({ spawnSync }), {
+      installed: true,
+      version: "1.84.0",
+      loggedIn: true,
+      dnsName: "mac.tailnet.ts.net",
+      tailnet: "tailnet.ts.net",
+    });
+  });
+
   it("returns the locked absent shape when the tailscale binary is missing", () => {
     const spawnSync = createSpawnSync({
       "tailscale version": missingCommand("tailscale"),

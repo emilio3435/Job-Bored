@@ -1059,15 +1059,18 @@ async function handleOAuthBootstrap(req, res) {
 
 // Owner: Backend Worker A
 async function handleInstallDoctor(req, res) {
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, {
+      "access-control-allow-origin": "*",
+      "content-type": "application/json",
+    });
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
   const corsHeaders = {
     "access-control-allow-origin": "*",
     "content-type": "application/json",
   };
-  if (!isLocalOrigin(req)) {
-    res.writeHead(403, corsHeaders);
-    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
-    return;
-  }
   try {
     const { runInstallDoctor } = await import("./scripts/install-doctor.mjs");
     const result = runInstallDoctor();
@@ -1082,6 +1085,10 @@ async function handleInstallDoctor(req, res) {
           gcloud: { installed: false, loggedIn: false },
           wrangler: { installed: false, loggedIn: false },
           ngrok: { installed: false, hasAuthToken: false },
+          tailscale: { installed: false },
+          vercel: { installed: false },
+          netlify: { installed: false },
+          gh: { installed: false },
           node: { version: process.version, ok: true },
         },
         missing: ["Install doctor failed. Check the terminal and try again."],
@@ -1156,15 +1163,18 @@ function tailscaleRecommendation(detection, serving) {
 }
 
 async function handleTailscaleState(req, res) {
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, {
+      "access-control-allow-origin": "*",
+      "content-type": "application/json",
+    });
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
   const corsHeaders = {
     "access-control-allow-origin": "*",
     "content-type": "application/json",
   };
-  if (!isLocalOrigin(req)) {
-    res.writeHead(403, corsHeaders);
-    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
-    return;
-  }
 
   const detection = detectTailscale({ spawnSync: childProcess.spawnSync });
   const serving =
@@ -1185,15 +1195,18 @@ async function handleTailscaleState(req, res) {
 }
 
 async function handleTailscaleServe(req, res) {
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, {
+      "access-control-allow-origin": "*",
+      "content-type": "application/json",
+    });
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
   const corsHeaders = {
     "access-control-allow-origin": "*",
     "content-type": "application/json",
   };
-  if (!isLocalOrigin(req)) {
-    res.writeHead(403, corsHeaders);
-    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
-    return;
-  }
 
   let body = {};
   try {

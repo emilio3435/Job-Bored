@@ -38,6 +38,17 @@ function parseJsonObject(raw) {
   }
 }
 
+function resolveTailnet(status) {
+  const currentTailnet = status && status.CurrentTailnet;
+  if (typeof currentTailnet === "string") {
+    return trimTrailingDot(currentTailnet);
+  }
+  if (currentTailnet && typeof currentTailnet === "object" && !Array.isArray(currentTailnet)) {
+    return trimTrailingDot(currentTailnet.Name || currentTailnet.MagicDNSSuffix);
+  }
+  return trimTrailingDot(status && status.MagicDNSSuffix);
+}
+
 function normalizePort(port) {
   const parsed = Number.parseInt(String(port ?? ""), 10);
   return Number.isInteger(parsed) ? parsed : NaN;
@@ -75,9 +86,7 @@ export function detectTailscale({ spawnSync = childProcess.spawnSync } = {}) {
   const statusResult = runTailscaleCommand(spawnSync, ["status", "--json"]);
   const status = statusResult.status === 0 ? parseJsonObject(statusResult.stdout) : null;
   const dnsName = trimTrailingDot(status && status.Self && status.Self.DNSName);
-  const tailnet = trimTrailingDot(
-    status && (status.CurrentTailnet || status.MagicDNSSuffix),
-  );
+  const tailnet = resolveTailnet(status);
   const loggedIn = !!(
     status &&
     (dnsName || tailnet || status.Self)
