@@ -3,11 +3,11 @@
 
    Classic-global IIFE under window.JobBoredApp.firstRunWizard — NOT an ES module.
    Loaded BEFORE app.js. A guided, ordered setup surface that runs BEFORE the
-   existing profile onboarding wizard. It sequences capabilities that already
-   exist: connect/create a Google Sheet, sign in with Google, choose an AI
-   provider, and generate a first draft. The provider + draft steps are filled
-   in by a later milestone; this module owns the shell, the Sheet step, the
-   Google sign-in step, and the cold-start gate.
+   existing profile onboarding wizard, AFTER the user has signed in on the login
+   gate. Two steps: connect/create a Google Sheet, then choose an AI provider.
+   Auth (OAuth client ID entry + Google sign-in) is handled by the login gate,
+   not here. This module owns the shell, those two steps, and the cold-start
+   gate (which only surfaces the wizard once signed in).
    ============================================ */
 (() => {
   const root = window.JobBoredApp || (window.JobBoredApp = {});
@@ -21,34 +21,25 @@
 
   // Ordered step model. Each active step shows only its own panel; the step
   // indicator reflects this full sequence so the flow is discoverable.
+  // Order: connect a Sheet, then pick an AI provider. Google sign-in is NOT a
+  // wizard step — greenfield users authenticate on the login gate first (it
+  // owns the OAuth-client-ID entry + create-one walkthrough, which the wizard
+  // has no field for). The wizard only takes over once the user is signed in
+  // (see checkInfraSetupGate). The old "generate a draft" step was also
+  // removed — it needed a sheet already populated with a role, which can't
+  // exist before discovery runs.
   const FIRST_RUN_STEPS = [
     { id: "sheet", panelId: "firstRunPanelSheet", title: "Connect your Sheet" },
-    { id: "signin", panelId: "firstRunPanelSignin", title: "Sign in with Google" },
     { id: "provider", panelId: "firstRunPanelProvider", title: "Choose AI provider" },
-    { id: "draft", panelId: "firstRunPanelDraft", title: "Generate a draft" },
   ];
   const FIRST_RUN_TOTAL_STEPS = FIRST_RUN_STEPS.length;
 
   let currentStep = 1;
   let refreshTimer = null;
   let listenersWired = false;
-  let draftProduced = false;
 
   function getEl(id) {
     return typeof document !== "undefined" ? document.getElementById(id) : null;
-  }
-
-  function showToast(message, tone, sticky) {
-    const h = host();
-    if (typeof h.showToast === "function") h.showToast(message, tone, sticky);
-  }
-
-  function escapeText(value) {
-    return String(value == null ? "" : value)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
   }
 
   function getResumeGen() {
@@ -87,16 +78,14 @@
     return !!String(id || "").trim();
   }
 
-  function firstRunSigninStepComplete() {
+  /**
+   * Signed-in guard. Not a wizard step (the login gate handles auth before the
+   * wizard shows), but finishing still requires a live session so the dashboard
+   * can load the connected sheet.
+   */
+  function firstRunSignedIn() {
     const h = host();
     return typeof h.isSignedIn === "function" ? !!h.isSignedIn() : false;
-  }
-
-  function firstRunOauthClientMissing() {
-    const h = host();
-    const cid =
-      typeof h.getOAuthClientId === "function" ? h.getOAuthClientId() : null;
-    return !cid;
   }
 
   function firstRunProviderStepComplete() {
@@ -108,25 +97,19 @@
     );
   }
 
-  function firstRunDraftStepComplete() {
-    return draftProduced;
-  }
-
   function firstRunCanFinish() {
     return (
+      firstRunSignedIn() &&
       firstRunSheetStepComplete() &&
-      firstRunSigninStepComplete() &&
-      firstRunProviderStepComplete() &&
-      firstRunDraftStepComplete()
+      firstRunProviderStepComplete()
     );
   }
 
   /** The first step whose prerequisite is not yet satisfied. */
   function computeFirstRunStartStep() {
     if (!firstRunSheetStepComplete()) return 1;
-    if (!firstRunSigninStepComplete()) return 2;
-    if (!firstRunProviderStepComplete()) return 3;
-    return 4;
+    if (!firstRunProviderStepComplete()) return 2;
+    return FIRST_RUN_TOTAL_STEPS;
   }
 
   // --- Surface visibility -------------------------------------------------
@@ -219,12 +202,12 @@
       const panel = getEl(def.panelId);
       if (panel) panel.style.display = i + 1 === next ? "block" : "none";
     });
+    const activeDef = FIRST_RUN_STEPS[next - 1];
     const title = getEl("firstRunWizardTitle");
     if (title) {
-      const def = FIRST_RUN_STEPS[next - 1];
-      title.textContent = (def && def.title) || "Set up JobBored";
+      title.textContent = (activeDef && activeDef.title) || "Set up JobBored";
     }
-    if (next === 3) renderProviderStep();
+    if (activeDef && activeDef.id === "provider") renderProviderStep();
     updateFirstRunProgressUI(next);
     refreshFirstRunWizard();
   }
@@ -232,40 +215,19 @@
   /** Re-evaluate completion state and reflect it in the active step's UI. */
   function refreshFirstRunWizard() {
     const sheetDone = firstRunSheetStepComplete();
-    const signedIn = firstRunSigninStepComplete();
 
     const sheetConnected = getEl("firstRunSheetConnected");
     if (sheetConnected) sheetConnected.hidden = !sheetDone;
     const sheetNext = getEl("firstRunSheetNext");
     if (sheetNext) sheetNext.disabled = !sheetDone;
 
-    const oauthMissing = firstRunOauthClientMissing();
-    const signInBtn = getEl("firstRunSignInBtn");
-    const signinMessage = getEl("firstRunSigninMessage");
-    const signedInBadge = getEl("firstRunSignedIn");
-    const signinNext = getEl("firstRunSigninNext");
-    if (signinMessage) {
-      if (oauthMissing && !signedIn) {
-        signinMessage.hidden = false;
-        signinMessage.textContent =
-          "Google sign-in needs an OAuth client ID. Add one in Settings " +
-          "(it's a public client ID, not a paid key) to continue.";
-      } else {
-        signinMessage.hidden = true;
-        signinMessage.textContent = "";
-      }
-    }
-    if (signInBtn) signInBtn.style.display = signedIn ? "none" : oauthMissing ? "none" : "inline-flex";
-    if (signedInBadge) signedInBadge.hidden = !signedIn;
-    if (signinNext) signinNext.disabled = !signedIn;
-
-    // Provider step: keep the sub-panels in sync with the chosen radio and
-    // gate Continue until the selected provider is actually configured.
+    // Provider step (the final step): keep the sub-panels in sync with the
+    // chosen radio and gate "Finish setup" until every prerequisite is met.
     const selectedProvider = firstRunSelectedProvider();
     updateFirstRunProviderPanels(selectedProvider);
     const providerDone = firstRunProviderStepComplete();
     const providerNext = getEl("firstRunProviderNext");
-    if (providerNext) providerNext.disabled = !providerDone;
+    if (providerNext) providerNext.disabled = !firstRunCanFinish();
     const providerStatus = getEl("firstRunProviderStatus");
     if (providerStatus) {
       if (providerDone) {
@@ -279,13 +241,9 @@
             : "Paste your free OpenRouter key to continue.";
       }
     }
-
-    // Draft step: finishing requires every prerequisite AND a produced draft.
-    const finishBtn = getEl("firstRunDraftFinish");
-    if (finishBtn) finishBtn.disabled = !firstRunCanFinish();
   }
 
-  // --- Step 3: Provider choice -------------------------------------------
+  // --- Step 2: Provider choice -------------------------------------------
 
   function firstRunSelectedProvider() {
     if (
@@ -334,10 +292,9 @@
   }
 
   /**
-   * Mirror onboarding-wizard.js onboardingSuggestSaveKey: validate the key
-   * shape, persist via mergeStoredConfigOverridePatch (localStorage override),
-   * and apply it to the live config so the next generation uses it without a
-   * reload.
+   * Validate the OpenRouter key shape, persist via
+   * mergeStoredConfigOverridePatch (localStorage override), and apply it to the
+   * live config so the next generation uses it without a reload.
    */
   function firstRunSaveOpenRouterKey(rawKey) {
     const key = String(rawKey || "").trim();
@@ -466,106 +423,16 @@
     firstRunSelectProvider("openrouter");
   }
 
-  // --- Step 4: Generate one draft ----------------------------------------
-
-  function buildFirstRunInsightsHtml(insights, insightsError) {
-    if (!insights) {
-      return insightsError
-        ? `<p class="first-run-insight-note">Draft ready (insights unavailable for this response).</p>`
-        : "";
-    }
-    const score = (k) => {
-      const v = insights[k];
-      const n = v && typeof v === "object" ? Number(v.score) : Number(v);
-      return Number.isFinite(n) ? Math.round(n) : "—";
-    };
-    const fit = insights.fitAngle ? String(insights.fitAngle) : "";
-    return [
-      fit ? `<p class="first-run-insight-fit">${escapeText(fit)}</p>` : "",
-      '<ul class="first-run-insight-scores">',
-      `<li>Keyword coverage <strong>${score("keywordCoverage")}</strong></li>`,
-      `<li>Tone match <strong>${score("toneMatch")}</strong></li>`,
-      `<li>Length <strong>${score("length")}</strong></li>`,
-      "</ul>",
-    ].join("");
-  }
-
-  function renderFirstRunDraftResult(result) {
-    const wrap = getEl("firstRunDraftResult");
-    const textEl = getEl("firstRunDraftText");
-    const insightsEl = getEl("firstRunDraftInsights");
-    if (textEl) textEl.textContent = String((result && result.text) || "").slice(0, 4000);
-    if (insightsEl) {
-      insightsEl.innerHTML = buildFirstRunInsightsHtml(
-        result && result.insights,
-        result && result.insightsError,
-      );
-    }
-    if (wrap) wrap.hidden = false;
-  }
-
-  async function handleFirstRunGenerateDraft() {
-    const statusEl = getEl("firstRunDraftStatus");
-    const setStatus = (msg, isError) => {
-      if (!statusEl) return;
-      statusEl.hidden = !msg;
-      statusEl.textContent = msg || "";
-      statusEl.classList.toggle("first-run-status--error", !!isError);
-    };
-    if (!firstRunProviderStepComplete()) {
-      setStatus("Configure your AI provider on the previous step first.", true);
-      return;
-    }
-    const h = host();
-    const pipeline =
-      typeof h.getPipelineData === "function" ? h.getPipelineData() : [];
-    if (!Array.isArray(pipeline) || !pipeline.length) {
-      setStatus(
-        "Connect a sheet with at least one role to generate a draft.",
-        true,
-      );
-      return;
-    }
-    const btn = getEl("firstRunGenerateDraftBtn");
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = "Generating…";
-    }
-    setStatus("Generating one tailored draft…", false);
-    try {
-      if (typeof h.runResumeGeneration !== "function") {
-        throw new Error("Resume generation is unavailable in this build.");
-      }
-      const result = await h.runResumeGeneration(0, "resume", { silent: true });
-      if (!result || !result.text) {
-        setStatus(
-          "Generation didn't produce a draft. Add resume or about details in your profile, then try again.",
-          true,
-        );
-        return;
-      }
-      renderFirstRunDraftResult(result);
-      draftProduced = true;
-      setStatus("Draft ready. Finish setup to open your pipeline.", false);
-    } catch (err) {
-      setStatus((err && err.message) || "Generation failed. Try again.", true);
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = draftProduced ? "Regenerate draft" : "Generate first draft";
-      }
-      refreshFirstRunWizard();
-    }
-  }
+  // --- Finish -------------------------------------------------------------
 
   async function handleFirstRunFinish() {
     if (!firstRunCanFinish()) {
-      const statusEl = getEl("firstRunDraftStatus");
+      const statusEl = getEl("firstRunProviderStatus");
       if (statusEl) {
         statusEl.hidden = false;
         statusEl.classList.add("first-run-status--error");
         statusEl.textContent =
-          "Finish needs a connected sheet, a signed-in account, a configured provider, and one generated draft.";
+          "Finish needs a signed-in account, a connected sheet, and a configured provider.";
       }
       return;
     }
@@ -624,6 +491,21 @@
     setFirstRunStep(Math.max(2, computeFirstRunStartStep()));
   }
 
+  /** Status line under the Create button (sign-in handoff, errors, success). */
+  function setFirstRunCreateSheetStatus(message, isError) {
+    const status = getEl("firstRunCreateSheetStatus");
+    if (!status) return;
+    if (!message) {
+      status.hidden = true;
+      status.textContent = "";
+      status.classList.remove("first-run-status--error");
+      return;
+    }
+    status.hidden = false;
+    status.classList.toggle("first-run-status--error", !!isError);
+    status.textContent = message;
+  }
+
   function handleFirstRunCreateSheet() {
     const h = host();
     if (typeof h.handleSetupCreateStarterSheet !== "function") return;
@@ -638,15 +520,19 @@
       btn.disabled = false;
       btn.textContent = originalLabel || "Create a new Sheet";
     };
+    setFirstRunCreateSheetStatus("");
     // Pass a wizard context so the create primitive skips the dashboard
     // handoff (revealDashboardShell/loadAllData/discovery) and instead advances
-    // the wizard via onCreated.
+    // the wizard via onCreated. onStatus keeps the step-1 status line honest
+    // across the sign-in popup handoff (the create resumes after the popup,
+    // long after this click's promise has settled).
     void Promise.resolve(
       h.handleSetupCreateStarterSheet({
         context: "wizard",
         onCreated: () => {
           advanceFirstRunAfterSheetCreate();
         },
+        onStatus: setFirstRunCreateSheetStatus,
       }),
     )
       .catch((err) => {
@@ -699,25 +585,6 @@
     refreshFirstRunWizard();
   }
 
-  // --- Step 2: Google sign-in --------------------------------------------
-
-  function handleFirstRunSignIn() {
-    const h = host();
-    if (firstRunOauthClientMissing()) {
-      if (typeof h.openCommandCenterSettingsModal === "function") {
-        void h.openCommandCenterSettingsModal();
-      } else {
-        showToast(
-          "Add a Google OAuth client ID in Settings to sign in.",
-          "info",
-          true,
-        );
-      }
-      return;
-    }
-    if (typeof h.signIn === "function") h.signIn();
-  }
-
   /**
    * Settings "Run setup again": reopen the wizard from step 1. Only the
    * caller's reset of the infraSetupComplete flag changes state — the saved
@@ -725,7 +592,6 @@
    * re-entry never corrupts existing config.
    */
   function reopenFirstRunWizard() {
-    draftProduced = false;
     showFirstRunWizard();
     setFirstRunStep(1);
   }
@@ -734,10 +600,19 @@
 
   /**
    * Returns true when the first-run wizard owns the surface (infra setup is
-   * incomplete), so the caller can skip the downstream profile onboarding gate.
-   * Returns false when infra setup is already complete or cannot be checked.
+   * incomplete AND the user is signed in), so the caller can skip the
+   * downstream profile onboarding gate. Returns false when infra setup is
+   * already complete, the user isn't signed in yet, or the check can't run.
+   *
+   * The signed-in guard is what keeps the login gate in charge for greenfield
+   * users: until they enter an OAuth client ID and sign in (both handled by the
+   * gate), the wizard stays hidden so it never buries the gate's OAuth-entry UI
+   * behind a Sheet step they can't reach. The auth layer re-invokes this after a
+   * successful sign-in (revealSetupScreenAfterAuth), at which point the wizard
+   * takes over for Sheet → Provider.
    */
   async function checkInfraSetupGate() {
+    if (!firstRunSignedIn()) return false;
     const UC = typeof host().getUserContent === "function"
       ? host().getUserContent()
       : null;
@@ -773,18 +648,10 @@
         handleFirstRunPasteSheet();
       }
     });
+    // Step order: 1 sheet → 2 provider (sign-in happens on the login gate
+    // before the wizard ever shows, so it is not a wizard step).
     getEl("firstRunSheetNext")?.addEventListener("click", () => {
       setFirstRunStep(2);
-    });
-
-    getEl("firstRunSignInBtn")?.addEventListener("click", () => {
-      handleFirstRunSignIn();
-    });
-    getEl("firstRunSigninBack")?.addEventListener("click", () => {
-      setFirstRunStep(1);
-    });
-    getEl("firstRunSigninNext")?.addEventListener("click", () => {
-      setFirstRunStep(3);
     });
 
     getEl("firstRunProviderOpenRouter")?.addEventListener("change", () => {
@@ -807,19 +674,10 @@
       firstRunSetLocalModel(sel ? sel.value : "");
     });
     getEl("firstRunProviderBack")?.addEventListener("click", () => {
-      setFirstRunStep(2);
+      setFirstRunStep(1);
     });
+    // Provider is the final step: its primary action finishes setup.
     getEl("firstRunProviderNext")?.addEventListener("click", () => {
-      setFirstRunStep(4);
-    });
-
-    getEl("firstRunGenerateDraftBtn")?.addEventListener("click", () => {
-      void handleFirstRunGenerateDraft();
-    });
-    getEl("firstRunDraftBack")?.addEventListener("click", () => {
-      setFirstRunStep(3);
-    });
-    getEl("firstRunDraftFinish")?.addEventListener("click", () => {
       void handleFirstRunFinish();
     });
 
@@ -854,10 +712,8 @@
     setFirstRunStep,
     refreshFirstRunWizard,
     firstRunSheetStepComplete,
-    firstRunSigninStepComplete,
-    firstRunOauthClientMissing,
+    firstRunSignedIn,
     firstRunProviderStepComplete,
-    firstRunDraftStepComplete,
     firstRunCanFinish,
     firstRunSaveOpenRouterKey,
     firstRunSelectProvider,

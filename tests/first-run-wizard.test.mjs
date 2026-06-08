@@ -219,8 +219,7 @@ describe("first-run-wizard module", () => {
       "setFirstRunStep",
       "checkInfraSetupGate",
       "firstRunSheetStepComplete",
-      "firstRunSigninStepComplete",
-      "firstRunOauthClientMissing",
+      "firstRunSignedIn",
       "computeFirstRunStartStep",
       "initFirstRunWizard",
     ]) {
@@ -236,7 +235,7 @@ describe("first-run-wizard module", () => {
     let sheetId = "";
     const { api } = loadWizard({
       getSheetId: () => sheetId,
-      isSignedIn: () => false,
+      isSignedIn: () => true,
       getOAuthClientId: () => "cid.apps.googleusercontent.com",
     });
     assert.equal(api.firstRunSheetStepComplete(), false);
@@ -244,40 +243,35 @@ describe("first-run-wizard module", () => {
     assert.equal(api.firstRunSheetStepComplete(), true);
   });
 
-  it("sign-in step completion reflects the auth session", () => {
+  it("firstRunSignedIn reflects the auth session (a finish guard, not a step)", () => {
     let signedIn = false;
     const { api } = loadWizard({
       getSheetId: () => "sheet",
       isSignedIn: () => signedIn,
       getOAuthClientId: () => "cid.apps.googleusercontent.com",
     });
-    assert.equal(api.firstRunSigninStepComplete(), false);
+    assert.equal(api.firstRunSignedIn(), false);
     signedIn = true;
-    assert.equal(api.firstRunSigninStepComplete(), true);
+    assert.equal(api.firstRunSignedIn(), true);
   });
 
-  it("flags a missing OAuth client id", () => {
-    let cid = null;
-    const { api } = loadWizard({
-      getSheetId: () => "sheet",
-      isSignedIn: () => false,
-      getOAuthClientId: () => cid,
-    });
-    assert.equal(api.firstRunOauthClientMissing(), true);
-    cid = "cid.apps.googleusercontent.com";
-    assert.equal(api.firstRunOauthClientMissing(), false);
-  });
-
-  it("computes the first incomplete step as the start step", () => {
-    const make = (sheetId, signedIn) =>
+  it("computes the first incomplete step as the start step (cap at 2 for the 2-step flow)", () => {
+    const make = (sheetId, configured) =>
       loadWizard({
         getSheetId: () => sheetId,
-        isSignedIn: () => signedIn,
+        isSignedIn: () => true,
         getOAuthClientId: () => "cid.apps.googleusercontent.com",
+        getResumeGenerate: () => ({
+          isResumeGenerationConfigured: () => configured,
+          getResumeGenerationConfig: () => ({ provider: "openrouter" }),
+        }),
       }).api;
+    // No sheet yet → start at 1.
     assert.equal(make("", false).computeFirstRunStartStep(), 1);
+    // Sheet connected, provider not configured → start at 2.
     assert.equal(make("sheet", false).computeFirstRunStartStep(), 2);
-    assert.equal(make("sheet", true).computeFirstRunStartStep(), 3);
+    // Both met → cap at FIRST_RUN_TOTAL_STEPS (2).
+    assert.equal(make("sheet", true).computeFirstRunStartStep(), 2);
   });
 
   it("checkInfraSetupGate returns false when infra setup is already complete", async () => {
@@ -294,7 +288,21 @@ describe("first-run-wizard module", () => {
     assert.equal(!!handled, false);
   });
 
-  it("checkInfraSetupGate returns true (owns the surface) when infra setup is incomplete", async () => {
+  it("checkInfraSetupGate returns true (owns the surface) when signed in AND infra setup is incomplete", async () => {
+    const { api } = loadWizard({
+      getUserContent: () => ({
+        openDb: async () => {},
+        isInfraSetupComplete: async () => false,
+      }),
+      getSheetId: () => "",
+      isSignedIn: () => true,
+      getOAuthClientId: () => "cid.apps.googleusercontent.com",
+    });
+    const handled = await api.checkInfraSetupGate();
+    assert.equal(handled, true);
+  });
+
+  it("checkInfraSetupGate returns false until the user is signed in (login gate owns the surface)", async () => {
     const { api } = loadWizard({
       getUserContent: () => ({
         openDb: async () => {},
@@ -305,7 +313,11 @@ describe("first-run-wizard module", () => {
       getOAuthClientId: () => "cid.apps.googleusercontent.com",
     });
     const handled = await api.checkInfraSetupGate();
-    assert.equal(handled, true);
+    assert.equal(
+      !!handled,
+      false,
+      "the wizard must NOT own the surface until signed in — the login gate handles OAuth entry",
+    );
   });
 
   it("checkInfraSetupGate does not block when the content store is unavailable", async () => {
@@ -321,42 +333,60 @@ describe("first-run-wizard module", () => {
       "parseGoogleSheetId",
       "mergeStoredConfigOverridePatch",
       "handleSetupCreateStarterSheet",
-      "signIn",
       "isSignedIn",
-      "getOAuthClientId",
     ]) {
       assert.ok(
         firstRunWizardJs.includes(ref),
         `first-run-wizard.js should reuse ${ref}`,
       );
     }
+    // The wizard no longer drives Google sign-in itself — the login gate
+    // owns that. Assert the absence so a regression that re-adds it fails.
+    assert.ok(
+      !/handleFirstRunSignIn\b/.test(firstRunWizardJs) &&
+        !/firstRunOauthClientMissing\b/.test(firstRunWizardJs) &&
+        !/getOAuthClientId\b/.test(firstRunWizardJs),
+      "the wizard must NOT contain sign-in primitives (sign-in lives on the login gate)",
+    );
   });
 });
 
 describe("first-run wizard markup + wiring", () => {
-  it("partial defines the wizard surface and ordered step panels", () => {
+  it("partial defines the wizard surface and ordered 2-step panels (Sheet → Provider)", () => {
     assert.match(firstRunPartial, /id="firstRunWizard"/);
-    for (const id of [
-      "firstRunPanelSheet",
-      "firstRunPanelSignin",
-      "firstRunPanelProvider",
-      "firstRunPanelDraft",
-    ]) {
+    for (const id of ["firstRunPanelSheet", "firstRunPanelProvider"]) {
       assert.ok(
         firstRunPartial.includes(`id="${id}"`),
         `partial should define ${id}`,
       );
     }
+    // The sign-in and draft panels are GONE (sign-in lives on the login
+    // gate; the wizard's terminal step is the provider pick).
+    for (const id of ["firstRunPanelSignin", "firstRunPanelDraft"]) {
+      assert.ok(
+        !firstRunPartial.includes(`id="${id}"`),
+        `partial must NOT define ${id} — sign-in lives on the login gate, the wizard has no draft step`,
+      );
+    }
+  });
+
+  it("the step indicator reads 'Step 1 of 2' and the progress bar caps at 2", () => {
+    assert.match(firstRunPartial, /Step 1 of 2/);
+    assert.match(firstRunPartial, /aria-valuemax="2"/);
+    // Two step labels: Sheet, Provider. No "Sign in" or "Draft".
+    assert.match(
+      firstRunPartial,
+      /data-step-index="1"[^>]*>[\s\S]*?Sheet[\s\S]*?<\/li>[\s\S]*?data-step-index="2"[^>]*>[\s\S]*?Provider[\s\S]*?<\/li>/,
+    );
   });
 
   it("sheet step offers both create and paste-existing controls", () => {
     assert.ok(firstRunPartial.includes('id="firstRunCreateSheetBtn"'));
     assert.ok(firstRunPartial.includes('id="firstRunSheetIdInput"'));
-  });
-
-  it("sign-in step offers a sign-in control gated by a Next button", () => {
-    assert.ok(firstRunPartial.includes('id="firstRunSignInBtn"'));
-    assert.ok(firstRunPartial.includes('id="firstRunSigninNext"'));
+    assert.ok(
+      firstRunPartial.includes('id="firstRunCreateSheetStatus"'),
+      "the Sheet step must surface a status line for create feedback (sign-in handoff, errors, success)",
+    );
   });
 
   it("index.html loads the wizard partial, script and stylesheet", () => {
@@ -392,7 +422,7 @@ describe("first-run wizard markup + wiring", () => {
   });
 });
 
-describe("first-run wizard — provider + draft steps", () => {
+describe("first-run wizard — provider step (terminal, no in-wizard draft)", () => {
   const providerHost = (over) => ({
     getSheetId: () => "sheet",
     isSignedIn: () => true,
@@ -408,19 +438,27 @@ describe("first-run wizard — provider + draft steps", () => {
     ...over,
   });
 
-  it("exposes the provider/draft step API surface", () => {
+  it("exposes the provider-step API surface (no draft step, no signin step)", () => {
     const { api } = loadWizard(providerHost());
     for (const fn of [
       "firstRunProviderStepComplete",
-      "firstRunDraftStepComplete",
       "firstRunSaveOpenRouterKey",
       "firstRunSelectProvider",
       "firstRunCanFinish",
+      "firstRunSignedIn",
     ]) {
       assert.equal(
         typeof api[fn],
         "function",
         `firstRunWizard.${fn} should be a function`,
+      );
+    }
+    // No more draft or signin step predicates.
+    for (const fn of ["firstRunDraftStepComplete", "firstRunSigninStepComplete"]) {
+      assert.equal(
+        typeof api[fn],
+        "undefined",
+        `firstRunWizard.${fn} must be removed (2-step flow, sign-in is the login gate's job)`,
       );
     }
   });
@@ -440,7 +478,7 @@ describe("first-run wizard — provider + draft steps", () => {
     assert.equal(api.firstRunProviderStepComplete(), true);
   });
 
-  it("computeFirstRunStartStep caps at 3 until the provider is configured, then reaches 4", () => {
+  it("computeFirstRunStartStep caps at 2 once the provider is configured (no draft step to reach)", () => {
     let configured = false;
     const { api } = loadWizard(
       providerHost({
@@ -450,9 +488,13 @@ describe("first-run wizard — provider + draft steps", () => {
         }),
       }),
     );
-    assert.equal(api.computeFirstRunStartStep(), 3);
+    assert.equal(api.computeFirstRunStartStep(), 2);
     configured = true;
-    assert.equal(api.computeFirstRunStartStep(), 4);
+    assert.equal(
+      api.computeFirstRunStartStep(),
+      2,
+      "once the provider is configured, the wizard has nothing left to start at — cap is FIRST_RUN_TOTAL_STEPS (2)",
+    );
   });
 
   it("saving a valid OpenRouter key persists it via mergeStoredConfigOverridePatch and the live config", () => {
@@ -504,23 +546,68 @@ describe("first-run wizard — provider + draft steps", () => {
     assert.equal(window.COMMAND_CENTER_CONFIG.resumeProvider, "local");
   });
 
-  it("cannot finish until sheet, sign-in, provider and a produced draft are all satisfied", () => {
-    let configured = false;
-    const { api } = loadWizard(
+  it("firstRunCanFinish requires signed-in + sheet + provider; no draft is needed", () => {
+    const { api } = loadWizard(providerHost());
+    // Defaults: signed in, sheet connected, provider NOT configured.
+    assert.equal(
+      api.firstRunCanFinish(),
+      false,
+      "finish is blocked when the provider is unconfigured",
+    );
+    // Configure the provider; signing-in and sheet are already satisfied.
+    const { api: api2 } = loadWizard(
       providerHost({
         getResumeGenerate: () => ({
-          isResumeGenerationConfigured: () => configured,
+          isResumeGenerationConfigured: () => true,
+          getResumeGenerationConfig: () => ({
+            provider: "openrouter",
+            resumeOpenRouterApiKey: "sk-or-keep",
+          }),
+        }),
+      }),
+    );
+    assert.equal(
+      api2.firstRunCanFinish(),
+      true,
+      "finish is unblocked once signed-in + sheet + provider are all met (no draft required)",
+    );
+  });
+
+  it("firstRunCanFinish is blocked when signed-in is false even with sheet + provider ready", () => {
+    const { api } = loadWizard(
+      providerHost({
+        isSignedIn: () => false,
+        getResumeGenerate: () => ({
+          isResumeGenerationConfigured: () => true,
           getResumeGenerationConfig: () => ({ provider: "openrouter" }),
         }),
       }),
     );
-    assert.equal(api.firstRunCanFinish(), false);
-    configured = true;
-    // provider now configured but no draft produced yet
-    assert.equal(api.firstRunCanFinish(), false);
+    assert.equal(
+      api.firstRunCanFinish(),
+      false,
+      "finish is blocked while the user is not signed in",
+    );
   });
 
-  it("mirrors the onboarding key-save pattern (mergeStoredConfigOverridePatch + live config) and reuses runResumeGeneration", () => {
+  it("firstRunCanFinish is blocked when sheet is missing even with sign-in + provider ready", () => {
+    const { api } = loadWizard(
+      providerHost({
+        getSheetId: () => "",
+        getResumeGenerate: () => ({
+          isResumeGenerationConfigured: () => true,
+          getResumeGenerationConfig: () => ({ provider: "openrouter" }),
+        }),
+      }),
+    );
+    assert.equal(
+      api.firstRunCanFinish(),
+      false,
+      "finish is blocked while no Sheet is connected",
+    );
+  });
+
+  it("mirrors the onboarding key-save pattern (mergeStoredConfigOverridePatch + live config) and reuses the host helpers", () => {
     assert.ok(
       firstRunWizardJs.includes("mergeStoredConfigOverridePatch"),
       "wizard should persist the key via mergeStoredConfigOverridePatch",
@@ -530,12 +617,25 @@ describe("first-run wizard — provider + draft steps", () => {
       "wizard should apply the pasted key to the live config object",
     );
     assert.ok(
-      firstRunWizardJs.includes("runResumeGeneration"),
-      "draft step should reuse runResumeGeneration",
-    );
-    assert.ok(
       firstRunWizardJs.includes("completeInfraSetup"),
       "finish should mark infra setup complete",
+    );
+    // The wizard no longer runs an in-wizard draft step; finish itself owns
+    // the dashboard handoff (UC.completeInfraSetup / hideFirstRunWizard /
+    // revealDashboardShell / renderPipeline / checkOnboardingGate).
+    assert.ok(
+      firstRunWizardJs.includes("hideFirstRunWizard") &&
+        firstRunWizardJs.includes("revealDashboardShell") &&
+        firstRunWizardJs.includes("renderPipeline") &&
+        firstRunWizardJs.includes("checkOnboardingGate"),
+      "finish should run the dashboard-handoff chain",
+    );
+    // No in-wizard draft path.
+    assert.ok(
+      !/handleFirstRunGenerateDraft\b/.test(firstRunWizardJs) &&
+        !/renderFirstRunDraftResult\b/.test(firstRunWizardJs) &&
+        !/buildFirstRunInsightsHtml\b/.test(firstRunWizardJs),
+      "the wizard must NOT contain a draft-generation step (no handleFirstRunGenerateDraft/renderFirstRunDraftResult/buildFirstRunInsightsHtml)",
     );
   });
 });
@@ -583,7 +683,7 @@ describe("runResumeGeneration is reachable from the wizard host", () => {
   });
 });
 
-describe("first-run wizard markup — provider + draft controls", () => {
+describe("first-run wizard markup — provider step controls", () => {
   it("provider step presents OpenRouter (checked) and local options", () => {
     assert.ok(firstRunPartial.includes('value="openrouter"'));
     assert.ok(firstRunPartial.includes('value="local"'));
@@ -605,10 +705,24 @@ describe("first-run wizard markup — provider + draft controls", () => {
     assert.ok(firstRunPartial.includes('id="firstRunLocalDownloadControl"'));
   });
 
-  it("draft step has a generate control and an inline draft + insights region", () => {
-    assert.ok(firstRunPartial.includes('id="firstRunGenerateDraftBtn"'));
-    assert.ok(firstRunPartial.includes('id="firstRunDraftText"'));
-    assert.ok(firstRunPartial.includes('id="firstRunDraftInsights"'));
+  it("provider step's primary action is the terminal 'Finish setup' (no in-wizard draft control)", () => {
+    assert.match(
+      firstRunPartial,
+      /id="firstRunProviderNext"[\s\S]*?>[\s\S]*?Finish setup[\s\S]*?<\/button>/,
+      "the provider step's Next button must read 'Finish setup' — that's the wizard's terminal action",
+    );
+    // No in-wizard draft controls.
+    for (const id of [
+      "firstRunGenerateDraftBtn",
+      "firstRunDraftText",
+      "firstRunDraftInsights",
+      "firstRunDraftResult",
+    ]) {
+      assert.ok(
+        !firstRunPartial.includes(`id="${id}"`),
+        `partial must NOT define ${id} — the wizard has no draft step`,
+      );
+    }
   });
 });
 

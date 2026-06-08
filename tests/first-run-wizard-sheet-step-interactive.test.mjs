@@ -564,8 +564,8 @@ describe("first-run wizard — Sheet step stays interactive under a stray showSh
     );
     assert.equal(
       h.calls.open,
-      0,
-      "the wizard create path must NOT open the spreadsheet tab",
+      1,
+      "the wizard create path must open the new spreadsheet in a new tab (window.open) — the wizard stays put in THIS tab",
     );
   });
 

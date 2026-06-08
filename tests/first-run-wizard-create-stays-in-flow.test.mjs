@@ -346,7 +346,11 @@ describe("handleSetupCreateStarterSheet — wizard vs onboarding handoff", () =>
       0,
       "wizard create must NOT trigger discovery setup",
     );
-    assert.equal(calls.open, 0, "wizard create must NOT open the spreadsheet tab");
+    assert.equal(
+      calls.open,
+      1,
+      "wizard create must open the new spreadsheet in a new tab (window.open) — the wizard stays put in THIS tab",
+    );
     assert.notEqual(
       document.getElementById("dashboard").style.display,
       "block",

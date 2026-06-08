@@ -558,9 +558,23 @@
     renderSetupStarterSheetUi();
   }
 
-  /** No Sheet ID yet: after Google sign-in, show the starter-sheet setup steps. */
+  /** No Sheet ID yet: after Google sign-in, hand off to the first-run wizard. */
   function revealSetupScreenAfterAuth() {
     if (host().getSheetId()) return;
+    // Signed in with no sheet yet: the first-run wizard (Sheet → Provider) now
+    // owns this surface. Its checkInfraSetupGate requires a signed-in session
+    // (true here) and an incomplete infra flag; if it declines (infra already
+    // complete or the wizard is unavailable), fall back to the legacy
+    // standalone setup screen so the user is never stranded.
+    const wizard = window.JobBoredApp && window.JobBoredApp.firstRunWizard;
+    if (wizard && typeof wizard.checkInfraSetupGate === "function") {
+      Promise.resolve(wizard.checkInfraSetupGate())
+        .then((shown) => {
+          if (!shown) revealPipelineSetupStepsScreen();
+        })
+        .catch(() => revealPipelineSetupStepsScreen());
+      return;
+    }
     revealPipelineSetupStepsScreen();
   }
 
@@ -763,12 +777,18 @@
     // The post-sign-in resume re-invokes this with no args; recover the
     // context captured before sign-in so a wizard-initiated create resumes in
     // the wizard. A non-wizard call always passes an explicit options object.
-    const opts =
-      options && typeof options === "object"
-        ? options
-        : pendingStarterSheetCreateOptions || {};
+    const resumed = !(options && typeof options === "object");
+    const opts = resumed ? pendingStarterSheetCreateOptions || {} : options;
     const skipDashboardHandoff =
       opts.context === "wizard" || opts.skipDashboardHandoff === true;
+    const notify = (message, isError) => {
+      if (typeof opts.onStatus !== "function") return;
+      try {
+        opts.onStatus(message, isError);
+      } catch (_) {
+        /* status line is cosmetic — never block the create */
+      }
+    };
 
     if (!host().getOAuthClientId()) {
       pendingStarterSheetCreateOptions = null;
@@ -793,10 +813,30 @@
       !host().getAccessToken() ||
       !host().hasGrantedOauthScope(host().getGoogleSheetsScope())
     ) {
+      if (resumed) {
+        // Post-sign-in resume and the token still lacks the Sheets scope: the
+        // user left Google's granular-consent checkbox unchecked. Do NOT call
+        // signIn() here — we're inside the GIS callback, not a user gesture,
+        // so the consent popup gets popup-blocked and the flow dies silently.
+        // Surface the fix and let the next click (a real gesture) open consent.
+        pendingStarterSheetCreateOptions = null;
+        const message =
+          "Google signed you in but didn't grant Sheets access. Click the " +
+          "create button again and check the box allowing JobBored to manage " +
+          "your Google Sheets.";
+        notify(message, true);
+        host().showToast(message, "error", true);
+        renderSetupStarterSheetUi();
+        return;
+      }
       // Sheet step precedes the explicit sign-in step in the wizard: remember
       // the context so the resumed create stays in the wizard.
       pendingStarterSheetCreateOptions = opts;
       core().setPendingSetupStarterSheetCreate(true);
+      notify(
+        "Finish Google sign-in in the popup window — your starter sheet will " +
+          "be created right after. If the popup closed, click again to retry.",
+      );
       host().signIn({
         prompt: host().getAccessToken() ? "consent" : "",
       });
@@ -811,9 +851,16 @@
       btn.disabled = true;
       btn.textContent = "Creating starter sheet…";
     }
+    notify("Creating your starter sheet…");
     const created = await createBlankStarterSheet(false);
     renderSetupStarterSheetUi();
-    if (!created) return;
+    if (!created) {
+      notify(
+        "Could not create the starter sheet. Check the error message and try again.",
+        true,
+      );
+      return;
+    }
 
     pendingStarterSheetCreateOptions = null;
     host().mergeStoredConfigOverridePatch({ sheetId: created.spreadsheetId });
@@ -822,9 +869,14 @@
     setDashboardSheetLinks();
 
     if (skipDashboardHandoff) {
-      // Wizard create: connect the Sheet but stay in the wizard. The caller's
-      // onCreated callback advances the wizard step; it runs on the direct
-      // path and on the post-sign-in resume (GIS never reloads the page).
+      // Wizard create: connect the Sheet, open it in a new tab (the wizard
+      // stays put in this tab), then advance via the caller's onCreated. It
+      // runs on the direct path and on the post-sign-in resume (GIS never
+      // reloads the page).
+      notify("Starter sheet created — opening it in a new tab.");
+      if (created.spreadsheetUrl) {
+        window.open(created.spreadsheetUrl, "_blank", "noopener");
+      }
       if (typeof opts.onCreated === "function") {
         try {
           opts.onCreated(created);

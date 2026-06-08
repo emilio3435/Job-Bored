@@ -397,8 +397,8 @@ describe("first-run wizard — create + 403-consent resume stays in the wizard (
     );
     assert.equal(
       h.calls.open,
-      0,
-      "the wizard create path must NOT open the spreadsheet tab",
+      1,
+      "the wizard create path must open the new spreadsheet in a new tab (window.open) — the wizard stays put in THIS tab",
     );
   });
 
