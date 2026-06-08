@@ -447,6 +447,27 @@
    * and best-effort drops the IndexedDB user-content store. Runs BEFORE
    * applyStoredConfigOverrides so the mask is what lands on COMMAND_CENTER_CONFIG.
    */
+  function stripGreenfieldUrlParams() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const had =
+        params.get("greenfield") === "1" ||
+        params.get("fresh") === "1" ||
+        params.get("reset") === "1";
+      if (!had) return false;
+      params.delete("greenfield");
+      params.delete("fresh");
+      params.delete("reset");
+      const q = params.toString();
+      const path =
+        window.location.pathname + (q ? "?" + q : "") + window.location.hash;
+      history.replaceState(null, "", path);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   function maybeApplyGreenfieldUrlReset() {
     let on = false;
     try {
@@ -480,6 +501,9 @@
     } catch (_) {
       /* best-effort — openDb recreates an empty schema */
     }
+    // One-shot: strip the param so a reload after onboarding does not re-wipe
+    // saved overrides / IndexedDB (the mask alone keeps cold-start on reload).
+    stripGreenfieldUrlParams();
     return true;
   }
 
@@ -493,6 +517,7 @@
     COMMAND_CENTER_OVERRIDE_KEYS,
     GREENFIELD_CREDENTIAL_KEYS,
     buildGreenfieldOverrideMask,
+    stripGreenfieldUrlParams,
     readStoredConfigOverrides,
     applyConfigOverridesToWindowConfig,
     writeStoredConfigOverrides,

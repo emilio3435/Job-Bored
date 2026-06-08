@@ -275,3 +275,32 @@ describe("buildGreenfieldOverrideMask — config-overrides.js exports the full k
     ));
   });
 });
+
+describe("greenfield URL param is one-shot", () => {
+  it("strips greenfield/fresh/reset params after applying the reset so reloads do not re-wipe saved overrides", () => {
+    assert.match(
+      configOverridesJs,
+      /function\s+stripGreenfieldUrlParams\s*\(/,
+      "config-overrides.js must strip greenfield query params after reset",
+    );
+    const resetStart = configOverridesJs.indexOf("function maybeApplyGreenfieldUrlReset(");
+    assert.notEqual(resetStart, -1);
+    const resetEnd = configOverridesJs.indexOf("\n  maybeApplyGreenfieldUrlReset();", resetStart);
+    assert.notEqual(resetEnd, -1);
+    const resetSource = configOverridesJs.slice(resetStart, resetEnd);
+    assert.match(
+      resetSource,
+      /stripGreenfieldUrlParams\(\)/,
+      "maybeApplyGreenfieldUrlReset must call stripGreenfieldUrlParams after wiping so a reload with the same URL cannot erase onboarding progress",
+    );
+    const stripStart = configOverridesJs.indexOf("function stripGreenfieldUrlParams(");
+    assert.notEqual(stripStart, -1);
+    const stripEnd = configOverridesJs.indexOf("\n  function maybeApplyGreenfieldUrlReset", stripStart);
+    assert.notEqual(stripEnd, -1);
+    const stripSource = configOverridesJs.slice(stripStart, stripEnd);
+    assert.match(stripSource, /params\.delete\("greenfield"\)/);
+    assert.match(stripSource, /params\.delete\("fresh"\)/);
+    assert.match(stripSource, /params\.delete\("reset"\)/);
+    assert.match(stripSource, /history\.replaceState/);
+  });
+});
