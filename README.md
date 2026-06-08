@@ -133,7 +133,7 @@ npm start
 
 Then open **http://localhost:8080**. This installs dependencies for `server/` automatically and runs the UI plus **http://127.0.0.1:3847** together. You can leave **`jobPostingScrapeUrl`** empty in `config.js` on localhost — the app defaults to the local scraper.
 The same local server now also provides **`POST /api/ats-scorecard`** when ATS mode is set to `server`.
-For persistent ATS provider config in server mode, copy `server/ats-env.example` to `server/.env` and set your API key there.
+For persistent ATS provider config in server mode, copy `server/ats-env.example` to `server/.env` and set the API key for the provider you choose. OpenRouter/OpenAI-compatible settings cover generic scorecards; Gemini is optional unless you explicitly choose it.
 
 For **GitHub Pages** (HTTPS), the browser cannot call a scraper on your laptop at `http://127.0.0.1`. Use **Fetch posting** by either running the dashboard locally (`npm start` → `http://localhost:8080`) or deploying the `server/` app and pasting its **HTTPS** base URL in Settings — see **[DEPLOY-SCRAPER.md](DEPLOY-SCRAPER.md)**.
 
@@ -312,7 +312,7 @@ When the worker accepts an async run, it may return `statusPath` for `/runs/:run
 
 **Recommended: enable the SerpApi Google Jobs source for high-quality matches.** The discovery worker ships with three source lanes. One of them — `serpapi_google_jobs` — reads Google Jobs directly. Google has already indexed every `JobPosting` schema markup on the web (every Greenhouse, Lever, Ashby, Workday, iCIMS, SmartRecruiters board), so this one source replaces brittle page-by-page scraping with clean structured job data.
 
-**Why you want it:** without SerpApi, the worker falls back to Gemini-grounded web search + browser-use agent traversal. Those lanes work but produce far fewer clean matches per run for most candidates — especially when your target companies are on enterprise ATS systems (Workday, iCIMS) that block scrapers. With SerpApi enabled, a typical daily refresh produces 10–40 high-quality pipeline rows per run.
+**Why you want it:** without SerpApi, the worker leans on ATS adapters and browser-use traversal, and can also use the optional Gemini Grounded Search lane when you provide a Gemini key. Those lanes work but produce far fewer clean matches per run for most candidates — especially when your target companies are on enterprise ATS systems (Workday, iCIMS) that block scrapers. With SerpApi enabled, a typical daily refresh produces 10–40 high-quality pipeline rows per run.
 
 **How to enable it (takes ~2 minutes):**
 
@@ -465,6 +465,7 @@ into Command Center is unchanged — only the upstream secret gets rotated.
 - Local discovery may receive a per-run `googleAccessToken` so it can write to your Sheet for that request. The worker strips it from persisted run config/state and must not log the raw token.
 - The OpenRouter free key (and any optional Gemini/OpenAI/Anthropic key you paste in Settings) lives in **this browser’s localStorage** (or in the gitignored `config.js`); it is never sent to Command Center’s authors. The `local` provider is fully offline and needs no key.
 - Draft generation calls your chosen AI provider directly from the browser unless you select webhook mode
+- OpenRouter is the first generic AI path for drafts, AI suggestions, posting summaries, scorecards, and plain JSON scoring. Gemini is only required when you choose Gemini as the active provider or enable optional Google-tool lanes such as URL Context and Grounded Search.
 - ATS scorecard can run through your own server (`/api/ats-scorecard`) or your own webhook URL; no maintainer-hosted ATS service is used
 
 See [SECURITY.md](SECURITY.md) for maintainers and leak response.

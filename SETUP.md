@@ -251,7 +251,9 @@ The bootstrap exposes your local worker through one of three transports. Pick wi
 - **Anthropic (Claude)**: same **CORS** limitation as OpenAI for in-browser apps. Use **OpenRouter**, **Gemini**, **Local**, or **Webhook** unless you proxy requests server-side.
 - **Webhook**: set `resumeProvider` to `"webhook"` and `resumeGenerationWebhookUrl` to your HTTPS endpoint. Your server runs the LLM and returns the draft text.
 - **ATS scorecard transport**: set `atsScoringMode` to `"server"` (default) to call `POST /api/ats-scorecard` on your local/deployed server, or set `"webhook"` + `atsScoringWebhookUrl` to send the ATS payload to your endpoint.
-- **Permanent ATS env setup (server mode)**: server now auto-loads `server/.env` via `dotenv`. Use `server/ats-env.example` as a template (copy to `server/.env`) so ATS provider keys persist across terminal sessions and `npm run dev` restarts.
+- **Permanent ATS env setup (server mode)**: server now auto-loads `server/.env` via `dotenv`. Use `server/ats-env.example` as a template (copy to `server/.env`) so ATS provider keys persist across terminal sessions and `npm run dev` restarts. OpenRouter/OpenAI-compatible settings cover generic scorecards; Gemini is needed only when you explicitly choose Gemini for that generic provider path.
+
+OpenRouter is the first generic AI path for browser drafts, inline discovery ideas, posting summaries, scorecards, and plain JSON scoring tasks. You do **not** need a Gemini key for those generic AI flows when OpenRouter or Local is configured. Keep Gemini only if you select Gemini as the provider, or if you want optional Google-tool lanes: **URL Context** for reading a job page through Google's fetcher and **Grounded Search** for Google Search-grounded discovery.
 
 See `config.example.js` for all keys. For the POST body your webhook receives, see [Resume generation webhook](#resume-generation-webhook) below.
 
@@ -274,7 +276,7 @@ Leave **`jobPostingScrapeUrl`** empty in `config.js` when you open the app on **
 **Scraper only:** `cd server && npm install && npm start` (API only, same port — see `server/index.mjs`).
 
 1. On a job card, use **Fetch posting**. The server fetches the page, parses **JSON-LD `JobPosting`** when present, then falls back to common description selectors and bullet lists. It merges **skills** into the chip row and shows **description** + **requirements** excerpts.
-2. If **`resumeGeminiApiKey`** is set (same Gemini setup as cover letters), the app also asks Gemini for **fit angle**, **talking points**, and **extra keywords** from the scraped text plus your resume from Profile.
+2. If your selected AI provider is configured, the app also asks it for **fit angle**, **talking points**, and **extra keywords** from the scraped text plus your resume from Profile. OpenRouter and Local cover this generic summary path; Gemini URL Context is only an optional fallback when Gemini is selected and the local scraper cannot read the page.
 
 **Limits:** Some employers (e.g. LinkedIn) block server-side fetches or return login walls; those URLs may fail. **GitHub Pages** serves the UI over **HTTPS**; the browser will not allow it to call **`http://127.0.0.1`** on your machine. For Fetch posting from Pages, **deploy** the scraper (see **`DEPLOY-SCRAPER.md`**) and paste its **HTTPS** URL in Settings, or use the dashboard locally with `npm start`.
 

@@ -4,7 +4,7 @@
    Locks down the user-facing contract for the job-posting
    enrichment pipeline:
 
-     "As long as a Gemini API key is configured, the user never
+     "As long as the selected AI provider is configured, the user never
       sees a scraper-setup modal, a 'run npm start' instruction,
       or any other triage step. Every scraper failure mode
       silently self-heals to the LLM-only path."
@@ -53,11 +53,16 @@ function enrichmentFlowSlice() {
 }
 
 describe("enrichment pipeline — single self-healing path", () => {
-  it("declares the canonical Gemini-missing toast as a single source of truth", () => {
+  it("declares the canonical provider-missing toast as a single source of truth", () => {
     assert.match(
       postingEnrichmentJs,
-      /const\s+GEMINI_KEY_MISSING_TOAST\s*=\s*["'`][^"'`]*Gemini API key[^"'`]*Settings[^"'`]*["'`]/i,
-      "GEMINI_KEY_MISSING_TOAST must exist and mention Gemini + Settings",
+      /const\s+AI_PROVIDER_MISSING_TOAST\s*=\s*["'`][^"'`]*AI provider[^"'`]*Settings[^"'`]*AI Providers[^"'`]*["'`]/i,
+      "AI_PROVIDER_MISSING_TOAST must exist and point users to Settings AI Providers",
+    );
+    assert.doesNotMatch(
+      postingEnrichmentJs,
+      /Add a Gemini API key in Settings/i,
+      "generic posting insights must not require Gemini in user-facing copy",
     );
   });
 
@@ -97,22 +102,22 @@ describe("enrichment pipeline — single self-healing path", () => {
     );
   });
 
-  it("classifies Gemini errors (401 / 429 / safety) into reason-specific toasts", () => {
+  it("classifies provider errors (401 / 429 / safety) into reason-specific toasts", () => {
     assert.ok(
       /function\s+_toastForLlmError/.test(postingEnrichmentJs),
       "_toastForLlmError helper must exist",
     );
     assert.ok(
       /API key not valid|invalid api key|unauthorized/i.test(postingEnrichmentJs),
-      "Gemini 401/key-invalid must be classified",
+      "provider 401/key-invalid must be classified",
     );
     assert.ok(
       /RESOURCE_EXHAUSTED|quota|429/i.test(postingEnrichmentJs),
-      "Gemini quota/429 must be classified",
+      "provider quota/429 must be classified",
     );
     assert.ok(
       /safety|blockReason/i.test(postingEnrichmentJs),
-      "Gemini safety-filter blocks must be classified",
+      "provider safety-filter blocks must be classified",
     );
   });
 
@@ -140,7 +145,7 @@ describe("enrichment pipeline — single self-healing path", () => {
     );
   });
 
-  it("never caches partial-failure enrichments (Gemini error → user can retry)", () => {
+  it("never caches partial-failure enrichments (AI error -> user can retry)", () => {
     const slice = enrichmentFlowSlice();
     assert.match(
       slice,
@@ -149,7 +154,7 @@ describe("enrichment pipeline — single self-healing path", () => {
     );
   });
 
-  it("uses only success-shaped enrichments as cache hits so Gemini failures remain retryable", () => {
+  it("uses only success-shaped enrichments as cache hits so AI failures remain retryable", () => {
     assert.match(
       postingEnrichmentJs,
       /function\s+isUsableCachedEnrichment\s*\(\s*enrichment\s*\)/,
@@ -172,7 +177,7 @@ describe("enrichment pipeline — single self-healing path", () => {
     );
   });
 
-  it("checks the enrichment cache before setting loading state or calling Gemini again", () => {
+  it("checks the enrichment cache before setting loading state or calling AI again", () => {
     const slice = enrichmentFlowSlice();
     const cacheIdx = slice.indexOf("getCachedEnrichmentForJob(job)");
     const loadingIdx = slice.indexOf("job._enrichmentLoading = true");
@@ -406,11 +411,11 @@ describe("LLM prompt — preserves quality when scrape fails", () => {
     );
   });
 
-  it("buildUserPrompt explicitly tells Gemini to be conservative when scrape failed", () => {
+  it("buildUserPrompt explicitly tells the model to be conservative when scrape failed", () => {
     assert.match(
       insightsJs,
       /could not be scraped[^]*conservative/i,
-      "the prompt must instruct Gemini to be conservative on scrape-fail",
+      "the prompt must instruct the model to be conservative on scrape-fail",
     );
   });
 
@@ -419,7 +424,7 @@ describe("LLM prompt — preserves quality when scrape fails", () => {
     assert.match(insightsJs, /scrapeFallbackReason:\s*scraped\._scrapeFallbackReason/);
   });
 
-  it("Gemini enrichment schema includes a real ATS fit score and rationale", () => {
+  it("AI enrichment schema includes a real ATS fit score and rationale", () => {
     assert.match(insightsJs, /atsFitScore/);
     assert.match(insightsJs, /atsFitRationale/);
     assert.match(

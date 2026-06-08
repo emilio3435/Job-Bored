@@ -3,7 +3,7 @@
    Extracted from app.js (posting-enrichment cut).
 
    Classic-global IIFE under window.JobBoredApp.postingEnrichment — NOT an ES module.
-   Loaded BEFORE app.js. Self-healing scrape + Gemini enrichment pipeline and
+   Loaded BEFORE app.js. Self-healing scrape + AI enrichment pipeline and
    localStorage enrichment cache.
    ============================================ */
 (() => {
@@ -149,8 +149,9 @@ function applyEnrichmentCache(jobs) {
 /* ============================================================
    Job-posting enrichment — single self-healing pipeline.
    ------------------------------------------------------------
-   Design intent: the ONLY user-visible prerequisite is a Gemini
-   API key. Everything else self-heals silently:
+   Design intent: the ONLY user-visible prerequisite for generic
+   posting insights is a configured direct AI provider. Everything
+   else self-heals silently:
 
    • No scraper URL configured?           → LLM-only path
    • Scraper unreachable / offline?       → LLM-only path
@@ -160,21 +161,26 @@ function applyEnrichmentCache(jobs) {
    • Scraper times out (8s)?              → LLM-only path
    • Upstream site blocks scraper?        → LLM-only path
    • Profile excerpt unavailable?         → continue with ""
-   • Gemini 401 / 429 / safety block?     → calm reason-specific
+   • Provider auth/quota/safety block?    → calm reason-specific
                                             toast, don't cache, allow retry
 
    The Cheerio scraper is a strict quality boost: when reachable,
-   we pass the full page text to Gemini. When NOT reachable, Gemini
-   gets URL + hostname + title + company + a "scrape failed,
-   conservative inference" hint, and still produces useful output.
+   we pass the full page text to the selected AI provider. When NOT
+   reachable, the provider gets URL + hostname + title + company + a
+   "scrape failed, conservative inference" hint, and still produces
+   useful output.
+
+   Gemini URL Context is a separate optional Google-tool lane. It
+   runs only when Gemini is selected and configured; otherwise the
+   flow falls through to the generic AI path.
 
    The legacy setup modal is NEVER opened from this flow.
    ============================================================ */
 
-/** The single canonical message shown when the user has no Gemini
- *  key configured. No mention of the scraper, no shell commands. */
-const GEMINI_KEY_MISSING_TOAST =
-  "Add a Gemini API key in Settings → AI Providers to enable posting insights.";
+/** The single canonical message shown when the selected AI provider
+ *  is not configured. No mention of the scraper, no shell commands. */
+const AI_PROVIDER_MISSING_TOAST =
+  "Configure your selected AI provider in Settings → AI Providers to enable posting insights.";
 
 /** Race guard + offline + key gate. Returns true when it's safe to
  *  proceed. Side-effect: shows a single toast on the no-go path. */
@@ -190,7 +196,7 @@ function _enrichmentPreconditionsOk(job) {
     window.CommandCenterJobPostingInsights.canEnrichWithLLM()
   );
   if (!canLlm) {
-    host().showToast(GEMINI_KEY_MISSING_TOAST, "error");
+    host().showToast(AI_PROVIDER_MISSING_TOAST, "error");
     return false;
   }
   return true;
@@ -249,23 +255,23 @@ async function _safeProfileExcerpt() {
   }
 }
 
-/** Classify a Gemini error into a user-facing toast. */
+/** Classify an AI-provider error into a user-facing toast. */
 function _toastForLlmError(err) {
   const msg = String((err && err.message) || "");
   if (/\b(401|API key not valid|invalid api key|unauthorized)\b/i.test(msg)) {
     host().showToast(
-      "Gemini rejected the API key — re-enter it in Settings → AI Providers.",
+      "The AI provider rejected the API key — re-enter it in Settings → AI Providers.",
       "error",
       true,
     );
     return;
   }
   if (/\b(429|RESOURCE_EXHAUSTED|quota|rate)\b/i.test(msg)) {
-    host().showToast("Gemini quota reached — try again in a minute.", "info");
+    host().showToast("AI provider quota reached — try again in a minute.", "info");
     return;
   }
   if (/\b(safety|SAFETY|blockReason|blocked)\b/i.test(msg)) {
-    host().showToast("Gemini blocked this posting (safety filter).", "info");
+    host().showToast("The AI provider blocked this posting (safety filter).", "info");
     return;
   }
   host().showToast(msg ? `AI insight failed: ${msg}` : "AI insight failed", "error");
@@ -307,12 +313,12 @@ async function _tryGeminiUrlContext(jobLink) {
   return await insights.fetchViaGeminiUrlContext(jobLink);
 }
 
-/** The single entry point. Always succeeds when a Gemini key is
- *  configured, regardless of scraper state.
+/** The single entry point. Always succeeds when a direct AI provider
+ *  is configured, regardless of scraper state.
  *
  *  Lane priority (best-quality first, all silent fallbacks):
  *    A. Local Cheerio scraper      — fastest when reachable
- *    B. Gemini URL Context tool    — works anywhere with just a key
+ *    B. Gemini URL Context tool    — optional Google-tool page-read lane
  *    C. Title + company + URL only — last resort, no page text
  */
 async function fetchJobPostingEnrichment(dataIndex) {
@@ -363,10 +369,10 @@ async function fetchJobPostingEnrichment(dataIndex) {
     });
     if (scraped) sourceLabel = "cheerio";
 
-    // Lane B: Gemini URL Context — the actual job page, fetched by
-    // Gemini's infrastructure. Works anywhere — GitHub Pages, plain
-    // localhost, behind corporate networks — using only the user's
-    // Gemini key. No local server required.
+    // Lane B: Gemini URL Context — the optional Google-tool lane.
+    // When Gemini is selected and configured, Google's infrastructure
+    // reads the actual job page. OpenRouter/local users skip this lane
+    // and continue to the generic AI path below.
     if (!scraped && job.link) {
       try {
         scraped = await _tryGeminiUrlContext(job.link);
@@ -486,7 +492,7 @@ async function fallbackEnrichmentFromSheetOnly(job, dataIndex /*, errMsg, opts *
    jb:role:opened. */
 /* Auto-enrich on Dossier open. The self-healing pipeline in
    fetchJobPostingEnrichment handles every failure mode silently
-   as long as a Gemini key is configured, so we no longer gate
+   as long as a direct AI provider is configured, so we no longer gate
    on the scraper URL being present. */
 window.addEventListener("jb:role:opened", (e) => {
   try {
@@ -506,7 +512,7 @@ window.addEventListener("jb:role:opened", (e) => {
   }
 
   Object.assign(postingEnrichment, {
-    GEMINI_KEY_MISSING_TOAST,
+    AI_PROVIDER_MISSING_TOAST,
     cacheEnrichment,
     getCachedEnrichmentForJob,
     applyEnrichmentCache,
