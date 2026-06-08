@@ -152,7 +152,9 @@ Upload the files anywhere static files are served:
 - **Vercel** — `npx vercel --prod`
 - **Netlify** — drag and drop the folder
 - **Cloudflare Pages** — connect your repo
-- **Local** — `python3 -m http.server 8080` and open `http://localhost:8080`
+- **Local** — `npm run web-only` and open `http://localhost:8080` (the dev
+  server expands the `<!-- @include -->` partials; naive static servers like
+  `python3 -m http.server` do not, so the dashboard renders incomplete)
 
 For GitHub Pages-specific setup, including safe `config.js` options, GitHub Actions-generated config, OAuth origins, relay CORS, and hosted/local-worker expectations, see **[docs/GITHUB-PAGES.md](docs/GITHUB-PAGES.md)**.
 
