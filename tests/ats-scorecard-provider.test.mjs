@@ -204,12 +204,13 @@ describe("analyzeAtsScorecard provider routing", () => {
     }
   });
 
-  it("routes ATS_PROVIDER=openai_compatible through configured base URL, model, and key", async () => {
+  it("routes ATS_PROVIDER=openai_compatible through configured base URL and model without requiring a key", async () => {
     const restoreEnv = setTestProviderEnv({
       ATS_PROVIDER: "openai_compatible",
       ATS_GEMINI_API_KEY: "",
       GEMINI_API_KEY: "",
-      ATS_OPENAI_COMPATIBLE_API_KEY: "compat-test-key",
+      ATS_OPENAI_COMPATIBLE_API_KEY: "",
+      OPENAI_COMPATIBLE_API_KEY: "",
       ATS_OPENAI_COMPATIBLE_MODEL: "local/ats-json",
       ATS_OPENAI_COMPATIBLE_BASE_URL: "http://127.0.0.1:11434/v1/",
     });
@@ -224,7 +225,7 @@ describe("analyzeAtsScorecard provider routing", () => {
       const scorecard = await analyzeAtsScorecard(buildPayload());
       const body = JSON.parse(call.init.body);
       assert.equal(call.url, "http://127.0.0.1:11434/v1/chat/completions");
-      assert.equal(call.init.headers.Authorization, "Bearer compat-test-key");
+      assert.equal(call.init.headers.Authorization, undefined);
       assert.equal(body.model, "local/ats-json");
       assert.equal(scorecard.model, "local/ats-json");
     } finally {
@@ -305,10 +306,10 @@ describe("analyzeAtsScorecard provider routing", () => {
     }
   });
 
-  it("names OpenAI-compatible required env vars when base URL, model, or key is missing", () => {
+  it("names OpenAI-compatible required env vars when base URL or model is missing", () => {
     const restoreEnv = setTestProviderEnv({
       ATS_PROVIDER: "openai_compatible",
-      ATS_OPENAI_COMPATIBLE_API_KEY: "compat-test-key",
+      ATS_OPENAI_COMPATIBLE_API_KEY: "",
       ATS_OPENAI_COMPATIBLE_BASE_URL: "",
       ATS_OPENAI_COMPATIBLE_MODEL: "",
     });
@@ -317,7 +318,8 @@ describe("analyzeAtsScorecard provider routing", () => {
       const status = getAtsConfigStatus();
       assert.equal(status.configured, false);
       assert.equal(status.provider, "openai_compatible");
-      assert.match(status.reason, /ATS_OPENAI_COMPATIBLE_API_KEY/);
+      assert.doesNotMatch(status.reason, /set ATS_OPENAI_COMPATIBLE_API_KEY/);
+      assert.match(status.reason, /ATS_OPENAI_COMPATIBLE_API_KEY is optional/);
       assert.match(status.reason, /ATS_OPENAI_COMPATIBLE_BASE_URL/);
       assert.match(status.reason, /ATS_OPENAI_COMPATIBLE_MODEL/);
       assert.match(status.reason, /ATS_PROVIDER=openai_compatible/);

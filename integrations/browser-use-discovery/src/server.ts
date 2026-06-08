@@ -19,7 +19,7 @@ import {
 } from "./discovery/company-planner.ts";
 import { createGroundedSearchClient } from "./grounding/grounded-search.ts";
 import { buildCorsHeaders, isOriginAllowed } from "./http/origin-guard.ts";
-import { createGeminiMatchClient } from "./match/job-matcher.ts";
+import { createWorkerChatMatchClient } from "./match/job-matcher.ts";
 import { runDiscovery } from "./run/run-discovery.ts";
 import {
   formatSheetsCredentialReadinessWarning,
@@ -48,9 +48,7 @@ const sessionManager = createBrowserUseSessionManager(runtimeConfig);
 const groundedSearchClient = runtimeConfig.geminiApiKey
   ? createGroundedSearchClient(runtimeConfig, { log: logEvent })
   : null;
-const matchClient = runtimeConfig.geminiApiKey
-  ? createGeminiMatchClient(runtimeConfig)
-  : null;
+const matchClient = createWorkerChatMatchClient(runtimeConfig);
 const sourceAdapterRegistry = createSourceAdapterRegistry(sessionManager);
 const rawDiscoveryMemoryStore = createDiscoveryMemoryStore(
   runtimeConfig.stateDatabasePath,

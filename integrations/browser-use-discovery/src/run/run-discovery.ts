@@ -221,6 +221,9 @@ export async function runDiscovery(
     }
   }
   config.userProfile = resolvedUserProfile || undefined;
+  if (request.mergedUserProfile && resolvedUserProfile) {
+    config.runtimeConfig = dependencies.runtimeConfig;
+  }
 
   const runId = dependencies.runId || dependencies.randomId("run");
   const run: DiscoveryRun = {

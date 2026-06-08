@@ -166,11 +166,8 @@ describe("scripts/setup discovery env", () => {
         /^BROWSER_USE_DISCOVERY_OPENROUTER_BASE_URL=https:\/\/openrouter\.ai\/api\/v1$/m,
       );
       assert.match(workerEnv, /^BROWSER_USE_DISCOVERY_LOCAL_API_KEY=$/m);
-      assert.match(workerEnv, /^BROWSER_USE_DISCOVERY_LOCAL_MODEL=gemma4:e2b$/m);
-      assert.match(
-        workerEnv,
-        /^BROWSER_USE_DISCOVERY_LOCAL_BASE_URL=http:\/\/127\.0\.0\.1:11434\/v1$/m,
-      );
+      assert.match(workerEnv, /^BROWSER_USE_DISCOVERY_LOCAL_MODEL=$/m);
+      assert.match(workerEnv, /^BROWSER_USE_DISCOVERY_LOCAL_BASE_URL=$/m);
       assert.match(workerEnv, /^BROWSER_USE_DISCOVERY_GEMINI_API_KEY=$/m);
     } finally {
       rmSync(tmpRoot, { recursive: true, force: true });

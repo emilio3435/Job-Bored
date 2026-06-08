@@ -181,6 +181,20 @@ test("loadRuntimeConfig supports local OpenAI-compatible chat without an API key
   assert.equal(result.llmBaseUrl, "http://127.0.0.1:11434/v1");
 });
 
+test("loadRuntimeConfig leaves blank local template values unconfigured", () => {
+  const result = loadRuntimeConfig({
+    BROWSER_USE_DISCOVERY_LLM_PROVIDER: "",
+    BROWSER_USE_DISCOVERY_LOCAL_LLM_MODEL: "",
+    BROWSER_USE_DISCOVERY_LOCAL_LLM_BASE_URL: "",
+    BROWSER_USE_DISCOVERY_LOCAL_LLM_API_KEY: "",
+  });
+
+  assert.equal(result.llmProvider, "");
+  assert.equal(result.llmApiKey, "");
+  assert.equal(result.llmModel, "");
+  assert.equal(result.llmBaseUrl, "");
+});
+
 test("loadRuntimeConfig fails closed for hosted workers without explicit browser origins", () => {
   const result = loadRuntimeConfig({
     BROWSER_USE_DISCOVERY_RUN_MODE: "hosted",

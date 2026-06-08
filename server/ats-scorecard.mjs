@@ -771,7 +771,6 @@ export function getAtsConfigStatus() {
   }
   if (cfg.provider === "openai_compatible") {
     if (
-      !cfg.openAICompatibleApiKey ||
       !cfg.openAICompatibleBaseUrl ||
       !cfg.openAICompatibleModel
     ) {
@@ -779,7 +778,7 @@ export function getAtsConfigStatus() {
         configured: false,
         provider: cfg.provider,
         reason:
-          "Missing OpenAI-compatible ATS config: set ATS_OPENAI_COMPATIBLE_API_KEY, ATS_OPENAI_COMPATIBLE_BASE_URL, and ATS_OPENAI_COMPATIBLE_MODEL when ATS_PROVIDER=openai_compatible.",
+          "Missing OpenAI-compatible ATS config: set ATS_OPENAI_COMPATIBLE_BASE_URL and ATS_OPENAI_COMPATIBLE_MODEL when ATS_PROVIDER=openai_compatible. ATS_OPENAI_COMPATIBLE_API_KEY is optional for local servers.",
       };
     }
     return { configured: true, provider: cfg.provider, reason: "" };
