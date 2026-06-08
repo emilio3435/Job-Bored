@@ -26,12 +26,25 @@ import {
   filterSkippedCompanies,
 } from "./discovery/company-keys.ts";
 
+export type WorkerLlmProvider =
+  | ""
+  | "openrouter"
+  | "local"
+  | "openai"
+  | "openai_compatible"
+  | "anthropic"
+  | "gemini";
+
 export type WorkerRuntimeConfig = {
   stateDatabasePath: string;
   workerConfigPath: string;
   browserUseCommand: string;
   browserUseApiKey: string;
   browserUseProfileId: string;
+  llmProvider: WorkerLlmProvider;
+  llmApiKey: string;
+  llmModel: string;
+  llmBaseUrl: string;
   geminiApiKey: string;
   geminiModel: string;
   groundedSearchMaxResultsPerCompany: number;
@@ -322,23 +335,30 @@ export function loadRuntimeConfig(
   ) {
     googleOAuthTokenFile = defaultHermesGoogleTokenPath;
   }
+  const geminiApiKey = readFirst(runtimeEnv, [
+    "BROWSER_USE_DISCOVERY_GEMINI_API_KEY",
+    "DISCOVERY_GEMINI_API_KEY",
+    "GEMINI_API_KEY",
+  ]);
+  const geminiModel =
+    readFirst(runtimeEnv, [
+      "BROWSER_USE_DISCOVERY_GEMINI_MODEL",
+      "DISCOVERY_GEMINI_MODEL",
+      "GEMINI_MODEL",
+    ]) || "gemini-3.5-flash";
+  const llmProvider = resolveLlmProvider(runtimeEnv);
   return {
     stateDatabasePath,
     workerConfigPath,
     browserUseCommand: resolveBrowserUseCommand(runtimeEnv),
     browserUseApiKey: readFirst(runtimeEnv, ["BROWSER_USE_API_KEY"]),
     browserUseProfileId: readFirst(runtimeEnv, ["BROWSER_USE_PROFILE_ID"]),
-    geminiApiKey: readFirst(runtimeEnv, [
-      "BROWSER_USE_DISCOVERY_GEMINI_API_KEY",
-      "DISCOVERY_GEMINI_API_KEY",
-      "GEMINI_API_KEY",
-    ]),
-    geminiModel:
-      readFirst(runtimeEnv, [
-        "BROWSER_USE_DISCOVERY_GEMINI_MODEL",
-        "DISCOVERY_GEMINI_MODEL",
-        "GEMINI_MODEL",
-      ]) || "gemini-3.5-flash",
+    llmProvider,
+    llmApiKey: resolveLlmApiKey(runtimeEnv, llmProvider),
+    llmModel: resolveLlmModel(runtimeEnv, llmProvider, geminiModel),
+    llmBaseUrl: resolveLlmBaseUrl(runtimeEnv, llmProvider),
+    geminiApiKey,
+    geminiModel,
     groundedSearchMaxResultsPerCompany: parsePositiveInt(
       readFirst(runtimeEnv, [
         "BROWSER_USE_DISCOVERY_GROUNDED_SEARCH_MAX_RESULTS_PER_COMPANY",
@@ -409,6 +429,261 @@ export function loadRuntimeConfig(
     ]),
   };
 }
+
+function resolveLlmProvider(env: RuntimeEnv): WorkerLlmProvider {
+  const explicit = normalizeLlmProvider(
+    readFirst(env, [
+      "BROWSER_USE_DISCOVERY_LLM_PROVIDER",
+      "DISCOVERY_LLM_PROVIDER",
+      "LLM_PROVIDER",
+    ]),
+  );
+  if (explicit) return explicit;
+  if (readFirst(env, llmProviderKeys.openrouter.apiKey)) return "openrouter";
+  if (
+    readFirst(env, llmProviderKeys.local.baseUrl) ||
+    readFirst(env, llmProviderKeys.local.model) ||
+    readFirst(env, llmProviderKeys.local.apiKey)
+  ) {
+    return "local";
+  }
+  if (readFirst(env, llmProviderKeys.openai.apiKey)) return "openai";
+  if (readFirst(env, llmProviderKeys.anthropic.apiKey)) return "anthropic";
+  if (
+    readFirst(env, llmProviderKeys.openai_compatible.baseUrl) ||
+    readFirst(env, llmProviderKeys.openai_compatible.model) ||
+    readFirst(env, llmProviderKeys.openai_compatible.apiKey) ||
+    readFirst(env, llmGenericKeys.baseUrl) ||
+    readFirst(env, llmGenericKeys.apiKey) ||
+    readFirst(env, llmGenericKeys.model)
+  ) {
+    return "openai_compatible";
+  }
+  if (readFirst(env, llmProviderKeys.gemini.apiKey)) return "gemini";
+  return "";
+}
+
+function resolveLlmApiKey(
+  env: RuntimeEnv,
+  provider: WorkerLlmProvider,
+): string {
+  const generic = readFirst(env, llmGenericKeys.apiKey);
+  if (generic) return generic;
+  if (!provider) return "";
+  return readFirst(env, llmProviderKeys[provider].apiKey);
+}
+
+function resolveLlmModel(
+  env: RuntimeEnv,
+  provider: WorkerLlmProvider,
+  geminiModel: string,
+): string {
+  const generic = readFirst(env, llmGenericKeys.model);
+  if (generic) return generic;
+  if (!provider) return "";
+  const configured = readFirst(env, llmProviderKeys[provider].model);
+  if (configured) return configured;
+  switch (provider) {
+    case "openrouter":
+      return "openai/gpt-4.1-mini";
+    case "openai":
+      return "gpt-4.1-mini";
+    case "anthropic":
+      return "claude-3-5-haiku-latest";
+    case "gemini":
+      return geminiModel || "gemini-3.5-flash";
+    default:
+      return "";
+  }
+}
+
+function resolveLlmBaseUrl(
+  env: RuntimeEnv,
+  provider: WorkerLlmProvider,
+): string {
+  const generic = readFirst(env, llmGenericKeys.baseUrl);
+  if (generic) return generic;
+  if (!provider) return "";
+  const configured = readFirst(env, llmProviderKeys[provider].baseUrl);
+  if (configured) return configured;
+  switch (provider) {
+    case "openrouter":
+      return "https://openrouter.ai/api/v1";
+    case "openai":
+      return "https://api.openai.com/v1";
+    case "anthropic":
+      return "https://api.anthropic.com/v1";
+    case "gemini":
+      return "https://generativelanguage.googleapis.com/v1beta";
+    default:
+      return "";
+  }
+}
+
+function normalizeLlmProvider(value: unknown): WorkerLlmProvider {
+  const text = cleanString(value).toLowerCase().replace(/-/g, "_");
+  if (text === "openrouter" || text === "open_router") return "openrouter";
+  if (
+    text === "local" ||
+    text === "local_openai" ||
+    text === "local_openai_compatible"
+  ) {
+    return "local";
+  }
+  if (text === "openai") return "openai";
+  if (
+    text === "openai_compatible" ||
+    text === "open_ai_compatible" ||
+    text === "compatible"
+  ) {
+    return "openai_compatible";
+  }
+  if (text === "anthropic" || text === "claude") return "anthropic";
+  if (text === "gemini" || text === "google_gemini") return "gemini";
+  return "";
+}
+
+const llmGenericKeys = {
+  apiKey: [
+    "BROWSER_USE_DISCOVERY_LLM_API_KEY",
+    "DISCOVERY_LLM_API_KEY",
+    "LLM_API_KEY",
+  ],
+  model: [
+    "BROWSER_USE_DISCOVERY_LLM_MODEL",
+    "DISCOVERY_LLM_MODEL",
+    "LLM_MODEL",
+  ],
+  baseUrl: [
+    "BROWSER_USE_DISCOVERY_LLM_BASE_URL",
+    "DISCOVERY_LLM_BASE_URL",
+    "LLM_BASE_URL",
+  ],
+} as const;
+
+const llmProviderKeys = {
+  openrouter: {
+    apiKey: [
+      "BROWSER_USE_DISCOVERY_OPENROUTER_API_KEY",
+      "DISCOVERY_OPENROUTER_API_KEY",
+      "OPENROUTER_API_KEY",
+    ],
+    model: [
+      "BROWSER_USE_DISCOVERY_OPENROUTER_MODEL",
+      "DISCOVERY_OPENROUTER_MODEL",
+      "OPENROUTER_MODEL",
+    ],
+    baseUrl: [
+      "BROWSER_USE_DISCOVERY_OPENROUTER_BASE_URL",
+      "DISCOVERY_OPENROUTER_BASE_URL",
+      "OPENROUTER_BASE_URL",
+    ],
+  },
+  local: {
+    apiKey: [
+      "BROWSER_USE_DISCOVERY_LOCAL_LLM_API_KEY",
+      "BROWSER_USE_DISCOVERY_LOCAL_API_KEY",
+      "DISCOVERY_LOCAL_LLM_API_KEY",
+      "LOCAL_LLM_API_KEY",
+    ],
+    model: [
+      "BROWSER_USE_DISCOVERY_LOCAL_LLM_MODEL",
+      "BROWSER_USE_DISCOVERY_LOCAL_MODEL",
+      "DISCOVERY_LOCAL_LLM_MODEL",
+      "LOCAL_LLM_MODEL",
+    ],
+    baseUrl: [
+      "BROWSER_USE_DISCOVERY_LOCAL_LLM_BASE_URL",
+      "BROWSER_USE_DISCOVERY_LOCAL_BASE_URL",
+      "DISCOVERY_LOCAL_LLM_BASE_URL",
+      "LOCAL_LLM_BASE_URL",
+    ],
+  },
+  openai: {
+    apiKey: [
+      "BROWSER_USE_DISCOVERY_OPENAI_API_KEY",
+      "DISCOVERY_OPENAI_API_KEY",
+      "OPENAI_API_KEY",
+    ],
+    model: [
+      "BROWSER_USE_DISCOVERY_OPENAI_MODEL",
+      "DISCOVERY_OPENAI_MODEL",
+      "OPENAI_MODEL",
+    ],
+    baseUrl: [
+      "BROWSER_USE_DISCOVERY_OPENAI_BASE_URL",
+      "DISCOVERY_OPENAI_BASE_URL",
+      "OPENAI_BASE_URL",
+    ],
+  },
+  openai_compatible: {
+    apiKey: [
+      "BROWSER_USE_DISCOVERY_OPENAI_COMPATIBLE_API_KEY",
+      "DISCOVERY_OPENAI_COMPATIBLE_API_KEY",
+      "OPENAI_COMPATIBLE_API_KEY",
+    ],
+    model: [
+      "BROWSER_USE_DISCOVERY_OPENAI_COMPATIBLE_MODEL",
+      "DISCOVERY_OPENAI_COMPATIBLE_MODEL",
+      "OPENAI_COMPATIBLE_MODEL",
+    ],
+    baseUrl: [
+      "BROWSER_USE_DISCOVERY_OPENAI_COMPATIBLE_BASE_URL",
+      "DISCOVERY_OPENAI_COMPATIBLE_BASE_URL",
+      "OPENAI_COMPATIBLE_BASE_URL",
+    ],
+  },
+  anthropic: {
+    apiKey: [
+      "BROWSER_USE_DISCOVERY_ANTHROPIC_API_KEY",
+      "DISCOVERY_ANTHROPIC_API_KEY",
+      "ANTHROPIC_API_KEY",
+    ],
+    model: [
+      "BROWSER_USE_DISCOVERY_ANTHROPIC_MODEL",
+      "DISCOVERY_ANTHROPIC_MODEL",
+      "ANTHROPIC_MODEL",
+    ],
+    baseUrl: [
+      "BROWSER_USE_DISCOVERY_ANTHROPIC_BASE_URL",
+      "DISCOVERY_ANTHROPIC_BASE_URL",
+      "ANTHROPIC_BASE_URL",
+    ],
+  },
+  gemini: {
+    apiKey: [
+      "BROWSER_USE_DISCOVERY_LLM_GEMINI_API_KEY",
+      "DISCOVERY_LLM_GEMINI_API_KEY",
+      "BROWSER_USE_DISCOVERY_GEMINI_API_KEY",
+      "DISCOVERY_GEMINI_API_KEY",
+      "GEMINI_API_KEY",
+    ],
+    model: [
+      "BROWSER_USE_DISCOVERY_LLM_GEMINI_MODEL",
+      "DISCOVERY_LLM_GEMINI_MODEL",
+      "BROWSER_USE_DISCOVERY_GEMINI_MODEL",
+      "DISCOVERY_GEMINI_MODEL",
+      "GEMINI_MODEL",
+    ],
+    baseUrl: [
+      "BROWSER_USE_DISCOVERY_LLM_GEMINI_BASE_URL",
+      "DISCOVERY_LLM_GEMINI_BASE_URL",
+      "GEMINI_BASE_URL",
+    ],
+  },
+  "": {
+    apiKey: [],
+    model: [],
+    baseUrl: [],
+  },
+} satisfies Record<
+  WorkerLlmProvider,
+  {
+    apiKey: readonly string[];
+    model: readonly string[];
+    baseUrl: readonly string[];
+  }
+>;
 
 export function resolveBrowserUseCommand(
   env: RuntimeEnv,

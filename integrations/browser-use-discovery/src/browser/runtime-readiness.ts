@@ -11,6 +11,18 @@ export type BrowserRuntimeReadiness = {
   remediation?: string;
 };
 
+export type LlmRuntimeReadiness = {
+  provider: string;
+  configured: boolean;
+  ready: boolean;
+  model?: string;
+  baseUrl?: string;
+  requiresApiKey?: boolean;
+  message?: string;
+  detail?: string;
+  remediation?: string;
+};
+
 function asText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -105,6 +117,90 @@ export function formatBrowserRuntimeReadinessWarning(
   readiness: BrowserRuntimeReadiness,
 ): string {
   if (readiness.available) return "";
+  const parts = [readiness.message, readiness.detail].filter(Boolean);
+  return parts.join(" ");
+}
+
+export function validateLlmRuntimeReadiness(
+  runtimeConfig: WorkerRuntimeConfig,
+): LlmRuntimeReadiness {
+  const provider = asText(runtimeConfig.llmProvider);
+  const apiKey = asText(runtimeConfig.llmApiKey);
+  const model = asText(runtimeConfig.llmModel);
+  const baseUrl = asText(runtimeConfig.llmBaseUrl);
+
+  if (!provider) {
+    return {
+      provider: "",
+      configured: false,
+      ready: false,
+      message: "LLM chat provider is not configured.",
+      detail:
+        "Plain JSON/scoring LLM lanes need BROWSER_USE_DISCOVERY_LLM_PROVIDER plus provider-specific model settings.",
+      remediation:
+        "Set BROWSER_USE_DISCOVERY_LLM_PROVIDER to openrouter, local, openai, anthropic, gemini, or openai_compatible.",
+    };
+  }
+
+  const requiresApiKey = !["local", "openai_compatible"].includes(provider);
+  if (requiresApiKey && !apiKey) {
+    return {
+      provider,
+      configured: true,
+      ready: false,
+      model: model || undefined,
+      baseUrl: baseUrl || undefined,
+      requiresApiKey,
+      message: `LLM chat provider ${provider} is missing an API key.`,
+      detail:
+        "Generic LLM readiness is separate from Gemini Google-tool readiness.",
+      remediation:
+        provider === "openrouter"
+          ? "Set BROWSER_USE_DISCOVERY_OPENROUTER_API_KEY or BROWSER_USE_DISCOVERY_LLM_API_KEY."
+          : "Set BROWSER_USE_DISCOVERY_LLM_API_KEY or the provider-specific API key.",
+    };
+  }
+
+  if (!model) {
+    return {
+      provider,
+      configured: true,
+      ready: false,
+      baseUrl: baseUrl || undefined,
+      requiresApiKey,
+      message: `LLM chat provider ${provider} is missing a model.`,
+      remediation:
+        "Set BROWSER_USE_DISCOVERY_LLM_MODEL or the provider-specific model variable.",
+    };
+  }
+
+  if (!baseUrl && (provider === "local" || provider === "openai_compatible")) {
+    return {
+      provider,
+      configured: true,
+      ready: false,
+      model,
+      requiresApiKey,
+      message: `LLM chat provider ${provider} is missing a base URL.`,
+      remediation:
+        "Set BROWSER_USE_DISCOVERY_LLM_BASE_URL or the provider-specific base URL variable.",
+    };
+  }
+
+  return {
+    provider,
+    configured: true,
+    ready: true,
+    model,
+    baseUrl: baseUrl || undefined,
+    requiresApiKey,
+  };
+}
+
+export function formatLlmRuntimeReadinessWarning(
+  readiness: LlmRuntimeReadiness,
+): string {
+  if (readiness.ready) return "";
   const parts = [readiness.message, readiness.detail].filter(Boolean);
   return parts.join(" ");
 }
