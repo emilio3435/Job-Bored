@@ -155,6 +155,17 @@ function runCommand(command, args, { cwd }) {
   });
 }
 
+// Normalize a runner's return into a numeric exit code. The default runCommand
+// above (and most other internal callers) returns a number, but scripts/setup.mjs
+// passes its own runCommand that resolves `{ status }` — accept both contracts so
+// installRepo works through either runner. An unknown shape is treated as failure
+// (1) so we never silently succeed on a malformed result.
+function toExitCode(result) {
+  if (typeof result === "number") return result;
+  if (result && typeof result.status === "number") return result.status;
+  return 1;
+}
+
 async function writeInstallStamp(repoRoot = REPO_ROOT, inputs) {
   const stampPath = getInstallStampPath(repoRoot);
   await mkdir(dirname(stampPath), { recursive: true });
@@ -203,7 +214,7 @@ export async function installRepo({
     console.log(`[install:repo] Running npm install (${plan.reason}${detail}).`);
   }
 
-  let exitCode = await runner("npm", ["install"], { cwd: repoRoot });
+  let exitCode = toExitCode(await runner("npm", ["install"], { cwd: repoRoot }));
   if (exitCode !== 0) {
     throw new Error(`npm install exited with code ${exitCode}`);
   }
@@ -214,9 +225,11 @@ export async function installRepo({
         "[install:repo] Root install did not populate server/node_modules; running fallback install.",
       );
     }
-    exitCode = await runner("npm", ["install", "--prefix", "./server"], {
-      cwd: repoRoot,
-    });
+    exitCode = toExitCode(
+      await runner("npm", ["install", "--prefix", "./server"], {
+        cwd: repoRoot,
+      }),
+    );
     if (exitCode !== 0) {
       throw new Error(`npm install --prefix ./server exited with code ${exitCode}`);
     }
