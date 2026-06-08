@@ -463,7 +463,7 @@ into Command Center is unchanged — only the upstream secret gets rotated.
 - **Repository contents** — only placeholders (`YOUR_SHEET_ID_HERE`, empty API keys). The public template Sheet ID in links is not a secret.
 - OAuth access tokens are held **in memory only** (not localStorage)
 - Local discovery may receive a per-run `googleAccessToken` so it can write to your Sheet for that request. The worker strips it from persisted run config/state and must not log the raw token.
-- Gemini/OpenAI keys from Settings live in **this browser’s localStorage**; they are not sent to Command Center’s authors
+- The OpenRouter free key (and any optional Gemini/OpenAI/Anthropic key you paste in Settings) lives in **this browser’s localStorage** (or in the gitignored `config.js`); it is never sent to Command Center’s authors. The `local` provider is fully offline and needs no key.
 - Draft generation calls your chosen AI provider directly from the browser unless you select webhook mode
 - ATS scorecard can run through your own server (`/api/ats-scorecard`) or your own webhook URL; no maintainer-hosted ATS service is used
 
