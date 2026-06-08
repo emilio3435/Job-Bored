@@ -56,11 +56,25 @@ reading below.
 - **Pipeline filters** — scan active stages, archive Rejected / Passed / Expired roles, and keep dismissed roles out of view unless requested
 - **Run discovery** — optional webhook in `config.js` so your agent (Hermes, n8n, etc.) runs another pass; POST includes `schemaVersion`, optional `discoveryProfile` from **Discovery drawer → Search**, and optional per-run company filters ([AGENT_CONTRACT.md](AGENT_CONTRACT.md))
 - **ATS LLM scorecard** — generated drafts now include structured ATS analysis (score, strengths, gaps, rewrite suggestions) via local server endpoint or webhook
+- **Resume & cover-letter generation** — drafts default to the **OpenRouter free tier** (paste a free key from [openrouter.ai/keys](https://openrouter.ai/keys), no paid plan), with optional **fully local** (Ollama), **BYO** (Gemini / OpenAI / Anthropic + your key), or **webhook** paths. Your resume and profile text never leave the browser unless you pick webhook mode. See [QUICKSTART.md](QUICKSTART.md) and [SETUP.md](SETUP.md) for the full walkthrough.
 - **Last contact & reply** — optional columns R–S editable on each card when signed in
 - **Filter & search** — stage filters plus priority, sort by fit score/date/company, free-text search
 - **Google OAuth** — sign in with Google to enable write actions (read works without sign-in)
 - **No backend** — pure HTML/CSS/JS, deploys anywhere static files are served
 - **Reproducible** — bring your own Sheet + OAuth credentials, share with anyone
+
+### Resume & cover-letter generation
+
+Draft generation defaults to a free-tier model and also supports a fully local model path plus BYO and webhook options. Pick the path that fits you — your resume and profile text only travel to the provider you choose:
+
+| Path | What to set in Settings |
+| --- | --- |
+| **Free default (OpenRouter)** | Paste a free OpenRouter key ([openrouter.ai/keys](https://openrouter.ai/keys)) — no paid plan |
+| **Local (Ollama)** | Provider `Local`, base URL (e.g. `http://127.0.0.1:11434/v1`), model `gemma4:e2b` |
+| **BYO (Gemini / OpenAI / Anthropic)** | Provider `Gemini` / `OpenAI` / `Anthropic` + your API key |
+| **Webhook** | Provider `Webhook` + your endpoint URL |
+
+See [QUICKSTART.md](QUICKSTART.md) for the short path-by-path walkthrough and [SETUP.md](SETUP.md#resume-updater--cover-letter-writer-optional) for the full provider reference.
 
 ## Quick Start
 
