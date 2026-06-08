@@ -169,29 +169,12 @@ function buildMissing(tools) {
     missing.push("Run `ngrok config add-authtoken <token>`.");
   }
 
-  if (!tools.tailscale.installed) {
-    missing.push("Install Tailscale CLI (`tailscale`).");
-  } else if (!tools.tailscale.loggedIn) {
-    missing.push("Run `tailscale up`.");
-  }
-
-  if (!tools.vercel.installed) {
-    missing.push("Install Vercel CLI (`npm install -g vercel`).");
-  } else if (!tools.vercel.loggedIn) {
-    missing.push("Run `vercel login`.");
-  }
-
-  if (!tools.netlify.installed) {
-    missing.push("Install Netlify CLI (`npm install -g netlify-cli`).");
-  } else if (!tools.netlify.loggedIn) {
-    missing.push("Run `netlify login`.");
-  }
-
-  if (!tools.gh.installed) {
-    missing.push("Install GitHub CLI (`gh`).");
-  } else if (!tools.gh.loggedIn) {
-    missing.push("Run `gh auth login`.");
-  }
+  // Tailscale / Vercel / Netlify / GitHub are go-live (dashboard-reachability)
+  // CLIs, detected in `tools.*` for the go-live wizard to read individually.
+  // They are optional alternatives (Tailscale OR one cloud provider), so they
+  // must NOT gate discovery-readiness `ok` / `missing` (consumed by
+  // discovery-readiness.js and the go-live wizard's proxy check). The wizard
+  // owns their per-tool next-step guidance.
 
   if (!tools.node.ok) {
     missing.push("Install Node.js 24.x.");

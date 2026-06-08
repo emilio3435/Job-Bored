@@ -44,14 +44,12 @@ describe("install doctor", () => {
         gh: { installed: false },
         node: { version: process.version, ok: true, required: ">=24 <25" },
       },
+      // Go-live CLIs (tailscale/vercel/netlify/gh) are detected in tools.* but
+      // do NOT gate discovery-readiness `missing` — they are optional alternatives.
       missing: [
         "Install Google Cloud CLI (`gcloud`).",
         "Install Cloudflare Wrangler (`npm install -g wrangler`).",
         "Install ngrok.",
-        "Install Tailscale CLI (`tailscale`).",
-        "Install Vercel CLI (`npm install -g vercel`).",
-        "Install Netlify CLI (`npm install -g netlify-cli`).",
-        "Install GitHub CLI (`gh`).",
       ],
     });
   });
@@ -156,7 +154,9 @@ describe("install doctor", () => {
 
     const result = runInstallDoctor();
 
-    assert.equal(result.ok, false);
+    // Discovery infra (gcloud/wrangler/ngrok) is healthy here, so ok stays true:
+    // go-live CLI login gaps surface via tools.*, they do not gate readiness.
+    assert.equal(result.ok, true);
     assert.deepEqual(result.tools.tailscale, {
       installed: true,
       loggedIn: false,
@@ -178,12 +178,8 @@ describe("install doctor", () => {
       loggedIn: false,
       version: "gh version 2.64.0",
     });
-    assert.deepEqual(result.missing, [
-      "Run `tailscale up`.",
-      "Run `vercel login`.",
-      "Run `netlify login`.",
-      "Run `gh auth login`.",
-    ]);
+    // Go-live login gaps live in tools.*, not in the discovery-readiness list.
+    assert.deepEqual(result.missing, []);
   });
 
   it("reports mixed install and login gaps", () => {
@@ -233,13 +229,11 @@ describe("install doctor", () => {
         },
         node: { version: process.version, ok: true, required: ">=24 <25" },
       },
+      // Only discovery-infra gaps gate readiness; go-live CLI states live in tools.*.
       missing: [
         "Run `gcloud auth login`.",
         "Install Cloudflare Wrangler (`npm install -g wrangler`).",
         "Run `ngrok config add-authtoken <token>`.",
-        "Install Tailscale CLI (`tailscale`).",
-        "Run `vercel login`.",
-        "Install Netlify CLI (`npm install -g netlify-cli`).",
       ],
     });
   });
