@@ -99,6 +99,22 @@
       discoveryDone = false;
     }
     if (discoveryDone) return;
+    // Reconcile with the first-run→discovery chain: if first-run already opened
+    // discovery for the onboarding lane, it left a one-shot sentinel. Consume it
+    // and bail so we don't double-open the wizard simultaneously.
+    let firstRunAlreadyOpened = false;
+    try {
+      if (
+        window.sessionStorage &&
+        window.sessionStorage.getItem("jobbored.discovery.openedFromFirstRun") === "1"
+      ) {
+        window.sessionStorage.removeItem("jobbored.discovery.openedFromFirstRun");
+        firstRunAlreadyOpened = true;
+      }
+    } catch (_) {
+      firstRunAlreadyOpened = false;
+    }
+    if (firstRunAlreadyOpened) return;
     const onComplete = async (detail) => {
       if (detail && detail.alreadyConnected) {
         try {

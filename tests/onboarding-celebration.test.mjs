@@ -198,4 +198,14 @@ describe("advanceToDiscoveryAfterOnboarding — gated blocking handoff", () => {
     await env.onboarding.advanceToDiscoveryAfterOnboarding();
     assert.equal(env.calls.requestDiscovery.length, 0);
   });
+
+  it("skips the open when jobbored.discovery.openedFromFirstRun sentinel is set", async () => {
+    const env = loadOnboardingWithGate({ discoveryComplete: false });
+    env.window.sessionStorage = {
+      getItem: (k) => (k === "jobbored.discovery.openedFromFirstRun" ? "1" : null),
+      removeItem: () => {},
+    };
+    await env.onboarding.advanceToDiscoveryAfterOnboarding();
+    assert.equal(env.calls.requestDiscovery.length, 0);
+  });
 });
