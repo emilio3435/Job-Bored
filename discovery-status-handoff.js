@@ -820,6 +820,35 @@ function resumeDiscoveryStatusPollingIfNeeded() {
 }
 
 /**
+ * Honest run-health: does a run's error text point at an expired/invalid
+ * grounded-search key, rather than a clean zero-results run or an unrelated
+ * failure? Completion means the pipeline CONNECTED (isDiscoverySetupComplete is
+ * never touched here) — this is a separate run-health signal so an expired key
+ * surfaces as an actionable "refresh your key" message instead of silent
+ * emptiness or a generic "check the worker logs".
+ */
+function looksLikeExpiredSearchKey(rawText) {
+  const text = String(rawText || "");
+  if (!text) return false;
+  // Dead-link warnings ("broken or expired job page") are per-posting, NOT the
+  // grounded-search API key — never cry wolf on those.
+  if (/\bjob (page|posting|url|listing)\b/i.test(text)) return false;
+  const mentionsSearchKey =
+    /gemini api key/i.test(text) ||
+    /google_search client/i.test(text) ||
+    /grounded[\s-]?search/i.test(text) ||
+    /search key/i.test(text);
+  if (!mentionsSearchKey) return false;
+  return /\b(expired|invalid|revoked|unauthorized|not configured|not valid|unavailable)\b|\b40[13]\b/i.test(
+    text,
+  );
+}
+
+const EXPIRED_SEARCH_KEY_MESSAGE =
+  "Discovery is set up, but your grounded-search key looks expired or invalid. " +
+  "Refresh it in Settings → Discovery to start getting results.";
+
+/**
  * Render current run status into the discovery status bar (toast area / status chip).
  * Called after every tracker state change so the user sees live progress.
  */
@@ -888,15 +917,34 @@ function renderDiscoveryRunStatus() {
       statusMessage = "";
   }
 
+  // Honest run-health override: a terminal run that failed/degraded because the
+  // grounded-search key is expired/invalid gets an actionable message + a fix
+  // action, instead of silent emptiness or "check the worker logs". We only
+  // inspect partial/failed (states that carry an error) — a clean "empty" run
+  // keeps "no new roles found" so we never cry wolf on legitimate zero results.
+  const expiredSearchKey =
+    (state.status === "partial" || state.status === "failed") &&
+    looksLikeExpiredSearchKey(state.errorMessage);
+  if (expiredSearchKey) {
+    statusMessage = EXPIRED_SEARCH_KEY_MESSAGE;
+    statusTone = "warning";
+  }
+
   if (openBtn && statusMessage) {
     openBtn.setAttribute("aria-label", statusMessage);
     // Also surface in a toast for non-terminal states
     if (state.status !== "idle") {
       // Use a transient toast (non-blocking) for live updates
-      const retryAction =
-        state.status === "polling_error" &&
-        state.statusPath &&
-        state.pollErrorCount >= MAX_POLL_ERRORS
+      const retryAction = expiredSearchKey
+        ? {
+            label: "Open settings",
+            onClick: () => {
+              void openSettingsForDiscoveryWebhook();
+            },
+          }
+        : state.status === "polling_error" &&
+            state.statusPath &&
+            state.pollErrorCount >= MAX_POLL_ERRORS
           ? { label: "Retry status", onClick: retryDiscoveryStatusConnection }
           : state.status === "pending" && state.statusUnavailable
             ? {
@@ -906,14 +954,12 @@ function renderDiscoveryRunStatus() {
                 },
               }
           : undefined;
-      host().showToast(
-        statusMessage,
-        statusTone,
+      const sticky =
+        expiredSearchKey ||
         (state.status === "polling_error" &&
           state.pollErrorCount >= MAX_POLL_ERRORS) ||
-          (state.status === "pending" && state.statusUnavailable),
-        retryAction,
-      );
+        (state.status === "pending" && state.statusUnavailable);
+      host().showToast(statusMessage, statusTone, sticky, retryAction);
     }
   }
 }
@@ -980,6 +1026,7 @@ function resetPostAccessBootstrap() {
     stopDiscoveryStatusPolling: stopDiscoveryStatusPolling,
     resumeDiscoveryStatusPollingIfNeeded: resumeDiscoveryStatusPollingIfNeeded,
     renderDiscoveryRunStatus: renderDiscoveryRunStatus,
+    looksLikeExpiredSearchKey: looksLikeExpiredSearchKey,
     handleDiscoverySetupDeepLink: handleDiscoverySetupDeepLink,
     runPostAccessBootstrapOnce: runPostAccessBootstrapOnce,
     resetPostAccessBootstrap: resetPostAccessBootstrap,
