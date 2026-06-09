@@ -609,7 +609,10 @@
    * checkOnboardingGate() may make the profile/onboarding wizard the active
    * surface — the discovery wizard must still open on top.
    */
-  function handleFirstRunDoneOpenDiscovery() {
+  function handleFirstRunDoneOpenDiscovery(opts) {
+    // entryPoint defaults to "whats_next" so the existing secondary CTA path
+    // is unchanged; the mandatory-onboarding auto-launch passes "onboarding".
+    const entryPoint = (opts && opts.entryPoint) || "whats_next";
     // Reveal + render the dashboard and release the first-run surface FIRST
     // (hides the login gate, tears the wizard down) so the discovery wizard
     // opens on top of the dashboard, not over the gate.
@@ -618,7 +621,7 @@
     if (typeof h.requestDiscoverySetup === "function") {
       try {
         h.requestDiscoverySetup({
-          entryPoint: "whats_next",
+          entryPoint,
           allowWhileOnboarding: true,
         });
       } catch (e) {
@@ -629,7 +632,7 @@
     if (typeof window.requestDiscoverySetup === "function") {
       try {
         window.requestDiscoverySetup({
-          entryPoint: "whats_next",
+          entryPoint,
           allowWhileOnboarding: true,
         });
       } catch (e) {
@@ -880,7 +883,11 @@
     // (the same chain handleFirstRunFinish used to own inline); the two
     // OPTIONAL CTAs are clearly secondary so they never read as required.
     getEl("firstRunDoneToDashboard")?.addEventListener("click", () => {
-      handleFirstRunDoneToDashboard();
+      // Mandatory two-track onboarding: the primary completion routes
+      // through discovery setup (full dashboard handoff first, then opens
+      // discovery on top), which auto-chains to go-live on finish. The user
+      // still reaches the dashboard and is never trapped.
+      handleFirstRunDoneOpenDiscovery({ entryPoint: "onboarding" });
     });
     getEl("firstRunDoneOpenDiscovery")?.addEventListener("click", () => {
       handleFirstRunDoneOpenDiscovery();
