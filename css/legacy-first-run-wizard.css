@@ -406,17 +406,43 @@
   display: none !important;
 }
 
+/* Bottom-right floating "Finish setup" card. Fixed to the viewport corner
+   (above the transient toast stack at z-index:1000) so it persists while the
+   user scrolls without wedging into the page flow. On-brand: warm paper, a
+   mint accent rail, navy ink, soft navy-tinted shadow. The markup/IDs are
+   unchanged — only the presentation moved. */
 .whats-next-banner {
-  margin: var(--space-4) auto;
-  max-width: 980px;
-  padding: 0 var(--space-4);
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 1001;
+  width: min(360px, calc(100vw - 2 * var(--space-4)));
+  margin: 0;
+  padding: 0;
+  animation: whatsNextCardIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes whatsNextCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .whats-next-banner__inner {
+  position: relative;
   padding: var(--space-4) var(--space-5);
   border-radius: var(--radius-lg);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  background: var(--jb-paper, var(--surface));
+  border: 1px solid var(--jb-line-soft, var(--border));
+  border-left: 4px solid var(--jb-mint, var(--accent));
+  box-shadow:
+    0 16px 40px rgba(14, 58, 78, 0.18),
+    0 4px 10px rgba(14, 58, 78, 0.08);
   display: grid;
   gap: var(--space-2);
 }
@@ -424,9 +450,9 @@
 .whats-next-banner__kicker {
   margin: 0;
   font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--jb-mint-deep, #2f8a5a);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -434,34 +460,67 @@
   margin: 0;
   font-size: var(--text-md);
   font-weight: 700;
-  color: var(--text);
+  color: var(--jb-navy, var(--text));
 }
 
 .whats-next-banner__body {
   margin: 0;
   font-size: var(--text-sm);
-  color: var(--text-muted);
+  color: var(--jb-ink-2, var(--text-muted));
   line-height: 1.5;
+}
+
+/* "Finish setup — N of 2 complete" — the primary signal. A mint progress dot
+   gives it a glanceable status feel. */
+.whats-next-banner__progress {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--jb-navy, var(--text));
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.whats-next-banner__progress[hidden] {
+  display: none;
+}
+
+.whats-next-banner__progress::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--jb-mint, var(--accent));
+  box-shadow: 0 0 0 3px var(--jb-mint-soft, rgba(95, 203, 142, 0.25));
+  flex: 0 0 auto;
 }
 
 .whats-next-banner__actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin-top: var(--space-2);
+  margin-top: var(--space-1);
   align-items: center;
 }
 
 .whats-next-banner__cta {
-  /* secondary button styling so it never reads as a required action */
-  font-weight: 500;
+  font-weight: 600;
 }
 
-.whats-next-banner__dismiss {
+.whats-next-banner__dismiss,
+.whats-next-banner__later {
   margin-left: auto;
 }
 
 @media (max-width: 640px) {
+  .whats-next-banner {
+    right: var(--space-3);
+    left: var(--space-3);
+    bottom: var(--space-3);
+    width: auto;
+  }
+
   .first-run-wizard__inner {
     padding: var(--space-6) var(--space-4);
   }
