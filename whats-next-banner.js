@@ -126,6 +126,14 @@
     const host =
       (window.JobBoredApp && window.JobBoredApp.core && window.JobBoredApp.core.host) ||
       null;
+    // Gate the whole signpost behind sign-in: it must never render over the
+    // login gate. A returning-but-signed-out user keeps the persisted
+    // completion flags, so without this the bar leaks onto the login screen.
+    // (Absent isSignedIn — e.g. a non-auth context — is treated as "don't
+    // gate" so it stays a soft, opt-in check.)
+    if (host && typeof host.isSignedIn === "function" && !host.isSignedIn()) {
+      return null;
+    }
     const UC = host && typeof host.getUserContent === "function"
       ? host.getUserContent()
       : null;

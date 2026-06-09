@@ -79,6 +79,7 @@
         host.buildDiscoveryRelayDeployCommandForTarget,
       getDiscoveryRelaySuggestedOrigin: host.getDiscoveryRelaySuggestedOrigin,
       isOnboardingWizardVisible: host.isOnboardingWizardVisible,
+      isSignedIn: host.isSignedIn,
       openDiscoverySetupWizard: host.openDiscoverySetupWizard,
       openGoLiveSetupWizard: host.openGoLiveSetupWizard,
       requestGoLiveSetup: host.requestGoLiveSetup,
