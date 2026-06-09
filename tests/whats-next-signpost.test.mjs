@@ -1191,3 +1191,219 @@ describe("whats-next-banner module — completion-awareness (FE-3)", () => {
     );
   });
 });
+
+// ============================================================
+// Mandatory two-track onboarding: the banner is upgraded into a
+// setup-progress bar ("Finish setup — N of 2 complete") that is
+// non-dismissible while either track is pending EXCEPT a small
+// session-scoped "Later" snooze (sessionStorage, not the permanent
+// whatsNextDismissed flag). Mirrors loadCompletionBanner above but
+// adds a sessionStorage stub so the snooze path is exercisable.
+// ============================================================
+
+describe("whats-next-banner module — setup progress + session Later", () => {
+  function loadProgressBanner() {
+    const els = new Map();
+    const makeEl = (id) => {
+      const attrs = new Map();
+      const classes = new Set();
+      const node = {
+        id,
+        style: {},
+        dataset: {},
+        textContent: "",
+        innerHTML: "",
+        get hidden() {
+          return attrs.has("hidden");
+        },
+        classList: {
+          add(c) {
+            classes.add(c);
+          },
+          remove(c) {
+            classes.delete(c);
+          },
+          contains(c) {
+            return classes.has(c);
+          },
+          toggle(c) {
+            if (classes.has(c)) classes.delete(c);
+            else classes.add(c);
+          },
+        },
+        addEventListener() {},
+        removeEventListener() {},
+        setAttribute(name, value) {
+          attrs.set(name, value);
+        },
+        removeAttribute(name) {
+          attrs.delete(name);
+        },
+        getAttribute(name) {
+          return attrs.has(name) ? attrs.get(name) : null;
+        },
+        hasAttribute(name) {
+          return attrs.has(name);
+        },
+        appendChild() {},
+        querySelector() {
+          return null;
+        },
+        querySelectorAll() {
+          return [];
+        },
+        closest() {
+          return null;
+        },
+        focus() {},
+        __classes: classes,
+        __attrs: attrs,
+      };
+      return node;
+    };
+    const region = makeEl("whats-next-region");
+    const document = {
+      readyState: "complete",
+      body: makeEl("body"),
+      getElementById(id) {
+        if (!els.has(id)) els.set(id, makeEl(id));
+        return els.get(id);
+      },
+      querySelector(sel) {
+        if (sel === '[data-region="whats-next"]') return region;
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+      addEventListener() {},
+      createElement() {
+        return makeEl("created");
+      },
+    };
+    // Map-backed sessionStorage stub: the session "Later" snooze writes
+    // here, NOT to the IndexedDB-backed whatsNextDismissed flag.
+    const sessionMap = new Map();
+    const sessionStorage = {
+      getItem(key) {
+        return sessionMap.has(key) ? sessionMap.get(key) : null;
+      },
+      setItem(key, value) {
+        sessionMap.set(key, String(value));
+      },
+      removeItem(key) {
+        sessionMap.delete(key);
+      },
+    };
+    const window = {
+      JobBoredApp: {},
+      COMMAND_CENTER_CONFIG: {},
+      sessionStorage,
+    };
+    const ctx = {
+      window,
+      document,
+      console,
+      setTimeout,
+      requestAnimationFrame: (fn) => fn(),
+    };
+    vm.createContext(ctx);
+    vm.runInContext(whatsNextBannerJs, ctx, { filename: "whats-next-banner.js" });
+    return {
+      api: window.JobBoredApp.whatsNextBanner,
+      window,
+      document,
+      region,
+      sessionMap,
+      getButton: (id) => document.getElementById(id),
+    };
+  }
+
+  function ucWith({
+    discoveryComplete = false,
+    goLiveComplete = false,
+    dismissedWrites,
+  } = {}) {
+    return {
+      openDb: async () => {},
+      isInfraSetupComplete: async () => true,
+      getWhatsNextDismissed: async () => false,
+      isOnboardingComplete: async () => true,
+      isDiscoverySetupComplete: async () => discoveryComplete,
+      isGoLiveSetupComplete: async () => goLiveComplete,
+      setWhatsNextDismissed: async (v) => {
+        if (dismissedWrites) dismissedWrites.push(v);
+      },
+    };
+  }
+
+  it("shows 'Finish setup — 1 of 2 complete' when only discovery is done", async () => {
+    const { api, window, getButton } = loadProgressBanner();
+    window.JobBoredApp.core = {
+      host: {
+        getUserContent: () =>
+          ucWith({ discoveryComplete: true, goLiveComplete: false }),
+      },
+    };
+    // Pre-seed the hidden attribute so the assertion proves the bar was
+    // actively revealed (not merely never hidden).
+    getButton("whatsNextSetupProgress").setAttribute("hidden", "hidden");
+    await api.refreshBanner();
+    const progress = getButton("whatsNextSetupProgress");
+    assert.match(progress.textContent, /1 of 2/);
+    assert.equal(progress.hasAttribute("hidden"), false);
+  });
+
+  it("reveals the session 'Later' button while setup is incomplete", async () => {
+    const { api, window, getButton } = loadProgressBanner();
+    window.JobBoredApp.core = {
+      host: {
+        getUserContent: () =>
+          ucWith({ discoveryComplete: false, goLiveComplete: false }),
+      },
+    };
+    getButton("whatsNextLater").setAttribute("hidden", "hidden");
+    await api.refreshBanner();
+    assert.equal(getButton("whatsNextLater").hasAttribute("hidden"), false);
+  });
+
+  it("handleLater hides the bar via sessionStorage and a re-render keeps it hidden", async () => {
+    const { api, window } = loadProgressBanner();
+    window.JobBoredApp.core = {
+      host: {
+        getUserContent: () =>
+          ucWith({ discoveryComplete: false, goLiveComplete: false }),
+      },
+    };
+    await api.refreshBanner();
+    assert.equal(api.isBannerVisible(), true);
+    api.handleLater();
+    assert.equal(api.isBannerVisible(), false);
+    // Re-render in the same "session": the snooze keeps it hidden even
+    // though both tracks are still pending.
+    await api.refreshBanner();
+    assert.equal(api.isBannerVisible(), false);
+  });
+
+  it("Later snooze does NOT write the permanent whatsNextDismissed flag", async () => {
+    const dismissedWrites = [];
+    const { api, window } = loadProgressBanner();
+    window.JobBoredApp.core = {
+      host: {
+        getUserContent: () =>
+          ucWith({
+            discoveryComplete: false,
+            goLiveComplete: false,
+            dismissedWrites,
+          }),
+      },
+    };
+    await api.refreshBanner();
+    api.handleLater();
+    assert.equal(
+      dismissedWrites.length,
+      0,
+      "Later must not call setWhatsNextDismissed (that is the permanent dismiss)",
+    );
+  });
+});
