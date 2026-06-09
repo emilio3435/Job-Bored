@@ -622,7 +622,7 @@
    * checkOnboardingGate() may make the profile/onboarding wizard the active
    * surface — the discovery wizard must still open on top.
    */
-  function handleFirstRunDoneOpenDiscovery(opts) {
+  async function handleFirstRunDoneOpenDiscovery(opts) {
     // entryPoint defaults to "whats_next" so the existing secondary CTA path
     // is unchanged; the mandatory-onboarding auto-launch passes "onboarding".
     const entryPoint = (opts && opts.entryPoint) || "whats_next";
@@ -630,15 +630,31 @@
     // (hides the login gate, tears the wizard down) so the discovery wizard
     // opens on top of the dashboard, not over the gate.
     handleFirstRunDoneToDashboard();
-    // Mandatory-onboarding lane only: leave a one-shot sentinel so the persona
-    // finish's advanceToDiscoveryAfterOnboarding doesn't race us into a second
-    // simultaneous discovery open. advanceToDiscoveryAfterOnboarding consumes it.
-    if (entryPoint === "onboarding") {
-      try {
-        window.sessionStorage.setItem("jobbored.discovery.openedFromFirstRun", "1");
-      } catch (_) {
-        /* sessionStorage unavailable — sentinel is best-effort */
+    // Canonical onboarding order: sheet/OAuth → profile → discovery →
+    // multi-device. When the profile is still incomplete, the dashboard
+    // handoff's checkOnboardingGate has just opened the profile wizard —
+    // discovery opens later from the profile-finish celebration CTA, so we
+    // defer here (one smooth flow, no pre-profile discovery flash). Only a
+    // POSITIVE "profile incomplete" read defers; a missing/erroring store
+    // fails open so odd contexts keep the direct-open behavior.
+    try {
+      const UC =
+        typeof host().getUserContent === "function"
+          ? host().getUserContent()
+          : null;
+      if (UC && typeof UC.isOnboardingComplete === "function") {
+        if (typeof UC.openDb === "function") await UC.openDb();
+        const profileDone = !!(await UC.isOnboardingComplete());
+        if (!profileDone) return;
+        // Returning user with the profile already done: keep the direct
+        // open, but skip it when discovery is also complete (idempotent).
+        if (typeof UC.isDiscoverySetupComplete === "function") {
+          const discoveryDone = !!(await UC.isDiscoverySetupComplete());
+          if (discoveryDone) return;
+        }
       }
+    } catch (e) {
+      console.warn("[JobBored] first-run discovery defer check:", e);
     }
     const h = host();
     if (typeof h.requestDiscoverySetup === "function") {
@@ -906,11 +922,12 @@
     // (the same chain handleFirstRunFinish used to own inline); the two
     // OPTIONAL CTAs are clearly secondary so they never read as required.
     getEl("firstRunDoneToDashboard")?.addEventListener("click", () => {
-      // Mandatory two-track onboarding: the primary completion routes
-      // through discovery setup (full dashboard handoff first, then opens
-      // discovery on top), which auto-chains to go-live on finish. The user
-      // still reaches the dashboard and is never trapped.
-      handleFirstRunDoneOpenDiscovery({ entryPoint: "onboarding" });
+      // Mandatory onboarding: the primary completion runs the dashboard
+      // handoff (which opens the profile wizard when incomplete) and only
+      // opens discovery directly for a returning user whose profile is
+      // already done — otherwise the profile-finish celebration CTA owns
+      // the discovery handoff (one smooth flow, never trapped).
+      void handleFirstRunDoneOpenDiscovery({ entryPoint: "onboarding" });
     });
     getEl("firstRunDoneOpenSelfHosting")?.addEventListener("click", () => {
       handleFirstRunDoneOpenSelfHosting();

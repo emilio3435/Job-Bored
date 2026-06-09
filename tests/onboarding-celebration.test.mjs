@@ -216,14 +216,136 @@ describe("advanceToDiscoveryAfterOnboarding — gated blocking handoff", () => {
     assert.equal(env.calls.requestDiscovery.length, 0);
   });
 
-  it("skips the open when jobbored.discovery.openedFromFirstRun sentinel is set", async () => {
-    const env = loadOnboardingWithGate({ discoveryComplete: false });
-    env.window.sessionStorage = {
-      getItem: (k) => (k === "jobbored.discovery.openedFromFirstRun" ? "1" : null),
-      removeItem: () => {},
+  it("the first-run double-open sentinel is gone (the done panel now defers to this chain)", () => {
+    // The sentinel patched a double-open created by first-run opening
+    // discovery ahead of the profile step. With the done panel deferring to
+    // the profile chain, the advance must no longer consult sessionStorage.
+    assert.ok(
+      !onboardingWizardJs.includes("openedFromFirstRun"),
+      "advanceToDiscoveryAfterOnboarding must not read the obsolete sentinel",
+    );
+  });
+});
+
+describe("playOnboardingCelebration — persistent, CTA-driven handoff", () => {
+  // The celebration must NOT auto-dismiss on a timer: it persists until the
+  // user clicks the continue CTA, which fades the overlay out and then runs
+  // onDone (the discovery handoff) — one continuous flow, no intermission.
+  function makeCelebrationEl() {
+    const attrs = new Map();
+    const classes = new Set();
+    return {
+      attrs,
+      classes,
+      focusCount: 0,
+      clickHandlers: [],
+      get hidden() {
+        return attrs.has("hidden");
+      },
+      setAttribute: (n, v) => attrs.set(n, String(v)),
+      removeAttribute: (n) => attrs.delete(n),
+      hasAttribute: (n) => attrs.has(n),
+      classList: {
+        add: (c) => classes.add(c),
+        remove: (c) => classes.delete(c),
+        contains: (c) => classes.has(c),
+      },
+      addEventListener(type, fn) {
+        if (type === "click") this.clickHandlers.push(fn);
+      },
+      focus() {
+        this.focusCount += 1;
+      },
+      replaceChildren() {},
+      appendChild() {},
+      style: { setProperty() {} },
     };
-    await env.onboarding.advanceToDiscoveryAfterOnboarding();
-    assert.equal(env.calls.requestDiscovery.length, 0);
+  }
+
+  function loadCelebration({ withCta = true } = {}) {
+    const overlay = makeCelebrationEl();
+    const confetti = makeCelebrationEl();
+    const cta = withCta ? makeCelebrationEl() : null;
+    const timers = [];
+    const window = { JobBoredApp: { core: { host: {} } } };
+    const document = {
+      getElementById: (id) =>
+        id === "onboardingCelebration"
+          ? overlay
+          : id === "onboardingCelebrationConfetti"
+            ? confetti
+            : id === "onboardingCelebrationContinue"
+              ? cta
+              : null,
+      createElement: () => makeCelebrationEl(),
+    };
+    const ctx = {
+      window,
+      document,
+      console,
+      setTimeout: (fn, ms) => {
+        timers.push({ fn, ms });
+        return timers.length;
+      },
+      clearTimeout: () => {},
+    };
+    vm.createContext(ctx);
+    vm.runInContext(onboardingWizardJs, ctx, { filename: "onboarding-wizard.js" });
+    const drainTimers = () => {
+      while (timers.length) timers.shift().fn();
+    };
+    return { onboarding: window.JobBoredApp.onboarding, overlay, cta, timers, drainTimers };
+  }
+
+  it("persists: no timer-driven dismissal is scheduled, and the CTA gets focus", () => {
+    const env = loadCelebration();
+    let done = 0;
+    env.onboarding.playOnboardingCelebration(() => {
+      done += 1;
+    });
+    assert.equal(env.overlay.hidden, false, "overlay shows");
+    assert.equal(
+      env.timers.length,
+      0,
+      "no auto-dismiss timer may be scheduled — the celebration waits for the CTA",
+    );
+    assert.equal(done, 0, "onDone must NOT fire until the user clicks through");
+    assert.equal(env.cta.focusCount, 1, "the continue CTA receives focus (a11y)");
+  });
+
+  it("clicking the continue CTA fades out, hides the overlay, and fires onDone exactly once", () => {
+    const env = loadCelebration();
+    let done = 0;
+    env.onboarding.playOnboardingCelebration(() => {
+      done += 1;
+    });
+    assert.equal(env.cta.clickHandlers.length, 1, "CTA must be wired");
+    env.cta.clickHandlers[0]();
+    assert.ok(
+      env.overlay.classes.has("onboarding-celebration--out"),
+      "fade-out class applied on click",
+    );
+    env.drainTimers(); // run the fade-out cleanup timer
+    assert.equal(env.overlay.hidden, true, "overlay hidden after the fade");
+    assert.equal(done, 1, "onDone fires exactly once, from the click");
+  });
+
+  it("falls back to a timed dismissal when the CTA is missing (stale markup) so the handoff never strands", () => {
+    const env = loadCelebration({ withCta: false });
+    let done = 0;
+    env.onboarding.playOnboardingCelebration(() => {
+      done += 1;
+    });
+    assert.ok(env.timers.length >= 1, "a fallback timer must be scheduled");
+    env.drainTimers();
+    assert.equal(done, 1, "the fallback still completes the handoff");
+  });
+
+  it("index.html defines the continue CTA and marks the overlay as a dialog", () => {
+    assert.match(indexHtml, /id="onboardingCelebrationContinue"/);
+    const i = indexHtml.indexOf('id="onboardingCelebration"');
+    const openTag = indexHtml.slice(indexHtml.lastIndexOf("<div", i), indexHtml.indexOf(">", i) + 1);
+    assert.match(openTag, /role="dialog"/, "the celebration is interactive now — a dialog, not a status flash");
   });
 });
 
