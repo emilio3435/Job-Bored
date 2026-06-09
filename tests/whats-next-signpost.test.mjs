@@ -941,6 +941,22 @@ describe("whats-next-banner module — gating + dismiss persistence", () => {
     }
   });
 
+  it("reappears after auth restore when an early pre-auth refreshBanner hid it", async () => {
+    const { api, window } = loadBanner();
+    window.JobBoredApp.core = {
+      host: { getUserContent: () => gateStates.allTrue, isSignedIn: () => false },
+    };
+    await api.refreshBanner();
+    assert.equal(api.isBannerVisible(), false, "pre-auth init must hide the banner");
+    window.JobBoredApp.core.host.isSignedIn = () => true;
+    await api.refreshBanner();
+    assert.equal(
+      api.isBannerVisible(),
+      true,
+      "banner must show once auth restore makes the user signed in",
+    );
+  });
+
   it("stays hidden until the user is signed in, even when every other gate passes", async () => {
     // Regression: the setup bar leaked onto the pre-login screen for a
     // returning-but-signed-out user (flags persisted, token cleared).

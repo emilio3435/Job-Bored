@@ -5,6 +5,11 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
+const authSessionJs = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "..", "auth-session.js"),
+  "utf8",
+);
+
 /* ============================================================
    Honest run-health surface (#4): "set up, but the grounded-search key looks
    expired".
@@ -170,6 +175,30 @@ describe("renderDiscoveryRunStatus — expired-key honest state", () => {
   });
 });
 
+describe("auth-session — post-auth setup surface sync", () => {
+  it("re-syncs login-gated surfaces from updateAuthUI after GIS restore", () => {
+    assert.match(authSessionJs, /function syncSetupSurfacesForAuthState\(\)/);
+    const syncBody = authSessionJs.slice(
+      authSessionJs.indexOf("function syncSetupSurfacesForAuthState()"),
+      authSessionJs.indexOf("function updateAuthUI()"),
+    );
+    assert.match(
+      syncBody,
+      /resumeDiscoveryStatusPollingIfNeeded/,
+      "signed-in path must resume discovery run-status after pre-auth init",
+    );
+    const updateBody = authSessionJs.slice(
+      authSessionJs.indexOf("function updateAuthUI()"),
+      authSessionJs.indexOf("function isSignedIn()"),
+    );
+    assert.match(
+      updateBody,
+      /syncSetupSurfacesForAuthState\(\)/,
+      "updateAuthUI must re-run setup-surface sync when auth flips",
+    );
+  });
+});
+
 describe("resumeDiscoveryStatusPollingIfNeeded — login gate", () => {
   // A stale run with statusUnavailable + active would replay a run-status
   // toast on load. That must NOT happen before the user signs in (the toast
@@ -197,6 +226,18 @@ describe("resumeDiscoveryStatusPollingIfNeeded — login gate", () => {
     assert.ok(
       env.toasts.length >= 1,
       "run-status renders normally when signed in",
+    );
+  });
+
+  it("resumes after a pre-auth no-op (bootstrap runs before GIS restore)", () => {
+    const env = loadStatus(staleState, { signedIn: false, isActive: true });
+    env.status.resumeDiscoveryStatusPollingIfNeeded();
+    assert.equal(env.toasts.length, 0, "pre-auth init must not surface run-status");
+    env.status.host.isSignedIn = () => true;
+    env.status.resumeDiscoveryStatusPollingIfNeeded();
+    assert.ok(
+      env.toasts.length >= 1,
+      "run-status must resume once auth restore makes the user signed in",
     );
   });
 });

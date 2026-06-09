@@ -1208,6 +1208,47 @@ function setAuthAvatarDisplay() {
   }
 }
 
+// Login-gated setup surfaces (what's-next banner + discovery run-status) are
+// initialized on DOMContentLoaded before GIS/auth restore finishes. Re-sync
+// them whenever auth flips so a signed-in reload still resumes polling and
+// shows the setup card, and sign-out tears both down immediately.
+function syncSetupSurfacesForAuthState() {
+  if (accessToken) {
+    try {
+      if (typeof host().resumeDiscoveryStatusPollingIfNeeded === "function") {
+        host().resumeDiscoveryStatusPollingIfNeeded();
+      }
+    } catch (_) {
+      /* run-status resume is best-effort */
+    }
+    try {
+      const banner = window.JobBoredApp && window.JobBoredApp.whatsNextBanner;
+      if (banner && typeof banner.refreshBanner === "function") {
+        void Promise.resolve(banner.refreshBanner()).catch(() => {});
+      }
+    } catch (_) {
+      /* banner refresh is best-effort */
+    }
+    return;
+  }
+  try {
+    const status = window.JobBoredDiscovery && window.JobBoredDiscovery.status;
+    if (status && typeof status.stopDiscoveryStatusPolling === "function") {
+      status.stopDiscoveryStatusPolling();
+    }
+  } catch (_) {
+    /* polling stop is best-effort */
+  }
+  try {
+    const banner = window.JobBoredApp && window.JobBoredApp.whatsNextBanner;
+    if (banner && typeof banner.hideBanner === "function") {
+      banner.hideBanner();
+    }
+  } catch (_) {
+    /* banner hide is best-effort */
+  }
+}
+
 function updateAuthUI() {
   const signInBtn = document.getElementById("signInBtn");
   const authUser = document.getElementById("authUser");
@@ -1222,6 +1263,7 @@ function updateAuthUI() {
     setAuthAvatarDisplay();
   }
   host().renderSetupStarterSheetUi();
+  syncSetupSurfacesForAuthState();
 }
 
 function isSignedIn() {
