@@ -18,6 +18,17 @@
     return window.JobBoredDiscoveryWizard.ui.host;
   }
 
+  // Onboarding funnel telemetry — best-effort, looked up lazily so a missing
+  // module never breaks the chain. See onboarding-telemetry.js.
+  function emitOnboardingEvent(step, detail) {
+    try {
+      const t = window.JobBoredOnboardingTelemetry;
+      if (t && typeof t.emit === "function") t.emit(step, detail);
+    } catch (_) {
+      /* telemetry is non-critical */
+    }
+  }
+
   // ==== moved from app.js (Phase 1a) ====
 function createWizardNode(tag, className, text) {
   const el = document.createElement(tag);
@@ -2100,6 +2111,10 @@ async function recommendGoLiveAfterDiscoveryFinish() {
       goLiveDone = false;
     }
   }
+  // Funnel telemetry: discovery finished (always), plus both_done when this
+  // finish completes the second track.
+  emitOnboardingEvent("discovery_finished");
+  if (goLiveDone) emitOnboardingEvent("both_done");
   if (!goLiveDone) {
     // Mandatory two-track onboarding: auto-open the go-live wizard (upgrade
     // from the old banner-only nudge) so finishing discovery chains straight
@@ -2136,6 +2151,11 @@ async function recommendGoLiveAfterDiscoveryFinish() {
 }
 
 async function openDiscoverySetupWizard(options = {}) {
+  // Funnel telemetry: the discovery setup surface was entered (fires once per
+  // open, before autodetect may silently short-circuit it).
+  emitOnboardingEvent("discovery_opened", {
+    entryPoint: options.entryPoint || "manual",
+  });
   // ====== [discovery-autodetect lane: silent recover] ======
   // Probe the local discovery stack BEFORE rendering the wizard. If
   // everything is healthy, skip the wizard entirely. If the only problem

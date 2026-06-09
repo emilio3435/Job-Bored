@@ -19,6 +19,17 @@
       : null) || {};
   }
 
+  // Onboarding funnel telemetry — best-effort, looked up lazily so a missing
+  // module never breaks the wizard. See onboarding-telemetry.js.
+  function emitOnboardingEvent(step, detail) {
+    try {
+      const t = window.JobBoredOnboardingTelemetry;
+      if (t && typeof t.emit === "function") t.emit(step, detail);
+    } catch (_) {
+      /* telemetry is non-critical */
+    }
+  }
+
   // Ordered step model. Each active step shows only its own panel; the step
   // indicator reflects this full sequence so the flow is discoverable.
   // Order: connect a Sheet, then pick an AI provider. Google sign-in is NOT a
@@ -483,6 +494,8 @@
     } catch (e) {
       console.warn("[JobBored] complete infra setup:", e);
     }
+    // Funnel telemetry: the first-run wizard completed (sheet + provider).
+    emitOnboardingEvent("first_run_done");
     showFirstRunDonePanel();
   }
 
