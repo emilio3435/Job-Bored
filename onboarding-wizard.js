@@ -129,7 +129,16 @@
       }
       hideDiscoveryGate();
     };
-    const onClose = async (reason, _ctx) => {
+    const onClose = async (reason, ctx) => {
+      // Happy path: a genuine finish (connected) satisfies the gate — clear it
+      // and let the discovery->go-live chain proceed. Only re-assert the
+      // blocking gate when the wizard closed WITHOUT connecting AND the user
+      // hasn't confirmed the skip escape.
+      const result = ctx && ctx.state ? ctx.state.result : null;
+      if (reason === "finish" && result === "connected") {
+        hideDiscoveryGate();
+        return;
+      }
       let skipped = false;
       try {
         const UC2 = getUserContent();
