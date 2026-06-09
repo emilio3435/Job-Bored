@@ -32,6 +32,26 @@
 
   const REGION_SELECTOR = '[data-region="whats-next"]';
 
+  // Session-scoped "Later" snooze. While either setup track is pending the
+  // bar is non-dismissible EXCEPT this snooze, which hides it for the
+  // current session only (sessionStorage, cleared on next load) — NOT the
+  // permanent whatsNextDismissed flag.
+  const SESSION_SNOOZE_KEY = "jobbored.whatsNext.snoozed";
+  function isSessionSnoozed() {
+    try {
+      return window.sessionStorage.getItem(SESSION_SNOOZE_KEY) === "1";
+    } catch (_) {
+      return false;
+    }
+  }
+  function setSessionSnoozed() {
+    try {
+      window.sessionStorage.setItem(SESSION_SNOOZE_KEY, "1");
+    } catch (_) {
+      /* sessionStorage unavailable → snooze is best-effort */
+    }
+  }
+
   function getEl(id) {
     return typeof document !== "undefined" ? document.getElementById(id) : null;
   }
@@ -129,6 +149,9 @@
 
   function shouldRenderBanner(state) {
     if (!state) return false;
+    // A session "Later" snooze hides the bar regardless of progress, until
+    // the next load (or until both tracks complete and the bar self-hides).
+    if (isSessionSnoozed()) return false;
     if (
       state.infraComplete !== true ||
       state.dismissed !== false ||
@@ -188,6 +211,18 @@
     };
     toggleRecommended(discoveryBtn, onlyDiscoveryLeft);
     toggleRecommended(selfHostingBtn, onlySelfHostingLeft);
+
+    // Mandatory two-track onboarding: surface the "Finish setup — N of 2
+    // complete" progress text and the session-only "Later" escape. Both
+    // are no-ops when their elements are absent (FE-1 owns index.html).
+    const done = (discoveryDone ? 1 : 0) + (goLiveDone ? 1 : 0);
+    const progressEl = getEl("whatsNextSetupProgress");
+    if (progressEl) {
+      progressEl.textContent = `Finish setup — ${done} of 2 complete`;
+      progressEl.removeAttribute("hidden");
+    }
+    const laterEl = getEl("whatsNextLater");
+    if (laterEl) laterEl.removeAttribute("hidden");
   }
 
   /**
@@ -233,6 +268,17 @@
     } catch (e) {
       console.warn("[JobBored] whats-next dismiss:", e);
     }
+  }
+
+  /**
+   * Session "Later" handler — snoozes the setup-progress bar for the
+   * current session only (sessionStorage) and hides it immediately. Unlike
+   * handleDismiss it writes NO persisted flag, so the bar returns on the
+   * next load until both tracks are complete.
+   */
+  function handleLater() {
+    setSessionSnoozed();
+    hideBanner();
   }
 
   /**
@@ -310,6 +356,9 @@
     getEl("whatsNextDismiss")?.addEventListener("click", () => {
       void handleDismiss();
     });
+    getEl("whatsNextLater")?.addEventListener("click", () => {
+      handleLater();
+    });
   }
 
   function init() {
@@ -336,6 +385,7 @@
     hideBanner,
     isBannerVisible,
     handleDismiss,
+    handleLater,
     handleOpenDiscovery,
     handleOpenSelfHosting,
   });
