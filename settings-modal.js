@@ -686,6 +686,13 @@ async function performSettingsClearOverrides() {
     localStorage.removeItem(host().getDiscoveryRunTrackerKey());
   } catch (_) {}
 
+  // 4b) Clear the session-only "Later" snooze (whats-next-banner.js
+  //     SESSION_SNOOZE_KEY) so a snoozed setup bar doesn't survive the
+  //     reset within the same tab.
+  try {
+    sessionStorage.removeItem("jobbored.whatsNext.snoozed");
+  } catch (_) {}
+
   // 5) Wipe IndexedDB user content (resume, samples, drafts, AI context).
   //    Uses deleteDatabase which fully drops the DB — next openDb call will
   //    re-create the schema empty.

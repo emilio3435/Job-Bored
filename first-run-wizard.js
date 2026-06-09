@@ -889,9 +889,6 @@
       // still reaches the dashboard and is never trapped.
       handleFirstRunDoneOpenDiscovery({ entryPoint: "onboarding" });
     });
-    getEl("firstRunDoneOpenDiscovery")?.addEventListener("click", () => {
-      handleFirstRunDoneOpenDiscovery();
-    });
     getEl("firstRunDoneOpenSelfHosting")?.addEventListener("click", () => {
       handleFirstRunDoneOpenSelfHosting();
     });

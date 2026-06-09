@@ -264,4 +264,29 @@ describe("discovery-wizard-ui.js — keep-alive auto-install on autodetect ready
       "must guard the call with a typeof check (graceful fallback)",
     );
   });
+
+  it("autodetect-ready branch persists discoverySetupComplete so the setup bar converges (no ping-pong)", () => {
+    // Mandatory two-track onboarding: when discovery is already healthy the
+    // wizard short-circuits without rendering, so the onClose finish path
+    // never runs. The ready branch must persist the completion flag itself,
+    // otherwise the "X of 2" bar stays stuck and go-live keeps re-opening
+    // discovery.
+    const fenceStart = discoveryWizardUi.indexOf(
+      "[discovery-autodetect lane: silent recover]",
+    );
+    const fenceEnd = discoveryWizardUi.indexOf(
+      "[/discovery-autodetect lane]",
+      fenceStart,
+    );
+    assert.ok(fenceStart !== -1 && fenceEnd > fenceStart, "lane fence pair");
+    const block = discoveryWizardUi.slice(fenceStart, fenceEnd);
+    assert.ok(
+      block.includes("completeDiscoverySetup"),
+      "ready-verdict branch must persist discoverySetupComplete via UC.completeDiscoverySetup",
+    );
+    assert.ok(
+      block.includes("getUserContent"),
+      "must read UC through host().getUserContent (the bridge now exposes it)",
+    );
+  });
 });

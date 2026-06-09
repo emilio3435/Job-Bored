@@ -208,6 +208,57 @@ describe("discovery-wizard-ui — auto-open go-live on finish (mandatory onboard
 });
 
 // ----------------------------------------------------------------------
+// Bridge contract: the onboarding auto-chain only works if each wizard's
+// host bridge actually exposes the methods that wizard calls. These host
+// objects are hand-maintained literals — a method can silently go missing
+// and the wizards just no-op (exactly the getUserContent bug). Pin the
+// chain-critical methods so a dropped key fails the build, not production.
+// ----------------------------------------------------------------------
+
+describe("bridge-registry — onboarding auto-chain host contracts", () => {
+  /** Slice a `<name>.host = { ... };` object literal out of the source. */
+  function sliceHostObject(label) {
+    const start = bridgeRegistryJs.indexOf(`${label} = {`);
+    assert.ok(start !== -1, `${label} bridge object must exist`);
+    const end = bridgeRegistryJs.indexOf("};", start);
+    assert.ok(end !== -1, `${label} bridge object must be terminated`);
+    return bridgeRegistryJs.slice(start, end);
+  }
+
+  it("wizard.ui.host wires every method the discovery finish/chain depends on", () => {
+    const block = sliceHostObject("wizard.ui.host");
+    for (const method of [
+      "getUserContent", // read/write completion flags
+      "requestGoLiveSetup", // auto-open go-live on discovery finish
+      "clearDiscoveryWizardRuntime", // onClose teardown
+      "refreshDiscoveryReadinessSnapshot", // onClose snapshot refresh
+      "showOnboardingWizard", // restore onboarding after close
+    ]) {
+      assert.match(
+        block,
+        new RegExp(`${method}:\\s*host\\.${method}`),
+        `wizard.ui.host must wire ${method} — the discovery wizard calls host().${method}`,
+      );
+    }
+  });
+
+  it("goLive.host wires every method the go-live finish/chain depends on", () => {
+    const block = sliceHostObject("goLive.host");
+    for (const method of [
+      "requestDiscoverySetup", // auto-open discovery on go-live finish
+      "isOnboardingWizardVisible", // onboarding-defer gate
+      "isFirstRunWizardVisible", // onboarding-defer gate
+    ]) {
+      assert.match(
+        block,
+        new RegExp(`${method}:\\s*host\\.${method}`),
+        `goLive.host must wire ${method} — the go-live wizard calls host().${method}`,
+      );
+    }
+  });
+});
+
+// ----------------------------------------------------------------------
 // CTA swaps: the first-run done panel + the banner both launch the
 // go-live wizard now. The old window.open("docs/SELF-HOSTING.md") path
 // must be gone from both consumers.
