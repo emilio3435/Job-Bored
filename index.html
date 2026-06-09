@@ -1453,19 +1453,20 @@
 
 <!-- @include partials/first-run-wizard.html -->
 <!-- @include partials/onboarding-wizard.html -->
-    <!-- Onboarding celebration: plays on resume/persona finish, then discovery
-         setup auto-opens. Decoration only; the handoff never depends on it. -->
+    <!-- Onboarding celebration: persists after the profile step until the
+         user clicks through to discovery setup — one continuous flow, no
+         dashboard intermission. The handoff degrades gracefully if this
+         never renders (see playOnboardingCelebration). -->
     <div
       id="onboardingCelebration"
       class="onboarding-celebration"
       hidden
       aria-hidden="true"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="onboardingCelebrationTitle"
     >
-      <div
-        class="onboarding-celebration__card"
-        role="status"
-        aria-live="polite"
-      >
+      <div class="onboarding-celebration__card">
         <div
           id="onboardingCelebrationConfetti"
           class="onboarding-celebration__confetti"
@@ -1476,8 +1477,47 @@
           src="assets/jobbored-brand-mascot-kit/exports/04-mascot-poses/pose-07-celebrating.webp"
           alt=""
         />
-        <p class="onboarding-celebration__title">Profile set! Nice work.</p>
-        <p class="onboarding-celebration__sub">Next: turn on discovery →</p>
+        <p
+          id="onboardingCelebrationTitle"
+          class="onboarding-celebration__title"
+        >
+          Profile set!
+        </p>
+        <p class="onboarding-celebration__sub">
+          Your resume and preferences are in. One big step to go.
+        </p>
+        <ol class="onboarding-celebration__journey" aria-label="Setup progress">
+          <li
+            class="onboarding-celebration__journey-step onboarding-celebration__journey-step--done"
+          >
+            <span class="onboarding-celebration__journey-dot" aria-hidden="true"
+              >✓</span
+            >
+            Profile
+          </li>
+          <li
+            class="onboarding-celebration__journey-step onboarding-celebration__journey-step--current"
+            aria-current="step"
+          >
+            <span class="onboarding-celebration__journey-dot" aria-hidden="true"
+              >2</span
+            >
+            Job discovery
+          </li>
+          <li class="onboarding-celebration__journey-step">
+            <span class="onboarding-celebration__journey-dot" aria-hidden="true"
+              >3</span
+            >
+            Other devices
+          </li>
+        </ol>
+        <button
+          type="button"
+          class="onboarding-celebration__cta"
+          id="onboardingCelebrationContinue"
+        >
+          Set up job discovery →
+        </button>
       </div>
     </div>
 <!-- @include partials/discovery-runs-modal.html -->

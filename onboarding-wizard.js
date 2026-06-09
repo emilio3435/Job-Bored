@@ -99,22 +99,6 @@
       discoveryDone = false;
     }
     if (discoveryDone) return;
-    // Reconcile with the first-run→discovery chain: if first-run already opened
-    // discovery for the onboarding lane, it left a one-shot sentinel. Consume it
-    // and bail so we don't double-open the wizard simultaneously.
-    let firstRunAlreadyOpened = false;
-    try {
-      if (
-        window.sessionStorage &&
-        window.sessionStorage.getItem("jobbored.discovery.openedFromFirstRun") === "1"
-      ) {
-        window.sessionStorage.removeItem("jobbored.discovery.openedFromFirstRun");
-        firstRunAlreadyOpened = true;
-      }
-    } catch (_) {
-      firstRunAlreadyOpened = false;
-    }
-    if (firstRunAlreadyOpened) return;
     const onComplete = async (detail) => {
       if (detail && detail.alreadyConnected) {
         try {
@@ -201,9 +185,12 @@
     }
   }
 
-  // Play the "Profile set! Nice work." celebration, then run onDone. Gracefully
-  // degrades to an immediate handoff when the overlay element is absent, so the
-  // next-step advance never depends on the animation rendering.
+  // Play the "Profile set!" celebration. PERSISTENT: the overlay stays up
+  // until the user clicks the continue CTA, which fades it out and then runs
+  // onDone (the discovery handoff) — one continuous setup flow, no timed
+  // intermission. Degrades gracefully: missing overlay → immediate onDone;
+  // overlay without the CTA (stale cached markup) → the old timed dismissal,
+  // so the handoff can never strand.
   function playOnboardingCelebration(onDone) {
     const finishCb = typeof onDone === "function" ? onDone : () => {};
     const overlay = document.getElementById("onboardingCelebration");
@@ -220,7 +207,10 @@
     overlay.setAttribute("aria-hidden", "false");
     overlay.classList.remove("onboarding-celebration--out");
     overlay.classList.add("onboarding-celebration--in");
-    setTimeout(() => {
+    let finished = false;
+    const dismiss = () => {
+      if (finished) return;
+      finished = true;
       overlay.classList.add("onboarding-celebration--out");
       setTimeout(() => {
         overlay.setAttribute("hidden", "");
@@ -232,7 +222,21 @@
         }
         finishCb();
       }, 320);
-    }, 1500);
+    };
+    const cta = document.getElementById("onboardingCelebrationContinue");
+    if (!cta) {
+      // Stale markup without the CTA — keep the old timed handoff.
+      setTimeout(dismiss, 1500);
+      return;
+    }
+    cta.addEventListener("click", dismiss, { once: true });
+    if (typeof cta.focus === "function") {
+      try {
+        cta.focus();
+      } catch (_) {
+        /* focus is best-effort */
+      }
+    }
   }
 
 /** Staged resume during onboarding (before save). */

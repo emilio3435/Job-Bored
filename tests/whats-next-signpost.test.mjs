@@ -439,7 +439,7 @@ describe("first-run wizard — finish shows terminal panel (VAL-SIGN-001)", () =
     assert.equal(api.isFirstRunWizardActive(), false);
   });
 
-  it("handleFirstRunDoneOpenDiscovery hands off to the dashboard BEFORE opening discovery (so a short-circuiting/closed discovery wizard lands on the dashboard, not the login gate)", () => {
+  it("handleFirstRunDoneOpenDiscovery hands off to the dashboard BEFORE opening discovery (so a short-circuiting/closed discovery wizard lands on the dashboard, not the login gate)", async () => {
     const order = [];
     const calls = [];
     const { api } = loadWizardWithRecordingDom(
@@ -470,7 +470,7 @@ describe("first-run wizard — finish shows terminal panel (VAL-SIGN-001)", () =
       true,
       "pre-condition: wizard is up before the CTA",
     );
-    api.handleFirstRunDoneOpenDiscovery();
+    await api.handleFirstRunDoneOpenDiscovery();
     assert.equal(calls.length, 1);
     assert.equal(calls[0].entryPoint, "whats_next");
     assert.equal(
@@ -522,6 +522,74 @@ describe("first-run wizard — finish shows terminal panel (VAL-SIGN-001)", () =
     // Post-condition: the wizard stays torn down.
     assert.equal(api.isFirstRunWizardVisible(), false);
     assert.equal(api.isFirstRunWizardActive(), false);
+  });
+
+  // One smooth flow: the done panel defers discovery to the profile chain.
+  // Discovery only opens directly from here for a returning user whose
+  // profile is already complete (and discovery isn't).
+  it("done-panel CTA does NOT open discovery while the profile is incomplete (profile wizard owns the flow)", async () => {
+    const calls = [];
+    const { api } = loadWizardWithRecordingDom(
+      allCompleteHost({
+        revealDashboardShell: () => {},
+        renderPipeline: () => {},
+        checkOnboardingGate: async () => {},
+        requestDiscoverySetup: (opts) => calls.push(opts),
+        getUserContent: () => ({
+          openDb: async () => {},
+          isOnboardingComplete: async () => false,
+          isDiscoverySetupComplete: async () => false,
+        }),
+      }),
+    );
+    api.reopenFirstRunWizard();
+    await api.handleFirstRunDoneOpenDiscovery({ entryPoint: "onboarding" });
+    assert.equal(
+      calls.length,
+      0,
+      "discovery must wait for the profile-finish celebration CTA — no pre-profile open",
+    );
+  });
+
+  it("done-panel CTA still opens discovery for a returning user (profile complete, discovery incomplete)", async () => {
+    const calls = [];
+    const { api } = loadWizardWithRecordingDom(
+      allCompleteHost({
+        revealDashboardShell: () => {},
+        renderPipeline: () => {},
+        checkOnboardingGate: async () => {},
+        requestDiscoverySetup: (opts) => calls.push(opts),
+        getUserContent: () => ({
+          openDb: async () => {},
+          isOnboardingComplete: async () => true,
+          isDiscoverySetupComplete: async () => false,
+        }),
+      }),
+    );
+    api.reopenFirstRunWizard();
+    await api.handleFirstRunDoneOpenDiscovery({ entryPoint: "onboarding" });
+    assert.equal(calls.length, 1, "returning-user path must keep the direct open");
+    assert.equal(calls[0].entryPoint, "onboarding");
+  });
+
+  it("done-panel CTA skips the open when discovery is already complete (idempotent)", async () => {
+    const calls = [];
+    const { api } = loadWizardWithRecordingDom(
+      allCompleteHost({
+        revealDashboardShell: () => {},
+        renderPipeline: () => {},
+        checkOnboardingGate: async () => {},
+        requestDiscoverySetup: (opts) => calls.push(opts),
+        getUserContent: () => ({
+          openDb: async () => {},
+          isOnboardingComplete: async () => true,
+          isDiscoverySetupComplete: async () => true,
+        }),
+      }),
+    );
+    api.reopenFirstRunWizard();
+    await api.handleFirstRunDoneOpenDiscovery({ entryPoint: "onboarding" });
+    assert.equal(calls.length, 0, "both flags set → nothing to open");
   });
 
   it("handleFirstRunDoneOpenSelfHosting hands off to the dashboard BEFORE launching the go-live wizard (mirrors discovery CTA; replaces the old window.open(SELF-HOSTING.md) path)", () => {
@@ -1510,13 +1578,24 @@ describe("whats-next-banner — discoverySetupSkipped does not satisfy discovery
   });
 });
 
-describe("first-run wizard — discovery double-open sentinel", () => {
-  it("handleFirstRunDoneOpenDiscovery sets the openedFromFirstRun sentinel for entryPoint:onboarding", () => {
+describe("first-run wizard — discovery defers to the profile chain (one smooth flow)", () => {
+  // Canonical order: sheet/OAuth → profile → DISCOVERY → multi-device. The
+  // first-run done panel must NOT open discovery ahead of the profile step —
+  // the profile-finish celebration CTA owns that handoff. The old sentinel
+  // (jobbored.discovery.openedFromFirstRun) patched the double-open the wrong
+  // ordering created; with the defer it must be gone entirely.
+  it("handleFirstRunDoneOpenDiscovery reads isOnboardingComplete and the sentinel is gone", () => {
     const i = firstRunWizardJs.indexOf("function handleFirstRunDoneOpenDiscovery");
     assert.ok(i !== -1);
-    const body = firstRunWizardJs.slice(i, i + 1400);
-    assert.match(body, /entryPoint === "onboarding"/);
-    assert.match(body, /jobbored\.discovery\.openedFromFirstRun/);
-    assert.match(body, /sessionStorage\.setItem/);
+    const body = firstRunWizardJs.slice(i, i + 2600);
+    assert.match(
+      body,
+      /isOnboardingComplete/,
+      "the handler must defer to the profile chain when the profile is incomplete",
+    );
+    assert.ok(
+      !firstRunWizardJs.includes("openedFromFirstRun"),
+      "the double-open sentinel must be removed (the defer makes it obsolete)",
+    );
   });
 });
