@@ -24,9 +24,26 @@ const firstRunPartial = readFileSync(
   "utf8",
 );
 const indexHtml = readIndexHtml(repoRoot);
+const whatsNextCss = readFileSync(
+  join(repoRoot, "css", "legacy-first-run-wizard.css"),
+  "utf8",
+);
 const packageJson = JSON.parse(
   readFileSync(join(repoRoot, "package.json"), "utf8"),
 );
+
+describe("whats-next-banner — floating card presentation", () => {
+  it("renders as a fixed-position bottom-right card, not an in-flow mid-page block", () => {
+    const start = whatsNextCss.indexOf(".whats-next-banner {");
+    assert.notEqual(start, -1, ".whats-next-banner rule must exist");
+    const rule = whatsNextCss.slice(start, start + 400);
+    assert.match(rule, /position:\s*fixed/, "the setup card must float, not sit in the page flow");
+    assert.match(rule, /bottom:/, "anchored to the bottom");
+    assert.match(rule, /right:/, "anchored to the right");
+    // The old in-flow centering must be gone.
+    assert.doesNotMatch(rule, /max-width:\s*980px/, "must not reuse the old in-flow centered banner width");
+  });
+});
 
 // ============================================================
 // VAL-SIGN-001 + VAL-SIGN-002: progressive-disclosure signpost
