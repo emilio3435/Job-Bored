@@ -119,14 +119,16 @@ describe("first-run wizard — 2-step invariant preserved (VAL-SIGN-001)", () =>
     assert.ok(doneStart !== -1, "done panel must exist");
     assert.ok(doneEnd !== -1, "done panel block must be isolatable");
     const doneBlock = firstRunPartial.slice(doneStart, doneEnd);
-    // The primary "Go to dashboard" button uses the primary button class.
+    // The primary "Continue setup" button uses the primary button class.
     // Class comes BEFORE id in the markup, so the regex anchors on the
     // button opening tag and reads "class=primary" then "id=GoToDashboard"
-    // then the label.
+    // then the label. (Mandatory onboarding: this primary completion now
+    // auto-launches discovery, so the label is "Continue setup", not the
+    // old "Go to dashboard".)
     assert.match(
       doneBlock,
-      /<button[\s\S]{0,300}?class="btn-modal-primary first-run-btn-block"[\s\S]{0,300}?id="firstRunDoneToDashboard"[\s\S]{0,200}?Go to dashboard/,
-      "the primary 'Go to dashboard' button must use the primary button class",
+      /<button[\s\S]{0,300}?class="btn-modal-primary first-run-btn-block"[\s\S]{0,300}?id="firstRunDoneToDashboard"[\s\S]{0,200}?Continue setup/,
+      "the primary completion button must use the primary button class",
     );
     // The two optional CTAs are clearly demoted (secondary button class).
     for (const ctaId of ["firstRunDoneOpenDiscovery", "firstRunDoneOpenSelfHosting"]) {
