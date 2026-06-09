@@ -848,3 +848,137 @@
   color: var(--text-muted);
   margin-bottom: var(--space-3);
 }
+
+/* ============================================================
+   Onboarding celebration overlay (resume/persona finish → discovery).
+   A short, delightful "Profile set! Nice work." moment with the celebrating
+   pea mascot + a confetti burst, then discovery setup auto-opens. Decoration
+   only — the handoff degrades gracefully if this never renders.
+   ============================================================ */
+.onboarding-celebration {
+  position: fixed;
+  inset: 0;
+  z-index: 100002; /* above the onboarding (100000) + first-run (100001) wizards */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(14, 58, 78, 0.32);
+  backdrop-filter: blur(2px);
+}
+
+.onboarding-celebration[hidden] {
+  display: none !important;
+}
+
+.onboarding-celebration--in .onboarding-celebration__card {
+  animation: celebrationPop 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.onboarding-celebration--out {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.onboarding-celebration__card {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-7);
+  border-radius: var(--radius-xl, 20px);
+  background: var(--jb-paper, var(--surface));
+  border: 1px solid var(--jb-line-soft, var(--border));
+  box-shadow:
+    0 24px 60px rgba(14, 58, 78, 0.28),
+    0 6px 16px rgba(14, 58, 78, 0.12);
+  text-align: center;
+  overflow: hidden;
+}
+
+@keyframes celebrationPop {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.onboarding-celebration__mascot {
+  width: 132px;
+  height: auto;
+  animation: celebrationBounce 0.9s ease 0.1s 2;
+}
+
+@keyframes celebrationBounce {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  35% {
+    transform: translateY(-12px) rotate(-3deg);
+  }
+  70% {
+    transform: translateY(-4px) rotate(2deg);
+  }
+}
+
+.onboarding-celebration__title {
+  margin: 0;
+  font-family: var(--jb-font-display, "Caveat", cursive);
+  font-size: 2rem;
+  line-height: 1.1;
+  color: var(--jb-navy, var(--text));
+}
+
+.onboarding-celebration__sub {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--jb-mint-deep, #2f8a5a);
+}
+
+/* Confetti */
+.onboarding-celebration__confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.onboarding-celebration__confetti-piece {
+  position: absolute;
+  top: -12px;
+  width: 8px;
+  height: 12px;
+  border-radius: 2px;
+  opacity: 0.9;
+  animation: celebrationConfetti 1.6s ease-in forwards;
+}
+
+@keyframes celebrationConfetti {
+  0% {
+    transform: translate(0, -16px) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--drift, 0), 320px) rotate(520deg);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-celebration--in .onboarding-celebration__card,
+  .onboarding-celebration__mascot,
+  .onboarding-celebration__confetti-piece {
+    animation: none;
+  }
+  .onboarding-celebration__confetti-piece {
+    display: none;
+  }
+}

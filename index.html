@@ -1445,6 +1445,33 @@
 
 <!-- @include partials/first-run-wizard.html -->
 <!-- @include partials/onboarding-wizard.html -->
+    <!-- Onboarding celebration: plays on resume/persona finish, then discovery
+         setup auto-opens. Decoration only; the handoff never depends on it. -->
+    <div
+      id="onboardingCelebration"
+      class="onboarding-celebration"
+      hidden
+      aria-hidden="true"
+    >
+      <div
+        class="onboarding-celebration__card"
+        role="status"
+        aria-live="polite"
+      >
+        <div
+          id="onboardingCelebrationConfetti"
+          class="onboarding-celebration__confetti"
+          aria-hidden="true"
+        ></div>
+        <img
+          class="onboarding-celebration__mascot"
+          src="assets/jobbored-brand-mascot-kit/exports/04-mascot-poses/pose-07-celebrating.webp"
+          alt=""
+        />
+        <p class="onboarding-celebration__title">Profile set! Nice work.</p>
+        <p class="onboarding-celebration__sub">Next: turn on discovery →</p>
+      </div>
+    </div>
 <!-- @include partials/discovery-runs-modal.html -->
 <!-- @include partials/expired-review-modal.html -->
 <!-- @include partials/settings-modal.html -->
