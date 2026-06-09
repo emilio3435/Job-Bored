@@ -177,6 +177,23 @@ describe("advanceToDiscoveryAfterOnboarding — gated blocking handoff", () => {
     assert.equal(env.gateEl.hidden, false);
   });
 
+  it("onClose with a SUCCESSFUL finish (reason 'finish' + connected) does NOT re-show the gate", async () => {
+    // Regression: the gate must NOT re-assert on the happy path. A genuine
+    // discovery finish closes the wizard with reason "finish" and a connected
+    // result; the gate must clear, not block the now-set-up user.
+    const env = loadOnboardingWithGate({ discoveryComplete: false });
+    env.gateEl.removeAttribute("hidden"); // pretend the gate was showing
+    await env.onboarding.advanceToDiscoveryAfterOnboarding();
+    await env.calls.requestDiscovery[0].onClose("finish", {
+      state: { result: "connected" },
+    });
+    assert.equal(
+      env.gateEl.hidden,
+      true,
+      "a successful discovery finish must clear the gate, not re-block the user",
+    );
+  });
+
   it("onClose does NOT show the gate when discoverySetupSkipped is true", async () => {
     const env = loadOnboardingWithGate({ discoveryComplete: false, skipFlag: true });
     await env.onboarding.advanceToDiscoveryAfterOnboarding();
