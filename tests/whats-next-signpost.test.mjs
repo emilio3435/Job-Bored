@@ -924,6 +924,25 @@ describe("whats-next-banner module — gating + dismiss persistence", () => {
     }
   });
 
+  it("stays hidden until the user is signed in, even when every other gate passes", async () => {
+    // Regression: the setup bar leaked onto the pre-login screen for a
+    // returning-but-signed-out user (flags persisted, token cleared).
+    const { api, window } = loadBanner();
+    window.JobBoredApp.core = {
+      host: { getUserContent: () => gateStates.allTrue, isSignedIn: () => false },
+    };
+    await api.refreshBanner();
+    assert.equal(
+      api.isBannerVisible(),
+      false,
+      "banner must not render before the user is signed in",
+    );
+    // Once signed in, the same gates reveal it.
+    window.JobBoredApp.core.host.isSignedIn = () => true;
+    await api.refreshBanner();
+    assert.equal(api.isBannerVisible(), true, "banner shows once signed in");
+  });
+
   it("dismiss writes whatsNextDismissed=true and hides the banner; a re-render keeps it hidden", async () => {
     let dismissed = false;
     const writes = [];

@@ -45,7 +45,7 @@ function makeEl() {
   };
 }
 
-function loadStatus(state) {
+function loadStatus(state, { signedIn = true, isActive = false } = {}) {
   const toasts = [];
   const btn = makeEl();
   const settingsOpens = [];
@@ -67,12 +67,18 @@ function loadStatus(state) {
   });
   const status = window.JobBoredDiscovery.status;
   window.JobBoredDiscovery.runTracker = {
-    discoveryRunTracker: { getState: () => state },
+    discoveryRunTracker: {
+      getState: () => state,
+      isActive: () => isActive,
+      resumeFromStatusPollingFailure: () => {},
+    },
   };
   status.host = {
     showToast: (msg, tone, sticky, action) =>
       toasts.push({ msg, tone, sticky, action }),
     openSettingsForDiscoveryWebhook: () => settingsOpens.push(true),
+    isSignedIn: () => signedIn,
+    getDiscoveryWebhookUrl: () => "",
   };
   return { status, toasts, btn, settingsOpens };
 }
@@ -161,5 +167,36 @@ describe("renderDiscoveryRunStatus — expired-key honest state", () => {
     status.renderDiscoveryRunStatus();
     assert.match(toasts[0].msg, /Discovery run failed/i);
     assert.doesNotMatch(toasts[0].msg, /search key/i);
+  });
+});
+
+describe("resumeDiscoveryStatusPollingIfNeeded — login gate", () => {
+  // A stale run with statusUnavailable + active would replay a run-status
+  // toast on load. That must NOT happen before the user signs in (the toast
+  // was leaking onto the login screen).
+  const staleState = {
+    runId: "run_f7d9abcd",
+    statusPath: "",
+    statusUnavailable: true,
+    status: "pending",
+  };
+
+  it("is a no-op when signed out (no pre-login run-status toast)", () => {
+    const env = loadStatus(staleState, { signedIn: false, isActive: true });
+    env.status.resumeDiscoveryStatusPollingIfNeeded();
+    assert.equal(
+      env.toasts.length,
+      0,
+      "run-status must not surface before the user is signed in",
+    );
+  });
+
+  it("resumes + renders the run-status once signed in", () => {
+    const env = loadStatus(staleState, { signedIn: true, isActive: true });
+    env.status.resumeDiscoveryStatusPollingIfNeeded();
+    assert.ok(
+      env.toasts.length >= 1,
+      "run-status renders normally when signed in",
+    );
   });
 });

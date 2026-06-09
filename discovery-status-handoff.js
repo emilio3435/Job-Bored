@@ -802,6 +802,11 @@ function stopDiscoveryStatusPolling() {
 }
 
 function resumeDiscoveryStatusPollingIfNeeded() {
+  // Never replay a stale run's status (toast + polling) before the user has
+  // signed in — it was leaking onto the login screen. (Absent isSignedIn is
+  // treated as "don't gate" to stay defensive.)
+  const h = host();
+  if (h && typeof h.isSignedIn === "function" && !h.isSignedIn()) return;
   const state = runTracker().getState();
   if (!state.runId) return;
   if (!state.statusPath) {
