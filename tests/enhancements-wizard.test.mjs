@@ -263,6 +263,7 @@ function loadEnhancements({ fetchImpl, uc, host, shellApi, wizardDomOverride } =
   const ctx = {
     window, document, console, setTimeout, clearTimeout,
     AbortController: typeof AbortController !== "undefined" ? AbortController : undefined,
+    URL,
     fetch: fetchSpy,
     requestAnimationFrame: (fn) => fn(),
   };
@@ -447,6 +448,89 @@ describe("enhancements wizard — step navigation and skip flow", () => {
     });
     await api.openEnhancementsWizard();
     await api.handleAction("enhancements_serp_api_done");
+    assert.equal(shell.lastRender.input.activeStepId, "gemini");
+  });
+});
+
+describe("enhancements wizard — /health status badge wiring", () => {
+  function makeHealthFetch(overrides) {
+    const defaults = {
+      serpApiGoogleJobs: { configured: false },
+      googleTools: { configured: false },
+    };
+    const readiness = { ...defaults, ...overrides };
+    return async (url) => {
+      if (String(url).endsWith("/health")) {
+        return { ok: true, json: async () => ({ readiness }) };
+      }
+      return { ok: false };
+    };
+  }
+
+  it("opening the wizard polls /health and sets serpApiStatus + geminiStatus from readiness flags", async () => {
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      getDiscoveryReadinessSnapshot: () => ({ savedWebhookUrl: "http://localhost:8644/webhook" }),
+    };
+    const fetchImpl = makeHealthFetch({
+      serpApiGoogleJobs: { configured: true },
+      googleTools: { configured: false },
+    });
+    const { api } = loadEnhancements({ host, fetchImpl });
+    await api.openEnhancementsWizard();
+    const rt = api._internal.getRuntime();
+    assert.equal(rt.serpApiStatus, "yes", "serpApiStatus must be 'yes' when configured:true");
+    assert.equal(rt.geminiStatus, "no", "geminiStatus must be 'no' when configured:false");
+  });
+
+  it("serp_api step body callout reads 'Configured' when serpApiStatus is 'yes'", async () => {
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      getDiscoveryReadinessSnapshot: () => ({ savedWebhookUrl: "http://localhost:8644/webhook" }),
+    };
+    const fetchImpl = makeHealthFetch({ serpApiGoogleJobs: { configured: true }, googleTools: { configured: false } });
+    const { api, shell } = loadEnhancements({ host, fetchImpl });
+    await api.openEnhancementsWizard();
+    const callouts = shell.lastRender.bodies.serp_api._findAll(
+      (n) => n.className && String(n.className).includes("discovery-setup-wizard__callout")
+    );
+    assert.ok(callouts.some((c) => /Configured/i.test(c.textContent)), "callout must say Configured");
+  });
+
+  it("when /health is unreachable, status degrades to 'unknown' without throwing", async () => {
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      getDiscoveryReadinessSnapshot: () => ({ savedWebhookUrl: "http://localhost:8644/webhook" }),
+    };
+    const fetchImpl = async () => { throw new Error("network error"); };
+    const { api } = loadEnhancements({ host, fetchImpl });
+    await api.openEnhancementsWizard();
+    const rt = api._internal.getRuntime();
+    assert.equal(rt.serpApiStatus, "unknown");
+    assert.equal(rt.geminiStatus, "unknown");
+  });
+
+  it("enhancements_serp_api_done re-polls /health before advancing to gemini", async () => {
+    let pollCount = 0;
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      getDiscoveryReadinessSnapshot: () => ({ savedWebhookUrl: "http://localhost:8644/webhook" }),
+    };
+    const fetchImpl = async (url) => {
+      if (String(url).endsWith("/health")) {
+        pollCount++;
+        return { ok: true, json: async () => ({ readiness: { serpApiGoogleJobs: { configured: true }, googleTools: { configured: false } } }) };
+      }
+      return { ok: false };
+    };
+    const { api, shell } = loadEnhancements({ host, fetchImpl });
+    await api.openEnhancementsWizard();     // poll 1
+    await api.handleAction("enhancements_serp_api_done"); // poll 2
+    assert.ok(pollCount >= 2, "must re-poll health when user says 'I did it'");
     assert.equal(shell.lastRender.input.activeStepId, "gemini");
   });
 });
