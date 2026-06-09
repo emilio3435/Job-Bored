@@ -84,6 +84,26 @@
     }
   }
 
+  function probeAiProviderStatus() {
+    try {
+      const h = host();
+      const config = h && typeof h.getConfig === "function" ? h.getConfig() : null;
+      if (!config) { updateRuntime({ aiProviderConfigured: null }); return; }
+      const provider = String(config.resumeProvider || "").toLowerCase();
+      const hasKey =
+        (provider === "gemini" && !!String(config.resumeGeminiApiKey || "").trim()) ||
+        (provider === "openai" && !!String(config.resumeOpenAIApiKey || "").trim()) ||
+        (provider === "anthropic" && !!String(config.resumeAnthropicApiKey || "").trim()) ||
+        (provider === "openrouter" && !!String(config.resumeOpenRouterApiKey || "").trim()) ||
+        (provider === "local" && !!String(config.resumeLocalBaseUrl || "").trim()) ||
+        (provider === "webhook" && !!String(config.resumeGenerationWebhookUrl || "").trim());
+      updateRuntime({ aiProviderConfigured: hasKey });
+    } catch (e) {
+      console.warn("[JobBored] enhancements AI provider check:", e);
+      updateRuntime({ aiProviderConfigured: null });
+    }
+  }
+
   // ----------------------------------------------------------------------
   // Runtime
   // ----------------------------------------------------------------------
@@ -399,6 +419,13 @@
     }
 
     if (id === "enhancements_ai_provider_open_settings") {
+      const h = host();
+      try {
+        if (h && typeof h.openCommandCenterSettingsModal === "function") h.openCommandCenterSettingsModal();
+        if (h && typeof h.setActiveSettingsTab === "function") {
+          h.setActiveSettingsTab("ai_providers", { focusField: "settingsResumeProvider" });
+        }
+      } catch (e) { console.warn("[JobBored] enhancements open AI settings:", e); }
       return moveToStep("more_optional");
     }
 
@@ -429,6 +456,7 @@
     if (onboardingWasVisible && h && typeof h.hideOnboardingWizard === "function") h.hideOnboardingWizard();
     setRuntime({ ...defaultRuntime(), entryPoint: opts.entryPoint || "manual", _onboardingHidden: onboardingWasVisible });
     await probeHealthStatus();
+    probeAiProviderStatus();
     return renderEnhancementsWizard();
   }
 
@@ -469,5 +497,6 @@
     buildDoneBody,
     buildStepActions,
     probeHealthStatus,
+    probeAiProviderStatus,
   };
 })();

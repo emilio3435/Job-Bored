@@ -534,3 +534,78 @@ describe("enhancements wizard — /health status badge wiring", () => {
     assert.equal(shell.lastRender.input.activeStepId, "gemini");
   });
 });
+
+describe("enhancements wizard — deep-link actions + AI-provider status", () => {
+  it("enhancements_serp_api_open_drawer calls host().openDrawerToSubtab('sources', null)", async () => {
+    const drawerCalls = [];
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      getDiscoveryReadinessSnapshot: () => null,
+      openDrawerToSubtab: (subtab, fieldId) => { drawerCalls.push({ subtab, fieldId }); },
+    };
+    const { api } = loadEnhancements({ host });
+    await api.openEnhancementsWizard();
+    await api.handleAction("enhancements_serp_api_open_drawer");
+    assert.ok(drawerCalls.some((c) => c.subtab === "sources"), "must open drawer to 'sources' subtab");
+  });
+
+  it("enhancements_gemini_open_drawer calls host().openDrawerToSubtab('sources', null)", async () => {
+    const drawerCalls = [];
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      getDiscoveryReadinessSnapshot: () => null,
+      openDrawerToSubtab: (subtab, fieldId) => { drawerCalls.push({ subtab, fieldId }); },
+    };
+    const { api } = loadEnhancements({ host });
+    await api.openEnhancementsWizard();
+    await api.handleAction("enhancements_serp_api_skip");
+    await api.handleAction("enhancements_gemini_open_drawer");
+    assert.ok(drawerCalls.some((c) => c.subtab === "sources"));
+  });
+
+  it("enhancements_ai_provider_open_settings calls host().setActiveSettingsTab('ai_providers', {focusField:'settingsResumeProvider'}) then advances to more_optional", async () => {
+    const tabCalls = [];
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      getDiscoveryReadinessSnapshot: () => null,
+      setActiveSettingsTab: (tabId, opts) => { tabCalls.push({ tabId, opts }); },
+      openCommandCenterSettingsModal: () => {},
+    };
+    const { api, shell } = loadEnhancements({ host });
+    await api.openEnhancementsWizard();
+    await api.handleAction("enhancements_serp_api_skip");
+    await api.handleAction("enhancements_gemini_skip");
+    await api.handleAction("enhancements_ai_provider_open_settings");
+    assert.ok(tabCalls.some((c) => c.tabId === "ai_providers"), "must activate ai_providers tab");
+    assert.equal(shell.lastRender.input.activeStepId, "more_optional", "must advance to more_optional after opening settings");
+  });
+
+  it("probeAiProviderStatus sets aiProviderConfigured:true when config has resumeProvider + a non-empty key", async () => {
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      getDiscoveryReadinessSnapshot: () => null,
+      getConfig: () => ({ resumeProvider: "openrouter", resumeOpenRouterApiKey: "sk-test-123" }),
+    };
+    const { api } = loadEnhancements({ host });
+    await api.openEnhancementsWizard();
+    const rt = api._internal.getRuntime();
+    assert.equal(rt.aiProviderConfigured, true, "must be true when provider + key are set");
+  });
+
+  it("probeAiProviderStatus sets aiProviderConfigured:false when no keys present", async () => {
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      getDiscoveryReadinessSnapshot: () => null,
+      getConfig: () => ({ resumeProvider: "gemini", resumeGeminiApiKey: "" }),
+    };
+    const { api } = loadEnhancements({ host });
+    await api.openEnhancementsWizard();
+    const rt = api._internal.getRuntime();
+    assert.equal(rt.aiProviderConfigured, false);
+  });
+});
