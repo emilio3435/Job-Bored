@@ -59,7 +59,10 @@ describe("onboarding finish → discovery auto-advance", () => {
     assert.equal(calls[0].allowWhileOnboarding, true);
   });
 
-  it("does NOT auto-open discovery when it is already complete", async () => {
+  it("opens the wizard even when discovery is already complete (explicit click — always part of setup)", async () => {
+    // The advance is click-driven (celebration CTA / gate button). A stale or
+    // autodetect-persisted discoverySetupComplete flag must NOT make the
+    // button a silent no-op — the wizard renders its connected state instead.
     const calls = [];
     const { onboarding } = loadOnboarding({
       requestDiscoverySetup: (o) => calls.push(o),
@@ -67,18 +70,27 @@ describe("onboarding finish → discovery auto-advance", () => {
       resumePendingDiscoverySetupIfNeeded: async () => false,
     });
     await onboarding.advanceToDiscoveryAfterOnboarding();
-    assert.equal(calls.length, 0, "idempotent when discovery is already set up");
+    assert.equal(calls.length, 1, "the click must always open the wizard");
   });
 
-  it("honors a queued pending discovery setup instead of opening the wizard", async () => {
+  it("ignores the pending-setup queue — the click opens the wizard, never the settings modal", async () => {
     const calls = [];
+    const resumeCalls = [];
     const { onboarding } = loadOnboarding({
       requestDiscoverySetup: (o) => calls.push(o),
       getUserContent: () => makeUC(false),
-      resumePendingDiscoverySetupIfNeeded: async () => true, // resumed
+      resumePendingDiscoverySetupIfNeeded: async () => {
+        resumeCalls.push(1);
+        return true;
+      },
     });
     await onboarding.advanceToDiscoveryAfterOnboarding();
-    assert.equal(calls.length, 0, "a queued pending setup takes precedence");
+    assert.equal(
+      resumeCalls.length,
+      0,
+      "the pending queue must not hijack the explicit click into the settings modal",
+    );
+    assert.equal(calls.length, 1, "the wizard opens directly");
   });
 });
 
@@ -162,12 +174,16 @@ describe("advanceToDiscoveryAfterOnboarding — gated blocking handoff", () => {
     return { onboarding: window.JobBoredApp.onboarding, gateEl, calls, window };
   }
 
-  it("when discovery is incomplete, requestDiscoverySetup is called with onComplete + onClose callbacks", async () => {
+  it("when discovery is incomplete, requestDiscoverySetup is called with an onClose callback (no obsolete onComplete)", async () => {
     const env = loadOnboardingWithGate({ discoveryComplete: false });
     await env.onboarding.advanceToDiscoveryAfterOnboarding();
     assert.equal(env.calls.requestDiscovery.length, 1);
-    assert.equal(typeof env.calls.requestDiscovery[0].onComplete, "function");
     assert.equal(typeof env.calls.requestDiscovery[0].onClose, "function");
+    assert.equal(
+      typeof env.calls.requestDiscovery[0].onComplete,
+      "undefined",
+      "the autodetect alreadyConnected shortcut is gone — the wizard always renders, so onClose owns the gate",
+    );
   });
 
   it("onClose with reason !== finish shows the gate panel", async () => {
@@ -201,19 +217,14 @@ describe("advanceToDiscoveryAfterOnboarding — gated blocking handoff", () => {
     assert.equal(env.gateEl.hidden, true);
   });
 
-  it("onComplete with alreadyConnected:true persists discoverySetupComplete and hides the gate", async () => {
-    const env = loadOnboardingWithGate({ discoveryComplete: false });
-    env.gateEl.removeAttribute("hidden");
-    await env.onboarding.advanceToDiscoveryAfterOnboarding();
-    await env.calls.requestDiscovery[0].onComplete({ alreadyConnected: true });
-    assert.equal(env.calls.completeDiscovery, 1);
-    assert.equal(env.gateEl.hidden, true);
-  });
-
-  it("is idempotent when discoverySetupComplete is already true", async () => {
+  it("opens the wizard even when discoverySetupComplete is already true (explicit click)", async () => {
     const env = loadOnboardingWithGate({ discoveryComplete: true });
     await env.onboarding.advanceToDiscoveryAfterOnboarding();
-    assert.equal(env.calls.requestDiscovery.length, 0);
+    assert.equal(
+      env.calls.requestDiscovery.length,
+      1,
+      "a stale completion flag must not turn the gate/celebration buttons into no-ops",
+    );
   });
 
   it("the first-run double-open sentinel is gone (the done panel now defers to this chain)", () => {

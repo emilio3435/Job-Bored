@@ -2173,8 +2173,15 @@ async function openDiscoverySetupWizard(options = {}) {
   //
   // Module owns no UI. Endpoint contract locked in dev-server.mjs
   // handleDiscoveryState header. Pass options.skipAutodetect to bypass.
+  //
+  // The ONBOARDING entry point always bypasses this lane: discovery setup is
+  // a real step of onboarding, so the wizard must render (showing its
+  // connected state when the stack is healthy) instead of short-circuiting
+  // to a toast — otherwise the celebration/gate CTAs appear to dump the user
+  // on the dashboard with nothing happening.
   if (
     !options.skipAutodetect &&
+    options.entryPoint !== "onboarding" &&
     typeof window !== "undefined" &&
     window.JobBoredDiscoveryAutodetect &&
     typeof window.JobBoredDiscoveryAutodetect.recoverIfPossible === "function"
@@ -2226,23 +2233,6 @@ async function openDiscoverySetupWizard(options = {}) {
           }
         } catch (_) {
           /* banner refresh is best-effort */
-        }
-        // Mandatory discovery gate: for the onboarding entry point never
-        // silently short-circuit — the gate needs to advance. Call the
-        // caller's onComplete callback instead of returning quietly.
-        if (
-          options.entryPoint === "onboarding" &&
-          typeof options.onComplete === "function"
-        ) {
-          try {
-            options.onComplete({ alreadyConnected: true });
-          } catch (e) {
-            console.warn(
-              "[JobBored] discovery gate onComplete (autodetect):",
-              e,
-            );
-          }
-          return;
         }
         return;
       }
