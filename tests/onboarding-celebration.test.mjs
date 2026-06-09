@@ -226,3 +226,22 @@ describe("advanceToDiscoveryAfterOnboarding — gated blocking handoff", () => {
     assert.equal(env.calls.requestDiscovery.length, 0);
   });
 });
+
+describe("onboarding gate — hidden attribute must actually hide it (CSS cascade)", () => {
+  const onboardingCss = readFileSync(
+    join(repoRoot, "css", "legacy-onboarding.css"),
+    "utf8",
+  );
+  it("css has .onboarding-wizard[hidden] { display: none } so the gate can hide", () => {
+    // .onboarding-wizard has `display: flex` as its base, which overrides the
+    // UA [hidden] rule. The discovery gate toggles visibility via the hidden
+    // attribute (showDiscoveryGate/hideDiscoveryGate), so without an explicit
+    // [hidden] override the gate shows on load and can never be hidden — both
+    // gate buttons then appear dead.
+    assert.match(
+      onboardingCss,
+      /\.onboarding-wizard\[hidden\]\s*\{[^}]*display:\s*none/,
+      "the hidden attribute must hide .onboarding-wizard dialogs (gate show/hide depends on it)",
+    );
+  });
+});
