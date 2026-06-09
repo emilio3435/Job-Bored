@@ -406,6 +406,14 @@
             Later
           </button>
           <button
+            id="enhancementsReEntryBtn"
+            class="login-gate__text-btn whats-next-banner__later"
+            type="button"
+            hidden
+          >
+            Maximize results
+          </button>
+          <button
             type="button"
             class="login-gate__text-btn whats-next-banner__dismiss"
             id="whatsNextDontShowAgain"
@@ -1497,6 +1505,13 @@
       aria-hidden="true"
     ></div>
 
+    <div
+      class="discovery-setup-wizard-root"
+      id="enhancementsWizardMount"
+      hidden
+      aria-hidden="true"
+    ></div>
+
 <!-- @include partials/ingest-manual-modal.html -->
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
@@ -1518,6 +1533,7 @@
     <script src="discovery-wizard-verify.js"></script>
     <script src="discovery-wizard-ui.js?v=2"></script>
     <script src="go-live-wizard-ui.js"></script>
+    <script src="enhancements-wizard-ui.js"></script>
     <script src="resume-ingest.js"></script>
     <script src="resume-bundle.js"></script>
     <script src="resume-generate.js"></script>
