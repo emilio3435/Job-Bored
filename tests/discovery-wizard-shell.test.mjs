@@ -147,7 +147,13 @@ class FakeEl {
   }
   scrollIntoView() {}
   scrollBy() {}
-  focus() {}
+  focus() {
+    // Record focus so the a11y focus-on-open test can assert which element
+    // the shell moved focus to. Harmless to structure tests (they never read
+    // it). Also mirror the browser's document.activeElement via the owner doc.
+    this.__focused = true;
+    if (this.ownerDocument) this.ownerDocument.activeElement = this;
+  }
   contains(el) {
     if (el === this) return true;
     for (const c of this.children) if (c.contains && c.contains(el)) return true;
@@ -180,7 +186,9 @@ function makeFakeDocument() {
     activeElement: null,
     body: new FakeEl("body"),
     createElement(tag) {
-      return new FakeEl(tag);
+      const el = new FakeEl(tag);
+      el.ownerDocument = doc;
+      return el;
     },
     getElementById(id) {
       return elements.get(id) || null;
@@ -188,6 +196,7 @@ function makeFakeDocument() {
     register(id) {
       const el = new FakeEl("div");
       el.id = id;
+      el.ownerDocument = doc;
       elements.set(id, el);
       return el;
     },
@@ -195,10 +204,11 @@ function makeFakeDocument() {
       return true;
     },
   };
+  doc.body.ownerDocument = doc;
   return doc;
 }
 
-function loadShell() {
+function loadShell({ rafImpl } = {}) {
   const doc = makeFakeDocument();
   doc.register("discoverySetupWizardMount");
   doc.register("goLiveSetupWizardMount");
@@ -209,7 +219,9 @@ function loadShell() {
     console: { warn() {}, error() {}, log() {} },
     setTimeout,
     clearTimeout,
-    requestAnimationFrame: () => {},
+    // Structure tests keep rAF a no-op (focus pass skipped). The a11y test
+    // passes a capturing impl so it can run the focus pass deterministically.
+    requestAnimationFrame: rafImpl || (() => {}),
     Object,
     Set,
     Map,
@@ -478,6 +490,73 @@ describe("option-grid action mapping — generic variant uses the fallback", () 
       shellSrc,
       /context\.variant === "generic"[\s\S]*?wizard_choose_flow_\$\{item\.flow\}/,
       "variant:'generic' must take the wizard_choose_flow_${flow} branch (skip the discovery flowMap)",
+    );
+  });
+});
+
+// =====================================================================
+// Focus management on open (#7, a11y). When a wizard renders open — the
+// auto-open path included — keyboard/SR users must not be stranded behind
+// the overlay: focus moves INTO the wizard. The shared shell does this in
+// a requestAnimationFrame after mount, for BOTH the discovery and go-live
+// mounts (both render through renderWizardShell). The structure tests stub
+// rAF to a no-op; here we run it so the focus pass is exercised.
+// =====================================================================
+
+describe("renderWizardShell — focus-on-open (a11y, #7)", () => {
+  function renderAndFlush(input) {
+    const rafCbs = [];
+    const { document, shell } = loadShell({ rafImpl: (cb) => rafCbs.push(cb) });
+    shell.renderWizardShell(input);
+    // Run the deferred focus pass the shell scheduled via rAF.
+    rafCbs.forEach((cb) => cb());
+    return { document, shell };
+  }
+
+  it("moves focus into the discovery wizard when it opens", () => {
+    const { document } = renderAndFlush({
+      steps: [{ id: "detect", label: "Status", title: "T", description: "D" }],
+      state: { currentStep: "detect" },
+    });
+    const mount = document.getElementById("discoverySetupWizardMount");
+    const panel = mount.querySelector("[data-wizard-panel]");
+    assert.ok(panel, "the wizard must render a focusable panel");
+    assert.equal(
+      document.activeElement,
+      panel,
+      "focus must land inside the wizard (the dialog panel) on open, not stay behind the overlay",
+    );
+    assert.ok(mount.contains(document.activeElement), "active element is within the wizard");
+  });
+
+  it("moves focus into the go-live wizard when it opens", () => {
+    const { document } = renderAndFlush({
+      mountId: "goLiveSetupWizardMount",
+      variant: "generic",
+      headerTitle: "Use JobBored on other devices",
+      steps: [{ id: "path_select", label: "Path", title: "T", description: "D" }],
+      state: { currentStep: "path_select" },
+    });
+    const mount = document.getElementById("goLiveSetupWizardMount");
+    const panel = mount.querySelector("[data-wizard-panel]");
+    assert.ok(panel, "the go-live wizard must render a focusable panel");
+    assert.equal(
+      document.activeElement,
+      panel,
+      "focus must land inside the go-live wizard on open",
+    );
+  });
+
+  it("does NOT move focus when the caller opts out with focus:false", () => {
+    const { document } = renderAndFlush({
+      steps: [{ id: "detect", label: "Status", title: "T", description: "D" }],
+      state: { currentStep: "detect" },
+      focus: false,
+    });
+    assert.equal(
+      document.activeElement,
+      null,
+      "focus:false must leave focus untouched (e.g. background re-render)",
     );
   });
 });
