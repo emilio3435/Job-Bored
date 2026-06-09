@@ -52,6 +52,30 @@
     }
   }
 
+  // Anti-nag escape valve. The session snooze hides the bar for one session at
+  // a time, but a user who keeps snoozing shouldn't be nagged forever. We count
+  // total "Later" presses across sessions in localStorage (NOT sessionStorage)
+  // and, once they reach LATER_PERMANENT_THRESHOLD, offer a confirmed permanent
+  // "Don't show again". Kept high + confirm-gated so the mandatory feel holds.
+  const LATER_COUNT_KEY = "jobbored.whatsNext.laterCount";
+  const LATER_PERMANENT_THRESHOLD = 3;
+  function getLaterCount() {
+    try {
+      return parseInt(window.localStorage.getItem(LATER_COUNT_KEY) || "0", 10) || 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+  function bumpLaterCount() {
+    const next = getLaterCount() + 1;
+    try {
+      window.localStorage.setItem(LATER_COUNT_KEY, String(next));
+    } catch (_) {
+      /* localStorage unavailable → counter is best-effort */
+    }
+    return next;
+  }
+
   function getEl(id) {
     return typeof document !== "undefined" ? document.getElementById(id) : null;
   }
@@ -234,6 +258,28 @@
     }
     const laterEl = getEl("whatsNextLater");
     if (laterEl) laterEl.removeAttribute("hidden");
+
+    // Mandatory feel: while setup is incomplete the permanent dismiss is not
+    // offered — only the session "Later" and, after enough snoozes, the gated
+    // "Don't show again". (When both tracks finish the bar self-hides, so the
+    // normal #whatsNextDismiss never needs to show during the bar's life.)
+    const dismissEl = getEl("whatsNextDismiss");
+    if (dismissEl) {
+      dismissEl.setAttribute("hidden", "hidden");
+      dismissEl.setAttribute("aria-hidden", "true");
+    }
+    // Anti-nag escape valve: reveal the confirmed permanent dismiss once the
+    // user has pressed "Later" at least LATER_PERMANENT_THRESHOLD times.
+    const dontShowEl = getEl("whatsNextDontShowAgain");
+    if (dontShowEl) {
+      if (getLaterCount() >= LATER_PERMANENT_THRESHOLD) {
+        dontShowEl.removeAttribute("hidden");
+        dontShowEl.removeAttribute("aria-hidden");
+      } else {
+        dontShowEl.setAttribute("hidden", "hidden");
+        dontShowEl.setAttribute("aria-hidden", "true");
+      }
+    }
   }
 
   /**
@@ -289,8 +335,26 @@
    */
   function handleLater() {
     emitOnboardingEvent("later_pressed");
+    bumpLaterCount();
     setSessionSnoozed();
     hideBanner();
+  }
+
+  /**
+   * Anti-nag permanent dismiss — offered only after LATER_PERMANENT_THRESHOLD
+   * "Later" presses. Requires an explicit confirm (native dialog, the house
+   * idiom) so the mandatory feel isn't diluted, then writes the same permanent
+   * whatsNextDismissed flag as handleDismiss so the bar never returns.
+   */
+  async function handlePermanentDismiss() {
+    const ok =
+      typeof window.confirm === "function"
+        ? window.confirm(
+            "Stop reminding you to finish setup? You can finish it anytime from Settings.",
+          )
+        : true;
+    if (!ok) return;
+    await handleDismiss();
   }
 
   /**
@@ -371,6 +435,9 @@
     getEl("whatsNextLater")?.addEventListener("click", () => {
       handleLater();
     });
+    getEl("whatsNextDontShowAgain")?.addEventListener("click", () => {
+      void handlePermanentDismiss();
+    });
   }
 
   function init() {
@@ -398,6 +465,7 @@
     isBannerVisible,
     handleDismiss,
     handleLater,
+    handlePermanentDismiss,
     handleOpenDiscovery,
     handleOpenSelfHosting,
   });
