@@ -30,6 +30,18 @@
     );
   }
 
+  // Onboarding funnel telemetry — best-effort, looked up lazily so a missing
+  // module never breaks the chain. See onboarding-telemetry.js.
+  function emitOnboardingEvent(step, detail) {
+    try {
+      const t =
+        typeof window !== "undefined" && window.JobBoredOnboardingTelemetry;
+      if (t && typeof t.emit === "function") t.emit(step, detail);
+    } catch (_) {
+      /* telemetry is non-critical */
+    }
+  }
+
   const MOUNT_ID = "goLiveSetupWizardMount";
   const HEADER_TITLE = "Use JobBored on other devices";
   const TITLE = "Use JobBored on other devices";
@@ -1017,6 +1029,10 @@
           showCta = true;
         }
       }
+      // Funnel telemetry: go-live finished (always), plus both_done when
+      // discovery is already complete (this finish completes the pair).
+      emitOnboardingEvent("go_live_finished");
+      if (!showCta) emitOnboardingEvent("both_done");
       // Mandatory two-track onboarding (symmetry): when discovery is still
       // incomplete, auto-open it so finishing go-live first chains into
       // discovery. The in-wizard "Turn on job discovery" CTA (gated on the
@@ -1061,6 +1077,10 @@
   // ----------------------------------------------------------------------
   async function openGoLiveSetupWizard(options) {
     const opts = options || {};
+    // Funnel telemetry: the go-live setup surface was entered.
+    emitOnboardingEvent("go_live_opened", {
+      entryPoint: opts.entryPoint || "manual",
+    });
     const h = host();
 
     const onboardingWasVisible =

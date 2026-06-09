@@ -56,6 +56,17 @@
     return typeof document !== "undefined" ? document.getElementById(id) : null;
   }
 
+  // Onboarding funnel telemetry — best-effort, looked up lazily so a missing
+  // module never breaks the bar. See onboarding-telemetry.js.
+  function emitOnboardingEvent(step, detail) {
+    try {
+      const t = window.JobBoredOnboardingTelemetry;
+      if (t && typeof t.emit === "function") t.emit(step, detail);
+    } catch (_) {
+      /* telemetry is non-critical */
+    }
+  }
+
   function getRegion() {
     if (typeof document === "undefined") return null;
     if (typeof document.querySelector !== "function") return null;
@@ -277,6 +288,7 @@
    * next load until both tracks are complete.
    */
   function handleLater() {
+    emitOnboardingEvent("later_pressed");
     setSessionSnoozed();
     hideBanner();
   }
