@@ -113,3 +113,32 @@ describe("discovery-wizard-ui — recommendGoLiveAfterDiscoveryFinish (behaviora
     );
   });
 });
+
+describe("discovery-wizard-ui — openDiscoverySetupWizard onComplete seam", () => {
+  it("references options.onComplete and options.onClose", () => {
+    assert.match(
+      discoveryWizardUiJs,
+      /async function openDiscoverySetupWizard\(options\s*=\s*\{\}\)/,
+    );
+    assert.match(discoveryWizardUiJs, /options\.onComplete\b/);
+    assert.match(discoveryWizardUiJs, /options\.onClose\b/);
+  });
+
+  it("the autodetect-ready lane calls options.onComplete for entryPoint:onboarding instead of returning silently", () => {
+    const start = discoveryWizardUiJs.indexOf(
+      "// ====== [discovery-autodetect lane: silent recover] ======",
+    );
+    const block = discoveryWizardUiJs.slice(start, start + 4000);
+    assert.match(block, /entryPoint.*onboarding|onboarding.*entryPoint/);
+    assert.match(block, /options\.onComplete\s*\(\s*\{/);
+    assert.match(block, /alreadyConnected:\s*true/);
+  });
+
+  it("the onClose handler forwards (reason, ctx) to options.onClose when provided", () => {
+    const onCloseIdx = discoveryWizardUiJs.indexOf("onClose: (reason, ctx) =>");
+    assert.ok(onCloseIdx !== -1);
+    const body = discoveryWizardUiJs.slice(onCloseIdx, onCloseIdx + 3000);
+    assert.match(body, /typeof options\.onClose === "function"/);
+    assert.match(body, /options\.onClose\(reason,\s*ctx\)/);
+  });
+});

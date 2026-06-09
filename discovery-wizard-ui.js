@@ -1994,7 +1994,7 @@ function buildDiscoveryWizardSteps(runtime) {
 }
 
   // ==== orchestration moved from app.js (Phase 1b) ====
-async function renderDiscoverySetupWizard() {
+async function renderDiscoverySetupWizard(options = {}) {
   const shell = host().getDiscoveryWizardShellApi();
   if (!shell || typeof shell.renderWizardShell !== "function") {
     await host().openCommandCenterSettingsModal();
@@ -2067,6 +2067,14 @@ async function renderDiscoverySetupWizard() {
 
       if (shouldRestoreOnboarding) {
         host().showOnboardingWizard();
+      }
+
+      if (typeof options.onClose === "function") {
+        try {
+          options.onClose(reason, ctx);
+        } catch (e) {
+          console.warn("[JobBored] discovery gate onClose callback:", e);
+        }
       }
     },
   });
@@ -2219,6 +2227,23 @@ async function openDiscoverySetupWizard(options = {}) {
         } catch (_) {
           /* banner refresh is best-effort */
         }
+        // Mandatory discovery gate: for the onboarding entry point never
+        // silently short-circuit — the gate needs to advance. Call the
+        // caller's onComplete callback instead of returning quietly.
+        if (
+          options.entryPoint === "onboarding" &&
+          typeof options.onComplete === "function"
+        ) {
+          try {
+            options.onComplete({ alreadyConnected: true });
+          } catch (e) {
+            console.warn(
+              "[JobBored] discovery gate onComplete (autodetect):",
+              e,
+            );
+          }
+          return;
+        }
         return;
       }
     } catch (err) {
@@ -2307,7 +2332,7 @@ async function openDiscoverySetupWizard(options = {}) {
     currentStep: initialStep,
     completedSteps: mergedCompleted,
   });
-  return renderDiscoverySetupWizard();
+  return renderDiscoverySetupWizard({ onClose: options.onClose });
 }
 
 function getDiscoveryWizardCurrentStepContext() {
