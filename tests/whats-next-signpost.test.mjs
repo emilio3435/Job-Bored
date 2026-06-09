@@ -1485,3 +1485,27 @@ describe("whats-next-banner module — setup progress + session Later", () => {
     );
   });
 });
+
+// ============================================================
+// Mandatory discovery gate: discoverySetupSkipped is an observable
+// escape-hatch flag — set ONLY via the confirm-gated gate escape.
+// It must NOT count as discovery completion: the banner keeps the
+// discovery row/CTA surfaced while the user is skipped-but-not-done,
+// so the "Finish setup" nudge persists (skip != complete).
+// ============================================================
+
+describe("whats-next-banner — discoverySetupSkipped does not satisfy discovery row", () => {
+  it("banner reads isDiscoverySetupSkipped (observable, not a completion gate)", () => {
+    assert.match(whatsNextBannerJs, /isDiscoverySetupSkipped/);
+  });
+  it("shouldRenderBanner does NOT reference the skip flag", () => {
+    const i = whatsNextBannerJs.indexOf("function shouldRenderBanner(");
+    assert.ok(i !== -1);
+    const body = whatsNextBannerJs.slice(i, i + 600);
+    assert.ok(!body.includes("discoverySetupSkipped") && !body.includes("setupSkipped"));
+  });
+  it("store keeps discoverySetupSkipped and discoverySetupComplete as separate keys", () => {
+    assert.match(userContentStoreJs, /getSetting\("discoverySetupSkipped"\)/);
+    assert.match(userContentStoreJs, /getSetting\("discoverySetupComplete"\)/);
+  });
+});
