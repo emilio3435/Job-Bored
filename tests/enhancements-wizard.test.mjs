@@ -609,3 +609,27 @@ describe("enhancements wizard — deep-link actions + AI-provider status", () =>
     assert.equal(rt.aiProviderConfigured, false);
   });
 });
+
+describe("enhancements wizard — mandatory-gate defer", () => {
+  it("requestEnhancementsSetup defers when isFirstRunWizardVisible is true", async () => {
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => true,
+    };
+    const { api } = loadEnhancements({ host });
+    const result = await api.requestEnhancementsSetup({});
+    assert.equal(result.deferred, true);
+  });
+
+  it("requestEnhancementsSetup opens normally when both wizard gates are false", async () => {
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      getDiscoveryReadinessSnapshot: () => null,
+    };
+    const { api, renderCalls } = loadEnhancements({ host });
+    const result = await api.requestEnhancementsSetup({});
+    assert.equal(result.deferred, false);
+    assert.equal(renderCalls.length, 1);
+  });
+});
