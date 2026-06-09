@@ -788,6 +788,19 @@
     await setSetting("discoverySetupComplete", false);
   }
 
+  async function isDiscoverySetupSkipped() {
+    return !!(await getSetting("discoverySetupSkipped"));
+  }
+
+  async function setDiscoverySetupSkipped() {
+    await setSetting("discoverySetupSkipped", true);
+  }
+
+  /** Clears the skip flag so a new discovery run attempt starts fresh. */
+  async function resetDiscoverySetupSkipped() {
+    await setSetting("discoverySetupSkipped", false);
+  }
+
   /**
    * Mark onboarding done for users who already had resume data before this feature.
    * Consolidate legacy multi-version rows into {@link PRIMARY_RESUME_ID}.
@@ -1143,6 +1156,9 @@
     isDiscoverySetupComplete,
     completeDiscoverySetup,
     resetDiscoverySetupCompletion,
+    isDiscoverySetupSkipped,
+    setDiscoverySetupSkipped,
+    resetDiscoverySetupSkipped,
     migrateOnboardingState,
     addResumeVersion,
     setActiveResumeId,
