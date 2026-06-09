@@ -126,3 +126,76 @@ describe("onboarding-wizard partial — discoverySetupGate markup", () => {
     assert.ok(!ctx.includes("btn-modal-primary"));
   });
 });
+
+describe("advanceToDiscoveryAfterOnboarding — gated blocking handoff", () => {
+  function loadOnboardingWithGate({ discoveryComplete, skipFlag = false, confirmResult = true }) {
+    const calls = { requestDiscovery: [], setSkipped: 0, completeDiscovery: 0 };
+    let hidden = true;
+    const gateEl = {
+      get hidden() { return hidden; },
+      removeAttribute(n) { if (n === "hidden") hidden = false; },
+      setAttribute(n) { if (n === "hidden") hidden = true; },
+      hasAttribute(n) { return n === "hidden" ? hidden : false; },
+    };
+    const window = {
+      JobBoredApp: { core: { host: {
+        requestDiscoverySetup: (o) => calls.requestDiscovery.push(o),
+        getUserContent: () => ({
+          isDiscoverySetupComplete: async () => discoveryComplete,
+          isDiscoverySetupSkipped: async () => skipFlag,
+          completeDiscoverySetup: async () => { calls.completeDiscovery++; },
+          setDiscoverySetupSkipped: async () => { calls.setSkipped++; },
+          openDb: async () => {},
+        }),
+        resumePendingDiscoverySetupIfNeeded: async () => false,
+      } } },
+      confirm: () => confirmResult,
+      sessionStorage: { getItem: () => null, removeItem: () => {} },
+    };
+    const document = {
+      getElementById: (id) => (id === "discoverySetupGate" ? gateEl : null),
+      createElement: () => ({ className: "", style: {}, setAttribute() {}, appendChild() {} }),
+    };
+    const ctx = { window, document, console, setTimeout, clearTimeout };
+    vm.createContext(ctx);
+    vm.runInContext(onboardingWizardJs, ctx, { filename: "onboarding-wizard.js" });
+    return { onboarding: window.JobBoredApp.onboarding, gateEl, calls, window };
+  }
+
+  it("when discovery is incomplete, requestDiscoverySetup is called with onComplete + onClose callbacks", async () => {
+    const env = loadOnboardingWithGate({ discoveryComplete: false });
+    await env.onboarding.advanceToDiscoveryAfterOnboarding();
+    assert.equal(env.calls.requestDiscovery.length, 1);
+    assert.equal(typeof env.calls.requestDiscovery[0].onComplete, "function");
+    assert.equal(typeof env.calls.requestDiscovery[0].onClose, "function");
+  });
+
+  it("onClose with reason !== finish shows the gate panel", async () => {
+    const env = loadOnboardingWithGate({ discoveryComplete: false });
+    await env.onboarding.advanceToDiscoveryAfterOnboarding();
+    await env.calls.requestDiscovery[0].onClose("dismiss", {});
+    assert.equal(env.gateEl.hidden, false);
+  });
+
+  it("onClose does NOT show the gate when discoverySetupSkipped is true", async () => {
+    const env = loadOnboardingWithGate({ discoveryComplete: false, skipFlag: true });
+    await env.onboarding.advanceToDiscoveryAfterOnboarding();
+    await env.calls.requestDiscovery[0].onClose("dismiss", {});
+    assert.equal(env.gateEl.hidden, true);
+  });
+
+  it("onComplete with alreadyConnected:true persists discoverySetupComplete and hides the gate", async () => {
+    const env = loadOnboardingWithGate({ discoveryComplete: false });
+    env.gateEl.removeAttribute("hidden");
+    await env.onboarding.advanceToDiscoveryAfterOnboarding();
+    await env.calls.requestDiscovery[0].onComplete({ alreadyConnected: true });
+    assert.equal(env.calls.completeDiscovery, 1);
+    assert.equal(env.gateEl.hidden, true);
+  });
+
+  it("is idempotent when discoverySetupComplete is already true", async () => {
+    const env = loadOnboardingWithGate({ discoveryComplete: true });
+    await env.onboarding.advanceToDiscoveryAfterOnboarding();
+    assert.equal(env.calls.requestDiscovery.length, 0);
+  });
+});
