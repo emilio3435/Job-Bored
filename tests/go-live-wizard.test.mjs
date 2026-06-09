@@ -741,6 +741,101 @@ describe("go-live wizard — done step + discovery cross-rec gating", () => {
       "go_live_open_discovery must close the go-live wizard before dispatching the cross-rec",
     );
   });
+
+  // Mandatory two-track onboarding (symmetry): when go-live finishes first
+  // and discovery is still incomplete, the done step AUTO-OPENS discovery
+  // (not just the in-wizard CTA), so either completion order chains into the
+  // other track.
+  it("finishing go-live auto-opens discovery via requestDiscoverySetup when discovery is incomplete", async () => {
+    const discoveryCalls = [];
+    const uc = {
+      completeGoLiveSetup: async () => {},
+      isDiscoverySetupComplete: async () => false,
+    };
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      requestDiscoverySetup: (opts) => {
+        discoveryCalls.push(opts);
+        return Promise.resolve({ deferred: false });
+      },
+    };
+    const fetchImpl = async (url) => {
+      if (url === "/__proxy/tailscale-state") {
+        return {
+          ok: true,
+          json: async () => ({
+            installed: true,
+            loggedIn: true,
+            dnsName: "mac.tailnet.ts.net",
+            dashboardUrl: "https://mac.tailnet.ts.net",
+            serving: { 8080: true },
+            recommendation: "ready",
+          }),
+        };
+      }
+      if (url === "/__proxy/install-doctor") {
+        return { ok: true, json: async () => ({ ok: true, tools: {} }) };
+      }
+      return { ok: false };
+    };
+    const { api } = loadGoLive({ fetchImpl, uc, host });
+    await api.openGoLiveSetupWizard();
+    await api.handleAction("wizard_choose_path_tailscale");
+    await api.handleAction("go_live_complete_tailscale");
+    assert.equal(
+      discoveryCalls.length,
+      1,
+      "must auto-open discovery exactly once when discovery is incomplete",
+    );
+    assert.equal(discoveryCalls[0].entryPoint, "onboarding_chain");
+    assert.equal(
+      discoveryCalls[0].allowWhileOnboarding,
+      true,
+      "the auto-open must allow while onboarding (mirrors the discovery->go-live chain)",
+    );
+  });
+
+  it("finishing go-live does NOT auto-open discovery when discovery is already complete", async () => {
+    const discoveryCalls = [];
+    const uc = {
+      completeGoLiveSetup: async () => {},
+      isDiscoverySetupComplete: async () => true,
+    };
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      requestDiscoverySetup: (opts) => discoveryCalls.push(opts),
+    };
+    const fetchImpl = async (url) => {
+      if (url === "/__proxy/tailscale-state") {
+        return {
+          ok: true,
+          json: async () => ({
+            installed: true,
+            loggedIn: true,
+            dnsName: "mac.tailnet.ts.net",
+            dashboardUrl: "https://mac.tailnet.ts.net",
+            serving: { 8080: true },
+            recommendation: "ready",
+          }),
+        };
+      }
+      if (url === "/__proxy/install-doctor") {
+        return { ok: true, json: async () => ({ ok: true, tools: {} }) };
+      }
+      return { ok: false };
+    };
+    const { api } = loadGoLive({ fetchImpl, uc, host });
+    await api.openGoLiveSetupWizard();
+    await api.handleAction("wizard_choose_path_tailscale");
+    await api.handleAction("go_live_complete_tailscale");
+    assert.equal(
+      discoveryCalls.length,
+      0,
+      "discovery is already done → no auto-open (idempotent, no ping-pong)",
+    );
+  });
 });
 
 describe("go-live wizard — onboarding-defer gate (mirrors requestDiscoverySetup)", () => {

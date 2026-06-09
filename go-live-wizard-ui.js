@@ -1017,6 +1017,24 @@
           showCta = true;
         }
       }
+      // Mandatory two-track onboarding (symmetry): when discovery is still
+      // incomplete, auto-open it so finishing go-live first chains into
+      // discovery. The in-wizard "Turn on job discovery" CTA (gated on the
+      // same showCta) stays as the manual fallback if the user closes the
+      // auto-opened wizard.
+      if (showCta) {
+        try {
+          const h = host();
+          if (h && typeof h.requestDiscoverySetup === "function") {
+            void h.requestDiscoverySetup({
+              entryPoint: "onboarding_chain",
+              allowWhileOnboarding: true,
+            });
+          }
+        } catch (e) {
+          console.warn("[JobBored] auto-open discovery:", e);
+        }
+      }
       return moveToStep("done", { _discoveryCtaVisible: showCta });
     }
 
