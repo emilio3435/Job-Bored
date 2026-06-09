@@ -300,7 +300,7 @@
   }
 
   // ----------------------------------------------------------------------
-  // Action dispatcher — stub; filled out in Task 3 onwards
+  // Action dispatcher
   // ----------------------------------------------------------------------
   async function handleAction(actionId) {
     const id = String(actionId || "");
@@ -309,6 +309,60 @@
       const api = shellApi();
       if (api && typeof api.closeWizardShell === "function") api.closeWizardShell("finish");
       emitOnboardingEvent("enhancements_finished");
+      return null;
+    }
+
+    if (id === "enhancements_serp_api_skip") {
+      try {
+        const u = uc();
+        if (u && typeof u.setSerpApiEnhancementDismissed === "function") {
+          await u.setSerpApiEnhancementDismissed(true);
+        }
+      } catch (e) { console.warn("[JobBored] enhancements skip serpApi:", e); }
+      return moveToStep("gemini");
+    }
+
+    if (id === "enhancements_serp_api_done") {
+      return moveToStep("gemini");
+    }
+
+    if (id === "enhancements_gemini_skip") {
+      try {
+        const u = uc();
+        if (u && typeof u.setGeminiEnhancementDismissed === "function") {
+          await u.setGeminiEnhancementDismissed(true);
+        }
+      } catch (e) { console.warn("[JobBored] enhancements skip gemini:", e); }
+      return moveToStep("ai_provider");
+    }
+
+    if (id === "enhancements_gemini_done") {
+      return moveToStep("ai_provider");
+    }
+
+    if (id === "enhancements_ai_provider_skip") {
+      try {
+        const u = uc();
+        if (u && typeof u.setAiProviderEnhancementDismissed === "function") {
+          await u.setAiProviderEnhancementDismissed(true);
+        }
+      } catch (e) { console.warn("[JobBored] enhancements skip aiProvider:", e); }
+      return moveToStep("more_optional");
+    }
+
+    if (id === "enhancements_ai_provider_open_settings") {
+      return moveToStep("more_optional");
+    }
+
+    if (id === "enhancements_more_next" || id === "enhancements_more_skip") {
+      return moveToStep("done");
+    }
+
+    if (id === "enhancements_serp_api_open_drawer" || id === "enhancements_gemini_open_drawer") {
+      const h = host();
+      if (h && typeof h.openDrawerToSubtab === "function") {
+        try { h.openDrawerToSubtab("sources", null); } catch (e) { console.warn("[JobBored] enhancements open drawer:", e); }
+      }
       return null;
     }
 
