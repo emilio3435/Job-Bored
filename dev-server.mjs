@@ -436,14 +436,45 @@ async function serveStatic(urlPath, res) {
   }
 }
 
-function isLocalOrigin(req) {
-  const addr = req.socket.remoteAddress || "";
+function isLoopbackAddress(addr) {
+  const normalized = String(addr || "");
   return (
-    addr === "127.0.0.1" ||
-    addr === "::1" ||
-    addr === "::ffff:127.0.0.1" ||
-    addr === "localhost"
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    normalized === "::ffff:127.0.0.1" ||
+    normalized === "localhost"
   );
+}
+
+function requestHostHeader(req) {
+  return String((req.headers && req.headers.host) || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "");
+}
+
+function isTailscaleServeForwarded(req) {
+  const forwardedHost = String(
+    (req.headers && req.headers["x-forwarded-host"]) || "",
+  )
+    .trim()
+    .toLowerCase();
+  if (forwardedHost) return true;
+
+  const host = requestHostHeader(req);
+  return host.endsWith(".ts.net") || host.includes(".ts.net:");
+}
+
+function isLocalOrigin(req) {
+  if (!isLoopbackAddress(req.socket && req.socket.remoteAddress)) {
+    return false;
+  }
+  // Tailscale Serve/Funnel terminates HTTPS on the tailnet and forwards to
+  // 127.0.0.1:<port>, so remoteAddress alone is insufficient — a remote peer
+  // would pass a naive loopback check. Privileged /__proxy routes must stay
+  // localhost-direct only (npm run web-only), not reachable from other devices
+  // that load the dashboard via the tailnet URL.
+  return !isTailscaleServeForwarded(req);
 }
 
 function resolveDashboardOrigin(req, currentPort) {
@@ -2041,6 +2072,14 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
 
     const target = parseLocalProxyRoute(pathname, url.searchParams);
     if (target) {
+      if (!isLocalOrigin(req)) {
+        res.writeHead(403, {
+          "content-type": "application/json",
+          "access-control-allow-origin": "*",
+        });
+        res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+        return;
+      }
       proxyRequest(target, req, res);
       return;
     }

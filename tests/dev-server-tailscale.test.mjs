@@ -83,14 +83,14 @@ async function fetchJson(url, init = {}) {
   };
 }
 
-function invokeRequest(server, { method, url, remoteAddress }) {
+function invokeRequest(server, { method, url, remoteAddress, headers = {} }) {
   const handler = server.listeners("request")[0];
   assert.equal(typeof handler, "function");
   return new Promise((resolve) => {
     const req = new EventEmitter();
     req.method = method;
     req.url = url;
-    req.headers = {};
+    req.headers = { ...headers };
     req.socket = { remoteAddress };
     const res = {
       headersSent: false,
@@ -275,5 +275,48 @@ describe("dev-server Tailscale endpoints", () => {
     });
     assert.equal(serve.status, 403);
     assert.deepEqual(serve.body, { ok: false, reason: "forbidden" });
+  });
+
+  it("returns 403 for loopback requests forwarded by Tailscale Serve", async () => {
+    const server = createDevServer({ port: 0, logger: SILENT_LOGGER });
+
+    const viaForwardedHost = await invokeRequest(server, {
+      method: "POST",
+      url: "/__proxy/fix-setup",
+      remoteAddress: "127.0.0.1",
+      headers: { "x-forwarded-host": "mac.tailnet.ts.net" },
+    });
+    assert.equal(viaForwardedHost.status, 403);
+    assert.equal(viaForwardedHost.body.ok, false);
+
+    const viaTsHost = await invokeRequest(server, {
+      method: "GET",
+      url: "/__proxy/tailscale-state",
+      remoteAddress: "127.0.0.1",
+      headers: { host: "mac.tailnet.ts.net" },
+    });
+    assert.equal(viaTsHost.status, 403);
+    assert.deepEqual(viaTsHost.body, { ok: false, reason: "forbidden" });
+
+    const ngrokProxy = await invokeRequest(server, {
+      method: "GET",
+      url: "/__proxy/ngrok-tunnels",
+      remoteAddress: "127.0.0.1",
+      headers: { "x-forwarded-host": "mac.tailnet.ts.net" },
+    });
+    assert.equal(ngrokProxy.status, 403);
+    assert.deepEqual(ngrokProxy.body, { ok: false, reason: "forbidden" });
+  });
+
+  it("allows direct localhost /__proxy probes without Tailscale forwarding headers", async () => {
+    const server = createDevServer({ port: 0, logger: SILENT_LOGGER });
+
+    const state = await invokeRequest(server, {
+      method: "GET",
+      url: "/__proxy/tailscale-state",
+      remoteAddress: "127.0.0.1",
+      headers: { host: "127.0.0.1:8080" },
+    });
+    assert.notEqual(state.status, 403);
   });
 });
