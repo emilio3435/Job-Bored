@@ -3085,4 +3085,10 @@ async function handleDiscoveryWizardAction(actionId) {
   ui.openSetupWizard = openDiscoverySetupWizard;
   ui.handleAction = handleDiscoveryWizardAction;
   ui.setDiscoveryWizardMessage = setDiscoveryWizardMessage;
+  // Test seam (read in tests; never relied on from app code). Mirrors
+  // go-live's root._internal — exposes the module-private discovery->go-live
+  // finish handler so its persist + goLiveDone gate can be driven behaviorally.
+  ui._internal = {
+    recommendGoLiveAfterDiscoveryFinish,
+  };
 })();
