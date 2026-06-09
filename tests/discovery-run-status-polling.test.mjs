@@ -169,10 +169,9 @@ describe("discovery run status polling", () => {
       "function resumeDiscoveryStatusPollingIfNeeded()",
     );
     assert.notEqual(resumeStart, -1, "resume helper must exist");
-    const resumeEnd = statusHandoffJs.indexOf(
-      "\n}\n\n/**\n * Render current run status",
-      resumeStart,
-    );
+    // End at the function's closing brace + the next doc comment. (Robust to
+    // whatever helper follows resume — e.g. the run-health classifier.)
+    const resumeEnd = statusHandoffJs.indexOf("\n}\n\n/**", resumeStart);
     assert.notEqual(resumeEnd, -1, "resume helper body must be readable");
     const resumeSource = statusHandoffJs.slice(resumeStart, resumeEnd);
 
