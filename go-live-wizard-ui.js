@@ -789,6 +789,8 @@
     // still false. The render path is async (UC store hits IndexedDB), so
     // the runtime carries the precomputed gate set by the action handler.
     const showDiscoveryCta = rt._discoveryCtaVisible !== false;
+    const showEnhancementsCta =
+      !showDiscoveryCta && rt._enhancementsCtaVisible === true;
     const actions = [];
     if (showDiscoveryCta) {
       actions.push({
@@ -797,10 +799,17 @@
         variant: "primary",
       });
     }
+    if (showEnhancementsCta) {
+      actions.push({
+        id: "go_live_open_enhancements",
+        label: "Maximize your results (optional)",
+        variant: "primary",
+      });
+    }
     actions.push({
       id: "go_live_finish",
       label: "Close",
-      variant: showDiscoveryCta ? "secondary" : "primary",
+      variant: showDiscoveryCta || showEnhancementsCta ? "secondary" : "primary",
     });
     return actions;
   }
@@ -1029,6 +1038,19 @@
           showCta = true;
         }
       }
+      // When discovery is already done, finishing go-live may complete the
+      // full mandatory track. In that case, cross-rec the optional
+      // enhancements wizard instead of the discovery CTA.
+      let showEnhancementsCta = false;
+      if (!showCta) {
+        if (UC && typeof UC.isAllMandatorySetupComplete === "function") {
+          try {
+            showEnhancementsCta = !!(await UC.isAllMandatorySetupComplete());
+          } catch (_) {
+            showEnhancementsCta = false;
+          }
+        }
+      }
       // Funnel telemetry: go-live finished (always), plus both_done when
       // discovery is already complete (this finish completes the pair).
       emitOnboardingEvent("go_live_finished");
@@ -1051,7 +1073,10 @@
           console.warn("[JobBored] auto-open discovery:", e);
         }
       }
-      return moveToStep("done", { _discoveryCtaVisible: showCta });
+      return moveToStep("done", {
+        _discoveryCtaVisible: showCta,
+        _enhancementsCtaVisible: showEnhancementsCta,
+      });
     }
 
     if (id === "go_live_open_discovery") {
@@ -1064,6 +1089,21 @@
         return h.requestDiscoverySetup({
           entryPoint: "go_live_cross_rec",
           allowWhileOnboarding: true,
+        });
+      }
+      return null;
+    }
+
+    if (id === "go_live_open_enhancements") {
+      const api = shellApi();
+      if (api && typeof api.closeWizardShell === "function") {
+        api.closeWizardShell("enhancements_cross_rec");
+      }
+      const h = host();
+      if (h && typeof h.requestEnhancementsSetup === "function") {
+        return h.requestEnhancementsSetup({
+          entryPoint: "go_live_cross_rec",
+          allowWhileOnboarding: false,
         });
       }
       return null;

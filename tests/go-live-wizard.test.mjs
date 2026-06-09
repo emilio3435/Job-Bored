@@ -838,6 +838,64 @@ describe("go-live wizard — done step + discovery cross-rec gating", () => {
   });
 });
 
+describe("go-live wizard — enhancements CTA on done step", () => {
+  it("done step shows 'Maximize your results' CTA when all mandatory flags are complete after go-live finishes", async () => {
+    const uc = {
+      completeGoLiveSetup: async () => {},
+      isDiscoverySetupComplete: async () => true,    // discovery already done
+      isAllMandatorySetupComplete: async () => true, // all three now done
+    };
+    const fetchImpl = async (url) => {
+      if (url === "/__proxy/tailscale-state") {
+        return { ok: true, json: async () => ({ installed: true, loggedIn: true, dnsName: "mac.tailnet.ts.net", dashboardUrl: "https://mac.tailnet.ts.net", serving: { 8080: true }, recommendation: "ready" }) };
+      }
+      if (url === "/__proxy/install-doctor") return { ok: true, json: async () => ({ ok: true, tools: {} }) };
+      return { ok: false };
+    };
+    const { api, shell } = loadGoLive({ fetchImpl, uc });
+    await api.openGoLiveSetupWizard();
+    await api.handleAction("wizard_choose_path_tailscale");
+    await api.handleAction("go_live_complete_tailscale");
+    const doneStep = shell.lastRender.input.steps.find((s) => s.id === "done");
+    const actionIds = (doneStep.actions || []).map((a) => a.id);
+    assert.ok(actionIds.includes("go_live_open_enhancements"), "must include 'go_live_open_enhancements' CTA when all mandatory complete");
+  });
+
+  it("done step does NOT show enhancements CTA when discovery is still incomplete (two-track not done)", async () => {
+    const uc = {
+      completeGoLiveSetup: async () => {},
+      isDiscoverySetupComplete: async () => false,
+      isAllMandatorySetupComplete: async () => false,
+    };
+    const fetchImpl = async (url) => {
+      if (url === "/__proxy/tailscale-state") return { ok: true, json: async () => ({ installed: true, loggedIn: true, dnsName: "mac.tailnet.ts.net", dashboardUrl: "https://mac.tailnet.ts.net", serving: { 8080: true }, recommendation: "ready" }) };
+      if (url === "/__proxy/install-doctor") return { ok: true, json: async () => ({ ok: true, tools: {} }) };
+      return { ok: false };
+    };
+    const { api, shell } = loadGoLive({ fetchImpl, uc });
+    await api.openGoLiveSetupWizard();
+    await api.handleAction("wizard_choose_path_tailscale");
+    await api.handleAction("go_live_complete_tailscale");
+    const doneStep = shell.lastRender.input.steps.find((s) => s.id === "done");
+    const actionIds = (doneStep.actions || []).map((a) => a.id);
+    assert.ok(!actionIds.includes("go_live_open_enhancements"), "must NOT show enhancements CTA when mandatory setup is still incomplete");
+  });
+
+  it("go_live_open_enhancements calls host().requestEnhancementsSetup and closes the wizard", async () => {
+    const enhancementsCalls = [];
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      requestEnhancementsSetup: (opts) => { enhancementsCalls.push(opts); return Promise.resolve({ deferred: false }); },
+    };
+    const { api, closeCalls } = loadGoLive({ host });
+    await api.openGoLiveSetupWizard();
+    await api.handleAction("go_live_open_enhancements");
+    assert.equal(enhancementsCalls.length, 1, "must call requestEnhancementsSetup");
+    assert.ok(closeCalls.length >= 1, "must close the go-live wizard before launching enhancements");
+  });
+});
+
 describe("go-live wizard — onboarding-defer gate (mirrors requestDiscoverySetup)", () => {
   it("requestGoLiveSetup defers when the onboarding or first-run wizard is up", async () => {
     const host = {
