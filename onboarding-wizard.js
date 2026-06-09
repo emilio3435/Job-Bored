@@ -99,17 +99,61 @@
       discoveryDone = false;
     }
     if (discoveryDone) return;
+    const onComplete = async (detail) => {
+      if (detail && detail.alreadyConnected) {
+        try {
+          const UC2 = getUserContent();
+          if (UC2 && typeof UC2.completeDiscoverySetup === "function") {
+            if (typeof UC2.openDb === "function") await UC2.openDb();
+            await UC2.completeDiscoverySetup();
+          }
+        } catch (e) {
+          console.warn("[JobBored] persist discovery complete (gate onComplete):", e);
+        }
+      }
+      hideDiscoveryGate();
+    };
+    const onClose = async (reason, _ctx) => {
+      let skipped = false;
+      try {
+        const UC2 = getUserContent();
+        if (UC2 && typeof UC2.isDiscoverySetupSkipped === "function") {
+          skipped = !!(await UC2.isDiscoverySetupSkipped());
+        }
+      } catch (_) {
+        skipped = false;
+      }
+      if (!skipped) showDiscoveryGate();
+    };
     try {
       const h = host();
       if (h && typeof h.requestDiscoverySetup === "function") {
         void h.requestDiscoverySetup({
           entryPoint: "onboarding",
           allowWhileOnboarding: true,
+          onComplete,
+          onClose,
         });
       }
     } catch (e) {
       console.warn("[JobBored] auto-open discovery after onboarding:", e);
     }
+  }
+
+  function showDiscoveryGate() {
+    const gate = typeof document !== "undefined"
+      ? document.getElementById("discoverySetupGate") : null;
+    if (!gate) return;
+    gate.removeAttribute("hidden");
+    gate.setAttribute("aria-hidden", "false");
+  }
+
+  function hideDiscoveryGate() {
+    const gate = typeof document !== "undefined"
+      ? document.getElementById("discoverySetupGate") : null;
+    if (!gate) return;
+    gate.setAttribute("hidden", "hidden");
+    gate.setAttribute("aria-hidden", "true");
   }
 
   // Confetti burst — a handful of mint/amber/violet pieces with randomized
@@ -1262,6 +1306,40 @@ function initOnboardingWizard() {
       } finally {
         if (finish) finish.disabled = false;
       }
+    });
+
+  // Discovery setup gate (mandatory). Primary CTA re-opens the discovery
+  // wizard; the confirm-gated escape writes discoverySetupSkipped and lets the
+  // user through (the "Finish setup" card keeps nudging — skip != complete).
+  document
+    .getElementById("discoveryGateOpenWizard")
+    ?.addEventListener("click", () => {
+      hideDiscoveryGate();
+      void advanceToDiscoveryAfterOnboarding();
+    });
+  document
+    .getElementById("discoveryGateSkipEscape")
+    ?.addEventListener("click", () => {
+      const confirmed = typeof window.confirm === "function"
+        ? window.confirm(
+            "Skip discovery setup for now? You can finish it anytime from Settings. The app will work, but no jobs will be found until you connect discovery.",
+          )
+        : true;
+      if (!confirmed) return;
+      void (async () => {
+        try {
+          const UC = getUserContent();
+          if (UC) {
+            if (typeof UC.openDb === "function") await UC.openDb();
+            if (typeof UC.setDiscoverySetupSkipped === "function") {
+              await UC.setDiscoverySetupSkipped();
+            }
+          }
+        } catch (e) {
+          console.warn("[JobBored] discovery gate skip persist:", e);
+        }
+        hideDiscoveryGate();
+      })();
     });
 }
 
