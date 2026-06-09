@@ -275,3 +275,39 @@ describe("buildGreenfieldOverrideMask — config-overrides.js exports the full k
     ));
   });
 });
+
+describe("greenfield reset clears the session-only whats-next 'Later' snooze", () => {
+  // sessionStorage survives an in-tab reset, so without an explicit clear a
+  // snoozed setup bar would stay hidden across a "fresh" reset and look like
+  // the bar is broken. Both reset paths must drop the snooze key.
+  const SNOOZE_KEY = "jobbored.whatsNext.snoozed";
+
+  it("the ?greenfield=1 URL reset removes the snooze key", () => {
+    // maybeApplyGreenfieldUrlReset is a sync function (extractFunction only
+    // handles async), so bound the slice from its declaration to its call site.
+    const start = configOverridesJs.indexOf(
+      "function maybeApplyGreenfieldUrlReset",
+    );
+    assert.notEqual(start, -1, "maybeApplyGreenfieldUrlReset must exist");
+    const end = configOverridesJs.indexOf(
+      "maybeApplyGreenfieldUrlReset();",
+      start,
+    );
+    assert.notEqual(end, -1, "the reset must be invoked after its declaration");
+    const fn = configOverridesJs.slice(start, end);
+    assert.match(
+      fn,
+      new RegExp(`sessionStorage\\.removeItem\\(["']${SNOOZE_KEY}["']\\)`),
+      "maybeApplyGreenfieldUrlReset must clear the session 'Later' snooze",
+    );
+  });
+
+  it("the Clear-settings handler removes the snooze key", () => {
+    const fn = extractFunction(settingsModalJs, "performSettingsClearOverrides");
+    assert.match(
+      fn,
+      new RegExp(`sessionStorage\\.removeItem\\(["']${SNOOZE_KEY}["']\\)`),
+      "performSettingsClearOverrides must clear the session 'Later' snooze",
+    );
+  });
+});

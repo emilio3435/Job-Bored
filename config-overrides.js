@@ -480,6 +480,14 @@
     } catch (_) {
       /* best-effort — openDb recreates an empty schema */
     }
+    try {
+      // Clear the session-only "Later" snooze (whats-next-banner.js
+      // SESSION_SNOOZE_KEY) so a snoozed setup bar doesn't survive a "fresh"
+      // greenfield reset within the same tab.
+      sessionStorage.removeItem("jobbored.whatsNext.snoozed");
+    } catch (_) {
+      /* sessionStorage unavailable → best-effort */
+    }
     return true;
   }
 

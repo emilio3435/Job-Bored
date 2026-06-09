@@ -110,7 +110,7 @@ describe("first-run wizard — 2-step invariant preserved (VAL-SIGN-001)", () =>
     );
   });
 
-  it("the done panel partial defines the two OPTIONAL CTAs + the primary 'Go to dashboard'", () => {
+  it("the done panel partial defines the optional go-live CTA + the primary 'Continue setup'", () => {
     // Isolate the done-panel block so the regex anchors don't pick up the
     // other primary CTAs (Create a starter sheet, Finish setup) elsewhere
     // in the partial.
@@ -130,14 +130,18 @@ describe("first-run wizard — 2-step invariant preserved (VAL-SIGN-001)", () =>
       /<button[\s\S]{0,300}?class="btn-modal-primary first-run-btn-block"[\s\S]{0,300}?id="firstRunDoneToDashboard"[\s\S]{0,200}?Continue setup/,
       "the primary completion button must use the primary button class",
     );
-    // The two optional CTAs are clearly demoted (secondary button class).
-    for (const ctaId of ["firstRunDoneOpenDiscovery", "firstRunDoneOpenSelfHosting"]) {
-      assert.match(
-        doneBlock,
-        new RegExp(`<button[\\s\\S]{0,300}?btn-modal-secondary[\\s\\S]{0,300}?id="${ctaId}"`),
-        `${ctaId} must use the secondary button class so it reads as OPTIONAL, not required`,
-      );
-    }
+    // De-dupe: the redundant in-panel discovery CTA was removed (the primary
+    // "Continue setup" already opens discovery). The go-live CTA stays as the
+    // alternate-order option and remains demoted (secondary button class).
+    assert.ok(
+      !doneBlock.includes('id="firstRunDoneOpenDiscovery"'),
+      "the redundant 'Turn on job discovery' secondary must be gone — the primary already opens discovery",
+    );
+    assert.match(
+      doneBlock,
+      /<button[\s\S]{0,300}?btn-modal-secondary[\s\S]{0,300}?id="firstRunDoneOpenSelfHosting"/,
+      "firstRunDoneOpenSelfHosting must use the secondary button class so it reads as OPTIONAL, not required",
+    );
   });
 });
 
@@ -687,24 +691,6 @@ describe("first-run wizard — finish shows terminal panel (VAL-SIGN-001)", () =
     );
   });
 
-  // The explicit "Turn on job discovery" CTA keeps its original entry point
-  // so the auto-launch rewire doesn't change the manual path's analytics.
-  it("the secondary discovery CTA still uses the whats_next entry point (default preserved)", () => {
-    const calls = [];
-    const { api } = loadWizardWithRecordingDom(
-      allCompleteHost({
-        revealDashboardShell: () => {},
-        renderPipeline: () => {},
-        checkOnboardingGate: async () => {},
-        requestDiscoverySetup: (opts) => calls.push(opts),
-      }),
-    );
-    api.reopenFirstRunWizard();
-    api.showFirstRunDonePanel();
-    api.handleFirstRunDoneOpenDiscovery();
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].entryPoint, "whats_next");
-  });
 });
 
 // ============================================================
