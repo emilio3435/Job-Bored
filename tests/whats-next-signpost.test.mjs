@@ -1509,3 +1509,14 @@ describe("whats-next-banner — discoverySetupSkipped does not satisfy discovery
     assert.match(userContentStoreJs, /getSetting\("discoverySetupComplete"\)/);
   });
 });
+
+describe("first-run wizard — discovery double-open sentinel", () => {
+  it("handleFirstRunDoneOpenDiscovery sets the openedFromFirstRun sentinel for entryPoint:onboarding", () => {
+    const i = firstRunWizardJs.indexOf("function handleFirstRunDoneOpenDiscovery");
+    assert.ok(i !== -1);
+    const body = firstRunWizardJs.slice(i, i + 1400);
+    assert.match(body, /entryPoint === "onboarding"/);
+    assert.match(body, /jobbored\.discovery\.openedFromFirstRun/);
+    assert.match(body, /sessionStorage\.setItem/);
+  });
+});

@@ -630,6 +630,16 @@
     // (hides the login gate, tears the wizard down) so the discovery wizard
     // opens on top of the dashboard, not over the gate.
     handleFirstRunDoneToDashboard();
+    // Mandatory-onboarding lane only: leave a one-shot sentinel so the persona
+    // finish's advanceToDiscoveryAfterOnboarding doesn't race us into a second
+    // simultaneous discovery open. advanceToDiscoveryAfterOnboarding consumes it.
+    if (entryPoint === "onboarding") {
+      try {
+        window.sessionStorage.setItem("jobbored.discovery.openedFromFirstRun", "1");
+      } catch (_) {
+        /* sessionStorage unavailable — sentinel is best-effort */
+      }
+    }
     const h = host();
     if (typeof h.requestDiscoverySetup === "function") {
       try {
