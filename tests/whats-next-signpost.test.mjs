@@ -649,6 +649,60 @@ describe("first-run wizard — finish shows terminal panel (VAL-SIGN-001)", () =
       "done-button init must come AFTER the listenersWired guard (i.e. inside it)",
     );
   });
+
+  // Mandatory two-track onboarding: completing first-run no longer just
+  // drops the user on the dashboard — the done-panel primary completion
+  // auto-launches discovery setup (which auto-chains to go-live), so the
+  // user does NOT have to click the separate "Turn on job discovery" CTA.
+  it("the done-panel primary 'Go to dashboard' button auto-launches discovery setup with the onboarding entry point", () => {
+    const calls = [];
+    const { api, document } = loadWizardWithRecordingDom(
+      allCompleteHost({
+        revealDashboardShell: () => {},
+        renderPipeline: () => {},
+        checkOnboardingGate: async () => {},
+        requestDiscoverySetup: (opts) => calls.push(opts),
+      }),
+    );
+    api.reopenFirstRunWizard();
+    api.showFirstRunDonePanel();
+    // Fire the PRIMARY completion button — not the secondary discovery CTA.
+    document.getElementById("firstRunDoneToDashboard").__fire("click");
+    assert.equal(
+      calls.length,
+      1,
+      "completing first-run must auto-launch discovery exactly once (no separate click)",
+    );
+    assert.equal(
+      calls[0].entryPoint,
+      "onboarding",
+      "the onboarding auto-launch must use the onboarding entry point (not whats_next)",
+    );
+    assert.equal(
+      calls[0].allowWhileOnboarding,
+      true,
+      "auto-launch must allow while onboarding (the profile wizard may become the active surface)",
+    );
+  });
+
+  // The explicit "Turn on job discovery" CTA keeps its original entry point
+  // so the auto-launch rewire doesn't change the manual path's analytics.
+  it("the secondary discovery CTA still uses the whats_next entry point (default preserved)", () => {
+    const calls = [];
+    const { api } = loadWizardWithRecordingDom(
+      allCompleteHost({
+        revealDashboardShell: () => {},
+        renderPipeline: () => {},
+        checkOnboardingGate: async () => {},
+        requestDiscoverySetup: (opts) => calls.push(opts),
+      }),
+    );
+    api.reopenFirstRunWizard();
+    api.showFirstRunDonePanel();
+    api.handleFirstRunDoneOpenDiscovery();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].entryPoint, "whats_next");
+  });
 });
 
 // ============================================================
