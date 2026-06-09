@@ -324,3 +324,129 @@ describe("enhancements wizard — skeleton: IIFE + runtime + shell render", () =
     assert.match(chain, /node --check enhancements-wizard-ui\.js/, "typecheck:repo must syntax-check enhancements-wizard-ui.js");
   });
 });
+
+describe("enhancements wizard — step navigation and skip flow", () => {
+  it("serp_api step body renders benefit copy and a worker status callout", async () => {
+    const { api, shell } = loadEnhancements({
+      host: { isOnboardingWizardVisible: () => false, isFirstRunWizardVisible: () => false },
+    });
+    await api.openEnhancementsWizard();
+    const body = shell.lastRender.bodies.serp_api;
+    assert.ok(body, "serp_api body must render");
+    // Benefit copy must be present
+    const copy = body._findAll((n) => n.tagName === "p" && /SerpApi/i.test(n.textContent));
+    assert.ok(copy.length > 0, "must render benefit copy mentioning SerpApi");
+    // Status callout must be present
+    const callouts = body._findAll((n) => n.className && String(n.className).includes("discovery-setup-wizard__callout"));
+    assert.ok(callouts.length > 0, "must render a status callout");
+  });
+
+  it("enhancements_serp_api_skip advances to gemini step and writes serpApiEnhancementDismissed", async () => {
+    const ucCalls = [];
+    const uc = {
+      setSerpApiEnhancementDismissed: async (v) => { ucCalls.push({ key: "serpApi", v }); },
+    };
+    const { api, shell } = loadEnhancements({
+      host: { isOnboardingWizardVisible: () => false, isFirstRunWizardVisible: () => false },
+      uc,
+    });
+    await api.openEnhancementsWizard();
+    await api.handleAction("enhancements_serp_api_skip");
+    assert.equal(shell.lastRender.input.activeStepId, "gemini", "skip must advance to gemini");
+    assert.ok(ucCalls.some((c) => c.key === "serpApi" && c.v === true), "skip must write the dismiss flag");
+  });
+
+  it("enhancements_gemini_skip advances to ai_provider and writes geminiEnhancementDismissed", async () => {
+    const ucCalls = [];
+    const uc = {
+      setSerpApiEnhancementDismissed: async () => {},
+      setGeminiEnhancementDismissed: async (v) => { ucCalls.push({ key: "gemini", v }); },
+    };
+    const { api, shell } = loadEnhancements({
+      host: { isOnboardingWizardVisible: () => false, isFirstRunWizardVisible: () => false },
+      uc,
+    });
+    await api.openEnhancementsWizard();
+    await api.handleAction("enhancements_serp_api_skip");
+    await api.handleAction("enhancements_gemini_skip");
+    assert.equal(shell.lastRender.input.activeStepId, "ai_provider");
+    assert.ok(ucCalls.some((c) => c.key === "gemini" && c.v === true));
+  });
+
+  it("enhancements_ai_provider_skip advances to more_optional and writes aiProviderEnhancementDismissed", async () => {
+    const ucCalls = [];
+    const uc = {
+      setSerpApiEnhancementDismissed: async () => {},
+      setGeminiEnhancementDismissed: async () => {},
+      setAiProviderEnhancementDismissed: async (v) => { ucCalls.push({ key: "aiProvider", v }); },
+    };
+    const { api, shell } = loadEnhancements({
+      host: { isOnboardingWizardVisible: () => false, isFirstRunWizardVisible: () => false },
+      uc,
+    });
+    await api.openEnhancementsWizard();
+    await api.handleAction("enhancements_serp_api_skip");
+    await api.handleAction("enhancements_gemini_skip");
+    await api.handleAction("enhancements_ai_provider_skip");
+    assert.equal(shell.lastRender.input.activeStepId, "more_optional");
+    assert.ok(ucCalls.some((c) => c.key === "aiProvider" && c.v === true));
+  });
+
+  it("enhancements_more_next advances to done step", async () => {
+    const uc = {
+      setSerpApiEnhancementDismissed: async () => {},
+      setGeminiEnhancementDismissed: async () => {},
+      setAiProviderEnhancementDismissed: async () => {},
+    };
+    const { api, shell } = loadEnhancements({
+      host: { isOnboardingWizardVisible: () => false, isFirstRunWizardVisible: () => false },
+      uc,
+    });
+    await api.openEnhancementsWizard();
+    await api.handleAction("enhancements_serp_api_skip");
+    await api.handleAction("enhancements_gemini_skip");
+    await api.handleAction("enhancements_ai_provider_skip");
+    await api.handleAction("enhancements_more_next");
+    assert.equal(shell.lastRender.input.activeStepId, "done");
+  });
+
+  it("done step body lists each step's status (all skipped → all show skip text)", async () => {
+    const uc = {
+      setSerpApiEnhancementDismissed: async () => {},
+      setGeminiEnhancementDismissed: async () => {},
+      setAiProviderEnhancementDismissed: async () => {},
+    };
+    const { api, shell } = loadEnhancements({
+      host: { isOnboardingWizardVisible: () => false, isFirstRunWizardVisible: () => false },
+      uc,
+    });
+    await api.openEnhancementsWizard();
+    await api.handleAction("enhancements_serp_api_skip");
+    await api.handleAction("enhancements_gemini_skip");
+    await api.handleAction("enhancements_ai_provider_skip");
+    await api.handleAction("enhancements_more_next");
+    const doneBody = shell.lastRender.bodies.done;
+    assert.ok(doneBody, "done body must render");
+    // All three skipped — done body must list all three items
+    const items = doneBody._findAll((n) => n.tagName === "li");
+    assert.equal(items.length, 3, "done summary must list all three step statuses");
+  });
+
+  it("enhancements_finish closes the wizard", async () => {
+    const { api, closeCalls } = loadEnhancements({
+      host: { isOnboardingWizardVisible: () => false, isFirstRunWizardVisible: () => false },
+    });
+    await api.openEnhancementsWizard();
+    await api.handleAction("enhancements_finish");
+    assert.ok(closeCalls.length >= 1, "finish must close the wizard shell");
+  });
+
+  it("enhancements_serp_api_done advances to gemini (status is re-polled in Task 4; here skip is treated as done)", async () => {
+    const { api, shell } = loadEnhancements({
+      host: { isOnboardingWizardVisible: () => false, isFirstRunWizardVisible: () => false },
+    });
+    await api.openEnhancementsWizard();
+    await api.handleAction("enhancements_serp_api_done");
+    assert.equal(shell.lastRender.input.activeStepId, "gemini");
+  });
+});
