@@ -430,6 +430,10 @@
       hideOnboardingWizard: host.hideOnboardingWizard,
       showOnboardingWizard: host.showOnboardingWizard,
       requestDiscoverySetup: host.requestDiscoverySetup,
+      // "Maximize your results (optional)" CTA on the done step — without
+      // this wire the typeof guard silently no-ops and the enhancements
+      // wizard never opens (the hand-maintained-literal bug class).
+      requestEnhancementsSetup: host.requestEnhancementsSetup,
     };
 
     const enhancements = (window.JobBoredEnhancements =
