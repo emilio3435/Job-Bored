@@ -15,6 +15,15 @@
   pointer-events: none;
 }
 
+/* The base rule sets `display: flex`, which overrides the UA [hidden] rule.
+   The discovery gate (#discoverySetupGate) toggles visibility via the hidden
+   attribute (showDiscoveryGate/hideDiscoveryGate), so it needs this explicit
+   override or it shows on load and can never hide. (The main #onboardingWizard
+   hides via inline style.display instead, so it is unaffected.) */
+.onboarding-wizard[hidden] {
+  display: none !important;
+}
+
 .onboarding-wizard__inner {
   width: 100%;
   max-width: 500px;
