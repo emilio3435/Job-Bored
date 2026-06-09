@@ -412,6 +412,10 @@
       DISCOVERY_ENGINE_STATE_UNVERIFIED: host.DISCOVERY_ENGINE_STATE_UNVERIFIED,
       requestGoLiveSetup: host.requestGoLiveSetup,
       openGoLiveSetupWizard: host.openGoLiveSetupWizard,
+      // recommendGoLiveAfterDiscoveryFinish reads/writes the completion flags
+      // via host().getUserContent — without this the discoverySetupComplete
+      // flag never persists and the discovery→go-live auto-chain loops.
+      getUserContent: host.getUserContent,
     };
 
     // Go-live wizard host bridge. Mirrors wizard.ui.host but only carries

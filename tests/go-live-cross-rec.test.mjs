@@ -21,6 +21,10 @@ const whatsNextBannerJs = readFileSync(
   join(repoRoot, "whats-next-banner.js"),
   "utf8",
 );
+const bridgeRegistryJs = readFileSync(
+  join(repoRoot, "bridge-registry.js"),
+  "utf8",
+);
 
 // ============================================================
 // FE-3: cross-recommendation. Two completion flags drive the
@@ -142,6 +146,64 @@ describe("discovery-wizard-ui — onClose cross-rec (FE-3)", () => {
     assert.match(onCloseBody, /refreshDiscoveryReadinessSnapshot/);
     assert.match(onCloseBody, /showOnboardingWizard/);
     assert.match(onCloseBody, /_onboardingWasHiddenByDiscovery/);
+  });
+});
+
+// ----------------------------------------------------------------------
+// Mandatory two-track onboarding: finishing discovery now AUTO-OPENS the
+// go-live wizard (upgrade from the banner-only nudge), and the discovery
+// wizard's host bridge must expose getUserContent so the finish handler
+// can actually read/write the completion flags (without it the flag never
+// persists and the auto-chain would loop forever).
+// ----------------------------------------------------------------------
+
+describe("discovery-wizard-ui — auto-open go-live on finish (mandatory onboarding)", () => {
+  it("recommendGoLiveAfterDiscoveryFinish launches go-live via requestGoLiveSetup when go-live is incomplete", () => {
+    const helperStart = discoveryWizardUiJs.indexOf(
+      "async function recommendGoLiveAfterDiscoveryFinish",
+    );
+    assert.ok(helperStart !== -1);
+    const helperBody = discoveryWizardUiJs.slice(helperStart, helperStart + 3000);
+    // The !goLiveDone branch must now LAUNCH the go-live wizard, not just
+    // refresh the banner.
+    assert.match(
+      helperBody,
+      /requestGoLiveSetup\(/,
+      "the finish handler must auto-open go-live via requestGoLiveSetup",
+    );
+    assert.match(
+      helperBody,
+      /entryPoint:\s*"onboarding_chain"/,
+      "auto-open must use the onboarding_chain entry point",
+    );
+    assert.match(
+      helperBody,
+      /allowWhileOnboarding:\s*true/,
+      "auto-open must allow while onboarding (the profile wizard may be active)",
+    );
+    // The banner refresh is preserved as the progress-bar update + the
+    // fallback when the bridge is unavailable.
+    assert.match(
+      helperBody,
+      /refreshBanner/,
+      "the banner refresh must remain as the progress-bar update / fallback",
+    );
+  });
+
+  it("the discovery wizard host bridge exposes getUserContent so the finish handler can persist discoverySetupComplete", () => {
+    // recommendGoLiveAfterDiscoveryFinish reads UC via host().getUserContent
+    // where host() === window.JobBoredDiscoveryWizard.ui.host. Without this
+    // key the flag never persists and the auto-chain ping-pongs forever.
+    const start = bridgeRegistryJs.indexOf("wizard.ui.host = {");
+    assert.ok(start !== -1, "wizard.ui.host bridge object must exist");
+    const end = bridgeRegistryJs.indexOf("};", start);
+    assert.ok(end !== -1);
+    const bridgeBlock = bridgeRegistryJs.slice(start, end);
+    assert.match(
+      bridgeBlock,
+      /getUserContent:\s*host\.getUserContent/,
+      "wizard.ui.host must wire getUserContent so the discovery finish handler can read/write completion flags",
+    );
   });
 });
 

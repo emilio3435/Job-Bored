@@ -2101,6 +2101,25 @@ async function recommendGoLiveAfterDiscoveryFinish() {
     }
   }
   if (!goLiveDone) {
+    // Mandatory two-track onboarding: auto-open the go-live wizard (upgrade
+    // from the old banner-only nudge) so finishing discovery chains straight
+    // into "use on other devices". Falls back to the banner when the bridge
+    // is unavailable.
+    let opened = false;
+    try {
+      const h = host();
+      if (h && typeof h.requestGoLiveSetup === "function") {
+        void h.requestGoLiveSetup({
+          entryPoint: "onboarding_chain",
+          allowWhileOnboarding: true,
+        });
+        opened = true;
+      }
+    } catch (e) {
+      console.warn("[JobBored] auto-open go-live:", e);
+    }
+    // Always refresh the bar so it updates to "1 of 2" (and as the fallback
+    // surface when the bridge is unavailable).
     try {
       const banner =
         typeof window !== "undefined" &&
@@ -2112,6 +2131,7 @@ async function recommendGoLiveAfterDiscoveryFinish() {
     } catch (_) {
       /* banner refresh is best-effort */
     }
+    void opened;
   }
 }
 
