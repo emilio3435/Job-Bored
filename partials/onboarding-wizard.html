@@ -334,3 +334,51 @@
         </div>
       </div>
     </div>
+
+    <!-- Discovery setup gate — mandatory before reaching the dashboard. Shown
+         by onboarding-wizard.js when discovery is still incomplete; re-asserted
+         if the wizard closes without completing. The confirm-gated escape
+         writes discoverySetupSkipped and lets the user through — the "Finish
+         setup" card keeps nudging. Reuses the onboarding-wizard visual
+         language (blocking overlay, inner card, primary block CTA). -->
+    <div
+      id="discoverySetupGate"
+      class="onboarding-wizard"
+      hidden
+      aria-hidden="true"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="discoveryGateTitle"
+    >
+      <div class="onboarding-wizard__inner">
+        <div class="onboarding-wizard__brand">
+          <h2 id="discoveryGateTitle" class="onboarding-wizard__title">
+            One more step
+          </h2>
+        </div>
+        <div class="onboarding-panel">
+          <p class="onboarding-hint onboarding-hint--lede">
+            Discovery is the engine that finds jobs for you. Set it up now —
+            it only takes a few minutes.
+          </p>
+          <div class="onboarding-actions onboarding-actions--full">
+            <button
+              type="button"
+              class="btn-modal-primary onboarding-btn-primary onboarding-btn-primary--block"
+              id="discoveryGateOpenWizard"
+            >
+              Set up discovery
+            </button>
+          </div>
+          <p class="onboarding-gate-escape">
+            <button
+              type="button"
+              class="onboarding-link"
+              id="discoveryGateSkipEscape"
+            >
+              I can&rsquo;t do this right now — finish later from Settings
+            </button>
+          </p>
+        </div>
+      </div>
+    </div>

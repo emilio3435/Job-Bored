@@ -99,3 +99,30 @@ describe("index.html — onboarding celebration overlay", () => {
     assert.match(indexHtml, /pose-07-celebrating/);
   });
 });
+
+describe("onboarding-wizard partial — discoverySetupGate markup", () => {
+  const onboardingPartial = readFileSync(
+    join(repoRoot, "partials", "onboarding-wizard.html"),
+    "utf8",
+  );
+  it("defines #discoverySetupGate hidden by default", () => {
+    assert.match(onboardingPartial, /id="discoverySetupGate"/);
+    const i = onboardingPartial.indexOf('id="discoverySetupGate"');
+    const openTag = onboardingPartial.slice(
+      onboardingPartial.lastIndexOf("<div", i),
+      onboardingPartial.indexOf(">", i) + 1,
+    );
+    assert.match(openTag, /\bhidden\b/);
+  });
+  it("contains the primary [Set up discovery] button (id=discoveryGateOpenWizard)", () => {
+    assert.match(onboardingPartial, /id="discoveryGateOpenWizard"/);
+  });
+  it("contains the confirm-gated escape (id=discoveryGateSkipEscape)", () => {
+    assert.match(onboardingPartial, /id="discoveryGateSkipEscape"/);
+  });
+  it("the escape is visually secondary (not the primary button class)", () => {
+    const i = onboardingPartial.indexOf('id="discoveryGateSkipEscape"');
+    const ctx = onboardingPartial.slice(i - 300, i + 100);
+    assert.ok(!ctx.includes("btn-modal-primary"));
+  });
+});

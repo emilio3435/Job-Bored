@@ -825,6 +825,14 @@
   font-style: italic;
 }
 
+/* Discovery setup gate — confirm-gated escape sits centered and muted
+   below the primary "Set up discovery" CTA so it reads as clearly
+   secondary (reuses .onboarding-link for the link style itself). */
+.onboarding-gate-escape {
+  margin: var(--space-3) 0 0;
+  text-align: center;
+}
+
 .onboarding-actions {
   display: flex;
   justify-content: flex-end;
