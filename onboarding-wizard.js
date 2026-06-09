@@ -69,6 +69,103 @@
     );
   }
 
+  // After resume/persona setup finishes: refresh the setup card, then carry the
+  // user straight into discovery setup (the next big step). A queued pending
+  // setup (e.g. an OAuth round-trip) takes precedence; otherwise we open the
+  // discovery wizard only when discovery is still incomplete (idempotent).
+  async function advanceToDiscoveryAfterOnboarding() {
+    try {
+      const banner = window.JobBoredApp && window.JobBoredApp.whatsNextBanner;
+      if (banner && typeof banner.refreshBanner === "function") {
+        void Promise.resolve(banner.refreshBanner()).catch(() => {});
+      }
+    } catch (_) {
+      /* banner refresh is best-effort */
+    }
+    let resumed = false;
+    try {
+      resumed = await resumePendingDiscoverySetupIfNeeded();
+    } catch (_) {
+      resumed = false;
+    }
+    if (resumed) return;
+    const UC = getUserContent();
+    let discoveryDone = false;
+    try {
+      if (UC && typeof UC.isDiscoverySetupComplete === "function") {
+        discoveryDone = !!(await UC.isDiscoverySetupComplete());
+      }
+    } catch (_) {
+      discoveryDone = false;
+    }
+    if (discoveryDone) return;
+    try {
+      const h = host();
+      if (h && typeof h.requestDiscoverySetup === "function") {
+        void h.requestDiscoverySetup({
+          entryPoint: "onboarding",
+          allowWhileOnboarding: true,
+        });
+      }
+    } catch (e) {
+      console.warn("[JobBored] auto-open discovery after onboarding:", e);
+    }
+  }
+
+  // Confetti burst — a handful of mint/amber/violet pieces with randomized
+  // start, drift, and spin. Pure decoration (aria-hidden); cleared when the
+  // overlay hides.
+  function spawnCelebrationConfetti(host) {
+    if (!host || typeof host.appendChild !== "function") return;
+    const colors = ["#5FCB8E", "#EF8F26", "#7C3AED", "#5BB5C9", "#FCEFA8"];
+    for (let i = 0; i < 28; i += 1) {
+      const piece = document.createElement("span");
+      piece.className = "onboarding-celebration__confetti-piece";
+      const left = Math.round((i / 28) * 100);
+      const delay = (i % 7) * 60;
+      const drift = ((i % 5) - 2) * 14;
+      piece.style.left = `${left}%`;
+      piece.style.background = colors[i % colors.length];
+      piece.style.animationDelay = `${delay}ms`;
+      piece.style.setProperty("--drift", `${drift}px`);
+      host.appendChild(piece);
+    }
+  }
+
+  // Play the "Profile set! Nice work." celebration, then run onDone. Gracefully
+  // degrades to an immediate handoff when the overlay element is absent, so the
+  // next-step advance never depends on the animation rendering.
+  function playOnboardingCelebration(onDone) {
+    const finishCb = typeof onDone === "function" ? onDone : () => {};
+    const overlay = document.getElementById("onboardingCelebration");
+    if (!overlay) {
+      finishCb();
+      return;
+    }
+    const burst = document.getElementById("onboardingCelebrationConfetti");
+    if (burst) {
+      if (typeof burst.replaceChildren === "function") burst.replaceChildren();
+      spawnCelebrationConfetti(burst);
+    }
+    overlay.removeAttribute("hidden");
+    overlay.setAttribute("aria-hidden", "false");
+    overlay.classList.remove("onboarding-celebration--out");
+    overlay.classList.add("onboarding-celebration--in");
+    setTimeout(() => {
+      overlay.classList.add("onboarding-celebration--out");
+      setTimeout(() => {
+        overlay.setAttribute("hidden", "");
+        overlay.setAttribute("aria-hidden", "true");
+        overlay.classList.remove("onboarding-celebration--in");
+        overlay.classList.remove("onboarding-celebration--out");
+        if (burst && typeof burst.replaceChildren === "function") {
+          burst.replaceChildren();
+        }
+        finishCb();
+      }, 320);
+    }, 1500);
+  }
+
 /** Staged resume during onboarding (before save). */
 let onboardingResumeDraft = null;
 /** How user supplied resume: "upload" | "paste" (for Back navigation from tone step). */
@@ -1149,30 +1246,16 @@ function initOnboardingWizard() {
         });
         await UC.completeOnboarding();
         hideOnboardingWizard();
-        void resumePendingDiscoverySetupIfNeeded();
-        // The "what's next" dashboard banner is gated on
-        // UC.isOnboardingComplete()===true. Without this hook the banner
-        // would only re-evaluate on the next dashboard render / full
-        // reload, defeating the same-session signpost. The call is
-        // typeof-guarded and fire-and-forget so a missing/older
-        // whats-next-banner module never blocks the onboarding handoff
-        // (VAL-SIGN-001/002).
-        try {
-          const banner =
-            window.JobBoredApp && window.JobBoredApp.whatsNextBanner;
-          if (banner && typeof banner.refreshBanner === "function") {
-            void Promise.resolve(banner.refreshBanner()).catch(() => {});
-          }
-        } catch (_) {
-          /* banner refresh is best-effort */
-        }
-        showToast(
-          "You're all set — open Profile anytime to update.",
-          "success",
-        );
         scheduleCandidateProfileMatchRefresh(true);
         onboardingResumeDraft = null;
         onboardingResumePath = null;
+        // Celebrate the finish, then carry the user straight into discovery
+        // setup (the next big step). advanceToDiscoveryAfterOnboarding refreshes
+        // the "Finish setup" card and is idempotent — it only opens discovery
+        // when it's still incomplete (and honors a queued pending setup first).
+        playOnboardingCelebration(() => {
+          void advanceToDiscoveryAfterOnboarding();
+        });
       } catch (err) {
         console.error(err);
         showToast(err.message || "Could not save profile", "error");
@@ -1198,5 +1281,7 @@ function initOnboardingWizard() {
     checkOnboardingGate,
     ensureResumeDraftFromPasteStep,
     initOnboardingWizard,
+    advanceToDiscoveryAfterOnboarding,
+    playOnboardingCelebration,
   });
 })();
