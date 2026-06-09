@@ -39,6 +39,52 @@
   const FETCH_TIMEOUT_MS = 6000;
 
   // ----------------------------------------------------------------------
+  // Readiness probes — /health for SerpApi + Gemini
+  // ----------------------------------------------------------------------
+  function fetchWithTimeout(url, options) {
+    const opts = options || {};
+    const timeoutMs = opts.timeoutMs || FETCH_TIMEOUT_MS;
+    if (typeof AbortController === "undefined") return fetch(url, opts);
+    const controller = new AbortController();
+    const timer = setTimeout(() => { try { controller.abort(); } catch (_) {} }, timeoutMs);
+    return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(timer));
+  }
+
+  async function probeHealthStatus() {
+    try {
+      const h = host();
+      const snapshot = h && typeof h.getDiscoveryReadinessSnapshot === "function"
+        ? h.getDiscoveryReadinessSnapshot() : null;
+      const webhookUrl = (snapshot && snapshot.savedWebhookUrl) || "";
+      if (!webhookUrl) {
+        updateRuntime({ serpApiStatus: "unknown", geminiStatus: "unknown" });
+        return;
+      }
+      let healthUrl = "";
+      try {
+        const u = new URL(webhookUrl);
+        u.pathname = "/health"; u.search = ""; u.hash = "";
+        healthUrl = u.toString();
+      } catch (_) {}
+      if (!healthUrl) {
+        updateRuntime({ serpApiStatus: "unknown", geminiStatus: "unknown" });
+        return;
+      }
+      const r = await fetchWithTimeout(healthUrl, { method: "GET", mode: "cors" });
+      const payload = r && r.ok ? await r.json().catch(() => null) : null;
+      const serpFlag = payload && payload.readiness && payload.readiness.serpApiGoogleJobs;
+      const geminiFlag = payload && payload.readiness && payload.readiness.googleTools;
+      updateRuntime({
+        serpApiStatus: serpFlag ? (serpFlag.configured ? "yes" : "no") : "unknown",
+        geminiStatus: geminiFlag ? (geminiFlag.configured ? "yes" : "no") : "unknown",
+      });
+    } catch (e) {
+      console.warn("[JobBored] enhancements health probe:", e);
+      updateRuntime({ serpApiStatus: "unknown", geminiStatus: "unknown" });
+    }
+  }
+
+  // ----------------------------------------------------------------------
   // Runtime
   // ----------------------------------------------------------------------
   function defaultRuntime() {
@@ -323,6 +369,7 @@
     }
 
     if (id === "enhancements_serp_api_done") {
+      await probeHealthStatus();
       return moveToStep("gemini");
     }
 
@@ -337,6 +384,7 @@
     }
 
     if (id === "enhancements_gemini_done") {
+      await probeHealthStatus();
       return moveToStep("ai_provider");
     }
 
@@ -380,6 +428,7 @@
       h && typeof h.isOnboardingWizardVisible === "function" ? !!h.isOnboardingWizardVisible() : false;
     if (onboardingWasVisible && h && typeof h.hideOnboardingWizard === "function") h.hideOnboardingWizard();
     setRuntime({ ...defaultRuntime(), entryPoint: opts.entryPoint || "manual", _onboardingHidden: onboardingWasVisible });
+    await probeHealthStatus();
     return renderEnhancementsWizard();
   }
 
@@ -419,5 +468,6 @@
     buildMoreOptionalBody,
     buildDoneBody,
     buildStepActions,
+    probeHealthStatus,
   };
 })();
