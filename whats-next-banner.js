@@ -187,7 +187,21 @@
     } catch (_) {
       out.goLiveComplete = false;
     }
-    return out;
+    // Mandatory discovery gate: expose discoverySetupSkipped as an
+    // observable flag, NOT a completion gate. The skip is set only via the
+    // confirm-gated onboarding escape; the discovery row keeps nudging
+    // (discoveryComplete alone controls the CTA), so skip != complete.
+    const outWithSkip = { ...out, discoverySetupSkipped: false };
+    try {
+      outWithSkip.discoverySetupSkipped = !!(
+        typeof UC.isDiscoverySetupSkipped === "function"
+          ? await UC.isDiscoverySetupSkipped()
+          : false
+      );
+    } catch (_) {
+      outWithSkip.discoverySetupSkipped = false;
+    }
+    return outWithSkip;
   }
 
   function shouldRenderBanner(state) {
