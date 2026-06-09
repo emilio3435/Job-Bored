@@ -633,3 +633,30 @@ describe("enhancements wizard — mandatory-gate defer", () => {
     assert.equal(renderCalls.length, 1);
   });
 });
+
+describe("enhancements wizard — bridge-registry wiring", () => {
+  it("bridge-registry.js assigns enhancements.host after registerAllBridges", () => {
+    const registryJs = readRepo("bridge-registry.js");
+    assert.match(registryJs, /enhancements\.host\s*=/, "bridge-registry must assign enhancements.host");
+  });
+
+  it("enhancements.host includes getUserContent, showToast, getDiscoveryReadinessSnapshot, openDrawerToSubtab, setActiveSettingsTab, requestEnhancementsSetup", () => {
+    const registryJs = readRepo("bridge-registry.js");
+    for (const field of [
+      "getUserContent",
+      "showToast",
+      "getDiscoveryReadinessSnapshot",
+      "openDrawerToSubtab",
+      "setActiveSettingsTab",
+      "openCommandCenterSettingsModal",
+      "isOnboardingWizardVisible",
+      "isFirstRunWizardVisible",
+      "hideOnboardingWizard",
+      "showOnboardingWizard",
+      "requestEnhancementsSetup",
+      "getConfig",
+    ]) {
+      assert.match(registryJs, new RegExp(`${field}\\s*:`), `enhancements.host must include ${field}`);
+    }
+  });
+});

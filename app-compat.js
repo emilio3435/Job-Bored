@@ -1614,6 +1614,32 @@ async function requestGoLiveSetup(options = {}) {
   return window.JobBoredGoLive.requestGoLiveSetup(options);
 }
 
+// --- Optional enhancements wizard (extracted to enhancements-wizard-ui.js) ---
+// Bare-name forwarders so app.js can register these on the bridge host
+// without importing the IIFE-published namespace directly.
+function requestEnhancementsSetup(options) {
+  const mod = typeof window !== "undefined" && window.JobBoredEnhancements;
+  if (mod && typeof mod.requestEnhancementsSetup === "function") {
+    return mod.requestEnhancementsSetup(options);
+  }
+  return Promise.resolve({ deferred: true });
+}
+function openDrawerToSubtab(subtab, focusFieldId) {
+  const adapters =
+    typeof window !== "undefined" && window.JobBoredSettingsDiscoveryAdapters;
+  if (adapters && typeof adapters.openDrawerToSubtab === "function") {
+    return adapters.openDrawerToSubtab(subtab, focusFieldId);
+  }
+  const fn = typeof window !== "undefined" && window.openDiscoveryDrawer;
+  if (typeof fn === "function") fn();
+}
+function setActiveSettingsTab(tabId, opts) {
+  const tabs = typeof window !== "undefined" && window.JobBoredSettingsTabs;
+  if (tabs && typeof tabs.setActiveSettingsTab === "function") {
+    return tabs.setActiveSettingsTab(tabId, opts);
+  }
+}
+
 // --- Discovery setup modals (extracted to discovery-setup-modals.js) ---
 async function testDiscoveryWebhookFromSettings(...args) {
   return window.JobBoredDiscovery.setupModals.testDiscoveryWebhookFromSettings(

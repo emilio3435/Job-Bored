@@ -432,6 +432,24 @@
       requestDiscoverySetup: host.requestDiscoverySetup,
     };
 
+    const enhancements = (window.JobBoredEnhancements =
+      window.JobBoredEnhancements || {});
+
+    enhancements.host = {
+      showToast: host.showToast,
+      getUserContent: host.getUserContent,
+      getDiscoveryReadinessSnapshot: host.getDiscoveryReadinessSnapshot,
+      getConfig: host.getConfig,
+      openDrawerToSubtab: host.openDrawerToSubtab,
+      setActiveSettingsTab: host.setActiveSettingsTab,
+      openCommandCenterSettingsModal: host.openCommandCenterSettingsModal,
+      isOnboardingWizardVisible: host.isOnboardingWizardVisible,
+      isFirstRunWizardVisible: host.isFirstRunWizardVisible,
+      hideOnboardingWizard: host.hideOnboardingWizard,
+      showOnboardingWizard: host.showOnboardingWizard,
+      requestEnhancementsSetup: host.requestEnhancementsSetup,
+    };
+
     app.brief = app.brief || {};
     app.brief.host = {
       escapeHtml(...args) {
