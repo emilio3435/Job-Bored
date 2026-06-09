@@ -248,6 +248,7 @@ describe("bridge-registry — onboarding auto-chain host contracts", () => {
       "requestDiscoverySetup", // auto-open discovery on go-live finish
       "isOnboardingWizardVisible", // onboarding-defer gate
       "isFirstRunWizardVisible", // onboarding-defer gate
+      "requestEnhancementsSetup", // "Maximize your results" CTA on the done step
     ]) {
       assert.match(
         block,
