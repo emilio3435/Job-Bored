@@ -114,24 +114,33 @@ describe("discovery-wizard-ui — recommendGoLiveAfterDiscoveryFinish (behaviora
   });
 });
 
-describe("discovery-wizard-ui — openDiscoverySetupWizard onComplete seam", () => {
-  it("references options.onComplete and options.onClose", () => {
+describe("discovery-wizard-ui — openDiscoverySetupWizard onClose seam + onboarding lane", () => {
+  it("references options.onClose (the gate's re-assert hook)", () => {
     assert.match(
       discoveryWizardUiJs,
       /async function openDiscoverySetupWizard\(options\s*=\s*\{\}\)/,
     );
-    assert.match(discoveryWizardUiJs, /options\.onComplete\b/);
     assert.match(discoveryWizardUiJs, /options\.onClose\b/);
   });
 
-  it("the autodetect-ready lane calls options.onComplete for entryPoint:onboarding instead of returning silently", () => {
+  it("the autodetect lane is BYPASSED for entryPoint:onboarding — the wizard always renders as part of setup", () => {
+    // Discovery setup is a real step of onboarding: even a healthy local
+    // stack must render the wizard (showing its connected state) instead of
+    // short-circuiting to a toast — otherwise the celebration CTA appears to
+    // dump the user on the dashboard.
     const start = discoveryWizardUiJs.indexOf(
       "// ====== [discovery-autodetect lane: silent recover] ======",
     );
-    const block = discoveryWizardUiJs.slice(start, start + 4000);
-    assert.match(block, /entryPoint.*onboarding|onboarding.*entryPoint/);
-    assert.match(block, /options\.onComplete\s*\(\s*\{/);
-    assert.match(block, /alreadyConnected:\s*true/);
+    const block = discoveryWizardUiJs.slice(start, start + 1200);
+    assert.match(
+      block,
+      /options\.entryPoint !== "onboarding"/,
+      "the autodetect lane condition must exclude the onboarding entry point",
+    );
+    assert.ok(
+      !discoveryWizardUiJs.includes("alreadyConnected"),
+      "the autodetect alreadyConnected shortcut is gone (the wizard renders instead)",
+    );
   });
 
   it("the onClose handler forwards (reason, ctx) to options.onClose when provided", () => {

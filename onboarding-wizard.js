@@ -59,20 +59,18 @@
     return host().parseJsonSafeForSuggestions(raw);
   }
 
-  async function resumePendingDiscoverySetupIfNeeded() {
-    return host().resumePendingDiscoverySetupIfNeeded();
-  }
-
   function scheduleCandidateProfileMatchRefresh(shouldRender) {
     return window.JobBoredApp.keywordMatch.scheduleCandidateProfileMatchRefresh(
       shouldRender,
     );
   }
 
-  // After resume/persona setup finishes: refresh the setup card, then carry the
-  // user straight into discovery setup (the next big step). A queued pending
-  // setup (e.g. an OAuth round-trip) takes precedence; otherwise we open the
-  // discovery wizard only when discovery is still incomplete (idempotent).
+  // Carry the user straight into the discovery wizard. Click-driven only
+  // (the celebration CTA + the gate's "Set up discovery" button), so it
+  // ALWAYS opens the wizard — discovery is a real step of setup, and a stale
+  // or autodetect-persisted completion flag must never turn the click into a
+  // silent no-op (the wizard simply shows its connected state and finishes
+  // straight through to the go-live chain).
   async function advanceToDiscoveryAfterOnboarding() {
     try {
       const banner = window.JobBoredApp && window.JobBoredApp.whatsNextBanner;
@@ -82,37 +80,6 @@
     } catch (_) {
       /* banner refresh is best-effort */
     }
-    let resumed = false;
-    try {
-      resumed = await resumePendingDiscoverySetupIfNeeded();
-    } catch (_) {
-      resumed = false;
-    }
-    if (resumed) return;
-    const UC = getUserContent();
-    let discoveryDone = false;
-    try {
-      if (UC && typeof UC.isDiscoverySetupComplete === "function") {
-        discoveryDone = !!(await UC.isDiscoverySetupComplete());
-      }
-    } catch (_) {
-      discoveryDone = false;
-    }
-    if (discoveryDone) return;
-    const onComplete = async (detail) => {
-      if (detail && detail.alreadyConnected) {
-        try {
-          const UC2 = getUserContent();
-          if (UC2 && typeof UC2.completeDiscoverySetup === "function") {
-            if (typeof UC2.openDb === "function") await UC2.openDb();
-            await UC2.completeDiscoverySetup();
-          }
-        } catch (e) {
-          console.warn("[JobBored] persist discovery complete (gate onComplete):", e);
-        }
-      }
-      hideDiscoveryGate();
-    };
     const onClose = async (reason, ctx) => {
       // Happy path: a genuine finish (connected) satisfies the gate — clear it
       // and let the discovery->go-live chain proceed. Only re-assert the
@@ -140,7 +107,6 @@
         void h.requestDiscoverySetup({
           entryPoint: "onboarding",
           allowWhileOnboarding: true,
-          onComplete,
           onClose,
         });
       }
