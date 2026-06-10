@@ -948,16 +948,75 @@ function buildDiscoveryDetectBody(runtime) {
   return cards.filter(Boolean);
 }
 
+/**
+ * Auto-setup status card for the endpoint step. Renders guidance keyed on
+ * drafts.tailscaleAutoState; absent state renders nothing (first visit).
+ */
+function appendTailscaleAutoSetupStatus(container, runtime) {
+  const state = runtime.drafts && runtime.drafts.tailscaleAutoState;
+  if (!state) return;
+  if (state === "running" || state === "verifying") {
+    appendWizardCallout(
+      container,
+      runtime.drafts.tailscaleAutoDetail || "Working on it…",
+    );
+    return;
+  }
+  if (state === "needs_install") {
+    const callout = appendWizardCallout(
+      container,
+      "Tailscale isn't installed yet. It's a free, private network app — install it, sign in, then hit Re-check. ",
+    );
+    if (callout && typeof callout.appendChild === "function") {
+      const a = createWizardNode("a", "");
+      a.href = "https://tailscale.com/download";
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.textContent = "Download Tailscale";
+      callout.appendChild(a);
+    }
+    return;
+  }
+  if (state === "needs_login") {
+    appendWizardCallout(
+      container,
+      "Tailscale is installed but not signed in. Open the Tailscale app, sign in (any account works), then hit Re-check.",
+    );
+    return;
+  }
+  if (state === "failed") {
+    appendWizardCallout(
+      container,
+      runtime.drafts.tailscaleAutoDetail ||
+        "Automatic setup hit a snag — try again, or paste a URL below.",
+    );
+  }
+}
+
 function buildDiscoveryExistingEndpointBody(runtime) {
   const container = createWizardNode("div", "discovery-wizard-step-body");
   appendWizardParagraph(
     container,
-    "Recommended: Tailscale gives your worker a stable, private URL that never rotates — no public exposure, no relay.",
+    "Recommended: hit “Set it up for me” and we'll handle everything — start the worker, publish it on your private Tailscale network, and verify the connection. Nothing to type, no terminal.",
   );
-  appendWizardList(container, [
-    "Install Tailscale on this machine + each device you'll use, signed in to the same account.",
-    "On the machine running the worker, expose port 8644:",
-  ]);
+  appendTailscaleAutoSetupStatus(container, runtime);
+  const autoState = runtime.drafts && runtime.drafts.tailscaleAutoState;
+  if (autoState === "needs_install" || autoState === "needs_login") {
+    const recheck = createWizardNode(
+      "button",
+      "btn-modal-secondary discovery-wizard-recheck",
+      "Re-check",
+    );
+    recheck.type = "button";
+    recheck.addEventListener("click", () => {
+      void handleDiscoveryWizardAction("wizard_tailscale_recheck");
+    });
+    container.appendChild(recheck);
+  }
+  appendWizardParagraph(
+    container,
+    "Prefer to do it by hand (or use your own endpoint)? Expose the worker yourself and paste the URL below:",
+  );
   appendWizardCodeBlock(container, "tailscale serve --bg 8644", "Copy command");
   const link = createWizardNode("p", "settings-field-hint settings-field-hint--compact");
   link.appendChild(
@@ -1794,14 +1853,19 @@ function buildDiscoveryWizardSteps(runtime) {
       label: "Endpoint",
       title: "Connect a stable URL (Tailscale).",
       description:
-        "Set up Tailscale below and paste its stable URL — or any public HTTPS endpoint you already control.",
+        "One click sets everything up over Tailscale — or paste any HTTPS endpoint you already control.",
       body: () =>
         buildDiscoveryExistingEndpointBody(host().getDiscoveryWizardRuntime()),
       actions: [
         {
-          id: "wizard_verify_existing_endpoint",
-          label: "Save and verify",
+          id: "wizard_tailscale_autosetup",
+          label: "Set it up for me",
           variant: "primary",
+        },
+        {
+          id: "wizard_verify_existing_endpoint",
+          label: "Save and verify a pasted URL",
+          variant: "secondary",
         },
       ],
     });
@@ -2213,6 +2277,153 @@ function resolveDiscoveryWizardEntry({
         ? savedState.currentStep
         : "detect");
   return { flow, step, freshState: false, snapshot };
+}
+
+/** The local discovery worker's port — what `tailscale serve` exposes. */
+const DISCOVERY_TAILSCALE_WORKER_PORT = 8644;
+
+/**
+ * One-click Tailscale setup — the plug-and-play path: probe Tailscale →
+ * boot the discovery worker if it's down (worker-only, the tunnel/relay
+ * phases are ngrok machinery this path doesn't need) → `tailscale serve`
+ * the worker port → derive the stable ts.net /webhook URL → hand off to the
+ * SAME verification the manual flow uses (which persists the URL and
+ * advances to Done). Human input only where physically unavoidable
+ * (Tailscale install / sign-in), surfaced via drafts.tailscaleAutoState so
+ * the endpoint card renders the right guidance + a Re-check button.
+ *
+ * deps are injectable for tests; production uses the module defaults.
+ */
+async function runDiscoveryTailscaleAutoSetup(deps = {}) {
+  const fetchImpl = deps.fetchImpl || ((...args) => fetch(...args));
+  const verify = deps.verify || handleDiscoveryWizardVerification;
+  const render = deps.render || renderDiscoverySetupWizard;
+  const setAuto = (state, detail) => {
+    host().updateDiscoveryWizardRuntime({
+      drafts: {
+        tailscaleAutoState: state,
+        tailscaleAutoDetail: detail || "",
+      },
+    });
+  };
+  const stop = (state, message, tone) => {
+    setAuto(state, message);
+    setDiscoveryWizardMessage(message, tone);
+    return render();
+  };
+
+  setAuto("running", "Checking Tailscale…");
+  setDiscoveryWizardMessage("Checking Tailscale…", "info");
+  let ts = null;
+  try {
+    const r = await fetchImpl("/__proxy/tailscale-state", { cache: "no-store" });
+    ts = r && r.ok ? await r.json() : null;
+  } catch (e) {
+    console.warn("[JobBored] tailscale-state probe:", e);
+    ts = null;
+  }
+  if (!ts || !ts.installed) {
+    return stop(
+      "needs_install",
+      "Tailscale isn't installed yet — grab it below, then Re-check.",
+      "warning",
+    );
+  }
+  if (!ts.loggedIn) {
+    return stop(
+      "needs_login",
+      "Tailscale is installed but not signed in — open the Tailscale app, sign in, then Re-check.",
+      "warning",
+    );
+  }
+
+  // Worker: boot it (worker-only) when it isn't already up.
+  let workerUp = false;
+  try {
+    const r = await fetchImpl(
+      `/__proxy/discovery-state?port=${DISCOVERY_TAILSCALE_WORKER_PORT}`,
+      { cache: "no-store" },
+    );
+    const body = r && r.ok ? await r.json() : null;
+    workerUp = !!(body && body.worker && body.worker.up);
+  } catch (_) {
+    workerUp = false;
+  }
+  if (!workerUp) {
+    setAuto("running", "Starting the discovery worker…");
+    setDiscoveryWizardMessage("Starting the discovery worker…", "info");
+    try {
+      const r = await fetchImpl(
+        `/__proxy/full-boot?port=${DISCOVERY_TAILSCALE_WORKER_PORT}&skip_tunnel=1`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        },
+      );
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok || !body.ok) {
+        return stop(
+          "failed",
+          (body && body.message) ||
+            "Couldn't start the discovery worker automatically — paste a URL below, or try again.",
+          "warning",
+        );
+      }
+    } catch (e) {
+      console.warn("[JobBored] worker boot (tailscale auto-setup):", e);
+      return stop(
+        "failed",
+        "Couldn't start the discovery worker automatically — paste a URL below, or try again.",
+        "warning",
+      );
+    }
+  }
+
+  // Publish the worker on the tailnet and derive the stable webhook URL.
+  setAuto("running", "Publishing the worker on your tailnet…");
+  setDiscoveryWizardMessage("Publishing the worker on your tailnet…", "info");
+  let serveUrl = "";
+  try {
+    const r = await fetchImpl("/__proxy/tailscale-serve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ port: DISCOVERY_TAILSCALE_WORKER_PORT }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (r.ok && body.ok && body.url) {
+      serveUrl = String(body.url);
+    }
+    if (!serveUrl) {
+      return stop(
+        "failed",
+        (body && body.error) ||
+          "Tailscale couldn't publish the worker — paste a URL below, or try again.",
+        "warning",
+      );
+    }
+  } catch (e) {
+    console.warn("[JobBored] tailscale-serve (auto-setup):", e);
+    return stop(
+      "failed",
+      "Tailscale couldn't publish the worker — paste a URL below, or try again.",
+      "warning",
+    );
+  }
+
+  const endpointUrl = ensureDiscoveryWebhookUrl(serveUrl);
+  host().updateDiscoveryWizardRuntime({
+    drafts: {
+      endpointUrl,
+      workerUrl: serveUrl,
+      tailscaleAutoState: "verifying",
+      tailscaleAutoDetail: "",
+    },
+  });
+  setDiscoveryWizardMessage("Verifying the connection…", "info");
+  // Shared verification: persists URL (+ any secret draft) and advances to
+  // Done on success — identical to the manual "Save and verify" path.
+  return verify(endpointUrl, "test_webhook");
 }
 
 async function openDiscoverySetupWizard(options = {}) {
@@ -2851,6 +3062,13 @@ async function handleDiscoveryWizardAction(actionId) {
       },
     });
   }
+  if (
+    actionId === "wizard_tailscale_autosetup" ||
+    actionId === "wizard_tailscale_recheck"
+  ) {
+    return runDiscoveryTailscaleAutoSetup();
+  }
+
   if (actionId === "wizard_verify_existing_endpoint") {
     const relayApi = host().getDiscoveryWizardRelayApi();
     const endpointUrl = host().normalizeDiscoveryWebhookIdentity(
@@ -3180,5 +3398,6 @@ async function handleDiscoveryWizardAction(actionId) {
   ui._internal = {
     recommendGoLiveAfterDiscoveryFinish,
     resolveDiscoveryWizardEntry,
+    runDiscoveryTailscaleAutoSetup,
   };
 })();

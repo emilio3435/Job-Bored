@@ -36,6 +36,7 @@ function loadDiscoveryUi() {
     console,
     setTimeout,
     clearTimeout,
+    URL, // ensureDiscoveryWebhookUrl parses URLs (browser global)
   };
   vm.createContext(ctx);
   vm.runInContext(discoveryWizardUiJs, ctx, {
@@ -202,5 +203,108 @@ describe("discovery-wizard-ui — resolveDiscoveryWizardEntry (onboarding starts
     });
     assert.equal(out.flow, "local_agent");
     assert.equal(out.step, "tunnel");
+  });
+});
+
+describe("discovery-wizard-ui — runDiscoveryTailscaleAutoSetup (one-click Tailscale)", () => {
+  // The plug-and-play chain: tailscale-state → (worker boot if down, tunnel
+  // skipped) → tailscale serve 8644 → derive the /webhook URL → the SAME
+  // verification the manual path uses (persists + advances to Done). Human
+  // input only where physically unavoidable (install / sign-in), surfaced as
+  // drafts.tailscaleAutoState so the endpoint card renders guidance.
+  function autoSetupEnv({ tailscale, workerUp = true, serve } = {}) {
+    const { window, ui } = loadDiscoveryUi();
+    const fetched = [];
+    let drafts = {};
+    window.JobBoredDiscoveryWizard.ui.host = {
+      updateDiscoveryWizardRuntime: (patch) => {
+        if (patch && patch.drafts) drafts = { ...drafts, ...patch.drafts };
+        return { drafts };
+      },
+      getDiscoveryWizardRuntime: () => ({ drafts, snapshot: {}, state: {} }),
+    };
+    const fetchImpl = async (url, opts = {}) => {
+      fetched.push({ url: String(url), method: opts.method || "GET", body: opts.body || null });
+      if (String(url).includes("tailscale-state")) {
+        return { ok: true, json: async () => tailscale };
+      }
+      if (String(url).includes("discovery-state")) {
+        return { ok: true, json: async () => ({ ok: true, worker: { up: workerUp } }) };
+      }
+      if (String(url).includes("full-boot")) {
+        return { ok: true, json: async () => ({ ok: true, phases: [] }) };
+      }
+      if (String(url).includes("tailscale-serve")) {
+        return { ok: true, json: async () => serve };
+      }
+      return { ok: false, json: async () => ({}) };
+    };
+    const verified = [];
+    const renders = [];
+    const run = () =>
+      ui._internal.runDiscoveryTailscaleAutoSetup({
+        fetchImpl,
+        verify: async (url, context) => {
+          verified.push({ url, context });
+          return null;
+        },
+        render: () => {
+          renders.push(1);
+          return null;
+        },
+      });
+    return { run, fetched, verified, getDrafts: () => drafts };
+  }
+
+  it("happy path: serves 8644 and verifies the derived /webhook URL (zero terminal steps)", async () => {
+    const env = autoSetupEnv({
+      tailscale: { installed: true, loggedIn: true },
+      workerUp: true,
+      serve: { ok: true, url: "https://mac.tailnet.ts.net" },
+    });
+    await env.run();
+    const serveCall = env.fetched.find((f) => f.url.includes("tailscale-serve"));
+    assert.ok(serveCall, "must call tailscale-serve");
+    assert.match(serveCall.body, /8644/, "must serve the WORKER port");
+    assert.equal(env.verified.length, 1, "must hand off to the shared verification");
+    assert.equal(env.verified[0].url, "https://mac.tailnet.ts.net/webhook");
+  });
+
+  it("boots the worker WITHOUT the ngrok/relay phases when it is down", async () => {
+    const env = autoSetupEnv({
+      tailscale: { installed: true, loggedIn: true },
+      workerUp: false,
+      serve: { ok: true, url: "https://mac.tailnet.ts.net" },
+    });
+    await env.run();
+    const boot = env.fetched.find((f) => f.url.includes("full-boot"));
+    assert.ok(boot, "must boot the worker when it is down");
+    assert.match(boot.url, /skip_tunnel=1/, "Tailscale path must skip the ngrok/relay phases");
+    assert.equal(env.verified.length, 1, "still verifies after the boot");
+  });
+
+  it("stops with install guidance when Tailscale is missing (no serve, no verify)", async () => {
+    const env = autoSetupEnv({ tailscale: { installed: false, loggedIn: false } });
+    await env.run();
+    assert.equal(env.getDrafts().tailscaleAutoState, "needs_install");
+    assert.ok(!env.fetched.some((f) => f.url.includes("tailscale-serve")));
+    assert.equal(env.verified.length, 0);
+  });
+
+  it("stops with sign-in guidance when Tailscale is installed but logged out", async () => {
+    const env = autoSetupEnv({ tailscale: { installed: true, loggedIn: false } });
+    await env.run();
+    assert.equal(env.getDrafts().tailscaleAutoState, "needs_login");
+    assert.equal(env.verified.length, 0);
+  });
+
+  it("fails honestly when tailscale serve errors (manual paste remains the fallback)", async () => {
+    const env = autoSetupEnv({
+      tailscale: { installed: true, loggedIn: true },
+      serve: { ok: false, url: null, error: "serve failed" },
+    });
+    await env.run();
+    assert.equal(env.getDrafts().tailscaleAutoState, "failed");
+    assert.equal(env.verified.length, 0);
   });
 });
