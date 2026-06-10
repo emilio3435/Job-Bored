@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { describe, it, beforeEach } from "node:test";
-import { fileURLToPath } from "node:url";
-import vm from "node:vm";
+import { describe, it } from "node:test";
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
  * Isolated harness for testing Apps Script stub classification in app.js.

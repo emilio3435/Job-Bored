@@ -1004,7 +1004,7 @@
     return Math.round((aMs - bMs) / (24 * 60 * 60 * 1000));
   }
 
-  function _stageEntryMs(rec, nowMs) {
+  function _stageEntryMs(rec, _nowMs) {
     // Best-effort: applied stage uses appliedAt, interview stages use interviewAt-7d as a stand-in.
     if (rec.stage === "applied" && Number.isFinite(rec.appliedAtMs)) return rec.appliedAtMs;
     if ((rec.stage === "phone-screen" || rec.stage === "interviewing") && Number.isFinite(rec.interviewAtMs)) {

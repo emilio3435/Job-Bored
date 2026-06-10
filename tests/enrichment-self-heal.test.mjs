@@ -23,7 +23,6 @@ import { describe, it } from "node:test";
 import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
 const ingestUrlFlowJs = readFileSync(join(repoRoot, "ingest-url-flow.js"), "utf8");
 const postingEnrichmentJs = readFileSync(
   join(repoRoot, "posting-enrichment.js"),

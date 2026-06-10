@@ -961,7 +961,7 @@
   }
 
   function moveToStep(stepId, patch) {
-    const rt = updateRuntime({
+    updateRuntime({
       activeStepId: stepId,
       state: { ...getRuntime().state, currentStep: stepId },
       ...(patch || {}),

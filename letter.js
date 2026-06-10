@@ -294,14 +294,6 @@
      from the right rail; the per-miss "Address" action no longer
      has a rendering surface.) */
 
-  function toolButtonHtml(action, label, hint) {
-    return [
-      '<button type="button" class="jb-letter-tool" data-action="', action, '" title="', escapeHtml(hint), '">',
-      '  <span class="jb-letter-tool__label">', escapeHtml(label), '</span>',
-      '  <span class="jb-letter-tool__hint">', escapeHtml(hint), '</span>',
-      '</button>',
-    ].join("");
-  }
 
   function lengthTargetCard(length, reason) {
     var words = (length && length.words) || 0;
@@ -928,7 +920,7 @@
     }
 
     editor.addEventListener("input", reschedule);
-    editor.addEventListener("keyup", function (e) {
+    editor.addEventListener("keyup", function () {
       // Surface the dirty state immediately on first keystroke.
       if (region.querySelector(".jb-letter-save").getAttribute("data-save-state") === "saved") {
         setSaveState(region, "dirty");

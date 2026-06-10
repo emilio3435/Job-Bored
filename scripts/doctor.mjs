@@ -367,7 +367,7 @@ async function readWorkerSheetId(paths) {
   }
 }
 
-async function collectHermesChecks({ repoRoot, env, spawnSyncImpl, fetchImpl, paths, expectedHeaders }) {
+async function collectHermesChecks({ env, spawnSyncImpl, fetchImpl, paths, expectedHeaders }) {
   const checks = [];
   const hermesExists = existsSync(paths.hermesJobHuntHome);
   checks.push(

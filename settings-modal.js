@@ -30,9 +30,6 @@
     return host().mergeStoredConfigOverridePatch(...args);
   }
 
-  function writeStoredConfigOverrides(...args) {
-    return host().writeStoredConfigOverrides(...args);
-  }
 
   function resolveGeminiModel(...args) {
     return host().resolveGeminiModel(...args);

@@ -16,7 +16,6 @@
 (function () {
   "use strict";
 
-  var SHEET_TAB = "DiscoveryRuns";
   var SHEET_RANGE = "DiscoveryRuns!A2:J";
   var AUTO_REFRESH_MS = 60 * 1000;
   var DEFAULT_SORT = { key: "runAt", direction: "desc" };
@@ -499,7 +498,6 @@
     var refreshBtn = document.getElementById("runsRefreshBtn");
     var statusEl = document.getElementById("runsStatus");
     var tbody = document.getElementById("runsTableBody");
-    var table = document.getElementById("runsTable");
     var tableWrap = modal ? modal.querySelector(".runs-table-wrap") : null;
     if (!modal || !openBtn || !tbody || !statusEl) return;
 
@@ -522,7 +520,6 @@
     function refreshTableRefs() {
       // Empty state nukes the <table>, so after we restore we need fresh
       // references to the new thead/tbody nodes.
-      table = document.getElementById("runsTable");
       tbody = document.getElementById("runsTableBody");
     }
 

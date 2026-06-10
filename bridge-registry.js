@@ -597,7 +597,6 @@
       setDashboardSheetLinks() {
         return app.setup.setDashboardSheetLinks();
       },
-      setSHEET_ID: host.setSHEET_ID,
       normalizeDiscoveryWebhookIdentity: host.normalizeDiscoveryWebhookIdentity,
       recordDiscoveryEngineState: host.recordDiscoveryEngineState,
       getManagedAppsScriptWebhookIdentity:

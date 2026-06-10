@@ -179,7 +179,6 @@ async function setupDashboard({
   repoRoot = REPO_ROOT,
   env = process.env,
   skipInstall = false,
-  force = false,
   runner = runCommand,
 } = {}) {
   const paths = resolveJobBoredPaths({ env, repoRoot });

@@ -2,7 +2,7 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, mkdir, readFile } from "node:fs/promises";
+import { access, mkdir } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import os from "node:os";
 import path from "node:path";

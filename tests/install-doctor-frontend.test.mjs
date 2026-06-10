@@ -9,7 +9,6 @@ const authSessionSource = readFileSync(
   join(__dirname, "..", "auth-session.js"),
   "utf8",
 );
-const appJsSource = readFileSync(join(__dirname, "..", "app.js"), "utf8");
 
 /**
  * The frontend helpers (installDoctor, installKeepAliveOnce,

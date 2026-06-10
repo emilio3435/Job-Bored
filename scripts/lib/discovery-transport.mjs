@@ -107,7 +107,6 @@ export function selectTransport({
   preference = "auto",
   cloudflaredInstalled = false,
   namedTunnelConfigured = false,
-  ngrokAvailable = true,
 } = {}) {
   const normalized = normalizeTransportPreference(preference);
   if (

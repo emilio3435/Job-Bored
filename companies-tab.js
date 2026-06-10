@@ -24,8 +24,6 @@
   "use strict";
 
   var TAB_ALL = "active";
-  var TAB_SKIPPED = "skipped";
-  var TAB_HISTORY = "history";
 
   function escapeHtml(value) {
     return String(value == null ? "" : value)

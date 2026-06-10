@@ -96,13 +96,6 @@ function okJsonResponse(content) {
   };
 }
 
-function errorJsonResponse(status, message) {
-  return {
-    ok: false,
-    status,
-    json: async () => ({ error: { code: status, message } }),
-  };
-}
 
 const LOCAL_CONFIG = {
   resumeProvider: "local",

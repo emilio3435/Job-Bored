@@ -33,7 +33,6 @@ import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
 const sheetsWriteJs = readFileSync(join(repoRoot, "sheets-writeback.js"), "utf8");
 
 /* Column map mirrors STARTER_PIPELINE_HEADERS (app.js ~line 861):

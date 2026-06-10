@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
 const materialsStateJs = readFileSync(
   join(repoRoot, "materials-state.js"),
   "utf8",

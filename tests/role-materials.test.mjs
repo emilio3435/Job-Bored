@@ -134,49 +134,6 @@ function makeElement(tag, attrs) {
  * element tree we can run querySelector against. Only the pieces of
  * the structure the tests assert against are populated.
  */
-function parseSection(html) {
-  /* role-materials only ever emits one top-level <section>. Pull out the
-     classes, slug attr, and inner card markers we care about. */
-  const sectionMatch = html.match(/^<section\s+([^>]*)>([\s\S]*)<\/section>$/);
-  if (!sectionMatch) return null;
-  const attrs = {};
-  const attrRe = /([a-zA-Z-]+)\s*=\s*"([^"]*)"/g;
-  let m;
-  while ((m = attrRe.exec(sectionMatch[1])) !== null) {
-    attrs[m[1]] = m[2];
-  }
-  const section = makeElement("section", attrs);
-  section.innerHTML = sectionMatch[2];
-  /* Pull out each card. */
-  const cardRe = /<article\s+([^>]*)>([\s\S]*?)<\/article>/g;
-  let card;
-  while ((card = cardRe.exec(sectionMatch[2])) !== null) {
-    const cAttrs = {};
-    let am;
-    const cAttrRe = /([a-zA-Z-]+)\s*=\s*"([^"]*)"/g;
-    while ((am = cAttrRe.exec(card[1])) !== null) {
-      cAttrs[am[1]] = am[2];
-    }
-    const cardEl = makeElement("article", cAttrs);
-    cardEl.innerHTML = card[2];
-    /* Pull out anchors (preview / download). */
-    const anchorRe = /<a\s+([^>]*)>([\s\S]*?)<\/a>/g;
-    let an;
-    while ((an = anchorRe.exec(card[2])) !== null) {
-      const aAttrs = {};
-      let aam;
-      const aAttrRe = /([a-zA-Z-]+)\s*=\s*"([^"]*)"/g;
-      while ((aam = aAttrRe.exec(an[1])) !== null) {
-        aAttrs[aam[1]] = aam[2];
-      }
-      const a = makeElement("a", aAttrs);
-      a.text = an[2];
-      cardEl.appendChild(a);
-    }
-    section.appendChild(cardEl);
-  }
-  return section;
-}
 
 function makeDocument() {
   const body = makeElement("body");

@@ -802,7 +802,6 @@ async function generateDiscoverySuggestions(scrapedJob) {
   if (!RG || typeof RG.getResumeGenerationConfig !== "function") {
     throw new Error("Resume generation module not loaded.");
   }
-  const g = RG.getResumeGenerationConfig();
   // callConfiguredAi reads the configured provider itself; we no longer pin
   // the suggestion path to a single BYO transport or throw opaque errors for
   // openrouter/local — the router returns actionable messages for webhook /
@@ -1701,12 +1700,6 @@ function initDiscoveryButton() {
     if (!skipFocus) openBtn.focus();
   }
 
-  function openHelp() {
-    if (modal) modal.style.display = "flex";
-    const primary = document.getElementById("discoveryHelpOpenSettings");
-    if (primary) primary.focus();
-    else if (closeBtn) closeBtn.focus();
-  }
 
   openBtn.addEventListener("click", () => {
     openDiscoveryDrawer();

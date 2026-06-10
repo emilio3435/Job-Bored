@@ -37,6 +37,7 @@ let grantedOauthScopes = "";
 let tokenExpiresAt = null;
 let tokenClient = null;
 let gisLoaded = false;
+// eslint-disable-next-line no-unused-vars -- written here but only ever read as window.gisInitStartedAt (app.js, setup-doctor.js), which this IIFE-private binding never reaches; suspected latent bug, left as-is during CI hardening
 let gisInitStartedAt = 0;
 let gisInitWatchdogTimer = null;
 

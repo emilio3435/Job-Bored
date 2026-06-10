@@ -24,17 +24,8 @@
   "use strict";
 
   var REGION_SELECTOR = '[data-region="role"]';
-  var LETTER_REGION_SELECTOR = '[data-region="letter"]';
   var PIPELINE_REGION_SELECTOR = '[data-region="pipeline"]';
 
-  var STAGE_LABELS = {
-    "researching":  "Researching",
-    "applied":      "Applied",
-    "phone-screen": "Phone screen",
-    "interviewing": "Interviewing",
-    "offer":        "Offer",
-  };
-  var STAGE_ORDER = ["researching", "applied", "phone-screen", "interviewing", "offer"];
 
   function shouldRun() {
     return !!(document.body && document.body.classList && document.body.classList.contains("jb-v2"));
@@ -44,15 +35,6 @@
     return document.querySelector(REGION_SELECTOR);
   }
 
-  function escapeHtml(s) {
-    if (s == null) return "";
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-  }
 
   function safeVm(jobKey) {
     var api = root.JobBoredDawn && root.JobBoredDawn.data;
@@ -75,14 +57,6 @@
     } catch (e) { /* */ }
   }
 
-  function formatDate(iso) {
-    if (!iso) return "";
-    var t = Date.parse(iso);
-    if (!Number.isFinite(t)) return iso;
-    var d = new Date(t);
-    var pad = function (n) { return n < 10 ? "0" + n : "" + n; };
-    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
-  }
 
   /* -------------------- empty-state -------------------- */
 
@@ -135,211 +109,13 @@
 
   /* -------------------- dossier — mirrors right-hand .detail-drawer -------------------- */
 
-  function safeHref(href) {
-    var s = String(href || "").trim();
-    if (!s) return "";
-    if (/^https?:|^mailto:/i.test(s)) return s;
-    return "";
-  }
 
-  function renderDrawerHead(job) {
-    var roleFacts = [];
-    if (job.location)   roleFacts.push('<span class="role-fact role-fact--location">' + escapeHtml(job.location) + '</span>');
-    if (job.salary)     roleFacts.push('<span class="role-fact role-fact--salary">' + escapeHtml(job.salary) + '</span>');
-    if (job.employment) roleFacts.push('<span class="role-fact role-fact--employment">' + escapeHtml(job.employment) + '</span>');
-    var factsHtml = roleFacts.length
-      ? '<div class="role-facts role-facts--drawer">' + roleFacts.join("") + '</div>'
-      : "";
-    var companyHtml = job.company
-      ? '<p class="detail-drawer__head-company">' + escapeHtml(job.company) + '</p>'
-      : "";
-    return '' +
-      '<div class="detail-drawer__head">' +
-        '<div class="detail-drawer__head-main">' +
-          '<h2 class="detail-drawer__head-title">' + escapeHtml(job.role || "Untitled role") + '</h2>' +
-          companyHtml +
-          factsHtml +
-        '</div>' +
-        '<button type="button" class="detail-drawer__close" data-action="close-role" aria-label="Close">' +
-          '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
-        '</button>' +
-      '</div>';
-  }
 
-  function renderDrawerActions(job) {
-    var coverBtn =
-      '<button type="button" class="drawer-btn drawer-btn--cover" data-action="resume-cover">' +
-        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>' +
-        ' Cover letter' +
-      '</button>';
-    var tailorBtn =
-      '<button type="button" class="drawer-btn drawer-btn--tailor" data-action="resume-tailor">' +
-        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>' +
-        ' Tailor resume' +
-      '</button>';
-    var postingHref = "";
-    if (job.links && job.links.length) {
-      for (var i = 0; i < job.links.length; i++) {
-        var h = safeHref(job.links[i] && job.links[i].href);
-        if (h) { postingHref = h; break; }
-      }
-    }
-    var viewBtn = postingHref
-      ? '<a href="' + escapeHtml(postingHref) + '" target="_blank" rel="noopener" class="drawer-btn drawer-btn--view">' +
-          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>' +
-          ' View posting' +
-        '</a>'
-      : "";
-    return '<div class="detail-drawer__actions">' + coverBtn + tailorBtn + viewBtn + '</div>';
-  }
 
-  function renderAboutSection(job) {
-    // Build the same `<details class="drawer-about">` shape the drawer uses.
-    // Hook line — companyTagline or first JD bullet/body.
-    var hook = "";
-    if (job.companyTagline) hook = job.companyTagline;
-    else if (job.jdSections && job.jdSections.length) {
-      var s0 = job.jdSections[0];
-      hook = s0.body || (s0.bullets && s0.bullets[0]) || "";
-    } else if (job.jdSnippet) {
-      hook = job.jdSnippet;
-    }
-    var hookHtml = hook ? '<p class="drawer-hook">' + escapeHtml(hook) + '</p>' : "";
 
-    // AI summary — the dossier VM doesn't expose enrichment; fall back to longer JD body.
-    var aiText = "";
-    if (job.jdSections && job.jdSections.length) {
-      var first = job.jdSections[0];
-      if (first.body && first.body !== hook) aiText = first.body;
-    }
-    var aiHtml = aiText
-      ? '<div class="drawer-ai-section"><span class="drawer-section__label">AI Summary</span><p class="drawer-ai-text">' + escapeHtml(aiText) + '</p></div>'
-      : "";
 
-    // Tags
-    var tags = Array.isArray(job.tags) ? job.tags.filter(Boolean) : [];
-    var tagsHtml = tags.length
-      ? '<div class="drawer-ai-section"><span class="drawer-section__label">Tags &amp; skills</span><div class="card-tags card-skills-tags">' +
-          tags.map(function (t) { return '<span class="skill-chip">' + escapeHtml(t) + '</span>'; }).join("") +
-        '</div></div>'
-      : "";
 
-    // Source
-    var srcHtml = job.source
-      ? '<p class="card-peek__source">via ' + escapeHtml(job.source) + '</p>'
-      : "";
 
-    var bodyContent = aiHtml + tagsHtml + srcHtml;
-    if (!hookHtml && !bodyContent) return "";
-    if (!bodyContent) return hookHtml;
-
-    return '<details class="drawer-about" open>' +
-      '<summary class="drawer-about__toggle">About this role</summary>' +
-      '<div class="drawer-about__body">' + hookHtml + bodyContent + '</div>' +
-    '</details>';
-  }
-
-  function renderStructuredFromJd(job) {
-    // Reuse the drawer's posting-struct shells for JD sections after the first one.
-    if (!job.jdSections || job.jdSections.length <= 1) return "";
-    var rest = job.jdSections.slice(1);
-    return rest.map(function (section) {
-      if (!section) return "";
-      var label = section.heading || "Posting";
-      var items = Array.isArray(section.bullets) ? section.bullets.filter(Boolean) : [];
-      var bodyP = section.body ? '<p class="drawer-ai-text">' + escapeHtml(section.body) + '</p>' : "";
-      var bulletsHtml = items.length
-        ? '<ul class="posting-req-list">' + items.map(function (b) { return '<li>' + escapeHtml(b) + '</li>'; }).join("") + '</ul>'
-        : "";
-      if (!bodyP && !bulletsHtml) return "";
-      return '<div class="posting-struct">' +
-        '<span class="posting-snippet-label">' + escapeHtml(label) + '</span>' +
-        bodyP + bulletsHtml +
-      '</div>';
-    }).join("");
-  }
-
-  function renderTalkingPoints(job) {
-    // Surface bullets from the first JD section as "Talking points" (drawer parity).
-    if (!job.jdSections || !job.jdSections.length) return "";
-    var first = job.jdSections[0];
-    var bullets = Array.isArray(first.bullets) ? first.bullets.filter(Boolean) : [];
-    if (!bullets.length) return "";
-    return '<div class="drawer-ai-section">' +
-      '<span class="drawer-section__label">' +
-        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Talking points' +
-      '</span>' +
-      '<ul class="talking-points-list">' + bullets.map(function (b) { return '<li>' + escapeHtml(b) + '</li>'; }).join("") + '</ul>' +
-    '</div>';
-  }
-
-  function renderProps(job) {
-    var stageKey = job.stage || "";
-    var stageOptions = STAGE_ORDER.map(function (s) {
-      var sel = s === stageKey;
-      return '<option value="' + escapeHtml(s) + '"' + (sel ? " selected" : "") + '>' + escapeHtml(STAGE_LABELS[s] || s) + '</option>';
-    }).join("");
-    if (!stageKey) {
-      stageOptions = '<option value="" selected>—</option>' + stageOptions;
-    }
-
-    var appliedRow = job.appliedAt
-      ? '<div class="drawer-prop">' +
-          '<svg class="drawer-prop__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>' +
-          '<span class="drawer-prop__key">Applied</span>' +
-          '<span class="drawer-prop__val drawer-prop__val--static">' + escapeHtml(formatDate(job.appliedAt)) + '</span>' +
-        '</div>'
-      : "";
-
-    var deadlineRow = "";
-    if (job.deadline && job.deadline.dueDate) {
-      var dueText = formatDate(job.deadline.dueDate);
-      var daysText = Number.isFinite(job.deadline.daysUntil)
-        ? (job.deadline.daysUntil >= 0 ? "in " + job.deadline.daysUntil + "d" : Math.abs(job.deadline.daysUntil) + "d ago")
-        : "";
-      deadlineRow = '<div class="drawer-prop">' +
-        '<svg class="drawer-prop__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
-        '<span class="drawer-prop__key">Deadline</span>' +
-        '<span class="drawer-prop__val drawer-prop__val--static">' + escapeHtml(dueText + (daysText ? " · " + daysText : "")) + '</span>' +
-      '</div>';
-    }
-
-    var fitRow = (job.fitScore != null)
-      ? '<div class="drawer-prop">' +
-          '<svg class="drawer-prop__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>' +
-          '<span class="drawer-prop__key">Fit</span>' +
-          '<span class="drawer-prop__val drawer-prop__val--static">' + escapeHtml(String(job.fitScore)) + '</span>' +
-        '</div>'
-      : "";
-
-    var sourceRow = job.source
-      ? '<div class="drawer-prop">' +
-          '<svg class="drawer-prop__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>' +
-          '<span class="drawer-prop__key">Source</span>' +
-          '<span class="drawer-prop__val drawer-prop__val--static">' + escapeHtml(job.source) + '</span>' +
-        '</div>'
-      : "";
-
-    return '<div class="drawer-props">' +
-      '<div class="drawer-prop">' +
-        '<svg class="drawer-prop__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>' +
-        '<span class="drawer-prop__key">Stage</span>' +
-        '<select class="drawer-prop__val" data-action="stage-select">' + stageOptions + '</select>' +
-      '</div>' +
-      fitRow +
-      deadlineRow +
-      appliedRow +
-      sourceRow +
-    '</div>';
-  }
-
-  function renderNotesBlock(job) {
-    var body = (job.notes && job.notes.body) ? job.notes.body : "";
-    return '<div class="drawer-notes">' +
-      '<label class="drawer-section__label" for="jb-dossier-notes">Notes</label>' +
-      '<textarea id="jb-dossier-notes" class="drawer-notes__input" data-action="notes" placeholder="Interview prep, recruiter name, next steps…">' + escapeHtml(body) + '</textarea>' +
-    '</div>';
-  }
 
   function renderDossier(region, vm) {
     var job = (vm && vm.job) || {};

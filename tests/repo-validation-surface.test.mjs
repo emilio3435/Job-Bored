@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -61,36 +60,6 @@ function createInstallRunner(calls) {
   };
 }
 
-async function runDiscoveryWorkerEnvProbe(script, envOverrides = {}) {
-  const scratchRoot = await mkdtemp(join(tmpdir(), "job-bored-worker-env-"));
-  await mkdir(join(scratchRoot, "integrations", "browser-use-discovery"), {
-    recursive: true,
-  });
-  await writeFile(
-    join(scratchRoot, "integrations", "browser-use-discovery", ".env"),
-    "BROWSER_USE_DISCOVERY_HOST=0.0.0.0\nBROWSER_USE_DISCOVERY_PORT=8644\n",
-  );
-  const probeScript = script.replace(
-    /node --experimental-strip-types integrations\/browser-use-discovery\/src\/server\.ts$/,
-    "node -e 'console.log(JSON.stringify({host:process.env.BROWSER_USE_DISCOVERY_HOST,port:process.env.BROWSER_USE_DISCOVERY_PORT}))'",
-  );
-  assert.notEqual(probeScript, script, "expected package script probe rewrite");
-
-  const env = { ...process.env };
-  delete env.BROWSER_USE_DISCOVERY_HOST;
-  delete env.BROWSER_USE_DISCOVERY_PORT;
-  const result = spawnSync("bash", ["-lc", probeScript], {
-    cwd: scratchRoot,
-    encoding: "utf8",
-    env: { ...env, ...envOverrides },
-  });
-  assert.equal(
-    result.status,
-    0,
-    result.stderr || result.stdout || "expected discovery worker env probe to pass",
-  );
-  return JSON.parse(result.stdout.trim());
-}
 
 describe("repo validation surface", () => {
   it("routes manifest validation commands through shared repo scripts", async () => {

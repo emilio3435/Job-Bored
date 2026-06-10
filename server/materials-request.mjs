@@ -14,7 +14,6 @@
  */
 
 import { spawn } from "node:child_process";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve as resolvePath } from "node:path";
 
