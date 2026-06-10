@@ -306,17 +306,89 @@ function clearScheduledTokenRefresh() {
   }
 }
 
+const TOKEN_REFRESH_RETRY_MS = 30_000;
+const TOKEN_REFRESH_PROACTIVE_WINDOW_MS = 5 * 60 * 1000;
+
 function scheduleTokenRefresh() {
   clearScheduledTokenRefresh();
   if (!tokenExpiresAt || !tokenClient) return;
   // Refresh ~5 minutes before expiry
-  const delay = Math.max(10_000, tokenExpiresAt - Date.now() - 5 * 60 * 1000);
+  const delay = Math.max(
+    10_000,
+    tokenExpiresAt - Date.now() - TOKEN_REFRESH_PROACTIVE_WINDOW_MS,
+  );
   tokenRefreshTimer = setTimeout(async () => {
     tokenRefreshTimer = null;
     if (!accessToken) return;
     const ok = await refreshAccessTokenSilently();
-    if (ok) scheduleTokenRefresh();
+    if (ok) {
+      scheduleTokenRefresh();
+      return;
+    }
+    // One failure must not kill the chain silently — the most common cause
+    // is a laptop waking before its network. Retry shortly, then verify
+    // honestly at the token's actual expiry.
+    scheduleTokenRefreshRetry();
   }, delay);
+}
+
+function scheduleTokenRefreshRetry() {
+  clearScheduledTokenRefresh();
+  if (!tokenExpiresAt || !tokenClient) return;
+  tokenRefreshTimer = setTimeout(async () => {
+    tokenRefreshTimer = null;
+    if (!accessToken) return;
+    const ok = await refreshAccessTokenSilently();
+    if (ok) {
+      scheduleTokenRefresh();
+      return;
+    }
+    scheduleTokenExpiryCheck();
+  }, TOKEN_REFRESH_RETRY_MS);
+}
+
+/** Both silent refreshes failed. Make one last attempt when the token
+ *  actually expires; if that fails too, surface the dead session honestly
+ *  (clear auth + toast + sign-in gate, same as the write path in
+ *  sheets-writeback.js) instead of leaving a signed-in avatar over a dead
+ *  session until the user's next write fails. */
+function scheduleTokenExpiryCheck() {
+  clearScheduledTokenRefresh();
+  if (!tokenExpiresAt) return;
+  const delay = Math.max(0, tokenExpiresAt - Date.now());
+  tokenRefreshTimer = setTimeout(async () => {
+    tokenRefreshTimer = null;
+    if (!accessToken) return;
+    const ok = await refreshAccessTokenSilently();
+    if (ok) {
+      scheduleTokenRefresh();
+      return;
+    }
+    clearSessionAuthState();
+    showToast("Session expired — please sign in again", "error", true);
+    host().showSheetAccessGate("signin");
+  }, delay);
+}
+
+/** Timers are throttled or suspended in hidden tabs and during sleep. When
+ *  the tab becomes visible with expiry near (or past), refresh proactively
+ *  so a wake-from-sleep session recovers instead of dying invisibly. */
+function initTokenRefreshVisibilityListener() {
+  if (
+    typeof document === "undefined" ||
+    typeof document.addEventListener !== "function"
+  ) {
+    return;
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    if (!accessToken || !tokenExpiresAt || !tokenClient) return;
+    if (oauthPendingOp) return;
+    if (tokenExpiresAt - Date.now() > TOKEN_REFRESH_PROACTIVE_WINDOW_MS) return;
+    void refreshAccessTokenSilently().then((ok) => {
+      if (ok) scheduleTokenRefresh();
+    });
+  });
 }
 
 /**
@@ -935,16 +1007,25 @@ function initAuthUserMenu() {
 }
 
 async function installDoctor() {
+  if (!localProxyEndpointsPossible()) {
+    return { ok: false, notImplemented: true };
+  }
   try {
     const resp = await fetch("/__proxy/install-doctor", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
     });
-    if (resp.status === 501) {
+    if (!resp.ok) {
+      // 501 means the endpoint is stubbed out; any other non-OK answer
+      // (404 HTML from a deployed static host, 500, …) must read as "not
+      // available" too — never as a healthy install.
       return { ok: false, notImplemented: true };
     }
-    const body = await resp.json().catch(() => ({}));
+    const body = await resp.json().catch(() => null);
+    if (!body || typeof body !== "object" || !Array.isArray(body.missing)) {
+      return { ok: false, notImplemented: true };
+    }
     if (typeof window !== "undefined") {
       window.installDoctorState = body;
       try {
@@ -959,6 +1040,35 @@ async function installDoctor() {
   }
 }
 
+/** The /__proxy/* endpoints only exist on the local dev server. A deployed
+ *  static host typically answers them with a 404 HTML page, which the old
+ *  `resp.status === 501` check plus `resp.json().catch(() => ({}))` quietly
+ *  turned into a false "available" result. Resolve locality through the
+ *  host bridge when it exposes isLocalDashboardOrigin (the pattern used in
+ *  discovery-run-orchestration.js), else the canonical config-overrides
+ *  helper; default to available so local dev and isolated test slices keep
+ *  working — the !resp.ok checks remain the backstop. */
+function localProxyEndpointsPossible() {
+  try {
+    if (typeof host === "function") {
+      const h = host();
+      if (h && typeof h.isLocalDashboardOrigin === "function") {
+        return !!h.isLocalDashboardOrigin();
+      }
+    }
+    const overrides =
+      typeof window !== "undefined" &&
+      window.JobBoredApp &&
+      window.JobBoredApp.configOverrides;
+    if (overrides && typeof overrides.isLocalDashboardOrigin === "function") {
+      return !!overrides.isLocalDashboardOrigin();
+    }
+  } catch (e) {
+    /* host bridge not wired yet — fall through to the permissive default */
+  }
+  return true;
+}
+
 if (typeof window !== "undefined") {
   window.installDoctor = installDoctor;
 }
@@ -966,6 +1076,7 @@ if (typeof window !== "undefined") {
 const KEEP_ALIVE_INSTALLED_KEY = "jb:install-keep-alive:installedAt";
 
 async function installKeepAliveOnce() {
+  if (!localProxyEndpointsPossible()) return;
   try {
     if (
       typeof localStorage !== "undefined" &&
@@ -978,7 +1089,7 @@ async function installKeepAliveOnce() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ schedule: "auto" }),
     });
-    if (resp.status === 501) return;
+    if (!resp.ok) return;
     const body = await resp.json().catch(() => ({}));
     if (body && body.ok) {
       try {
@@ -1009,13 +1120,21 @@ if (typeof window !== "undefined") {
 async function refreshKeepAlivePill() {
   const pill = document.getElementById("keepAlivePill");
   if (!pill) return;
+  if (!localProxyEndpointsPossible()) {
+    pill.hidden = true;
+    return;
+  }
   try {
     const resp = await fetch("/__proxy/install-keep-alive/status");
-    if (resp.status === 501) {
+    if (!resp.ok) {
       pill.hidden = true;
       return;
     }
-    const body = await resp.json().catch(() => ({}));
+    const body = await resp.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      pill.hidden = true;
+      return;
+    }
     if (typeof window !== "undefined") {
       window.keepAliveStatusState = body;
     }
@@ -1042,14 +1161,24 @@ async function refreshWorkerAutostartPill() {
   const btn = document.getElementById("workerAutostartBtn");
   const pill = document.getElementById("workerAutostartPill");
   if (!btn || !pill) return;
+  if (!localProxyEndpointsPossible()) {
+    btn.hidden = true;
+    pill.hidden = true;
+    return;
+  }
   try {
     const resp = await fetch("/__proxy/install-worker-autostart/status");
-    if (resp.status === 501) {
+    if (!resp.ok) {
       btn.hidden = true;
       pill.hidden = true;
       return;
     }
-    const body = await resp.json().catch(() => ({}));
+    const body = await resp.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      btn.hidden = true;
+      pill.hidden = true;
+      return;
+    }
     if (typeof window !== "undefined") {
       window.workerAutostartStatusState = body;
     }
@@ -1282,6 +1411,8 @@ function isSignedIn() {
     updateAuthUI,
     isSignedIn,
   });
+
+  initTokenRefreshVisibilityListener();
 
   if (typeof window !== "undefined") {
     window.installDoctor = installDoctor;
