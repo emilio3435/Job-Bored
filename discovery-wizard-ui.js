@@ -2337,7 +2337,25 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
     );
   }
 
-  // Worker: boot it (worker-only) when it isn't already up.
+  // Resolve the worker's shared secret server-side (the same resolve-or-
+  // generate helper the local bootstrap uses) so the verification can
+  // authenticate without the user pasting anything. Best-effort: a missing
+  // endpoint/secret just means verification runs with whatever is saved.
+  let secretInfo = null;
+  try {
+    const r = await fetchImpl("/__proxy/discovery-webhook-secret", {
+      cache: "no-store",
+    });
+    const body = r && r.ok ? await r.json() : null;
+    if (body && body.ok && body.secret) secretInfo = body;
+  } catch (e) {
+    console.warn("[JobBored] discovery secret resolve (auto-setup):", e);
+    secretInfo = null;
+  }
+
+  // Worker: boot it (worker-only) when it isn't already up — or when the
+  // secret was JUST generated (a worker started before the secret existed
+  // is running without it and would 401 every webhook).
   let workerUp = false;
   try {
     const r = await fetchImpl(
@@ -2349,7 +2367,7 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   } catch (_) {
     workerUp = false;
   }
-  if (!workerUp) {
+  if (!workerUp || (secretInfo && secretInfo.wrote)) {
     setAuto("running", "Starting the discovery worker…");
     setDiscoveryWizardMessage("Starting the discovery worker…", "info");
     try {
@@ -2412,18 +2430,42 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   }
 
   const endpointUrl = ensureDiscoveryWebhookUrl(serveUrl);
+  const runtimeNow = host().getDiscoveryWizardRuntime() || {};
+  const typedSecret =
+    runtimeNow.drafts && runtimeNow.drafts.endpointSecret
+      ? String(runtimeNow.drafts.endpointSecret)
+      : "";
   host().updateDiscoveryWizardRuntime({
     drafts: {
       endpointUrl,
       workerUrl: serveUrl,
+      // Autofill the resolved secret, but never clobber one the user typed.
+      ...(secretInfo && !typedSecret
+        ? { endpointSecret: secretInfo.secret }
+        : {}),
       tailscaleAutoState: "verifying",
       tailscaleAutoDetail: "",
     },
   });
   setDiscoveryWizardMessage("Verifying the connection…", "info");
-  // Shared verification: persists URL (+ any secret draft) and advances to
+  // Shared verification: persists URL (+ the secret draft) and advances to
   // Done on success — identical to the manual "Save and verify" path.
-  return verify(endpointUrl, "test_webhook");
+  const result = await verify(endpointUrl, "test_webhook");
+  // Reconcile the status card with the verification outcome — a failed
+  // verify must surface honestly, never hang on "Working on it…".
+  const after = host().getDiscoveryWizardRuntime() || {};
+  const v = after.lastVerificationResult;
+  if (v && v.ok) {
+    setAuto("", "");
+  } else {
+    setAuto(
+      "failed",
+      (v && v.message) ||
+        "Verification didn't pass — check the result below, or try again.",
+    );
+    render();
+  }
+  return result;
 }
 
 async function openDiscoverySetupWizard(options = {}) {

@@ -13,6 +13,7 @@ import {
   deriveTailnetDashboardUrl,
   runTailscaleServe,
 } from "./scripts/lib/tailscale.mjs";
+import { resolveWebhookSecret } from "./scripts/bootstrap-local-discovery.mjs";
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -1171,6 +1172,46 @@ function tailscaleRecommendation(detection, serving) {
   return "ready";
 }
 
+/**
+ * Localhost-only: resolve the discovery worker's shared webhook secret using
+ * the SAME resolve-or-generate helper the local bootstrap uses (process env →
+ * worker env file → generate + persist). Lets the wizard's one-click Tailscale
+ * setup authenticate its verification without the user pasting anything. The
+ * `wrote` flag tells callers a fresh secret was just generated — the worker
+ * must (re)boot to load it.
+ */
+function handleDiscoveryWebhookSecret(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  try {
+    const resolved = resolveWebhookSecret();
+    res.writeHead(200, corsHeaders);
+    res.end(
+      JSON.stringify({
+        ok: true,
+        secret: resolved.secret,
+        source: resolved.source,
+        wrote: !!resolved.wrote,
+      }),
+    );
+  } catch (e) {
+    res.writeHead(500, corsHeaders);
+    res.end(
+      JSON.stringify({
+        ok: false,
+        message: e && e.message ? e.message : String(e),
+      }),
+    );
+  }
+}
+
 async function handleTailscaleState(req, res) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, {
@@ -1945,6 +1986,14 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
           );
         }
       });
+      return;
+    }
+
+    if (
+      req.method === "GET" &&
+      pathname === "/__proxy/discovery-webhook-secret"
+    ) {
+      handleDiscoveryWebhookSecret(req, res);
       return;
     }
 
