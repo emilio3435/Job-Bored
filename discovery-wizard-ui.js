@@ -2191,11 +2191,22 @@ async function openDiscoverySetupWizard(options = {}) {
           host().showToast("Discovery is already set up.", "info");
         }
         // Discovery is connected — persist discoverySetupComplete so the
-        // "Finish setup — X of 2" bar converges and the discovery->go-live
-        // auto-chain doesn't keep re-opening. The wizard never renders on
-        // this lane, so the onClose finish path that normally sets the flag
-        // never fires. Flag-only (no go-live auto-open) keeps this safe for
-        // non-onboarding callers (e.g. reconfiguring discovery from Settings).
+        // "Finish setup — X of 2" bar converges. The wizard never renders on
+        // this lane, so the onClose finish path never fires.
+        const entryPoint =
+          options && typeof options.entryPoint === "string"
+            ? options.entryPoint
+            : "";
+        const isOnboardingChain =
+          entryPoint === "onboarding" || entryPoint === "onboarding_chain";
+        if (isOnboardingChain) {
+          // Mandatory two-track onboarding: same persist + go-live auto-open
+          // as the wizard finish path (recommendGoLiveAfterDiscoveryFinish).
+          void recommendGoLiveAfterDiscoveryFinish();
+          return;
+        }
+        // Non-onboarding callers (e.g. reconfiguring discovery from Settings):
+        // flag-only — do not auto-open go-live.
         try {
           const UC =
             typeof host().getUserContent === "function"

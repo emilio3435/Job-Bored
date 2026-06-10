@@ -289,4 +289,24 @@ describe("discovery-wizard-ui.js — keep-alive auto-install on autodetect ready
       "must read UC through host().getUserContent (the bridge now exposes it)",
     );
   });
+
+  it("autodetect-ready branch chains to go-live when entryPoint is onboarding (mandatory two-track)", () => {
+    const fenceStart = discoveryWizardUi.indexOf(
+      "[discovery-autodetect lane: silent recover]",
+    );
+    const fenceEnd = discoveryWizardUi.indexOf(
+      "[/discovery-autodetect lane]",
+      fenceStart,
+    );
+    assert.ok(fenceStart !== -1 && fenceEnd > fenceStart, "lane fence pair");
+    const block = discoveryWizardUi.slice(fenceStart, fenceEnd);
+    assert.ok(
+      block.includes('entryPoint === "onboarding"'),
+      "must detect onboarding entryPoint",
+    );
+    assert.ok(
+      block.includes("recommendGoLiveAfterDiscoveryFinish"),
+      "onboarding autodetect short-circuit must call recommendGoLiveAfterDiscoveryFinish so go-live auto-opens",
+    );
+  });
 });
