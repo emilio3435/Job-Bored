@@ -1189,3 +1189,84 @@
     transition-duration: 0ms !important;
   }
 }
+
+/* ============================================================
+   Continuity chrome (setup tracks): journey strip + mascot thumb.
+   Ties the shell wizards to the profile wizard's visual language —
+   one flow, not a different product mid-journey.
+   ============================================================ */
+.discovery-setup-wizard__mascot-thumb {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(251, 246, 235, 0.88));
+  border: 1px solid rgba(89, 203, 137, 0.28);
+  padding: 3px;
+  flex: 0 0 auto;
+}
+
+.discovery-setup-wizard__title-block {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.discovery-setup-wizard__journey {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: var(--space-2) var(--space-5) 0;
+}
+
+.discovery-setup-wizard__journey-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3, var(--text-faint));
+  white-space: nowrap;
+}
+
+.discovery-setup-wizard__journey-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  border: 1.5px solid var(--jb-line, var(--border));
+  color: var(--jb-ink-3, var(--text-faint));
+  background: var(--jb-paper, var(--surface));
+  flex: 0 0 auto;
+}
+
+.discovery-setup-wizard__journey-step--done {
+  color: var(--jb-mint-deep, #2f8a5a);
+}
+
+.discovery-setup-wizard__journey-step--done .discovery-setup-wizard__journey-dot {
+  background: var(--jb-mint, var(--accent));
+  border-color: var(--jb-mint, var(--accent));
+  color: var(--jb-ink-inverse, #fff);
+}
+
+.discovery-setup-wizard__journey-step--current {
+  color: var(--jb-navy, var(--text));
+}
+
+.discovery-setup-wizard__journey-step--current .discovery-setup-wizard__journey-dot {
+  background: var(--jb-navy, var(--text));
+  border-color: var(--jb-navy, var(--text));
+  color: var(--jb-ink-inverse, #fff);
+  box-shadow: 0 0 0 3px var(--jb-mint-soft, rgba(95, 203, 142, 0.25));
+}

@@ -91,9 +91,8 @@ class FakeEl {
     this.classList = new FakeClassList();
     this.dataset = {};
     this.style = {};
-    this.textContent = "";
+    this._text = "";
     this.id = "";
-    this.className = "";
     this._listeners = new Map();
     this.hidden = false;
     this.disabled = false;
@@ -132,6 +131,28 @@ class FakeEl {
   replaceChildren(...kids) {
     this.children = [];
     for (const c of kids) if (c) this.appendChild(c);
+  }
+  // Mirror real DOM semantics: className assignment syncs classList (the
+  // shell's createEl sets el.className = "a b c"; class selectors must see it).
+  get className() {
+    return [...this.classList.classes].join(" ");
+  }
+  set className(v) {
+    this.classList.classes = new Set(
+      String(v || "")
+        .split(/\s+/)
+        .filter(Boolean),
+    );
+  }
+  // Mirror real DOM semantics: reading textContent aggregates own text +
+  // descendants (so assertions on parent nodes see child labels).
+  get textContent() {
+    return (
+      this._text + this.children.map((c) => c.textContent || "").join("")
+    );
+  }
+  set textContent(v) {
+    this._text = String(v == null ? "" : v);
   }
   get firstElementChild() {
     return this.children[0] || null;
@@ -558,5 +579,69 @@ describe("renderWizardShell — focus-on-open (a11y, #7)", () => {
       null,
       "focus:false must leave focus untouched (e.g. background re-render)",
     );
+  });
+});
+
+// =====================================================================
+// Continuity (P2): the setup tracks render a persistent journey strip
+// (Profile ✓ → Job discovery → Other devices) + a mascot thumb in the
+// shell header, so the shell wizards read as chapters of ONE flow
+// instead of a different product from the mascot-card wizards.
+// =====================================================================
+
+describe("renderWizardShell — journey strip + mascot (continuity)", () => {
+  const baseInput = {
+    steps: [{ id: "detect", label: "Status", title: "T", description: "D" }],
+    state: { currentStep: "detect" },
+  };
+
+  it("renders the three-stage journey strip with the current stage marked (devices)", () => {
+    const { document, shell } = loadShell();
+    shell.renderWizardShell({
+      ...baseInput,
+      mountId: "goLiveSetupWizardMount",
+      variant: "generic",
+      journeyStage: "devices",
+    });
+    const mount = document.getElementById("goLiveSetupWizardMount");
+    const strip = mount.querySelector(".discovery-setup-wizard__journey");
+    assert.ok(strip, "journey strip must render when journeyStage is provided");
+    const current = mount.querySelector(".discovery-setup-wizard__journey-step--current");
+    assert.ok(current, "one stage must be current");
+    assert.match(current.textContent, /Other devices/);
+    const done = mount.querySelectorAll(".discovery-setup-wizard__journey-step--done");
+    assert.equal(done.length, 2, "Profile + Job discovery read as done on the devices stage");
+  });
+
+  it("marks Job discovery current (Profile done) on the discovery stage", () => {
+    const { document, shell } = loadShell();
+    shell.renderWizardShell({ ...baseInput, journeyStage: "discovery" });
+    const mount = document.getElementById("discoverySetupWizardMount");
+    const current = mount.querySelector(".discovery-setup-wizard__journey-step--current");
+    assert.match(current.textContent, /Job discovery/);
+    assert.equal(
+      mount.querySelectorAll(".discovery-setup-wizard__journey-step--done").length,
+      1,
+    );
+  });
+
+  it("renders no strip and no mascot when not asked (non-setup consumers unchanged)", () => {
+    const { document, shell } = loadShell();
+    shell.renderWizardShell(baseInput);
+    const mount = document.getElementById("discoverySetupWizardMount");
+    assert.equal(mount.querySelector(".discovery-setup-wizard__journey"), null);
+    assert.equal(mount.querySelector(".discovery-setup-wizard__mascot-thumb"), null);
+  });
+
+  it("renders the mascot thumb in the header when mascotSrc is provided", () => {
+    const { document, shell } = loadShell();
+    shell.renderWizardShell({
+      ...baseInput,
+      mascotSrc: "assets/jobbored-brand-mascot-kit/exports/04-mascot-poses/pose-01-laptop-thinking.webp",
+    });
+    const mount = document.getElementById("discoverySetupWizardMount");
+    const img = mount.querySelector(".discovery-setup-wizard__mascot-thumb");
+    assert.ok(img, "mascot thumb must render");
+    assert.match(img.attrs.get("src") || "", /pose-01-laptop-thinking/);
   });
 });
