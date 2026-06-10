@@ -707,3 +707,54 @@ describe("resume parse — never hangs forever (watchdog + password detection)",
     assert.match(text, /Senior Engineer/);
   });
 });
+
+describe("resume parse — stale worker path + phase-aware timeouts", () => {
+  async function loadIngestWithOpts(getDocumentImpl, workerOptions) {
+    const vm = await import("node:vm");
+    const src = readFileSync(join(repoRoot, "resume-ingest.js"), "utf8");
+    const window = {
+      pdfjsLib: { GlobalWorkerOptions: workerOptions, getDocument: getDocumentImpl },
+    };
+    const ctx = {
+      window, pdfjsLib: window.pdfjsLib,
+      console: { info() {}, warn() {}, error() {} },
+      setTimeout, clearTimeout, TextDecoder, Promise, Number, Math, Date,
+    };
+    vm.createContext(ctx);
+    vm.runInContext(src, ctx, { filename: "resume-ingest.js" });
+    return { ingest: window.CommandCenterResumeIngest, workerOptions };
+  }
+  const pdfFile = { name: "x.pdf", type: "application/pdf", arrayBuffer: async () => new ArrayBuffer(8) };
+
+  it("ALWAYS forces the vendored worker path — a stale CDN path from an old tab must not survive", async () => {
+    // The user's long-lived tab had workerSrc pointing at cdnjs (set lazily
+    // by the pre-vendoring code); the only-if-unset guard preserved it, so
+    // every parse fetched the 1MB worker from a filtered CDN and timed out —
+    // while the same file parsed in 89ms in a clean browser.
+    const { ingest, workerOptions } = await loadIngestWithOpts(
+      () => ({
+        promise: Promise.resolve({ numPages: 1, getPage: async () => ({ getTextContent: async () => ({ items: [{ str: "hi" }] }) }) }),
+        destroy() {},
+      }),
+      { workerSrc: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js" },
+    );
+    await ingest.extractTextFromFile(pdfFile, { timeoutMs: 5000 });
+    assert.equal(
+      workerOptions.workerSrc,
+      "vendor/pdf.worker.min.js",
+      "the vendored worker is the only correct value in this app — overwrite stale paths",
+    );
+  });
+
+  it("the timeout message names the stalled phase", async () => {
+    const { ingest } = await loadIngestWithOpts(
+      () => ({ promise: new Promise(() => {}), destroy() {} }),
+      {},
+    );
+    await assert.rejects(
+      () => ingest.extractTextFromFile(pdfFile, { timeoutMs: 60 }),
+      /stalled at/i,
+      "the error must say WHICH phase hung so reports are one-look diagnosable",
+    );
+  });
+});
