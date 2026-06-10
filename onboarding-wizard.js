@@ -247,6 +247,15 @@
       if (finished) return;
       finished = true;
       overlay.classList.add("onboarding-celebration--out");
+      // Reveal-under-the-fade: open the next chapter at fade START so it
+      // mounts beneath the overlay (celebration z-index sits above every
+      // wizard) and is revealed as the fade clears — the user never sees
+      // the dashboard blink between stages.
+      try {
+        finishCb();
+      } catch (err) {
+        console.warn("[JobBored] celebration handoff:", err);
+      }
       setTimeout(() => {
         overlay.setAttribute("hidden", "");
         overlay.setAttribute("aria-hidden", "true");
@@ -255,7 +264,6 @@
         if (burst && typeof burst.replaceChildren === "function") {
           burst.replaceChildren();
         }
-        finishCb();
       }, 320);
     };
     const cta = document.getElementById("onboardingCelebrationContinue");

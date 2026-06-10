@@ -1150,3 +1150,9 @@
     var(--jb-mint-deep, #2f8a5a)
   );
 }
+
+/* While fading out, the overlay must not eat clicks meant for the next
+   wizard being revealed beneath it. */
+.onboarding-celebration--out {
+  pointer-events: none;
+}
