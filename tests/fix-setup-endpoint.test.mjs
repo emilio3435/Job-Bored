@@ -346,3 +346,16 @@ describe("/__proxy/discovery-env-key — allowlisted worker env writes", () => {
     assert.match(block, /upsertBrowserUseDiscoveryEnvValue/);
   });
 });
+
+describe("/__proxy/discovery-health — same-origin health probe for the dashboard", () => {
+  it("dev-server exposes a localhost-gated GET that proxies the worker /health", async () => {
+    const { readFileSync } = await import("node:fs");
+    const devServerSrc = readFileSync(new URL("../dev-server.mjs", import.meta.url), "utf8");
+    assert.match(devServerSrc, /\/__proxy\/discovery-health/);
+    const idx = devServerSrc.indexOf("function handleDiscoveryHealth");
+    assert.ok(idx !== -1, "handler must exist");
+    const body = devServerSrc.slice(idx, idx + 1600);
+    assert.match(body, /isLocalOrigin/);
+    assert.match(body, /\/health/, "must proxy the worker's /health (browser-direct fetches die on CORS)");
+  });
+});
