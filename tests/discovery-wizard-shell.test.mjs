@@ -683,3 +683,12 @@ describe("wizard button vocabulary — one language (delight pass)", () => {
     assert.match(gl, /id: "go_live_finish",\s*label: "Finish"/s, "go-live terminal action says Finish, not Close");
   });
 });
+
+describe("wizard shell repaint — warm-paper skin (delight pass)", () => {
+  it("done rail segments are solid mint with real checkmarks; the frame is warm paper", async () => {
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync(new URL("../css/legacy-discovery-setup-wizard.css", import.meta.url), "utf8");
+    assert.match(css, /__seg--done \.discovery-setup-wizard__seg-label::before\s*\{\s*content: "✓ "/s, "completed steps show a checkmark, not just a tint");
+    assert.ok(css.includes("rgba(251, 246, 235, 0.92)"), "the step frame uses the warm cream paper, not slate white");
+  });
+});
