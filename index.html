@@ -1556,8 +1556,12 @@
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+    <!-- Vendored locally (vendor/) — the resume reader must not depend on a
+         third-party CDN at parse time: the 1MB pdf.js worker was lazily
+         fetched from cdnjs mid-upload, hanging "Reading…" on filtered/slow
+         networks and breaking offline/firewalled OSS users. -->
+    <script src="vendor/pdf.min.js"></script>
+    <script src="vendor/mammoth.browser.min.js"></script>
     <script src="document-templates.js"></script>
     <script src="visual-themes.js"></script>
     <script src="user-content-store.js"></script>
