@@ -210,6 +210,22 @@ describe("advanceToDiscoveryAfterOnboarding — gated blocking handoff", () => {
     );
   });
 
+  it("onClose after connected verify + X/Escape does NOT re-show the gate", async () => {
+    // Completion persists at verify time; closing with close-button must not
+    // re-block the dashboard when discovery is already connected.
+    const env = loadOnboardingWithGate({ discoveryComplete: true });
+    env.gateEl.removeAttribute("hidden");
+    await env.onboarding.advanceToDiscoveryAfterOnboarding();
+    await env.calls.requestDiscovery[0].onClose("close-button", {
+      state: { result: "connected" },
+    });
+    assert.equal(
+      env.gateEl.hidden,
+      true,
+      "verify-then-close must clear the gate even without clicking Finish",
+    );
+  });
+
   it("onClose does NOT show the gate when discoverySetupSkipped is true", async () => {
     const env = loadOnboardingWithGate({ discoveryComplete: false, skipFlag: true });
     await env.onboarding.advanceToDiscoveryAfterOnboarding();

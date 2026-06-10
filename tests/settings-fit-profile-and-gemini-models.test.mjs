@@ -85,4 +85,17 @@ describe("Settings Gemini model menu", () => {
     assert.match(settingsModalJs, /const isGeminiSelect = selectId === "settingsResumeGeminiModel";/);
     assert.match(settingsModalJs, /v && !values\.has\(v\) && !isGeminiSelect/);
   });
+
+  it("preserves out-of-catalog Gemini models on save via dataset.preservedModel", () => {
+    assert.match(
+      settingsModalJs,
+      /sel\.dataset\.preservedModel = v/,
+      "fillOneResumeModelSelect must remember out-of-catalog Gemini models",
+    );
+    assert.match(
+      settingsModalJs,
+      /sel\.dataset\.preservedModel/,
+      "save must read preservedModel so unrelated saves do not clobber the configured model",
+    );
+  });
 });

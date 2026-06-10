@@ -81,12 +81,23 @@
       /* banner refresh is best-effort */
     }
     const onClose = async (reason, ctx) => {
-      // Happy path: a genuine finish (connected) satisfies the gate — clear it
-      // and let the discovery->go-live chain proceed. Only re-assert the
-      // blocking gate when the wizard closed WITHOUT connecting AND the user
-      // hasn't confirmed the skip escape.
+      // Happy path: discovery is connected — clear the gate whether the user
+      // clicked Finish or closed with X/Escape after a successful verify.
+      // Completion persists at verify time (engineState === "connected"), so
+      // reason alone must not re-block a working setup.
       const result = ctx && ctx.state ? ctx.state.result : null;
-      if (reason === "finish" && result === "connected") {
+      let connected = result === "connected";
+      if (!connected) {
+        try {
+          const UC2 = getUserContent();
+          if (UC2 && typeof UC2.isDiscoverySetupComplete === "function") {
+            connected = !!(await UC2.isDiscoverySetupComplete());
+          }
+        } catch (_) {
+          connected = false;
+        }
+      }
+      if (connected) {
         hideDiscoveryGate();
         return;
       }

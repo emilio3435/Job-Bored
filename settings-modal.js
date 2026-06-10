@@ -83,6 +83,15 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
   }
   if (v && [...sel.options].some((o) => o.value === v)) {
     sel.value = v;
+    if (isGeminiSelect) delete sel.dataset.preservedModel;
+  } else if (!v && opts[0]) {
+    sel.value = opts[0].value;
+    if (isGeminiSelect) delete sel.dataset.preservedModel;
+  } else if (isGeminiSelect && v) {
+    // Out-of-catalog Gemini models stay hidden from the dropdown but must
+    // not be silently overwritten when the user saves unrelated settings.
+    sel.dataset.preservedModel = v;
+    if (opts[0]) sel.value = opts[0].value;
   } else if (opts[0]) {
     sel.value = opts[0].value;
   }
@@ -90,6 +99,7 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
   if (sel.dataset.modelTooltipBound !== "true") {
     sel.dataset.modelTooltipBound = "true";
     sel.addEventListener("change", () => {
+      if (isGeminiSelect) delete sel.dataset.preservedModel;
       const latestOptions =
         window.CommandCenterResumeModelOptions &&
         window.CommandCenterResumeModelOptions[
@@ -667,7 +677,15 @@ async function saveCommandCenterSettingsFromForm() {
     atsScoringWebhookUrl: val("settingsAtsScoringWebhookUrl"),
     resumeProvider: provider,
     resumeGeminiApiKey: val("settingsResumeGeminiApiKey"),
-    resumeGeminiModel: val("settingsResumeGeminiModel") || resolveGeminiModel(),
+    resumeGeminiModel: (() => {
+      const sel = document.getElementById("settingsResumeGeminiModel");
+      const preserved =
+        sel && sel.dataset && sel.dataset.preservedModel
+          ? String(sel.dataset.preservedModel).trim()
+          : "";
+      if (preserved) return preserved;
+      return val("settingsResumeGeminiModel") || resolveGeminiModel();
+    })(),
     resumeOpenAIApiKey: val("settingsResumeOpenAIApiKey"),
     resumeOpenAIModel: val("settingsResumeOpenAIModel") || "gpt-4o-mini",
     resumeAnthropicApiKey: val("settingsResumeAnthropicApiKey"),
