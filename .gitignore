@@ -65,3 +65,7 @@ test-results/
 playwright-report/
 # c8 coverage output (CI uploads it as an artifact)
 coverage/
+# Local swarm/mission scratch — only the tailorer system prompt ships from prompts/
+prompts/go-live/
+prompts/lanes/
+prompts/reports/

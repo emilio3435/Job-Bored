@@ -31,7 +31,7 @@ Manual regression tests for the Settings modal after Discovery moved into the dr
 - [ ] **Search** contains roles, location, keywords, and company allow/block controls
 - [ ] **Sources** contains source toggles and the SerpApi configured badge
 - [ ] **Automation** contains the browser/local/cloud schedule cards
-- [ ] **Connection** contains the discovery webhook URL, setup guide, Hermes + ngrok, Cloudflare relay, Test webhook, engine status, and Apps Script deploy accordion
+- [ ] **Connection** contains the discovery webhook URL, setup guide, Local worker + ngrok, Cloudflare relay, Test webhook, engine status, and Apps Script deploy accordion
 - [ ] **History** links to run history and diagnostics
 
 ### Scraping

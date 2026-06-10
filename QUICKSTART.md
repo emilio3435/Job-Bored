@@ -20,18 +20,24 @@ Install **Node.js 24.x** first (the repo pins it via `.nvmrc`). Then run:
 ```bash
 git clone https://github.com/emilio3435/Job-Bored.git ~/Job-Bored
 cd ~/Job-Bored
-npm run setup        # installs dependencies and creates config.js
-npm run web-only     # serves the dashboard at http://localhost:8080
+npm install          # installs dashboard + server deps
+npm start            # dashboard + job scraper → http://localhost:8080
 ```
 
-Open `http://localhost:8080` and let the **first-run wizard** guide you:
+Tip: `npm run dev` starts the same thing **plus the local discovery worker** —
+recommended if you plan to set up job discovery in the wizard. (`npm run
+web-only` serves the dashboard alone.)
 
-1. **Connect your Sheet** — create a fresh starter Sheet from the wizard, or paste the ID of one you already have.
-2. **Sign in with Google** — this unlocks write-back so you can update statuses, mark jobs applied, and edit notes from the dashboard.
-3. **Pick your resume model** — start with **OpenRouter — free** by pasting a free key from openrouter.ai/keys, or choose a local model if you want no hosted AI.
-4. **Tailor your first resume** — open any card, click **Tailor resume**, and review the draft plus its fit insights.
+Open `http://localhost:8080` and follow the on-screen setup:
 
-Move a card between stages by dragging it or using the stage control on the card. Every change writes straight back to your Sheet — the Sheet stays the source of truth.
+1. **Connect Google (login gate)** — paste your OAuth Client ID and sign in. No Client ID yet? Click **"I don't have a Client ID yet"** for the guided path that creates one.
+2. **First-run wizard** — connect or create your Google Sheet, then choose an AI provider. **OpenRouter — free** is preselected (paste a free key from openrouter.ai/keys); Local (Ollama), Gemini, OpenAI, Anthropic, and Webhook are the alternatives.
+3. **Profile onboarding** — upload or paste your resume and review the suggested roles.
+4. **Discovery setup** — click **"Set it up for me"** for the one-click Tailscale path (stable HTTPS URL that never rotates), or configure a connection manually.
+
+The flow then offers devices and power-ups before landing on your Pipeline.
+
+Move a card between stages by dragging it or using the stage control on the card. Every change writes straight back to your Sheet — the Sheet stays the source of truth. To tailor a resume, open any card and click **Tailor resume**.
 
 For the full product overview, hosting options, and the rest of the
 walkthrough, see **[README.md](README.md)**.
@@ -40,7 +46,7 @@ walkthrough, see **[README.md](README.md)**.
 
 Discovery is optional and **you own the runner** — there is no maintainer-hosted service. Start with the in-app **Discovery drawer → Connection** and pick a path (Apps Script, GitHub Actions, local worker, or another endpoint). Full walkthrough: [SETUP.md](SETUP.md) and [docs/DISCOVERY-PATHS.md](docs/DISCOVERY-PATHS.md).
 
-**Single-machine use?** You don't need any of this — `npm run web-only` plus the local worker on the same laptop is fully functional with no extra setup.
+**Single-machine use?** You don't need any of this — `npm run dev` (dashboard + worker on the same laptop) is fully functional with no extra setup.
 
 **Multi-device or hosted discovery (e.g. dashboard on GitHub Pages, worker on a laptop)?** That's when you need a transport (Tailscale is the recommended option): see [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md). The dashboard itself is just static files; the transport is only for the discovery worker.
 

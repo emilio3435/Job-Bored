@@ -64,7 +64,7 @@ You want the button to **POST JSON** to an URL you control (contract: [AGENT_CON
 | Step                             | Resource                                                                                                          |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Deploy receiver (stub / wiring)  | **[Google Apps Script walkthrough](../integrations/apps-script/WALKTHROUGH.md)** (step-by-step, clasp + browser). |
-| Local receiver on your machine   | `npm run discovery:bootstrap-local`, then **Discovery drawer → Connection → Hermes + ngrok**, plus [integrations/openclaw-command-center/README.md](../integrations/openclaw-command-center/README.md). |
+| Local receiver on your machine   | `npm run discovery:bootstrap-local`, then **Discovery drawer → Connection → Local worker + ngrok**, plus [integrations/openclaw-command-center/README.md](../integrations/openclaw-command-center/README.md). |
 | Validate the URL                 | `npm run test:discovery-webhook` (see [examples/README.md](../examples/README.md)).                               |
 | Browser POST blocked (CORS)      | [templates/cloudflare-worker/](../templates/cloudflare-worker/) (CORS relay) or Path B (server-side POST only).   |
 
