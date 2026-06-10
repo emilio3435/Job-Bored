@@ -536,3 +536,25 @@
 .settings-check-status--error {
   color: var(--jb-coral-deep, #c2453a);
 }
+
+/* Compact inline "Check connection" row: small button + status beside it,
+   sitting between the key row and the drafting-model picker. */
+.first-run-check-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-2) 0 var(--space-3);
+}
+
+.first-run-check-btn {
+  padding: 6px 14px;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.first-run-status--inline {
+  margin: 0;
+  flex: 1 1 auto;
+  text-align: left;
+  font-size: var(--text-sm);
+}

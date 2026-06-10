@@ -1062,3 +1062,26 @@ describe("go-live wizard — path cards are real cards (frontend-design pass)", 
     }
   });
 });
+
+describe("go-live wizard — Maximize your results is gated behind the bonus celebration", () => {
+  it("go_live_open_enhancements plays the 'bonus' stage beat whose CTA opens the enhancements wizard", async () => {
+    const enhancementsCalls = [];
+    const celebrationCalls = [];
+    const { api, window, renderCalls } = loadGoLive({
+      host: {
+        isOnboardingWizardVisible: () => false,
+        requestEnhancementsSetup: (o) => enhancementsCalls.push(o),
+      },
+    });
+    window.JobBoredApp.onboarding = {
+      playOnboardingCelebration: (cb, stage) => {
+        celebrationCalls.push(stage);
+        cb(); // user clicks the CTA
+      },
+    };
+    await api.openGoLiveSetupWizard();
+    await api.handleAction("go_live_open_enhancements");
+    assert.deepEqual(celebrationCalls, ["bonus"], "the celebration gates the transition");
+    assert.equal(enhancementsCalls.length, 1, "the CTA carries the user into the enhancements wizard");
+  });
+});

@@ -179,6 +179,12 @@
       cta: "Set up other devices →",
       currentIndex: 2,
     },
+    bonus: {
+      title: "You're fully set up!",
+      sub: "Profile, discovery, devices — all live. A few optional power-ups can multiply your results.",
+      cta: "Maximize your results →",
+      currentIndex: 3, // every journey stage shows done
+    },
   };
 
   function applyCelebrationStage(overlay, stageKey) {

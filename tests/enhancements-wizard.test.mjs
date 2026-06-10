@@ -1013,3 +1013,23 @@ describe("enhancements wizard — greenfield: reuse the Gemini key the user alre
     assert.equal(api._internal.getRuntime().geminiKeyDraft || "", "");
   });
 });
+
+describe("enhancements wizard — illustrated feature cards (prettier, more descriptive)", () => {
+  it("the Gemini step illustrates its two superpowers as feature cards", () => {
+    const start = enhancementsJs.indexOf("function buildGeminiBody");
+    const body = enhancementsJs.slice(start, start + 3600);
+    assert.match(body, /safeFeatureCard|enhancements-feature-card/, "feature-card presentation");
+    assert.match(body, /[Gg]rounded web search/);
+    assert.match(body, /Add job from URL/);
+  });
+
+  it("the bells-and-whistles slide describes each power-up and how to reach it, as cards", () => {
+    const start = enhancementsJs.indexOf("function buildMoreOptionalBody");
+    const body = enhancementsJs.slice(start, start + 3600);
+    assert.match(body, /safeFeatureCard|enhancements-feature-card/);
+    assert.match(body, /ATS scoring/i);
+    assert.match(body, /[Ll]ogo/);
+    assert.match(body, /Browser Use Cloud/);
+    assert.match(body, /Settings/, "each card must say where to turn it on");
+  });
+});
