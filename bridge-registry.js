@@ -444,6 +444,9 @@
       getUserContent: host.getUserContent,
       getDiscoveryReadinessSnapshot: host.getDiscoveryReadinessSnapshot,
       getConfig: host.getConfig,
+      // Gemini key passthrough: the wizard persists the same key into the
+      // dashboard's AI Providers settings (resumeGeminiApiKey).
+      mergeStoredConfigOverridePatch: host.mergeStoredConfigOverridePatch,
       openDrawerToSubtab: host.openDrawerToSubtab,
       setActiveSettingsTab: host.setActiveSettingsTab,
       openCommandCenterSettingsModal: host.openCommandCenterSettingsModal,

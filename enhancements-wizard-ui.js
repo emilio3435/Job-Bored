@@ -497,6 +497,25 @@
       });
       return renderEnhancementsWizard();
     }
+    if (envKey === "BROWSER_USE_DISCOVERY_GEMINI_API_KEY") {
+      // Same key, two consumers: pass it through to the dashboard's AI
+      // Providers settings (resumeGeminiApiKey) so drafts can use Gemini
+      // without re-entering it — but never clobber a key already saved there.
+      try {
+        const h = host();
+        const cfg = h && typeof h.getConfig === "function" ? h.getConfig() : null;
+        const existing =
+          cfg && typeof cfg.resumeGeminiApiKey === "string"
+            ? cfg.resumeGeminiApiKey.trim()
+            : "";
+        if (!existing && h && typeof h.mergeStoredConfigOverridePatch === "function") {
+          h.mergeStoredConfigOverridePatch({ resumeGeminiApiKey: value });
+          probeAiProviderStatus();
+        }
+      } catch (e) {
+        console.warn("[JobBored] enhancements gemini passthrough:", e);
+      }
+    }
     // Reboot the worker (tunnel-free, FORCED — a spared healthy worker never
     // loads the new key) so the env change takes effect. Best-effort: the
     // re-poll below reports the truth either way.
