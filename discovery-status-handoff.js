@@ -154,6 +154,32 @@ function showAppsScriptPublicAccessRemediationFromState() {
   return true;
 }
 
+/**
+ * Hostname of a saved webhook that points at a genuinely remote https
+ * endpoint (Tailscale *.ts.net, Cloudflare *.workers.dev, any other
+ * non-local https URL). Returns "" for local/ngrok URLs so the tunnel
+ * remediation keeps applying to tunnel-style setups.
+ */
+function getRemoteDiscoveryWebhookHost(rawUrl) {
+  const s = String(rawUrl || "").trim();
+  if (!s) return "";
+  let parsed;
+  try {
+    parsed = new URL(s);
+  } catch (_) {
+    return "";
+  }
+  if (parsed.protocol !== "https:") return "";
+  const hostname = String(parsed.hostname || "");
+  const lower = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (lower === "localhost" || lower === "127.0.0.1" || lower === "::1") {
+    return "";
+  }
+  // An ngrok webhook IS the tunnel — keep the ngrok remediation for it.
+  if (isLikelyNgrokUrl(s)) return "";
+  return hostname;
+}
+
 async function diagnoseDownstreamChain(snapshot) {
   const probes = host().getDiscoveryWizardProbesApi();
   const diagnosis = {
@@ -174,6 +200,22 @@ async function diagnoseDownstreamChain(snapshot) {
       : {};
   const localUrl = snapshot.localWebhookUrl || transport.localWebhookUrl || "";
   diagnosis.localServer.url = localUrl;
+
+  // Honest remediation routing: only setups that actually use a tunnel
+  // (a tunnel URL in transport state, or a local webhook behind one) should
+  // ever be told to fix ngrok. A remote https webhook (Tailscale *.ts.net,
+  // *.workers.dev, generic https) can't be helped by the tunnel step.
+  const savedWebhookUrl = String(
+    snapshot.savedWebhookUrl || host().getDiscoveryWebhookUrl() || "",
+  ).trim();
+  const usesTunnelTransport = !!(
+    localUrl ||
+    snapshot.tunnelPublicUrl ||
+    transport.tunnelPublicUrl
+  );
+  const remoteWebhookHost = usesTunnelTransport
+    ? ""
+    : getRemoteDiscoveryWebhookHost(savedWebhookUrl);
 
   if (localUrl && probes && typeof probes.probeHealthUrl === "function") {
     const healthUrl = probes.buildLocalHealthUrl
@@ -227,6 +269,16 @@ async function diagnoseDownstreamChain(snapshot) {
       label: "Start server",
       detail:
         "Attempts to start the recommended local browser-use worker automatically.",
+    };
+  } else if (remoteWebhookHost) {
+    diagnosis.summary =
+      `Your discovery worker at ${remoteWebhookHost} is unreachable. ` +
+      "Check that the machine running it is awake and that the saved URL " +
+      "in your connection settings is current, then re-test.";
+    diagnosis.primaryFix = {
+      id: "diag_fix_reverify",
+      label: "Re-test",
+      detail: `Re-run the connection test against ${remoteWebhookHost}.`,
     };
   } else if (diagnosis.tunnel.status === "not_running") {
     diagnosis.summary = "ngrok tunnel is not running.";
@@ -774,6 +826,11 @@ async function startDiscoveryStatusPolling(webhookUrl) {
     if (tracker.isTerminal()) {
       await refreshPipelineAfterDiscoveryRun(updated);
       renderDiscoveryRunStatus();
+      // The user saw the terminal toast live — don't re-toast it on the
+      // next reload (resumeDiscoveryStatusPollingIfNeeded checks this).
+      if (typeof tracker.acknowledgeTerminalOutcome === "function") {
+        tracker.acknowledgeTerminalOutcome();
+      }
       return;
     }
 
@@ -801,6 +858,68 @@ function stopDiscoveryStatusPolling() {
   }
 }
 
+const TERMINAL_RUN_STATUSES = ["completed", "empty", "partial", "failed"];
+
+/**
+ * Surface a persisted terminal run outcome exactly once after a reload —
+ * sticky for failed/partial (with the stored error), transient for
+ * completed/empty — refresh the pipeline for lead-bearing outcomes, then
+ * stamp the acknowledged flag so later loads stay quiet. Without this, a
+ * user who reloads (or whose tab was closed when the run finished) gets
+ * zero feedback even though the outcome is sitting in localStorage.
+ */
+function surfaceStoredTerminalRunOutcomeOnce(state) {
+  if (!state || !TERMINAL_RUN_STATUSES.includes(state.status)) return false;
+  if (state.terminalAcknowledged) return false;
+
+  let message = "";
+  let tone = "info";
+  let sticky = false;
+  switch (state.status) {
+    case "completed":
+      message =
+        "Last discovery run finished — new roles are in your pipeline.";
+      tone = "success";
+      break;
+    case "empty":
+      message = "Last discovery run finished — no new roles were found.";
+      break;
+    case "partial":
+      message =
+        "Last discovery run finished with partial results." +
+        (state.errorMessage ? " " + state.errorMessage : "");
+      tone = "warning";
+      sticky = true;
+      break;
+    case "failed":
+      message =
+        "Last discovery run failed." +
+        (state.errorMessage ? " " + state.errorMessage : "");
+      tone = "error";
+      sticky = true;
+      break;
+    default:
+      return false;
+  }
+
+  if (typeof host().showToast === "function") {
+    host().showToast(message, tone, sticky, {
+      label: "Open runs",
+      onClick: () => {
+        document.getElementById("runsBtn")?.click();
+      },
+    });
+  }
+  // Lead-bearing outcomes (gated inside the helper) reload the board so the
+  // pipeline isn't stale at 0 after a run that finished while we were away.
+  void refreshPipelineAfterDiscoveryRun(state);
+  const tracker = runTracker();
+  if (typeof tracker.acknowledgeTerminalOutcome === "function") {
+    tracker.acknowledgeTerminalOutcome();
+  }
+  return true;
+}
+
 function resumeDiscoveryStatusPollingIfNeeded() {
   // Never replay a stale run's status (toast + polling) before the user has
   // signed in — it was leaking onto the login screen. (Absent isSignedIn is
@@ -809,14 +928,21 @@ function resumeDiscoveryStatusPollingIfNeeded() {
   if (h && typeof h.isSignedIn === "function" && !h.isSignedIn()) return;
   const state = runTracker().getState();
   if (!state.runId) return;
+  if (state.status === "failed") {
+    runTracker().resumeFromStatusPollingFailure();
+  }
+  // Terminal and not resumable: show the outcome once instead of bailing
+  // silently (completed/empty/partial/failed are all !isActive()).
+  const afterResume = runTracker().getState();
+  if (TERMINAL_RUN_STATUSES.includes(afterResume.status)) {
+    surfaceStoredTerminalRunOutcomeOnce(afterResume);
+    return;
+  }
   if (!state.statusPath) {
     if (state.statusUnavailable && runTracker().isActive()) {
       renderDiscoveryRunStatus();
     }
     return;
-  }
-  if (state.status === "failed") {
-    runTracker().resumeFromStatusPollingFailure();
   }
   const next = runTracker().getState();
   if (!runTracker().isActive()) return;
@@ -853,6 +979,20 @@ const EXPIRED_SEARCH_KEY_MESSAGE =
   "Discovery is set up, but your grounded-search key looks expired or invalid. " +
   "Refresh it in Settings → Discovery to start getting results.";
 
+// Every class renderDiscoveryRunStatus() may put on #discoveryBtn — kept in
+// one list so stale states are always cleared before the next one applies.
+// ("run-terminal" is legacy; removed defensively in case it persisted.)
+const RUN_STATUS_BUTTON_CLASSES = [
+  "run-pending",
+  "run-running",
+  "run-polling_error",
+  "run-completed",
+  "run-empty",
+  "run-partial",
+  "run-failed",
+  "run-terminal",
+];
+
 /**
  * Render current run status into the discovery status bar (toast area / status chip).
  * Called after every tracker state change so the user sees live progress.
@@ -863,14 +1003,17 @@ function renderDiscoveryRunStatus() {
 
   if (state.status === "idle") {
     if (openBtn) {
-      openBtn.classList.remove("loading", "run-pending", "run-running", "run-terminal");
+      openBtn.classList.remove("loading", ...RUN_STATUS_BUTTON_CLASSES);
       openBtn.removeAttribute("aria-label");
     }
     return;
   }
 
-  // Apply CSS class for visual state on the button
+  // Apply CSS class for visual state on the button. Always drop every
+  // previously-applied run-* class first — a stale terminal class (e.g.
+  // run-failed) must never restyle the button once the status moves on.
   if (openBtn) {
+    openBtn.classList.remove(...RUN_STATUS_BUTTON_CLASSES);
     openBtn.classList.add("run-" + state.status);
     openBtn.classList.remove("loading");
   }
@@ -993,6 +1136,12 @@ function runPostAccessBootstrapOnce() {
       await host().checkOnboardingGate();
     }
     await handleDiscoverySetupDeepLink();
+    // The bootstrap-time resume runs before the OAuth session restores, so
+    // its signed-in gate no-ops it on every reload. Retry now that access
+    // is proven — this is what actually surfaces a stored run outcome (or
+    // resumes live polling) after a refresh. Idempotent: polling cancels
+    // any in-flight timer and terminal toasts acknowledge themselves.
+    resumeDiscoveryStatusPollingIfNeeded();
   })();
   return postAccessBootstrapPromise;
 }
@@ -1034,6 +1183,8 @@ function resetPostAccessBootstrap() {
     refreshPipelineAfterDiscoveryRun: refreshPipelineAfterDiscoveryRun,
     startDiscoveryStatusPolling: startDiscoveryStatusPolling,
     stopDiscoveryStatusPolling: stopDiscoveryStatusPolling,
+    getRemoteDiscoveryWebhookHost: getRemoteDiscoveryWebhookHost,
+    surfaceStoredTerminalRunOutcomeOnce: surfaceStoredTerminalRunOutcomeOnce,
     resumeDiscoveryStatusPollingIfNeeded: resumeDiscoveryStatusPollingIfNeeded,
     renderDiscoveryRunStatus: renderDiscoveryRunStatus,
     looksLikeExpiredSearchKey: looksLikeExpiredSearchKey,

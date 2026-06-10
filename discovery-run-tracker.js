@@ -86,6 +86,7 @@
             ? parsed.leadsUpdated
             : 0,
           statusUnavailable: !!parsed.statusUnavailable,
+          terminalAcknowledged: !!parsed.terminalAcknowledged,
         };
       } catch (_) {
         return this._idle();
@@ -124,6 +125,7 @@
         leadsWritten: 0,
         leadsUpdated: 0,
         statusUnavailable: false,
+        terminalAcknowledged: false,
       };
     }
 
@@ -172,6 +174,7 @@
         leadsWritten: 0,
         leadsUpdated: 0,
         statusUnavailable: !!statusUnavailable,
+        terminalAcknowledged: false,
       };
       this._persist(this._state);
       return this;
@@ -305,6 +308,19 @@
       this._state.terminalKind = "failed";
       this._state.errorMessage = String(errorMessage || "Run failed");
       this._state.statusUnavailable = false;
+      this._persist(this._state);
+      return this;
+    }
+
+    /**
+     * Mark the persisted terminal outcome as shown to the user, so a later
+     * reload doesn't re-toast it. The state itself is preserved (the Runs
+     * modal still reads it); only the one-time surfacing is suppressed.
+     */
+    acknowledgeTerminalOutcome() {
+      if (!this.isTerminal()) return this;
+      if (this._state.terminalAcknowledged) return this;
+      this._state.terminalAcknowledged = true;
       this._persist(this._state);
       return this;
     }
