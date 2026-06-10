@@ -18,7 +18,7 @@ describe("Node runtime contract", () => {
     const nvmrc = readFileSync(join(repoRoot, ".nvmrc"), "utf8").trim();
     const nodeVersion = readFileSync(join(repoRoot, ".node-version"), "utf8").trim();
     const ci = readFileSync(
-      join(repoRoot, ".github", "workflows", "validate-examples.yml"),
+      join(repoRoot, ".github", "workflows", "ci.yml"),
       "utf8",
     );
     const readme = readFileSync(join(repoRoot, "README.md"), "utf8");
@@ -31,7 +31,7 @@ describe("Node runtime contract", () => {
     assert.equal(lock.packages[""].engines.npm, ">=11 <12");
     assert.equal(nvmrc, "24");
     assert.equal(nodeVersion, "24");
-    assert.match(ci, /node-version: "24"/);
+    assert.match(ci, /node-version: ['"]24['"]/);
     assert.match(readme, /Node\.js 24\.x/);
     assert.match(setup, /Node\.js 24\.x/);
     assert.match(agents, /Node 24/);
@@ -46,7 +46,7 @@ describe("Node runtime contract", () => {
       "docs/README.md",
       "docs/SETTINGS-SCHEDULE.md",
       "docs/swarm/NEXT-WORKER-ONBOARDING-RESUME.md",
-      ".github/workflows/validate-examples.yml",
+      ".github/workflows/ci.yml",
       "package.json",
     ];
     for (const rel of files) {
