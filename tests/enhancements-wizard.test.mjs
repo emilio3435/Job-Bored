@@ -442,13 +442,13 @@ describe("enhancements wizard — step navigation and skip flow", () => {
     assert.ok(closeCalls.length >= 1, "finish must close the wizard shell");
   });
 
-  it("enhancements_serp_api_done advances to gemini (status is re-polled in Task 4; here skip is treated as done)", async () => {
+  it("enhancements_serp_api_done re-checks and STAYS (advancing belongs to Continue/Skip)", async () => {
     const { api, shell } = loadEnhancements({
       host: { isOnboardingWizardVisible: () => false, isFirstRunWizardVisible: () => false },
     });
     await api.openEnhancementsWizard();
     await api.handleAction("enhancements_serp_api_done");
-    assert.equal(shell.lastRender.input.activeStepId, "gemini");
+    assert.equal(shell.lastRender.input.activeStepId, "serp_api");
   });
 });
 
@@ -496,7 +496,10 @@ describe("enhancements wizard — /health status badge wiring", () => {
     const callouts = shell.lastRender.bodies.serp_api._findAll(
       (n) => n.className && String(n.className).includes("discovery-setup-wizard__callout")
     );
-    assert.ok(callouts.some((c) => /Configured/i.test(c.textContent)), "callout must say Configured");
+    assert.ok(
+      callouts.some((c) => /connected/i.test(c.textContent)),
+      "the configured state must celebrate the connection (✓ … connected)",
+    );
   });
 
   it("when /health is unreachable, status degrades to 'unknown' without throwing", async () => {
@@ -513,7 +516,7 @@ describe("enhancements wizard — /health status badge wiring", () => {
     assert.equal(rt.geminiStatus, "unknown");
   });
 
-  it("enhancements_serp_api_done re-polls /health before advancing to gemini", async () => {
+  it("Re-check (enhancements_serp_api_done) re-polls /health and STAYS — it must never advance", async () => {
     let pollCount = 0;
     const host = {
       isOnboardingWizardVisible: () => false,
@@ -521,7 +524,7 @@ describe("enhancements wizard — /health status badge wiring", () => {
       getDiscoveryReadinessSnapshot: () => ({ savedWebhookUrl: "http://localhost:8644/webhook" }),
     };
     const fetchImpl = async (url) => {
-      if (String(url).endsWith("/health")) {
+      if (String(url).endsWith("/health") || String(url).includes("discovery-health")) {
         pollCount++;
         return { ok: true, json: async () => ({ readiness: { serpApiGoogleJobs: { configured: true }, googleTools: { configured: false } } }) };
       }
@@ -529,9 +532,94 @@ describe("enhancements wizard — /health status badge wiring", () => {
     };
     const { api, shell } = loadEnhancements({ host, fetchImpl });
     await api.openEnhancementsWizard();     // poll 1
-    await api.handleAction("enhancements_serp_api_done"); // poll 2
-    assert.ok(pollCount >= 2, "must re-poll health when user says 'I did it'");
+    await api.handleAction("enhancements_serp_api_done"); // poll 2 — re-check
+    assert.ok(pollCount >= 2, "must re-poll health on Re-check");
+    assert.equal(
+      shell.lastRender.input.activeStepId,
+      "serp_api",
+      "Re-check must stay on the step so the user sees the updated badge — advancing is Continue/Skip's job",
+    );
+  });
+
+  it("Continue (enhancements_serp_api_next / gemini_next) is what advances", async () => {
+    const { api, shell } = loadEnhancements({
+      host: { isOnboardingWizardVisible: () => false, isFirstRunWizardVisible: () => false },
+    });
+    await api.openEnhancementsWizard();
+    await api.handleAction("enhancements_serp_api_next");
     assert.equal(shell.lastRender.input.activeStepId, "gemini");
+    await api.handleAction("enhancements_gemini_next");
+    assert.equal(shell.lastRender.input.activeStepId, "ai_provider");
+  });
+
+  it("step actions are status-aware: configured → Continue primary; not configured → Save key primary + Skip", async () => {
+    // Stateful probe: the worker starts unconfigured; the key "gets set"
+    // between the open and the Re-check, exactly like a real save.
+    let configured = false;
+    const fetchImpl = async (url) => {
+      if (String(url).includes("/__proxy/discovery-health")) {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            readiness: { serpApiGoogleJobs: { configured }, googleTools: { configured: false } },
+          }),
+        };
+      }
+      return { ok: false, json: async () => ({}) };
+    };
+    const { api, shell } = loadEnhancements({
+      fetchImpl,
+      host: { isOnboardingWizardVisible: () => false, isFirstRunWizardVisible: () => false },
+    });
+    await api.openEnhancementsWizard();
+    // Not configured: Save key leads, Skip available, no Continue.
+    let serpStep = shell.lastRender.input.steps.find((s) => s.id === "serp_api");
+    let ids = serpStep.actions.map((a) => a.id);
+    assert.ok(ids.includes("enhancements_serp_save_key"));
+    assert.ok(ids.includes("enhancements_serp_api_skip"));
+    assert.ok(!ids.includes("enhancements_serp_api_next"), "no Continue until configured");
+    // Key lands → Re-check flips the badge AND the actions.
+    configured = true;
+    await api.handleAction("enhancements_serp_api_done");
+    serpStep = shell.lastRender.input.steps.find((s) => s.id === "serp_api");
+    ids = serpStep.actions.map((a) => a.id);
+    const primary = serpStep.actions.find((a) => a.variant === "primary");
+    assert.equal(primary && primary.id, "enhancements_serp_api_next", "configured → Continue is the primary");
+    assert.ok(!ids.includes("enhancements_serp_api_skip"), "nothing to skip once configured");
+  });
+
+  it("probeHealthStatus prefers the local dev-server proxy (no CORS) and works WITHOUT a saved webhook URL", async () => {
+    // Evidence-grounded: the direct browser fetch to the worker /health dies
+    // on CORS ("Failed to fetch"), so the badge read "unknown" while the
+    // worker was demonstrably configured — the proxy probe is same-origin.
+    const fetched = [];
+    const fetchImpl = async (url) => {
+      fetched.push(String(url));
+      if (String(url).includes("/__proxy/discovery-health")) {
+        return { ok: true, json: async () => ({ ok: true, readiness: { serpApiGoogleJobs: { configured: true }, googleTools: { configured: true } } }) };
+      }
+      return { ok: false, json: async () => ({}) };
+    };
+    const { api } = loadEnhancements({
+      fetchImpl,
+      host: {
+        isOnboardingWizardVisible: () => false,
+        isFirstRunWizardVisible: () => false,
+        getDiscoveryReadinessSnapshot: () => null, // no saved URL at all
+      },
+    });
+    await api.openEnhancementsWizard();
+    const rt = api._internal.getRuntime();
+    assert.equal(rt.serpApiStatus, "yes", "proxy probe must set the badge without any saved URL");
+    assert.equal(rt.geminiStatus, "yes");
+    assert.ok(fetched.some((u) => u.includes("/__proxy/discovery-health")));
+  });
+
+  it("the key steps link straight to the key pages (clickable, not 'go find it')", () => {
+    assert.match(enhancementsJs, /serpapi\.com\/manage-api-key/);
+    assert.match(enhancementsJs, /aistudio\.google\.com\/apikey/);
+    assert.match(enhancementsJs, /target = "_blank"|target="_blank"|\.target = "_blank"/);
   });
 });
 

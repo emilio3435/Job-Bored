@@ -1277,6 +1277,50 @@ async function handleDiscoveryEnvKey(req, res) {
   }
 }
 
+/**
+ * Localhost-only: same-origin proxy for the worker's /health. Direct browser
+ * fetches to the worker die on CORS (the /health route sends no CORS
+ * headers), which made the enhancements wizard report "unknown / not
+ * configured" for a worker that was demonstrably configured.
+ */
+async function handleDiscoveryHealth(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  const url = new URL(req.url || "/", "http://localhost");
+  const workerPort = resolveDiscoveryWorkerPort(url.searchParams.get("port"));
+  try {
+    const response = await requestLocalJson({
+      host: "127.0.0.1",
+      port: workerPort,
+      path: "/health",
+    });
+    if (!response || !response.ok || !response.json) {
+      res.writeHead(502, corsHeaders);
+      res.end(JSON.stringify({ ok: false, reason: "worker_unreachable" }));
+      return;
+    }
+    // Raw passthrough — the wizard reads readiness.* (serpApiGoogleJobs,
+    // googleTools) straight off the worker's payload.
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ ok: true, ...response.json }));
+  } catch (e) {
+    res.writeHead(502, corsHeaders);
+    res.end(
+      JSON.stringify({
+        ok: false,
+        message: e && e.message ? e.message : String(e),
+      }),
+    );
+  }
+}
+
 async function handleTailscaleState(req, res) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, {
@@ -2059,6 +2103,20 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       pathname === "/__proxy/discovery-webhook-secret"
     ) {
       handleDiscoveryWebhookSecret(req, res);
+      return;
+    }
+
+    if (req.method === "GET" && pathname === "/__proxy/discovery-health") {
+      handleDiscoveryHealth(req, res).catch((err) => {
+        logError("  discovery-health error:", err);
+        if (!res.headersSent) {
+          res.writeHead(502, {
+            "content-type": "application/json",
+            "access-control-allow-origin": "*",
+          });
+          res.end(JSON.stringify({ ok: false }));
+        }
+      });
       return;
     }
 

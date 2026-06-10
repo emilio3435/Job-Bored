@@ -1270,3 +1270,28 @@
   color: var(--jb-ink-inverse, #fff);
   box-shadow: 0 0 0 3px var(--jb-mint-soft, rgba(95, 203, 142, 0.25));
 }
+
+/* "Get your free key" link-button on the enhancements key steps — the
+   acquisition step must be one obvious click. */
+.discovery-setup-wizard__keylink {
+  display: inline-block;
+  margin: var(--space-2) 0 var(--space-3);
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--jb-ink-inverse, #fff);
+  background: linear-gradient(
+    135deg,
+    var(--jb-mint, #5fcb8e),
+    var(--jb-mint-deep, #2f8a5a)
+  );
+  border-radius: var(--radius-lg);
+  box-shadow: 0 6px 14px rgba(47, 138, 90, 0.28);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.discovery-setup-wizard__keylink:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 9px 18px rgba(47, 138, 90, 0.36);
+}

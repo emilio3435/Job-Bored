@@ -52,26 +52,38 @@
 
   async function probeHealthStatus() {
     try {
-      const h = host();
-      const snapshot = h && typeof h.getDiscoveryReadinessSnapshot === "function"
-        ? h.getDiscoveryReadinessSnapshot() : null;
-      const webhookUrl = (snapshot && snapshot.savedWebhookUrl) || "";
-      if (!webhookUrl) {
-        updateRuntime({ serpApiStatus: "unknown", geminiStatus: "unknown" });
-        return;
-      }
-      let healthUrl = "";
+      // Prefer the local dev-server proxy: it's same-origin (no CORS), needs
+      // no saved webhook URL, and reads the worker directly. A direct browser
+      // fetch to the worker's /health dies on CORS, which made this badge
+      // report "unknown" for a worker that was demonstrably configured.
+      let payload = null;
       try {
-        const u = new URL(webhookUrl);
-        u.pathname = "/health"; u.search = ""; u.hash = "";
-        healthUrl = u.toString();
-      } catch (_) {}
-      if (!healthUrl) {
-        updateRuntime({ serpApiStatus: "unknown", geminiStatus: "unknown" });
-        return;
+        const proxied = await fetchWithTimeout("/__proxy/discovery-health", {
+          method: "GET",
+          cache: "no-store",
+        });
+        payload = proxied && proxied.ok ? await proxied.json().catch(() => null) : null;
+      } catch (_) {
+        payload = null;
       }
-      const r = await fetchWithTimeout(healthUrl, { method: "GET", mode: "cors" });
-      const payload = r && r.ok ? await r.json().catch(() => null) : null;
+      if (!payload) {
+        // Fallback (hosted dashboards without the local proxy): probe the
+        // saved webhook origin directly and hope its CORS allows us.
+        const h = host();
+        const snapshot = h && typeof h.getDiscoveryReadinessSnapshot === "function"
+          ? h.getDiscoveryReadinessSnapshot() : null;
+        const webhookUrl = (snapshot && snapshot.savedWebhookUrl) || "";
+        let healthUrl = "";
+        try {
+          const u = new URL(webhookUrl);
+          u.pathname = "/health"; u.search = ""; u.hash = "";
+          healthUrl = u.toString();
+        } catch (_) {}
+        if (healthUrl) {
+          const r = await fetchWithTimeout(healthUrl, { method: "GET", mode: "cors" });
+          payload = r && r.ok ? await r.json().catch(() => null) : null;
+        }
+      }
       const serpFlag = payload && payload.readiness && payload.readiness.serpApiGoogleJobs;
       const geminiFlag = payload && payload.readiness && payload.readiness.googleTools;
       updateRuntime({
@@ -165,6 +177,17 @@
     return card;
   }
 
+  // Prominent open-in-new-tab link styled as a button — the "go get your
+  // key" step must be one click, not a copy-the-domain scavenger hunt.
+  function safeKeyLink(parent, href, label) {
+    const a = safeCreate("a", "discovery-setup-wizard__keylink", label);
+    a.href = href;
+    a.target = "_blank";
+    a.rel = "noopener";
+    parent.appendChild(a);
+    return a;
+  }
+
   function safeInput(parent, options) {
     const D = dom();
     if (D && typeof D.appendWizardInput === "function") {
@@ -191,8 +214,18 @@
   // ----------------------------------------------------------------------
   function buildSerpApiBody(rt) {
     const container = safeCreate("div", "enhancements-wizard__step");
-    safeParagraph(container, "SerpApi Google Jobs gives you the highest recall — Google's full job index across 100+ ATS platforms.", "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold");
-    safeParagraph(container, "Grab a free key at serpapi.com, paste it below, and we'll wire it into the worker for you — no terminal, no file editing.");
+    if (rt.serpApiStatus === "yes") {
+      safeCallout(container, "✓ SerpApi is connected — Google's job index is feeding your discovery runs.", "success");
+      safeParagraph(container, "Nothing to do here. Hit Continue.");
+      return container;
+    }
+    safeParagraph(container, "SerpApi Google Jobs is the single biggest results upgrade — it taps Google's full job index across 100+ job boards and ATS platforms.", "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold");
+    safeParagraph(container, "Free tier: 100 searches/month — plenty for daily discovery runs. Two clicks and a paste:");
+    safeList(container, [
+      "1. Open SerpApi and sign up (Google login works) — your key is on the first page you land on.",
+      "2. Paste it below and hit Save key — we write it into the worker and restart it for you.",
+    ]);
+    safeKeyLink(container, "https://serpapi.com/manage-api-key", "Get your free SerpApi key ↗");
     safeInput(container, {
       id: "enhancementsSerpApiKeyInput",
       label: "SerpApi API key",
@@ -204,17 +237,26 @@
       },
     });
     const statusText =
-      rt.serpApiStatus === "yes" ? "✓ Configured" :
-      rt.serpApiStatus === "no" ? "Not configured" :
+      rt.serpApiStatus === "no" ? "Not configured yet" :
       "Status unknown — worker may be offline";
-    safeCallout(container, `Worker status: ${statusText}`, rt.serpApiStatus === "yes" ? "success" : "info");
+    safeCallout(container, `Worker status: ${statusText}`, "info");
     return container;
   }
 
   function buildGeminiBody(rt) {
     const container = safeCreate("div", "enhancements-wizard__step");
-    safeParagraph(container, "A Gemini API key powers grounded web-search and the 'Add job from URL' feature inside discovery.", "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold");
-    safeParagraph(container, "Get a free key at aistudio.google.com, paste it below, and we'll wire it into the worker for you — no terminal, no file editing.");
+    if (rt.geminiStatus === "yes") {
+      safeCallout(container, "✓ Gemini is connected — grounded web-search and 'Add job from URL' are live.", "success");
+      safeParagraph(container, "Nothing to do here. Hit Continue.");
+      return container;
+    }
+    safeParagraph(container, "A Gemini key unlocks two discovery superpowers: grounded web-search (finds roles the job boards miss) and instant 'Add job from URL' parsing.", "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold");
+    safeParagraph(container, "Free tier from Google AI Studio — no card needed. Two clicks and a paste:");
+    safeList(container, [
+      "1. Open Google AI Studio (sign in with any Google account) and hit “Create API key”.",
+      "2. Paste it below and hit Save key — we write it into the worker and restart it for you.",
+    ]);
+    safeKeyLink(container, "https://aistudio.google.com/apikey", "Get your free Gemini key ↗");
     safeInput(container, {
       id: "enhancementsGeminiKeyInput",
       label: "Gemini API key (discovery worker)",
@@ -226,10 +268,9 @@
       },
     });
     const statusText =
-      rt.geminiStatus === "yes" ? "✓ Configured" :
-      rt.geminiStatus === "no" ? "Not configured" :
+      rt.geminiStatus === "no" ? "Not configured yet" :
       "Status unknown — worker may be offline";
-    safeCallout(container, `Worker status: ${statusText}`, rt.geminiStatus === "yes" ? "success" : "info");
+    safeCallout(container, `Worker status: ${statusText}`, "info");
     return container;
   }
 
@@ -274,9 +315,17 @@
   // Actions for each step
   // ----------------------------------------------------------------------
   function buildStepActions(stepId, rt) {
-    const void_ = void rt;
-    void void_;
+    const r = rt || getRuntime();
+    // Status-aware: once the worker reports the key configured there's
+    // nothing to save or skip — Continue leads. Until then, Save key leads
+    // and Re-check only refreshes the badge (it never advances).
     if (stepId === "serp_api") {
+      if (r.serpApiStatus === "yes") {
+        return [
+          { id: "enhancements_serp_api_next", label: "Continue", variant: "primary" },
+          { id: "enhancements_serp_api_done", label: "Re-check status", variant: "ghost" },
+        ];
+      }
       return [
         { id: "enhancements_serp_save_key", label: "Save key", variant: "primary" },
         { id: "enhancements_serp_api_done", label: "Re-check status", variant: "secondary" },
@@ -284,6 +333,12 @@
       ];
     }
     if (stepId === "gemini") {
+      if (r.geminiStatus === "yes") {
+        return [
+          { id: "enhancements_gemini_next", label: "Continue", variant: "primary" },
+          { id: "enhancements_gemini_done", label: "Re-check status", variant: "ghost" },
+        ];
+      }
       return [
         { id: "enhancements_gemini_save_key", label: "Save key", variant: "primary" },
         { id: "enhancements_gemini_done", label: "Re-check status", variant: "secondary" },
@@ -482,7 +537,14 @@
     }
 
     if (id === "enhancements_serp_api_done") {
+      // Re-check: refresh the badge and STAY — advancing is Continue/Skip's
+      // job (this used to advance regardless of status, so the user never
+      // saw the updated badge).
       await probeHealthStatus();
+      return renderEnhancementsWizard();
+    }
+
+    if (id === "enhancements_serp_api_next") {
       return moveToStep("gemini");
     }
 
@@ -498,6 +560,10 @@
 
     if (id === "enhancements_gemini_done") {
       await probeHealthStatus();
+      return renderEnhancementsWizard();
+    }
+
+    if (id === "enhancements_gemini_next") {
       return moveToStep("ai_provider");
     }
 
