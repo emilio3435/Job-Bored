@@ -215,7 +215,7 @@
   function buildSerpApiBody(rt) {
     const container = safeCreate("div", "enhancements-wizard__step");
     if (rt.serpApiStatus === "yes") {
-      safeCallout(container, "✓ SerpApi is connected — Google's job index is feeding your discovery runs.", "success");
+      safeCallout(container, "✓ SerpApi is connected — the discovery worker reports a key on file (stored in the worker's env on this machine, not in your browser). Google's job index is feeding your runs.", "success");
       safeParagraph(container, "Nothing to do here. Hit Continue.");
       return container;
     }
@@ -248,7 +248,7 @@
   function buildGeminiBody(rt) {
     const container = safeCreate("div", "enhancements-wizard__step");
     if (rt.geminiStatus === "yes") {
-      safeCallout(container, "✓ Gemini is connected — grounded web-search and 'Add job from URL' are live.", "success");
+      safeCallout(container, "✓ Gemini is connected — the discovery worker reports a key on file (stored in the worker's env on this machine). Grounded web-search and 'Add job from URL' are live.", "success");
       safeParagraph(container, "Nothing to do here. Hit Continue.");
       return container;
     }

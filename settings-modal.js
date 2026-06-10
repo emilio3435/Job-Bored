@@ -554,7 +554,12 @@ async function saveCommandCenterSettingsFromForm() {
   // touch the discovery profile — drawer Run discovery writes it instead.
 
   try {
-    writeStoredConfigOverrides(payload);
+    // MERGE, never replace: a full replace silently wiped every stored
+    // override the form doesn't mirror (the enhancements wizard's Gemini
+    // passthrough, resumeOpenRouterBaseUrl, any future merge-written key).
+    // For form-covered fields merge behaves identically — an emptied field
+    // still overwrites with "".
+    mergeStoredConfigOverridePatch(payload);
   } catch (e) {
     if (err) {
       err.textContent =
