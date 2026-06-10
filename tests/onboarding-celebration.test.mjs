@@ -277,6 +277,8 @@ describe("playOnboardingCelebration — persistent, CTA-driven handoff", () => {
     const overlay = makeCelebrationEl();
     const confetti = makeCelebrationEl();
     const cta = withCta ? makeCelebrationEl() : null;
+    const title = makeCelebrationEl();
+    const sub = makeCelebrationEl();
     const timers = [];
     const window = { JobBoredApp: { core: { host: {} } } };
     const document = {
@@ -287,7 +289,11 @@ describe("playOnboardingCelebration — persistent, CTA-driven handoff", () => {
             ? confetti
             : id === "onboardingCelebrationContinue"
               ? cta
-              : null,
+              : id === "onboardingCelebrationTitle"
+                ? title
+                : id === "onboardingCelebrationSub"
+                  ? sub
+                  : null,
       createElement: () => makeCelebrationEl(),
     };
     const ctx = {
@@ -305,7 +311,7 @@ describe("playOnboardingCelebration — persistent, CTA-driven handoff", () => {
     const drainTimers = () => {
       while (timers.length) timers.shift().fn();
     };
-    return { onboarding: window.JobBoredApp.onboarding, overlay, cta, timers, drainTimers };
+    return { onboarding: window.JobBoredApp.onboarding, overlay, cta, title, sub, timers, drainTimers };
   }
 
   it("persists: no timer-driven dismissal is scheduled, and the CTA gets focus", () => {
@@ -358,6 +364,49 @@ describe("playOnboardingCelebration — persistent, CTA-driven handoff", () => {
     const openTag = indexHtml.slice(indexHtml.lastIndexOf("<div", i), indexHtml.indexOf(">", i) + 1);
     assert.match(openTag, /role="dialog"/, "the celebration is interactive now — a dialog, not a status flash");
   });
+
+describe("celebration — one beat between every MAJOR stage (parameterized)", () => {
+  it("stage 'devices' retitles the overlay and CTA (discovery → other devices)", () => {
+    const env = loadCelebration();
+    env.onboarding.playOnboardingCelebration(() => {}, "devices");
+    assert.equal(env.title.textContent, "Discovery is live!");
+    assert.equal(env.cta.textContent, "Set up other devices →");
+    assert.match(env.sub.textContent, /optional step/i);
+  });
+
+  it("stage 'profile' celebrates the workspace milestone (sheet/oauth → profile)", () => {
+    const env = loadCelebration();
+    env.onboarding.playOnboardingCelebration(() => {}, "profile");
+    assert.equal(env.title.textContent, "Workspace connected!");
+    assert.equal(env.cta.textContent, "Build your profile →");
+  });
+
+  it("no stage argument keeps today's profile-finish copy (backward compatible)", () => {
+    const env = loadCelebration();
+    env.onboarding.playOnboardingCelebration(() => {});
+    assert.equal(env.title.textContent, "Profile set!");
+    assert.equal(env.cta.textContent, "Set up job discovery →");
+  });
+
+  it("first-run's Continue plays the 'profile' stage beat before the dashboard handoff", () => {
+    const src = readFileSync(join(repoRoot, "first-run-wizard.js"), "utf8");
+    const idx = src.indexOf('getEl("firstRunDoneToDashboard")');
+    assert.ok(idx !== -1);
+    const body = src.slice(idx, idx + 1400);
+    assert.match(body, /playOnboardingCelebration\(proceed, "profile"\)/);
+    assert.match(body, /handleFirstRunDoneOpenDiscovery/, "the CTA still owns the existing handoff");
+  });
+
+  it("discovery's Continue plays the 'devices' stage beat whose CTA runs the single go-live opener", () => {
+    const src = readFileSync(join(repoRoot, "discovery-wizard-ui.js"), "utf8");
+    const idx = src.indexOf('actionId === "wizard_continue_devices"');
+    assert.ok(idx !== -1);
+    const body = src.slice(idx, idx + 1600);
+    assert.match(body, /suppressGoLiveAutoOpen: true/, "the auto-chain is suppressed — the celebration CTA owns the open");
+    assert.match(body, /playOnboardingCelebration\(proceed, "devices"\)/);
+    assert.match(body, /recommendGoLiveAfterDiscoveryFinish/, "the CTA reuses the SAME single opener (no double-open)");
+  });
+});
 });
 
 describe("onboarding gate — hidden attribute must actually hide it (CSS cascade)", () => {
