@@ -212,21 +212,32 @@ describe("discovery-wizard-ui — runDiscoveryTailscaleAutoSetup (one-click Tail
   // verification the manual path uses (persists + advances to Done). Human
   // input only where physically unavoidable (install / sign-in), surfaced as
   // drafts.tailscaleAutoState so the endpoint card renders guidance.
-  function autoSetupEnv({ tailscale, workerUp = true, serve } = {}) {
+  function autoSetupEnv({ tailscale, workerUp = true, serve, secret, verifyResult } = {}) {
     const { window, ui } = loadDiscoveryUi();
     const fetched = [];
-    let drafts = {};
+    const runtime = { drafts: {}, snapshot: {}, state: {} };
     window.JobBoredDiscoveryWizard.ui.host = {
       updateDiscoveryWizardRuntime: (patch) => {
-        if (patch && patch.drafts) drafts = { ...drafts, ...patch.drafts };
-        return { drafts };
+        if (patch && patch.drafts) {
+          runtime.drafts = { ...runtime.drafts, ...patch.drafts };
+          const { drafts: _d, ...rest } = patch;
+          Object.assign(runtime, rest);
+        } else if (patch) {
+          Object.assign(runtime, patch);
+        }
+        return runtime;
       },
-      getDiscoveryWizardRuntime: () => ({ drafts, snapshot: {}, state: {} }),
+      getDiscoveryWizardRuntime: () => runtime,
     };
     const fetchImpl = async (url, opts = {}) => {
       fetched.push({ url: String(url), method: opts.method || "GET", body: opts.body || null });
       if (String(url).includes("tailscale-state")) {
         return { ok: true, json: async () => tailscale };
+      }
+      if (String(url).includes("discovery-webhook-secret")) {
+        return secret
+          ? { ok: true, json: async () => secret }
+          : { ok: false, json: async () => ({}) };
       }
       if (String(url).includes("discovery-state")) {
         return { ok: true, json: async () => ({ ok: true, worker: { up: workerUp } }) };
@@ -245,7 +256,12 @@ describe("discovery-wizard-ui — runDiscoveryTailscaleAutoSetup (one-click Tail
       ui._internal.runDiscoveryTailscaleAutoSetup({
         fetchImpl,
         verify: async (url, context) => {
-          verified.push({ url, context });
+          verified.push({
+            url,
+            context,
+            secretAtVerify: (runtime.drafts && runtime.drafts.endpointSecret) || "",
+          });
+          if (verifyResult !== undefined) runtime.lastVerificationResult = verifyResult;
           return null;
         },
         render: () => {
@@ -253,7 +269,7 @@ describe("discovery-wizard-ui — runDiscoveryTailscaleAutoSetup (one-click Tail
           return null;
         },
       });
-    return { run, fetched, verified, getDrafts: () => drafts };
+    return { run, fetched, verified, runtime, getDrafts: () => runtime.drafts };
   }
 
   it("happy path: serves 8644 and verifies the derived /webhook URL (zero terminal steps)", async () => {
@@ -306,5 +322,74 @@ describe("discovery-wizard-ui — runDiscoveryTailscaleAutoSetup (one-click Tail
     await env.run();
     assert.equal(env.getDrafts().tailscaleAutoState, "failed");
     assert.equal(env.verified.length, 0);
+  });
+  // ---- secret autofill + honest verify outcome ----
+  // The 401 killer: the worker fail-closes without the shared secret, and the
+  // dashboard had nothing saved — so verification 401'd and the status card
+  // hung on "Working on it…". The chain now resolves the secret server-side
+  // (same resolve-or-generate helper the local bootstrap uses) and reconciles
+  // the status card with the verification outcome.
+  const happy = {
+    tailscale: { installed: true, loggedIn: true },
+    serve: { ok: true, url: "https://mac.tailnet.ts.net" },
+  };
+
+  it("autofills the worker secret server-side so verification authenticates (nothing to paste)", async () => {
+    const env = autoSetupEnv({
+      ...happy,
+      secret: { ok: true, secret: "s3cr3t", source: "env_file", wrote: false },
+      verifyResult: { ok: true },
+    });
+    await env.run();
+    assert.equal(env.verified.length, 1);
+    assert.equal(
+      env.verified[0].secretAtVerify,
+      "s3cr3t",
+      "the resolved secret must ride along with the verification",
+    );
+    assert.equal(
+      env.getDrafts().tailscaleAutoState,
+      "",
+      "a successful verification clears the status card",
+    );
+  });
+
+  it("a freshly GENERATED secret forces a worker (re)boot so the worker loads it", async () => {
+    const env = autoSetupEnv({
+      ...happy,
+      workerUp: true, // up, but started BEFORE the secret existed
+      secret: { ok: true, secret: "fresh", source: "generated", wrote: true },
+      verifyResult: { ok: true },
+    });
+    await env.run();
+    const boot = env.fetched.find((f) => f.url.includes("full-boot"));
+    assert.ok(boot, "must reboot the worker to pick up the new secret");
+    assert.match(boot.url, /skip_tunnel=1/);
+  });
+
+  it("a failed verification surfaces honestly instead of hanging on 'Working on it…'", async () => {
+    const env = autoSetupEnv({
+      ...happy,
+      secret: { ok: true, secret: "s3cr3t", source: "env_file", wrote: false },
+      verifyResult: { ok: false, message: "Unauthorized (401) — the worker rejected the request." },
+    });
+    await env.run();
+    assert.equal(env.getDrafts().tailscaleAutoState, "failed");
+    assert.match(
+      env.getDrafts().tailscaleAutoDetail,
+      /Unauthorized/,
+      "the card must carry the verification failure, not a perpetual spinner",
+    );
+  });
+
+  it("never overwrites a secret the user already typed", async () => {
+    const env = autoSetupEnv({
+      ...happy,
+      secret: { ok: true, secret: "resolved", source: "env_file", wrote: false },
+      verifyResult: { ok: true },
+    });
+    env.runtime.drafts.endpointSecret = "user-typed";
+    await env.run();
+    assert.equal(env.verified[0].secretAtVerify, "user-typed");
   });
 });

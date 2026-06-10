@@ -294,3 +294,23 @@ describe("/__proxy/full-boot — skip_tunnel (worker-only boot for the Tailscale
     );
   });
 });
+
+describe("/__proxy/discovery-webhook-secret — server-side secret resolution", () => {
+  // Live GETs would resolve-or-GENERATE into the user's worker env file, so
+  // the contract is pinned at the source level (same rationale as full-boot).
+  it("dev-server exposes a localhost-gated GET that reuses the bootstrap's resolveWebhookSecret", async () => {
+    const { readFileSync } = await import("node:fs");
+    const devServerSrc = readFileSync(new URL("../dev-server.mjs", import.meta.url), "utf8");
+    assert.match(
+      devServerSrc,
+      /resolveWebhookSecret/,
+      "must reuse the bootstrap script's resolve-or-generate helper (no duplicate secret logic)",
+    );
+    assert.match(devServerSrc, /\/__proxy\/discovery-webhook-secret/);
+    const handlerIdx = devServerSrc.indexOf("function handleDiscoveryWebhookSecret");
+    assert.ok(handlerIdx !== -1, "handler must exist");
+    const body = devServerSrc.slice(handlerIdx, handlerIdx + 1200);
+    assert.match(body, /isLocalOrigin/, "the secret must never leave localhost");
+    assert.match(body, /wrote/, "callers need to know when the secret was freshly generated (worker reboot)");
+  });
+});
