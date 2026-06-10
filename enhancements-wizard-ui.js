@@ -408,13 +408,13 @@
     }
     if (stepId === "more_optional") {
       return [
-        { id: "enhancements_more_next", label: "Next", variant: "primary" },
+        { id: "enhancements_more_next", label: "Continue", variant: "primary" },
         { id: "enhancements_more_skip", label: "Skip", variant: "ghost" },
       ];
     }
     if (stepId === "done") {
       return [
-        { id: "enhancements_finish", label: "Done", variant: "primary" },
+        { id: "enhancements_finish", label: "Finish", variant: "primary" },
       ];
     }
     return [];
