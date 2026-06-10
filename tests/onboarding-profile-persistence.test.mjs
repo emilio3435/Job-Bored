@@ -582,3 +582,30 @@ describe("UserContent Store API surface", () => {
     );
   });
 });
+
+describe("resume reader — no runtime CDN dependency (vendored libs)", () => {
+  // Evidence: the 1MB pdf.js worker was lazily fetched from cdnjs at FIRST
+  // PARSE — every cold cache paid a third-party fetch mid-upload ("Reading…"
+  // hangs on filtered/slow networks), contradicting the step's "Stays in
+  // your browser" promise and breaking firewalled OSS users.
+  it("index.html loads pdf.js + mammoth from vendor/, not a CDN", () => {
+    assert.ok(
+      !/cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net/.test(indexHtml),
+      "no runtime third-party CDN script tags",
+    );
+    assert.match(indexHtml, /vendor\/pdf\.min\.js/);
+    assert.match(indexHtml, /vendor\/mammoth\.browser\.min\.js/);
+  });
+  it("resume-ingest points the pdf worker at the vendored copy", () => {
+    const src = readFileSync(join(repoRoot, "resume-ingest.js"), "utf8");
+    assert.ok(!src.includes("cdnjs.cloudflare.com"), "worker must not come from a CDN");
+    assert.match(src, /vendor\/pdf\.worker\.min\.js/);
+  });
+  it("the vendored files exist and are non-trivial", () => {
+    for (const f of ["vendor/pdf.min.js", "vendor/pdf.worker.min.js", "vendor/mammoth.browser.min.js"]) {
+      assert.ok(existsSync(join(repoRoot, f)), `${f} must exist`);
+      const size = readFileSync(join(repoRoot, f)).length;
+      assert.ok(size > 100000, `${f} must be the real library (got ${size}B)`);
+    }
+  });
+});

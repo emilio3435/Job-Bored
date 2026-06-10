@@ -4,8 +4,11 @@
    ============================================ */
 
 (function () {
-  const PDF_WORKER_SRC =
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  // Vendored locally — the worker is fetched lazily at FIRST PARSE, so a CDN
+  // here meant every cold cache paid a 1MB third-party download mid-upload
+  // ("Reading…" hangs on filtered/slow networks). Local = disk-fast, offline-
+  // safe, and honest about the step's "Stays in your browser" promise.
+  const PDF_WORKER_SRC = "vendor/pdf.worker.min.js";
 
   function ensurePdfWorker() {
     const pdfjs =
