@@ -953,3 +953,23 @@ describe("enhancements wizard — Gemini key passes through to AI Providers sett
     assert.equal(env.merges.length, 0);
   });
 });
+
+describe("settings save — MERGES overrides (never wipes wizard-written keys)", () => {
+  it("saveCommandCenterSettingsFromForm merges the payload instead of replacing the whole override store", () => {
+    // writeStoredConfigOverrides(payload) REPLACED the entire stored override
+    // object with just the form's fields — silently wiping every override the
+    // form doesn't mirror: the wizard's Gemini passthrough if the modal was
+    // populated before the wizard saved, resumeOpenRouterBaseUrl on EVERY
+    // save, and any future merge-written key. Save must merge.
+    const src = readRepo("settings-modal.js");
+    const start = src.indexOf("async function saveCommandCenterSettingsFromForm");
+    assert.ok(start !== -1);
+    const nextFn = src.indexOf("\nasync function ", start + 1);
+    const body = src.slice(start, nextFn === -1 ? src.length : nextFn);
+    assert.match(body, /mergeStoredConfigOverridePatch\(payload\)/, "save must MERGE the form payload");
+    assert.ok(
+      !/writeStoredConfigOverrides\(payload\)/.test(body),
+      "the full-replace write must be gone from the save path (greenfield mask keeps its own replace)",
+    );
+  });
+});
