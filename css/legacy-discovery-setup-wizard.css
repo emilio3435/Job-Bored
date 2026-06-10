@@ -1498,3 +1498,26 @@
   font-weight: 600;
   color: var(--jb-mint-deep, #2f8a5a);
 }
+
+/* ============================================================
+   Delight pass: ONE entrance signature for every wizard surface.
+   Curve cubic-bezier(0.16, 1, 0.3, 1) at 0.32s — the same motion
+   the celebration card uses, so each chapter of setup arrives
+   the same way. The shell used to hard-pop.
+   ============================================================ */
+@keyframes jbWizardIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+}
+
+.discovery-setup-wizard__panel {
+  animation: jbWizardIn 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .discovery-setup-wizard__panel {
+    animation: none !important;
+  }
+}

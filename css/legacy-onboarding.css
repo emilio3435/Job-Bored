@@ -130,7 +130,7 @@
 }
 
 .onboarding-panel {
-  animation: onboardingPanelIn 0.28s var(--ease) both;
+  animation: onboardingPanelIn 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes onboardingPanelIn {
