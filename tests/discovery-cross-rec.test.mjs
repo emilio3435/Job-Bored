@@ -463,3 +463,12 @@ describe("discovery-wizard-ui — detect checklist is flow-conditional (P1)", ()
     assert.ok(relayIdx > guardIdx, "relay row inside the guard");
   });
 });
+
+describe("discovery-wizard-ui — continuity chrome (journey strip + mascot)", () => {
+  it("renderDiscoverySetupWizard passes journeyStage discovery + a mascot to the shell", () => {
+    const start = discoveryWizardUiJs.indexOf("function renderDiscoverySetupWizard");
+    const body = discoveryWizardUiJs.slice(start, start + 1600);
+    assert.match(body, /journeyStage:\s*"discovery"/);
+    assert.match(body, /mascotSrc/);
+  });
+});

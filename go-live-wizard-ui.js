@@ -889,6 +889,10 @@
       headerTitle: HEADER_TITLE,
       title: TITLE,
       lede: LEDE,
+      // Continuity chrome: same journey strip + mascot family as discovery.
+      journeyStage: "devices",
+      mascotSrc:
+        "assets/jobbored-brand-mascot-kit/exports/04-mascot-poses/pose-03-writing-notes.webp",
       steps: buildGoLiveWizardSteps(rt),
       activeStepId: rt.activeStepId,
       state: rt.state,

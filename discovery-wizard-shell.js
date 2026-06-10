@@ -662,6 +662,14 @@
         typeof input.onStateChange === "function" ? input.onStateChange : null,
       onRender: typeof input.onRender === "function" ? input.onRender : null,
       open: input.open !== false,
+      // Continuity chrome (setup tracks only): a persistent journey strip
+      // (Profile ✓ → Job discovery → Other devices) + a mascot thumb so the
+      // shell wizards read as chapters of ONE setup flow. Both render only
+      // when the consumer opts in.
+      journeyStage: ["discovery", "devices"].includes(input.journeyStage)
+        ? input.journeyStage
+        : "",
+      mascotSrc: asString(input.mascotSrc, ""),
     };
   }
 
@@ -1314,6 +1322,51 @@
     return footer;
   }
 
+  /**
+   * Continuity chrome: the three-stage setup journey (Profile → Job
+   * discovery → Other devices) rendered as a small strip under the header,
+   * with everything before the current stage marked done. Returns null when
+   * the consumer didn't opt in (non-setup uses of the shell are unchanged).
+   */
+  function renderJourneyStrip(context) {
+    if (!context.journeyStage) return null;
+    const stages = [
+      { key: "profile", label: "Profile" },
+      { key: "discovery", label: "Job discovery" },
+      { key: "devices", label: "Other devices" },
+    ];
+    const currentIdx = stages.findIndex((s) => s.key === context.journeyStage);
+    const strip = createEl("ol", "discovery-setup-wizard__journey", {
+      "aria-label": "Setup progress",
+    });
+    stages.forEach((stage, idx) => {
+      const state =
+        idx < currentIdx ? "done" : idx === currentIdx ? "current" : "next";
+      const item = createEl(
+        "li",
+        `discovery-setup-wizard__journey-step${
+          state === "done"
+            ? " discovery-setup-wizard__journey-step--done"
+            : state === "current"
+              ? " discovery-setup-wizard__journey-step--current"
+              : ""
+        }`,
+        state === "current" ? { "aria-current": "step" } : {},
+      );
+      item.append(
+        createEl(
+          "span",
+          "discovery-setup-wizard__journey-dot",
+          { "aria-hidden": "true" },
+          state === "done" ? "✓" : String(idx + 1),
+        ),
+        createEl("span", "", {}, ` ${stage.label}`),
+      );
+      strip.appendChild(item);
+    });
+    return strip;
+  }
+
   function renderRoot(context) {
     const shellEl = createEl("div", "discovery-setup-wizard", {
       role: "dialog",
@@ -1337,6 +1390,16 @@
 
     const header = createEl("header", "discovery-setup-wizard__header");
     const titleBlock = createEl("div", "discovery-setup-wizard__title-block");
+    if (context.mascotSrc) {
+      titleBlock.appendChild(
+        createEl("img", "discovery-setup-wizard__mascot-thumb", {
+          src: context.mascotSrc,
+          alt: "",
+          "aria-hidden": "true",
+          decoding: "async",
+        }),
+      );
+    }
     const title = createEl(
       "h2",
       "discovery-setup-wizard__title",
@@ -1364,8 +1427,10 @@
     const body = createEl("div", "discovery-setup-wizard__body");
     body.append(renderStepFrame(context));
 
+    const journeyStrip = renderJourneyStrip(context);
     panel.append(
       header,
+      ...(journeyStrip ? [journeyStrip] : []),
       renderStepNavigation(context),
       body,
       renderFooter(context),

@@ -2081,6 +2081,11 @@ async function renderDiscoverySetupWizard(options = {}) {
   return shell.renderWizardShell({
     title: "Discovery setup wizard",
     lede: "Connect your job discovery pipeline in a few steps.",
+    // Continuity chrome: the setup journey strip + mascot tie this wizard to
+    // the profile wizard's visual language (one flow, not a different app).
+    journeyStage: "discovery",
+    mascotSrc:
+      "assets/jobbored-brand-mascot-kit/exports/04-mascot-poses/pose-01-laptop-thinking.webp",
     snapshot: runtime.snapshot,
     state: runtime.state,
     steps: buildDiscoveryWizardSteps(runtime),

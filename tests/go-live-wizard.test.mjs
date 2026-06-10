@@ -998,3 +998,14 @@ describe("go-live wizard — module + bridge surface", () => {
     assert.match(appJs, /\brequestGoLiveSetup,/);
   });
 });
+
+describe("go-live wizard — continuity chrome (journey strip + mascot)", () => {
+  it("renders with journeyStage devices and a mascot", async () => {
+    const { api, renderCalls } = loadGoLive({
+      host: { isOnboardingWizardVisible: () => false },
+    });
+    await api.openGoLiveSetupWizard();
+    assert.equal(renderCalls[0].journeyStage, "devices");
+    assert.match(String(renderCalls[0].mascotSrc || ""), /pose-/);
+  });
+});
