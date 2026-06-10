@@ -269,3 +269,28 @@ describe("full-boot stale port cleanup", () => {
     assert.deepEqual(killedPids, []);
   });
 });
+
+describe("/__proxy/full-boot — skip_tunnel (worker-only boot for the Tailscale path)", () => {
+  // Live-invoking full-boot would kill real ports (8644/4040) on dev
+  // machines, so this contract is pinned at the source level like the other
+  // risky POST paths in this file.
+  it("skip_tunnel=1 returns after start_worker without delegating to fix-setup", async () => {
+    const { readFileSync } = await import("node:fs");
+    const devServerSrc = readFileSync(new URL("../dev-server.mjs", import.meta.url), "utf8");
+    const start = devServerSrc.indexOf("async function handleFullBoot");
+    assert.ok(start !== -1, "handleFullBoot must exist");
+    const body = devServerSrc.slice(start, devServerSrc.indexOf("\n}\n", start));
+    const skipIdx = body.indexOf('skip_tunnel');
+    assert.ok(skipIdx !== -1, "handleFullBoot must support the skip_tunnel query param");
+    const fixIdx = body.indexOf("handleFixSetup");
+    assert.ok(
+      skipIdx < fixIdx,
+      "the skip_tunnel early-return must short-circuit BEFORE the ngrok/relay fix-setup delegation",
+    );
+    assert.match(
+      body.slice(skipIdx, skipIdx + 400),
+      /ok:\s*true,\s*phases/,
+      "the worker-only path must still report its phases",
+    );
+  });
+});
