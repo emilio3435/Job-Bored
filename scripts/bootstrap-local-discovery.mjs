@@ -1834,6 +1834,7 @@ export {
   resolveWebhookSecret,
   generateWebhookSecret,
   writeWebhookSecretToEnvFile,
+  upsertBrowserUseDiscoveryEnvValue,
   browserUseDiscoveryEnvPath,
   WEBHOOK_SECRET_ENV_KEY,
   pickNgrokPublicUrl,

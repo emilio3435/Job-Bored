@@ -13,7 +13,10 @@ import {
   deriveTailnetDashboardUrl,
   runTailscaleServe,
 } from "./scripts/lib/tailscale.mjs";
-import { resolveWebhookSecret } from "./scripts/bootstrap-local-discovery.mjs";
+import {
+  resolveWebhookSecret,
+  upsertBrowserUseDiscoveryEnvValue,
+} from "./scripts/bootstrap-local-discovery.mjs";
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -1212,6 +1215,68 @@ function handleDiscoveryWebhookSecret(req, res) {
   }
 }
 
+/**
+ * Localhost-only: write ONE allowlisted enhancement key into the discovery
+ * worker's env file (the wizard's in-place key entry — no terminal, no file
+ * editing). Strictly a closed set: anything outside the allowlist is a 400.
+ * Callers reboot the worker afterwards so it loads the new key.
+ */
+const DISCOVERY_ENV_KEY_ALLOWLIST = new Set([
+  "SERPAPI_API_KEY",
+  "BROWSER_USE_DISCOVERY_GEMINI_API_KEY",
+]);
+
+async function handleDiscoveryEnvKey(req, res) {
+  const corsHeaders = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  };
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  let body = {};
+  try {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    const parsed = raw ? JSON.parse(raw) : {};
+    body =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed
+        : {};
+  } catch (_) {
+    body = {};
+  }
+  const key = String(body.key || "").trim();
+  const value = String(body.value || "").trim();
+  if (!DISCOVERY_ENV_KEY_ALLOWLIST.has(key)) {
+    res.writeHead(400, corsHeaders);
+    res.end(
+      JSON.stringify({ ok: false, reason: "key_not_allowed", key }),
+    );
+    return;
+  }
+  if (!value) {
+    res.writeHead(400, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "empty_value" }));
+    return;
+  }
+  try {
+    const result = upsertBrowserUseDiscoveryEnvValue(key, value);
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ ok: true, key, mode: result && result.mode }));
+  } catch (e) {
+    res.writeHead(500, corsHeaders);
+    res.end(
+      JSON.stringify({
+        ok: false,
+        message: e && e.message ? e.message : String(e),
+      }),
+    );
+  }
+}
+
 async function handleTailscaleState(req, res) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, {
@@ -1994,6 +2059,20 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       pathname === "/__proxy/discovery-webhook-secret"
     ) {
       handleDiscoveryWebhookSecret(req, res);
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/__proxy/discovery-env-key") {
+      handleDiscoveryEnvKey(req, res).catch((err) => {
+        logError("  discovery-env-key error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, {
+            "content-type": "application/json",
+            "access-control-allow-origin": "*",
+          });
+          res.end(JSON.stringify({ ok: false }));
+        }
+      });
       return;
     }
 

@@ -660,3 +660,138 @@ describe("enhancements wizard — bridge-registry wiring", () => {
     }
   });
 });
+
+describe("enhancements wizard — in-wizard key entry + working deep-link", () => {
+  // The drawer deep-link was a dead button (openDrawerToSubtab never exported
+  // on the adapters namespace, and the z-9 drawer opened BEHIND the z-3200
+  // wizard shell). The primary path is now in-wizard: paste the key, we write
+  // it into the worker env server-side, reboot the worker (tunnel-free), and
+  // re-poll /health so the badge flips. The deep-link stays as the secondary
+  // escape hatch and must close the wizard shell first so the drawer is
+  // actually visible.
+  const adaptersJs = readFileSync(
+    join(repoRoot, "settings-discovery-adapters.js"),
+    "utf8",
+  );
+
+  it("settings-discovery-adapters EXPORTS openDrawerToSubtab (the compat shim reads it)", () => {
+    const exportIdx = adaptersJs.indexOf("window.JobBoredSettingsDiscoveryAdapters = {");
+    assert.ok(exportIdx !== -1);
+    const block = adaptersJs.slice(exportIdx, adaptersJs.indexOf("};", exportIdx));
+    assert.match(
+      block,
+      /openDrawerToSubtab/,
+      "app-compat reads adapters.openDrawerToSubtab — a missing export silently no-ops every deep-link",
+    );
+  });
+
+  it("the drawer deep-link closes the wizard shell FIRST (the drawer renders below it)", async () => {
+    const order = [];
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      openDrawerToSubtab: (subtab) => order.push(`drawer:${subtab}`),
+    };
+    const shellApi = {
+      renderWizardShell: () => ({}),
+      closeWizardShell: (reason) => order.push(`close:${reason}`),
+    };
+    const { api } = loadEnhancements({ host, shellApi });
+    await api.openEnhancementsWizard();
+    await api.handleAction("enhancements_serp_api_open_drawer");
+    assert.deepEqual(
+      order,
+      ["close:deep_link", "drawer:sources"],
+      "the z-9 drawer is invisible under the z-3200 shell — close first, then open",
+    );
+  });
+
+  function makeSaveFetch({ envKeyOk = true } = {}) {
+    const calls = [];
+    const fetchImpl = async (url, opts = {}) => {
+      calls.push({ url: String(url), method: opts.method || "GET", body: opts.body || null });
+      if (String(url).includes("discovery-env-key")) {
+        return { ok: envKeyOk, json: async () => ({ ok: envKeyOk }) };
+      }
+      if (String(url).includes("full-boot")) {
+        return { ok: true, json: async () => ({ ok: true, phases: [] }) };
+      }
+      if (String(url).includes("/health")) {
+        return {
+          ok: true,
+          json: async () => ({
+            readiness: {
+              serpApiGoogleJobs: { configured: true },
+              googleTools: { configured: true },
+            },
+          }),
+        };
+      }
+      return { ok: false, json: async () => ({}) };
+    };
+    return { calls, fetchImpl };
+  }
+
+  const saveHost = {
+    isOnboardingWizardVisible: () => false,
+    isFirstRunWizardVisible: () => false,
+    getDiscoveryReadinessSnapshot: () => ({ savedWebhookUrl: "http://127.0.0.1:8644/webhook" }),
+  };
+
+  it("saving the SerpApi key writes it server-side, reboots the worker tunnel-free, and re-polls status", async () => {
+    const { calls, fetchImpl } = makeSaveFetch();
+    const { api } = loadEnhancements({ fetchImpl, host: saveHost });
+    await api.openEnhancementsWizard();
+    api._internal.updateRuntime({ serpApiKeyDraft: "serp-key-123" });
+    await api.handleAction("enhancements_serp_save_key");
+    const envCall = calls.find((c) => c.url.includes("discovery-env-key"));
+    assert.ok(envCall, "must POST the key to the env endpoint");
+    assert.equal(envCall.method, "POST");
+    assert.match(envCall.body, /SERPAPI_API_KEY/);
+    assert.match(envCall.body, /serp-key-123/);
+    const bootIdx = calls.findIndex((c) => c.url.includes("full-boot"));
+    assert.ok(bootIdx !== -1, "must reboot the worker so it loads the key");
+    assert.match(calls[bootIdx].url, /skip_tunnel=1/);
+    assert.ok(
+      calls.some((c) => c.url.includes("/health")),
+      "must re-poll /health so the badge flips to configured",
+    );
+    assert.equal(
+      api._internal.getRuntime().serpApiKeyDraft,
+      "",
+      "the pasted key must not linger in the runtime",
+    );
+    assert.equal(api._internal.getRuntime().serpApiStatus, "yes");
+  });
+
+  it("saving the Gemini key targets the worker's Gemini env var", async () => {
+    const { calls, fetchImpl } = makeSaveFetch();
+    const { api } = loadEnhancements({ fetchImpl, host: saveHost });
+    await api.openEnhancementsWizard();
+    api._internal.updateRuntime({ geminiKeyDraft: "gem-key-456" });
+    await api.handleAction("enhancements_gemini_save_key");
+    const envCall = calls.find((c) => c.url.includes("discovery-env-key"));
+    assert.ok(envCall);
+    assert.match(envCall.body, /BROWSER_USE_DISCOVERY_GEMINI_API_KEY/);
+    assert.match(envCall.body, /gem-key-456/);
+  });
+
+  it("an empty key draft does nothing (no env write, no reboot)", async () => {
+    const { calls, fetchImpl } = makeSaveFetch();
+    const { api } = loadEnhancements({ fetchImpl, host: saveHost });
+    await api.openEnhancementsWizard();
+    await api.handleAction("enhancements_serp_save_key");
+    assert.ok(!calls.some((c) => c.url.includes("discovery-env-key")));
+    assert.ok(!calls.some((c) => c.url.includes("full-boot")));
+  });
+
+  it("a failed env write stops the chain (no reboot) and keeps the draft for retry", async () => {
+    const { calls, fetchImpl } = makeSaveFetch({ envKeyOk: false });
+    const { api } = loadEnhancements({ fetchImpl, host: saveHost });
+    await api.openEnhancementsWizard();
+    api._internal.updateRuntime({ serpApiKeyDraft: "serp-key-123" });
+    await api.handleAction("enhancements_serp_save_key");
+    assert.ok(!calls.some((c) => c.url.includes("full-boot")), "no reboot on a failed write");
+    assert.equal(api._internal.getRuntime().serpApiKeyDraft, "serp-key-123", "draft kept for retry");
+  });
+});
