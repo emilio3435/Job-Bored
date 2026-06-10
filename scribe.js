@@ -48,12 +48,14 @@
     { key: "conf",    label: "Confidence",   help: "Concrete claims" },
   ];
 
-  /** @type {{rendered:boolean, smoke:boolean, debounceTimer:any, lastEditAt:number}} */
+  /** @type {{rendered:boolean, smoke:boolean, debounceTimer:any, lastEditAt:number, refining:boolean, refineBaselineText:string}} */
   const state = {
     rendered: false,
     smoke: false,
     debounceTimer: null,
     lastEditAt: 0,
+    refining: false,
+    refineBaselineText: "",
   };
 
   function isV2() {
@@ -292,6 +294,35 @@
     el.textContent = text;
     if (stateName) el.setAttribute("data-state", stateName);
     else el.removeAttribute("data-state");
+  }
+
+  function finishRefineSuccess() {
+    if (!state.refining) return;
+    state.refining = false;
+    state.refineBaselineText = "";
+    setEditorFromLegacy();
+    scoreFromCurrent();
+    setStatus("refined", "ok");
+  }
+
+  function finishRefineFailure(message) {
+    if (!state.refining) return;
+    state.refining = false;
+    state.refineBaselineText = "";
+    setStatus(message || "refine failed", "busy");
+  }
+
+  function handleLegacyOutputInput() {
+    const ta = getLegacyOutput();
+    if (state.refining && ta && ta.value !== state.refineBaselineText) {
+      finishRefineSuccess();
+      return;
+    }
+    const since = Date.now() - state.lastEditAt;
+    if (since > DEBOUNCE_MS + 50) {
+      setEditorFromLegacy();
+      scoreFromCurrent();
+    }
   }
 
   // ---------------------------------------------------------
@@ -536,16 +567,17 @@
           fb.value = refineInput.value;
           fb.dispatchEvent(new Event("input", { bubbles: true }));
         }
+        const legacyTa = getLegacyOutput();
+        state.refining = true;
+        state.refineBaselineText =
+          legacyTa && typeof legacyTa.value === "string" ? legacyTa.value : "";
         setStatus("refining…", "busy");
         if (clickLegacy("resumeGenerateRefine")) {
-          // After a short delay, snapshot the legacy textarea back
-          // into the editor (refine writes back to #resumeGenerateOutput).
-          window.setTimeout(() => {
-            setEditorFromLegacy();
-            scoreFromCurrent();
-            setStatus("refined", "ok");
-          }, 350);
+          // Refinement is async (LLM). The legacy pipeline writes back to
+          // #resumeGenerateOutput and dispatches input when complete.
         } else {
+          state.refining = false;
+          state.refineBaselineText = "";
           setStatus("refine handler missing", "busy");
         }
       });
@@ -688,15 +720,20 @@
     // (e.g. a fresh generation finished).
     const ta = getLegacyOutput();
     if (ta) {
-      ta.addEventListener("input", () => {
-        // Only mirror back if this update did NOT originate from us.
-        const since = Date.now() - state.lastEditAt;
-        if (since > DEBOUNCE_MS + 50) {
-          setEditorFromLegacy();
-          scoreFromCurrent();
-        }
-      });
+      ta.addEventListener("input", handleLegacyOutputInput);
     }
+    document.addEventListener("jb:resume-refine:finished", (e) => {
+      if (!state.refining) return;
+      const ok = !(e && e.detail && e.detail.ok === false);
+      if (ok) finishRefineSuccess();
+      else {
+        const msg =
+          e && e.detail && e.detail.message
+            ? String(e.detail.message)
+            : "refine failed";
+        finishRefineFailure(msg);
+      }
+    });
 
     const params = new URLSearchParams(window.location.search);
     if (params.get("jb-v2-test") === "scribe") {

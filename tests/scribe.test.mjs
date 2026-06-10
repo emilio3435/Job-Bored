@@ -23,8 +23,8 @@ const scribeJs = readFileSync(join(repoRoot, "scribe.js"), "utf8");
 // than enhancements-wizard's makeFakeDom: it parses the HTML the
 // module emits (hand-rolled — no jsdom in this repo, see
 // tests/kanban-card-attrs.test.mjs). All timers route through
-// window.setTimeout, so a fake clock makes the 600ms debounce, the
-// 350ms refine snapshot, and the 50ms smoke defer deterministic.
+// window.setTimeout, so a fake clock makes the 600ms debounce and the
+// 50ms smoke defer deterministic.
 // location.search stays empty by default so smoke mode never
 // auto-runs unless a test opts in.
 // ============================================================
@@ -302,6 +302,12 @@ function makeDom() {
     addEventListener: (type, fn) => {
       docListeners.push({ type, fn });
     },
+    dispatchEvent(ev) {
+      for (const { type, fn } of docListeners) {
+        if (type === ev.type) fn(ev);
+      }
+      return true;
+    },
   };
 
   return { FakeHTMLElement, FakeElement, makeText, body, document, docListeners };
@@ -434,6 +440,12 @@ function loadScribe({
     setTimeout,
     clearTimeout,
     Event: FakeEvent,
+    CustomEvent: class CustomEvent extends FakeEvent {
+      constructor(type, init = {}) {
+        super(type, init);
+        this.detail = init.detail;
+      }
+    },
     HTMLElement: dom.FakeHTMLElement,
     URLSearchParams,
     performance,
@@ -710,13 +722,16 @@ describe("scribe — toolbar actions bridge to the legacy modal controls", () =>
     assert.ok(env.legacyClicks.includes("resumeGenerateClose"));
   });
 
-  it("Refine pipes the strip's instructions into the legacy feedback textarea, clicks legacy Refine, then snapshots the refined text back into the editor", () => {
+  it("Refine pipes the strip's instructions into the legacy feedback textarea, clicks legacy Refine, then waits for the async legacy output update before mirroring into the editor", () => {
     const env = loadScribe({ legacyText: "First draft." });
     const fbEvents = [];
     env.els.feedback.addEventListener("input", () => fbEvents.push(1));
     env.els.resumeGenerateRefine.addEventListener("click", () => {
-      // The legacy refine flow writes its result back into the textarea.
-      env.els.output.value = "Refined draft with a stronger opener.";
+      // Refinement is async (LLM). Simulate completion several seconds later.
+      env.timers.set(() => {
+        env.els.output.value = "Refined draft with a stronger opener.";
+        env.input(env.els.output);
+      }, 5000);
     });
     env.byId("scribeRefineInput").value = "make it shorter";
     env.byId("scribeRefineBtn").click();
@@ -726,6 +741,12 @@ describe("scribe — toolbar actions bridge to the legacy modal controls", () =>
     assert.ok(env.legacyClicks.includes("resumeGenerateRefine"));
     assert.equal(env.q("[data-scribe-status]").textContent, "refining…");
     assert.equal(env.q("[data-scribe-status]").getAttribute("data-state"), "busy");
+    assert.equal(
+      env.byId("scribeEditor").textContent,
+      "First draft.",
+      "must not claim refined before the legacy pipeline finishes",
+    );
+    assert.equal(env.timers.count(), 1, "no fixed 350ms snapshot — completion waits on legacy output");
 
     env.timers.flush();
     assert.equal(
@@ -735,6 +756,19 @@ describe("scribe — toolbar actions bridge to the legacy modal controls", () =>
     );
     assert.equal(env.q("[data-scribe-status]").textContent, "refined");
     assert.equal(env.q("[data-scribe-status]").getAttribute("data-state"), "ok");
+  });
+
+  it("a failed refine surfaces the legacy error event instead of leaving the status pip stuck on refining", () => {
+    const env = loadScribe({ legacyText: "First draft." });
+    env.byId("scribeRefineInput").value = "tighten";
+    env.byId("scribeRefineBtn").click();
+    assert.equal(env.q("[data-scribe-status]").textContent, "refining…");
+    env.document.dispatchEvent({
+      type: "jb:resume-refine:finished",
+      detail: { ok: false, message: "Provider timeout" },
+    });
+    assert.equal(env.q("[data-scribe-status]").textContent, "Provider timeout");
+    assert.equal(env.byId("scribeEditor").textContent, "First draft.");
   });
 
   it("a missing legacy Refine handler is surfaced honestly in the status pip instead of faking success", () => {

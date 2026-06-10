@@ -707,6 +707,13 @@ async function openResumeGenerateModal(
   ta.value = bodyText || "";
 
   const hasBody = !!(bodyText && String(bodyText).trim());
+  if (!isLoading) {
+    try {
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    } catch (_inputErr) {
+      /* best-effort: v2 scribe mirrors on textarea input */
+    }
+  }
   const isError = !isLoading && !!(statusText && !hasBody);
 
   if (st) {
@@ -1092,6 +1099,18 @@ async function refineLastResumeGeneration() {
       session.job,
     );
     host().showToast(err.message || "Refinement failed", "error", true);
+    try {
+      document.dispatchEvent(
+        new CustomEvent("jb:resume-refine:finished", {
+          detail: {
+            ok: false,
+            message: err.message || "Refinement failed",
+          },
+        }),
+      );
+    } catch (_evtErr) {
+      /* best-effort: v2 scribe listens for refine completion */
+    }
   }
 }
 
