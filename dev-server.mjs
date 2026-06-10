@@ -961,6 +961,15 @@ async function handleFullBoot(req, res, discoveryWorkerStarter, options = {}) {
     return;
   }
 
+  // Tailscale transport: a running worker is all that's needed — tailscale
+  // serve proxies straight to the local worker port, so skip the ngrok
+  // bootstrap + Cloudflare relay phases entirely.
+  if (url.searchParams.get("skip_tunnel") === "1") {
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ ok: true, phases }));
+    return;
+  }
+
   // 3. Hand off to the existing fix-setup flow which bootstraps ngrok and
   //    deploys/refreshes the Cloudflare relay.
   return handleFixSetup(req, res, {
