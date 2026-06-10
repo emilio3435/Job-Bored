@@ -28,3 +28,25 @@ jobs:
       - run: npm run typecheck:repo
       - run: npm test
       - run: npm run test:browser-use-discovery
+
+  # Browser boot-and-visibility smoke (tests/e2e-smoke). Non-blocking: it
+  # reports signal on CSS-cascade/wiring/boot-error regressions but is not a
+  # required check, so flakes never hold up a merge.
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e-smoke
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-smoke-traces
+          path: tests/e2e-smoke/test-results/
+          retention-days: 7
