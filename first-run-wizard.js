@@ -521,6 +521,15 @@
       done.style.display = "block";
       done.setAttribute("aria-hidden", "false");
     }
+    // Sync the wizard chrome: without this the header keeps the LAST step's
+    // title (e.g. "Connect your Sheet") stacked above the done panel's
+    // "Workspace ready" — three conflicting voices on one card.
+    const titleEl = getEl("firstRunWizardTitle");
+    if (titleEl) titleEl.textContent = "You’re connected";
+    const subtitleEl = document.querySelector(
+      "#firstRunWizard .first-run-wizard__subtitle",
+    );
+    if (subtitleEl) subtitleEl.textContent = "Now let’s make JobBored yours.";
     // The wizard is still visible (#firstRunWizard display:flex) so the
     // 700ms refresh loop is still active; refreshFirstRunWizard now
     // short-circuits on isFirstRunDonePanelVisible() and leaves the
@@ -542,6 +551,14 @@
     }
     const progressWrap = getEl("firstRunProgressWrap");
     if (progressWrap) progressWrap.style.display = "";
+    // Restore the default subtitle (the step renderer restores the title,
+    // but nothing else owns the subtitle).
+    const subtitleEl = document.querySelector(
+      "#firstRunWizard .first-run-wizard__subtitle",
+    );
+    if (subtitleEl) {
+      subtitleEl.textContent = "A few quick steps to connect your workspace.";
+    }
   }
 
   /**

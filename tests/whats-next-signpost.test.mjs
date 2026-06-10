@@ -1599,3 +1599,42 @@ describe("first-run wizard — discovery defers to the profile chain (one smooth
     );
   });
 });
+
+describe("flow coherence — copy matches the real setup order (P1)", () => {
+  it("the first-run done panel promises the PROFILE next (not discovery) and syncs its header", () => {
+    // Since the reorder, "Continue setup" opens the profile wizard first;
+    // the old copy promised job discovery next — a lie that made the flow
+    // feel disjointed. The wizard header also kept the last STEP title
+    // ("Connect your Sheet") above "You're connected".
+    assert.ok(
+      !/guide you through job discovery, then/.test(firstRunPartial),
+      "stale discovery-first promise must be gone",
+    );
+    assert.match(
+      firstRunPartial,
+      /profile/i,
+      "the done panel must set the expectation: profile comes next",
+    );
+    const fn = firstRunWizardJs.slice(
+      firstRunWizardJs.indexOf("function showFirstRunDonePanel"),
+      firstRunWizardJs.indexOf("function hideFirstRunDonePanel"),
+    );
+    assert.match(
+      fn,
+      /firstRunWizardTitle/,
+      "the done panel must sync the wizard header instead of showing a stale step title",
+    );
+  });
+
+  it("the setup card frames the remaining tracks as setup, not 'optional next steps'", () => {
+    assert.ok(
+      !/Two optional next\s+steps/.test(indexHtml),
+      "the mandatory flow must not be described as optional",
+    );
+    assert.ok(
+      !/Try the next step/.test(indexHtml),
+      "the card title must read as finishing setup",
+    );
+    assert.match(indexHtml, /Finish setting up/i);
+  });
+});

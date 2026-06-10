@@ -441,3 +441,21 @@ describe("discovery-readiness — verify wrapper forwards custom headers", () =>
     );
   });
 });
+
+describe("discovery-wizard-ui — detect checklist is flow-conditional (P1)", () => {
+  it("ngrok/relay rows are guarded off the Tailscale (external_endpoint) flow", () => {
+    // The step-1 "check" showed "No ngrok tunnel running / Cloudflare relay
+    // deployed" on the Tailscale-first flow — alarms about machinery this
+    // path doesn't use.
+    const start = discoveryWizardUiJs.indexOf("function buildDiscoveryDetectBody");
+    assert.ok(start !== -1);
+    const body = discoveryWizardUiJs.slice(start, start + 4200);
+    assert.match(body, /isExternalFlow/, "the builder must know the active flow");
+    const guardIdx = body.indexOf("if (!isExternalFlow)");
+    assert.ok(guardIdx !== -1, "tunnel/relay rows must sit behind a non-external guard");
+    const ngrokIdx = body.indexOf("No ngrok tunnel running");
+    const relayIdx = body.indexOf("Cloudflare relay deployed");
+    assert.ok(ngrokIdx > guardIdx, "ngrok row inside the guard");
+    assert.ok(relayIdx > guardIdx, "relay row inside the guard");
+  });
+});

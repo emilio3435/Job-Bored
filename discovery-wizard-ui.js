@@ -864,6 +864,13 @@ function buildDiscoveryDetectBody(runtime) {
   const foundItems = [];
   const missingItems = [];
   const localEngineLabel = host().getDiscoveryLocalEngineLabel(snapshot);
+  // The step-1 check is flow-conditional: ngrok/relay rows are local-agent
+  // machinery — on the Tailscale (external_endpoint) flow they read as
+  // alarms about plumbing this path doesn't use.
+  const isExternalFlow =
+    host().mapDiscoveryWizardFlow(
+      (runtime.state && runtime.state.flow) || snapshot.recommendedFlow,
+    ) === "external_endpoint";
 
   if (snapshot.sheetConfigured) {
     foundItems.push("Pipeline sheet connected");
@@ -894,25 +901,31 @@ function buildDiscoveryDetectBody(runtime) {
     }
   }
 
-  if (snapshot.tunnelReady) {
-    foundItems.push("ngrok tunnel active");
-  } else if (snapshot.localWebhookReady) {
-    missingItems.push("No ngrok tunnel running");
-  }
+  if (!isExternalFlow) {
+    if (snapshot.tunnelReady) {
+      foundItems.push("ngrok tunnel active");
+    } else if (snapshot.localWebhookReady) {
+      missingItems.push("No ngrok tunnel running");
+    }
 
-  if (recovery === "tunnel_rotated") {
+    if (recovery === "tunnel_rotated") {
+      missingItems.push(
+        "Relay still points to the previous ngrok URL — redeploy needed",
+      );
+    }
+
+    if (snapshot.relayReady || snapshot.savedWebhookKind === "worker") {
+      foundItems.push("Cloudflare relay deployed");
+    } else if (
+      snapshot.tunnelReady ||
+      snapshot.savedWebhookKind === "local_http"
+    ) {
+      missingItems.push("Relay not deployed yet");
+    }
+  } else if (!snapshot.savedWebhookUrl) {
     missingItems.push(
-      "Relay still points to the previous ngrok URL — redeploy needed",
+      "No stable URL yet — the next steps set one up over Tailscale automatically",
     );
-  }
-
-  if (snapshot.relayReady || snapshot.savedWebhookKind === "worker") {
-    foundItems.push("Cloudflare relay deployed");
-  } else if (
-    snapshot.tunnelReady ||
-    snapshot.savedWebhookKind === "local_http"
-  ) {
-    missingItems.push("Relay not deployed yet");
   }
 
   if (snapshot.savedWebhookKind === "apps_script_stub") {
