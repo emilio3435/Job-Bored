@@ -225,14 +225,36 @@
     }
   }
 
-  function playOnboardingCelebration(onDone, stageKey) {
+  function playOnboardingCelebration(onDone, stageKey, opts) {
+    const options = opts || {};
     const finishCb = typeof onDone === "function" ? onDone : () => {};
+    // Which callback the dismiss hands off to — the alt link swaps it.
+    let handoff = finishCb;
+    let dismissRef = () => {};
     const overlay = document.getElementById("onboardingCelebration");
     if (!overlay) {
       finishCb();
       return;
     }
     applyCelebrationStage(overlay, stageKey || "discovery");
+    // Optional alternate path (e.g. first-run's "start with your other
+    // devices") — rendered as a quiet link under the CTA.
+    const altBtn = document.getElementById("onboardingCelebrationAlt");
+    if (altBtn) {
+      if (typeof options.onAlt === "function") {
+        altBtn.hidden = false;
+        altBtn.addEventListener(
+          "click",
+          () => {
+            handoff = options.onAlt;
+            dismissRef();
+          },
+          { once: true },
+        );
+      } else {
+        altBtn.hidden = true;
+      }
+    }
     const burst = document.getElementById("onboardingCelebrationConfetti");
     if (burst) {
       if (typeof burst.replaceChildren === "function") burst.replaceChildren();
@@ -252,7 +274,7 @@
       // wizard) and is revealed as the fade clears — the user never sees
       // the dashboard blink between stages.
       try {
-        finishCb();
+        handoff();
       } catch (err) {
         console.warn("[JobBored] celebration handoff:", err);
       }
@@ -266,6 +288,7 @@
         }
       }, 320);
     };
+    dismissRef = dismiss;
     const cta = document.getElementById("onboardingCelebrationContinue");
     if (!cta) {
       // Stale markup without the CTA — keep the old timed handoff.

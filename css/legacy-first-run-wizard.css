@@ -594,3 +594,20 @@
     var(--jb-mint-deep, #2f8a5a)
   );
 }
+
+/* Delight pass — bold card treatment: warm paper + a soft mint band
+   washing down from behind the brand mark (matches the profile card). */
+.first-run-wizard__inner {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(95, 203, 142, 0.16) 0,
+      rgba(95, 203, 142, 0.05) 150px,
+      rgba(95, 203, 142, 0) 230px
+    ),
+    linear-gradient(180deg, #fffdf9, #fbf6eb);
+  border: 1px solid rgba(95, 203, 142, 0.28);
+  box-shadow:
+    0 1px 2px rgba(31, 51, 71, 0.06),
+    0 24px 60px rgba(31, 51, 71, 0.16);
+}

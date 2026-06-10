@@ -694,7 +694,28 @@
     }
     // Funnel telemetry: the first-run wizard completed (sheet + provider).
     emitOnboardingEvent("first_run_done");
-    showFirstRunDonePanel();
+    // One celebratory stop, not two: finish goes straight to the stage
+    // celebration (the done panel used to stack a second congratulation
+    // right behind it). The celebration CTA owns the dashboard handoff;
+    // its alt link carries the panel's "other devices" branch. Fallback to
+    // the terminal panel when the celebration module/overlay is absent.
+    const onboarding =
+      typeof window !== "undefined" &&
+      window.JobBoredApp &&
+      window.JobBoredApp.onboarding;
+    if (
+      onboarding &&
+      typeof onboarding.playOnboardingCelebration === "function"
+    ) {
+      onboarding.playOnboardingCelebration(
+        () =>
+          void handleFirstRunDoneOpenDiscovery({ entryPoint: "onboarding" }),
+        "profile",
+        { onAlt: () => handleFirstRunDoneOpenSelfHosting() },
+      );
+    } else {
+      showFirstRunDonePanel();
+    }
   }
 
   /**

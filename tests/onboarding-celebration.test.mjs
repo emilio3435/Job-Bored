@@ -253,6 +253,10 @@ describe("playOnboardingCelebration — persistent, CTA-driven handoff", () => {
       get hidden() {
         return attrs.has("hidden");
       },
+      set hidden(v) {
+        if (v) attrs.set("hidden", "");
+        else attrs.delete("hidden");
+      },
       setAttribute: (n, v) => attrs.set(n, String(v)),
       removeAttribute: (n) => attrs.delete(n),
       hasAttribute: (n) => attrs.has(n),
@@ -279,6 +283,8 @@ describe("playOnboardingCelebration — persistent, CTA-driven handoff", () => {
     const cta = withCta ? makeCelebrationEl() : null;
     const title = makeCelebrationEl();
     const sub = makeCelebrationEl();
+    const altBtn = makeCelebrationEl();
+    altBtn.hidden = true;
     const timers = [];
     const window = { JobBoredApp: { core: { host: {} } } };
     const document = {
@@ -293,7 +299,9 @@ describe("playOnboardingCelebration — persistent, CTA-driven handoff", () => {
                 ? title
                 : id === "onboardingCelebrationSub"
                   ? sub
-                  : null,
+                  : id === "onboardingCelebrationAlt"
+                    ? altBtn
+                    : null,
       createElement: () => makeCelebrationEl(),
     };
     const ctx = {
@@ -311,7 +319,7 @@ describe("playOnboardingCelebration — persistent, CTA-driven handoff", () => {
     const drainTimers = () => {
       while (timers.length) timers.shift().fn();
     };
-    return { onboarding: window.JobBoredApp.onboarding, overlay, cta, title, sub, timers, drainTimers };
+    return { onboarding: window.JobBoredApp.onboarding, overlay, cta, title, sub, altBtn, timers, drainTimers };
   }
 
   it("persists: no timer-driven dismissal is scheduled, and the CTA gets focus", () => {
@@ -358,6 +366,30 @@ describe("playOnboardingCelebration — persistent, CTA-driven handoff", () => {
     env.drainTimers();
     assert.equal(done, 1, "the cleanup timer must not fire it again");
     assert.equal(env.overlay.hidden, true);
+  });
+
+  it("the alt link (when provided) hands off to onAlt instead of onDone — first-run's other-devices branch", () => {
+    const env = loadCelebration();
+    let done = 0;
+    let alt = 0;
+    env.onboarding.playOnboardingCelebration(
+      () => { done += 1; },
+      "profile",
+      { onAlt: () => { alt += 1; } },
+    );
+    assert.equal(env.altBtn.hidden, false, "alt link shows when onAlt is provided");
+    env.altBtn.clickHandlers[0]();
+    assert.equal(alt, 1, "alt path fires at fade start");
+    assert.equal(done, 0, "the primary handoff must NOT also fire");
+    env.drainTimers();
+    assert.equal(done, 0);
+    assert.equal(alt, 1);
+  });
+
+  it("the alt link stays hidden when no onAlt is provided (profile-finish celebration unchanged)", () => {
+    const env = loadCelebration();
+    env.onboarding.playOnboardingCelebration(() => {}, "discovery");
+    assert.equal(env.altBtn.hidden, true);
   });
 
   it("falls back to a timed dismissal when the CTA is missing (stale markup) so the handoff never strands", () => {

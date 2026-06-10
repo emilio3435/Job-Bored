@@ -1156,3 +1156,40 @@
 .onboarding-celebration--out {
   pointer-events: none;
 }
+
+/* Quiet alternate path under the celebration CTA. */
+.onboarding-celebration__alt {
+  all: unset;
+  cursor: pointer;
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--jb-ink-2, var(--text-muted));
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  animation: celebrationRise 0.4s var(--ease, ease) 0.45s both;
+}
+
+.onboarding-celebration__alt:hover {
+  color: var(--jb-navy, var(--text));
+}
+
+/* ============================================================
+   Delight pass — bold card treatment. The profile wizard wears
+   the same warm paper as the shell frame, with a soft mint band
+   washing down from behind the mascot.
+   ============================================================ */
+.onboarding-wizard__inner {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(95, 203, 142, 0.16) 0,
+      rgba(95, 203, 142, 0.05) 170px,
+      rgba(95, 203, 142, 0) 260px
+    ),
+    linear-gradient(180deg, #fffdf9, #fbf6eb);
+  border: 1px solid rgba(95, 203, 142, 0.28);
+  box-shadow:
+    0 1px 2px rgba(31, 51, 71, 0.06),
+    0 24px 60px rgba(31, 51, 71, 0.16);
+}
