@@ -167,4 +167,16 @@ export default [
     },
     rules: correctnessRules,
   },
+  {
+    // Playwright specs run snippets INSIDE the browser via page.evaluate —
+    // window/document/getComputedStyle are real there even though the file
+    // itself executes under Node.
+    files: ["tests/e2e-smoke/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: { ...globals.node, ...globals.browser },
+    },
+    rules: correctnessRules,
+  },
 ];
