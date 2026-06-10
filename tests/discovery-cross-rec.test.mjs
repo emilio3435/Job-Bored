@@ -393,3 +393,51 @@ describe("discovery-wizard-ui — runDiscoveryTailscaleAutoSetup (one-click Tail
     assert.equal(env.verified[0].secretAtVerify, "user-typed");
   });
 });
+
+describe("discovery-wizard-ui — setup verification uses the auth-probe handshake", () => {
+  // Root cause (reproduced live): the verify probe was a REAL discovery
+  // dispatch, so the worker rejected it with 400 "Discovery intent cannot be
+  // blank when no target companies are configured" whenever the profile was
+  // empty — the wizard never advanced even though transport + auth were
+  // perfect. The worker's x-discovery-auth-probe handshake short-circuits
+  // BEFORE intent validation and never launches a run.
+  it("handleDiscoveryWizardVerification sends x-discovery-auth-probe for setup contexts only", () => {
+    const start = discoveryWizardUiJs.indexOf(
+      "async function handleDiscoveryWizardVerification",
+    );
+    assert.ok(start !== -1);
+    const head = discoveryWizardUiJs.slice(start, start + 3200);
+    assert.match(
+      head,
+      /x-discovery-auth-probe/,
+      "setup verification must use the worker's handshake, not a real dispatch",
+    );
+    assert.match(
+      head,
+      /context !== "run_discovery"/,
+      "a REAL run dispatch must never be downgraded to a probe",
+    );
+    assert.match(
+      head,
+      /script\\\.google/,
+      "Apps Script stubs are exempt (GAS preflight chokes on custom headers)",
+    );
+  });
+});
+
+describe("discovery-readiness — verify wrapper forwards custom headers", () => {
+  it("verifyDiscoveryWebhookWithSharedModel threads options.headers to verifyDiscoveryEndpoint", () => {
+    // The wizard sends x-discovery-auth-probe via options.headers; the
+    // readiness wrapper rebuilt the inner options and silently dropped it,
+    // so the worker still treated setup verification as a real dispatch.
+    const readinessJs = readFileSync(join(repoRoot, "discovery-readiness.js"), "utf8");
+    const start = readinessJs.indexOf("async function verifyDiscoveryWebhookWithSharedModel");
+    assert.ok(start !== -1);
+    const body = readinessJs.slice(start, start + 1600);
+    assert.match(
+      body,
+      /options\.headers/,
+      "the wrapper must forward options.headers (the auth-probe rides on it)",
+    );
+  });
+});

@@ -222,6 +222,22 @@ describe("discovery run status polling", () => {
     );
   });
 
+  it("allows the auth-probe header through the worker CORS preflight (setup verification handshake)", () => {
+    // The wizard's verification sends x-discovery-auth-probe so the worker
+    // accepts the handshake BEFORE intent validation (a greenfield profile
+    // must not fail setup) and never launches a run as a side effect. The
+    // browser preflights custom headers — without this allowlist entry the
+    // verify dies in CORS before reaching the worker at all.
+    const headers = buildCorsHeaders(
+      ["http://localhost:8080"],
+      "http://localhost:8080",
+    );
+    assert.match(
+      headers["Access-Control-Allow-Headers"],
+      /x-discovery-auth-probe/,
+    );
+  });
+
   it("keeps the Cloudflare relay template compatible with that browser header", () => {
     assert.match(workerTemplate, /Ngrok-Skip-Browser-Warning/);
   });
