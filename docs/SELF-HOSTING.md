@@ -3,7 +3,7 @@
 > **Scope: this guide is the canonical transport reference for the
 > *discovery worker* (axis B).** It is *not* about hosting the dashboard —
 > for that, see the **Deploy** section in
-> **[README.md](../README.md#4-deploy)** (GitHub Pages / Vercel / Netlify /
+> **[README.md](../README.md#3-deploy)** (GitHub Pages / Vercel / Netlify /
 > Cloudflare Pages / `npm run web-only` locally). The dashboard is static
 > files; the only "going live" piece that ever needs a transport is the
 > worker, and that's what this document covers.
@@ -146,41 +146,28 @@ helper if you deploy via Pages: `npm run cloudflare-relay:deploy`.
 ## Keeping the worker always-on
 
 To run discovery on a schedule (or keep the worker alive after reboot) without
-keeping a terminal open:
+keeping a terminal open, the repo bundles cross-platform installers:
 
-- **macOS (launchd):** the repo installs a launchd agent for you.
+```bash
+npm run discovery:worker:autostart:install   # keep the worker running
+npm run discovery:tunnel:autostart:install   # keep your tunnel up (if used)
+npm run discovery:worker:autostart:status    # check it
+```
 
-  ```bash
-  npm run discovery:worker:autostart:install   # keep the worker running
-  npm run discovery:tunnel:autostart:install   # keep your tunnel up (if used)
-  npm run discovery:worker:autostart:status    # check it
-  ```
+- **macOS:** the installers write per-user **launchd** agents (RunAtLoad +
+  KeepAlive), so the worker and tunnel restart on crash and at login.
+- **Linux:** the same installers write **systemd-user units** under
+  `~/.config/systemd/user/` and enable them with `systemctl --user`. No
+  hand-written unit file needed.
+- **Windows (native):** boot autostart is not supported — run the worker in a
+  terminal (`npm run discovery:worker:start-local`), or use the scheduled daily
+  refresh via Task Scheduler instead
+  ([SETTINGS-SCHEDULE.md](SETTINGS-SCHEDULE.md#windows-walkthrough)). See the
+  [OS support matrix](../README.md#os-support).
 
-  Uninstall with the matching `:autostart:uninstall` scripts. Implementation:
-  `scripts/install-discovery-worker-autostart.mjs` and
-  `scripts/install-discovery-tunnel-autostart.mjs`.
-
-- **Linux (systemd):** there's no bundled systemd unit, but the same idea
-  applies — wrap `npm run start:discovery-worker` (which runs
-  `scripts/start-discovery-worker-local.mjs`) in a user service. A minimal unit:
-
-  ```ini
-  # ~/.config/systemd/user/jobbored-discovery.service
-  [Unit]
-  Description=JobBored discovery worker
-
-  [Service]
-  WorkingDirectory=%h/Job-Bored
-  ExecStart=/usr/bin/env npm run start:discovery-worker
-  Restart=on-failure
-
-  [Install]
-  WantedBy=default.target
-  ```
-
-  ```bash
-  systemctl --user enable --now jobbored-discovery.service
-  ```
+Uninstall with the matching `:autostart:uninstall` scripts. Implementation:
+`scripts/install-discovery-worker-autostart.mjs` and
+`scripts/install-discovery-tunnel-autostart.mjs`.
 
 For more on local discovery paths and config, see
 [DISCOVERY-PATHS.md](DISCOVERY-PATHS.md).

@@ -28,7 +28,7 @@ For a phased roadmap, see **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)**. Full doc
 
 ## Quick Start
 
-Use **Node.js 24.x** with npm 11.x for local scripts and the Browser Use discovery worker. The repo includes `.nvmrc` and `.node-version`.
+Use **Node.js 24.x** with npm 11.x for local scripts and the Browser Use discovery worker. The repo includes `.nvmrc` and `.node-version`. For what works on macOS / Linux / native Windows, see the **[OS support matrix](README.md#os-support)** in the README.
 
 Packaged defaults:
 
@@ -44,26 +44,30 @@ Packaged defaults:
 
 ### Pick one setup path
 
-**1. Dashboard-only (core OSS path)**
+**1. Dashboard (core OSS path)**
 
 ```bash
 git clone https://github.com/emilio3435/Job-Bored.git ~/Job-Bored
 cd ~/Job-Bored
-npm run setup
-npm run web-only
+npm install
+npm start
 ```
 
-Open `http://localhost:8080`, add your Sheet ID and OAuth Client ID in Settings,
-and sign in. Discovery worker and Hermes can be absent; the dashboard remains
-useful for reading/writing your `Pipeline` Sheet.
+Open `http://localhost:8080` and follow the on-screen setup — the login gate
+walks you through Google sign-in, and the first-run wizard connects your Sheet
+and AI provider. No manual Settings edits needed. Discovery worker and Hermes
+can be absent; the dashboard remains useful for reading/writing your `Pipeline`
+Sheet. (`npm run web-only` serves the dashboard alone, without the scraper.)
 
 **2. Local discovery worker**
 
 ```bash
 npm run setup:discovery
-npm run discovery:worker:start-local
-npm run web-only
+npm run dev          # dashboard + scraper + local discovery worker
 ```
+
+To run the worker on its own (e.g. with the dashboard hosted elsewhere), use
+`npm run discovery:worker:start-local`.
 
 Put real local keys only in
 `~/.jobbored/browser-use-discovery/.env` or another ignored env file pointed to
@@ -92,7 +96,7 @@ submit remains shelved unless Emilio explicitly asks `ASSIST APPLY <company>`.
 
 ### 1. Create or copy the starter sheet
 
-Recommended in the app: save your OAuth client in Settings, then use the setup screen button to create a **blank starter sheet** in your own Google Drive with just the `Pipeline` headers.
+Recommended in the app: sign in on the login gate, then let the first-run wizard create a **blank starter sheet** in your own Google Drive with just the `Pipeline` headers.
 
 Manual fallback: [Click here to copy →](https://docs.google.com/spreadsheets/d/1pVFwPlvu3FqIhlC8YDuRpVA2v6A2fOjRX02TEiMoXRI/copy)
 
@@ -224,7 +228,7 @@ This is useful for sharing dashboard links or switching between multiple job sea
 - Local worker runs may include a transient `googleAccessToken` for that run only. It lets the user-owned worker write to the Sheet without storing OAuth credentials; it is stripped from persisted config/state and must not be logged raw.
 - The Browser Use discovery worker writes run summaries to a `DiscoveryRuns` tab when configured. The dashboard reads that tab for run history; missing `DiscoveryRuns` is fine until the first logged run.
 - The dashboard-managed **Apps Script deploy is only a stub** for webhook verification and `[CC test]` smoke tests. It does **not** discover real jobs unless you replace that code with real logic or point the dashboard at another discovery engine.
-- If your real discovery engine runs locally, the browser-safe path is **JobBored → Cloudflare Worker → ngrok URL → local Hermes/OpenClaw webhook**. Start with `npm run discovery:bootstrap-local`, then use **Discovery drawer → Connection → Hermes + ngrok** to review the autofilled public target and **Cloudflare relay** to deploy the Worker and paste the Worker URL back into **Discovery drawer → Connection → Discovery webhook URL**.
+- If your real discovery engine runs locally, the recommended path is the discovery wizard's one-click **Tailscale** setup (**Discovery drawer → "Set it up for me"** — stable HTTPS URL, no rotation). The ngrok fallback is **JobBored → Cloudflare Worker → ngrok URL → local worker webhook**: start with `npm run discovery:bootstrap-local`, then use **Discovery drawer → Connection → Local worker + ngrok** to review the autofilled public target and **Cloudflare relay** to deploy the Worker and paste the Worker URL back into **Discovery drawer → Connection → Discovery webhook URL**.
 - Your endpoint must allow **CORS** from your dashboard origin. See the JSON example under **&ldquo;Run discovery&rdquo; webhook** below, the **[webhook receiver checklist](AGENT_CONTRACT.md#webhook-receiver-checklist-copy-paste)** in [AGENT_CONTRACT.md](AGENT_CONTRACT.md), and [docs/CONTRACT-CHANGELOG.md](docs/CONTRACT-CHANGELOG.md) when the contract changes.
 
 #### Public URL: 3 ways

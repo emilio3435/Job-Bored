@@ -14,38 +14,56 @@ job discovery.
 
 - **Node.js 24.x** and **npm 11.x** (see `.nvmrc` / `.node-version`). With nvm:
   `nvm use` from the repo root.
-- **Python 3** (only for the optional Hermes materials workflow).
+- **Python 3** (only for the optional Hermes materials workflow — macOS, Linux,
+  or Windows via WSL; see [OS support](#os-support)).
 - **macOS:** [Homebrew](https://brew.sh) makes installing Node/Python easy.
-  Linux and Windows (WSL) work too.
 
 **Get running**
 
 ```bash
-npm install                       # install dashboard + server deps
-npm run setup                     # creates config.js from config.example.js
-cp config.example.js config.js    # (only if you skipped setup; then edit it)
-npm run dev                       # dashboard + scraper + local discovery worker
+npm install   # installs dashboard + server deps
+npm start     # dashboard + job scraper → http://localhost:8080
 ```
 
-Then open **http://localhost:8080**, add your Google Sheet ID and OAuth Client
-ID in **Settings**, and sign in with Google. (Prefer the dashboard alone? Use
-`npm run web-only` instead of `npm run dev`.)
+Then open **http://localhost:8080** and follow the on-screen setup — the
+**login gate** walks you through Google sign-in (including a guided path to
+create an OAuth Client ID if you don't have one), and the **first-run wizard**
+connects your Sheet and AI provider. No manual Settings edits needed.
 
-**Edit `config.js`** with your keys. A few keys worth knowing:
+Two variants of the start command:
 
-- `discoveryWebhookUrl` — where the **Run discovery** button POSTs (default the
-  local worker at `http://127.0.0.1:8644/webhook`).
-- `discoveryWebhookSecret` — shared secret sent as `x-discovery-secret`; must
-  match the worker's `BROWSER_USE_DISCOVERY_WEBHOOK_SECRET`.
-- `jobPostingScrapeUrl` / `atsScoringServerUrl` — leave blank on localhost; the
-  app auto-targets the bundled server at `http://127.0.0.1:3847`.
+- `npm run dev` — adds the **local discovery worker** (recommended before you
+  set up discovery, so the wizard's "Set it up for me" path has a worker to
+  talk to).
+- `npm run web-only` — dashboard only; no scraper, no worker.
 
 **Want it reachable from your phone or another device?** Expose the discovery
 worker with Tailscale (recommended), ngrok, or Cloudflare — see
 **[docs/SELF-HOSTING.md](docs/SELF-HOSTING.md)**.
 
+Advanced config keys (discovery webhook URL/secret, scraper URLs) are listed in
+[Manual / advanced configuration](#manual--advanced-configuration) below — the
+wizard covers the common path without them.
+
 For the full walkthrough (Sheet setup, OAuth, deployment paths, Hermes), keep
 reading below.
+
+## OS support
+
+| Capability | macOS | Linux | Windows (native) |
+| --- | --- | --- | --- |
+| Dashboard + scraper (`npm start`) | ✅ | ✅ | ✅ via the cross-OS npm spawn shim (`scripts/lib/spawn-npm.mjs`) — code-reviewed on win32; WSL remains the most battle-tested path |
+| Local discovery worker | ✅ | ✅ | ✅ |
+| Scheduled daily refresh | ✅ launchd | ✅ systemd user timer (crontab fallback) | ✅ Task Scheduler — [walkthrough](docs/SETTINGS-SCHEDULE.md#windows-walkthrough) |
+| Worker/tunnel autostart at boot | ✅ launchd | ✅ systemd-user units | ❌ not supported |
+| Tailscale transport | ✅ | ✅ | ✅ |
+| Hermes materials workflow (Python) | ✅ | ✅ | WSL only |
+
+The same installers cover macOS and Linux: `npm run
+discovery:worker:autostart:install` and `npm run
+discovery:tunnel:autostart:install` write launchd agents on macOS and
+systemd-user units on Linux. On Linux, install `lsof` so the dev server can
+recover stale ports automatically.
 
 ## Features
 
@@ -76,38 +94,23 @@ Draft generation defaults to a free-tier model and also supports a fully local m
 
 See [QUICKSTART.md](QUICKSTART.md) for the short path-by-path walkthrough and [SETUP.md](SETUP.md#resume-updater--cover-letter-writer-optional) for the full provider reference.
 
-## Quick Start
+## Optional add-ons
 
-Use Node.js 24.x and npm 11.x (see `.nvmrc` / `.node-version`). The packaged
-defaults are:
+The quick start above is the whole core path. Packaged defaults worth knowing:
 
 - Repo: `~/Job-Bored` unless `JOBBORED_REPO` points at another clone/worktree.
 - Local JobBored state: `~/.jobbored/`.
 - Optional Hermes materials runtime: `~/.hermes/job-hunt/`.
 
-### Path 1: dashboard-only Google Sheet
-
-This is the core OSS path. It works without the discovery worker or Hermes.
-
-```bash
-git clone https://github.com/emilio3435/Job-Bored.git ~/Job-Bored
-cd ~/Job-Bored
-npm run setup
-npm run web-only
-```
-
-Then open **http://localhost:8080**, add your Sheet ID and OAuth Client ID in
-Settings, and sign in with Google. `npm run setup` installs dependencies and
-creates a placeholder-only `config.js`; it does not require automation.
-
-### Path 2: local discovery worker
+### Local discovery worker
 
 Use this when you want the **Run discovery** button or scheduled local refreshes.
+`npm run dev` starts it alongside the dashboard; to set it up and run it on its
+own:
 
 ```bash
 npm run setup:discovery
 npm run discovery:worker:start-local
-npm run web-only
 ```
 
 `setup:discovery` creates local worker config/env files under
@@ -120,11 +123,11 @@ blocking the board.
 The root `package-lock.json` owns worker dependencies; do not commit a nested
 `integrations/browser-use-discovery/package-lock.json`.
 
-### Path 3: optional Hermes materials workflow
+### Hermes materials workflow
 
-Hermes is optional and local-only. It prepares resume/cover-letter materials for
-manual review; automated submit remains shelved unless Emilio explicitly asks
-`ASSIST APPLY <company>`.
+Hermes is optional, local-only, and needs Python 3 (macOS, Linux, or WSL — see
+[OS support](#os-support)). It prepares resume/cover-letter materials for
+manual review; automated submit stays out of scope.
 
 ```bash
 npm run setup:hermes
@@ -136,26 +139,29 @@ This creates/uses `~/.hermes/job-hunt`, creates `.venv`, installs
 dependencies, worker config, Sheet-read readiness when a read token is provided,
 and materials folders.
 
-### Local run (dashboard + job scraper, one terminal)
+### Job scraper notes
 
-If you cloned the repo and want the **Cheerio “Fetch posting”** feature without a second terminal:
-
-```bash
-npm install
-npm start
-```
-
-Then open **http://localhost:8080**. This installs dependencies for `server/` automatically and runs the UI plus **http://127.0.0.1:3847** together. You can leave **`jobPostingScrapeUrl`** empty in `config.js` on localhost — the app defaults to the local scraper.
-The same local server now also provides **`POST /api/ats-scorecard`** when ATS mode is set to `server`.
-For persistent ATS provider config in server mode, copy `server/ats-env.example` to `server/.env` and set the API key for the provider you choose. OpenRouter/OpenAI-compatible settings cover generic scorecards; Gemini is optional unless you explicitly choose it.
+`npm start` already runs the Cheerio scraper at **http://127.0.0.1:3847**, so
+**Fetch posting** works with no extra steps — leave `jobPostingScrapeUrl` empty
+on localhost. The same server provides **`POST /api/ats-scorecard`** when ATS
+mode is set to `server`; for persistent ATS provider config, copy
+`server/ats-env.example` to `server/.env` and set the API key for the provider
+you choose.
 
 For **GitHub Pages** (HTTPS), the browser cannot call a scraper on your laptop at `http://127.0.0.1`. Use **Fetch posting** by either running the dashboard locally (`npm start` → `http://localhost:8080`) or deploying the `server/` app and pasting its **HTTPS** base URL in Settings — see **[DEPLOY-SCRAPER.md](DEPLOY-SCRAPER.md)**.
 
 For **static hosting only** without Fetch posting, deploy the files as usual; the scraper is optional.
 
+## Setup reference
+
+The login gate and first-run wizard do all of this in-app — these sections are
+the manual reference for what they set up (and for deploying beyond localhost).
+
 ### 1. Create or copy a starter Google Sheet
 
-Recommended in the app: save your OAuth client in Settings, then use the setup screen button to create a **blank starter sheet** in your own Google Drive with just the required `Pipeline` headers.
+Recommended in the app: sign in on the login gate, then let the **first-run
+wizard** create a **blank starter sheet** in your own Google Drive with just the
+required `Pipeline` headers (or paste the ID of a sheet you already have).
 
 Manual fallback: [**→ Copy Template Sheet**](https://docs.google.com/spreadsheets/d/1pVFwPlvu3FqIhlC8YDuRpVA2v6A2fOjRX02TEiMoXRI/copy)
 
@@ -163,7 +169,7 @@ Google’s make-a-copy flow duplicates **every row** in the source template. If 
 
 After copying:
 
-- **Recommended:** add your OAuth Client ID in Settings and use **Sign in with Google** — your sheet can stay **private**; the dashboard reads it via the Sheets API (no publish step).
+- **Recommended:** sign in with Google on the login gate — your sheet can stay **private**; the dashboard reads it via the Sheets API (no publish step).
 - **Alternative (no OAuth):** publish or share the sheet for public read — **File → Publish to web**, or **Share → Anyone with the link can view**
 
 ### 2. Create Google OAuth credentials
@@ -176,31 +182,7 @@ After copying:
 6. Under **Authorized JavaScript origins**, add your deployment URL (e.g., `https://yourusername.github.io`)
 7. Copy the **Client ID**
 
-### 3. Configure
-
-```bash
-cp config.example.js config.js
-```
-
-Edit `config.js`:
-
-```js
-window.COMMAND_CENTER_CONFIG = {
-  sheetId: "YOUR_SHEET_ID_HERE",
-  oauthClientId: "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com",
-  title: "Command Center",
-  // Optional: POST target when the user clicks "Run discovery" (Hermes / n8n / Apps Script)
-  discoveryWebhookUrl: "",
-};
-```
-
-Your Sheet ID is the long string in your Google Sheet URL:
-
-```
-https://docs.google.com/spreadsheets/d/THIS_IS_YOUR_SHEET_ID/edit
-```
-
-### 4. Deploy
+### 3. Deploy
 
 Choose any of these (all free):
 
@@ -243,19 +225,56 @@ first-run wizard never appears. Always start the dev server:
 # Clone and run
 git clone https://github.com/emilio3435/Job-Bored.git
 cd ~/Job-Bored
-npm run setup          # installs deps and creates config.js from config.example.js
-# Edit config.js with your credentials (Sheet ID, OAuth Client ID, etc.)
-npm run web-only       # → http://localhost:8080  (static dashboard only)
-# Or, for the full local stack (dashboard + scraper + local discovery worker):
-npm run dev
-# → http://localhost:8080  (static root + scraper + local discovery worker)
+npm install
+npm start              # → http://localhost:8080  (dashboard + scraper)
+# Or: npm run dev      (adds the local discovery worker)
+# Or: npm run web-only (dashboard only)
 ```
 
 No-Node fallback: `python3 -m http.server 8080` is fine for browsing the
 markup, but it does **not** expand the `<!-- @include -->` partials, so the
 first-run wizard, discovery drawer, and settings modal will be missing. Use
-`npm run web-only` (or `npm run dev`) for a working full dashboard.
+`npm start` (or `npm run dev` / `npm run web-only`) for a working full
+dashboard.
 
+### Manual / advanced configuration
+
+You normally don't need any of this — the login gate and first-run wizard
+collect the same values in-app and store them in this browser. Use a `config.js`
+file when you want credentials baked into a deployment (e.g. a private fork on
+GitHub Pages) or want to preconfigure advanced keys.
+
+```bash
+npm run setup                     # creates config.js from config.example.js
+# or: cp config.example.js config.js
+```
+
+Edit `config.js`:
+
+```js
+window.COMMAND_CENTER_CONFIG = {
+  sheetId: "YOUR_SHEET_ID_HERE",
+  oauthClientId: "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com",
+  title: "Command Center",
+  // Optional: POST target when the user clicks "Run discovery" (Hermes / n8n / Apps Script)
+  discoveryWebhookUrl: "",
+};
+```
+
+Your Sheet ID is the long string in your Google Sheet URL:
+
+```
+https://docs.google.com/spreadsheets/d/THIS_IS_YOUR_SHEET_ID/edit
+```
+
+A few advanced keys worth knowing (see `config.example.js` for all of them):
+
+- `discoveryWebhookUrl` — where the **Run discovery** button POSTs (default the
+  local worker at `http://127.0.0.1:8644/webhook`).
+- `discoveryWebhookSecret` — shared secret sent as `x-discovery-secret`; must
+  match the worker's `BROWSER_USE_DISCOVERY_WEBHOOK_SECRET`.
+- `jobPostingScrapeUrl` / `atsScoringServerUrl` — leave blank on localhost; the
+  app auto-targets the bundled server at `http://127.0.0.1:3847`.
 
 ### Going live — two independent axes
 
@@ -265,9 +284,9 @@ There are two separate "going live" decisions, and only one of them ever needs
 
 - **(A) Host the dashboard** (axis A) — pick any static host from the list
   above (GitHub Pages, Vercel, Netlify, Cloudflare Pages, or run it locally
-  with `npm run web-only`). This is just static files; no transport setup is
-  needed. **Single-machine users can stop here** — `npm run web-only` on the
-  same machine as the worker is fully functional with no extra steps.
+  with `npm start`). This is just static files; no transport setup is
+  needed. **Single-machine users can stop here** — `npm run dev` (dashboard +
+  worker on the same machine) is fully functional with no extra steps.
 - **(B) Expose the discovery worker beyond `localhost`** (axis B) — only
   relevant if you want the **Run discovery** button to work from a *different*
   device than the one running the worker, or you deployed the dashboard to
@@ -378,7 +397,9 @@ That's it. The dashboard's **Discovery drawer → Sources** sub-tab has a live s
 
 **OpenClaw / agent skills (BYO):** use **[`integrations/openclaw-command-center/`](integrations/openclaw-command-center/)** as the agent-skill alternative to the built-in worker path. It teaches user-owned agents how to append rows and handle **Run discovery**; runs in **your** environment, not the maintainer’s.
 
-**Fast local real-discovery path:** if your agent runs on your own machine, use **local webhook → ngrok → Cloudflare Worker**. Start with `npm run discovery:bootstrap-local`, then use **Discovery drawer → Connection → Hermes + ngrok** to review the autofilled route/tunnel info and **Cloudflare relay** to generate the Worker deploy command and final browser URL.
+**Fast local real-discovery path (recommended):** run the worker on your own machine and let the wizard wire it up. Start `npm start` (or `npm run dev`, which also launches the worker), open the **Discovery drawer**, and click **"Set it up for me"** — the guided setup uses **Tailscale** to give the worker a stable HTTPS URL that never rotates, and saves the URL + shared secret together. Already have an HTTPS endpoint (Tailscale, a named Cloudflare tunnel, your own server)? Paste it into **Discovery drawer → Connection → Discovery webhook URL** instead. Transport details: **[docs/SELF-HOSTING.md](docs/SELF-HOSTING.md)**.
+
+**Fallback: ngrok + Cloudflare Worker relay (rotating URL).** If Tailscale isn't an option, the older **local webhook → ngrok → Cloudflare Worker** path still works: start with `npm run discovery:bootstrap-local`, then use **Discovery drawer → Connection → Local worker + ngrok** to review the autofilled route/tunnel info and **Cloudflare relay** to generate the Worker deploy command and final browser URL.
 
 **Keep the relay alive across ngrok rotations:** free ngrok plans hand out a new public URL on every restart, which silently breaks the deployed Cloudflare Worker (its `TARGET_URL` secret still points at the dead tunnel). Run `npm run discovery:keep-alive` once after bootstrap+deploy to start a watchdog: it polls the local ngrok API every 30s and, when the URL rotates, runs a single `wrangler secret put TARGET_URL` on the existing Worker — no full redeploy. One-shot mode (`npm run discovery:keep-alive -- --once`) is also useful as a pre-flight check or launchd job. If you upgrade ngrok to a reserved domain, pass `--reserved-domain mytunnel.ngrok.app` and the watchdog launches ngrok with `--domain=...` so rotations stop happening at all.
 
@@ -386,7 +407,7 @@ That's it. The dashboard's **Discovery drawer → Sources** sub-tab has a live s
 2. Schedule your agent or cron so rows append to **Pipeline** on a cadence you want.
 3. The dashboard auto-refreshes on a timer — new data appears automatically.
 
-See [SETUP.md](SETUP.md) for detailed setup. Use **Agent setup** in the header for a built-in checklist.
+See [SETUP.md](SETUP.md) for detailed setup. Use **Discovery drawer → Connection** for a built-in connection checklist, or rerun the guided setup from the discovery wizard.
 
 ### Free automation without maintainer hosting
 
