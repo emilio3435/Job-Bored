@@ -500,3 +500,48 @@ describe("discovery-wizard-ui — completion persists on CONNECTED verification 
     );
   });
 });
+
+describe("discovery-wizard-ui — auto-setup forces the reboot when the secret was just generated", () => {
+  it("a freshly generated secret reboots with force_restart=1 (a spared healthy worker keeps the OLD empty secret)", async () => {
+    const env = autoSetupEnvForForce();
+    await env.run();
+    const boot = env.fetched.find((f) => f.url.includes("full-boot"));
+    assert.ok(boot, "must reboot");
+    assert.match(boot.url, /force_restart=1/);
+  });
+
+  function autoSetupEnvForForce() {
+    const { window, ui } = loadDiscoveryUi();
+    const fetched = [];
+    const runtime = { drafts: {}, snapshot: {}, state: {} };
+    window.JobBoredDiscoveryWizard.ui.host = {
+      updateDiscoveryWizardRuntime: (patch) => {
+        if (patch && patch.drafts) {
+          runtime.drafts = { ...runtime.drafts, ...patch.drafts };
+          const { drafts: _d, ...rest } = patch;
+          Object.assign(runtime, rest);
+        } else if (patch) Object.assign(runtime, patch);
+        return runtime;
+      },
+      getDiscoveryWizardRuntime: () => runtime,
+    };
+    const fetchImpl = async (url, opts = {}) => {
+      fetched.push({ url: String(url), method: opts.method || "GET" });
+      if (String(url).includes("tailscale-state")) return { ok: true, json: async () => ({ installed: true, loggedIn: true }) };
+      if (String(url).includes("discovery-webhook-secret")) return { ok: true, json: async () => ({ ok: true, secret: "fresh", source: "generated", wrote: true }) };
+      if (String(url).includes("discovery-state")) return { ok: true, json: async () => ({ ok: true, worker: { up: true } }) };
+      if (String(url).includes("full-boot")) return { ok: true, json: async () => ({ ok: true, phases: [] }) };
+      if (String(url).includes("tailscale-serve")) return { ok: true, json: async () => ({ ok: true, url: "https://mac.ts.net" }) };
+      return { ok: false, json: async () => ({}) };
+    };
+    return {
+      fetched,
+      run: () =>
+        ui._internal.runDiscoveryTailscaleAutoSetup({
+          fetchImpl,
+          verify: async () => null,
+          render: () => null,
+        }),
+    };
+  }
+});

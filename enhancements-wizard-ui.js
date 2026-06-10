@@ -220,12 +220,14 @@
       return container;
     }
     safeParagraph(container, "SerpApi Google Jobs is the single biggest results upgrade — it taps Google's full job index across 100+ job boards and ATS platforms.", "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold");
-    safeParagraph(container, "Free tier: 100 searches/month — plenty for daily discovery runs. Two clicks and a paste:");
+    safeParagraph(container, "Free tier: 100 searches/month — plenty for daily discovery runs. Three steps, ~60 seconds:");
     safeList(container, [
-      "1. Open SerpApi and sign up (Google login works) — your key is on the first page you land on.",
-      "2. Paste it below and hit Save key — we write it into the worker and restart it for you.",
+      "1. Create a free SerpApi account (Google login works, no card needed).",
+      "2. Copy your API key from the dashboard — it's the first thing on the page.",
+      "3. Paste it below and hit Save key — we write it into the worker and restart it for you.",
     ]);
-    safeKeyLink(container, "https://serpapi.com/manage-api-key", "Get your free SerpApi key ↗");
+    safeKeyLink(container, "https://serpapi.com/users/sign_up", "1 · Create your free account ↗");
+    safeKeyLink(container, "https://serpapi.com/manage-api-key", "2 · Copy your API key ↗");
     safeInput(container, {
       id: "enhancementsSerpApiKeyInput",
       label: "SerpApi API key",
@@ -495,15 +497,19 @@
       });
       return renderEnhancementsWizard();
     }
-    // Reboot the worker (tunnel-free) so it loads the new key. Best-effort:
-    // the re-poll below reports the truth either way.
+    // Reboot the worker (tunnel-free, FORCED — a spared healthy worker never
+    // loads the new key) so the env change takes effect. Best-effort: the
+    // re-poll below reports the truth either way.
     updateRuntime({ message: "Restarting the discovery worker…", messageTone: "info" });
     try {
-      await fetchWithTimeout("/__proxy/full-boot?port=8644&skip_tunnel=1", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      });
+      await fetchWithTimeout(
+        "/__proxy/full-boot?port=8644&skip_tunnel=1&force_restart=1",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        },
+      );
     } catch (e) {
       console.warn("[JobBored] enhancements worker reboot:", e);
     }
