@@ -266,6 +266,14 @@
         const ok = await h.refreshAccessTokenSilently();
         if (ok) return fetchSheetViaSheetsAPI(sheetName, true);
       }
+      // Mirror updateSheetCell (sheets-writeback.js): the token is dead and
+      // could not be refreshed, so surface it honestly instead of letting
+      // the caller silently downgrade to unauthenticated reads. Concurrent
+      // reads race here at boot — only the first one clears and toasts.
+      if (h.getAccessToken()) {
+        h.clearSessionAuthState();
+        h.showToast("Session expired — please sign in again", "error", true);
+      }
       return null;
     }
     if (!resp.ok) {
@@ -298,6 +306,14 @@
         }
       } catch (e) {
         console.warn("[JobBored] Sheets API read:", e);
+      }
+      if (!h.getAccessToken()) {
+        // The session expired mid-read (401 + failed silent refresh cleared
+        // auth state above). Skip the unauthenticated JSONP/CSV fallback: on
+        // a public sheet it would render a zombie "signed-in" dashboard
+        // where reads work and every write fails. loadAllData's signed-out
+        // branches route to the sign-in gate instead.
+        return null;
       }
     }
 
@@ -591,7 +607,15 @@
     errorOpenDirect.href = window.location.href;
     errorViewSheet.href = `https://docs.google.com/spreadsheets/d/${h.getActiveSheetId()}`;
     if (errorHint) {
-      if (h.getOAuthClientId()) {
+      // Prefer the real Sheets API error recorded during the failed read
+      // (e.g. "The caller does not have permission") over a generic guess.
+      const lastApiError =
+        typeof h.getLastSheetAccessError === "function"
+          ? String(h.getLastSheetAccessError() || "")
+          : "";
+      if (lastApiError) {
+        errorHint.textContent = lastApiError;
+      } else if (h.getOAuthClientId()) {
         errorHint.textContent =
           "Confirm you’re signed in with Google and the Sheet ID is correct.";
       } else {
