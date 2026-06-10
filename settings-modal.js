@@ -208,6 +208,140 @@ function fillResumeModelSelectsFromConfig(cfg) {
     m.local,
     cfg.resumeLocalModel,
   );
+  // Self-updating: when a key is on file, refresh each dropdown from the
+  // provider's live model list via the shared catalog (static fill above
+  // stays as the instant baseline; the async pass upgrades it).
+  void refreshSettingsModelSelectsViaCatalog(cfg);
+}
+
+const SETTINGS_PROVIDER_DEFS = {
+  openrouter: {
+    cap: "OpenRouter",
+    keyInputId: "settingsResumeOpenRouterApiKey",
+    modelSelectId: "settingsResumeOpenRouterModel",
+    configKeyField: "resumeOpenRouterApiKey",
+    configModelField: "resumeOpenRouterModel",
+  },
+  gemini: {
+    cap: "Gemini",
+    keyInputId: "settingsResumeGeminiApiKey",
+    modelSelectId: "settingsResumeGeminiModel",
+    configKeyField: "resumeGeminiApiKey",
+    configModelField: "resumeGeminiModel",
+  },
+  openai: {
+    cap: "OpenAI",
+    keyInputId: "settingsResumeOpenAIApiKey",
+    modelSelectId: "settingsResumeOpenAIModel",
+    configKeyField: "resumeOpenAIApiKey",
+    configModelField: "resumeOpenAIModel",
+  },
+  anthropic: {
+    cap: "Anthropic",
+    keyInputId: "settingsResumeAnthropicApiKey",
+    modelSelectId: "settingsResumeAnthropicModel",
+    configKeyField: "resumeAnthropicApiKey",
+    configModelField: "resumeAnthropicModel",
+  },
+  local: {
+    cap: "Local",
+    keyInputId: "settingsResumeLocalApiKey",
+    baseUrlInputId: "settingsResumeLocalBaseUrl",
+    modelSelectId: "settingsResumeLocalModel",
+    configKeyField: "resumeLocalApiKey",
+    configModelField: "resumeLocalModel",
+  },
+};
+
+function readSettingsProviderInputs(def) {
+  const keyEl = document.getElementById(def.keyInputId);
+  const baseEl = def.baseUrlInputId
+    ? document.getElementById(def.baseUrlInputId)
+    : null;
+  return {
+    apiKey: keyEl ? String(keyEl.value || "").trim() : "",
+    baseUrl: baseEl ? String(baseEl.value || "").trim() : "",
+  };
+}
+
+async function refreshSettingsModelSelectsViaCatalog(cfg) {
+  const catalog = window.JobBoredModelCatalog;
+  if (!catalog || typeof catalog.getProviderModels !== "function") return;
+  for (const [provider, def] of Object.entries(SETTINGS_PROVIDER_DEFS)) {
+    const sel = document.getElementById(def.modelSelectId);
+    if (!sel) continue;
+    const fromField = readSettingsProviderInputs(def);
+    const apiKey =
+      fromField.apiKey || String(cfg[def.configKeyField] || "").trim();
+    if (!apiKey && provider !== "local") continue; // live list needs a key
+    try {
+      const out = await catalog.getProviderModels({
+        provider,
+        apiKey,
+        baseUrl: fromField.baseUrl,
+      });
+      const models = (out && out.models) || [];
+      if (!models.length) continue;
+      const current = String(sel.value || cfg[def.configModelField] || "");
+      fillOneResumeModelSelect(def.modelSelectId, models, current);
+    } catch (e) {
+      console.warn(`[JobBored] ${provider} live model list:`, e);
+    }
+  }
+}
+
+/**
+ * Live "Check connection" for the AI Providers tab: pings the provider via
+ * the shared catalog using the key currently TYPED in the field (so users
+ * can verify before saving) and renders ✓/✗ inline.
+ */
+async function settingsVerifyProvider(provider) {
+  const def = SETTINGS_PROVIDER_DEFS[provider];
+  if (!def) return { ok: false, message: "Unknown provider." };
+  const status = document.getElementById(`settings${def.cap}CheckStatus`);
+  const { apiKey, baseUrl } = readSettingsProviderInputs(def);
+  if (!apiKey && provider !== "local") {
+    if (status) {
+      status.hidden = false;
+      status.textContent = "Enter your API key above first.";
+      status.classList.add("settings-check-status--error");
+    }
+    return { ok: false, message: "No API key." };
+  }
+  if (status) {
+    status.hidden = false;
+    status.textContent = "Checking…";
+    status.classList.remove("settings-check-status--error");
+  }
+  const catalog = window.JobBoredModelCatalog;
+  if (!catalog || typeof catalog.pingProvider !== "function") {
+    if (status) {
+      status.textContent = "Checker unavailable — reload and try again.";
+      status.classList.add("settings-check-status--error");
+    }
+    return { ok: false, message: "Model catalog unavailable." };
+  }
+  let result;
+  try {
+    result = await catalog.pingProvider({ provider, apiKey, baseUrl });
+  } catch (e) {
+    result = { ok: false, message: (e && e.message) || "Check failed." };
+  }
+  if (status) {
+    if (result && result.ok) {
+      status.textContent = "✓ Connected.";
+      status.classList.remove("settings-check-status--error");
+      void refreshSettingsModelSelectsViaCatalog(
+        (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {},
+      );
+    } else {
+      status.textContent = `Couldn't connect — ${
+        (result && result.message) || "check the key and try again."
+      }`;
+      status.classList.add("settings-check-status--error");
+    }
+  }
+  return result || { ok: false, message: "Check failed." };
 }
 
 async function populateDiscoveryProfileIntoSettingsForm() {
@@ -775,6 +909,14 @@ function initCommandCenterSettings() {
       updateSettingsProviderPanels();
     });
   mountLocalDownloadModelControl();
+  // Live "Check connection" per provider panel (shared model catalog).
+  for (const [provider, def] of Object.entries(SETTINGS_PROVIDER_DEFS)) {
+    document
+      .getElementById(`settings${def.cap}CheckBtn`)
+      ?.addEventListener("click", () => {
+        void settingsVerifyProvider(provider);
+      });
+  }
   document.getElementById("settingsSaveBtn")?.addEventListener("click", () => {
     void saveCommandCenterSettingsFromForm();
   });

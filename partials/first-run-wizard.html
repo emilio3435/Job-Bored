@@ -152,14 +152,9 @@
           <h3 class="first-run-step-title">Choose your AI provider</h3>
           <p class="first-run-hint">
             Pick how JobBored drafts resumes and cover letters. OpenRouter is
-            the recommended free hosted path; Local keeps generation on your
-            machine.
-          </p>
-          <p class="first-run-hint first-run-hint--compact">
-            OpenAI, Anthropic, Gemini, and webhook providers can be added
-            later in Settings → AI Providers. Gemini is optional — it's only
-            needed for the Google Search grounding and URL Context upgrades
-            in discovery, not for drafts.
+            the recommended free start; bring your own Gemini, OpenAI, or
+            Anthropic key if you have one — paste it and check the connection
+            right here.
           </p>
 
           <fieldset class="first-run-provider-choice" id="firstRunProviderChoice">
@@ -195,6 +190,62 @@
                 >
                 <span class="first-run-provider-option__desc"
                   >Run a model offline with Ollama. Fully private, no key.</span
+                >
+              </span>
+            </label>
+            <label class="first-run-provider-option">
+              <input
+                type="radio"
+                name="firstRunProvider"
+                value="gemini"
+                id="firstRunProviderGemini"
+              />
+              <span class="first-run-provider-option__body">
+                <span class="first-run-provider-option__title">Gemini</span>
+                <span class="first-run-provider-option__desc"
+                  >Google's models. Free tier from AI Studio, no card.</span
+                >
+              </span>
+            </label>
+            <label class="first-run-provider-option">
+              <input
+                type="radio"
+                name="firstRunProvider"
+                value="openai"
+                id="firstRunProviderOpenAI"
+              />
+              <span class="first-run-provider-option__body">
+                <span class="first-run-provider-option__title">OpenAI</span>
+                <span class="first-run-provider-option__desc"
+                  >GPT models with your OpenAI API key.</span
+                >
+              </span>
+            </label>
+            <label class="first-run-provider-option">
+              <input
+                type="radio"
+                name="firstRunProvider"
+                value="anthropic"
+                id="firstRunProviderAnthropic"
+              />
+              <span class="first-run-provider-option__body">
+                <span class="first-run-provider-option__title">Anthropic</span>
+                <span class="first-run-provider-option__desc"
+                  >Claude models with your Anthropic API key.</span
+                >
+              </span>
+            </label>
+            <label class="first-run-provider-option">
+              <input
+                type="radio"
+                name="firstRunProvider"
+                value="webhook"
+                id="firstRunProviderWebhook"
+              />
+              <span class="first-run-provider-option__body">
+                <span class="first-run-provider-option__title">Webhook</span>
+                <span class="first-run-provider-option__desc"
+                  >Send drafts to your own server endpoint.</span
                 >
               </span>
             </label>
@@ -243,6 +294,237 @@
               aria-live="polite"
               hidden
             ></p>
+            <label class="first-run-field-label" for="firstRunOpenRouterModelSelect">
+              Model
+            </label>
+            <select
+              id="firstRunOpenRouterModelSelect"
+              class="status-select settings-select first-run-input"
+            ></select>
+            <div class="first-run-key-row">
+              <button
+                type="button"
+                class="btn-modal-secondary"
+                id="firstRunOpenRouterCheckBtn"
+              >
+                Check connection
+              </button>
+            </div>
+            <p
+              class="first-run-status"
+              id="firstRunOpenRouterCheckStatus"
+              aria-live="polite"
+              hidden
+            ></p>
+          </div>
+
+          <!-- Gemini sub-panel -->
+          <div
+            class="first-run-provider-panel"
+            id="firstRunProviderPanelGemini"
+            style="display: none"
+          >
+            <label class="first-run-field-label" for="firstRunGeminiKeyInput">
+              Paste your Gemini API key
+            </label>
+            <div class="first-run-key-row">
+              <input
+                type="password"
+                id="firstRunGeminiKeyInput"
+                class="first-run-input"
+                placeholder="AIza…"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button
+                type="button"
+                class="btn-modal-secondary first-run-key-save"
+                id="firstRunGeminiKeySaveBtn"
+              >
+                Save key
+              </button>
+            </div>
+            <p class="first-run-hint first-run-hint--compact">
+              Free tier, no card needed.
+              <a
+                href="https://aistudio.google.com/apikey"
+                target="_blank"
+                rel="noopener noreferrer"
+                >Get a free key</a
+              >.
+            </p>
+            <label class="first-run-field-label" for="firstRunGeminiModelSelect">
+              Model
+            </label>
+            <select
+              id="firstRunGeminiModelSelect"
+              class="status-select settings-select first-run-input"
+            ></select>
+            <div class="first-run-key-row">
+              <button
+                type="button"
+                class="btn-modal-secondary"
+                id="firstRunGeminiCheckBtn"
+              >
+                Check connection
+              </button>
+            </div>
+            <p
+              class="first-run-status"
+              id="firstRunGeminiCheckStatus"
+              aria-live="polite"
+              hidden
+            ></p>
+          </div>
+
+          <!-- OpenAI sub-panel -->
+          <div
+            class="first-run-provider-panel"
+            id="firstRunProviderPanelOpenAI"
+            style="display: none"
+          >
+            <label class="first-run-field-label" for="firstRunOpenAIKeyInput">
+              Paste your OpenAI API key
+            </label>
+            <div class="first-run-key-row">
+              <input
+                type="password"
+                id="firstRunOpenAIKeyInput"
+                class="first-run-input"
+                placeholder="sk-…"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button
+                type="button"
+                class="btn-modal-secondary first-run-key-save"
+                id="firstRunOpenAIKeySaveBtn"
+              >
+                Save key
+              </button>
+            </div>
+            <p class="first-run-hint first-run-hint--compact">
+              <a
+                href="https://platform.openai.com/api-keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                >Create a key</a
+              >
+              in your OpenAI dashboard.
+            </p>
+            <label class="first-run-field-label" for="firstRunOpenAIModelSelect">
+              Model
+            </label>
+            <select
+              id="firstRunOpenAIModelSelect"
+              class="status-select settings-select first-run-input"
+            ></select>
+            <div class="first-run-key-row">
+              <button
+                type="button"
+                class="btn-modal-secondary"
+                id="firstRunOpenAICheckBtn"
+              >
+                Check connection
+              </button>
+            </div>
+            <p
+              class="first-run-status"
+              id="firstRunOpenAICheckStatus"
+              aria-live="polite"
+              hidden
+            ></p>
+          </div>
+
+          <!-- Anthropic sub-panel -->
+          <div
+            class="first-run-provider-panel"
+            id="firstRunProviderPanelAnthropic"
+            style="display: none"
+          >
+            <label class="first-run-field-label" for="firstRunAnthropicKeyInput">
+              Paste your Anthropic API key
+            </label>
+            <div class="first-run-key-row">
+              <input
+                type="password"
+                id="firstRunAnthropicKeyInput"
+                class="first-run-input"
+                placeholder="sk-ant-…"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button
+                type="button"
+                class="btn-modal-secondary first-run-key-save"
+                id="firstRunAnthropicKeySaveBtn"
+              >
+                Save key
+              </button>
+            </div>
+            <p class="first-run-hint first-run-hint--compact">
+              <a
+                href="https://console.anthropic.com/settings/keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                >Create a key</a
+              >
+              in the Anthropic console.
+            </p>
+            <label class="first-run-field-label" for="firstRunAnthropicModelSelect">
+              Model
+            </label>
+            <select
+              id="firstRunAnthropicModelSelect"
+              class="status-select settings-select first-run-input"
+            ></select>
+            <div class="first-run-key-row">
+              <button
+                type="button"
+                class="btn-modal-secondary"
+                id="firstRunAnthropicCheckBtn"
+              >
+                Check connection
+              </button>
+            </div>
+            <p
+              class="first-run-status"
+              id="firstRunAnthropicCheckStatus"
+              aria-live="polite"
+              hidden
+            ></p>
+          </div>
+
+          <!-- Webhook sub-panel -->
+          <div
+            class="first-run-provider-panel"
+            id="firstRunProviderPanelWebhook"
+            style="display: none"
+          >
+            <label class="first-run-field-label" for="firstRunWebhookUrlInput">
+              Your draft-generation webhook URL
+            </label>
+            <div class="first-run-key-row">
+              <input
+                type="url"
+                id="firstRunWebhookUrlInput"
+                class="first-run-input"
+                placeholder="https://your-server.example/resume"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button
+                type="button"
+                class="btn-modal-secondary first-run-key-save"
+                id="firstRunWebhookUrlSaveBtn"
+              >
+                Save URL
+              </button>
+            </div>
+            <p class="first-run-hint first-run-hint--compact">
+              JobBored POSTs draft requests to your endpoint — bring your own
+              model or pipeline.
+            </p>
           </div>
 
           <!-- Local sub-panel: model select + Download-model control -->
@@ -267,6 +549,21 @@
               Pulls the model into your local Ollama (no terminal needed).
               Requires Ollama running on 127.0.0.1:11434.
             </p>
+            <div class="first-run-key-row">
+              <button
+                type="button"
+                class="btn-modal-secondary"
+                id="firstRunLocalCheckBtn"
+              >
+                Check connection
+              </button>
+            </div>
+            <p
+              class="first-run-status"
+              id="firstRunLocalCheckStatus"
+              aria-live="polite"
+              hidden
+            ></p>
           </div>
 
           <p class="first-run-status" id="firstRunProviderStatus" aria-live="polite"></p>
