@@ -1140,12 +1140,29 @@
       if (api && typeof api.closeWizardShell === "function") {
         api.closeWizardShell("enhancements_cross_rec");
       }
+      // Stage beat: the full-setup celebration gates the transition; its CTA
+      // carries the user into the enhancements wizard. Overlay missing →
+      // the player continues immediately (existing fallback).
       const h = host();
-      if (h && typeof h.requestEnhancementsSetup === "function") {
-        return h.requestEnhancementsSetup({
-          entryPoint: "go_live_cross_rec",
-          allowWhileOnboarding: false,
-        });
+      const proceed = () => {
+        if (h && typeof h.requestEnhancementsSetup === "function") {
+          void h.requestEnhancementsSetup({
+            entryPoint: "go_live_cross_rec",
+            allowWhileOnboarding: false,
+          });
+        }
+      };
+      const onboarding =
+        typeof window !== "undefined" &&
+        window.JobBoredApp &&
+        window.JobBoredApp.onboarding;
+      if (
+        onboarding &&
+        typeof onboarding.playOnboardingCelebration === "function"
+      ) {
+        onboarding.playOnboardingCelebration(proceed, "bonus");
+      } else {
+        proceed();
       }
       return null;
     }

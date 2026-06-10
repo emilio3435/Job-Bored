@@ -177,6 +177,32 @@
     return card;
   }
 
+  // Illustrated feature card: icon chip + title + what-it-does (+ optional
+  // "where to turn it on" line). Keeps the power-up slides scannable.
+  function safeFeatureCard(parent, { icon, title, desc, where }) {
+    const card = safeCreate("div", "enhancements-feature-card");
+    const chip = safeCreate("span", "enhancements-feature-card__icon", icon || "✨");
+    chip.setAttribute("aria-hidden", "true");
+    card.appendChild(chip);
+    const body = safeCreate("div", "enhancements-feature-card__body");
+    body.appendChild(
+      safeCreate("p", "enhancements-feature-card__title", title || ""),
+    );
+    if (desc) {
+      body.appendChild(
+        safeCreate("p", "enhancements-feature-card__desc", desc),
+      );
+    }
+    if (where) {
+      body.appendChild(
+        safeCreate("p", "enhancements-feature-card__where", where),
+      );
+    }
+    card.appendChild(body);
+    parent.appendChild(card);
+    return card;
+  }
+
   // Prominent open-in-new-tab link styled as a button — the "go get your
   // key" step must be one click, not a copy-the-domain scavenger hunt.
   function safeKeyLink(parent, href, label) {
@@ -252,7 +278,17 @@
       safeParagraph(container, "Nothing to do here. Hit Continue.");
       return container;
     }
-    safeParagraph(container, "A Gemini key unlocks two discovery superpowers: grounded web-search (finds roles the job boards miss) and instant 'Add job from URL' parsing.", "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold");
+    safeParagraph(container, "A Gemini key unlocks two discovery superpowers:", "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold");
+    safeFeatureCard(container, {
+      icon: "🔎",
+      title: "Grounded web search",
+      desc: "Gemini searches the live web during discovery runs — surfacing roles the job boards haven't indexed yet.",
+    });
+    safeFeatureCard(container, {
+      icon: "🔗",
+      title: "Add job from URL",
+      desc: "Paste any posting link and Gemini reads the page into a clean pipeline row — title, company, requirements, all parsed for you.",
+    });
     if (rt.geminiKeyPrefilled && rt.geminiKeyDraft) {
       safeCallout(container, "Good news: we found the Gemini key you entered during setup and filled it in below — just hit Save key to enable it for discovery too.", "success");
     } else {
@@ -294,12 +330,25 @@
 
   function buildMoreOptionalBody() {
     const container = safeCreate("div", "enhancements-wizard__step");
-    safeParagraph(container, "These niche power-ups are optional and can be configured any time in Settings.", "discovery-setup-wizard__copy");
-    safeList(container, [
-      "ATS scoring endpoint — Settings → Job Discovery for the URL",
-      "Company logos (Logo.dev token) — Settings → General",
-      "Browser Use Cloud fallback — Settings → Job Discovery",
-    ]);
+    safeParagraph(container, "Three more power-ups, all optional — turn any of them on whenever you want.", "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold");
+    safeFeatureCard(container, {
+      icon: "🎯",
+      title: "ATS scoring",
+      desc: "Scores your resume against each posting the way applicant-tracking systems do, so you know what to fix before applying.",
+      where: "Turn on: Settings → Job Discovery → ATS scoring endpoint.",
+    });
+    safeFeatureCard(container, {
+      icon: "🏷️",
+      title: "Company logos",
+      desc: "Real brand logos across your pipeline and drafted materials — a Logo.dev token makes everything look the part.",
+      where: "Turn on: Settings → General → Logo.dev token.",
+    });
+    safeFeatureCard(container, {
+      icon: "☁️",
+      title: "Browser Use Cloud",
+      desc: "A hosted fallback that keeps discovery running even when your laptop is off or asleep.",
+      where: "Turn on: Settings → Job Discovery → Browser Use Cloud.",
+    });
     return container;
   }
 

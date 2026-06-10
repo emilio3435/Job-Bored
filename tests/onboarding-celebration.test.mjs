@@ -381,6 +381,13 @@ describe("celebration — one beat between every MAJOR stage (parameterized)", (
     assert.equal(env.cta.textContent, "Build your profile →");
   });
 
+  it("stage 'bonus' celebrates full setup and gates Maximize your results", () => {
+    const env = loadCelebration();
+    env.onboarding.playOnboardingCelebration(() => {}, "bonus");
+    assert.match(env.title.textContent, /fully set up/i);
+    assert.equal(env.cta.textContent, "Maximize your results \u2192");
+  });
+
   it("no stage argument keeps today's profile-finish copy (backward compatible)", () => {
     const env = loadCelebration();
     env.onboarding.playOnboardingCelebration(() => {});
