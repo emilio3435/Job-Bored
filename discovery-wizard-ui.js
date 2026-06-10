@@ -1065,9 +1065,9 @@ function buildDiscoveryExistingEndpointBody(runtime) {
     label: "Discovery webhook shared secret",
     type: "password",
     value: runtime.drafts.endpointSecret || "",
-    placeholder: "Paste the same secret as the worker's BROWSER_USE_DISCOVERY_WEBHOOK_SECRET",
+    placeholder: "Filled automatically by “Set it up for me”",
     hint:
-      "Sent as x-discovery-secret. Leave blank to keep an existing saved secret (or to skip secret auth for an Apps Script stub). The worker fail-closes on an empty secret when exposed, so set it whenever the URL is reachable from outside this machine.",
+      "“Set it up for me” fills this for you. Pasting manually? Use the worker's BROWSER_USE_DISCOVERY_WEBHOOK_SECRET; leave blank to keep a previously saved one.",
     onInput(value) {
       host().updateDiscoveryWizardRuntime({
         drafts: { endpointSecret: value },
