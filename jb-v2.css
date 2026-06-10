@@ -109,3 +109,70 @@ body.jb-v2 .jb-mono {
 .jb-applied-age[data-age="aging"] { color: #a16207; background: rgba(234, 179, 8, 0.16); }
 .jb-applied-age[data-age="stale"] { color: #c2410c; background: rgba(249, 115, 22, 0.16); }
 .jb-applied-age[data-age="cold"]  { color: #b91c1c; background: rgba(239, 68, 68, 0.16); }
+
+/* Discovery run-status button states — renderDiscoveryRunStatus()
+   (discovery-status-handoff.js) toggles run-<status> classes on
+   #discoveryBtn. Active runs take minutes; the kickoff toast auto-dismisses
+   in seconds, so the button itself carries a pulsing dot while a run is
+   live and flashes once on a terminal outcome. Shared, unscoped classes
+   like .jb-applied-age above — the button renders in both UIs. */
+.btn-discovery.run-pending::before,
+.btn-discovery.run-running::before,
+.btn-discovery.run-polling_error::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent, #59cb89);
+  animation: jb-run-pulse 1.2s ease-in-out infinite;
+}
+.btn-discovery.run-polling_error::before {
+  background: #eab308;
+}
+.btn-discovery.run-completed,
+.btn-discovery.run-empty {
+  animation: jb-run-flash-ok 1.4s ease-out 1;
+}
+.btn-discovery.run-partial {
+  animation: jb-run-flash-warn 1.4s ease-out 1;
+}
+.btn-discovery.run-failed {
+  animation: jb-run-flash-fail 1.4s ease-out 1;
+}
+@keyframes jb-run-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.72); }
+}
+@keyframes jb-run-flash-ok {
+  0% { background: rgba(89, 203, 137, 0.4); }
+  100% { background: var(--surface, transparent); }
+}
+@keyframes jb-run-flash-warn {
+  0% { background: rgba(234, 179, 8, 0.4); }
+  100% { background: var(--surface, transparent); }
+}
+@keyframes jb-run-flash-fail {
+  0% { background: rgba(239, 68, 68, 0.4); }
+  100% { background: var(--surface, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-discovery.run-pending::before,
+  .btn-discovery.run-running::before,
+  .btn-discovery.run-polling_error::before,
+  .btn-discovery.run-completed,
+  .btn-discovery.run-empty,
+  .btn-discovery.run-partial,
+  .btn-discovery.run-failed {
+    animation: none;
+  }
+}
+
+/* Materials queue — stalled-heartbeat pill (materials-queue.js). A
+   non-terminal phase whose worker heartbeat is >10min old renders
+   STALLED? instead of an eternally climbing DRAFTING timer. */
+.mq__phase[data-phase="stalled"] {
+  background: rgba(192, 76, 76, 0.14);
+  border-color: rgba(192, 76, 76, 0.5);
+  color: #b03e3e;
+}

@@ -22,8 +22,17 @@
   var REGION_SELECTOR = '[data-region="materials-queue"]';
   var POLL_ACTIVE_MS = 5_000;
   var POLL_IDLE_MS   = 30_000;
+  /* Heartbeat honesty: the drafting worker bumps progress.updated_at as it
+     works. A non-terminal phase whose heartbeat is older than this is
+     probably a dead worker — say "STALLED?" instead of letting the elapsed
+     clock climb forever. */
+  var STALL_THRESHOLD_MS = 10 * 60 * 1000;
+  /* After this many consecutive fetch failures, stop showing frozen rows
+     and say the materials server is unreachable. */
+  var FETCH_FAILURE_LIMIT = 3;
   var timer = null;
   var lastEmpty = true;
+  var fetchFailures = 0;
 
   function escapeHtml(s) {
     return String(s == null ? "" : s)
@@ -91,10 +100,20 @@
     return formatElapsed(elapsedSec);
   }
 
+  function isStalled(progress) {
+    if (!progress) return false;
+    var phase = progress.phase || "queued";
+    if (phase === "complete" || phase === "failed") return false;
+    var t = Date.parse(progress.updatedAt || "");
+    if (!Number.isFinite(t)) return false;
+    return (Date.now() - t) > STALL_THRESHOLD_MS;
+  }
+
   function renderRow(item, position) {
     var phase = (item.progress && item.progress.phase) || "queued";
     var isFailed = phase === "failed";
     var isComplete = phase === "complete";
+    var stalled = isStalled(item.progress);
     var elapsedAttr = (!isComplete && !isFailed && phase !== "queued" && item.progress && item.progress.startedAt)
       ? ' data-elapsed-started="' + escapeHtml(item.progress.startedAt) + '"'
       : '';
@@ -115,7 +134,7 @@
         + '<div class="mq__meta">'
           + '<span class="mq__feature">' + escapeHtml(featureLabel(item.feature)) + '</span>'
           + '<span class="mq__sep"></span>'
-          + '<span class="mq__phase" data-phase="' + escapeHtml(phase) + '">' + escapeHtml(phasePillLabel(item.progress)) + '</span>'
+          + '<span class="mq__phase" data-phase="' + escapeHtml(stalled ? "stalled" : phase) + '">' + escapeHtml(stalled ? "STALLED?" : phasePillLabel(item.progress)) + '</span>'
           + '<span class="mq__sep"></span>'
           + '<span class="mq__elapsed"' + elapsedAttr + '>' + escapeHtml(elapsedText) + '</span>'
         + '</div>'
@@ -170,10 +189,28 @@
       });
   }
 
+  /* The API server is down (or the base URL is wrong). Keeping the last
+     rows on screen with a climbing elapsed timer fakes progress — replace
+     them with one honest line. The poll keeps retrying, so a recovered
+     server repopulates the strip on the next successful fetch. */
+  function renderUnreachable() {
+    var region = doc.querySelector(REGION_SELECTOR);
+    if (!region || region.hasAttribute("hidden")) return;
+    region.innerHTML = '<header class="mq__head">'
+      + '<h3 class="mq__title">Materials queue</h3>'
+      + '<span class="mq__count">Can\'t reach the materials server — retrying…</span>'
+    + '</header>';
+  }
+
   function refresh() {
     fetchQueue()
-      .then(function (queue) { render(queue); })
-      .catch(function () { /* swallow; we'll retry next tick */ });
+      .then(function (queue) { fetchFailures = 0; render(queue); })
+      .catch(function () {
+        /* Tolerate transient blips, but stop pretending after a few
+           consecutive failures; we'll keep retrying next tick. */
+        fetchFailures += 1;
+        if (fetchFailures >= FETCH_FAILURE_LIMIT) renderUnreachable();
+      });
   }
 
   function schedule() {

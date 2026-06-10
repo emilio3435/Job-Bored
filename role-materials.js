@@ -405,7 +405,7 @@
       case "rendering_pdf":  return "Polishing the PDFs…";
       case "verifying":      return "Double-checking the outputs…";
       case "complete":       return "Done! Files are syncing back to JobBored.";
-      case "failed":         return "Something went sideways. Check Telegram.";
+      case "failed":         return "Something went sideways. Open the request again or check the worker logs.";
       default:               return "Dobby is on it…";
     }
   }
@@ -1015,6 +1015,17 @@
       attempts += 1;
       if (Date.now() - startedAt > maxMs) {
         stopPolling();
+        /* Honesty over silence: a draft that has produced nothing in 30
+           minutes almost certainly has a dead worker behind it. Say so
+           instead of freezing the progress card mid-climb. */
+        var capRegion = document.querySelector(REGION_SELECTOR);
+        var capBrief = capRegion && capRegion.querySelector(BRIEF_SELECTOR);
+        if (capBrief) {
+          renderError(
+            capBrief,
+            "Still no result after 30 minutes — the drafting worker may be down. Open the request again or check the worker logs.",
+          );
+        }
         return;
       }
       fetchJson(base + "/api/applications/" + encodeURIComponent(slug) + "/manifest")
