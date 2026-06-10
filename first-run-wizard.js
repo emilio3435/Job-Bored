@@ -273,12 +273,69 @@
         providerStatus.textContent =
           selectedProvider === "local"
             ? "Pick a local model (download it below if needed) to continue."
-            : "Paste your free OpenRouter key to continue.";
+            : selectedProvider === "webhook"
+              ? "Save your webhook URL to continue."
+              : selectedProvider === "openrouter"
+                ? "Paste your free OpenRouter key to continue."
+                : `Paste your ${
+                    (FIRST_RUN_PROVIDERS[selectedProvider] || {}).cap ||
+                    selectedProvider
+                  } API key to continue.`;
       }
     }
   }
 
   // --- Step 2: Provider choice -------------------------------------------
+
+  // Full provider set — parity with Settings → AI Providers. Each entry maps
+  // a provider to its DOM id stem, override-key fields, and panel id.
+  const FIRST_RUN_PROVIDERS = {
+    openrouter: {
+      cap: "OpenRouter",
+      keyField: "resumeOpenRouterApiKey",
+      modelField: "resumeOpenRouterModel",
+    },
+    gemini: {
+      cap: "Gemini",
+      keyField: "resumeGeminiApiKey",
+      modelField: "resumeGeminiModel",
+    },
+    openai: {
+      cap: "OpenAI",
+      keyField: "resumeOpenAIApiKey",
+      modelField: "resumeOpenAIModel",
+    },
+    anthropic: {
+      cap: "Anthropic",
+      keyField: "resumeAnthropicApiKey",
+      modelField: "resumeAnthropicModel",
+    },
+    local: {
+      cap: "Local",
+      keyField: "resumeLocalApiKey",
+      modelField: "resumeLocalModel",
+      baseUrlField: "resumeLocalBaseUrl",
+    },
+    webhook: { cap: "Webhook", urlField: "resumeGenerationWebhookUrl" },
+  };
+
+  // The shared model catalog (live provider model lists + key pings). Tests
+  // inject a stub via __setCatalog so no real network is touched.
+  let firstRunCatalogOverride = null;
+  function getModelCatalog() {
+    if (firstRunCatalogOverride) return firstRunCatalogOverride;
+    return typeof window !== "undefined" ? window.JobBoredModelCatalog : null;
+  }
+  function __setCatalog(catalog) {
+    firstRunCatalogOverride = catalog || null;
+  }
+
+  function normalizeFirstRunProvider(value) {
+    const v = String(value || "").toLowerCase();
+    return Object.prototype.hasOwnProperty.call(FIRST_RUN_PROVIDERS, v)
+      ? v
+      : "";
+  }
 
   function firstRunSelectedProvider() {
     if (
@@ -288,20 +345,20 @@
       const checked = document.querySelector(
         'input[name="firstRunProvider"]:checked',
       );
-      if (checked && checked.value) {
-        return checked.value === "local" ? "local" : "openrouter";
-      }
+      const fromRadio = checked ? normalizeFirstRunProvider(checked.value) : "";
+      if (fromRadio) return fromRadio;
     }
     const cfg = getResumeConfig();
-    return cfg && cfg.provider === "local" ? "local" : "openrouter";
+    const fromConfig = cfg ? normalizeFirstRunProvider(cfg.provider) : "";
+    return fromConfig || "openrouter";
   }
 
   function updateFirstRunProviderPanels(provider) {
     const p = provider || firstRunSelectedProvider();
-    const orPanel = getEl("firstRunProviderPanelOpenRouter");
-    const localPanel = getEl("firstRunProviderPanelLocal");
-    if (orPanel) orPanel.style.display = p === "local" ? "none" : "block";
-    if (localPanel) localPanel.style.display = p === "local" ? "block" : "none";
+    for (const [name, def] of Object.entries(FIRST_RUN_PROVIDERS)) {
+      const panel = getEl(`firstRunProviderPanel${def.cap}`);
+      if (panel) panel.style.display = p === name ? "block" : "none";
+    }
   }
 
   function persistResumeProvider(provider) {
@@ -320,10 +377,150 @@
 
   /** Persist the chosen provider so generation immediately honors it. */
   function firstRunSelectProvider(provider) {
-    const p = provider === "local" ? "local" : "openrouter";
+    const p = normalizeFirstRunProvider(provider) || "openrouter";
     persistResumeProvider(p);
     updateFirstRunProviderPanels(p);
     refreshFirstRunWizard();
+    void firstRunRefreshModelsFor(p);
+  }
+
+  /**
+   * Persist a provider's API key (or webhook URL) via
+   * mergeStoredConfigOverridePatch and apply it to the live config so the
+   * next generation uses it without a reload. Generic across the full
+   * provider set; OpenRouter keeps its stricter key-shape check.
+   */
+  function firstRunSaveProviderKey(provider, rawValue) {
+    const p = normalizeFirstRunProvider(provider);
+    if (!p) return { ok: false, reason: "provider" };
+    const value = String(rawValue || "").trim();
+    if (!value) return { ok: false, reason: "empty" };
+    const def = FIRST_RUN_PROVIDERS[p];
+    let field;
+    if (p === "webhook") {
+      if (!/^https?:\/\/.+/i.test(value)) return { ok: false, reason: "shape" };
+      field = def.urlField;
+    } else {
+      if (p === "openrouter" && !/^sk-or-[A-Za-z0-9._-]{8,}$/.test(value)) {
+        return { ok: false, reason: "shape" };
+      }
+      if (value.length < 8) return { ok: false, reason: "shape" };
+      field = def.keyField;
+    }
+    try {
+      const h = host();
+      if (typeof h.mergeStoredConfigOverridePatch === "function") {
+        h.mergeStoredConfigOverridePatch({ [field]: value });
+      }
+    } catch (err) {
+      console.warn(`[JobBored] save ${p} key failed:`, err);
+      return { ok: false, reason: "storage" };
+    }
+    if (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) {
+      window.COMMAND_CENTER_CONFIG[field] = value;
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Live connection check via the shared model catalog. Reads the key from
+   * the saved config (not the input — save first), pings the provider, and
+   * renders ✓/✗ into the per-provider status line.
+   */
+  async function firstRunVerifyProvider(provider) {
+    const p = normalizeFirstRunProvider(provider);
+    if (!p || p === "webhook") {
+      return { ok: false, message: "No live check for this provider." };
+    }
+    const def = FIRST_RUN_PROVIDERS[p];
+    const cfg = getResumeConfig() || {};
+    const apiKey = String(cfg[def.keyField] || "").trim();
+    const baseUrl = def.baseUrlField
+      ? String(cfg[def.baseUrlField] || "").trim()
+      : "";
+    if (!apiKey && p !== "local") {
+      return { ok: false, message: "Save your API key first." };
+    }
+    const status = getEl(`firstRun${def.cap}CheckStatus`);
+    if (status) {
+      status.hidden = false;
+      status.textContent = "Checking…";
+      status.classList.toggle("first-run-status--error", false);
+    }
+    const catalog = getModelCatalog();
+    if (!catalog || typeof catalog.pingProvider !== "function") {
+      if (status) {
+        status.textContent = "Checker unavailable — reload and try again.";
+        status.classList.toggle("first-run-status--error", true);
+      }
+      return { ok: false, message: "Model catalog unavailable." };
+    }
+    let result;
+    try {
+      result = await catalog.pingProvider({ provider: p, apiKey, baseUrl });
+    } catch (err) {
+      result = { ok: false, message: (err && err.message) || "Check failed." };
+    }
+    if (status) {
+      if (result && result.ok) {
+        status.textContent = "✓ Connected.";
+        status.classList.toggle("first-run-status--error", false);
+        void firstRunRefreshModelsFor(p);
+      } else {
+        status.textContent = `Couldn't connect — ${
+          (result && result.message) || "check the key and try again."
+        }`;
+        status.classList.toggle("first-run-status--error", true);
+      }
+    }
+    return result || { ok: false, message: "Check failed." };
+  }
+
+  /**
+   * Populate the per-provider model select from the shared catalog (live
+   * list when a key is present, curated static otherwise) and keep the
+   * configured model selected when it is still offered.
+   */
+  async function firstRunRefreshModelsFor(provider) {
+    const p = normalizeFirstRunProvider(provider);
+    if (!p || p === "webhook") return;
+    const def = FIRST_RUN_PROVIDERS[p];
+    const sel = getEl(`firstRun${def.cap}ModelSelect`);
+    if (!sel || typeof document === "undefined") return;
+    const cfg = getResumeConfig() || {};
+    const apiKey = String(cfg[def.keyField] || "").trim();
+    const baseUrl = def.baseUrlField
+      ? String(cfg[def.baseUrlField] || "").trim()
+      : "";
+    const catalog = getModelCatalog();
+    let models = [];
+    if (catalog && typeof catalog.getProviderModels === "function") {
+      try {
+        const out = await catalog.getProviderModels({
+          provider: p,
+          apiKey,
+          baseUrl,
+        });
+        models = (out && out.models) || [];
+      } catch (err) {
+        console.warn(`[JobBored] ${p} model list failed:`, err);
+      }
+    }
+    if (!models.length && catalog && typeof catalog.getStaticModels === "function") {
+      models = catalog.getStaticModels(p) || [];
+    }
+    if (!models.length) return;
+    sel.innerHTML = "";
+    models.forEach((opt) => {
+      const o = document.createElement("option");
+      o.value = opt.value;
+      o.textContent = opt.label || opt.value;
+      sel.appendChild(o);
+    });
+    const current = String(cfg[def.modelField] || "").trim();
+    if (current && models.some((m) => m.value === current)) {
+      sel.value = current;
+    }
   }
 
   /**
@@ -906,12 +1103,85 @@
       setFirstRunStep(2);
     });
 
-    getEl("firstRunProviderOpenRouter")?.addEventListener("change", () => {
-      firstRunSelectProvider("openrouter");
-    });
-    getEl("firstRunProviderLocal")?.addEventListener("change", () => {
-      firstRunSelectProvider("local");
-    });
+    for (const [providerName, providerDef] of Object.entries(
+      FIRST_RUN_PROVIDERS,
+    )) {
+      getEl(`firstRunProvider${providerDef.cap}`)?.addEventListener(
+        "change",
+        () => {
+          firstRunSelectProvider(providerName);
+        },
+      );
+      // Per-provider Save key/URL (OpenRouter keeps its dedicated handler
+      // below for its richer status messaging).
+      if (providerName !== "openrouter" && providerName !== "local") {
+        const inputId =
+          providerName === "webhook"
+            ? "firstRunWebhookUrlInput"
+            : `firstRun${providerDef.cap}KeyInput`;
+        const saveId =
+          providerName === "webhook"
+            ? "firstRunWebhookUrlSaveBtn"
+            : `firstRun${providerDef.cap}KeySaveBtn`;
+        const save = () => {
+          const input = getEl(inputId);
+          const res = firstRunSaveProviderKey(
+            providerName,
+            input ? input.value : "",
+          );
+          if (res.ok) {
+            void firstRunRefreshModelsFor(providerName);
+            void firstRunVerifyProvider(providerName);
+          }
+          refreshFirstRunWizard();
+        };
+        getEl(saveId)?.addEventListener("click", save);
+        getEl(inputId)?.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            save();
+          }
+        });
+      }
+      // Live connection check + model persistence (key providers + local).
+      if (providerName !== "webhook") {
+        getEl(`firstRun${providerDef.cap}CheckBtn`)?.addEventListener(
+          "click",
+          () => {
+            void firstRunVerifyProvider(providerName);
+          },
+        );
+        if (providerName !== "local") {
+          getEl(`firstRun${providerDef.cap}ModelSelect`)?.addEventListener(
+            "change",
+            () => {
+              const sel = getEl(`firstRun${providerDef.cap}ModelSelect`);
+              const model = sel ? String(sel.value || "").trim() : "";
+              if (!model) return;
+              try {
+                const h = host();
+                if (typeof h.mergeStoredConfigOverridePatch === "function") {
+                  h.mergeStoredConfigOverridePatch({
+                    [providerDef.modelField]: model,
+                  });
+                }
+              } catch (err) {
+                console.warn(
+                  `[JobBored] save ${providerName} model failed:`,
+                  err,
+                );
+              }
+              if (
+                typeof window !== "undefined" &&
+                window.COMMAND_CENTER_CONFIG
+              ) {
+                window.COMMAND_CENTER_CONFIG[providerDef.modelField] = model;
+              }
+            },
+          );
+        }
+      }
+    }
     getEl("firstRunOpenRouterKeySaveBtn")?.addEventListener("click", () => {
       handleFirstRunSaveOpenRouterKey();
     });
@@ -991,6 +1261,11 @@
     firstRunCanFinish,
     firstRunSaveOpenRouterKey,
     firstRunSelectProvider,
+    firstRunSelectedProvider,
+    firstRunSaveProviderKey,
+    firstRunVerifyProvider,
+    firstRunRefreshModelsFor,
+    __setCatalog,
     handleFirstRunFinish,
     handleFirstRunDoneToDashboard,
     handleFirstRunDoneOpenDiscovery,
