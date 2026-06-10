@@ -1136,3 +1136,16 @@
     transition: none;
   }
 }
+
+/* Delight pass: same mint progress language as the shell rail. */
+.onboarding-progress-bar {
+  height: 6px;
+}
+
+.onboarding-progress-bar__fill {
+  background: linear-gradient(
+    90deg,
+    var(--jb-mint, #5fcb8e),
+    var(--jb-mint-deep, #2f8a5a)
+  );
+}

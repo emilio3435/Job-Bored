@@ -558,3 +558,38 @@
   text-align: left;
   font-size: var(--text-sm);
 }
+
+/* Delight pass: progress speaks the same mint language as the shell rail —
+   gradient fill, checkmarked done pills, raised current pill. */
+.first-run-steps__item--done {
+  color: #fff;
+  background: linear-gradient(
+    180deg,
+    var(--jb-mint, #5fcb8e),
+    var(--jb-mint-deep, #2f8a5a)
+  );
+}
+
+.first-run-steps__item--done::before {
+  content: "✓ ";
+}
+
+.first-run-steps__item--current {
+  color: var(--jb-navy, var(--text));
+  background: #fff;
+  box-shadow:
+    0 -2px 0 var(--jb-mint, #5fcb8e) inset,
+    0 2px 8px rgba(31, 51, 71, 0.1);
+}
+
+.first-run-progress-bar {
+  height: 6px;
+}
+
+.first-run-progress-bar__fill {
+  background: linear-gradient(
+    90deg,
+    var(--jb-mint, #5fcb8e),
+    var(--jb-mint-deep, #2f8a5a)
+  );
+}
