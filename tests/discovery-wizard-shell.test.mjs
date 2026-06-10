@@ -692,3 +692,16 @@ describe("wizard shell repaint — warm-paper skin (delight pass)", () => {
     assert.ok(css.includes("rgba(251, 246, 235, 0.92)"), "the step frame uses the warm cream paper, not slate white");
   });
 });
+
+describe("wizard progress — one mint language across card wizards too (delight pass)", () => {
+  it("first-run + profile progress fills use the shell's mint gradient; first-run done pills get checkmarks", async () => {
+    const { readFileSync } = await import("node:fs");
+    const fr = readFileSync(new URL("../css/legacy-first-run-wizard.css", import.meta.url), "utf8");
+    const ob = readFileSync(new URL("../css/legacy-onboarding.css", import.meta.url), "utf8");
+    for (const [name, css] of [["first-run", fr], ["onboarding", ob]]) {
+      assert.ok(css.includes("var(--jb-mint, #5fcb8e)"), `${name} progress uses the brand mint`);
+      assert.match(css, /progress-bar__fill[^}]*\{[^}]*linear-gradient\(\s*90deg/s, `${name} fill is the gradient, not flat accent`);
+    }
+    assert.match(fr, /__item--done::before\s*\{\s*content: "✓ "/s, "done pills carry the same checkmark as the shell rail");
+  });
+});
