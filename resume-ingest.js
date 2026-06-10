@@ -18,10 +18,19 @@
           ? window.pdfjsLib
           : undefined;
     if (!pdfjs) return;
-    if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+    // ALWAYS force the vendored path — the old only-if-unset guard let a
+    // stale CDN workerSrc (set lazily by pre-vendoring code in a long-lived
+    // tab) survive forever, so every parse fetched the 1MB worker from a
+    // filtered CDN and timed out while the same file parsed instantly in a
+    // clean browser. The vendored worker is the only correct value here.
+    if (pdfjs.GlobalWorkerOptions.workerSrc !== PDF_WORKER_SRC) {
       pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
     }
   }
+
+  // Last parse phase, read by the watchdog so a timeout names WHERE it
+  // stalled (one parse at a time in practice).
+  let lastParsePhase = "start";
 
   /**
    * Collapse whitespace; trim repeated blank lines.
@@ -58,6 +67,7 @@
       throw new Error("PDF.js not loaded");
     }
     const tDoc = nowMs();
+    lastParsePhase = "booting the PDF reader (worker + document structure)";
     const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
     // Without an onPassword handler, pdf.js leaves loadingTask.promise
     // pending FOREVER on encrypted PDFs — the exact "Reading…" infinite
@@ -88,6 +98,7 @@
     const parts = [];
     for (let i = 1; i <= pdf.numPages; i++) {
       const tPage = nowMs();
+      lastParsePhase = `extracting text (page ${i}/${pdf.numPages})`;
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
       const strings = content.items
@@ -175,12 +186,13 @@
     // actionable error — the paste fallback is right there on the step.
     const timeoutMs =
       Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 20000;
+    lastParsePhase = "start";
     let timeoutId = null;
     const watchdog = new Promise((_, reject) => {
       timeoutId = setTimeout(() => {
         reject(
           new Error(
-            `Still couldn't read “${file.name || "that file"}” after ${Math.round(timeoutMs / 1000)}s — it may be protected or damaged. Paste the resume text below instead.`,
+            `Still couldn't read “${file.name || "that file"}” after ${Math.round(timeoutMs / 1000)}s (stalled at: ${lastParsePhase}). Paste the resume text below instead.`,
           ),
         );
       }, timeoutMs);
