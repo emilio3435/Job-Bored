@@ -135,9 +135,10 @@
 }
 
 .first-run-step-title {
-  font-size: var(--text-lg);
-  font-weight: 700;
-  color: var(--text);
+  font-size: var(--text-xl);
+  font-weight: 750;
+  letter-spacing: -0.01em;
+  color: var(--jb-navy, var(--text));
   margin-bottom: var(--space-2);
 }
 
