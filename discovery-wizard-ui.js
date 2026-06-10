@@ -2158,6 +2158,63 @@ async function recommendGoLiveAfterDiscoveryFinish() {
   }
 }
 
+/**
+ * Decide the wizard's entry flow + step (pure — helpers injected).
+ *
+ * The ONBOARDING entry (the guided setup chain) always starts FRESH on step 1
+ * with the Tailscale-first external_endpoint flow: no resuming a stale
+ * mid-flow step, never the local-agent recovery route, and the snapshot is
+ * clamped so the step-1 check + path badge read Tailscale-first instead of
+ * raising ngrok-flavored recovery alarms (the one-click auto-setup boots the
+ * worker itself, so "fix local setup" is noise on this path).
+ *
+ * Every other entry keeps today's semantics: recovery forces local_agent at
+ * its bootstrap step, otherwise resume the persisted step when it is valid
+ * for the resolved flow.
+ */
+function resolveDiscoveryWizardEntry({
+  entryPoint,
+  flowOption,
+  startStepOption,
+  savedState,
+  snapshot,
+  mapFlow,
+  getStepIds,
+}) {
+  if (entryPoint === "onboarding") {
+    const flow = mapFlow(flowOption || "external_endpoint");
+    return {
+      flow,
+      step: startStepOption || "detect",
+      freshState: true,
+      snapshot: {
+        ...snapshot,
+        recommendedFlow: flow,
+        localRecoveryState: "ok",
+      },
+    };
+  }
+  const needsRecovery = !!(
+    snapshot.localRecoveryState && snapshot.localRecoveryState !== "ok"
+  );
+  const flow = mapFlow(
+    needsRecovery
+      ? "local_agent"
+      : flowOption ||
+          (savedState && savedState.flow) ||
+          snapshot.recommendedFlow,
+  );
+  const step = needsRecovery
+    ? "bootstrap"
+    : startStepOption ||
+      (savedState &&
+      savedState.currentStep !== "path_select" &&
+      getStepIds(flow).includes(savedState.currentStep)
+        ? savedState.currentStep
+        : "detect");
+  return { flow, step, freshState: false, snapshot };
+}
+
 async function openDiscoverySetupWizard(options = {}) {
   // Funnel telemetry: the discovery setup surface was entered (fires once per
   // open, before autodetect may silently short-circuit it).
@@ -2269,25 +2326,20 @@ async function openDiscoverySetupWizard(options = {}) {
       console.warn("[JobBored] load discovery wizard state:", err);
     }
   }
-  const needsRecovery =
-    snapshot.localRecoveryState && snapshot.localRecoveryState !== "ok";
-  const initialFlow = host().mapDiscoveryWizardFlow(
-    needsRecovery
-      ? "local_agent"
-      : options.flow ||
-          (savedState && savedState.flow) ||
-          snapshot.recommendedFlow,
-  );
-  const initialStep = needsRecovery
-    ? "bootstrap"
-    : options.startStep ||
-      (savedState &&
-      savedState.currentStep !== "path_select" &&
-      host().getDiscoveryWizardStepIds(initialFlow).includes(savedState.currentStep)
-        ? savedState.currentStep
-        : "detect");
+  const entry = resolveDiscoveryWizardEntry({
+    entryPoint: options.entryPoint || "manual",
+    flowOption: options.flow,
+    startStepOption: options.startStep,
+    savedState,
+    snapshot,
+    mapFlow: (f) => host().mapDiscoveryWizardFlow(f),
+    getStepIds: (f) => host().getDiscoveryWizardStepIds(f),
+  });
+  const initialFlow = entry.flow;
+  const initialStep = entry.step;
+  const entrySnapshot = entry.snapshot;
   const savedCompleted =
-    savedState && Array.isArray(savedState.completedSteps)
+    !entry.freshState && savedState && Array.isArray(savedState.completedSteps)
       ? savedState.completedSteps
       : [];
   const implicitlyCompleted = host().getDiscoveryWizardStepsBefore(
@@ -2299,9 +2351,11 @@ async function openDiscoverySetupWizard(options = {}) {
   ];
   host().setDiscoveryWizardRuntime(host().createDiscoveryWizardRuntime({
     entryPoint: options.entryPoint || "manual",
-    snapshot,
+    snapshot: entrySnapshot,
     state: {
-      ...(savedState && typeof savedState === "object" ? savedState : {}),
+      ...(!entry.freshState && savedState && typeof savedState === "object"
+        ? savedState
+        : {}),
       flow: initialFlow,
       currentStep: initialStep,
       completedSteps: mergedCompleted,
@@ -2310,7 +2364,7 @@ async function openDiscoverySetupWizard(options = {}) {
     },
     activeStepId: initialStep,
     drafts: {
-      ...getDiscoveryWizardDefaultDrafts(snapshot),
+      ...getDiscoveryWizardDefaultDrafts(entrySnapshot),
       ...(options.drafts && typeof options.drafts === "object"
         ? options.drafts
         : {}),
@@ -3125,5 +3179,6 @@ async function handleDiscoveryWizardAction(actionId) {
   // finish handler so its persist + goLiveDone gate can be driven behaviorally.
   ui._internal = {
     recommendGoLiveAfterDiscoveryFinish,
+    resolveDiscoveryWizardEntry,
   };
 })();

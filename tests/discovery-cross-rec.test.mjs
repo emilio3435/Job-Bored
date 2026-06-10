@@ -151,3 +151,56 @@ describe("discovery-wizard-ui — openDiscoverySetupWizard onClose seam + onboar
     assert.match(body, /options\.onClose\(reason,\s*ctx\)/);
   });
 });
+
+describe("discovery-wizard-ui — resolveDiscoveryWizardEntry (onboarding starts fresh, Tailscale-first)", () => {
+  const mapFlow = (f) => f; // identity — host's alias mapping is out of scope
+  const getStepIds = (flow) =>
+    flow === "external_endpoint"
+      ? ["detect", "path_select", "existing_endpoint", "verify", "ready"]
+      : ["detect", "path_select", "bootstrap", "local_health", "tunnel", "relay_deploy", "verify", "ready"];
+
+  function entry(overrides) {
+    const { ui } = loadDiscoveryUi();
+    return ui._internal.resolveDiscoveryWizardEntry({
+      entryPoint: "manual",
+      flowOption: null,
+      startStepOption: null,
+      savedState: null,
+      snapshot: { localRecoveryState: "ok", recommendedFlow: "local_agent" },
+      mapFlow,
+      getStepIds,
+      ...overrides,
+    });
+  }
+
+  it("onboarding entry ALWAYS starts fresh at detect with the Tailscale-first flow — stale state and recovery alarms ignored", () => {
+    const out = entry({
+      entryPoint: "onboarding",
+      savedState: { flow: "local_agent", currentStep: "local_health", completedSteps: ["detect", "path_select", "bootstrap"] },
+      snapshot: { localRecoveryState: "needs_full_restart", recommendedFlow: "local_agent" },
+    });
+    assert.equal(out.flow, "external_endpoint", "Tailscale (external_endpoint) is the onboarding default");
+    assert.equal(out.step, "detect", "must open on step 1, never a resumed/recovery step");
+    assert.equal(out.freshState, true, "persisted mid-flow state must not leak into onboarding");
+    assert.equal(out.snapshot.recommendedFlow, "external_endpoint", "the step-1 check + path badge read Tailscale-first");
+    assert.equal(out.snapshot.localRecoveryState, "ok", "ngrok-flavored recovery alarms are noise on the Tailscale path");
+  });
+
+  it("non-onboarding entries keep the recovery route (local_agent + bootstrap)", () => {
+    const out = entry({
+      snapshot: { localRecoveryState: "worker_down", recommendedFlow: "local_agent" },
+    });
+    assert.equal(out.flow, "local_agent");
+    assert.equal(out.step, "bootstrap");
+    assert.equal(out.freshState, false);
+    assert.equal(out.snapshot.localRecoveryState, "worker_down", "non-onboarding snapshot is untouched");
+  });
+
+  it("non-onboarding entries still resume a valid persisted step", () => {
+    const out = entry({
+      savedState: { flow: "local_agent", currentStep: "tunnel", completedSteps: [] },
+    });
+    assert.equal(out.flow, "local_agent");
+    assert.equal(out.step, "tunnel");
+  });
+});
