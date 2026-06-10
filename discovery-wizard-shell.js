@@ -522,7 +522,9 @@
       // (Profile ✓ → Job discovery → Other devices) + a mascot thumb so the
       // shell wizards read as chapters of ONE setup flow. Both render only
       // when the consumer opts in.
-      journeyStage: ["discovery", "devices"].includes(input.journeyStage)
+      journeyStage: ["discovery", "devices", "bonus"].includes(
+        input.journeyStage,
+      )
         ? input.journeyStage
         : "",
       mascotSrc: asString(input.mascotSrc, ""),
@@ -1060,7 +1062,11 @@
       { key: "discovery", label: "Job discovery" },
       { key: "devices", label: "Other devices" },
     ];
-    const currentIdx = stages.findIndex((s) => s.key === context.journeyStage);
+    // "bonus" = the optional post-setup track: every stage reads done.
+    const currentIdx =
+      context.journeyStage === "bonus"
+        ? stages.length
+        : stages.findIndex((s) => s.key === context.journeyStage);
     const strip = createEl("ol", "discovery-setup-wizard__journey", {
       "aria-label": "Setup progress",
     });

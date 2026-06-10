@@ -1274,8 +1274,10 @@
 /* "Get your free key" link-button on the enhancements key steps — the
    acquisition step must be one obvious click. */
 .discovery-setup-wizard__keylink {
-  display: inline-block;
-  margin: var(--space-2) 0 var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  margin: var(--space-2) var(--space-3) var(--space-3) 0;
   padding: var(--space-2) var(--space-5);
   font-size: var(--text-sm);
   font-weight: 700;
@@ -1620,4 +1622,13 @@
 .discovery-setup-wizard__footer .btn-modal-primary:hover {
   transform: translateY(-2px);
   box-shadow: 0 10px 22px rgba(47, 138, 90, 0.28);
+}
+
+/* Keylink pills: defeat the scoped anchor color rule in all states
+   (it carries class+type specificity, so double up the class). */
+.discovery-setup-wizard a.discovery-setup-wizard__keylink,
+.discovery-setup-wizard a.discovery-setup-wizard__keylink:visited,
+.discovery-setup-wizard a.discovery-setup-wizard__keylink:hover,
+.discovery-setup-wizard a.discovery-setup-wizard__keylink:active {
+  color: #fff;
 }
