@@ -136,7 +136,10 @@ describe("repo validation surface", () => {
       pkg.scripts["test:repo"],
       "npm run test:contract:all && node --test tests/*.test.mjs && npm run test:browser-use-discovery",
     );
-    assert.equal(pkg.scripts["lint:repo"], "npm run lint:skills");
+    assert.equal(
+      pkg.scripts["lint:repo"],
+      "npm run lint:js && npm run lint:skills",
+    );
     assert.match(pkg.scripts["typecheck:repo"], /node --check app\.js/);
     assert.match(pkg.scripts["typecheck:repo"], /node --check scripts\/setup\.mjs/);
     assert.match(pkg.scripts["typecheck:repo"], /node --check discovery-coach\.js/);
