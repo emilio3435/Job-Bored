@@ -179,18 +179,12 @@
         });
       })();
     </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="https://fonts.gstatic.com/s/geist/v4/gyByhwUxId8gMEwcGFWNOITd.woff2" />
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="https://fonts.gstatic.com/s/caveat/v23/Wnz6HAc5bAfYB2Q7ZjYYiAzcPA.woff2" />
-    <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&family=Lora:ital,wght@0,400;0,600;1,400&family=Source+Sans+3:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600;700&family=Geist:wght@300;400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Fonts are self-hosted (vendor/fonts/) so first paint never blocks
+         on the Google Fonts CDN — see the pdf.js vendoring note below for
+         why third-party CDNs are avoided. -->
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="vendor/fonts/geist/v5/gyByhwUxId8gMEwcGFWNOITd.woff2" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="vendor/fonts/caveat/v23/Wnz6HAc5bAfYB2Q7ZjYYiAzcPA.woff2" />
+    <link rel="stylesheet" href="vendor/fonts/fonts.css" />
     <script src="https://accounts.google.com/gsi/client" async></script>
     <link rel="stylesheet" href="style.css" />
     <link rel="stylesheet" href="css/legacy-login-gate.css" />

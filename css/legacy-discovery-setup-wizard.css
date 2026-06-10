@@ -199,6 +199,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  min-height: 40px; /* finger-sized rail segments on phones */
   padding: 0.45rem 0.25rem;
   border: none;
   background: transparent;
@@ -312,8 +313,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
+  /* 40x40 tap target; the negative margin keeps the glyph's visual
+     footprint where the old 24px box sat. */
+  width: 2.5rem;
+  height: 2.5rem;
+  margin: -0.5rem;
   border-radius: var(--radius-md);
   font-size: 0.85rem;
   color: var(--text-muted);
@@ -363,6 +367,30 @@
   margin-top: var(--space-3);
   font-size: var(--text-sm);
   color: var(--text-faint);
+}
+
+/* Unbreakable tokens (BROWSER_USE_DISCOVERY_WEBHOOK_SECRET, long
+   shell commands) can't wrap at narrow widths, which turned the
+   whole step into a horizontal scroller via the frame's
+   overflow-x: auto. Let them break anywhere instead — matches the
+   word-break treatment on .diag-chain-url below. */
+.discovery-setup-wizard .settings-field-hint,
+.discovery-setup-wizard .scraper-setup-code,
+.discovery-setup-wizard__step-content,
+.discovery-setup-wizard__step-note {
+  overflow-wrap: anywhere;
+}
+
+.discovery-setup-wizard .scraper-setup-copyrow {
+  min-width: 0;
+}
+
+/* Inline CTAs rendered inside wizard steps (recheck, recovery,
+   download) reuse the modal button classes, which sit ~35px tall —
+   below the 40px tap-target floor the wizard promises phones. */
+.discovery-setup-wizard .btn-modal-primary,
+.discovery-setup-wizard .btn-modal-secondary {
+  min-height: 40px;
 }
 
 /* ── Option grid (clickable path cards) ── */

@@ -478,6 +478,8 @@ body.jb-v2 [data-region="dawn"] .brief-btn--primary:focus-visible {
   }
   body.jb-v2 [data-region="dawn"] .brief-funnel__row {
     grid-template-columns: 80px 1fr 24px;
+    /* Rows are buttons; 24px was too thin a tap target for thumbs. */
+    min-height: 40px;
   }
   body.jb-v2 [data-region="dawn"] .brief-title {
     font-size: 38px;

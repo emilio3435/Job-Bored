@@ -733,6 +733,48 @@ body.jb-v2 [data-region="pipeline"] .pipe-col[data-collapsed="true"] .pipe-col__
   display: none;
 }
 
+/* ── Mobile tap targets + scroll affordance ──
+   At phone widths the board controls were 28–33px and the last rail
+   (Dismissed) sat fully off-canvas with nothing signalling that the
+   shell scrolls sideways. Controls get a 40px floor, and a sticky
+   right-edge fade rides the scrollport while columns remain
+   off-canvas (at full scroll it hangs past the last column over bare
+   background, so it reads as "done"). */
+@media (max-width: 760px) {
+  body.jb-v2 [data-region="pipeline"] .pipe-tool__chip {
+    min-height: 40px;
+  }
+
+  body.jb-v2 [data-region="pipeline"] .pipe-tool__search-input {
+    min-height: 40px;
+  }
+
+  body.jb-v2 [data-region="pipeline"] .pipe-col__toggle,
+  body.jb-v2 [data-region="pipeline"] .pipe-col[data-collapsed="true"] .pipe-col__toggle {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+  }
+
+  body.jb-v2 [data-region="pipeline"] .pipe-shell {
+    display: flex;
+    align-items: stretch;
+  }
+
+  body.jb-v2 [data-region="pipeline"] .pipe-shell::after {
+    content: "";
+    position: sticky;
+    inset-inline-end: 0;
+    flex: 0 0 24px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      color-mix(in srgb, var(--jb-paper) 85%, var(--jb-mint))
+    );
+    pointer-events: none;
+  }
+}
+
 body.jb-v2 [data-region="pipeline"] .pipe-col__body {
   display: flex;
   flex-direction: column;
