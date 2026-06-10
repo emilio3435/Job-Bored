@@ -347,6 +347,19 @@ describe("playOnboardingCelebration — persistent, CTA-driven handoff", () => {
     assert.equal(done, 1, "onDone fires exactly once, from the click");
   });
 
+  it("the handoff fires at fade START so the next wizard is revealed beneath the fade (no dashboard blink)", () => {
+    const env = loadCelebration();
+    let done = 0;
+    env.onboarding.playOnboardingCelebration(() => {
+      done += 1;
+    });
+    env.cta.clickHandlers[0]();
+    assert.equal(done, 1, "onDone fires immediately on click — the next chapter mounts under the fading overlay");
+    env.drainTimers();
+    assert.equal(done, 1, "the cleanup timer must not fire it again");
+    assert.equal(env.overlay.hidden, true);
+  });
+
   it("falls back to a timed dismissal when the CTA is missing (stale markup) so the handoff never strands", () => {
     const env = loadCelebration({ withCta: false });
     let done = 0;
