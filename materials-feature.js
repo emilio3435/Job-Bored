@@ -387,7 +387,6 @@
     aiDumpCopyPromptBtn.addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(aiDumpPromptEl.value || "");
-        const orig = aiDumpCopyPromptBtn.textContent;
         aiDumpCopyPromptBtn.textContent = "Copied!";
         setTimeout(() => {
           aiDumpCopyPromptBtn.innerHTML =

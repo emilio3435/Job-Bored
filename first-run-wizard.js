@@ -45,7 +45,6 @@
   ];
   const FIRST_RUN_TOTAL_STEPS = FIRST_RUN_STEPS.length;
 
-  let currentStep = 1;
   let refreshTimer = null;
   let listenersWired = false;
 
@@ -226,7 +225,6 @@
     const maxReachable = computeFirstRunStartStep();
     let next = Math.max(1, Math.min(step, FIRST_RUN_TOTAL_STEPS));
     if (next > maxReachable) next = maxReachable;
-    currentStep = next;
     FIRST_RUN_STEPS.forEach((def, i) => {
       const panel = getEl(def.panelId);
       if (panel) panel.style.display = i + 1 === next ? "block" : "none";

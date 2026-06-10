@@ -979,6 +979,11 @@ async function handleDiscoverySetupDeepLink() {
   return true;
 }
 
+// Deliberately `var`: top-level var in a classic script lands on window, the
+// same place the old implicit-global assignments put these flags.
+var postAccessBootstrapDone = false;
+var postAccessBootstrapPromise = Promise.resolve();
+
 function runPostAccessBootstrapOnce() {
   if (postAccessBootstrapDone) return postAccessBootstrapPromise;
   postAccessBootstrapDone = true;

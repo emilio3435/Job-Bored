@@ -468,7 +468,7 @@
   </button>`;
   }
 
-  function openProfileMatchModal(job, dataIndex) {
+  function openProfileMatchModal(job, _dataIndex) {
     const existing = document.getElementById("profileMatchModal");
     if (existing) existing.remove();
 

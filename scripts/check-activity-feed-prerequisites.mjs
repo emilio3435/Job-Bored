@@ -25,11 +25,8 @@
  */
 
 import { existsSync, readFileSync } from "fs";
-import { dirname, join } from "path";
-import { fileURLToPath } from "url";
+import { join } from "path";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const repoRoot = join(__dirname, "..");
 
 const SHEET_ID = "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ";
 const TODAY = new Date();
@@ -41,12 +38,6 @@ const OVERDUE_DATE = new Date(TODAY);
 OVERDUE_DATE.setDate(OVERDUE_DATE.getDate() - OVERDUE_DAYS);
 const OVERDUE_DATE_STR = OVERDUE_DATE.toISOString().split("T")[0];
 
-const STARTER_PIPELINE_HEADERS = [
-  "Date Found", "Title", "Company", "Location", "Link", "Source",
-  "Salary", "Fit Score", "Priority", "Tags", "Fit Assessment", "Contact",
-  "Status", "Applied Date", "Notes", "Follow-up Date",
-  "Talking Points", "Last contact", "Did they reply?", "Logo URL"
-];
 
 // Column P = index 15 = Follow-up Date
 const COL_P = 15; // 0-based index
@@ -339,7 +330,6 @@ function checkAuthState() {
 
 async function main() {
   const args = process.argv.slice(2);
-  const forceSeed = args.includes("--seed");
   const verifyOnly = args.includes("--verify");
 
   console.log("=".repeat(60));

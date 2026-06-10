@@ -1067,7 +1067,7 @@ describe("go-live wizard — Maximize your results is gated behind the bonus cel
   it("go_live_open_enhancements plays the 'bonus' stage beat whose CTA opens the enhancements wizard", async () => {
     const enhancementsCalls = [];
     const celebrationCalls = [];
-    const { api, window, renderCalls } = loadGoLive({
+    const { api, window } = loadGoLive({
       host: {
         isOnboardingWizardVisible: () => false,
         requestEnhancementsSetup: (o) => enhancementsCalls.push(o),

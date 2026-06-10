@@ -137,7 +137,7 @@ export default {
   // dashboard/other schedulers so the worker writes Pipeline rows and run
   // status through the existing user-owned discovery path. Requires the same
   // TARGET_URL + DISCOVERY_SECRET secrets as the fetch path.
-  async scheduled(event, env, ctx) {
+  async scheduled(event, env, _ctx) {
     const target = env.TARGET_URL;
     if (!target) {
       console.error("[cron] TARGET_URL secret not set — skipping refresh");

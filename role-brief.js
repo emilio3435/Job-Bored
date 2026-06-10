@@ -25,13 +25,6 @@
 
   if (!root || typeof root !== "object") return;
 
-  var STAGE_LABELS = {
-    "researching":  "Researching",
-    "applied":      "Applied",
-    "phone-screen": "Phone screen",
-    "interviewing": "Interviewing",
-    "offer":        "Offer",
-  };
 
   function shouldRun() {
     return !!(typeof document !== "undefined"
@@ -66,14 +59,6 @@
       .replace(/'/g, "&#39;");
   }
 
-  function toRoman(n) {
-    if (!Number.isFinite(n) || n < 1) return "";
-    var ones = ["", "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix"];
-    var tens = ["", "x", "xx", "xxx"];
-    var hundreds = Math.floor(n / 100);
-    if (hundreds > 0) return String(n);
-    return tens[Math.floor(n / 10) % 4] + ones[n % 10];
-  }
 
   function countWords(s) {
     if (!s) return 0;

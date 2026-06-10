@@ -7,7 +7,6 @@ import { describe, it } from "node:test";
 import { normalizeAtsRequestPayload } from "../server/ats-request-payload.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
 const atsScorecardJs = readFileSync(join(repoRoot, "ats-scorecard.js"), "utf8");
 
 function extractFunctionSource(src, functionName) {

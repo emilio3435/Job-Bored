@@ -910,31 +910,10 @@ describe("Schedule card — Tier 3 YAML download", () => {
 });
 
 describe("Schedule card — installed-status badge", () => {
-  function fakeBadgeEl() {
-    const classes = new Set();
-    const attrs = new Map();
-    return {
-      textContent: "",
-      classList: {
-        add: (c) => classes.add(c),
-        remove: (c) => classes.delete(c),
-        has: (c) => classes.has(c),
-      },
-      setAttribute: (k, v) => attrs.set(k, v),
-      getAttribute: (k) => attrs.get(k) || null,
-      _classes: classes,
-      _attrs: attrs,
-    };
-  }
 
-  function fakeArtifactEl() {
-    return { textContent: "", hidden: true };
-  }
 
   it("renders green installed badge with artifact path when schedule-status says installed", async () => {
-    const badge = fakeBadgeEl();
-    const artifact = fakeArtifactEl();
-    const { schedule, module } = await loadScheduleModule();
+    const { module } = await loadScheduleModule();
     // Patch the cached els so renderLocalBadge can find the fakes.
     // renderLocalBadge reads from the module-scoped `els` object, which is
     // not directly reachable — so we stub via a wrapper that calls the
@@ -964,7 +943,7 @@ describe("Schedule card — installed-status badge", () => {
   });
 
   it("renders not-installed badge when schedule-status says installed:false", async () => {
-    const { schedule } = await loadScheduleModule();
+    await loadScheduleModule();
     const notInstalled = {
       ok: true,
       schedule: { enabled: false },

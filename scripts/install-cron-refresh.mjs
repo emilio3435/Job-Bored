@@ -9,7 +9,7 @@
 import { spawnSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir, platform } from "os";
-import { dirname, join } from "path";
+import { join } from "path";
 import { pathToFileURL } from "url";
 import { parseDotEnv, sanitizeSecret } from "./lib/env.mjs";
 import {
@@ -136,7 +136,7 @@ function resolveEnv(args) {
   return { secret, port, sheetId };
 }
 
-export function renderSystemdFiles({ hour, minute, port, secret, sheetId }) {
+export function renderSystemdFiles({ hour, minute, port, sheetId }) {
   const serviceTemplate = readFileSync(
     join(systemdTemplateDir, SERVICE_NAME),
     "utf8",
@@ -211,7 +211,7 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
-export function renderCronBlock({ hour, minute, port, secret, sheetId }) {
+export function renderCronBlock({ hour, minute, port, sheetId }) {
   const command = [
     shellQuote(process.execPath),
     shellQuote(scheduledDiscoveryScriptPath),

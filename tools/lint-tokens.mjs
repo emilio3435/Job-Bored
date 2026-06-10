@@ -3,9 +3,8 @@
 // Zero-dependency CSS token-drift linter for the JobBored swarm refactor.
 // Flags raw hex literals in v2 CSS files and tells authors to use --jb-* tokens.
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative, basename, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, relative, basename, resolve } from 'node:path';
 import process from 'node:process';
 
 /**

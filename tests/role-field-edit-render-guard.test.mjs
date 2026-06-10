@@ -355,7 +355,7 @@ describe("dossier masthead edit — focus re-render guard", () => {
 
   it("does NOT skip the re-render when nothing in the region is focused", () => {
     const roleVm = fixtureVm();
-    const { context, documentEl, region } = loadHarness(roleVm);
+    const { context, documentEl } = loadHarness(roleVm);
     context.window.JobBoredFlowing.role.renderForKey("linear-1");
 
     // Nobody is editing: activeElement is the body, not an edit-field.

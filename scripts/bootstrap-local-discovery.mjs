@@ -1537,7 +1537,6 @@ async function main() {
   // cloudflared instead of ngrok, but the downstream fields stay populated so
   // the dashboard + relay continue to work unchanged.
   let ngrok;
-  let transportStartedTunnel = false;
 
   if (transportKind === TRANSPORT_CLOUDFLARE_NAMED) {
     if (!namedTunnel.configured) {
@@ -1555,7 +1554,6 @@ async function main() {
       );
     }
     const quick = await ensureCloudflareQuickTunnel(port);
-    transportStartedTunnel = quick.startedTunnel;
     ngrok = { ngrokPublicUrl: quick.publicUrl, startedNgrok: false };
   } else if (args.ngrokPublicUrl) {
     ngrok = await ensureNgrokPublicUrl(port, args.ngrokPublicUrl, false);
@@ -1569,7 +1567,6 @@ async function main() {
       ngrok = await ensureNgrokPublicUrl(port, "", args.autoStartNgrok);
     }
   }
-  const transportStable = isStableTransport(transportKind);
   const publicTargetUrl = buildPublicTargetUrl(localWebhookUrl, ngrok.ngrokPublicUrl);
   let publicHealth = null;
   // A named tunnel may route through the user's Cloudflare edge to the worker;

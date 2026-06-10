@@ -558,8 +558,6 @@ function syncDiscoveryButtonState() {
   const status = getEffectiveDiscoveryEngineStatus(
     snapshot.savedWebhookUrl || getDiscoveryWebhookUrl(),
   );
-  const localSetupDetected =
-    snapshot.savedWebhookKind === "local_http" || !!snapshot.localWebhookUrl;
   const stubOnlyDetected =
     snapshot.engineState === DISCOVERY_ENGINE_STATE_STUB_ONLY ||
     snapshot.savedWebhookKind === "apps_script_stub";

@@ -25,9 +25,6 @@
     return host().normalizeResponseFlag(val);
   }
 
-  function responseLabelForDisplay(flag) {
-    return host().responseLabelForDisplay(flag);
-  }
 
   // --- Daily Brief (pipeline-derived) ---
   /** Local calendar days; appeal rank; stale applied = no forward progress (see SETUP.md). */
@@ -48,20 +45,7 @@
     return isNaN(d.getTime()) ? null : d;
   }
 
-  function priorityRank(p) {
-    const order = { "🔥": 0, "⚡": 1, "—": 2, "↓": 3 };
-    return order[p] ?? 2;
-  }
 
-  function rankByAppeal(jobs) {
-    return [...jobs].sort((a, b) => {
-      const fs = (b.fitScore ?? -1) - (a.fitScore ?? -1);
-      if (fs !== 0) return fs;
-      const po = priorityRank(a.priority) - priorityRank(b.priority);
-      if (po !== 0) return po;
-      return (a.company || "").localeCompare(b.company || "");
-    });
-  }
 
   function jobsFoundToday(jobs) {
     const todayKey = localDateKey(new Date());
@@ -70,23 +54,7 @@
     );
   }
 
-  function startOfWeekMonday(d) {
-    const x = new Date(d);
-    const day = x.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    x.setDate(x.getDate() + diff);
-    x.setHours(0, 0, 0, 0);
-    return x;
-  }
 
-  function appliedThisWeekCount(jobs) {
-    const start = startOfWeekMonday(new Date());
-    return jobs.filter((j) => {
-      if (!j.appliedDate) return false;
-      const ad = parseBriefDate(j.appliedDate);
-      return ad && ad >= start;
-    }).length;
-  }
 
   function isStaleApplied(job) {
     const s = (job.status || "").toLowerCase();
@@ -157,31 +125,8 @@
     });
   }
 
-  function pipelineStatusCounts(jobs) {
-    const map = {};
-    for (const j of jobs) {
-      const k = (j.status || "Unknown").trim() || "Unknown";
-      map[k] = (map[k] || 0) + 1;
-    }
-    return map;
-  }
 
-  function briefJobLine(job, extraHtml) {
-    const title = escapeHtml(job.title || "Role");
-    const co = escapeHtml(job.company || "");
-    const extra = extraHtml || "";
-    return `<li><strong>${title}</strong>${co ? ` — ${co}` : ""} ${extra}</li>`;
-  }
 
-  function briefJobLineWithLastHeard(job) {
-    const heard = job.lastHeardFrom
-      ? ` <span class="brief-meta">Last contact: ${escapeHtml(job.lastHeardFrom)}</span>`
-      : "";
-    const reply = responseLabelForDisplay(job.responseFlag)
-      ? ` <span class="brief-meta">Reply: ${escapeHtml(responseLabelForDisplay(job.responseFlag))}</span>`
-      : "";
-    return briefJobLine(job, heard + reply);
-  }
 
   // --- Brief: Headline ---
 
@@ -272,12 +217,6 @@
     }).length;
   }
 
-  function trendDeltaLabel(cur, prev) {
-    const d = cur - prev;
-    if (d === 0) return "same as prior week";
-    if (d > 0) return `up ${d} vs prior week`;
-    return `down ${-d} vs prior week`;
-  }
 
   /** Short delta for insight tiles: +2, −1, 0 */
   function trendDeltaShort(cur, prev) {
@@ -287,12 +226,6 @@
     return `${d}`;
   }
 
-  function trendPillClass(cur, prev) {
-    const d = cur - prev;
-    if (d > 0) return "insight-pill--up";
-    if (d < 0) return "insight-pill--down";
-    return "insight-pill--flat";
-  }
 
   function medianDaysDiscoveryToApply(jobs) {
     const deltas = [];
@@ -405,9 +338,6 @@
     return d;
   }
 
-  function countStatusMatches(jobs, pred) {
-    return jobs.filter(pred).length;
-  }
 
   function buildBriefSuggestions(ctx) {
     const tips = [];

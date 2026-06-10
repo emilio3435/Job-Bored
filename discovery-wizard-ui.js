@@ -727,23 +727,6 @@ function getDiscoveryWizardSavedEndpointLabel(kind) {
   return "none";
 }
 
-function getDiscoveryWizardBlockingIssueLabel(issue) {
-  if (issue === "missing_sheet") return "Pipeline sheet not configured.";
-  if (issue === "stub_only") return "Only the Apps Script stub is saved.";
-  if (issue === "local_health_unavailable") {
-    return "Local server found but not responding.";
-  }
-  if (issue === "ngrok_missing") {
-    return "Server is up but no tunnel running.";
-  }
-  if (issue === "relay_missing") {
-    return "Relay not deployed yet.";
-  }
-  if (issue === "needs_recovery") {
-    return "Local setup needs recovery after restart.";
-  }
-  return "";
-}
 
 function getDiscoveryWizardRecommendationReason(snapshot) {
   const state =

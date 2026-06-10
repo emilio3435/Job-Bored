@@ -231,17 +231,7 @@
     });
   }
 
-  function getCellValue(cell) {
-    if (!cell) return null;
-    if (cell.v === null || cell.v === undefined) return null;
-    return cell.v;
-  }
 
-  function getCellFormatted(cell) {
-    if (!cell) return null;
-    if (cell.f) return cell.f;
-    return getCellValue(cell);
-  }
 
   function parseGvizDate(val) {
     if (!val) return null;

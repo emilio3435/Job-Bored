@@ -80,17 +80,6 @@
     );
   }
 
-  function safeCall(name) {
-    const w = getWin();
-    if (!w) return undefined;
-    const fn = w[name];
-    if (typeof fn !== "function") return undefined;
-    try {
-      return fn();
-    } catch (_) {
-      return undefined;
-    }
-  }
 
   function getAccessToken() {
     const w = getWin();
