@@ -626,3 +626,84 @@ describe("resume parse — timing trace (why is this PDF slow?)", () => {
     assert.match(src, /\[JobBored\] resume parse/, "handler-level trace present");
   });
 });
+
+describe("resume parse — never hangs forever (watchdog + password detection)", () => {
+  // Live repro (user screenshot): "Reading «cover-letter (4).pdf»…" spun
+  // forever. pdf.js's loadingTask.promise never settles for some inputs
+  // (password-protected PDFs without an onPassword handler, damaged xref
+  // tables, a wedged worker) — and extraction had NO deadline, so the
+  // spinner was infinite with the paste fallback sitting right there.
+  async function loadIngest(getDocumentImpl) {
+    const vm = await import("node:vm");
+    const src = readFileSync(join(repoRoot, "resume-ingest.js"), "utf8");
+    const window = {
+      pdfjsLib: { GlobalWorkerOptions: {}, getDocument: getDocumentImpl },
+    };
+    const ctx = {
+      window,
+      pdfjsLib: window.pdfjsLib,
+      console: { info() {}, warn() {}, error() {} },
+      setTimeout,
+      clearTimeout,
+      TextDecoder,
+      Promise,
+      Number,
+      Math,
+      Date,
+    };
+    vm.createContext(ctx);
+    vm.runInContext(src, ctx, { filename: "resume-ingest.js" });
+    return window.CommandCenterResumeIngest;
+  }
+
+  const fakePdfFile = {
+    name: "locked.pdf",
+    type: "application/pdf",
+    arrayBuffer: async () => new ArrayBuffer(8),
+  };
+
+  it("a parse that never settles rejects with an honest timeout (steering to paste)", async () => {
+    const ingest = await loadIngest(() => ({
+      promise: new Promise(() => {}), // pdf.js wedged — never settles
+      destroy() {},
+    }));
+    await assert.rejects(
+      () => ingest.extractTextFromFile(fakePdfFile, { timeoutMs: 60 }),
+      /paste/i,
+      "the user must get an actionable error, not an infinite spinner",
+    );
+  });
+
+  it("a password-protected PDF rejects immediately with a specific message", async () => {
+    const ingest = await loadIngest(() => {
+      const task = {
+        promise: new Promise(() => {}), // pdf.js waits on the password forever
+        destroy() {},
+        onPassword: null,
+      };
+      setTimeout(() => {
+        if (typeof task.onPassword === "function") task.onPassword(() => {}, 1);
+      }, 0);
+      return task;
+    });
+    await assert.rejects(
+      () => ingest.extractTextFromFile(fakePdfFile, { timeoutMs: 5000 }),
+      /password/i,
+      "password-protected files must be named as such, not time out generically",
+    );
+  });
+
+  it("a healthy parse still resolves through the watchdog", async () => {
+    const ingest = await loadIngest(() => ({
+      promise: Promise.resolve({
+        numPages: 1,
+        getPage: async () => ({
+          getTextContent: async () => ({ items: [{ str: "Senior Engineer" }] }),
+        }),
+      }),
+      destroy() {},
+    }));
+    const text = await ingest.extractTextFromFile(fakePdfFile, { timeoutMs: 5000 });
+    assert.match(text, /Senior Engineer/);
+  });
+});
