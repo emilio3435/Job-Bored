@@ -1638,3 +1638,16 @@ describe("flow coherence — copy matches the real setup order (P1)", () => {
     assert.match(indexHtml, /Finish setting up/i);
   });
 });
+
+describe("first-run header — say it once (delight pass)", () => {
+  it("the script header stays the brand greeting; per-step titles live on panel h3s only", () => {
+    const idx = firstRunWizardJs.indexOf("const activeDef = FIRST_RUN_STEPS[next - 1]");
+    assert.ok(idx !== -1);
+    const block = firstRunWizardJs.slice(idx, idx + 500);
+    assert.ok(
+      !block.includes("activeDef.title"),
+      "mirroring step titles into the header stacked two near-identical headlines",
+    );
+    assert.match(block, /"Set up JobBored"/);
+  });
+});

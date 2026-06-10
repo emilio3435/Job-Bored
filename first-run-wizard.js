@@ -232,7 +232,10 @@
     const activeDef = FIRST_RUN_STEPS[next - 1];
     const title = getEl("firstRunWizardTitle");
     if (title) {
-      title.textContent = (activeDef && activeDef.title) || "Set up JobBored";
+      // Say it once: the script header stays the brand greeting; each panel's
+      // own h3 names the step (mirroring per-step titles here stacked two
+      // near-identical headlines).
+      title.textContent = "Set up JobBored";
     }
     if (activeDef && activeDef.id === "provider") renderProviderStep();
     updateFirstRunProgressUI(next);
