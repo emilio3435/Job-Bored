@@ -2064,20 +2064,28 @@ function buildDiscoveryWizardSteps(runtime) {
     title: "You're all set.",
     description: readyDesc,
     body: () => buildDiscoveryReadyBody(host().getDiscoveryWizardRuntime()),
+    // Continuous setup: the Done step flows straight into the final
+    // (optional) multi-device step via an explicit Continue — not a sticky
+    // toast. "Later" is a one-click optional skip.
     actions: [
+      {
+        id: "wizard_continue_devices",
+        label: "Continue: set up other devices →",
+        variant: "primary",
+      },
       {
         id: "wizard_run_discovery_now",
         label: "Run discovery now",
-        variant: "primary",
+        variant: "secondary",
         disabled: !host().getDiscoverySettingsView(runtime.snapshot)
           .runDiscoveryEnabled,
       },
     ],
     secondaryActions: [
       {
-        id: "wizard_finish_setup",
-        label: "Close wizard",
-        variant: "secondary",
+        id: "wizard_finish_later",
+        label: "Finish — set up devices later",
+        variant: "ghost",
       },
     ],
   });
@@ -2142,24 +2150,28 @@ async function renderDiscoverySetupWizard(options = {}) {
         runtime.state &&
         runtime.state._onboardingWasHiddenByDiscovery;
 
-      // Cross-rec (FE-3): a genuinely finished discovery run — reason
-      // "finish" AND the persisted result is "connected" — marks the
-      // discovery track complete and, when the go-live track is still
-      // open, refreshes the dashboard banner so it promotes go-live as
-      // the recommended next step. We DO NOT launch the go-live wizard
-      // from here (control flow stays unchanged); banner-refresh is the
-      // surfacing channel per spec §5.
+      // Cross-rec: a genuinely finished discovery setup — reason "finish"
+      // AND the persisted result is "connected" — chains into the go-live
+      // (devices) wizard via recommendGoLiveAfterDiscoveryFinish, which
+      // no-ops when devices is already complete.
       const persistedResult =
         ctx && ctx.state && typeof ctx.state.result === "string"
           ? ctx.state.result
           : null;
       const finishedConnected =
         reason === "finish" && persistedResult === "connected";
+      // "Finish — set up devices later": devices is optional, so the skip
+      // suppresses the go-live auto-open. Completion itself was already
+      // persisted at the connected verification; the banner refresh below
+      // is unconditional.
+      const suppressGoLiveAutoOpen = !!(
+        runtime && runtime.suppressGoLiveAutoOpen
+      );
 
       host().clearDiscoveryWizardRuntime();
       void host().refreshDiscoveryReadinessSnapshot({ force: true });
 
-      if (finishedConnected) {
+      if (finishedConnected && !suppressGoLiveAutoOpen) {
         void recommendGoLiveAfterDiscoveryFinish();
       }
 
@@ -3005,6 +3017,28 @@ async function handleDiscoveryWizardAction(actionId) {
       return null;
     }
     return moveDiscoveryWizardToStep(nextStep);
+  }
+
+  if (actionId === "wizard_continue_devices") {
+    // Continuous setup: same finish semantics — the onClose chain
+    // (recommendGoLiveAfterDiscoveryFinish) opens go-live exactly once and
+    // no-ops when devices is already complete. Never open it directly from
+    // here: two openers would double-open.
+    if (shell && typeof shell.closeWizardShell === "function") {
+      shell.closeWizardShell("finish");
+    }
+    return null;
+  }
+
+  if (actionId === "wizard_finish_later") {
+    // Devices is optional: one-click skip. Same finish close (completion
+    // already persisted at the connected verification), but the flag tells
+    // onClose to suppress the go-live auto-open.
+    host().updateDiscoveryWizardRuntime({ suppressGoLiveAutoOpen: true });
+    if (shell && typeof shell.closeWizardShell === "function") {
+      shell.closeWizardShell("finish");
+    }
+    return null;
   }
 
   if (actionId === "wizard_run_discovery_now") {
