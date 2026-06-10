@@ -280,8 +280,9 @@ describe("/__proxy/full-boot — skip_tunnel (worker-only boot for the Tailscale
     const start = devServerSrc.indexOf("async function handleFullBoot");
     assert.ok(start !== -1, "handleFullBoot must exist");
     const body = devServerSrc.slice(start, devServerSrc.indexOf("\n}\n", start));
-    const skipIdx = body.indexOf('skip_tunnel');
-    assert.ok(skipIdx !== -1, "handleFullBoot must support the skip_tunnel query param");
+    assert.ok(body.includes("skip_tunnel"), "handleFullBoot must support the skip_tunnel query param");
+    const skipIdx = body.indexOf("if (skipTunnel)");
+    assert.ok(skipIdx !== -1, "the skip_tunnel early-return branch must exist");
     const fixIdx = body.indexOf("handleFixSetup");
     assert.ok(
       skipIdx < fixIdx,
@@ -357,5 +358,24 @@ describe("/__proxy/discovery-health — same-origin health probe for the dashboa
     const body = devServerSrc.slice(idx, idx + 1600);
     assert.match(body, /isLocalOrigin/);
     assert.match(body, /\/health/, "must proxy the worker's /health (browser-direct fetches die on CORS)");
+  });
+});
+
+describe("/__proxy/full-boot — force_restart (env changes need a real reboot)", () => {
+  it("force_restart=1 does NOT spare the healthy worker, and skip_tunnel leaves ngrok's port alone", async () => {
+    const { readFileSync } = await import("node:fs");
+    const devServerSrc = readFileSync(new URL("../dev-server.mjs", import.meta.url), "utf8");
+    const start = devServerSrc.indexOf("async function handleFullBoot");
+    const body = devServerSrc.slice(start, devServerSrc.indexOf("\n}\n", start));
+    // Saving a worker env key rebooted via full-boot, which spared the
+    // healthy worker — the new key was never loaded and the status badge
+    // never flipped ("the key doesn't stick").
+    assert.match(body, /force_restart/, "must support forcing the worker restart");
+    // And the tunnel-free path must not kill ngrok's 4040 as collateral.
+    assert.match(
+      body,
+      /skip_tunnel.*4040|skipTunnel.*4040|\? \[workerPort\] : \[workerPort, 4040\]/s,
+      "skip_tunnel boots must scope the stale-port kill to the worker port only",
+    );
   });
 });

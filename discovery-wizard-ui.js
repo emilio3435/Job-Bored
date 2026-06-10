@@ -2413,8 +2413,13 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
     setAuto("running", "Starting the discovery worker…");
     setDiscoveryWizardMessage("Starting the discovery worker…", "info");
     try {
+      // A freshly generated secret needs a FORCED reboot — full-boot spares
+      // a healthy worker, which would keep running with the old (empty)
+      // secret and 401 every webhook.
+      const forceParam =
+        secretInfo && secretInfo.wrote ? "&force_restart=1" : "";
       const r = await fetchImpl(
-        `/__proxy/full-boot?port=${DISCOVERY_TAILSCALE_WORKER_PORT}&skip_tunnel=1`,
+        `/__proxy/full-boot?port=${DISCOVERY_TAILSCALE_WORKER_PORT}&skip_tunnel=1${forceParam}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

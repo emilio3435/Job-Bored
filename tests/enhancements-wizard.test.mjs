@@ -883,3 +883,18 @@ describe("enhancements wizard — in-wizard key entry + working deep-link", () =
     assert.equal(api._internal.getRuntime().serpApiKeyDraft, "serp-key-123", "draft kept for retry");
   });
 });
+
+describe("enhancements wizard — saving a key actually restarts the worker", () => {
+  it("saveWorkerEnvKey reboots with force_restart=1 (a spared healthy worker never loads the new key)", () => {
+    assert.match(
+      enhancementsJs,
+      /full-boot\?port=8644&skip_tunnel=1&force_restart=1/,
+      "the save chain must force the worker restart or the badge never flips",
+    );
+  });
+  it("the key steps give greenfield users granular deep-linked instructions", () => {
+    assert.match(enhancementsJs, /serpapi\.com\/users\/sign_up/, "step 1: create the account (deep link)");
+    assert.match(enhancementsJs, /serpapi\.com\/manage-api-key/, "step 2: copy the key (deep link)");
+    assert.match(enhancementsJs, /aistudio\.google\.com\/apikey/, "gemini: the key page (deep link)");
+  });
+});

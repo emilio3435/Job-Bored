@@ -893,20 +893,28 @@ async function handleFullBoot(req, res, discoveryWorkerStarter, options = {}) {
   const emit = (phase, detail) => phases.push({ phase, ...detail });
   const url = new URL(req.url || "/", "http://localhost");
   const workerPort = resolveDiscoveryWorkerPort(url.searchParams.get("port"));
+  // force_restart=1: do NOT spare a healthy worker. Env changes (a freshly
+  // saved API key / generated secret) only take effect on a real reboot —
+  // the sparing logic made "Save key" write the env and then leave the old
+  // worker running, so the status badge never flipped.
+  const forceWorkerRestart = url.searchParams.get("force_restart") === "1";
+  const skipTunnel = url.searchParams.get("skip_tunnel") === "1";
 
-  // 1. Kill any stale process holding 8644 / 4040.
+  // 1. Kill any stale process holding the worker port (and ngrok's 4040 —
+  //    but only when this boot owns the tunnel; the Tailscale path must not
+  //    take down a running ngrok as collateral).
   try {
     let healthyDiscoveryWorkerPort = null;
     try {
       const health = await probeDiscoveryWorkerHealth(workerPort);
-      if (health && health.ok) {
+      if (health && health.ok && !forceWorkerRestart) {
         healthyDiscoveryWorkerPort = workerPort;
       }
     } catch {
       healthyDiscoveryWorkerPort = null;
     }
     const cleanup = await killFullBootStalePorts({
-      ports: [workerPort, 4040],
+      ports: skipTunnel ? [workerPort] : [workerPort, 4040],
       workerPort,
       healthyDiscoveryWorkerPort,
     });
@@ -968,7 +976,7 @@ async function handleFullBoot(req, res, discoveryWorkerStarter, options = {}) {
   // Tailscale transport: a running worker is all that's needed — tailscale
   // serve proxies straight to the local worker port, so skip the ngrok
   // bootstrap + Cloudflare relay phases entirely.
-  if (url.searchParams.get("skip_tunnel") === "1") {
+  if (skipTunnel) {
     res.writeHead(200, corsHeaders);
     res.end(JSON.stringify({ ok: true, phases }));
     return;
