@@ -59,7 +59,27 @@
     }
     const tDoc = nowMs();
     const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
-    const pdf = await loadingTask.promise;
+    // Without an onPassword handler, pdf.js leaves loadingTask.promise
+    // pending FOREVER on encrypted PDFs — the exact "Reading…" infinite
+    // spinner users hit. Name the problem instead of hanging.
+    let rejectPassword = null;
+    const passwordGuard = new Promise((_, reject) => {
+      rejectPassword = reject;
+    });
+    passwordGuard.catch(() => {}); // observed via race; avoid a stray rejection
+    try {
+      loadingTask.onPassword = () => {
+        try {
+          if (typeof loadingTask.destroy === "function") loadingTask.destroy();
+        } catch (_) {}
+        rejectPassword(
+          new Error(
+            "This PDF is password-protected. Remove the password (print-to-PDF works), or paste the resume text below instead.",
+          ),
+        );
+      };
+    } catch (_) {}
+    const pdf = await Promise.race([loadingTask.promise, passwordGuard]);
     console.info(
       `[JobBored] resume parse: document ready in ${Math.round(nowMs() - tDoc)}ms ` +
         `(worker boot + structure parse, ${pdf.numPages} page(s), worker: ${PDF_WORKER_SRC})`,
@@ -114,17 +134,7 @@
     return t || "application/octet-stream";
   }
 
-  /**
-   * @param {File} file
-   * @returns {Promise<string>}
-   */
-  async function extractTextFromFile(file) {
-    const tRead = nowMs();
-    const buf = await file.arrayBuffer();
-    console.info(
-      `[JobBored] resume parse: file read in ${Math.round(nowMs() - tRead)}ms ` +
-        `(${buf.byteLength}B, "${file.name || "unnamed"}")`,
-    );
+  async function dispatchExtraction(file, buf) {
     const mime = guessMime(file);
     const name = (file.name || "").toLowerCase();
 
@@ -146,6 +156,41 @@
     throw new Error(
       "Unsupported file type. Use PDF, DOCX, or plain text (.txt / .md).",
     );
+  }
+
+  /**
+   * @param {File} file
+   * @param {{timeoutMs?: number}} [options] — watchdog deadline (default 20s)
+   * @returns {Promise<string>}
+   */
+  async function extractTextFromFile(file, options = {}) {
+    const tRead = nowMs();
+    const buf = await file.arrayBuffer();
+    console.info(
+      `[JobBored] resume parse: file read in ${Math.round(nowMs() - tRead)}ms ` +
+        `(${buf.byteLength}B, "${file.name || "unnamed"}")`,
+    );
+    // Watchdog: parsing must never out-wait the user. pdf.js (and a wedged
+    // worker) can stall without rejecting; after the deadline we surface an
+    // actionable error — the paste fallback is right there on the step.
+    const timeoutMs =
+      Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 20000;
+    let timeoutId = null;
+    const watchdog = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(
+          new Error(
+            `Still couldn't read “${file.name || "that file"}” after ${Math.round(timeoutMs / 1000)}s — it may be protected or damaged. Paste the resume text below instead.`,
+          ),
+        );
+      }, timeoutMs);
+    });
+    watchdog.catch(() => {}); // observed via race; avoid a stray rejection
+    try {
+      return await Promise.race([dispatchExtraction(file, buf), watchdog]);
+    } finally {
+      if (timeoutId !== null) clearTimeout(timeoutId);
+    }
   }
 
   window.CommandCenterResumeIngest = {
