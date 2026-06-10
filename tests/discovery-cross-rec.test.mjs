@@ -545,3 +545,50 @@ describe("discovery-wizard-ui — auto-setup forces the reboot when the secret w
     };
   }
 });
+
+describe("discovery-wizard-ui — continuous setup: Done step flows into devices (optional)", () => {
+  // User report: after discovery verifies, the Done step offered only
+  // "Close wizard" / "Run discovery now" — no visible way to continue to
+  // the final (optional) multi-device step; the only nudge was the sticky
+  // card. The wizard must FEEL continuous: explicit Continue primary,
+  // one-click optional skip, no double-open.
+  it("the ready step offers Continue (primary), Run discovery, and a one-click 'later' skip", () => {
+    const start = discoveryWizardUiJs.indexOf('id: "ready"');
+    assert.ok(start !== -1);
+    const block = discoveryWizardUiJs.slice(start, start + 1600);
+    assert.match(block, /wizard_continue_devices/, "explicit Continue action must exist");
+    assert.match(block, /wizard_run_discovery_now/, "Run discovery stays available");
+    assert.match(block, /wizard_finish_later/, "devices is optional — one-click later skip");
+    assert.ok(!block.includes("Close wizard"), "the dead-end Close label is gone from the Done step");
+    const continueIdx = block.indexOf("wizard_continue_devices");
+    const primaryIdx = block.indexOf('variant: "primary"', continueIdx);
+    assert.ok(primaryIdx !== -1 && primaryIdx - continueIdx < 200, "Continue is the primary");
+  });
+
+  it("Continue closes with finish semantics and does NOT open go-live directly (single chain, no double-open)", () => {
+    const idx = discoveryWizardUiJs.indexOf('actionId === "wizard_continue_devices"');
+    assert.ok(idx !== -1, "Continue handler must exist");
+    const body = discoveryWizardUiJs.slice(idx, idx + 800);
+    assert.match(body, /closeWizardShell\("finish"\)/, "Continue rides the existing finish chain");
+    assert.ok(
+      !body.includes("requestGoLiveSetup"),
+      "the onClose chain is the ONLY opener — a direct call here would double-open",
+    );
+  });
+
+  it("'later' sets the suppress flag BEFORE the finish close, and onClose honors it", () => {
+    const idx = discoveryWizardUiJs.indexOf('actionId === "wizard_finish_later"');
+    assert.ok(idx !== -1, "later handler must exist");
+    const body = discoveryWizardUiJs.slice(idx, idx + 800);
+    const flagIdx = body.indexOf("suppressGoLiveAutoOpen: true");
+    const closeIdx = body.indexOf('closeWizardShell("finish")');
+    assert.ok(flagIdx !== -1 && closeIdx !== -1 && flagIdx < closeIdx, "flag must be set before the close fires onClose");
+    const onCloseIdx = discoveryWizardUiJs.indexOf("onClose: (reason, ctx)");
+    const onCloseBody = discoveryWizardUiJs.slice(onCloseIdx, onCloseIdx + 3000);
+    assert.match(
+      onCloseBody,
+      /finishedConnected && !suppressGoLiveAutoOpen/,
+      "the auto-open must be gated on the suppress flag (completion itself already persisted at verification)",
+    );
+  });
+});
