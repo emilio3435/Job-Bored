@@ -472,3 +472,31 @@ describe("discovery-wizard-ui — continuity chrome (journey strip + mascot)", (
     assert.match(body, /mascotSrc/);
   });
 });
+
+describe("discovery-wizard-ui — completion persists on CONNECTED verification (smart setup card)", () => {
+  it("the verify success branch persists discoverySetupComplete when engineState is connected", () => {
+    // "Complete = setup connected" (spec): the flag used to persist ONLY on
+    // the Finish-button close — verify successfully then close with the X
+    // and the setup card kept showing "0 of 2" for a working discovery.
+    const start = discoveryWizardUiJs.indexOf(
+      "async function handleDiscoveryWizardVerification",
+    );
+    const okIdx = discoveryWizardUiJs.indexOf("if (result.ok)", start);
+    assert.ok(okIdx !== -1);
+    const okBlock = discoveryWizardUiJs.slice(okIdx, okIdx + 3600);
+    const gateIdx = okBlock.indexOf('engineState === "connected"');
+    assert.ok(gateIdx !== -1, "completion must be gated on a CONNECTED engine state (stub/unverified don't count)");
+    const persistIdx = okBlock.indexOf("completeDiscoverySetup", gateIdx);
+    assert.ok(persistIdx !== -1, "connected verification must persist the completion flag");
+  });
+
+  it("the wizard onClose refreshes the setup card UNCONDITIONALLY (no stale 0-of-2)", () => {
+    const onCloseIdx = discoveryWizardUiJs.indexOf("onClose: (reason, ctx) =>");
+    const body = discoveryWizardUiJs.slice(onCloseIdx, onCloseIdx + 3600);
+    assert.match(
+      body,
+      /refreshWhatsNextBannerBestEffort\(\)/,
+      "every close must re-check completion state, not only the finish path",
+    );
+  });
+});

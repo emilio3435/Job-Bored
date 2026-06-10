@@ -1009,3 +1009,21 @@ describe("go-live wizard — continuity chrome (journey strip + mascot)", () => 
     assert.match(String(renderCalls[0].mascotSrc || ""), /pose-/);
   });
 });
+
+describe("go-live wizard — setup card refresh on close", () => {
+  it("closing the wizard refreshes the whats-next card (state re-checked before it renders)", async () => {
+    const refreshes = [];
+    const { api, window, renderCalls } = loadGoLive({
+      host: { isOnboardingWizardVisible: () => false },
+    });
+    window.JobBoredApp.whatsNextBanner = {
+      refreshBanner: () => {
+        refreshes.push(1);
+        return Promise.resolve();
+      },
+    };
+    await api.openGoLiveSetupWizard();
+    renderCalls[0].onClose("dismiss");
+    assert.equal(refreshes.length, 1, "onClose must refresh the setup card");
+  });
+});

@@ -609,3 +609,20 @@ describe("resume reader — no runtime CDN dependency (vendored libs)", () => {
     }
   });
 });
+
+describe("resume parse — timing trace (why is this PDF slow?)", () => {
+  it("resume-ingest logs per-phase timings (read, document/worker, pages)", () => {
+    const src = readFileSync(join(repoRoot, "resume-ingest.js"), "utf8");
+    assert.match(src, /\[JobBored\] resume parse/, "trace marker present");
+    assert.match(src, /performance\.now\(\)/, "timings must be measured, not guessed");
+    for (const phase of ["document", "pages"]) {
+      assert.ok(
+        src.includes(phase), `the ${phase} phase must be traced (worker boot + per-page extraction are the suspects)`,
+      );
+    }
+  });
+  it("the upload handler logs ingest-ready wait + total parse time", () => {
+    const src = readFileSync(join(repoRoot, "onboarding-wizard.js"), "utf8");
+    assert.match(src, /\[JobBored\] resume parse/, "handler-level trace present");
+  });
+});
