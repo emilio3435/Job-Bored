@@ -1581,6 +1581,10 @@
     <script src="resume-ingest.js"></script>
     <script src="resume-bundle.js"></script>
     <script src="resume-generate.js"></script>
+    <!-- Self-updating model catalog: live provider model lists + key pings.
+         Loads after resume-generate (sources its curated options) and
+         before the first-run wizard + settings modal that consume it. -->
+    <script src="model-catalog.js"></script>
     <script src="job-posting-insights.js"></script>
     <script src="expired-review.js"></script>
     <script src="config.js"></script>
