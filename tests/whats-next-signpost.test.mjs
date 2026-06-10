@@ -1651,3 +1651,17 @@ describe("first-run header — say it once (delight pass)", () => {
     assert.match(block, /"Set up JobBored"/);
   });
 });
+
+describe("first-run finish — one celebratory stop, not two (delight pass)", () => {
+  it("finish plays the profile-stage celebration directly (done panel only as stale-markup fallback)", () => {
+    const idx = firstRunWizardJs.indexOf('emitOnboardingEvent("first_run_done")');
+    assert.ok(idx !== -1);
+    const tail = firstRunWizardJs.slice(idx, idx + 1200);
+    assert.match(tail, /playOnboardingCelebration\(/, "finish hands straight to the celebration");
+    assert.match(tail, /"profile"/, "with the workspace-connected stage");
+    assert.match(tail, /onAlt/, "the done panel's other-devices branch rides the alt link");
+    const celebIdx = tail.indexOf("playOnboardingCelebration");
+    const panelIdx = tail.indexOf("showFirstRunDonePanel");
+    assert.ok(panelIdx > celebIdx, "the terminal panel is only the fallback, not the primary path");
+  });
+});
