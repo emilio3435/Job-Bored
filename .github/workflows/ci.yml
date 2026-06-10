@@ -6,28 +6,50 @@ on:
   pull_request:
     branches: [main]
 
+# One run per PR (or per branch on push); superseded PR runs are cancelled,
+# pushes to main always run to completion.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   contract-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+          cache: 'npm'
       - run: npm ci
       - run: npm run test:contract:all
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+          cache: 'npm'
       - run: npm ci
       - run: npm run typecheck:repo
       - run: npm test
       - run: npm run test:browser-use-discovery
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run lint:repo
 
   # Browser boot-and-visibility smoke (tests/e2e-smoke). Non-blocking: it
   # reports signal on CSS-cascade/wiring/boot-error regressions but is not a
@@ -41,6 +63,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+          cache: 'npm'
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e-smoke
@@ -50,3 +73,38 @@ jobs:
           name: e2e-smoke-traces
           path: tests/e2e-smoke/test-results/
           retention-days: 7
+
+  # Advisory: prints a coverage summary and uploads the report; no threshold
+  # is enforced yet, so failures here never block a merge.
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - name: Unit suite under c8
+        run: npx c8 --reporter=text-summary --reporter=lcov node scripts/run-tests.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+
+  # Advisory: surfaces high-severity vulnerabilities in production deps
+  # without blocking merges.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm audit --omit=dev --audit-level=high
