@@ -886,6 +886,12 @@ async function verifyDiscoveryWebhookWithSharedModel(
         sheetId: options.sheetId || "",
         timeoutMs: options.timeoutMs || 15000,
         secret,
+        // Forward caller headers — the wizard's setup verification rides
+        // x-discovery-auth-probe on this (dropping it silently turns the
+        // handshake back into a real dispatch, which 400s on a blank intent).
+        ...(options.headers && typeof options.headers === "object"
+          ? { headers: options.headers }
+          : {}),
       });
 
     const result = await runVerification(initialSecret);

@@ -2742,6 +2742,16 @@ async function handleDiscoveryWizardVerification(url, context) {
       context,
       sheetId: host().getSettingsSheetIdValue() || host().getActiveSheetId() || "",
       ...(verifySecret ? { secret: verifySecret } : {}),
+      // Setup verification is a HANDSHAKE, not a dispatch: the worker's
+      // x-discovery-auth-probe short-circuits BEFORE intent validation (an
+      // empty greenfield profile must not fail setup) and never launches a
+      // run as a side effect. Real runs (context run_discovery) keep the
+      // full dispatch; Apps Script stubs are exempt because GAS preflight
+      // chokes on custom headers.
+      ...(context !== "run_discovery" &&
+      !/script\.google(usercontent)?\.com/i.test(verifyUrl)
+        ? { headers: { "x-discovery-auth-probe": "1" } }
+        : {}),
     },
   );
   host().updateDiscoveryWizardRuntime({
