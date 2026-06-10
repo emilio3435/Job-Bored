@@ -10,6 +10,9 @@ function collectTestFiles(path) {
   if (!stat.isDirectory()) return [];
   const out = [];
   for (const entry of readdirSync(path)) {
+    // tests/e2e-smoke is Playwright-only (npx playwright test --config
+    // tests/e2e-smoke/playwright.config.mjs); never feed it to node:test.
+    if (entry === "e2e-smoke") continue;
     const child = join(path, entry);
     const childStat = statSync(child);
     if (childStat.isDirectory()) {
