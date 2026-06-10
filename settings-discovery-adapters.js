@@ -106,5 +106,8 @@
     prepareAppsScriptRemediationView: prepareAppsScriptRemediationView,
     prepareCloudflareRelayApplyReturn: prepareCloudflareRelayApplyReturn,
     focusScraperField: focusScraperField,
+    // app-compat's openDrawerToSubtab shim reads this — a missing export
+    // silently no-ops every Discovery-drawer deep-link.
+    openDrawerToSubtab: openDrawerToSubtab,
   };
 })();

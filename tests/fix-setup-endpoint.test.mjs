@@ -314,3 +314,35 @@ describe("/__proxy/discovery-webhook-secret — server-side secret resolution", 
     assert.match(body, /wrote/, "callers need to know when the secret was freshly generated (worker reboot)");
   });
 });
+
+describe("/__proxy/discovery-env-key — allowlisted worker env writes", () => {
+  it("dev-server exposes a localhost-gated POST with a strict env-key ALLOWLIST", async () => {
+    const { readFileSync } = await import("node:fs");
+    const devServerSrc = readFileSync(new URL("../dev-server.mjs", import.meta.url), "utf8");
+    assert.match(devServerSrc, /\/__proxy\/discovery-env-key/);
+    const allowlistIdx = devServerSrc.indexOf("DISCOVERY_ENV_KEY_ALLOWLIST");
+    assert.ok(allowlistIdx !== -1, "the closed allowlist const must exist");
+    const handlerIdx = devServerSrc.indexOf("function handleDiscoveryEnvKey");
+    assert.ok(handlerIdx !== -1, "handler must exist");
+    assert.ok(allowlistIdx < handlerIdx, "allowlist is defined alongside the handler");
+    const body = devServerSrc.slice(allowlistIdx, handlerIdx + 2200);
+    assert.match(body, /isLocalOrigin/, "env writes must never leave localhost");
+    assert.match(body, /SERPAPI_API_KEY/, "SerpApi key must be allowlisted");
+    assert.match(body, /BROWSER_USE_DISCOVERY_GEMINI_API_KEY/, "worker Gemini key must be allowlisted");
+    assert.match(
+      body,
+      /upsertBrowserUseDiscoveryEnvValue/,
+      "must reuse the bootstrap script's upsert (no duplicate env-file logic)",
+    );
+    // The allowlist must be a closed set — reject anything else.
+    assert.match(body, /400/, "non-allowlisted keys must be rejected");
+  });
+
+  it("bootstrap script exports upsertBrowserUseDiscoveryEnvValue for the endpoint", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../scripts/bootstrap-local-discovery.mjs", import.meta.url), "utf8");
+    const exportIdx = src.indexOf("export {");
+    const block = src.slice(exportIdx, src.indexOf("};", exportIdx));
+    assert.match(block, /upsertBrowserUseDiscoveryEnvValue/);
+  });
+});

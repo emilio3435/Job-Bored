@@ -165,15 +165,44 @@
     return card;
   }
 
+  function safeInput(parent, options) {
+    const D = dom();
+    if (D && typeof D.appendWizardInput === "function") {
+      return D.appendWizardInput(parent, options);
+    }
+    const wrap = safeCreate("div", "discovery-wizard-field");
+    const input = safeCreate("input", "discovery-wizard-field__input");
+    if (options && options.id) input.id = options.id;
+    if (options && options.type) input.type = options.type;
+    if (options && options.placeholder) input.placeholder = options.placeholder;
+    input.value = (options && options.value) || "";
+    if (options && typeof options.onInput === "function") {
+      input.addEventListener("input", (ev) => {
+        options.onInput(ev && ev.target ? ev.target.value : input.value);
+      });
+    }
+    wrap.appendChild(input);
+    parent.appendChild(wrap);
+    return wrap;
+  }
+
   // ----------------------------------------------------------------------
   // Step body builders — stubs filled out in Task 3
   // ----------------------------------------------------------------------
   function buildSerpApiBody(rt) {
     const container = safeCreate("div", "enhancements-wizard__step");
     safeParagraph(container, "SerpApi Google Jobs gives you the highest recall — Google's full job index across 100+ ATS platforms.", "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold");
-    safeParagraph(container, "1. Sign up at serpapi.com and get your API key.");
-    safeParagraph(container, "2. Add SERP_API_KEY=<your-key> to your worker .env file.");
-    safeParagraph(container, "3. Restart the discovery worker (Ctrl-C then npm start).");
+    safeParagraph(container, "Grab a free key at serpapi.com, paste it below, and we'll wire it into the worker for you — no terminal, no file editing.");
+    safeInput(container, {
+      id: "enhancementsSerpApiKeyInput",
+      label: "SerpApi API key",
+      type: "password",
+      value: rt.serpApiKeyDraft || "",
+      placeholder: "Paste your SerpApi key",
+      onInput(value) {
+        updateRuntime({ serpApiKeyDraft: value });
+      },
+    });
     const statusText =
       rt.serpApiStatus === "yes" ? "✓ Configured" :
       rt.serpApiStatus === "no" ? "Not configured" :
@@ -185,9 +214,17 @@
   function buildGeminiBody(rt) {
     const container = safeCreate("div", "enhancements-wizard__step");
     safeParagraph(container, "A Gemini API key powers grounded web-search and the 'Add job from URL' feature inside discovery.", "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold");
-    safeParagraph(container, "1. Get a free key at aistudio.google.com.");
-    safeParagraph(container, "2. Add GOOGLE_API_KEY=<your-key> to your worker .env file.");
-    safeParagraph(container, "3. Restart the discovery worker.");
+    safeParagraph(container, "Get a free key at aistudio.google.com, paste it below, and we'll wire it into the worker for you — no terminal, no file editing.");
+    safeInput(container, {
+      id: "enhancementsGeminiKeyInput",
+      label: "Gemini API key (discovery worker)",
+      type: "password",
+      value: rt.geminiKeyDraft || "",
+      placeholder: "Paste your Gemini key",
+      onInput(value) {
+        updateRuntime({ geminiKeyDraft: value });
+      },
+    });
     const statusText =
       rt.geminiStatus === "yes" ? "✓ Configured" :
       rt.geminiStatus === "no" ? "Not configured" :
@@ -241,15 +278,15 @@
     void void_;
     if (stepId === "serp_api") {
       return [
-        { id: "enhancements_serp_api_done", label: "I did it", variant: "primary" },
-        { id: "enhancements_serp_api_open_drawer", label: "Open Discovery → Sources", variant: "secondary" },
+        { id: "enhancements_serp_save_key", label: "Save key", variant: "primary" },
+        { id: "enhancements_serp_api_done", label: "Re-check status", variant: "secondary" },
         { id: "enhancements_serp_api_skip", label: "Skip", variant: "ghost" },
       ];
     }
     if (stepId === "gemini") {
       return [
-        { id: "enhancements_gemini_done", label: "I did it", variant: "primary" },
-        { id: "enhancements_gemini_open_drawer", label: "Open Discovery → Sources", variant: "secondary" },
+        { id: "enhancements_gemini_save_key", label: "Save key", variant: "primary" },
+        { id: "enhancements_gemini_done", label: "Re-check status", variant: "secondary" },
         { id: "enhancements_gemini_skip", label: "Skip", variant: "ghost" },
       ];
     }
@@ -368,6 +405,62 @@
   // ----------------------------------------------------------------------
   // Action dispatcher
   // ----------------------------------------------------------------------
+  /**
+   * In-wizard key entry: write the pasted key into the worker's env file
+   * via the localhost-only allowlisted endpoint, reboot the worker
+   * tunnel-free so it loads the key, then re-poll /health so the status
+   * badge flips — the user never touches a terminal or a file. A failed
+   * write keeps the draft so the user can retry.
+   */
+  async function saveWorkerEnvKey({ envKey, draftField, label }) {
+    const rt = getRuntime();
+    const value = String(rt[draftField] || "").trim();
+    if (!value) {
+      updateRuntime({ message: `Paste your ${label} key first.`, messageTone: "warning" });
+      return renderEnhancementsWizard();
+    }
+    updateRuntime({ message: `Saving your ${label} key…`, messageTone: "info" });
+    let wrote = false;
+    try {
+      const r = await fetchWithTimeout("/__proxy/discovery-env-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: envKey, value }),
+      });
+      const body = r ? await r.json().catch(() => ({})) : {};
+      wrote = !!(r && r.ok && body.ok);
+    } catch (e) {
+      console.warn("[JobBored] enhancements save key:", e);
+      wrote = false;
+    }
+    if (!wrote) {
+      updateRuntime({
+        message: `Couldn't save the ${label} key — is the local server running? Try again.`,
+        messageTone: "warning",
+      });
+      return renderEnhancementsWizard();
+    }
+    // Reboot the worker (tunnel-free) so it loads the new key. Best-effort:
+    // the re-poll below reports the truth either way.
+    updateRuntime({ message: "Restarting the discovery worker…", messageTone: "info" });
+    try {
+      await fetchWithTimeout("/__proxy/full-boot?port=8644&skip_tunnel=1", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+    } catch (e) {
+      console.warn("[JobBored] enhancements worker reboot:", e);
+    }
+    await probeHealthStatus();
+    updateRuntime({
+      [draftField]: "",
+      message: `${label} key saved — worker restarted.`,
+      messageTone: "success",
+    });
+    return renderEnhancementsWizard();
+  }
+
   async function handleAction(actionId) {
     const id = String(actionId || "");
 
@@ -433,7 +526,22 @@
       return moveToStep("done");
     }
 
+    if (id === "enhancements_serp_save_key" || id === "enhancements_gemini_save_key") {
+      const isSerp = id === "enhancements_serp_save_key";
+      return saveWorkerEnvKey({
+        envKey: isSerp ? "SERPAPI_API_KEY" : "BROWSER_USE_DISCOVERY_GEMINI_API_KEY",
+        draftField: isSerp ? "serpApiKeyDraft" : "geminiKeyDraft",
+        label: isSerp ? "SerpApi" : "Gemini",
+      });
+    }
+
     if (id === "enhancements_serp_api_open_drawer" || id === "enhancements_gemini_open_drawer") {
+      // The Discovery drawer renders far below the wizard shell (z 9 vs
+      // z 3200) — close the shell first or the drawer opens invisibly.
+      const api = shellApi();
+      if (api && typeof api.closeWizardShell === "function") {
+        api.closeWizardShell("deep_link");
+      }
       const h = host();
       if (h && typeof h.openDrawerToSubtab === "function") {
         try { h.openDrawerToSubtab("sources", null); } catch (e) { console.warn("[JobBored] enhancements open drawer:", e); }
