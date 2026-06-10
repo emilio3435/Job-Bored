@@ -667,3 +667,19 @@ describe("wizard motion — one entrance signature across every surface (delight
     }
   });
 });
+
+describe("wizard button vocabulary — one language (delight pass)", () => {
+  it("advance buttons say Continue and terminal buttons say Finish, across all shell wizards", async () => {
+    const { readFileSync } = await import("node:fs");
+    const files = ["discovery-wizard-ui.js", "go-live-wizard-ui.js", "enhancements-wizard-ui.js"];
+    for (const f of files) {
+      const src = readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+      assert.ok(!src.includes('label: "Next"'), `${f}: bare "Next" is banned — advance buttons say Continue`);
+      assert.ok(!src.includes('label: "Next: '), `${f}: "Next: …" prefixes are banned — the rail already names the next step`);
+    }
+    const enh = readFileSync(new URL("../enhancements-wizard-ui.js", import.meta.url), "utf8");
+    assert.match(enh, /id: "enhancements_finish", label: "Finish"/, "terminal action says Finish, not Done");
+    const gl = readFileSync(new URL("../go-live-wizard-ui.js", import.meta.url), "utf8");
+    assert.match(gl, /id: "go_live_finish",\s*label: "Finish"/s, "go-live terminal action says Finish, not Close");
+  });
+});

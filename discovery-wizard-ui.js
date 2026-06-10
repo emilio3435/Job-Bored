@@ -1819,7 +1819,7 @@ function buildDiscoveryWizardSteps(runtime) {
       : [
           {
             id: "wizard_review_options",
-            label: "Next: choose a path",
+            label: "Continue",
             variant: "primary",
           },
         ],

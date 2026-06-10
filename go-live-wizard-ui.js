@@ -832,7 +832,7 @@
     }
     actions.push({
       id: "go_live_finish",
-      label: "Close",
+      label: "Finish",
       variant: showDiscoveryCta || showEnhancementsCta ? "secondary" : "primary",
     });
     return actions;
