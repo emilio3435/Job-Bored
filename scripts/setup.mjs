@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { installRepo } from "./install-repo.mjs";
 import { displayPath, resolveJobBoredPaths } from "./lib/paths.mjs";
+import { resolveNpmInvocation } from "./lib/spawn-npm.mjs";
 
 const REPO_ROOT = resolvePath(fileURLToPath(new URL("..", import.meta.url)));
 const HERMES_SOURCE_DIR = join(REPO_ROOT, "integrations", "hermes-job-hunt");
@@ -157,10 +158,14 @@ function defaultWorkerEnv(paths) {
 
 async function runCommand(command, args, { cwd, env = process.env } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, {
+    // npm/npx are .cmd batch files on native Windows; resolve the shimmed
+    // invocation so `npm run setup` works there too.
+    const invocation = resolveNpmInvocation(command);
+    const child = spawn(invocation.command, args, {
       cwd,
       env,
       stdio: "inherit",
+      shell: invocation.shell,
     });
     child.on("error", (error) => resolve({ status: 1, error }));
     child.on("close", (status) => resolve({ status: status ?? 1 }));
@@ -335,12 +340,39 @@ async function setupHermes({
     );
   }
 
-  const venvPython = join(paths.hermesJobHuntHome, ".venv", "bin", "python");
+  // Windows venvs put the interpreter in .venv\Scripts\python.exe (no bin/),
+  // and `python3` is usually absent there — the launcher is `py -3`. Resolve
+  // the per-OS layout and try interpreters in order instead of assuming POSIX.
+  const win = process.platform === "win32";
+  const venvDir = join(paths.hermesJobHuntHome, ".venv");
+  const venvPython = join(
+    venvDir,
+    win ? "Scripts" : "bin",
+    win ? "python.exe" : "python",
+  );
   if (!existsSync(venvPython)) {
-    await runChecked(runner, "python3", ["-m", "venv", join(paths.hermesJobHuntHome, ".venv")], {
-      cwd: repoRoot,
-      env,
-    });
+    const interpreters = win
+      ? [["py", "-3"], ["python"], ["python3"]]
+      : [["python3"], ["python"]];
+    let created = false;
+    for (const [command, ...launcherArgs] of interpreters) {
+      const result = await runner(command, [...launcherArgs, "-m", "venv", venvDir], {
+        cwd: repoRoot,
+        env,
+      });
+      if (result.status === 0) {
+        created = true;
+        break;
+      }
+    }
+    if (!created) {
+      const tried = interpreters
+        .map((candidate) => candidate.join(" "))
+        .join(", ");
+      throw new Error(
+        `Could not create the Hermes .venv (tried: ${tried}). Install Python 3 and rerun npm run setup:hermes.`,
+      );
+    }
     steps.push(step("ok", "hermes venv", "Created Hermes .venv."));
   } else {
     steps.push(step("ok", "hermes venv", "Hermes .venv already exists."));

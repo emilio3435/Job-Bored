@@ -23,6 +23,12 @@ import { tmpdir } from "os";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 
+import { resolveNpmInvocation } from "./lib/spawn-npm.mjs";
+
+// npx is a .cmd batch file on native Windows; resolve the shimmed invocation
+// once so every wrangler call below works there too.
+const NPX = resolveNpmInvocation("npx");
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..");
 const templateDir = join(repoRoot, "templates", "cloudflare-worker");
@@ -419,9 +425,10 @@ function extractWranglerJson(stdout) {
 }
 
 function parseWranglerWhoAmI() {
-  const result = spawnSync("npx", ["--yes", "wrangler", "whoami", "--json"], {
+  const result = spawnSync(NPX.command, ["--yes", "wrangler", "whoami", "--json"], {
     cwd: repoRoot,
     encoding: "utf8",
+    shell: NPX.shell,
     env: {
       ...process.env,
       CI: "1",
@@ -442,9 +449,10 @@ function tryAutoLogin() {
   console.log(
     "cloudflare-relay: Cloudflare auth missing. Opening `wrangler login` in your browser...",
   );
-  const result = spawnSync("npx", ["--yes", "wrangler", "login"], {
+  const result = spawnSync(NPX.command, ["--yes", "wrangler", "login"], {
     cwd: repoRoot,
     stdio: "inherit",
+    shell: NPX.shell,
     env: {
       ...process.env,
       FORCE_COLOR: "0",
@@ -693,9 +701,10 @@ function runWrangler(args, options = {}) {
   if (options.outputFile) {
     env.WRANGLER_OUTPUT_FILE_PATH = options.outputFile;
   }
-  const result = spawnSync("npx", ["--yes", "wrangler", ...args], {
+  const result = spawnSync(NPX.command, ["--yes", "wrangler", ...args], {
     cwd: options.cwd || repoRoot,
     encoding: "utf8",
+    shell: NPX.shell,
     env,
     input: options.input,
     stdio:

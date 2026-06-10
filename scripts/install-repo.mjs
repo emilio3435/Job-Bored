@@ -6,6 +6,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { resolveNpmInvocation } from "./lib/spawn-npm.mjs";
+
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 
 export const REPO_ROOT = join(scriptDir, "..");
@@ -145,10 +147,14 @@ export async function getRepoInstallPlan(repoRoot = REPO_ROOT) {
 
 function runCommand(command, args, { cwd }) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    // npm is a .cmd batch file on native Windows; resolve the shimmed
+    // invocation so the prestart/predev hook works there too.
+    const invocation = resolveNpmInvocation(command);
+    const child = spawn(invocation.command, args, {
       cwd,
       stdio: "inherit",
       env: process.env,
+      shell: invocation.shell,
     });
     child.on("error", reject);
     child.on("close", (code) => resolve(code ?? 1));

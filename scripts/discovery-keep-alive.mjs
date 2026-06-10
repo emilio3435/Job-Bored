@@ -11,6 +11,8 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { resolveNpmInvocation } from "./lib/spawn-npm.mjs";
+
 export const KEEP_ALIVE_LABEL = "ai.jobbored.discovery.keepalive";
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const EXPECTED_WORKER_SERVICE = "browser-use-discovery-worker";
@@ -252,9 +254,14 @@ function runWranglerTargetSecretPut({ spawnSyncImpl, workerName, targetUrl }) {
   const result = spawnSyncImpl("wrangler", args, spawnOptions);
   // wrangler is often not globally installed. When the bare call cannot be
   // spawned (ENOENT), retry through `npx --yes wrangler ...` which resolves the
-  // locally installed binary. Any other failure is returned as-is.
+  // locally installed binary. Any other failure is returned as-is. npx is a
+  // .cmd batch file on native Windows, so resolve the shimmed invocation.
   if (isSpawnEnoentError(result)) {
-    return spawnSyncImpl("npx", ["--yes", "wrangler", ...args], spawnOptions);
+    const npx = resolveNpmInvocation("npx");
+    return spawnSyncImpl(npx.command, ["--yes", "wrangler", ...args], {
+      ...spawnOptions,
+      shell: npx.shell,
+    });
   }
   return result;
 }

@@ -84,4 +84,41 @@ describe("packaged setup", () => {
     assert.deepEqual(calls[0].slice(0, 3), ["python3", "-m", "venv"]);
     assert.deepEqual(calls[1].slice(1, 4), ["-m", "pip", "install"]);
   });
+
+  // Minimal distros (and odd PATHs) may not expose a `python3` binary. The
+  // venv creation must fall back through the interpreter candidates instead
+  // of dying on the first ENOENT.
+  it("falls back to `python` when `python3` cannot create the Hermes venv", async () => {
+    const repoRoot = await createScratchRepo();
+    const hermesHome = await mkdtemp(join(tmpdir(), "hermes-home-"));
+    const hermesJobHuntHome = join(hermesHome, "job-hunt");
+    const calls = [];
+    const runner = async (command, args) => {
+      calls.push([command, ...args]);
+      if (command === "python3") {
+        return { status: 1, error: new Error("spawn python3 ENOENT") };
+      }
+      if (command === "python" && args[0] === "-m" && args[1] === "venv") {
+        await mkdir(join(hermesJobHuntHome, ".venv", "bin"), { recursive: true });
+        await writeFile(join(hermesJobHuntHome, ".venv", "bin", "python"), "#!/bin/sh\n");
+      }
+      return { status: 0 };
+    };
+
+    await runSetup({
+      mode: "hermes",
+      repoRoot,
+      env: {
+        HERMES_HOME: hermesHome,
+        HERMES_JOB_HUNT_HOME: hermesJobHuntHome,
+        HERMES_APPLICATIONS_DIR: join(hermesHome, "materials"),
+      },
+      skipInstall: true,
+      runner,
+    });
+
+    assert.ok(existsSync(join(hermesJobHuntHome, ".venv", "bin", "python")));
+    assert.deepEqual(calls[0].slice(0, 3), ["python3", "-m", "venv"]);
+    assert.deepEqual(calls[1].slice(0, 3), ["python", "-m", "venv"]);
+  });
 });

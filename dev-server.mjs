@@ -52,6 +52,9 @@ const MIME = {
   ".js": "application/javascript; charset=utf-8",
   ".mjs": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  // text/plain, not text/markdown: some browsers still download text/markdown
+  // as a blob instead of rendering it, and the wizard links to docs/*.md.
+  ".md": "text/plain; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -68,6 +71,13 @@ const PROXY_ROUTES = {
     host: "127.0.0.1",
     port: 4040,
     path: "/api/tunnels",
+    // ngrok being down is a normal state (fresh boot, Tailscale transport),
+    // and readiness snapshots probe this route all session long. A 502 paints
+    // an unsuppressable red fetch error in the browser console each time, so
+    // soft-fail to 200 with an empty tunnel list — every consumer already
+    // treats "no tunnels" identically to a failed probe. /__proxy/local-health
+    // must keep hard-failing: its status code carries meaning.
+    unreachableBody: { tunnels: [] },
   },
 };
 
@@ -107,6 +117,11 @@ function proxyRequest(target, _req, res) {
       res.end();
       return;
     }
+    if (target.unreachableBody) {
+      res.writeHead(200, { "content-type": "application/json", "access-control-allow-origin": "*" });
+      res.end(JSON.stringify(target.unreachableBody));
+      return;
+    }
     res.writeHead(502, { "content-type": "application/json", "access-control-allow-origin": "*" });
     res.end(JSON.stringify({ error: "upstream_unreachable" }));
   });
@@ -114,6 +129,11 @@ function proxyRequest(target, _req, res) {
     upstream.destroy();
     if (res.headersSent) {
       res.end();
+      return;
+    }
+    if (target.unreachableBody) {
+      res.writeHead(200, { "content-type": "application/json", "access-control-allow-origin": "*" });
+      res.end(JSON.stringify(target.unreachableBody));
       return;
     }
     res.writeHead(504, { "content-type": "application/json", "access-control-allow-origin": "*" });
@@ -742,10 +762,21 @@ async function handleKillStale(req, res) {
   res.end(JSON.stringify({ ok: result.blocked.length === 0, ...result }));
 }
 
+const PORT_INSPECTION_UNAVAILABLE_MESSAGE =
+  "port inspection unavailable (lsof not found on this system)";
+
 function listListeningPids(port) {
   const lsof = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
     encoding: "utf8",
   });
+  // Windows and minimal Linux images ship without lsof. Pretending "no
+  // listeners" here makes the kill-stale recovery button silently do nothing
+  // and the user still hits EADDRINUSE — fail loudly instead.
+  if (lsof.error && lsof.error.code === "ENOENT") {
+    const error = new Error(PORT_INSPECTION_UNAVAILABLE_MESSAGE);
+    error.code = "PORT_INSPECTION_UNAVAILABLE";
+    throw error;
+  }
   return String(lsof.stdout || "")
     .split(/\s+/)
     .filter((s) => /^\d+$/.test(s))
@@ -803,6 +834,7 @@ async function terminateKnownStaleListeners({
 } = {}) {
   const killedProcesses = [];
   const blocked = [];
+  const warnings = [];
   let skippedHealthyWorker = false;
 
   for (const port of ports) {
@@ -813,7 +845,14 @@ async function terminateKnownStaleListeners({
     let processes = [];
     try {
       processes = findProcesses(port) || [];
-    } catch {
+    } catch (error) {
+      if (
+        error &&
+        error.code === "PORT_INSPECTION_UNAVAILABLE" &&
+        !warnings.includes(error.message)
+      ) {
+        warnings.push(error.message);
+      }
       processes = [];
     }
     for (const processInfo of processes) {
@@ -848,6 +887,7 @@ async function terminateKnownStaleListeners({
     killed: killedProcesses.length,
     killedProcesses,
     blocked,
+    warnings,
     skippedHealthyWorker,
   };
 }

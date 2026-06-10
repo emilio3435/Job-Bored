@@ -4,7 +4,6 @@
  * local browser-use-discovery worker. Used by launchd/systemd/cron/Task
  * Scheduler so scheduled runs use the same payload builder as #discoveryBtn.
  */
-import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { existsSync, openSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -18,6 +17,7 @@ import {
   readWorkerConfigSheetId,
   workerConfigPath,
 } from "./lib/schedule.mjs";
+import { spawnNpm } from "./lib/spawn-npm.mjs";
 
 const require = createRequire(import.meta.url);
 const payloadBuilder = require("../discovery-payload.js");
@@ -287,7 +287,7 @@ async function ensureWorkerRunning(port) {
   );
   // Append-mode log file so we never clobber the worker's existing log.
   const logFd = openSync(WORKER_BOOT_LOG, "a");
-  const child = spawn(
+  const child = spawnNpm(
     "npm",
     ["run", "discovery:worker:start-local", "--silent"],
     {
@@ -300,6 +300,16 @@ async function ensureWorkerRunning(port) {
       },
     },
   );
+  // Without this listener a missing npm (PATH-stripped cron/Task Scheduler
+  // environments) raises an uncaught 'error' event and crashes the whole
+  // scheduled run instead of reporting what went wrong.
+  child.on("error", (error) => {
+    fail(
+      `could not launch npm to start the worker (${
+        error && error.message ? error.message : String(error)
+      }). Ensure npm is on PATH for the scheduler environment.`,
+    );
+  });
   child.unref();
   const deadline = Date.now() + 25_000;
   // Poll /health every 500ms until ready or deadline.
