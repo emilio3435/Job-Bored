@@ -1521,3 +1521,23 @@
     animation: none !important;
   }
 }
+
+/* Manual-path disclosure on the endpoint step (say-it-once copy diet:
+   the one-click path leads; manual setup folds away until asked for). */
+.discovery-wizard-manual {
+  margin: var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed var(--jb-line, var(--border));
+  border-radius: var(--radius-md);
+}
+
+.discovery-wizard-manual__summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.discovery-wizard-manual[open] .discovery-wizard-manual__summary {
+  margin-bottom: var(--space-2);
+}

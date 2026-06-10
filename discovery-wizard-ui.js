@@ -1007,10 +1007,9 @@ function appendTailscaleAutoSetupStatus(container, runtime) {
 
 function buildDiscoveryExistingEndpointBody(runtime) {
   const container = createWizardNode("div", "discovery-wizard-step-body");
-  appendWizardParagraph(
-    container,
-    "Recommended: hit “Set it up for me” and we'll handle everything — start the worker, publish it on your private Tailscale network, and verify the connection. Nothing to type, no terminal.",
-  );
+  // Say it once: the step description + primary button already promise the
+  // one-click path; the body leads with the live status card, and the manual
+  // route folds away until asked for.
   appendTailscaleAutoSetupStatus(container, runtime);
   const autoState = runtime.drafts && runtime.drafts.tailscaleAutoState;
   if (autoState === "needs_install" || autoState === "needs_login") {
@@ -1025,15 +1024,21 @@ function buildDiscoveryExistingEndpointBody(runtime) {
     });
     container.appendChild(recheck);
   }
-  appendWizardParagraph(
-    container,
-    "Prefer to do it by hand (or use your own endpoint)? Expose the worker yourself and paste the URL below:",
+  const manual = createWizardNode("details", "discovery-wizard-manual");
+  const manualSummary = createWizardNode(
+    "summary",
+    "discovery-wizard-manual__summary",
+    "Prefer manual setup, or using your own endpoint?",
   );
-  appendWizardCodeBlock(container, "tailscale serve --bg 8644", "Copy command");
-  const link = createWizardNode("p", "settings-field-hint settings-field-hint--compact");
+  manual.appendChild(manualSummary);
+  appendWizardCodeBlock(manual, "tailscale serve --bg 8644", "Copy command");
+  const link = createWizardNode(
+    "p",
+    "settings-field-hint settings-field-hint--compact",
+  );
   link.appendChild(
     document.createTextNode(
-      "Paste the full URL below INCLUDING the /webhook path — e.g. https://<machine>.<tailnet>.ts.net/webhook. The worker fail-closes on an empty secret when exposed, so set the matching shared secret in the second field (or in config.js → discoveryWebhookSecret). Full setup walkthrough: ",
+      "Paste the full URL including the /webhook path (e.g. https://<machine>.<tailnet>.ts.net/webhook) plus the matching secret below. Walkthrough: ",
     ),
   );
   const selfHostingAnchor = createWizardNode("a", "");
@@ -1042,12 +1047,8 @@ function buildDiscoveryExistingEndpointBody(runtime) {
   selfHostingAnchor.rel = "noopener";
   selfHostingAnchor.textContent = "docs/SELF-HOSTING.md";
   link.appendChild(selfHostingAnchor);
-  link.appendChild(
-    document.createTextNode(
-      ". Already have a public HTTPS endpoint? Paste that instead.",
-    ),
-  );
-  container.appendChild(link);
+  manual.appendChild(link);
+  container.appendChild(manual);
   appendWizardInput(container, {
     id: "discoveryWizardExistingEndpointInput",
     label: "Worker URL (Tailscale, or your own HTTPS endpoint)",
