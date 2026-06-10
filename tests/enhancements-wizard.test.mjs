@@ -898,3 +898,58 @@ describe("enhancements wizard — saving a key actually restarts the worker", ()
     assert.match(enhancementsJs, /aistudio\.google\.com\/apikey/, "gemini: the key page (deep link)");
   });
 });
+
+describe("enhancements wizard — Gemini key passes through to AI Providers settings", () => {
+  function passthroughEnv({ existingResumeKey = "" } = {}) {
+    const merges = [];
+    const { calls, fetchImpl } = (() => {
+      const calls = [];
+      return {
+        calls,
+        fetchImpl: async (url, opts = {}) => {
+          calls.push({ url: String(url), method: opts.method || "GET", body: opts.body || null });
+          if (String(url).includes("discovery-env-key")) return { ok: true, json: async () => ({ ok: true }) };
+          if (String(url).includes("full-boot")) return { ok: true, json: async () => ({ ok: true }) };
+          if (String(url).includes("discovery-health")) return { ok: true, json: async () => ({ ok: true, readiness: { serpApiGoogleJobs: { configured: false }, googleTools: { configured: true } } }) };
+          return { ok: false, json: async () => ({}) };
+        },
+      };
+    })();
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      getDiscoveryReadinessSnapshot: () => null,
+      getConfig: () => ({ resumeProvider: "openrouter", resumeGeminiApiKey: existingResumeKey }),
+      mergeStoredConfigOverridePatch: (patch) => merges.push(patch),
+    };
+    return { merges, calls, host, fetchImpl };
+  }
+
+  it("saving the worker Gemini key persists it into resumeGeminiApiKey (AI Providers) when none is saved", async () => {
+    const env = passthroughEnv();
+    const { api } = loadEnhancements({ fetchImpl: env.fetchImpl, host: env.host });
+    await api.openEnhancementsWizard();
+    api._internal.updateRuntime({ geminiKeyDraft: "gem-key-456" });
+    await api.handleAction("enhancements_gemini_save_key");
+    assert.equal(env.merges.length, 1, "must pass the key through to the dashboard settings");
+    assert.equal(env.merges[0].resumeGeminiApiKey, "gem-key-456");
+  });
+
+  it("never clobbers an existing AI Providers Gemini key", async () => {
+    const env = passthroughEnv({ existingResumeKey: "already-set" });
+    const { api } = loadEnhancements({ fetchImpl: env.fetchImpl, host: env.host });
+    await api.openEnhancementsWizard();
+    api._internal.updateRuntime({ geminiKeyDraft: "gem-key-456" });
+    await api.handleAction("enhancements_gemini_save_key");
+    assert.equal(env.merges.length, 0, "an existing dashboard key must win");
+  });
+
+  it("the SerpApi save never touches the AI Providers settings", async () => {
+    const env = passthroughEnv();
+    const { api } = loadEnhancements({ fetchImpl: env.fetchImpl, host: env.host });
+    await api.openEnhancementsWizard();
+    api._internal.updateRuntime({ serpApiKeyDraft: "serp-key" });
+    await api.handleAction("enhancements_serp_save_key");
+    assert.equal(env.merges.length, 0);
+  });
+});

@@ -294,3 +294,23 @@ describe("self-hosting CTA swaps — launch the go-live wizard, NOT the markdown
     );
   });
 });
+
+describe("bridge-registry — enhancements wizard host contract", () => {
+  it("enhancements.host wires every method the key-save passthrough depends on", () => {
+    const start = bridgeRegistryJs.indexOf("enhancements.host = {");
+    assert.ok(start !== -1, "enhancements.host bridge object must exist");
+    const block = bridgeRegistryJs.slice(start, bridgeRegistryJs.indexOf("};", start));
+    for (const method of [
+      "getConfig", // read whether AI Providers already has a Gemini key
+      "mergeStoredConfigOverridePatch", // pass the wizard key through to settings
+      "openDrawerToSubtab", // deep-link escape hatch
+      "setActiveSettingsTab", // AI-provider step deep-link
+    ]) {
+      assert.match(
+        block,
+        new RegExp(`${method}:\\s*host\\.${method}`),
+        `enhancements.host must wire ${method} — a dropped key silently no-ops (the hand-maintained-literal bug class)`,
+      );
+    }
+  });
+});
