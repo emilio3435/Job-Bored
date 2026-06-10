@@ -604,25 +604,32 @@
     });
   }
 
-  /** Populate the provider step from the current config (preselect free-tier). */
+  /** Populate the provider step from the current config (read-only hydration). */
   function renderProviderStep() {
     const cfg = getResumeConfig();
-    const provider = cfg && cfg.provider === "local" ? "local" : "openrouter";
-    // Preselect the OpenRouter free tier whenever the effective provider isn't
-    // one of the wizard's two cold-start options, so the radio and the
-    // generation gate always agree.
-    if (!cfg || (cfg.provider !== "openrouter" && cfg.provider !== "local")) {
-      persistResumeProvider("openrouter");
+    const provider =
+      (cfg && normalizeFirstRunProvider(cfg.provider)) || "openrouter";
+    for (const [name, def] of Object.entries(FIRST_RUN_PROVIDERS)) {
+      const radio = getEl(`firstRunProvider${def.cap}`);
+      if (radio) radio.checked = name === provider;
     }
-    const orRadio = getEl("firstRunProviderOpenRouter");
-    const localRadio = getEl("firstRunProviderLocal");
-    if (orRadio) orRadio.checked = provider === "openrouter";
-    if (localRadio) localRadio.checked = provider === "local";
-    const keyInput = getEl("firstRunOpenRouterKeyInput");
-    if (keyInput && cfg) keyInput.value = cfg.resumeOpenRouterApiKey || "";
+    if (cfg) {
+      const keyFields = [
+        ["firstRunOpenRouterKeyInput", "resumeOpenRouterApiKey"],
+        ["firstRunGeminiKeyInput", "resumeGeminiApiKey"],
+        ["firstRunOpenAIKeyInput", "resumeOpenAIApiKey"],
+        ["firstRunAnthropicKeyInput", "resumeAnthropicApiKey"],
+        ["firstRunWebhookUrlInput", "resumeGenerationWebhookUrl"],
+      ];
+      for (const [inputId, field] of keyFields) {
+        const input = getEl(inputId);
+        if (input) input.value = cfg[field] || "";
+      }
+    }
     populateFirstRunLocalModelSelect(cfg);
     mountFirstRunDownloadControl();
     updateFirstRunProviderPanels(provider);
+    void firstRunRefreshModelsFor(provider);
   }
 
   function handleFirstRunSaveOpenRouterKey() {

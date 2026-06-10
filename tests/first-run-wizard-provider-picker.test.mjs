@@ -305,6 +305,87 @@ describe("first-run wizard module — provider picker API surface", () => {
     }
   });
 
+  function seedProviderStepDom(document) {
+    const radios = [
+      ["OpenRouter", "openrouter"],
+      ["Local", "local"],
+      ["Gemini", "gemini"],
+      ["OpenAI", "openai"],
+      ["Anthropic", "anthropic"],
+      ["Webhook", "webhook"],
+    ];
+    for (const [cap, value] of radios) {
+      const radio = document.getElementById(`firstRunProvider${cap}`);
+      radio.value = value;
+    }
+    for (const id of [
+      "firstRunPanelSheet",
+      "firstRunPanelProvider",
+      "firstRunProviderPanelOpenRouter",
+      "firstRunProviderPanelLocal",
+      "firstRunProviderPanelGemini",
+      "firstRunProviderPanelOpenAI",
+      "firstRunProviderPanelAnthropic",
+      "firstRunProviderPanelWebhook",
+      "firstRunGeminiKeyInput",
+      "firstRunLocalModelSelect",
+      "firstRunLocalDownloadControl",
+    ]) {
+      document.getElementById(id);
+    }
+  }
+
+  it("renderProviderStep is read-only hydration (never coerces resumeProvider)", () => {
+    assert.ok(
+      !/persistResumeProvider\(\s*["']openrouter["']\s*\)/.test(
+        firstRunWizardJs,
+      ),
+      "renderProviderStep must not silently overwrite non-OpenRouter providers",
+    );
+  });
+
+  it("revisiting the provider step must not reset a saved Gemini choice to OpenRouter", () => {
+    const patches = [];
+    const { api, document, window } = loadWizard({
+      mergeStoredConfigOverridePatch: (patch) => patches.push(patch),
+      getSheetId: () => "sheet-abc",
+      isSignedIn: () => true,
+      getResumeGenerate: () => ({
+        isResumeGenerationConfigured: () => true,
+        getResumeGenerationConfig: () => ({
+          provider: "gemini",
+          resumeGeminiApiKey: "AIza-saved-key",
+        }),
+      }),
+    });
+    seedProviderStepDom(document);
+    window.COMMAND_CENTER_CONFIG.resumeProvider = "gemini";
+    api.firstRunSelectProvider("gemini");
+    patches.length = 0;
+    api.setFirstRunStep(1);
+    api.setFirstRunStep(2);
+    assert.equal(
+      patches.some((p) => p.resumeProvider === "openrouter"),
+      false,
+      "renderProviderStep must not coerce resumeProvider back to openrouter",
+    );
+    assert.equal(
+      window.COMMAND_CENTER_CONFIG.resumeProvider,
+      "gemini",
+      "live config must keep the user's gemini provider",
+    );
+    assert.equal(
+      document.getElementById("firstRunProviderGemini").checked,
+      true,
+      "gemini radio must stay selected when step 2 is re-shown",
+    );
+    assert.equal(
+      document.getElementById("firstRunGeminiKeyInput").value,
+      "AIza-saved-key",
+      "saved gemini key must be hydrated into the input",
+    );
+  });
+
   it("firstRunSelectedProvider recognizes every provider (no openrouter/local-only collapse)", () => {
     const make = (provider) =>
       loadWizard({
