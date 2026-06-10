@@ -592,3 +592,17 @@ describe("discovery-wizard-ui — continuous setup: Done step flows into devices
     );
   });
 });
+
+describe("discovery endpoint step — say-it-once copy diet (delight pass)", () => {
+  it("the redundant lead paragraph is gone and the manual path folds into a disclosure", () => {
+    const start = discoveryWizardUiJs.indexOf("function buildDiscoveryExistingEndpointBody");
+    const body = discoveryWizardUiJs.slice(start, start + 2600);
+    assert.ok(
+      !body.includes("Recommended: hit"),
+      "the step description + primary button already say this — the body must not repeat it",
+    );
+    assert.match(body, /createWizardNode\("details", "discovery-wizard-manual"\)/, "manual setup is a collapsed disclosure");
+    assert.match(body, /Prefer manual setup/, "the disclosure invites, the open body doesn't lecture");
+    assert.ok(!body.includes("fail-closes"), "worker-internals jargon removed from the hint");
+  });
+});
