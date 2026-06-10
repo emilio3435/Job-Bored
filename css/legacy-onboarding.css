@@ -1157,9 +1157,16 @@
   pointer-events: none;
 }
 
-/* Quiet alternate path under the celebration CTA. */
+/* Quiet alternate path under the celebration CTA. Looks like an
+   inline link but keeps a 44px tap target for phone thumbs. */
 .onboarding-celebration__alt {
   all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 var(--space-2);
+  box-sizing: border-box;
   cursor: pointer;
   margin-top: var(--space-2);
   font-size: var(--text-sm);

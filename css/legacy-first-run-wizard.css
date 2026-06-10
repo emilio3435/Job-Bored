@@ -165,6 +165,9 @@
   font-weight: 600;
   color: var(--accent);
   cursor: pointer;
+  /* Keep the native <summary> marker, but pad the row up to a
+     44px tap target for phone thumbs. */
+  padding-block: 13px;
 }
 
 .first-run-field-label {
@@ -227,6 +230,13 @@
 .first-run-actions--split .btn-modal-primary,
 .first-run-actions--split .btn-modal-secondary {
   flex: 1;
+}
+
+/* The shared modal button classes sit ~35px tall; wizard CTAs need
+   a 44px tap target on phones. */
+.first-run-wizard .btn-modal-primary,
+.first-run-wizard .btn-modal-secondary {
+  min-height: 44px;
 }
 
 .first-run-sr-only {

@@ -304,6 +304,11 @@ body.jb-v2 .page-top__menu-btn {
   border-radius: var(--jb-radius-sm);
   width: 40px;
   height: 40px;
+  /* Never let the flex row squeeze the hamburger below its 40px
+     tap target — without this guard the crowded action strip
+     crushed it to 20px and pushed the row past a 375px viewport. */
+  flex: 0 0 auto;
+  min-width: 40px;
   align-items: center;
   justify-content: center;
   cursor: pointer;
@@ -493,6 +498,28 @@ body.jb-v2 .flow-section__inner {
 
   body.jb-v2 .page-top__actions .page-top__action--primary::after {
     content: "";
+  }
+
+  /* The action strip holds eight non-shrinkable controls — more than a
+     375px row can fit. Let it shrink and scroll sideways instead of
+     widening the layout viewport (which sliced the hamburger in half
+     and gave the whole app a 7px horizontal pan). */
+  body.jb-v2 .page-top__actions {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    gap: 2px;
+    padding: 2px;
+    scrollbar-width: none;
+  }
+
+  body.jb-v2 .page-top__actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  body.jb-v2 .page-top__actions .page-top__action,
+  body.jb-v2 .page-top__actions .page-top__auth {
+    flex: 0 0 auto;
   }
 }
 
