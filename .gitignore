@@ -63,3 +63,5 @@ tmp/
 # Playwright e2e run artifacts
 test-results/
 playwright-report/
+# c8 coverage output (CI uploads it as an artifact)
+coverage/
