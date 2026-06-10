@@ -759,6 +759,14 @@ function findPidsOnPort(port) {
   const result = spawnSync("lsof", ["-tiTCP:" + port, "-sTCP:LISTEN"], {
     encoding: "utf8",
   });
+  // Be honest when lsof itself is missing (Windows, minimal Linux) instead of
+  // pretending the port has no listeners.
+  if (result.error && result.error.code === "ENOENT") {
+    console.warn(
+      `discovery:bootstrap-local: port inspection unavailable (lsof not found on this system); cannot detect stale listeners on port ${port}.`,
+    );
+    return [];
+  }
   if (result.status !== 0 && !result.stdout) return [];
   return String(result.stdout || "")
     .split(/\s+/)

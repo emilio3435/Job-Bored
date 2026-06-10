@@ -381,7 +381,15 @@ async function collectHermesChecks({ env, spawnSyncImpl, fetchImpl, paths, expec
   );
   if (!hermesExists) return checks;
 
-  const venvPython = join(paths.hermesJobHuntHome, ".venv", "bin", "python");
+  // Mirror scripts/setup.mjs: Windows venvs use .venv\Scripts\python.exe,
+  // POSIX venvs use .venv/bin/python.
+  const win = process.platform === "win32";
+  const venvPython = join(
+    paths.hermesJobHuntHome,
+    ".venv",
+    win ? "Scripts" : "bin",
+    win ? "python.exe" : "python",
+  );
   checks.push(
     check(
       existsSync(venvPython) ? "ok" : "warn",

@@ -235,7 +235,16 @@ function listListeningPids(port) {
       .split(/\r?\n/)
       .map((entry) => Number.parseInt(String(entry || "").trim(), 10))
       .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
-  } catch {
+  } catch (err) {
+    // Be honest when the tool itself is missing (Windows, minimal Linux):
+    // silently returning [] makes the restart path "succeed" and then die
+    // with EADDRINUSE. lsof exiting non-zero with no listeners still lands
+    // in the [] fallthrough below.
+    if (err && err.code === "ENOENT") {
+      console.warn(
+        `[start:discovery-worker] port inspection unavailable (lsof not found on this system); cannot detect stale listeners on port ${port}.`,
+      );
+    }
     return [];
   }
 }

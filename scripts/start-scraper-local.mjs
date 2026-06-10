@@ -2,8 +2,8 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
 import { applyAtsProviderAliases } from "./lib/llm-env.mjs";
+import { spawnNpm } from "./lib/spawn-npm.mjs";
 
 const repoRoot = process.cwd();
 const envFilePaths = [
@@ -71,7 +71,7 @@ function resolveRuntimeEnv() {
 
 function main() {
   const runtimeEnv = resolveRuntimeEnv();
-  const child = spawn("npm", ["run", "start", "--prefix", "server"], {
+  const child = spawnNpm("npm", ["run", "start", "--prefix", "server"], {
     cwd: repoRoot,
     env: runtimeEnv,
     stdio: "inherit",
