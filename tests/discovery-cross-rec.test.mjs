@@ -181,7 +181,11 @@ describe("discovery-wizard-ui — resolveDiscoveryWizardEntry (onboarding starts
       snapshot: { localRecoveryState: "needs_full_restart", recommendedFlow: "local_agent" },
     });
     assert.equal(out.flow, "external_endpoint", "Tailscale (external_endpoint) is the onboarding default");
-    assert.equal(out.step, "detect", "must open on step 1, never a resumed/recovery step");
+    assert.equal(
+      out.step,
+      "existing_endpoint",
+      "onboarding lands straight on the Endpoint step — the path is already chosen, so Status/Path show as completed rail steps instead of two clicks of ceremony",
+    );
     assert.equal(out.freshState, true, "persisted mid-flow state must not leak into onboarding");
     assert.equal(out.snapshot.recommendedFlow, "external_endpoint", "the step-1 check + path badge read Tailscale-first");
     assert.equal(out.snapshot.localRecoveryState, "ok", "ngrok-flavored recovery alarms are noise on the Tailscale path");
