@@ -705,3 +705,21 @@ describe("wizard progress — one mint language across card wizards too (delight
     assert.match(fr, /__item--done::before\s*\{\s*content: "✓ "/s, "done pills carry the same checkmark as the shell rail");
   });
 });
+
+describe("wizard typography — one title scale (delight pass)", () => {
+  it("step titles share the shell's scale across all three wizard families", async () => {
+    const { readFileSync } = await import("node:fs");
+    const files = [
+      ["css/legacy-discovery-setup-wizard.css", ".discovery-setup-wizard__step-title"],
+      ["css/legacy-first-run-wizard.css", ".first-run-step-title"],
+      ["css/legacy-onboarding.css", ".onboarding-step-title"],
+    ];
+    for (const [file, sel] of files) {
+      const css = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+      const idx = css.lastIndexOf(`${sel} {`);
+      const rule = css.slice(idx, css.indexOf("}", idx));
+      assert.ok(rule.includes("var(--text-xl)"), `${sel} uses the unified title scale`);
+      assert.ok(rule.includes("font-weight: 750"), `${sel} uses the unified title weight`);
+    }
+  });
+});
