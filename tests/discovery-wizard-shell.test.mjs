@@ -645,3 +645,25 @@ describe("renderWizardShell — journey strip + mascot (continuity)", () => {
     assert.match(img.attrs.get("src") || "", /pose-01-laptop-thinking/);
   });
 });
+
+describe("wizard motion — one entrance signature across every surface (delight pass)", () => {
+  const SIGNATURE = "cubic-bezier(0.16, 1, 0.3, 1)";
+  it("the shell panel animates in (it used to hard-pop) with the canonical curve + reduced-motion guard", async () => {
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync(new URL("../css/legacy-discovery-setup-wizard.css", import.meta.url), "utf8");
+    assert.match(css, /\.discovery-setup-wizard__panel\s*\{[^}]*animation:[^}]*jbWizardIn/s, "shell panel must enter, not pop");
+    assert.ok(css.includes(SIGNATURE), "shell uses the canonical curve");
+    assert.match(css, /@keyframes jbWizardIn/);
+    assert.match(css, /prefers-reduced-motion[^}]*\{[^}]*\.discovery-setup-wizard__panel[^}]*\{[^}]*animation:\s*none/s, "reduced-motion users get no entrance animation");
+  });
+  it("onboarding + first-run panels share the same curve and duration (no per-wizard timing)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const onboarding = readFileSync(new URL("../css/legacy-onboarding.css", import.meta.url), "utf8");
+    const firstRun = readFileSync(new URL("../css/legacy-first-run-wizard.css", import.meta.url), "utf8");
+    for (const [name, css, sel] of [["onboarding", onboarding, ".onboarding-panel"], ["first-run", firstRun, ".first-run-panel"]]) {
+      const rule = css.slice(css.indexOf(`${sel} {`), css.indexOf("}", css.indexOf(`${sel} {`)));
+      assert.ok(rule.includes("0.32s"), `${name} panel uses the canonical 0.32s duration`);
+      assert.ok(rule.includes(SIGNATURE), `${name} panel uses the canonical curve`);
+    }
+  });
+});

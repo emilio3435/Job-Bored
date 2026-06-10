@@ -120,7 +120,7 @@
 }
 
 .first-run-panel {
-  animation: firstRunPanelIn 0.24s var(--ease) both;
+  animation: firstRunPanelIn 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes firstRunPanelIn {
