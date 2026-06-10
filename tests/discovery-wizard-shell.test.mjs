@@ -723,3 +723,25 @@ describe("wizard typography — one title scale (delight pass)", () => {
     }
   });
 });
+
+describe("renderWizardShell — bonus journey stage (enhancements continuity)", () => {
+  it("journeyStage bonus renders every stage done with none current", () => {
+    const { document, shell } = loadShell();
+    shell.renderWizardShell({
+      steps: [{ id: "detect", label: "Status", title: "T", description: "D" }],
+      state: { currentStep: "detect" },
+      journeyStage: "bonus",
+    });
+    const mount = document.getElementById("discoverySetupWizardMount");
+    assert.equal(
+      mount.querySelectorAll(".discovery-setup-wizard__journey-step--done").length,
+      3,
+      "all three stages read done on the bonus track",
+    );
+    assert.equal(
+      mount.querySelector(".discovery-setup-wizard__journey-step--current"),
+      null,
+      "nothing is current — setup is complete",
+    );
+  });
+});

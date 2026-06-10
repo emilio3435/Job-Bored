@@ -245,8 +245,7 @@
       safeParagraph(container, "Nothing to do here. Hit Continue.");
       return container;
     }
-    safeParagraph(container, "SerpApi Google Jobs is the single biggest results upgrade — it taps Google's full job index across 100+ job boards and ATS platforms.", "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold");
-    safeParagraph(container, "Free tier: 100 searches/month — plenty for daily discovery runs. Three steps, ~60 seconds:");
+    safeParagraph(container, "SerpApi is the single biggest results upgrade. Free tier: 100 searches/month — plenty for daily runs. Three steps, ~60 seconds:", "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold");
     safeList(container, [
       "1. Create a free SerpApi account (Google login works, no card needed).",
       "2. Copy your API key from the dashboard — it's the first thing on the page.",
@@ -484,6 +483,11 @@
       headerTitle: HEADER_TITLE,
       title: TITLE,
       lede: LEDE,
+      // Continuity chrome: the bonus track shows the journey fully checked
+      // plus the mascot, so it reads as the same product as its siblings.
+      journeyStage: "bonus",
+      mascotSrc:
+        "assets/jobbored-brand-mascot-kit/exports/04-mascot-poses/pose-02-resume-review.webp",
       steps: buildSteps(rt),
       activeStepId: rt.activeStepId,
       state: rt.state,
