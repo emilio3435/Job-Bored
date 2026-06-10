@@ -2262,7 +2262,10 @@ function resolveDiscoveryWizardEntry({
     const flow = mapFlow(flowOption || "external_endpoint");
     return {
       flow,
-      step: startStepOption || "detect",
+      // Land straight on the Endpoint step: the path is already chosen for
+      // onboarding, so Status/Path render as completed rail steps (context
+      // without ceremony) instead of two clicks before the one-click setup.
+      step: startStepOption || "existing_endpoint",
       freshState: true,
       snapshot: {
         ...snapshot,
