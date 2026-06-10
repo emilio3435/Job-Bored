@@ -1027,3 +1027,38 @@ describe("go-live wizard — setup card refresh on close", () => {
     assert.equal(refreshes.length, 1, "onClose must refresh the setup card");
   });
 });
+
+describe("go-live wizard — path cards are real cards (frontend-design pass)", () => {
+  it("trade-offs render as structured pro/con rows with glyphs, plus a choose affordance", async () => {
+    // The old body rendered "+ x" / "− x" prefix strings in a generic list —
+    // with no card CSS at all, the step read as centered-text walls.
+    const { api, shell } = loadGoLive({});
+    await api.openGoLiveSetupWizard();
+    const body = shell.lastRender.bodies.path_select;
+    const pros = body._findAll((n) => String(n.className).includes("go-live-wizard__path-point--pro"));
+    const cons = body._findAll((n) => String(n.className).includes("go-live-wizard__path-point--con"));
+    assert.ok(pros.length >= 5, "pro rows across both cards");
+    assert.ok(cons.length >= 4, "con rows across both cards");
+    const glyphs = body._findAll((n) => String(n.className).includes("go-live-wizard__path-glyph"));
+    assert.equal(glyphs.length, pros.length + cons.length, "every row carries a glyph span");
+    const choose = body._findAll((n) => String(n.className).includes("go-live-wizard__path-choose"));
+    assert.equal(choose.length, 2, "each card ends in an explicit 'choose' affordance");
+    assert.ok(
+      !body._find((n) => typeof n.textContent === "string" && /^\+ /.test(n.textContent)),
+      "no more '+ ' prefix strings",
+    );
+  });
+
+  it("the card chrome CSS actually exists (the old classes were never styled)", () => {
+    const css = readFileSync(join(repoRoot, "css", "legacy-discovery-setup-wizard.css"), "utf8");
+    for (const cls of [
+      ".go-live-wizard__path-card",
+      ".go-live-wizard__path-card--recommended",
+      ".go-live-wizard__path-point--pro",
+      ".go-live-wizard__path-point--con",
+      ".go-live-wizard__path-choose",
+    ]) {
+      assert.ok(css.includes(cls), `${cls} must be styled — unstyled card classes are how this step got ugly`);
+    }
+  });
+});

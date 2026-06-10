@@ -366,12 +366,35 @@
     );
     card.appendChild(title);
     if (descriptor.summary) {
-      safeParagraph(card, descriptor.summary);
+      safeParagraph(card, descriptor.summary, "go-live-wizard__path-summary");
     }
-    const items = [];
-    (descriptor.pros || []).forEach((p) => items.push(`+ ${p}`));
-    (descriptor.cons || []).forEach((c) => items.push(`− ${c}`));
-    if (items.length) safeList(card, items);
+    // Structured trade-off rows — a colored glyph per row instead of "+ x"
+    // prefix strings, so the comparison scans at a glance.
+    const points = safeCreate("ul", "go-live-wizard__path-points");
+    const addPoint = (text, kind) => {
+      const li = safeCreate(
+        "li",
+        `go-live-wizard__path-point go-live-wizard__path-point--${kind}`,
+      );
+      const glyph = safeCreate(
+        "span",
+        "go-live-wizard__path-glyph",
+        kind === "pro" ? "✓" : "−",
+      );
+      glyph.setAttribute("aria-hidden", "true");
+      li.appendChild(glyph);
+      li.appendChild(safeCreate("span", "", String(text)));
+      points.appendChild(li);
+    };
+    (descriptor.pros || []).forEach((p) => addPoint(p, "pro"));
+    (descriptor.cons || []).forEach((c) => addPoint(c, "con"));
+    if (points.children && points.children.length) card.appendChild(points);
+    const choose = safeCreate(
+      "span",
+      "go-live-wizard__path-choose",
+      descriptor.recommended ? "Choose this path →" : "Choose this instead →",
+    );
+    card.appendChild(choose);
     parent.appendChild(card);
     return card;
   }
@@ -419,6 +442,7 @@
     safeCallout(
       container,
       "Worker discovery is a separate setup — finish either of these and we'll recommend it next.",
+      "info",
     );
     return container;
   }

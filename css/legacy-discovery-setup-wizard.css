@@ -1295,3 +1295,152 @@
   transform: translateY(-1px);
   box-shadow: 0 9px 18px rgba(47, 138, 90, 0.36);
 }
+
+/* ============================================================
+   Go-live path-select cards (frontend-design pass).
+   The markup was always button cards, but these classes were
+   never styled — the step rendered as centered-text walls.
+   Tactile warm-paper cards: cream surface, ink border, mint
+   ring + lift on hover, badge kicker, glyphed trade-off rows.
+   ============================================================ */
+.go-live-wizard__path-select .discovery-setup-wizard__option-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: stretch;
+  margin: var(--space-3) 0 var(--space-4);
+}
+
+.go-live-wizard__path-card {
+  all: unset;
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  text-align: left;
+  padding: var(--space-5);
+  border-radius: var(--radius-xl);
+  border: 1.5px solid var(--jb-line, var(--border));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(251, 246, 235, 0.75));
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.go-live-wizard__path-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--jb-mint, #5fcb8e);
+  box-shadow: 0 14px 30px rgba(31, 51, 71, 0.12);
+}
+
+.go-live-wizard__path-card:focus-visible {
+  outline: 3px solid var(--jb-mint, #5fcb8e);
+  outline-offset: 2px;
+}
+
+.go-live-wizard__path-card--recommended {
+  border-color: rgba(95, 203, 142, 0.55);
+  background:
+    linear-gradient(180deg, rgba(240, 251, 244, 0.95), rgba(251, 246, 235, 0.8));
+}
+
+.go-live-wizard__path-card .discovery-setup-wizard__card-kicker {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3, var(--text-faint));
+  background: var(--jb-paper-deep, rgba(31, 51, 71, 0.06));
+}
+
+.go-live-wizard__path-card--recommended .discovery-setup-wizard__card-kicker {
+  color: #fff;
+  background: linear-gradient(
+    135deg,
+    var(--jb-mint, #5fcb8e),
+    var(--jb-mint-deep, #2f8a5a)
+  );
+}
+
+.go-live-wizard__path-card .discovery-setup-wizard__card-title {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-lg);
+  color: var(--jb-navy, var(--text));
+}
+
+.go-live-wizard__path-summary {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--jb-ink-2, var(--text-muted));
+  text-align: left;
+}
+
+.go-live-wizard__path-points {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.go-live-wizard__path-point {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--jb-ink-2, var(--text-muted));
+  text-align: left;
+}
+
+.go-live-wizard__path-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.go-live-wizard__path-point--pro .go-live-wizard__path-glyph {
+  color: var(--jb-mint-deep, #2f8a5a);
+  background: rgba(95, 203, 142, 0.16);
+}
+
+.go-live-wizard__path-point--con .go-live-wizard__path-glyph {
+  color: var(--jb-coral-deep, #b3553f);
+  background: rgba(216, 122, 95, 0.14);
+}
+
+.go-live-wizard__path-choose {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--jb-mint-deep, #2f8a5a);
+  transition: transform 0.16s ease;
+}
+
+.go-live-wizard__path-card:hover .go-live-wizard__path-choose {
+  transform: translateX(4px);
+}
+
+@media (max-width: 720px) {
+  .go-live-wizard__path-select .discovery-setup-wizard__option-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -3020,12 +3020,28 @@ async function handleDiscoveryWizardAction(actionId) {
   }
 
   if (actionId === "wizard_continue_devices") {
-    // Continuous setup: same finish semantics — the onClose chain
-    // (recommendGoLiveAfterDiscoveryFinish) opens go-live exactly once and
-    // no-ops when devices is already complete. Never open it directly from
-    // here: two openers would double-open.
+    // Continuous setup with a celebratory beat: suppress the onClose
+    // auto-chain, close with finish semantics, play the stage celebration,
+    // and let its CTA run recommendGoLiveAfterDiscoveryFinish — the SAME
+    // single opener (no-ops when devices is already complete), so go-live
+    // can never double-open. Overlay missing → the player continues
+    // immediately (existing fallback).
+    host().updateDiscoveryWizardRuntime({ suppressGoLiveAutoOpen: true });
     if (shell && typeof shell.closeWizardShell === "function") {
       shell.closeWizardShell("finish");
+    }
+    const onboarding =
+      typeof window !== "undefined" &&
+      window.JobBoredApp &&
+      window.JobBoredApp.onboarding;
+    const proceed = () => void recommendGoLiveAfterDiscoveryFinish();
+    if (
+      onboarding &&
+      typeof onboarding.playOnboardingCelebration === "function"
+    ) {
+      onboarding.playOnboardingCelebration(proceed, "devices");
+    } else {
+      proceed();
     }
     return null;
   }

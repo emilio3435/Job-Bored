@@ -157,13 +157,76 @@
   // intermission. Degrades gracefully: missing overlay → immediate onDone;
   // overlay without the CTA (stale cached markup) → the old timed dismissal,
   // so the handoff can never strand.
-  function playOnboardingCelebration(onDone) {
+  // One celebratory beat between each MAJOR setup stage (sheet → profile →
+  // discovery → devices). The same overlay plays every time; the stage key
+  // picks the copy + which journey-strip step is current.
+  const STAGE_CELEBRATIONS = {
+    profile: {
+      title: "Workspace connected!",
+      sub: "Your sheet and AI provider are wired up. Now let's make JobBored yours.",
+      cta: "Build your profile →",
+      currentIndex: 0,
+    },
+    discovery: {
+      title: "Profile set!",
+      sub: "Your resume and preferences are in. One big step to go.",
+      cta: "Set up job discovery →",
+      currentIndex: 1,
+    },
+    devices: {
+      title: "Discovery is live!",
+      sub: "Real jobs will start flowing into your pipeline. One optional step left.",
+      cta: "Set up other devices →",
+      currentIndex: 2,
+    },
+  };
+
+  function applyCelebrationStage(overlay, stageKey) {
+    const stage = STAGE_CELEBRATIONS[stageKey] || STAGE_CELEBRATIONS.discovery;
+    const title = document.getElementById("onboardingCelebrationTitle");
+    if (title) title.textContent = stage.title;
+    const sub = document.getElementById("onboardingCelebrationSub");
+    if (sub) sub.textContent = stage.sub;
+    const cta = document.getElementById("onboardingCelebrationContinue");
+    if (cta) cta.textContent = stage.cta;
+    if (overlay && typeof overlay.querySelectorAll === "function") {
+      const steps = overlay.querySelectorAll(
+        ".onboarding-celebration__journey-step",
+      );
+      Array.from(steps || []).forEach((li, idx) => {
+        if (!li || !li.classList) return;
+        li.classList.toggle(
+          "onboarding-celebration__journey-step--done",
+          idx < stage.currentIndex,
+        );
+        li.classList.toggle(
+          "onboarding-celebration__journey-step--current",
+          idx === stage.currentIndex,
+        );
+        if (idx === stage.currentIndex) {
+          li.setAttribute("aria-current", "step");
+        } else if (typeof li.removeAttribute === "function") {
+          li.removeAttribute("aria-current");
+        }
+        const dot =
+          typeof li.querySelector === "function"
+            ? li.querySelector(".onboarding-celebration__journey-dot")
+            : null;
+        if (dot) {
+          dot.textContent = idx < stage.currentIndex ? "✓" : String(idx + 1);
+        }
+      });
+    }
+  }
+
+  function playOnboardingCelebration(onDone, stageKey) {
     const finishCb = typeof onDone === "function" ? onDone : () => {};
     const overlay = document.getElementById("onboardingCelebration");
     if (!overlay) {
       finishCb();
       return;
     }
+    applyCelebrationStage(overlay, stageKey || "discovery");
     const burst = document.getElementById("onboardingCelebrationConfetti");
     if (burst) {
       if (typeof burst.replaceChildren === "function") burst.replaceChildren();

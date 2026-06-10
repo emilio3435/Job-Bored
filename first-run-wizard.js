@@ -1214,7 +1214,23 @@
       // opens discovery directly for a returning user whose profile is
       // already done — otherwise the profile-finish celebration CTA owns
       // the discovery handoff (one smooth flow, never trapped).
-      void handleFirstRunDoneOpenDiscovery({ entryPoint: "onboarding" });
+      // Stage beat: celebrate the workspace milestone first; the CTA carries
+      // the user into the profile stage (overlay missing → immediate
+      // continue, the player's existing fallback).
+      const onboarding =
+        typeof window !== "undefined" &&
+        window.JobBoredApp &&
+        window.JobBoredApp.onboarding;
+      const proceed = () =>
+        void handleFirstRunDoneOpenDiscovery({ entryPoint: "onboarding" });
+      if (
+        onboarding &&
+        typeof onboarding.playOnboardingCelebration === "function"
+      ) {
+        onboarding.playOnboardingCelebration(proceed, "profile");
+      } else {
+        proceed();
+      }
     });
     getEl("firstRunDoneOpenSelfHosting")?.addEventListener("click", () => {
       handleFirstRunDoneOpenSelfHosting();
