@@ -253,12 +253,16 @@
       return container;
     }
     safeParagraph(container, "A Gemini key unlocks two discovery superpowers: grounded web-search (finds roles the job boards miss) and instant 'Add job from URL' parsing.", "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold");
-    safeParagraph(container, "Free tier from Google AI Studio — no card needed. Two clicks and a paste:");
-    safeList(container, [
-      "1. Open Google AI Studio (sign in with any Google account) and hit “Create API key”.",
-      "2. Paste it below and hit Save key — we write it into the worker and restart it for you.",
-    ]);
-    safeKeyLink(container, "https://aistudio.google.com/apikey", "Get your free Gemini key ↗");
+    if (rt.geminiKeyPrefilled && rt.geminiKeyDraft) {
+      safeCallout(container, "Good news: we found the Gemini key you entered during setup and filled it in below — just hit Save key to enable it for discovery too.", "success");
+    } else {
+      safeParagraph(container, "Free tier from Google AI Studio — no card needed. Two clicks and a paste:");
+      safeList(container, [
+        "1. Open Google AI Studio (sign in with any Google account) and hit “Create API key”.",
+        "2. Paste it below and hit Save key — we write it into the worker and restart it for you.",
+      ]);
+      safeKeyLink(container, "https://aistudio.google.com/apikey", "Get your free Gemini key ↗");
+    }
     safeInput(container, {
       id: "enhancementsGeminiKeyInput",
       label: "Gemini API key (discovery worker)",
@@ -656,6 +660,23 @@
     setRuntime({ ...defaultRuntime(), entryPoint: opts.entryPoint || "manual", _onboardingHidden: onboardingWasVisible });
     await probeHealthStatus();
     probeAiProviderStatus();
+    // Greenfield streamline: a user who picked Gemini as their AI provider
+    // already typed a Gemini key — never ask for the same key twice. Prefill
+    // the worker-key draft from the browser config so enabling discovery's
+    // Gemini features is one click (Save key), not a re-type.
+    try {
+      const rt = getRuntime();
+      const cfg = h && typeof h.getConfig === "function" ? h.getConfig() : null;
+      const browserKey =
+        cfg && typeof cfg.resumeGeminiApiKey === "string"
+          ? cfg.resumeGeminiApiKey.trim()
+          : "";
+      if (browserKey && rt.geminiStatus !== "yes" && !rt.geminiKeyDraft) {
+        updateRuntime({ geminiKeyDraft: browserKey, geminiKeyPrefilled: true });
+      }
+    } catch (e) {
+      console.warn("[JobBored] enhancements gemini prefill:", e);
+    }
     return renderEnhancementsWizard();
   }
 

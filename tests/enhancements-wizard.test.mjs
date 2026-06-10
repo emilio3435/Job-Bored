@@ -973,3 +973,43 @@ describe("settings save — MERGES overrides (never wipes wizard-written keys)",
     );
   });
 });
+
+describe("enhancements wizard — greenfield: reuse the Gemini key the user already entered", () => {
+  function reuseEnv({ browserKey = "AIza-from-first-run", workerConfigured = false } = {}) {
+    const fetchImpl = async (url) => {
+      if (String(url).includes("discovery-health")) {
+        return { ok: true, json: async () => ({ ok: true, readiness: { serpApiGoogleJobs: { configured: false }, googleTools: { configured: workerConfigured } } }) };
+      }
+      if (String(url).includes("discovery-env-key")) return { ok: true, json: async () => ({ ok: true }) };
+      if (String(url).includes("full-boot")) return { ok: true, json: async () => ({ ok: true }) };
+      return { ok: false, json: async () => ({}) };
+    };
+    const host = {
+      isOnboardingWizardVisible: () => false,
+      isFirstRunWizardVisible: () => false,
+      getDiscoveryReadinessSnapshot: () => null,
+      getConfig: () => ({ resumeProvider: "gemini", resumeGeminiApiKey: browserKey }),
+      mergeStoredConfigOverridePatch: () => {},
+    };
+    return { fetchImpl, host };
+  }
+
+  it("prefills the Gemini draft from the browser key when the worker has none — one click instead of re-typing", async () => {
+    const { fetchImpl, host } = reuseEnv();
+    const { api } = loadEnhancements({ fetchImpl, host });
+    await api.openEnhancementsWizard();
+    const rt = api._internal.getRuntime();
+    assert.equal(
+      rt.geminiKeyDraft,
+      "AIza-from-first-run",
+      "a user who chose Gemini as their AI provider must not type the same key twice",
+    );
+  });
+
+  it("does NOT prefill when the worker is already configured, or overwrite a draft the user typed", async () => {
+    const { fetchImpl, host } = reuseEnv({ workerConfigured: true });
+    const { api } = loadEnhancements({ fetchImpl, host });
+    await api.openEnhancementsWizard();
+    assert.equal(api._internal.getRuntime().geminiKeyDraft || "", "");
+  });
+});
