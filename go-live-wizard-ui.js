@@ -913,6 +913,19 @@
         const r = getRuntime();
         const shouldRestoreOnboarding = !!(r && r._onboardingHidden);
         clearRuntime();
+        // Re-check the setup card against fresh completion state on every
+        // close — it must never keep showing a stale count.
+        try {
+          const banner =
+            typeof window !== "undefined" &&
+            window.JobBoredApp &&
+            window.JobBoredApp.whatsNextBanner;
+          if (banner && typeof banner.refreshBanner === "function") {
+            void Promise.resolve(banner.refreshBanner()).catch(() => {});
+          }
+        } catch (_) {
+          /* banner refresh is best-effort */
+        }
         if (shouldRestoreOnboarding) {
           const h = host();
           if (h && typeof h.showOnboardingWizard === "function") {

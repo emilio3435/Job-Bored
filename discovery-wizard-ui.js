@@ -18,6 +18,22 @@
     return window.JobBoredDiscoveryWizard.ui.host;
   }
 
+  // Re-check the "Finish setup — X of 2" card against fresh completion
+  // state. Best-effort: a missing banner module never blocks the caller.
+  function refreshWhatsNextBannerBestEffort() {
+    try {
+      const banner =
+        typeof window !== "undefined" &&
+        window.JobBoredApp &&
+        window.JobBoredApp.whatsNextBanner;
+      if (banner && typeof banner.refreshBanner === "function") {
+        void Promise.resolve(banner.refreshBanner()).catch(() => {});
+      }
+    } catch (_) {
+      /* banner refresh is best-effort */
+    }
+  }
+
   // Onboarding funnel telemetry — best-effort, looked up lazily so a missing
   // module never breaks the chain. See onboarding-telemetry.js.
   function emitOnboardingEvent(step, detail) {
@@ -2147,6 +2163,11 @@ async function renderDiscoverySetupWizard(options = {}) {
         void recommendGoLiveAfterDiscoveryFinish();
       }
 
+      // The setup card re-checks completion whenever this surface closes —
+      // it must never keep showing a stale "0 of 2" (completion may have
+      // persisted mid-wizard via a connected verification).
+      refreshWhatsNextBannerBestEffort();
+
       if (shouldRestoreOnboarding) {
         host().showOnboardingWizard();
       }
@@ -2789,6 +2810,26 @@ async function handleDiscoveryWizardVerification(url, context) {
           ? "wizard_run_discovery"
           : "wizard_verify_endpoint",
       );
+    }
+    // "Complete = setup connected" (spec): persist the completion flag the
+    // moment verification lands CONNECTED — not only on the Finish-button
+    // close. Verifying then closing with the X used to leave the setup card
+    // at "0 of 2" for a demonstrably working discovery. Stub/unverified
+    // results never count.
+    if (engineState === "connected") {
+      try {
+        const UC =
+          typeof host().getUserContent === "function"
+            ? host().getUserContent()
+            : null;
+        if (UC && typeof UC.completeDiscoverySetup === "function") {
+          if (typeof UC.openDb === "function") await UC.openDb();
+          await UC.completeDiscoverySetup();
+        }
+      } catch (e) {
+        console.warn("[JobBored] persist discovery complete (verify):", e);
+      }
+      refreshWhatsNextBannerBestEffort();
     }
     if (verifyUrl) {
       // VAL-SIGN-004: persist the URL AND any secret draft the user

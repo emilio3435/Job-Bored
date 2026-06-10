@@ -1068,7 +1068,14 @@ function initOnboardingWizard() {
       // immediately. Cold-cache loads of pdf.js + mammoth occasionally
       // finish a few hundred ms after DOMContentLoaded; the previous
       // fail-fast branch is what made users say "I have to refresh first".
+      // Timing trace ("why is this PDF slow?"): the ingest-ready wait and the
+      // total parse are logged here; resume-ingest.js logs the per-phase
+      // breakdown (file read, worker boot + document parse, per-page text).
+      const tReady = Date.now();
       const ingest = await getResumeIngestReady(3000);
+      console.info(
+        `[JobBored] resume parse: ingest ready in ${Date.now() - tReady}ms`,
+      );
       if (!ingest) {
         if (status) {
           status.classList.remove("onboarding-status--loading");
@@ -1079,7 +1086,11 @@ function initOnboardingWizard() {
         return;
       }
       try {
+        const tParse = Date.now();
         const text = await ingest.extractTextFromFile(file);
+        console.info(
+          `[JobBored] resume parse: total ${Date.now() - tParse}ms for "${file.name || "unnamed"}" (${text.length} chars)`,
+        );
         if (!text.trim()) {
           if (status) {
             status.classList.remove(
