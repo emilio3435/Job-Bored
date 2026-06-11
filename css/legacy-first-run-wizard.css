@@ -60,7 +60,7 @@
 
 .first-run-wizard__subtitle {
   font-size: var(--text-sm);
-  color: var(--text-faint);
+  color: var(--text-soft, #4a6577);
 }
 
 .first-run-progress-wrap {
@@ -73,7 +73,7 @@
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--text-soft, #4a6577);
   margin-bottom: var(--space-2);
 }
 
@@ -144,7 +144,7 @@
 
 .first-run-hint {
   font-size: var(--text-sm);
-  color: var(--text-soft, var(--text-faint));
+  color: var(--text-soft, #4a6577);
   margin-bottom: var(--space-4);
   line-height: 1.5;
 }
@@ -239,6 +239,14 @@
   min-height: 44px;
 }
 
+/* WCAG AA: white-on-mint primary measures 2.03:1 — fails for both
+   small and large text. Navy ink on the same mint measures 6.13:1.
+   Scope to the wizard so we don't disturb the global modal primary,
+   which lives on darker backgrounds elsewhere. */
+.first-run-wizard .btn-modal-primary {
+  color: var(--jb-navy, #003851);
+}
+
 .first-run-sr-only {
   position: absolute;
   width: 1px;
@@ -297,7 +305,7 @@
 
 .first-run-provider-option__desc {
   font-size: var(--text-xs);
-  color: var(--text-faint);
+  color: var(--text-soft, #4a6577);
   line-height: 1.4;
 }
 
@@ -620,4 +628,19 @@
   box-shadow:
     0 1px 2px rgba(31, 51, 71, 0.06),
     0 24px 60px rgba(31, 51, 71, 0.16);
+}
+
+/* Respect prefers-reduced-motion: kill the wizard's entrance animation,
+   the floating whats-next-card's entrance, and the progress-bar width
+   transition. Mirrors the pattern at legacy-onboarding.css:1123. */
+@media (prefers-reduced-motion: reduce) {
+  .first-run-panel {
+    animation: none;
+  }
+  .whats-next-card {
+    animation: none;
+  }
+  .first-run-progress-bar__fill {
+    transition: none;
+  }
 }

@@ -25,6 +25,12 @@
   --text: #003851;
   --text-muted: #3d6272;
   --text-faint: #7a9aab;
+  /* WCAG AA-compliant softer ink for hint/subtitle/desc copy on warm-paper
+     surfaces (wizard cards). Measures ~5.6:1 against #fcf7ec; --text-faint
+     itself measures only ~2.8:1 and is reserved for non-essential chrome
+     (filter pill counts, kanban rail decorations, etc.) where the
+     surrounding context already names the meaning. */
+  --text-soft: #4a6577;
   --text-inverse: #fefffe;
 
   /* Semantic — priority (Amber) */
