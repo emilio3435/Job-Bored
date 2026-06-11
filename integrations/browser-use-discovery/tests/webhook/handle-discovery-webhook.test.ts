@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import test from "node:test";
 
 import {
@@ -7,13 +8,22 @@ import {
 } from "../../src/contracts.ts";
 import { mergeDiscoveryConfig } from "../../src/config.ts";
 import { runDiscovery } from "../../src/run/run-discovery.ts";
+import {
+  BodyTooLargeError,
+  MAX_BODY_BYTES,
+  readBody,
+} from "../../src/http/body-limit.ts";
 import { createDiscoveryMemoryStore } from "../../src/state/discovery-memory-store.ts";
 import { createRunDiscoveryMemoryStore } from "../../src/state/run-discovery-memory-store.ts";
 import {
+  hasValidWebhookSecret,
   formatWebhookAck,
   handleDiscoveryWebhook,
 } from "../../src/webhook/handle-discovery-webhook.ts";
-import { hasValidRunStatusToken } from "../../src/webhook/run-status-auth.ts";
+import {
+  createRunStatusToken,
+  hasValidRunStatusToken,
+} from "../../src/webhook/run-status-auth.ts";
 
 // Shared header value used in tests that need to bypass auth validation.
 // Uses obviously fake placeholder literals that avoid secret-like keywords.
@@ -3330,4 +3340,114 @@ test("companyBlocklist: rejects non-array value with 400", async () => {
   assert.equal(body.ok, false);
   assert.match(body.message, /companyBlocklist/);
   assert.match(body.message, /array/i);
+});
+
+// ─── Round-2 quality sweep: webhook hardening ────────────────────────────
+// Cluster: worker hardening — body cap, secret compare, runStatus token.
+// These pin behavior we rely on at the HTTP boundary and at every auth
+// helper so future refactors can't silently regress them.
+
+test("returns 413 when POST body exceeds MAX_BODY_BYTES", async () => {
+  // Drive the body-cap reader directly: it is the boundary that produces
+  // the 413 response in server.ts. We feed a stream one byte larger than
+  // the configured cap and assert the typed error fires.
+  const oversized = Buffer.alloc(MAX_BODY_BYTES + 1, 0x61);
+  const stream = Readable.from([oversized]);
+
+  await assert.rejects(
+    // readBody only needs the async iterable + `resume()` surface of an
+    // IncomingMessage; the Readable from the body buffer satisfies both.
+    readBody(stream as unknown as import("node:http").IncomingMessage),
+    (error: unknown) => {
+      assert.ok(
+        error instanceof BodyTooLargeError,
+        "should throw BodyTooLargeError when body exceeds cap",
+      );
+      assert.equal(error.limit, MAX_BODY_BYTES);
+      return true;
+    },
+  );
+
+  // Sanity check the inverse: a body at exactly MAX_BODY_BYTES is allowed.
+  const allowed = Buffer.alloc(MAX_BODY_BYTES, 0x61);
+  const allowedStream = Readable.from([allowed]);
+  const text = await readBody(
+    allowedStream as unknown as import("node:http").IncomingMessage,
+  );
+  assert.equal(text.length, MAX_BODY_BYTES);
+});
+
+test("hasValidWebhookSecret returns secret_mismatch for a 1-char wrong header without throwing and without leaking length", async () => {
+  // Both an empty and a 1-char wrong header must be categorized identically
+  // ('secret_mismatch') with the same detail string. The hash-then-compare
+  // implementation guarantees no length-based early return that could leak
+  // the configured secret length via timing or branch differences.
+  const configuredSecret = "configured-proof-abc-very-long-secret-value";
+
+  const oneCharResult = hasValidWebhookSecret(configuredSecret, {
+    "x-discovery-secret": "x",
+  });
+  assert.equal(oneCharResult.valid, false);
+  if (oneCharResult.valid) throw new Error("unreachable");
+  assert.equal(oneCharResult.category, "secret_mismatch");
+  assert.match(oneCharResult.detail, /does not match/i);
+
+  // A wrong secret of the same length must produce the SAME category +
+  // detail. If a length-based early-return regressed back in, the messages
+  // would diverge (and an attacker could probe length).
+  const sameLengthWrong = "x".repeat(configuredSecret.length);
+  const sameLenResult = hasValidWebhookSecret(configuredSecret, {
+    "x-discovery-secret": sameLengthWrong,
+  });
+  assert.equal(sameLenResult.valid, false);
+  if (sameLenResult.valid) throw new Error("unreachable");
+  assert.equal(sameLenResult.category, oneCharResult.category);
+  assert.equal(sameLenResult.detail, oneCharResult.detail);
+
+  // The correct secret must still succeed (mutation-check sanity).
+  const correctResult = hasValidWebhookSecret(configuredSecret, {
+    "x-discovery-secret": configuredSecret,
+  });
+  assert.equal(correctResult.valid, true);
+});
+
+test("hasValidRunStatusToken returns false for a tampered token and for a token bound to a different runId", async () => {
+  const webhookSecret = "configured-proof-abc-very-long-secret-value";
+  const goodToken = createRunStatusToken(webhookSecret, "run_alpha");
+  assert.ok(goodToken, "createRunStatusToken should produce a token");
+
+  // Sanity: the good token still validates for its own runId.
+  assert.equal(
+    hasValidRunStatusToken({
+      webhookSecret,
+      runId: "run_alpha",
+      providedToken: goodToken,
+    }),
+    true,
+  );
+
+  // Tampered token: flip one char. SHA-256-then-timingSafeEqual must reject.
+  const tampered = goodToken.replace(/.$/, (c) => (c === "A" ? "B" : "A"));
+  assert.notEqual(tampered, goodToken);
+  assert.equal(
+    hasValidRunStatusToken({
+      webhookSecret,
+      runId: "run_alpha",
+      providedToken: tampered,
+    }),
+    false,
+  );
+
+  // Token issued for a different runId must not be reusable. This pins the
+  // runId binding inside createRunStatusToken — if anyone removes the
+  // `run-status:${runId}` HMAC scope, this assertion will fail.
+  const otherRunToken = createRunStatusToken(webhookSecret, "run_beta");
+  assert.equal(
+    hasValidRunStatusToken({
+      webhookSecret,
+      runId: "run_alpha",
+      providedToken: otherRunToken,
+    }),
+    false,
+  );
 });

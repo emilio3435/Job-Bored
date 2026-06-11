@@ -531,38 +531,13 @@ function requestHeadersForAuth(
   );
 }
 
-// 2 MiB is comfortably larger than the largest plausible resume payload
-// (client-side extraction already truncates to a few tens of KB) while
-// preventing an unauthenticated-or-authenticated client from forcing the
-// worker to buffer arbitrary megabytes.
-const MAX_BODY_BYTES = 2 * 1024 * 1024;
-
-class BodyTooLargeError extends Error {
-  constructor(limit: number) {
-    super(`Request body exceeds ${limit} bytes`);
-    this.name = "BodyTooLargeError";
-  }
-}
-
-async function readBody(
-  request: import("node:http").IncomingMessage,
-  maxBytes: number = MAX_BODY_BYTES,
-): Promise<string> {
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of request) {
-    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    total += buf.length;
-    if (total > maxBytes) {
-      // Drain the remaining payload so the client gets a clean 413 instead of
-      // an aborted connection that upstream proxies might retry.
-      request.resume();
-      throw new BodyTooLargeError(maxBytes);
-    }
-    chunks.push(buf);
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
+// Body cap + reader live in a side-effect-free module so unit tests can
+// exercise them without booting the live HTTP server.
+import {
+  BodyTooLargeError,
+  MAX_BODY_BYTES,
+  readBody,
+} from "./http/body-limit.ts";
 
 function sendJson(
   response: import("node:http").ServerResponse,

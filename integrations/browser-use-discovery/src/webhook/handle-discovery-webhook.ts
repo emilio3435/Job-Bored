@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 
 import {
   DISCOVERY_RUN_TRIGGERS,
@@ -26,6 +26,7 @@ import {
   appendRunStatusToken,
   createRunStatusToken,
 } from "./run-status-auth.ts";
+import { createSafetyTimer } from "./safety-timer.ts";
 
 export type WebhookRequestLike = {
   method: string;
@@ -311,8 +312,6 @@ export async function handleDiscoveryWebhook(
   const startedAt = now().toISOString();
   const maxRunDurationMs =
     dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
-  let safetyTimer: ReturnType<typeof setTimeout> | null = null;
-  let terminalStatusWritten = false;
 
   // Safety backstop for the run STATUS. The run itself is bounded by the
   // in-loop budget tracker (also keyed to maxRunDurationMs) and per-source
@@ -320,46 +319,20 @@ export async function handleDiscoveryWebhook(
   // pollers never hang if a late `.then`/`.catch` is delayed. It does not
   // cancel in-flight work (there is no run-wide AbortSignal yet), so the
   // message intentionally avoids claiming a forcible cancellation.
-  const scheduleSafetyTerminalization = () => {
-    safetyTimer = setTimeout(() => {
-      if (!terminalStatusWritten) {
-        terminalStatusWritten = true;
-        const currentStatus =
-          dependencies.runStatusStore?.get(runId) ?? acceptedStatus;
-        dependencies.runStatusStore?.put({
-          ...currentStatus,
-          status: "partial",
-          terminal: true,
-          message:
-            "Discovery run exceeded its maximum duration; reporting partial results.",
-          completedAt: now().toISOString(),
-          updatedAt: now().toISOString(),
-          warnings: [
-            ...(currentStatus.warnings || []),
-            `Run marked terminal after ${maxRunDurationMs}ms. Sources still finishing in the background are bounded by the run budget and per-source timeouts.`,
-          ],
-        });
-        dependencies.log?.("discovery.run.force_terminalized", {
-          runId,
-          mode: runMode,
-          maxRunDurationMs,
-          reason: "safety_timeout",
-        });
-      }
-    }, maxRunDurationMs);
-  };
-
-  const clearSafetyTerminalization = () => {
-    if (safetyTimer !== null) {
-      clearTimeout(safetyTimer);
-      safetyTimer = null;
-    }
-  };
+  const safety = createSafetyTimer({
+    runId,
+    runMode: "async",
+    maxRunDurationMs,
+    runStatusStore: dependencies.runStatusStore,
+    acceptedStatus,
+    now,
+    log: dependencies.log,
+  });
 
   void dependencies
     .runDiscovery(requestForRun, dispatchTrigger, runDependencies)
     .then((result) => {
-      if (terminalStatusWritten) {
+      if (safety.isTerminalStatusWritten()) {
         dependencies.log?.("discovery.run.late_completion_ignored", {
           runId,
           mode: runMode,
@@ -367,8 +340,8 @@ export async function handleDiscoveryWebhook(
         });
         return;
       }
-      terminalStatusWritten = true;
-      clearSafetyTerminalization();
+      safety.markTerminal();
+      safety.clear();
       dependencies.runStatusStore?.put(
         buildCompletedRunStatus(result, {
           acceptedAt,
@@ -393,7 +366,7 @@ export async function handleDiscoveryWebhook(
       });
     })
     .catch((error) => {
-      if (terminalStatusWritten) {
+      if (safety.isTerminalStatusWritten()) {
         dependencies.log?.("discovery.run.late_failure_ignored", {
           runId,
           mode: runMode,
@@ -402,8 +375,8 @@ export async function handleDiscoveryWebhook(
         });
         return;
       }
-      terminalStatusWritten = true;
-      clearSafetyTerminalization();
+      safety.markTerminal();
+      safety.clear();
       dependencies.runStatusStore?.put(
         buildFailedRunStatus(
           buildRunningRunStatus(acceptedStatus, startedAt),
@@ -423,7 +396,7 @@ export async function handleDiscoveryWebhook(
     buildRunningRunStatus(acceptedStatus, startedAt),
   );
   // Schedule safety terminalization for async runs
-  scheduleSafetyTerminalization();
+  safety.schedule();
 
   return jsonResponse(202, {
     ok: true,
@@ -946,6 +919,28 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * Per-field length cap for free-form strings carried inside profileSnapshot
+ * and searchPlan. Whole-body bytes are already bounded by the server-side
+ * 2 MiB cap; this prevents any single field (e.g., a runaway resume excerpt
+ * leaking into a snapshot field) from crowding out the rest of the payload
+ * or downstream prompts. Applied at normalization time so downstream code
+ * never sees a string longer than the cap.
+ */
+const MAX_SNAPSHOT_FIELD_LENGTH = 1000;
+
+function capString(value: string, max = MAX_SNAPSHOT_FIELD_LENGTH): string {
+  return value.length > max ? value.slice(0, max) : value;
+}
+
+function capStringArray(
+  values: string[] | undefined,
+  max = MAX_SNAPSHOT_FIELD_LENGTH,
+): string[] | undefined {
+  if (!values) return values;
+  return values.map((entry) => capString(entry, max));
+}
+
 function normalizeDiscoveryProfile(
   raw: Record<string, unknown>,
 ): DiscoveryWebhookRequestV1["discoveryProfile"] {
@@ -1048,29 +1043,29 @@ function normalizeProfileSnapshot(
   const schedule = isPlainObject(raw.schedule) ? raw.schedule : {};
   const normalized: NonNullable<DiscoveryWebhookRequestV1["discoveryProfile"]>["profileSnapshot"] = {
     snapshotVersion: 1,
-    profileHash: stringValue(raw.profileHash),
+    profileHash: capString(stringValue(raw.profileHash)),
   };
-  const targetRoles = normalizeStringArray(raw.targetRoles);
-  const locations = normalizeStringArray(raw.locations);
-  const keywordsInclude = normalizeStringArray(raw.keywordsInclude);
-  const keywordsExclude = normalizeStringArray(raw.keywordsExclude);
+  const targetRoles = capStringArray(normalizeStringArray(raw.targetRoles));
+  const locations = capStringArray(normalizeStringArray(raw.locations));
+  const keywordsInclude = capStringArray(normalizeStringArray(raw.keywordsInclude));
+  const keywordsExclude = capStringArray(normalizeStringArray(raw.keywordsExclude));
   if (targetRoles) normalized.targetRoles = targetRoles;
   if (locations) normalized.locations = locations;
-  if (typeof raw.remotePolicy === "string") normalized.remotePolicy = raw.remotePolicy;
-  if (typeof raw.seniority === "string") normalized.seniority = raw.seniority;
+  if (typeof raw.remotePolicy === "string") normalized.remotePolicy = capString(raw.remotePolicy);
+  if (typeof raw.seniority === "string") normalized.seniority = capString(raw.seniority);
   if (keywordsInclude) normalized.keywordsInclude = keywordsInclude;
   if (keywordsExclude) normalized.keywordsExclude = keywordsExclude;
   const resumeTextLength = normalizeFiniteNumber(raw.resumeTextLength);
   if (resumeTextLength !== undefined) normalized.resumeTextLength = resumeTextLength;
-  if (typeof raw.resumeUpdatedAt === "string") normalized.resumeUpdatedAt = raw.resumeUpdatedAt;
-  const industriesToEmphasize = normalizeStringArray(preferences.industriesToEmphasize);
-  const wordsToAvoid = normalizeStringArray(preferences.wordsToAvoid);
+  if (typeof raw.resumeUpdatedAt === "string") normalized.resumeUpdatedAt = capString(raw.resumeUpdatedAt);
+  const industriesToEmphasize = capStringArray(normalizeStringArray(preferences.industriesToEmphasize));
+  const wordsToAvoid = capStringArray(normalizeStringArray(preferences.wordsToAvoid));
   const defaultMaxWords = normalizeFiniteNumber(preferences.defaultMaxWords);
   const voiceNotesLength = normalizeFiniteNumber(preferences.voiceNotesLength);
   const normalizedPreferences: NonNullable<
     NonNullable<DiscoveryWebhookRequestV1["discoveryProfile"]>["profileSnapshot"]
   >["preferences"] = {};
-  if (typeof preferences.tone === "string") normalizedPreferences.tone = preferences.tone;
+  if (typeof preferences.tone === "string") normalizedPreferences.tone = capString(preferences.tone);
   if (defaultMaxWords !== undefined) normalizedPreferences.defaultMaxWords = defaultMaxWords;
   if (industriesToEmphasize) normalizedPreferences.industriesToEmphasize = industriesToEmphasize;
   if (wordsToAvoid) normalizedPreferences.wordsToAvoid = wordsToAvoid;
@@ -1097,14 +1092,14 @@ function normalizeSearchPlan(
   const query = isPlainObject(raw.query) ? raw.query : {};
   const normalized: NonNullable<DiscoveryWebhookRequestV1["discoveryProfile"]>["searchPlan"] = {
     planVersion: 1,
-    generatedAt: stringValue(raw.generatedAt),
-    seed: stringValue(raw.seed),
+    generatedAt: capString(stringValue(raw.generatedAt)),
+    seed: capString(stringValue(raw.seed)),
   };
-  if (typeof raw.trigger === "string") normalized.trigger = raw.trigger;
-  if (typeof raw.rotationKey === "string") normalized.rotationKey = raw.rotationKey;
+  if (typeof raw.trigger === "string") normalized.trigger = capString(raw.trigger);
+  if (typeof raw.rotationKey === "string") normalized.rotationKey = capString(raw.rotationKey);
   const rotationIndex = normalizeFiniteNumber(raw.rotationIndex);
   if (rotationIndex !== undefined) normalized.rotationIndex = rotationIndex;
-  if (typeof raw.profileHash === "string") normalized.profileHash = raw.profileHash;
+  if (typeof raw.profileHash === "string") normalized.profileHash = capString(raw.profileHash);
   const normalizedSelected: NonNullable<
     NonNullable<DiscoveryWebhookRequestV1["discoveryProfile"]>["searchPlan"]
   >["selected"] = {};
@@ -1119,7 +1114,7 @@ function normalizeSearchPlan(
     "sourceLane",
   ] as const) {
     if (typeof selected[key] === "string") {
-      normalizedSelected[key] = selected[key];
+      normalizedSelected[key] = capString(selected[key]);
     }
   }
   if (Object.keys(normalizedSelected).length) normalized.selected = normalizedSelected;
@@ -1136,7 +1131,7 @@ function normalizeSearchPlan(
     "companyTypes",
     "sourceLanes",
   ] as const) {
-    const values = normalizeStringArray(facets[key]);
+    const values = capStringArray(normalizeStringArray(facets[key]));
     if (values) normalizedFacets[key] = values;
   }
   if (Object.keys(normalizedFacets).length) normalized.facets = normalizedFacets;
@@ -1151,13 +1146,14 @@ function normalizeSearchPlan(
     "keywordsInclude",
     "keywordsExclude",
   ] as const) {
-    if (typeof query[key] === "string") normalizedQuery[key] = query[key];
+    if (typeof query[key] === "string") normalizedQuery[key] = capString(query[key]);
   }
   if (
     typeof query.sourcePreset === "string" &&
     ((SOURCE_PRESET_VALUES as readonly string[]).includes(query.sourcePreset) ||
       query.sourcePreset === "")
   ) {
+    // sourcePreset is enum-restricted to a documented short list, so no cap.
     normalizedQuery.sourcePreset = query.sourcePreset as SourcePreset | "";
   }
   if (Object.keys(normalizedQuery).length) normalized.query = normalizedQuery;
@@ -1217,18 +1213,14 @@ export function hasValidWebhookSecret(
         "Include the x-discovery-secret header with the configured webhook secret value.",
     };
   }
-  const expectedBuffer = Buffer.from(expected);
-  const providedBuffer = Buffer.from(provided);
-  if (expectedBuffer.length !== providedBuffer.length) {
-    return {
-      valid: false,
-      category: "secret_mismatch",
-      detail: "The provided x-discovery-secret does not match the configured secret.",
-      remediation:
-        "Verify that the x-discovery-secret header value matches the configured webhook secret.",
-    };
-  }
-  if (!timingSafeEqual(expectedBuffer, providedBuffer)) {
+  // Constant-time compare with no length-based early return: SHA-256 both
+  // sides to a fixed 32-byte digest, then timingSafeEqual on the digests.
+  // 'secret_mismatch' is returned identically regardless of the provided
+  // header's length so an attacker cannot probe the configured secret's
+  // length via timing or branch differences.
+  const expectedDigest = createHash("sha256").update(expected).digest();
+  const providedDigest = createHash("sha256").update(provided).digest();
+  if (!timingSafeEqual(expectedDigest, providedDigest)) {
     return {
       valid: false,
       category: "secret_mismatch",

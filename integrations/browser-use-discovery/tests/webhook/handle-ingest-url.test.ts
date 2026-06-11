@@ -1301,3 +1301,64 @@ test("handleIngestUrlWebhook cleans generic scrape title/company metadata", asyn
     "AI",
   ]);
 });
+
+// ─── Round-2 quality sweep: async /ingest-url safety timer ───────────────
+// Mirrors line ~755 in handle-discovery-webhook.test.ts — the async path
+// must force-terminalize a stuck run after `maxRunDurationMs` so pollers
+// never wedge on a wedged Browser Use session.
+
+test("terminalizes a stuck async /ingest-url run after maxRunDurationMs", async () => {
+  // Block the inner extractor on a promise we never resolve, then assert the
+  // safety timer flips the status row to terminal:'partial' after the cap.
+  let releaseStuckExtraction: () => void = () => {};
+  const stuckExtraction = new Promise<never>((_resolve, reject) => {
+    releaseStuckExtraction = () => reject(new Error("released by test"));
+  });
+
+  const runStatusStore = createMemoryRunStatusStore();
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      async: true,
+      url: "https://www.linkedin.com/jobs/view/senior-product-manager-at-plaid",
+    }),
+    makeDependencies({
+      runtimeConfig: makeRuntimeConfig({ browserUseApiKey: "bu_test_key" }),
+      randomId: () => "ingest_stuck_run",
+      runStatusStore,
+      runStatusPathForRun: (runId: string) => `/runs/${runId}`,
+      maxRunDurationMs: 5,
+      extractWithBrowserUseCloud: async () => {
+        // Never resolves until released — simulates a wedged session.
+        await stuckExtraction;
+        // Unreachable in this test.
+        throw new Error("stuck extraction completed unexpectedly");
+      },
+    }),
+  );
+
+  assert.equal(response.status, 202);
+  const ack = JSON.parse(response.body);
+  assert.equal(ack.ok, true);
+  assert.equal(ack.kind, "accepted_async");
+
+  // Wait for the safety timer (5ms) to fire and write the terminal row.
+  const terminal = await waitForTerminalStatus(
+    runStatusStore,
+    "ingest_stuck_run",
+  );
+  assert.ok(terminal, "safety timer should write a terminal run status");
+  assert.equal(terminal?.status, "partial");
+  assert.equal(terminal?.terminal, true);
+  assert.match(
+    String((terminal as Record<string, unknown>).message || ""),
+    /exceeded its maximum duration/i,
+  );
+
+  // Release the stuck extractor so the .catch fires; the late failure must
+  // NOT overwrite the already-terminal row.
+  releaseStuckExtraction();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const afterLateFailure = runStatusStore.get("ingest_stuck_run");
+  assert.equal(afterLateFailure?.status, "partial");
+  assert.equal(afterLateFailure?.terminal, true);
+});
