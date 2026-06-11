@@ -309,6 +309,10 @@
 let onboardingResumeDraft = null;
 /** How user supplied resume: "upload" | "paste" (for Back navigation from tone step). */
 let onboardingResumePath = null;
+/** A11y focus management — restored when the wizard closes. */
+let onboardingLastOpener = null;
+let onboardingInertedSiblings = [];
+let onboardingEscapeHandler = null;
 
 // 4 steps: 1=resume, 2=role chips (AI-suggested), 3=AI context, 4=tone.
 const ONBOARDING_TOTAL_STEPS = 4;
@@ -318,14 +322,63 @@ function isOnboardingWizardVisible() {
   return w && w.style.display === "flex";
 }
 
+// Native `inert` on every direct child of <body> except the wizard root
+// contains Tab inside the dialog (audit-results.json showed Tab leaking out
+// to #sheetAccessGateSignInBtn). Idempotent via the inertedSiblings cache.
+function applyOnboardingInertBackground(root) {
+  if (!root || typeof document === "undefined") return;
+  if (onboardingInertedSiblings.length) return;
+  const body = document.body;
+  if (!body || !body.children) return;
+  for (const child of Array.from(body.children)) {
+    if (!child || child === root) continue;
+    if (child.inert === true) continue;
+    child.inert = true;
+    onboardingInertedSiblings.push(child);
+  }
+}
+
+function releaseOnboardingInertBackground() {
+  while (onboardingInertedSiblings.length) {
+    const child = onboardingInertedSiblings.pop();
+    if (child) child.inert = false;
+  }
+}
+
 function hideOnboardingWizard() {
   const w = document.getElementById("onboardingWizard");
   if (w) w.style.display = "none";
+  releaseOnboardingInertBackground();
+  if (
+    onboardingEscapeHandler &&
+    typeof document !== "undefined" &&
+    typeof document.removeEventListener === "function"
+  ) {
+    document.removeEventListener("keydown", onboardingEscapeHandler);
+    onboardingEscapeHandler = null;
+  }
+  if (
+    onboardingLastOpener &&
+    typeof document !== "undefined" &&
+    typeof document.contains === "function" &&
+    document.contains(onboardingLastOpener) &&
+    typeof onboardingLastOpener.focus === "function"
+  ) {
+    try {
+      onboardingLastOpener.focus({ preventScroll: true });
+    } catch (_) {
+      /* focus restoration is best-effort */
+    }
+  }
+  onboardingLastOpener = null;
 }
 
 function showOnboardingWizard() {
   const w = document.getElementById("onboardingWizard");
   if (!w) return;
+  if (typeof document !== "undefined" && document.activeElement) {
+    onboardingLastOpener = document.activeElement;
+  }
   onboardingResumeDraft = null;
   onboardingResumePath = null;
   const paste = document.getElementById("onboardingPasteText");
@@ -380,7 +433,48 @@ function showOnboardingWizard() {
   syncOnboardingToneCards("warm");
   setOnboardingStep(1);
   w.style.display = "flex";
-  document.getElementById("onboardingFileInput")?.focus();
+  applyOnboardingInertBackground(w);
+  // Escape-to-close (matches the first-run wizard pattern) — registered at
+  // open and removed at close so we don't accumulate listeners.
+  if (typeof document !== "undefined" && !onboardingEscapeHandler) {
+    onboardingEscapeHandler = (e) => {
+      if (e.key === "Escape" && isOnboardingWizardVisible()) {
+        hideOnboardingWizard();
+      }
+    };
+    document.addEventListener("keydown", onboardingEscapeHandler);
+  }
+  // Auto-focus the resume upload control (the brief's documented target).
+  // Falls back to the dialog root if the visible label/button isn't focusable.
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(() => {
+      const label =
+        typeof document !== "undefined" &&
+        typeof document.querySelector === "function"
+          ? document.querySelector("#onboardingPanel1 .btn-materials-upload")
+          : null;
+      let target = label;
+      if (!target || typeof target.focus !== "function") {
+        target = document.getElementById("onboardingFileInput");
+      }
+      if (!target || typeof target.focus !== "function") {
+        const root = document.getElementById("onboardingWizard");
+        if (root) {
+          if (!root.hasAttribute("tabindex")) {
+            root.setAttribute("tabindex", "-1");
+          }
+          target = root;
+        }
+      }
+      if (target && typeof target.focus === "function") {
+        try {
+          target.focus({ preventScroll: true });
+        } catch (_) {
+          /* focus is best-effort */
+        }
+      }
+    });
+  }
 }
 
 function updateOnboardingProgressUI(step) {

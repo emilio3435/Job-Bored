@@ -47,6 +47,16 @@
 
   let refreshTimer = null;
   let listenersWired = false;
+  // A11y focus management. Saved here so close()/Escape can restore focus to
+  // whatever the user clicked to open the wizard (avoids dropping them back
+  // on document.body — a documented WCAG focus-restoration trap).
+  let lastOpener = null;
+  // Direct children of <body> we marked inert on open, so we can flip them
+  // back on close. Native `inert` removes elements from the tab order AND
+  // blocks pointer events, containing focus inside the dialog overlay (the
+  // login gate's #sheetAccessGateSignInBtn was leaking into the tab order
+  // — see audit-results.json tabOrder on the first-run-wizard-step1 surface).
+  let inertedSiblings = [];
 
   function getEl(id) {
     return typeof document !== "undefined" ? document.getElementById(id) : null;
@@ -178,10 +188,99 @@
     }
   }
 
+  // Mark every direct child of <body> EXCEPT the wizard root as `inert` so
+  // Tab can't escape the dialog into the login gate or dashboard chrome
+  // sitting underneath. Native `inert` is the recommended primitive (better
+  // than a hand-rolled focus trap that has to listen to keydown + reorder
+  // tabIndex). Idempotent: a second call won't double-mark anything because
+  // we read state from inertedSiblings.
+  function applyFirstRunInertBackground(root) {
+    if (!root || typeof document === "undefined") return;
+    if (inertedSiblings.length) return;
+    const body = document.body;
+    if (!body || !body.children) return;
+    for (const child of Array.from(body.children)) {
+      if (!child || child === root) continue;
+      // Skip nodes that were already inert — restoring would unhide content
+      // someone else asked to keep hidden.
+      if (child.inert === true) continue;
+      child.inert = true;
+      inertedSiblings.push(child);
+    }
+  }
+
+  function releaseFirstRunInertBackground() {
+    while (inertedSiblings.length) {
+      const child = inertedSiblings.pop();
+      if (child) child.inert = false;
+    }
+  }
+
   function hideFirstRunWizard() {
     const w = getEl("firstRunWizard");
     if (w) w.style.display = "none";
     stopRefreshLoop();
+    releaseFirstRunInertBackground();
+    // Restore focus to the element that opened the wizard so the user lands
+    // back where they left off (a settings gear button, the login-gate's
+    // "Set up" CTA, etc.). Guarded by document.contains so a removed opener
+    // doesn't throw.
+    if (
+      lastOpener &&
+      typeof document !== "undefined" &&
+      typeof document.contains === "function" &&
+      document.contains(lastOpener) &&
+      typeof lastOpener.focus === "function"
+    ) {
+      try {
+        lastOpener.focus({ preventScroll: true });
+      } catch (_) {
+        /* focus restoration is best-effort */
+      }
+    }
+    lastOpener = null;
+  }
+
+  function focusFirstRunOpenTarget(step) {
+    // Land focus on the first interactive control of the active panel so a
+    // keyboard user can drive the wizard without an opening Tab press. Done
+    // on the next animation frame so `display:flex` has rendered the panel
+    // and the target is focusable.
+    if (typeof requestAnimationFrame !== "function") return;
+    requestAnimationFrame(() => {
+      let target = null;
+      if (step === 1) {
+        target = getEl("firstRunCreateSheetBtn");
+      } else if (step === 2) {
+        // First provider radio (preselected OpenRouter is the cold-start
+        // default — see renderProviderStep).
+        target =
+          getEl("firstRunProviderOpenRouter") ||
+          (typeof document !== "undefined" &&
+          typeof document.querySelector === "function"
+            ? document.querySelector('input[name="firstRunProvider"]')
+            : null);
+      }
+      // Fallback to the dialog root with tabindex=-1 so focus stays inside
+      // the trap even if the panel target is hidden/disabled (e.g. the
+      // create button while a Create is in flight).
+      if (!target || target.disabled) {
+        const root = getEl("firstRunWizard");
+        if (root) {
+          if (!root.hasAttribute("tabindex")) {
+            root.setAttribute("tabindex", "-1");
+          }
+          target = root;
+        }
+      }
+      if (target && typeof target.focus === "function") {
+        try {
+          target.focus({ preventScroll: true });
+        } catch (_) {
+          /* focus is best-effort */
+        }
+      }
+    });
   }
 
   function showFirstRunWizard() {
@@ -189,9 +288,19 @@
     if (!w) return;
     initFirstRunWizard();
     const alreadyVisible = w.style.display === "flex";
+    if (
+      !alreadyVisible &&
+      typeof document !== "undefined" &&
+      document.activeElement
+    ) {
+      lastOpener = document.activeElement;
+    }
     w.style.display = "flex";
     if (!alreadyVisible) {
-      setFirstRunStep(computeFirstRunStartStep());
+      applyFirstRunInertBackground(w);
+      const startStep = computeFirstRunStartStep();
+      setFirstRunStep(startStep);
+      focusFirstRunOpenTarget(startStep);
     } else {
       refreshFirstRunWizard();
     }
