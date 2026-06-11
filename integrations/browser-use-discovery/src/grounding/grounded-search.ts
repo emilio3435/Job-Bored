@@ -3432,33 +3432,38 @@ async function structureGroundedCandidatesViaSchema(input: {
   );
 
   try {
-    const response = await input.fetchImpl(input.endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": input.apiKey,
-      },
+    const response = await geminiFetchWithRetry({
+      url: input.endpoint,
+      fetchImpl: input.fetchImpl,
+      timeoutMs: resolveGeminiRequestTimeoutMs(input.run),
       signal: input.signal,
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: STRUCTURING_SYSTEM_PROMPT }],
+      init: {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": input.apiKey,
         },
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: userPrompt }],
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: STRUCTURING_SYSTEM_PROMPT }],
           },
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens,
-          responseMimeType: "application/json",
-          responseSchema: CANDIDATE_RESULTS_SCHEMA,
-        },
-        // Deliberately no `tools` — Gemini enforces responseSchema strictly only
-        // when no tool is attached. This is the whole point of the two-call
-        // pattern: Call 1 has google_search, Call 2 has the schema.
-      }),
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: userPrompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens,
+            responseMimeType: "application/json",
+            responseSchema: CANDIDATE_RESULTS_SCHEMA,
+          },
+          // Deliberately no `tools` — Gemini enforces responseSchema strictly only
+          // when no tool is attached. This is the whole point of the two-call
+          // pattern: Call 1 has google_search, Call 2 has the schema.
+        }),
+      },
     });
 
     if (!response.ok) return null;
@@ -3577,31 +3582,36 @@ async function extractUrlsFromProseViaSchema(input: {
   );
 
   try {
-    const response = await input.fetchImpl(input.endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": input.apiKey,
-      },
+    const response = await geminiFetchWithRetry({
+      url: input.endpoint,
+      fetchImpl: input.fetchImpl,
+      timeoutMs: resolveGeminiRequestTimeoutMs(input.run),
       signal: input.signal,
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: systemPrompt }],
+      init: {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": input.apiKey,
         },
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: userPrompt }],
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: systemPrompt }],
           },
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens,
-          responseMimeType: "application/json",
-          responseSchema: CANDIDATE_RESULTS_SCHEMA,
-        },
-        // Deliberately no `tools` — enforces responseSchema strictly.
-      }),
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: userPrompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens,
+            responseMimeType: "application/json",
+            responseSchema: CANDIDATE_RESULTS_SCHEMA,
+          },
+          // Deliberately no `tools` — enforces responseSchema strictly.
+        }),
+      },
     });
 
     if (!response.ok) return null;
@@ -3651,7 +3661,7 @@ async function extractUrlsFromProseViaSchema(input: {
   }
 }
 
-function executeGroundedSearchRequest(input: {
+async function executeGroundedSearchRequest(input: {
   prompt: string;
   company: CompanyTarget;
   run: DiscoveryRun;
@@ -3673,53 +3683,82 @@ function executeGroundedSearchRequest(input: {
   };
 }> {
   const maxOutputTokens = input.run.config.groundedSearchTuning?.maxTokensPerQuery ?? 2048;
-  throwIfAborted(input.signal);
-  return input.fetchImpl(input.endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-goog-api-key": input.apiKey,
+  const timeoutMs = resolveGeminiRequestTimeoutMs(input.run);
+  const body = JSON.stringify({
+    systemInstruction: {
+      parts: [{ text: SEARCH_SYSTEM_PROMPT }],
     },
-    signal: input.signal,
-    body: JSON.stringify({
-      systemInstruction: {
-        parts: [{ text: SEARCH_SYSTEM_PROMPT }],
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: input.prompt }],
       },
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: input.prompt }],
+    ],
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens,
+      // Deliberately NO `responseMimeType` here — Gemini's v1beta API returns
+      // HTTP 400 ("Tool use with a response mime type: 'application/json' is
+      // unsupported") when google_search is attached. Structured output is
+      // handled by the Layer 4 Call 2 pass in collectGroundedWebListings,
+      // which runs a separate request WITHOUT tools so responseSchema can be
+      // strictly enforced.
+    },
+    tools: [{ google_search: {} }],
+  });
+
+  // Bounded retry on transient upstream failures (429/503/timeout) so a
+  // single throttled hop does not collapse the whole grounded-search stage.
+  // Backoff schedule is short and jittered; user-supplied AbortSignal still
+  // wins over a pending retry.
+  const maxAttempts = GEMINI_RETRY_BACKOFF_MS.length + 1;
+  let lastFailure: {
+    status?: number;
+    message: string;
+    retryable: boolean;
+  } | null = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    throwIfAborted(input.signal);
+    const compose = composeRequestSignal(input.signal, timeoutMs);
+    try {
+      const response = await input.fetchImpl(input.endpoint, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": input.apiKey,
         },
-      ],
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens,
-        // Deliberately NO `responseMimeType` here — Gemini's v1beta API returns
-        // HTTP 400 ("Tool use with a response mime type: 'application/json' is
-        // unsupported") when google_search is attached. Structured output is
-        // handled by the Layer 4 Call 2 pass in collectGroundedWebListings,
-        // which runs a separate request WITHOUT tools so responseSchema can be
-        // strictly enforced.
-      },
-      tools: [{ google_search: {} }],
-    }),
-  })
-    .then(async (response) => {
+        signal: compose.signal,
+        body,
+      });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
+        lastFailure = {
+          status: response.status,
+          message:
+            objectString(payload, "error", "message") ||
+            `Gemini grounded search HTTP ${response.status}`,
+          retryable: isRetryableGroundedSearchStatus(response.status),
+        };
+        // Retry only for 429/503; other failures (4xx) fall through as-is.
+        if (
+          isTransientHttpStatus(response.status) &&
+          attempt < maxAttempts - 1
+        ) {
+          compose.cancel();
+          await sleepWithSignal(
+            jitter(GEMINI_RETRY_BACKOFF_MS[attempt]),
+            input.signal,
+          );
+          continue;
+        }
         return {
           candidates: [],
           searchQueries: [],
           regexFallbackUsed: false,
           regexFallbackAttempted: false,
           rawText: "",
-          failure: {
-            status: response.status,
-            message:
-              objectString(payload, "error", "message") ||
-              `Gemini grounded search HTTP ${response.status}`,
-            retryable: isRetryableGroundedSearchStatus(response.status),
-          },
+          failure: lastFailure,
         };
       }
       return parseGroundedSearchResponsePayload(
@@ -3727,22 +3766,55 @@ function executeGroundedSearchRequest(input: {
         input.company,
         input.maxResultsPerCompany,
       );
-    })
-    .catch((error) => {
-      if (isAbortError(error)) {
+    } catch (error) {
+      // If the caller's signal aborted, propagate. If our per-request timeout
+      // fired, treat as a transient failure (retryable inside this loop).
+      if (input.signal?.aborted) {
         throw error;
+      }
+      const isTimeout = compose.timedOut();
+      if (!isTimeout && isAbortError(error)) {
+        throw error;
+      }
+      lastFailure = {
+        message: isTimeout
+          ? `Gemini grounded search request timed out after ${timeoutMs}ms`
+          : `Gemini grounded search request failed: ${formatError(error)}`,
+        retryable: true,
+      };
+      if (isTimeout && attempt < maxAttempts - 1) {
+        await sleepWithSignal(
+          jitter(GEMINI_RETRY_BACKOFF_MS[attempt]),
+          input.signal,
+        );
+        continue;
       }
       return {
         candidates: [],
         searchQueries: [],
         regexFallbackUsed: false,
         regexFallbackAttempted: false,
-        failure: {
-          message: `Gemini grounded search request failed: ${formatError(error)}`,
-          retryable: true,
-        },
+        rawText: "",
+        failure: lastFailure,
       };
-    });
+    } finally {
+      compose.cancel();
+    }
+  }
+
+  // Unreachable in practice; loop always returns. Fall back defensively.
+  return {
+    candidates: [],
+    searchQueries: [],
+    regexFallbackUsed: false,
+    regexFallbackAttempted: false,
+    rawText: "",
+    failure:
+      lastFailure || {
+        message: "Gemini grounded search request failed with no specific error.",
+        retryable: true,
+      },
+  };
 }
 
 function candidatePayloads(payload: unknown): AnyRecord[] {
@@ -4149,4 +4221,164 @@ function isPlainRecord(value: unknown): value is AnyRecord {
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Default per-request timeout for outbound Gemini calls inside grounded
+ * search. Overridable via groundedSearchTuning.requestTimeoutMs. */
+const DEFAULT_GEMINI_REQUEST_TIMEOUT_MS = 30_000;
+
+function resolveGeminiRequestTimeoutMs(run: DiscoveryRun): number {
+  const configured = run.config.groundedSearchTuning?.requestTimeoutMs;
+  if (typeof configured === "number" && Number.isFinite(configured) && configured > 0) {
+    return configured;
+  }
+  return DEFAULT_GEMINI_REQUEST_TIMEOUT_MS;
+}
+
+/**
+ * Compose a user-supplied AbortSignal with a per-request timeout signal so
+ * either source can cancel the fetch. Mirrors the pattern used by
+ * fetchTextWithTimeout but exposed as a reusable helper for the three Gemini
+ * fetch sites in this module.
+ *
+ * Returns:
+ *  - signal: pass to fetch options
+ *  - cancel: clears the timer and detaches the upstream abort listener
+ *  - timedOut: true when the per-request timer (not the upstream signal)
+ *    triggered the abort. Useful so callers can label diagnostics as
+ *    `request_timeout` instead of generic abort.
+ */
+function composeRequestSignal(
+  userSignal: AbortSignal | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal; cancel(): void; timedOut(): boolean } {
+  const controller = new AbortController();
+  let timedOutFlag = false;
+
+  if (userSignal?.aborted) {
+    controller.abort(userSignal.reason);
+  }
+
+  const onUpstreamAbort = () => {
+    controller.abort(userSignal?.reason);
+  };
+  userSignal?.addEventListener("abort", onUpstreamAbort, { once: true });
+
+  const timer = setTimeout(() => {
+    timedOutFlag = true;
+    controller.abort(new Error(`Gemini request timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
+
+  const cancel = () => {
+    clearTimeout(timer);
+    userSignal?.removeEventListener("abort", onUpstreamAbort);
+  };
+
+  return {
+    signal: controller.signal,
+    cancel,
+    timedOut: () => timedOutFlag,
+  };
+}
+
+/** HTTP statuses we will retry on (in addition to network/transient errors). */
+function isTransientHttpStatus(status: number | undefined): boolean {
+  return status === 429 || status === 503;
+}
+
+/**
+ * Bounded backoff schedule with jitter for transient Gemini failures (429,
+ * 503, request timeout). Three attempts total: initial + two retries.
+ */
+const GEMINI_RETRY_BACKOFF_MS: readonly number[] = [500, 1500];
+
+function jitter(baseMs: number): number {
+  // ±25% jitter so concurrent callers don't thunder onto the next attempt.
+  const spread = baseMs * 0.25;
+  return Math.max(0, Math.round(baseMs + (Math.random() * 2 - 1) * spread));
+}
+
+async function sleepWithSignal(
+  ms: number,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  if (ms <= 0) return;
+  throwIfAborted(signal);
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(createAbortError());
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * Issue a Gemini fetch with a per-request timeout and bounded retry on
+ * transient failures (HTTP 429/503 or timeout). Re-throws AbortError when the
+ * caller's signal triggered. Used by structureGroundedCandidatesViaSchema
+ * and extractUrlsFromProseViaSchema — both treat any failure as "null"
+ * downstream, so retries are pure upside.
+ */
+async function geminiFetchWithRetry(input: {
+  url: string;
+  init: RequestInit;
+  fetchImpl: FetchImpl;
+  timeoutMs: number;
+  signal?: AbortSignal;
+}): Promise<Response> {
+  const maxAttempts = GEMINI_RETRY_BACKOFF_MS.length + 1;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    throwIfAborted(input.signal);
+    const compose = composeRequestSignal(input.signal, input.timeoutMs);
+    try {
+      const response = await input.fetchImpl(input.url, {
+        ...input.init,
+        signal: compose.signal,
+      });
+      if (
+        isTransientHttpStatus(response.status) &&
+        attempt < maxAttempts - 1
+      ) {
+        // Drain so the connection can be reused; discard body.
+        await response.text().catch(() => "");
+        compose.cancel();
+        await sleepWithSignal(
+          jitter(GEMINI_RETRY_BACKOFF_MS[attempt]),
+          input.signal,
+        );
+        continue;
+      }
+      return response;
+    } catch (error) {
+      if (input.signal?.aborted) {
+        throw error;
+      }
+      const isTimeout = compose.timedOut();
+      if (!isTimeout && isAbortError(error)) {
+        throw error;
+      }
+      lastError = isTimeout
+        ? new Error(`Gemini request timed out after ${input.timeoutMs}ms`)
+        : error;
+      if (isTimeout && attempt < maxAttempts - 1) {
+        await sleepWithSignal(
+          jitter(GEMINI_RETRY_BACKOFF_MS[attempt]),
+          input.signal,
+        );
+        continue;
+      }
+      throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    } finally {
+      compose.cancel();
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Gemini request failed with no specific error.");
 }

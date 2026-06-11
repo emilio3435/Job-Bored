@@ -56,6 +56,12 @@ import {
 type FetchImpl = typeof globalThis.fetch;
 type DiscoveryProfileMode = NonNullable<DiscoveryProfileRequestV1["mode"]>;
 
+// Per-field length cap for resumeText. The persisted slice downstream uses
+// the same 200_000 cap (see storedResumeText.slice(0, 200_000) below), so
+// requests larger than this are pure waste — reject up front with an
+// actionable error before the Gemini prompt is built.
+const MAX_RESUME_TEXT_LENGTH = 200_000;
+
 type ScheduleInstalledBreadcrumb = {
   platform: string;
   installedAt: string;
@@ -151,6 +157,15 @@ function parseRequest(bodyText: string):
   }
   const resumeText =
     typeof record.resumeText === "string" ? record.resumeText : "";
+  // Per-field length cap. The persisted slice already truncates to 200_000;
+  // this fail-fast cap ensures we reject obvious garbage before the
+  // downstream prompt is built and tokens are spent.
+  if (resumeText.length > MAX_RESUME_TEXT_LENGTH) {
+    return {
+      ok: false,
+      message: `resumeText must be ${MAX_RESUME_TEXT_LENGTH} characters or fewer (received ${resumeText.length}).`,
+    };
+  }
   const rawForm =
     record.form && typeof record.form === "object" && !Array.isArray(record.form)
       ? (record.form as Record<string, unknown>)

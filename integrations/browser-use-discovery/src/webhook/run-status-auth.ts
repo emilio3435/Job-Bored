@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 const STATUS_TOKEN_PARAM = "statusToken";
 
@@ -6,11 +6,14 @@ function asText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+// Constant-time compare without leaking input length: hash both sides to a
+// fixed-width 32-byte SHA-256 digest first, then timingSafeEqual on the
+// digests. This prevents an attacker from learning the expected secret length
+// via a length-based early return.
 function safeEqual(left: string, right: string): boolean {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-  if (leftBuffer.length !== rightBuffer.length) return false;
-  return timingSafeEqual(leftBuffer, rightBuffer);
+  const leftDigest = createHash("sha256").update(left).digest();
+  const rightDigest = createHash("sha256").update(right).digest();
+  return timingSafeEqual(leftDigest, rightDigest);
 }
 
 export function createRunStatusToken(

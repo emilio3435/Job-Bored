@@ -40,6 +40,25 @@ import {
   appendRunStatusToken,
   createRunStatusToken,
 } from "./run-status-auth.ts";
+import { createSafetyTimer } from "./safety-timer.ts";
+
+// Default maximum duration for an async /ingest-url run before the safety
+// timer force-terminalizes its status row. /ingest-url runs are
+// expected to finish in seconds (one URL, one extraction); a 5-minute
+// backstop is generous enough to absorb slow Browser Use Cloud sessions
+// while still preventing a wedged poll target.
+const DEFAULT_INGEST_MAX_RUN_DURATION_MS = 5 * 60 * 1000;
+
+// Per-field length caps for /ingest-url. The whole-body cap in server.ts
+// (2 MiB) bounds the worst case; these per-field caps ensure no single
+// free-form string can crowd out the rest of the payload or downstream
+// prompts. Returning a precise 400 with the offending field name makes the
+// failure surface debuggable from the dashboard.
+const MAX_URL_LENGTH = 2048;
+const MAX_MANUAL_TITLE_LENGTH = 300;
+const MAX_MANUAL_COMPANY_LENGTH = 200;
+const MAX_MANUAL_LOCATION_LENGTH = 200;
+const MAX_MANUAL_DESCRIPTION_LENGTH = 20_000;
 
 type ScrapeResult = {
   url: string;
@@ -81,6 +100,12 @@ export type HandleIngestUrlDependencies = {
   runStatusStore?: DiscoveryRunStatusStore;
   includeRunStatusToken?: boolean;
   asyncPollAfterMs?: number;
+  /**
+   * Maximum duration in milliseconds for an async /ingest-url run before its
+   * status row is forcibly marked terminal. Defaults to 5 minutes. Mirrors
+   * the safety backstop in handle-discovery-webhook.ts.
+   */
+  maxRunDurationMs?: number;
   now?: () => Date;
   randomId?: (prefix: string) => string;
   log?(event: string, details: Record<string, unknown>): void;
@@ -458,6 +483,20 @@ async function acceptAsyncIngestUrl(input: {
   const runningStatus = buildRunningRunStatus(acceptedStatus, startedAt);
   input.dependencies.runStatusStore?.put(runningStatus);
 
+  const maxRunDurationMs =
+    input.dependencies.maxRunDurationMs ?? DEFAULT_INGEST_MAX_RUN_DURATION_MS;
+  // Mirrors handle-discovery-webhook.ts: guarantee the /ingest-url run STATUS
+  // becomes terminal even if the inner sync handler never resolves/rejects.
+  const safety = createSafetyTimer({
+    runId: input.runId,
+    runMode: "ingest_url_async",
+    maxRunDurationMs,
+    runStatusStore: input.dependencies.runStatusStore,
+    acceptedStatus,
+    now: input.now,
+    log: input.dependencies.log,
+  });
+
   const {
     async: _asyncRequested,
     googleAccessToken: _requestGoogleAccessToken,
@@ -475,6 +514,16 @@ async function acceptAsyncIngestUrl(input: {
     },
   )
     .then((response) => {
+      if (safety.isTerminalStatusWritten()) {
+        input.dependencies.log?.("discovery.run.ingest_url_async_completed_after_safety", {
+          runId: input.runId,
+          reason: "terminal_status_already_written",
+          httpStatus: response.status,
+        });
+        return;
+      }
+      safety.markTerminal();
+      safety.clear();
       const completedAt = input.now().toISOString();
       const ingestResult = parseIngestResponseBody(response.body);
       const failed = isFailedAsyncIngestResponse(response, ingestResult);
@@ -519,6 +568,16 @@ async function acceptAsyncIngestUrl(input: {
       });
     })
     .catch((error) => {
+      if (safety.isTerminalStatusWritten()) {
+        input.dependencies.log?.("discovery.run.ingest_url_async_failed_after_safety", {
+          runId: input.runId,
+          reason: "terminal_status_already_written",
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      safety.markTerminal();
+      safety.clear();
       input.dependencies.runStatusStore?.put(
         buildFailedRunStatus(runningStatus, error, input.now().toISOString()),
       );
@@ -527,6 +586,10 @@ async function acceptAsyncIngestUrl(input: {
         message: error instanceof Error ? error.message : String(error),
       });
     });
+
+  // Start the safety backstop AFTER the inner handler is dispatched so the
+  // timer cannot race a synchronous completion.
+  safety.schedule();
 
   input.dependencies.log?.("discovery.run.ingest_url_async_accepted", {
     runId: input.runId,
@@ -676,6 +739,12 @@ function parseRequest(bodyText: string): ParsedIngestUrlRequest {
   if (!url) {
     return { ok: false, message: "url is required and must be non-empty." };
   }
+  if (url.length > MAX_URL_LENGTH) {
+    return {
+      ok: false,
+      message: `url must be ${MAX_URL_LENGTH} characters or fewer (received ${url.length}).`,
+    };
+  }
   const sheetId =
     typeof record.sheetId === "string" ? record.sheetId.trim() : "";
   const googleAccessToken =
@@ -718,6 +787,38 @@ function parseRequest(bodyText: string): ParsedIngestUrlRequest {
         message: "manual.title and manual.company are required when manual is present.",
       };
     }
+    if (title.length > MAX_MANUAL_TITLE_LENGTH) {
+      return {
+        ok: false,
+        message: `manual.title must be ${MAX_MANUAL_TITLE_LENGTH} characters or fewer (received ${title.length}).`,
+      };
+    }
+    if (company.length > MAX_MANUAL_COMPANY_LENGTH) {
+      return {
+        ok: false,
+        message: `manual.company must be ${MAX_MANUAL_COMPANY_LENGTH} characters or fewer (received ${company.length}).`,
+      };
+    }
+    const manualLocationRaw =
+      typeof manualRecord.location === "string"
+        ? manualRecord.location.trim()
+        : "";
+    if (manualLocationRaw.length > MAX_MANUAL_LOCATION_LENGTH) {
+      return {
+        ok: false,
+        message: `manual.location must be ${MAX_MANUAL_LOCATION_LENGTH} characters or fewer (received ${manualLocationRaw.length}).`,
+      };
+    }
+    const manualDescriptionRaw =
+      typeof manualRecord.description === "string"
+        ? manualRecord.description
+        : "";
+    if (manualDescriptionRaw.length > MAX_MANUAL_DESCRIPTION_LENGTH) {
+      return {
+        ok: false,
+        message: `manual.description must be ${MAX_MANUAL_DESCRIPTION_LENGTH} characters or fewer (received ${manualDescriptionRaw.length}).`,
+      };
+    }
     let fitScore: number | undefined;
     if (manualRecord.fitScore !== undefined) {
       if (
@@ -734,14 +835,8 @@ function parseRequest(bodyText: string): ParsedIngestUrlRequest {
     manual = {
       title,
       company,
-      location:
-        typeof manualRecord.location === "string"
-          ? manualRecord.location.trim()
-          : undefined,
-      description:
-        typeof manualRecord.description === "string"
-          ? manualRecord.description
-          : undefined,
+      location: manualLocationRaw || undefined,
+      description: manualDescriptionRaw || undefined,
       fitScore,
     };
   }

@@ -1542,9 +1542,11 @@ test("createGroundedSearchClient aggregates grounded text and citations across G
 });
 
 test("grounded search surfaces upstream HTTP failures instead of misreporting zero candidates", async () => {
+  // Use a tiny retry timeout so the bounded backoff completes inside this
+  // test's deadline (default 30s timeout is fine, but we want this fast).
   const run = makeUnrestrictedRun({
     config: {
-      groundedSearchTuning: { multiQueryCap: 1 },
+      groundedSearchTuning: { multiQueryCap: 1, requestTimeoutMs: 5_000 },
     },
   });
   let callCount = 0;
@@ -1568,7 +1570,13 @@ test("grounded search surfaces upstream HTTP failures instead of misreporting ze
 
   const result = await client.search(run.config.companies[0], run);
 
-  assert.equal(callCount, 1, "429 should abort the ladder instead of broadening all rungs");
+  // 429 is now treated as transient: initial attempt + 2 bounded retries = 3.
+  // After exhausting retries we still abort the ladder (do NOT broaden rungs).
+  assert.equal(
+    callCount,
+    3,
+    "429 should retry twice (bounded) then abort the ladder instead of broadening all rungs",
+  );
   assert.equal(result.candidates.length, 0);
   assert.ok(
     result.warnings.some((warning) => /HTTP 429|quota exceeded/i.test(warning)),

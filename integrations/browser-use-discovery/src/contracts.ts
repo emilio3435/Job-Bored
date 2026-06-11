@@ -157,6 +157,14 @@ export type GroundedSearchTuning = {
    * multi-query fan-out. Only applies when ultraPlanTuning.multiQueryEnabled is true.
    */
   multiQueryCap?: number;
+  /**
+   * Per-request timeout (milliseconds) applied to every outbound Gemini call
+   * inside grounded search — Call 1 (executeGroundedSearchRequest), Call 2
+   * (structureGroundedCandidatesViaSchema), and Call 1.5
+   * (extractUrlsFromProseViaSchema). Composes with any caller-provided
+   * AbortSignal. Defaults to 30_000 ms when omitted.
+   */
+  requestTimeoutMs?: number;
 };
 
 export type DiscoveryProfileSnapshot = {
