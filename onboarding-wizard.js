@@ -264,6 +264,37 @@
     overlay.setAttribute("aria-hidden", "false");
     overlay.classList.remove("onboarding-celebration--out");
     overlay.classList.add("onboarding-celebration--in");
+    // The first-run + onboarding wizards' focus-trap inerts EVERY body
+    // sibling on show — including this celebration overlay — so the
+    // overlay arrives inert and intercepts no clicks (CTA appears dead;
+    // synthetic .click() and keyboard Enter still work because they bypass
+    // hit-testing on the focused button). Un-inert the overlay AND inert
+    // every other body sibling so the background can't steal pointer
+    // events. Both decisions get restored at dismiss.
+    let wasInert = false;
+    const inertTargets = [];
+    try {
+      if (overlay.hasAttribute("inert")) {
+        overlay.removeAttribute("inert");
+        wasInert = true;
+      }
+      const body = document.body;
+      if (body && body.children) {
+        for (const sibling of Array.from(body.children)) {
+          if (
+            !sibling ||
+            sibling === overlay ||
+            sibling.hasAttribute("inert")
+          ) {
+            continue;
+          }
+          sibling.setAttribute("inert", "");
+          inertTargets.push(sibling);
+        }
+      }
+    } catch (_) {
+      /* DOM might be sparse in tests; best-effort */
+    }
     let finished = false;
     const dismiss = () => {
       if (finished) return;
@@ -286,6 +317,13 @@
         if (burst && typeof burst.replaceChildren === "function") {
           burst.replaceChildren();
         }
+        // Restore interactivity on whatever we inerted on show, and put
+        // the inert back on the overlay if it had it before we cleared it
+        // (so the upstream focus-trap's bookkeeping stays consistent).
+        for (const el of inertTargets) {
+          el.removeAttribute("inert");
+        }
+        if (wasInert) overlay.setAttribute("inert", "");
       }, 320);
     };
     dismissRef = dismiss;
