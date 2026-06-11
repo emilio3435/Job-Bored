@@ -83,12 +83,14 @@ function makeFakeDb(stores) {
         objectStore() {
           return {
             clear() {
-              queued.push({ kind: "clear" });
-              return {};
+              const req = { onsuccess: null, onerror: null, result: null };
+              queued.push({ kind: "clear", req });
+              return req;
             },
             put(rec) {
-              queued.push({ kind: "put", rec });
-              return {};
+              const req = { onsuccess: null, onerror: null, result: null };
+              queued.push({ kind: "put", rec, req });
+              return req;
             },
             get(key) {
               const req = { onsuccess: null, onerror: null, result: null };
@@ -132,6 +134,7 @@ function makeFakeDb(stores) {
             // Snapshot for rollback.
             tx._snapshot = new Map(store.data);
             store.data.clear();
+            if (op.req && op.req.onsuccess) op.req.onsuccess();
           } else if (op.kind === "put") {
             if (store.failNextPut) {
               store.failNextPut = false;
@@ -139,16 +142,24 @@ function makeFakeDb(stores) {
               if (tx._snapshot) {
                 store.data = tx._snapshot;
                 store.data = new Map(tx._snapshot);
-                // Replace via API: copy entries back since we can't reassign
-                // the map reference stored on the store. (See trick below.)
                 store._restoreFromSnapshot(tx._snapshot);
               }
               tx.error = new Error("QuotaExceededError");
               aborted = true;
+              // Fire the per-op error so setSetting-style waiters (which only
+              // listen on req.onerror/onsuccess) unwind, then fire onabort.
+              if (op.req) {
+                op.req.error = tx.error;
+                if (op.req.onerror) op.req.onerror();
+              }
               if (tx.onabort) tx.onabort();
               break;
             }
-            store.data.set(op.rec.id, op.rec);
+            // Resume rows use { id }; settings rows use { key }.
+            const k =
+              op.rec && op.rec.id != null ? op.rec.id : op.rec && op.rec.key;
+            store.data.set(k, op.rec);
+            if (op.req && op.req.onsuccess) op.req.onsuccess();
           }
         }
         if (!aborted) {
@@ -345,7 +356,7 @@ describe("resume-generation — honest save failures", () => {
       "must dispatch jb:draft:save-failed event on initial draft save failure",
     );
     assert.ok(
-      /showToast\?\(\s*"Draft generated but not saved/.test(after),
+      /showToast\?\.\(\s*"Draft generated but not saved/.test(after),
       "must showToast the 'Draft generated but not saved' copy",
     );
   });
@@ -418,7 +429,10 @@ describe("onboarding-wizard — finish ordering + re-entry prefill", () => {
     const finishIdx = onboardingWizardJs.indexOf(
       'document\n    .getElementById("onboardingFinish")',
     );
-    const tail = onboardingWizardJs.slice(finishIdx, finishIdx + 5000);
+    // The finish handler body is ~7 KB; widen the slice so the catch's
+    // stepLabels map (which lives at the tail of the addEventListener) is
+    // inside the window the regex scans.
+    const tail = onboardingWizardJs.slice(finishIdx, finishIdx + 8000);
     assert.ok(
       /let lastStep\s*=/.test(tail),
       "finish flow must track lastStep",
