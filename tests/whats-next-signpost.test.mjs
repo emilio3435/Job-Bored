@@ -15,6 +15,10 @@ const firstRunWizardJs = readFileSync(
   join(repoRoot, "first-run-wizard.js"),
   "utf8",
 );
+const onboardingWizardJs = readFileSync(
+  join(repoRoot, "onboarding-wizard.js"),
+  "utf8",
+);
 const whatsNextBannerJs = readFileSync(
   join(repoRoot, "whats-next-banner.js"),
   "utf8",
@@ -1656,12 +1660,57 @@ describe("first-run finish — one celebratory stop, not two (delight pass)", ()
   it("finish plays the profile-stage celebration directly (done panel only as stale-markup fallback)", () => {
     const idx = firstRunWizardJs.indexOf('emitOnboardingEvent("first_run_done")');
     assert.ok(idx !== -1);
-    const tail = firstRunWizardJs.slice(idx, idx + 1200);
+    // The inert click-through fix added an explanatory comment block
+    // inside the if-branch, so widen the slice to swallow it.
+    const tail = firstRunWizardJs.slice(idx, idx + 1500);
     assert.match(tail, /playOnboardingCelebration\(/, "finish hands straight to the celebration");
     assert.match(tail, /"profile"/, "with the workspace-connected stage");
     assert.match(tail, /onAlt/, "the done panel's other-devices branch rides the alt link");
     const celebIdx = tail.indexOf("playOnboardingCelebration");
     const panelIdx = tail.indexOf("showFirstRunDonePanel");
     assert.ok(panelIdx > celebIdx, "the terminal panel is only the fallback, not the primary path");
+  });
+});
+
+describe("celebration overlay — inerts siblings while up (click-through fix)", () => {
+  // Live repro: with the celebration at z 100002 and the first-run wizard
+  // at 100001, document.elementFromPoint at the CTA's center returned
+  // content from the first-run wizard's scrollable inner card —
+  // overflow:auto containers get hit-test priority in Chromium even when a
+  // higher-z sibling sits on top. Hiding the wizard "worked" but exposed
+  // the login gate underneath (which has the same scroll-container
+  // quirk), so we keep everything mounted and use `inert` instead.
+  it("playOnboardingCelebration sets inert on every body sibling at show (un-inerts the overlay first)", () => {
+    const start = onboardingWizardJs.indexOf(
+      "function playOnboardingCelebration",
+    );
+    const fn = onboardingWizardJs.slice(start, start + 4500);
+    // First, the overlay itself must be cleared of inert — the first-run
+    // wizard's focus-trap inerts everything including the celebration on
+    // show, so we have to opt out of its own bookkeeping.
+    assert.match(
+      fn,
+      /overlay\.removeAttribute\("inert"\)/,
+      "must clear inert from the celebration overlay itself before showing it",
+    );
+    // Then, every body sibling EXCEPT the overlay gets inert applied (we
+    // walk body.children rather than a hardcoded ID list, so the rule
+    // survives DOM additions like Settings modals or future wizards).
+    assert.match(
+      fn,
+      /document\.body[\s\S]*?children[\s\S]*?\.setAttribute\("inert", ""\)/,
+      "must iterate body.children and inert every sibling",
+    );
+  });
+
+  it("dismiss restores interactivity (removes inert) so the next chapter is usable", () => {
+    const fn = onboardingWizardJs.slice(
+      onboardingWizardJs.indexOf("function playOnboardingCelebration"),
+    );
+    assert.match(
+      fn,
+      /\.removeAttribute\("inert"\)/,
+      "celebration must remove inert when the overlay is dismissed",
+    );
   });
 });

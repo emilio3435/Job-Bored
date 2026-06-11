@@ -820,6 +820,11 @@
       onboarding &&
       typeof onboarding.playOnboardingCelebration === "function"
     ) {
+      // The celebration player inerts sibling overlays (first-run wizard,
+      // login gate) for the duration of the celebration — z-index alone
+      // doesn't beat a scroll container's hit-test priority, but `inert`
+      // does. We can leave the wizard mounted as the blurred background
+      // and the CTA stays clickable.
       onboarding.playOnboardingCelebration(
         () =>
           void handleFirstRunDoneOpenDiscovery({ entryPoint: "onboarding" }),
