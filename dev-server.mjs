@@ -424,13 +424,48 @@ async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
   };
 }
 
+// Security headers applied to every static response. The CSP allowlist must
+// match every provider the dashboard actually contacts: Google Identity /
+// Sheets for OAuth + reads, plus the AI providers users can configure
+// (Gemini, OpenAI, Anthropic, OpenRouter), plus the local discovery worker
+// (any 127.0.0.1/localhost port — the worker port is user-configurable).
+// frame-ancestors 'none' makes the page un-iframeable; X-Frame-Options
+// echoes that for legacy browsers without CSP3 support.
+//
+// script-src extends 'self' with:
+//   - 'unsafe-inline' for the four inline bootstrap blocks in index.html
+//     (the dashboard predates this CSP — moving them out is out of scope
+//     for this security sweep). 'unsafe-inline' on script-src is a real
+//     tradeoff vs. 'self'-only, but the rest of the policy (default-src,
+//     frame-ancestors, connect-src allowlist, X-Frame-Options, nosniff,
+//     no-referrer) still buys meaningful hardening over no CSP at all.
+//   - https://accounts.google.com for the Google Identity Services client
+//     loaded by the dashboard's sign-in gate.
+// connect-src + font-src reach gstatic so the self-hosted-font fallback
+// (and any data: font payload) loads cleanly; frame-src lets GSI render
+// its sign-in iframe.
+const STATIC_SECURITY_HEADERS = {
+  "content-security-policy":
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' https://accounts.google.com; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: https:; " +
+    "font-src 'self' data: https://fonts.gstatic.com; " +
+    "connect-src 'self' https://accounts.google.com https://sheets.googleapis.com https://generativelanguage.googleapis.com https://api.openai.com https://api.anthropic.com https://openrouter.ai https://fonts.gstatic.com http://127.0.0.1:* http://localhost:*; " +
+    "frame-src https://accounts.google.com; " +
+    "frame-ancestors 'none'",
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "referrer-policy": "no-referrer",
+};
+
 async function serveStatic(urlPath, res) {
   let filePath = join(ROOT, urlPath === "/" ? "index.html" : urlPath);
   try {
     const info = await stat(filePath);
     if (info.isDirectory()) filePath = join(filePath, "index.html");
   } catch {
-    res.writeHead(404, { "content-type": "text/plain" });
+    res.writeHead(404, { "content-type": "text/plain", ...STATIC_SECURITY_HEADERS });
     res.end("Not found");
     return;
   }
@@ -447,15 +482,23 @@ async function serveStatic(urlPath, res) {
       if (/<!--\s*@include\s+/.test(data)) {
         data = expandIndexIncludes(data, ROOT);
       }
-      res.writeHead(200, { "content-type": ct, "cache-control": "no-cache" });
+      res.writeHead(200, {
+        "content-type": ct,
+        "cache-control": "no-cache",
+        ...STATIC_SECURITY_HEADERS,
+      });
       res.end(data);
       return;
     }
     const data = await readFile(filePath);
-    res.writeHead(200, { "content-type": ct, "cache-control": "no-cache" });
+    res.writeHead(200, {
+      "content-type": ct,
+      "cache-control": "no-cache",
+      ...STATIC_SECURITY_HEADERS,
+    });
     res.end(data);
   } catch {
-    res.writeHead(404, { "content-type": "text/plain" });
+    res.writeHead(404, { "content-type": "text/plain", ...STATIC_SECURITY_HEADERS });
     res.end("Not found");
   }
 }
@@ -2284,6 +2327,18 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
 
     const target = parseLocalProxyRoute(pathname, url.searchParams);
     if (target) {
+      // Proxy routes expose local worker / ngrok state to whoever can reach
+      // this dev server. On Tailscale-served dashboards that can leak worker
+      // health + tunnel data to any tailnet peer. Mirror the gating every
+      // other /__proxy/* handler already does: localhost-only.
+      if (!isLocalOrigin(req)) {
+        res.writeHead(403, {
+          "content-type": "application/json",
+          "access-control-allow-origin": "*",
+        });
+        res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+        return;
+      }
       proxyRequest(target, req, res);
       return;
     }

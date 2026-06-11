@@ -34,6 +34,10 @@
     "resumeAnthropicModel",
     "resumeOpenRouterApiKey",
     "resumeOpenRouterModel",
+    // Security: both base URLs feed fetch() with the Bearer API key attached;
+    // resume-generate.js's assertSafeBaseUrl rejects anything that isn't
+    // https:// or http://127.0.0.1|localhost. settings-modal.js validates at
+    // write-time; the request-time check is the load-bearing gate.
     "resumeOpenRouterBaseUrl",
     "resumeLocalBaseUrl",
     "resumeLocalModel",

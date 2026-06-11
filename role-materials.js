@@ -73,6 +73,21 @@
   }
 
   /**
+   * Returns the original URL only if it parses as http(s); otherwise empty
+   * string. Mirrors JobBoredApp.utils.safeHref (app-utils.js:22) so a
+   * pasted javascript: / data: jobUrl can't render as a clickable
+   * script-exec anchor in the Source URL row. The escapeHtml wrap on the
+   * returned value is still required — safeHref returns the raw URL, not
+   * an HTML-safe one.
+   */
+  function safeHref(url) {
+    if (!url) return "";
+    var s = String(url).trim();
+    if (/^https?:\/\//i.test(s)) return s;
+    return "";
+  }
+
+  /**
    * Normalise a free-form string into the slug shape Hermes uses for
    * its application folders: lowercase ASCII alphanumerics joined by
    * single dashes. Drops TLD-style suffixes (e.g. "chartis.io" →
@@ -1905,6 +1920,14 @@
     if (existing) existing.parentNode.removeChild(existing);
     var holder = document.createElement("div");
     holder.className = "brief-materials__jd-form";
+    // Hardened against jobUrl XSS: a pasted javascript:/data: URL must NOT
+    // render as a clickable anchor (its onclick would exec). safeHref drops
+    // everything that isn't http(s); the escapeHtml on the http(s) value
+    // is still needed because attribute values must be HTML-safe.
+    var __href = safeHref(ctx.jobUrl);
+    var __sourceUrl = __href
+      ? ' Source URL: <a href="' + escapeHtml(__href) + '" target="_blank" rel="noopener">' + escapeHtml(__href) + '</a>'
+      : '';
     holder.innerHTML = ''
       + '<form aria-label="Paste job description">'
         + '<header class="brief-materials__jd-head">'
@@ -1913,7 +1936,7 @@
         + '</header>'
         + '<p class="brief-materials__jd-hint">'
           + 'Paste the full job description from the posting and we\'ll save it as <code>job-description.md</code> in the slug folder, then kick off Hermes.'
-          + (ctx.jobUrl ? ' Source URL: <a href="' + escapeHtml(ctx.jobUrl) + '" target="_blank" rel="noopener">' + escapeHtml(ctx.jobUrl) + '</a>' : '')
+          + __sourceUrl
         + '</p>'
         + '<textarea name="jd" rows="10" required minlength="50" placeholder="Paste the full job description here…"></textarea>'
         + '<footer class="brief-materials__jd-actions">'
