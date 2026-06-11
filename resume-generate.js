@@ -3,6 +3,53 @@
    ============================================ */
 
 (function () {
+  /**
+   * Block fetches that send Bearer API keys to attacker-controlled hosts.
+   *
+   * The browser sends a user-set baseUrl (resumeOpenRouterBaseUrl,
+   * resumeLocalBaseUrl) verbatim to fetch() with the Bearer key attached.
+   * Without a scheme check, an attacker who tricks the user into pasting
+   * `http://attacker.example/v1` exfiltrates the configured OpenRouter
+   * key in cleartext to their server. Allow only:
+   *   - https:// anywhere
+   *   - http:// to 127.0.0.1 / localhost (the Ollama / local-server case)
+   * Anything else (http to a non-local host, javascript:, file:, ws:, …)
+   * raises a typed error so the caller surfaces a Settings-fix toast
+   * instead of leaking the key.
+   */
+  function assertSafeBaseUrl(u) {
+    var raw = String(u == null ? "" : u).trim();
+    var unsafe = new Error("Custom base URL must be https or 127.0.0.1");
+    if (!raw) throw unsafe;
+    // Prefer the WHATWG URL parser when it's available (browser + Node).
+    // We fall back to a regex check so the guard still works in vm
+    // contexts the test harness builds without a URL global.
+    var URLCtor = typeof URL === "function" ? URL : null;
+    if (URLCtor) {
+      var url;
+      try {
+        url = new URLCtor(raw);
+      } catch (_) {
+        throw unsafe;
+      }
+      if (url.protocol === "https:") return;
+      if (
+        url.protocol === "http:" &&
+        (url.hostname === "127.0.0.1" || url.hostname === "localhost")
+      ) {
+        return;
+      }
+      throw unsafe;
+    }
+    // Regex fallback: same allowlist as the URL-parser branch.
+    if (/^https:\/\//i.test(raw)) return;
+    if (/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/i.test(raw)) return;
+    throw unsafe;
+  }
+  // Expose for tests; also lets settings-modal.js reuse the same check
+  // at write-time instead of re-deriving the rule.
+  window.CommandCenterResumeBaseUrlGuard = { assertSafeBaseUrl };
+
   /** Curated model ids for Settings dropdowns (see provider docs for the latest). */
   window.CommandCenterResumeModelOptions = {
     gemini: [
@@ -344,6 +391,7 @@
     model,
     opts,
   ) {
+    assertSafeBaseUrl(baseUrl);
     const base = String(baseUrl).replace(/\/+$/, "");
     const wantJson = wantsJsonResponse(opts);
     const body = {
@@ -568,6 +616,7 @@
     model,
     baseUrl = "https://api.openai.com/v1",
   ) {
+    assertSafeBaseUrl(baseUrl);
     const system = buildSystemPrompt(bundle);
     const user = buildUserPayload(bundle);
     const limitKey = openAIUsesMaxCompletionTokens(model)
@@ -633,10 +682,9 @@
   }
 
   async function callOpenRouter(bundle, apiKey, model, baseUrl) {
-    const base = String(baseUrl || "https://openrouter.ai/api/v1").replace(
-      /\/+$/,
-      "",
-    );
+    const resolvedBaseUrl = baseUrl || "https://openrouter.ai/api/v1";
+    assertSafeBaseUrl(resolvedBaseUrl);
+    const base = String(resolvedBaseUrl).replace(/\/+$/, "");
     const system = buildSystemPrompt(bundle);
     const user = buildUserPayload(bundle);
     const body = {
@@ -687,10 +735,9 @@
    * "Failed to fetch".
    */
   async function callLocal(bundle, apiKey, model, baseUrl) {
-    const base = String(baseUrl || "http://127.0.0.1:11434/v1").replace(
-      /\/+$/,
-      "",
-    );
+    const resolvedBaseUrl = baseUrl || "http://127.0.0.1:11434/v1";
+    assertSafeBaseUrl(resolvedBaseUrl);
+    const base = String(resolvedBaseUrl).replace(/\/+$/, "");
     const system = buildSystemPrompt(bundle);
     const user = buildUserPayload(bundle);
     const body = {

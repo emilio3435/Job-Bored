@@ -768,6 +768,41 @@ async function saveCommandCenterSettingsFromForm() {
     resumeGenerationWebhookUrl: val("settingsResumeGenerationWebhookUrl"),
   };
 
+  // Defence-in-depth: reject obviously unsafe BYOK base URLs at save-time so
+  // the bad value never reaches localStorage. resume-generate.js's
+  // assertSafeBaseUrl is the request-time gate; this is the write-time gate.
+  // If the field is blank we let the defaults flow through unchecked.
+  const baseUrlGuard =
+    window.CommandCenterResumeBaseUrlGuard &&
+    typeof window.CommandCenterResumeBaseUrlGuard.assertSafeBaseUrl === "function"
+      ? window.CommandCenterResumeBaseUrlGuard.assertSafeBaseUrl
+      : null;
+  if (baseUrlGuard) {
+    const baseUrlFieldChecks = [
+      { value: val("settingsResumeOpenRouterBaseUrl"), field: "settingsResumeOpenRouterBaseUrl" },
+      { value: val("settingsResumeLocalBaseUrl"), field: "settingsResumeLocalBaseUrl" },
+    ];
+    for (const check of baseUrlFieldChecks) {
+      if (!check.value) continue;
+      try {
+        baseUrlGuard(check.value);
+      } catch (e) {
+        const message =
+          (e && e.message ? String(e.message) : "Custom base URL must be https or 127.0.0.1");
+        if (err) {
+          err.textContent = message + " — fix the AI provider base URL and save again.";
+          err.style.display = "block";
+        }
+        showToast(message, "error", true);
+        const Tabs = window.JobBoredSettingsTabs;
+        if (Tabs && typeof Tabs.activateTabForField === "function") {
+          Tabs.activateTabForField(check.field);
+        }
+        return;
+      }
+    }
+  }
+
   // Discovery profile (target roles, locations, keywords, etc.) is owned
   // by the Discovery drawer's Search sub-tab. Saving Settings does not
   // touch the discovery profile — drawer Run discovery writes it instead.
