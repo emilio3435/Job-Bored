@@ -922,6 +922,28 @@ async function runResumeGeneration(dataIndex, feature, options) {
         } catch (_e) { /* event dispatch is best-effort */ }
       } catch (draftErr) {
         console.warn("[JobBored] save generated draft:", draftErr);
+        // Honest UX: tell the user the draft was generated but NOT persisted
+        // (typically IDB quota exhausted or a transient write error). Without
+        // this, the modal opens looking like a success and the user trusts
+        // their library — then the draft is gone after reload.
+        try {
+          host().showToast?.(
+            "Draft generated but not saved (storage error) — copy it before closing.",
+            "warn",
+            true,
+          );
+        } catch (_) {
+          /* toast host best-effort */
+        }
+        try {
+          document.dispatchEvent(
+            new CustomEvent("jb:draft:save-failed", {
+              detail: { error: String(draftErr) },
+            }),
+          );
+        } catch (_) {
+          /* event dispatch is best-effort */
+        }
       }
     }
     lastResumeGenerationSession = {

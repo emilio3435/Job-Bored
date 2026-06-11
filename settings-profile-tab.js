@@ -270,11 +270,13 @@
       if (els.textarea) els.textarea.value = text || "";
       var charCount = (text || "").length;
       var saved = false;
+      var saveFailed = false;
       if (charCount > 0) {
         try {
           saved = await saveResumeToUserProfile(text, file, ingest);
           profileRestoredThisSession = true;
         } catch (saveErr) {
+          saveFailed = true;
           try {
             console.warn(
               "[settings-profile-tab] resume profile save failed:",
@@ -284,6 +286,19 @@
             // ignore
           }
         }
+      }
+      // Honest UX: a storage failure (IDB quota / VersionError) must not
+      // present as a clean success. The textarea still has the extracted
+      // text, so tell the user to paste it into Profile > Resume to retry.
+      if (saveFailed) {
+        setStatus(
+          "Extracted " +
+            charCount.toLocaleString() +
+            " characters but could not save to profile (storage error). " +
+            "Paste the text into Profile > Resume to retry.",
+          "warn",
+        );
+        return;
       }
       setStatus(
         charCount > 0

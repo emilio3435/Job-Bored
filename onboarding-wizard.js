@@ -373,6 +373,45 @@ function hideOnboardingWizard() {
   onboardingLastOpener = null;
 }
 
+/**
+ * If the user already has a saved primary resume (e.g. a previous finish
+ * threw after setPrimaryResume succeeded), stage it as the Step 1 draft on
+ * wizard open so the re-run doesn't force a re-upload and the upload status
+ * line reads as a recovered state instead of empty.
+ */
+async function prepopulateOnboardingFromSavedResume() {
+  const UC = getUserContent();
+  if (!UC || typeof UC.getActiveResume !== "function") return;
+  try {
+    if (typeof UC.openDb === "function") await UC.openDb();
+    const existing = await UC.getActiveResume();
+    const text = existing && String(existing.extractedText || "").trim();
+    if (!text) return;
+    // Only stage if the user hasn't already started a fresh upload in this
+    // session — don't clobber an in-flight new draft.
+    if (onboardingResumeDraft) return;
+    onboardingResumeDraft = {
+      source: existing.source || "saved",
+      rawMime: existing.rawMime || null,
+      label: existing.label || "My resume",
+      extractedText: text,
+      structured: existing.structured != null ? existing.structured : null,
+    };
+    onboardingResumePath = "saved";
+    const statusUp = document.getElementById("onboardingResumeStatusUpload");
+    if (statusUp) {
+      statusUp.textContent =
+        `Saved resume restored (${text.length.toLocaleString()} characters). ` +
+        "Upload a new file to replace it.";
+      statusUp.classList.remove("onboarding-status--error");
+      statusUp.classList.add("onboarding-status--ok");
+    }
+    updateOnboardingContinue2Enabled();
+  } catch (e) {
+    console.warn("[JobBored] prepopulate onboarding resume:", e);
+  }
+}
+
 function showOnboardingWizard() {
   const w = document.getElementById("onboardingWizard");
   if (!w) return;
@@ -381,6 +420,10 @@ function showOnboardingWizard() {
   }
   onboardingResumeDraft = null;
   onboardingResumePath = null;
+  // Honest re-entry: if the user already has a saved primary resume from a
+  // prior (partially-failed) run, pre-populate Step 1 so the next finish
+  // attempt doesn't overwrite their saved work or force a re-upload.
+  void prepopulateOnboardingFromSavedResume();
   const paste = document.getElementById("onboardingPasteText");
   const status = document.getElementById("onboardingResumeStatus");
   const statusUp = document.getElementById("onboardingResumeStatusUpload");
@@ -1427,7 +1470,14 @@ function initOnboardingWizard() {
       const maxWords = parseInt(mwEl && mwEl.value, 10);
       const finish = document.getElementById("onboardingFinish");
       if (finish) finish.disabled = true;
+      // Track the step that's currently writing so the outer catch can give
+      // step-specific feedback ("preferences failed to save" beats
+      // "Could not save profile"). The order below MUST end with
+      // completeOnboarding — otherwise a later save failing leaves the
+      // onboarding-complete flag set with no underlying profile.
+      let lastStep = "resume";
       try {
+        lastStep = "resume";
         await UC.setPrimaryResume(onboardingResumeDraft);
         // Merge Step 3's two remaining guided fields + optional pasted
         // career summary into a single AI context blob. Chip selections
@@ -1454,6 +1504,7 @@ function initOnboardingWizard() {
         }
         const aiNorm = normalizeProfileTextInput(guidedParts.join("\n\n"));
         if (aiNorm && typeof UC.saveAdditionalContext === "function") {
+          lastStep = "context";
           await UC.saveAdditionalContext({
             text: aiNorm,
             updatedAt: new Date().toISOString(),
@@ -1480,6 +1531,7 @@ function initOnboardingWizard() {
             chipErr,
           );
         }
+        lastStep = "preferences";
         await UC.savePreferences({
           tone: (toneEl && toneEl.value) || "warm",
           defaultMaxWords:
@@ -1488,6 +1540,11 @@ function initOnboardingWizard() {
           wordsToAvoid: "",
           voiceNotes: (voEl && voEl.value.trim()) || "",
         });
+        // completeOnboarding is the LAST awaited write. If preferences/context
+        // throw, we surface a step-specific toast and DON'T mark the user
+        // onboarded — they'll see the wizard again on next load with their
+        // saved resume pre-populated (see showOnboardingWizard prefill).
+        lastStep = "complete";
         await UC.completeOnboarding();
         hideOnboardingWizard();
         scheduleCandidateProfileMatchRefresh(true);
@@ -1502,7 +1559,16 @@ function initOnboardingWizard() {
         });
       } catch (err) {
         console.error(err);
-        showToast(err.message || "Could not save profile", "error");
+        const stepLabels = {
+          resume: "Could not save your resume — try again.",
+          context: "Resume saved, but AI context didn't save. Try again.",
+          preferences:
+            "Resume saved, but preferences didn't save. Try again.",
+          complete:
+            "Profile saved, but we couldn't mark setup complete. Try again.",
+        };
+        const label = stepLabels[lastStep] || "Could not save profile";
+        showToast(err.message ? `${label} (${err.message})` : label, "error");
       } finally {
         if (finish) finish.disabled = false;
       }

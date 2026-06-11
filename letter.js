@@ -581,7 +581,18 @@
       if (result && result.draftId) {
         ctx.pendingActiveDraftId = result.draftId;
       }
-      setRefineStatus(region, "Refined and saved as a new version.", "success");
+      // Honest UX: revisions can generate text yet fail to persist (IDB quota,
+      // worker write reject). The function returns saved:false + saveError;
+      // surface it instead of claiming "saved as a new version".
+      if (result && result.saved === false) {
+        setRefineStatus(
+          region,
+          "Draft generated but not saved (storage error) — copy it before closing.",
+          "error",
+        );
+      } else {
+        setRefineStatus(region, "Refined and saved as a new version.", "success");
+      }
       if (input) input.value = "";
     } catch (err) {
       var msg = err && err.message ? String(err.message) : "Refinement failed";
