@@ -39,7 +39,22 @@
       req.onerror = () => {
         clearTimeout(watchdog);
         dbPromise = null;
-        reject(req.error);
+        // Surface VersionError as a coded, friendly rejection so the boot
+        // caller can show a "your DB is from a newer build" toast instead of
+        // a silent dead app. Do NOT auto-deleteDatabase: that would wipe the
+        // user's resume just because they opened an older deploy by accident.
+        const err = req.error;
+        if (err && err.name === "VersionError") {
+          const friendly = new Error(
+            "Your saved Job-Bored data was created by a newer build of the " +
+              "app. Open the latest deploy in this browser, or clear settings " +
+              "to start fresh.",
+          );
+          friendly.code = "IDB_VERSION_TOO_OLD";
+          reject(friendly);
+          return;
+        }
+        reject(err);
       };
       req.onsuccess = () => {
         clearTimeout(watchdog);
@@ -709,18 +724,6 @@
     });
   }
 
-  async function putResume(record) {
-    const db = await openDb();
-    return new Promise((resolve, reject) => {
-      const r = db
-        .transaction(STORE_RESUMES, "readwrite")
-        .objectStore(STORE_RESUMES)
-        .put(record);
-      r.onsuccess = () => resolve(record);
-      r.onerror = () => reject(r.error);
-    });
-  }
-
   async function deleteResume(id) {
     const db = await openDb();
     return new Promise((resolve, reject) => {
@@ -747,6 +750,12 @@
 
   /**
    * Replace all resume rows with one canonical resume.
+   *
+   * Atomic by IDB semantics: clear() + put() ride a single readwrite
+   * transaction so a put failure (e.g. QuotaExceeded mid-write) aborts the
+   * clear and leaves the previous resume intact. The previous two-tx pattern
+   * could leave the user with NO resume if the second tx failed.
+   *
    * @param {{ source?: string, rawMime?: string|null, label?: string, extractedText: string, structured?: object|null }} payload
    */
   async function setPrimaryResume(payload) {
@@ -754,7 +763,6 @@
     if (!text) {
       throw new Error("Resume text is required");
     }
-    await clearAllResumes();
     const now = new Date().toISOString();
     const record = {
       id: PRIMARY_RESUME_ID,
@@ -765,7 +773,29 @@
       structured: payload.structured != null ? payload.structured : null,
       createdAt: now,
     };
-    await putResume(record);
+    const db = await openDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_RESUMES, "readwrite");
+      tx.oncomplete = () => resolve();
+      tx.onabort = () =>
+        reject((tx.error) || new Error("Resume write aborted"));
+      tx.onerror = () =>
+        reject((tx.error) || new Error("Resume write failed"));
+      const store = tx.objectStore(STORE_RESUMES);
+      try {
+        store.clear();
+        store.put(record);
+      } catch (err) {
+        // Synchronous throw (e.g. record didn't fit a key schema) — abort the
+        // tx so the clear is rolled back, then surface the original error.
+        try {
+          tx.abort();
+        } catch (_) {
+          /* already aborting */
+        }
+        reject(err);
+      }
+    });
     await setSetting("activeResumeId", PRIMARY_RESUME_ID);
     return record;
   }

@@ -203,14 +203,21 @@ describe("Onboarding reset preserves data", () => {
     }
     const fnBody = userContentStoreJs.slice(setFnStart, fnEnd + 1);
 
-    // Should call clearAllResumes before putResume
+    // Should replace (not append) — single atomic readwrite tx that does
+    // both store.clear() and store.put(record). The pre-atomic pattern used
+    // helpers (clearAllResumes/putResume) on TWO separate transactions, which
+    // could leave the user with NO resume if the second tx failed mid-write.
     assert.ok(
-      fnBody.includes("clearAllResumes"),
-      "setPrimaryResume should call clearAllResumes to ensure single primary",
+      /store\.clear\(\)/.test(fnBody),
+      "setPrimaryResume should clear the resume store to ensure single primary",
     );
     assert.ok(
-      fnBody.includes("putResume"),
-      "setPrimaryResume should call putResume to save the new primary",
+      /store\.put\(record\)/.test(fnBody),
+      "setPrimaryResume should put the new primary record",
+    );
+    assert.ok(
+      /"readwrite"/.test(fnBody),
+      "setPrimaryResume should run a readwrite transaction over STORE_RESUMES",
     );
   });
 

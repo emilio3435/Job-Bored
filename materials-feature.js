@@ -161,7 +161,25 @@
   const UC = getUserContent();
   if (!UC) return;
 
-  UC.openDb().catch((e) => console.warn("[JobBored] User content DB:", e));
+  UC.openDb().catch((e) => {
+    console.warn("[JobBored] User content DB:", e);
+    // VersionError surfaces when the user lands on an older deploy than their
+    // stored DB. Show one friendly toast — do NOT auto-deleteDatabase (that
+    // would wipe their resume just because they opened an older tab).
+    if (e && e.code === "IDB_VERSION_TOO_OLD") {
+      try {
+        host().showToast(
+          "Your saved data was created by a newer version of Job-Bored. " +
+            "Open the latest deploy in this browser, or clear settings to " +
+            "start fresh.",
+          "error",
+          true,
+        );
+      } catch (_) {
+        /* toast host not ready — warn is the floor */
+      }
+    }
+  });
   scheduleCandidateProfileMatchRefresh(true);
   scheduleGeneratedDraftLibraryRefresh(true);
 

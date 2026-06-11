@@ -522,12 +522,16 @@
       if (typeof h.mergeStoredConfigOverridePatch === "function") {
         h.mergeStoredConfigOverridePatch({ [field]: value });
       }
+      // Mirror into the in-memory runtime config ONLY after storage succeeds.
+      // Previously this lived outside the try, so a storage write that threw
+      // would still leave the in-memory key set — the user would pass
+      // verify (which reads the live config) yet lose the key on reload.
+      if (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) {
+        window.COMMAND_CENTER_CONFIG[field] = value;
+      }
     } catch (err) {
       console.warn(`[JobBored] save ${p} key failed:`, err);
       return { ok: false, reason: "storage" };
-    }
-    if (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) {
-      window.COMMAND_CENTER_CONFIG[field] = value;
     }
     return { ok: true };
   }
