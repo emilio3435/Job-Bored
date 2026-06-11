@@ -10,6 +10,80 @@
   // safe, and honest about the step's "Stays in your browser" promise.
   const PDF_WORKER_SRC = "vendor/pdf.worker.min.js";
 
+  // Lazy-load pdf.js + mammoth on first PDF/DOCX upload. They used to live in
+  // index.html (963 KB combined on every cold start), which dominated LCP on
+  // Fast-3G connections for users who never opened a resume. We now inject
+  // them at first parse — already covered by the watchdog in
+  // extractTextFromFile, so a flaky CDN/network surfaces as the same
+  // actionable error users see today.
+  const RESUME_READER_SCRIPTS = [
+    "vendor/pdf.min.js",
+    "vendor/mammoth.browser.min.js",
+  ];
+  let resumeReadersPromise = null;
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      if (typeof document === "undefined" || !document.head) {
+        reject(new Error("Cannot load " + src + ": no document.head"));
+        return;
+      }
+      const existing = document.querySelector(
+        'script[src="' + src + '"]',
+      );
+      if (existing && existing.dataset.resumeReader === "loaded") {
+        resolve();
+        return;
+      }
+      const s = document.createElement("script");
+      s.src = src;
+      s.async = false; // preserve order across the two vendors
+      s.dataset.resumeReader = "loading";
+      s.onload = function () {
+        s.dataset.resumeReader = "loaded";
+        resolve();
+      };
+      s.onerror = function () {
+        reject(new Error("Failed to load " + src));
+      };
+      document.head.appendChild(s);
+    });
+  }
+  function loadResumeReaders() {
+    // No-op when at least one vendor already lives on the page — covers two
+    // real cases: (a) the user already uploaded once this session and the
+    // promise cached; (b) test harnesses pre-stub pdfjsLib / mammoth in a
+    // VM context with no document.head — injecting a <script> there would
+    // throw before the watchdog can take over.
+    const hasPdf =
+      typeof window !== "undefined" &&
+      (window.pdfjsLib || typeof pdfjsLib !== "undefined");
+    const hasMammoth =
+      typeof window !== "undefined" &&
+      (window.mammoth || typeof mammoth !== "undefined");
+    if (hasPdf && hasMammoth) return Promise.resolve();
+    // If we're outside a real DOM (e.g., VM-harness tests that pre-stub one
+    // vendor but not both), don't try to inject; the dispatch step will fall
+    // back to its own typeof-guard error.
+    if (typeof document === "undefined" || !document.head) {
+      return Promise.resolve();
+    }
+    if (resumeReadersPromise) return resumeReadersPromise;
+    resumeReadersPromise = Promise.all(
+      RESUME_READER_SCRIPTS.map(loadScript),
+    )
+      .then(function () {
+        if (typeof window !== "undefined") {
+          window.__resumeReadersLoaded = true;
+        }
+      })
+      .catch(function (err) {
+        // Reset so the next upload can retry instead of latching forever.
+        resumeReadersPromise = null;
+        throw err;
+      });
+    return resumeReadersPromise;
+  }
+
   function ensurePdfWorker() {
     const pdfjs =
       typeof pdfjsLib !== "undefined"
@@ -175,6 +249,9 @@
    * @returns {Promise<string>}
    */
   async function extractTextFromFile(file, options = {}) {
+    // Pull pdf.js + mammoth on demand. After the first call they're cached;
+    // subsequent uploads pay nothing here.
+    await loadResumeReaders();
     const tRead = nowMs();
     const buf = await file.arrayBuffer();
     console.info(
@@ -211,5 +288,6 @@
     extractTextFromPdf,
     extractTextFromDocx,
     guessMime,
+    loadResumeReaders,
   };
 })();

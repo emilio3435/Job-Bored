@@ -212,7 +212,11 @@
     <link rel="stylesheet" href="pipeline.css" />
     <link rel="stylesheet" href="role.css" />
     <link rel="stylesheet" href="materials-queue.css" />
-    <link rel="stylesheet" href="letter.css" />
+    <!-- letter.css removed from critical path 2026-06-11 — letter.js is no   -->
+    <!-- longer included (see comment at ~line 231-233); the file remains on  -->
+    <!-- disk because tests/letter-*.test.mjs assert its surface and          -->
+    <!-- letter.js still ships unused. Saves ~47 KB / 1 render-blocking link  -->
+    <!-- on every cold load. Re-add this link if letter.js ever rejoins.      -->
     <link rel="stylesheet" href="scribe.css" />
     <link rel="stylesheet" href="welcome.css" />
     <link rel="stylesheet" href="fit-profile.css" />
@@ -1564,84 +1568,88 @@
     <!-- Vendored locally (vendor/) — the resume reader must not depend on a
          third-party CDN at parse time: the 1MB pdf.js worker was lazily
          fetched from cdnjs mid-upload, hanging "Reading…" on filtered/slow
-         networks and breaking offline/firewalled OSS users. -->
-    <script src="vendor/pdf.min.js"></script>
-    <script src="vendor/mammoth.browser.min.js"></script>
-    <script src="document-templates.js"></script>
-    <script src="visual-themes.js"></script>
-    <script src="user-content-store.js"></script>
-    <script src="onboarding-telemetry.js"></script>
-    <script src="discovery-payload.js"></script>
-    <script src="discovery-autodetect.js"></script>
-    <script src="discovery-shared-helpers.js"></script>
-    <script src="wizard-dom.js"></script>
-    <script src="discovery-wizard-shell.js"></script>
-    <script src="discovery-wizard-probes.js"></script>
-    <script src="discovery-wizard-local.js"></script>
-    <script src="discovery-wizard-relay.js"></script>
-    <script src="discovery-wizard-verify.js"></script>
-    <script src="discovery-wizard-ui.js?v=2"></script>
-    <script src="go-live-wizard-ui.js"></script>
-    <script src="enhancements-wizard-ui.js"></script>
-    <script src="resume-ingest.js"></script>
-    <script src="resume-bundle.js"></script>
-    <script src="resume-generate.js"></script>
+         networks and breaking offline/firewalled OSS users.
+         2026-06-11: vendor/pdf.min.js (320 KB) + vendor/mammoth.browser.min.js
+         (643 KB) were moved OUT of the cold-start critical path.
+         resume-ingest.js now injects them on first PDF/DOCX upload via
+         loadResumeReaders(). The vendored files still live under vendor/ —
+         same disk-fast, offline-safe promise (no CDN), just deferred to
+         when the user actually picks a resume. -->
+    <script src="document-templates.js" defer></script>
+    <script src="visual-themes.js" defer></script>
+    <script src="user-content-store.js" defer></script>
+    <script src="onboarding-telemetry.js" defer></script>
+    <script src="discovery-payload.js" defer></script>
+    <script src="discovery-autodetect.js" defer></script>
+    <script src="discovery-shared-helpers.js" defer></script>
+    <script src="wizard-dom.js" defer></script>
+    <script src="discovery-wizard-shell.js" defer></script>
+    <script src="discovery-wizard-probes.js" defer></script>
+    <script src="discovery-wizard-local.js" defer></script>
+    <script src="discovery-wizard-relay.js" defer></script>
+    <script src="discovery-wizard-verify.js" defer></script>
+    <script src="discovery-wizard-ui.js?v=2" defer></script>
+    <script src="go-live-wizard-ui.js" defer></script>
+    <script src="enhancements-wizard-ui.js" defer></script>
+    <script src="resume-ingest.js" defer></script>
+    <script src="resume-bundle.js" defer></script>
+    <script src="resume-generate.js" defer></script>
     <!-- Self-updating model catalog: live provider model lists + key pings.
          Loads after resume-generate (sources its curated options) and
          before the first-run wizard + settings modal that consume it. -->
-    <script src="model-catalog.js"></script>
-    <script src="job-posting-insights.js"></script>
-    <script src="expired-review.js"></script>
-    <script src="config.js"></script>
-    <script src="settings-tab-schema.js"></script>
-    <script src="settings-tabs.js"></script>
-    <script src="settings-jb-v2-tab.js"></script>
-    <script src="settings-discovery-adapters.js"></script>
-    <script src="settings-profile-tab.js?v=4"></script>
-    <script src="fit-profile-wizard.js"></script>
-    <script src="fit-profile-editor.js"></script>
-    <script src="fit-profile-backcompat.js"></script>
-    <script src="runs-tab.js"></script>
-    <script src="setup-doctor.js"></script>
-    <script src="discovery-coach.js"></script>
-    <script src="app-utils.js?v=1"></script>
-    <script src="daily-brief.js?v=1"></script>
-    <script src="keyword-profile-match.js?v=1"></script>
-    <script src="profile-materials.js?v=1"></script>
-    <script src="expired-review-ui.js?v=1"></script>
-    <script src="posting-enrichment.js?v=1"></script>
-    <script src="materials-state.js?v=1"></script>
-    <script src="ats-scorecard.js?v=1"></script>
-    <script src="resume-generation.js?v=1"></script>
-    <script src="onboarding-wizard.js?v=1"></script>
-    <script src="first-run-wizard.js?v=1"></script>
-    <script src="whats-next-banner.js?v=1"></script>
-    <script src="company-logo.js?v=1"></script>
-    <script src="model-download.js?v=1"></script>
-    <script src="settings-modal.js?v=1"></script>
-    <script src="materials-feature.js?v=1"></script>
-    <script src="sheets-writeback.js?v=1"></script>
-    <script src="sheets-read-load.js?v=3"></script>
-    <script src="pipeline-render.js?v=1"></script>
-    <script src="pipeline-controller.js?v=1"></script>
-    <script src="discovery-run-tracker.js?v=1"></script>
-    <script src="config-overrides.js?v=1"></script>
-    <script src="app-config-core.js?v=2"></script>
-    <script src="auth-session.js?v=1"></script>
-    <script src="sheet-access-setup.js?v=2"></script>
-    <script src="apps-script-relay-helpers.js?v=1"></script>
-    <script src="scraper-ats-config.js?v=1"></script>
-    <script src="discovery-engine-state.js?v=1"></script>
-    <script src="discovery-readiness.js?v=1"></script>
-    <script src="discovery-status-handoff.js?v=1"></script>
-    <script src="apps-script-deploy.js?v=1"></script>
-    <script src="discovery-setup-modals.js?v=1"></script>
-    <script src="discovery-drawer.js?v=1"></script>
-    <script src="ingest-url-flow.js?v=1"></script>
-    <script src="discovery-run-orchestration.js?v=1"></script>
-    <script src="app-bootstrap.js?v=2"></script>
-    <script src="app-compat.js?v=1"></script>
-    <script src="bridge-registry.js?v=3"></script>
-    <script src="app.js?v=30"></script>
+    <script src="model-catalog.js" defer></script>
+    <script src="job-posting-insights.js" defer></script>
+    <script src="expired-review.js" defer></script>
+    <script src="config.js" defer></script>
+    <script src="settings-tab-schema.js" defer></script>
+    <script src="settings-tabs.js" defer></script>
+    <script src="settings-jb-v2-tab.js" defer></script>
+    <script src="settings-discovery-adapters.js" defer></script>
+    <script src="settings-profile-tab.js?v=4" defer></script>
+    <script src="fit-profile-wizard.js" defer></script>
+    <script src="fit-profile-editor.js" defer></script>
+    <script src="fit-profile-backcompat.js" defer></script>
+    <script src="runs-tab.js" defer></script>
+    <script src="setup-doctor.js" defer></script>
+    <script src="discovery-coach.js" defer></script>
+    <script src="app-utils.js?v=1" defer></script>
+    <script src="daily-brief.js?v=1" defer></script>
+    <script src="keyword-profile-match.js?v=1" defer></script>
+    <script src="profile-materials.js?v=1" defer></script>
+    <script src="expired-review-ui.js?v=1" defer></script>
+    <script src="posting-enrichment.js?v=1" defer></script>
+    <script src="materials-state.js?v=1" defer></script>
+    <script src="ats-scorecard.js?v=1" defer></script>
+    <script src="resume-generation.js?v=1" defer></script>
+    <script src="onboarding-wizard.js?v=1" defer></script>
+    <script src="first-run-wizard.js?v=1" defer></script>
+    <script src="whats-next-banner.js?v=1" defer></script>
+    <script src="company-logo.js?v=1" defer></script>
+    <script src="model-download.js?v=1" defer></script>
+    <script src="settings-modal.js?v=1" defer></script>
+    <script src="materials-feature.js?v=1" defer></script>
+    <script src="sheets-writeback.js?v=1" defer></script>
+    <script src="sheets-read-load.js?v=3" defer></script>
+    <script src="pipeline-render.js?v=1" defer></script>
+    <script src="pipeline-controller.js?v=1" defer></script>
+    <script src="discovery-run-tracker.js?v=1" defer></script>
+    <script src="config-overrides.js?v=1" defer></script>
+    <script src="app-config-core.js?v=2" defer></script>
+    <script src="auth-session.js?v=1" defer></script>
+    <script src="sheet-access-setup.js?v=2" defer></script>
+    <script src="apps-script-relay-helpers.js?v=1" defer></script>
+    <script src="scraper-ats-config.js?v=1" defer></script>
+    <script src="discovery-engine-state.js?v=1" defer></script>
+    <script src="discovery-readiness.js?v=1" defer></script>
+    <script src="discovery-status-handoff.js?v=1" defer></script>
+    <script src="apps-script-deploy.js?v=1" defer></script>
+    <script src="discovery-setup-modals.js?v=1" defer></script>
+    <script src="discovery-drawer.js?v=1" defer></script>
+    <script src="ingest-url-flow.js?v=1" defer></script>
+    <script src="discovery-run-orchestration.js?v=1" defer></script>
+    <script src="app-bootstrap.js?v=2" defer></script>
+    <script src="app-compat.js?v=1" defer></script>
+    <script src="bridge-registry.js?v=3" defer></script>
+    <script src="app.js?v=30" defer></script>
   </body>
 </html>
