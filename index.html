@@ -637,6 +637,7 @@
                   autocomplete="off"
                   spellcheck="false"
                   placeholder="Paste Google Client ID — auto-saves on paste"
+                  aria-label="Google OAuth Client ID"
                 />
                 <button
                   type="button"
@@ -741,6 +742,7 @@
                   autocomplete="off"
                   spellcheck="false"
                   placeholder="xxxx.apps.googleusercontent.com"
+                  aria-label="Google OAuth Client ID"
                 />
                 <button
                   type="button"
@@ -1315,9 +1317,10 @@
                   class="search-input"
                   id="searchInput"
                   placeholder="Search title, company, notes, last contact…"
+                  aria-label="Search pipeline"
                 />
               </div>
-              <select class="sort-select" id="sortSelect">
+              <select class="sort-select" id="sortSelect" aria-label="Sort pipeline by">
                 <option value="fit">Fit Score</option>
                 <option value="date">Date Found</option>
                 <option value="company">Company</option>

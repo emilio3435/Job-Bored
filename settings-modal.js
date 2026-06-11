@@ -35,9 +35,35 @@
     return host().resolveGeminiModel(...args);
   }
 
+// A11y focus + trap state (per-module). Saved on open and reapplied on close
+// so the user lands back on the gear/auth-menu button that opened Settings.
+let settingsLastOpener = null;
+let settingsInertedSiblings = [];
+let settingsEscapeHandler = null;
+
 function isSettingsModalOpen() {
   const modal = document.getElementById("settingsModal");
   return !!(modal && modal.style.display === "flex");
+}
+
+function applySettingsInertBackground(root) {
+  if (!root || typeof document === "undefined") return;
+  if (settingsInertedSiblings.length) return;
+  const body = document.body;
+  if (!body || !body.children) return;
+  for (const child of Array.from(body.children)) {
+    if (!child || child === root) continue;
+    if (child.inert === true) continue;
+    child.inert = true;
+    settingsInertedSiblings.push(child);
+  }
+}
+
+function releaseSettingsInertBackground() {
+  while (settingsInertedSiblings.length) {
+    const child = settingsInertedSiblings.pop();
+    if (child) child.inert = false;
+  }
 }
 
 
@@ -494,6 +520,12 @@ function maybeApplyPhasedSettingsDefaultOAuthClientId() {
 }
 
 async function openCommandCenterSettingsModal(opts) {
+  // Capture the opener BEFORE closeAuthUserMenu() runs — it can shift focus
+  // off the gear button onto <body>, and we want to send the user back to
+  // wherever they clicked from (the header gear, the auth-menu item, etc.).
+  if (typeof document !== "undefined" && document.activeElement) {
+    settingsLastOpener = document.activeElement;
+  }
   closeAuthUserMenu();
   host().resetAppsScriptDeployModalState();
   hideSettingsClearConfirmBar();
@@ -503,6 +535,39 @@ async function openCommandCenterSettingsModal(opts) {
   syncSettingsModalMode();
   const modal = document.getElementById("settingsModal");
   if (modal) modal.style.display = "flex";
+  if (modal) applySettingsInertBackground(modal);
+  // Escape-to-close + auto-focus the close button. The brief asks for both:
+  // - Escape lets keyboard users dismiss without hunting for the X.
+  // - Focusing #settingsModalClose lands the user inside the trap with a
+  //   discoverable exit affordance.
+  if (typeof document !== "undefined" && !settingsEscapeHandler) {
+    settingsEscapeHandler = (e) => {
+      if (e.key === "Escape" && isSettingsModalOpen()) {
+        closeCommandCenterSettingsModal();
+      }
+    };
+    document.addEventListener("keydown", settingsEscapeHandler);
+  }
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(() => {
+      let target = document.getElementById("settingsModalClose");
+      if (!target || typeof target.focus !== "function" || target.disabled) {
+        if (modal) {
+          if (!modal.hasAttribute("tabindex")) {
+            modal.setAttribute("tabindex", "-1");
+          }
+          target = modal;
+        }
+      }
+      if (target && typeof target.focus === "function") {
+        try {
+          target.focus({ preventScroll: true });
+        } catch (_) {
+          /* focus is best-effort */
+        }
+      }
+    });
+  }
   // Initialize settings tabs
   const TabSchema = window.JobBoredSettingsTabSchema;
   const Tabs = window.JobBoredSettingsTabs;
@@ -540,6 +605,29 @@ function closeCommandCenterSettingsModal() {
   hideSettingsClearConfirmBar();
   const modal = document.getElementById("settingsModal");
   if (modal) modal.style.display = "none";
+  releaseSettingsInertBackground();
+  if (
+    settingsEscapeHandler &&
+    typeof document !== "undefined" &&
+    typeof document.removeEventListener === "function"
+  ) {
+    document.removeEventListener("keydown", settingsEscapeHandler);
+    settingsEscapeHandler = null;
+  }
+  if (
+    settingsLastOpener &&
+    typeof document !== "undefined" &&
+    typeof document.contains === "function" &&
+    document.contains(settingsLastOpener) &&
+    typeof settingsLastOpener.focus === "function"
+  ) {
+    try {
+      settingsLastOpener.focus({ preventScroll: true });
+    } catch (_) {
+      /* focus restoration is best-effort */
+    }
+  }
+  settingsLastOpener = null;
 }
 
 async function saveCommandCenterSettingsFromForm() {
