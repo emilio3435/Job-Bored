@@ -1,0 +1,97 @@
+name: 🐛 Bug report
+description: Something's broken in the dashboard, the first-run wizard, discovery, or drafting.
+title: "[bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. The more concrete the repro, the faster I can fix it.
+        Skip any section that doesn't apply — but please don't skip the ones that do.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Plain English. What did you do, what did you expect, what did you see instead?
+      placeholder: |
+        I clicked "Build your profile" on the celebration screen and nothing happened. Pressing Enter worked, but the mouse didn't.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How can I reproduce it?
+      description: Numbered steps. Start from `npm start` (or `?greenfield=1`) so I can follow along on a clean machine.
+      placeholder: |
+        1. Fresh clone, `npm install`, `npm start`
+        2. Sign in with Google
+        3. Connect a sheet → choose OpenRouter → paste key → Finish setup
+        4. Celebration appears → click "Build your profile"
+        5. Nothing happens
+      render: markdown
+    validations:
+      required: true
+
+  - type: input
+    id: jobbored-commit
+    attributes:
+      label: JobBored version / commit
+      description: Output of `git rev-parse --short HEAD` if you cloned, or "main as of YYYY-MM-DD".
+      placeholder: "abc1234 (or: main as of 2026-06-15)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows (native)
+        - Windows (WSL)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser + version
+      placeholder: "Chrome 138, Firefox 144, Safari 18, …"
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      description: Output of `node --version`. Node 24.x is the supported line.
+      placeholder: "v24.13.0"
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Browser console output
+      description: |
+        Open DevTools → Console, repro the bug, and paste any red errors here.
+        For PDF / discovery / wizard bugs, the lines starting with `[JobBored ...]` are especially helpful.
+      render: shell
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot or screen recording (optional)
+      description: Drag-and-drop into this box. A short Loom/screen recording is gold for visual bugs.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched [open and closed issues](https://github.com/emilio3435/Job-Bored/issues?q=is%3Aissue) and didn't find a duplicate.
+          required: true
+        - label: I've tried a hard refresh (Cmd/Ctrl+Shift+R) and the bug still happens.
+          required: true

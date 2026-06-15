@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: ❓ Question or discussion
+    url: https://github.com/emilio3435/Job-Bored/discussions
+    about: For setup help, ideas, show-and-tell, or anything that isn't a confirmed bug or feature request, please open a discussion instead.
+  - name: 🔐 Security report
+    url: https://github.com/emilio3435/Job-Bored/security/advisories/new
+    about: Found a vulnerability? Please file a private security advisory instead of a public issue.

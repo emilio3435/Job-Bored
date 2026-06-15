@@ -1,8 +1,16 @@
-# Command Center
+# JobBored
 
-A beautiful, open-source job search dashboard powered by Google Sheets. Track applications, read a **Daily Brief** compiled from your Pipeline, and manage your pipeline — all from a single page that reads and writes directly to your own Google Sheet.
+A local-first, open-source job search dashboard. Track your pipeline in your
+own Google Sheet, draft tailored resumes and cover letters with your choice
+of AI (OpenRouter's free tier, Gemini, OpenAI, Anthropic, or local Ollama),
+and run automated discovery from a one-click setup wizard. No backend to
+host, no build step, BYO keys.
 
-![Command Center](https://img.shields.io/badge/license-MIT-blue) ![No Backend](https://img.shields.io/badge/backend-none-green) ![Pure JS](https://img.shields.io/badge/vanilla-JS-yellow)
+![License](https://img.shields.io/badge/license-MIT-blue) ![No Backend](https://img.shields.io/badge/backend-none-green) ![Vanilla JS](https://img.shields.io/badge/vanilla-JS-yellow) ![Tests](https://img.shields.io/badge/tests-1%2C800%2B-brightgreen) ![Node](https://img.shields.io/badge/node-24.x-339933)
+
+> **New here?** Jump to **[Quick start](#quick-start)**.
+> **Want to contribute?** See **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+> **Found a bug?** Open an [issue with the bug template](https://github.com/emilio3435/Job-Bored/issues/new/choose).
 
 ## Quick start
 

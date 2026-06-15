@@ -1,0 +1,59 @@
+name: ✨ Feature request
+description: Suggest an improvement, a new capability, or a paper cut to smooth.
+title: "[feat] "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Concrete, opinionated suggestions land best. "What if it could…" is welcome too — just say which way you'd lean.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the friction in your actual workflow, not the feature you have in mind yet. (The right feature falls out of a clear problem.)
+      placeholder: |
+        When I finish a discovery run with 30 new roles, I have to scroll through and tag the interesting ones one by one. There's no way to bulk-mark a batch as "to review" so I can focus on them tomorrow.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like JobBored to do?
+      description: Your best guess at the shape of the solution. UI sketches, copy ideas, keyboard shortcuts — anything concrete helps.
+      placeholder: |
+        Shift-click range select on pipeline rows, then a toolbar that lets me bulk-set status / tag / priority on the selection.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: What workarounds do you use today? What other shapes did you reject and why?
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Roughly, how big a change is this?
+      description: Your honest guess. Doesn't have to be right.
+      options:
+        - "Tiny: copy / styling / one button"
+        - "Small: one wizard step or one settings panel"
+        - "Medium: new surface, but no new data"
+        - "Large: new data model / new integration"
+        - "I genuinely have no idea"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched [open and closed issues](https://github.com/emilio3435/Job-Bored/issues?q=is%3Aissue) and didn't find a duplicate.
+          required: true
+        - label: This is a feature request for the JobBored repo itself, not a question about how to use it (those go in [Discussions](https://github.com/emilio3435/Job-Bored/discussions)).
+          required: true
