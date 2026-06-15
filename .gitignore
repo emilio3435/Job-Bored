@@ -69,3 +69,4 @@ coverage/
 prompts/go-live/
 prompts/lanes/
 prompts/reports/
+.serena/
