@@ -18,8 +18,8 @@ concurrency:
 #   - test
 #   - scan   (gitleaks secret scan, .github/workflows/gitleaks.yml)
 # Defined here and INTENDED to become required once stable (add each to the
-# ruleset to enforce): lint, coverage, audit:prod, pr-lint (pr-lint.yml).
-# Advisory only (never blocks a merge): e2e-smoke, audit:dev
+# ruleset to enforce): lint, coverage, audit-prod, pr-lint (pr-lint.yml).
+# Advisory only (never blocks a merge): e2e-smoke, audit-dev
 # Auto-release: .github/workflows/release.yml (release-please, runs on main
 # pushes, opens a release PR — does not block PR merges).
 
@@ -109,8 +109,8 @@ jobs:
 
   # Advisory: full audit across ALL deps (including dev). Stays non-blocking
   # so a dev-dep vuln surfaces as a signal without holding up a merge. The
-  # blocking prod-only gate is audit:prod below.
-  audit:dev:
+  # blocking prod-only gate is audit-prod below.
+  audit-dev:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     continue-on-error: true
@@ -124,7 +124,7 @@ jobs:
 
   # Blocking: production-deps audit. High-severity production vulns fail the
   # required status check, so the merge is held until they are resolved.
-  audit:prod:
+  audit-prod:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
