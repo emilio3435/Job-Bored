@@ -1,0 +1,92 @@
+version: 2
+
+# Dependabot keeps the three npm surfaces in step with upstream patches and
+# minor releases, while bumping major versions in their own PRs. Patch and
+# minor updates are grouped so dev and prod dependencies never get folded
+# into the same pull request.
+
+updates:
+  # --- Root: static dashboard + shared browser scripts ---
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # Development-only dependencies: patches and minor bumps stay grouped
+      # together so a single PR keeps dev tooling coherent.
+      dev-dependencies-patch-and-minor:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      # Development-only dependencies: major bumps are isolated so reviewers
+      # can validate breaking changes against the dashboard and test suite.
+      dev-dependencies-major:
+        dependency-type: "development"
+        update-types:
+          - "major"
+      # Production dependencies shipped in the static dashboard: patches and
+      # minor bumps are grouped together.
+      production-dependencies-patch-and-minor:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      # Production dependencies: major bumps are isolated for review.
+      production-dependencies-major:
+        dependency-type: "production"
+        update-types:
+          - "major"
+
+  # --- Server: Express + Cheerio scraper / ATS scorecard service ---
+  - package-ecosystem: "npm"
+    directory: "/server"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "server"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      patch-and-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+
+  # --- Discovery worker: Browser Use + Gemini + Sheets writer ---
+  - package-ecosystem: "npm"
+    directory: "/integrations/browser-use-discovery"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "discovery"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      patch-and-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"

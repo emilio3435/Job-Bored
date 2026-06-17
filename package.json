@@ -1,5 +1,6 @@
 {
   "name": "command-center",
+  "version": "0.1.0",
   "private": true,
   "license": "MIT",
   "description": "Job search dashboard + optional local Cheerio scraper (npm start runs both)",
@@ -54,6 +55,8 @@
     "schedule:uninstall-local": "node scripts/uninstall-launchd-refresh.mjs",
     "assemble:index": "node scripts/assemble-index.mjs",
     "test": "node scripts/run-tests.mjs",
+    "test:coverage": "c8 --check-coverage node scripts/run-tests.mjs",
+    "test:coverage:lcov": "c8 --reporter=text --reporter=text-summary --reporter=lcov node scripts/run-tests.mjs",
     "test:e2e-smoke": "playwright test --config tests/e2e-smoke/playwright.config.mjs",
     "test:discovery-webhook": "node scripts/verify-discovery-webhook.mjs",
     "test:browser-use-discovery": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/*.test.ts integrations/browser-use-discovery/tests/browser/*.test.ts integrations/browser-use-discovery/tests/discovery/*.test.ts integrations/browser-use-discovery/tests/sources/*.test.ts integrations/browser-use-discovery/tests/state/*.test.ts integrations/browser-use-discovery/tests/sheets/*.test.ts integrations/browser-use-discovery/tests/webhook/*.test.ts integrations/browser-use-discovery/tests/run/*.test.ts integrations/browser-use-discovery/tests/e2e/*.test.ts",

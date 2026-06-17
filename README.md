@@ -6,7 +6,7 @@ of AI (OpenRouter's free tier, Gemini, OpenAI, Anthropic, or local Ollama),
 and run automated discovery from a one-click setup wizard. No backend to
 host, no build step, BYO keys.
 
-![License](https://img.shields.io/badge/license-MIT-blue) ![No Backend](https://img.shields.io/badge/backend-none-green) ![Vanilla JS](https://img.shields.io/badge/vanilla-JS-yellow) ![Tests](https://img.shields.io/badge/tests-1%2C800%2B-brightgreen) ![Node](https://img.shields.io/badge/node-24.x-339933)
+![License](https://img.shields.io/badge/license-MIT-blue) ![No Backend](https://img.shields.io/badge/backend-none-green) ![Vanilla JS](https://img.shields.io/badge/vanilla-JS-yellow) ![Node](https://img.shields.io/badge/node-24.x-339933) [![CI](https://github.com/emilio3435/Job-Bored/actions/workflows/ci.yml/badge.svg)](https://github.com/emilio3435/Job-Bored/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/emilio3435/Job-Bored)](https://github.com/emilio3435/Job-Bored/releases/latest)
 
 > **New here?** Jump to **[Quick start](#quick-start)**.
 > **Want to contribute?** See **[CONTRIBUTING.md](CONTRIBUTING.md)**.

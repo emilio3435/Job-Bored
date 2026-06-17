@@ -1,0 +1,38 @@
+# Configuration for GitHub's auto-generated release notes.
+# See https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
+#
+# Conventional commit types are mapped to PR labels below, so contributors who
+# follow the Conventional Commits convention (feat:, fix:, chore:, ...) get
+# the right release section as long as the matching label is set on the PR.
+# Dependabot and chore PRs are excluded so the changelog stays focused on
+# user-facing changes.
+
+changelog:
+  exclude:
+    labels:
+      - "skip-changelog"
+      - "dependencies"
+  categories:
+    - title: "Features"
+      labels:
+        - "feat"
+    - title: "Bug Fixes"
+      labels:
+        - "fix"
+    - title: "Performance Improvements"
+      labels:
+        - "perf"
+    - title: "Reverts"
+      labels:
+        - "revert"
+    - title: "Documentation"
+      labels:
+        - "docs"
+    - title: "Maintenance"
+      labels:
+        - "chore"
+        - "test"
+        - "build"
+        - "ci"
+        - "style"
+        - "refactor"

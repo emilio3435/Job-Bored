@@ -1,0 +1,29 @@
+{
+  "check-coverage": true,
+  "reporter": [
+    "text",
+    "text-summary",
+    "lcov",
+    "json-summary"
+  ],
+  "branches": 60,
+  "functions": 49.5,
+  "lines": 49.5,
+  "statements": 49.5,
+  "exclude": [
+    "vendor/**",
+    "node_modules/**",
+    "server/node_modules/**",
+    "integrations/**/dist/**",
+    "coverage/**",
+    "tests/**",
+    "tools/**",
+    "scripts/**",
+    "tmp/**",
+    "config.js",
+    "app-compat.js",
+    "**/*.test.*",
+    "**/*.spec.*",
+    "integrations/browser-use-discovery/**"
+  ]
+}
