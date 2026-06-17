@@ -81,7 +81,7 @@
     "globals": "^17.6.0"
   },
   "dependencies": {
-    "browser-use-sdk": "^3.6.0",
+    "browser-use-sdk": "^3.8.4",
     "zod": "^4.4.3"
   },
   "overrides": {
