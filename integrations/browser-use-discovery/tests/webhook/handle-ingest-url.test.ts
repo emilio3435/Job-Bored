@@ -387,6 +387,64 @@ test("handleIngestUrlWebhook blocked_aggregator with missing Browser Use key rej
   assert.equal(writerCalls, 0);
 });
 
+test("handleIngestUrlWebhook scrapes public LinkedIn detail page from currentJobId", async () => {
+  const pastedUrl =
+    "https://www.linkedin.com/jobs/search-results/?currentJobId=4423583528&keywords=digital%20strategy";
+  let scrapedUrl = "";
+  let browserUseCalls = 0;
+  let geminiCalls = 0;
+  let capturedLead: Record<string, unknown> | null = null;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({ url: pastedUrl }),
+    makeDependencies({
+      scrapeJobPosting: async (url: string) => {
+        scrapedUrl = url;
+        return {
+          url,
+          title:
+            "Moore hiring Associate Director, Digital Strategy in United States | LinkedIn",
+          description:
+            "As the Associate Director of Digital Strategy, you will provide leadership oversight of digital strategy for nonprofit clients and digital teams.",
+          method: "dom",
+        };
+      },
+      extractWithBrowserUseCloud: async () => {
+        browserUseCalls += 1;
+        throw new Error("Browser Use should not run after public LinkedIn scrape");
+      },
+      extractWithGeminiUrlContext: async () => {
+        geminiCalls += 1;
+        throw new Error("Gemini should not run after public LinkedIn scrape");
+      },
+      pipelineWriter: {
+        write: async (_sheetId, leads) => {
+          capturedLead = leads[0] as unknown as Record<string, unknown>;
+          return {
+            sheetId: "sheet_123",
+            appended: 1,
+            updated: 0,
+            skippedDuplicates: 0,
+            skippedBlacklist: 0,
+            warnings: [],
+          };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.strategy, "cheerio_dom");
+  assert.equal(scrapedUrl, "https://www.linkedin.com/jobs/view/4423583528");
+  assert.equal(browserUseCalls, 0);
+  assert.equal(geminiCalls, 0);
+  assert.equal(capturedLead?.title, "Associate Director, Digital Strategy");
+  assert.equal(capturedLead?.company, "Moore");
+  assert.equal(capturedLead?.url, "https://www.linkedin.com/jobs/view/4423583528");
+  assert.equal(capturedLead?.sourceLabel, "LinkedIn");
+});
+
 test("handleIngestUrlWebhook blocked_aggregator uses Browser Use Cloud when configured", async () => {
   let extractorCalls = 0;
   let writerCalls = 0;
@@ -546,6 +604,9 @@ test("handleIngestUrlWebhook rejects source-gated Browser Use placeholders witho
       runtimeConfig: makeRuntimeConfig({
         browserUseApiKey: "bu_test_key",
       }),
+      scrapeJobPosting: async () => {
+        throw new Error("HTTP 999");
+      },
       extractWithBrowserUseCloud: async (input) => ({
         ok: true as const,
         confidence: 0,
@@ -667,6 +728,9 @@ test("handleIngestUrlWebhook async Add URL terminal status fails for low-quality
       randomId: () => "ingest_low_quality_async_test",
       runStatusStore,
       runStatusPathForRun: (runId: string) => `/runs/${runId}`,
+      scrapeJobPosting: async () => {
+        throw new Error("HTTP 999");
+      },
       extractWithBrowserUseCloud: async (input) => ({
         ok: true as const,
         confidence: 0,
@@ -1269,6 +1333,9 @@ test("handleIngestUrlWebhook Browser Use error rejects without writing and logs 
     }),
     makeDependencies({
       runtimeConfig: makeRuntimeConfig({ browserUseApiKey: "bu_test_key" }),
+      scrapeJobPosting: async () => {
+        throw new Error("HTTP 999");
+      },
       extractWithBrowserUseCloud: async () => {
         throw new Error("Browser Use timed out after 120000ms");
       },
