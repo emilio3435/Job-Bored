@@ -462,6 +462,80 @@ test("handleIngestUrlWebhook blocked_aggregator uses Browser Use Cloud when conf
   assert.doesNotMatch(response.body, /bu_test_key/);
 });
 
+test("handleIngestUrlWebhook blocked_aggregator falls back to Gemini URL context", async () => {
+  const wellfoundUrl =
+    "https://wellfound.com/jobs/3739503-2-digital-ai-strategy-lead";
+  let geminiCalls = 0;
+  let scraperCalls = 0;
+  let writerCalls = 0;
+  let capturedLead: Record<string, unknown> | null = null;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({ url: wellfoundUrl }),
+    makeDependencies({
+      runtimeConfig: makeRuntimeConfig({ geminiApiKey: "gemini_test_key" }),
+      extractWithGeminiUrlContext: async (input) => {
+        geminiCalls += 1;
+        assert.equal(input.url, wellfoundUrl);
+        return {
+          ok: true as const,
+          confidence: 0.87,
+          rawListing: {
+            sourceId: "ingest_url_gemini",
+            sourceLabel: "Gemini URL context",
+            sourceLane: "grounded_web",
+            title: "Digital & AI Strategy Lead",
+            company: "Thresh Consulting",
+            location: "Remote",
+            url: input.url,
+            canonicalUrl: input.url,
+            finalUrl: input.url,
+            descriptionText:
+              "Lead digital and AI strategy work across roadmaps, product decisions, and executive alignment.",
+            metadata: {
+              sourceQuery: `gemini_url_context:${input.url}`,
+              geminiConfidence: 0.87,
+            },
+          },
+        };
+      },
+      scrapeJobPosting: async () => {
+        scraperCalls += 1;
+        throw new Error("blocked aggregator should not use Cheerio");
+      },
+      pipelineWriter: {
+        write: async (_sheetId, leads) => {
+          writerCalls += 1;
+          capturedLead = leads[0] as unknown as Record<string, unknown>;
+          return {
+            sheetId: "sheet_123",
+            appended: 1,
+            updated: 0,
+            skippedDuplicates: 0,
+            skippedBlacklist: 0,
+            warnings: [],
+          };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.strategy, "gemini_url_context");
+  assert.equal(geminiCalls, 1);
+  assert.equal(scraperCalls, 0);
+  assert.equal(writerCalls, 1);
+  assert.equal(capturedLead?.title, "Digital & AI Strategy Lead");
+  assert.equal(capturedLead?.company, "Thresh Consulting");
+  assert.equal(capturedLead?.sourceLabel, "Gemini URL context");
+  assert.match(
+    String((capturedLead?.metadata as Record<string, unknown>)?.sourceQuery || ""),
+    /gemini_url_context:/i,
+  );
+  assert.doesNotMatch(response.body, /gemini_test_key/);
+});
+
 test("handleIngestUrlWebhook rejects source-gated Browser Use placeholders without writing", async () => {
   let writerCalls = 0;
   const response = await handleIngestUrlWebhook(

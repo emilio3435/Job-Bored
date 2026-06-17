@@ -295,11 +295,22 @@ export async function handleIngestUrlWebhook(
         rawListing = browserUseResult.rawListing;
         strategy = "browser_use_cloud";
       } else {
-        return rejectBlockedAggregatorUrl({
+        const geminiResult = await tryGeminiUrlContextExtraction({
           url: ingestRequest.url,
+          runId,
           host: classified.host,
-          provider: classified.provider,
+          dependencies: effectiveDependencies,
         });
+        if (geminiResult.ok) {
+          rawListing = geminiResult.rawListing;
+          strategy = "gemini_url_context";
+        } else {
+          return rejectBlockedAggregatorUrl({
+            url: ingestRequest.url,
+            host: classified.host,
+            provider: classified.provider,
+          });
+        }
       }
     } else if (classified.kind === "ats_direct") {
       const atsResult = await fetchFromAts(classified, effectiveDependencies);
