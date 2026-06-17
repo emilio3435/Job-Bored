@@ -198,10 +198,11 @@ describe("v2 pipeline filter controls", () => {
         pipelineJs.includes("data-pipeline-url-modal") &&
         pipelineJs.includes("data-pipeline-url-progress") &&
         pipelineJs.includes("api.ingestJobUrl(url") &&
+        pipelineJs.includes("api.openIngestManualFallback(url, data)") &&
         pipelineCss.includes(".pipe-url-modal__panel") &&
         pipelineCss.includes(".pipe-url-modal__bar") &&
         pipelineCss.includes("pipe-url-spin"),
-      "v2 pipeline should show one add-from-URL action, open a modal, and show progress while ingest runs",
+      "v2 pipeline should show one add-from-URL action, open a modal, show progress, and fall back to manual fill when extraction fails",
     );
     assert.equal(
       pipelineJs.includes('data-action="add-role"') ||
@@ -213,8 +214,11 @@ describe("v2 pipeline filter controls", () => {
     );
     assert.ok(
       appJs.includes("window.JobBored.ingestJobUrl = ingestJobUrl;") &&
+        appJs.includes("window.JobBored.openIngestManualFallback = openIngestManualFallback;") &&
         appCompatJs.includes("async function ingestJobUrl(...args)") &&
+        appCompatJs.includes("function openIngestManualFallback(...args)") &&
         ingestUrlFlowJs.includes("async function ingestJobUrl(url, options = {})") &&
+        ingestUrlFlowJs.includes("function openIngestManualFallback(url, data)") &&
         ingestUrlFlowJs.includes("handleIngestUrlResponse(data, value, {") &&
         ingestUrlFlowJs.includes("awaitAutoEnrich: true") &&
         ingestUrlFlowJs.includes("reportIngestProgress(onProgress"),

@@ -231,6 +231,7 @@ if (typeof window !== "undefined") {
   window.JobBored.applyPipelineStageWrite = applyPipelineStageWrite;
   window.JobBored.applyPipelineNotesWrite = applyPipelineNotesWrite;
   window.JobBored.ingestJobUrl = ingestJobUrl;
+  window.JobBored.openIngestManualFallback = openIngestManualFallback;
   window.JobBored.isParseableJobUrl = isParseableUrl;
 }
 

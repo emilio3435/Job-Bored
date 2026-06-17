@@ -165,17 +165,42 @@ function tokenOverlapRatio(left, right) {
 }
 
 function isLinkedInJobUrl(url) {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
-    return host === "linkedin.com" && /\/jobs\/view\//i.test(parsed.pathname);
-  } catch {
-    return false;
-  }
+  return Boolean(linkedInJobId(url));
 }
 
 function linkedInJobId(url) {
-  const match = String(url || "").match(/\/jobs\/view\/(\d+)/i);
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return "";
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  if (host !== "linkedin.com") return "";
+
+  const pathJobId = linkedInPathJobId(parsed);
+  if (pathJobId) return pathJobId;
+
+  const queryJobId = String(parsed.searchParams.get("currentJobId") || "").trim();
+  if (/^\d{5,}$/.test(queryJobId)) return queryJobId;
+  const hashMatch = parsed.hash.match(/(?:^#|[?#&])currentJobId=(\d{5,})(?:\D|$)/i);
+  return hashMatch ? hashMatch[1] : "";
+}
+
+function linkedInPathJobId(parsed) {
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  const jobPostingIndex = segments.findIndex((segment) => segment === "jobPosting");
+  if (jobPostingIndex >= 0) {
+    const jobPostingId = String(segments[jobPostingIndex + 1] || "").trim();
+    if (/^\d{5,}$/.test(jobPostingId)) return jobPostingId;
+  }
+
+  const jobsIndex = segments.findIndex(
+    (segment, index) => segment === "jobs" && segments[index + 1] === "view",
+  );
+  if (jobsIndex < 0) return "";
+  const detailToken = String(segments[jobsIndex + 2] || "").trim();
+  const match = detailToken.match(/(?:^|\D)(\d{5,})(?:\D*)$/);
   return match ? match[1] : "";
 }
 

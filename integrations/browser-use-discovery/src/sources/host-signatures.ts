@@ -29,6 +29,7 @@ export const ATS_HOST_SIGNATURES: AtsHostSignature[] = [
 
 export const AGGREGATOR_HOST_SIGNATURES: AggregatorHostSignature[] = [
   { provider: "linkedin", match: /(^|\.)linkedin\.com$/i },
+  { provider: "linkedin", match: /^lnkd\.in$/i },
   { provider: "indeed", match: /(^|\.)indeed\.com$/i },
   { provider: "glassdoor", match: /(^|\.)glassdoor\.com$/i },
   { provider: "ziprecruiter", match: /(^|\.)ziprecruiter\.com$/i },
@@ -37,7 +38,11 @@ export const AGGREGATOR_HOST_SIGNATURES: AggregatorHostSignature[] = [
   { provider: "simplyhired", match: /(^|\.)simplyhired\.com$/i },
   { provider: "wellfound", match: /(^|\.)wellfound\.com$/i },
   { provider: "angel", match: /(^|\.)angel\.co$/i },
-  { provider: "builtin", match: /(^|\.)builtin(?:\w+)?\.com$/i },
+  { provider: "builtin", match: /(^|\.)builtin(?:\w+)?\.(?:com|org)$/i },
+  { provider: "otta", match: /(^|\.)otta\.com$/i },
+  { provider: "welcome_to_the_jungle", match: /(^|\.)welcometothejungle\.com$/i },
+  { provider: "workingnomads", match: /(^|\.)workingnomads\.com$/i },
+  { provider: "remoteok", match: /(^|\.)remoteok\.com$/i },
   { provider: "dice", match: /(^|\.)dice\.com$/i },
   { provider: "jobs2careers", match: /(^|\.)jobs2careers\.com$/i },
   { provider: "google", match: /(^|\.)google\.com$/i },

@@ -805,6 +805,24 @@ function closeIngestManualModal() {
   setIngestManualModalError("");
 }
 
+function manualFallbackMessageForIngestFailure(data) {
+  const detail =
+    data && typeof data === "object"
+      ? String(data.hint || data.message || "").trim()
+      : "";
+  return (
+    detail ||
+    "We couldn't auto-scrape this URL. Fill in the details and JobBored will append the row directly to Pipeline."
+  );
+}
+
+function openIngestManualFallback(url, data) {
+  openIngestManualModal({
+    url,
+    message: manualFallbackMessageForIngestFailure(data),
+  });
+}
+
 async function refreshPipelineAfterIngest(options = {}) {
   const url = String((options && options.url) || "").trim();
   const data = options && typeof options.data === "object" ? options.data : {};
@@ -1118,7 +1136,10 @@ function handleIngestUrlResponse(data, url, options = {}) {
           data.reason === "blocked_aggregator"
             ? aggregatorLabelForHost(data.host) + " did not expose a complete posting. "
             : "";
-        h("showToast", label + hint, "warning", true);
+        h("showToast", label + hint, "warning", true, {
+          label: "Add manually",
+          onClick: () => openIngestManualFallback(url, data),
+        });
         return data;
       }
       case "duplicate": {
@@ -1147,6 +1168,10 @@ function handleIngestUrlResponse(data, url, options = {}) {
             "The worker could not read a complete posting from that link.",
           "warning",
           true,
+          {
+            label: "Add manually",
+            onClick: () => openIngestManualFallback(url, data),
+          },
         );
         return data;
       }
@@ -1407,6 +1432,7 @@ function initIngestUrlFlow() {
     ingestJobUrl,
     handleIngestUrlSubmit,
     handleIngestUrlResponse,
+    openIngestManualFallback,
     initIngestUrlFlow,
   });
 })();

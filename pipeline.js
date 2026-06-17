@@ -821,6 +821,13 @@
     return message || "Could not add this URL. Try again.";
   }
 
+  function shouldOfferIngestManualFallback(data) {
+    var reason = data && data.reason;
+    return reason === "blocked_aggregator" ||
+      reason === "scrape_failed" ||
+      reason === "low_quality_extraction";
+  }
+
   async function submitJobUrlModal(region) {
     var els = getUrlModalEls(region);
     var input = els.input;
@@ -854,6 +861,15 @@
       });
       if (data && data.ok === false && data.reason !== "duplicate") {
         setUrlModalBusy(region, false);
+        if (
+          shouldOfferIngestManualFallback(data) &&
+          api &&
+          typeof api.openIngestManualFallback === "function"
+        ) {
+          closeJobUrlModal(region);
+          api.openIngestManualFallback(url, data);
+          return;
+        }
         setUrlModalError(
           region,
           data.hint || data.message || "The worker could not add this URL."

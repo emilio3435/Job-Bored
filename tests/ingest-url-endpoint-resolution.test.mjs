@@ -225,6 +225,64 @@ function loadIngestUrlPromotionHarness({
   };
 }
 
+function loadIngestManualFallbackHarness() {
+  const elements = {
+    ingestManualModal: { style: { display: "none" }, addEventListener() {} },
+    ingestManualForm: { resetCalled: false, reset() { this.resetCalled = true; } },
+    ingestManualUrl: { value: "" },
+    ingestManualModalExplain: { textContent: "" },
+    ingestManualModalError: { style: {}, textContent: "" },
+    ingestManualTitle: { focusCalled: false, focus() { this.focusCalled = true; } },
+    ingestManualCompany: { value: "" },
+    ingestManualLocation: { value: "" },
+    ingestManualDescription: { value: "" },
+    ingestManualFitScore: { value: "" },
+    ingestManualFitScoreValue: { textContent: "" },
+    ingestManualSubmit: {},
+    ingestManualCancel: {},
+    ingestManualModalClose: {},
+  };
+  const toasts = [];
+  const host = {
+    showToast(...args) {
+      toasts.push(args);
+      return () => {};
+    },
+    getPipelineData: () => [],
+    getCurrentSearch: () => "",
+    getFavoritesOnly: () => false,
+  };
+  const context = vm.createContext({
+    window: {
+      JobBoredDiscovery: {
+        status: {},
+        ingestUrlFlow: { host },
+      },
+    },
+    document: {
+      getElementById: (id) => elements[id] || null,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener() {},
+      body: { classList: { add() {}, remove() {} } },
+    },
+    console: { log() {}, info() {}, warn() {}, error() {} },
+    setTimeout(fn) {
+      if (typeof fn === "function") fn();
+      return 0;
+    },
+    clearTimeout,
+    URL,
+  });
+
+  vm.runInContext(ingestUrlFlowJs, context, { filename: "ingest-url-flow.js" });
+  return {
+    api: context.window.JobBoredDiscovery.ingestUrlFlow,
+    elements,
+    toasts,
+  };
+}
+
 /** VM stubs for hoisted auth getters referenced by sliced app.js helpers. */
 const ingestAuthVmPreamble = `
 function getAccessToken() {
@@ -346,6 +404,35 @@ describe("Add job from URL endpoint resolution", () => {
       /await h\("getFreshDiscoveryRequestGoogleAccessToken",/,
     );
     assert.match(submitSource, /body\.googleAccessToken = dashboardGoogleAccessToken/);
+  });
+
+  it("offers manual fallback with the failed URL prefilled after extraction failures", () => {
+    const { api, elements, toasts } = loadIngestManualFallbackHarness();
+    const url = "https://wellfound.com/jobs/3739503-2-digital-ai-strategy-lead";
+
+    const result = api.handleIngestUrlResponse(
+      {
+        ok: false,
+        reason: "blocked_aggregator",
+        host: "wellfound.com",
+        hint: "Wellfound did not expose a complete posting.",
+      },
+      url,
+    );
+
+    assert.equal(result.reason, "blocked_aggregator");
+    assert.equal(toasts.length, 1);
+    assert.equal(toasts[0][1], "warning");
+    assert.equal(toasts[0][2], true);
+    assert.equal(toasts[0][3]?.label, "Add manually");
+
+    toasts[0][3].onClick();
+
+    assert.equal(elements.ingestManualForm.resetCalled, true);
+    assert.equal(elements.ingestManualUrl.value, url);
+    assert.equal(elements.ingestManualModal.style.display, "flex");
+    assert.match(elements.ingestManualModalExplain.textContent, /Wellfound did not expose/);
+    assert.equal(elements.ingestManualTitle.focusCalled, true);
   });
 
   it("retries Add URL with a forced fresh Google token after Sheets auth failures", () => {

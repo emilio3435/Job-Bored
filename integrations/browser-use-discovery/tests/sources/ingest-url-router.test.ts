@@ -63,11 +63,37 @@ test("classifyIngestUrl classifies blocked linkedin URL", () => {
   assert.equal(result.provider, "linkedin");
 });
 
+test("classifyIngestUrl classifies lnkd.in as blocked linkedin URL", () => {
+  const result = classifyIngestUrl("https://lnkd.in/gxAbC123");
+  assert.equal(result.kind, "blocked_aggregator");
+  if (result.kind !== "blocked_aggregator") return;
+  assert.equal(result.provider, "linkedin");
+});
+
 test("classifyIngestUrl classifies blocked indeed URL", () => {
   const result = classifyIngestUrl("https://www.indeed.com/viewjob?jk=abc");
   assert.equal(result.kind, "blocked_aggregator");
   if (result.kind !== "blocked_aggregator") return;
   assert.equal(result.provider, "indeed");
+});
+
+test("classifyIngestUrl classifies job-board variations as blocked aggregators", () => {
+  const cases = [
+    ["https://wellfound.com/jobs/3739503-2-digital-ai-strategy-lead", "wellfound"],
+    ["https://www.builtinchicago.org/job/senior-growth-manager/123456", "builtin"],
+    ["https://app.otta.com/jobs/abc123", "otta"],
+    ["https://www.welcometothejungle.com/en/jobs/abc123", "welcome_to_the_jungle"],
+    ["https://www.workingnomads.com/jobs/growth-marketing-manager", "workingnomads"],
+    ["https://remoteok.com/remote-jobs/remote-growth-manager-123456", "remoteok"],
+    ["https://www.google.com/search?q=digital+strategy+lead&udm=8", "google"],
+  ];
+
+  for (const [url, provider] of cases) {
+    const result = classifyIngestUrl(url);
+    assert.equal(result.kind, "blocked_aggregator", url);
+    if (result.kind !== "blocked_aggregator") continue;
+    assert.equal(result.provider, provider, url);
+  }
 });
 
 test("classifyIngestUrl classifies generic https URL", () => {

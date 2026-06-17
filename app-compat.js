@@ -1809,6 +1809,9 @@ function isParseableUrl(...args) {
 async function ingestJobUrl(...args) {
   return window.JobBoredDiscovery.ingestUrlFlow.ingestJobUrl(...args);
 }
+function openIngestManualFallback(...args) {
+  return window.JobBoredDiscovery.ingestUrlFlow.openIngestManualFallback(...args);
+}
 function initIngestUrlFlow(...args) {
   return window.JobBoredDiscovery.ingestUrlFlow.initIngestUrlFlow(...args);
 }
