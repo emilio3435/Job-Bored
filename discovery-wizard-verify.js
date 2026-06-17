@@ -28,6 +28,15 @@
     "downstream",
   ]);
 
+  // Worker webhook-secret failures are recoverable auth states. The wizard
+  // uses this classification to offer bootstrap secret autofill instead of a
+  // generic invalid-endpoint dead end.
+  const WEBHOOK_AUTH_FAIL_CATEGORIES = new Set([
+    "secret_mismatch",
+    "missing_secret_header",
+    "no_secret_configured",
+  ]);
+
   const DEFAULT_VERIFICATION_RESULT = Object.freeze({
     ok: false,
     kind: "invalid_endpoint",
@@ -268,20 +277,23 @@
 
   /**
    * The browser-use discovery worker (and any relay that forwards its
-   * responses) returns 401 with `{ ok: false, message: "Unauthorized
-   * discovery webhook request." }` when the x-discovery-secret header is
-   * missing or wrong. We detect this case explicitly so the toast can point
-   * the user at the bootstrap autofill instead of a generic "Unauthorized."
+   * responses) returns 401 when the x-discovery-secret header is missing,
+   * wrong, or not configured. We detect that case explicitly so the toast can
+   * point the user at the bootstrap autofill instead of a generic
+   * "Unauthorized" or invalid-endpoint message.
    */
   function isAuthRequiredResponse(status, data, responseText) {
     if (Number(status) !== 401) return false;
     if (data && typeof data === "object") {
       const message = text(data.message).toLowerCase();
       const authCategory = text(data.auth && data.auth.category).toLowerCase();
-      if (authCategory === "secret_mismatch") {
+      if (authCategory && WEBHOOK_AUTH_FAIL_CATEGORIES.has(authCategory)) {
         return true;
       }
       if (/x-discovery-secret.*match.*configured secret/.test(message)) {
+        return true;
+      }
+      if (/x-discovery-secret header is missing/.test(message)) {
         return true;
       }
       if (/unauthorized.*discovery.*webhook.*request/.test(message)) {
@@ -292,7 +304,10 @@
       }
     }
     const body = text(responseText).toLowerCase();
-    return body.includes("unauthorized discovery webhook request");
+    return (
+      body.includes("unauthorized discovery webhook request") ||
+      body.includes("x-discovery-secret header is missing")
+    );
   }
 
   function classifyEndpointInput(rawUrl) {
@@ -723,7 +738,7 @@
       const detailParts = [];
       if (isCorsLike) {
         detailParts.push(
-          "The browser couldn't establish a connection. Likely causes: the URL is offline (DNS/host not resolving), the receiver isn't running, or CORS is blocking the preflight.",
+          "The browser couldn't establish a connection. Likely causes: the URL is offline (DNS/host not resolving), the receiver isn't running, CORS is blocking the preflight, or the dashboard CSP blocked this host.",
         );
       } else {
         detailParts.push(message);

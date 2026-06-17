@@ -1638,16 +1638,40 @@ body.jb-v2 .brief-materials {
   color: #b03e3e;
   background: rgba(255, 255, 255, 0.85);
 }
-.brief-materials__progress-clock {
-  animation: brief-materials-clock-spin 4200ms linear infinite;
-  transform-origin: 50% 50%;
+/* "Draft is being written" pen: the nib sweeps across while the baseline
+   inks in, loops. Reads as active creation, not a stopwatch. */
+.brief-materials__progress-pen {
+  overflow: visible;
 }
-.brief-materials__progress[data-phase="queued"] .brief-materials__progress-clock {
-  animation-duration: 6000ms;
+.brief-materials__progress-pen-nib {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: brief-materials-pen-write 2200ms ease-in-out infinite;
+}
+.brief-materials__progress-pen-line {
+  stroke-dasharray: 16;
+  stroke-dashoffset: 16;
+  animation: brief-materials-pen-ink 2200ms ease-in-out infinite;
+}
+.brief-materials__progress[data-phase="queued"] .brief-materials__progress-pen-nib,
+.brief-materials__progress[data-phase="queued"] .brief-materials__progress-pen-line {
+  animation-duration: 3200ms;
+}
+.brief-materials__progress[data-phase="queued"] .brief-materials__progress-pen-nib {
   opacity: 0.7;
 }
-.brief-materials__progress[data-phase="verifying"] .brief-materials__progress-clock {
-  animation-duration: 1800ms;
+.brief-materials__progress[data-phase="verifying"] .brief-materials__progress-pen-nib,
+.brief-materials__progress[data-phase="verifying"] .brief-materials__progress-pen-line {
+  animation-duration: 1500ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .brief-materials__progress-pen-nib,
+  .brief-materials__progress-pen-line {
+    animation: none;
+  }
+  .brief-materials__progress-pen-line {
+    stroke-dashoffset: 0;
+  }
 }
 .brief-materials__progress-check {
   animation: brief-materials-pop-in 320ms ease-out 1;
@@ -1809,9 +1833,20 @@ body.jb-v2 .brief-materials {
   background: rgba(120, 120, 120, 0.12);
   border-color: rgba(120, 120, 120, 0.40);
 }
-@keyframes brief-materials-clock-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
+@keyframes brief-materials-pen-write {
+  0%   { transform: translate(-2.5px, 1.5px) rotate(-7deg); }
+  55%  { transform: translate(2.5px, -1px) rotate(-2deg); }
+  70%  { transform: translate(2.5px, -1px) rotate(-2deg); }
+  85%  { transform: translate(-2.5px, 1.5px) rotate(-7deg); }
+  100% { transform: translate(-2.5px, 1.5px) rotate(-7deg); }
+}
+@keyframes brief-materials-pen-ink {
+  0%   { stroke-dashoffset: 16; opacity: 0; }
+  12%  { opacity: 0.85; }
+  55%  { stroke-dashoffset: 0; opacity: 0.9; }
+  70%  { stroke-dashoffset: 0; opacity: 0.9; }
+  82%  { opacity: 0; }
+  100% { stroke-dashoffset: 16; opacity: 0; }
 }
 @keyframes brief-materials-shimmer {
   0%   { transform: translateX(-100%); }

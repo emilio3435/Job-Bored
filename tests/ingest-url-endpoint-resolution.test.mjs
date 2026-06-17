@@ -147,6 +147,84 @@ function completeFunction(source) {
   return `${source}\n}`;
 }
 
+async function flushMicrotasks(iterations = 40) {
+  for (let i = 0; i < iterations; i += 1) {
+    await Promise.resolve();
+  }
+}
+
+function loadIngestUrlPromotionHarness({
+  url = "https://referrals.example.test/jobs/123",
+  company = "JobBored",
+  inferredTitle = "Lifecycle Marketing Manager",
+  inferredCompany = "Acme Labs",
+  inferredLocation = "Remote",
+} = {}) {
+  const jobs = [{
+    link: url,
+    title: "View",
+    company,
+    location: "",
+    logoUrl: "",
+  }];
+  const updates = [];
+  const host = {
+    showToast() {},
+    loadAllData: async () => {},
+    getPipelineData: () => jobs,
+    normalizeLeadUrlClient(value) {
+      try {
+        const parsed = new URL(value);
+        return parsed.hostname.toLowerCase().replace(/^www\./, "") + parsed.pathname.replace(/\/+$/, "");
+      } catch {
+        return String(value || "").trim();
+      }
+    },
+    fetchJobPostingEnrichment: async (idx) => {
+      jobs[idx]._postingEnrichment = {
+        inferredTitle,
+        inferredCompany,
+        inferredLocation,
+      };
+    },
+    getSheetRow: () => 7,
+    isPlaceholderLogoUrl: () => false,
+    resolveCompanyLogoUrl: async () => "",
+    updateMultipleCells: async (batch) => {
+      updates.push(...batch);
+      return true;
+    },
+    renderPipeline() {},
+    getCurrentSearch: () => "",
+    getFavoritesOnly: () => false,
+  };
+  const context = vm.createContext({
+    window: {
+      JobBoredDiscovery: {
+        status: {},
+        ingestUrlFlow: { host },
+      },
+    },
+    document: {
+      getElementById: () => null,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+    },
+    console: { log() {}, info() {}, warn() {}, error() {} },
+    setTimeout,
+    clearTimeout,
+    URL,
+  });
+
+  vm.runInContext(ingestUrlFlowJs, context, { filename: "ingest-url-flow.js" });
+  return {
+    api: context.window.JobBoredDiscovery.ingestUrlFlow,
+    jobs,
+    updates,
+    url,
+  };
+}
+
 /** VM stubs for hoisted auth getters referenced by sliced app.js helpers. */
 const ingestAuthVmPreamble = `
 function getAccessToken() {
@@ -638,7 +716,11 @@ describe("Add job from URL endpoint resolution", () => {
 
     assert.match(responseSource, /data\.updated === true \|\| data\.appended === false/);
     assert.match(responseSource, /refreshPipelineAfterIngest\(\{\s*url,\s*data,/);
-    assert.match(responseSource, /return refresh\.then\(\(\) => data\)/);
+    assert.match(responseSource, /return settlePostIngestWork\(refresh, data\)/);
+    assert.match(responseSource, /return settlePostIngestWork\(enrich, data\)/);
+    assert.match(ingestUrlFlowJs, /const POST_INGEST_RESPONSE_WAIT_MS = 12000/);
+    assert.match(ingestUrlFlowJs, /Promise\.race\(\[task, timeout\]\)/);
+    assert.match(ingestUrlFlowJs, /clearTimeout\(timer\)/);
     assert.match(refreshSource, /await h\("loadAllData"\)/);
     assert.match(refreshSource, /getDuplicatePipelineIndexFromIngest\(url, data\)/);
     assert.match(refreshSource, /revealPipelineJobByIndex\(idx\)/);
@@ -646,6 +728,98 @@ describe("Add job from URL endpoint resolution", () => {
     assert.match(ingestUrlFlowJs, /h\("setCurrentSearch", ""\)/);
     assert.match(ingestUrlFlowJs, /h\("setFavoritesOnly", false\)/);
     assert.match(ingestUrlFlowJs, /\[data-pipeline-search\]/);
+  });
+
+  it("promotes inferred employer over JobBored/referral placeholders for URL-only rows", async () => {
+    const { api, jobs, updates, url } = loadIngestUrlPromotionHarness();
+    api.handleIngestUrlResponse(
+      {
+        ok: true,
+        strategy: "url_only",
+        rowNumber: 7,
+        lead: { title: "View", company: "JobBored", url },
+      },
+      url,
+    );
+    await flushMicrotasks();
+
+    assert.deepEqual(JSON.parse(JSON.stringify(updates)), [
+      { range: "Pipeline!B7", value: "Lifecycle Marketing Manager" },
+      { range: "Pipeline!C7", value: "Acme Labs" },
+      { range: "Pipeline!D7", value: "Remote" },
+    ]);
+    assert.equal(jobs[0].company, "Acme Labs");
+  });
+
+  it("promotes inferred employer when a scraped row used a referral host as company", async () => {
+    const { api, jobs, updates, url } = loadIngestUrlPromotionHarness({
+      company: "Referrals",
+    });
+
+    api.handleIngestUrlResponse(
+      {
+        ok: true,
+        strategy: "cheerio_dom",
+        rowNumber: 7,
+        lead: { title: "Lifecycle Marketing Manager", company: "Referrals", url },
+      },
+      url,
+    );
+    await flushMicrotasks();
+
+    assert.deepEqual(JSON.parse(JSON.stringify(updates)), [
+      { range: "Pipeline!B7", value: "Lifecycle Marketing Manager" },
+      { range: "Pipeline!C7", value: "Acme Labs" },
+      { range: "Pipeline!D7", value: "Remote" },
+    ]);
+    assert.equal(jobs[0].company, "Acme Labs");
+  });
+
+  it("does not replace one placeholder employer with another placeholder inferred value", async () => {
+    const { api, jobs, updates, url } = loadIngestUrlPromotionHarness({
+      inferredCompany: "Referral",
+    });
+
+    api.handleIngestUrlResponse(
+      {
+        ok: true,
+        strategy: "url_only",
+        rowNumber: 7,
+        lead: { title: "View", company: "JobBored", url },
+      },
+      url,
+    );
+    await flushMicrotasks();
+
+    assert.deepEqual(JSON.parse(JSON.stringify(updates)), [
+      { range: "Pipeline!B7", value: "Lifecycle Marketing Manager" },
+      { range: "Pipeline!D7", value: "Remote" },
+    ]);
+    assert.equal(jobs[0].company, "JobBored");
+  });
+
+  it("does not promote an ATS provider label as the employer for that provider URL", async () => {
+    const { api, jobs, updates, url } = loadIngestUrlPromotionHarness({
+      url: "https://job-boards.greenhouse.io/acme/jobs/123",
+      inferredCompany: "Greenhouse",
+    });
+
+    api.handleIngestUrlResponse(
+      {
+        ok: true,
+        strategy: "url_only",
+        rowNumber: 7,
+        lead: { title: "View", company: "JobBored", url },
+      },
+      url,
+    );
+    await flushMicrotasks();
+
+    assert.deepEqual(JSON.parse(JSON.stringify(updates)), [
+      { range: "Pipeline!B7", value: "Lifecycle Marketing Manager" },
+      { range: "Pipeline!D7", value: "Remote" },
+    ]);
+    assert.equal(jobs[0].company, "JobBored");
   });
 
   it("manual entry can append directly to Pipeline when no webhook exists", () => {

@@ -427,8 +427,10 @@ async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
 // Security headers applied to every static response. The CSP allowlist must
 // match every provider the dashboard actually contacts: Google Identity /
 // Sheets for OAuth + reads, plus the AI providers users can configure
-// (Gemini, OpenAI, Anthropic, OpenRouter), plus the local discovery worker
-// (any 127.0.0.1/localhost port — the worker port is user-configurable).
+// (Gemini, OpenAI, Anthropic, OpenRouter), the local discovery worker
+// (any 127.0.0.1/localhost port — the worker port is user-configurable),
+// and the user-owned discovery transports the setup wizard verifies directly
+// from the browser (Apps Script, Tailscale, Cloudflare, and ngrok).
 // frame-ancestors 'none' makes the page un-iframeable; X-Frame-Options
 // echoes that for legacy browsers without CSP3 support.
 //
@@ -451,7 +453,7 @@ const STATIC_SECURITY_HEADERS = {
     "style-src 'self' 'unsafe-inline'; " +
     "img-src 'self' data: https:; " +
     "font-src 'self' data: https://fonts.gstatic.com; " +
-    "connect-src 'self' https://accounts.google.com https://sheets.googleapis.com https://generativelanguage.googleapis.com https://api.openai.com https://api.anthropic.com https://openrouter.ai https://fonts.gstatic.com http://127.0.0.1:* http://localhost:*; " +
+    "connect-src 'self' https://accounts.google.com https://sheets.googleapis.com https://script.google.com https://script.googleusercontent.com https://generativelanguage.googleapis.com https://api.openai.com https://api.anthropic.com https://openrouter.ai https://fonts.gstatic.com http://127.0.0.1:* http://localhost:* https://*.ts.net https://*.workers.dev https://*.trycloudflare.com https://*.ngrok-free.app https://*.ngrok.app https://*.ngrok.io; " +
     "frame-src https://accounts.google.com; " +
     "frame-ancestors 'none'",
   "x-content-type-options": "nosniff",

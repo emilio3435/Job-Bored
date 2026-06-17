@@ -282,11 +282,44 @@ describe("buildManifest", () => {
     assert.equal(manifest.pending.progress.phase, "drafting");
     assert.equal(
       manifest.pending.progress.message,
-      "Dobby is drafting your cover letter and tailoring your resume…",
+      "Writing your cover letter and tailoring your resume…",
     );
     assert.equal(manifest.pending.progress.startedAt, startedAt);
     assert.equal(manifest.pending.progress.elapsedSeconds, 145);
     assert.equal(manifest.pending.progress.attempt, 1);
+  });
+
+  it("normalizes stale cover-letter progress text on a newer resume request", async () => {
+    const dir = join(root, "stale-progress-resume-package");
+    await mkdir(dir);
+    const coverStartedAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const resumeRequestedAt = new Date(Date.now() - 30 * 1000).toISOString();
+    const updatedAt = new Date(Date.now() - 5 * 1000).toISOString();
+    await writeFile(join(dir, "pending.json"), JSON.stringify({
+      slug: "stale-progress-resume-package",
+      company: "Progress Co",
+      title: "Progress Role",
+      feature: "resume",
+      requested_at: resumeRequestedAt,
+      progress: {
+        phase: "drafting",
+        message: "Winky is drafting your cover letter…",
+        started_at: coverStartedAt,
+        updated_at: updatedAt,
+        attempt: 1,
+        elapsed_seconds: 560,
+      },
+    }));
+
+    const manifest = await buildManifest("stale-progress-resume-package", { root });
+
+    assert.ok(manifest.pending, "pending block should be attached");
+    assert.equal(manifest.pending.progress.message, "Writing your resume…");
+    assert.equal(
+      manifest.pending.progress.startedAt,
+      resumeRequestedAt,
+      "a newer request must reset stale cover-letter start time",
+    );
   });
 
   it("suppresses a terminal failed pending state once the requested cover letter PDF is ready", async () => {
@@ -873,9 +906,34 @@ describe("listPendingQueue", () => {
     /* Bravo requested earlier, so it's first. */
     assert.equal(queue[0].slug, "bravo-co");
     assert.equal(queue[0].progress.phase, "drafting");
-    assert.equal(queue[0].progress.message, "Dobby is drafting your cover letter…");
+    assert.equal(queue[0].progress.message, "Writing your cover letter…");
     assert.equal(queue[1].slug, "alpha-co");
     assert.equal(queue[1].progress, null);
+  });
+
+  it("normalizes stale cover-letter queue progress for resume requests", async () => {
+    await mkdir(join(root, "resume-co"));
+    await writeFile(join(root, "resume-co", "pending.json"), JSON.stringify({
+      slug: "resume-co",
+      company: "Resume",
+      title: "Resume Role",
+      feature: "resume",
+      requested_at: "2026-05-28T10:00:00Z",
+      progress: {
+        phase: "drafting",
+        message: "Winky is drafting your cover letter…",
+        started_at: "2026-05-28T09:30:00Z",
+        updated_at: "2026-05-28T10:01:00Z",
+        elapsed_seconds: 1800,
+      },
+    }));
+
+    const { listPendingQueue } = await import("../server/application-materials.mjs");
+    const queue = await listPendingQueue({ root });
+
+    assert.equal(queue.length, 1);
+    assert.equal(queue[0].progress.message, "Writing your resume…");
+    assert.equal(queue[0].progress.startedAt, "2026-05-28T10:00:00Z");
   });
 
   it("returns [] when no pending.json files exist", async () => {

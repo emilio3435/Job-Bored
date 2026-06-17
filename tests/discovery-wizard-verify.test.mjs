@@ -104,3 +104,66 @@ describe("discovery wizard verifier localhost handling", () => {
     assert.equal(result.runId, "run_localhost_verify");
   });
 });
+
+describe("discovery wizard verifier webhook-secret auth classification", () => {
+  it("classifies missing_secret_header 401 as auth_required", async () => {
+    const verify = await loadVerifyHarness();
+    const result = verify.summarizeResult({
+      context: "test_webhook",
+      status: 401,
+      data: {
+        ok: false,
+        message: "x-discovery-secret header is missing from the request.",
+        auth: {
+          category: "missing_secret_header",
+          detail: "x-discovery-secret header is missing from the request.",
+        },
+      },
+      responseText:
+        '{"ok":false,"message":"x-discovery-secret header is missing from the request.","auth":{"category":"missing_secret_header"}}',
+      responseUrl: "https://host.taild4cbb2.ts.net/webhook",
+      endpointUrl: "https://host.taild4cbb2.ts.net/webhook",
+    });
+
+    assert.equal(result.kind, "auth_required");
+    assert.equal(result.ok, false);
+    assert.equal(result.httpStatus, 401);
+    assert.match(result.message, /webhook secret/i);
+  });
+
+  it("classifies no_secret_configured 401 as auth_required", async () => {
+    const verify = await loadVerifyHarness();
+    const result = verify.summarizeResult({
+      context: "test_webhook",
+      status: 401,
+      data: {
+        ok: false,
+        message: "Webhook secret is not configured on the worker.",
+        auth: { category: "no_secret_configured" },
+      },
+      responseText: "",
+      responseUrl: "https://host.taild4cbb2.ts.net/webhook",
+      endpointUrl: "https://host.taild4cbb2.ts.net/webhook",
+    });
+
+    assert.equal(result.kind, "auth_required");
+  });
+
+  it("still classifies secret_mismatch 401 as auth_required", async () => {
+    const verify = await loadVerifyHarness();
+    const result = verify.summarizeResult({
+      context: "test_webhook",
+      status: 401,
+      data: {
+        ok: false,
+        message: "Unauthorized discovery webhook request.",
+        auth: { category: "secret_mismatch" },
+      },
+      responseText: "",
+      responseUrl: "https://host.taild4cbb2.ts.net/webhook",
+      endpointUrl: "https://host.taild4cbb2.ts.net/webhook",
+    });
+
+    assert.equal(result.kind, "auth_required");
+  });
+});

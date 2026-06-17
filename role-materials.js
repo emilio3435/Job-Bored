@@ -16,9 +16,10 @@
    Matching strategy
      Slug is computed from the open role's company + title using the
      same casing rules Hermes applies on disk. When the exact slug
-     isn't on disk we fall back to a "company prefix" match (longest
-     title-word overlap wins). If no candidate matches, the section
-     is hidden — never rendered with empty cards.
+     isn't on disk we try a suffix-stripped company/title exact match,
+     then a conservative company-prefix match where the on-disk title
+     must extend the current role title. If no candidate matches, the
+     section is hidden — never rendered with empty cards.
 
    Activation: body.jb-v2 only. Off-flag: no-op.
    ============================================================ */
@@ -147,6 +148,41 @@
     return c || t;
   }
 
+  var TITLE_NOISE = {
+    a: 1, an: 1, and: 1, at: 1, for: 1, in: 1, of: 1, on: 1, the: 1, to: 1, with: 1,
+  };
+
+  var TRAILING_TITLE_NOISE = {
+    remote: 1, hybrid: 1, onsite: 1, job: 1, jobs: 1, role: 1, position: 1,
+  };
+
+  function titleWordsFromSlug(slug) {
+    var words = String(slug || "").split("-").filter(function (word) {
+      return word && !TITLE_NOISE[word];
+    });
+    while (words.length && TRAILING_TITLE_NOISE[words[words.length - 1]]) {
+      words.pop();
+    }
+    return words;
+  }
+
+  function dropLeadingCompanyTailWords(words, companyTokensForJob) {
+    var out = words.slice();
+    for (var i = 1; i < companyTokensForJob.length && out.length; i++) {
+      if (out[0] !== companyTokensForJob[i]) break;
+      out.shift();
+    }
+    return out;
+  }
+
+  function titleWordsPrefixMatch(targetWords, candidateWords) {
+    if (!targetWords.length || candidateWords.length < targetWords.length) return false;
+    for (var i = 0; i < targetWords.length; i++) {
+      if (candidateWords[i] !== targetWords[i]) return false;
+    }
+    return true;
+  }
+
   /**
    * Choose an application from the server list that best matches the
    * given job, even when Hermes slug differs from the dashboard slug
@@ -165,13 +201,20 @@
     /* Match if the folder slug begins with the first meaningful company
        token. This is what makes "TEGNA Inc." → tegna-digital-sales-manager
        work, and also why Anthropic with a long abbreviated title still
-       resolves. We then score by title-word overlap. */
+       resolves. We then require the folder title to extend the current
+       role title, so another same-employer position cannot borrow its
+       materials just because it shares one generic word. */
     var head = tokens[0];
     var titleSlug = slugify(job && job.role);
-    var titleWords = titleSlug.split("-").filter(Boolean);
+    var titleWords = titleWordsFromSlug(titleSlug);
+    if (!titleWords.length) return null;
+    var normalizedTarget = tokens.join("-") + "-" + titleWords.join("-");
+    var normalizedExact = applications.find(function (a) {
+      return a && a.slug === normalizedTarget;
+    });
+    if (normalizedExact) return normalizedExact;
 
     var bestScore = -1;
-    var bestOverlap = 0;
     var best = null;
     applications.forEach(function (a) {
       if (!a || typeof a.slug !== "string") return;
@@ -184,18 +227,16 @@
       for (var i = 1; i < tokens.length; i++) {
         if (tail.indexOf(tokens[i]) !== -1) companyBonus += 1;
       }
-      var overlap = 0;
-      titleWords.forEach(function (w) {
-        if (w && tail.indexOf(w) !== -1) overlap += 1;
-      });
-      var score = overlap * 2 + companyBonus;
+      var candidateTitleWords = dropLeadingCompanyTailWords(titleWordsFromSlug(tail), tokens);
+      if (titleWords.length < 3 && candidateTitleWords.length !== titleWords.length) return;
+      if (!titleWordsPrefixMatch(titleWords, candidateTitleWords)) return;
+      var extraTitleWords = Math.max(0, candidateTitleWords.length - titleWords.length);
+      var score = (titleWords.length * 3) + companyBonus - extraTitleWords;
       if (score > bestScore || (score === bestScore && best && a.slug.length < best.slug.length)) {
         bestScore = score;
-        bestOverlap = overlap;
         best = a;
       }
     });
-    if (best && titleWords.length && bestOverlap === 0) return null;
     return best;
   }
 
@@ -237,14 +278,25 @@
 
   function pickDownloadFile(doc) {
     if (!doc || !Array.isArray(doc.files) || !doc.files.length) return null;
-    var byFormat = function (fmt) {
-      return doc.files.find(function (f) { return f && f.format === fmt; });
-    };
-    return byFormat("pdf") || byFormat("html") || byFormat("md") || doc.files[0];
+    return doc.files.find(function (f) {
+      return f && String(f.format || "").toLowerCase() === "pdf";
+    }) || null;
+  }
+
+  function fileVersion(file) {
+    if (!file) return "";
+    var modified = file.modifiedAt ? String(file.modifiedAt) : "";
+    var size = Number(file.size);
+    var sizeText = Number.isFinite(size) ? String(size) : "";
+    if (!modified && !sizeText) return "";
+    return modified + "|" + sizeText;
   }
 
   function fileUrl(base, slug, filename, opts) {
-    var qs = opts && opts.download ? "?download=1" : "";
+    var params = [];
+    if (opts && opts.download) params.push("download=1");
+    if (opts && opts.version) params.push("v=" + encodeURIComponent(String(opts.version)));
+    var qs = params.length ? "?" + params.join("&") : "";
     return base + "/api/applications/" + encodeURIComponent(slug)
       + "/files/" + encodeURIComponent(filename) + qs;
   }
@@ -324,11 +376,14 @@
     if (download) {
       actions.push(
         '<a class="brief-materials__btn brief-materials__btn--ghost"'
-        + ' href="' + escapeHtml(fileUrl(base, slug, download.filename, { download: true })) + '"'
+        + ' href="' + escapeHtml(fileUrl(base, slug, download.filename, {
+          download: true,
+          version: fileVersion(download),
+        })) + '"'
         + ' download'
         + ' data-action="materials-download"'
         + ' data-filename="' + escapeHtml(download.filename) + '"'
-        + '>Download ' + escapeHtml((ALLOWED_FILES[download.filename] && ALLOWED_FILES[download.filename].format) || "") + '</a>'
+        + '>Download PDF</a>'
       );
     }
 
@@ -380,26 +435,29 @@
     var html = '<section class="' + SECTION_CLASS + ' brief-materials--empty" aria-label="Application materials">'
       + '<header class="brief-materials__head">'
         + '<h3 class="section-label">Application Materials</h3>'
-        + '<span class="brief-materials__eyebrow">LOCAL · ~/.hermes/job-hunt</span>'
+        + '<span class="brief-materials__eyebrow">LOCAL · ON THIS MACHINE</span>'
       + '</header>'
       + '<p class="brief-materials__empty">'
         + (note
           ? escapeHtml(note)
           : "No tailored resume or cover letter on disk for this role yet.")
       + '</p>'
-      + '<p class="brief-materials__hint">Use <strong>Draft cover letter</strong> or <strong>Tailor resume</strong> above to ask Hermes for a tailored pass.</p>'
+      + '<p class="brief-materials__hint">Use <strong>Draft cover letter</strong> or <strong>Tailor resume</strong> above to start a tailored draft.</p>'
       + '</section>';
     appendSection(briefEl, html);
   }
 
-  /* The spinning clock SVG the user wants reused throughout the
-     progress UI. Two arcs + clock hands. The CSS animation rotates
-     it from the .brief-materials__progress-clock wrapper. */
-  var PROGRESS_CLOCK_SVG = ''
-    + '<svg class="brief-materials__progress-clock" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-      + '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path>'
-      + '<path d="M3 3v5h5"></path>'
-      + '<path d="M12 7v5l3 2"></path>'
+  /* A pen drawing a line — reads as "your draft is being written" rather
+     than a backwards clock that just signals "this is taking forever".
+     The nib sweeps left→right while the baseline inks in; CSS drives both
+     (see .brief-materials__progress-pen* in role.css). */
+  var PROGRESS_WRITING_SVG = ''
+    + '<svg class="brief-materials__progress-pen" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<g class="brief-materials__progress-pen-nib">'
+        + '<path d="M15.5 5.5l3 3"></path>'
+        + '<path d="M16.8 4.2a1.7 1.7 0 0 1 2.4 2.4L8.5 17.3 4.5 18.5l1.2-4z"></path>'
+      + '</g>'
+      + '<line class="brief-materials__progress-pen-line" x1="4.5" y1="20.5" x2="19.5" y2="20.5"></line>'
     + '</svg>';
 
   function featureLabel(feature) {
@@ -411,17 +469,17 @@
 
   /* Maps the watcher's progress.phase to a JobBored-flavoured message
      when the watcher hasn't supplied one of its own. Keeping these
-     concise + warm; Dobby can still override per-run. */
+     concise + warm; a per-run message can still override. */
   function defaultPhaseMessage(phase, feature) {
     var label = featureLabel(feature);
     switch (phase) {
-      case "queued":         return "Your " + label + " is in line. Dobby drafts one role at a time and will pick this up next.";
-      case "drafting":       return "Dobby is drafting your " + label + "…";
+      case "queued":         return "Your " + label + " is in line. We draft one role at a time and will start this next.";
+      case "drafting":       return "Writing your " + label + "…";
       case "rendering_pdf":  return "Polishing the PDFs…";
       case "verifying":      return "Double-checking the outputs…";
-      case "complete":       return "Done! Files are syncing back to JobBored.";
-      case "failed":         return "Something went sideways. Open the request again or check the worker logs.";
-      default:               return "Dobby is on it…";
+      case "complete":       return "Done! Your files are ready.";
+      case "failed":         return "Something went sideways. Open the request again to retry.";
+      default:               return "Writing your " + label + "…";
     }
   }
 
@@ -452,18 +510,18 @@
   }
 
   /* New rich progress card. Replaces the old single-line pending
-     banner. Shows the spinning clock, the phase-specific message,
+     banner. Shows the writing-pen icon, the phase-specific message,
      a live elapsed timer, and the user's original notes preview. */
   function pendingBannerHtml(pending) {
     if (!pending || !pending.feature) return "";
     var progress = pending.progress || null;
     /* Phase resolution:
        - explicit progress.phase wins
-       - no progress block at all = "queued" (request landed, watcher
+       - no progress block at all = "queued" (request landed, the writer
          hasn't claimed the file yet; can sit here for minutes if a
-         prior draft is in flight since Dobby's concurrency=1)
+         prior draft is in flight, since drafts run one at a time)
        This distinction matters because "drafting at 0s" looks broken;
-       "QUEUED · waiting for Dobby" reads as expected. */
+       the "WAITING IN QUEUE" state reads as expected. */
     var phase = (progress && progress.phase) || "queued";
     /* Treat "complete" as a celebratory state — same card structure,
        different visuals (no spin, check icon). Once Dobby deletes
@@ -491,7 +549,7 @@
             + '<circle cx="12" cy="12" r="10"></circle>'
             + '<line x1="12" y1="8" x2="12" y2="12"></line>'
             + '<line x1="12" y1="16" x2="12.01" y2="16"></line></svg>')
-         : PROGRESS_CLOCK_SVG);
+         : PROGRESS_WRITING_SVG);
 
     /* Elapsed counter rules:
        - terminal phases (complete/failed) freeze at the final value
@@ -635,7 +693,7 @@
     var html = '<section class="' + SECTION_CLASS + ' brief-materials--error" aria-label="Application materials">'
       + '<header class="brief-materials__head">'
         + '<h3 class="section-label">Application Materials</h3>'
-        + '<span class="brief-materials__eyebrow">LOCAL · ~/.hermes/job-hunt</span>'
+        + '<span class="brief-materials__eyebrow">LOCAL · ON THIS MACHINE</span>'
       + '</header>'
       + '<p class="brief-materials__empty">'
         + escapeHtml(message || "Local materials server is unreachable.")
@@ -1398,6 +1456,45 @@
     });
   }
 
+  /* True only when `jobKey` is the role currently open in the dossier, so
+     the kanban auto-draft path renders into / polls the right surface and
+     never paints one role's progress over another. */
+  function isOpenRole(jobKey) {
+    var openKey = root.JobBoredFlowing
+      && root.JobBoredFlowing.openRole
+      && root.JobBoredFlowing.openRole.get
+      && root.JobBoredFlowing.openRole.get();
+    return openKey != null && openKey !== "" && String(openKey) === String(jobKey);
+  }
+
+  function renderAutoDraftManifestInOpenDossier(jobKey, manifest, base) {
+    if (!isOpenRole(jobKey)) return;
+    var region = document.querySelector(REGION_SELECTOR);
+    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    if (!brief) return;
+    renderManifest(brief, manifest, base);
+    if (manifest && manifest.pending) startPolling(manifest.slug, base);
+    else stopPolling();
+  }
+
+  /* After an auto-request writes pending.json, re-read the manifest into
+     the open dossier and start the bounded poll — the same tail as the
+     manual submitDraftRequest path. Without this the dossier renders its
+     pre-request snapshot and stops, so generated docs only appear after a
+     manual browser refresh. No-ops when a different role (or none) is open
+     or the request resolved into another role. */
+  function reflectAutoDraftInOpenDossier(jobKey, slug, base) {
+    if (!isOpenRole(jobKey)) return;
+    fetchJson(base + "/api/applications/" + encodeURIComponent(slug) + "/manifest")
+      .then(function (manifest) {
+        renderAutoDraftManifestInOpenDossier(jobKey, manifest, base);
+      })
+      .catch(function () {
+        /* Leave the optimistic in-progress card up; the global queue strip
+           and the next manual open both recover the real state. */
+      });
+  }
+
   function requestAutoDraftForMove(detail) {
     if (!shouldRun() || !isAutoDraftMove(detail)) return;
 
@@ -1442,6 +1539,13 @@
       cachedJobDescription: pickCachedJobDescription(job),
     };
 
+    /* If this role is the one open in the dossier, stamp an immediate
+       in-progress card so the move visibly registers while the JD chain
+       and request round-trip resolve. */
+    if (isOpenRole(jobKey)) {
+      renderOptimisticPending(ctx, "both", "", "kanban-auto");
+    }
+
     getApplications(base, { refresh: true })
       .catch(function () { return []; })
       .then(function (apps) {
@@ -1455,6 +1559,7 @@
       .then(function (manifest) {
         var reason = autoDraftSkipReason(manifest);
         if (reason) {
+          if (manifest) renderAutoDraftManifestInOpenDossier(jobKey, manifest, base);
           emitAutoDraftSkipped(detail, reason, slug);
           return null;
         }
@@ -1479,6 +1584,9 @@
               feature: "both",
               result: result || null,
             });
+            /* Re-read the manifest into the open dossier and start the
+               bounded poll so resume + cover letter surface live. */
+            reflectAutoDraftInOpenDossier(jobKey, slug, base);
             return result;
           });
       })
@@ -1578,16 +1686,16 @@
     var heading = feature === "cover_letter"
       ? "Notes for the cover letter"
       : "Notes for the resume tailoring";
-    var placeholder = "What angle should Hermes emphasise? Tone? Must-shows?";
+    var placeholder = "What angle should we emphasise? Tone? Must-shows?";
     return '<form class="brief-materials__notes-form" aria-label="' + escapeHtml(heading) + '">'
       + '<header class="brief-materials__notes-head">'
         + '<span class="brief-materials__notes-title">' + escapeHtml(heading) + '</span>'
-        + '<span class="brief-materials__notes-eyebrow">NOTES FOR HERMES</span>'
+        + '<span class="brief-materials__notes-eyebrow">NOTES FOR THE DRAFT</span>'
       + '</header>'
       + '<textarea class="brief-materials__notes-textarea" rows="4" placeholder="' + escapeHtml(placeholder) + '"></textarea>'
       + '<footer class="brief-materials__notes-actions">'
         + '<button type="button" class="brief-materials__btn brief-materials__btn--ghost" data-action="notes-cancel">Cancel</button>'
-        + '<button type="submit" class="brief-materials__btn brief-materials__btn--primary" data-action="notes-send">Send to Hermes</button>'
+        + '<button type="submit" class="brief-materials__btn brief-materials__btn--primary" data-action="notes-send">Start draft</button>'
       + '</footer>'
       + '</form>';
   }
@@ -1935,7 +2043,7 @@
           + '<span class="brief-materials__jd-eyebrow">PASTE THE JD</span>'
         + '</header>'
         + '<p class="brief-materials__jd-hint">'
-          + 'Paste the full job description from the posting and we\'ll save it as <code>job-description.md</code> in the slug folder, then kick off Hermes.'
+          + 'Paste the full job description from the posting and we\'ll save it for this role, then start your draft.'
           + __sourceUrl
         + '</p>'
         + '<textarea name="jd" rows="10" required minlength="50" placeholder="Paste the full job description here…"></textarea>'
