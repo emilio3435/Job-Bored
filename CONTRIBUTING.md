@@ -105,7 +105,7 @@ before it blocks a merge:
 
 - `lint` — `npm run lint:repo` (ESLint + skill lint).
 - `coverage` — `c8` coverage gate (see [Coverage floor and ratchet](#coverage-floor-and-ratchet)).
-- `audit:prod` — `npm audit --omit=dev --audit-level=high`.
+- `audit-prod` — `npm audit --omit=dev --audit-level=high`.
 - `pr-lint` — Conventional Commit title check (see below).
 
 Two checks are **advisory** (`continue-on-error: true`) and never block a
@@ -113,7 +113,7 @@ merge:
 
 - `e2e-smoke` — Playwright boot + visibility smoke. Flakes here surface
   signal but won't hold you up.
-- `audit:dev` — advisory `npm audit` summary across all dependencies
+- `audit-dev` — advisory `npm audit` summary across all dependencies
   (including dev).
 
 PRs also require review from a CODEOWNERS owner (see
