@@ -445,6 +445,122 @@ test("handleIngestUrlWebhook scrapes public LinkedIn detail page from currentJob
   assert.equal(capturedLead?.sourceLabel, "LinkedIn");
 });
 
+test("handleIngestUrlWebhook normalizes LinkedIn pasted URL variants before scraping", async () => {
+  const cases = [
+    "https://www.linkedin.com/jobs/collections/recommended/?currentJobId=4423583528&refId=abc",
+    "https://www.linkedin.com/jobs/search-results/#currentJobId=4423583528&keywords=digital",
+    "https://linkedin.com/jobs/view/4423583528/?trk=public_jobs_topcard-title",
+    "https://www.linkedin.com/comm/jobs/view/4423583528?trk=public_jobs_topcard-title",
+    "https://www.linkedin.com/jobs/view/associate-director-digital-strategy-at-moore-4423583528/?trackingId=xyz",
+    "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/4423583528?trk=public_jobs_jserp-result_search-card",
+  ];
+
+  for (const pastedUrl of cases) {
+    let scrapedUrl = "";
+    let browserUseCalls = 0;
+    let geminiCalls = 0;
+    let writerCalls = 0;
+    const response = await handleIngestUrlWebhook(
+      makeRequest({ url: pastedUrl }),
+      makeDependencies({
+        scrapeJobPosting: async (url: string) => {
+          scrapedUrl = url;
+          return {
+            url,
+            title:
+              "Moore hiring Associate Director, Digital Strategy in United States | LinkedIn",
+            description:
+              "As the Associate Director of Digital Strategy, you will provide leadership oversight of digital strategy for nonprofit clients and digital teams.",
+            method: "dom",
+          };
+        },
+        extractWithBrowserUseCloud: async () => {
+          browserUseCalls += 1;
+          throw new Error("Browser Use should not run after public LinkedIn scrape");
+        },
+        extractWithGeminiUrlContext: async () => {
+          geminiCalls += 1;
+          throw new Error("Gemini should not run after public LinkedIn scrape");
+        },
+        pipelineWriter: {
+          write: async () => {
+            writerCalls += 1;
+            return {
+              sheetId: "sheet_123",
+              appended: 1,
+              updated: 0,
+              skippedDuplicates: 0,
+              skippedBlacklist: 0,
+              warnings: [],
+            };
+          },
+        },
+      }),
+    );
+
+    assert.equal(response.status, 200, pastedUrl);
+    assert.equal(JSON.parse(response.body).ok, true, pastedUrl);
+    assert.equal(scrapedUrl, "https://www.linkedin.com/jobs/view/4423583528", pastedUrl);
+    assert.equal(browserUseCalls, 0, pastedUrl);
+    assert.equal(geminiCalls, 0, pastedUrl);
+    assert.equal(writerCalls, 1, pastedUrl);
+  }
+});
+
+test("handleIngestUrlWebhook keeps generic LinkedIn search pages blocked", async () => {
+  let scraperCalls = 0;
+  let writerCalls = 0;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "https://www.linkedin.com/jobs/search-results/?keywords=digital%20strategy",
+    }),
+    makeDependencies({
+      scrapeJobPosting: async () => {
+        scraperCalls += 1;
+        throw new Error("generic LinkedIn search should not be scraped");
+      },
+      pipelineWriter: {
+        write: async () => {
+          writerCalls += 1;
+          throw new Error("generic LinkedIn search should not be written");
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.ok, false);
+  assert.equal(body.reason, "blocked_aggregator");
+  assert.equal(scraperCalls, 0);
+  assert.equal(writerCalls, 0);
+});
+
+test("handleIngestUrlWebhook prefers LinkedIn detail path id over currentJobId tracking params", async () => {
+  let scrapedUrl = "";
+  const response = await handleIngestUrlWebhook(
+    makeRequest({
+      url: "https://www.linkedin.com/jobs/view/1111111111?currentJobId=2222222222&trackingId=stale",
+    }),
+    makeDependencies({
+      scrapeJobPosting: async (url: string) => {
+        scrapedUrl = url;
+        return {
+          url,
+          title: "Example Co hiring Growth Lead in Remote | LinkedIn",
+          description:
+            "Lead growth strategy, lifecycle marketing, analytics, and experimentation for a remote team.",
+          method: "dom",
+        };
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(JSON.parse(response.body).ok, true);
+  assert.equal(scrapedUrl, "https://www.linkedin.com/jobs/view/1111111111");
+});
+
 test("handleIngestUrlWebhook blocked_aggregator uses Browser Use Cloud when configured", async () => {
   let extractorCalls = 0;
   let writerCalls = 0;

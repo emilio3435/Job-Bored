@@ -1230,17 +1230,37 @@ function canonicalLinkedInJobDetailUrl(url: string): string | null {
   }
   if (!/(^|\.)linkedin\.com$/i.test(parsed.hostname)) return null;
 
-  const currentJobId = String(parsed.searchParams.get("currentJobId") || "").trim();
-  if (/^\d{5,}$/.test(currentJobId)) {
-    return `https://www.linkedin.com/jobs/view/${currentJobId}`;
+  const pathJobId = getLinkedInPathJobId(parsed);
+  if (pathJobId) return `https://www.linkedin.com/jobs/view/${pathJobId}`;
+  const currentJobId = getLinkedInCurrentJobId(parsed);
+  if (currentJobId) return `https://www.linkedin.com/jobs/view/${currentJobId}`;
+  return null;
+}
+
+function getLinkedInPathJobId(parsed: URL): string {
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  const jobPostingIndex = segments.findIndex((segment) => segment === "jobPosting");
+  if (jobPostingIndex >= 0) {
+    const jobPostingId = String(segments[jobPostingIndex + 1] || "").trim();
+    if (/^\d{5,}$/.test(jobPostingId)) {
+      return jobPostingId;
+    }
   }
 
-  const segments = parsed.pathname.split("/").filter(Boolean);
-  if (segments[0] !== "jobs" || segments[1] !== "view") return null;
-  const detailToken = String(segments[2] || "").trim();
-  const match = detailToken.match(/(\d{5,})(?:\D*)$/);
-  if (!match) return null;
-  return `https://www.linkedin.com/jobs/view/${match[1]}`;
+  const jobsIndex = segments.findIndex(
+    (segment, index) => segment === "jobs" && segments[index + 1] === "view",
+  );
+  if (jobsIndex < 0) return "";
+  const detailToken = String(segments[jobsIndex + 2] || "").trim();
+  const match = detailToken.match(/(?:^|\D)(\d{5,})(?:\D*)$/);
+  return match?.[1] || "";
+}
+
+function getLinkedInCurrentJobId(parsed: URL): string {
+  const queryJobId = String(parsed.searchParams.get("currentJobId") || "").trim();
+  if (/^\d{5,}$/.test(queryJobId)) return queryJobId;
+  const hashMatch = parsed.hash.match(/(?:^#|[?#&])currentJobId=(\d{5,})(?:\D|$)/i);
+  return hashMatch?.[1] || "";
 }
 
 function inferCompanyFromHost(host: string): string {
