@@ -83,5 +83,8 @@
   "dependencies": {
     "browser-use-sdk": "^3.6.0",
     "zod": "^4.4.3"
+  },
+  "overrides": {
+    "shell-quote": "^1.8.4"
   }
 }
