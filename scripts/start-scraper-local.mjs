@@ -116,10 +116,16 @@ function listListeningPids(port) {
       .map((entry) => Number.parseInt(String(entry || "").trim(), 10))
       .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
   } catch (err) {
+    // ENOENT = lsof itself is missing (Windows, minimal Linux): we genuinely
+    // could NOT check, which differs from "checked, found none". Return null
+    // so the caller reuses the existing instance instead of spawning a second
+    // one that dies with EADDRINUSE. Any other error (e.g. lsof exit 1 for no
+    // matches) means "checked, none found" -> [].
     if (err && err.code === "ENOENT") {
       console.warn(
         `[start:scraper] port inspection unavailable (lsof not found on this system); cannot detect stale listeners on port ${port}.`,
       );
+      return null;
     }
     return [];
   }
@@ -145,8 +151,13 @@ async function waitForPidExit(pid, timeoutMs = 2500) {
 
 async function terminateScraperListenersOnPort(port) {
   const pids = listListeningPids(port);
+  if (pids === null) {
+    // Couldn't inspect the port (lsof missing) — report not-terminated so the
+    // caller reuses the existing instance rather than racing EADDRINUSE.
+    return { terminated: false, survivors: [] };
+  }
   if (!pids.length) {
-    return [];
+    return { terminated: true, survivors: [] };
   }
 
   for (const pid of pids) {
@@ -171,7 +182,21 @@ async function terminateScraperListenersOnPort(port) {
     }
   }
 
-  return stillAliveAfterTerm.filter((pid) => isProcessAlive(pid));
+  const survivors = stillAliveAfterTerm.filter((pid) => isProcessAlive(pid));
+  return { terminated: survivors.length === 0, survivors };
+}
+
+function holdProcessOpenForExistingScraper(host, port) {
+  console.info(
+    `[start:scraper] job scraper already running at http://${host}:${port}; reusing existing process.`,
+  );
+  const noopInterval = setInterval(() => {}, 60_000);
+  const shutdown = () => {
+    clearInterval(noopInterval);
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
 async function main() {
@@ -185,13 +210,20 @@ async function main() {
       console.info(
         `[start:scraper] job scraper already running at http://${host}:${port}; restarting to load latest code.`,
       );
-      const survivors = await terminateScraperListenersOnPort(port);
-      if (survivors.length) {
-        throw new Error(
-          `could not terminate listener(s) on port ${port}: ${survivors.join(
-            ", ",
-          )}`,
+      const result = await terminateScraperListenersOnPort(port);
+      if (!result.terminated) {
+        // Couldn't stop the existing instance (survivors, or lsof unavailable
+        // so we can't even find it). Reuse it instead of starting a second
+        // process that would die with EADDRINUSE — mirrors the discovery
+        // worker's reuse-on-failure behaviour.
+        const detail = result.survivors.length
+          ? `survivor pid(s): ${result.survivors.join(", ")}`
+          : "port could not be inspected";
+        console.warn(
+          `[start:scraper] could not stop the existing scraper on port ${port} (${detail}); reusing it.`,
         );
+        holdProcessOpenForExistingScraper(host, port);
+        return;
       }
       await sleep(150);
     }
