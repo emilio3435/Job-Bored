@@ -1,0 +1,33 @@
+# CODEOWNERS for JobBored.
+# Each line is a file pattern followed by one or more owners.
+# When a PR touches a matching path, the listed owners are requested for review.
+# Order matters: the LAST matching pattern wins, so list more-specific paths
+# BEFORE broader fallbacks. The default `*` is intentionally a non-recursive
+# root-level match (does not recurse into subdirectories on its own), which
+# keeps subdirectory owners authoritative.
+
+# --- Server surface (different deploy/runtime concerns) ---
+/server/                                  @emilio3435
+
+# --- Discovery worker (separate runtime surface) ---
+/integrations/browser-use-discovery/      @emilio3435
+
+# --- Tests ---
+/tests/                                   @emilio3435
+/tests/integration/                       @emilio3435
+/tests/e2e-smoke/                         @emilio3435
+
+# --- Contract surfaces (need careful review) ---
+/schemas/                                 @emilio3435
+/examples/                                @emilio3435
+/AGENT_CONTRACT.md                        @emilio3435
+/docs/CONTRACT-CHANGELOG.md               @emilio3435
+
+# --- Repository metadata (chore/oss-launch-hygiene) ---
+/.github/workflows/                       @emilio3435
+/.github/CODEOWNERS                       @emilio3435
+/.github/dependabot.yml                   @emilio3435
+/.github/release.yml                      @emilio3435
+
+# --- Default owner for everything else at the repo root ---
+*                                         @emilio3435

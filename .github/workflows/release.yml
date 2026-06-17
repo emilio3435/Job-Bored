@@ -1,0 +1,39 @@
+# Auto-release using release-please.
+#
+# release-please watches Conventional Commits on main, groups them by
+# semver impact, and opens (or updates) a release PR that bumps the
+# version in package.json and updates CHANGELOG.md. Merging the release
+# PR creates the GitHub tag + Release with auto-generated notes.
+#
+# Config (release-please-config.json) and the manifest
+# (.release-please-manifest.json) live at the repo root. The discovery
+# worker is not yet wired into release automation (tracked as a follow-up).
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# One release-please run per push to main; superseded runs cancel so
+# only the latest commit wins the version-bump calculation.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Conventional Commits drive the version bump; the release PR
+          # body lists every commit since the last release.
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

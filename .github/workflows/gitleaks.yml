@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel superseded gitleaks runs on the same PR ref; never cancel main
+# pushes so we always finish a full scan of the tip of main.
+concurrency:
+  group: gitleaks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   scan:
     runs-on: ubuntu-latest

@@ -1,0 +1,13 @@
+{
+  "release-type": "node",
+  "package-name": "command-center",
+  "include-component-in-tag": false,
+  "pull-request-title-pattern": "chore(release): v${version}",
+  "include-v-in-tag": true,
+  "tag-separator": "/",
+  "packages": {
+    ".": {
+      "package-name": "command-center"
+    }
+  }
+}

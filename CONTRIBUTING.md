@@ -12,6 +12,7 @@ unblocked counts as a contribution too.
 - [The 60-second mental model](#the-60-second-mental-model)
 - [Get the dev loop running](#get-the-dev-loop-running)
 - [Running the tests](#running-the-tests)
+- [Maintainer-enforced quality gate](#maintainer-enforced-quality-gate)
 - [How code is organized](#how-code-is-organized)
 - [Submitting a PR](#submitting-a-pr)
 - [Style + conventions that matter](#style--conventions-that-matter)
@@ -79,6 +80,92 @@ for patterns). Source-sniff regex pins are fine for CSS / copy / wiring.
 **The mutation check:** before you call a behavioral test done, temporarily
 break the behavior in the source. The test should fail. Revert. Tests that
 can't fail are decoration, not coverage.
+
+## Maintainer-enforced quality gate
+
+The merge bar is enforced by GitHub branch protection on `main` plus a few
+project-local conventions. Read this section before opening a PR — every
+item below is enforced in CI or by the merge rules.
+
+### Branch protection on `main`
+
+`main` is protected. Direct pushes are blocked; every change goes through a
+pull request. The `main` ruleset currently **enforces** these checks — a
+failure blocks the merge:
+
+- `contract-tests` — discovery webhook, Pipeline schema, ATS scorecard, and
+  integration-skill link checks.
+- `test` — `npm run typecheck:repo`, `npm test`, and the discovery worker
+  test suite.
+- `scan` — gitleaks secret scan ([gitleaks.yml](.github/workflows/gitleaks.yml)).
+
+These additional checks run on every PR and are **intended to become
+required** — the maintainer must add each to the branch-protection ruleset
+before it blocks a merge:
+
+- `lint` — `npm run lint:repo` (ESLint + skill lint).
+- `coverage` — `c8` coverage gate (see [Coverage floor and ratchet](#coverage-floor-and-ratchet)).
+- `audit:prod` — `npm audit --omit=dev --audit-level=high`.
+- `pr-lint` — Conventional Commit title check (see below).
+
+Two checks are **advisory** (`continue-on-error: true`) and never block a
+merge:
+
+- `e2e-smoke` — Playwright boot + visibility smoke. Flakes here surface
+  signal but won't hold you up.
+- `audit:dev` — advisory `npm audit` summary across all dependencies
+  (including dev).
+
+PRs also require review from a CODEOWNERS owner (see
+[CODEOWNERS](#codeowners)) before merge.
+
+### Conventional PR titles
+
+PR titles are checked by the `pr-lint` workflow and must start with one
+of:
+
+- `feat:` — new user-facing capability
+- `fix:` — bug fix
+- `chore:` — repo hygiene, no production change
+- `perf:` — performance improvement
+- `test:` — only adds or fixes tests
+- `docs:` — only docs
+- `refactor:` — code change that neither fixes a bug nor adds a feature
+- `build:` — build system or external dependency change
+- `ci:` — CI configuration change
+- `style:` — formatting-only change
+- `revert:` — reverts a previous change
+
+Only the **title** is checked; the body is freeform. This matches the
+commit-message convention already used in the repo's history.
+
+### Coverage floor and ratchet
+
+The repo uses [`c8`](https://github.com/bcoe/c8) for coverage. The floor
+is enforced in CI via `.c8rc.json` and the current thresholds are:
+
+| Metric      | Floor  |
+| ----------- | ------ |
+| statements  | 49.5%  |
+| branches    | 60%    |
+| functions   | 49.5%  |
+| lines       | 49.5%  |
+
+The floor **only ratchets up**, never down. Adding source code without a
+matching test is a merge blocker: the new coverage measurement has to
+clear the existing threshold. If you're touching a hard-to-test surface,
+pair the change with a regression test for the behavior you care about
+(VW-style behavioral harness, mock-the-host-bridge) — not a no-op regex
+sniff.
+
+### CODEOWNERS
+
+Review routing is configured in
+[`.github/CODEOWNERS`](.github/CODEOWNERS). The maintainer
+(`emilio3435`) is the default owner; tighter directory-level rules
+override the default as the project grows. If you're adding a new
+top-level directory or major subsystem, propose a CODEOWNERS update in
+the same PR.
 
 ## How code is organized
 

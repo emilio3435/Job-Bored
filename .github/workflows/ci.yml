@@ -12,6 +12,17 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Branch-protection (ruleset) currently ENFORCES these checks — a failure
+# blocks the merge:
+#   - contract-tests
+#   - test
+#   - scan   (gitleaks secret scan, .github/workflows/gitleaks.yml)
+# Defined here and INTENDED to become required once stable (add each to the
+# ruleset to enforce): lint, coverage, audit:prod, pr-lint (pr-lint.yml).
+# Advisory only (never blocks a merge): e2e-smoke, audit:dev
+# Auto-release: .github/workflows/release.yml (release-please, runs on main
+# pushes, opens a release PR — does not block PR merges).
+
 jobs:
   contract-tests:
     runs-on: ubuntu-latest
@@ -74,9 +85,32 @@ jobs:
           path: tests/e2e-smoke/test-results/
           retention-days: 7
 
-  # Advisory: prints a coverage summary and uploads the report; no threshold
-  # is enforced yet, so failures here never block a merge.
+  # Blocking: c8-driven coverage under scripts/run-tests.mjs with thresholds
+  # enforced by `npm run test:coverage`. The lcov report is uploaded as the
+  # `coverage-report` artifact for the coverage-comment workflow.
   coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - name: Unit suite under c8 (blocking)
+        run: npm run test:coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+  # Advisory: full audit across ALL deps (including dev). Stays non-blocking
+  # so a dev-dep vuln surfaces as a signal without holding up a merge. The
+  # blocking prod-only gate is audit:prod below.
+  audit:dev:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     continue-on-error: true
@@ -86,21 +120,13 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-      - run: npm ci
-      - name: Unit suite under c8
-        run: npx c8 --reporter=text-summary --reporter=lcov node scripts/run-tests.mjs
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-report
-          path: coverage/
+      - run: npm audit --audit-level=high
 
-  # Advisory: surfaces high-severity vulnerabilities in production deps
-  # without blocking merges.
-  audit:
+  # Blocking: production-deps audit. High-severity production vulns fail the
+  # required status check, so the merge is held until they are resolved.
+  audit:prod:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

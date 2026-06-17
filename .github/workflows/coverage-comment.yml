@@ -1,0 +1,92 @@
+name: Coverage comment
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+# Cancel superseded runs on the same PR; never cancel CI runs triggered by
+# pushes (workflow_run) so we don't race the upstream CI finish.
+concurrency:
+  group: coverage-comment-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # On PR close, delete the sticky coverage comment if one exists.
+  cleanup:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: coverage-summary
+          delete: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # On PR open/sync or CI completion for a push that affects an open PR,
+  # post or update the sticky coverage comment.
+  comment:
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id || github.run_id }}
+
+      - name: Build coverage comment body
+        id: body
+        run: |
+          set -euo pipefail
+          if [ -f coverage/coverage-summary.json ]; then
+            python3 - <<'PY'
+          import json, os
+          with open("coverage/coverage-summary.json") as f:
+              data = json.load(f)
+          totals = data.get("total", {})
+          def pct(key):
+              v = totals.get(key, {})
+              pct_val = v.get("pct")
+              return f"{pct_val:.2f}%" if isinstance(pct_val, (int, float)) else "n/a"
+          body = (
+              "## Coverage summary\n\n"
+              "Coverage summary posted by CI.\n\n"
+              "| Metric      | Percent |\n"
+              "|-------------|--------:|\n"
+              f"| Statements  | {pct('statements')} |\n"
+              f"| Branches    | {pct('branches')} |\n"
+              f"| Functions   | {pct('functions')} |\n"
+              f"| Lines       | {pct('lines')} |\n"
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("body<<EOF\n" + body + "EOF\n")
+          PY
+          elif [ -f coverage/text-summary.txt ]; then
+            SUMMARY="$(cat coverage/text-summary.txt)"
+            BODY="## Coverage summary\n\nCoverage summary posted by CI.\n\n\`\`\`\n${SUMMARY}\n\`\`\`\n"
+            {
+              echo "body<<EOF"
+              echo "$BODY"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            BODY="## Coverage summary\n\nCoverage summary posted by CI, but no coverage report was found in the artifact.\n"
+            {
+              echo "body<<EOF"
+              echo "$BODY"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: coverage-summary
+          body: ${{ steps.body.outputs.body }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,33 @@
+{
+  "check-coverage": true,
+  "reporter": [
+    "text",
+    "text-summary",
+    "lcov"
+  ],
+  "branches": 49.5,
+  "functions": 49.5,
+  "lines": 49.5,
+  "statements": 49.5,
+  "include": [
+    "src/**",
+    "integrations/browser-use-discovery/src/**"
+  ],
+  "exclude": [
+    "vendor/**",
+    "node_modules/**",
+    "server/node_modules/**",
+    "integrations/**/dist/**",
+    "coverage/**",
+    "tests/**",
+    "tools/**",
+    "scripts/**",
+    "tmp/**",
+    "**/*.test.*",
+    "**/*.spec.*",
+    "src/**/*.test.*",
+    "src/**/*.spec.*",
+    "src/**/__tests__/**",
+    "src/**/__mocks__/**"
+  ]
+}
