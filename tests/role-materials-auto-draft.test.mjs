@@ -55,14 +55,62 @@ function jsonResponse(body, { ok = true, status = 200 } = {}) {
   };
 }
 
+/* Minimal DOM node so the open-dossier render path (renderManifest ->
+   appendSection -> firstElementChild) can be exercised in the VM without
+   a full jsdom. innerHTML is stored verbatim and surfaced as a single
+   synthetic firstElementChild, which is all appendSection consumes. */
+function makeNode(tagName) {
+  let html = "";
+  const childNodes = [];
+  const node = {
+    tagName,
+    childNodes,
+    parentNode: null,
+    classList: {
+      _set: new Set(),
+      add(c) { this._set.add(c); },
+      remove(c) { this._set.delete(c); },
+      contains(c) { return this._set.has(c); },
+      toggle() {},
+    },
+    setAttribute() {},
+    getAttribute() { return null; },
+    addEventListener() {},
+    removeEventListener() {},
+    appendChild(child) { child.parentNode = node; childNodes.push(child); return child; },
+    removeChild(child) {
+      const i = childNodes.indexOf(child);
+      if (i >= 0) childNodes.splice(i, 1);
+      child.parentNode = null;
+      return child;
+    },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    get innerHTML() { return html; },
+    set innerHTML(v) { html = String(v == null ? "" : v); },
+    get firstElementChild() {
+      if (!html) return null;
+      const child = makeNode("section");
+      child.innerHTML = html;
+      child.parentNode = node;
+      return child;
+    },
+    scrollIntoView() {},
+    focus() {},
+  };
+  return node;
+}
+
 function loadAutoDraftHarness({
   job,
   manifestResponse,
+  manifestAfterRequest,
   applications,
   pipelineJobs,
   localStorageState,
   jobDescriptionExists = true,
   scrapeResponse,
+  openRoleKey,
 } = {}) {
   const events = [];
   const fetchCalls = [];
@@ -79,19 +127,26 @@ function loadAutoDraftHarness({
     role: "Director of Digital Marketing",
     links: [{ href: "https://dynamitejobs.com/company/321theagency/remote-job/director-of-digital-marketing" }],
   };
+  /* When a role is open we expose a real-ish dossier brief so the
+     materials render path can run; otherwise querySelector returns null
+     exactly as before, keeping every prior test untouched. */
+  const briefEl = openRoleKey != null ? makeNode("article") : null;
+  const regionEl = openRoleKey != null ? makeNode("section") : null;
+  if (regionEl) {
+    regionEl.querySelector = (sel) =>
+      sel === '[data-mount="brief"]' ? briefEl : null;
+  }
   const documentEl = {
     ...documentBus,
     body,
     readyState: "complete",
     createElement() {
-      return {
-        innerHTML: "",
-        firstElementChild: null,
-        appendChild() {},
-        querySelector() { return null; },
-      };
+      return makeNode("div");
     },
-    querySelector() { return null; },
+    querySelector(sel) {
+      if (regionEl && sel === '[data-region="role"]') return regionEl;
+      return null;
+    },
     querySelectorAll() { return []; },
   };
   const windowEl = {
@@ -122,13 +177,20 @@ function loadAutoDraftHarness({
       getPipelineJobs: () => pipelineJobs || [],
     },
     getPipelineJobByIndex: (idx) => (pipelineJobs || [])[Number(idx)] || null,
-    JobBoredFlowing: {},
+    JobBoredFlowing:
+      openRoleKey != null
+        ? { openRole: { get: () => openRoleKey } }
+        : {},
   };
 
   const manifest =
     manifestResponse === undefined
       ? jsonResponse({ error: "not found" }, { ok: false, status: 404 })
       : manifestResponse;
+  /* Mirrors the server writing pending.json: before the auto-request the
+     manifest reports no pending; once the request POST lands, later
+     manifest reads can return the in-progress manifest. */
+  let requestSucceeded = false;
 
   const ctx = vm.createContext({
     window: windowEl,
@@ -142,7 +204,12 @@ function loadAutoDraftHarness({
     encodeURIComponent,
     fetch: async (url, options = {}) => {
       fetchCalls.push({ url, options });
-      if (/\/manifest$/.test(url)) return manifest;
+      if (/\/manifest$/.test(url)) {
+        if (requestSucceeded && manifestAfterRequest !== undefined) {
+          return manifestAfterRequest;
+        }
+        return manifest;
+      }
       if (/\/job-description$/.test(url) && !options.method) {
         return jsonResponse({ exists: jobDescriptionExists });
       }
@@ -156,6 +223,7 @@ function loadAutoDraftHarness({
         );
       }
       if (/\/request$/.test(url) && options.method === "POST") {
+        requestSucceeded = true;
         return jsonResponse({
           ok: true,
           slug: "321-the-agency-director-of-digital-marketing",
@@ -180,6 +248,7 @@ function loadAutoDraftHarness({
   return {
     api: windowEl.JobBoredRoleMaterials,
     documentEl,
+    briefEl,
     events,
     fetchCalls,
     storage,
@@ -503,6 +572,46 @@ describe("role-materials kanban auto draft", () => {
     );
   });
 
+  it("surfaces an already-pending package in the open dossier when auto-request skips", async () => {
+    const { api, briefEl, documentEl, events, fetchCalls } = loadAutoDraftHarness({
+      openRoleKey: "4",
+      manifestResponse: jsonResponse({
+        slug: "321-the-agency-director-of-digital-marketing",
+        documents: [],
+        pending: {
+          feature: "both",
+          company: "321 The Agency",
+          title: "Director of Digital Marketing",
+          requestedAt: "2026-05-28T12:00:00Z",
+        },
+      }),
+    });
+
+    dispatchMove(documentEl);
+    await flushMicrotasks();
+
+    assert.equal(
+      fetchCalls.filter((call) => /\/request$/.test(call.url)).length,
+      0,
+      "pending.json should still prevent duplicate Hermes requests",
+    );
+    assert.match(
+      renderedHtml(briefEl),
+      /brief-materials__progress/,
+      "an already-pending package should still render the open dossier progress card",
+    );
+    assert.ok(
+      events.some(
+        (event) =>
+          event.type === "jb:materials:auto-request-skipped" &&
+          event.detail.reason === "pending",
+      ),
+      "pending packages should still emit a skip reason",
+    );
+
+    api._resetCache();
+  });
+
   it("uses the existing application slug before checking for duplicates", async () => {
     const { documentEl, events, fetchCalls } = loadAutoDraftHarness({
       job: {
@@ -546,6 +655,43 @@ describe("role-materials kanban auto draft", () => {
           event.detail.slug === "321-the-agency-director-of-digital-marketing-remote-job",
       ),
       "the skip event should report the matched slug",
+    );
+  });
+
+  it("creates a per-position materials package instead of reusing another same-company role", async () => {
+    const { documentEl, fetchCalls } = loadAutoDraftHarness({
+      job: {
+        company: "Figma",
+        role: "Customer Enablement Manager - Figma Weave",
+        link: "https://job-boards.greenhouse.io/figma/jobs/123",
+      },
+      applications: [
+        {
+          slug: "figma-customer-marketing-manager",
+          company: "Figma",
+          title: "Customer Marketing Manager",
+        },
+      ],
+    });
+
+    dispatchMove(documentEl);
+    await flushMicrotasks();
+
+    assert.ok(
+      !fetchCalls.some((call) =>
+        /\/api\/applications\/figma-customer-marketing-manager\/manifest$/.test(call.url),
+      ),
+      "a different Figma role must not inspect the existing Customer Marketing Manager package",
+    );
+    const requestCall = fetchCalls.find((call) => /\/request$/.test(call.url));
+    assert.ok(requestCall, "different same-company roles should still queue their own materials");
+    assert.match(
+      requestCall.url,
+      /\/api\/applications\/figma-customer-enablement-manager-figma-weave\/request$/,
+    );
+    assert.equal(
+      JSON.parse(requestCall.options.body).slug,
+      "figma-customer-enablement-manager-figma-weave",
     );
   });
 
@@ -685,5 +831,95 @@ describe("role-materials kanban auto draft", () => {
       ),
       "ready packages should emit a skip reason",
     );
+  });
+
+  function renderedHtml(briefEl) {
+    return (briefEl ? briefEl.childNodes : [])
+      .map((n) => n.innerHTML)
+      .join("\n");
+  }
+
+  function lastIndex(fetchCalls, re) {
+    let idx = -1;
+    fetchCalls.forEach((call, i) => {
+      if (re.test(call.url)) idx = i;
+    });
+    return idx;
+  }
+
+  it("surfaces an in-progress card in the open dossier and re-checks the manifest after the auto-request", async () => {
+    const { api, briefEl, documentEl, fetchCalls } = loadAutoDraftHarness({
+      openRoleKey: "4",
+      manifestAfterRequest: jsonResponse({
+        slug: "321-the-agency-director-of-digital-marketing",
+        documents: [],
+        pending: {
+          feature: "both",
+          company: "321 The Agency",
+          title: "Director of Digital Marketing",
+          requestedAt: "2026-05-28T12:00:00Z",
+        },
+      }),
+    });
+
+    dispatchMove(documentEl);
+    await flushMicrotasks();
+
+    // 1. The open dossier shows the rich in-progress progress card so the
+    //    user sees work has started without a manual refresh.
+    assert.match(
+      renderedHtml(briefEl),
+      /brief-materials__progress/,
+      "moving the open role to Researching should render the in-progress materials card",
+    );
+
+    // 2. After the request POST resolves, the dossier re-reads the manifest
+    //    (the read that renders the real pending state and seeds polling).
+    const requestIdx = lastIndex(fetchCalls, /\/request$/);
+    const manifestAfterIdx = fetchCalls.findIndex(
+      (call, i) => i > requestIdx && /\/manifest$/.test(call.url),
+    );
+    assert.ok(requestIdx >= 0, "auto draft should still POST the request");
+    assert.ok(
+      manifestAfterIdx > requestIdx,
+      "the open dossier must re-fetch the manifest after the request so docs surface without a reload",
+    );
+
+    api._resetCache(); // stop the bounded poll + elapsed ticker timers
+  });
+
+  it("leaves the dossier alone when the moved role is not the open role", async () => {
+    const { api, briefEl, documentEl, fetchCalls } = loadAutoDraftHarness({
+      openRoleKey: "77", // a different role than the move below (jobKey "4")
+      manifestAfterRequest: jsonResponse({
+        slug: "321-the-agency-director-of-digital-marketing",
+        documents: [],
+        pending: { feature: "both" },
+      }),
+    });
+
+    dispatchMove(documentEl);
+    await flushMicrotasks();
+
+    assert.ok(
+      fetchCalls.some((call) => /\/request$/.test(call.url)),
+      "background auto draft should still fire for non-open roles",
+    );
+    assert.doesNotMatch(
+      renderedHtml(briefEl),
+      /brief-materials__progress/,
+      "a move on a different role must not paint an in-progress card over the open dossier",
+    );
+    const requestIdx = lastIndex(fetchCalls, /\/request$/);
+    const manifestAfterIdx = fetchCalls.findIndex(
+      (call, i) => i > requestIdx && /\/manifest$/.test(call.url),
+    );
+    assert.equal(
+      manifestAfterIdx,
+      -1,
+      "no post-request dossier manifest re-fetch should run for a non-open role",
+    );
+
+    api._resetCache();
   });
 });

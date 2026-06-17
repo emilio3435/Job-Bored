@@ -25,12 +25,66 @@
 const INGEST_URL_TIMEOUT_MS = 60000;
 const INGEST_URL_ASYNC_TIMEOUT_MS = 10 * 60 * 1000;
 const INGEST_URL_ASYNC_POLL_MS = 3000;
+const POST_INGEST_RESPONSE_WAIT_MS = 12000;
 const INGEST_URL_BLOCKED_HOST_LABELS = {
   "linkedin.com": "LinkedIn",
   "indeed.com": "Indeed",
   "glassdoor.com": "Glassdoor",
   "ziprecruiter.com": "ZipRecruiter",
 };
+const INGEST_URL_PLACEHOLDER_COMPANY_LABELS = {
+  "unknown company": true,
+  "job bored": true,
+  "jobbored": true,
+  "jobbored app": true,
+  "referral": true,
+  "referrals": true,
+  "referral site": true,
+  "this site": true,
+  "job site": true,
+  "job board": true,
+  "job boards": true,
+  "jobs": true,
+  "boards": true,
+  "careers": true,
+  "apply": true,
+  "linkedin": true,
+  "indeed": true,
+  "glassdoor": true,
+  "ziprecruiter": true,
+  "monster": true,
+  "simplyhired": true,
+  "careerbuilder": true,
+  "wellfound": true,
+  "google": true,
+  "angel": true,
+  "dice": true,
+  "builtin": true,
+  "job boards greenhouse io": true,
+  "boards greenhouse io": true,
+  "greenhouse io": true,
+  "jobs lever co": true,
+  "lever co": true,
+  "jobs ashbyhq com": true,
+  "ashbyhq com": true,
+};
+const INGEST_URL_ATS_PROVIDER_COMPANY_LABELS = [
+  { label: "greenhouse", host: /greenhouse/i },
+  { label: "lever", host: /lever(?:\.co|\b)/i },
+  { label: "ashby", host: /ashby(?:hq)?/i },
+  { label: "smartrecruiters", host: /smartrecruiters/i },
+  { label: "workday", host: /workday|myworkdayjobs/i },
+  { label: "myworkdayjobs", host: /myworkdayjobs/i },
+  { label: "icims", host: /icims/i },
+  { label: "jobvite", host: /jobvite/i },
+  { label: "taleo", host: /taleo/i },
+  { label: "successfactors", host: /successfactors/i },
+  { label: "workable", host: /workable/i },
+  { label: "breezy", host: /breezy/i },
+  { label: "recruitee", host: /recruitee/i },
+  { label: "teamtailor", host: /teamtailor/i },
+  { label: "personio", host: /personio/i },
+];
 
 function resolveIngestUrlEndpoint(baseUrl) {
   const base = String(baseUrl || "").trim();
@@ -78,6 +132,38 @@ function aggregatorLabelForHost(host) {
     }
   }
   return host || "this site";
+}
+
+function normalizeCompanyPlaceholderLabel(value) {
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isAtsProviderCompanyForUrl(label, contextUrl) {
+  if (!label || !contextUrl) return false;
+  let host = "";
+  try {
+    host = new URL(contextUrl).hostname.toLowerCase();
+  } catch (_) {
+    return false;
+  }
+  return INGEST_URL_ATS_PROVIDER_COMPANY_LABELS.some((entry) => {
+    return entry.label === label && entry.host.test(host);
+  });
+}
+
+function isPlaceholderCompanyForEnrichment(value, contextUrl) {
+  const label = normalizeCompanyPlaceholderLabel(value);
+  if (!label) return true;
+  return (
+    !!INGEST_URL_PLACEHOLDER_COMPANY_LABELS[label] ||
+    isAtsProviderCompanyForUrl(label, contextUrl)
+  );
 }
 
 function reportIngestProgress(onProgress, progress, label, step) {
@@ -280,6 +366,24 @@ function showIngestDiscoveryError(err) {
     endpointUrl: err.endpointUrl || "",
   });
   return true;
+}
+
+function settlePostIngestWork(work, data) {
+  let timer = null;
+  const task = Promise.resolve(work)
+    .catch((err) => {
+      console.warn("[JobBored] post-ingest follow-up:", err);
+    })
+    .then(() => data);
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      console.warn("[JobBored] post-ingest follow-up timed out; row already written.");
+      resolve(data);
+    }, POST_INGEST_RESPONSE_WAIT_MS);
+  });
+  return Promise.race([task, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 async function appendManualPipelineRowDirect(manual) {
@@ -858,12 +962,10 @@ async function autoEnrichIngestedRow(url, persistedLead, options = {}) {
       return false;
     };
     const isPlaceholderCompany = (value) => {
-      const v = String(value || "").trim();
-      if (!v) return true;
-      if (/^unknown company$/i.test(v)) return true;
-      // Aggregator-hostname names we wrote as URL-only fallbacks.
-      const aggr = /^(linkedin|indeed|glassdoor|ziprecruiter|monster|simplyhired|careerbuilder|wellfound|google|angel|dice|builtin)$/i;
-      return aggr.test(v);
+      // Aggregator/referral-host labels we wrote as URL-only fallbacks.
+      // User-entered company names stay intact unless they are one of
+      // these exact placeholders.
+      return isPlaceholderCompanyForEnrichment(value, url);
     };
 
     const inferredTitle = String(enr.inferredTitle || "").trim();
@@ -876,7 +978,11 @@ async function autoEnrichIngestedRow(url, persistedLead, options = {}) {
       updates.push({ range: `Pipeline!B${sheetRow}`, value: inferredTitle });
       job.title = inferredTitle;
     }
-    if (inferredCompany && isPlaceholderCompany(job.company)) {
+    if (
+      inferredCompany &&
+      !isPlaceholderCompanyForEnrichment(inferredCompany, url) &&
+      isPlaceholderCompany(job.company)
+    ) {
       updates.push({ range: `Pipeline!C${sheetRow}`, value: inferredCompany });
       job.company = inferredCompany;
     }
@@ -967,17 +1073,23 @@ function handleIngestUrlResponse(data, url, options = {}) {
       data.updated === true || data.appended === false ? "Updated" : "Added";
     h("showToast", verb + ": " + title, "success");
     closeIngestManualModal();
-    // For url_only rows we only have URL-derived placeholder title/company.
-    // Fire the drawer enrichment pipeline now (scrape + LLM) and promote the
-    // sheet row's B/C/D cells with the LLM-inferred real values. Other
-    // strategies (ats_api / jsonld / cheerio_dom / manual_fill) already have
-    // clean fields — just refresh.
-    if (strategy === "url_only") {
+    // For url_only and host-derived placeholder-company rows, fire the drawer
+    // enrichment pipeline now (scrape + LLM) and promote the sheet row's
+    // B/C/D cells with the LLM-inferred real values. Clean rows just refresh.
+    const leadCompany = data.lead && data.lead.company;
+    const shouldAutoEnrich =
+      strategy === "url_only" ||
+      (
+        strategy !== "manual_fill" &&
+        !!String(leadCompany || "").trim() &&
+        isPlaceholderCompanyForEnrichment(leadCompany, url)
+      );
+    if (shouldAutoEnrich) {
       const enrich = autoEnrichIngestedRow(url, data.lead, {
         onProgress: options.onProgress,
       });
       if (options.awaitAutoEnrich) {
-        return enrich.then(() => data);
+        return settlePostIngestWork(enrich, data);
       }
       void enrich;
     } else {
@@ -988,7 +1100,7 @@ function handleIngestUrlResponse(data, url, options = {}) {
         onProgress: options.onProgress,
       });
       if (options.awaitAutoEnrich) {
-        return refresh.then(() => data);
+        return settlePostIngestWork(refresh, data);
       }
       void refresh;
     }

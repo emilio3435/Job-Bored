@@ -49,8 +49,10 @@ describe("dev-server security headers", () => {
       assert.equal(res.status, 200);
       const csp = res.headers.get("content-security-policy");
       assert.ok(csp, "expected a Content-Security-Policy header");
-      // Allow our six provider origins so the dashboard's real network calls
-      // don't get CSP-blocked. Each must be present in the allowlist.
+      // Allow provider origins and the user-owned public discovery transports
+      // the setup wizard verifies directly from the browser. Each must be
+      // present in the allowlist so greenfield setup does not fail before CORS
+      // can prove whether the worker endpoint is actually reachable.
       // Verified live via playwright that the dashboard boots clean under
       // this CSP — no script-src or connect-src violations on the sign-in
       // gate path.
@@ -59,12 +61,20 @@ describe("dev-server security headers", () => {
         "frame-ancestors 'none'",
         "https://accounts.google.com",
         "https://sheets.googleapis.com",
+        "https://script.google.com",
+        "https://script.googleusercontent.com",
         "https://generativelanguage.googleapis.com",
         "https://api.openai.com",
         "https://api.anthropic.com",
         "https://openrouter.ai",
         "http://127.0.0.1:*",
         "http://localhost:*",
+        "https://*.ts.net",
+        "https://*.workers.dev",
+        "https://*.trycloudflare.com",
+        "https://*.ngrok-free.app",
+        "https://*.ngrok.app",
+        "https://*.ngrok.io",
       ];
       for (const needle of required) {
         assert.ok(

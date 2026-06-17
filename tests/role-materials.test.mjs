@@ -232,7 +232,7 @@ describe("pickApplication", () => {
     assert.equal(picked.slug, "tegna-digital-sales-manager");
   });
 
-  it("falls back to title-word overlap when title doesn't match exactly", () => {
+  it("falls back when the folder title extends the pipeline title", () => {
     const picked = api.pickApplication(
       /* The sheet title might say "Solutions Architect, Applied AI"
          while the folder has a longer suffix. We should still find it. */
@@ -281,11 +281,66 @@ describe("pickApplication", () => {
     );
     assert.equal(picked, null);
   });
+
+  it("does not reuse same-company materials for a different position", () => {
+    const picked = api.pickApplication(
+      { company: "Figma", role: "Customer Enablement Manager - Figma Weave" },
+      [{ slug: "figma-customer-marketing-manager" }],
+    );
+    assert.equal(picked, null);
+  });
+
+  it("keeps short roles position-specific unless the normalized slug is exact", () => {
+    assert.equal(
+      api.pickApplication(
+        { company: "Linear", role: "Product Manager" },
+        [{ slug: "linear-product-manager-growth" }],
+      ),
+      null,
+    );
+    assert.equal(
+      api.pickApplication(
+        { company: "Cisco LLC", role: "Solutions Engineer" },
+        [{ slug: "cisco-solutions-engineer" }],
+      )?.slug,
+      "cisco-solutions-engineer",
+    );
+  });
+
+  it("treats Site as a real role word, not a disposable location suffix", () => {
+    const picked = api.pickApplication(
+      { company: "Acme Inc.", role: "Reliability Engineer" },
+      [{ slug: "acme-site-reliability-engineer" }],
+    );
+    assert.equal(picked, null);
+  });
 });
 
 describe("renderManifest", () => {
   function makeBrief() {
     return makeElement("div", { "data-mount": "brief" });
+  }
+
+  function renderedHtml(brief) {
+    const section = brief.children[0];
+    if (!section) return "";
+    const inner = section.innerHTML || "";
+    return section.tagName === "SECTION"
+      ? "<section " + Object.entries(section.attributes)
+          .map(([k, v]) => `${k}="${v}"`).join(" ") + ">"
+          + inner
+        + "</section>"
+      : inner;
+  }
+
+  function downloadHrefs(html) {
+    return [...html.matchAll(/<a class="brief-materials__btn brief-materials__btn--ghost"[^>]*href="([^"]+)"[^>]*data-action="materials-download"/g)]
+      .map((match) => match[1]
+        .replace(/&amp;/g, "&")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">"));
   }
 
   it("renders one card per document with status + actions", () => {
@@ -332,16 +387,7 @@ describe("renderManifest", () => {
 
     /* The renderer appends a single <section> at the end of brief.children. */
     assert.equal(brief.children.length, 1);
-    const sectionWrapper = brief.children[0];
-    const sectionHtml = sectionWrapper.innerHTML || "";
-    /* The append path uses appendSection() which wraps in a div; pull
-       the embedded section out for assertions. */
-    const fullHtml = sectionWrapper.tagName === "SECTION"
-      ? "<section " + Object.entries(sectionWrapper.attributes)
-          .map(([k, v]) => `${k}="${v}"`).join(" ") + ">"
-          + sectionHtml
-        + "</section>"
-      : sectionHtml;
+    const fullHtml = renderedHtml(brief);
     assert.match(fullHtml, /brief-materials/);
     assert.match(fullHtml, /Tailored Resume/);
     assert.match(fullHtml, /Cover Letter/);
@@ -355,6 +401,160 @@ describe("renderManifest", () => {
     assert.match(fullHtml, /data-action="materials-download"/);
     assert.match(fullHtml, /\/api\/applications\/chartis-senior-digital-marketing-consultant\/files\/resume.pdf/);
     assert.match(fullHtml, /DERIVED/);
+  });
+
+  it("renders exactly one PDF download when cover letter has PDF and HTML files", () => {
+    const brief = makeBrief();
+    api.renderManifest(brief, {
+      slug: "acme-growth-marketer",
+      company: "Acme",
+      title: "Growth Marketer",
+      documents: [
+        {
+          type: "cover_letter",
+          label: "Cover Letter",
+          status: "ready",
+          primary: "cover-letter.pdf",
+          lastModifiedAt: "2026-06-17T15:00:00.000Z",
+          files: [
+            { filename: "cover-letter.pdf", format: "pdf", size: 293275, modifiedAt: "2026-06-17T15:00:00.000Z" },
+            { filename: "cover-letter.html", format: "html", size: 13478, modifiedAt: "2026-06-17T15:00:00.000Z" },
+          ],
+        },
+      ],
+    }, "http://127.0.0.1:3847");
+
+    const html = renderedHtml(brief);
+    const hrefs = downloadHrefs(html);
+    assert.equal(hrefs.length, 1);
+    assert.match(hrefs[0], /\/files\/cover-letter\.pdf\?download=1&v=/);
+    assert.match(html, />Download PDF<\/a>/);
+    assert.doesNotMatch(html, /Download HTML/);
+    assert.doesNotMatch(html, /cover-letter\.html\?download=1/);
+    assert.match(html, /\/files\/cover-letter\.html"/, "HTML preview should remain available without download=1");
+  });
+
+  it("does not render a download button when a document has no PDF file", () => {
+    const brief = makeBrief();
+    api.renderManifest(brief, {
+      slug: "acme-growth-marketer",
+      company: "Acme",
+      title: "Growth Marketer",
+      documents: [
+        {
+          type: "cover_letter",
+          label: "Cover Letter",
+          status: "ready",
+          primary: "cover-letter.html",
+          lastModifiedAt: "2026-06-17T15:00:00.000Z",
+          files: [
+            { filename: "cover-letter.html", format: "html", size: 13478, modifiedAt: "2026-06-17T15:00:00.000Z" },
+          ],
+        },
+      ],
+    }, "http://127.0.0.1:3847");
+
+    const html = renderedHtml(brief);
+    assert.doesNotMatch(html, /data-action="materials-download"/);
+    assert.doesNotMatch(html, /\?download=1/);
+    assert.match(html, /data-action="materials-preview"/);
+  });
+
+  it("changes the download href when the same PDF filename has fresh metadata", () => {
+    const brief = makeBrief();
+    const baseManifest = {
+      slug: "acme-growth-marketer",
+      company: "Acme",
+      title: "Growth Marketer",
+      documents: [
+        {
+          type: "cover_letter",
+          label: "Cover Letter",
+          status: "ready",
+          primary: "cover-letter.pdf",
+          lastModifiedAt: "2026-06-17T15:00:00.000Z",
+          files: [
+            { filename: "cover-letter.pdf", format: "pdf", size: 293275, modifiedAt: "2026-06-17T15:00:00.000Z" },
+            { filename: "cover-letter.html", format: "html", size: 13478, modifiedAt: "2026-06-17T15:00:00.000Z" },
+          ],
+        },
+      ],
+    };
+    api.renderManifest(brief, baseManifest, "http://127.0.0.1:3847");
+    const oldHref = downloadHrefs(renderedHtml(brief))[0];
+
+    api.renderManifest(brief, {
+      ...baseManifest,
+      documents: [
+        {
+          ...baseManifest.documents[0],
+          lastModifiedAt: "2026-06-17T15:05:00.000Z",
+          files: [
+            { filename: "cover-letter.pdf", format: "pdf", size: 301112, modifiedAt: "2026-06-17T15:05:00.000Z" },
+            { filename: "cover-letter.html", format: "html", size: 13478, modifiedAt: "2026-06-17T15:00:00.000Z" },
+          ],
+        },
+      ],
+    }, "http://127.0.0.1:3847");
+    const newHref = downloadHrefs(renderedHtml(brief))[0];
+
+    assert.notEqual(newHref, oldHref);
+    assert.match(newHref, /v=2026-06-17T15%3A05%3A00\.000Z%7C301112/);
+  });
+
+  it("re-renders a repaired cover letter with the refreshed PDF download version", () => {
+    const brief = makeBrief();
+    const manifestBeforeRepair = {
+      slug: "acme-growth-marketer",
+      company: "Acme",
+      title: "Growth Marketer",
+      documents: [
+        {
+          type: "cover_letter",
+          label: "Cover Letter",
+          status: "ready",
+          primary: "cover-letter.pdf",
+          lastModifiedAt: "2026-06-17T15:00:00.000Z",
+          files: [
+            { filename: "cover-letter.pdf", format: "pdf", size: 293275, modifiedAt: "2026-06-17T15:00:00.000Z" },
+            { filename: "cover-letter.html", format: "html", size: 13478, modifiedAt: "2026-06-17T15:00:00.000Z" },
+          ],
+        },
+      ],
+      quality: {
+        documents: {
+          cover_letter: {
+            status: "review",
+            issues: [{ code: "cover_letter_page_count", message: "Cover letter renders to 2 pages." }],
+          },
+        },
+      },
+    };
+    api.renderManifest(brief, manifestBeforeRepair, "http://127.0.0.1:3847");
+    const oldHref = downloadHrefs(renderedHtml(brief))[0];
+    assert.match(renderedHtml(brief), /data-action="materials-repair"/);
+
+    api.renderManifest(brief, {
+      ...manifestBeforeRepair,
+      updatedAt: "2026-06-17T15:12:00.000Z",
+      documents: [
+        {
+          ...manifestBeforeRepair.documents[0],
+          lastModifiedAt: "2026-06-17T15:12:00.000Z",
+          files: [
+            { filename: "cover-letter.pdf", format: "pdf", size: 244880, modifiedAt: "2026-06-17T15:12:00.000Z" },
+            { filename: "cover-letter.html", format: "html", size: 12240, modifiedAt: "2026-06-17T15:12:00.000Z" },
+          ],
+        },
+      ],
+      quality: { documents: {} },
+    }, "http://127.0.0.1:3847");
+    const repairedHtml = renderedHtml(brief);
+    const repairedHref = downloadHrefs(repairedHtml)[0];
+
+    assert.notEqual(repairedHref, oldHref);
+    assert.match(repairedHref, /v=2026-06-17T15%3A12%3A00\.000Z%7C244880/);
+    assert.doesNotMatch(repairedHtml, /data-action="materials-repair"/);
   });
 
   it("marks ready documents for review when quality metadata has issues", () => {

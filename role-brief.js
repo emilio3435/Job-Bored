@@ -146,25 +146,27 @@
     // wireDossier owns the blur/Enter/Escape wiring (this file sets innerHTML
     // only). data-original carries the seeded value so Escape can restore and
     // commit can no-op on an unchanged value.
+    var editInputGuards = ' autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"';
+
     var titleVal = job.role ? String(job.role) : "";
     var title = '<input type="text" class="brief__title" data-action="edit-field"' +
       ' data-field="title" data-original="' + escapeHtml(titleVal) + '"' +
-      ' value="' + escapeHtml(titleVal) + '" aria-label="Role title">';
+      ' value="' + escapeHtml(titleVal) + '" aria-label="Role title"' + editInputGuards + '>';
 
     var companyVal = job.company ? String(job.company) : "";
     var company = '<input type="text" class="brief__company" data-action="edit-field"' +
       ' data-field="company" data-original="' + escapeHtml(companyVal) + '"' +
-      ' value="' + escapeHtml(companyVal) + '" aria-label="Company">';
+      ' value="' + escapeHtml(companyVal) + '" aria-label="Company"' + editInputGuards + '>';
 
     var locationVal = job.location ? String(job.location) : "";
     var salaryVal = job.salary ? String(job.salary) : "";
     var factSpans = [];
     factSpans.push('<input type="text" class="brief__fact-input" data-action="edit-field"' +
       ' data-field="location" data-original="' + escapeHtml(locationVal) + '"' +
-      ' value="' + escapeHtml(locationVal) + '" aria-label="Location" placeholder="Location">');
+      ' value="' + escapeHtml(locationVal) + '" aria-label="Location" placeholder="Location"' + editInputGuards + '>');
     factSpans.push('<input type="text" class="brief__fact-input" data-action="edit-field"' +
       ' data-field="salary" data-original="' + escapeHtml(salaryVal) + '"' +
-      ' value="' + escapeHtml(salaryVal) + '" aria-label="Salary" placeholder="Salary">');
+      ' value="' + escapeHtml(salaryVal) + '" aria-label="Salary" placeholder="Salary"' + editInputGuards + '>');
     if (job.source)   factSpans.push('<span>via ' + escapeHtml(job.source) + '</span>');
     var factsInner = "";
     for (var i = 0; i < factSpans.length; i++) {

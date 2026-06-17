@@ -155,7 +155,56 @@
     try {
       return JSON.parse(t);
     } catch (_) {}
+    const loose = parseLooseKeyValueObject(t);
+    if (loose) return loose;
     return repairTruncatedJson(t);
+  }
+
+  function parseLooseKeyValueObject(raw) {
+    const text = String(raw || "").trim();
+    if (!text) return null;
+    const keys = ENRICHMENT_SCHEMA.required || [];
+    const keyMap = new Map(keys.map((key) => [key.toLowerCase(), key]));
+    const keyPattern = new RegExp(
+      `^["']?(${keys.join("|")})["']?\\s*:\\s*(.*)$`,
+      "i",
+    );
+    const entries = [];
+    let current = null;
+    for (const line of text.split(/\r?\n/)) {
+      const match = keyPattern.exec(line.trim());
+      const key = match ? keyMap.get(String(match[1] || "").toLowerCase()) : "";
+      if (key) {
+        current = { key, lines: [match[2] || ""] };
+        entries.push(current);
+        continue;
+      }
+      if (current) current.lines.push(line);
+    }
+    if (!entries.length) return null;
+    const out = {};
+    for (const entry of entries) {
+      out[entry.key] = parseLooseFieldValue(
+        entry.key,
+        entry.lines.join("\n").trim(),
+      );
+    }
+    return out;
+  }
+
+  function parseLooseFieldValue(key, raw) {
+    const value = String(raw || "").trim();
+    const prop = ENRICHMENT_SCHEMA.properties[key] || {};
+    if (!value) return prop.type === "array" ? [] : "";
+    try {
+      return JSON.parse(value);
+    } catch (_) {}
+    if (key === "atsFitScore") return score100(value);
+    if (prop.type !== "array") return value.replace(/^["']|["']$/g, "").trim();
+    return value
+      .split(/\n|;|,(?=\s*[A-Z0-9])/)
+      .map((item) => item.replace(/^\s*[-*•\d.)]+\s*/, "").trim())
+      .filter(Boolean);
   }
 
   function repairTruncatedJson(raw) {

@@ -358,16 +358,16 @@ describe("dossier brief structure", () => {
     // seeded with the current value so a blur with no change is a no-op.
     assert.match(
       html,
-      /<input[^>]*class="brief__title"[^>]*data-action="edit-field"[^>]*data-field="title"[^>]*value="Senior Product Designer, Growth"/,
+      /<input[^>]*class="brief__title"[^>]*data-action="edit-field"[^>]*data-field="title"[^>]*value="Senior Product Designer, Growth"[^>]*autocomplete="off"[^>]*spellcheck="false"/,
     );
     assert.match(
       html,
-      /<input[^>]*class="brief__company"[^>]*data-action="edit-field"[^>]*data-field="company"[^>]*value="Linear"/,
+      /<input[^>]*class="brief__company"[^>]*data-action="edit-field"[^>]*data-field="company"[^>]*value="Linear"[^>]*autocomplete="off"[^>]*spellcheck="false"/,
     );
     assert.match(html, /<div class="brief__facts">/);
     // Location and salary are editable facts.
-    assert.match(html, /<input[^>]*data-action="edit-field"[^>]*data-field="location"[^>]*value="Remote · SF"/);
-    assert.match(html, /<input[^>]*data-action="edit-field"[^>]*data-field="salary"[^>]*value="\$165–210k"/);
+    assert.match(html, /<input[^>]*data-action="edit-field"[^>]*data-field="location"[^>]*value="Remote · SF"[^>]*autocomplete="off"[^>]*spellcheck="false"/);
+    assert.match(html, /<input[^>]*data-action="edit-field"[^>]*data-field="salary"[^>]*value="\$165–210k"[^>]*autocomplete="off"[^>]*spellcheck="false"/);
     // Source attribution stays static (not user-editable).
     assert.match(html, /<span>via Linear Careers<\/span>/);
     assert.match(html, /<div class="brief__eyebrow">Full-time<\/div>/);

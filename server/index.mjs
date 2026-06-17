@@ -72,8 +72,10 @@ const ALLOWED_BROWSER_ORIGINS = normalizeAllowedBrowserOrigins(
 );
 const app = express();
 
-// When the service binds to a non-loopback host (Render/Fly/Docker), the
-// expensive scrape/LLM endpoints must not be open: require a shared token.
+// When the service binds to a non-loopback host (Render/Fly/Docker), every
+// non-health endpoint can expose or mutate local user data: require a shared
+// token. Loopback local dev remains open so the static dashboard works with no
+// extra setup.
 const LOOPBACK_LISTEN_HOSTS = new Set(["", "127.0.0.1", "localhost", "::1"]);
 const REQUIRE_API_AUTH = !LOOPBACK_LISTEN_HOSTS.has(String(HOST).toLowerCase());
 const API_ACCESS_TOKEN = String(
@@ -152,7 +154,10 @@ app.use((req, res, next) => {
   });
 
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, X-Api-Token",
+  );
   res.setHeader("Access-Control-Max-Age", "86400");
   res.setHeader("Vary", "Origin");
   if (allowOrigin) {
@@ -171,16 +176,6 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: "2mb" }));
 
-// Opt-in static file serving for local dev and e2e tests. Off by default so
-// production deployments don't accidentally expose the repo root.
-// Enable with: JOBBORED_SERVE_STATIC=1 or JOBBORED_STATIC_ROOT=/path/to/dir
-if (process.env.JOBBORED_SERVE_STATIC || process.env.JOBBORED_STATIC_ROOT) {
-  const staticRoot = process.env.JOBBORED_STATIC_ROOT
-    ? String(process.env.JOBBORED_STATIC_ROOT)
-    : join(import.meta.dirname || ".", "..");
-  app.use(express.static(staticRoot, { index: "index.html", extensions: ["html"] }));
-}
-
 app.get("/health", (_req, res) => {
   const ats = getAtsConfigStatus();
   res.json({
@@ -192,7 +187,22 @@ app.get("/health", (_req, res) => {
   });
 });
 
-app.post("/api/scrape-job", requireApiAuth, async (req, res) => {
+app.use((req, res, next) => {
+  if (req.path === "/health") return next();
+  return requireApiAuth(req, res, next);
+});
+
+// Opt-in static file serving for local dev and e2e tests. Off by default so
+// production deployments don't accidentally expose the repo root.
+// Enable with: JOBBORED_SERVE_STATIC=1 or JOBBORED_STATIC_ROOT=/path/to/dir
+if (process.env.JOBBORED_SERVE_STATIC || process.env.JOBBORED_STATIC_ROOT) {
+  const staticRoot = process.env.JOBBORED_STATIC_ROOT
+    ? String(process.env.JOBBORED_STATIC_ROOT)
+    : join(import.meta.dirname || ".", "..");
+  app.use(express.static(staticRoot, { index: "index.html", extensions: ["html"] }));
+}
+
+app.post("/api/scrape-job", async (req, res) => {
   try {
     const raw = req.body && req.body.url;
     if (!raw || typeof raw !== "string") {
@@ -213,7 +223,7 @@ app.post("/api/scrape-job", requireApiAuth, async (req, res) => {
   }
 });
 
-app.post("/api/ats-scorecard", requireApiAuth, async (req, res) => {
+app.post("/api/ats-scorecard", async (req, res) => {
   const requestId = `ats_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   try {
     const ats = getAtsConfigStatus();
@@ -261,7 +271,8 @@ app.post("/api/ats-scorecard", requireApiAuth, async (req, res) => {
  * POST /profile/template/:id        → returns a starter template (marketer | engineer | product_manager)
  *
  * Storage: ~/.jobbored/profile.json (override with JOBBORED_PROFILE_PATH).
- * Local-only worker — no auth on these endpoints by design.
+ * Loopback local dev is open; hosted/non-loopback deployments are protected by
+ * the global API token middleware above.
  */
 app.get("/profile", async (_req, res) => {
   try {
@@ -692,7 +703,7 @@ app.put("/api/applications/:slug/job-description", async (req, res) => {
  * after a page reload). Reuses the existing scrapeJobPosting() so we
  * don't duplicate scraping logic. Returns the scraped description
  * text, which the browser then PUTs back via /job-description. */
-app.post("/api/applications/:slug/scrape-job-description", requireApiAuth, async (req, res) => {
+app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
   try {
     const slug = req.params.slug;
     if (!isValidSlug(slug)) {

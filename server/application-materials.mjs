@@ -515,18 +515,11 @@ export async function buildManifest(slug, { root } = {}) {
        * defensively — Dobby is on a separate machine and may evolve
        * the schema independently. */
       if (pendingRaw.progress && typeof pendingRaw.progress === "object") {
-        const p = pendingRaw.progress;
-        pending.progress = {
-          phase: typeof p.phase === "string" ? p.phase : "",
-          message: displayProgressMessage(p.message),
-          startedAt: effectiveStartedAt(
-            typeof p.started_at === "string" ? p.started_at : "",
-            pending.requestedAt,
-          ),
-          updatedAt: typeof p.updated_at === "string" ? p.updated_at : "",
-          attempt: Number.isFinite(p.attempt) ? p.attempt : 1,
-          elapsedSeconds: Number.isFinite(p.elapsed_seconds) ? p.elapsed_seconds : 0,
-        };
+        pending.progress = normalizePendingProgress(
+          pendingRaw.progress,
+          pending.feature,
+          pending.requestedAt,
+        );
       }
       /* Reconcile a watcher failure / stall into the phase so the dossier
        * shows an actionable FAILED card instead of an eternal spinner. */
@@ -555,9 +548,75 @@ function pickString(preferred, fallback) {
   return fallback || "";
 }
 
+/* The watcher may stamp its own progress.message using internal agent
+   names. Users only need to know the draft is being written, so collapse
+   any "<agent> is drafting" phrasing to a plain "Writing …" and strip
+   leftover agent names. */
 function displayProgressMessage(value) {
   if (typeof value !== "string") return "";
-  return value.replace(/\bWinky\b/g, "Dobby").replace(/\bwinky\b/g, "Dobby");
+  return value
+    .replace(/\b(?:Winky|Dobby|Hermes)\s+is\s+drafting\b/gi, "Writing")
+    .replace(/\b(?:Winky|Dobby|Hermes)\s+is\s+on\s+it\b/gi, "Working on it")
+    .replace(/\b(?:Winky|Dobby|Hermes)\b/g, "We");
+}
+
+function defaultProgressMessageForFeature(phase, feature) {
+  const f = String(feature || "");
+  const label =
+    f === "resume"
+      ? "resume"
+      : f === "cover_letter"
+        ? "cover letter"
+        : f === "both"
+          ? "cover letter and tailoring your resume"
+          : "materials";
+  if (phase === "drafting") {
+    return f === "both"
+      ? "Writing your cover letter and tailoring your resume…"
+      : `Writing your ${label}…`;
+  }
+  if (phase === "queued") {
+    return f === "both"
+      ? "Your resume and cover letter are in line. We draft one role at a time and will start this next."
+      : `Your ${label} is in line. We draft one role at a time and will start this next.`;
+  }
+  return "";
+}
+
+function normalizeProgressMessage(value, feature, phase) {
+  const message = displayProgressMessage(value);
+  const f = String(feature || "");
+  if (
+    f === "resume" &&
+    /\bcover letter\b/i.test(message) &&
+    !/\bresume\b/i.test(message)
+  ) {
+    return defaultProgressMessageForFeature(phase, f);
+  }
+  if (
+    f === "cover_letter" &&
+    /\bresume\b/i.test(message) &&
+    !/\bcover letter\b/i.test(message)
+  ) {
+    return defaultProgressMessageForFeature(phase, f);
+  }
+  return message || defaultProgressMessageForFeature(phase, f);
+}
+
+function normalizePendingProgress(rawProgress, feature, requestedAt) {
+  if (!rawProgress || typeof rawProgress !== "object") return null;
+  const phase = typeof rawProgress.phase === "string" ? rawProgress.phase : "";
+  return {
+    phase,
+    message: normalizeProgressMessage(rawProgress.message, feature, phase),
+    startedAt: effectiveStartedAt(
+      typeof rawProgress.started_at === "string" ? rawProgress.started_at : "",
+      requestedAt,
+    ),
+    updatedAt: typeof rawProgress.updated_at === "string" ? rawProgress.updated_at : "",
+    attempt: Number.isFinite(rawProgress.attempt) ? rawProgress.attempt : 1,
+    elapsedSeconds: Number.isFinite(rawProgress.elapsed_seconds) ? rawProgress.elapsed_seconds : 0,
+  };
 }
 
 /**
@@ -631,14 +690,11 @@ export async function listPendingQueue({ root } = {}) {
       source: String(raw.source || ""),
       telegramMessageId: raw.telegram_message_id || null,
       progress: raw.progress
-        ? {
-            phase: String(raw.progress.phase || ""),
-            message: displayProgressMessage(raw.progress.message),
-            startedAt: effectiveStartedAt(String(raw.progress.started_at || ""), String(raw.requested_at || "")),
-            updatedAt: String(raw.progress.updated_at || ""),
-            attempt: Number(raw.progress.attempt || 0),
-            elapsedSeconds: Number(raw.progress.elapsed_seconds || 0),
-          }
+        ? normalizePendingProgress(
+            raw.progress,
+            String(raw.feature || ""),
+            String(raw.requested_at || ""),
+          )
         : null,
     });
   }

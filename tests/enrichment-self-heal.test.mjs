@@ -390,6 +390,48 @@ describe("posting insights — OpenRouter/local provider routing", () => {
     assert.equal(body.max_tokens, 3500);
   });
 
+  it("local structured insights tolerate key-value text when the model ignores JSON-only instructions", async () => {
+    const looseLocalOutput = [
+      "inferredTitle: Senior Media Strategist",
+      "inferredCompany: Acme Media",
+      "inferredLocation: Remote",
+      "postingSummary: Own strategy for high-growth media accounts.",
+      "roleInOneLine: Senior strategist on the growth team.",
+      "mustHaves: Paid media strategy; Client communication",
+      "responsibilities: Build plans; Report performance",
+      "niceToHaves: Agency experience",
+      "toolsAndStack: Google Ads; Looker",
+      "atsFitScore: 82",
+      "atsFitRationale: Strong media strategy evidence with analytics uncertainty.",
+      "fitAngle: Lead with cross-channel strategy work.",
+      "talkingPoints: Scaled campaigns; Improved reporting",
+      "extraKeywords: media; strategy; analytics",
+    ].join("\n");
+    const { fetchImpl } = makePostingFetchStub(() => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: looseLocalOutput } }],
+      }),
+    }));
+    const api = loadPostingInsights({
+      config: {
+        provider: "local",
+        resumeLocalBaseUrl: "http://127.0.0.1:11434/v1",
+        resumeLocalModel: "gemma4:e2b",
+      },
+      fetchImpl,
+    });
+
+    const out = await api.enrichFromScrape(scraped, job, "");
+
+    assert.equal(out.inferredTitle, "Senior Media Strategist");
+    assert.equal(out.inferredCompany, "Acme Media");
+    assert.equal(out.atsFitScore, 82);
+    assert.deepEqual(Array.from(out.mustHaves), ["Paid media strategy", "Client communication"]);
+    assert.deepEqual(Array.from(out.extraKeywords), ["media", "strategy", "analytics"]);
+  });
+
   it("canEnrichWithLLM checks the selected provider's required config", () => {
     assert.equal(
       loadPostingInsights({
