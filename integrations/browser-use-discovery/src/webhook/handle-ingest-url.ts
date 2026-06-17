@@ -284,32 +284,45 @@ export async function handleIngestUrlWebhook(
         host: classified.host,
         provider: classified.provider,
       });
-      const browserUseResult = await tryBrowserUseCloudExtraction({
-        url: ingestRequest.url,
-        runId,
-        host: classified.host,
-        trigger: "blocked_aggregator",
-        dependencies: effectiveDependencies,
-      });
-      if (browserUseResult.ok) {
-        rawListing = browserUseResult.rawListing;
-        strategy = "browser_use_cloud";
-      } else {
-        const geminiResult = await tryGeminiUrlContextExtraction({
+      const publicLinkedInUrl = canonicalLinkedInJobDetailUrl(ingestRequest.url);
+      if (publicLinkedInUrl) {
+        const scraped = await scrapeToRawListing(
+          publicLinkedInUrl,
+          effectiveDependencies,
+        );
+        if (scraped.ok && !isWeakScrapedListing(scraped.rawListing)) {
+          rawListing = scraped.rawListing;
+          strategy = scraped.strategy;
+        }
+      }
+      if (!rawListing) {
+        const browserUseResult = await tryBrowserUseCloudExtraction({
           url: ingestRequest.url,
           runId,
           host: classified.host,
           dependencies: effectiveDependencies,
+          trigger: "blocked_aggregator",
         });
-        if (geminiResult.ok) {
-          rawListing = geminiResult.rawListing;
-          strategy = "gemini_url_context";
+        if (browserUseResult.ok) {
+          rawListing = browserUseResult.rawListing;
+          strategy = "browser_use_cloud";
         } else {
-          return rejectBlockedAggregatorUrl({
+          const geminiResult = await tryGeminiUrlContextExtraction({
             url: ingestRequest.url,
+            runId,
             host: classified.host,
-            provider: classified.provider,
+            dependencies: effectiveDependencies,
           });
+          if (geminiResult.ok) {
+            rawListing = geminiResult.rawListing;
+            strategy = "gemini_url_context";
+          } else {
+            return rejectBlockedAggregatorUrl({
+              url: ingestRequest.url,
+              host: classified.host,
+              provider: classified.provider,
+            });
+          }
         }
       }
     } else if (classified.kind === "ats_direct") {
@@ -954,7 +967,7 @@ async function scrapeToRawListing(
       strategy,
       rawListing: {
         sourceId: "ingest_url_scrape" as RawListing["sourceId"],
-        sourceLabel: "Company page",
+        sourceLabel: host.endsWith("linkedin.com") ? "LinkedIn" : "Company page",
         sourceLane: "grounded_web",
         title,
         company: parsedTitle?.company || inferCompanyFromHost(host),
@@ -1208,6 +1221,28 @@ function safeHost(url: string): string {
   }
 }
 
+function canonicalLinkedInJobDetailUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (!/(^|\.)linkedin\.com$/i.test(parsed.hostname)) return null;
+
+  const currentJobId = String(parsed.searchParams.get("currentJobId") || "").trim();
+  if (/^\d{5,}$/.test(currentJobId)) {
+    return `https://www.linkedin.com/jobs/view/${currentJobId}`;
+  }
+
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  if (segments[0] !== "jobs" || segments[1] !== "view") return null;
+  const detailToken = String(segments[2] || "").trim();
+  const match = detailToken.match(/(\d{5,})(?:\D*)$/);
+  if (!match) return null;
+  return `https://www.linkedin.com/jobs/view/${match[1]}`;
+}
+
 function inferCompanyFromHost(host: string): string {
   const primary = String(host || "")
     .replace(/^www\./i, "")
@@ -1227,10 +1262,21 @@ function parseScrapedJobApplicationTitle(
   const match = clean.match(
     /^(?:Job Application for|Apply for)\s+(.+?)\s+at\s+(.+?)(?:\s+[|–-]\s+.*)?$/i,
   );
-  if (!match) return null;
-  const parsedTitle = String(match[1] || "").trim();
-  const company = String(match[2] || "").trim();
-  return parsedTitle && company ? { title: parsedTitle, company } : null;
+  if (match) {
+    const parsedTitle = String(match[1] || "").trim();
+    const company = String(match[2] || "").trim();
+    if (parsedTitle && company) return { title: parsedTitle, company };
+  }
+
+  const linkedInMatch = clean.match(
+    /^(.+?)\s+hiring\s+(.+?)(?:\s+in\s+.+?)?\s+[|–-]\s+LinkedIn$/i,
+  );
+  if (!linkedInMatch) return null;
+  const linkedInCompany = String(linkedInMatch[1] || "").trim();
+  const linkedInTitle = String(linkedInMatch[2] || "").trim();
+  return linkedInTitle && linkedInCompany
+    ? { title: linkedInTitle, company: linkedInCompany }
+    : null;
 }
 
 function deriveIngestTitleTags(title: string): string[] {
