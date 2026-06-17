@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { resolveJobBoredPaths } from "./lib/paths.mjs";
 import { applyDiscoveryWorkerLlmAliases } from "./lib/llm-env.mjs";
@@ -14,6 +14,18 @@ const envFilePaths = [
   initialPaths.workerEnv,
 ].filter((path, index, all) => path && all.indexOf(path) === index);
 const bootstrapStatePath = join(repoRoot, "discovery-local-bootstrap.json");
+const browserCommandEnvKeys = [
+  "BROWSER_USE_DISCOVERY_BROWSER_COMMAND",
+  "BROWSER_USE_COMMAND",
+  "DISCOVERY_BROWSER_COMMAND",
+];
+const bundledBrowserUseCommandPath = join(
+  repoRoot,
+  "integrations",
+  "browser-use-discovery",
+  "bin",
+  "browser-use-agent-browser.mjs",
+);
 
 function parseEnvFile(text) {
   const out = {};
@@ -53,6 +65,40 @@ function readEnvFiles() {
   return merged;
 }
 
+function readFirstEnvValue(source, keys) {
+  for (const key of keys) {
+    const value = String(source[key] || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function isPathLikeCommand(command) {
+  return (
+    String(command || "").includes("/") || String(command || "").includes("\\")
+  );
+}
+
+function commandPathExists(command) {
+  if (!isPathLikeCommand(command)) return true;
+  return existsSync(resolve(repoRoot, command));
+}
+
+function resolveBrowserUseCommand(fromFiles) {
+  const processCommand = readFirstEnvValue(process.env, browserCommandEnvKeys);
+  if (processCommand) return processCommand;
+
+  const fileCommand = readFirstEnvValue(fromFiles, browserCommandEnvKeys);
+  if (fileCommand && commandPathExists(fileCommand)) return fileCommand;
+
+  if (fileCommand) {
+    console.warn(
+      `[start:discovery-worker] ignoring stale browser command from env file because it does not exist: ${fileCommand}`,
+    );
+  }
+  return bundledBrowserUseCommandPath;
+}
+
 function resolveRuntimeEnv() {
   const fromFiles = readEnvFiles();
   const env = { ...fromFiles, ...process.env };
@@ -88,15 +134,7 @@ function resolveRuntimeEnv() {
     BROWSER_USE_DISCOVERY_STATE_DB_PATH:
       String(env.BROWSER_USE_DISCOVERY_STATE_DB_PATH || "").trim() ||
       paths.workerStateDb,
-    BROWSER_USE_DISCOVERY_BROWSER_COMMAND:
-      String(env.BROWSER_USE_DISCOVERY_BROWSER_COMMAND || "").trim() ||
-      join(
-        repoRoot,
-        "integrations",
-        "browser-use-discovery",
-        "bin",
-        "browser-use-agent-browser.mjs",
-      ),
+    BROWSER_USE_DISCOVERY_BROWSER_COMMAND: resolveBrowserUseCommand(fromFiles),
     BROWSER_USE_DISCOVERY_GEMINI_API_KEY: fallbackGemini,
   };
   return applyDiscoveryWorkerLlmAliases(runtimeEnv);
