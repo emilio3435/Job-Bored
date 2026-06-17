@@ -275,13 +275,14 @@ function listListeningPids(port) {
       .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
   } catch (err) {
     // Be honest when the tool itself is missing (Windows, minimal Linux):
-    // silently returning [] makes the restart path "succeed" and then die
-    // with EADDRINUSE. lsof exiting non-zero with no listeners still lands
-    // in the [] fallthrough below.
+    // returning [] makes the restart path "succeed" and then die with
+    // EADDRINUSE. Return null so the caller reuses the existing worker. lsof
+    // exiting non-zero with no listeners still lands in the [] fallthrough.
     if (err && err.code === "ENOENT") {
       console.warn(
         `[start:discovery-worker] port inspection unavailable (lsof not found on this system); cannot detect stale listeners on port ${port}.`,
       );
+      return null;
     }
     return [];
   }
@@ -307,6 +308,11 @@ async function waitForPidExit(pid, timeoutMs = 2500) {
 
 async function terminateWorkerListenersOnPort(port) {
   const pids = listListeningPids(port);
+  if (pids === null) {
+    // Couldn't inspect the port (lsof missing) — report not-terminated so the
+    // caller keeps the existing worker instead of racing EADDRINUSE.
+    return { attempted: false, terminated: false, pids: [], survivors: [] };
+  }
   if (!pids.length) {
     return { attempted: false, terminated: true, pids: [] };
   }
