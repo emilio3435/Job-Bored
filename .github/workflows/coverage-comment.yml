@@ -1,17 +1,20 @@
 name: Coverage comment
 
+# Posts a sticky per-PR coverage comment. The comment job runs only AFTER the
+# CI workflow completes — that is when the `coverage-report` artifact exists.
+# Running on `pull_request` directly (an earlier version did) races CI and
+# hard-fails the artifact download. The cleanup job removes the comment when
+# the PR closes. Both jobs are best-effort and never block a merge.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
   workflow_run:
     workflows: [CI]
     types: [completed]
+  pull_request:
+    types: [closed]
 
-# Cancel superseded runs on the same PR; never cancel CI runs triggered by
-# pushes (workflow_run) so we don't race the upstream CI finish.
 concurrency:
-  group: coverage-comment-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: coverage-comment-${{ github.event.workflow_run.id || github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   # On PR close, delete the sticky coverage comment if one exists.
@@ -26,19 +29,33 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # On PR open/sync or CI completion for a push that affects an open PR,
-  # post or update the sticky coverage comment.
+  # After a CI run for a PR completes, post/update the sticky coverage comment.
+  # Best-effort (continue-on-error): a missing artifact or unresolved PR number
+  # never blocks a merge.
   comment:
-    if: github.event_name != 'pull_request' || github.event.action != 'closed'
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
+      - name: Resolve PR number
+        id: pr
+        env:
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+          echo "number=${PR_NUMBER:-}" >> "$GITHUB_OUTPUT"
+
       - name: Download coverage artifact
+        id: dl
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: coverage-report
           path: coverage/
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id || github.run_id }}
+          run-id: ${{ github.event.workflow_run.id }}
 
       - name: Build coverage comment body
         id: body
@@ -67,26 +84,21 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
               f.write("body<<EOF\n" + body + "EOF\n")
           PY
-          elif [ -f coverage/text-summary.txt ]; then
-            SUMMARY="$(cat coverage/text-summary.txt)"
-            BODY="## Coverage summary\n\nCoverage summary posted by CI.\n\n\`\`\`\n${SUMMARY}\n\`\`\`\n"
-            {
-              echo "body<<EOF"
-              echo "$BODY"
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
           else
-            BODY="## Coverage summary\n\nCoverage summary posted by CI, but no coverage report was found in the artifact.\n"
             {
               echo "body<<EOF"
-              echo "$BODY"
+              echo "## Coverage summary"
+              echo ""
+              echo "Coverage summary posted by CI, but no coverage report was found in the artifact."
               echo "EOF"
             } >> "$GITHUB_OUTPUT"
           fi
 
       - uses: marocchino/sticky-pull-request-comment@v2
+        if: steps.pr.outputs.number != ''
         with:
           header: coverage-summary
+          number: ${{ steps.pr.outputs.number }}
           body: ${{ steps.body.outputs.body }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
