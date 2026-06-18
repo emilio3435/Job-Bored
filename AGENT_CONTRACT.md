@@ -127,6 +127,20 @@ Older automations that ignore `schemaVersion`, `discoveryProfile`, `companyAllow
 
 ---
 
+## Pipeline update (`POST /pipeline-update`, schemaVersion 1)
+
+An external agent advances an existing Pipeline row from inbound signals. Local-first: authenticated with `x-discovery-secret`; the worker writes with its own Google credential (no token in the request).
+
+- `event`: `"command-center.pipeline-update"` (const)
+- `schemaVersion`: `1` (const)
+- `sheetId`: target Google Sheet (required)
+- `job`: row identity — `url` (preferred), or both `company` and `title`
+- `fields` (at least one): `stage` (one of: New, Researching, Applied, Phone Screen, Interviewing, Offer, Rejected, Passed, Expired), `contact`, `note` (appended as a dated, deduped line), `lastContact`, `appliedDate`, `didTheyReply` (Yes | No | Unknown)
+
+Matching is by normalized job URL, falling back to company+title. Unknown rows return `404` (this contract updates existing rows only; discovery creates rows). Schema: `schemas/pipeline-update-request.v1.schema.json`; fixture: `examples/pipeline-update-request.v1.json`.
+
+---
+
 ## v2 kanban-card data-attributes (Dossier wiring)
 
 Each `.kanban-card[data-stable-key="<n>"]` rendered by `app.js`'s

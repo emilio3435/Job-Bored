@@ -1,4 +1,5 @@
 config.js
+.superpowers/
 # Local clasp binding (do not commit your Apps Script project id)
 integrations/apps-script/.clasp.json
 .DS_Store

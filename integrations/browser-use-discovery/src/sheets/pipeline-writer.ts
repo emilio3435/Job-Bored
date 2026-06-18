@@ -40,7 +40,7 @@ export class SheetWriteError extends Error {
   }
 }
 
-type FetchLike = typeof fetch;
+export type FetchLike = typeof fetch;
 
 type SheetValuesResponse = {
   values?: unknown[][];
@@ -72,15 +72,15 @@ type GoogleOAuthToken = {
   expiry: string;
 };
 
-const DEFAULT_SHEET_NAME = "Pipeline";
-const DEFAULT_TOKEN_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+export const DEFAULT_SHEET_NAME = "Pipeline";
+export const DEFAULT_TOKEN_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
 const COLUMN_COUNT = PIPELINE_HEADER_ROW.length;
 const REQUIRED_HEADER_COUNT = 17;
 // Last A1-notation column letter covering every column in PIPELINE_HEADER_ROW.
 // Derived from COLUMN_COUNT so range strings automatically widen when optional
 // Pipeline columns are appended.
-const LAST_COLUMN_LETTER = columnIndexToLetter(COLUMN_COUNT);
+export const LAST_COLUMN_LETTER = columnIndexToLetter(COLUMN_COUNT);
 
 function columnIndexToLetter(index: number): string {
   // 1 -> "A", 26 -> "Z", 27 -> "AA".
@@ -441,7 +441,7 @@ export async function resolveAccessToken(
   );
 }
 
-async function getSheetValues(
+export async function getSheetValues(
   sheetId: string,
   range: string,
   token: string,
@@ -471,7 +471,7 @@ async function getSheetValues(
     : [];
 }
 
-async function batchUpdateRows(
+export async function batchUpdateRows(
   sheetId: string,
   rowUpdates: Array<{ rowNumber: number; values: string[] }>,
   token: string,
