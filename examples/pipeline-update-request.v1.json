@@ -1,0 +1,12 @@
+{
+  "event": "command-center.pipeline-update",
+  "schemaVersion": 1,
+  "sheetId": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2up",
+  "job": { "url": "https://boards.greenhouse.io/acme/jobs/12345" },
+  "fields": {
+    "stage": "Interviewing",
+    "lastContact": "2026-06-18",
+    "note": "Recruiter replied; phone screen scheduled.",
+    "didTheyReply": "Yes"
+  }
+}

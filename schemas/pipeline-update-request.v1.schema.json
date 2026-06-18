@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/job-bored/command-center/schemas/pipeline-update-request.v1.schema.json",
+  "title": "Command Center pipeline update (POST body)",
+  "description": "Sent by an external agent to advance an existing Pipeline row from inbound signals (e.g. recruiter email). schemaVersion 1.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["event", "schemaVersion", "sheetId", "job", "fields"],
+  "properties": {
+    "event": { "type": "string", "const": "command-center.pipeline-update" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "sheetId": { "type": "string", "minLength": 10 },
+    "job": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Row identity. Provide url, or both company and title.",
+      "properties": {
+        "url": { "type": "string" },
+        "company": { "type": "string" },
+        "title": { "type": "string" }
+      },
+      "anyOf": [
+        { "required": ["url"], "properties": { "url": { "type": "string", "minLength": 1 } } },
+        { "required": ["company", "title"], "properties": { "company": { "type": "string", "minLength": 1 }, "title": { "type": "string", "minLength": 1 } } }
+      ]
+    },
+    "fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "stage": { "type": "string", "enum": ["New", "Researching", "Applied", "Phone Screen", "Interviewing", "Offer", "Rejected", "Passed", "Expired"] },
+        "contact": { "type": "string" },
+        "note": { "type": "string" },
+        "lastContact": { "type": "string" },
+        "appliedDate": { "type": "string" },
+        "didTheyReply": { "type": "string", "enum": ["Yes", "No", "Unknown"] }
+      }
+    }
+  }
+}

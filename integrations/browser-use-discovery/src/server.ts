@@ -26,6 +26,7 @@ import {
   validateSheetsCredentialReadiness,
 } from "./sheets/credential-readiness.ts";
 import { createPipelineWriter } from "./sheets/pipeline-writer.ts";
+import { createPipelinePatcher } from "./sheets/pipeline-patcher.ts";
 import { createDiscoveryRunsLogger } from "./sheets/discovery-runs-writer.ts";
 import {
   buildRunStatusPath,
@@ -39,6 +40,7 @@ import {
 } from "./webhook/handle-discovery-webhook.ts";
 import { handleCleanupExpiredWebhook } from "./webhook/handle-cleanup-webhook.ts";
 import { handleDiscoveryProfileWebhook } from "./webhook/handle-discovery-profile.ts";
+import { handlePipelineUpdateWebhook } from "./webhook/handle-pipeline-update.ts";
 import { handleIngestUrlWebhook } from "./webhook/handle-ingest-url.ts";
 import { hasValidRunStatusToken } from "./webhook/run-status-auth.ts";
 import { createBrowserUseSessionManager } from "./browser/session.ts";
@@ -1028,7 +1030,7 @@ const server = createServer(async (request, response) => {
   }
 
   if (
-    !["/", "/webhook", "/discovery", "/discovery-profile", "/ingest-url", "/cleanup-expired"].includes(
+    !["/", "/webhook", "/discovery", "/discovery-profile", "/pipeline-update", "/ingest-url", "/cleanup-expired"].includes(
       requestPath,
     )
   ) {
@@ -1167,6 +1169,90 @@ const server = createServer(async (request, response) => {
         {
           ok: false,
           message: "Internal error handling discovery-profile request.",
+          detail: error instanceof Error ? error.message : String(error),
+        },
+        corsHeaders,
+      );
+    }
+    return;
+  }
+
+  if (requestPath === "/pipeline-update") {
+    try {
+      const bodyText = await readBody(request);
+      logEvent("http.request.body", {
+        requestId,
+        method,
+        path: requestPath,
+        bytes: Buffer.byteLength(bodyText, "utf8"),
+        contentType:
+          getHeaderValue(request.headers["content-type"]) || undefined,
+      });
+      const patcher = createPipelinePatcher(runtimeConfig);
+      const result = await handlePipelineUpdateWebhook(
+        {
+          method,
+          headers: Object.fromEntries(
+            Object.entries(request.headers).map(([key, value]) => [
+              key,
+              Array.isArray(value) ? value : (value ?? undefined),
+            ]),
+          ),
+          bodyText,
+        },
+        {
+          runtimeConfig,
+          patchPipeline: (sheetId, input) => patcher.patch(sheetId, input),
+          log: (event, details) =>
+            logEvent(event, {
+              requestId,
+              method,
+              path: requestPath,
+              ...details,
+            }),
+        },
+      );
+      logEvent("http.request.completed", {
+        requestId,
+        method,
+        path: requestPath,
+        status: result.status,
+        durationMs: Date.now() - startedAt,
+      });
+      response.statusCode = result.status;
+      setHeaders(response, {
+        ...corsHeaders,
+        ...result.headers,
+      });
+      response.end(result.body);
+    } catch (error) {
+      if (error instanceof BodyTooLargeError) {
+        logEvent("http.request.rejected", {
+          requestId,
+          method,
+          path: requestPath,
+          reason: "body_too_large",
+          limit: MAX_BODY_BYTES,
+        });
+        finishJson(
+          413,
+          { ok: false, message: "Request body exceeds the configured limit." },
+          corsHeaders,
+        );
+        return;
+      }
+      logEvent("http.request.failed", {
+        requestId,
+        method,
+        path: requestPath,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      finishJson(
+        500,
+        {
+          ok: false,
+          message: "Internal error handling pipeline-update request.",
           detail: error instanceof Error ? error.message : String(error),
         },
         corsHeaders,
