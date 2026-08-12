@@ -1,13 +1,14 @@
 # JobBored
 
-A local-first, open-source job search dashboard. Track your pipeline in your
-own Google Sheet, draft tailored resumes and cover letters with your choice
-of AI (OpenRouter's free tier, Gemini, OpenAI, Anthropic, or local Ollama),
-and run automated discovery from a one-click setup wizard. No backend to
-host, no build step, BYO keys.
+A personal, open‑source job‑hunt dashboard for developers. Sheet‑native —
+your Google Sheet is the database. BYO API keys. 100% local‑first browser
+app with an optional local discovery worker. Not a hosted SaaS.
 
 ![License](https://img.shields.io/badge/license-MIT-blue) ![No Backend](https://img.shields.io/badge/backend-none-green) ![Vanilla JS](https://img.shields.io/badge/vanilla-JS-yellow) ![Node](https://img.shields.io/badge/node-24.x-339933) [![CI](https://github.com/emilio3435/Job-Bored/actions/workflows/ci.yml/badge.svg)](https://github.com/emilio3435/Job-Bored/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/emilio3435/Job-Bored)](https://github.com/emilio3435/Job-Bored/releases/latest)
 
+> Maintainer note: actively dogfooded and currently paused (Emilio got a job).
+> Public MIT OSS — contributions welcome, but no support/SLA is provided.
+>
 > **New here?** Jump to **[Quick start](#quick-start)**.
 > **Want to contribute?** See **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 > **Found a bug?** Open an [issue with the bug template](https://github.com/emilio3435/Job-Bored/issues/new/choose).
