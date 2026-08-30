@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 
 type JsonObject = Record<string, unknown>;
 type ProviderHints = Record<string, string[]>;
@@ -1229,7 +1229,8 @@ export function createDiscoveryMemoryStore(
         normalizedName:
           normalizeNullableString(input.normalizedName) ||
           existing?.normalizedName ||
-          normalizeTextKey(displayName),
+          normalizeTextKey(displayName) ||
+          displayName,
         aliases: mergeStringArrays(
           existing?.aliases || [],
           input.aliases || [],
@@ -1304,7 +1305,7 @@ export function createDiscoveryMemoryStore(
         "FROM company_registry",
       ];
       const companyWhere: string[] = [];
-      const companyParams: unknown[] = [];
+      const companyParams: SQLInputValue[] = [];
 
       if (query.companyKeys?.length) {
         companyWhere.push(
@@ -1363,7 +1364,7 @@ export function createDiscoveryMemoryStore(
     listCareerSurfaces(query = {}) {
       const sqlParts = ["SELECT *", "FROM career_surfaces"];
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: SQLInputValue[] = [];
 
       if (query.companyKey) {
         where.push("company_key = ?");
@@ -1830,7 +1831,7 @@ export function createDiscoveryMemoryStore(
     listIntentCoverage(query = {}) {
       const sqlParts = ["SELECT *", "FROM intent_coverage"];
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: SQLInputValue[] = [];
 
       if (query.intentKey) {
         where.push("intent_key = ?");
@@ -1920,7 +1921,7 @@ export function createDiscoveryMemoryStore(
     listScoutObservations(query = {}) {
       const sqlParts = ["SELECT *", "FROM scout_observations"];
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: SQLInputValue[] = [];
 
       if (query.runId) {
         where.push("run_id = ?");
@@ -2020,7 +2021,7 @@ export function createDiscoveryMemoryStore(
     listExploitOutcomes(query = {}) {
       const sqlParts = ["SELECT *", "FROM exploit_outcomes"];
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: SQLInputValue[] = [];
 
       if (query.runId) {
         where.push("run_id = ?");
@@ -2111,7 +2112,7 @@ export function createDiscoveryMemoryStore(
     listRoleFamilies(query = {}) {
       const sqlParts = ["SELECT *", "FROM role_families"];
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: SQLInputValue[] = [];
 
       if (query.baseRole) {
         where.push("base_role = ?");
@@ -2794,7 +2795,7 @@ function maxTimestamp(left: string | null | undefined, right: string): string {
 function buildInClause(
   column: string,
   values: string[],
-  params: unknown[],
+  params: SQLInputValue[],
 ): string {
   const normalized = values
     .map((value) => normalizeNullableString(value))

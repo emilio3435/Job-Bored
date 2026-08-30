@@ -164,6 +164,7 @@ function createCompatSourceAdapter(
         followUpDate: "",
         talkingPoints: "",
         logoUrl: "",
+        approvalStatus: "",
         discoveredAt: run.request.requestedAt || new Date().toISOString(),
         metadata: {
           runId: run.runId,

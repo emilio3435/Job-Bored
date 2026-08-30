@@ -12,7 +12,10 @@ import type {
   SourcePreset,
   StoredWorkerConfig,
 } from "../contracts.ts";
-import type { RunDiscoveryDependencies } from "../run/run-discovery.ts";
+import type {
+  RunDiscoveryDependencies,
+  RunDiscoveryResult,
+} from "../run/run-discovery.ts";
 import {
   buildAcceptedRunStatus,
   buildCompletedRunStatus,
@@ -793,6 +796,9 @@ function parseWebhookRequest(
   if (!companyBlocklistResult.ok) return companyBlocklistResult;
   const companyAllowlist = companyAllowlistResult.value;
   const companyBlocklist = companyBlocklistResult.value;
+  const normalizedDiscoveryProfile = isPlainObject(discoveryProfile)
+    ? normalizeDiscoveryProfile(discoveryProfile)
+    : undefined;
 
   // Optional trigger field — see docs/INTERFACE-DISCOVERY-RUNS.md §2. Used by
   // runDiscovery to label the DiscoveryRuns sheet row (e.g. GitHub Actions
@@ -819,11 +825,8 @@ function parseWebhookRequest(
       sheetId,
       variationKey,
       requestedAt,
-      ...(discoveryProfile
-        ? {
-            discoveryProfile:
-              normalizeDiscoveryProfile(discoveryProfile) as DiscoveryWebhookRequestV1["discoveryProfile"],
-          }
+      ...(normalizedDiscoveryProfile
+        ? { discoveryProfile: normalizedDiscoveryProfile }
         : {}),
       ...(googleAccessToken ? { googleAccessToken } : {}),
       ...(trigger ? { trigger } : {}),

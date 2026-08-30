@@ -712,7 +712,9 @@ export type ExtractionDiagnosticCode =
   /** Run budget depletion triggered adaptive page-limit reduction before exhaustion. */
   | "reduced_page_limit"
   /** Company was skipped due to run budget exhaustion. */
-  | "budget_skip";
+  | "budget_skip"
+  /** Candidate was excluded by the exploit selection threshold. */
+  | "threshold_suppressed";
 
 /**
  * Structured diagnostic entry for extraction observability.

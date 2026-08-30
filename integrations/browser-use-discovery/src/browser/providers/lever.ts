@@ -173,7 +173,7 @@ function extractLeverListings(
         : [];
   return dedupeRawListings(
     rows
-      .map((row) => {
+      .map((row): RawListing | null => {
         const record =
           row && typeof row === "object" && !Array.isArray(row)
             ? (row as Record<string, unknown>)
@@ -218,7 +218,7 @@ function extractLeverListings(
           },
         } satisfies RawListing;
       })
-      .filter((entry): entry is RawListing => !!entry),
+      .filter((entry): entry is RawListing => entry !== null),
   );
 }
 
@@ -273,4 +273,3 @@ function safeParseJson(input: string): unknown | null {
     return null;
   }
 }
-

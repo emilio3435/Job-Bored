@@ -1,6 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 
+import {
+  ATS_SOURCE_IDS,
+  type CareerSurfaceRecord,
+  type CareerSurfaceType,
+  type CareerSurfaceVerifiedStatus,
+  type CompanyPlanner,
+  type CompanyRegistryRecord,
+  type DiscoveryMemoryStore as RuntimeDiscoveryMemoryStore,
+  type DiscoverySourceLane,
+  type IntentCoverageRecord,
+  type ListingFingerprintRecord,
+  type PlannedCompany,
+  type RemoteBucket,
+} from "./contracts.ts";
 import { createSourceAdapterRegistry } from "./browser/source-adapters.ts";
 import {
   formatBrowserRuntimeReadinessWarning,
@@ -17,10 +31,14 @@ import {
   buildDiscoveryIntent as buildPlannerIntent,
   planCompanies as runCompanyPlanner,
 } from "./discovery/company-planner.ts";
+import type { RankedPlannedCompany } from "./discovery/company-planner.ts";
 import { createGroundedSearchClient } from "./grounding/grounded-search.ts";
 import { buildCorsHeaders, isOriginAllowed } from "./http/origin-guard.ts";
 import { createWorkerChatMatchClient } from "./match/job-matcher.ts";
-import { runDiscovery } from "./run/run-discovery.ts";
+import {
+  runDiscovery,
+  type RunDiscoveryDependencies,
+} from "./run/run-discovery.ts";
 import {
   formatSheetsCredentialReadinessWarning,
   validateSheetsCredentialReadiness,
@@ -55,20 +73,11 @@ const sourceAdapterRegistry = createSourceAdapterRegistry(sessionManager);
 const rawDiscoveryMemoryStore = createDiscoveryMemoryStore(
   runtimeConfig.stateDatabasePath,
 );
-const companyPlanner = {
+const companyPlanner: CompanyPlanner = {
   buildIntent(config: Parameters<typeof buildPlannerIntent>[0]) {
     return buildPlannerIntent(config);
   },
-  planCompanies(input: {
-    run: { request: { requestedAt?: string } };
-    intent: ReturnType<typeof buildPlannerIntent>;
-    companies: Array<Record<string, unknown>>;
-      memory?: {
-        companies: unknown[];
-        careerSurfaces: unknown[];
-        intentCoverage: unknown[];
-      } | null;
-  }) {
+  planCompanies(input) {
     const result = runCompanyPlanner({
       ...input.intent,
       companies: input.companies,
@@ -80,7 +89,9 @@ const companyPlanner = {
             careerSurfaces: (input.memory.careerSurfaces || []).map(
               toPlannerCareerSurfaceRecord,
             ),
-            intentCoverage: input.memory.intentCoverage,
+            intentCoverage: (input.memory.intentCoverage || []).map(
+              toPlannerIntentCoverageRecord,
+            ),
           }
         : undefined,
       now: input.run.request.requestedAt
@@ -93,7 +104,7 @@ const companyPlanner = {
     };
   },
 };
-const discoveryMemoryStore = {
+const discoveryMemoryStore: RuntimeDiscoveryMemoryStore = {
   ...createRunDiscoveryMemoryStore(rawDiscoveryMemoryStore),
   upsertCompanyRecords(records: Array<Record<string, unknown>>) {
     for (const record of records) {
@@ -291,19 +302,15 @@ const sharedRunDependencies = {
   now: () => new Date(),
   randomId: (prefix: string) => `${prefix}_${randomUUID().replace(/-/g, "")}`,
   maxRunDurationMs: runtimeConfig.maxRunDurationMs,
-};
+} satisfies RunDiscoveryDependencies & { companyPlanner: CompanyPlanner };
 
-function mapPlannerCompany(company: Record<string, unknown>) {
-  const evidence =
-    company.evidence && typeof company.evidence === "object"
-      ? (company.evidence as Record<string, unknown>)
-      : {};
-  const scores =
-    company.scores && typeof company.scores === "object"
-      ? (company.scores as Record<string, unknown>)
-      : {};
+function mapPlannerCompany(company: RankedPlannedCompany): PlannedCompany {
+  const evidence = company.evidence;
+  const scores = company.scores;
   const reasons = parseJsonArray(company.reasons || []);
-  const intendedLanes = parseJsonArray(evidence.sourceLanes || []);
+  const intendedLanes = parseJsonArray(evidence.sourceLanes || []).filter(
+    isDiscoverySourceLane,
+  );
   const candidateSources = parseJsonArray(evidence.candidateSources || []);
   return {
     companyKey: String(company.companyKey || ""),
@@ -311,7 +318,7 @@ function mapPlannerCompany(company: Record<string, unknown>) {
     normalizedName: String(company.normalizedName || ""),
     domains: parseJsonArray(company.domains || []),
     aliases: parseJsonArray(company.aliases || []),
-    boardHints: flattenHintRecord(company.boardHints),
+    boardHints: toAtsBoardHints(company.boardHints),
     geoTags: parseJsonArray(company.geoTags || []),
     roleTags: parseJsonArray(company.roleTags || []),
     rank: Number(company.rank || 0),
@@ -346,49 +353,85 @@ function mapPlannerCompany(company: Record<string, unknown>) {
   };
 }
 
-function toPlannerCompanyRecord(company: Record<string, unknown>) {
+function toPlannerCompanyRecord(company: unknown): CompanyRegistryRecord {
+  const record = unknownObject(company);
   return {
-    companyKey: String(company.companyKey || ""),
-    displayName: String(company.displayName || ""),
-    normalizedName: String(company.normalizedName || ""),
-    aliasesJson: String(company.aliasesJson || "[]"),
-    domainsJson: String(company.domainsJson || "[]"),
-    atsHintsJson: String(company.atsHintsJson || "{}"),
-    geoTagsJson: String(company.geoTagsJson || "[]"),
-    roleTagsJson: String(company.roleTagsJson || "[]"),
-    firstSeenAt: String(company.firstSeenAt || ""),
-    lastSeenAt: String(company.lastSeenAt || ""),
-    lastSuccessAt: String(company.lastSuccessAt || ""),
-    successCount: Number(company.successCount || 0),
-    failureCount: Number(company.failureCount || 0),
-    confidence: Number(company.confidence || 0),
-    cooldownUntil: String(company.cooldownUntil || ""),
+    companyKey: String(record.companyKey || ""),
+    displayName: String(record.displayName || ""),
+    normalizedName: String(record.normalizedName || ""),
+    aliasesJson: String(record.aliasesJson || "[]"),
+    domainsJson: String(record.domainsJson || "[]"),
+    atsHintsJson: String(record.atsHintsJson || "{}"),
+    geoTagsJson: String(record.geoTagsJson || "[]"),
+    roleTagsJson: String(record.roleTagsJson || "[]"),
+    firstSeenAt: String(record.firstSeenAt || ""),
+    lastSeenAt: String(record.lastSeenAt || ""),
+    lastSuccessAt: String(record.lastSuccessAt || ""),
+    successCount: Number(record.successCount || 0),
+    failureCount: Number(record.failureCount || 0),
+    confidence: Number(record.confidence || 0),
+    cooldownUntil: String(record.cooldownUntil || ""),
   };
 }
 
-function toPlannerCareerSurfaceRecord(surface: Record<string, unknown>) {
+function toPlannerCareerSurfaceRecord(surface: unknown): CareerSurfaceRecord {
+  const record = unknownObject(surface);
+  const surfaceType = String(record.surfaceType || "");
+  const providerType = String(record.providerType || "");
+  const sourceLane = String(record.sourceLane || "ats_provider");
+  const verifiedStatus = String(record.verifiedStatus || "pending");
   return {
-    surfaceId: String(surface.surfaceId || ""),
-    companyKey: String(surface.companyKey || ""),
-    surfaceType: String(surface.surfaceType || ""),
-    providerType: String(surface.providerType || ""),
-    canonicalUrl: String(surface.canonicalUrl || ""),
-    host: String(surface.host || ""),
-    finalUrl: String(surface.finalUrl || ""),
-    boardToken: String(surface.boardToken || ""),
-    sourceLane: String(surface.sourceLane || "ats_provider"),
-    verifiedStatus: String(surface.verifiedStatus || "pending"),
-    lastVerifiedAt: String(surface.lastVerifiedAt || ""),
-    lastSuccessAt: String(surface.lastSuccessAt || ""),
-    lastFailureAt: String(surface.lastFailureAt || ""),
-    failureReason: String(surface.failureReason || ""),
-    failureStreak: Number(surface.failureStreak || 0),
-    cooldownUntil: String(surface.cooldownUntil || ""),
-    metadataJson: String(surface.metadataJson || "{}"),
+    surfaceId: String(record.surfaceId || ""),
+    companyKey: String(record.companyKey || ""),
+    surfaceType: isCareerSurfaceType(surfaceType)
+      ? surfaceType
+      : "job_posting",
+    providerType: isAtsSourceId(providerType) ? providerType : "",
+    canonicalUrl: String(record.canonicalUrl || ""),
+    host: String(record.host || ""),
+    finalUrl: String(record.finalUrl || ""),
+    boardToken: String(record.boardToken || ""),
+    sourceLane: isDiscoverySourceLane(sourceLane)
+      ? sourceLane
+      : "ats_provider",
+    verifiedStatus: isCareerSurfaceVerifiedStatus(verifiedStatus)
+      ? verifiedStatus
+      : "pending",
+    lastVerifiedAt: String(record.lastVerifiedAt || ""),
+    lastSuccessAt: String(record.lastSuccessAt || ""),
+    lastFailureAt: String(record.lastFailureAt || ""),
+    failureReason: String(record.failureReason || ""),
+    failureStreak: Number(record.failureStreak || 0),
+    cooldownUntil: String(record.cooldownUntil || ""),
+    metadataJson: String(record.metadataJson || "{}"),
   };
 }
 
-function toRunListingFingerprintRecord(record: Record<string, unknown>) {
+function toPlannerIntentCoverageRecord(
+  coverage: unknown,
+): IntentCoverageRecord {
+  const record = unknownObject(coverage);
+  const sourceLane = String(record.sourceLane || "grounded_web");
+  return {
+    intentKey: String(record.intentKey || ""),
+    companyKey: String(record.companyKey || ""),
+    runId: String(record.runId || ""),
+    sourceLane: isDiscoverySourceLane(sourceLane)
+      ? sourceLane
+      : "grounded_web",
+    surfacesSeen: Number(record.surfacesSeen || 0),
+    listingsSeen: Number(record.listingsSeen || 0),
+    listingsWritten: Number(record.listingsWritten || 0),
+    startedAt: String(record.startedAt || ""),
+    completedAt: String(record.completedAt || ""),
+  };
+}
+
+function toRunListingFingerprintRecord(
+  fingerprint: unknown,
+): ListingFingerprintRecord {
+  const record = unknownObject(fingerprint);
+  const remoteBucket = String(record.remoteBucket || "unknown");
   return {
     fingerprintKey: String(record.fingerprintKey || ""),
     companyKey: String(record.companyKey || ""),
@@ -396,7 +439,7 @@ function toRunListingFingerprintRecord(record: Record<string, unknown>) {
     locationKey: String(record.locationKey || ""),
     canonicalUrlKey: String(record.canonicalUrlKey || ""),
     externalJobId: String(record.externalJobId || ""),
-    remoteBucket: String(record.remoteBucket || "unknown"),
+    remoteBucket: isRemoteBucket(remoteBucket) ? remoteBucket : "unknown",
     employmentType: String(record.employmentType || ""),
     semanticKey: String(record.semanticKey || ""),
     contentHash: String(record.contentHash || ""),
@@ -408,6 +451,71 @@ function toRunListingFingerprintRecord(record: Record<string, unknown>) {
     writeCount: Number(record.writeCount || 0),
     sourceIdsJson: JSON.stringify(record.sourceIds || []),
   };
+}
+
+function isUnknownObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function unknownObject(value: unknown): Record<string, unknown> {
+  return isUnknownObject(value) ? value : {};
+}
+
+function isAtsSourceId(value: unknown): value is (typeof ATS_SOURCE_IDS)[number] {
+  return (
+    typeof value === "string" && ATS_SOURCE_IDS.some((entry) => entry === value)
+  );
+}
+
+function toAtsBoardHints(
+  value: unknown,
+): Partial<Record<(typeof ATS_SOURCE_IDS)[number], string>> {
+  const flattened = flattenHintRecord(value);
+  const hints: Partial<Record<(typeof ATS_SOURCE_IDS)[number], string>> = {};
+  for (const sourceId of ATS_SOURCE_IDS) {
+    const hint = flattened[sourceId];
+    if (hint) hints[sourceId] = hint;
+  }
+  return hints;
+}
+
+function isDiscoverySourceLane(value: unknown): value is DiscoverySourceLane {
+  return (
+    value === "ats_provider" ||
+    value === "company_surface" ||
+    value === "hint_resolution" ||
+    value === "grounded_web"
+  );
+}
+
+function isCareerSurfaceType(value: unknown): value is CareerSurfaceType {
+  return (
+    value === "provider_board" ||
+    value === "employer_careers" ||
+    value === "employer_jobs" ||
+    value === "job_posting" ||
+    value === "hint_candidate"
+  );
+}
+
+function isCareerSurfaceVerifiedStatus(
+  value: unknown,
+): value is CareerSurfaceVerifiedStatus {
+  return (
+    value === "verified" ||
+    value === "suspect" ||
+    value === "dead" ||
+    value === "pending"
+  );
+}
+
+function isRemoteBucket(value: unknown): value is RemoteBucket {
+  return (
+    value === "remote" ||
+    value === "hybrid" ||
+    value === "onsite" ||
+    value === "unknown"
+  );
 }
 
 function toRunHostSuppressionRecord(record: Record<string, unknown>) {

@@ -1,10 +1,17 @@
-import type {
-  DiscoveryExploitOutcomeRecord,
-  DiscoveryExploitOutcomeWrite,
-  DiscoveryMemorySnapshot,
-  DiscoveryMemoryStore as RuntimeDiscoveryMemoryStore,
-  DiscoveryRoleFamilyLearnInput,
-  DiscoveryRoleFamilyRecord,
+import {
+  ATS_SOURCE_IDS,
+  SUPPORTED_SOURCE_IDS,
+  type AtsSourceId,
+  type CareerSurfaceType,
+  type CareerSurfaceVerifiedStatus,
+  type DiscoveryExploitOutcomeRecord,
+  type DiscoveryExploitOutcomeWrite,
+  type DiscoveryMemorySnapshot,
+  type DiscoveryMemoryStore as RuntimeDiscoveryMemoryStore,
+  type DiscoveryRoleFamilyLearnInput,
+  type DiscoveryRoleFamilyRecord,
+  type DiscoverySourceLane,
+  type SupportedSourceId,
 } from "../contracts.ts";
 import type {
   DiscoveryMemoryStore as RawDiscoveryMemoryStore,
@@ -17,6 +24,28 @@ type RunDiscoveryMemoryStore = Pick<
   RuntimeDiscoveryMemoryStore,
   "loadSnapshot" | "writeExploitOutcome" | "learnRoleFamilyFromLead"
 >;
+
+const DISCOVERY_SOURCE_LANES = new Set<string>([
+  "ats_provider",
+  "company_surface",
+  "hint_resolution",
+  "grounded_web",
+]);
+const CAREER_SURFACE_TYPES = new Set<string>([
+  "provider_board",
+  "employer_careers",
+  "employer_jobs",
+  "job_posting",
+  "hint_candidate",
+]);
+const CAREER_SURFACE_VERIFIED_STATUSES = new Set<string>([
+  "verified",
+  "suspect",
+  "dead",
+  "pending",
+]);
+const ATS_SOURCE_ID_SET = new Set<string>(ATS_SOURCE_IDS);
+const SUPPORTED_SOURCE_ID_SET = new Set<string>(SUPPORTED_SOURCE_IDS);
 
 export function createRunDiscoveryMemoryStore(
   rawDiscoveryMemoryStore: RawDiscoveryMemoryStore,
@@ -69,14 +98,17 @@ function toRunMemorySnapshot(
     careerSurfaces: snapshot.careerSurfaces.map((surface) => ({
       surfaceId: String(surface.surfaceId || ""),
       companyKey: String(surface.companyKey || ""),
-      surfaceType: String(surface.surfaceType || ""),
-      providerType: String(surface.providerType || ""),
+      surfaceType: toCareerSurfaceType(surface.surfaceType, "hint_candidate"),
+      providerType: toAtsSourceId(surface.providerType),
       canonicalUrl: String(surface.canonicalUrl || ""),
       host: String(surface.host || ""),
       finalUrl: String(surface.finalUrl || ""),
       boardToken: String(surface.boardToken || ""),
-      sourceLane: String(surface.sourceLane || "ats_provider"),
-      verifiedStatus: String(surface.verifiedStatus || "pending"),
+      sourceLane: toDiscoverySourceLane(surface.sourceLane, "ats_provider"),
+      verifiedStatus: toCareerSurfaceVerifiedStatus(
+        surface.verifiedStatus,
+        "pending",
+      ),
       lastVerifiedAt: String(surface.lastVerifiedAt || ""),
       lastSuccessAt: String(surface.lastSuccessAt || ""),
       lastFailureAt: String(surface.lastFailureAt || ""),
@@ -91,7 +123,7 @@ function toRunMemorySnapshot(
       intentKey: String(coverage.intentKey || ""),
       companyKey: String(coverage.companyKey || ""),
       runId: String(coverage.runId || ""),
-      sourceLane: String(coverage.sourceLane || "grounded_web"),
+      sourceLane: toDiscoverySourceLane(coverage.sourceLane, "grounded_web"),
       surfacesSeen: Number(coverage.surfacesSeen || 0),
       listingsSeen: Number(coverage.listingsSeen || 0),
       listingsWritten: Number(coverage.listingsWritten || 0),
@@ -113,9 +145,9 @@ function toRunExploitOutcomeRecord(
     intentKey: String(record.intentKey || ""),
     surfaceId: String(record.surfaceId || ""),
     companyKey: String(record.companyKey || ""),
-    sourceId: String(record.sourceId || "grounded_web"),
-    sourceLane: String(record.sourceLane || "grounded_web"),
-    surfaceType: String(record.surfaceType || "job_posting"),
+    sourceId: toSupportedSourceId(record.sourceId, "grounded_web"),
+    sourceLane: toDiscoverySourceLane(record.sourceLane, "grounded_web"),
+    surfaceType: toCareerSurfaceType(record.surfaceType, "job_posting"),
     canonicalUrl: String(record.canonicalUrl || ""),
     observedAt: String(record.observedAt || ""),
     listingsSeen: Number(record.listingsSeen || 0),
@@ -176,4 +208,63 @@ function parseJsonObject(value: unknown): Record<string, unknown> {
 function nullableString(value: unknown): string | null {
   const normalized = String(value || "").trim();
   return normalized ? normalized : null;
+}
+
+function toAtsSourceId(value: unknown): AtsSourceId | "" {
+  const normalized = String(value || "").trim();
+  return isAtsSourceId(normalized) ? normalized : "";
+}
+
+function isAtsSourceId(value: string): value is AtsSourceId {
+  return ATS_SOURCE_ID_SET.has(value);
+}
+
+function toSupportedSourceId(
+  value: unknown,
+  fallback: SupportedSourceId,
+): SupportedSourceId {
+  const normalized = String(value || "").trim();
+  return isSupportedSourceId(normalized) ? normalized : fallback;
+}
+
+function isSupportedSourceId(value: string): value is SupportedSourceId {
+  return SUPPORTED_SOURCE_ID_SET.has(value);
+}
+
+function toDiscoverySourceLane(
+  value: unknown,
+  fallback: DiscoverySourceLane,
+): DiscoverySourceLane {
+  const normalized = String(value || "").trim();
+  return isDiscoverySourceLane(normalized) ? normalized : fallback;
+}
+
+function isDiscoverySourceLane(value: string): value is DiscoverySourceLane {
+  return DISCOVERY_SOURCE_LANES.has(value);
+}
+
+function toCareerSurfaceType(
+  value: unknown,
+  fallback: CareerSurfaceType,
+): CareerSurfaceType {
+  const normalized = String(value || "").trim();
+  return isCareerSurfaceType(normalized) ? normalized : fallback;
+}
+
+function isCareerSurfaceType(value: string): value is CareerSurfaceType {
+  return CAREER_SURFACE_TYPES.has(value);
+}
+
+function toCareerSurfaceVerifiedStatus(
+  value: unknown,
+  fallback: CareerSurfaceVerifiedStatus,
+): CareerSurfaceVerifiedStatus {
+  const normalized = String(value || "").trim();
+  return isCareerSurfaceVerifiedStatus(normalized) ? normalized : fallback;
+}
+
+function isCareerSurfaceVerifiedStatus(
+  value: string,
+): value is CareerSurfaceVerifiedStatus {
+  return CAREER_SURFACE_VERIFIED_STATUSES.has(value);
 }

@@ -31,6 +31,7 @@ import type {
   PlannedCompany,
   SourcePreset,
 } from "../contracts.ts";
+import type { RankedPlannedCompany } from "../discovery/company-planner.ts";
 
 // === Score Component Types ===
 
@@ -135,6 +136,17 @@ export type BudgetStatus = {
   scoutBudgetExhausted: boolean;
   /** Whether exploit phase should stop. */
   exploitBudgetExhausted: boolean;
+};
+
+export type ExplorationBudgetTracker = {
+  getStatus(): BudgetStatus;
+  recordScoutSurface(): boolean;
+  recordScoutListings(count: number): void;
+  recordExploitSelection(): boolean;
+  getUsage(): BudgetUsage;
+  getMaxScoutSurfaces(): number;
+  getMaxExploitSurfaces(): number;
+  getMaxScoutListingsPerSurface(): number;
 };
 
 // === Selection Result Types ===
@@ -279,7 +291,7 @@ export function computeFrontierCompositeScore(
  * VAL-LOOP-SCORE-001: ATS and browser opportunities share one scoring frontier.
  */
 export function companyToFrontierCandidate(
-  company: PlannedCompany,
+  company: PlannedCompany | RankedPlannedCompany,
   sourceLane: DiscoverySourceLane,
   sourceId: string,
 ): FrontierCandidate {
@@ -323,7 +335,10 @@ export function companyToFrontierCandidate(
     sourceId,
     companyKey: company.companyKey,
     displayName: company.displayName,
-    observedAt: company.evidence?.timestamps?.freshnessAt || new Date().toISOString(),
+    observedAt:
+      (Array.isArray(company.evidence)
+        ? ""
+        : company.evidence.timestamps.freshnessAt) || new Date().toISOString(),
     scores,
     compositeScore: compositeResult.composite,
     isViable,
@@ -469,8 +484,6 @@ export function createExplorationBudgetTracker(
     },
   };
 }
-
-export type ExplorationBudgetTracker = ReturnType<typeof createExplorationBudgetTracker>;
 
 // === Deterministic Selection ===
 

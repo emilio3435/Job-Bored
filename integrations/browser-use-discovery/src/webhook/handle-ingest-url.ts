@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  ScrapeJobPostingResult as ScrapeResult,
+} from "../../../../server/shared/job-scraper-core.mjs";
+import type {
   IngestUrlRequestV1,
   IngestUrlResponseV1,
   NormalizedLead,
@@ -60,16 +63,6 @@ const MAX_MANUAL_COMPANY_LENGTH = 200;
 const MAX_MANUAL_LOCATION_LENGTH = 200;
 const MAX_MANUAL_DESCRIPTION_LENGTH = 20_000;
 
-type ScrapeResult = {
-  url: string;
-  title: string | null;
-  description: string;
-  requirements?: string[];
-  skills?: string[];
-  method?: string;
-  source?: string;
-};
-
 type PipelineWriterLike = {
   write(sheetId: string, leads: NormalizedLead[]): Promise<PipelineWriteResult>;
 };
@@ -82,6 +75,17 @@ type IngestUrlStrategy =
   | "manual_fill"
   | "url_only"
   | "browser_use_cloud";
+
+type IngestUrlExtractionFailure = Extract<
+  IngestUrlResponseV1,
+  {
+    ok: false;
+    reason:
+      | "blocked_aggregator"
+      | "scrape_failed"
+      | "low_quality_extraction";
+  }
+> & { hint: string };
 
 export type HandleIngestUrlDependencies = {
   runtimeConfig: WorkerRuntimeConfig;
@@ -690,7 +694,7 @@ function rejectBlockedAggregatorUrl(input: {
     message:
       `${label} did not expose a complete posting that JobBored can safely add.`,
     hint: buildTryAnotherPostingLinkHint(input.url),
-  } satisfies IngestUrlResponseV1);
+  } satisfies IngestUrlExtractionFailure);
 }
 
 function rejectScrapeFailedUrl(input: {
@@ -1339,5 +1343,5 @@ async function defaultScrapeJobPosting(url: string): Promise<ScrapeResult> {
   if (!module || typeof module.scrapeJobPosting !== "function") {
     throw new Error("Shared job scraper module is unavailable.");
   }
-  return (await module.scrapeJobPosting(url)) as ScrapeResult;
+  return module.scrapeJobPosting(url);
 }

@@ -32,10 +32,10 @@ import type {
   DiscoveryRunTrigger,
   ProfileFormInput,
   StoredWorkerConfig,
-  WorkerRuntimeConfig,
   WorkerScheduleConfig,
   WorkerScheduleMode,
 } from "../contracts.ts";
+import type { WorkerRuntimeConfig } from "../config.ts";
 import {
   extractCandidateProfile,
   discoverCompaniesForProfile,

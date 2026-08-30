@@ -860,8 +860,10 @@ export function mergeDiscoveryConfig(
     );
   }
   const profile = request.discoveryProfile || {};
-  const searchPlan = isPlainRecord(profile.searchPlan) ? profile.searchPlan : {};
-  const searchPlanQuery = isPlainRecord(searchPlan.query)
+  const searchPlan: AnyRecord = isPlainRecord(profile.searchPlan)
+    ? profile.searchPlan
+    : {};
+  const searchPlanQuery: AnyRecord = isPlainRecord(searchPlan.query)
     ? searchPlan.query
     : {};
   const stored = normalizeStoredWorkerConfig(
@@ -1584,7 +1586,7 @@ function formatError(error: unknown): string {
   return String(error);
 }
 
-function readFirst(env: RuntimeEnv, keys: string[]): string {
+function readFirst(env: RuntimeEnv, keys: readonly string[]): string {
   for (const key of keys) {
     const value = cleanString(env[key]);
     if (value) return value;
@@ -1592,7 +1594,7 @@ function readFirst(env: RuntimeEnv, keys: string[]): string {
   return "";
 }
 
-function readList(env: RuntimeEnv, keys: string[]): string[] {
+function readList(env: RuntimeEnv, keys: readonly string[]): string[] {
   for (const key of keys) {
     const value = cleanString(env[key]);
     if (value) return normalizeToList(value);

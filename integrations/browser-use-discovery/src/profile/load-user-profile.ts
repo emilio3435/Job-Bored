@@ -18,8 +18,8 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import Ajv2020 from "ajv/dist/2020.js";
-import addFormats from "ajv-formats";
+import { Ajv2020 } from "ajv/dist/2020.js";
+import addFormatsModule from "ajv-formats";
 
 import type { UserProfile } from "../contracts/user-profile.ts";
 
@@ -30,7 +30,7 @@ const schemaPath = join(moduleDir, "..", "contracts", "user-profile.schema.json"
 const schemaJson = JSON.parse(readFileSync(schemaPath, "utf8"));
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
-addFormats(ajv);
+addFormatsModule.default(ajv);
 const validate = ajv.compile<UserProfile>(schemaJson);
 
 function resolveProfilePath(): string {

@@ -169,7 +169,7 @@ function extractAshbyListings(
       : [];
   return dedupeRawListings(
     jobs
-      .map((job) => {
+      .map((job): RawListing | null => {
         const record =
           job && typeof job === "object" && !Array.isArray(job)
             ? (job as Record<string, unknown>)
@@ -218,7 +218,7 @@ function extractAshbyListings(
           },
         } satisfies RawListing;
       })
-      .filter((entry): entry is RawListing => !!entry),
+      .filter((entry): entry is RawListing => entry !== null),
   );
 }
 
@@ -273,4 +273,3 @@ function safeParseJson(input: string): unknown | null {
     return null;
   }
 }
-
