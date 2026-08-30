@@ -2158,6 +2158,171 @@ test("VAL-DATA-001: regex fallback recovers URLs from conversational/non-JSON ou
   assert.equal(regexWarning, undefined, "Recovered regex fallback should not emit a warning");
 });
 
+test("unrestricted multi-query conversational output reaches prose recovery across retry rungs", async () => {
+  const run = makeUnrestrictedRun({
+    config: {
+      groundedSearchTuning: { multiQueryCap: 2 },
+    },
+  });
+  const directJobUrl = "https://jobs.lever.co/notion/product-marketing-manager";
+  const requestCounts = {
+    groundedSearch: 0,
+    proseRecovery: 0,
+    structuredExtraction: 0,
+    preflight: 0,
+  };
+  const call1Markers: string[] = [];
+  let proseRecoveryInput = "";
+  const makeGeminiResponse = (text: string, searchQuery = "") =>
+    new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            content: { parts: [{ text }] },
+            ...(searchQuery
+              ? {
+                  groundingMetadata: {
+                    webSearchQueries: [searchQuery],
+                    groundingChunks: [],
+                  },
+                }
+              : {}),
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("generativelanguage.googleapis.com")) {
+      const body = JSON.parse(String(init?.body || "{}"));
+      const systemPrompt = String(body.systemInstruction?.parts?.[0]?.text || "");
+      const userPrompt = String(body.contents?.[0]?.parts?.[0]?.text || "");
+
+      if (Array.isArray(body.tools)) {
+        requestCounts.groundedSearch += 1;
+        const marker = `CALL_1_PROSE_${String(requestCounts.groundedSearch).padStart(2, "0")}`;
+        call1Markers.push(marker);
+        return makeGeminiResponse(
+          requestCounts.groundedSearch === 6
+            ? `${marker} ${"bounded conversational prose ".repeat(500)}`
+            : `Conversational search result ${marker}; no machine-readable destination was emitted.`,
+          `grounded-query-${requestCounts.groundedSearch}`,
+        );
+      }
+
+      if (systemPrompt.includes("conversational/prose search output")) {
+        requestCounts.proseRecovery += 1;
+        proseRecoveryInput = userPrompt;
+      } else {
+        requestCounts.structuredExtraction += 1;
+      }
+
+      return makeGeminiResponse(
+        JSON.stringify({
+          results: [
+            {
+              url: directJobUrl,
+              title: "Product Marketing Manager at Notion",
+              pageType: "job",
+              reason: "Canonical ATS job page",
+            },
+          ],
+        }),
+      );
+    }
+
+    if (url === directJobUrl) {
+      requestCounts.preflight += 1;
+      return makePreflightResponse(url);
+    }
+
+    throw new Error(`Unexpected fetch in prose-recovery regression: ${url}`);
+  }) as typeof fetch;
+
+  const groundedSearchClient = createGroundedSearchClient(
+    makeRuntimeConfig({ useStructuredExtraction: true }),
+    { fetchImpl },
+  );
+  let capturedSearchResult: Awaited<ReturnType<typeof groundedSearchClient.search>> | null = null;
+  const originalSearch = groundedSearchClient.search.bind(groundedSearchClient);
+  groundedSearchClient.search = async (company, currentRun, options) => {
+    capturedSearchResult = await originalSearch(company, currentRun, options);
+    return capturedSearchResult;
+  };
+
+  const visitedUrls: string[] = [];
+  const result = await collectGroundedWebListings({
+    company: run.config.companies[0],
+    run,
+    runtimeConfig: makeRuntimeConfig({ useStructuredExtraction: true }),
+    groundedSearchClient,
+    fetchImpl,
+    sessionManager: {
+      run: async ({ url }) => {
+        visitedUrls.push(url);
+        return {
+          url,
+          text: JSON.stringify({
+            pageType: "job",
+            jobs: [
+              {
+                title: "Product Marketing Manager",
+                company: "Notion",
+                location: "Remote",
+                url,
+                descriptionText: "Lead product marketing launches and campaigns.",
+              },
+            ],
+          }),
+          metadata: { mode: "browser_use_command" },
+        };
+      },
+    },
+  });
+
+  assert.equal(requestCounts.proseRecovery, 1, "Call 1.5 should receive aggregated multi-query prose once");
+  assert.ok(capturedSearchResult, "Should capture the real multi-query search result");
+  assert.equal(capturedSearchResult.diagnostics?.multiQueryFanOutEnabled, true);
+  assert.equal(capturedSearchResult.diagnostics?.focusedQueryCount, 2);
+  assert.equal(capturedSearchResult.diagnostics?.ladderExhausted, true);
+  assert.equal(capturedSearchResult.diagnostics?.regexFallbackAttempted, true);
+  assert.equal(capturedSearchResult.diagnostics?.regexFallbackUsed, undefined);
+  assert.equal(capturedSearchResult.rawText?.length, 12_000);
+  assert.deepEqual(
+    capturedSearchResult.queryEvidence?.map((entry) => entry.rung),
+    [0, 1, 2, 0, 1, 2],
+    "Two focused queries should each contribute all zero-candidate retry rungs",
+  );
+  assert.equal(requestCounts.groundedSearch, 6);
+  assert.equal(call1Markers.length, requestCounts.groundedSearch);
+
+  let previousMarkerIndex = -1;
+  for (const marker of call1Markers) {
+    const markerIndex = proseRecoveryInput.indexOf(marker);
+    assert.ok(markerIndex > previousMarkerIndex, `${marker} should reach Call 1.5 in request order`);
+    previousMarkerIndex = markerIndex;
+  }
+
+  assert.deepEqual(capturedSearchResult.warnings, [
+    "Grounded search returned no usable candidate links.",
+    "Query ladder exhausted: all 2 focused sub-queries returned zero candidates after retry broadening.",
+    "Regex URL fallback used: grounded output was non-JSON or conversational; no valid URLs recovered.",
+  ]);
+  assert.deepEqual(result.warnings, capturedSearchResult.warnings);
+  assert.equal(requestCounts.structuredExtraction, 1);
+  assert.equal(requestCounts.preflight, 1);
+  assert.deepEqual(result.seedUrls, [directJobUrl]);
+  assert.deepEqual(visitedUrls, [directJobUrl]);
+  assert.equal(result.pagesVisited, 1);
+  assert.equal(result.rawListings.length, 1);
+  assert.equal(result.rawListings[0].url, directJobUrl);
+  assert.ok(result.diagnostics?.some((entry) => entry.code === "prose_recovery_used"));
+  assert.ok(!result.diagnostics?.some((entry) => entry.code === "prose_recovery_failed"));
+  assert.ok(!result.diagnostics?.some((entry) => entry.code === "zero_results"));
+});
+
 test("VAL-DATA-001: regex fallback handles zero-supported case explicitly", async () => {
   const run = makeRun();
   const client = createGroundedSearchClient(makeRuntimeConfig(), {

@@ -132,6 +132,7 @@ type GroundedPreflightRejection = {
 
 const DEFAULT_HINT_RESOLUTION_LIMIT = 2;
 const PRE_FLIGHT_TIMEOUT_MS = 12_000;
+const PROSE_RECOVERY_RAW_TEXT_MAX_CHARS = 12_000;
 // Vertex AI grounded search returns citations as opaque redirect URLs on
 // vertexaisearch.cloud.google.com/grounding-api-redirect/*. Resolving these to
 // their canonical target up front means downstream preflight, host suppression,
@@ -266,6 +267,14 @@ type GroundedSearchLog = (
   details: Record<string, unknown>,
 ) => void;
 
+function appendGroundedRawText(current: string, next: string): string {
+  return [current, next]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join("\n\n")
+    .slice(0, PROSE_RECOVERY_RAW_TEXT_MAX_CHARS);
+}
+
 const ATS_HOST_QUERY_HINTS: Record<AtsSourceId, string[]> = {
   greenhouse: [
     "boards.greenhouse.io",
@@ -378,6 +387,7 @@ async function executeQueryWithRetry(
   regexFallbackAttempted: boolean;
   failures: GroundedSearchRequestFailure[];
   abortedDueToUpstreamError: boolean;
+  rawText: string;
 }> {
   const evidence: GroundedQueryEvidence[] = [];
   const searchQueries: string[] = [];
@@ -387,6 +397,7 @@ async function executeQueryWithRetry(
   let regexFallbackUsed = false;
   let regexFallbackAttempted = false;
   let abortedDueToUpstreamError = false;
+  let rawText = "";
 
   // VAL-ROUTE-013: Build the retry ladder
   // Rung 0: focused query (original)
@@ -441,6 +452,7 @@ async function executeQueryWithRetry(
 
     searchQueries.push(...result.searchQueries);
     allCandidates.push(...result.candidates);
+    rawText = appendGroundedRawText(rawText, result.rawText);
     if (result.regexFallbackUsed) {
       regexFallbackUsed = true;
     }
@@ -495,6 +507,7 @@ async function executeQueryWithRetry(
     regexFallbackAttempted,
     failures,
     abortedDueToUpstreamError,
+    rawText,
   };
 }
 
@@ -586,6 +599,7 @@ async function executeSingleQuery(
   searchQueries: string[];
   regexFallbackUsed: boolean;
   regexFallbackAttempted: boolean;
+  rawText: string;
   failure?: {
     status?: number;
     message: string;
@@ -819,10 +833,11 @@ export function createGroundedSearchClient(
       let regexFallbackUsed = false;
       let regexFallbackAttempted = false;
       let abortedDueToUpstreamError = false;
+      let rawText = "";
 
       // Execute each focused query
       for (const focusedQuery of focusedQueries) {
-        const { candidates, searchQueries, evidence, exhausted, regexFallbackUsed: queryRegexFallback, regexFallbackAttempted: queryRegexFallbackAttempted, failures, abortedDueToUpstreamError: queryAbortedDueToUpstreamError } = await executeQueryWithRetry(
+        const { candidates, searchQueries, evidence, exhausted, regexFallbackUsed: queryRegexFallback, regexFallbackAttempted: queryRegexFallbackAttempted, failures, abortedDueToUpstreamError: queryAbortedDueToUpstreamError, rawText: queryRawText } = await executeQueryWithRetry(
           focusedQuery,
           company,
           run,
@@ -839,6 +854,7 @@ export function createGroundedSearchClient(
         allCandidates.push(...candidates);
         allSearchQueries.push(...searchQueries);
         queryEvidence.push(...evidence);
+        rawText = appendGroundedRawText(rawText, queryRawText);
         if (queryRegexFallback) {
           regexFallbackUsed = true;
         }
@@ -929,10 +945,7 @@ export function createGroundedSearchClient(
         warnings,
         queryEvidence,
         diagnostics,
-        // TODO: plumb rawText through the multi-query focused/retry ladder.
-        // For now the prose-recovery helper only runs on the broad-query path,
-        // which is what single-company runs (e.g. Accenture) actually use.
-        rawText: "",
+        rawText,
       };
     },
     async searchAtsHosts({ run, sourceIds, maxResults, signal }) {
@@ -1162,18 +1175,6 @@ export async function collectGroundedWebListings(input: {
   // below as if they were Call 1 candidates.
   let effectiveCandidates = searchResult.candidates;
   const geminiApiKey = String(input.runtimeConfig.geminiApiKey || "").trim();
-  // TEMP DEBUG: always log prose-recovery gate decision so we can see why it
-  // doesn't fire in practice. Remove once we confirm the pipeline works.
-  input.log?.("discovery.run.grounded_prose_recovery_gate", {
-    runId: input.run.runId,
-    company: input.company.name,
-    companyScope: companyLabel,
-    useStructuredExtraction: input.runtimeConfig.useStructuredExtraction !== false,
-    call1CandidateCount: searchResult.candidates.length,
-    rawTextLength: (searchResult.rawText || "").length,
-    rawTextPreview: (searchResult.rawText || "").slice(0, 200),
-    hasApiKey: !!geminiApiKey,
-  });
   if (
     input.runtimeConfig.useStructuredExtraction !== false &&
     searchResult.candidates.length === 0 &&
@@ -3571,7 +3572,7 @@ async function extractUrlsFromProseViaSchema(input: {
     `Seniority: ${config.seniority || "any"}`,
     "",
     "Raw grounded-search output (conversational, non-JSON):",
-    trimmed.slice(0, 12000),
+    trimmed.slice(0, PROSE_RECOVERY_RAW_TEXT_MAX_CHARS),
     "",
     `Return strict JSON matching the schema. At most ${Math.max(1, input.maxResults)} results. If no URL or implied canonical careers URL is derivable, return {"results":[]}.`,
   ].join("\n");
