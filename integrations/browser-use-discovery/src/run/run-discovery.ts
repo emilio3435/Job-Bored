@@ -2,6 +2,8 @@ import type {
   AtsSourceId,
   BrowserUseExtractionResult,
   CareerSurfaceType,
+  CompanyTarget,
+  DetectionResult,
   DiscoveryIntent,
   DiscoveryLifecycleState,
   DiscoveryMemorySnapshot,
@@ -26,6 +28,7 @@ import type {
   StoredWorkerConfig,
   SupportedSourceId,
 } from "../contracts.ts";
+import { ATS_SOURCE_IDS, SUPPORTED_SOURCE_IDS } from "../contracts.ts";
 import type { DiscoveryRunsLogger } from "../sheets/discovery-runs-writer.ts";
 import type { ResolvedRunSettings, WorkerRuntimeConfig } from "../config.ts";
 import { effectiveAtsCompanySeeds } from "../discovery/company-keys.ts";
@@ -37,6 +40,7 @@ import {
   collectGroundedWebListings,
   describeGroundedSearchScope,
   type GroundedSearchClient,
+  type GroundedSearchCandidate,
 } from "../grounding/grounded-search.ts";
 import {
   collectSerpApiGoogleJobsListings,
@@ -83,6 +87,14 @@ const DEFAULT_MAX_RUN_DURATION_MS = 60 * 60 * 1000;
 const DEFAULT_SOURCE_TIMEOUT_MS = 60 * 1000;
 // Default per-matcher timeout: 30 seconds
 const DEFAULT_MATCHER_TIMEOUT_MS = 30 * 1000;
+
+function isAtsSourceId(sourceId: string): sourceId is AtsSourceId {
+  return ATS_SOURCE_IDS.some((candidate) => candidate === sourceId);
+}
+
+function isSupportedSourceId(sourceId: string): sourceId is SupportedSourceId {
+  return SUPPORTED_SOURCE_IDS.some((candidate) => candidate === sourceId);
+}
 
 export type RunDiscoveryDependencies = {
   runtimeConfig: WorkerRuntimeConfig;
@@ -266,7 +278,10 @@ export async function runDiscovery(
       adapter,
     ]),
   );
-  const extractionResultsBySource = new Map<string, BrowserUseExtractionResult>();
+  const extractionResultsBySource = new Map<
+    SupportedSourceId,
+    BrowserUseExtractionResult
+  >();
   const rejectionSummaryBySource = new Map<string, RejectionSummary>();
   const normalizedLeads: NormalizedLead[] = [];
   let detectionCount = 0;
@@ -316,7 +331,7 @@ export async function runDiscovery(
   // presets execute ATS lanes even without configured company targets.
   const atsSourceIds = ["greenhouse", "lever", "ashby"] as const;
   const hasAtsLanes = config.effectiveSources.some((sid) =>
-    atsSourceIds.includes(sid as (typeof atsSourceIds)[number]),
+    atsSourceIds.some((atsSourceId) => atsSourceId === sid),
   );
 
   // VAL-LOOP-ATS-001/002: Load memory snapshot for ATS seed channels
@@ -354,8 +369,8 @@ export async function runDiscovery(
       try {
         const hints = JSON.parse(companyRecord.atsHintsJson || "{}");
         for (const [sourceId, hint] of Object.entries(hints)) {
-          if (hint && typeof hint === "string") {
-            atsHints[sourceId as AtsSourceId] = hint;
+          if (hint && typeof hint === "string" && isAtsSourceId(sourceId)) {
+            atsHints[sourceId] = hint;
           }
         }
       } catch {
@@ -402,7 +417,7 @@ export async function runDiscovery(
         name: displayName || companyKey,
         companyKey,
         boardHints: {
-          [surface.providerType as AtsSourceId]: boardToken,
+          [surface.providerType]: boardToken,
         },
       });
     }
@@ -439,8 +454,9 @@ export async function runDiscovery(
         sourceTimeoutMs,
         dependencies.groundedSearchClient.searchAtsHosts({
           run,
-          sourceIds: config.effectiveSources.filter((sid): sid is AtsSourceId =>
-            atsSourceIds.includes(sid as AtsSourceId),
+          sourceIds: config.effectiveSources.filter(
+            (sid): sid is (typeof atsSourceIds)[number] =>
+              atsSourceIds.some((atsSourceId) => atsSourceId === sid),
           ),
           maxResults: 10,
         }),
@@ -518,7 +534,7 @@ export async function runDiscovery(
       stageProgress.detectStarted = true;
       // VAL-LOOP-OBS-001: Increment ATS scout count for this company detection
       loopCounters.atsScoutCount += 1;
-      const detections = await withTimeout(
+      const detections: DetectionResult[] = await withTimeout(
         "board_detection",
         "ats_sources",
         sourceTimeoutMs,
@@ -543,7 +559,7 @@ export async function runDiscovery(
       detectionCount += detections.length;
 
       // Group detections by sourceId for efficient listing collection
-      const detectionsBySource = new Map<string, typeof detections>();
+      const detectionsBySource = new Map<AtsSourceId, DetectionResult[]>();
       for (const detection of detections) {
         const existing = detectionsBySource.get(detection.sourceId);
         if (existing) {
@@ -670,7 +686,7 @@ export async function runDiscovery(
   if (
     config.companies.length === 0 &&
     config.effectiveSources.some((sid) =>
-      atsSourceIds.includes(sid as (typeof atsSourceIds)[number]),
+      atsSourceIds.some((atsSourceId) => atsSourceId === sid),
     )
   ) {
     for (const atsSourceId of atsSourceIds) {
@@ -756,7 +772,7 @@ export async function runDiscovery(
       listingCount += groundedResult.listingCount;
       if (groundedResult.extractionResult) {
         extractionResultsBySource.set(
-          groundedResult.extractionResult.sourceId,
+          "grounded_web",
           groundedResult.extractionResult,
         );
       }
@@ -928,6 +944,7 @@ export async function runDiscovery(
         };
         // Find the corresponding source and add diagnostic
         const sourceId = candidate.sourceId;
+        if (!isSupportedSourceId(sourceId)) continue;
         const existingResult = extractionResultsBySource.get(sourceId);
         if (existingResult) {
           existingResult.diagnostics = [...(existingResult.diagnostics || []), diagnostic];
@@ -1122,7 +1139,13 @@ export async function runDiscovery(
 
   // VAL-LOOP-MEM-002: Persist exploit outcomes and rejection summaries after run completion
   // This captures per-surface, per-run outcome data for future ranking and selection
-  if (dependencies.discoveryMemoryStore) {
+  const discoveryMemoryStore = dependencies.discoveryMemoryStore;
+  if (discoveryMemoryStore) {
+    const writeExploitOutcome = discoveryMemoryStore.writeExploitOutcome?.bind(
+      discoveryMemoryStore,
+    );
+    const learnRoleFamilyFromLead =
+      discoveryMemoryStore.learnRoleFamilyFromLead?.bind(discoveryMemoryStore);
     const intentKey = `run:${runId}`;
     let persistedOutcomeCount = 0;
     let skippedOutcomeCount = 0;
@@ -1158,8 +1181,10 @@ export async function runDiscovery(
         continue;
       }
 
+      if (!writeExploitOutcome) continue;
+
       try {
-        dependencies.discoveryMemoryStore.writeExploitOutcome({
+        writeExploitOutcome({
           runId,
           intentKey,
           surfaceId,
@@ -1203,14 +1228,16 @@ export async function runDiscovery(
 
     // VAL-LOOP-MEM-004: Learn role families from accepted leads
     // Deterministic role-family learning from confirmed opportunities
-    for (const lead of leadsToWrite) {
-      if (lead.title && lead.metadata?.companyKey) {
-        dependencies.discoveryMemoryStore.learnRoleFamilyFromLead({
-          title: lead.title,
-          companyKey: lead.metadata.companyKey,
-          sourceLane: (lead.metadata?.sourceLane as string) || "unknown",
-          accepted: true,
-        });
+    if (learnRoleFamilyFromLead) {
+      for (const lead of leadsToWrite) {
+        if (lead.title && lead.metadata?.companyKey) {
+          learnRoleFamilyFromLead({
+            title: lead.title,
+            companyKey: lead.metadata.companyKey,
+            sourceLane: lead.metadata.sourceLane || "unknown",
+            accepted: true,
+          });
+        }
       }
     }
 
@@ -1311,7 +1338,7 @@ export async function runDiscovery(
 
 function createExtractionResult(
   runId: string,
-  sourceId: string,
+  sourceId: SupportedSourceId,
   querySummary: string,
 ): BrowserUseExtractionResult {
   return {
@@ -2106,13 +2133,13 @@ function normalizeForDedup(input: string): string {
 }
 
 function buildSourceSummary(
-  extractionResultsBySource: Map<string, BrowserUseExtractionResult>,
+  extractionResultsBySource: Map<SupportedSourceId, BrowserUseExtractionResult>,
   rejectionSummaryBySource: Map<string, RejectionSummary>,
 ): DiscoverySourceSummary[] {
-  return [...extractionResultsBySource.values()].map((entry) => {
-    const rejectionSummary = rejectionSummaryBySource.get(entry.sourceId);
+  return [...extractionResultsBySource.entries()].map(([sourceId, entry]) => {
+    const rejectionSummary = rejectionSummaryBySource.get(sourceId);
     return {
-      sourceId: entry.sourceId,
+      sourceId,
       querySummary: entry.querySummary,
       pagesVisited: entry.stats.pagesVisited,
       leadsSeen: entry.stats.leadsSeen,

@@ -48,6 +48,17 @@ export type BudgetDiagnosticEvent = {
   previousLimit?: number;
 };
 
+export type BudgetTracker = {
+  getStatus(): BudgetStatus;
+  checkCompanySkip(companyName: string): ExtractionDiagnostic | null;
+  checkPageLimitReduction(baseLimit: number): {
+    multiplier: number;
+    diagnostic: ExtractionDiagnostic | null;
+  };
+  reset(): void;
+  getSkippedCompanies(): string[];
+};
+
 /**
  * Creates a run-budget tracker that monitors remaining time and provides
  * adaptive page-limit reduction and company skip decisions.
@@ -157,5 +168,3 @@ export function createBudgetTracker(config: BudgetTrackerConfig): BudgetTracker 
     },
   };
 }
-
-export type BudgetTracker = ReturnType<typeof createBudgetTracker>;

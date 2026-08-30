@@ -46,7 +46,8 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
-      - run: npm run typecheck:repo
+      - name: Typecheck repository and discovery worker
+        run: npm run typecheck:repo
       - run: npm test
       - run: npm run test:browser-use-discovery
 

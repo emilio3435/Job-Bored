@@ -113,7 +113,7 @@ export type PlannedCompanyEvidence = {
   };
 };
 
-export type RankedPlannedCompany = PlannedCompany & {
+export type RankedPlannedCompany = Omit<PlannedCompany, "evidence"> & {
   evidence: PlannedCompanyEvidence;
   suppressionReasons: string[];
 };
@@ -677,6 +677,7 @@ function rankCandidate(
     geoTags: [...candidate.geoTags].sort(),
     roleTags: [...candidate.roleTags].sort(),
     rank,
+    intendedLanes: [...evidence.sourceLanes],
     scores: {
       roleFit: roundScore(roleFit),
       geoFit: roundScore(geoFit),

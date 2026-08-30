@@ -260,5 +260,9 @@ function formatError(error: unknown): string {
 }
 
 function isRunStatusPayload(value: unknown): value is DiscoveryRunStatusPayload {
-  return !!value && typeof value === "object" && typeof value.runId === "string";
+  return isRecord(value) && typeof value.runId === "string";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }

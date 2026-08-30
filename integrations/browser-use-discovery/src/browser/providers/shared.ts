@@ -638,7 +638,7 @@ export function extractStructuredListings(
   const records = structuredJobRecords(payload);
   return dedupeRawListings(
     records
-      .map((record) => {
+      .map((record): RawListing | null => {
         const title =
           readFirstStringValue(record, [
             "title",
@@ -708,7 +708,7 @@ export function extractStructuredListings(
           },
         } satisfies RawListing;
       })
-      .filter((entry): entry is RawListing => !!entry),
+      .filter((entry): entry is RawListing => entry !== null),
   );
 }
 
