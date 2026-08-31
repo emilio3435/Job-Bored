@@ -2,7 +2,7 @@ declare module "express" {
   import type { IncomingMessage, Server, ServerResponse } from "node:http";
 
   export interface Request extends IncomingMessage {
-    body: Record<string, unknown>;
+    body: unknown;
     params: Record<string, string>;
     path: string;
     protocol: string;
