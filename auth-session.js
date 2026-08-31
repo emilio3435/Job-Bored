@@ -529,6 +529,13 @@ function restoreOAuthSession() {
 
 function showToast(message, type = "success", persistent = false, action) {
   const container = document.getElementById("toastContainer");
+  // A11Y-01a: mirror into the shared live region. Feature-detected — jb-a11y.js
+  // is a separate script and this must never become a hard dependency.
+  try {
+    window.JobBoredA11y?.live?.announce(message, { assertive: type === "error" });
+  } catch (_) {
+    /* announcement is best-effort; never break the toast */
+  }
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
 

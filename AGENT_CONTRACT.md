@@ -209,6 +209,12 @@ rename or reshape these payloads without orchestrator approval.
 | `jb:ats:state:request` | dossier Workshop       | `app.js` (state bus)       | `{ jobKey }`                                                           |
 | `jb:ats:modal:open`    | dossier Workshop       | `app.js` (state bus)       | `{ jobKey }`                                                           |
 | `jb:role:writeback`    | dossier Workshop       | `flowing-writes.js`        | `{ jobKey, field, value }` — see field enum below                      |
+| `jb:a11y:dialog:opened` | `jb-a11y.js`          | observability only         | `{ el, depth }`                                                        |
+| `jb:a11y:dialog:closed` | `jb-a11y.js`          | observability only         | `{ el, depth, reason }`                                                |
+
+> `jb:a11y:dialog:*` are **observability only**. `depth` is the LIFO stack position the dialog
+> occupied (1 = outermost); `reason` is `"escape" | "programmatic"`. No write behavior may depend
+> on them. Like every other `jb:*` family they dispatch on both `window` and `document`.
 
 `field` enum for `jb:role:writeback`:
 `"stage" | "heardBack" | "reply" | "followupAt" | "passed"`.
