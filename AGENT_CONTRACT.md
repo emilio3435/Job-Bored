@@ -211,10 +211,16 @@ rename or reshape these payloads without orchestrator approval.
 | `jb:role:writeback`    | dossier Workshop       | `flowing-writes.js`        | `{ jobKey, field, value }` — see field enum below                      |
 | `jb:a11y:dialog:opened` | `jb-a11y.js`          | observability only         | `{ el, depth }`                                                        |
 | `jb:a11y:dialog:closed` | `jb-a11y.js`          | observability only         | `{ el, depth, reason }`                                                |
+| `jb:closure:change`    | dawn / pipeline board / expired review | integrator shim (`app-bootstrap.js`) | `{ jobKey, action: "dismiss"\|"restore"\|"expire"\|"unexpire", source }` — **cancelable**: the shim claims it with `preventDefault()` then writes via `JobBoredPipelineTransitions.planTransition` + `applyCells`; unexpire stays on `updateJobStatus("Researching")` until the planner grows that action |
 
 > `jb:a11y:dialog:*` are **observability only**. `depth` is the LIFO stack position the dialog
 > occupied (1 = outermost); `reason` is `"escape" | "programmatic"`. No write behavior may depend
 > on them. Like every other `jb:*` family they dispatch on both `window` and `document`.
+>
+> Stage layer split: `window.JobBoredStages` (`stage-registry.js`) is the read/UI vocabulary and the
+> `jb:closure:change` intent bus. `window.JobBoredPipelineTransitions` (`pipeline-transitions.js`) is
+> the only cell writer for stage/closure moves. The `isClosed` homonym is deliberate: Stages treats
+> Expired as archived (not closed for UI visibility); Transitions treats Expired as closed for writes.
 
 `field` enum for `jb:role:writeback`:
 `"stage" | "heardBack" | "reply" | "followupAt" | "passed"`.

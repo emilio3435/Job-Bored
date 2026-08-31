@@ -321,6 +321,81 @@
     });
   });
 
+  // Integrator closure shim (sole claimant of jb:closure:change).
+  // preventDefault() MUST run before the writer: a claimed-and-then-fallen-back
+  // intent performs every closure twice. dismiss/restore/expire go through the
+  // F1-A planner + applyCells; unexpire stays on updateJobStatus("Researching")
+  // until the planner grows that action (SPEC §7).
+  document.addEventListener("jb:closure:change", (e) => {
+    const d = e.detail || {};
+    const action = String(d.action || "").trim().toLowerCase();
+    const jobKey = d.jobKey;
+    const sheetsWrite = window.JobBoredApp && window.JobBoredApp.sheetsWrite;
+    const planner = window.JobBoredPipelineTransitions;
+    if (!sheetsWrite || !planner) return; // unclaimed: the surface falls back
+
+    e.preventDefault();
+
+    const fail = (reason) => {
+      const event = new CustomEvent("jb:write:failed", {
+        detail: {
+          jobKey,
+          kind: "pipeline:move",
+          reason: String(reason || "closure-failed"),
+        },
+      });
+      document.dispatchEvent(event);
+      if (typeof window.dispatchEvent === "function") window.dispatchEvent(event);
+    };
+
+    if (action === "unexpire") {
+      Promise.resolve(
+        typeof window.updateJobStatus === "function"
+          ? window.updateJobStatus(jobKey, "Researching")
+          : sheetsWrite.updateJobStatus(jobKey, "Researching"),
+      ).catch((err) => fail((err && err.message) || err));
+      return;
+    }
+
+    const jobs = window.JobBored && typeof window.JobBored.getPipelineJobs === "function"
+      ? window.JobBored.getPipelineJobs()
+      : null;
+    const job = jobs && jobs[Number(jobKey)];
+    const sheetRow = sheetsWrite.getSheetRow(Number(jobKey));
+    if (!job || !sheetRow) {
+      fail("missing_row");
+      return;
+    }
+
+    let planned;
+    try {
+      planned = planner.planTransition({
+        action,
+        row: {
+          sheetRow,
+          status: job.status || "",
+          notes: job.notes || "",
+          appliedDate: job.appliedDate || "",
+          followUpDate: job.followUpDate || "",
+          lastContact: job.lastHeardFrom || "",
+          dismissedAt: job.dismissedAt || "",
+        },
+      });
+    } catch (err) {
+      fail((err && err.message) || err);
+      return;
+    }
+
+    if (!planned || planned.ok === false) {
+      fail((planned && (planned.code || planned.message)) || "plan_failed");
+      return;
+    }
+
+    Promise.resolve(sheetsWrite.applyCells(planned.patches)).then((ok) => {
+      if (ok === false) fail("applyCells_failed");
+    }).catch((err) => fail((err && err.message) || err));
+  });
+
   Object.assign(bootstrap, {
     initPipelineEmptyAndBriefActions,
     init,

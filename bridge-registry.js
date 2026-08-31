@@ -468,6 +468,29 @@
       openJobDetail: host.openJobDetail,
     };
 
+    const moveAdapter = window.JobBoredPipelineTransitionAdapter;
+    if (moveAdapter) {
+      moveAdapter.host = {
+        /** jobKey is the pipelineData index the boards carry as data-stable-key. */
+        getRow: function (jobKey) {
+          var jobs = host.getPipelineData ? host.getPipelineData() : null;
+          var job = jobs && jobs[Number(jobKey)];
+          var sheetRow = window.JobBoredApp.sheetsWrite.getSheetRow(Number(jobKey));
+          if (!job || !sheetRow) return null;
+          return {
+            sheetRow: sheetRow,
+            status: job.status || "",
+            notes: job.notes || "",
+            appliedDate: job.appliedDate || "",
+            followUpDate: job.followUpDate || "",
+            lastContact: job.lastHeardFrom || "",
+            dismissedAt: job.dismissedAt || "",
+          };
+        },
+        patchApi: { applyCells: window.JobBoredApp.sheetsWrite.applyCells },
+      };
+    }
+
     app.pipelineController = app.pipelineController || {};
     app.pipelineController.host = {
       renderPipeline: host.renderPipeline,
