@@ -123,7 +123,7 @@ Effective intent is one object (`intentContractVersion: 1`) derived from `discov
 
 `companyBlocklist` is applied after skip + allowlist filtering and subtracts matching companies from both the normal and ATS pools.
 
-Runtime ATS memory/host-search seeds and final deduplicated leads are re-filtered before write selection. This keeps per-run company restrictions effective for sources created after config merge and for profile-wide lanes such as SerpApi.
+Runtime ATS memory/host-search seeds and final deduplicated leads are re-filtered before write selection. This keeps per-run company restrictions effective for sources created after config merge and for profile-wide lanes such as SerpApi. Shared multi-tenant ATS hosts are never treated as company identity at the write boundary; the lead must still match an allowed company name, key, or alias.
 
 Older automations that ignore `schemaVersion`, `discoveryProfile`, `companyAllowlist`, `mergedUserProfile`, and `googleAccessToken` keep working if they only read `event`, `sheetId`, `variationKey`, and `requestedAt`.
 

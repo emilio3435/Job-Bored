@@ -48,6 +48,7 @@ import {
   collectSerpApiGoogleJobsListings,
   SERPAPI_GOOGLE_JOBS_SOURCE_ID,
 } from "../sources/serpapi-google-jobs.ts";
+import { ATS_HOST_SIGNATURES } from "../sources/host-signatures.ts";
 import { classifyCareerSurfaceSourcePolicy } from "../discovery/career-surface-resolver.ts";
 import {
   normalizeLeadWithDiagnostics,
@@ -1251,7 +1252,9 @@ export async function runDiscovery(
             company.companyKey,
             company.normalizedName,
             ...(company.aliases || []),
-            ...(company.domains || []),
+            ...(company.domains || []).filter(
+              (domain) => !isSharedAtsCompanyDomain(domain),
+            ),
           ].filter((value): value is string => Boolean(value)),
         )
       : [];
@@ -1619,6 +1622,20 @@ export async function runDiscovery(
     writeResult,
     warnings,
   };
+}
+
+function isSharedAtsCompanyDomain(value: string): boolean {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+  let hostname = raw.toLowerCase();
+  try {
+    hostname = new URL(raw.includes("://") ? raw : `https://${raw}`)
+      .hostname
+      .toLowerCase();
+  } catch {
+    // Keep the raw value so provider signatures still fail closed on malformed input.
+  }
+  return ATS_HOST_SIGNATURES.some(({ match }) => match.test(hostname));
 }
 
 function createExtractionResult(

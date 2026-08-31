@@ -122,7 +122,7 @@ Server normalizes each entry by `String(x).trim().toLowerCase()` before lookup. 
    ```
    Where `dedupeByCompanyKey` keeps the first occurrence (active wins over history when the same key appears in both).
 3. Runtime ATS memory/host-search seeds are filtered again because they are discovered after `mergeDiscoveryConfig`.
-4. Deduplicated leads from every lane, including profile-wide SerpApi results, are filtered again immediately before write selection. This final boundary uses the resolved company targets so name, key, alias, and domain allowlist matches stay equivalent.
+4. Deduplicated leads from every lane, including profile-wide SerpApi results, are filtered again immediately before write selection. This final boundary uses the resolved company targets so name, key, alias, and employer-domain allowlist matches stay equivalent. Shared ATS hosts are not company identity; a lead on Greenhouse, Lever, SmartRecruiters, or another multi-tenant provider must still match the allowed company's name, key, or alias.
 
 **Empty-result fallback:** if the allowlist matches zero catalog companies, the request is `blocked_unresolved` and fails preflight. The worker does not run unrestricted grounded-web, ATS-memory, or ATS-host fallback lanes. Broad fallback is allowed only when the request explicitly sets `allowUnrestrictedFallback: true`.
 
