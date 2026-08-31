@@ -17,7 +17,7 @@ const CONFIG_EXAMPLE_PATH = join(REPO_ROOT, "config.example.js");
 
 const SHEET_ID = "journey-sheet-id-1234567890";
 const OAUTH_CLIENT_ID = "journey-client.apps.googleusercontent.com";
-const DISCOVERY_ORIGIN = "https://journey-worker.test";
+const DISCOVERY_ORIGIN = "https://journey-worker.workers.dev";
 const DISCOVERY_WEBHOOK_URL = `${DISCOVERY_ORIGIN}/webhook`;
 const MATERIALS_ORIGIN = "http://127.0.0.1:3847";
 const RUN_ID = "run-journey-001";
@@ -562,8 +562,15 @@ test("should show queued, running, and partial discovery outcomes", async ({
     /accepted — checking status/,
   );
 
+  await page.getByRole("button", { name: "Open discovery run history" }).click();
+  const runsDialog = page.getByRole("dialog", { name: "Discovery runs" });
+  await expect(runsDialog).toBeVisible();
+
   fence.releaseStatus(0);
-  await expect(discoveryButton).toHaveAttribute("aria-label", /in progress/);
+  await expect(
+    runsDialog.locator('[data-runs-live="job-discovery"]'),
+  ).toContainText("Running");
+  await runsDialog.getByRole("button", { name: "Close" }).click();
 
   fence.releaseStatus(1);
   await expect(discoveryButton).toHaveAttribute(
@@ -608,13 +615,17 @@ test("should carry completed discovery into the pipeline and ready dossier mater
   );
 
   fence.releaseStatus(0);
-  await expect(discoveryButton).toHaveAttribute("aria-label", /in progress/);
-
   fence.releaseStatus(1);
   await expect(discoveryButton).toHaveAttribute(
     "aria-label",
     /Discovery complete/,
   );
+
+  const discoveredColumn = page.getByRole("region", {
+    name: "Discovered column",
+  });
+  await expect(discoveredColumn).toContainText("Discovered 1");
+  await discoveredColumn.getByRole("button", { name: "Expand Discovered" }).click();
 
   const discoveredJob = page.locator(".pipe-sticker", {
     hasText: "Platform Engineer",
