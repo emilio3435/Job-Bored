@@ -179,11 +179,6 @@ function tokenOverlapRatio(left, right) {
 }
 
 /** @param {string} url */
-function isLinkedInJobUrl(url) {
-  return Boolean(linkedInJobId(url));
-}
-
-/** @param {string} url */
 function linkedInJobId(url) {
   let parsed;
   try {
@@ -332,6 +327,15 @@ function pickSerpApiUrl(raw, originalUrl) {
   return nonLinkedIn || candidates[0] || originalUrl;
 }
 
+/** @param {string} url */
+function hostnameOf(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
 /**
  * @param {UnknownRecord} raw
  * @param {{ title: string, company: string }} context
@@ -345,12 +349,39 @@ function scoreSerpApiJob(raw, context, originalUrl) {
   if (!title || !company || description.length < 80) return -Infinity;
 
   const originalId = linkedInJobId(originalUrl);
-  let score = 0;
-  if (originalId && collectSerpApiCandidateUrls(raw).some((url) => linkedInJobId(url) === originalId)) {
-    score += 200;
+  const originalHost = hostnameOf(originalUrl);
+  const candidates = collectSerpApiCandidateUrls(raw);
+  const idMatch = Boolean(
+    originalId && candidates.some((url) => linkedInJobId(url) === originalId),
+  );
+  const urlMatch = Boolean(
+    originalUrl &&
+      candidates.some(
+        (url) => String(url || "").replace(/\/+$/, "") === originalUrl.replace(/\/+$/, ""),
+      ),
+  );
+  const hostMatch = Boolean(
+    originalHost && candidates.some((url) => hostnameOf(url) === originalHost),
+  );
+  const titleOverlap = context.title ? tokenOverlapRatio(context.title, title) : 0;
+  const companyOverlap = context.company
+    ? tokenOverlapRatio(context.company, company)
+    : 0;
+
+  // Title/company-only hits must actually look like the same job. A generic
+  // title like "Engineer" plus a dummy company like "Test" must not pick a
+  // random Google Jobs listing from another employer.
+  if (!idMatch && !urlMatch) {
+    if (context.company && companyOverlap < 0.4) return -Infinity;
+    if (context.title && titleOverlap < 0.3) return -Infinity;
   }
-  if (context.title) score += tokenOverlapRatio(context.title, title) * 120;
-  if (context.company) score += tokenOverlapRatio(context.company, company) * 90;
+
+  let score = 0;
+  if (idMatch) score += 200;
+  if (urlMatch) score += 120;
+  else if (hostMatch) score += 80;
+  if (context.title) score += titleOverlap * 120;
+  if (context.company) score += companyOverlap * 90;
   if (description.length > 400) score += 20;
   return score;
 }
@@ -419,8 +450,7 @@ async function fetchSerpApiJobs(query, apiKey, fetchImpl) {
  * @param {ScrapeJobPostingOptions} [options]
  * @returns {Promise<ScrapeJobPostingResult | null>}
  */
-async function scrapeLinkedInViaSerpApi(originalUrl, options = {}) {
-  if (!isLinkedInJobUrl(originalUrl)) return null;
+async function scrapeViaSerpApiGoogleJobs(originalUrl, options = {}) {
   const context = {
     title: normalizeSpace(options.title || ""),
     company: normalizeSpace(options.company || ""),
@@ -461,7 +491,7 @@ async function scrapeLinkedInViaSerpApi(originalUrl, options = {}) {
       },
     },
     warnings: [
-      "LinkedIn direct scrape was replaced with a Google Jobs structured fallback.",
+      "Direct scrape was replaced with a Google Jobs structured fallback.",
     ],
   };
 }
@@ -968,11 +998,11 @@ export async function scrapeJobPosting(url, options = {}) {
     }
     html = new TextDecoder("utf-8").decode(buf);
   } catch (error) {
-    const linkedInFallback = await scrapeLinkedInViaSerpApi(target.url, {
+    const serpFallback = await scrapeViaSerpApiGoogleJobs(target.url, {
       ...options,
       fetchImpl,
     }).catch(() => null);
-    if (linkedInFallback) return linkedInFallback;
+    if (serpFallback) return serpFallback;
     throw error;
   } finally {
     clearTimeout(t);
@@ -1108,12 +1138,12 @@ export async function scrapeJobPosting(url, options = {}) {
 
   description = description.slice(0, 25000);
 
-  if (isLinkedInJobUrl(target.url) && description.length < 160) {
-    const linkedInFallback = await scrapeLinkedInViaSerpApi(target.url, {
+  if (description.length < 160) {
+    const serpFallback = await scrapeViaSerpApiGoogleJobs(target.url, {
       ...options,
       fetchImpl,
     }).catch(() => null);
-    if (linkedInFallback) return linkedInFallback;
+    if (serpFallback) return serpFallback;
   }
 
   const company = sanitizeInferredEmployer(

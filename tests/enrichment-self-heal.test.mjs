@@ -240,6 +240,34 @@ describe("enrichment pipeline — single self-healing path", () => {
     );
   });
 
+  it("does not treat an empty-description cache hit as durable", async () => {
+    const { api, enrichCalls, jobs } = loadPostingEnrichment();
+    api.cacheEnrichment(jobs[0], {
+      url: jobs[0].link,
+      title: jobs[0].title,
+      description: "",
+      requirements: [],
+      skills: [],
+      scrapedAt: Date.now(),
+      _scrapeBlocked: true,
+      _scrapeSource: "title-and-company",
+    });
+
+    assert.equal(
+      api.isUsableCachedEnrichment(api.getCachedEnrichmentForJob(jobs[0])),
+      false,
+      "empty JD caches must not short-circuit a later scrape",
+    );
+
+    await api.fetchJobPostingEnrichment(0);
+
+    assert.equal(
+      enrichCalls.length,
+      1,
+      "title-only cache with no JD must retry enrichment so a later scrape can fill the posting",
+    );
+  });
+
   it("classifies AI provider errors (401 / 429 / safety) into reason-specific toasts", () => {
     assert.ok(
       /function\s+_toastForLlmError/.test(postingEnrichmentJs),
@@ -260,13 +288,13 @@ describe("enrichment pipeline — single self-healing path", () => {
     );
   });
 
-  it("uses an 8s scrape timeout, not the legacy 30s", () => {
+  it("uses a 20s scrape timeout so SerpApi fallback can finish", () => {
     const slice = enrichmentFlowSlice();
     /* The new helper _tryScrape lives just above; pull a window */
     const tryScrapeIdx = postingEnrichmentJs.indexOf("async function _tryScrape");
     assert.ok(tryScrapeIdx > 0, "_tryScrape helper must exist");
-    const scrapeBody = postingEnrichmentJs.slice(tryScrapeIdx, tryScrapeIdx + 1500);
-    assert.match(scrapeBody, /8_?000/, "scrape timeout must be 8s (8000ms)");
+    const scrapeBody = postingEnrichmentJs.slice(tryScrapeIdx, tryScrapeIdx + 1800);
+    assert.match(scrapeBody, /20_?000/, "scrape timeout must be 20s (20000ms)");
     assert.ok(
       !/30_?000/.test(scrapeBody),
       "legacy 30s timeout must be gone",

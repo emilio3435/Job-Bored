@@ -331,3 +331,121 @@ describe("job scraper LinkedIn fallback", () => {
     assert.notEqual(company.toLowerCase(), "linkedin");
   });
 });
+
+describe("job scraper Google Jobs fallback for blocked ATS pages", () => {
+  function serpJobsResponse() {
+    return jsonResponse({
+      jobs_results: [
+        {
+          title: "Product Designer",
+          company_name: "Figma",
+          location: "San Francisco, CA",
+          description:
+            "Figma is hiring a Product Designer to own multiplayer design workflows, design systems, prototyping, and accessibility. You will partner with engineering and research, ship production UI, and mentor designers across the product org.",
+          apply_options: [
+            {
+              title: "Greenhouse",
+              link: "https://job-boards.greenhouse.io/figma/jobs/5998147004",
+            },
+          ],
+        },
+      ],
+    });
+  }
+
+  it("uses SerpApi Google Jobs for a Greenhouse 403 when title and company are present", async () => {
+    const url = "https://job-boards.greenhouse.io/figma/jobs/5998147004";
+    const fetchCalls = [];
+    const result = await scrapeJobPosting(url, {
+      title: "Product Designer",
+      company: "Figma",
+      serpApiKey: "test-serp-key",
+      fetchImpl: async (requestUrl) => {
+        fetchCalls.push(requestUrl);
+        if (/greenhouse\.io/.test(requestUrl)) {
+          return jsonResponse({}, { ok: false, status: 403 });
+        }
+        assert.match(requestUrl, /^https:\/\/serpapi\.com\/search\.json\?/);
+        return serpJobsResponse();
+      },
+    });
+
+    assert.equal(fetchCalls.length, 2);
+    assert.equal(fetchCalls[0], url);
+    assert.equal(result.source, "serpapi-google-jobs");
+    assert.equal(result.title, "Product Designer");
+    assert.equal(result.company, "Figma");
+    assert.match(result.description, /multiplayer design workflows/);
+    assert.equal(result.scraping.originalUrl, url);
+  });
+
+  it("uses SerpApi Google Jobs when an ATS page returns thin SPA HTML", async () => {
+    const url = "https://jobs.ashbyhq.com/figma/abc-123";
+    const result = await scrapeJobPosting(url, {
+      title: "Product Designer",
+      company: "Figma",
+      serpApiKey: "test-serp-key",
+      fetchImpl: async (requestUrl) => {
+        if (/ashbyhq\.com/.test(requestUrl)) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({}),
+            arrayBuffer: async () =>
+              new TextEncoder().encode(
+                "<!doctype html><title>Jobs</title><div id=root></div>",
+              ).buffer,
+          };
+        }
+        return serpJobsResponse();
+      },
+    });
+
+    assert.equal(result.source, "serpapi-google-jobs");
+    assert.match(result.description, /multiplayer design workflows/);
+  });
+
+  it("still throws when a blocked ATS page has no title/company for SerpApi", async () => {
+    await assert.rejects(
+      () =>
+        scrapeJobPosting("https://www.indeed.com/viewjob?jk=abc", {
+          serpApiKey: "test-serp-key",
+          fetchImpl: async () => jsonResponse({}, { ok: false, status: 401 }),
+        }),
+      /HTTP 401/,
+    );
+  });
+
+  it("does not accept a Google Jobs hit whose company does not match", async () => {
+    await assert.rejects(
+      () =>
+        scrapeJobPosting("https://jobs.lever.co/notion", {
+          title: "Engineer",
+          company: "Test",
+          serpApiKey: "test-serp-key",
+          fetchImpl: async (requestUrl) => {
+            if (/lever\.co/.test(requestUrl)) {
+              return jsonResponse({}, { ok: false, status: 404 });
+            }
+            return jsonResponse({
+              jobs_results: [
+                {
+                  title: "Remote Software Engineer II, Backend (Test Infra)",
+                  company_name: "Affirm",
+                  description:
+                    "Affirm is hiring a backend engineer to own test infrastructure, CI pipelines, and developer tooling across payments services. You will write services in Kotlin, improve flaky tests, and partner with platform teams.",
+                  apply_options: [
+                    {
+                      title: "Lever",
+                      link: "https://jobs.lever.co/affirm/abc",
+                    },
+                  ],
+                },
+              ],
+            });
+          },
+        }),
+      /HTTP 404/,
+    );
+  });
+});
