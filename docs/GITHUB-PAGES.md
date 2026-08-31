@@ -27,7 +27,7 @@ GitHub Pages cannot call `http://127.0.0.1` on your laptop from an HTTPS page. U
 
 `config.js` is loaded at runtime. Use one of these patterns:
 
-1. **Settings/localStorage:** deploy without a real `config.js`, then enter Sheet ID, OAuth Client ID, and provider keys in Settings; enter discovery webhook URLs in **Discovery drawer -> Connection**. Values stay in that browser's localStorage/IndexedDB.
+1. **Settings/localStorage:** deploy the placeholder-only `config.js` (the included Pages workflow copies it from `config.example.js`), then enter Sheet ID, OAuth Client ID, and provider keys in Settings; enter discovery webhook URLs in **Discovery drawer -> Connection**. Values stay in that browser's localStorage/IndexedDB.
 2. **Private fork:** commit a real `config.js` only if the repository is private.
 3. **GitHub Actions-generated config:** keep `config.js` out of git, store values in GitHub secrets, and generate it during Pages deploy.
 
