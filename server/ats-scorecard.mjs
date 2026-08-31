@@ -465,9 +465,8 @@ function normalizeSourceType(v) {
  */
 function normalizeScorecard(parsed, model) {
   const root = /** @type {UnknownRecord | null | undefined} */ (parsed);
-  const ds = /** @type {UnknownRecord} */ (
-    root && typeof root.dimensionScores === "object" ? root.dimensionScores : {}
-  );
+  const dimensionScores = root?.dimensionScores;
+  const ds = isPlainRecord(dimensionScores) ? dimensionScores : {};
   const criticalGaps = Array.isArray(root?.criticalGaps) ? root.criticalGaps : [];
   const evidence = Array.isArray(root?.evidence) ? root.evidence : [];
   const rewriteSuggestions = Array.isArray(root?.rewriteSuggestions)
