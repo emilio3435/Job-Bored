@@ -40,6 +40,7 @@ jobs:
             --exclude 'index.assembled.html' \
             ./ _site/
           cp index.assembled.html _site/index.html
+          cp config.example.js _site/config.js
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

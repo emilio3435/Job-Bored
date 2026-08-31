@@ -17,6 +17,11 @@ describe("GitHub Pages deployment contract", () => {
     assert.match(workflow, /push:\s*\n\s+branches: \[main\]/);
     assert.match(workflow, /node scripts\/assemble-index\.mjs --write/);
     assert.match(workflow, /cp index\.assembled\.html _site\/index\.html/);
+    assert.match(
+      workflow,
+      /cp config\.example\.js _site\/config\.js/,
+      "the public artifact must serve a placeholder config.js instead of logging a 404",
+    );
     assert.match(workflow, /actions\/upload-pages-artifact@v4/);
     assert.match(workflow, /path: _site/);
     assert.match(workflow, /actions\/deploy-pages@v4/);
