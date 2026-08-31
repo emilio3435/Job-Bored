@@ -96,6 +96,32 @@ test("loadRuntimeConfig defaults packaged local state to ~/.jobbored", () => {
     result.stateDatabasePath,
     join(homedir(), ".jobbored", "browser-use-discovery", "worker-state.sqlite"),
   );
+  assert.equal(
+    result.runStateDirectory,
+    join(homedir(), ".jobbored", "browser-use-discovery", "run-state"),
+  );
+});
+
+test("loadRuntimeConfig accepts an explicit run-state directory override", () => {
+  const result = loadRuntimeConfig({
+    BROWSER_USE_DISCOVERY_RUN_STATE_DIR: "~/custom-worker/run-state",
+  });
+
+  assert.equal(
+    result.runStateDirectory,
+    join(homedir(), "custom-worker", "run-state"),
+  );
+});
+
+test("loadRuntimeConfig places run state beside an overridden state database", () => {
+  const result = loadRuntimeConfig({
+    BROWSER_USE_DISCOVERY_STATE_DB_PATH: "~/custom-worker/state.sqlite",
+  });
+
+  assert.equal(
+    result.runStateDirectory,
+    join(homedir(), "custom-worker", "run-state"),
+  );
 });
 
 test("loadRuntimeConfig accepts worker config alias and expands home paths", () => {

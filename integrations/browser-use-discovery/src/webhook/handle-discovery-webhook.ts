@@ -16,6 +16,7 @@ import type {
   RunDiscoveryDependencies,
   RunDiscoveryResult,
 } from "../run/run-discovery.ts";
+import type { DiscoveryRunProgress } from "../run/run-progress.ts";
 import {
   buildAcceptedRunStatus,
   buildCompletedRunStatus,
@@ -178,6 +179,15 @@ export async function handleDiscoveryWebhook(
     log: (event: string, details: Record<string, unknown>) => {
       baseRunLogger?.(event, details);
       dependencies.log?.(event, details);
+    },
+    checkpointRunProgress: (progress: DiscoveryRunProgress) => {
+      const current = dependencies.runStatusStore?.get(runId);
+      if (!current || current.terminal) return;
+      dependencies.runStatusStore?.put({
+        ...current,
+        progress,
+        updatedAt: progress.checkpointedAt,
+      });
     },
   };
   const runDependencies: RunDiscoveryDependencies =

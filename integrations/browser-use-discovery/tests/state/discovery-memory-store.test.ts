@@ -17,19 +17,24 @@ import {
 } from "../../src/state/discovery-memory-store.ts";
 import { createRunDiscoveryMemoryStore } from "../../src/state/run-discovery-memory-store.ts";
 
-async function makeTempDbPath(): Promise<{ tempDir: string; dbPath: string }> {
+async function makeTempDbPath(): Promise<{
+  tempDir: string;
+  dbPath: string;
+  runStateDirectory: string;
+}> {
   const tempDir = await mkdtemp(join(tmpdir(), "job-bored-discovery-memory-"));
   return {
     tempDir,
     dbPath: join(tempDir, "worker-state.sqlite"),
+    runStateDirectory: join(tempDir, "run-state"),
   };
 }
 
-test("discovery memory store creates normalized tables without disturbing discovery_run_status", async () => {
-  const { tempDir, dbPath } = await makeTempDbPath();
+test("discovery memory SQLite tables and JSON run status snapshots rehydrate independently", async () => {
+  const { tempDir, dbPath, runStateDirectory } = await makeTempDbPath();
 
   try {
-    const runStatusStore = createDiscoveryRunStatusStore(dbPath);
+    const runStatusStore = createDiscoveryRunStatusStore(runStateDirectory);
     runStatusStore.put(
       buildAcceptedRunStatus({
         runId: "run_123",
@@ -66,7 +71,6 @@ test("discovery memory store creates normalized tables without disturbing discov
             "career_surfaces",
             "company_registry",
             "dead_link_cache",
-            "discovery_run_status",
             "host_suppressions",
             "intent_coverage",
             "listing_fingerprints",
@@ -76,7 +80,6 @@ test("discovery memory store creates normalized tables without disturbing discov
           "career_surfaces",
           "company_registry",
           "dead_link_cache",
-          "discovery_run_status",
           "host_suppressions",
           "intent_coverage",
           "listing_fingerprints",
@@ -86,7 +89,7 @@ test("discovery memory store creates normalized tables without disturbing discov
       database.close();
     }
 
-    const runStatusReader = createDiscoveryRunStatusStore(dbPath);
+    const runStatusReader = createDiscoveryRunStatusStore(runStateDirectory);
     try {
       const payload = runStatusReader.get("run_123");
       assert.equal(payload?.runId, "run_123");
@@ -99,11 +102,11 @@ test("discovery memory store creates normalized tables without disturbing discov
   }
 });
 
-test("run status store terminalizes non-terminal runs abandoned by worker restart", async () => {
-  const { tempDir, dbPath } = await makeTempDbPath();
+test("run status store fails non-terminal runs abandoned by worker restart", async () => {
+  const { tempDir, runStateDirectory } = await makeTempDbPath();
 
   try {
-    const runStatusStore = createDiscoveryRunStatusStore(dbPath);
+    const runStatusStore = createDiscoveryRunStatusStore(runStateDirectory);
     const accepted = buildAcceptedRunStatus({
       runId: "run_abandoned",
       trigger: "manual",
@@ -125,7 +128,7 @@ test("run status store terminalizes non-terminal runs abandoned by worker restar
     runStatusStore.close();
 
     assert.equal(recovered, 1);
-    assert.equal(payload?.status, "partial");
+    assert.equal(payload?.status, "failed");
     assert.equal(payload?.terminal, true);
     assert.equal(payload?.completedAt, "2026-04-10T08:05:00.000Z");
     assert.match(payload?.error || "", /worker restarted/i);

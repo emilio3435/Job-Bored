@@ -138,7 +138,8 @@ Environment variables:
 - `BROWSER_USE_DISCOVERY_MAX_RUN_DURATION_MS`: async run watchdog, defaults to `3600000` (60 minutes)
 - `BROWSER_USE_DISCOVERY_WORKER_CONFIG` / `BROWSER_USE_DISCOVERY_CONFIG_PATH`: path to worker config JSON, defaults to `~/.jobbored/browser-use-discovery/worker-config.json`
 - `BROWSER_USE_DISCOVERY_WORKER_ENV` / `BROWSER_USE_DISCOVERY_ENV_FILE`: path to the ignored local env file, defaults to `~/.jobbored/browser-use-discovery/.env`
-- `BROWSER_USE_DISCOVERY_STATE_DB_PATH`: path to the worker state database
+- `BROWSER_USE_DISCOVERY_STATE_DB_PATH`: path to the worker memory database
+- `BROWSER_USE_DISCOVERY_RUN_STATE_DIR`: directory for atomic JSON run lifecycle snapshots; defaults to `run-state/` beside the worker state database
 - `BROWSER_USE_DISCOVERY_BROWSER_COMMAND`: optional browser automation command; when unset, the worker first tries the bundled `integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs` wrapper if it exists, then falls back to plain `browser-use`, and finally falls back to direct fetch on command failure
 - `BROWSER_USE_DISCOVERY_LLM_PROVIDER`: generic chat/JSON LLM provider; use `openrouter` as the setup default, or select `local`, `openai`, `openai_compatible`, `anthropic`, or `gemini`
 - `BROWSER_USE_DISCOVERY_OPENROUTER_API_KEY` / `_MODEL` / `_BASE_URL`: OpenRouter generic LLM config

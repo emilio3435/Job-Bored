@@ -9,7 +9,7 @@
 
 import type { ExtractionDiagnostic } from "../contracts.ts";
 
-export type BudgetTrackerConfig = {
+export interface BudgetTrackerConfig {
   /** Maximum run duration in milliseconds. */
   maxRunDurationMs: number;
   /** Conservative safety buffer to reserve for run completion (ms). */
@@ -18,7 +18,9 @@ export type BudgetTrackerConfig = {
   reducePageLimitThreshold?: number;
   /** Factor (0-1) to multiply page limits by when reducing due to budget pressure. */
   pageLimitReductionFactor?: number;
-};
+  /** Persist the current budget whenever an adaptive decision point is reached. */
+  onCheckpoint?(checkpoint: BudgetCheckpoint): void;
+}
 
 export type BudgetStatus = {
   /** Remaining budget as a ratio of total (0-1). */
@@ -34,6 +36,10 @@ export type BudgetStatus = {
   /** The effective page limit multiplier to apply (1.0 = no reduction). */
   pageLimitMultiplier: number;
 };
+
+export interface BudgetCheckpoint extends BudgetStatus {
+  skippedCompanies: string[];
+}
 
 export type BudgetDiagnosticEvent = {
   /** The type of budget event. */
@@ -73,33 +79,48 @@ export function createBudgetTracker(config: BudgetTrackerConfig): BudgetTracker 
   let pageLimitReductionEmitted = false;
   let skippedCompanies: string[] = [];
 
-  return {
-    getStatus(): BudgetStatus {
-      const elapsedMs = Date.now() - startTimeMs;
-      const remainingMs = Math.max(0, totalMs - elapsedMs - safetyBufferMs);
-      const remainingRatio = remainingMs / totalMs;
+  function getStatus(): BudgetStatus {
+    const elapsedMs = Date.now() - startTimeMs;
+    const remainingMs = Math.max(0, totalMs - elapsedMs - safetyBufferMs);
+    const remainingRatio = remainingMs / totalMs;
 
-      return {
-        remainingRatio: Math.max(0, remainingRatio),
-        remainingMs,
-        totalMs,
-        exhausted: remainingMs <= 0,
-        shouldReducePageLimits: remainingRatio < reducePageLimitThreshold && !pageLimitReductionEmitted,
-        pageLimitMultiplier: remainingRatio < reducePageLimitThreshold ? pageLimitReductionFactor : 1.0,
-      };
-    },
+    return {
+      remainingRatio: Math.max(0, remainingRatio),
+      remainingMs,
+      totalMs,
+      exhausted: remainingMs <= 0,
+      shouldReducePageLimits:
+        remainingRatio < reducePageLimitThreshold &&
+        !pageLimitReductionEmitted,
+      pageLimitMultiplier:
+        remainingRatio < reducePageLimitThreshold
+          ? pageLimitReductionFactor
+          : 1.0,
+    };
+  }
+
+  function checkpoint(): void {
+    config.onCheckpoint?.({
+      ...getStatus(),
+      skippedCompanies: [...skippedCompanies],
+    });
+  }
+
+  return {
+    getStatus,
 
     /**
      * Checks if a company should be skipped due to budget exhaustion.
      * Returns null if company can proceed, or a diagnostic if it should be skipped.
      */
     checkCompanySkip(companyName: string): ExtractionDiagnostic | null {
-      const status = this.getStatus();
+      const status = getStatus();
 
       if (status.exhausted) {
         if (!skippedCompanies.includes(companyName)) {
           skippedCompanies.push(companyName);
         }
+        checkpoint();
         return {
           code: "budget_skip",
           context: `Company "${companyName}" skipped: run budget exhausted (${Math.round(status.remainingMs)}ms remaining, ${Math.round(status.remainingRatio * 100)}% of ${Math.round(status.totalMs)}ms total).`,
@@ -113,6 +134,7 @@ export function createBudgetTracker(config: BudgetTrackerConfig): BudgetTracker 
           if (!skippedCompanies.includes(companyName)) {
             skippedCompanies.push(companyName);
           }
+          checkpoint();
           return {
             code: "budget_skip",
             context: `Company "${companyName}" skipped: run budget critically low (${Math.round(status.remainingMs)}ms remaining, ${Math.round(status.remainingRatio * 100)}% of ${Math.round(status.totalMs)}ms total).`,
@@ -120,6 +142,7 @@ export function createBudgetTracker(config: BudgetTrackerConfig): BudgetTracker 
         }
       }
 
+      checkpoint();
       return null;
     },
 
@@ -131,11 +154,12 @@ export function createBudgetTracker(config: BudgetTrackerConfig): BudgetTracker 
       multiplier: number;
       diagnostic: ExtractionDiagnostic | null;
     } {
-      const status = this.getStatus();
+      const status = getStatus();
 
       if (status.shouldReducePageLimits && !pageLimitReductionEmitted) {
         pageLimitReductionEmitted = true;
         const effectiveLimit = Math.max(1, Math.floor(baseLimit * status.pageLimitMultiplier));
+        checkpoint();
         return {
           multiplier: status.pageLimitMultiplier,
           diagnostic: {
@@ -145,6 +169,7 @@ export function createBudgetTracker(config: BudgetTrackerConfig): BudgetTracker 
         };
       }
 
+      checkpoint();
       return {
         multiplier: status.pageLimitMultiplier,
         diagnostic: null,
@@ -158,6 +183,7 @@ export function createBudgetTracker(config: BudgetTrackerConfig): BudgetTracker 
       startTimeMs = Date.now();
       pageLimitReductionEmitted = false;
       skippedCompanies = [];
+      checkpoint();
     },
 
     /**
