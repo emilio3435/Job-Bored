@@ -353,6 +353,28 @@ describe("analyzeAtsScorecard provider parsing", () => {
     }
   });
 
+  it("normalizes null provider dimension scores without throwing", async () => {
+    const restoreEnv = setTestProviderEnv();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => buildGeminiSuccessResponse(
+      JSON.stringify({ ...buildValidScorecard(), dimensionScores: null }),
+    );
+
+    try {
+      const scorecard = await analyzeAtsScorecard(buildPayload());
+      assert.deepEqual(scorecard.dimensionScores, {
+        requirementsCoverage: 0,
+        experienceRelevance: 0,
+        impactClarity: 0,
+        atsParseability: 0,
+        toneFit: 0,
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+      restoreEnv();
+    }
+  });
+
   it("retries once when Gemini returns malformed JSON and succeeds on the second attempt", async () => {
     const restoreEnv = setTestProviderEnv();
     const originalFetch = globalThis.fetch;
