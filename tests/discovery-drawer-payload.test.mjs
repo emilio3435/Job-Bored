@@ -13,6 +13,7 @@
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -559,5 +560,21 @@ describe("Run guard: blank intent without AI strata still blocks the run", () =>
       slice,
       /Add target roles or keywords, or pick an AI idea above/,
     );
+  });
+});
+
+describe("F1C-DISC03-INTENT: one effective intent object for guard / payload / plan", () => {
+  it("exposes a shared helper that treats searchPlan and master profile as intent", () => {
+    const req = createRequire(import.meta.url);
+    const intent = req("../discovery-effective-intent.js");
+    const blankTopLevel = intent.buildEffectiveIntent({
+      discoveryProfile: {
+        targetRoles: "",
+        keywordsInclude: "",
+        searchPlan: { query: { targetRoles: "Staff engineer" } },
+      },
+    });
+    assert.equal(blankTopLevel.blank, false);
+    assert.equal(intent.isBlankIntent(blankTopLevel), false);
   });
 });

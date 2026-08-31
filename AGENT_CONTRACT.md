@@ -96,10 +96,11 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 | `requestedAt`       | string   | ISO 8601 timestamp.                                                                                                                                    |
 | `discoveryProfile`  | object   | Optional. User preferences from the dashboard (see below). Omitted keys or empty values mean “no preference”.                                          |
 | `trigger`           | string   | Optional origin label: `manual`, `scheduled-browser`, `scheduled-local`, `scheduled-github`, `scheduled-cloudflare`, `scheduled-appsscript`, or `cli`. |
-| `companyAllowlist`  | string[] | Optional. Per-run company subset selected from the dashboard. Omitted or empty means use the stored company list exactly as before. Capped at 500 entries. |
-| `companyBlocklist`  | string[] | Optional. Non-empty array of trimmed company names/keys to suppress from results. Capped at 50 unique entries.                                          |
+| `companyAllowlist`  | string[] | Optional. Per-run company subset selected from the dashboard. Omitted or empty means use the stored company list exactly as before. Capped at 500 entries. Resolved against the stored company catalog; unknown-only lists do **not** silently broaden to unrestricted search unless `allowUnrestrictedFallback` is true. |
+| `companyBlocklist`  | string[] | Optional. Non-empty array of trimmed company names/keys to suppress from results. Capped at 50 unique entries. Subtracted from both ATS and normal company pools after skip/allowlist filtering. |
 | `googleAccessToken` | string   | Optional. Short-lived dashboard Google OAuth token for this run only; receivers must not persist it.                                                    |
-| `mergedUserProfile` | object   | Optional. Master Fit Profile merged with per-run overrides (non-secret; no raw resume text). Validated via ajv; invalid payloads are ignored and the worker falls back to its disk profile. Never persisted.                       |
+| `mergedUserProfile` | object   | Optional. Master Fit Profile merged with per-run overrides (non-secret; no raw resume text). The worker parser preserves it, strips resume/secret keys, and uses it for this run after ajv validation. Invalid payloads are ignored and the worker falls back to its disk profile. Never persisted. |
+| `allowUnrestrictedFallback` | boolean | Optional. Explicit confirmation that an unmatched `companyAllowlist` may fall back to unrestricted stored-company search. Omitted/false fails closed. |
 
 **`discoveryProfile` fields (all optional):**
 
@@ -112,10 +113,15 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 | `keywordsInclude` | string | Comma-separated or free text to bias toward.   |
 | `keywordsExclude` | string | Terms to avoid.                                |
 | `maxLeadsPerRun`  | string | Suggested cap as decimal string (e.g. `"15"`). |
+| `groundedWebEnabled` | boolean | Optional per-run grounded-web opt-out. `false` is authoritative in effective-source resolution and excludes `grounded_web` even when the source preset would include it. |
 | `profileSnapshot` | object | Optional non-secret metadata proving the current profile/resume/preferences/schedule snapshot used for the run. Raw resume text is not included. |
-| `searchPlan`      | object | Optional deterministic daily query/facet bundle. When `searchPlan.query` is present, the worker uses those query fields for this run while preserving the broader profile for observability. |
+| `searchPlan`      | object | Optional deterministic daily query/facet bundle. When `searchPlan.query` is present, the worker uses those query fields for this run while preserving the broader profile for observability. Counts as intent for blank-intent guards. |
 
-`companyAllowlist` is ephemeral. It restricts only the current run to matching stored company/history entries after skipped-company filtering; unknown keys are ignored, and the worker never writes this field back to `worker-config.json`.
+Effective intent is one object (`intentContractVersion: 1`) derived from `discoveryProfile` fields, `searchPlan.query`, `profileSnapshot`, and `mergedUserProfile.identity`. Master-profile or search-plan roles/keywords are not `blank_intent`.
+
+`companyAllowlist` is ephemeral. It restricts only the current run to matching stored company/history entries after skipped-company filtering. Unknown keys are reported; if none match the catalog, the run stays `blocked_unresolved` (empty pools, no unrestricted grounded-web fallback) unless `allowUnrestrictedFallback` is explicitly true. The worker never writes this field back to `worker-config.json`.
+
+`companyBlocklist` is applied after skip + allowlist filtering and subtracts matching companies from both the normal and ATS pools.
 
 Older automations that ignore `schemaVersion`, `discoveryProfile`, `companyAllowlist`, `mergedUserProfile`, and `googleAccessToken` keep working if they only read `event`, `sheetId`, `variationKey`, and `requestedAt`.
 
