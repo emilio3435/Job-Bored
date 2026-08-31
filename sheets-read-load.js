@@ -248,11 +248,36 @@
     return isNaN(d.getTime()) ? null : d;
   }
 
+  let usedPublicSheetFallback = false;
+
+  function getUsedPublicSheetFallback() {
+    return usedPublicSheetFallback;
+  }
+
+  function setUsedPublicSheetFallback(value) {
+    usedPublicSheetFallback = !!value;
+  }
+
+  function knownMissingSheetsApiScope(h) {
+    if (!h || typeof h.hasGrantedOauthScope !== "function") return false;
+    const writeScope =
+      (typeof h.getGoogleSheetsScope === "function" &&
+        h.getGoogleSheetsScope()) ||
+      "https://www.googleapis.com/auth/spreadsheets";
+    const readonlyScope =
+      "https://www.googleapis.com/auth/spreadsheets.readonly";
+    return (
+      !h.hasGrantedOauthScope(writeScope) &&
+      !h.hasGrantedOauthScope(readonlyScope)
+    );
+  }
+
   async function fetchSheetViaSheetsAPI(sheetName, isRetry) {
     const h = host();
     const accessToken = h.getAccessToken();
     const sheetId = normalizeActiveSheetId(h.getActiveSheetId());
     if (!accessToken || !sheetId) return null;
+    if (knownMissingSheetsApiScope(h)) return null;
     const name = String(sheetName);
     const needsQuote = /[^A-Za-z0-9_]/.test(name) || /^\d/.test(name);
     const a1 = needsQuote ? `'${name.replace(/'/g, "''")}'!A:ZZ` : `${name}!A:ZZ`;
@@ -297,11 +322,13 @@
     const h = host();
     const accessToken = h.getAccessToken();
     const sheetId = normalizeActiveSheetId(h.getActiveSheetId());
+    usedPublicSheetFallback = false;
 
-    if (accessToken) {
+    if (accessToken && !knownMissingSheetsApiScope(h)) {
       try {
         const apiRows = await fetchSheetViaSheetsAPI(sheetName);
         if (apiRows !== null) {
+          usedPublicSheetFallback = false;
           return apiRows;
         }
       } catch (e) {
@@ -345,6 +372,7 @@
         }
         rows.push(cells);
       }
+      usedPublicSheetFallback = true;
       return rows;
     } catch (err) {
       console.error(`[JobBored] JSONP failed for ${sheetName}:`, err.message);
@@ -364,6 +392,7 @@
         if (text.trim().startsWith("<!") || text.trim().startsWith("<html"))
           continue;
         console.log(`[JobBored] ${sheetName} loaded via CSV fallback`);
+        usedPublicSheetFallback = true;
         return parseCSV(text);
       } catch (e) {
         continue;
@@ -633,6 +662,8 @@
     parseCSV,
     parsePipelineCSV,
     fetchSheetCSV,
+    getUsedPublicSheetFallback,
+    setUsedPublicSheetFallback,
     loadAllData,
     showErrorState,
     hideErrorState,

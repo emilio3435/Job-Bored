@@ -539,10 +539,10 @@ into Command Center is unchanged — only the upstream secret gets rotated.
 
 - **Never commit secrets** — use [`config.example.js`](config.example.js) in the repo; copy to `config.js` locally or use **Settings** (stored in `localStorage`). Real `config.js` must not be pushed to public remotes.
 - **Repository contents** — only placeholders (`YOUR_SHEET_ID_HERE`, empty API keys). The public template Sheet ID in links is not a secret.
-- OAuth access tokens are held **in memory only** (not localStorage)
+- OAuth access tokens are held in **tab-scoped sessionStorage** (not localStorage). They survive a refresh in that tab and are cleared when the tab closes. A localStorage identity marker does not store the bearer token.
 - Local discovery may receive a per-run `googleAccessToken` so it can write to your Sheet for that request. The worker strips it from persisted run config/state and must not log the raw token.
 - The OpenRouter free key (and any optional Gemini/OpenAI/Anthropic key you paste in Settings) lives in **this browser’s localStorage** (or in the gitignored `config.js`); it is never sent to Command Center’s authors. The `local` provider is fully offline and needs no key.
-- Draft generation calls your chosen AI provider directly from the browser unless you select webhook mode
+- Draft generation and scorecards send **resume, profile, and job context** to your chosen AI provider (OpenRouter / Gemini / OpenAI / Anthropic / local / webhook). That data is not sent to JobBored's authors. Draft generation calls the provider directly from the browser unless you select webhook mode.
 - OpenRouter is the first generic AI path for drafts, AI suggestions, posting summaries, scorecards, and plain JSON scoring. Gemini is only required when you choose Gemini as the active provider or enable optional Google-tool lanes such as URL Context and Grounded Search.
 - ATS scorecard can run through your own server (`/api/ats-scorecard`) or your own webhook URL; no maintainer-hosted ATS service is used
 

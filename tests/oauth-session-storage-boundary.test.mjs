@@ -401,3 +401,56 @@ describe("OAuth session storage boundary", () => {
     assert.equal(harness.calls.loadAllData, 0);
   });
 });
+
+describe("F2D-PRIV01-DOCS storage and provider data flow", () => {
+  /**
+   * WHY: SECURITY.md / README.md claimed OAuth tokens were memory-only while
+   * auth-session.js persists the bearer token in sessionStorage. They also
+   * implied career data stays local while hosted AI providers receive resume,
+   * profile, and job context. These assertions pin the public truth to the
+   * actual storage and provider path.
+   */
+  const readme = readFileSync(join(repoRoot, "README.md"), "utf8");
+  const security = readFileSync(join(repoRoot, "SECURITY.md"), "utf8");
+  const setup = readFileSync(join(repoRoot, "SETUP.md"), "utf8");
+
+  it("does not claim OAuth tokens are memory-only when sessionStorage is used", () => {
+    for (const [name, text] of [
+      ["README.md", readme],
+      ["SECURITY.md", security],
+    ]) {
+      assert.equal(
+        /in[-\s]memory only/i.test(text) || /memory-only/i.test(text),
+        false,
+        `${name} still claims tokens are memory-only`,
+      );
+      assert.match(
+        text,
+        /sessionStorage/,
+        `${name} must disclose that the OAuth access token lives in sessionStorage`,
+      );
+    }
+  });
+
+  it("discloses that hosted AI providers receive resume, profile, and job context", () => {
+    const combined = `${security}\n${readme}\n${setup}`;
+    assert.match(
+      combined,
+      /resume/i,
+    );
+    assert.match(
+      combined,
+      /profile/i,
+    );
+    assert.match(
+      combined,
+      /(?:chosen|hosted|configured) AI provider/i,
+    );
+    assert.match(
+      combined,
+      /receives? (resume|the resume|[^.]*job context)/i,
+      "docs must say the chosen/hosted AI provider receives resume/profile/job context",
+    );
+  });
+});
+

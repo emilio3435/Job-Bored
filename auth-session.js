@@ -86,6 +86,61 @@ function hasGrantedOauthScope(scope) {
     .includes(wanted);
 }
 
+function usedPublicSheetFallback() {
+  try {
+    const sheetsRead =
+      (typeof window !== "undefined" &&
+        window.JobBoredApp &&
+        window.JobBoredApp.sheetsRead) ||
+      null;
+    return !!(
+      sheetsRead &&
+      typeof sheetsRead.getUsedPublicSheetFallback === "function" &&
+      sheetsRead.getUsedPublicSheetFallback()
+    );
+  } catch (e) {
+    return false;
+  }
+}
+
+function getSheetCapability() {
+  const sheetsScope = "https://www.googleapis.com/auth/spreadsheets";
+  const input = {
+    accessToken,
+    grantedOauthScopes,
+    usedPublicReadFallback: usedPublicSheetFallback(),
+    sheetsScope,
+  };
+  const lib =
+    (typeof window !== "undefined" && window.JobBoredGoogleSheetCapability) ||
+    (typeof globalThis !== "undefined" &&
+      globalThis.JobBoredGoogleSheetCapability) ||
+    null;
+  if (lib && typeof lib.resolveGoogleSheetCapability === "function") {
+    return lib.resolveGoogleSheetCapability(input);
+  }
+  const hasWriteScope = hasGrantedOauthScope(sheetsScope);
+  const canWrite = !!accessToken && hasWriteScope && !input.usedPublicReadFallback;
+  return {
+    hasToken: !!accessToken,
+    hasWriteScope,
+    usedPublicReadFallback: input.usedPublicReadFallback,
+    canRead: !!accessToken || input.usedPublicReadFallback,
+    canWrite,
+    needsConsent: !!accessToken && !hasWriteScope,
+    writeUiUnlocked: canWrite,
+    mode: canWrite
+      ? "readwrite"
+      : accessToken || input.usedPublicReadFallback
+        ? "readonly"
+        : "none",
+  };
+}
+
+function canWriteSheet() {
+  return getSheetCapability().canWrite;
+}
+
 function persistOAuthSession() {
   if (!tokenExpiresAt) return;
   const cid = host().getOAuthClientId();
@@ -1378,6 +1433,8 @@ function isSignedIn() {
     canUseSessionStorage,
     normalizeOauthScopes,
     hasGrantedOauthScope,
+    getSheetCapability,
+    canWriteSheet,
     persistOAuthSession,
     persistRuntimeOAuthSession,
     updatePersistedUserEmail,
