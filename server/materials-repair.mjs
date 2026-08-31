@@ -1,4 +1,5 @@
 const REPAIRABLE_FEATURES = new Set(["resume", "cover_letter"]);
+/** @type {RepairFeature[]} */
 const FEATURE_ORDER = ["resume", "cover_letter"];
 
 const RESUME_SPARSE_CODES = new Set([
@@ -15,16 +16,39 @@ const COVER_COLLAPSE_CODES = new Set([
   "cover_letter_page_count",
 ]);
 
+/** @typedef {"resume" | "cover_letter"} RepairFeature */
+/** @typedef {"collapse" | "expand" | "expand_or_collapse" | "regenerate"} RepairStrategy */
+/** @typedef {{ code: string, message?: unknown }} RepairIssue */
+/** @typedef {{ pageCount?: unknown, words?: unknown, pageWords?: unknown[], issues?: unknown[] }} RepairQuality */
+/**
+ * @typedef {object} RepairManifest
+ * @property {unknown} [pending]
+ * @property {{ documents?: Partial<Record<RepairFeature, RepairQuality>> }} [quality]
+ * @property {unknown} [slug]
+ * @property {unknown} [company]
+ * @property {unknown} [title]
+ * @property {unknown} [jobUrl]
+ */
+
+/**
+ * @param {string} message
+ * @param {number} statusCode
+ */
 function httpError(message, statusCode) {
-  const err = new Error(message);
+  const err = /** @type {Error & { statusCode: number }} */ (new Error(message));
   err.statusCode = statusCode;
   return err;
 }
 
+/** @param {unknown} value */
 function cleanString(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+/**
+ * @param {RepairManifest} manifest
+ * @param {RepairFeature} feature
+ */
 function qualityFor(manifest, feature) {
   return manifest
     && manifest.quality
@@ -34,19 +58,35 @@ function qualityFor(manifest, feature) {
     : null;
 }
 
+/**
+ * @param {RepairManifest} manifest
+ * @param {RepairFeature} feature
+ * @returns {RepairIssue[]}
+ */
 function issuesFor(manifest, feature) {
   const doc = qualityFor(manifest, feature);
   if (!doc || !Array.isArray(doc.issues)) return [];
-  return doc.issues.filter((item) => item && typeof item.code === "string");
+  return doc.issues.filter(
+    /** @returns {item is RepairIssue} */
+    (item) => {
+      const issue = /** @type {RepairIssue | null | undefined} */ (item);
+      return !!issue && typeof issue.code === "string";
+    },
+  );
 }
 
+/**
+ * @param {RepairManifest} manifest
+ * @param {unknown} requestedFeature
+ * @returns {RepairFeature}
+ */
 function resolveRepairFeature(manifest, requestedFeature) {
   const requested = cleanString(requestedFeature);
   if (requested) {
     if (!REPAIRABLE_FEATURES.has(requested)) {
       throw httpError("feature must be resume or cover_letter", 400);
     }
-    return requested;
+    return /** @type {RepairFeature} */ (requested);
   }
   const picked = FEATURE_ORDER.find((feature) => issuesFor(manifest, feature).length);
   if (!picked) {
@@ -55,6 +95,11 @@ function resolveRepairFeature(manifest, requestedFeature) {
   return picked;
 }
 
+/**
+ * @param {RepairFeature} feature
+ * @param {RepairIssue[]} issues
+ * @returns {RepairStrategy}
+ */
 function strategyFor(feature, issues) {
   const codes = new Set(issues.map((item) => item.code));
   if (feature === "resume") {
@@ -72,21 +117,29 @@ function strategyFor(feature, issues) {
   return "regenerate";
 }
 
+/** @param {RepairFeature} feature */
 function featureLabel(feature) {
   return feature === "cover_letter" ? "cover letter" : "resume";
 }
 
+/** @param {RepairQuality | null} quality */
 function statsLines(quality) {
+  /** @type {string[]} */
   const lines = [];
   if (!quality || typeof quality !== "object") return lines;
-  if (Number.isFinite(quality.pageCount)) lines.push(`- Current pages: ${quality.pageCount}`);
-  if (Number.isFinite(quality.words)) lines.push(`- Current words: ${quality.words}`);
+  if (typeof quality.pageCount === "number" && Number.isFinite(quality.pageCount)) {
+    lines.push(`- Current pages: ${quality.pageCount}`);
+  }
+  if (typeof quality.words === "number" && Number.isFinite(quality.words)) {
+    lines.push(`- Current words: ${quality.words}`);
+  }
   if (Array.isArray(quality.pageWords) && quality.pageWords.length) {
     lines.push(`- Current page word counts: ${quality.pageWords.join(", ")}`);
   }
   return lines;
 }
 
+/** @param {RepairIssue[]} issues */
 function issueLines(issues) {
   return issues.map((item) => {
     const message = cleanString(item.message);
@@ -94,6 +147,10 @@ function issueLines(issues) {
   });
 }
 
+/**
+ * @param {RepairFeature} feature
+ * @param {RepairStrategy} strategy
+ */
 function directionLines(feature, strategy) {
   if (feature === "resume") {
     if (strategy === "collapse") {
@@ -139,6 +196,9 @@ function directionLines(feature, strategy) {
   ];
 }
 
+/**
+ * @param {{ feature: RepairFeature, strategy: RepairStrategy, quality: RepairQuality | null, issues: RepairIssue[], userNotes?: unknown }} input
+ */
 function buildRepairNotes({ feature, strategy, quality, issues, userNotes }) {
   const label = featureLabel(feature);
   const lines = [
@@ -165,6 +225,10 @@ function buildRepairNotes({ feature, strategy, quality, issues, userNotes }) {
   return lines.join("\n");
 }
 
+/**
+ * @param {RepairManifest} manifest
+ * @param {{ feature?: unknown, notes?: unknown, jobUrl?: unknown }} [options]
+ */
 export function buildRepairRequestPayload(manifest, options = {}) {
   if (!manifest || typeof manifest !== "object") {
     throw httpError("Application manifest is required", 400);

@@ -82,6 +82,19 @@ const API_ACCESS_TOKEN = String(
   process.env.JOBBORED_API_TOKEN || process.env.API_ACCESS_TOKEN || "",
 ).trim();
 
+/**
+ * @param {unknown} error
+ * @param {unknown} fallback
+ */
+function errorMessage(error, fallback) {
+  const errorLike = /** @type {{ message?: unknown } | null | undefined} */ (error);
+  return String(errorLike && errorLike.message ? errorLike.message : fallback);
+}
+
+/**
+ * @param {string} provided
+ * @param {string} expected
+ */
 function tokensMatch(provided, expected) {
   if (!provided || !expected) return false;
   const a = Buffer.from(provided);
@@ -90,6 +103,11 @@ function tokensMatch(provided, expected) {
   return timingSafeEqual(a, b);
 }
 
+/**
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ * @param {import("express").NextFunction} next
+ */
 function requireApiAuth(req, res, next) {
   if (!REQUIRE_API_AUTH) return next();
   if (!API_ACCESS_TOKEN) {
@@ -107,18 +125,21 @@ function requireApiAuth(req, res, next) {
   return next();
 }
 
+/** @param {unknown} error */
 function getAtsProviderErrorMetadata(error) {
   if (!error || typeof error !== "object") return null;
-  const provider = typeof error.provider === "string" ? error.provider : "";
-  const upstreamStatus = Number.isInteger(error.upstreamStatus)
-    ? error.upstreamStatus
+  const record = /** @type {Record<string, unknown>} */ (error);
+  const provider = typeof record.provider === "string" ? record.provider : "";
+  const upstreamStatus =
+    typeof record.upstreamStatus === "number" && Number.isInteger(record.upstreamStatus)
+    ? record.upstreamStatus
     : null;
   const retryable =
-    typeof error.retryable === "boolean" ? error.retryable : null;
+    typeof record.retryable === "boolean" ? record.retryable : null;
   const classification =
-    typeof error.classification === "string" ? error.classification : "";
+    typeof record.classification === "string" ? record.classification : "";
   const providerCode =
-    typeof error.providerCode === "string" ? error.providerCode : "";
+    typeof record.providerCode === "string" ? record.providerCode : "";
   if (
     !provider &&
     upstreamStatus == null &&
@@ -218,7 +239,7 @@ app.post("/api/scrape-job", async (req, res) => {
     });
     res.json(result);
   } catch (e) {
-    const msg = e && e.message ? String(e.message) : "Scrape failed";
+    const msg = errorMessage(e, "Scrape failed");
     res.status(502).json({ error: msg });
   }
 });
@@ -240,7 +261,7 @@ app.post("/api/ats-scorecard", async (req, res) => {
       `[ats-scorecard] requestId=${requestId} ok model=${scorecard.model} overallScore=${scorecard.overallScore}`,
     );
   } catch (e) {
-    const msg = e && e.message ? String(e.message) : "ATS scorecard failed";
+    const msg = errorMessage(e, "ATS scorecard failed");
     const status = /required|invalid|must be/i.test(msg) ? 400 : 502;
     const metadata = getAtsProviderErrorMetadata(e);
     const responseBody = {
@@ -287,7 +308,7 @@ app.get("/profile", async (_req, res) => {
     return res.status(500).json({
       ok: false,
       reason: "read_failed",
-      detail: err && err.message ? String(err.message) : "read failed",
+      detail: errorMessage(err, "read failed"),
     });
   }
 });
@@ -306,32 +327,34 @@ app.post("/profile", async (req, res) => {
     try {
       await refreshLogosFromProfile(candidate);
     } catch (logoErr) {
+      const logoError = /** @type {{ message?: unknown } | null | undefined} */ (logoErr);
       console.warn(
         "[brand-logos] profile save succeeded but logo refresh failed:",
-        logoErr && logoErr.message ? logoErr.message : logoErr,
+        logoError && logoError.message ? logoError.message : logoErr,
       );
       return res.json({
         ok: true,
         updatedAt,
         logoRefresh: {
           ok: false,
-          error: logoErr && logoErr.message ? String(logoErr.message) : "logo refresh failed",
+          error: errorMessage(logoErr, "logo refresh failed"),
         },
       });
     }
     return res.json({ ok: true, updatedAt, logoRefresh: { ok: true } });
   } catch (err) {
-    if (err && err.code === "INVALID_PROFILE") {
+    const error = /** @type {Record<string, unknown> | null | undefined} */ (err);
+    if (error && error.code === "INVALID_PROFILE") {
       return res.status(400).json({
         ok: false,
         reason: "invalid_profile",
-        errors: err.errors || [],
+        errors: error.errors || [],
       });
     }
     return res.status(500).json({
       ok: false,
       reason: "write_failed",
-      detail: err && err.message ? String(err.message) : "write failed",
+      detail: errorMessage(err, "write failed"),
     });
   }
 });
@@ -398,7 +421,7 @@ app.post("/profile/from-resume", async (_req, res) => {
     return res.status(500).json({
       ok: false,
       reason: "resume_lookup_failed",
-      message: err && err.message ? String(err.message) : "lookup failed",
+      message: errorMessage(err, "lookup failed"),
     });
   }
   if (!stored) {
@@ -408,29 +431,30 @@ app.post("/profile/from-resume", async (_req, res) => {
     const profile = await analyzeResumeToProfile(stored.text);
     return res.json({ ok: true, profile, source: stored.source });
   } catch (err) {
-    const code = err && err.code ? String(err.code) : "";
+    const error = /** @type {Record<string, unknown> | null | undefined} */ (err);
+    const code = error && error.code ? String(error.code) : "";
     if (code === "GEMINI_NOT_CONFIGURED") {
       return res.status(500).json({
         ok: false,
         reason: "gemini_not_configured",
-        message: err.message,
+        message: errorMessage(err, "profile provider failed"),
       });
     }
     if (code === "PROFILE_PROVIDER_NOT_CONFIGURED") {
       return res.status(500).json({
         ok: false,
         reason: "profile_provider_not_configured",
-        provider: typeof err.provider === "string" ? err.provider : undefined,
-        message: err.message,
+        provider: error && typeof error.provider === "string" ? error.provider : undefined,
+        message: errorMessage(err, "profile provider failed"),
       });
     }
-    const provider = err && typeof err.provider === "string" ? err.provider : "";
+    const provider = error && typeof error.provider === "string" ? error.provider : "";
     const isGeminiError = provider === "gemini" || code.startsWith("GEMINI_");
     return res.status(500).json({
       ok: false,
       reason: isGeminiError ? "gemini_error" : "profile_provider_error",
       provider: provider || undefined,
-      message: err && err.message ? String(err.message) : "profile provider failed",
+      message: errorMessage(err, "profile provider failed"),
     });
   }
 });
@@ -454,7 +478,7 @@ app.post("/profile/migrate", async (_req, res) => {
     return res.status(500).json({
       ok: false,
       reason: "migration_failed",
-      message: String(err && err.message ? err.message : err),
+      message: errorMessage(err, err),
     });
   }
 });
@@ -513,7 +537,7 @@ app.post("/profile/rescore", async (req, res) => {
     return res.status(503).json({
       ok: false,
       reason: "worker_config_missing",
-      detail: String(err && err.message ? err.message : err),
+      detail: errorMessage(err, err),
     });
   }
 
@@ -530,7 +554,7 @@ app.post("/profile/rescore", async (req, res) => {
       return res.status(500).json({
         ok: false,
         reason: "dry_run_failed",
-        message: String(err && err.message ? err.message : err),
+        message: errorMessage(err, err),
       });
     }
   }
@@ -541,6 +565,7 @@ app.post("/profile/rescore", async (req, res) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders?.();
 
+  /** @param {Record<string, unknown>} payload */
   const sendEvent = (payload) => {
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
   };
@@ -561,7 +586,7 @@ app.post("/profile/rescore", async (req, res) => {
   } catch (err) {
     sendEvent({
       kind: "error",
-      message: String(err && err.message ? err.message : err),
+      message: errorMessage(err, err),
     });
   } finally {
     res.end();
@@ -579,9 +604,14 @@ app.post("/profile/rescore", async (req, res) => {
  * (override via HERMES_APPLICATIONS_ROOT). The allowlist + slug pattern +
  * realpath check in application-materials.mjs are what keep this safe.
  */
+/**
+ * @param {import("express").Response} res
+ * @param {unknown} err
+ */
 function sendAppError(res, err) {
-  const status = Number(err && err.statusCode);
-  const message = err && err.message ? String(err.message) : "Application materials error";
+  const error = /** @type {{ statusCode?: unknown } | null | undefined} */ (err);
+  const status = Number(error && error.statusCode);
+  const message = errorMessage(err, "Application materials error");
   res.status(Number.isFinite(status) ? status : 500).json({ error: message });
 }
 
@@ -726,7 +756,8 @@ app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
       title: typeof req.body.title === "string" ? req.body.title : "",
       company: typeof req.body.company === "string" ? req.body.company : "",
     });
-    const text = (scraped && (scraped.description || scraped.bodyText || ""))
+    const scrapeOutput = /** @type {typeof scraped & { bodyText?: unknown }} */ (scraped);
+    const text = (scraped && (scraped.description || scrapeOutput.bodyText || ""))
       .toString().trim();
     if (!text) {
       res.status(502).json({ ok: false, error: "Scrape returned no description text" });
@@ -774,16 +805,17 @@ app.get("/api/applications/:slug/files/:filename", async (req, res) => {
   }
 });
 
-app.use((err, _req, res, next) => {
+app.use(/** @type {import("express").ErrorRequestHandler} */ ((err, _req, res, next) => {
   if (!err) return next();
-  if (err.type === "entity.too.large") {
+  const error = /** @type {{ type?: unknown }} */ (err);
+  if (error.type === "entity.too.large") {
     return res.status(413).json({
       error:
         "Request body too large for ATS endpoint. Reduce payload size or raise server JSON limit.",
     });
   }
   return next(err);
-});
+}));
 
 app.listen(PORT, HOST, () => {
   const ats = getAtsConfigStatus();

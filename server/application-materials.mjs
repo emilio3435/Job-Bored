@@ -33,12 +33,45 @@ const ALLOWED_FILES = new Set([
   "manifest.json",
 ]);
 
+/** @type {Record<string, string>} */
 const CONTENT_TYPES = {
   ".pdf": "application/pdf",
   ".html": "text/html; charset=utf-8",
   ".md": "text/markdown; charset=utf-8",
   ".json": "application/json; charset=utf-8",
 };
+
+/** @typedef {{ filename: string, format: string, size: number, modifiedAt: string }} FileStat */
+/** @typedef {{ type: string, label: string, status: string, primary: string, files: FileStat[], lastModifiedAt: string }} DocumentCard */
+/** @typedef {{ phase: string, message: string, startedAt: string, updatedAt: string, attempt: number, elapsedSeconds: number }} PendingProgress */
+/**
+ * @typedef {object} PendingRecord
+ * @property {string} feature
+ * @property {string} [slug]
+ * @property {string} company
+ * @property {string} title
+ * @property {string} jobUrl
+ * @property {string} requestedAt
+ * @property {unknown} telegramMessageId
+ * @property {string} notes
+ * @property {string} source
+ * @property {PendingProgress | null} [progress]
+ */
+/** @typedef {{ writtenAt: string, writtenAtMs: number, summary: string, feature: string, company: string, title: string }} PendingFailure */
+/**
+ * @typedef {object} ApplicationManifest
+ * @property {string} slug
+ * @property {string} company
+ * @property {string} title
+ * @property {boolean} derived
+ * @property {string} updatedAt
+ * @property {DocumentCard[]} documents
+ * @property {string} [jobUrl]
+ * @property {string} [status]
+ * @property {object} [dossier]
+ * @property {object} [quality]
+ * @property {PendingRecord} [pending]
+ */
 
 /**
  * Document type definitions used to fold the allowlisted filenames
@@ -89,12 +122,14 @@ export function getApplicationsRoot() {
   return join(homedir(), ".hermes", "job-hunt", "applications");
 }
 
+/** @param {unknown} slug */
 export function isValidSlug(slug) {
   if (typeof slug !== "string" || slug.length === 0) return false;
   if (slug.includes("..") || slug.includes("/") || slug.includes("\\")) return false;
   return SLUG_PATTERN.test(slug);
 }
 
+/** @param {unknown} name */
 export function isAllowedFilename(name) {
   if (typeof name !== "string" || name.length === 0) return false;
   if (name.includes("/") || name.includes("\\") || name.includes("..")) return false;
@@ -102,6 +137,7 @@ export function isAllowedFilename(name) {
   return ALLOWED_FILES.has(name);
 }
 
+/** @param {string} filename */
 export function contentTypeFor(filename) {
   const idx = filename.lastIndexOf(".");
   if (idx < 0) return "application/octet-stream";
@@ -109,12 +145,17 @@ export function contentTypeFor(filename) {
   return CONTENT_TYPES[ext] || "application/octet-stream";
 }
 
+/**
+ * @param {string} message
+ * @param {number} statusCode
+ */
 function httpError(message, statusCode) {
-  const err = new Error(message);
+  const err = /** @type {Error & { statusCode: number }} */ (new Error(message));
   err.statusCode = statusCode;
   return err;
 }
 
+/** @param {string[]} words */
 function titleCase(words) {
   return words
     .filter(Boolean)
@@ -122,6 +163,7 @@ function titleCase(words) {
     .join(" ");
 }
 
+/** @param {string} slug */
 function deriveCompanyAndTitle(slug) {
   // Best-effort split on first dash. Real values come from manifest.json
   // when present; this is only a fallback for the UI when it isn't.
@@ -134,7 +176,9 @@ function deriveCompanyAndTitle(slug) {
   };
 }
 
+/** @param {string} dir */
 async function listAllowedFiles(dir) {
+  /** @type {Map<string, FileStat>} */
   const result = new Map();
   let names;
   try {
@@ -162,12 +206,14 @@ async function listAllowedFiles(dir) {
   return result;
 }
 
+/** @param {Map<string, FileStat>} fileStats */
 function documentsFromFileStats(fileStats) {
+  /** @type {DocumentCard[]} */
   const documents = [];
   for (const def of DOC_TYPES) {
     const present = def.files
       .map((f) => fileStats.get(f))
-      .filter(Boolean);
+      .filter(/** @returns {item is FileStat} */ (item) => !!item);
     if (!present.length) continue;
     const primaryFile = fileStats.get(def.primary) || present[0];
     const lastModifiedAt = present.reduce(
@@ -191,6 +237,7 @@ function documentsFromFileStats(fileStats) {
   return documents;
 }
 
+/** @param {unknown} feature */
 function requestedDocumentTypes(feature) {
   if (feature === "cover_letter") return ["cover_letter"];
   if (feature === "resume") return ["resume"];
@@ -198,13 +245,16 @@ function requestedDocumentTypes(feature) {
   return [];
 }
 
+/** @param {PendingRecord | null | undefined} pending */
 function isTerminalPending(pending) {
   const phase = String((pending && pending.progress && pending.progress.phase) || "").toLowerCase();
   return phase === "failed" || phase === "complete" || phase === "done";
 }
 
+/** @param {PendingRecord | Record<string, unknown> | null | undefined} pending */
 function pendingRequestedAtMs(pending) {
-  const raw = pending && (pending.requestedAt || pending.requested_at);
+  const record = /** @type {Record<string, unknown> | null | undefined} */ (pending);
+  const raw = record && (record.requestedAt || record.requested_at);
   if (!raw) return NaN;
   const t = Date.parse(String(raw));
   return Number.isFinite(t) ? t : NaN;
@@ -219,6 +269,10 @@ function pendingRequestedAtMs(pending) {
  * check (modifiedAt >= requestedAt) is the real signal — it distinguishes the
  * awaited new render from a stale file left by an earlier draft, so a re-draft
  * still shows progress until its fresh file lands. */
+/**
+ * @param {PendingRecord | Record<string, unknown> | null | undefined} pending
+ * @param {DocumentCard[]} documents
+ */
 function pendingSatisfiedByDocuments(pending, documents) {
   const types = requestedDocumentTypes(String((pending && pending.feature) || ""));
   if (!types.length) return false;
@@ -234,6 +288,10 @@ function pendingSatisfiedByDocuments(pending, documents) {
   });
 }
 
+/**
+ * @param {string} dir
+ * @param {PendingRecord | Record<string, unknown>} pending
+ */
 async function pendingSatisfiedByDir(dir, pending) {
   const fileStats = await listAllowedFiles(dir);
   return pendingSatisfiedByDocuments(pending, documentsFromFileStats(fileStats));
@@ -250,11 +308,17 @@ const STALE_PENDING_MS = 30 * 60 * 1000;
  * output (model returned empty, PDF render failed, …). It does NOT flip
  * pending.json's phase to "failed", so without reconciliation the dossier
  * spins forever. Returns the normalised failure record or null. */
+/**
+ * @param {string} dir
+ * @returns {Promise<PendingFailure | null>}
+ */
 async function readPendingError(dir) {
   const errorPath = join(dir, "pending_error.json");
   if (!existsSync(errorPath)) return null;
   try {
-    const raw = JSON.parse(await readFile(errorPath, "utf8"));
+    const raw = /** @type {Record<string, unknown>} */ (
+      JSON.parse(await readFile(errorPath, "utf8"))
+    );
     const writtenAt = typeof raw.written_at === "string" ? raw.written_at : "";
     const writtenAtMs = Date.parse(writtenAt);
     return {
@@ -277,6 +341,10 @@ async function readPendingError(dir) {
  * the request time so the timer resets when a newer request supersedes an
  * older draft's progress. A normal draft (started at/after its request) is
  * left untouched. */
+/**
+ * @param {string} startedAt
+ * @param {string} requestedAt
+ */
 function effectiveStartedAt(startedAt, requestedAt) {
   const started = Date.parse(String(startedAt || ""));
   if (!Number.isFinite(started)) return startedAt || "";
@@ -287,6 +355,7 @@ function effectiveStartedAt(startedAt, requestedAt) {
 
 /* Most recent moment the watcher touched a request: its last progress
  * heartbeat, else when work started, else when it was requested. */
+/** @param {PendingRecord | null | undefined} pending */
 function pendingHeartbeatMs(pending) {
   const candidates = [
     pending && pending.progress && pending.progress.updatedAt,
@@ -303,6 +372,10 @@ function pendingHeartbeatMs(pending) {
 
 /* A pending request is stale when it's still mid-flight (non-terminal) but
  * hasn't been touched within STALE_PENDING_MS. */
+/**
+ * @param {PendingRecord | null | undefined} pending
+ * @param {number} nowMs
+ */
 function isPendingStale(pending, nowMs) {
   if (isTerminalPending(pending)) return false;
   const heartbeat = pendingHeartbeatMs(pending);
@@ -320,6 +393,10 @@ function isPendingStale(pending, nowMs) {
  * not a terminal failure — surfacing it would flash a phantom FAILED card on
  * an in-flight draft. With no timestamps to compare at all, trust the failure
  * (better an honest error than a phantom spinner). */
+/**
+ * @param {PendingFailure | null} failure
+ * @param {PendingRecord | null | undefined} pending
+ */
 function failureMatchesPending(failure, pending) {
   if (!failure || !Number.isFinite(failure.writtenAtMs)) return false;
   const heartbeat = pendingHeartbeatMs(pending);
@@ -329,6 +406,10 @@ function failureMatchesPending(failure, pending) {
 
 /* A failure is superseded when the docs it was meant to produce now exist
  * and are newer than the failure — i.e. a later attempt succeeded. */
+/**
+ * @param {PendingFailure} failure
+ * @param {DocumentCard[]} documents
+ */
 function failureSupersededByDocuments(failure, documents) {
   return pendingSatisfiedByDocuments(
     { feature: failure.feature, progress: { phase: "failed" }, requestedAt: failure.writtenAt },
@@ -336,27 +417,46 @@ function failureSupersededByDocuments(failure, documents) {
   );
 }
 
+/**
+ * @param {PendingProgress | null | undefined} prior
+ * @param {string} message
+ * @returns {PendingProgress}
+ */
 function failedProgress(prior, message) {
+  /** @type {Partial<PendingProgress>} */
   const base = prior || {};
   return {
     phase: "failed",
     message,
     startedAt: typeof base.startedAt === "string" ? base.startedAt : "",
     updatedAt: typeof base.updatedAt === "string" ? base.updatedAt : "",
-    attempt: Number.isFinite(base.attempt) ? base.attempt : 1,
-    elapsedSeconds: Number.isFinite(base.elapsedSeconds) ? base.elapsedSeconds : 0,
+    attempt:
+      typeof base.attempt === "number" && Number.isFinite(base.attempt)
+        ? base.attempt
+        : 1,
+    elapsedSeconds:
+      typeof base.elapsedSeconds === "number" &&
+      Number.isFinite(base.elapsedSeconds)
+        ? base.elapsedSeconds
+        : 0,
   };
 }
 
 /* Fold a watcher failure or a stall into a pending request's progress so
  * the dossier renders an actionable FAILED card (Retry / Dismiss) rather
  * than an endless spinner. Mutates and returns `pending`. */
+/**
+ * @param {PendingRecord | null} pending
+ * @param {PendingFailure | null} failure
+ * @param {number} nowMs
+ */
 function reconcilePendingFailure(pending, failure, nowMs) {
   if (!pending || isTerminalPending(pending)) return pending;
   if (failureMatchesPending(failure, pending)) {
     pending.progress = failedProgress(
       pending.progress,
-      displayProgressMessage(failure.summary) || "Draft failed before any files were produced.",
+      displayProgressMessage((/** @type {PendingFailure} */ (failure)).summary) ||
+        "Draft failed before any files were produced.",
     );
   } else if (isPendingStale(pending, nowMs)) {
     pending.progress = failedProgress(
@@ -369,6 +469,10 @@ function reconcilePendingFailure(pending, failure, nowMs) {
 
 /* Build a minimal failed pending from a failure record alone, for when the
  * watcher already removed pending.json but left pending_error.json. */
+/**
+ * @param {PendingFailure} failure
+ * @returns {PendingRecord}
+ */
 function synthesizeFailedPending(failure) {
   return {
     feature: failure.feature || "",
@@ -391,6 +495,8 @@ function synthesizeFailedPending(failure) {
  *
  * Throws an HTTP-tagged error on invalid slug, missing dir, or any path
  * that would escape the configured applications root (via symlinks etc).
+ * @param {string} slug
+ * @param {{ root?: string }} [options]
  */
 export async function resolveApplicationDir(slug, { root } = {}) {
   if (!isValidSlug(slug)) {
@@ -431,16 +537,20 @@ export async function resolveApplicationDir(slug, { root } = {}) {
  *
  * Always returns the same shape regardless of whether manifest.json is
  * present, so the dashboard never needs to special-case missing files.
+ * @param {string} slug
+ * @param {{ root?: string }} [options]
+ * @returns {Promise<ApplicationManifest>}
  */
 export async function buildManifest(slug, { root } = {}) {
   const dir = await resolveApplicationDir(slug, { root });
   const manifestPath = join(dir, "manifest.json");
+  /** @type {Record<string, unknown> | null} */
   let onDiskManifest = null;
   let derived = true;
   if (existsSync(manifestPath)) {
     try {
       const txt = await readFile(manifestPath, "utf8");
-      onDiskManifest = JSON.parse(txt);
+      onDiskManifest = /** @type {Record<string, unknown>} */ (JSON.parse(txt));
       derived = false;
     } catch {
       onDiskManifest = null;
@@ -456,6 +566,7 @@ export async function buildManifest(slug, { root } = {}) {
   );
 
   const inferred = deriveCompanyAndTitle(slug);
+  /** @type {ApplicationManifest} */
   const out = {
     slug,
     company: pickString(onDiskManifest && onDiskManifest.company, inferred.company),
@@ -489,7 +600,10 @@ export async function buildManifest(slug, { root } = {}) {
   let pendingFromFile = null;
   if (existsSync(pendingPath)) {
     try {
-      const pendingRaw = JSON.parse(await readFile(pendingPath, "utf8"));
+      const pendingRaw = /** @type {Record<string, unknown>} */ (
+        JSON.parse(await readFile(pendingPath, "utf8"))
+      );
+      /** @type {PendingRecord} */
       const pending = {
         feature: typeof pendingRaw.feature === "string" ? pendingRaw.feature : "",
         /* Pass through the role identity so the dossier card's "company ·
@@ -543,6 +657,10 @@ export async function buildManifest(slug, { root } = {}) {
   return out;
 }
 
+/**
+ * @param {unknown} preferred
+ * @param {string} fallback
+ */
 function pickString(preferred, fallback) {
   if (typeof preferred === "string" && preferred.trim()) return preferred;
   return fallback || "";
@@ -552,6 +670,7 @@ function pickString(preferred, fallback) {
    names. Users only need to know the draft is being written, so collapse
    any "<agent> is drafting" phrasing to a plain "Writing …" and strip
    leftover agent names. */
+/** @param {unknown} value */
 function displayProgressMessage(value) {
   if (typeof value !== "string") return "";
   return value
@@ -560,6 +679,10 @@ function displayProgressMessage(value) {
     .replace(/\b(?:Winky|Dobby|Hermes)\b/g, "We");
 }
 
+/**
+ * @param {string} phase
+ * @param {unknown} feature
+ */
 function defaultProgressMessageForFeature(phase, feature) {
   const f = String(feature || "");
   const label =
@@ -583,6 +706,11 @@ function defaultProgressMessageForFeature(phase, feature) {
   return "";
 }
 
+/**
+ * @param {unknown} value
+ * @param {unknown} feature
+ * @param {string} phase
+ */
 function normalizeProgressMessage(value, feature, phase) {
   const message = displayProgressMessage(value);
   const f = String(feature || "");
@@ -603,19 +731,33 @@ function normalizeProgressMessage(value, feature, phase) {
   return message || defaultProgressMessageForFeature(phase, f);
 }
 
+/**
+ * @param {unknown} rawProgress
+ * @param {unknown} feature
+ * @param {unknown} requestedAt
+ * @returns {PendingProgress | null}
+ */
 function normalizePendingProgress(rawProgress, feature, requestedAt) {
   if (!rawProgress || typeof rawProgress !== "object") return null;
-  const phase = typeof rawProgress.phase === "string" ? rawProgress.phase : "";
+  const progress = /** @type {Record<string, unknown>} */ (rawProgress);
+  const phase = typeof progress.phase === "string" ? progress.phase : "";
   return {
     phase,
-    message: normalizeProgressMessage(rawProgress.message, feature, phase),
+    message: normalizeProgressMessage(progress.message, feature, phase),
     startedAt: effectiveStartedAt(
-      typeof rawProgress.started_at === "string" ? rawProgress.started_at : "",
-      requestedAt,
+      typeof progress.started_at === "string" ? progress.started_at : "",
+      /** @type {string} */ (requestedAt),
     ),
-    updatedAt: typeof rawProgress.updated_at === "string" ? rawProgress.updated_at : "",
-    attempt: Number.isFinite(rawProgress.attempt) ? rawProgress.attempt : 1,
-    elapsedSeconds: Number.isFinite(rawProgress.elapsed_seconds) ? rawProgress.elapsed_seconds : 0,
+    updatedAt: typeof progress.updated_at === "string" ? progress.updated_at : "",
+    attempt:
+      typeof progress.attempt === "number" && Number.isFinite(progress.attempt)
+        ? progress.attempt
+        : 1,
+    elapsedSeconds:
+      typeof progress.elapsed_seconds === "number" &&
+      Number.isFinite(progress.elapsed_seconds)
+        ? progress.elapsed_seconds
+        : 0,
   };
 }
 
@@ -623,6 +765,7 @@ function normalizePendingProgress(rawProgress, feature, requestedAt) {
  * Enumerate the applications root and build a manifest for each valid
  * subdirectory. Invalid slugs and unreadable folders are skipped quietly
  * so a single broken package never hides the rest.
+ * @param {{ root?: string }} [options]
  */
 export async function listApplications({ root } = {}) {
   const base = root || getApplicationsRoot();
@@ -633,6 +776,7 @@ export async function listApplications({ root } = {}) {
   } catch {
     return [];
   }
+  /** @type {ApplicationManifest[]} */
   const manifests = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -656,6 +800,7 @@ export async function listApplications({ root } = {}) {
  *
  * Matches Dobby's actual drafting order: the watcher picks the
  * earliest requested_at, concurrency=1.
+ * @param {{ root?: string }} [options]
  */
 export async function listPendingQueue({ root } = {}) {
   const base = root || getApplicationsRoot();
@@ -666,12 +811,14 @@ export async function listPendingQueue({ root } = {}) {
   } catch {
     return [];
   }
+  /** @type {PendingRecord[]} */
   const items = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     if (!isValidSlug(entry.name)) continue;
     const pendingPath = join(base, entry.name, "pending.json");
     if (!existsSync(pendingPath)) continue;
+    /** @type {Record<string, unknown>} */
     let raw;
     try {
       raw = JSON.parse(await readFile(pendingPath, "utf8"));
@@ -711,6 +858,9 @@ export async function listPendingQueue({ root } = {}) {
  * Resolve a single file inside an application package, validating both
  * the slug and the filename against the allowlist. Returns metadata
  * useful for streaming the response (content type, size, mtime).
+ * @param {string} slug
+ * @param {string} filename
+ * @param {{ root?: string }} [options]
  */
 export async function resolveFile(slug, filename, { root } = {}) {
   if (!isAllowedFilename(filename)) {
@@ -753,6 +903,8 @@ export async function resolveFile(slug, filename, { root } = {}) {
  *
  * Errors mirror resolveApplicationDir: 400 invalid slug / path escape,
  * 404 application/file not found.
+ * @param {string} slug
+ * @param {{ root?: string }} [options]
  */
 export async function dismissPending(slug, { root } = {}) {
   const dir = await resolveApplicationDir(slug, { root });
@@ -789,9 +941,9 @@ export async function dismissPending(slug, { root } = {}) {
  * graders can tell what they're looking at.
  *
  * @param {string} slug
- * @param {string} text - raw JD text (will be trimmed; rejected if blank)
- * @param {object} [meta] - { source?: "browser-cache" | "server-scrape" | "user-paste", jobUrl?: string }
- * @returns { path, bytesWritten, source }
+ * @param {unknown} text - raw JD text (will be trimmed; rejected if blank)
+ * @param {{ source?: unknown, jobUrl?: unknown }} [meta]
+ * @returns {Promise<{ path: string, bytesWritten: number, source: string }>}
  */
 export async function writeJobDescription(slug, text, meta = {}) {
   if (typeof text !== "string") throw httpError("text must be a string", 400);

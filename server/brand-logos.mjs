@@ -31,6 +31,10 @@ const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 45_000;
 
+/** @typedef {{ slug: string, label: string, domain?: string, upload?: string }} LogoEntry */
+/** @typedef {{ $comment?: string, logos: LogoEntry[] }} LogoManifest */
+/** @typedef {{ slug: string, source: string, detail: string }} ResolverRow */
+
 const IMAGE_MAGIC = [
   Buffer.from("\x89PNG\r\n\x1a\n", "binary"),
   Buffer.from([0xff, 0xd8, 0xff]),
@@ -48,6 +52,10 @@ function defaultTemplateRoot() {
   return join(defaultIntegrationRoot(), "resume-template");
 }
 
+/**
+ * @param {string} name
+ * @param {unknown} value
+ */
 function requireAbsoluteEnvPath(name, value) {
   const trimmed = String(value || "").trim();
   if (!trimmed) return "";
@@ -86,26 +94,41 @@ export function getLogoResolverScript() {
   );
 }
 
+/** @param {unknown} slug */
 function isValidSlug(slug) {
   return SLUG_PATTERN.test(String(slug || ""));
 }
 
+/**
+ * @param {string} message
+ * @param {number} statusCode
+ */
 function makeError(message, statusCode) {
-  const err = new Error(message);
+  const err = /** @type {Error & { statusCode: number }} */ (new Error(message));
   err.statusCode = statusCode;
   return err;
 }
 
+/**
+ * @param {string} root
+ * @param {string} target
+ */
 function isWithinResolvedRoot(root, target) {
   const normalizedRoot = root.endsWith("/") ? root : `${root}/`;
   return target === root || target.startsWith(normalizedRoot);
 }
 
+/** @param {string} [templateRoot] */
 async function resolveTemplateRoot(templateRoot = getBrandLogosTemplateRoot()) {
   await mkdir(templateRoot, { recursive: true });
   return realpath(templateRoot);
 }
 
+/**
+ * @param {string} templateRoot
+ * @param {string} relativePath
+ * @param {{ ensureParent?: boolean }} [options]
+ */
 async function safeTemplatePath(templateRoot, relativePath, options = {}) {
   const root = await resolveTemplateRoot(templateRoot);
   const target = resolvePath(root, relativePath);
@@ -129,6 +152,10 @@ async function safeTemplatePath(templateRoot, relativePath, options = {}) {
   return target;
 }
 
+/**
+ * @param {string} path
+ * @param {string | NodeJS.ArrayBufferView} data
+ */
 async function writeFileAtomic(path, data) {
   const tmpPath = join(
     dirname(path),
@@ -138,7 +165,12 @@ async function writeFileAtomic(path, data) {
   await rename(tmpPath, path);
 }
 
+/**
+ * @param {unknown} stdout
+ * @returns {ResolverRow[]}
+ */
 function parseResolverReport(stdout) {
+  /** @type {ResolverRow[]} */
   const rows = [];
   String(stdout || "")
     .split(/\r?\n/)
@@ -156,18 +188,26 @@ function parseResolverReport(stdout) {
   return rows;
 }
 
+/**
+ * @param {string} [templateRoot]
+ * @returns {Promise<LogoManifest>}
+ */
 async function readManifest(templateRoot = getBrandLogosTemplateRoot()) {
   const path = await safeTemplatePath(templateRoot, "logos.json", {
     ensureParent: true,
   });
   if (!existsSync(path)) return { logos: [] };
   const raw = await readFile(path, "utf8");
-  const parsed = JSON.parse(raw);
+  const parsed = /** @type {LogoManifest | null} */ (JSON.parse(raw));
   return parsed && typeof parsed === "object" && Array.isArray(parsed.logos)
     ? parsed
     : { logos: [] };
 }
 
+/**
+ * @param {string} path
+ * @param {unknown} value
+ */
 async function writeJsonAtomic(path, value) {
   await mkdir(dirname(path), { recursive: true });
   const tmpPath = `${path}.tmp.${process.pid}.${Date.now()}`;
@@ -175,6 +215,10 @@ async function writeJsonAtomic(path, value) {
   await rename(tmpPath, path);
 }
 
+/**
+ * @param {{ force?: boolean, templateRoot?: string }} [options]
+ * @returns {Promise<ResolverRow[]>}
+ */
 export async function runResolver({ force = false, templateRoot } = {}) {
   const root = await resolveTemplateRoot(templateRoot || getBrandLogosTemplateRoot());
   const manifest = await readManifest(root);
@@ -217,6 +261,7 @@ export async function runResolver({ force = false, templateRoot } = {}) {
   });
 }
 
+/** @param {Buffer | Uint8Array | string | number[] | null | undefined} data */
 export function looksLikeImage(data) {
   const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data || []);
   if (buffer.length < 16) return false;
@@ -226,6 +271,7 @@ export function looksLikeImage(data) {
   return IMAGE_MAGIC.some((magic) => buffer.subarray(0, magic.length).equals(magic));
 }
 
+/** @param {Buffer | Uint8Array | string | number[] | null | undefined} data */
 function imageMime(data) {
   const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data || []);
   if (buffer.subarray(0, 8).equals(Buffer.from("\x89PNG\r\n\x1a\n", "binary"))) {
@@ -248,6 +294,7 @@ function imageMime(data) {
   return "application/octet-stream";
 }
 
+/** @param {unknown} raw */
 function normalizeDomain(raw) {
   let value = String(raw || "").trim();
   if (!value) return "";
@@ -256,6 +303,7 @@ function normalizeDomain(raw) {
   return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value) ? value : "";
 }
 
+/** @param {unknown} value */
 function slugify(value) {
   return String(value || "")
     .trim()
@@ -266,6 +314,10 @@ function slugify(value) {
     .slice(0, 128);
 }
 
+/**
+ * @param {unknown} value
+ * @param {unknown} slug
+ */
 function normalizeLogoUpload(value, slug) {
   if (value === true && isValidSlug(slug)) {
     return `uploads/logo-${slug}.png`;
@@ -277,8 +329,12 @@ function normalizeLogoUpload(value, slug) {
   return "";
 }
 
+/**
+ * @param {Record<string, unknown>} source
+ * @returns {unknown[]}
+ */
 function getProfileLogoCollections(source) {
-  return []
+  return /** @type {unknown[]} */ ([])
     .concat(Array.isArray(source.experiences) ? source.experiences : [])
     .concat(Array.isArray(source.projects) ? source.projects : [])
     .concat(Array.isArray(source.workHistory) ? source.workHistory : [])
@@ -286,8 +342,16 @@ function getProfileLogoCollections(source) {
     .concat(Array.isArray(source.caseStudies) ? source.caseStudies : []);
 }
 
+/**
+ * @param {unknown} profile
+ * @param {LogoManifest | null} [priorManifest]
+ * @returns {LogoManifest}
+ */
 export function buildLogoManifestFromProfile(profile, priorManifest = null) {
-  const source = profile && typeof profile === "object" ? profile : {};
+  const source = /** @type {Record<string, unknown>} */ (
+    profile && typeof profile === "object" ? profile : {}
+  );
+  /** @type {Map<string, LogoEntry>} */
   const priorBySlug = new Map();
   if (priorManifest && Array.isArray(priorManifest.logos)) {
     priorManifest.logos.forEach((entry) => {
@@ -295,22 +359,26 @@ export function buildLogoManifestFromProfile(profile, priorManifest = null) {
     });
   }
   const collections = getProfileLogoCollections(source);
+  /** @type {Set<string>} */
   const seen = new Set();
+  /** @type {LogoEntry[]} */
   const logos = [];
 
   collections.forEach((item) => {
     if (!item || typeof item !== "object") return;
+    const record = /** @type {Record<string, unknown>} */ (item);
     const label =
-      String(item.label || item.company || item.name || item.title || "").trim();
-    const slug = isValidSlug(item.slug) ? String(item.slug) : slugify(label);
+      String(record.label || record.company || record.name || record.title || "").trim();
+    const slug = isValidSlug(record.slug) ? String(record.slug) : slugify(label);
     if (!slug || !isValidSlug(slug) || seen.has(slug)) return;
     seen.add(slug);
+    /** @type {LogoEntry} */
     const entry = { slug, label: label || slug };
-    const domain = normalizeDomain(item.logoDomain || item.domain || item.website);
+    const domain = normalizeDomain(record.logoDomain || record.domain || record.website);
     if (domain) entry.domain = domain;
     const prior = priorBySlug.get(slug) || null;
     const upload =
-      normalizeLogoUpload(item.logoUpload, slug) ||
+      normalizeLogoUpload(record.logoUpload, slug) ||
       (prior && typeof prior.upload === "string" ? prior.upload : "");
     if (upload) entry.upload = upload;
     logos.push(entry);
@@ -323,6 +391,10 @@ export function buildLogoManifestFromProfile(profile, priorManifest = null) {
   };
 }
 
+/**
+ * @param {unknown} profile
+ * @param {{ templateRoot?: string }} [options]
+ */
 export async function writeLogoManifestFromProfile(profile, { templateRoot } = {}) {
   const root = await resolveTemplateRoot(templateRoot || getBrandLogosTemplateRoot());
   const priorManifest = await readManifest(root);
@@ -331,6 +403,10 @@ export async function writeLogoManifestFromProfile(profile, { templateRoot } = {
   return { templateRoot: root, manifest };
 }
 
+/**
+ * @param {unknown} profile
+ * @param {{ templateRoot?: string }} [options]
+ */
 export async function refreshLogosFromProfile(profile, options = {}) {
   const written = await writeLogoManifestFromProfile(profile, options);
   const resolved = await runResolver({
@@ -340,6 +416,11 @@ export async function refreshLogosFromProfile(profile, options = {}) {
   return { ...written, resolved };
 }
 
+/**
+ * @param {unknown} slug
+ * @param {Buffer | Uint8Array | string | number[]} buffer
+ * @param {{ templateRoot?: string }} [options]
+ */
 export async function saveUpload(slug, buffer, { templateRoot } = {}) {
   const normalizedSlug = String(slug || "").trim();
   if (!isValidSlug(normalizedSlug)) throw makeError("Invalid slug", 400);
@@ -377,9 +458,11 @@ export async function saveUpload(slug, buffer, { templateRoot } = {}) {
   };
 }
 
+/** @param {{ templateRoot?: string }} [options] */
 export async function listLogos({ templateRoot } = {}) {
   const root = await resolveTemplateRoot(templateRoot || getBrandLogosTemplateRoot());
   const manifest = await readManifest(root);
+  /** @type {Array<{ slug: string, label: string, domain: string, upload: string, source: string, mark: { path: string, mime: string, dataUrl: string } | null }>} */
   const logos = [];
   for (const entry of manifest.logos) {
     const slug = String(entry && entry.slug ? entry.slug : "").trim();
@@ -411,14 +494,20 @@ export async function listLogos({ templateRoot } = {}) {
   return { templateRoot: root, logos };
 }
 
+/**
+ * @param {import("node:http").IncomingMessage} req
+ * @param {{ maxBytes?: number }} [options]
+ */
 export async function parseMultipartFile(req, { maxBytes = MAX_UPLOAD_BYTES } = {}) {
   const contentType = String(req.headers["content-type"] || "");
   const boundaryMatch = contentType.match(/boundary=([^;]+)/i);
   if (!boundaryMatch) throw makeError("Expected multipart/form-data", 400);
   const boundary = Buffer.from(`--${boundaryMatch[1]}`);
+  /** @type {Buffer[]} */
   const chunks = [];
   let total = 0;
-  for await (const chunk of req) {
+  for await (const rawChunk of req) {
+    const chunk = /** @type {Buffer} */ (rawChunk);
     total += chunk.length;
     if (total > maxBytes) throw makeError("Upload exceeds 2 MB", 413);
     chunks.push(chunk);
@@ -456,6 +545,7 @@ export const BRAND_LOGO_LIMITS = {
   allowedExtensions: [".png", ".jpg", ".jpeg", ".svg", ".webp"],
 };
 
+/** @param {unknown} filename */
 export function assertAllowedUploadName(filename) {
   const ext = extname(String(filename || "").toLowerCase());
   if (!BRAND_LOGO_LIMITS.allowedExtensions.includes(ext)) {

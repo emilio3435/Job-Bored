@@ -46,6 +46,30 @@ const DEFAULT_OPENAI_MODEL = "gpt-5.4-mini";
 const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:11434/v1";
 const DEFAULT_LOCAL_MODEL = "gemma4:e2b";
 
+/** @typedef {"gemini" | "openrouter" | "openai" | "openai_compatible" | "local"} ProfileProvider */
+/** @typedef {{ provider: ProfileProvider, apiKey: string, model: string, baseUrl: string }} ProfileProviderConfig */
+/** @typedef {{ model?: string, config?: ProfileProviderConfig }} ProfileCallOptions */
+/** @typedef {Error & { code: string, provider?: ProfileProvider, upstreamStatus?: number, rawSample?: string, cause?: unknown }} ProfileProviderError */
+/** @typedef {{ name: string, rank: number, evidence?: string, keywords?: string[] }} ProfileStrength */
+/**
+ * @typedef {object} NormalizedUserProfile
+ * @property {number} version
+ * @property {string} starterTemplate
+ * @property {{ targetRoles: string[], targetSeniority: string, primaryNarrative: string, yearsRelevantExperience?: number }} identity
+ * @property {ProfileStrength[]} strengths
+ * @property {{ workMode: string, salaryRequired?: boolean, workAuth?: string, acceptableLocations?: string[], skipTitles?: string[] }} hardConstraints
+ * @property {string[]} [wants]
+ * @property {string[]} [avoids]
+ */
+
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isRecord(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 /* ─── Storage lookup ───────────────────────────────────────────────────── */
 
 function resolveWorkerConfigPath() {
@@ -155,6 +179,10 @@ export async function getStoredResumeText() {
 
 /* ─── Provider config ──────────────────────────────────────────────────── */
 
+/**
+ * @param {string[]} keys
+ * @param {string} [fallback]
+ */
 function readFirstEnv(keys, fallback = "") {
   for (const key of keys) {
     const value = String(process.env[key] || "").trim();
@@ -163,6 +191,10 @@ function readFirstEnv(keys, fallback = "") {
   return fallback;
 }
 
+/**
+ * @param {unknown} value
+ * @returns {ProfileProvider}
+ */
 function normalizeProvider(value) {
   const raw = String(value || "").trim().toLowerCase().replace(/-/g, "_");
   if (raw === "openrouter") return "openrouter";
@@ -176,6 +208,7 @@ function normalizeProvider(value) {
   return "gemini";
 }
 
+/** @param {ProfileProvider} provider */
 function providerDisplayName(provider) {
   if (provider === "openrouter") return "OpenRouter";
   if (provider === "openai") return "OpenAI";
@@ -197,6 +230,7 @@ function getGeminiConfig() {
   return { apiKey, model };
 }
 
+/** @returns {ProfileProviderConfig} */
 export function getProfileProviderConfig() {
   const provider = normalizeProvider(
     readFirstEnv(["PROFILE_PROVIDER", "PROFILE_LLM_PROVIDER", "ATS_PROVIDER"], "gemini"),
@@ -271,6 +305,7 @@ export function getProfileProviderConfig() {
   };
 }
 
+/** @param {ProfileProviderConfig} [config] */
 export function getProfileProviderConfigStatus(config = getProfileProviderConfig()) {
   if (config.provider === "gemini") {
     if (!config.apiKey) {
@@ -303,10 +338,11 @@ export function getProfileProviderConfigStatus(config = getProfileProviderConfig
   return { configured: true, provider: config.provider, reason: "" };
 }
 
+/** @param {ProfileProviderConfig} config */
 function assertProfileProviderConfigured(config) {
   const status = getProfileProviderConfigStatus(config);
   if (status.configured) return;
-  const err = new Error(status.reason);
+  const err = /** @type {ProfileProviderError} */ (new Error(status.reason));
   err.code =
     status.provider === "gemini"
       ? "GEMINI_NOT_CONFIGURED"
@@ -348,6 +384,7 @@ apply when scoring listings. Sections:
 If the resume is sparse or ambiguous, prefer safe defaults over guessing. Required fields must be
 present and valid; missing optional fields can be omitted.`;
 
+/** @param {string} resumeText */
 function buildUserPrompt(resumeText) {
   const clipped = resumeText.length > MAX_RESUME_INPUT_CHARS
     ? `${resumeText.slice(0, MAX_RESUME_INPUT_CHARS)}\n\n[resume truncated — ${resumeText.length - MAX_RESUME_INPUT_CHARS} characters omitted]`
@@ -424,16 +461,19 @@ const GEMINI_RESPONSE_SCHEMA = {
   required: ["version", "identity", "strengths", "hardConstraints"],
 };
 
+/** @param {unknown} value */
 function trimTrailingSlashes(value) {
   return String(value || "").trim().replace(/\/+$/g, "");
 }
 
+/** @param {unknown} baseUrl */
 function buildChatCompletionsUrl(baseUrl) {
   return `${trimTrailingSlashes(baseUrl)}/chat/completions`;
 }
 
 // Scan for the first balanced JSON object embedded in surrounding text and
 // parse it. This recovers valid provider output wrapped in short prose.
+/** @param {string} raw */
 function tryParseEmbeddedJson(raw) {
   for (let start = 0; start < raw.length; start += 1) {
     if (raw[start] !== "{") continue;
@@ -473,6 +513,7 @@ function tryParseEmbeddedJson(raw) {
   return undefined;
 }
 
+/** @param {unknown} text */
 function parseJsonSafe(text) {
   const raw = String(text || "").trim();
   if (!raw) throw new Error("empty JSON payload");
@@ -489,6 +530,11 @@ function parseJsonSafe(text) {
   }
 }
 
+/**
+ * @param {string} resumeText
+ * @param {ProfileProviderConfig} config
+ * @param {ProfileCallOptions} [opts]
+ */
 async function callChatJsonForProfile(resumeText, config, opts = {}) {
   assertProfileProviderConfigured(config);
   const model = opts.model || config.model;
@@ -501,6 +547,7 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
     temperature: 0.2,
     max_tokens: 3500,
   };
+  /** @type {Record<string, string>} */
   const headers = { "Content-Type": "application/json" };
   if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
   let resp;
@@ -511,20 +558,27 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
       body: JSON.stringify(body),
     });
   } catch (cause) {
-    const err = new Error(
-      `${providerDisplayName(config.provider)} request failed: ${cause && cause.message ? cause.message : cause}`,
-    );
+    const error = /** @type {{ message?: unknown } | null | undefined} */ (cause);
+    const detail =
+      error && error.message
+        ? error.message
+        : cause;
+    const err = /** @type {ProfileProviderError} */ (new Error(
+      `${providerDisplayName(config.provider)} request failed: ${/** @type {string} */ (detail)}`,
+    ));
     err.code = "PROFILE_PROVIDER_REQUEST_FAILED";
     err.provider = config.provider;
     err.cause = cause;
     throw err;
   }
-  const data = await resp.json().catch(() => ({}));
+  const data = /** @type {{ error?: { message?: string }, choices?: Array<{ message?: { content?: string } }> }} */ (
+    await resp.json().catch(() => ({}))
+  );
   if (!resp.ok) {
     const msg =
       (data && data.error && data.error.message) ||
       `${providerDisplayName(config.provider)} HTTP ${resp.status}`;
-    const err = new Error(msg);
+    const err = /** @type {ProfileProviderError} */ (new Error(msg));
     err.code = "PROFILE_PROVIDER_HTTP_ERROR";
     err.provider = config.provider;
     err.upstreamStatus = resp.status;
@@ -532,7 +586,9 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
   }
   const raw = data.choices?.[0]?.message?.content || "";
   if (!String(raw || "").trim()) {
-    const err = new Error(`${providerDisplayName(config.provider)} returned empty content`);
+    const err = /** @type {ProfileProviderError} */ (
+      new Error(`${providerDisplayName(config.provider)} returned empty content`)
+    );
     err.code = "PROFILE_PROVIDER_EMPTY_RESPONSE";
     err.provider = config.provider;
     throw err;
@@ -540,9 +596,10 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
   try {
     return parseJsonSafe(raw);
   } catch (cause) {
-    const err = new Error(
-      `${providerDisplayName(config.provider)} returned non-JSON content: ${cause.message}`,
-    );
+    const error = /** @type {{ message: unknown }} */ (cause);
+    const err = /** @type {ProfileProviderError} */ (new Error(
+      `${providerDisplayName(config.provider)} returned non-JSON content: ${error.message}`,
+    ));
     err.code = "PROFILE_PROVIDER_PARSE_ERROR";
     err.provider = config.provider;
     err.rawSample = String(raw || "").slice(0, 400);
@@ -550,12 +607,16 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
   }
 }
 
+/**
+ * @param {string} resumeText
+ * @param {ProfileCallOptions} [opts]
+ */
 async function callGeminiForProfile(resumeText, opts = {}) {
   const cfg = opts.config || getProfileProviderConfig();
   if (!cfg.apiKey) {
-    const err = new Error(
+    const err = /** @type {ProfileProviderError} */ (new Error(
       "Missing Gemini API key: set PROFILE_GEMINI_API_KEY, ATS_GEMINI_API_KEY, or GEMINI_API_KEY.",
-    );
+    ));
     err.code = "GEMINI_NOT_CONFIGURED";
     err.provider = "gemini";
     throw err;
@@ -580,18 +641,27 @@ async function callGeminiForProfile(resumeText, opts = {}) {
       body: JSON.stringify(body),
     });
   } catch (cause) {
-    const err = new Error(`Gemini request failed: ${cause && cause.message ? cause.message : cause}`);
+    const error = /** @type {{ message?: unknown } | null | undefined} */ (cause);
+    const detail =
+      error && error.message
+        ? error.message
+        : cause;
+    const err = /** @type {ProfileProviderError} */ (
+      new Error(`Gemini request failed: ${/** @type {string} */ (detail)}`)
+    );
     err.code = "GEMINI_REQUEST_FAILED";
     err.provider = "gemini";
     err.cause = cause;
     throw err;
   }
-  const data = await resp.json().catch(() => ({}));
+  const data = /** @type {{ error?: { message?: string }, candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }} */ (
+    await resp.json().catch(() => ({}))
+  );
   if (!resp.ok) {
     const msg =
       (data && data.error && data.error.message) ||
       `Gemini HTTP ${resp.status}`;
-    const err = new Error(msg);
+    const err = /** @type {ProfileProviderError} */ (new Error(msg));
     err.code = "GEMINI_HTTP_ERROR";
     err.provider = "gemini";
     err.upstreamStatus = resp.status;
@@ -600,7 +670,9 @@ async function callGeminiForProfile(resumeText, opts = {}) {
   const raw =
     data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
   if (!raw.trim()) {
-    const err = new Error("Gemini returned empty content");
+    const err = /** @type {ProfileProviderError} */ (
+      new Error("Gemini returned empty content")
+    );
     err.code = "GEMINI_EMPTY_RESPONSE";
     err.provider = "gemini";
     throw err;
@@ -609,7 +681,10 @@ async function callGeminiForProfile(resumeText, opts = {}) {
   try {
     parsed = JSON.parse(raw);
   } catch (cause) {
-    const err = new Error(`Gemini returned non-JSON content: ${cause.message}`);
+    const error = /** @type {{ message: unknown }} */ (cause);
+    const err = /** @type {ProfileProviderError} */ (
+      new Error(`Gemini returned non-JSON content: ${error.message}`)
+    );
     err.code = "GEMINI_PARSE_ERROR";
     err.provider = "gemini";
     err.rawSample = raw.slice(0, 400);
@@ -630,6 +705,12 @@ const STARTER_ALLOWED = new Set([
   "marketer", "engineer", "product_manager", "data_scientist", "designer", "custom",
 ]);
 
+/**
+ * @param {unknown} value
+ * @param {number} min
+ * @param {number} max
+ * @param {string} fallback
+ */
 function clampString(value, min, max, fallback) {
   const s = typeof value === "string" ? value.trim() : "";
   if (s.length < min) return fallback;
@@ -637,6 +718,11 @@ function clampString(value, min, max, fallback) {
   return s;
 }
 
+/**
+ * @param {unknown} value
+ * @param {number} maxItems
+ * @param {number} maxLen
+ */
 function clampNonEmptyStringArray(value, maxItems, maxLen) {
   if (!Array.isArray(value)) return [];
   const out = [];
@@ -650,22 +736,29 @@ function clampNonEmptyStringArray(value, maxItems, maxLen) {
   return out;
 }
 
+/**
+ * @param {unknown} value
+ * @returns {ProfileStrength[]}
+ */
 function clampStrengths(value) {
   if (!Array.isArray(value)) return [];
+  /** @type {ProfileStrength[]} */
   const out = [];
   let rankCursor = 1;
   for (const item of value) {
     if (!item || typeof item !== "object") continue;
-    const name = clampString(item.name, 2, 60, "");
+    const record = /** @type {Record<string, unknown>} */ (item);
+    const name = clampString(record.name, 2, 60, "");
     if (!name) continue;
-    const rank = Number.isFinite(item.rank)
-      ? Math.max(1, Math.min(8, Math.floor(item.rank)))
+    const rank = typeof record.rank === "number" && Number.isFinite(record.rank)
+      ? Math.max(1, Math.min(8, Math.floor(record.rank)))
       : rankCursor;
+    /** @type {ProfileStrength} */
     const entry = { name, rank };
-    if (typeof item.evidence === "string" && item.evidence.trim()) {
-      entry.evidence = item.evidence.trim().slice(0, 400);
+    if (typeof record.evidence === "string" && record.evidence.trim()) {
+      entry.evidence = record.evidence.trim().slice(0, 400);
     }
-    const keywords = clampNonEmptyStringArray(item.keywords, 20, 40);
+    const keywords = clampNonEmptyStringArray(record.keywords, 20, 40);
     if (keywords.length) entry.keywords = keywords;
     out.push(entry);
     rankCursor = rank + 1;
@@ -683,18 +776,21 @@ function clampStrengths(value) {
 /**
  * Clamp + safe-default the provider response into a valid v1 UserProfile.
  * Always returns a profile shape; never throws on missing fields.
+ * @param {unknown} raw
+ * @returns {NormalizedUserProfile}
  */
 function clampToUserProfile(raw) {
-  const obj = raw && typeof raw === "object" ? raw : {};
-  const identityRaw = obj.identity && typeof obj.identity === "object" ? obj.identity : {};
-  const hcRaw = obj.hardConstraints && typeof obj.hardConstraints === "object" ? obj.hardConstraints : {};
+  const obj = isRecord(raw) ? raw : {};
+  const identityRaw = isRecord(obj.identity) ? obj.identity : {};
+  const hcRaw = isRecord(obj.hardConstraints) ? obj.hardConstraints : {};
 
   // identity.targetRoles — at least 1 entry required by schema.
   let targetRoles = clampNonEmptyStringArray(identityRaw.targetRoles, 8, 80);
   if (targetRoles.length === 0) targetRoles = ["Open to discussion"];
 
   // targetSeniority
-  const seniority = SENIORITY_ALLOWED.has(identityRaw.targetSeniority)
+  const seniority = typeof identityRaw.targetSeniority === "string" &&
+    SENIORITY_ALLOWED.has(identityRaw.targetSeniority)
     ? identityRaw.targetSeniority
     : "any";
 
@@ -708,8 +804,12 @@ function clampToUserProfile(raw) {
       "Experienced professional. Resume parsed successfully but no narrative was generated — please edit this section before saving.";
   }
 
+  /** @type {NormalizedUserProfile["identity"]} */
   const identity = { targetRoles, targetSeniority: seniority, primaryNarrative };
-  if (Number.isFinite(identityRaw.yearsRelevantExperience)) {
+  if (
+    typeof identityRaw.yearsRelevantExperience === "number" &&
+    Number.isFinite(identityRaw.yearsRelevantExperience)
+  ) {
     const years = Math.max(0, Math.min(60, Math.floor(identityRaw.yearsRelevantExperience)));
     identity.yearsRelevantExperience = years;
   }
@@ -721,14 +821,17 @@ function clampToUserProfile(raw) {
   }
 
   // hardConstraints
-  const workMode = WORK_MODE_ALLOWED.has(hcRaw.workMode) ? hcRaw.workMode : "any";
+  const workMode = typeof hcRaw.workMode === "string" && WORK_MODE_ALLOWED.has(hcRaw.workMode)
+    ? hcRaw.workMode
+    : "any";
+  /** @type {NormalizedUserProfile["hardConstraints"]} */
   const hardConstraints = { workMode };
   if (typeof hcRaw.salaryRequired === "boolean") {
     hardConstraints.salaryRequired = hcRaw.salaryRequired;
   } else {
     hardConstraints.salaryRequired = false;
   }
-  if (WORK_AUTH_ALLOWED.has(hcRaw.workAuth)) {
+  if (typeof hcRaw.workAuth === "string" && WORK_AUTH_ALLOWED.has(hcRaw.workAuth)) {
     hardConstraints.workAuth = hcRaw.workAuth;
   } else {
     hardConstraints.workAuth = "us_authorized";
@@ -743,10 +846,12 @@ function clampToUserProfile(raw) {
   const avoids = clampNonEmptyStringArray(obj.avoids, 12, 200);
 
   // starterTemplate
-  const starterTemplate = STARTER_ALLOWED.has(obj.starterTemplate)
+  const starterTemplate = typeof obj.starterTemplate === "string" &&
+    STARTER_ALLOWED.has(obj.starterTemplate)
     ? obj.starterTemplate
     : "custom";
 
+  /** @type {NormalizedUserProfile} */
   const profile = {
     version: 1,
     starterTemplate,
@@ -767,14 +872,15 @@ function clampToUserProfile(raw) {
  * the user confirms.
  *
  * @param {string} resumeText
- * @param {object} [opts]
- * @param {string} [opts.model] — override default provider model.
- * @returns {Promise<object>} UserProfile
+ * @param {ProfileCallOptions} [opts]
+ * @returns {Promise<NormalizedUserProfile>} UserProfile
  */
 export async function analyzeResumeToProfile(resumeText, opts = {}) {
   const text = String(resumeText || "").trim();
   if (!text) {
-    const err = new Error("analyzeResumeToProfile: resumeText is empty");
+    const err = /** @type {ProfileProviderError} */ (
+      new Error("analyzeResumeToProfile: resumeText is empty")
+    );
     err.code = "EMPTY_RESUME";
     throw err;
   }

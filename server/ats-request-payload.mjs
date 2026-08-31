@@ -36,14 +36,57 @@ const ATS_PROFILE_KEYS = new Set([
 const ATS_INSTRUCTIONS_KEYS = new Set(["userNotes", "refinementFeedback"]);
 const ATS_META_KEYS = new Set(["sheetId", "generatedAt"]);
 
+/** @typedef {"cover_letter" | "resume_update"} AtsFeature */
+/**
+ * @typedef {object} StringReadOptions
+ * @property {number} [maxLength]
+ * @property {number} [minLength]
+ * @property {boolean} [trim]
+ * @property {(value: string, pathLabel: string) => void} [validate]
+ */
+/**
+ * @typedef {object} AtsJob
+ * @property {string} title
+ * @property {string} company
+ * @property {string} [url]
+ * @property {string} [fitAssessment]
+ * @property {string} [talkingPoints]
+ * @property {string} [notes]
+ * @property {Record<string, string | string[]>} [postingEnrichment]
+ */
+/**
+ * @typedef {object} AtsRequestPayload
+ * @property {string} event
+ * @property {1} schemaVersion
+ * @property {AtsFeature} feature
+ * @property {string} docText
+ * @property {AtsJob} job
+ * @property {Record<string, string>} [profile]
+ * @property {Record<string, string>} [instructions]
+ * @property {Record<string, string | null>} [meta]
+ */
+
+/**
+ * @param {Record<string, unknown>} obj
+ * @param {string} key
+ */
 function hasOwn(obj, key) {
   return Object.prototype.hasOwnProperty.call(obj, key);
 }
 
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
 function isPlainObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * @param {Record<string, unknown>} obj
+ * @param {Set<string>} allowedKeys
+ * @param {string} pathLabel
+ */
 function assertAllowedKeys(obj, allowedKeys, pathLabel) {
   for (const key of Object.keys(obj)) {
     if (!allowedKeys.has(key)) {
@@ -52,6 +95,11 @@ function assertAllowedKeys(obj, allowedKeys, pathLabel) {
   }
 }
 
+/**
+ * @param {Record<string, unknown>} obj
+ * @param {string} key
+ * @param {string} pathLabel
+ */
 function readRequiredObject(obj, key, pathLabel) {
   if (!hasOwn(obj, key)) throw new Error(`${pathLabel} is required.`);
   const value = obj[key];
@@ -59,6 +107,11 @@ function readRequiredObject(obj, key, pathLabel) {
   return value;
 }
 
+/**
+ * @param {Record<string, unknown>} obj
+ * @param {string} key
+ * @param {string} pathLabel
+ */
 function readOptionalObject(obj, key, pathLabel) {
   if (!hasOwn(obj, key)) return undefined;
   const value = obj[key];
@@ -66,6 +119,11 @@ function readOptionalObject(obj, key, pathLabel) {
   return value;
 }
 
+/**
+ * @param {string} value
+ * @param {string} pathLabel
+ * @param {number} [maxLength]
+ */
 function enforceMaxLength(value, pathLabel, maxLength) {
   if (typeof maxLength === "number" && value.length > maxLength) {
     throw new Error(`${pathLabel} must be at most ${maxLength} characters.`);
@@ -73,22 +131,45 @@ function enforceMaxLength(value, pathLabel, maxLength) {
   return value;
 }
 
+/**
+ * @param {Record<string, unknown>} obj
+ * @param {string} key
+ * @param {string} pathLabel
+ * @param {StringReadOptions} [options]
+ */
 function readRequiredString(obj, key, pathLabel, options = {}) {
   if (!hasOwn(obj, key)) throw new Error(`${pathLabel} is required.`);
   return readStringValue(obj[key], pathLabel, options);
 }
 
+/**
+ * @param {Record<string, unknown>} obj
+ * @param {string} key
+ * @param {string} pathLabel
+ * @param {StringReadOptions} [options]
+ */
 function readOptionalString(obj, key, pathLabel, options = {}) {
   if (!hasOwn(obj, key)) return undefined;
   return readStringValue(obj[key], pathLabel, options);
 }
 
+/**
+ * @param {Record<string, unknown>} obj
+ * @param {string} key
+ * @param {string} pathLabel
+ * @param {StringReadOptions} [options]
+ */
 function readOptionalNullableString(obj, key, pathLabel, options = {}) {
   if (!hasOwn(obj, key)) return undefined;
   if (obj[key] === null) return null;
   return readStringValue(obj[key], pathLabel, options);
 }
 
+/**
+ * @param {unknown} value
+ * @param {string} pathLabel
+ * @param {StringReadOptions} [options]
+ */
 function readStringValue(value, pathLabel, options = {}) {
   const { maxLength, minLength = 0, trim = true, validate } = options;
   if (typeof value !== "string") throw new Error(`${pathLabel} must be a string.`);
@@ -100,6 +181,10 @@ function readStringValue(value, pathLabel, options = {}) {
   return enforceMaxLength(normalized, pathLabel, maxLength);
 }
 
+/**
+ * @param {Record<string, unknown>} obj
+ * @returns {1}
+ */
 function readRequiredSchemaVersion(obj) {
   if (!hasOwn(obj, "schemaVersion")) {
     throw new Error("schemaVersion is required.");
@@ -110,14 +195,24 @@ function readRequiredSchemaVersion(obj) {
   return 1;
 }
 
+/**
+ * @param {Record<string, unknown>} obj
+ * @returns {AtsFeature}
+ */
 function readRequiredFeature(obj) {
   const feature = readRequiredString(obj, "feature", "feature");
   if (!ATS_FEATURES.has(feature)) {
     throw new Error('Invalid feature. Expected "cover_letter" or "resume_update".');
   }
-  return feature;
+  return /** @type {AtsFeature} */ (feature);
 }
 
+/**
+ * @param {unknown} value
+ * @param {string} pathLabel
+ * @param {number} maxItems
+ * @param {number} maxItemLength
+ */
 function readStringArray(value, pathLabel, maxItems, maxItemLength) {
   if (!Array.isArray(value)) {
     throw new Error(`${pathLabel} must be an array of strings.`);
@@ -130,19 +225,32 @@ function readStringArray(value, pathLabel, maxItems, maxItemLength) {
   });
 }
 
+/**
+ * @param {Record<string, unknown>} obj
+ * @param {string} key
+ * @param {string} pathLabel
+ * @param {number} maxItems
+ * @param {number} maxItemLength
+ */
 function readOptionalStringArray(obj, key, pathLabel, maxItems, maxItemLength) {
   if (!hasOwn(obj, key)) return undefined;
   return readStringArray(obj[key], pathLabel, maxItems, maxItemLength);
 }
 
+/**
+ * @param {string} value
+ * @param {string} pathLabel
+ */
 function assertDateTime(value, pathLabel) {
   if (Number.isNaN(Date.parse(value))) {
     throw new Error(`${pathLabel} must be a valid date-time string.`);
   }
 }
 
+/** @param {Record<string, unknown>} raw */
 function normalizePostingEnrichment(raw) {
   assertAllowedKeys(raw, ATS_POSTING_ENRICHMENT_KEYS, "ATS request.job.postingEnrichment");
+  /** @type {Record<string, string | string[]>} */
   const out = {};
   const description = readOptionalString(
     raw,
@@ -194,8 +302,13 @@ function normalizePostingEnrichment(raw) {
   return out;
 }
 
+/**
+ * @param {Record<string, unknown>} raw
+ * @returns {AtsJob}
+ */
 function normalizeJob(raw) {
   assertAllowedKeys(raw, ATS_JOB_KEYS, "ATS request.job");
+  /** @type {AtsJob} */
   const out = {
     title: readRequiredString(raw, "title", "job.title", { maxLength: 300, minLength: 1 }),
     company: readRequiredString(raw, "company", "job.company", {
@@ -232,8 +345,10 @@ function normalizeJob(raw) {
   return out;
 }
 
+/** @param {Record<string, unknown>} raw */
 function normalizeProfile(raw) {
   assertAllowedKeys(raw, ATS_PROFILE_KEYS, "ATS request.profile");
+  /** @type {Record<string, string>} */
   const out = {};
   const candidateProfileText = readOptionalString(
     raw,
@@ -266,8 +381,10 @@ function normalizeProfile(raw) {
   return out;
 }
 
+/** @param {Record<string, unknown>} raw */
 function normalizeInstructions(raw) {
   assertAllowedKeys(raw, ATS_INSTRUCTIONS_KEYS, "ATS request.instructions");
+  /** @type {Record<string, string>} */
   const out = {};
   const userNotes = readOptionalString(raw, "userNotes", "instructions.userNotes", {
     maxLength: 4000,
@@ -283,8 +400,10 @@ function normalizeInstructions(raw) {
   return out;
 }
 
+/** @param {Record<string, unknown>} raw */
 function normalizeMeta(raw) {
   assertAllowedKeys(raw, ATS_META_KEYS, "ATS request.meta");
+  /** @type {Record<string, string | null>} */
   const out = {};
   const sheetId = readOptionalNullableString(raw, "sheetId", "meta.sheetId");
   if (sheetId !== undefined) out.sheetId = sheetId;
@@ -295,12 +414,17 @@ function normalizeMeta(raw) {
   return out;
 }
 
+/**
+ * @param {unknown} raw
+ * @returns {AtsRequestPayload}
+ */
 export function normalizeAtsRequestPayload(raw) {
   if (!isPlainObject(raw)) {
     throw new Error("ATS request body must be an object.");
   }
   assertAllowedKeys(raw, ATS_TOP_LEVEL_KEYS, "ATS request");
 
+  /** @type {AtsRequestPayload} */
   const payload = {
     event: readRequiredString(raw, "event", "event"),
     schemaVersion: readRequiredSchemaVersion(raw),

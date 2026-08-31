@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "forceConsistentCasingInFileNames": true,
+    "lib": ["ES2024", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "strict": true,
+    "target": "ES2024",
+    "types": ["node"]
+  },
+  "files": ["shared/job-scraper-core.mjs"],
+  "include": ["*.mjs", "shared/*.mjs", "shared/*.d.mts"]
+}

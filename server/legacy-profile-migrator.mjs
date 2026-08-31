@@ -38,6 +38,8 @@ function resolvePaths() {
 /**
  * Pull the body of a markdown section (lines after `## Heading` until the next
  * `## ` heading). Case-sensitive heading match.
+ * @param {string} md
+ * @param {string} heading
  */
 function sectionBody(md, heading) {
   const lines = md.split(/\r?\n/);
@@ -55,7 +57,10 @@ function sectionBody(md, heading) {
   return out.join("\n").trim();
 }
 
-/** Extract `- bullet` lines from a section body. */
+/**
+ * Extract `- bullet` lines from a section body.
+ * @param {string} body
+ */
 function bulletList(body) {
   if (!body) return [];
   return body
@@ -67,6 +72,7 @@ function bulletList(body) {
 /**
  * Extract Acceptable Locations from the "Location preferences" body.
  * Returns city names; ignores phrases like "Remote preferred" and "reject unless".
+ * @param {string} body
  */
 function parseLocations(body) {
   if (!body) return [];
@@ -88,6 +94,7 @@ function parseLocations(body) {
 /**
  * Best-effort lane → strength mapping. The legacy file uses 4 H3 sections
  * under "## Best-fit titles" — we use those as ranked strengths.
+ * @param {string} preferencesMd
  */
 function parseStrengths(preferencesMd) {
   const titlesBody = sectionBody(preferencesMd, "Best-fit titles");
@@ -119,6 +126,7 @@ function defaultStrengths() {
   ];
 }
 
+/** @param {string} preferencesMd */
 function parseSkipTitles(preferencesMd) {
   const body = sectionBody(preferencesMd, "Avoid / reject titles");
   return bulletList(body)
@@ -126,6 +134,7 @@ function parseSkipTitles(preferencesMd) {
     .slice(0, 30);
 }
 
+/** @param {string} profileMd */
 function parseNarrative(profileMd) {
   if (!profileMd) return "Imported from legacy profile. Edit me in Settings → Fit Profile to sharpen scoring.";
   const positioning = sectionBody(profileMd, "Positioning anchor");
@@ -144,8 +153,9 @@ function parseNarrative(profileMd) {
 /**
  * Pure transform from the legacy markdown files into a v1 UserProfile JSON.
  * Exported for unit testing.
+ * @param {{ preferencesMd: string, profileMd?: string }} input
  */
-export function parseLegacyProfile({ preferencesMd, profileMd }) {
+export function parseLegacyProfile({ preferencesMd, profileMd = "" }) {
   const strengths = parseStrengths(preferencesMd);
   const skipTitles = parseSkipTitles(preferencesMd);
   const acceptableLocations = parseLocations(sectionBody(preferencesMd, "Location preferences"));

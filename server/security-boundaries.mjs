@@ -3,12 +3,19 @@ import { lookup as dnsLookup } from "node:dns/promises";
 
 const MAX_SCRAPE_REDIRECTS = 5;
 
+/** @typedef {(hostname: string, options: { all: true }) => Promise<import("node:dns").LookupAddress[]>} LookupAll */
+/** @typedef {{ ok: true, url: string } | { ok: false, error: string }} ScrapeTargetValidation */
+
 const DEFAULT_LOCAL_BROWSER_ORIGINS = [
   "http://localhost:8080",
   "http://127.0.0.1:8080",
   "https://localhost:8080",
 ];
 
+/**
+ * @param {unknown} raw
+ * @param {{ listenHost?: unknown }} [options]
+ */
 export function normalizeAllowedBrowserOrigins(
   raw,
   { listenHost = "" } = {},
@@ -18,6 +25,10 @@ export function normalizeAllowedBrowserOrigins(
   return isLocalListenHost(listenHost) ? [...DEFAULT_LOCAL_BROWSER_ORIGINS] : [];
 }
 
+/**
+ * @param {unknown} requestOrigin
+ * @param {{ allowedOrigins?: string[], requestHost?: unknown, requestProtocol?: unknown }} [options]
+ */
 export function resolveAllowedBrowserOrigin(
   requestOrigin,
   {
@@ -34,6 +45,10 @@ export function resolveAllowedBrowserOrigin(
   return sameOrigin && origin === sameOrigin ? origin : "";
 }
 
+/**
+ * @param {unknown} rawUrl
+ * @returns {ScrapeTargetValidation}
+ */
 export function validateScrapeTarget(rawUrl) {
   const urlText = cleanString(rawUrl);
   let parsedUrl;
@@ -63,6 +78,10 @@ export function validateScrapeTarget(rawUrl) {
   };
 }
 
+/**
+ * @param {unknown} host
+ * @param {unknown} protocol
+ */
 function buildRequestOrigin(host, protocol) {
   const normalizedHost = cleanString(host);
   const normalizedProtocol = cleanString(protocol).replace(/:$/, "");
@@ -70,6 +89,7 @@ function buildRequestOrigin(host, protocol) {
   return `${normalizedProtocol}://${normalizedHost}`;
 }
 
+/** @param {unknown} value */
 function isLocalListenHost(value) {
   const host = cleanString(value).toLowerCase();
   return (
@@ -80,6 +100,7 @@ function isLocalListenHost(value) {
   );
 }
 
+/** @param {string} ip */
 function isPrivateIpv4(ip) {
   const parts = ip.split(".").map((part) => Number(part));
   if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
@@ -99,6 +120,7 @@ function isPrivateIpv4(ip) {
 }
 
 // Expand an IPv6 literal into eight 16-bit groups, or return null if unparseable.
+/** @param {string} value */
 function expandIpv6Groups(value) {
   let text = value;
   let tail = "";
@@ -131,6 +153,7 @@ function expandIpv6Groups(value) {
   return numeric;
 }
 
+/** @param {string} value */
 function isPrivateIpv6(value) {
   const groups = expandIpv6Groups(value);
   if (!groups) return true; // fail closed on anything we cannot parse
@@ -150,6 +173,7 @@ function isPrivateIpv6(value) {
   return false;
 }
 
+/** @param {string} value */
 function isPrivateIpLiteral(value) {
   const ipVersion = isIP(value);
   if (ipVersion === 4) return isPrivateIpv4(value);
@@ -157,6 +181,7 @@ function isPrivateIpLiteral(value) {
   return null;
 }
 
+/** @param {unknown} value */
 function isPrivateNetworkHostname(value) {
   const hostname = cleanString(value)
     .replace(/^\[(.*)\]$/, "$1")
@@ -181,6 +206,10 @@ function isPrivateNetworkHostname(value) {
 
 // Resolve a hostname and confirm every returned address is publicly routable.
 // Fails closed: resolution errors are treated as a blocked target.
+/**
+ * @param {string} hostname
+ * @param {{ lookupImpl?: LookupAll }} [options]
+ */
 async function resolvedAddressesArePrivate(hostname, { lookupImpl = dnsLookup } = {}) {
   if (isIP(hostname)) return isPrivateNetworkHostname(hostname);
   let addresses;
@@ -197,6 +226,11 @@ async function resolvedAddressesArePrivate(hostname, { lookupImpl = dnsLookup } 
 }
 
 // Full validation incl. DNS resolution. Use before fetching a user-supplied URL.
+/**
+ * @param {unknown} rawUrl
+ * @param {{ lookupImpl?: LookupAll }} [options]
+ * @returns {Promise<ScrapeTargetValidation>}
+ */
 export async function validateScrapeTargetWithDns(rawUrl, { lookupImpl = dnsLookup } = {}) {
   const base = validateScrapeTarget(rawUrl);
   if (!base.ok) return base;
@@ -211,6 +245,11 @@ export async function validateScrapeTargetWithDns(rawUrl, { lookupImpl = dnsLook
 // Mirrors `redirect: "follow"` semantics without trusting redirect targets.
 // Hop validation is synchronous/lexical so callers stay hermetic; set
 // `resolveDns: true` (or pass a `lookupImpl`) to additionally resolve each hop.
+/**
+ * @param {string} rawUrl
+ * @param {RequestInit} [init]
+ * @param {{ fetchImpl?: typeof globalThis.fetch, lookupImpl?: LookupAll, resolveDns?: boolean, maxRedirects?: number }} [options]
+ */
 export async function safeFetch(
   rawUrl,
   init = {},
@@ -241,6 +280,7 @@ export async function safeFetch(
   throw new Error("Too many redirects");
 }
 
+/** @param {unknown} value */
 function normalizeList(value) {
   return [...new Set(
     cleanString(value)
@@ -250,6 +290,7 @@ function normalizeList(value) {
   )];
 }
 
+/** @param {unknown} value */
 function cleanString(value) {
   return typeof value === "string" ? value.trim() : String(value || "").trim();
 }
