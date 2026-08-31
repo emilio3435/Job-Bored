@@ -366,6 +366,21 @@ export async function installHermeticNetworkFence(page, options = {}) {
       return;
     }
 
+    if (
+      (url.hostname === "127.0.0.1" || url.hostname === "localhost") &&
+      url.port === "8644"
+    ) {
+      if (url.pathname === "/health") {
+        await fulfillJson(route, {
+          status: "ok",
+          service: "browser-use-discovery-worker",
+        });
+        return;
+      }
+      await fulfillJson(route, { ok: true, status: "ok", mode: "hermetic" });
+      return;
+    }
+
     if (url.origin === materialsOrigin) {
       if (url.pathname === "/api/applications/queue" && method === "GET") {
         const queue =
