@@ -6,10 +6,9 @@
              Outside this region OR off the v2 flag, this file
              produces no rules — legacy modal renders unchanged.
    Tokens:   tokens-v2.css only (no raw hex). Forge primitives
-             (jb-fit-ring, jb-spark, jb-stage-dot, jb-ai-chip,
-             .jb-sticker) and Quill utilities (.jb-tape, .jb-mark,
-             .jb-stamp, .jb-divider-dashed) only — no new
-             components are introduced here.
+             (jb-fit-ring, jb-ai-chip, .jb-sticker) and Quill
+             utilities (.jb-tape, .jb-stamp, .jb-divider-dashed)
+             only — no new components are introduced here.
    ============================================================ */
 
 /* Off-state: legacy UI / non-region uses keep nothing. */
@@ -269,16 +268,6 @@ body.jb-v2 [data-region="scribe"] .scribe-editor__doc[data-empty="true"]::before
   font-style: italic;
 }
 
-body.jb-v2 [data-region="scribe"] .scribe-editor__doc .jb-mark {
-  transition: background var(--jb-transition-base);
-}
-
-body.jb-v2 [data-region="scribe"] .scribe-anchor-flash {
-  background: var(--jb-yellow-tape);
-  box-shadow: 0 1px 0 var(--jb-amber);
-  transition: background var(--jb-transition-slow);
-}
-
 /* Scorecard sticker */
 body.jb-v2 [data-region="scribe"] .scribe-scorecard {
   --sticker-padding: 18px 20px 16px;
@@ -437,20 +426,9 @@ body.jb-v2 [data-region="scribe"] .scribe-gap {
   background: var(--jb-paper-2);
   font-size: var(--jb-text-sm);
   color: var(--jb-ink);
-  cursor: pointer;
   text-align: left;
   width: 100%;
   font-family: var(--jb-font-body);
-}
-
-body.jb-v2 [data-region="scribe"] .scribe-gap:hover {
-  border-color: var(--jb-line);
-  background: var(--jb-paper);
-}
-
-body.jb-v2 [data-region="scribe"] .scribe-gap:focus-visible {
-  outline: none;
-  box-shadow: var(--jb-shadow-focus);
 }
 
 body.jb-v2 [data-region="scribe"] .scribe-gap__axis {
@@ -460,6 +438,34 @@ body.jb-v2 [data-region="scribe"] .scribe-gap__axis {
   letter-spacing: 0.06em;
   color: var(--jb-ink-3);
   padding-top: 2px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-gap[data-severity="high"] .scribe-gap__axis {
+  color: var(--jb-err);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-gap[data-severity="medium"] .scribe-gap__axis {
+  color: var(--jb-warn);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-gap__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-gap__why {
+  color: var(--jb-ink-3);
+  font-size: var(--jb-text-xs);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-gaps__empty,
+body.jb-v2 [data-region="scribe"] .scribe-evidence__empty,
+body.jb-v2 [data-region="scribe"] .scribe-versions__empty {
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink-3);
+  font-style: italic;
 }
 
 body.jb-v2 [data-region="scribe"] .scribe-talking {
@@ -616,6 +622,226 @@ body.jb-v2 [data-region="scribe"] .scribe-status[data-state="busy"] {
 body.jb-v2 [data-region="scribe"] .scribe-status[data-state="ok"] {
   color: var(--jb-mint-deep);
 }
+body.jb-v2 [data-region="scribe"] .scribe-status[data-state="warn"] {
+  color: var(--jb-warn);
+}
+body.jb-v2 [data-region="scribe"] .scribe-status[data-state="err"] {
+  color: var(--jb-err);
+}
+
+/* ============================================================
+   Save state pill (scribe-state.js) — truthful, never optimistic
+   ============================================================ */
+body.jb-v2 [data-region="scribe"] .scribe-save {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  color: var(--jb-ink-3);
+  letter-spacing: 0.04em;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-save[data-state="saving"] {
+  color: var(--jb-warn);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-save[data-state="saved"] {
+  color: var(--jb-mint-deep);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-save[data-state="unsaved"] {
+  color: var(--jb-warn);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-save[data-state="failed"] {
+  color: var(--jb-err);
+}
+
+/* ============================================================
+   Version rail — named versions for the bound role
+   ============================================================ */
+body.jb-v2 [data-region="scribe"] .scribe-versions {
+  --sticker-padding: 14px 16px;
+  background: var(--jb-paper);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-versions__title {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--jb-ink-3);
+  margin: 0;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-versions__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-version {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--jb-radius-sm);
+  background: var(--jb-paper-2);
+  color: var(--jb-ink);
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--jb-transition-fast),
+    background var(--jb-transition-fast);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-version:hover {
+  border-color: var(--jb-line-soft);
+  background: var(--jb-paper);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-version:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-version[aria-pressed="true"] {
+  border-color: var(--jb-mint-deep);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-version__num {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-version__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-version__at {
+  font-family: var(--jb-font-mono);
+  font-size: 10px;
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-versions__save {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-versions__input {
+  width: 100%;
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink);
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-sm);
+  padding: 6px 8px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-versions__input:focus {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+  border-color: var(--jb-mint-deep);
+}
+
+/* ============================================================
+   Score states + evidence (scribe-score-adapter.js)
+   ------------------------------------------------------------
+   "No score" must never look like a measured zero: the ring
+   carries no percent and the axes are absent entirely.
+   ============================================================ */
+body.jb-v2 [data-region="scribe"] .scribe-scorecard__rescore {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-scorecard__note {
+  margin: 0;
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-scorecard[data-score-state="error"] .scribe-scorecard__note {
+  color: var(--jb-err);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-scorecard[data-score-state="loading"] .scribe-scorecard__note {
+  color: var(--jb-warn);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-scorecard[data-score-state="success"] .scribe-scorecard__note {
+  display: none;
+}
+
+body.jb-v2 [data-region="scribe"] jb-fit-ring[data-unscored="true"] {
+  opacity: 0.55;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-evidence {
+  --sticker-padding: 14px 16px;
+  background: var(--jb-paper);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-evidence__title {
+  font-family: var(--jb-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--jb-ink-3);
+  margin: 0;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-evidence__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-evidence__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 8px;
+  border-left: 2px solid var(--jb-line-soft);
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink);
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-evidence__snippet {
+  color: var(--jb-ink-2);
+  font-style: italic;
+}
+
+body.jb-v2 [data-region="scribe"] .scribe-evidence__source {
+  font-family: var(--jb-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--jb-ink-3);
+}
 
 /* ============================================================
    Stack at narrow viewports (<900px)
@@ -644,9 +870,7 @@ body.jb-v2 [data-region="scribe"] .scribe-status[data-state="ok"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  body.jb-v2 [data-region="scribe"] .scribe-axis__fill,
-  body.jb-v2 [data-region="scribe"] .scribe-anchor-flash,
-  body.jb-v2 [data-region="scribe"] .scribe-editor__doc .jb-mark {
+  body.jb-v2 [data-region="scribe"] .scribe-axis__fill {
     transition: none;
   }
 }

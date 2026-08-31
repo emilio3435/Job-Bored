@@ -160,3 +160,74 @@ test("normalizeLead stamps fingerprint metadata for downstream cross-run dedupe"
   );
   assert.match(lead?.metadata.fingerprintKey || "", /^primary:/);
 });
+
+test("F1D-RUN09-LOC production run identity keeps distinct locations", async () => {
+  const { dedupeLeadsForProductionRun } = await import(
+    "../../src/normalize/intake-identity.ts"
+  );
+  const result = dedupeLeadsForProductionRun([
+    {
+      title: "Account Executive",
+      company: "Acme Labs",
+      location: "Austin, TX",
+      url: "https://boards.greenhouse.io/acme/jobs/111",
+      sourceId: "greenhouse",
+      metadata: { jobId: "111" },
+    },
+    {
+      title: "Account Executive",
+      company: "Acme Labs",
+      location: "New York, NY",
+      url: "https://boards.greenhouse.io/acme/jobs/222",
+      sourceId: "greenhouse",
+      metadata: { jobId: "222" },
+    },
+  ]);
+
+  assert.equal(result.uniqueItems.length, 2);
+  assert.equal(result.duplicateCount, 0);
+});
+
+test("F1D-RUN10-ATTR identity layer keeps successful sibling boards when one fails", async () => {
+  const { retainAttributedBoardSuccesses } = await import(
+    "../../src/normalize/intake-identity.ts"
+  );
+  const result = retainAttributedBoardSuccesses([
+    {
+      boardId: "greenhouse",
+      status: "fulfilled",
+      value: [
+        {
+          title: "Platform Engineer",
+          company: "Acme",
+          location: "Remote",
+          url: "https://boards.greenhouse.io/acme/jobs/1",
+        },
+      ],
+    },
+    {
+      boardId: "lever",
+      status: "rejected",
+      reason: new Error("lever timeout"),
+    },
+    {
+      boardId: "ashby",
+      status: "fulfilled",
+      value: [
+        {
+          title: "Platform Engineer",
+          company: "Beta",
+          location: "Chicago, IL",
+          url: "https://jobs.ashbyhq.com/beta/abc",
+        },
+      ],
+    },
+  ]);
+
+  assert.equal(result.leads.length, 2);
+  assert.equal(result.leads[0].company, "Acme");
+  assert.equal(result.leads[1].company, "Beta");
+  assert.equal(result.failures.length, 1);
+  assert.equal(result.failures[0].boardId, "lever");
+  assert.match(String(result.failures[0].reason), /timeout/i);
+});

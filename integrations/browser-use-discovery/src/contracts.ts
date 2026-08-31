@@ -239,6 +239,12 @@ export type DiscoveryProfile = {
   keywordsInclude?: string;
   keywordsExclude?: string;
   maxLeadsPerRun?: string;
+  /**
+   * Per-run grounded-web opt-out. When false, effective-source resolution
+   * must exclude `grounded_web` even if the preset/enabledSources would
+   * otherwise include it.
+   */
+  groundedWebEnabled?: boolean;
   /** UltraPlan agentic behavior tuning flags. */
   ultraPlanTuning?: UltraPlanTuning;
   /** Grounded search tunable parameters. */
@@ -258,6 +264,36 @@ export type DiscoveryIntent = {
   remotePolicy: string;
   seniority: string;
   sourcePreset: SourcePreset;
+};
+
+/**
+ * Shared effective intent used by the dashboard guard, payload builder,
+ * query plan, and worker parser. Additive contract revision 1.
+ */
+export type EffectiveDiscoveryIntent = {
+  intentContractVersion: 1;
+  blank: boolean;
+  reason?: string;
+  targetRoles: string[];
+  includeKeywords: string[];
+  excludeKeywords: string[];
+  locations: string[];
+  remotePolicy: string;
+  seniority: string;
+  sourcePreset: string;
+  groundedWebEnabled: boolean | null;
+};
+
+export type AllowlistResolutionMode =
+  | "unrestricted_default"
+  | "restricted"
+  | "blocked_unresolved"
+  | "explicit_unrestricted";
+
+export type AllowlistResolution = {
+  mode: AllowlistResolutionMode;
+  matched: string[];
+  unknown: string[];
 };
 
 export type DiscoveryWebhookRequestV1 = {
@@ -302,6 +338,13 @@ export type DiscoveryWebhookRequestV1 = {
    * See docs/SCORING-CONTRACT.md §8.
    */
   mergedUserProfile?: import("./contracts/user-profile.ts").UserProfile;
+  /**
+   * Optional. When true AND a per-run companyAllowlist matches zero catalog
+   * entries, the run may fall back to unrestricted stored-company search.
+   * Omitted/false fails closed (`blocked_unresolved`) instead of silently
+   * broadening.
+   */
+  allowUnrestrictedFallback?: boolean;
 };
 
 /**
@@ -1082,6 +1125,10 @@ export type StoredWorkerConfig = {
 export type EffectiveDiscoveryConfig = StoredWorkerConfig & {
   variationKey: string;
   requestedAt: string;
+  /** Per-run company restriction outcome; blocked_unresolved disables all lanes. */
+  allowlistResolution: AllowlistResolution;
+  /** True only when this request explicitly authorized broad fallback. */
+  allowUnrestrictedFallback: boolean;
   sourcePreset: SourcePreset;
   /** Resolved UltraPlan tuning flags (with preset-specific defaults). */
   ultraPlanTuning: UltraPlanTuning;

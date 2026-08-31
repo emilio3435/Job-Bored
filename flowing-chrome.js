@@ -3,8 +3,8 @@
    ------------------------------------------------------------
    Owner:    FE droid 2.A (page chrome + scroll-spy)
    Purpose:  Build the sticky .page-top DOM, wire scroll-spy
-             across the three flow regions (dawn / pipeline /
-             letter), and handle smooth-scroll on pill click.
+             across the live flow regions (dawn / pipeline /
+             role), and handle smooth-scroll on pill click.
 
    Visual reference: ./JobBored.html
 
@@ -32,7 +32,6 @@
     { id: "dawn",     label: "Brief",    num: "01" },
     { id: "pipeline", label: "Pipeline", num: "02" },
     { id: "role",     label: "Dossier",  num: "03" },
-    { id: "letter",   label: "Letter",   num: "04" },
   ];
   var ACTIONS = [
     { id: "discoveryBtn", label: "Run discovery", mode: "primary" },
@@ -381,13 +380,6 @@
 
   function scrollToRegion(id) {
     var node = findRegion(id);
-    if (id === "letter" && !node) {
-      // The standalone letter region was removed; "Letter" now jumps to the
-      // Application Materials panel inside the role dossier (loaded async),
-      // falling back to the dossier itself before materials finish loading.
-      node = document.querySelector('[data-region="role"] .brief-materials')
-        || document.querySelector('[data-region="role"]');
-    }
     if (!node) return;
     var prefersReduced = root.matchMedia
       ? root.matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -482,6 +474,11 @@
   }
 
   function init() {
+    if (root.JobBoredV2Boot && typeof root.JobBoredV2Boot.register === "function") {
+      root.JobBoredV2Boot.register({
+        chrome: { mount: mount, unmount: unmount },
+      });
+    }
     if (isFlagOn()) {
       mount();
     }

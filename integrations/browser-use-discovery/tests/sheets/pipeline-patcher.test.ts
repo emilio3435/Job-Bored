@@ -52,22 +52,35 @@ test("patch updates status and appends a dated note, matched by url", async () =
   const update = calls.find((c) => /values:batchUpdate/.test(c.url));
   assert.ok(update, "expected a batchUpdate call");
   const body = JSON.parse(update.body as string);
-  const written: string[] = body.data[0].values[0];
-  assert.equal(written[12], "Interviewing");
-  assert.equal(written[14], "[2026-06-18] recruiter replied");
-  assert.match(body.data[0].range, /^Pipeline!A2:[A-Z]+2$/);
+  const byRange = Object.fromEntries(
+    (body.data as Array<{ range: string; values: string[][] }>).map((entry) => [
+      entry.range,
+      entry.values[0][0],
+    ]),
+  );
+  assert.equal(byRange["Pipeline!M2"], "Interviewing");
+  assert.equal(byRange["Pipeline!O2"], "[2026-06-18] recruiter replied");
+  assert.equal(
+    (body.data as Array<{ range: string }>).some((entry) => /^Pipeline!A2:[A-Z]+2$/.test(entry.range)),
+    false,
+  );
 });
-
 test("re-posting the same note is idempotent", async () => {
   const existing = [rowFor({ url: "https://acme.com/jobs/1", notes: "[2026-06-18] recruiter replied" })];
   const { fetchImpl, calls } = mockFetch(existing);
   const patcher = createPipelinePatcher(runtimeConfig, { fetchImpl, now: () => new Date("2026-06-18T10:00:00Z") });
 
-  await patcher.patch("sheet_1234567890", { job: { url: "https://acme.com/jobs/1" }, fields: { note: "recruiter replied" } });
+  const result = await patcher.patch("sheet_1234567890", {
+    job: { url: "https://acme.com/jobs/1" },
+    fields: { note: "recruiter replied" },
+  });
 
-  const update = calls.find((c) => /values:batchUpdate/.test(c.url));
-  const written: string[] = JSON.parse((update as Call).body as string).data[0].values[0];
-  assert.equal(written[14], "[2026-06-18] recruiter replied");
+  assert.equal(result.matched, true);
+  assert.equal(
+    calls.some((c) => /values:batchUpdate/.test(c.url)),
+    false,
+    "identical note must not rewrite the row",
+  );
 });
 
 test("returns matched:false and writes nothing when no row matches", async () => {
@@ -90,4 +103,41 @@ test("matches by company+title when url is absent", async () => {
 
   assert.equal(result.matched, true);
   assert.equal(result.matchedBy, "company-title");
+});
+
+test("F1A-PIPE05-NARROW: inbound updates patch changed cells, not stale A:Y", async () => {
+  const existing = [rowFor({ url: "https://acme.com/jobs/1", company: "Acme", title: "PM", notes: "keep me" })];
+  const { fetchImpl, calls } = mockFetch(existing);
+  const patcher = createPipelinePatcher(runtimeConfig, { fetchImpl, now: () => new Date("2026-06-18T10:00:00Z") });
+
+  await patcher.patch("sheet_1234567890", {
+    job: { url: "https://acme.com/jobs/1" },
+    fields: { stage: "Interviewing", note: "recruiter replied" },
+  });
+
+  const update = calls.find((c) => /values:batchUpdate/.test(c.url));
+  assert.ok(update, "expected a batchUpdate call");
+  const body = JSON.parse(update.body as string);
+  const ranges = body.data.map((entry: { range: string }) => entry.range);
+  assert.equal(ranges.some((range: string) => /^Pipeline!A2:[A-Z]+2$/.test(range)), false);
+  assert.ok(ranges.includes("Pipeline!M2"), "status must be a narrow M cell patch");
+  assert.ok(ranges.includes("Pipeline!O2"), "note must be a narrow O cell patch");
+  assert.equal(ranges.includes("Pipeline!B2"), false, "must not rewrite Title");
+  assert.equal(ranges.includes("Pipeline!E2"), false, "must not rewrite Link");
+});
+
+test("F1A-P2-VALIDATE: unknown patch fields fail closed and write nothing", async () => {
+  const existing = [rowFor({ url: "https://acme.com/jobs/1", company: "Acme", title: "PM" })];
+  const { fetchImpl, calls } = mockFetch(existing);
+  const patcher = createPipelinePatcher(runtimeConfig, { fetchImpl });
+
+  await assert.rejects(
+    () =>
+      patcher.patch("sheet_1234567890", {
+        job: { url: "https://acme.com/jobs/1" },
+        fields: { stage: "Offer", mysteryColumn: "nope" } as never,
+      }),
+    /unknown/i,
+  );
+  assert.equal(calls.some((c) => /values:batchUpdate/.test(c.url)), false);
 });

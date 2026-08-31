@@ -25,6 +25,9 @@ Pointers to contract, setup, automation roadmap, hardening notes, and machine-re
 | [CONTRACT-HARDENING-PLAN.md](CONTRACT-HARDENING-PLAN.md)                                                                 | Plan to keep the agent–dashboard contract versioned, testable, and aligned with schema and integrations.                 |
 | [CONTRACT-CHANGELOG.md](CONTRACT-CHANGELOG.md)                                                                           | Dated changes to the contract, schemas, and examples.                                                                    |
 | [CONTRIBUTING.md](../CONTRIBUTING.md)                                                                                    | Contract change checklist for discovery webhook and Pipeline columns.                                                    |
+| [JB-A11Y.md](../JB-A11Y.md)                                                                                              | Shared dialog, drawer, live-region, field, tab, and stage-menu accessibility contracts.                                 |
+| [HERMETIC-BROWSER-GATE.md](HERMETIC-BROWSER-GATE.md)                                                                     | Requirements for turning the Playwright smoke and journey jobs into required CI gates.                                  |
+| [INTERFACE-COMPANY-ALLOWLIST.md](INTERFACE-COMPANY-ALLOWLIST.md)                                                         | Per-run company allowlist/blocklist resolution, validation, and fail-closed behavior.                                   |
 
 ## Schemas & examples
 

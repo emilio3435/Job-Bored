@@ -72,7 +72,7 @@ def validate_draft(app_dir: Path) -> tuple[bool, list[str]]:
 
 
 def send_gate2_request(title: str, company: str, platform: str, fit_summary: str) -> dict:
-    """Send Gate 2 confirmation request to Telegram thread 314.
+    """Send Gate 2 confirmation request to the contract Telegram thread.
     Returns {sent: bool, message_id: int, message_text: str}.
 
     Uses Telegram Bot API directly via gate2_telegram module.
@@ -88,7 +88,7 @@ def send_gate2_request(title: str, company: str, platform: str, fit_summary: str
 
 
 def wait_for_gate2_confirmation(company: str, timeout: int = js.GATE2_TIMEOUT_SECONDS, after_message_id: int | None = None) -> tuple[bool, str]:
-    """Poll for YES SUBMIT <COMPANY> reply in Telegram thread 314.
+    """Poll for YES SUBMIT <COMPANY> reply in the Gate 2 contract thread.
 
     Uses Telegram Bot API getUpdates with long polling.
 

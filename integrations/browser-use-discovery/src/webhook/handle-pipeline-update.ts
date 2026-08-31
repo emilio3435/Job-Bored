@@ -1,7 +1,9 @@
 import type { WorkerRuntimeConfig } from "../config.ts";
 import {
   DID_THEY_REPLY_VALUES,
+  PIPELINE_PATCH_FIELD_KEYS,
   PIPELINE_STATUS_VALUES,
+  PipelinePatchValidationError,
   type DidTheyReply,
   type PipelinePatchInput,
   type PipelinePatchResult,
@@ -35,6 +37,9 @@ type ParseResult =
   | { ok: true; sheetId: string; input: PipelinePatchInput }
   | { ok: false; message: string };
 
+const PIPELINE_UPDATE_EVENT = "command-center.pipeline-update";
+const KNOWN_FIELD_KEY_SET = new Set<string>(PIPELINE_PATCH_FIELD_KEYS);
+
 function parseRequest(bodyText: string | undefined): ParseResult {
   let record: Record<string, unknown>;
   try {
@@ -44,6 +49,12 @@ function parseRequest(bodyText: string | undefined): ParseResult {
   }
   if (!record || typeof record !== "object") {
     return { ok: false, message: "Request body must be a JSON object." };
+  }
+  if (record.event !== PIPELINE_UPDATE_EVENT) {
+    return { ok: false, message: "event must be command-center.pipeline-update." };
+  }
+  if (record.schemaVersion !== 1) {
+    return { ok: false, message: "schemaVersion must be 1." };
   }
   const sheetId = typeof record.sheetId === "string" ? record.sheetId.trim() : "";
   if (!sheetId) {
@@ -57,6 +68,10 @@ function parseRequest(bodyText: string | undefined): ParseResult {
     return { ok: false, message: "job.url, or both job.company and job.title, are required." };
   }
   const rawFields = (record.fields ?? {}) as Record<string, unknown>;
+  const unknownFields = Object.keys(rawFields).filter((key) => !KNOWN_FIELD_KEY_SET.has(key));
+  if (unknownFields.length) {
+    return { ok: false, message: `Unknown pipeline-update field(s): ${unknownFields.join(", ")}.` };
+  }
   const fields: PipelinePatchInput["fields"] = {};
   if ("stage" in rawFields) {
     const stage = rawFields.stage;
@@ -106,6 +121,9 @@ export async function handlePipelineUpdateWebhook(
     result = await dependencies.patchPipeline(parsed.sheetId, parsed.input);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof PipelinePatchValidationError) {
+      return jsonResponse(400, { ok: false, message });
+    }
     dependencies.log?.("pipeline-update.error", { message });
     return jsonResponse(502, { ok: false, message: "Failed to update pipeline.", detail: message });
   }

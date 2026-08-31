@@ -1,0 +1,37 @@
+{
+  "ownerLane": "F3-D",
+  "consumerLane": "F4-D",
+  "playwrightHint": "Map each viewport onto a Playwright project: use: { viewport: { width, height }, deviceScaleFactor }. Overlay a keyboard by shrinking the layout viewport height by keyboardOpenInsetPx (or set --jb-keyboard-inset). Do not require hover or native HTML5 drag at these widths.",
+  "invariants": [
+    "Every primary action is at least 44px on the --jb-touch-min token.",
+    "No required action depends on :hover; Move-to is a visible button with a keyboard-operable menu.",
+    "No required action depends on native drag; stage changes go through Move-to or an equivalent keyboard path.",
+    "Sticky Move-to / overlay actions clear env(keyboard-inset-bottom, var(--jb-keyboard-inset, 0px)). Soft-keyboard inset values are recorded fixtures, not real-device proof."
+  ],
+  "viewports": [
+    {
+      "id": "iphone-se",
+      "name": "iPhone SE",
+      "width": 320,
+      "height": 568,
+      "deviceScaleFactor": 2,
+      "keyboardOpenInsetPx": 216
+    },
+    {
+      "id": "iphone-12-mini",
+      "name": "iPhone 12 mini",
+      "width": 375,
+      "height": 812,
+      "deviceScaleFactor": 3,
+      "keyboardOpenInsetPx": 260
+    },
+    {
+      "id": "iphone-14",
+      "name": "iPhone 14",
+      "width": 393,
+      "height": 852,
+      "deviceScaleFactor": 3,
+      "keyboardOpenInsetPx": 336
+    }
+  ]
+}

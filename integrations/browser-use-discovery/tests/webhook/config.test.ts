@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import {
   mergeDiscoveryConfig,
   resolveBrowserUseCommand,
   resolveSourcePreset,
+  upsertStoredWorkerConfig,
 } from "../../src/config.ts";
 import {
   DEFAULT_ENABLED_SOURCE_IDS,
@@ -599,6 +600,174 @@ test("mergeDiscoveryConfig missing companyAllowlist preserves baseline behavior"
     result.companies.map((company) => company.companyKey),
     ["notion", "ramp"],
   );
+});
+
+test("F1C-DISC04: mergeDiscoveryConfig subtracts companyBlocklist from normal and ATS pools", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig({
+      companies: [
+        { name: "Acme", companyKey: "acme" },
+        { name: "Beta", companyKey: "beta" },
+      ],
+      atsCompanies: [
+        { name: "Acme", companyKey: "acme" },
+        { name: "Linear", companyKey: "linear" },
+      ],
+    }) as any,
+    makeRequest({ companyBlocklist: ["Acme"] }),
+  );
+
+  assert.deepEqual(
+    result.companies.map((company) => company.companyKey),
+    ["beta"],
+  );
+  assert.deepEqual(
+    (result.atsCompanies || []).map((company) => company.companyKey),
+    ["linear"],
+  );
+});
+
+test("F1C-DISC03: mergeDiscoveryConfig uses merged profile and nested profile intent", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig({ companies: [] }) as any,
+    makeRequest({
+      discoveryProfile: {
+        targetRoles: "",
+        keywordsInclude: "",
+        profileSnapshot: {
+          profileHash: "profile-1",
+          resumeHash: "resume-1",
+          preferencesHash: "preferences-1",
+          scheduleHash: "schedule-1",
+          capturedAt: "2026-04-10T03:00:00.000Z",
+          locations: "Remote",
+        },
+        searchPlan: {
+          planVersion: 1,
+          generatedAt: "2026-04-10T03:00:00.000Z",
+          seed: "seed",
+          query: { keywordsInclude: "distributed systems" },
+        },
+      },
+      mergedUserProfile: {
+        version: 1,
+        identity: {
+          targetRoles: ["Staff backend engineer"],
+          targetSeniority: "ic_staff",
+          primaryNarrative: "I build distributed systems.",
+        },
+        strengths: [],
+        hardConstraints: { workMode: "remote_only" },
+      },
+    }),
+  );
+
+  assert.deepEqual(result.targetRoles, ["Staff backend engineer"]);
+  assert.deepEqual(result.includeKeywords, ["distributed systems"]);
+  assert.deepEqual(result.locations, ["Remote"]);
+  assert.equal(result.seniority, "ic_staff");
+});
+
+test("F1C-DISC06: mergeDiscoveryConfig carries blocked_unresolved into run settings", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig({
+      companies: [{ name: "Notion", companyKey: "notion" }],
+      atsCompanies: [{ name: "Notion", companyKey: "notion" }],
+    }) as any,
+    makeRequest({ companyAllowlist: ["unknown-company"] }),
+  );
+
+  assert.equal(result.allowlistResolution.mode, "blocked_unresolved");
+  assert.deepEqual(result.companies, []);
+  assert.deepEqual(result.atsCompanies, []);
+  assert.deepEqual(result.effectiveSources, []);
+});
+
+test("F1C-P2-SHEETS: upsertStoredWorkerConfig preserves grouped sibling sheets", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "discovery-config-upsert-"));
+  const configPath = join(tempDir, "worker-config.json");
+  try {
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        bySheetId: {
+          sheet_a: {
+            companies: [{ name: "Alpha", companyKey: "alpha" }],
+            experimentalFlag: "keep-me",
+          },
+          sheet_b: {
+            companies: [{ name: "Beta", companyKey: "beta" }],
+            notes: "other-sheet",
+          },
+        },
+        extraEnvelopeField: 42,
+      }),
+      "utf8",
+    );
+    const runtimeConfig = {
+      ...loadRuntimeConfig({ BROWSER_USE_DISCOVERY_RUN_MODE: "local" }),
+      workerConfigPath: configPath,
+    };
+
+    await upsertStoredWorkerConfig(runtimeConfig, {
+      sheetId: "sheet_a",
+      mutations: {
+        companies: [{ name: "Alpha Updated", companyKey: "alpha" }],
+      },
+    });
+
+    const persisted = JSON.parse(await readFile(configPath, "utf8"));
+    assert.equal(persisted.extraEnvelopeField, 42);
+    assert.equal(persisted.bySheetId.sheet_a.experimentalFlag, "keep-me");
+    assert.equal(persisted.bySheetId.sheet_a.companies[0].name, "Alpha Updated");
+    assert.equal(persisted.bySheetId.sheet_b.companies[0].name, "Beta");
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("F1C-P2-SHEETS: mixed config envelopes update the same direct branch that reads prefer", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "discovery-config-mixed-"));
+  const configPath = join(tempDir, "worker-config.json");
+  try {
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        config: {
+          sheetId: "sheet_a",
+          companies: [{ name: "Direct Alpha", companyKey: "direct-alpha" }],
+          marker: "direct",
+        },
+        bySheetId: {
+          sheet_a: {
+            companies: [{ name: "Grouped Alpha", companyKey: "grouped-alpha" }],
+            marker: "grouped",
+          },
+        },
+      }),
+      "utf8",
+    );
+    const runtimeConfig = {
+      ...loadRuntimeConfig({ BROWSER_USE_DISCOVERY_RUN_MODE: "local" }),
+      workerConfigPath: configPath,
+    };
+
+    await upsertStoredWorkerConfig(runtimeConfig, {
+      sheetId: "sheet_a",
+      mutations: {
+        companies: [{ name: "Updated Alpha", companyKey: "updated-alpha" }],
+      },
+    });
+
+    const persisted = JSON.parse(await readFile(configPath, "utf8"));
+    assert.equal(persisted.config.marker, "direct");
+    assert.equal(persisted.config.companies[0].name, "Updated Alpha");
+    assert.equal(persisted.bySheetId.sheet_a.companies[0].name, "Grouped Alpha");
+    const reloaded = await loadStoredWorkerConfig(runtimeConfig, "sheet_a");
+    assert.equal(reloaded.companies[0].name, "Updated Alpha");
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
 });
 
 // === resolveSourcePreset fallback truth table (VAL-API-006) ===

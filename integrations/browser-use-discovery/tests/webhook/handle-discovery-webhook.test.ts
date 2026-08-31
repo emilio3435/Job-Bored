@@ -24,6 +24,10 @@ import {
   createRunStatusToken,
   hasValidRunStatusToken,
 } from "../../src/webhook/run-status-auth.ts";
+import {
+  buildRunningRunStatus,
+  createDiscoveryRunStatusStore,
+} from "../../src/state/run-status-store.ts";
 
 // Shared header value used in tests that need to bypass auth validation.
 // Uses obviously fake placeholder literals that avoid secret-like keywords.
@@ -1646,8 +1650,12 @@ test("handleDiscoveryWebhook routes per-request googleAccessToken into the run d
 });
 
 test("handleDiscoveryWebhook routes per-request googleAccessToken into DiscoveryRuns logger", async () => {
+  const scopedCalls: Array<{ sheetId: string }> = [];
   const scopedLogger = {
-    append: async () => ({ ok: true, created: false }),
+    append: async (sheetId: string) => {
+      scopedCalls.push({ sheetId });
+      return { ok: true, created: false };
+    },
   };
   let loggerFactoryConfig = null;
   let observedLogger = null;
@@ -1751,7 +1759,20 @@ test("handleDiscoveryWebhook routes per-request googleAccessToken into Discovery
 
   assert.equal(response.status, 200, response.body);
   assert.equal(loggerFactoryConfig.googleAccessToken, "test-access-token-for-runs-log");
-  assert.equal(observedLogger, scopedLogger);
+  assert.equal(typeof observedLogger?.append, "function");
+  await observedLogger.append("sheet_123", {
+    runAt: "2026-04-09T12:00:01.000Z",
+    trigger: "manual",
+    status: "success",
+    durationS: 1,
+    companiesSeen: 0,
+    leadsWritten: 0,
+    leadsUpdated: 0,
+    source: "worker@test",
+    variationKey: "var_123",
+    error: "",
+  });
+  assert.deepEqual(scopedCalls, [{ sheetId: "sheet_123" }]);
 });
 
 test("handleDiscoveryWebhook can include a backward-compatible status token in statusPath", async () => {
@@ -3558,6 +3579,306 @@ test("companyBlocklist: rejects non-array value with 400", async () => {
   assert.match(body.message, /array/i);
 });
 
+const F1C_MERGED_USER_PROFILE = {
+  version: 1,
+  identity: {
+    targetRoles: ["Staff backend engineer"],
+    targetSeniority: "ic_staff",
+    primaryNarrative:
+      "I build distributed backends and want to keep doing that at a product company.",
+  },
+  strengths: [{ name: "Distributed systems", rank: 1 }],
+  hardConstraints: { workMode: "remote_only" },
+};
+
+test("F1C-DISC02-PROFILE: mergedUserProfile survives the worker parser and is used", async () => {
+  let received: any = null;
+  const dependencies = makeDependencies({
+    runSynchronously: true,
+    runDiscovery: async (req) => {
+      received = req;
+      return makeDependencies().runDiscovery({} as any, "manual" as any, {} as any);
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: { targetRoles: "Senior Engineer" },
+        mergedUserProfile: {
+          ...F1C_MERGED_USER_PROFILE,
+          resumeText: "SECRET_RESUME_TEXT_MUST_NOT_SURVIVE",
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.ok(
+    [200, 202].includes(response.status),
+    `Expected 200/202, got ${response.status}: ${response.body}`,
+  );
+  assert.ok(received, "runDiscovery must receive the parsed request");
+  assert.equal(received.mergedUserProfile.identity.targetRoles[0], "Staff backend engineer");
+  assert.equal(received.mergedUserProfile.hardConstraints.workMode, "remote_only");
+  assert.equal(received.mergedUserProfile.resumeText, undefined);
+});
+
+test("F1C-DISC03-INTENT: mergedUserProfile alone satisfies empty-company preflight", async () => {
+  let runDiscoveryCalled = false;
+  const dependencies = makeDependencies({
+    runSynchronously: true,
+    runDiscovery: async () => {
+      runDiscoveryCalled = true;
+      return makeDependencies().runDiscovery({} as any, "manual" as any, {} as any);
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+      loadStoredWorkerConfig: async () => ({
+        sheetId: "sheet_123",
+        mode: "hosted",
+        timezone: "UTC",
+        companies: [],
+        atsCompanies: [],
+        includeKeywords: [],
+        excludeKeywords: [],
+        targetRoles: [],
+        locations: [],
+        remotePolicy: "",
+        seniority: "",
+        maxLeadsPerRun: 25,
+        enabledSources: ["grounded_web"],
+        schedule: { enabled: false, cron: "" },
+      }),
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        mergedUserProfile: F1C_MERGED_USER_PROFILE,
+      }),
+    },
+    dependencies,
+  );
+
+  assert.ok([200, 202].includes(response.status), response.body);
+  assert.equal(runDiscoveryCalled, true);
+});
+
+test("F1C-DISC06-ALLOW: unknown-only allowlist fails preflight without explicit fallback", async () => {
+  let runDiscoveryCalled = false;
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      runDiscoveryCalled = true;
+      return makeDependencies().runDiscovery({} as any, "manual" as any, {} as any);
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+      mergeDiscoveryConfig,
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: { targetRoles: "Senior Engineer" },
+        companyAllowlist: ["unknown-company"],
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400);
+  assert.match(response.body, /allowlist/i);
+  assert.equal(runDiscoveryCalled, false);
+});
+
+test("F1C-DISC06-ALLOW: a company found only in history satisfies preflight", async () => {
+  let runDiscoveryCalled = false;
+  const dependencies = makeDependencies({
+    runSynchronously: true,
+    runDiscovery: async () => {
+      runDiscoveryCalled = true;
+      return makeDependencies().runDiscovery({} as any, "manual" as any, {} as any);
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+      loadStoredWorkerConfig: async () => ({
+        sheetId: "sheet_123",
+        mode: "hosted",
+        timezone: "UTC",
+        companies: [],
+        atsCompanies: [],
+        companyHistory: [{ name: "Figma", companyKey: "figma" }],
+        includeKeywords: [],
+        excludeKeywords: [],
+        targetRoles: [],
+        locations: [],
+        remotePolicy: "",
+        seniority: "",
+        maxLeadsPerRun: 25,
+        enabledSources: ["grounded_web"],
+        schedule: { enabled: false, cron: "" },
+      }),
+      mergeDiscoveryConfig,
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        companyAllowlist: ["Figma"],
+      }),
+    },
+    dependencies,
+  );
+
+  assert.ok([200, 202].includes(response.status), response.body);
+  assert.equal(runDiscoveryCalled, true);
+});
+
+test("F1C-DISC05-GW: groundedWebEnabled=false survives parser normalize", async () => {
+  let received: any = null;
+  const dependencies = makeDependencies({
+    runSynchronously: true,
+    runDiscovery: async (req) => {
+      received = req;
+      return makeDependencies().runDiscovery({} as any, "manual" as any, {} as any);
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          targetRoles: "Senior Engineer",
+          sourcePreset: "browser_plus_ats",
+          groundedWebEnabled: false,
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.ok([200, 202].includes(response.status), response.body);
+  assert.equal(received?.discoveryProfile?.groundedWebEnabled, false);
+});
+
+test("F1C-DISC05-GW: groundedWebEnabled rejects schema-invalid non-booleans", async () => {
+  const dependencies = makeDependencies({
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          targetRoles: "Senior Engineer",
+          groundedWebEnabled: "false",
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400);
+  assert.match(response.body, /groundedWebEnabled.*boolean/i);
+});
+
+
 // ─── Round-2 quality sweep: webhook hardening ────────────────────────────
 // Cluster: worker hardening — body cap, secret compare, runStatus token.
 // These pin behavior we rely on at the HTTP boundary and at every auth
@@ -3666,4 +3987,283 @@ test("hasValidRunStatusToken returns false for a tampered token and for a token 
     }),
     false,
   );
+});
+
+test("F1B-RUN01-IMMUT: webhook store keeps the first terminal status against a late running write", async () => {
+  const store = createDiscoveryRunStatusStore(":memory:");
+  let releaseRun: ((value?: unknown) => void) | undefined;
+  const backgroundRun = new Promise((resolve) => {
+    releaseRun = resolve;
+  });
+  const dependencies = makeDependencies({
+    runSynchronously: false,
+    runStatusStore: store,
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+    runDiscovery: async (_request, trigger, runDependencies) => {
+      await backgroundRun;
+      return {
+        run: {
+          runId: runDependencies.runId || "run_queued",
+          trigger,
+          request: {
+            event: DISCOVERY_WEBHOOK_EVENT,
+            schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+            sheetId: "sheet_123",
+            variationKey: "var_123",
+            requestedAt: "2026-04-09T12:00:00.000Z",
+          },
+          config: {
+            sheetId: "sheet_123",
+            mode: "hosted",
+            timezone: "UTC",
+            companies: [],
+            includeKeywords: [],
+            excludeKeywords: [],
+            targetRoles: [],
+            locations: [],
+            remotePolicy: "",
+            seniority: "",
+            maxLeadsPerRun: 25,
+            enabledSources: ["greenhouse"],
+            schedule: { enabled: false, cron: "" },
+            variationKey: "var_123",
+            requestedAt: "2026-04-09T12:00:00.000Z",
+          },
+        },
+        lifecycle: {
+          runId: runDependencies.runId || "run_queued",
+          trigger,
+          startedAt: "2026-04-09T12:00:00.000Z",
+          completedAt: "2026-04-09T12:00:01.000Z",
+          state: "completed",
+          companyCount: 0,
+          detectionCount: 0,
+          listingCount: 0,
+          normalizedLeadCount: 0,
+        },
+        extractionResults: [],
+        sourceSummary: [],
+        writeResult: {
+          sheetId: "sheet_123",
+          appended: 0,
+          updated: 0,
+          skippedDuplicates: 0,
+          skippedBlacklist: 0,
+          warnings: [],
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+      }),
+    },
+    dependencies,
+  );
+  assert.equal(response.status, 202);
+  releaseRun?.();
+  const completed = await waitForRunStatus(
+    store,
+    "run_queued",
+    (state) => !!(state && state.terminal),
+    500,
+  );
+  assert.equal(completed?.status, "completed");
+  assert.equal(completed?.terminal, true);
+  store.put(buildRunningRunStatus(completed, "2026-04-09T12:05:00.000Z"));
+  const afterLateWrite = store.get("run_queued");
+  assert.equal(afterLateWrite?.status, "completed");
+  assert.equal(afterLateWrite?.terminal, true);
+  store.close();
+});
+
+test("F1B-RUN02-PERSIST: async work must not begin before running-status persistence succeeds", async () => {
+  const events: string[] = [];
+  let started = false;
+  const store = {
+    put(payload: { runId: string; status: string }) {
+      events.push(`put:${payload.status}`);
+      if (payload.status === "running") {
+        throw new Error("persist failed");
+      }
+    },
+    get() {
+      return null;
+    },
+    close() {},
+  };
+  const dependencies = makeDependencies({
+    runSynchronously: false,
+    runStatusStore: store,
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+    runDiscovery: async () => {
+      started = true;
+      events.push("runDiscovery");
+      return makeDependencies().runDiscovery(
+        {} as never,
+        "manual",
+        {} as never,
+      );
+    },
+  });
+
+  let response: { status: number; body: string };
+  try {
+    response = await handleDiscoveryWebhook(
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-discovery-secret": SHARED_HEADER_VALUE,
+        },
+        bodyText: JSON.stringify({
+          event: DISCOVERY_WEBHOOK_EVENT,
+          schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+          sheetId: "sheet_123",
+          variationKey: "var_123",
+          requestedAt: "2026-04-09T12:00:00.000Z",
+        }),
+      },
+      dependencies,
+    );
+  } catch (error) {
+    response = {
+      status: 500,
+      body: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  assert.equal(started, false);
+  assert.equal(events.includes("runDiscovery"), false);
+  assert.equal(response.status, 500);
+  assert.ok(events.indexOf("put:accepted") >= 0);
+});
+
+test("F1B-RUN05-FINAL: catastrophic async failure writes one durable history row", async () => {
+  const rows: Array<{ status: string; error: string }> = [];
+  let resolveHistoryWritten!: () => void;
+  const historyWritten = new Promise<void>((resolve) => {
+    resolveHistoryWritten = resolve;
+  });
+  const dependencies = makeDependencies({
+    runSynchronously: false,
+    runDiscovery: async () => {
+      throw new Error("worker exploded mid-run");
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+      discoveryRunsLogger: {
+        append: async (_sheetId: string, row: { status: string; error: string }) => {
+          rows.push({ status: row.status, error: row.error });
+          resolveHistoryWritten();
+          return { ok: true, created: false };
+        },
+      },
+      discoveryRunsSource: "worker@test",
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+      }),
+    },
+    dependencies,
+  );
+  assert.equal(response.status, 202);
+  await historyWritten;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, "failure");
+  assert.match(rows[0].error, /exploded/i);
+});
+
+test("F1B-RUN05-FINAL: watchdog timeout writes one durable history row and stays idempotent", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const rows: Array<{ status: string }> = [];
+  let resolveHistoryWritten!: () => void;
+  const historyWritten = new Promise<void>((resolve) => {
+    resolveHistoryWritten = resolve;
+  });
+  const dependencies = makeDependencies({
+    runSynchronously: false,
+    maxRunDurationMs: 15,
+    runDiscovery: async () => new Promise(() => {}),
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+      discoveryRunsLogger: {
+        append: async (_sheetId: string, row: { status: string }) => {
+          rows.push({ status: row.status });
+          resolveHistoryWritten();
+          return { ok: true, created: false };
+        },
+      },
+      discoveryRunsSource: "worker@test",
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+      }),
+    },
+    dependencies,
+  );
+  assert.equal(response.status, 202);
+  t.mock.timers.tick(15);
+  await historyWritten;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, "partial");
 });

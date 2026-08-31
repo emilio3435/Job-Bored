@@ -437,3 +437,74 @@ test("registry supports multiple surfaces for a single provider/company", async 
     ["job_posting", "provider_board"],
   );
 });
+
+test("F4A-RUN10-SETTLED: one failed ATS board retains sibling successes and attributes the failure", async () => {
+  const registry = createSourceAdapterRegistry({
+    run: async () => ({ text: "[]", metadata: {} }),
+  });
+  const greenhouseAdapter = registry.adapters.find(
+    (adapter) => adapter.sourceId === "greenhouse",
+  );
+  const ashbyAdapter = registry.adapters.find(
+    (adapter) => adapter.sourceId === "ashby",
+  );
+  assert.ok(greenhouseAdapter);
+  assert.ok(ashbyAdapter);
+
+  greenhouseAdapter.listJobs = async () => [
+    {
+      sourceId: "greenhouse",
+      sourceLabel: "Greenhouse",
+      title: "Backend Engineer",
+      company: "Acme AI",
+      location: "Remote",
+      url: "https://boards.greenhouse.io/acme-ai/jobs/1",
+      tags: ["Engineering"],
+    },
+  ];
+  ashbyAdapter.listJobs = async () => {
+    throw new Error("Ashby board exploded");
+  };
+
+  const detections = [
+    {
+      matched: true,
+      sourceId: "greenhouse",
+      sourceLabel: "Greenhouse",
+      boardUrl: "https://boards.greenhouse.io/acme-ai",
+      confidence: 1,
+      warnings: [],
+    },
+    {
+      matched: true,
+      sourceId: "ashby",
+      sourceLabel: "Ashby",
+      boardUrl: "https://jobs.ashbyhq.com/acme-ai",
+      confidence: 1,
+      warnings: [],
+    },
+  ];
+  const run = makeRun({
+    enabledSources: ["greenhouse", "ashby"],
+    boardHints: {
+      greenhouse: "acme-ai",
+      ashby: "acme-ai",
+    },
+  });
+
+  const settled = await registry.collectListingsSettled(run, detections);
+  assert.equal(settled.listings.length, 1);
+  assert.equal(settled.listings[0]?.sourceId, "greenhouse");
+  assert.equal(settled.listings[0]?.title, "Backend Engineer");
+  assert.equal(settled.failures.length, 1);
+  assert.equal(settled.failures[0]?.sourceId, "ashby");
+  assert.equal(
+    settled.failures[0]?.boardUrl,
+    "https://jobs.ashbyhq.com/acme-ai",
+  );
+  assert.match(settled.failures[0]?.message || "", /Ashby board exploded/);
+
+  const listings = await registry.collectListings(run, detections);
+  assert.equal(listings.length, 1);
+  assert.equal(listings[0]?.sourceId, "greenhouse");
+});

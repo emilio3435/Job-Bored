@@ -132,6 +132,35 @@ export function isStableTransport(kind) {
 }
 
 /**
+ * Infer transport kind from a public URL. Cloudflare Quick Tunnel hostnames
+ * must never be classified as ngrok.
+ */
+export function inferTransportKindFromUrl(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  let hostname = "";
+  try {
+    hostname = new URL(value).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+  if (
+    hostname === "trycloudflare.com" ||
+    hostname.endsWith(".trycloudflare.com")
+  ) {
+    return TRANSPORT_CLOUDFLARE_QUICK;
+  }
+  if (
+    hostname.endsWith(".ngrok-free.app") ||
+    hostname.endsWith(".ngrok.app") ||
+    hostname.endsWith(".ngrok.io")
+  ) {
+    return TRANSPORT_NGROK;
+  }
+  return "";
+}
+
+/**
  * Build the argv for a cloudflare_quick tunnel: an anonymous quick tunnel that
  * exposes the local worker port. The returned { command, args } is consumed by
  * both the bootstrap (spawned detached) and the tunnel-autostart service. PURE

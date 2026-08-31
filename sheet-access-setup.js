@@ -73,6 +73,11 @@
           typeof currentHost.getOAuthClientId === "function" &&
           currentHost.getOAuthClientId()
         ),
+        canWriteSheet: !!(
+          currentHost &&
+          typeof currentHost.canWriteSheet === "function" &&
+          currentHost.canWriteSheet()
+        ),
       };
     } catch (err) {
       return {
@@ -634,6 +639,18 @@
       btn.textContent = "Sign in & create blank starter sheet";
       status.textContent =
         "This will open Google sign-in, then create a fresh Pipeline sheet with just the headers.";
+      return;
+    }
+
+    const hasSheetsScope =
+      typeof host().hasGrantedOauthScope === "function" &&
+      typeof host().getGoogleSheetsScope === "function" &&
+      host().hasGrantedOauthScope(host().getGoogleSheetsScope());
+    if (!hasSheetsScope) {
+      btn.disabled = false;
+      btn.textContent = "Grant Sheets access & create blank starter sheet";
+      status.textContent =
+        "Google signed you in but didn't grant Sheets access. Click to reopen consent and check the box allowing JobBored to manage your Google Sheets.";
       return;
     }
 

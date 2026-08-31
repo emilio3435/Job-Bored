@@ -2,26 +2,39 @@
    scribe.js — JobBored v2 ATS + Cover Letter Workspace (Phase 3)
    ------------------------------------------------------------
    Owner:      Scribe
-   Activates:  document.body.classList.contains('jb-v2')
+   Activates:  document.body.classList.contains('jb-v2'), observed
+               (NOT sampled once — the flag script in index.html
+               adds the class from a DOMContentLoaded listener,
+               after this deferred script has already run, and the
+               settings toggle adds it later still).
    Region:     <section data-region="scribe">
    Behavior:
      - Renders a split-pane workspace (editor | scorecard) with a
-       docked refine strip and tabs (Cover letter / Resume).
-     - Reuses every legacy modal action by triggering `click` on
-       the existing legacy DOM ids:
-         #resumeGenerateRefine   (Refine button)
+       docked refine strip and tabs (Cover letter / Resume), bound
+       to the LIVE generation session: the role label, the document
+       tab and the version rail all follow
+       getLastResumeGenerationSession().
+     - Reuses the legacy modal actions by triggering `click` on the
+       existing legacy DOM ids:
          #resumeGeneratePrint    (Print/PDF)
          #resumeGenerateCopy     (Copy text)
          #resumeGenerateDone     (Done)
          #resumeGenerateClose    (Close)
        The textarea #resumeGenerateOutput remains the source of
-       truth for body text (Refine, Copy, ATS rescore all read it).
-     - Edits in the editor are debounced (~600ms idle) and synced
-       back into #resumeGenerateOutput so the existing
-       scheduleResumeGenerateAtsRefresh() pipeline picks them up.
+       truth for body text, and syncEditorIntoLegacy() is the ONLY
+       writer into it.
+     - Edits are debounced (~600ms idle) into #resumeGenerateOutput.
+       Print / Copy / Done flush that debounce SYNCHRONOUSLY first,
+       so no export or close can carry stale text.
+     - Refine awaits JobBoredApp.resumeGeneration
+       .refineLastResumeGeneration() — the real async generate+save
+       — instead of guessing completion with a timer.
+     - Scoring belongs to scribe-score-adapter.js (the real
+       jb:ats:state bus). This file owns no scoring heuristic.
+     - Persistence belongs to scribe-state.js (autosave + named
+       versions through CommandCenterUserContent).
      - Smoke routine gated behind ?jb-v2-test=scribe instruments
-       the dispatch path and asserts each mapped legacy click
-       fired. Output to console as a single PASS/FAIL block.
+       the dispatch path and asserts each mapped action fired.
 
    No new modal is introduced. No legacy data-action attribute
    names are renamed.
@@ -32,28 +45,20 @@
 
   const REGION_SELECTOR = '[data-region="scribe"]';
   const DEBOUNCE_MS = 600;
-  const STAGE_TIERS = [
-    { min: 75, tier: "high" },
-    { min: 50, tier: "mid" },
-    { min: 0, tier: "low" },
-  ];
 
-  // 6-axis scorecard. Order matches the §SCORECARD CONTENT spec.
-  const AXES = [
-    { key: "req",     label: "Req",          help: "Required keywords coverage" },
-    { key: "exp",     label: "Experience",   help: "Years / level fit" },
-    { key: "impact",  label: "Impact",       help: "Outcome-driven phrasing" },
-    { key: "parse",   label: "Parseability", help: "ATS-safe structure" },
-    { key: "tone",    label: "Tone",         help: "Voice match" },
-    { key: "conf",    label: "Confidence",   help: "Concrete claims" },
-  ];
-
-  /** @type {{rendered:boolean, smoke:boolean, debounceTimer:any, lastEditAt:number}} */
+  /** @type {{rendered:boolean, smoke:boolean, debounceTimer:any, lastEditAt:number,
+   *          refineInFlight:boolean, refineCalls:number, unsubscribe:null|Function,
+   *          bodyObserver:any, score:any}} */
   const state = {
     rendered: false,
     smoke: false,
     debounceTimer: null,
     lastEditAt: 0,
+    refineInFlight: false,
+    refineCalls: 0,
+    unsubscribe: null,
+    bodyObserver: null,
+    score: null,
   };
 
   function isV2() {
@@ -64,9 +69,45 @@
     return document.querySelector(REGION_SELECTOR);
   }
 
-  function tierFor(pct) {
-    for (const t of STAGE_TIERS) if (pct >= t.min) return t.tier;
-    return "low";
+  // ---------------------------------------------------------
+  // Lane collaborators (lazy — a missing module degrades the
+  // workspace honestly instead of throwing).
+  // ---------------------------------------------------------
+  function scribeState() {
+    return window.JobBoredScribeState || null;
+  }
+
+  function scribeScore() {
+    return window.JobBoredScribeScore || null;
+  }
+
+  function resumeGenerationApi() {
+    const app = window.JobBoredApp;
+    return app && app.resumeGeneration ? app.resumeGeneration : null;
+  }
+
+  /* jb-v2's a11y primitive ships in two shapes across the reconciled
+     branches: `live.announce(message)` and a flat
+     `announce(document, message, options)`. Feature-detecting only one of
+     them makes a missing screen-reader announcement a SILENT no-op —
+     nothing throws and no test fails, the refine outcome simply never
+     reaches anybody who cannot see the pane. Try the namespaced form
+     first, then the flat one; never both. */
+  function announce(message) {
+    const a11y = window.JobBoredA11y;
+    if (!a11y) return;
+    if (a11y.live && typeof a11y.live.announce === "function") {
+      a11y.live.announce(message);
+      return;
+    }
+    if (typeof a11y.announce === "function") {
+      a11y.announce(document, message);
+    }
+  }
+
+  function errorMessage(err) {
+    if (!err) return "unknown error";
+    return String(err.message || err) || "unknown error";
   }
 
   // ---------------------------------------------------------
@@ -104,7 +145,8 @@
         <header class="scribe-topbar" role="toolbar" aria-label="Cover letter actions">
           <div class="scribe-topbar__role">
             <span class="scribe-topbar__role-name">Draft for</span>
-            <span class="scribe-topbar__role-target" data-scribe-target>Senior role · Company</span>
+            <span class="scribe-topbar__role-target" data-scribe-target data-bound="false">No role bound yet</span>
+            <span class="scribe-save" data-scribe-save data-state="idle">no local changes</span>
           </div>
 
           <div class="scribe-tabs" role="tablist" aria-label="Document">
@@ -146,21 +188,47 @@
                 data-placeholder="Generate or paste a draft to begin…"
               ></div>
             </article>
+
+            <article class="jb-sticker scribe-versions" aria-labelledby="scribeVersionsTitle">
+              <div class="scribe-versions__head">
+                <h4 class="scribe-versions__title" id="scribeVersionsTitle">Saved versions</h4>
+              </div>
+              <ul class="scribe-versions__list" id="scribeVersions" role="list">
+                <li class="scribe-versions__empty">No saved versions yet for this role.</li>
+              </ul>
+              <div class="scribe-versions__save">
+                <input
+                  type="text"
+                  class="scribe-versions__input"
+                  id="scribeVersionTitle"
+                  aria-label="Name this version"
+                  placeholder="Name this version (optional)"
+                />
+                <button type="button" class="scribe-btn" id="scribeSaveVersionBtn">Save version</button>
+              </div>
+            </article>
           </section>
 
           <aside class="scribe-pane scribe-pane--scorecard" aria-label="ATS match scorecard">
-            <article class="jb-sticker scribe-scorecard" id="scribeScorecard">
+            <article class="jb-sticker scribe-scorecard" id="scribeScorecard" data-score-state="absent">
               <span class="jb-stamp scribe-scorecard__stamp" aria-hidden="true">DRAFT</span>
               <div class="scribe-scorecard__head">
-                <jb-fit-ring size="lg" percent="0" id="scribeFitRing" label="Overall match"></jb-fit-ring>
+                <jb-fit-ring size="lg" id="scribeFitRing"
+                             label="Overall ATS match not available" data-unscored="true"></jb-fit-ring>
                 <div class="scribe-scorecard__heading">
                   <span class="scribe-scorecard__kicker">ATS match</span>
                   <h3 class="scribe-scorecard__title">Per-axis scorecard</h3>
                 </div>
+                <button type="button" class="scribe-btn scribe-scorecard__rescore" id="scribeRescoreBtn">
+                  Rescore
+                </button>
               </div>
+              <p class="scribe-scorecard__note" data-scribe-score-note>
+                Scoring is not connected in this session.
+              </p>
               <div class="scribe-axes" id="scribeAxes" role="list"></div>
               <footer class="scribe-scorecard__foot">
-                <span data-scribe-model>model demo-scorecard-v1 · 0.0s</span>
+                <span data-scribe-model>no score on record</span>
                 <a href="#" data-scribe-audit
                    aria-label="Open audit log for the most recent scorecard run">audit log</a>
               </footer>
@@ -168,12 +236,26 @@
 
             <article class="jb-sticker scribe-gaps" aria-labelledby="scribeGapsTitle">
               <h4 class="scribe-gaps__title" id="scribeGapsTitle">Gap callouts</h4>
-              <ul class="scribe-gaps__list" id="scribeGaps" role="list"></ul>
+              <ul class="scribe-gaps__list" id="scribeGaps" role="list">
+                <li class="scribe-gaps__empty">Gap callouts appear once this draft is scored.</li>
+              </ul>
+            </article>
+
+            <article class="jb-sticker scribe-evidence" aria-labelledby="scribeEvidenceTitle">
+              <h4 class="scribe-evidence__title" id="scribeEvidenceTitle">Evidence</h4>
+              <ul class="scribe-evidence__list" id="scribeEvidence" role="list">
+                <li class="scribe-evidence__empty">Evidence appears once this draft is scored.</li>
+              </ul>
             </article>
 
             <article class="jb-sticker scribe-talking" aria-labelledby="scribeTalkingTitle">
               <h4 class="scribe-talking__title" id="scribeTalkingTitle">Talking points</h4>
-              <ul class="scribe-talking__list" id="scribeTalking" role="list"></ul>
+              <ul class="scribe-talking__list" id="scribeTalking" role="list">
+                <li class="scribe-talking__item">
+                  <span class="scribe-talking__bullet" aria-hidden="true">·</span>
+                  <span>Talking points appear once this draft is scored.</span>
+                </li>
+              </ul>
             </article>
           </aside>
         </div>
@@ -256,6 +338,11 @@
     editor.innerHTML = html;
     editor.dataset.empty = html ? "false" : "true";
     updateCounter(editor);
+    // Text that arrived FROM the legacy pipeline is already persisted
+    // there; it is the baseline for "unsaved", not a pending edit.
+    const st = scribeState();
+    if (st) st.setBaselineText(plainTextFromEditor(editor));
+    refreshScore();
   }
 
   function syncEditorIntoLegacy() {
@@ -269,6 +356,22 @@
       ta.dispatchEvent(new Event("input", { bubbles: true }));
     }
     updateCounter(editor);
+  }
+
+  /**
+   * Flush the debounced editor write SYNCHRONOUSLY. Every export path
+   * (Print / Copy / Done) and Refine calls this first: the legacy Done
+   * handler closes the modal, so an edit still sitting in the debounce
+   * would be dropped on the floor.
+   */
+  function flushEditor() {
+    if (state.debounceTimer) {
+      window.clearTimeout(state.debounceTimer);
+      state.debounceTimer = null;
+    }
+    syncEditorIntoLegacy();
+    const st = scribeState();
+    if (st) void st.flush(plainTextFromEditor(getEditor()));
   }
 
   function updateCounter(editor) {
@@ -295,101 +398,93 @@
   }
 
   // ---------------------------------------------------------
-  // Scorecard rendering
+  // Role binding, save state, version rail (scribe-state.js)
   // ---------------------------------------------------------
-  function deriveAxisScores(text) {
-    // Lightweight heuristic — kept here only as a *fallback* render
-    // until the legacy ATS pipeline emits a fresh result. The legacy
-    // pipeline owns the real numbers.
-    const len = (text || "").length;
-    const wordCount = text ? text.split(/\s+/).filter(Boolean).length : 0;
-    const hasNumbers = /\d/.test(text || "");
-    const hasYouVoice = /\byou\b/i.test(text || "");
-    const sentenceCount = (text || "").split(/[.!?]+/).filter((s) => s.trim().length).length;
-    const seed = Math.min(95, Math.max(5, Math.round(40 + Math.log(1 + wordCount) * 10)));
-
-    return {
-      req: Math.min(100, Math.round(seed * 0.95)),
-      exp: Math.min(100, Math.round(seed * (hasNumbers ? 1.05 : 0.85))),
-      impact: Math.min(100, Math.round(seed * (hasNumbers ? 1.1 : 0.7))),
-      parse: Math.min(100, Math.round(70 + Math.min(20, Math.floor(len / 200)))),
-      tone: Math.min(100, Math.round(seed * (hasYouVoice ? 1.0 : 0.9))),
-      conf: Math.min(100, Math.round(seed * (sentenceCount > 4 ? 1.0 : 0.8))),
-    };
-  }
-
-  function renderScorecard(scores, meta) {
+  function selectTab(feature, dispatchLegacy) {
     const region = getRegion();
     if (!region) return;
-    const fit = region.querySelector("#scribeFitRing");
-    const axesEl = region.querySelector("#scribeAxes");
-    const modelEl = region.querySelector("[data-scribe-model]");
-    if (!fit || !axesEl) return;
-
-    const overall = Math.round(
-      AXES.reduce((sum, a) => sum + (Number(scores[a.key]) || 0), 0) / AXES.length,
+    region.querySelectorAll("[data-scribe-tab]").forEach((b) => {
+      b.setAttribute("aria-selected", String(b.getAttribute("data-feature") === feature));
+    });
+    const kicker = region.querySelector("[data-scribe-kicker]");
+    if (kicker) {
+      kicker.textContent = feature === "resume_update" ? "Resume draft" : "Cover letter draft";
+    }
+    if (!dispatchLegacy) return;
+    // Reuse legacy draft-tab dispatch so app.js's existing
+    // [data-action="draft-tab"] listeners flip the active panel.
+    const legacyTab = document.querySelector(
+      `[data-action="draft-tab"][data-feature="${feature}"]`,
     );
-    fit.setAttribute("percent", String(overall));
-    fit.setAttribute("label", `Overall ATS match ${overall}%`);
+    if (legacyTab && typeof legacyTab.click === "function") legacyTab.click();
+  }
 
-    axesEl.innerHTML = AXES.map((axis) => {
-      const pct = Math.max(0, Math.min(100, Number(scores[axis.key]) || 0));
-      const tier = tierFor(pct);
-      // Build a 7-point spark trail from the value to give visual texture.
-      const spark = [
-        Math.max(0, pct - 22),
-        Math.max(0, pct - 10),
-        Math.max(0, pct - 14),
-        pct,
-        Math.max(0, pct - 4),
-        pct,
-        pct,
-      ].join(",");
-      return `
-        <div class="scribe-axis" data-tier="${tier}" role="listitem"
-             aria-label="${axis.label} ${pct}%" title="${axis.help}">
-          <span class="scribe-axis__label">${axis.label}</span>
-          <span class="scribe-axis__bar" aria-hidden="true">
-            <span class="scribe-axis__fill" style="--scribe-axis-pct:${pct}%"></span>
-            <jb-spark
-              data="${spark}"
-              width="80"
-              height="6"
-              color="${tier === "high" ? "mint" : tier === "mid" ? "amber" : "navy"}"
-              fill="false"
-              style="display:none"
-            ></jb-spark>
-          </span>
-          <span class="scribe-axis__value jb-data">${pct}%</span>
-        </div>
-      `;
-    }).join("");
+  function renderBinding() {
+    const region = getRegion();
+    if (!region) return;
+    const target = region.querySelector("[data-scribe-target]");
+    const st = scribeState();
+    const binding = st ? st.getBinding() : null;
+    if (target) {
+      target.textContent = binding ? binding.roleLabel : "No role bound yet";
+      target.setAttribute("data-bound", binding && binding.bound ? "true" : "false");
+    }
+    if (binding) selectTab(binding.feature, false);
+  }
 
-    if (modelEl && meta) {
-      modelEl.textContent = `model ${meta.model || "demo-scorecard-v1"} · ${meta.timing || "—"}`;
+  function saveLabel(save) {
+    switch (save.state) {
+      case "saving":
+        return "saving…";
+      case "saved":
+        return save.truncated ? "saved · truncated at 60,000 characters" : "saved";
+      case "failed":
+        return `save failed · ${save.error || "unknown error"}`;
+      case "unsaved":
+        if (save.reason === "empty") return "unsaved · the draft is empty";
+        if (save.reason === "unbound") return "unsaved · no role bound";
+        if (save.reason === "rebound") return "unsaved · the bound role changed";
+        return "unsaved changes";
+      default:
+        return "no local changes";
     }
   }
 
-  function renderGaps(gaps) {
+  function renderSaveState() {
     const region = getRegion();
     if (!region) return;
-    const list = region.querySelector("#scribeGaps");
+    const pill = region.querySelector("[data-scribe-save]");
+    if (!pill) return;
+    const st = scribeState();
+    const save = st ? st.getSaveState() : { state: "idle" };
+    pill.setAttribute("data-state", save.state);
+    pill.textContent = saveLabel(save);
+  }
+
+  function renderVersions() {
+    const region = getRegion();
+    if (!region) return;
+    const list = region.querySelector("#scribeVersions");
     if (!list) return;
-    const items = (gaps || []).slice(0, 3);
-    if (!items.length) {
-      list.innerHTML =
-        '<li><button type="button" class="scribe-gap" disabled aria-disabled="true"><span class="scribe-gap__axis">—</span><span>No gap callouts yet. Generate a draft to see ATS feedback.</span></button></li>';
+    const st = scribeState();
+    const versions = st ? st.getVersionsState() : { loaded: true, items: [] };
+    if (!versions.loaded) {
+      list.innerHTML = '<li class="scribe-versions__empty">Loading saved versions…</li>';
       return;
     }
-    list.innerHTML = items
+    if (!versions.items.length) {
+      list.innerHTML = '<li class="scribe-versions__empty">No saved versions yet for this role.</li>';
+      return;
+    }
+    list.innerHTML = versions.items
       .map(
-        (g, i) => `
+        (version) => `
         <li>
-          <button type="button" class="scribe-gap"
-                  data-scribe-anchor-target="p-${g.anchor || i}"
-                  data-scribe-axis="${g.axis || ""}">
-            <span class="scribe-gap__axis">${(g.axis || "gap").toUpperCase()}</span>
-            <span>${(g.text || "").replace(/</g, "&lt;")}</span>
+          <button type="button" class="scribe-version" data-scribe-version="${version.id}"
+                  aria-pressed="${version.active ? "true" : "false"}">
+            <span class="scribe-version__num jb-data">V${version.versionNumber}</span>
+            <span class="scribe-version__label">${String(version.label).replace(/</g, "&lt;")}</span>
+            <span class="scribe-version__at">${String(version.savedAt).replace(/</g, "&lt;")}</span>
           </button>
         </li>
       `,
@@ -397,65 +492,15 @@
       .join("");
   }
 
-  function renderTalking(points) {
-    const region = getRegion();
-    if (!region) return;
-    const list = region.querySelector("#scribeTalking");
-    if (!list) return;
-    const items = (points || []).slice(0, 4);
-    if (!items.length) {
-      list.innerHTML =
-        '<li class="scribe-talking__item"><span class="scribe-talking__bullet">·</span><span>Talking points will appear once a draft is scored.</span></li>';
-      return;
-    }
-    list.innerHTML = items
-      .map(
-        (p) => `
-        <li class="scribe-talking__item">
-          <span class="scribe-talking__bullet" aria-hidden="true">›</span>
-          <span>${String(p).replace(/</g, "&lt;")}</span>
-        </li>
-      `,
-      )
-      .join("");
+  function renderStateViews() {
+    renderBinding();
+    renderSaveState();
+    renderVersions();
   }
 
-  function defaultGaps(scores) {
-    const ranked = AXES.slice()
-      .map((a) => ({ ...a, pct: scores[a.key] }))
-      .sort((a, b) => a.pct - b.pct)
-      .slice(0, 3);
-    return ranked.map((a, i) => ({
-      axis: a.label,
-      text: `${a.label} reads ${a.pct}%. Add a concrete example or rephrase the matching paragraph.`,
-      anchor: i,
-    }));
-  }
-
-  function defaultTalking() {
-    return [
-      "Lead with one outcome metric in the opener.",
-      "Mirror the role's required keywords in the second paragraph.",
-      "Close with availability + a single clear ask.",
-    ];
-  }
-
-  // ---------------------------------------------------------
-  // Anchor flash
-  // ---------------------------------------------------------
-  function flashAnchor(anchorId) {
-    const editor = getEditor();
-    if (!editor) return;
-    const target =
-      editor.querySelector(`[data-scribe-anchor="${anchorId}"]`) ||
-      editor.querySelector(`#${anchorId}`);
-    if (!target) return;
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
-    target.classList.add("jb-mark", "scribe-anchor-flash");
-    window.setTimeout(() => {
-      target.classList.remove("scribe-anchor-flash");
-      window.setTimeout(() => target.classList.remove("jb-mark"), 320);
-    }, 900);
+  function refreshScore() {
+    const score = scribeScore();
+    if (score && typeof score.refresh === "function") score.refresh();
   }
 
   // ---------------------------------------------------------
@@ -474,26 +519,97 @@
   function wireTabs(region) {
     region.querySelectorAll("[data-scribe-tab]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const feature = btn.getAttribute("data-feature");
-        region.querySelectorAll("[data-scribe-tab]").forEach((b) => {
-          const isActive = b === btn;
-          b.setAttribute("aria-selected", String(isActive));
-        });
-        const kicker = region.querySelector("[data-scribe-kicker]");
-        if (kicker) {
-          kicker.textContent =
-            feature === "resume_update" ? "Resume draft" : "Cover letter draft";
-        }
-        // Reuse legacy draft-tab dispatch so app.js's existing
-        // [data-action="draft-tab"] listeners flip the active panel.
-        const legacyTab = document.querySelector(
-          `[data-action="draft-tab"][data-feature="${feature}"]`,
-        );
-        if (legacyTab && typeof legacyTab.click === "function") {
-          legacyTab.click();
-        }
+        selectTab(btn.getAttribute("data-feature"), true);
       });
     });
+  }
+
+  function setRefineBusy(busy) {
+    const region = getRegion();
+    if (!region) return;
+    const btn = region.querySelector("#scribeRefineBtn");
+    if (!btn) return;
+    btn.setAttribute("aria-disabled", busy ? "true" : "false");
+  }
+
+  /**
+   * Refine truth: refineLastResumeGeneration() is async and resolves
+   * only after generation AND the draft save; jb:draft:saved corroborates.
+   * We await it. The old fixed 350ms snapshot captured the modal's
+   * "Refining…" placeholder and reported success while the LLM call was
+   * still in flight.
+   */
+  function runRefine(region) {
+    if (state.refineInFlight) return;
+    const refineInput = region.querySelector("#scribeRefineInput");
+
+    flushEditor();
+    const fb = document.getElementById("resumeGenerateFeedback");
+    if (fb && refineInput) {
+      fb.value = refineInput.value;
+      fb.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    const rg = resumeGenerationApi();
+    if (!rg || typeof rg.refineLastResumeGeneration !== "function") {
+      // Clicking the legacy button here would start work whose completion
+      // we cannot observe — exactly the lie this lane removes.
+      setStatus("refine unavailable", "err");
+      announce("Refine is unavailable in this session.");
+      return;
+    }
+
+    const ta = getLegacyOutput();
+    const before = ta && typeof ta.value === "string" ? ta.value : "";
+    let sawDraftSaved = false;
+    const onDraftSaved = () => {
+      sawDraftSaved = true;
+    };
+    document.addEventListener("jb:draft:saved", onDraftSaved);
+
+    state.refineInFlight = true;
+    state.refineCalls += 1;
+    setRefineBusy(true);
+    setStatus("refining…", "busy");
+
+    let pending;
+    try {
+      pending = rg.refineLastResumeGeneration();
+    } catch (err) {
+      finishRefine(onDraftSaved);
+      setStatus(`refine failed · ${errorMessage(err)}`, "err");
+      announce("Refine failed.");
+      return;
+    }
+
+    Promise.resolve(pending).then(
+      () => {
+        finishRefine(onDraftSaved);
+        const after = getLegacyOutput();
+        const nextText = after && typeof after.value === "string" ? after.value : "";
+        if (sawDraftSaved || nextText !== before) {
+          setEditorFromLegacy();
+          setStatus("refined", "ok");
+          announce("Refine finished and the draft was updated.");
+        } else {
+          // resume-generation.js resolves without doing anything when there
+          // is no session, no bundle or no feedback. That is not a refine.
+          setStatus("refine made no changes", "warn");
+          announce("Refine finished without changing the draft.");
+        }
+      },
+      (err) => {
+        finishRefine(onDraftSaved);
+        setStatus(`refine failed · ${errorMessage(err)}`, "err");
+        announce("Refine failed.");
+      },
+    );
+  }
+
+  function finishRefine(onDraftSaved) {
+    document.removeEventListener("jb:draft:saved", onDraftSaved);
+    state.refineInFlight = false;
+    setRefineBusy(false);
   }
 
   function wireActions(region) {
@@ -501,17 +617,19 @@
     const copyBtn = region.querySelector("#scribeCopyBtn");
     const doneBtn = region.querySelector("#scribeDoneBtn");
     const refineBtn = region.querySelector("#scribeRefineBtn");
+    const rescoreBtn = region.querySelector("#scribeRescoreBtn");
+    const saveVersionBtn = region.querySelector("#scribeSaveVersionBtn");
     const refineInput = region.querySelector("#scribeRefineInput");
 
     if (printBtn) {
       printBtn.addEventListener("click", () => {
+        flushEditor();
         if (!clickLegacy("resumeGeneratePrint")) window.print();
       });
     }
     if (copyBtn) {
       copyBtn.addEventListener("click", () => {
-        // Make sure latest editor text is in the legacy textarea first.
-        syncEditorIntoLegacy();
+        flushEditor();
         if (!clickLegacy("resumeGenerateCopy")) {
           // Fallback: copy plain text directly.
           const text = plainTextFromEditor(getEditor());
@@ -523,31 +641,29 @@
     }
     if (doneBtn) {
       doneBtn.addEventListener("click", () => {
+        flushEditor();
         clickLegacy("resumeGenerateDone") || clickLegacy("resumeGenerateClose");
       });
     }
     if (refineBtn) {
-      refineBtn.addEventListener("click", () => {
-        // Pipe the strip's instructions into the legacy feedback textarea
-        // so refineLastResumeGeneration() sees them, then click legacy.
+      refineBtn.addEventListener("click", () => runRefine(region));
+    }
+    if (rescoreBtn) {
+      rescoreBtn.addEventListener("click", () => {
+        flushEditor();
+        const score = scribeScore();
+        if (score && typeof score.requestRescore === "function") score.requestRescore();
+      });
+    }
+    if (saveVersionBtn) {
+      saveVersionBtn.addEventListener("click", () => {
+        const st = scribeState();
+        if (!st) return;
+        const titleEl = region.querySelector("#scribeVersionTitle");
+        const title = titleEl ? titleEl.value : "";
+        if (titleEl) titleEl.value = "";
         syncEditorIntoLegacy();
-        const fb = document.getElementById("resumeGenerateFeedback");
-        if (fb && refineInput) {
-          fb.value = refineInput.value;
-          fb.dispatchEvent(new Event("input", { bubbles: true }));
-        }
-        setStatus("refining…", "busy");
-        if (clickLegacy("resumeGenerateRefine")) {
-          // After a short delay, snapshot the legacy textarea back
-          // into the editor (refine writes back to #resumeGenerateOutput).
-          window.setTimeout(() => {
-            setEditorFromLegacy();
-            scoreFromCurrent();
-            setStatus("refined", "ok");
-          }, 350);
-        } else {
-          setStatus("refine handler missing", "busy");
-        }
+        void st.saveVersion(plainTextFromEditor(getEditor()), title);
       });
     }
 
@@ -562,6 +678,19 @@
     });
   }
 
+  function wireVersions(region) {
+    region.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-scribe-version]");
+      if (!btn) return;
+      e.preventDefault();
+      const st = scribeState();
+      if (!st) return;
+      void st.openVersion(btn.getAttribute("data-scribe-version")).then((opened) => {
+        if (opened) setEditorFromLegacy();
+      });
+    });
+  }
+
   function wireEditor(region) {
     const editor = region.querySelector("#scribeEditor");
     if (!editor) return;
@@ -570,20 +699,15 @@
       editor.dataset.empty = editor.textContent.trim() ? "false" : "true";
       state.lastEditAt = Date.now();
       setStatus("typing…", "busy");
+      const st = scribeState();
+      if (st) st.noteEditorChange(plainTextFromEditor(editor));
       if (state.debounceTimer) window.clearTimeout(state.debounceTimer);
       state.debounceTimer = window.setTimeout(() => {
+        state.debounceTimer = null;
         syncEditorIntoLegacy();
-        scoreFromCurrent();
-        setStatus("scored", "ok");
+        refreshScore();
+        setStatus("synced", "ok");
       }, DEBOUNCE_MS);
-    });
-
-    // Gap-callout anchor jumps
-    region.addEventListener("click", (e) => {
-      const t = e.target.closest("[data-scribe-anchor-target]");
-      if (!t) return;
-      e.preventDefault();
-      flashAnchor(t.getAttribute("data-scribe-anchor-target"));
     });
   }
 
@@ -615,23 +739,6 @@
   }
 
   // ---------------------------------------------------------
-  // Score from current editor text (fallback render only;
-  // the legacy ATS pipeline still owns real scoring).
-  // ---------------------------------------------------------
-  function scoreFromCurrent() {
-    const text = plainTextFromEditor(getEditor());
-    const start = performance.now();
-    const scores = deriveAxisScores(text);
-    const elapsed = ((performance.now() - start) / 1000).toFixed(2);
-    renderScorecard(scores, {
-      model: "demo-scorecard-v1",
-      timing: `${elapsed}s`,
-    });
-    renderGaps(defaultGaps(scores));
-    renderTalking(defaultTalking());
-  }
-
-  // ---------------------------------------------------------
   // Smoke routine — gated behind ?jb-v2-test=scribe
   // ---------------------------------------------------------
   function runSmoke() {
@@ -646,17 +753,26 @@
       { btn: "#scribePrintBtn", legacy: "resumeGeneratePrint" },
       { btn: "#scribeCopyBtn", legacy: "resumeGenerateCopy" },
       { btn: "#scribeDoneBtn", legacy: "resumeGenerateDone" },
-      { btn: "#scribeRefineBtn", legacy: "resumeGenerateRefine" },
+      // Refine no longer proxies a legacy click: it awaits the real
+      // async refineLastResumeGeneration(), so the probe watches the
+      // call itself rather than a button dispatch.
+      { btn: "#scribeRefineBtn", legacy: "resumeGeneration.refineLastResumeGeneration" },
     ];
     const results = [];
     for (const e of expected) {
       const before = hook.calls.length;
+      const refinesBefore = state.refineCalls;
       const el = region.querySelector(e.btn);
       if (!el) {
         results.push({ ...e, ok: false, reason: "button missing" });
         continue;
       }
       el.click();
+      if (e.btn === "#scribeRefineBtn") {
+        const fired = state.refineCalls > refinesBefore;
+        results.push({ ...e, ok: fired, reason: fired ? "" : "refine API never called" });
+        continue;
+      }
       const after = hook.calls.slice(before);
       const fired = after.some((c) => c.id === e.legacy);
       results.push({ ...e, ok: fired, reason: fired ? "" : "legacy id never clicked" });
@@ -672,7 +788,15 @@
   // Boot
   // ---------------------------------------------------------
   function boot() {
-    if (!isV2()) return; // gated: legacy UI runs unchanged
+    if (!isV2()) {
+      // The jb-v2 class lands AFTER this deferred script runs (the flag
+      // script in index.html adds it from a DOMContentLoaded listener,
+      // and settings-jb-v2-tab.js adds it later still). Sampling once
+      // here left the workspace permanently empty — observe instead,
+      // exactly like dawn.js observeBodyOnly().
+      observeBodyForFlag();
+      return;
+    }
     const region = getRegion();
     if (!region) return;
     if (state.rendered) return;
@@ -680,9 +804,22 @@
     wireTabs(region);
     wireActions(region);
     wireEditor(region);
+    wireVersions(region);
     wireAppearance(region);
+
+    const st = scribeState();
+    if (st) {
+      st.refresh();
+      state.unsubscribe = st.subscribe(renderStateViews);
+    }
+    renderStateViews();
+
     setEditorFromLegacy();
-    scoreFromCurrent();
+
+    const score = scribeScore();
+    if (score && typeof score.mount === "function") {
+      state.score = score.mount(region, { getText: () => plainTextFromEditor(getEditor()) });
+    }
 
     // Re-pull body when legacy textarea changes elsewhere
     // (e.g. a fresh generation finished).
@@ -693,7 +830,6 @@
         const since = Date.now() - state.lastEditAt;
         if (since > DEBOUNCE_MS + 50) {
           setEditorFromLegacy();
-          scoreFromCurrent();
         }
       });
     }
@@ -707,6 +843,18 @@
     }
   }
 
+  function observeBodyForFlag() {
+    if (state.bodyObserver || !document.body || typeof MutationObserver !== "function") return;
+    const observer = new MutationObserver(() => {
+      if (!isV2()) return;
+      observer.disconnect();
+      state.bodyObserver = null;
+      boot();
+    });
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    state.bodyObserver = observer;
+  }
+
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);
   } else {
@@ -716,7 +864,13 @@
   // Public smoke handle for manual invocation (also gated by URL).
   window.JB_SCRIBE = Object.freeze({
     smoke: runSmoke,
-    rescore: scoreFromCurrent,
+    // jb-v2-boot-contract.js's default "scribe" adapter calls exactly this
+    // name and guards on it, so without the export the F2-A remount reports
+    // a mount it never performed. boot() is already idempotent (it returns
+    // early on state.rendered) and still gates on body.jb-v2, so handing it
+    // out cannot double-render or mount behind the flag.
+    boot: boot,
+    flushEditor: flushEditor,
     syncEditorIntoLegacy: syncEditorIntoLegacy,
     setEditorFromLegacy: setEditorFromLegacy,
   });

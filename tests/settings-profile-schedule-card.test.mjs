@@ -998,3 +998,87 @@ describe("Schedule card — time-string helpers", () => {
     // test machine's TZ; either way it must be a valid HH:MM string.
   });
 });
+
+describe("F2C-SETUP02-BIND: schedule controls bind without the removed Fit Profile run button", () => {
+  it("binds current schedule DOM IDs even when settingsProfileRunBtn is absent", async () => {
+    const listeners = [];
+    const els = new Map();
+    const makeEl = (id) => {
+      if (els.has(id)) return els.get(id);
+      const el = {
+        id,
+        value: id.includes("Time") ? "08:00" : "",
+        checked: false,
+        textContent: "",
+        hidden: false,
+        disabled: false,
+        innerHTML: "",
+        dataset: {},
+        style: {},
+        addEventListener(type) {
+          listeners.push({ id, type });
+        },
+        removeEventListener() {},
+        setAttribute() {},
+        classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+      };
+      els.set(id, el);
+      return el;
+    };
+    const document = {
+      readyState: "loading",
+      addEventListener() {},
+      getElementById(id) {
+        if (id === "settingsProfileRunBtn") return null;
+        if (
+          id.startsWith("settingsProfileSchedule") ||
+          id.startsWith("settingsProfileAutoRefresh")
+        ) {
+          return makeEl(id);
+        }
+        return null;
+      },
+      createElement() {
+        return { style: {}, setAttribute() {}, appendChild() {} };
+      },
+      body: { appendChild() {}, removeChild() {} },
+      execCommand() {
+        return true;
+      },
+    };
+    const { module } = await loadScheduleModule({
+      document,
+      window: {
+        setTimeout() {
+          return 0;
+        },
+        clearTimeout() {},
+      },
+    });
+    module.autoRefresh.writeAutoRefreshState({ enabled: false });
+    module.bind();
+    assert.ok(
+      listeners.some(
+        (l) => l.id === "settingsProfileScheduleLocalEnable" && l.type === "change",
+      ),
+      "local schedule enable control must bind even without the removed run button",
+    );
+    assert.ok(
+      listeners.some(
+        (l) => l.id === "settingsProfileScheduleLocalTime" && l.type === "change",
+      ),
+      "local schedule time control must bind",
+    );
+    assert.ok(
+      listeners.some(
+        (l) => l.id === "settingsProfileScheduleCloudEnable" && l.type === "change",
+      ),
+      "cloud schedule enable control must bind",
+    );
+    assert.equal(
+      listeners.some((l) => l.id === "settingsProfileRunBtn"),
+      false,
+      "binder must not depend on the removed Fit Profile run button",
+    );
+  });
+});

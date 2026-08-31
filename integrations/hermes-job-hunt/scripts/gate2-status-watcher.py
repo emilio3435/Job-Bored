@@ -3,7 +3,8 @@
 Gate 2 — Status Watcher (Researching rows)
 
 Polls the Pipeline sheet for rows that just flipped to Status = Researching
-(with Date Found = today) and posts an approval request to thread 314.
+(with Date Found = today) and posts an approval request to the Gate 2
+thread from approval-contract.v1.json.
 
 Silent when no new Researching rows are found (watchdog pattern).
 """
@@ -16,12 +17,14 @@ import urllib.parse
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+from approval_contract import GATE2_CHAT_ID, GATE2_THREAD_ID
+
 SHEET_ID = "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ"
 TOKEN_PATH = Path.home() / ".hermes" / "google_token.json"
 STATE_FILE = Path.home() / ".hermes" / "job-hunt" / "reported-researching.json"
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_HOME_CHANNEL", "-1003800236296")
-TELEGRAM_THREAD_ID = 314  # submit-approval / Dobby updates thread
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_HOME_CHANNEL", str(GATE2_CHAT_ID))
+TELEGRAM_THREAD_ID = GATE2_THREAD_ID
 CT = timezone(timedelta(hours=-5))  # Central Time
 TODAY = datetime.now(CT).strftime("%Y-%m-%d")
 

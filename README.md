@@ -81,9 +81,13 @@ recover stale ports automatically.
 - **Daily Brief** — two-column layout with at-a-glance counts, follow-ups, who you’re waiting on, and stuck applications ([details](SETUP.md#daily-brief-computed-in-the-dashboard))
 - **KPI bar** — total roles, hot leads, applied count, interview count, avg fit score
 - **Pipeline filters** — scan active stages, archive Rejected / Passed / Expired roles, and keep dismissed roles out of view unless requested
-- **Run discovery** — optional webhook in `config.js` so your agent (Hermes, n8n, etc.) runs another pass; POST includes `schemaVersion`, optional `discoveryProfile` from **Discovery drawer → Search**, and optional per-run company filters ([AGENT_CONTRACT.md](AGENT_CONTRACT.md))
+- **Run discovery** — optional webhook in `config.js` so your agent (Hermes, n8n, etc.) runs another pass; the drawer shows the effective roles, locations, sources, and company filters immediately before the POST ([AGENT_CONTRACT.md](AGENT_CONTRACT.md))
+- **Today queue** — ranks replies, interview prep, overdue follow-ups, and stale high-fit roles into one action list
+- **Safe stage changes** — keyboard/touch **Move to stage** controls, plus explicit confirmation and a short Undo window before an application is recorded as Applied
+- **Recruiter context** — contact, reply, follow-up, and next-action details stay visible on cards and in the role dossier
+- **Evidence labels** — dossier fields distinguish posting-grounded, user-provided, inferred, and unknown information
 - **ATS LLM scorecard** — generated drafts now include structured ATS analysis (score, strengths, gaps, rewrite suggestions) via local server endpoint or webhook
-- **Resume & cover-letter generation** — drafts default to the **OpenRouter free tier** (paste a free key from [openrouter.ai/keys](https://openrouter.ai/keys), no paid plan), with optional **fully local** (Ollama), **BYO** (Gemini / OpenAI / Anthropic + your key), or **webhook** paths. Your resume and profile text never leave the browser unless you pick webhook mode. See [QUICKSTART.md](QUICKSTART.md) and [SETUP.md](SETUP.md) for the full walkthrough.
+- **Resume & cover-letter generation** — drafts default to the **OpenRouter free tier** (paste a free key from [openrouter.ai/keys](https://openrouter.ai/keys), no paid plan), with optional **fully local** (Ollama), **BYO** (Gemini / OpenAI / Anthropic + your key), or **webhook** paths. Resume, profile, and job context go only to the provider you choose; the Ollama path stays on your machine. See [QUICKSTART.md](QUICKSTART.md) and [SETUP.md](SETUP.md) for the full walkthrough.
 - **Last contact & reply** — optional columns R–S editable on each card when signed in
 - **Filter & search** — stage filters plus priority, sort by fit score/date/company, free-text search
 - **Google OAuth** — sign in with Google to enable write actions (read works without sign-in)
@@ -195,31 +199,40 @@ After copying:
 
 Choose any of these (all free):
 
+The source `index.html` contains `<!-- @include -->` markers for the large UI
+partials. Every static host must run `node scripts/assemble-index.mjs --write`
+and publish that assembled document as the deployed `index.html`, alongside the
+rest of the static assets. Publishing the raw checkout produces an incomplete
+dashboard. The included GitHub Pages workflow handles this promotion.
+
 #### GitHub Pages (recommended)
 
 1. Fork this repo
 2. Add runtime config safely: use Settings/localStorage for personal use, a private fork with `config.js`, or a GitHub Actions-generated `config.js` from repo secrets
-3. Go to **Settings → Pages → Source: Deploy from a branch → main / root**
-4. Your dashboard is live at `https://yourusername.github.io/Job-Bored`
-5. Add that URL to your OAuth client's Authorized JavaScript Origins
+3. Go to **Settings → Pages → Source: GitHub Actions**
+4. Push or merge to `main`. The included Pages workflow assembles the partials and deploys the complete static artifact.
+5. Your dashboard is live at `https://yourusername.github.io/Job-Bored`
+6. Add that URL to your OAuth client's Authorized JavaScript Origins
 
 Concrete static deployment modes and CORS expectations are in **[docs/GITHUB-PAGES.md](docs/GITHUB-PAGES.md)**.
 
 #### Vercel
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/emilio3435/Job-Bored)
-
-After deploying, add `config.js` with your credentials and add your Vercel URL to OAuth origins.
+Configure the static build to run the assembly command above and promote
+`index.assembled.html` to the deployed `index.html`. After deploying, add
+`config.js` with your credentials and add your Vercel URL to OAuth origins.
 
 #### Netlify
 
-[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/emilio3435/Job-Bored)
+Use a build-based deploy that assembles the HTML first. Dragging the raw repo
+folder into Netlify leaves the partial-backed dialogs and wizards out of the page.
 
 #### Cloudflare Pages
 
 1. Connect your repo in the [Cloudflare Dashboard](https://dash.cloudflare.com/?to=/:account/pages)
-2. Build command: (none needed)
-3. Output directory: `/`
+2. Run `node scripts/assemble-index.mjs --write` during the build.
+3. Publish a staging directory that contains the full static repo with
+   `index.assembled.html` promoted to `index.html`.
 
 #### Just open it locally
 
@@ -539,10 +552,10 @@ into Command Center is unchanged — only the upstream secret gets rotated.
 
 - **Never commit secrets** — use [`config.example.js`](config.example.js) in the repo; copy to `config.js` locally or use **Settings** (stored in `localStorage`). Real `config.js` must not be pushed to public remotes.
 - **Repository contents** — only placeholders (`YOUR_SHEET_ID_HERE`, empty API keys). The public template Sheet ID in links is not a secret.
-- OAuth access tokens are held **in memory only** (not localStorage)
+- OAuth access tokens are held in **tab-scoped sessionStorage** (not localStorage). They survive a refresh in that tab and are cleared when the tab closes. A localStorage identity marker does not store the bearer token.
 - Local discovery may receive a per-run `googleAccessToken` so it can write to your Sheet for that request. The worker strips it from persisted run config/state and must not log the raw token.
 - The OpenRouter free key (and any optional Gemini/OpenAI/Anthropic key you paste in Settings) lives in **this browser’s localStorage** (or in the gitignored `config.js`); it is never sent to Command Center’s authors. The `local` provider is fully offline and needs no key.
-- Draft generation calls your chosen AI provider directly from the browser unless you select webhook mode
+- Draft generation and scorecards send **resume, profile, and job context** to your chosen AI provider (OpenRouter / Gemini / OpenAI / Anthropic / local / webhook). That data is not sent to JobBored's authors. Draft generation calls the provider directly from the browser unless you select webhook mode.
 - OpenRouter is the first generic AI path for drafts, AI suggestions, posting summaries, scorecards, and plain JSON scoring. Gemini is only required when you choose Gemini as the active provider or enable optional Google-tool lanes such as URL Context and Grounded Search.
 - ATS scorecard can run through your own server (`/api/ats-scorecard`) or your own webhook URL; no maintainer-hosted ATS service is used
 

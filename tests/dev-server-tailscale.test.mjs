@@ -76,7 +76,9 @@ function statusJson({ dnsName = "mac.tailnet.ts.net.", tailnet = "tailnet.ts.net
 }
 
 async function fetchJson(url, init = {}) {
-  const response = await fetch(url, init);
+  const origin = new URL(url).origin;
+  const headers = { Origin: origin, ...(init.headers || {}) };
+  const response = await fetch(url, { ...init, headers });
   return {
     status: response.status,
     body: await response.json(),

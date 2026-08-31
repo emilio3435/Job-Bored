@@ -190,6 +190,114 @@ function auditSticker(src) {
 }
 
 /**
+ * Audit the shared live region used to announce toasts (F3D-A11Y01-LIVE).
+ * @param {string} src
+ */
+function auditLiveRegion(src) {
+  const tags = matchByClass(src, 'jb-live-region');
+  const byId = /id\s*=\s*["']jb-live-region["']/.test(src);
+  const issues = [];
+  if (!byId && tags.length === 0) {
+    issues.push({
+      component: 'live-region',
+      index: 0,
+      message: 'missing #jb-live-region / .jb-live-region for toast announcements',
+    });
+  } else {
+    const hasLive =
+      /aria-live\s*=\s*["'](polite|assertive)["']/.test(src) &&
+      /id\s*=\s*["']jb-live-region["']/.test(src);
+    if (!hasLive) {
+      issues.push({
+        component: 'live-region',
+        index: 0,
+        message: '#jb-live-region must set aria-live="polite" or "assertive"',
+      });
+    }
+  }
+  return { count: byId || tags.length ? 1 : 0, issues, todos: [] };
+}
+
+/**
+ * Audit demo dialogs for role=dialog + aria-modal (F3D-A11Y01/02).
+ * @param {string} src
+ */
+function auditDialogs(src) {
+  const tags = matchByClass(src, 'jb-overlay');
+  const issues = [];
+  for (const t of tags) {
+    const role = getAttr(t.attrs, 'role');
+    const modal = getAttr(t.attrs, 'aria-modal');
+    const label =
+      getAttr(t.attrs, 'aria-label') || getAttr(t.attrs, 'aria-labelledby');
+    if (role !== 'dialog') {
+      issues.push({
+        component: '.jb-overlay',
+        index: t.index,
+        message: 'overlay must set role="dialog"',
+      });
+    }
+    if (modal !== 'true') {
+      issues.push({
+        component: '.jb-overlay',
+        index: t.index,
+        message: 'overlay must set aria-modal="true"',
+      });
+    }
+    if (!label) {
+      issues.push({
+        component: '.jb-overlay',
+        index: t.index,
+        message: 'overlay must have aria-label or aria-labelledby',
+      });
+    }
+  }
+  if (tags.length === 0) {
+    issues.push({
+      component: '.jb-overlay',
+      index: 0,
+      message: 'demo must include at least one .jb-overlay dialog',
+    });
+  }
+  return { count: tags.length, issues, todos: [] };
+}
+
+/**
+ * Audit the visible 44px Move-to action (F3D-MOBILE01-MOVE).
+ * @param {string} src
+ */
+function auditMoveTo(src) {
+  const tags = matchByClass(src, 'jb-move-to');
+  const issues = [];
+  if (tags.length === 0) {
+    issues.push({
+      component: '.jb-move-to',
+      index: 0,
+      message: 'demo must include a visible .jb-move-to action',
+    });
+  }
+  for (const t of tags) {
+    const label = getAttr(t.attrs, 'aria-label');
+    if (label !== 'Move to stage') {
+      issues.push({
+        component: '.jb-move-to',
+        index: t.index,
+        message: 'Move-to control must set aria-label="Move to stage"',
+      });
+    }
+    const text = t.inner.replace(/<[^>]*>/g, '').trim();
+    if (!/move to/i.test(text)) {
+      issues.push({
+        component: '.jb-move-to',
+        index: t.index,
+        message: 'Move-to control must have visible "Move to" text (not hover-only)',
+      });
+    }
+  }
+  return { count: tags.length, issues, todos: [] };
+}
+
+/**
  * @param {string} src
  */
 export function audit(src) {
@@ -199,6 +307,9 @@ export function audit(src) {
     'jb-kbd': auditKbd(src),
     'jb-stage-dot': auditStageDot(src),
     '.jb-sticker': auditSticker(src),
+    'live-region': auditLiveRegion(src),
+    '.jb-overlay': auditDialogs(src),
+    '.jb-move-to': auditMoveTo(src),
   };
 }
 
@@ -313,6 +424,30 @@ if (process.env.NODE_TEST) {
   test('jb-ai-chip empty inner → issue', () => {
     const r = audit('<jb-ai-chip></jb-ai-chip>');
     assert.strictEqual(r['jb-ai-chip'].issues.length, 1);
+  });
+
+  test('F3D-A11Y01-LIVE: missing live region → issue', () => {
+    const r = audit('<div></div>');
+    assert.ok(r['live-region'].issues.length >= 1);
+  });
+
+  test('F3D-A11Y01-LIVE: live region with aria-live → no issue', () => {
+    const r = audit(
+      '<div id="jb-live-region" class="jb-live-region" role="status" aria-live="polite" aria-atomic="true"></div>',
+    );
+    assert.strictEqual(r['live-region'].issues.length, 0);
+  });
+
+  test('F3D-MOBILE01-MOVE: missing Move-to → issue', () => {
+    const r = audit('<div></div>');
+    assert.ok(r['.jb-move-to'].issues.length >= 1);
+  });
+
+  test('F3D-MOBILE01-MOVE: labelled visible Move-to → no issue', () => {
+    const r = audit(
+      '<button type="button" class="jb-move-to" aria-label="Move to stage">Move to</button>',
+    );
+    assert.strictEqual(r['.jb-move-to'].issues.length, 0);
   });
 }
 

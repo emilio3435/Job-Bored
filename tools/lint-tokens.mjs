@@ -19,6 +19,8 @@ const ALLOW_LIST = new Set([
   'tokens-v2.css',
 ]);
 const HEX_RE = /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})\b/gi;
+const JB_TOKEN_HEX_FALLBACK_RE =
+  /var\(\s*--jb-[a-z0-9-]+\s*,\s*(#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})\b)\s*\)/gi;
 const V2_MARKER = 'body.jb-v2';
 const V2_HEAD_LINES = 200;
 
@@ -114,12 +116,22 @@ export function stripComments(src) {
 export function findHexInSource(src, relPath) {
   /** @type {Finding[]} */
   const findings = [];
+  const tokenFallbackOffsets = new Set();
+  JB_TOKEN_HEX_FALLBACK_RE.lastIndex = 0;
+  let fallbackMatch;
+  while ((fallbackMatch = JB_TOKEN_HEX_FALLBACK_RE.exec(src)) !== null) {
+    tokenFallbackOffsets.add(
+      fallbackMatch.index + fallbackMatch[0].indexOf(fallbackMatch[1]),
+    );
+  }
   const lines = src.split('\n');
+  let lineOffset = 0;
   for (let li = 0; li < lines.length; li++) {
     const line = lines[li];
     HEX_RE.lastIndex = 0;
     let m;
     while ((m = HEX_RE.exec(line)) !== null) {
+      if (tokenFallbackOffsets.has(lineOffset + m.index)) continue;
       findings.push({
         path: relPath,
         line: li + 1,
@@ -127,6 +139,7 @@ export function findHexInSource(src, relPath) {
         hex: m[0],
       });
     }
+    lineOffset += line.length + 1;
   }
   return findings;
 }

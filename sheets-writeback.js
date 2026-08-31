@@ -793,9 +793,21 @@ async function updateJobResponseFlag(dataIndex, value) {
   }
 }
 
+  /** Apply F1-A transition patches as ONE Pipeline-tab batch.
+   *  patches: [{ column:"M", sheetRow:7, value:"Interviewing" }, ...]
+   *  or planner cells that already carry `range`. */
+  async function applyCells(patches) {
+    if (!Array.isArray(patches) || patches.length === 0) return true;
+    return updateMultipleCells(patches.map((p) => ({
+      range: p.range || ("Pipeline!" + p.column + p.sheetRow),
+      value: p.value,
+    })));
+  }
+
   Object.assign(sheetsWrite, {
     updateSheetCell,
     updateMultipleCells,
+    applyCells,
     sheetsBatchUpdate,
     sheetsValuesAppend,
     sheetsValuesGet,

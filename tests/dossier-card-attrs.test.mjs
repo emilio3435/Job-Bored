@@ -266,6 +266,11 @@ describe("dossier card attrs", () => {
 
     /* Brief class selectors */
     assert.match(html, /class="brief__masthead"/, "brief__masthead missing");
+    assert.match(
+      html,
+      /class="brief__identity-provenance"/,
+      "the dossier evidence panel must render even when metadata degrades to unknown",
+    );
     assert.match(html, /class="brief__col brief__col--main[^"]*"/, "brief__col--main missing");
     assert.match(html, /class="brief__col brief__col--side[^"]*"/, "brief__col--side missing");
 
@@ -320,6 +325,38 @@ describe("dossier card attrs", () => {
     assert.match(briefMount.innerHTML, /class="brief__col brief__col--side[^"]*"/);
     assert.match(briefMount.innerHTML, /data-action="notes"/);
     assert.match(briefMount.innerHTML, /class="brief__cta-cluster"/);
+  });
+
+  it("feature-detects and mounts the recruiter strip into the rendered brief", () => {
+    const roleVm = fixtureVm();
+    const { context, region } = loadAllThree({ vm: roleVm });
+    let mounted = null;
+    context.window.JobBoredRecruiterStrip = {
+      render(mountEl, vmArg) {
+        mounted = { mountEl, vmArg };
+      },
+    };
+
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    assert.ok(mounted, "recruiter strip render should be called when the strip is present");
+    /* The strip innerHTML-overwrites whatever element it is handed, so it must
+       receive the dedicated [data-mount] div — handing it the brief root wipes
+       the whole rendered brief (caught by e2e-journey during T0 integration).
+       This fake DOM's querySelector cannot resolve the attribute selector, so
+       the mount arg is asserted negatively; the positive render-into-mount path
+       is covered by tests/recruiter-strip-dossier.test.mjs and e2e-journey. */
+    assert.notEqual(
+      mounted.mountEl,
+      region._mounts.get("brief"),
+      "render must receive the dedicated [data-mount] element, never the brief root",
+    );
+    assert.match(
+      region._mounts.get("brief").innerHTML,
+      /data-mount="recruiter-strip"/,
+      "the rendered brief must contain the recruiter-strip mount",
+    );
+    assert.equal(mounted.vmArg, roleVm);
   });
 
   it("renderForKey on an unknown key falls back to the empty shelf, not the dossier", () => {

@@ -226,8 +226,8 @@
 
 /* Column-scoped hierarchy:
    - col 1 Run At + col 3 Status are primary (full contrast).
-   - cols 4-6 are metrics (right-aligned, tabular figures).
-   - col 7 Source + col 8 Variation Key are secondary (muted, mono where relevant). */
+   - cols 4-7 are metrics (duration, companies, leads, updated).
+   - col 8 Source + col 9 Variation Key are secondary (muted, mono where relevant). */
 .runs-table tbody td:nth-child(1) {
   color: var(--text);
   font-weight: 500;
@@ -240,20 +240,21 @@
 
 .runs-table tbody td:nth-child(4),
 .runs-table tbody td:nth-child(5),
-.runs-table tbody td:nth-child(6) {
+.runs-table tbody td:nth-child(6),
+.runs-table tbody td:nth-child(7) {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
   color: var(--text);
 }
 
-.runs-table tbody td:nth-child(7),
-.runs-table tbody td:nth-child(8) {
+.runs-table tbody td:nth-child(8),
+.runs-table tbody td:nth-child(9) {
   color: var(--text-muted);
   font-size: var(--text-xs);
 }
 
-.runs-table tbody td:nth-child(8) code {
+.runs-table tbody td:nth-child(9) code {
   font-family: var(--font-mono);
   font-size: 0.95em;
   color: var(--text-muted);

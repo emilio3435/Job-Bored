@@ -29,21 +29,21 @@
 (function (root) {
   "use strict";
 
-  /** Stage order matches legacy renderBrief stage list. */
-  var STAGE_ORDER = [
-    { key: "new", label: "New", token: "--jb-stage-new" },
-    { key: "researching", label: "Researching", token: "--jb-stage-researching" },
-    { key: "applied", label: "Applied", token: "--jb-stage-applied" },
-    { key: "phone-screen", label: "Phone Screen", token: "--jb-stage-phone" },
-    { key: "interviewing", label: "Interviewing", token: "--jb-stage-interviewing" },
-    { key: "offer", label: "Offer", token: "--jb-stage-offer" },
-    { key: "rejected", label: "Rejected", token: "--jb-stage-rejected" },
-    { key: "passed", label: "Passed", token: "--jb-stage-passed" },
-    { key: "expired", label: "Expired", token: "--jb-stage-expired" },
+  /* ── Canonical stage vocabulary ─────────────────────────────────────────
+     Runtime source is window.JobBoredStages (stage-registry.js), which mirrors
+     the status enum of schemas/pipeline-row.v1.json. STAGE_FALLBACK below is
+     used only when that script is absent; tests/stage-registry-canonical.test.mjs
+     pins it — and every other board's copy — to the schema. */
+  var STAGE_FALLBACK = [
+    ["new", "New"], ["researching", "Researching"], ["applied", "Applied"],
+    ["phone-screen", "Phone Screen"], ["interviewing", "Interviewing"],
+    ["offer", "Offer"], ["rejected", "Rejected"], ["passed", "Passed"],
+    ["expired", "Expired"],
   ];
 
-  /** stage CSS key -> <jb-stage-dot stage="..."> attribute name. */
-  var STAGE_DOT_ATTR = {
+  /** jb-stage-dot / tokens-v2 token name per stage; "phone-screen" is spelled
+   *  "phone" in tokens-v2.css, which is why this map is not just the key. */
+  var STAGE_DOT_FALLBACK = {
     "new": "new",
     "researching": "researching",
     "applied": "applied",
@@ -54,6 +54,28 @@
     "passed": "passed",
     "expired": "expired",
   };
+
+  function stageRegistry() {
+    return (typeof window !== "undefined" && window.JobBoredStages) || null;
+  }
+
+  /** stage CSS key -> <jb-stage-dot stage="..."> attribute name. */
+  var STAGE_DOT_ATTR = (function () {
+    var reg = stageRegistry();
+    return reg ? reg.DOT_KEYS : STAGE_DOT_FALLBACK;
+  })();
+
+  /** Stage order matches the schema enum; `token` is the tokens-v2 custom
+   *  property the brief funnel colours each row with. */
+  var STAGE_ORDER = (function () {
+    var reg = stageRegistry();
+    var pairs = reg
+      ? reg.pairs()
+      : STAGE_FALLBACK.map(function (p) { return { key: p[0], label: p[1] }; });
+    return pairs.map(function (s) {
+      return { key: s.key, label: s.label, token: "--jb-stage-" + (STAGE_DOT_ATTR[s.key] || s.key) };
+    });
+  })();
 
   function _toInt(s) {
     var n = parseInt(String(s || "").replace(/[^0-9-]/g, ""), 10);
@@ -100,8 +122,8 @@
       // Lead-story facts: per-card fit / salary / found-date all come from
       // the existing data-* attributes that app.js renders into kanban cards.
       var fitAttr = card.getAttribute("data-fit");
-      var fitNum = fitAttr ? Number(String(fitAttr).replace(/[^0-9.]/g, "")) : NaN;
-      var fitScore = Number.isFinite(fitNum) ? Math.max(1, Math.min(10, Math.round(fitNum))) : null;
+      var fitUnits = normalizeFitUnits(fitAttr);
+      var fitScore = fitUnits.unknown ? null : fitUnits.value;
       out.push({
         key: key,
         index: idx ? Number(idx) : -1,
@@ -112,6 +134,9 @@
         foundAt: card.getAttribute("data-found-at") || "",
         salary: card.getAttribute("data-salary") || "",
         jobUrl: card.getAttribute("data-job-url") || "",
+        appliedDate: card.getAttribute("data-applied-at") || "",
+        followUpDate: card.getAttribute("data-follow-up") || "",
+        responseFlag: card.getAttribute("data-replied") || "",
       });
     });
     return out;
@@ -331,17 +356,11 @@
   };
 
   /** Stage CSS-key → human-readable label for per-card facts. */
-  var STAGE_FACT_LABEL = {
-    "new": "New",
-    "researching": "Researching",
-    "applied": "Applied",
-    "phone-screen": "Phone Screen",
-    "interviewing": "Interviewing",
-    "offer": "Offer",
-    "rejected": "Rejected",
-    "passed": "Passed",
-    "expired": "Expired",
-  };
+  var STAGE_FACT_LABEL = (function () {
+    var out = {};
+    STAGE_ORDER.forEach(function (s) { out[s.key] = s.label; });
+    return out;
+  })();
 
   function daysAgoFromIso(value, now) {
     if (!value) return null;
@@ -424,6 +443,50 @@
     ];
   }
 
+  /* stage key -> Sheet column-M label. Derived from the one stage vocabulary
+     (STAGE_ORDER above, which prefers window.JobBoredStages) rather than a
+     private copy: a tenth stage added to the schema must not need a second
+     edit here to be writable. */
+  var STAGE_TO_STATUS = (function () {
+    var out = {};
+    STAGE_ORDER.forEach(function (s) { out[s.key] = s.label; });
+    return out;
+  })();
+
+  function jobsToTodayRecords(jobs) {
+    return (jobs || []).map(function (j) {
+      return {
+        jobKey: j.key,
+        key: j.key,
+        title: j.title,
+        company: j.company,
+        status: STAGE_TO_STATUS[j.stage] || j.stage,
+        stage: j.stage,
+        appliedDate: j.appliedDate || "",
+        followUpDate: j.followUpDate || "",
+        responseFlag: j.responseFlag || "",
+      };
+    });
+  }
+
+  /* The Today queue has exactly one ranking engine: JobBoredToday.data
+     (today-data.js). The dawn VM keeps its `today` slot so nothing that reads
+     the VM has to change, but it no longer classifies anything itself — two
+     engines meant the brief could call a card "stale" while the Today section
+     called the same card "reply".
+
+     Guarded exactly like the selector guard it replaces: when today-data.js is
+     absent from the page the slot is [] and no surface renders a Today list. */
+  function buildToday(jobs, nowDate) {
+    var todayData = root.JobBoredToday && root.JobBoredToday.data;
+    if (!todayData || typeof todayData.getTodayQueue !== "function") return [];
+    var queue = todayData.getTodayQueue({
+      jobs: jobsToTodayRecords(jobs),
+      now: nowDate,
+    });
+    return queue && Array.isArray(queue.items) ? queue.items : [];
+  }
+
   /** 6-row 30-day funnel for the brief — uses kanban-card counts. */
   function buildFunnel30d(jobs) {
     var byStage = { "new": 0, "researching": 0, "applied": 0, "phone-screen": 0, "interviewing": 0, "offer": 0, "expired": 0 };
@@ -462,6 +525,7 @@
     var funnel30d = buildFunnel30d(jobs);
     var leads = buildLeads(jobs, nowDate, 5);
     var byTheNumbers = buildByTheNumbers(funnel30d);
+    var today = buildToday(jobs, nowDate);
 
     return {
       date: readDate(doc),
@@ -486,6 +550,7 @@
       leads: leads,
       byTheNumbers: byTheNumbers,
       funnel30d: funnel30d,
+      today: today,
     };
   }
 
@@ -536,6 +601,7 @@
         { kind: "offer",        label: "Offer",        count: 0 },
         { kind: "expired",      label: "Expired",      count: 0 },
       ],
+      today: [],
     };
   }
 
@@ -557,14 +623,12 @@
     "passed": "passed",
     "expired": "expired",
   };
-  var PIPELINE_STAGES = [
-    { key: "researching",  label: "Researching" },
-    { key: "applied",      label: "Applied" },
-    { key: "phone-screen", label: "Phone screen" },
-    { key: "interviewing", label: "Interviewing" },
-    { key: "offer",        label: "Offer" },
-    { key: "expired",      label: "Expired" },
-  ];
+  /* The v2 boards render one column per stage. This used to be a private
+     six-stage list, so a card that moved to Rejected or Passed silently
+     vanished from every board that reads getPipelineViewModel. */
+  var PIPELINE_STAGES = STAGE_ORDER.map(function (s) {
+    return { key: s.key, label: s.label };
+  });
 
   function _attr(el, name) {
     if (!el || !el.getAttribute) return "";
@@ -575,6 +639,40 @@
   function _firstNumber(s) {
     var m = String(s == null ? "" : s).match(/-?\d+(\.\d+)?/);
     return m ? Number(m[0]) : null;
+  }
+
+  /**
+   * Canonical fit VM: 1–10 units. Unknown is not 0.
+   *   missing / non-numeric → { value: null, unknown: true }
+   *   0                    → { value: 0, unknown: false }
+   *   (0, 1)               → 0–1 fraction × 10
+   *   [1, 10]              → rounded units
+   *   (10, 100]            → percent ÷ 10 (83 → 8, not clamp-to-10)
+   */
+  function normalizeFitUnits(raw) {
+    if (raw && typeof raw === "object" && !Array.isArray(raw) && ("unknown" in raw || "value" in raw)) {
+      if (raw.unknown) return { value: null, unknown: true };
+      if (raw.value == null && raw.value !== 0) return { value: null, unknown: true };
+      return { value: raw.value, unknown: false };
+    }
+    if (raw == null) return { value: null, unknown: true };
+    if (typeof raw === "string" && raw.trim() === "") return { value: null, unknown: true };
+    var n = typeof raw === "number" ? raw : _firstNumber(raw);
+    if (!Number.isFinite(n)) return { value: null, unknown: true };
+    if (n === 0) return { value: 0, unknown: false };
+    if (n > 0 && n < 1) return { value: Math.round(n * 10), unknown: false };
+    if (n >= 1 && n <= 10) return { value: Math.round(n), unknown: false };
+    if (n > 10 && n <= 100) return { value: Math.round(n / 10), unknown: false };
+    return { value: null, unknown: true };
+  }
+
+  function formatFitLabel(input) {
+    var units =
+      input && typeof input === "object" && !Array.isArray(input) && ("unknown" in input || "value" in input)
+        ? input
+        : normalizeFitUnits(input);
+    if (!units || units.unknown || units.value == null) return "unknown";
+    return String(units.value) + "/10";
   }
 
   function _parseDateMaybe(s) {
@@ -606,15 +704,8 @@
     }
 
     var fitAttr = _attr(card, "data-fit");
-    var fitScore = fitAttr ? _firstNumber(fitAttr) : null;
-    if (fitScore != null) {
-      // clamp to 1–10 contract band; reject obvious garbage.
-      // Note: if a sheet stores fit as a percentage (e.g. 83), this maps to 10.
-      // That is intentional — the role VM contract is a 1–10 band; upstream
-      // normalization is responsible for converting percentages before write.
-      if (!Number.isFinite(fitScore)) fitScore = null;
-      else fitScore = Math.max(1, Math.min(10, Math.round(fitScore)));
-    }
+    var fitUnits = normalizeFitUnits(fitAttr === "" ? null : fitAttr);
+    var fitScore = fitUnits.unknown ? null : fitUnits.value;
 
     var noteAttr = _attr(card, "data-note");
     var note = noteAttr ? noteAttr : null;
@@ -623,7 +714,10 @@
     var appliedAtMs = _parseDateMaybe(_attr(card, "data-applied-at"));
     var interviewAtMs = _parseDateMaybe(_attr(card, "data-interview-at"));
     var foundAt = _attr(card, "data-found-at") || "";
-    var replied = _attr(card, "data-replied") === "yes";
+    // data-replied carries the normalized Sheet value ("Yes"/"No"/"Unknown");
+    // it was lowercase "yes" before P0-D widened the attribute, so compare
+    // case-insensitively or computeFlag silently stops returning "reply".
+    var replied = _attr(card, "data-replied").toLowerCase() === "yes";
 
     // optional letter draft surfaced via data-letter-draft (kept hint-only, no schema add).
     var draft = _attr(card, "data-letter-draft");
@@ -684,20 +778,10 @@
     var byStage = {};
     PIPELINE_STAGES.forEach(function (s) { byStage[s.key] = []; });
 
-    var untriaged = [];
     for (var i = 0; i < records.length; i++) {
       var r = records[i];
-      if (r.stage === "new") {
-        untriaged.push({
-          jobKey: r.jobKey,
-          role: r.role,
-          company: r.company,
-          fitScore: r.fitScore,
-          foundAt: r.foundAt || "",
-          index: r.index,
-        });
-        continue;
-      }
+      // Every schema stage has a bucket, so nothing is dropped here. _readCard
+      // already normalizes an unrecognized CSS stage to "new".
       if (!Object.prototype.hasOwnProperty.call(byStage, r.stage)) continue;
       byStage[r.stage].push({
         jobKey: r.jobKey,
@@ -712,7 +796,20 @@
       });
     }
 
-    // Sort untriaged by fit DESC (nulls last), stable on insertion order otherwise.
+    /* `untriaged` is the "new" column presented fit-first: same rows as
+       byStage.new, ordered by fit DESC (nulls last) and stable on insertion
+       order otherwise. Kept as its own field because pipeline.js sources the
+       Discovered column from it. */
+    var untriaged = byStage["new"].map(function (c) {
+      return {
+        jobKey: c.jobKey,
+        role: c.role,
+        company: c.company,
+        fitScore: c.fitScore,
+        foundAt: c.foundAt,
+        index: c.index,
+      };
+    });
     untriaged.sort(function (a, b) {
       var av = a.fitScore == null ? -Infinity : a.fitScore;
       var bv = b.fitScore == null ? -Infinity : b.fitScore;
@@ -724,7 +821,7 @@
       return { key: s.key, label: s.label, cards: byStage[s.key] };
     });
 
-    var anyCards = untriaged.length > 0 || stages.some(function (s) { return s.cards.length > 0; });
+    var anyCards = stages.some(function (s) { return s.cards.length > 0; });
 
     return { stages: stages, untriaged: untriaged, empty: !anyCards };
   }
@@ -1167,7 +1264,7 @@
         mustHaves: [], niceToHaves: [], responsibilities: [],
         toolsAndStack: [], extraKeywords: [], talkingPoints: [],
         atsFitScore: null, atsFitRationale: "",
-        status: "",
+        status: "", source: "", enrichedAt: "", fallbackReason: "", parseMode: "",
       };
     }
     var atsFitScore = _firstNumber(_attr(card, "data-ats-fit-score"));
@@ -1190,6 +1287,12 @@
       atsFitScore: atsFitScore,
       atsFitRationale: String(_attr(card, "data-ats-fit-rationale") || "").trim(),
       status: String(_attr(card, "data-enrichment-status") || "").trim(),
+      /* Provenance (P0-C). Absent attributes stay "" and the dossier
+         classifier reads that as 'unknown' — never as posting-grounded. */
+      source: String(_attr(card, "data-enrichment-source") || "").trim(),
+      enrichedAt: String(_attr(card, "data-enriched-at") || "").trim(),
+      fallbackReason: String(_attr(card, "data-enrichment-fallback") || "").trim(),
+      parseMode: String(_attr(card, "data-enrichment-parse-mode") || "").trim(),
     };
   }
 
@@ -1202,9 +1305,11 @@
       jobKey: key, role: "", company: "", companyTagline: "",
       location: "", employment: "",
       stage: "", daysInStage: null, appliedAt: "", source: "",
+      editLock: "",
       fitScore: null, salary: null, tags: [],
       jdSnippet: "", jdSections: [],
       deadline: null, notes: null,
+      contact: "Unknown", lastHeardFrom: "", replied: "Unknown", followUpDate: "",
       contacts: [], links: [],
       enrichment: _parseEnrichmentFromCard(null),
     };
@@ -1234,6 +1339,17 @@
     }
 
     var enrichment = _parseEnrichmentFromCard(card);
+
+    /* Recruiter CRM fields (P0-D). "Unknown" is a real value here: a blank
+       contact or an unanswered did-they-reply must never render as a
+       confident "No". */
+    var recruiterContacts = _parseContactsFromCard(card);
+    var replyAttr = _attr(card, "data-replied").toLowerCase();
+    var recruiterReply = replyAttr === "yes"
+      ? "Yes"
+      : replyAttr === "no"
+        ? "No"
+        : "Unknown";
 
     /* Merge sheet tags with the AI-derived extraKeywords, dedup'd
        case-insensitively. The drawer composes the same union, so the
@@ -1267,6 +1383,7 @@
         daysInStage: daysInStage,
         appliedAt: _parseAppliedAtFromCard(card),
         source: _parseSourceFromCard(card),
+        editLock: String(_attr(card, "data-edit-lock") || "").trim(),
         fitScore: rec.fitScore,
         salary: rec.salary,
         tags: mergedTags,
@@ -1274,7 +1391,13 @@
         jdSections: jdSections,
         deadline: _parseDeadlineFromCard(card, nowMs),
         notes: _parseNotesFromCard(card),
-        contacts: _parseContactsFromCard(card),
+        contact: recruiterContacts.length
+          ? String(recruiterContacts[0].name || recruiterContacts[0].email || "").trim() || "Unknown"
+          : "Unknown",
+        lastHeardFrom: _attr(card, "data-last-contact"),
+        replied: recruiterReply,
+        followUpDate: _attr(card, "data-follow-up"),
+        contacts: recruiterContacts,
         links: _parseLinksFromCard(card),
         /* AI enrichment from the Cheerio scrape + Gemini call.
            Optional; empty strings / arrays when the role hasn't been
@@ -1334,8 +1457,13 @@
     getPipelineViewModel: getPipelineViewModel,
     getRoleViewModel: getRoleViewModel,
     getLetterViewModel: getLetterViewModel,
+    normalizeFitUnits: normalizeFitUnits,
+    formatFitLabel: formatFitLabel,
     STAGE_ORDER: STAGE_ORDER,
     PIPELINE_STAGES: PIPELINE_STAGES,
+    // Shared with today-data.js so the Today queue and the pipeline VM cannot
+    // disagree about what "reply" / "prep" / "stale" mean on the same card.
+    computeFlag: computeFlag,
     _internal: {
       readHeroFromDom: readHeroFromDom,
       jobsFromCards: jobsFromCards,
@@ -1452,9 +1580,9 @@
       };
 
       var pipeOk =
-        pipe && Array.isArray(pipe.stages) && pipe.stages.length === 6 &&
-        pipe.stages[0].key === "researching" &&
-        pipe.stages[5].key === "expired" &&
+        pipe && Array.isArray(pipe.stages) && pipe.stages.length === 9 &&
+        pipe.stages[0].key === "new" &&
+        pipe.stages[8].key === "expired" &&
         pipe.empty === false &&
         flag("applied", "A1") === "stale" &&
         flag("applied", "A2") === null &&
@@ -1499,7 +1627,7 @@
       // empty-doc path
       var emptyDoc = document.implementation.createHTMLDocument("empty");
       var pipeEmpty = getPipelineViewModel({ doc: emptyDoc });
-      var emptyOk = pipeEmpty && pipeEmpty.empty === true && pipeEmpty.stages.length === 6 && pipeEmpty.untriaged.length === 0;
+      var emptyOk = pipeEmpty && pipeEmpty.empty === true && pipeEmpty.stages.length === 9 && pipeEmpty.untriaged.length === 0;
       var atsA = root.JobBoredAts && root.JobBoredAts.score({ jd: "python aws", draft: "I worked with python and aws" });
       var atsB = root.JobBoredAts && root.JobBoredAts.score({ jd: "python aws", draft: "I worked with python and aws" });
       var atsOk = typeof atsA === "number" && atsA === atsB && atsA >= 0 && atsA <= 100;

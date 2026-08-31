@@ -233,3 +233,27 @@ test("scheduled expired cleanup runner accepts --total-timeout-ms and --write", 
   assert.equal(args.dryRun, false);
   assert.equal(args.totalTimeoutMs, SCHEDULED_RUNNER_TIMEOUT_MS);
 });
+
+test("F2C-SETUP09-ACTIVE: install status requires active backend identity, not file existence", async () => {
+  const { classifyInstallStatus } = await import(
+    "../scripts/lib/setup-readiness.mjs"
+  );
+  assert.equal(
+    classifyInstallStatus({
+      artifactExists: true,
+      backendIdentityMatches: false,
+      lastSuccessAt: null,
+      activationOk: false,
+    }).installed,
+    false,
+  );
+  assert.equal(
+    classifyInstallStatus({
+      artifactExists: true,
+      backendIdentityMatches: true,
+      lastSuccessAt: "2026-08-31T12:00:00.000Z",
+      activationOk: true,
+    }).installed,
+    true,
+  );
+});

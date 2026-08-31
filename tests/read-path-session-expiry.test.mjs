@@ -243,7 +243,6 @@ describe("read-path 401 after failed refresh", () => {
     assert.equal(sheetsApiCalls, 2);
   });
 });
-
 describe("read-path non-401 API errors mid-session", () => {
   it("renders the recorded Sheets API error in #errorStateHint instead of the static guess", async () => {
     const { calls, elements, sheetsRead } = createHarness({
@@ -275,5 +274,90 @@ describe("read-path non-401 API errors mid-session", () => {
     // No session-expiry theatre for a permission problem.
     assert.equal(calls.clearSessionAuthState, 0);
     assert.deepEqual(calls.showSheetAccessGate, []);
+  });
+});
+
+describe("F2D-AUTH02-CAP sheet read vs write capability", () => {
+  /**
+   * WHY: write-looking UI currently keys off token presence (`isSignedIn()`),
+   * so a token missing the Sheets scope (or a public CSV/JSONP fallback) can
+   * still unlock stage steppers and notes. Capability must be computed from
+   * scope + fallback mode, not "has a bearer token".
+   */
+  const capabilityJs = readFileSync(
+    join(repoRoot, "google-sheet-capability.js"),
+    "utf8",
+  );
+
+  function loadCapability() {
+    const win = {};
+    vm.runInNewContext(
+      capabilityJs,
+      { window: win, console },
+      { filename: "google-sheet-capability.js" },
+    );
+    return win.JobBoredGoogleSheetCapability;
+  }
+
+  const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+  const USERINFO_SCOPE = "https://www.googleapis.com/auth/userinfo.email";
+
+  it("does not unlock write UI when the token is missing Sheets scope", () => {
+    const cap = loadCapability();
+    const result = cap.resolveGoogleSheetCapability({
+      accessToken: "tok-without-sheets",
+      grantedOauthScopes: USERINFO_SCOPE,
+      usedPublicReadFallback: false,
+      sheetsScope: SHEETS_SCOPE,
+    });
+    assert.equal(result.hasToken, true);
+    assert.equal(result.hasWriteScope, false);
+    assert.equal(result.canWrite, false);
+    assert.equal(result.writeUiUnlocked, false);
+    assert.equal(result.needsConsent, true);
+    assert.equal(result.mode, "readonly");
+  });
+
+  it("keeps public-read fallback read-only even when a write-scoped token is present", () => {
+    const cap = loadCapability();
+    const result = cap.resolveGoogleSheetCapability({
+      accessToken: "tok-with-sheets",
+      grantedOauthScopes: SHEETS_SCOPE,
+      usedPublicReadFallback: true,
+      sheetsScope: SHEETS_SCOPE,
+    });
+    assert.equal(result.canRead, true);
+    assert.equal(result.canWrite, false);
+    assert.equal(result.writeUiUnlocked, false);
+    assert.equal(result.mode, "readonly");
+  });
+
+  it("unlocks write UI only for a write-scoped token that did not fall back to public read", () => {
+    const cap = loadCapability();
+    const result = cap.resolveGoogleSheetCapability({
+      accessToken: "tok-with-sheets",
+      grantedOauthScopes: `${SHEETS_SCOPE} ${USERINFO_SCOPE}`,
+      usedPublicReadFallback: false,
+      sheetsScope: SHEETS_SCOPE,
+    });
+    assert.equal(result.canWrite, true);
+    assert.equal(result.writeUiUnlocked, true);
+    assert.equal(result.needsConsent, false);
+    assert.equal(result.mode, "readwrite");
+  });
+
+  it("treats a token-less public read as read-only with no write UI", () => {
+    const cap = loadCapability();
+    const result = cap.resolveGoogleSheetCapability({
+      accessToken: null,
+      grantedOauthScopes: "",
+      usedPublicReadFallback: true,
+      sheetsScope: SHEETS_SCOPE,
+    });
+    assert.equal(result.hasToken, false);
+    assert.equal(result.canRead, true);
+    assert.equal(result.canWrite, false);
+    assert.equal(result.writeUiUnlocked, false);
+    assert.equal(result.mode, "readonly");
   });
 });

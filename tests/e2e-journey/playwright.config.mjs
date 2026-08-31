@@ -4,7 +4,10 @@ import { defineConfig } from "@playwright/test";
 //   npm run test:e2e-journey
 //
 // Kept separate from the broad root Playwright config and the fast boot smoke
-// suite so CI can retain focused traces for a broken user journey.
+// suite so CI can retain focused traces for a broken user journey. Specs must
+// use tests/e2e-fixtures/hermetic-harness.mjs for disposable signed-in state
+// and the network fence. CI: advisory until Gates A–D; see
+// docs/HERMETIC-BROWSER-GATE.md.
 export default defineConfig({
   testDir: ".",
   testMatch: /.*\.spec\.mjs/,

@@ -5,7 +5,6 @@ import {
   DEFAULT_SHEET_NAME,
   DEFAULT_TOKEN_SCOPE,
   LAST_COLUMN_LETTER,
-  batchUpdateRows,
   getSheetValues,
   resolveAccessToken,
   type FetchLike,
@@ -32,6 +31,32 @@ export type PipelineStatus = (typeof PIPELINE_STATUS_VALUES)[number];
 
 export const DID_THEY_REPLY_VALUES = ["Yes", "No", "Unknown"] as const;
 export type DidTheyReply = (typeof DID_THEY_REPLY_VALUES)[number];
+
+export const PIPELINE_PATCH_FIELD_KEYS = [
+  "stage",
+  "contact",
+  "note",
+  "lastContact",
+  "appliedDate",
+  "didTheyReply",
+] as const;
+export type PipelinePatchFieldKey = (typeof PIPELINE_PATCH_FIELD_KEYS)[number];
+
+const COL_LETTER = {
+  contact: "L",
+  status: "M",
+  appliedDate: "N",
+  notes: "O",
+  lastContact: "R",
+  didTheyReply: "S",
+} as const;
+
+export class PipelinePatchValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PipelinePatchValidationError";
+  }
+}
 
 export type PipelinePatchFields = {
   stage?: PipelineStatus;
@@ -82,6 +107,50 @@ function padRow(row: string[]): string[] {
   return out;
 }
 
+function assertKnownFields(fields: Record<string, unknown>): void {
+  const unknown = Object.keys(fields).filter(
+    (key) => !PIPELINE_PATCH_FIELD_KEYS.includes(key as PipelinePatchFieldKey),
+  );
+  if (unknown.length) {
+    throw new PipelinePatchValidationError(
+      `Unknown pipeline-update field(s): ${unknown.join(", ")}.`,
+    );
+  }
+}
+
+async function batchUpdateCells(
+  sheetId: string,
+  cells: Array<{ range: string; value: string }>,
+  token: string,
+  fetchImpl: FetchLike,
+): Promise<void> {
+  if (!cells.length) return;
+  const url = new URL(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values:batchUpdate`,
+  );
+  const response = await fetchImpl(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      valueInputOption: "USER_ENTERED",
+      data: cells.map((cell) => ({
+        range: cell.range,
+        majorDimension: "ROWS",
+        values: [[cell.value]],
+      })),
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `Sheet write failed during narrow update: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+    );
+  }
+}
+
 export function createPipelinePatcher(
   runtimeConfig: WorkerRuntimeConfig,
   options: PipelinePatcherOptions = {},
@@ -95,6 +164,7 @@ export function createPipelinePatcher(
   const tokenScope = options.tokenScope || DEFAULT_TOKEN_SCOPE;
 
   async function patch(sheetId: string, input: PipelinePatchInput): Promise<PipelinePatchResult> {
+    assertKnownFields((input.fields || {}) as Record<string, unknown>);
     const token = await resolveAccessToken(runtimeConfig, fetchImpl, now, tokenScope);
     const rows = await getSheetValues(sheetId, `${sheetName}!A2:${LAST_COLUMN_LETTER}`, token, fetchImpl);
 
@@ -123,17 +193,30 @@ export function createPipelinePatcher(
     const rowNumber = matchIndex + 2; // +1 header, +1 for 1-based row numbers
     const patched = padRow(rows[matchIndex]);
     const { fields } = input;
+    const cells: Array<{ range: string; value: string }> = [];
 
-    if (fields.stage !== undefined) patched[COL.status] = fields.stage;
-    if (fields.contact !== undefined) patched[COL.contact] = fields.contact;
-    if (fields.lastContact !== undefined) patched[COL.lastContact] = fields.lastContact;
-    if (fields.appliedDate !== undefined) patched[COL.appliedDate] = fields.appliedDate;
-    if (fields.didTheyReply !== undefined) patched[COL.didTheyReply] = fields.didTheyReply;
-    if (fields.note !== undefined && fields.note !== "") {
-      patched[COL.notes] = appendNote(patched[COL.notes] || "", fields.note, isoDate(now));
+    function queue(letter: string, next: string, previous: string) {
+      if (next === previous) return;
+      cells.push({ range: `${sheetName}!${letter}${rowNumber}`, value: next });
     }
 
-    await batchUpdateRows(sheetId, [{ rowNumber, values: patched }], token, fetchImpl, sheetName);
+    if (fields.stage !== undefined) queue(COL_LETTER.status, fields.stage, patched[COL.status] || "");
+    if (fields.contact !== undefined) queue(COL_LETTER.contact, fields.contact, patched[COL.contact] || "");
+    if (fields.lastContact !== undefined) {
+      queue(COL_LETTER.lastContact, fields.lastContact, patched[COL.lastContact] || "");
+    }
+    if (fields.appliedDate !== undefined) {
+      queue(COL_LETTER.appliedDate, fields.appliedDate, patched[COL.appliedDate] || "");
+    }
+    if (fields.didTheyReply !== undefined) {
+      queue(COL_LETTER.didTheyReply, fields.didTheyReply, patched[COL.didTheyReply] || "");
+    }
+    if (fields.note !== undefined && fields.note !== "") {
+      const nextNotes = appendNote(patched[COL.notes] || "", fields.note, isoDate(now));
+      queue(COL_LETTER.notes, nextNotes, patched[COL.notes] || "");
+    }
+
+    await batchUpdateCells(sheetId, cells, token, fetchImpl);
 
     return { matched: true, matchedBy, rowNumber };
   }

@@ -1,0 +1,182 @@
+/* ============================================================
+   today.css — JobBored v2 Today attention queue
+   ------------------------------------------------------------
+   Owner:    T0 lane P0-A (canonical pipeline)
+   Scope:    body.jb-v2 [data-region="today"] — every rule, no exceptions.
+   Tokens:   --jb-* only (tools/lint-tokens.mjs rejects raw hex).
+   Design:   Dawn's editorial vocabulary — mono eyebrows, dashed hairline
+             separators, .brief-card paper. No new colours are minted; the
+             per-band accent is the existing --jb-stage-* / --jb-fit-* set.
+
+   Off-flag (body:not(.jb-v2)) renders nothing.
+   ============================================================ */
+
+body:not(.jb-v2) [data-region="today"] { display: none; }
+
+body.jb-v2 [data-region="today"] {
+  display: block;
+  width: var(--jb-flow-content-width, min(1220px, calc(100% - 32px)));
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: var(--space-8, 32px) 0 var(--space-4, 16px);
+  font-family: var(--jb-font-body);
+  color: var(--jb-ink);
+}
+
+/* --- Header ------------------------------------------------- */
+
+body.jb-v2 [data-region="today"] .today-head {
+  border-block-end: 2px solid var(--jb-navy);
+  padding-block-end: var(--space-2, 8px);
+  margin-block-end: var(--space-4, 16px);
+}
+
+body.jb-v2 [data-region="today"] .today-head__eyebrow {
+  display: block;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.14em;
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="today"] .today-head__title {
+  margin: var(--space-1, 4px) 0 0;
+  font-family: var(--jb-font-display);
+  font-size: var(--jb-text-2xl);
+  font-weight: 400;
+  color: var(--jb-navy);
+}
+
+body.jb-v2 [data-region="today"] .today-head__counts {
+  margin: var(--space-1, 4px) 0 0;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="today"] .today-head__counts:empty { display: none; }
+
+/* --- Queue -------------------------------------------------- */
+
+body.jb-v2 [data-region="today"] .today-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+body.jb-v2 [data-region="today"] .today-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4, 16px);
+  padding: var(--space-3, 12px) var(--space-4, 16px);
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-lg);
+  box-shadow: var(--jb-shadow-card);
+}
+
+/* The rank is the point of this surface, so it is visible without reading:
+   a left rule in the band's own colour, most urgent warmest. Colours are the
+   existing stage/fit tokens — nothing new is introduced here. */
+body.jb-v2 [data-region="today"] .today-item { border-inline-start: 3px solid var(--jb-line); }
+body.jb-v2 [data-region="today"] .today-item--reply { border-inline-start-color: var(--jb-amber); }
+body.jb-v2 [data-region="today"] .today-item--prep { border-inline-start-color: var(--jb-stage-interviewing); }
+body.jb-v2 [data-region="today"] .today-item--follow-up { border-inline-start-color: var(--jb-stage-applied); }
+body.jb-v2 [data-region="today"] .today-item--stale { border-inline-start-color: var(--jb-ink-3); }
+body.jb-v2 [data-region="today"] .today-item--fit { border-inline-start-color: var(--jb-mint); }
+
+body.jb-v2 [data-region="today"] .today-item__lede { min-width: 0; }
+
+body.jb-v2 [data-region="today"] .today-item__eyebrow {
+  display: block;
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.1em;
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="today"] .today-item__title {
+  margin: 0;
+  font-size: var(--jb-text-lg);
+  font-weight: 600;
+  color: var(--jb-ink);
+}
+
+body.jb-v2 [data-region="today"] .today-item__headline {
+  margin: var(--space-1, 4px) 0 0;
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink);
+}
+
+body.jb-v2 [data-region="today"] .today-item__detail {
+  margin: 0;
+  padding-block-start: var(--space-1, 4px);
+  border-block-start: 1px dashed var(--jb-line);
+  font-size: var(--jb-text-xs);
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="today"] .today-item__aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2, 8px);
+  flex-shrink: 0;
+}
+
+/* One action per row, and it is a real target: 2.75rem clears the 44px
+   minimum on touch. */
+body.jb-v2 [data-region="today"] .today-item__action {
+  min-height: 2.75rem;
+  padding: 0 var(--space-4, 16px);
+  background: var(--jb-navy);
+  color: var(--jb-paper);
+  border: 1px solid var(--jb-navy);
+  border-radius: var(--jb-radius-sm);
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+body.jb-v2 [data-region="today"] .today-item__action:hover { background: var(--jb-ink); }
+
+body.jb-v2 [data-region="today"] .today-item__action:focus-visible {
+  outline: 2px solid var(--jb-mint);
+  outline-offset: 2px;
+}
+
+/* --- Empty state -------------------------------------------- */
+
+body.jb-v2 [data-region="today"] .today-empty {
+  padding: var(--space-4, 16px);
+  background: var(--jb-paper);
+  border: 1px dashed var(--jb-line);
+  border-radius: var(--jb-radius-lg);
+}
+
+body.jb-v2 [data-region="today"] .today-empty__line {
+  margin: 0;
+  font-family: var(--jb-font-display);
+  font-size: var(--jb-text-lg);
+  color: var(--jb-navy);
+}
+
+body.jb-v2 [data-region="today"] .today-empty__hint {
+  margin: var(--space-1, 4px) 0 0;
+  font-size: var(--jb-text-xs);
+  color: var(--jb-ink-3);
+}
+
+/* --- Narrow screens ----------------------------------------- */
+
+@media (max-width: 640px) {
+  body.jb-v2 [data-region="today"] .today-item { flex-direction: column; align-items: stretch; }
+  body.jb-v2 [data-region="today"] .today-item__aside { flex-direction: row; align-items: center; justify-content: space-between; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 [data-region="today"] .today-item__action { transition: none; }
+}

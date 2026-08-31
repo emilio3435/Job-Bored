@@ -24,7 +24,8 @@ Install dependencies:
 
 Run locally:
 
-- `npm start` or `npm run dev` — starts the static dashboard at `http://localhost:8080` and the local scraper/ATS server at `http://127.0.0.1:3847`.
+- `npm start` — starts the static dashboard at `http://localhost:8080` and the local scraper/ATS server at `http://127.0.0.1:3847`.
+- `npm run dev` — starts the dashboard and scraper, plus the local discovery worker.
 - `npm run web-only` — starts only the static dashboard.
 - `npm run web-only:https` — starts the static dashboard with local TLS enabled.
 - `npm run start:scraper` or `npm --prefix server start` — starts only the scraper/ATS server.
@@ -40,8 +41,8 @@ Validation:
 - `node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/handle-discovery-webhook.test.ts` — run a single discovery worker TypeScript test.
 - `npm run test:contract:all` — validates discovery webhook, ATS scorecard, Pipeline schema/docs alignment, and integration skill links.
 - `npm run test:contract`, `npm run test:ats-contract`, `npm run test:pipeline-contract`, and `npm run lint:skills` — targeted contract checks.
-- `npm run lint:repo` — currently delegates to `lint:skills`.
-- `npm run typecheck:repo` — syntax-checks the root browser scripts, server modules, and scripts with `node --check`.
+- `npm run lint:repo` — runs ESLint across the repo, then validates integration-skill links.
+- `npm run typecheck:repo` — type-checks the discovery worker and server, then syntax-checks the root browser scripts and scripts.
 - `npm run test:repo` — broad repo validation: contract suite, root tests, and discovery worker tests.
 
 Integration helpers:

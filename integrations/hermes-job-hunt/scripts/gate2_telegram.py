@@ -2,9 +2,9 @@
 """
 JHOS Phase 6 — Gate 2 Telegram Bot API Integration
 
-Sends submit-approval requests to Telegram thread 314 and polls for
-confirmation replies using the Bot API directly (replaces the
-placeholder `hermes receive` approach).
+Sends submit-approval requests to the Gate 2 Telegram thread from
+approval-contract.v1.json and polls for confirmation replies using the
+Bot API directly (replaces the placeholder `hermes receive` approach).
 
 Usage as module:
     from gate2_telegram import send_approval_request, poll_for_confirmation
@@ -24,12 +24,19 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
-# ─── Configuration ────────────────────────────────────────────────────
+from approval_contract import (
+    GATE2_CHAT_ID,
+    GATE2_POLL_INTERVAL_SECONDS,
+    GATE2_THREAD_ID,
+    GATE2_TIMEOUT_SECONDS,
+)
 
-CHAT_ID = -1003800236296       # Supergroup
-THREAD_ID = 314                # Thread 314 = submit approvals / Dobby updates
-DEFAULT_TIMEOUT = 600          # 10 minutes
-POLL_INTERVAL = 10             # seconds between getUpdates calls
+# ─── Configuration (approval-contract.v1.json) ─────────────────────────
+
+CHAT_ID = GATE2_CHAT_ID
+THREAD_ID = GATE2_THREAD_ID
+DEFAULT_TIMEOUT = GATE2_TIMEOUT_SECONDS
+POLL_INTERVAL = GATE2_POLL_INTERVAL_SECONDS
 
 
 def _load_bot_token() -> str:
@@ -83,7 +90,7 @@ def send_approval_request(
     fit_summary: str = "",
     token: str | None = None,
 ) -> dict:
-    """Send a Gate 2 submit-approval request to thread 314.
+    """Send a Gate 2 submit-approval request to the contract thread.
 
     Returns {ok, message_id, message_text} on success, {ok: False, error} on failure.
     """
@@ -155,7 +162,7 @@ def poll_for_confirmation(
     after_message_id: int | None = None,
     token: str | None = None,
 ) -> tuple[bool, str]:
-    """Poll getUpdates for a YES SUBMIT <COMPANY> reply in thread 314.
+    """Poll getUpdates for a YES SUBMIT <COMPANY> reply in the contract thread.
 
     Args:
         company: Company name to match against
@@ -232,7 +239,7 @@ def poll_for_confirmation(
 # ─── Cancellation Notification ───────────────────────────────────────
 
 def send_cancellation(title: str, company: str, reason: str, token: str | None = None) -> dict:
-    """Send a cancellation notice to thread 314."""
+    """Send a cancellation notice to the Gate 2 contract thread."""
     text = f"⏰ Submission for {title} @ {company} expired — {reason}. Card returned to queue."
     result = _api_call("sendMessage", {
         "chat_id": CHAT_ID,
@@ -243,7 +250,7 @@ def send_cancellation(title: str, company: str, reason: str, token: str | None =
 
 
 def send_success(title: str, company: str, token: str | None = None) -> dict:
-    """Send a success notice to thread 314."""
+    """Send a success notice to the Gate 2 contract thread."""
     text = f"✅ Applied to {title} @ {company} — evidence captured. Check Pipeline for details."
     result = _api_call("sendMessage", {
         "chat_id": CHAT_ID,

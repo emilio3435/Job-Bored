@@ -10,6 +10,7 @@ import {
   createExplorationBudgetTracker,
   isCandidateSelected,
   DEFAULT_EXPLORATION_BUDGET,
+  FRONTIER_SCORE_WEIGHTS,
   type FrontierScoreComponents,
   type FrontierCandidate,
   type ExplorationBudget,
@@ -545,6 +546,37 @@ test("VAL-LOOP-SCORE-005: rejected candidates are tracked separately", () => {
 });
 
 // === Default Budget Tests ===
+
+test("FRONTIER_SCORE_WEIGHTS are declared so F4-A can share attribution", () => {
+  assert.ok(FRONTIER_SCORE_WEIGHTS.roleFit > 0);
+  assert.ok(FRONTIER_SCORE_WEIGHTS.recentHiringEvidence > 0);
+  assert.ok(FRONTIER_SCORE_WEIGHTS.cooldownPenalty > 0);
+  const high = computeFrontierCompositeScore({
+    roleFit: 90,
+    geoFit: 60,
+    remoteFit: 60,
+    recentHiringEvidence: 50,
+    priorAcceptedYield: 50,
+    surfaceHealth: 50,
+    diversity: 50,
+    freshness: 50,
+    cooldownPenalty: 0,
+    recentCoveragePenalty: 0,
+  });
+  const low = computeFrontierCompositeScore({
+    roleFit: 20,
+    geoFit: 60,
+    remoteFit: 60,
+    recentHiringEvidence: 50,
+    priorAcceptedYield: 50,
+    surfaceHealth: 50,
+    diversity: 50,
+    freshness: 50,
+    cooldownPenalty: 0,
+    recentCoveragePenalty: 0,
+  });
+  assert.ok(high.composite > low.composite);
+});
 
 test("DEFAULT_EXPLORATION_BUDGET has sensible defaults", () => {
   assert.ok(DEFAULT_EXPLORATION_BUDGET.maxScoutSurfaces > 0);

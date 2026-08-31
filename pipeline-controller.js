@@ -43,18 +43,34 @@
     })(),
   );
 
-  const STAGE_ORDER = [
-    "New",
-    "Researching",
-    "Applied",
-    "Phone Screen",
-    "Interviewing",
-    "Offer",
-    "Rejected",
-    "Passed",
-    "Expired",
+  /* ── Canonical stage vocabulary ─────────────────────────────────────────
+     Runtime source is window.JobBoredStages (stage-registry.js), which mirrors
+     the status enum of schemas/pipeline-row.v1.json. STAGE_FALLBACK below is
+     used only when that script is absent; tests/stage-registry-canonical.test.mjs
+     pins it — and every other board's copy — to the schema, so a stage can
+     never again exist on one surface and not another. */
+  const STAGE_FALLBACK = [
+    ["new", "New"], ["researching", "Researching"], ["applied", "Applied"],
+    ["phone-screen", "Phone Screen"], ["interviewing", "Interviewing"],
+    ["offer", "Offer"], ["rejected", "Rejected"], ["passed", "Passed"],
+    ["expired", "Expired"],
   ];
-  const STAGE_ARCHIVE = new Set(["Rejected", "Passed", "Expired"]);
+
+  function stageRegistry() {
+    return (typeof window !== "undefined" && window.JobBoredStages) || null;
+  }
+
+  const STAGE_ORDER = (() => {
+    const reg = stageRegistry();
+    return reg ? reg.STATUSES.slice() : STAGE_FALLBACK.map((p) => p[1]);
+  })();
+
+  const STAGE_ARCHIVE = new Set((() => {
+    const reg = stageRegistry();
+    if (reg) return reg.ARCHIVE_KEYS.map((k) => reg.LABELS[k]);
+    return STAGE_FALLBACK.filter((p) => p[0] === "rejected" || p[0] === "passed" || p[0] === "expired")
+      .map((p) => p[1]);
+  })());
   const expandedStages = new Set(
     STAGE_ORDER.filter((s) => !STAGE_ARCHIVE.has(s)),
   );

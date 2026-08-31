@@ -1,6 +1,16 @@
 # GitHub Pages deployment
 
-JobBored is static: GitHub Pages can serve `index.html`, browser scripts, schemas, and docs directly. The optional scraper and discovery worker are not hosted by Pages; they must run locally behind a public relay or on a host you control.
+JobBored is static, but its checked-in `index.html` is a template with `<!-- @include -->` partials. The repository's Pages workflow assembles those partials and deploys the resulting artifact. Do not use Pages' branch/root source: that serves the template unchanged and omits the first-run, Settings, discovery, and other modal surfaces. The optional scraper and discovery worker are not hosted by Pages; they must run locally behind a public relay or on a host you control.
+
+## Publishing source
+
+In **Settings → Pages → Build and deployment**, choose **GitHub Actions**. Every push to `main` then runs `.github/workflows/pages.yml`, which:
+
+1. expands the partials with `node scripts/assemble-index.mjs --write`;
+2. copies static assets into `_site/` and installs the assembled document as `_site/index.html`;
+3. uploads and deploys that artifact through GitHub Pages.
+
+A deployment is healthy only when the live HTML contains protected surfaces such as `#firstRunWizard` and contains no `<!-- @include -->` markers. An HTTP 200 alone is not sufficient.
 
 ## Supported modes
 

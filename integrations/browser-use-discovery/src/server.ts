@@ -60,7 +60,10 @@ import { handleCleanupExpiredWebhook } from "./webhook/handle-cleanup-webhook.ts
 import { handleDiscoveryProfileWebhook } from "./webhook/handle-discovery-profile.ts";
 import { handlePipelineUpdateWebhook } from "./webhook/handle-pipeline-update.ts";
 import { handleIngestUrlWebhook } from "./webhook/handle-ingest-url.ts";
-import { hasValidRunStatusToken } from "./webhook/run-status-auth.ts";
+import {
+  hasValidRunStatusToken,
+  parseRunStatusPath,
+} from "./webhook/run-status-auth.ts";
 import { createBrowserUseSessionManager } from "./browser/session.ts";
 
 const runtimeConfig = loadRuntimeConfig(process.env);
@@ -1088,7 +1091,16 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    const runId = decodeURIComponent(requestPath.slice("/runs/".length));
+    const parsedRunStatusPath = parseRunStatusPath(requestPath);
+    if (!parsedRunStatusPath.ok) {
+      finishJson(
+        parsedRunStatusPath.status,
+        parsedRunStatusPath.body,
+        corsHeaders,
+      );
+      return;
+    }
+    const { runId } = parsedRunStatusPath;
     if (runtimeConfig.runMode === "hosted") {
       const tokenAuthorized = hasValidRunStatusToken({
         webhookSecret: runtimeConfig.webhookSecret,

@@ -24,6 +24,7 @@ export type SafetyTimerOptions = {
   acceptedStatus: DiscoveryRunStatusPayload;
   now(): Date;
   log?(event: string, details: Record<string, unknown>): void;
+  onForceTerminal?(status: DiscoveryRunStatusPayload): void;
 };
 
 export type SafetyTimerHandle = {
@@ -53,21 +54,26 @@ export function createSafetyTimer(
       if (terminalStatusWritten) return;
       const currentStatus =
         options.runStatusStore?.get(options.runId) ?? options.acceptedStatus;
+      if (currentStatus.terminal) {
+        terminalStatusWritten = true;
+        return;
+      }
       const nowIso = options.now().toISOString();
+      const forcedStatus: DiscoveryRunStatusPayload = {
+        ...currentStatus,
+        status: "partial",
+        terminal: true,
+        message:
+          "Discovery run exceeded its maximum duration; reporting partial results.",
+        completedAt: nowIso,
+        updatedAt: nowIso,
+        warnings: [
+          ...(currentStatus.warnings || []),
+          `Run marked terminal after ${options.maxRunDurationMs}ms. Sources still finishing in the background are bounded by the run budget and per-source timeouts.`,
+        ],
+      };
       try {
-        options.runStatusStore?.put({
-          ...currentStatus,
-          status: "partial",
-          terminal: true,
-          message:
-            "Discovery run exceeded its maximum duration; reporting partial results.",
-          completedAt: nowIso,
-          updatedAt: nowIso,
-          warnings: [
-            ...(currentStatus.warnings || []),
-            `Run marked terminal after ${options.maxRunDurationMs}ms. Sources still finishing in the background are bounded by the run budget and per-source timeouts.`,
-          ],
-        });
+        options.runStatusStore?.put(forcedStatus);
       } catch (error) {
         options.log?.("discovery.run_status.terminal_write_failed", {
           runId: options.runId,
@@ -84,6 +90,15 @@ export function createSafetyTimer(
         maxRunDurationMs: options.maxRunDurationMs,
         reason: "safety_timeout",
       });
+      try {
+        options.onForceTerminal?.(forcedStatus);
+      } catch (error) {
+        options.log?.("discovery.run_status.history_finalize_failed", {
+          runId: options.runId,
+          mode: options.runMode,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }, options.maxRunDurationMs);
   };
 

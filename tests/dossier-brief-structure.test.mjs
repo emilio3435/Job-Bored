@@ -419,13 +419,25 @@ describe("dossier brief structure", () => {
     assert.doesNotMatch(mountNeither.innerHTML, /class="brief__hook"/);
   });
 
-  it("drop-cap lede renders the AI summary distinct from the hook", () => {
+  /* Merged contract (R5): the lede tag keeps the compression framing the
+     reader needs, and the classified provenance line beside it keeps
+     pre-metadata content visibly unknown instead of implying grounding. */
+  it("drop-cap lede renders the compressed summary with visibly unknown provenance", () => {
     const { context } = loadBriefOnly();
     const mount = makeMount();
     context.window.JobBoredDossierBrief.renderBrief(mount, fixtureVm());
 
     assert.match(mount.innerHTML, /<p class="brief__lede">Linear is looking for/);
-    assert.match(mount.innerHTML, /<div class="brief__lede-tag">Compressed by JobBored AI/);
+    assert.match(
+      mount.innerHTML,
+      /<div class="brief__lede-tag"[^>]*>Compressed by JobBored AI · from 60 words/,
+      "a JD-compressed lede must say it was compressed, and from how much text",
+    );
+    assert.match(
+      mount.innerHTML,
+      /class="brief__provenance brief__provenance--unknown">unknown · source unknown · from 60 words</,
+      "pre-metadata content must stay visibly unknown instead of claiming AI grounding",
+    );
   });
 
   it("lede is suppressed when first JD body equals the hook text", () => {
@@ -675,7 +687,7 @@ describe("dossier brief — AI enrichment sections", () => {
     );
   });
 
-  it("renders the LLM postingSummary as the lede and labels it 'AI Summary'", () => {
+  it("renders the LLM postingSummary as the lede without fabricating missing provenance", () => {
     const { context } = loadBriefOnly();
     const mount = makeMount();
     context.window.JobBoredDossierBrief.renderBrief(
@@ -692,8 +704,18 @@ describe("dossier brief — AI enrichment sections", () => {
     );
     assert.match(
       mount.innerHTML,
-      /<div class="brief__lede-tag">AI Summary · grounded in the posting<\/div>/,
-      "lede tag should advertise the LLM as the source",
+      /<div class="brief__lede-tag"[^>]*>AI Summary · source unverified/,
+      "an LLM summary without scrape lineage is unverified, not posting-grounded",
+    );
+    assert.match(
+      mount.innerHTML,
+      /class="brief__provenance brief__provenance--unknown">unknown · source unknown</,
+      "a pre-metadata enrichment must be classified unknown, never posting-grounded",
+    );
+    assert.doesNotMatch(
+      mount.innerHTML,
+      /grounded in the posting/,
+      "missing source must never be labeled posting-grounded",
     );
   });
 

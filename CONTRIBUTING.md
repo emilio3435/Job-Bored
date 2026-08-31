@@ -29,7 +29,8 @@ unblocked counts as a contribution too.
   step, no bundler, every script tag is its own debuggable unit. Cross-module
   references go through a [bridge layer](bridge-registry.js) — search there
   if a function feels orphaned.
-- **The test gate is real.** 1,800+ tests run on every PR. The gate
+- **The test gate is real.** 2,300+ root tests run on every PR, followed by
+  the discovery worker suite. The gate
   (`npm test`) must end **0 fail / 0 skip**. Lint, typecheck, and Playwright
   smoke also have to be clean. Red PRs don't merge.
 
@@ -61,9 +62,9 @@ Greenfield-mode (skips any saved state) lives at
 This is the contract:
 
 ```bash
-npm test                  # 1,800+ behavioral tests via scripts/run-tests.mjs
+npm test                  # 2,300+ behavioral tests via scripts/run-tests.mjs
 npx eslint .              # zero warnings (no-undef + no-unused-vars + a few)
-npm run typecheck:repo    # JSDoc-driven type checking
+npm run typecheck:repo    # worker/server TypeScript + browser/script syntax
 npm run test:contract:all # discovery webhook + Pipeline schema fixtures
 ```
 
@@ -113,8 +114,15 @@ merge:
 
 - `e2e-smoke` — Playwright boot + visibility smoke. Flakes here surface
   signal but won't hold you up.
+- `e2e-journey` — Playwright signed-in product journey. Same advisory
+  status as e2e-smoke.
 - `audit-dev` — advisory `npm audit` summary across all dependencies
   (including dev).
+
+Both browser jobs must stay hermetic (no live Google/Sheets, no writing
+`config.js` into the checkout). They import
+`tests/e2e-fixtures/hermetic-harness.mjs`. They become required CI only
+after repair Gates A–D; see [docs/HERMETIC-BROWSER-GATE.md](docs/HERMETIC-BROWSER-GATE.md).
 
 PRs also require review from a CODEOWNERS owner (see
 [CODEOWNERS](#codeowners)) before merge.
@@ -187,7 +195,9 @@ the same PR.
 │   └── lib/                    # Shared script utilities
 ├── tests/                      # Behavioral + contract tests (node:test)
 │   ├── integration/            # Full-stack flow tests
-│   └── e2e-smoke/              # Playwright boot + visibility smoke
+│   ├── e2e-fixtures/           # Hermetic Playwright harness (no live Google)
+│   ├── e2e-smoke/              # Playwright boot + visibility smoke
+│   └── e2e-journey/            # Playwright signed-in product journey
 └── docs/                       # Long-form: SELF-HOSTING, contract, ADRs
 ```
 

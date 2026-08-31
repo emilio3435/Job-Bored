@@ -198,6 +198,7 @@
     <link rel="stylesheet" href="css/legacy-settings-profile.css" />
     <link rel="stylesheet" href="css/legacy-discovery-runs.css" />
     <link rel="stylesheet" href="css/legacy-discovery-drawer.css" />
+    <link rel="stylesheet" href="css/discovery-run-preview.css">
     <link rel="stylesheet" href="css/legacy-fit-profile-overlay.css" />
     <link rel="stylesheet" href="css/legacy-discovery-coachmark.css" />
     <link rel="stylesheet" href="settings-tabs.css" />
@@ -206,11 +207,14 @@
     <link rel="stylesheet" href="jb-type.css" />
     <link rel="stylesheet" href="jb-deco.css" />
     <link rel="stylesheet" href="jb-ui.css" />
+    <link rel="stylesheet" href="jb-a11y.css" />
     <link rel="stylesheet" href="lattice.css" />
     <link rel="stylesheet" href="dawn.css" />
+    <link rel="stylesheet" href="today.css" />
     <link rel="stylesheet" href="flowing-chrome.css" />
     <link rel="stylesheet" href="pipeline.css" />
     <link rel="stylesheet" href="role.css" />
+    <link rel="stylesheet" href="recruiter-strip.css">
     <link rel="stylesheet" href="materials-queue.css" />
     <!-- letter.css removed from critical path 2026-06-11 — letter.js is no   -->
     <!-- longer included (see comment at ~line 231-233); the file remains on  -->
@@ -222,15 +226,24 @@
     <link rel="stylesheet" href="fit-profile.css" />
     <link rel="stylesheet" href="jb-v2-legacy-hide.css" />
     <script src="jb-ui.js" defer></script>
+    <script src="jb-a11y.js" defer></script>
     <script src="welcome.js" defer></script>
+    <script src="stage-registry.js" defer></script>
     <script src="company-cap.js" defer></script>
     <script src="lattice.js" defer></script>
+    <script src="metrics-date-window.js" defer></script>
     <script src="dawn-data.js" defer></script>
     <script src="dawn.js" defer></script>
+    <script src="today-data.js" defer></script>
+    <script src="today.js" defer></script>
     <script src="flowing-store.js" defer></script>
     <script src="flowing-chrome.js" defer></script>
+    <script src="hosted-api-auth.js" defer></script>
+    <script src="pipeline-transitions.js" defer></script>
     <script src="pipeline.js" defer></script>
     <script src="role.js" defer></script>
+    <script src="structured-output-validator.js" defer></script>
+    <script src="dossier-field-provenance.js" defer></script>
     <script src="role-brief.js" defer></script>
     <script src="role-materials.js" defer></script>
     <script src="materials-queue.js" defer></script>
@@ -239,8 +252,15 @@
     <!-- materials panel; PART 04 is gone.                             -->
     <!-- <script src="role-workshop.js" defer></script>                -->
     <!-- <script src="letter.js" defer></script>                       -->
+    <script src="mark-submitted.js" defer></script>
+    <script src="submission-flow.js" defer></script>
+    <script src="recruiter-strip.js" defer></script>
     <script src="flowing-writes.js" defer></script>
+    <script src="scribe-state.js" defer></script>
+    <script src="scribe-score-adapter.js" defer></script>
     <script src="scribe.js" defer></script>
+    <script src="pipeline-transition-adapter.js" defer></script>
+    <script src="jb-v2-boot-contract.js" defer></script>
     <script>
       // JB-V2 flag plumbing (Atlas). Sets body.jb-v2 from URL ?jb-v2=1|0
       // or localStorage 'jb-v2-flag'. URL param wins and persists.
@@ -309,6 +329,14 @@
     <!-- Each region renders only when body.jb-v2 is set. Legacy markup -->
     <!-- remains in place outside these blocks for the off-flag fallback. -->
     <!-- ============================================================ -->
+
+    <!-- region:today:start -->
+    <!-- R3 owns this block: the Today attention queue.                -->
+    <!-- Renders only when body.jb-v2 is set (see today.js / today.css). -->
+    <!-- Ranks reply > interview prep > overdue follow-up > staleness >  -->
+    <!-- fit; reads window.JobBored.getPipelineJobs(), never the DOM.    -->
+    <section data-region="today" aria-label="Today (v2)"></section>
+    <!-- region:today:end -->
 
     <!-- region:dawn:start -->
     <!-- DAWN owns this block: Daily Brief / overview dashboard.       -->
@@ -1539,6 +1567,7 @@
     <!-- @include partials/discovery-modals.html -->
 
     <!-- @include partials/discovery-drawer.html -->
+    <!-- @include partials/discovery-run-preview.html -->
 
     <div
       class="discovery-setup-wizard-root"
@@ -1579,6 +1608,7 @@
     <script src="visual-themes.js" defer></script>
     <script src="user-content-store.js" defer></script>
     <script src="onboarding-telemetry.js" defer></script>
+    <script src="discovery-effective-intent.js" defer></script>
     <script src="discovery-payload.js" defer></script>
     <script src="discovery-autodetect.js" defer></script>
     <script src="discovery-shared-helpers.js" defer></script>
@@ -1606,6 +1636,7 @@
     <script src="settings-jb-v2-tab.js" defer></script>
     <script src="settings-discovery-adapters.js" defer></script>
     <script src="settings-profile-tab.js?v=4" defer></script>
+    <script src="profile-api-base.js" defer></script>
     <script src="fit-profile-wizard.js" defer></script>
     <script src="fit-profile-editor.js" defer></script>
     <script src="fit-profile-backcompat.js" defer></script>
@@ -1635,6 +1666,7 @@
     <script src="discovery-run-tracker.js?v=1" defer></script>
     <script src="config-overrides.js?v=1" defer></script>
     <script src="app-config-core.js?v=2" defer></script>
+    <script src="google-sheet-capability.js" defer></script>
     <script src="auth-session.js?v=1" defer></script>
     <script src="sheet-access-setup.js?v=2" defer></script>
     <script src="apps-script-relay-helpers.js?v=1" defer></script>
@@ -1644,6 +1676,8 @@
     <script src="discovery-status-handoff.js?v=1" defer></script>
     <script src="apps-script-deploy.js?v=1" defer></script>
     <script src="discovery-setup-modals.js?v=1" defer></script>
+    <script src="discovery-readiness-truth.js?v=1" defer></script>
+    <script src="discovery-run-preview.js?v=1" defer></script>
     <script src="discovery-drawer.js?v=1" defer></script>
     <script src="ingest-url-flow.js?v=1" defer></script>
     <script src="discovery-run-orchestration.js?v=1" defer></script>
