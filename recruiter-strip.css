@@ -1,0 +1,137 @@
+/* Recruiter CRM strip + submission-confirm field affordances.
+   Tokens-v2 only; integration mounts decide dossier/card placement. */
+
+.jb-recruiter-strip {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-md);
+  background: var(--jb-surface-raised);
+  color: var(--jb-ink);
+  box-shadow: var(--jb-shadow-sticker);
+  font-family: var(--jb-font-body);
+}
+
+.brief__recruiter-strip {
+  margin-block: 1rem;
+  padding: 1rem;
+}
+
+.pipe-sticker__recruiter-strip {
+  margin-block-start: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.jb-recruiter-strip__head,
+.jb-recruiter-strip__controls,
+.jb-recruiter-strip__heading,
+.jb-recruiter-strip__reply-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.jb-recruiter-strip__head,
+.jb-recruiter-strip__controls {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.jb-recruiter-strip__heading {
+  font-family: var(--jb-font-display);
+  font-size: var(--jb-text-lg);
+}
+
+.jb-recruiter-strip__facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.jb-recruiter-strip__fact,
+.jb-recruiter-strip__next,
+.jb-recruiter-strip__follow-up {
+  display: grid;
+  gap: 0.25rem;
+  min-inline-size: 0;
+}
+
+.jb-recruiter-strip__label {
+  color: var(--jb-ink-3);
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.jb-recruiter-strip__value {
+  overflow-wrap: anywhere;
+  font-size: var(--jb-text-sm);
+}
+
+.jb-recruiter-strip__reply,
+.jb-recruiter-strip__save,
+.jb-recruiter-strip__date {
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-sm);
+  background: var(--jb-paper);
+  color: var(--jb-ink);
+  font: inherit;
+}
+
+.jb-recruiter-strip__reply,
+.jb-recruiter-strip__save {
+  padding-inline: 0.75rem;
+  cursor: pointer;
+}
+
+.jb-recruiter-strip__reply[aria-pressed="true"] {
+  border-color: var(--jb-mint-deep);
+  background: var(--jb-mint-soft);
+}
+
+.jb-recruiter-strip__date {
+  padding-inline: 0.5rem;
+}
+
+.jb-recruiter-strip .jb-a11y-touch-target,
+#jb-submission-applied-date,
+#jb-submission-source,
+#jb-submission-receipt-note,
+#jb-submission-follow-up-date {
+  min-block-size: 2.75rem;
+}
+
+.jb-recruiter-strip__reply:focus-visible,
+.jb-recruiter-strip__save:focus-visible,
+.jb-recruiter-strip__date:focus-visible,
+#jb-submission-applied-date:focus-visible,
+#jb-submission-source:focus-visible,
+#jb-submission-receipt-note:focus-visible,
+#jb-submission-follow-up-date:focus-visible {
+  outline: 0;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+.jb-recruiter-strip__compact-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.jb-recruiter-strip--compact .jb-recruiter-strip__heading,
+.jb-recruiter-strip--compact .jb-recruiter-strip__value {
+  font-size: var(--jb-text-xs);
+}
+
+@media (max-width: 48rem) {
+  .jb-recruiter-strip__facts,
+  .jb-recruiter-strip__compact-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .jb-recruiter-strip__controls,
+  .jb-recruiter-strip__reply-group {
+    align-items: stretch;
+  }
+}

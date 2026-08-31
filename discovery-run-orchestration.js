@@ -348,14 +348,25 @@ async function triggerDiscoveryRun(options) {
     return { ok: false, reason: "no_url" };
   }
   try {
-    const payload = await h("buildDiscoveryWebhookPayload", h("getSHEET_ID"), {
-      trigger: runTrigger,
+    // The drawer builds the payload it previewed and hands it back here, so the
+    // request the user was shown is the request that ships. Every other caller
+    // still builds its own.
+    const payload =
+      runOptions.payload ||
+      (await h("buildDiscoveryWebhookPayload", h("getSHEET_ID"), {
+        trigger: runTrigger,
+      }));
+    // Guardrail: verify intent is present before sending the webhook request.
+    // The dashboard resolves intent through the SAME shared helper the worker
+    // parser guards with (handle-discovery-webhook.ts), so a run the worker
+    // would accept is never blocked here and vice versa: searchPlan.query and
+    // master-profile identity roles both count as intent
+    // (AGENT_CONTRACT.md rows 118 and 120), not just the top-level fields.
+    const effectiveIntent = window.JobBoredEffectiveIntent.buildEffectiveIntent({
+      discoveryProfile: payload && payload.discoveryProfile,
+      mergedUserProfile: payload && payload.mergedUserProfile,
     });
-    // Guardrail: verify intent is present before sending webhook request
-    const profile = payload && payload.discoveryProfile;
-    const targetRoles = (profile && profile.targetRoles || "").trim();
-    const keywordsInclude = (profile && profile.keywordsInclude || "").trim();
-    if (!targetRoles && !keywordsInclude) {
+    if (window.JobBoredEffectiveIntent.isBlankIntent(effectiveIntent)) {
       h("showToast",
         "Add target roles or keywords to include, or use the AI Suggest tab to generate them.",
         "warning",
