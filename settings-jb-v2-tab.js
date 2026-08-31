@@ -248,6 +248,9 @@
         // v2 ON: re-apply flowing class per stored/default preference.
         applyFlowingClass();
       }
+      if (window.JobBoredV2Boot && typeof window.JobBoredV2Boot.sync === "function") {
+        window.JobBoredV2Boot.sync();
+      }
       return true;
     } catch (_) {
       return false;

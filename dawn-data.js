@@ -100,8 +100,8 @@
       // Lead-story facts: per-card fit / salary / found-date all come from
       // the existing data-* attributes that app.js renders into kanban cards.
       var fitAttr = card.getAttribute("data-fit");
-      var fitNum = fitAttr ? Number(String(fitAttr).replace(/[^0-9.]/g, "")) : NaN;
-      var fitScore = Number.isFinite(fitNum) ? Math.max(1, Math.min(10, Math.round(fitNum))) : null;
+      var fitUnits = normalizeFitUnits(fitAttr);
+      var fitScore = fitUnits.unknown ? null : fitUnits.value;
       out.push({
         key: key,
         index: idx ? Number(idx) : -1,
@@ -577,6 +577,40 @@
     return m ? Number(m[0]) : null;
   }
 
+  /**
+   * Canonical fit VM: 1–10 units. Unknown is not 0.
+   *   missing / non-numeric → { value: null, unknown: true }
+   *   0                    → { value: 0, unknown: false }
+   *   (0, 1)               → 0–1 fraction × 10
+   *   [1, 10]              → rounded units
+   *   (10, 100]            → percent ÷ 10 (83 → 8, not clamp-to-10)
+   */
+  function normalizeFitUnits(raw) {
+    if (raw && typeof raw === "object" && !Array.isArray(raw) && ("unknown" in raw || "value" in raw)) {
+      if (raw.unknown) return { value: null, unknown: true };
+      if (raw.value == null && raw.value !== 0) return { value: null, unknown: true };
+      return { value: raw.value, unknown: false };
+    }
+    if (raw == null) return { value: null, unknown: true };
+    if (typeof raw === "string" && raw.trim() === "") return { value: null, unknown: true };
+    var n = typeof raw === "number" ? raw : _firstNumber(raw);
+    if (!Number.isFinite(n)) return { value: null, unknown: true };
+    if (n === 0) return { value: 0, unknown: false };
+    if (n > 0 && n < 1) return { value: Math.round(n * 10), unknown: false };
+    if (n >= 1 && n <= 10) return { value: Math.round(n), unknown: false };
+    if (n > 10 && n <= 100) return { value: Math.round(n / 10), unknown: false };
+    return { value: null, unknown: true };
+  }
+
+  function formatFitLabel(input) {
+    var units =
+      input && typeof input === "object" && !Array.isArray(input) && ("unknown" in input || "value" in input)
+        ? input
+        : normalizeFitUnits(input);
+    if (!units || units.unknown || units.value == null) return "unknown";
+    return String(units.value) + "/10";
+  }
+
   function _parseDateMaybe(s) {
     if (!s) return null;
     var t = Date.parse(String(s));
@@ -606,15 +640,8 @@
     }
 
     var fitAttr = _attr(card, "data-fit");
-    var fitScore = fitAttr ? _firstNumber(fitAttr) : null;
-    if (fitScore != null) {
-      // clamp to 1–10 contract band; reject obvious garbage.
-      // Note: if a sheet stores fit as a percentage (e.g. 83), this maps to 10.
-      // That is intentional — the role VM contract is a 1–10 band; upstream
-      // normalization is responsible for converting percentages before write.
-      if (!Number.isFinite(fitScore)) fitScore = null;
-      else fitScore = Math.max(1, Math.min(10, Math.round(fitScore)));
-    }
+    var fitUnits = normalizeFitUnits(fitAttr === "" ? null : fitAttr);
+    var fitScore = fitUnits.unknown ? null : fitUnits.value;
 
     var noteAttr = _attr(card, "data-note");
     var note = noteAttr ? noteAttr : null;
@@ -1334,6 +1361,8 @@
     getPipelineViewModel: getPipelineViewModel,
     getRoleViewModel: getRoleViewModel,
     getLetterViewModel: getLetterViewModel,
+    normalizeFitUnits: normalizeFitUnits,
+    formatFitLabel: formatFitLabel,
     STAGE_ORDER: STAGE_ORDER,
     PIPELINE_STAGES: PIPELINE_STAGES,
     _internal: {
