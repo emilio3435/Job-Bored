@@ -113,8 +113,15 @@ merge:
 
 - `e2e-smoke` — Playwright boot + visibility smoke. Flakes here surface
   signal but won't hold you up.
+- `e2e-journey` — Playwright signed-in product journey. Same advisory
+  status as e2e-smoke.
 - `audit-dev` — advisory `npm audit` summary across all dependencies
   (including dev).
+
+Both browser jobs must stay hermetic (no live Google/Sheets, no writing
+`config.js` into the checkout). They import
+`tests/e2e-fixtures/hermetic-harness.mjs`. They become required CI only
+after repair Gates A–D; see [docs/HERMETIC-BROWSER-GATE.md](docs/HERMETIC-BROWSER-GATE.md).
 
 PRs also require review from a CODEOWNERS owner (see
 [CODEOWNERS](#codeowners)) before merge.
@@ -187,7 +194,9 @@ the same PR.
 │   └── lib/                    # Shared script utilities
 ├── tests/                      # Behavioral + contract tests (node:test)
 │   ├── integration/            # Full-stack flow tests
-│   └── e2e-smoke/              # Playwright boot + visibility smoke
+│   ├── e2e-fixtures/           # Hermetic Playwright harness (no live Google)
+│   ├── e2e-smoke/              # Playwright boot + visibility smoke
+│   └── e2e-journey/            # Playwright signed-in product journey
 └── docs/                       # Long-form: SELF-HOSTING, contract, ADRs
 ```
 

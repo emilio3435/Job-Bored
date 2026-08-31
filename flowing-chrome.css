@@ -106,7 +106,7 @@ body.jb-v2 .page-top__brand-wordmark {
   color: var(--jb-navy);
 }
 
-/* ---- Three section pills (Brief / Pipeline / Letter) ----- */
+/* ---- Section pills (Brief / Pipeline / Dossier) ----- */
 body.jb-v2 .page-nav {
   display: inline-flex;
   align-items: center;
