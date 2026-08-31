@@ -129,10 +129,15 @@ describe("dev-server /__proxy/* isLocalOrigin gate", () => {
     const server = await startDevServer({ port: 0, logger: SILENT_LOGGER });
     const port = server.address().port;
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/__proxy/ngrok-tunnels`);
+      const origin = `http://127.0.0.1:${port}`;
+      const res = await fetch(`http://127.0.0.1:${port}/__proxy/ngrok-tunnels`, {
+        headers: { Origin: origin },
+      });
       assert.equal(res.status, 200);
       const body = await res.json();
       assert.ok(Array.isArray(body.tunnels));
+      assert.equal(res.headers.get("access-control-allow-origin"), origin);
+      assert.notEqual(res.headers.get("access-control-allow-origin"), "*");
     } finally {
       await closeServer(server);
     }
@@ -166,5 +171,19 @@ describe("dev-server /__proxy/* isLocalOrigin gate", () => {
       /403/.test(dispatchRegion[0]),
       "expected the proxy dispatch site to 403 on non-local origins",
     );
+  });
+
+  it("403s /__proxy/ngrok-tunnels for an untrusted Origin even from loopback TCP", async () => {
+    const server = await startDevServer({ port: 0, logger: SILENT_LOGGER });
+    const port = server.address().port;
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/__proxy/ngrok-tunnels`, {
+        headers: { Origin: "https://evil.example" },
+      });
+      assert.equal(res.status, 403);
+      assert.notEqual(res.headers.get("access-control-allow-origin"), "*");
+    } finally {
+      await closeServer(server);
+    }
   });
 });
