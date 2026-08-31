@@ -5,6 +5,7 @@
  */
 import * as cheerio from "cheerio";
 import { validateScrapeTarget, safeFetch } from "../security-boundaries.mjs";
+import { fetchAtsJobPosting } from "./ats-job-fetchers.mjs";
 
 /** @typedef {import("./job-scraper-core.d.mts").ScrapeJobPostingOptions} ScrapeJobPostingOptions */
 /** @typedef {import("./job-scraper-core.d.mts").ScrapeJobPostingResult} ScrapeJobPostingResult */
@@ -18,7 +19,7 @@ const SERPAPI_ENDPOINT = "https://serpapi.com/search.json";
 const SERPAPI_TIMEOUT_MS = 12000;
 
 const UA =
-  "Mozilla/5.0 (compatible; CommandCenterJobBot/1.0; +https://github.com/job-bored) AppleWebKit/537.36 Chrome/120 Safari/537.36";
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 /** [lowercase needle, display label] for skill chips */
 const KNOWN_SKILLS = [
@@ -96,6 +97,39 @@ const JUNK_BULLET_LINE = new RegExp(
 
 /** If many bullets match this, the whole extraction is probably nav-heavy */
 const JUNK_BULLET_FRACTION = 0.35;
+
+/**
+ * Hosted ATS pages often 302 a closed job to the company careers index.
+ * That HTML is long enough to look like a posting. Reject it so SerpApi
+ * or the ATS JSON lane can take over.
+ * @param {string | null} title
+ * @param {string} description
+ */
+function looksLikeCareersListing(title, description) {
+  const heading = String(title || "").trim();
+  if (
+    /^(careers|jobs|job openings|open positions|life at)\b/i.test(heading) &&
+    !/\b(engineer|designer|manager|director|counsel|scientist|analyst|intern|account executive)\b/i.test(
+      heading,
+    )
+  ) {
+    return true;
+  }
+  const text = String(description || "");
+  if (/\bsee open positions\b/i.test(text)) return true;
+  const lines = text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const shortTitles = lines.filter(
+    (line) =>
+      line.length > 8 &&
+      line.length < 70 &&
+      !/[.!?]$/.test(line) &&
+      /^(?:senior |staff |principal |manager,? |director,? )?[A-Z]/.test(line),
+  );
+  return shortTitles.length >= 10 && !/\bresponsibilit/i.test(text);
+}
 
 /** Penalize JSON-LD blobs that look like site chrome or wrong product pitch */
 /** @param {string} text */
@@ -850,6 +884,23 @@ export async function scrapeJobPosting(url, options = {}) {
 
   const fetchImpl = options.fetchImpl || globalThis.fetch;
 
+  const atsHit = await fetchAtsJobPosting(target.url, { fetchImpl }).catch(() => null);
+  if (atsHit && String(atsHit.description || "").trim().length >= 80) {
+    return finalizeTextScrape(target.url, {
+      title: atsHit.title,
+      company: String(options.company || "").trim() || atsHit.company,
+      location: atsHit.location,
+      description: atsHit.description,
+      method: "ats-api",
+      scraping: {
+        provider: atsHit.provider,
+        apiUrl: atsHit.apiUrl,
+        originalUrl: target.url,
+      },
+      warnings: [],
+    });
+  }
+
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   let html;
@@ -995,12 +1046,16 @@ export async function scrapeJobPosting(url, options = {}) {
 
   description = description.slice(0, 25000);
 
-  if (description.length < 160) {
+  const listingPage = looksLikeCareersListing(title, description);
+  if (description.length < 160 || listingPage) {
     const serpFallback = await scrapeViaSerpApiGoogleJobs(target.url, {
       ...options,
       fetchImpl,
     }).catch(() => null);
     if (serpFallback) return serpFallback;
+    if (listingPage) {
+      throw new Error("Hosted page is a careers listing, not a job posting");
+    }
   }
 
   return {
@@ -1016,5 +1071,31 @@ export async function scrapeJobPosting(url, options = {}) {
       containerHint: containerUsed,
     },
     warnings,
+  };
+}
+
+/**
+ * @param {string} url
+ * @param {{ title: string, company?: string, location?: string, description: string, method: string, scraping: Record<string, unknown>, warnings: string[] }} fields
+ */
+function finalizeTextScrape(url, fields) {
+  const description = String(fields.description || "").slice(0, 25000);
+  const requirements = filterJunkBullets(guessRequirementsFromText(description)).slice(
+    0,
+    35,
+  );
+  const skills = extractSkillsFromText(description, requirements);
+  return {
+    url,
+    title: fields.title || null,
+    company: fields.company || "",
+    location: fields.location || "",
+    description,
+    requirements,
+    skills,
+    source: fields.method,
+    method: fields.method,
+    scraping: fields.scraping,
+    warnings: fields.warnings || [],
   };
 }

@@ -229,8 +229,12 @@ describe("job scraper Google Jobs fallback for blocked ATS pages", () => {
       },
     });
 
-    assert.equal(fetchCalls.length, 2);
-    assert.equal(fetchCalls[0], url);
+    assert.ok(
+      fetchCalls.some((requestUrl) => /boards-api\.greenhouse\.io/.test(requestUrl)),
+      "Greenhouse URLs must probe the public job API before HTML",
+    );
+    assert.ok(fetchCalls.includes(url), "blocked HTML scrape is still attempted after API miss");
+    assert.ok(fetchCalls.some((requestUrl) => /serpapi\.com/.test(requestUrl)));
     assert.equal(result.source, "serpapi-google-jobs");
     assert.equal(result.title, "Product Designer");
     assert.equal(result.company, "Figma");
