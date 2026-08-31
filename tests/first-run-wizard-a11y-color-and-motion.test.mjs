@@ -128,3 +128,26 @@ describe("first-run wizard — prefers-reduced-motion respect", () => {
     );
   });
 });
+
+describe("F3-D overlay primitive — prefers-reduced-motion respect", () => {
+  it("kills overlay entrance animation under reduced motion in jb-a11y.css", () => {
+    const a11yCss = readFileSync(join(repoRoot, "jb-a11y.css"), "utf8");
+    const idx = a11yCss.indexOf("@media (prefers-reduced-motion: reduce)");
+    assert.notEqual(
+      idx,
+      -1,
+      "jb-a11y.css must carry a prefers-reduced-motion block",
+    );
+    const block = a11yCss.slice(idx, a11yCss.indexOf("}\n}", idx) + 3);
+    assert.match(
+      block,
+      /\.jb-overlay\s*\{[^}]*animation:\s*none/s,
+      "shared overlay entrance must be neutralized under reduced motion",
+    );
+    assert.match(
+      block,
+      /\.jb-move-to__menu\s*\{[^}]*transition:\s*none/s,
+      "Move-to menu motion must be neutralized under reduced motion",
+    );
+  });
+});
