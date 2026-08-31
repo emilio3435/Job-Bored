@@ -83,29 +83,6 @@ function makeDoc(cards) {
     },
   };
 }
-
-function loadDawnWithToday(doc) {
-  const todaySrc = readFileSync(todayQueuePath, "utf8");
-  const dawnSrc = readFileSync(dawnDataPath, "utf8");
-  const win = {};
-  const ctx = {
-    window: win,
-    document: doc,
-    Date,
-    Number,
-    Object,
-    String,
-    Math,
-    Array,
-    parseInt,
-    isNaN,
-    console,
-  };
-  vm.runInNewContext(todaySrc, ctx, { filename: "today-queue.js" });
-  vm.runInNewContext(dawnSrc, ctx, { filename: "dawn-data.js" });
-  return win.JobBoredDawn.data;
-}
-
 /** dawn-data.js alone, with window.JobBoredToday stubbed (or absent). The real
  *  today-data.js is the Today lane's file; this pins the handoff contract. */
 function loadDawnWithTodayData(doc, todayGlobal) {
