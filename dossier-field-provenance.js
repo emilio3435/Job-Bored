@@ -7,8 +7,15 @@
    onto posting-enrichment payloads so inferred claims
    are never labeled posting-grounded.
 
-   Lane: F3-A (DOSSIER-01). Loaded before role-brief.js
-   and posting-enrichment.js once index.html is wired.
+   Also the ONE provenance classifier for the dossier surface:
+   classify(enrichmentMeta, editLock, field) returns the visible
+   label vocabulary (posting-grounded | user-provided | inferred |
+   unknown) backed by the same grounding rules used for stamping.
+   dossier-provenance.js is not part of this repo; this file is the
+   single definer of window.JobBoredDossierProvenance.
+
+   Lane: F3-A (DOSSIER-01) + R5 reconciliation. Loaded before
+   role-brief.js and posting-enrichment.js once index.html is wired.
    ============================================ */
 (function (root) {
   "use strict";
@@ -48,21 +55,34 @@
     return String(enr.description || enr.bodyText || "").trim();
   }
 
+  /* Card-attr reload delivers VM field names (source / enrichedAt /
+     fetchedAt); the fetch path delivers _scrapeSource / scrapedAt.
+     Both shapes must resolve or every reloaded card reads unknown. */
   function resolveSource(enr) {
     if (!enr || typeof enr !== "object") return "";
     var src = String(
       enr._scrapeSource ||
+        enr.source ||
         (enr.provenance && enr.provenance.source) ||
         "",
     ).trim();
     if (src && src !== "unknown") return src;
-    if (enr._scrapeBlocked) return "title-and-company";
+    if (isScrapeBlocked(enr)) return "title-and-company";
     return src === "unknown" ? "" : src;
+  }
+
+  function isScrapeBlocked(enr) {
+    return !!(enr && (enr._scrapeBlocked === true || enr.scrapeBlocked === true));
+  }
+
+  function resolveParseMode(enr) {
+    if (!enr || typeof enr !== "object") return "";
+    return String(enr.parseMode || enr._parseMode || "").trim().toLowerCase();
   }
 
   function resolveGrounding(enr, source) {
     var desc = descriptionText(enr);
-    var blocked = !!(enr && enr._scrapeBlocked);
+    var blocked = isScrapeBlocked(enr);
     if (source === "title-and-company" || blocked) return "inferred";
     if (POSTING_SOURCES[source] && !blocked && desc.length >= MIN_POSTING_CHARS) {
       return "posting";
@@ -90,8 +110,28 @@
     return "fetched " + Math.max(1, Math.round(ageMs / 86400000)) + "d ago";
   }
 
+  /* scrapedAt is the fetch-path epoch; enrichedAt/fetchedAt arrive as ISO
+     strings on the card-attr reload path. Either may be the freshness clock. */
+  function resolveFetchedMs(enr) {
+    if (!enr || typeof enr !== "object") return NaN;
+    var candidates = [enr.scrapedAt, enr.enrichedAt, enr.fetchedAt];
+    for (var i = 0; i < candidates.length; i++) {
+      var raw = candidates[i];
+      if (raw == null || raw === "" || raw === 0 || raw === "0") continue;
+      if (typeof raw === "number") {
+        if (Number.isFinite(raw) && raw > 0) return raw;
+        continue;
+      }
+      var text = String(raw).trim();
+      if (!text) continue;
+      var ms = /^\d+$/.test(text) ? Number(text) : new Date(text).getTime();
+      if (Number.isFinite(ms) && ms > 0) return ms;
+    }
+    return NaN;
+  }
+
   function freshness(enr, nowMs, ttlMs) {
-    var scrapedAt = Number(enr && enr.scrapedAt);
+    var scrapedAt = resolveFetchedMs(enr);
     var now = Number.isFinite(nowMs) ? nowMs : Date.now();
     var ttl = Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : DEFAULT_TTL_MS;
     if (!Number.isFinite(scrapedAt) || scrapedAt <= 0) {
@@ -168,12 +208,88 @@
     return "AI Summary · source unverified";
   }
 
+  /* ---------- visible label classifier (T0 DOSSIER-01 contract) ----------
+     classify(enrichmentMeta, editLock, field) -> {label, source, fetchedAt}.
+     Conservative by construction: "unknown" is the default for every
+     missing, malformed, or pre-metadata shape, a persisted edit lock
+     always outranks scrape lineage, and only a schema-mode parse from a
+     posting source with real posting text may read posting-grounded. */
+  function normalizeFetchedAt(value) {
+    if (value == null || value === "" || value === 0 || value === "0") return null;
+    var raw = value;
+    if (typeof raw === "string" && /^\d+$/.test(raw.trim())) raw = Number(raw);
+    try {
+      var date = new Date(raw);
+      return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function lockedFields(editLock) {
+    var values = Array.isArray(editLock)
+      ? editLock
+      : String(editLock == null ? "" : editLock).split(",");
+    var out = [];
+    for (var i = 0; i < values.length; i++) {
+      var name = String(values[i] == null ? "" : values[i]).trim().toLowerCase();
+      if (name) out.push(name);
+    }
+    return out;
+  }
+
+  function classifyValue(enrichmentMeta, editLock, field) {
+    var meta = enrichmentMeta && typeof enrichmentMeta === "object" && !Array.isArray(enrichmentMeta)
+      ? enrichmentMeta
+      : {};
+    var fieldName = String(field == null ? "" : field).trim().toLowerCase();
+    if (fieldName && lockedFields(editLock).indexOf(fieldName) !== -1) {
+      return { label: "user-provided", source: "edit-lock", fetchedAt: null };
+    }
+
+    var fetchedAt = normalizeFetchedAt(resolveFetchedMs(meta));
+    var source = resolveSource(meta);
+    var parseMode = resolveParseMode(meta);
+    if (!source || !parseMode || parseMode !== "schema") {
+      return {
+        label: "unknown",
+        source: source || "unknown",
+        fetchedAt: fetchedAt,
+      };
+    }
+
+    /* stampProvenance's grounding rules are the same rules, so a thin or
+       blocked body can never be upgraded here to posting-grounded. */
+    var grounding = resolveGrounding(meta, source);
+    if (grounding === "inferred") {
+      return { label: "inferred", source: source, fetchedAt: fetchedAt };
+    }
+    if (grounding === "posting") {
+      return { label: "posting-grounded", source: source, fetchedAt: fetchedAt };
+    }
+    /* Posting source, schema parse, but no posting text to measure: the
+       card-attr reload path carries no description, so lineage alone decides. */
+    if (POSTING_SOURCES[source] && !descriptionText(meta)) {
+      return { label: "posting-grounded", source: source, fetchedAt: fetchedAt };
+    }
+    return { label: "unknown", source: source, fetchedAt: fetchedAt };
+  }
+
+  function classify(enrichmentMeta, editLock, field) {
+    try {
+      return classifyValue(enrichmentMeta, editLock, field);
+    } catch (e) {
+      return { label: "unknown", source: "unknown", fetchedAt: null };
+    }
+  }
+
   var api = {
     DEFAULT_TTL_MS: DEFAULT_TTL_MS,
     MIN_POSTING_CHARS: MIN_POSTING_CHARS,
     CLAIM_FIELDS: CLAIM_FIELDS,
     fingerprintProfile: fingerprintProfile,
     stampProvenance: stampProvenance,
+    classify: classify,
     ledeTag: ledeTag,
     freshness: freshness,
     resolveGrounding: resolveGrounding,
