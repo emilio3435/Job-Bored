@@ -14,6 +14,7 @@ import {
   toPlainText,
 } from "../selectors/index.ts";
 import type { BrowserUseSessionManager } from "../session.ts";
+import { safeFetch } from "../../net/safe-fetch.ts";
 import type {
   AtsProvider,
   ProviderDetectionHints,
@@ -564,7 +565,7 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROVIDER_HTTP_TIMEOUT_MS);
   try {
-    return await fetch(url, {
+    return await safeFetch(url, {
       ...options,
       signal: controller.signal,
     });
