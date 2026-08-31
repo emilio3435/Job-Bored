@@ -1,6 +1,7 @@
 import type {
   AllowlistResolution,
   CompanyTarget,
+  DiscoveryProfile,
   DiscoveryWebhookRequestV1,
   EffectiveDiscoveryIntent,
   SourcePreset,
