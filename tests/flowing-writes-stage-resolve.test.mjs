@@ -290,6 +290,43 @@ describe("flowing-writes stage row resolution", () => {
       "legacy letter save should report that no Sheet persistence happened",
     );
   });
+
+  it("F3C-APPLY01-MARK: drag-to-Applied is Status-only and is not a Mark submitted confirmation", async () => {
+    const { writes, fetchCalls } = loadWrites({
+      getPipelineSheetRow: (jobKey) => (String(jobKey) === "1" ? 7 : null),
+    });
+
+    await writes.moveStage({ jobKey: "1", fromStage: "researching", toStage: "applied" });
+
+    const putCall = fetchCalls.find((call) => call.options.method === "PUT");
+    assert.ok(putCall, "drag Applied still issues a Sheets update today");
+    assert.deepEqual(JSON.parse(putCall.options.body), { values: [["Applied"]] });
+    assert.match(putCall.url, /\/values\/Pipeline!M7\?/);
+    assert.equal(
+      putCall.url.includes("Pipeline!N"),
+      false,
+      "drag-only Applied must not be treated as an Applied Date write",
+    );
+
+    const markPath = join(repoRoot, "mark-submitted.js");
+    const markSrc = readFileSync(markPath, "utf8");
+    const win = {};
+    vm.runInNewContext(
+      markSrc,
+      { window: win, globalThis: win, Date, Number, Math, String, Array, Object, JSON, console },
+      { filename: "mark-submitted.js" },
+    );
+    const marked = win.JobBoredMarkSubmitted.confirm(
+      { jobKey: "1", status: "Researching" },
+      { fromStage: "researching", toStage: "applied" },
+      {
+        transitionApplied() {
+          throw new Error("drag-only Applied is not confirmation");
+        },
+      },
+    );
+    assert.equal(marked.ok, false, "Mark submitted must reject the drag-only Applied claim");
+  });
 });
 
 function loadTransitions() {

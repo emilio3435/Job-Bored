@@ -85,6 +85,39 @@ test("expired review UI is a single navbar action with one modal surface", () =>
   assert.equal((index.match(/id="expiredReviewModal"/g) || []).length, 1);
 });
 
+test("F3C-UX01-TODAY: Applied stale/overdue work stays out of expired review (Today owns it)", () => {
+  const api = loadReviewApi();
+  const now = new Date("2026-05-25T12:00:00.000Z");
+  const review = api.getReviewJobs(
+    [
+      {
+        title: "Stale Applied",
+        company: "Acme",
+        status: "Applied",
+        link: "https://jobs.example.com/applied-stale",
+        appliedDate: new Date("2026-04-01T12:00:00.000Z"),
+        followUpDate: new Date("2026-05-01T12:00:00.000Z"),
+        dateFound: new Date("2026-04-01T12:00:00.000Z"),
+      },
+      {
+        title: "Waiting Applied",
+        company: "Acme",
+        status: "Applied",
+        link: "https://jobs.example.com/applied-waiting",
+        appliedDate: new Date("2026-05-10T12:00:00.000Z"),
+        responseFlag: "No",
+        dateFound: new Date("2026-05-10T12:00:00.000Z"),
+      },
+    ],
+    { now, staleDays: 30 },
+  );
+  assert.equal(
+    review.length,
+    0,
+    "expired review must not absorb Applied follow-up / stale-application work",
+  );
+});
+
 test("expired review modal renders every needs-review row with a direct posting link", () => {
   const api = loadReviewApi();
   const rows = [

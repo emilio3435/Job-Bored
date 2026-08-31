@@ -1,0 +1,27 @@
+{
+  "version": "1",
+  "id": "jobbored.approval.v1",
+  "title": "JHOS two-gate human approval contract",
+  "gate1": {
+    "id": "gate1",
+    "purpose": "permit-submit",
+    "source": "pipeline",
+    "columnId": "approvalStatus",
+    "headerLabel": "Approval Status",
+    "letter": "X",
+    "sheetIndex": 23,
+    "passValue": "Approved",
+    "failClosed": true
+  },
+  "gate2": {
+    "id": "gate2",
+    "purpose": "final-human-submit-confirmation",
+    "channel": "telegram",
+    "chatId": -1003800236296,
+    "threadId": 48,
+    "target": "telegram:-1003800236296:48",
+    "confirmationPrefix": "YES SUBMIT",
+    "timeoutSeconds": 600,
+    "pollIntervalSeconds": 10
+  }
+}
