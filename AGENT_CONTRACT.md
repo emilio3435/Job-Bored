@@ -168,7 +168,8 @@ them. Empty/null source values MUST be omitted entirely (do not emit
 | data-follow-up       | job.followUpDate                                        | drives the orange Deadline callout |
 | data-tags            | job.tags (CSV)                                          |                                    |
 | data-fit             | job.fitScore                                            | numeric, clamped 1–10 by VM        |
-| data-replied         | `"yes"` iff job.responseFlag in {yes,replied,y}         | drives pipeline `reply` flag       |
+| data-replied         | normalized job.responseFlag (`Yes`/`No`/`Unknown`)      | omitted when the source is empty; drives the `reply` band |
+| data-last-contact    | job.lastHeardFrom                                       | omitted when the source is empty   |
 | data-talking-points  | job.talkingPoints                                       | fallback JD section if no snippet  |
 | data-contacts        | `[{name: job.contact}]` JSON                            | single-row contact for now         |
 | data-company-tagline | job._postingEnrichment.aboutCompany                     |                                    |

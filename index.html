@@ -198,6 +198,7 @@
     <link rel="stylesheet" href="css/legacy-settings-profile.css" />
     <link rel="stylesheet" href="css/legacy-discovery-runs.css" />
     <link rel="stylesheet" href="css/legacy-discovery-drawer.css" />
+    <link rel="stylesheet" href="css/discovery-run-preview.css">
     <link rel="stylesheet" href="css/legacy-fit-profile-overlay.css" />
     <link rel="stylesheet" href="css/legacy-discovery-coachmark.css" />
     <link rel="stylesheet" href="settings-tabs.css" />
@@ -213,6 +214,7 @@
     <link rel="stylesheet" href="flowing-chrome.css" />
     <link rel="stylesheet" href="pipeline.css" />
     <link rel="stylesheet" href="role.css" />
+    <link rel="stylesheet" href="recruiter-strip.css">
     <link rel="stylesheet" href="materials-queue.css" />
     <!-- letter.css removed from critical path 2026-06-11 — letter.js is no   -->
     <!-- longer included (see comment at ~line 231-233); the file remains on  -->
@@ -251,6 +253,8 @@
     <!-- <script src="role-workshop.js" defer></script>                -->
     <!-- <script src="letter.js" defer></script>                       -->
     <script src="mark-submitted.js" defer></script>
+    <script src="submission-flow.js" defer></script>
+    <script src="recruiter-strip.js" defer></script>
     <script src="flowing-writes.js" defer></script>
     <script src="scribe-state.js" defer></script>
     <script src="scribe-score-adapter.js" defer></script>
@@ -1563,6 +1567,7 @@
     <!-- @include partials/discovery-modals.html -->
 
     <!-- @include partials/discovery-drawer.html -->
+    <!-- @include partials/discovery-run-preview.html -->
 
     <div
       class="discovery-setup-wizard-root"
@@ -1671,6 +1676,8 @@
     <script src="discovery-status-handoff.js?v=1" defer></script>
     <script src="apps-script-deploy.js?v=1" defer></script>
     <script src="discovery-setup-modals.js?v=1" defer></script>
+    <script src="discovery-readiness-truth.js?v=1" defer></script>
+    <script src="discovery-run-preview.js?v=1" defer></script>
     <script src="discovery-drawer.js?v=1" defer></script>
     <script src="ingest-url-flow.js?v=1" defer></script>
     <script src="discovery-run-orchestration.js?v=1" defer></script>

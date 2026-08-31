@@ -372,6 +372,14 @@
       if (!label) {
         throw new Error("Unknown toStage: " + String(detail.toStage));
       }
+      if (String(detail.toStage).trim().toLowerCase() === "applied" &&
+          window.JobBoredSubmission &&
+          typeof window.JobBoredSubmission.confirmApplied === "function") {
+        await window.JobBoredSubmission.confirmApplied(jobKey, {
+          fromStage: detail.fromStage,
+        });
+        return;
+      }
       var row = await resolveSheetRow(jobKey);
       var range = "Pipeline!" + STATUS_COLUMN + row;
       await sheetsValuesUpdate(range, [[label]]);

@@ -491,6 +491,25 @@
       };
     }
 
+    const submission = (window.JobBoredSubmission = window.JobBoredSubmission || {});
+    submission.host = {
+      sheetsWrite: {
+        todayStr: app.sheetsWrite.todayStr,
+        futureDateStr: app.sheetsWrite.futureDateStr,
+        updateJobStatus: app.sheetsWrite.updateJobStatus,
+      },
+      showToast: host.showToast,
+    };
+
+    const recruiterStrip = (window.JobBoredRecruiterStrip =
+      window.JobBoredRecruiterStrip || {});
+    recruiterStrip.host = {
+      sheetsWrite: {
+        updateFollowUpDate: app.sheetsWrite.updateFollowUpDate,
+        updateJobResponseFlag: app.sheetsWrite.updateJobResponseFlag,
+      },
+    };
+
     app.pipelineController = app.pipelineController || {};
     app.pipelineController.host = {
       renderPipeline: host.renderPipeline,
