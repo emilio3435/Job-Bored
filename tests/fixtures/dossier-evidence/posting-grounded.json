@@ -1,0 +1,35 @@
+{
+  "id": "F3A-DOSSIER01-PROV-posting-grounded",
+  "why": "A Cheerio scrape with real posting text is the only path that may be labeled posting-grounded.",
+  "job": {
+    "title": "Growth Designer",
+    "company": "Linear",
+    "location": "Remote",
+    "link": "https://linear.app/careers/growth-designer"
+  },
+  "enrichment": {
+    "url": "https://linear.app/careers/growth-designer",
+    "title": "Growth Designer",
+    "description": "Linear is looking for a senior product designer to own growth surfaces — onboarding, activation flows, and the marketing site — across web and desktop. You will design and ship growth surfaces, partner with growth engineering on experimentation, and own activation as a measurable IC outcome. Must-haves include 5+ years shipping growth or activation work and a portfolio with measurable outcomes. Tools: Figma, React, Statsig.",
+    "requirements": ["5+ years shipping growth or activation work", "Portfolio with measurable outcomes"],
+    "skills": ["Figma", "React", "Statsig"],
+    "scrapedAt": 1710000000000,
+    "_scrapeBlocked": false,
+    "_scrapeFallbackReason": "",
+    "_scrapeSource": "cheerio",
+    "inferredTitle": "Growth Designer",
+    "inferredCompany": "Linear",
+    "inferredLocation": "Remote",
+    "postingSummary": "Lead growth design for Linear, owning onboarding and activation surfaces end-to-end with measurable outcomes.",
+    "roleInOneLine": "Own activation as an IC outcome.",
+    "mustHaves": ["5+ years growth design", "Portfolio of measurable outcomes"],
+    "responsibilities": ["Own onboarding", "Run experiments with growth eng"],
+    "niceToHaves": ["Experience with Linear"],
+    "toolsAndStack": ["Figma", "React", "Statsig"],
+    "atsFitScore": 84,
+    "atsFitRationale": "Strong evidence for growth design and experimentation.",
+    "fitAngle": "Your activation work maps directly to this role's ownership ask.",
+    "talkingPoints": ["Connect prior activation lifts to their onboarding funnel."],
+    "extraKeywords": ["Growth design", "Activation"]
+  }
+}

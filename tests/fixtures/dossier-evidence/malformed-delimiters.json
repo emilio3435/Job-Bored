@@ -1,0 +1,29 @@
+{
+  "id": "F3A-DOSSIER02-STRUCT-malformed-delimiters",
+  "why": "Leftover model fences, XML wrappers, chat tokens, markdown headings, and JSON-as-string list items are delimiters, not requirements. They must not render as authoritative must-haves.",
+  "rawModelText": "```json\n{\n  \"mustHaves\": [\"```json\", \"<must_haves>\", \"<|im_start|>user\", \"5+ years Python\", \"mustHaves:\"],\n  \"responsibilities\": [\"## Responsibilities\", \"Own the backend\"],\n  \"niceToHaves\": [\"---\", \"</output>\"],\n  \"toolsAndStack\": [\"[\\\"React\\\", \\\"Node\\\"]\"]\n}\n```",
+  "parsedPolluted": {
+    "inferredTitle": "Backend Engineer",
+    "inferredCompany": "Acme",
+    "inferredLocation": "",
+    "postingSummary": "Build services.",
+    "roleInOneLine": "Backend Engineer at Acme.",
+    "mustHaves": ["```json", "<must_haves>", "<|im_start|>user", "5+ years Python", "mustHaves:"],
+    "responsibilities": ["## Responsibilities", "Own the backend"],
+    "niceToHaves": ["---", "</output>"],
+    "toolsAndStack": ["[\"React\", \"Node\"]"],
+    "atsFitScore": 50,
+    "atsFitRationale": "Uncertain because structured output was polluted.",
+    "fitAngle": "Lead with backend ownership.",
+    "talkingPoints": ["```", "Show production ownership."],
+    "extraKeywords": ["<keywords>", "python"]
+  },
+  "expectedClean": {
+    "mustHaves": ["5+ years Python"],
+    "responsibilities": ["Own the backend"],
+    "niceToHaves": [],
+    "toolsAndStack": ["React", "Node"],
+    "talkingPoints": ["Show production ownership."],
+    "extraKeywords": ["python"]
+  }
+}

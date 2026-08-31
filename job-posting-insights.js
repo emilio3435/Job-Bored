@@ -361,8 +361,16 @@
     return Math.max(0, Math.min(100, Math.round(n)));
   }
 
+  function structuredOutputApi() {
+    return (
+      (typeof window !== "undefined" && window.JobBoredStructuredOutput) ||
+      (typeof globalThis !== "undefined" && globalThis.JobBoredStructuredOutput) ||
+      null
+    );
+  }
+
   function normalizeEnrichmentJson(parsed) {
-    return {
+    const normalized = {
       inferredTitle: String(parsed.inferredTitle || "").trim(),
       inferredCompany: String(parsed.inferredCompany || "").trim(),
       inferredLocation: String(parsed.inferredLocation || "").trim(),
@@ -378,6 +386,11 @@
       talkingPoints: strArr(parsed.talkingPoints).slice(0, 6),
       extraKeywords: strArr(parsed.extraKeywords).slice(0, 12),
     };
+    const validator = structuredOutputApi();
+    if (validator && typeof validator.validateEnrichment === "function") {
+      return validator.validateEnrichment(normalized);
+    }
+    return normalized;
   }
 
   // ── Provider calls ────────────────────────────────────────────────────────────

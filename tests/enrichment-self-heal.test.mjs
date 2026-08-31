@@ -296,7 +296,7 @@ describe("enrichment pipeline — single self-healing path", () => {
   it("uses only success-shaped enrichments as cache hits so AI failures remain retryable", () => {
     assert.match(
       postingEnrichmentJs,
-      /function\s+isUsableCachedEnrichment\s*\(\s*enrichment\s*\)/,
+      /function\s+isUsableCachedEnrichment\s*\(\s*enrichment(\s*,\s*nowMs)?\s*\)/,
       "cache hit predicate must be centralized",
     );
     assert.match(

@@ -26,6 +26,7 @@
 const ENRICHMENT_CACHE_KEY = "jb_enrichment_v1";
 const ENRICHMENT_CACHE_MAX = 300;
 const ENRICHMENT_CACHE_DESC_LIMIT = 8000; // chars kept for raw description
+const ENRICHMENT_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000; // 3 days — job ads rotate faster than a week
 
 function normalizeEnrichmentCacheUrl(url) {
   const raw = String(url || "").trim();
@@ -74,8 +75,71 @@ function getEnrichmentCacheLookupKeys(job) {
   return uniqueEnrichmentCacheKeys(keys);
 }
 
-function isUsableCachedEnrichment(enrichment) {
-  return !!(enrichment && enrichment.scrapedAt && !enrichment.llmError);
+function isUsableCachedEnrichment(enrichment, nowMs) {
+  if (!(enrichment && enrichment.scrapedAt && !enrichment.llmError)) return false;
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const scrapedAt = Number(enrichment.scrapedAt);
+  if (!Number.isFinite(scrapedAt) || scrapedAt <= 0) return false;
+  const age = now - scrapedAt;
+  if (!Number.isFinite(age) || age < 0) return false;
+  return age <= ENRICHMENT_CACHE_TTL_MS;
+}
+
+function _provenanceApi() {
+  return (
+    (typeof window !== "undefined" && window.JobBoredDossierProvenance) ||
+    (typeof globalThis !== "undefined" && globalThis.JobBoredDossierProvenance) ||
+    null
+  );
+}
+
+function _structuredOutputApi() {
+  return (
+    (typeof window !== "undefined" && window.JobBoredStructuredOutput) ||
+    (typeof globalThis !== "undefined" && globalThis.JobBoredStructuredOutput) ||
+    null
+  );
+}
+
+/** Attach grounding/freshness/unknown so a later Brief cannot relabel inference as posting-grounded. */
+function _stampEnrichmentEvidence(merged, profileExcerpt) {
+  let next = merged && typeof merged === "object" ? merged : {};
+  const structured = _structuredOutputApi();
+  if (structured && typeof structured.validateEnrichment === "function") {
+    next = structured.validateEnrichment(next);
+  }
+  const provenance = _provenanceApi();
+  if (provenance && typeof provenance.stampProvenance === "function") {
+    return provenance.stampProvenance(next, {
+      profileExcerpt: profileExcerpt || "",
+      nowMs: Date.now(),
+      ttlMs: ENRICHMENT_CACHE_TTL_MS,
+    });
+  }
+  const source = String(next._scrapeSource || "").trim() ||
+    (next._scrapeBlocked ? "title-and-company" : "unknown");
+  const descLen = String(next.description || "").trim().length;
+  const grounding =
+    source === "title-and-company" || next._scrapeBlocked
+      ? "inferred"
+      : (source === "cheerio" || source === "gemini-url-context") && descLen >= 80
+        ? "posting"
+        : "unknown";
+  next.provenance = {
+    source,
+    grounding,
+    confidence: grounding === "posting" ? "medium" : grounding === "inferred" ? "low" : "unknown",
+    profileRevision: "",
+    freshness: {
+      scrapedAt: Number(next.scrapedAt) || null,
+      ageMs: 0,
+      ttlMs: ENRICHMENT_CACHE_TTL_MS,
+      stale: false,
+      label: "fetched just now",
+    },
+    fields: {},
+  };
+  return next;
 }
 
 function _loadEnrichmentCache() {
@@ -416,6 +480,7 @@ async function fetchJobPostingEnrichment(dataIndex) {
         profileExcerpt,
       );
       merged = _mergeLlmFields(merged, llm);
+      merged = _stampEnrichmentEvidence(merged, profileExcerpt);
     } catch (e) {
       llmFailed = true;
       merged.llmError = (e && e.message) || "AI insight failed";
@@ -509,6 +574,7 @@ window.addEventListener("jb:role:opened", (e) => {
 
   Object.assign(postingEnrichment, {
     AI_PROVIDER_CONFIG_MISSING_TOAST,
+    ENRICHMENT_CACHE_TTL_MS,
     cacheEnrichment,
     getCachedEnrichmentForJob,
     applyEnrichmentCache,
