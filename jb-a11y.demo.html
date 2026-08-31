@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>jb-a11y demo — T0 / P0-F</title>
+    <link rel="stylesheet" href="tokens-v2.css" />
+    <link rel="stylesheet" href="jb-a11y.css" />
+    <style>
+      /* Demo-only layout. Token-only (no raw hex) — tools/lint-tokens.mjs
+         does not scan .html, but the same rule applies by convention. */
+      body {
+        margin: 0;
+        padding: 32px;
+        font-family: var(--jb-font-body);
+        color: var(--jb-ink);
+        background: var(--jb-paper);
+      }
+      .jb-demo { max-width: 860px; margin-block: 32px; }
+      .jb-demo__row { display: flex; flex-wrap: wrap; gap: 12px; padding: 12px 0; }
+      .jb-demo__note {
+        font-size: var(--jb-text-sm);
+        color: var(--jb-ink-2);
+        border-left: 3px solid var(--jb-line);
+        padding-left: 12px;
+        margin: 8px 0;
+      }
+      .jb-demo__card {
+        width: 260px;
+        padding: 12px;
+        background: var(--jb-surface-raised);
+        border: 1px solid var(--jb-line);
+        border-radius: var(--jb-radius-md);
+      }
+      .jb-demo__panel {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: var(--jb-a11y-scrim);
+        z-index: 2000;
+      }
+      .jb-demo__panel[data-open="true"] { display: flex; }
+      .jb-demo__panel-inner {
+        width: min(28rem, 90vw);
+        padding: 24px;
+        background: var(--jb-paper);
+        border: 1px solid var(--jb-line);
+        border-radius: var(--jb-radius-md);
+        box-shadow: var(--jb-shadow-card);
+      }
+      .jb-demo__panel--nested .jb-demo__panel-inner { background: var(--jb-paper-2); }
+      button { font: inherit; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>jb-a11y demo</h1>
+      <p class="jb-demo__note">
+        Manual-verification surface for the claims
+        <code>JB-A11Y.md</code> lists as <strong>NEEDS BROWSER VERIFICATION</strong>.
+        The node tests execute <code>jb-a11y.js</code> against a hand-rolled DOM,
+        which records that <code>focus()</code> was called and that
+        <code>.inert</code> was assigned — it cannot prove what a real user agent
+        does with them. Walk this page with a keyboard and a screen reader.
+      </p>
+      <p class="jb-demo__note">
+        Note there is no <code>class="jb-v2"</code> on <code>&lt;body&gt;</code>.
+        That is deliberate: these primitives serve the legacy view too, so
+        <code>jb-a11y.css</code> is unscoped.
+      </p>
+    </header>
+
+    <!-- ============================================================
+         Dialog: containment, Escape, focus restore
+         ============================================================ -->
+    <section class="jb-demo" id="demoDialogSection">
+      <h2>dialog.open</h2>
+      <p class="jb-demo__note">
+        Check: focus lands inside on open · Tab cannot reach the buttons behind ·
+        Escape closes · focus returns to the button you opened it from.
+      </p>
+      <div class="jb-demo__row">
+        <button type="button" id="demoOpenDialog" class="jb-a11y-touch-target">
+          Open dialog
+        </button>
+        <button type="button" id="demoBackgroundBtn" class="jb-a11y-touch-target">
+          Background button (must be unreachable while open)
+        </button>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Stacking: dialog B over dialog A
+         ============================================================ -->
+    <section class="jb-demo">
+      <h2>Stacked dialogs (A11Y-02)</h2>
+      <p class="jb-demo__note">
+        Open the dialog above, then open the nested one from inside it. Check:
+        the first dialog becomes unreachable · closing the nested one returns
+        focus to the button INSIDE the first dialog, not to "Open dialog".
+      </p>
+    </section>
+
+    <!-- ============================================================
+         Live regions + toast
+         ============================================================ -->
+    <section class="jb-demo">
+      <h2>live.announce / toast</h2>
+      <p class="jb-demo__note">
+        With a screen reader running, check: polite messages queue, the error
+        interrupts, and an identical message fired twice quickly is spoken once.
+        Nothing here renders visually — there is no host bridge on this page, so
+        <code>toast()</code> degrades to announce-only, which is the point.
+      </p>
+      <div class="jb-demo__row">
+        <button type="button" id="demoAnnouncePolite" class="jb-a11y-touch-target">
+          Announce polite
+        </button>
+        <button type="button" id="demoAnnounceSame" class="jb-a11y-touch-target">
+          Announce the same message (debounce)
+        </button>
+        <button type="button" id="demoToastError" class="jb-a11y-touch-target">
+          Error toast (assertive)
+        </button>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Confirm
+         ============================================================ -->
+    <section class="jb-demo">
+      <h2>dialog.confirm</h2>
+      <p class="jb-demo__note">
+        Check: the field is focused on open · its label is announced · Escape
+        resolves as a cancel and keeps what you typed (watch the result line).
+      </p>
+      <div class="jb-demo__row">
+        <button type="button" id="demoConfirm" class="jb-a11y-touch-target">
+          Mark as submitted…
+        </button>
+      </div>
+      <p id="demoConfirmResult" class="jb-demo__note">No result yet.</p>
+    </section>
+
+    <!-- ============================================================
+         Tabs
+         ============================================================ -->
+    <section class="jb-demo">
+      <h2>tabs.init</h2>
+      <p class="jb-demo__note">
+        Check: the tablist is ONE tab stop · Arrow keys move and wrap · Home/End
+        jump · the panel changes with the tab.
+      </p>
+      <div id="demoTabsRoot">
+        <div role="tablist" aria-label="Demo tabs" class="jb-demo__row">
+          <button type="button" id="demoTabBtn1" class="jb-a11y-touch-target">Setup</button>
+          <button type="button" id="demoTabBtn2" class="jb-a11y-touch-target">AI</button>
+          <button type="button" id="demoTabBtn3" class="jb-a11y-touch-target">Discovery</button>
+        </div>
+        <div id="demoTabPanel1"><p>Setup panel.</p></div>
+        <div id="demoTabPanel2"><p>AI panel.</p></div>
+        <div id="demoTabPanel3"><p>Discovery panel.</p></div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Field
+         ============================================================ -->
+    <section class="jb-demo">
+      <h2>field.build / field.associate</h2>
+      <p class="jb-demo__note">
+        Check: clicking a label focuses its control · the screen reader reads the
+        label and the hint · the composite below is announced as a named group.
+      </p>
+      <div id="demoFields"></div>
+      <label id="demoCompositeLabel" class="jb-a11y-field__label">Acceptable locations</label>
+      <div id="demoComposite" class="jb-demo__card">
+        (composite widget — named via aria-labelledby, not <code>for</code>)
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Stage menu
+         ============================================================ -->
+    <section class="jb-demo">
+      <h2>stageMenu.attach (MOBILE-01)</h2>
+      <p class="jb-demo__note">
+        Check: the trigger measures ≥ 44 CSS px in both axes (inspect it) ·
+        it is operable by touch · Arrow/Home/End move within the menu · Escape
+        returns focus to the trigger · the outcome is announced. The second card
+        always fails its write, so it should announce the revert assertively and
+        keep reporting the ORIGINAL stage.
+      </p>
+      <div class="jb-demo__row">
+        <div class="jb-demo__card" id="demoCardOk">
+          <strong>Senior Backend</strong><br />Cyberdyne
+        </div>
+        <div class="jb-demo__card" id="demoCardFail">
+          <strong>Staff Platform</strong><br />Initech (writes always fail)
+        </div>
+      </div>
+    </section>
+
+    <!-- Dialog markup: made visible by the demo, opened by the primitive. -->
+    <div class="jb-demo__panel" id="demoDialog" aria-labelledby="demoDialogTitle">
+      <div class="jb-demo__panel-inner">
+        <h2 id="demoDialogTitle">A dialog</h2>
+        <p>Tab around. You should not be able to reach the page behind this.</p>
+        <button type="button" id="demoOpenNested" class="jb-a11y-touch-target">
+          Open a nested dialog
+        </button>
+        <button type="button" id="demoCloseDialog" class="jb-a11y-touch-target">
+          Close
+        </button>
+      </div>
+    </div>
+
+    <div class="jb-demo__panel jb-demo__panel--nested" id="demoNested" aria-labelledby="demoNestedTitle">
+      <div class="jb-demo__panel-inner">
+        <h2 id="demoNestedTitle">A nested dialog</h2>
+        <p>Closing this should return focus to "Open a nested dialog".</p>
+        <button type="button" id="demoCloseNested" class="jb-a11y-touch-target">
+          Close nested
+        </button>
+      </div>
+    </div>
+
+    <script src="jb-a11y.js" defer></script>
+    <script defer>
+      window.addEventListener("DOMContentLoaded", function () {
+        var A = window.JobBoredA11y;
+        var dialogHandle = null;
+        var nestedHandle = null;
+
+        function show(el) { el.dataset.open = "true"; }
+        function hide(el) { el.dataset.open = "false"; }
+
+        var dlg = document.getElementById("demoDialog");
+        var nested = document.getElementById("demoNested");
+
+        document.getElementById("demoOpenDialog").addEventListener("click", function () {
+          show(dlg); // visible FIRST — focus() is a no-op on display:none
+          dialogHandle = A.dialog.open(dlg, {
+            onClose: function () { hide(dlg); dialogHandle = null; },
+          });
+        });
+        document.getElementById("demoCloseDialog").addEventListener("click", function () {
+          if (dialogHandle) dialogHandle.close();
+        });
+        document.getElementById("demoOpenNested").addEventListener("click", function () {
+          show(nested);
+          nestedHandle = A.dialog.open(nested, {
+            onClose: function () { hide(nested); nestedHandle = null; },
+          });
+        });
+        document.getElementById("demoCloseNested").addEventListener("click", function () {
+          if (nestedHandle) nestedHandle.close();
+        });
+
+        document.getElementById("demoAnnouncePolite").addEventListener("click", function () {
+          A.live.announce("Moved to Applied");
+        });
+        document.getElementById("demoAnnounceSame").addEventListener("click", function () {
+          A.live.announce("Moved to Applied");
+        });
+        document.getElementById("demoToastError").addEventListener("click", function () {
+          A.toast("Sheet write failed", "error");
+        });
+
+        document.getElementById("demoConfirm").addEventListener("click", function () {
+          A.dialog
+            .confirm({
+              title: "Mark as submitted?",
+              body: "This writes the applied date to your sheet.",
+              confirmLabel: "Mark submitted",
+              fields: [
+                { id: "demoConfirmationNumber", label: "Confirmation number",
+                  hint: "Optional. Whatever the ATS gave you." },
+              ],
+            })
+            .then(function (r) {
+              document.getElementById("demoConfirmResult").textContent =
+                "confirmed=" + r.confirmed +
+                " · confirmationNumber=" + JSON.stringify(r.values.demoConfirmationNumber);
+            });
+        });
+
+        A.tabs.init(document.getElementById("demoTabsRoot"), {
+          tabs: [
+            { id: "setup", buttonId: "demoTabBtn1", panelId: "demoTabPanel1" },
+            { id: "ai", buttonId: "demoTabBtn2", panelId: "demoTabPanel2" },
+            { id: "discovery", buttonId: "demoTabBtn3", panelId: "demoTabPanel3" },
+          ],
+        });
+
+        var fields = document.getElementById("demoFields");
+        fields.appendChild(
+          A.field.build({ label: "Target seniority", id: "demoSeniority" }).wrap,
+        );
+        fields.appendChild(
+          A.field.build({
+            label: "Primary narrative",
+            multiline: true,
+            hint: "This goes verbatim into the LLM scoring prompt.",
+          }).wrap,
+        );
+        A.field.associate(
+          document.getElementById("demoCompositeLabel"),
+          document.getElementById("demoComposite"),
+        );
+
+        var STAGES = [
+          { key: "New", label: "New" },
+          { key: "Researching", label: "Researching" },
+          { key: "Applied", label: "Applied" },
+          { key: "Phone Screen", label: "Phone Screen" },
+          { key: "Interviewing", label: "Interviewing" },
+          { key: "Offer", label: "Offer" },
+          { key: "Rejected", label: "Rejected" },
+          { key: "Passed", label: "Passed" },
+          { key: "Expired", label: "Expired" },
+        ];
+        A.stageMenu.attach(document.getElementById("demoCardOk"), {
+          stages: STAGES,
+          current: "Researching",
+          jobKey: "DEMO-OK",
+          commitMove: function () { return Promise.resolve(true); },
+        });
+        A.stageMenu.attach(document.getElementById("demoCardFail"), {
+          stages: STAGES,
+          current: "Applied",
+          jobKey: "DEMO-FAIL",
+          commitMove: function () { return Promise.resolve(false); },
+        });
+      });
+    </script>
+  </body>
+</html>
