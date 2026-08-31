@@ -37,6 +37,7 @@ export type WorkerLlmProvider =
 
 export type WorkerRuntimeConfig = {
   stateDatabasePath: string;
+  runStateDirectory: string;
   workerConfigPath: string;
   browserUseCommand: string;
   browserUseApiKey: string;
@@ -292,6 +293,12 @@ export function loadRuntimeConfig(
       "DISCOVERY_STATE_PATH",
     ]) || defaultStateDatabasePath,
   );
+  const runStateDirectory = resolvePath(
+    readFirst(runtimeEnv, [
+      "BROWSER_USE_DISCOVERY_RUN_STATE_DIR",
+      "DISCOVERY_RUN_STATE_DIR",
+    ]) || join(dirname(stateDatabasePath), "run-state"),
+  );
   const allowedOrigins = normalizeAllowedOrigins(
     readList(runtimeEnv, [
       "BROWSER_USE_DISCOVERY_ALLOWED_ORIGINS",
@@ -349,6 +356,7 @@ export function loadRuntimeConfig(
   const llmProvider = resolveLlmProvider(runtimeEnv);
   return {
     stateDatabasePath,
+    runStateDirectory,
     workerConfigPath,
     browserUseCommand: resolveBrowserUseCommand(runtimeEnv),
     browserUseApiKey: readFirst(runtimeEnv, ["BROWSER_USE_API_KEY"]),

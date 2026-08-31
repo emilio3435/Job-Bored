@@ -64,8 +64,14 @@ import {
 import { SheetWriteError, type PipelineWriter } from "../sheets/pipeline-writer.ts";
 import {
   createBudgetTracker,
+  type BudgetCheckpoint,
   type BudgetTracker,
 } from "./budget-tracker.ts";
+import type {
+  DiscoveryRunBudgetProgress,
+  DiscoveryRunProgress,
+  DiscoveryRunProgressPhase,
+} from "./run-progress.ts";
 import {
   companyToFrontierCandidate,
   leadToFrontierCandidate,
@@ -128,6 +134,7 @@ export type RunDiscoveryDependencies = {
   maxRunDurationMs?: number;
   sourceTimeoutMs?: number;
   matcherTimeoutMs?: number;
+  checkpointRunProgress?(progress: DiscoveryRunProgress): void;
 };
 
 export type RunDiscoveryResult = {
@@ -205,6 +212,23 @@ export async function runDiscovery(
   dependencies: RunDiscoveryDependencies,
 ): Promise<RunDiscoveryResult> {
   const startedAt = dependencies.now().toISOString();
+  const runId = dependencies.runId || dependencies.randomId("run");
+  let progressSequence = 0;
+  let latestBudgetProgress: DiscoveryRunBudgetProgress | undefined;
+  function checkpointRunProgress(
+    phase: DiscoveryRunProgressPhase,
+    budget?: DiscoveryRunBudgetProgress,
+    checkpointedAt = dependencies.now().toISOString(),
+  ): void {
+    if (budget) latestBudgetProgress = budget;
+    dependencies.checkpointRunProgress?.({
+      phase,
+      sequence: ++progressSequence,
+      checkpointedAt,
+      ...(latestBudgetProgress ? { budget: latestBudgetProgress } : {}),
+    });
+  }
+  checkpointRunProgress("initializing", undefined, startedAt);
   const storedConfig = await dependencies.loadStoredWorkerConfig(request.sheetId);
   const config = dependencies.mergeDiscoveryConfig(storedConfig, request);
 
@@ -237,7 +261,6 @@ export async function runDiscovery(
     config.runtimeConfig = dependencies.runtimeConfig;
   }
 
-  const runId = dependencies.runId || dependencies.randomId("run");
   const run: DiscoveryRun = {
     runId,
     trigger,
@@ -303,7 +326,9 @@ export async function runDiscovery(
   // VAL-LOOP-OBS-001 / VAL-LOOP-CORE-008: Stage sequence tracker for monotonic stageOrder emission
   let stageSequence = 0;
   function nextStage(phase: DiscoveryPhase): LoopStageEvidence {
-    return { sequence: ++stageSequence, phase, startedAt: dependencies.now().toISOString() };
+    const stageStartedAt = dependencies.now().toISOString();
+    checkpointRunProgress(phase, undefined, stageStartedAt);
+    return { sequence: ++stageSequence, phase, startedAt: stageStartedAt };
   }
   const stageOrder: LoopStageEvidence[] = [];
 
@@ -743,6 +768,13 @@ export async function runDiscovery(
         safetyBufferMs: Math.ceil(maxRunDurationMs * 0.05),
         reducePageLimitThreshold: 0.5,
         pageLimitReductionFactor: 0.5,
+        onCheckpoint: (budget) => {
+          checkpointRunProgress("scout", toRunBudgetProgress(budget));
+        },
+      });
+      checkpointRunProgress("scout", {
+        ...budgetTracker.getStatus(),
+        skippedCompanies: budgetTracker.getSkippedCompanies(),
       });
 
       const groundedResult = await runGroundedWebDiscovery(
@@ -1024,6 +1056,7 @@ export async function runDiscovery(
     maxLeadCapApplied,
   });
 
+  checkpointRunProgress("write");
   let writeResult: PipelineWriteResult;
   if (leadsToWrite.length === 0) {
     writeResult = {
@@ -1352,6 +1385,20 @@ function createExtractionResult(
       leadsSeen: 0,
       leadsAccepted: 0,
     },
+  };
+}
+
+function toRunBudgetProgress(
+  checkpoint: BudgetCheckpoint,
+): DiscoveryRunBudgetProgress {
+  return {
+    totalMs: checkpoint.totalMs,
+    remainingMs: checkpoint.remainingMs,
+    remainingRatio: checkpoint.remainingRatio,
+    exhausted: checkpoint.exhausted,
+    shouldReducePageLimits: checkpoint.shouldReducePageLimits,
+    pageLimitMultiplier: checkpoint.pageLimitMultiplier,
+    skippedCompanies: [...checkpoint.skippedCompanies],
   };
 }
 

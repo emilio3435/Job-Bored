@@ -255,6 +255,43 @@ test("runDiscovery treats recovered grounded regex fallback as completed when le
   );
 });
 
+test("runDiscovery checkpoints every phase and includes the active budget state", async () => {
+  const { dependencies } = createGroundedTimeoutDependencies();
+  const checkpoints: Array<{
+    phase: string;
+    budget?: { totalMs?: number; remainingMs?: number };
+  }> = [];
+  dependencies.sourceTimeoutMs = 5_000;
+  Object.assign(dependencies, {
+    checkpointRunProgress(checkpoint: {
+      phase: string;
+      budget?: { totalMs?: number; remainingMs?: number };
+    }) {
+      checkpoints.push(checkpoint);
+    },
+  });
+
+  await runDiscovery(
+    makeGroundedTimeoutRequest({ variationKey: "var_run_checkpoints" }),
+    "manual",
+    dependencies,
+  );
+
+  assert.deepEqual(
+    [...new Set(checkpoints.map((checkpoint) => checkpoint.phase))],
+    ["initializing", "scout", "score", "exploit", "write", "learn"],
+  );
+  assert.ok(
+    checkpoints.some(
+      (checkpoint) =>
+        checkpoint.phase === "scout" &&
+        checkpoint.budget?.totalMs === 60 * 60 * 1000 &&
+        typeof checkpoint.budget.remainingMs === "number",
+    ),
+    "scout checkpoints should persist the active run budget",
+  );
+});
+
 test("runDiscovery composes config, adapters, normalizer, and writer", async () => {
   const calls = {
     loadStoredWorkerConfig: 0,

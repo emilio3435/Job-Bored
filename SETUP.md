@@ -74,7 +74,9 @@ Put real local keys only in
 by `BROWSER_USE_DISCOVERY_WORKER_ENV`. The worker reads
 `BROWSER_USE_DISCOVERY_WORKER_CONFIG` /
 `BROWSER_USE_DISCOVERY_CONFIG_PATH` for its config and
-`BROWSER_USE_DISCOVERY_STATE_DB_PATH` for local state. `npm run doctor` reports
+`BROWSER_USE_DISCOVERY_STATE_DB_PATH` for discovery memory and
+`BROWSER_USE_DISCOVERY_RUN_STATE_DIR` for atomic run lifecycle snapshots.
+The run-state directory defaults beside the state database. `npm run doctor` reports
 which pieces are configured without printing secret values.
 
 Dependency policy: the root `package-lock.json` owns the Browser Use discovery
