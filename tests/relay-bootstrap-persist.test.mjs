@@ -244,8 +244,8 @@ describe("config-overrides.js — autofillDiscoveryWebhookUrlFromBootstrap", () 
 // openDiscoverySetupWizard (with its autodetect-recover lane) was extracted to
 // discovery-wizard-ui.js; the keep-alive contract lives there now and reaches
 // installKeepAliveOnce through the ui.host bridge.
-describe("discovery-wizard-ui.js — keep-alive auto-install on autodetect ready", () => {
-  it("autodetect-ready branch calls installKeepAliveOnce", () => {
+describe("discovery-wizard-ui.js — autodetect ready still renders review (F2-C consent)", () => {
+  it("autodetect-ready branch does not silently install keep-alive", () => {
     const fenceStart = discoveryWizardUi.indexOf(
       "[discovery-autodetect lane: silent recover]",
     );
@@ -255,22 +255,16 @@ describe("discovery-wizard-ui.js — keep-alive auto-install on autodetect ready
     );
     assert.ok(fenceStart !== -1 && fenceEnd > fenceStart, "lane fence pair");
     const block = discoveryWizardUi.slice(fenceStart, fenceEnd);
-    assert.ok(
-      block.includes("host().installKeepAliveOnce"),
-      "ready-verdict branch must install keep-alive so the next ngrok rotation auto-heals",
-    );
-    assert.ok(
-      /typeof host\(\)\.installKeepAliveOnce === ["']function["']/.test(block),
-      "must guard the call with a typeof check (graceful fallback)",
+    assert.equal(
+      block.includes("installKeepAliveOnce"),
+      false,
+      "ready-verdict branch must not silently install keep-alive (F2C-SETUP04-CONSENT)",
     );
   });
 
-  it("autodetect-ready branch persists discoverySetupComplete so the setup bar converges (no ping-pong)", () => {
-    // Mandatory two-track onboarding: when discovery is already healthy the
-    // wizard short-circuits without rendering, so the onClose finish path
-    // never runs. The ready branch must persist the completion flag itself,
-    // otherwise the "X of 2" bar stays stuck and go-live keeps re-opening
-    // discovery.
+  it("autodetect-ready branch still falls through so review can render", () => {
+    // F2-C: a healthy stack toasts, then continues into the wizard instead of
+    // returning. Completion flags stay on the close/review path.
     const fenceStart = discoveryWizardUi.indexOf(
       "[discovery-autodetect lane: silent recover]",
     );
@@ -280,13 +274,16 @@ describe("discovery-wizard-ui.js — keep-alive auto-install on autodetect ready
     );
     assert.ok(fenceStart !== -1 && fenceEnd > fenceStart, "lane fence pair");
     const block = discoveryWizardUi.slice(fenceStart, fenceEnd);
-    assert.ok(
-      block.includes("completeDiscoverySetup"),
-      "ready-verdict branch must persist discoverySetupComplete via UC.completeDiscoverySetup",
+    assert.equal(
+      /\bif\s*\(\s*verdict\s*&&\s*verdict\.ready\s*\)\s*\{[^}]*\breturn\b/.test(block),
+      false,
+      "ready-verdict must not return before the wizard renders",
     );
-    assert.ok(
-      block.includes("getUserContent"),
-      "must read UC through host().getUserContent (the bridge now exposes it)",
+    const afterFence = discoveryWizardUi.slice(fenceEnd);
+    assert.match(
+      afterFence,
+      /renderDiscoverySetupWizard|render\(\)/,
+      "openDiscoverySetupWizard must still render review after autodetect",
     );
   });
 });

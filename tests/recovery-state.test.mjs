@@ -397,7 +397,9 @@ describe("Simulation overrides", () => {
     assert.equal(snapshot.localWebhookReady, true);
     assert.equal(snapshot.localRecoveryState, "ok");
     assert.equal(snapshot.relayReady, true);
-    assert.equal(snapshot.views.settings.runDiscoveryEnabled, true);
+    // F2-C: local recovery "ok" is not verified-connected. Run discovery stays
+    // off until the engine reports connected.
+    assert.equal(snapshot.views.settings.runDiscoveryEnabled, false);
   });
 
   it("readSimulationOverrides returns null when no simulation is set", async () => {
