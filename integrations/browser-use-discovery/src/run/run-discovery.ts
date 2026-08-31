@@ -186,6 +186,7 @@ function wrapGroundedSearchClientForExploit(
   dependencies: RunDiscoveryDependencies,
   cache: Array<{ company: CompanyTarget; searchResult: GroundedSearchResult }>,
   selectedUrls: Set<string>,
+  scoutFailures: Map<string, unknown> = new Map(),
 ): RunDiscoveryDependencies {
   const original = dependencies.groundedSearchClient;
   if (!original) {
@@ -202,7 +203,16 @@ function wrapGroundedSearchClientForExploit(
         }
         const cached = cache.find((entry) => entry.company.name === company.name);
         if (!cached) {
-          return original.search(company, run, options);
+          const scoutFailure = scoutFailures.get(company.name);
+          if (scoutFailure) {
+            throw scoutFailure;
+          }
+          // Scout already ran. Exploit must not re-search skipped companies.
+          return {
+            searchQueries: [],
+            candidates: [],
+            warnings: [],
+          };
         }
         return {
           ...cached.searchResult,
@@ -382,6 +392,7 @@ export async function runDiscovery(
     company: CompanyTarget;
     searchResult: GroundedSearchResult;
   }> = [];
+  const groundedScoutFailures = new Map<string, unknown>();
   let pendingGroundedExploit = false;
   // VAL-API-010 / VAL-ROUTE-011: Only warn about missing companies when the run
   // cannot proceed without them. If grounded_web is in effectiveSources and we
@@ -883,11 +894,11 @@ export async function runDiscovery(
           config.companies.length > 0
             ? config.companies
             : [{ name: "" } as CompanyTarget];
-        for (const company of companiesToSearch) {
+        const scoutOne = async (company: CompanyTarget) => {
           const skipDiagnostic = budgetTracker.checkCompanySkip(company.name);
           if (skipDiagnostic) {
             warnings.push(`Budget skip: ${skipDiagnostic.context}`);
-            continue;
+            return;
           }
           try {
             const searchResult = await withTimeout(
@@ -902,6 +913,7 @@ export async function runDiscovery(
             );
             groundedScoutCache.push({ company, searchResult });
           } catch (error) {
+            groundedScoutFailures.set(company.name, error);
             if (error instanceof TimeoutError) {
               const message = `Grounded web scout timed out after ${error.timeoutMs}ms: ${error.message}`;
               warnings.push(message);
@@ -909,11 +921,25 @@ export async function runDiscovery(
                 runId,
                 timeoutMs: error.timeoutMs,
               });
-              continue;
+              return;
             }
             warnings.push(
               `Grounded web scout failed for ${describeGroundedSearchScope(company)}: ${formatError(error)}`,
             );
+          }
+        };
+        const scoutCap = resolveConcurrencyCap(
+          config.ultraPlanTuning?.parallelCompanyProcessingEnabled ?? false,
+          companiesToSearch.length,
+        );
+        if (scoutCap === 1 || companiesToSearch.length <= 1) {
+          for (const company of companiesToSearch) {
+            await scoutOne(company);
+          }
+        } else {
+          for (let i = 0; i < companiesToSearch.length; i += scoutCap) {
+            const chunk = companiesToSearch.slice(i, i + scoutCap);
+            await Promise.all(chunk.map((company) => scoutOne(company)));
           }
         }
       }
@@ -1153,6 +1179,7 @@ export async function runDiscovery(
       dependencies,
       groundedScoutCache,
       selectedGroundedUrls,
+      groundedScoutFailures,
     );
     const groundedResult = await runGroundedWebDiscovery(
       run,
