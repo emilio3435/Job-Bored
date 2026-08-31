@@ -97,14 +97,12 @@ describe("lattice rich kanban card (flag: jb_latticeRichCard)", () => {
   });
 
   it("covers every STAGES value with a stage-color custom property", () => {
-    // Pull the JS STAGES list to keep CSS in sync with the runtime stage set.
-    const stagesMatch = latticeJs.match(/STAGES\s*=\s*\[([^\]]+)\]/);
-    assert.ok(stagesMatch, "lattice.js should define a STAGES array");
-    const stages = stagesMatch[1]
-      .split(",")
-      .map((s) => s.trim().replace(/^['"]|['"]$/g, ""))
-      .filter(Boolean)
-      .map((s) => s.toLowerCase().replace(/\s+/g, "-"));
+    // STAGES is derived from window.JobBoredStages at runtime; the pinned
+    // STAGE_FALLBACK mirror is the source of truth for this CSS check.
+    const stagesMatch = latticeJs.match(/STAGE_FALLBACK\s*=\s*\[([\s\S]*?)\n\s*\];/);
+    assert.ok(stagesMatch, "lattice.js should mirror the canonical stage list");
+    const stages = [...stagesMatch[1].matchAll(/\["([a-z-]+)",/g)].map((m) => m[1]);
+    assert.equal(stages.length, 9, "the mirror should carry all nine schema stages");
 
     for (const css of stages) {
       assert.ok(

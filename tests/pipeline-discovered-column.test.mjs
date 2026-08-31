@@ -10,12 +10,21 @@ const pipelineCss = readFileSync(join(repoRoot, "pipeline.css"), "utf8");
 
 describe("v2 pipeline Discovered column", () => {
   it("places the Discovered stage before Researching", () => {
-    const discovered = pipelineJs.indexOf('{ key: "new",          label: "Discovered" }');
-    const researching = pipelineJs.indexOf('{ key: "researching",  label: "Researching" }');
-
-    assert.ok(discovered >= 0, "STAGES should include the new/Discovered stage");
-    assert.ok(researching >= 0, "STAGES should include Researching");
-    assert.ok(discovered < researching, "Discovered must be the far-left stage");
+    // Column order is the canonical registry order; "Discovered" is a declared
+    // board-local heading for the canonical "new" key, not a private stage.
+    assert.match(
+      pipelineJs,
+      /var STAGE_DISPLAY_LABEL = \{[\s\S]*"new": "Discovered",[\s\S]*\};/,
+      "pipeline.js should declare Discovered as a display label over the new stage",
+    );
+    const fallback = /var STAGE_FALLBACK = \[([\s\S]*?)\n\s*\];/.exec(pipelineJs);
+    assert.ok(fallback, "pipeline.js should mirror the canonical stage list");
+    const keys = [...fallback[1].matchAll(/\["([a-z-]+)",/g)].map((m) => m[1]);
+    assert.ok(keys.indexOf("new") >= 0, "STAGES should include the new/Discovered stage");
+    assert.ok(
+      keys.indexOf("new") < keys.indexOf("researching"),
+      "Discovered must be the far-left stage",
+    );
   });
 
   it("renders discovered jobs as normal draggable sticker cards", () => {

@@ -37,18 +37,48 @@
     return window.JobBoredApp.postingEnrichment;
   }
 
-  const STAGE_ORDER = [
-    "New",
-    "Researching",
-    "Applied",
-    "Phone Screen",
-    "Interviewing",
-    "Offer",
-    "Rejected",
-    "Passed",
-    "Expired",
+  /* ── Canonical stage vocabulary ─────────────────────────────────────────
+     Runtime source is window.JobBoredStages (stage-registry.js), which mirrors
+     the status enum of schemas/pipeline-row.v1.json. STAGE_FALLBACK below is
+     used only when that script is absent; tests/stage-registry-canonical.test.mjs
+     pins it — and every other board's copy — to the schema, so a stage can
+     never again exist on one surface and not another. */
+  const STAGE_FALLBACK = [
+    ["new", "New"], ["researching", "Researching"], ["applied", "Applied"],
+    ["phone-screen", "Phone Screen"], ["interviewing", "Interviewing"],
+    ["offer", "Offer"], ["rejected", "Rejected"], ["passed", "Passed"],
+    ["expired", "Expired"],
   ];
-  const STAGE_ARCHIVE = new Set(["Rejected", "Passed", "Expired"]);
+
+  function stageRegistry() {
+    return (typeof window !== "undefined" && window.JobBoredStages) || null;
+  }
+
+  const STAGE_ORDER = (() => {
+    const reg = stageRegistry();
+    return reg ? reg.STATUSES.slice() : STAGE_FALLBACK.map((p) => p[1]);
+  })();
+
+  const STAGE_ARCHIVE = new Set((() => {
+    const reg = stageRegistry();
+    if (reg) return reg.ARCHIVE_KEYS.map((k) => reg.LABELS[k]);
+    return STAGE_FALLBACK.filter((p) => p[0] === "rejected" || p[0] === "passed" || p[0] === "expired")
+      .map((p) => p[1]);
+  })());
+
+/* One closure vocabulary (stage-registry.js): dismiss/restore and
+   expire/unexpire, each with an inverse. This board dispatches the intent
+   instead of calling a writer, and falls back to the writer it always called
+   when no handler claims the intent — the handler is integrator-owned and is
+   not in the page yet. */
+function requestClosure(jobKey, action) {
+  const reg = typeof window !== "undefined" && window.JobBoredStages;
+  return !!(
+    reg &&
+    typeof reg.requestClosure === "function" &&
+    reg.requestClosure(jobKey, action, "pipeline-board")
+  );
+}
 
 function renderAll() {
   renderPipeline();
@@ -187,7 +217,18 @@ function renderKanbanCard(job, index) {
   const _attrEsc = (v) => `"${host().escapeHtml(String(v))}"`;
   const _pair = (k, v) => (v == null || v === "" ? "" : `${k}=${_attrEsc(v)}`);
   const jdRaw = (job._postingEnrichment && job._postingEnrichment.description) || job.fitAssessment || "";
-  const repliedFlag = /^(yes|replied|y)$/i.test(String(job.responseFlag || "")) ? "yes" : "";
+  /* P0-D hand-off: preserve all three response values instead of collapsing
+     No and Unknown into "". "They said no reply is coming" and "we never
+     asked" are different facts, and the recruiter strip renders them
+     differently. Empty source still emits nothing at all. */
+  const rawReply = String(job.responseFlag || "").trim();
+  const repliedFlag = /^(yes|replied|y)$/i.test(rawReply)
+    ? "Yes"
+    : /^no$/i.test(rawReply)
+      ? "No"
+      : /^unknown$/i.test(rawReply)
+        ? "Unknown"
+        : "";
   const contactsJson = job.contact && String(job.contact).trim()
     ? JSON.stringify([{ name: String(job.contact).trim() }])
     : "";
@@ -215,6 +256,7 @@ function renderKanbanCard(job, index) {
     _pair("data-applied-at", job.appliedDate || ""),
     _pair("data-found-at", job.dateFoundRaw || ""),
     _pair("data-follow-up", job.followUpDate || ""),
+    _pair("data-last-contact", job.lastHeardFrom || ""),
     _pair("data-tags", job.tags || ""),
     _pair("data-fit", Number.isFinite(job.fitScore) ? String(job.fitScore) : ""),
     _pair("data-replied", repliedFlag),
@@ -247,6 +289,19 @@ function renderKanbanCard(job, index) {
         ? "loading"
         : (_enr && _enr.scrapedAt && !_enr.llmError ? "ready" : ""),
     ),
+    /* P0-C hand-off: enrichment provenance. Without these the dossier cannot
+       tell posting-grounded fact from title-and-company inference, and
+       labelled everything "grounded in the posting". All are MAY attributes —
+       _pair/_enrPair omit them entirely when the source value is empty, so a
+       missing attribute reads as "unknown", never as a fabricated source. */
+    _enrPair("data-enrichment-source", _enr && _enr._scrapeSource),
+    _enrPair("data-enriched-at", _enr && _enr.scrapedAt),
+    _enrPair(
+      "data-enrichment-fallback",
+      _enr && _clip(_enr._scrapeFallbackReason, 500),
+    ),
+    _enrPair("data-enrichment-parse-mode", _enr && _enr._parseMode),
+    _pair("data-edit-lock", job && job._editLock),
   ].filter(Boolean).join(" ");
 
   return `
@@ -334,21 +389,11 @@ function handleDetailEscape(e) {
 }
 
 function renderStageStepper(job, dataIndex) {
-  const stages = [
-    "New",
-    "Researching",
-    "Applied",
-    "Phone Screen",
-    "Interviewing",
-    "Offer",
-    "Rejected",
-    "Passed",
-    "Expired",
-  ];
+  const stages = STAGE_ORDER;
   const normalized = (job.status || "").trim().toLowerCase();
   const curIdx = stages.findIndex((s) => s.toLowerCase() === normalized);
   const activeIdx = curIdx >= 0 ? curIdx : 0;
-  const isTerminal = activeIdx >= 6; // Rejected, Passed, or Expired
+  const isTerminal = STAGE_ARCHIVE.has(stages[activeIdx]);
 
   return `<div class="stage-stepper-wrap">
     <button type="button" class="stage-stepper__chevron stage-stepper__chevron--left" data-action="scroll-stage" data-dir="-1" aria-label="Scroll left">
@@ -938,14 +983,16 @@ function attachBoardListeners() {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const key = parseInt(btn.dataset.key, 10);
-      if (!Number.isNaN(key)) host().dismissJob(key);
+      if (Number.isNaN(key)) return;
+      if (!requestClosure(key, "dismiss")) host().dismissJob(key);
     });
   });
   document.querySelectorAll('[data-action="restore"]').forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const key = parseInt(btn.dataset.key, 10);
-      if (!Number.isNaN(key)) host().restoreJob(key);
+      if (Number.isNaN(key)) return;
+      if (!requestClosure(key, "restore")) host().restoreJob(key);
     });
   });
 }
@@ -1089,17 +1136,7 @@ function renderCardActions(job, indexForNotesId) {
     `;
   }
 
-  const statuses = [
-    "New",
-    "Researching",
-    "Applied",
-    "Phone Screen",
-    "Interviewing",
-    "Offer",
-    "Rejected",
-    "Passed",
-    "Expired",
-  ];
+  const statuses = STAGE_ORDER;
   const normalized = (job.status || "").trim().toLowerCase();
   const hasStatusMatch = statuses.some((s) => s.toLowerCase() === normalized);
 

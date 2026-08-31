@@ -317,8 +317,19 @@
       return;
     }
     if (action === "mark-expired") {
-      var setter = root.markStatusExpired;
-      if (typeof setter === "function") setter(key);
+      /* Closure is one vocabulary now (stage-registry.js): dismiss/restore and
+         expire/unexpire, each with an inverse. Surfaces dispatch the intent and
+         never write cells. The handler that performs the write is
+         integrator-owned, so requestClosure reports whether anything claimed
+         the intent — when nothing has, we run the writer this button always
+         called and behaviour is unchanged. */
+      var stages = root.JobBoredStages;
+      var claimed = !!(stages && typeof stages.requestClosure === "function" &&
+        stages.requestClosure(key, "expire", "dawn"));
+      if (!claimed) {
+        var setter = root.markStatusExpired;
+        if (typeof setter === "function") setter(key);
+      }
       return;
     }
     /* (The "dismiss" action and the expire-or-dismiss popover were

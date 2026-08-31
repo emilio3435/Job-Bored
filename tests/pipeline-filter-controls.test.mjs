@@ -227,17 +227,21 @@ describe("v2 pipeline filter controls", () => {
   });
 
   it("keeps Expired visible in every v2 pipeline surface", () => {
-    // pipeline.js surfaces the "expired" schema stage under the gentler
-    // user-facing label "Dismissed"; the stage key (which drives the
-    // Sheet contract and CSS rails) is preserved.
+    // Both v2 boards render the "expired" schema stage under its own name.
+    // pipeline.js used to call the column "Dismissed", which is the name of a
+    // different write (dismissJob -> Pipeline!W, row hidden everywhere).
     assert.ok(
-      pipelineJs.includes('{ key: "expired",      label: "Dismissed" }'),
-      "pipeline.js should render the expired column as Dismissed",
+      pipelineJs.includes('["expired", "Expired"]'),
+      "pipeline.js should render the expired column with its schema label",
+    );
+    assert.equal(
+      /"expired":\s*"Dismissed"/.test(pipelineJs),
+      false,
+      "the Expired column must not be relabelled Dismissed",
     );
     assert.ok(
-      latticeJs.includes('"Expired"') &&
-        latticeJs.includes("Expired: \"expired\"") &&
-        !latticeJs.includes("Expired: true"),
+      latticeJs.includes('["expired", "Expired"]') &&
+        latticeJs.includes('reg.CLOSED_KEYS : ["rejected", "passed"]'),
       "lattice.js should render Expired as a visible stage, not hide it behind closed-stage state",
     );
   });

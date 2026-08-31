@@ -22,17 +22,43 @@
 
   var REGION_SELECTOR = '[data-region="pipeline"]';
 
-  // Stage list mirrors PIPELINE_STAGES in dawn-data.js, with "new" surfaced as
-  // the user-facing Discovered column.
-  var STAGES = [
-    { key: "new",          label: "Discovered" },
-    { key: "researching",  label: "Researching" },
-    { key: "applied",      label: "Applied" },
-    { key: "phone-screen", label: "Phone screen" },
-    { key: "interviewing", label: "Interviewing" },
-    { key: "offer",        label: "Offer" },
-    { key: "expired",      label: "Dismissed" },
+  /* ── Canonical stage vocabulary ─────────────────────────────────────────
+     Runtime source is window.JobBoredStages (stage-registry.js), which mirrors
+     the status enum of schemas/pipeline-row.v1.json. STAGE_FALLBACK below is
+     used only when that script is absent; tests/stage-registry-canonical.test.mjs
+     pins it — and every other board's copy — to the schema.
+
+     This board previously carried its own seven-stage list: Rejected and Passed
+     did not exist at all (a card moved there simply disappeared) and Expired was
+     relabelled "Dismissed", which is a different write entirely — see
+     tests/closure-model-convergence.test.mjs. */
+  var STAGE_FALLBACK = [
+    ["new", "New"], ["researching", "Researching"], ["applied", "Applied"],
+    ["phone-screen", "Phone Screen"], ["interviewing", "Interviewing"],
+    ["offer", "Offer"], ["rejected", "Rejected"], ["passed", "Passed"],
+    ["expired", "Expired"],
   ];
+
+  /* Board-local display labels. The KEY is canonical; only the column heading
+     differs, and only where the sheet label reads badly on a kanban. */
+  var STAGE_DISPLAY_LABEL = {
+    "new": "Discovered",
+    "phone-screen": "Phone screen",
+  };
+
+  function stageRegistry() {
+    return (root && root.JobBoredStages) || null;
+  }
+
+  var STAGES = (function () {
+    var reg = stageRegistry();
+    var pairs = reg
+      ? reg.pairs()
+      : STAGE_FALLBACK.map(function (p) { return { key: p[0], label: p[1] }; });
+    return pairs.map(function (s) {
+      return { key: s.key, label: STAGE_DISPLAY_LABEL[s.key] || s.label };
+    });
+  })();
 
   var EMPTY_COPY = {
     "new":          "Newly discovered roles land here.",
@@ -41,7 +67,9 @@
     "phone-screen": "Recruiter call? Park it here.",
     "interviewing": "Loops in flight live here.",
     "offer":        "Negotiate from here.",
-    "expired":      "Dismissed or closed postings rest here for reference.",
+    "rejected":     "Roles that passed on you rest here.",
+    "passed":       "Roles you passed on rest here.",
+    "expired":      "Postings that closed rest here for reference.",
   };
 
   var SORT_DEFAULT = "urgency";
@@ -980,7 +1008,62 @@
         '</footer>' : '',
     ].join("");
 
+    /* P0-D hand-off: the compact recruiter strip. Feature-detected — the
+       board renders exactly as before when recruiter-strip.js is not in the
+       page. Appended after the innerHTML assignment so the strip's own nodes
+       survive it. */
+    if (root.JobBoredRecruiterStrip &&
+        typeof root.JobBoredRecruiterStrip.renderCompact === "function") {
+      var recruiterMount = document.createElement("div");
+      recruiterMount.className = "pipe-sticker__recruiter-mount";
+      root.JobBoredRecruiterStrip.renderCompact(recruiterMount, {
+        jobKey: card.jobKey,
+        contact: job && job.contact,
+        lastHeardFrom: job && job.lastHeardFrom,
+        replied: job && job.responseFlag,
+        followUpDate: job && job.followUpDate,
+      });
+      el.appendChild(recruiterMount);
+    }
+
+    attachStageMenu(el, card, stageKey);
+
     return el;
+  }
+
+  /* MOBILE-01 (P0-F hand-off, re-hosted): the explicit, labelled, >=44px
+     "Move to stage" control for people who cannot drag.
+
+     T0 attached this primitive in lattice.js. F2-A makes lattice the losing
+     renderer — it unmounts and never paints — so attaching it there would leave
+     the app's only keyboard/touch stage-move path rendered nowhere at all. It
+     belongs on the board that actually paints.
+
+     The primitive never writes: commitMove is injected and routes through
+     JobBoredPipelineTransitionAdapter, the same choke point the drag path uses,
+     so a menu move and a drag move cannot diverge. Unlike a drag there is no
+     optimistic DOM shuffle — nothing is under the user's finger to keep in
+     place — so the card settles when jb:write:succeeded triggers a re-render,
+     and a refused move leaves the board telling the truth about where the row
+     is. Feature-detected: with jb-a11y.js absent the card renders as before. */
+  function attachStageMenu(el, card, stageKey) {
+    var A11y = root.JobBoredA11y;
+    if (!A11y || !A11y.stageMenu || typeof A11y.stageMenu.attach !== "function") return;
+    A11y.stageMenu.attach(el, {
+      stages: STAGES.map(function (s) { return { key: s.key, label: s.label }; }),
+      current: stageKey,
+      jobKey: card.jobKey == null ? "" : String(card.jobKey),
+      commitMove: function (jobKey, toStage, fromStage) {
+        if (!toStage || toStage === fromStage) return Promise.resolve(false);
+        return Promise.resolve(
+          emitBoardMove({ jobKey: jobKey, fromStage: fromStage, toStage: toStage })
+        ).then(function (result) {
+          // ok:false means the adapter dispatched jb:write:failed and wrote
+          // nothing; the menu must revert its label rather than claim the move.
+          return !(result && result.ok === false);
+        }, function () { return false; });
+      },
+    });
   }
 
   function emptyPlaceholderHtml(stageKey) {
@@ -1766,20 +1849,23 @@
     emitBoardMove({ jobKey: drag.jobKey, fromStage: drag.fromStage, toStage: toStage });
   }
 
+  /** Returns the adapter's outcome so a caller that needs to know whether the
+   *  move was accepted (the stage menu) can wait on it. The drag path ignores
+   *  it and settles on jb:write:succeeded / jb:write:failed as before. */
   function emitBoardMove(detail) {
     var adapter = root.JobBoredPipelineTransitionAdapter;
     if (adapter && typeof adapter.move === "function") {
-      adapter.move({
+      return adapter.move({
         jobKey: detail.jobKey,
         fromStage: detail.fromStage,
         toStage: detail.toStage,
         source: "pipeline-board",
       });
-      return;
     }
     document.dispatchEvent(new CustomEvent("jb:pipeline:move", {
       detail: detail,
     }));
+    return Promise.resolve({ ok: true, mocked: true });
   }
 
   /* ------------------------------ lifecycle ----------------------------- */
