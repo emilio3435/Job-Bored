@@ -12,6 +12,14 @@ const SILENT_LOGGER = {
   error() {},
 };
 
+function localOrigin(port) {
+  return `http://127.0.0.1:${port}`;
+}
+
+function localOriginHeaders(port, extra = {}) {
+  return { Origin: localOrigin(port), ...extra };
+}
+
 async function closeServer(server) {
   await new Promise((resolve, reject) => {
     server.close((error) => {
@@ -28,9 +36,11 @@ describe("/__proxy/fix-setup endpoint", () => {
     try {
       const res = await fetch(`http://127.0.0.1:${port}/__proxy/fix-setup`, {
         method: "OPTIONS",
+        headers: localOriginHeaders(port),
       });
       assert.equal(res.status, 204);
-      assert.ok(res.headers.get("access-control-allow-origin"));
+      assert.equal(res.headers.get("access-control-allow-origin"), localOrigin(port));
+      assert.notEqual(res.headers.get("access-control-allow-origin"), "*");
     } finally {
       await closeServer(server);
     }
@@ -42,6 +52,7 @@ describe("/__proxy/fix-setup endpoint", () => {
     try {
       const res = await fetch(`http://127.0.0.1:${port}/__proxy/fix-setup`, {
         method: "GET",
+        headers: localOriginHeaders(port),
       });
       assert.equal(res.status, 404);
     } finally {
@@ -103,10 +114,10 @@ describe("/__proxy/start-discovery-worker endpoint", () => {
     try {
       const res = await fetch(
         `http://127.0.0.1:${port}/__proxy/start-discovery-worker`,
-        { method: "OPTIONS" },
+        { method: "OPTIONS", headers: localOriginHeaders(port) },
       );
       assert.equal(res.status, 204);
-      assert.ok(res.headers.get("access-control-allow-origin"));
+      assert.equal(res.headers.get("access-control-allow-origin"), localOrigin(port));
     } finally {
       await closeServer(server);
     }
@@ -126,7 +137,7 @@ describe("/__proxy/start-discovery-worker endpoint", () => {
     try {
       const res = await fetch(
         `http://127.0.0.1:${port}/__proxy/start-discovery-worker?port=8644`,
-        { method: "POST" },
+        { method: "POST", headers: localOriginHeaders(port) },
       );
       const body = await res.json();
       assert.equal(res.status, 200);
@@ -175,7 +186,7 @@ describe("/__proxy/discovery-state endpoint", () => {
     try {
       const res = await fetch(
         `http://127.0.0.1:${port}/__proxy/discovery-state`,
-        { method: "GET" },
+        { method: "GET", headers: localOriginHeaders(port) },
       );
       const body = await res.json();
       assert.equal(res.status, 200);
